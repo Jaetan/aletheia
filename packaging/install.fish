@@ -30,30 +30,30 @@ printf '%s\n' \
   "   line to your shell startup file, or run it now for this shell only:" \
   "" \
   "     fish         (~/.config/fish/config.fish):" \
-  "       source $here/env.fish" \
+  "       source \"$here/env.fish\"" \
   "" \
   "     bash / zsh   (~/.bashrc or ~/.zshrc):" \
-  "       source $here/env.sh" \
+  "       source \"$here/env.sh\"" \
   "" \
   "----------------------------------------------------------------------" \
   "2. Use Aletheia from your language (each reads ALETHEIA_LIB at runtime):" \
   "" \
   "   Python  (requires Python 3.14+; no third-party runtime dependencies):" \
   "     # In a virtual environment you have created and activated:" \
-  "     pip install $here/bindings/python" \
+  "     pip install \"$here/bindings/python\"" \
   "     # Or, with no venv (works on an externally-managed / PEP 668 Python)," \
   "     # install into an isolated directory and put it on PYTHONPATH:" \
-  "     pip install --target ~/.local/lib/aletheia $here/bindings/python" \
-  "     export PYTHONPATH=~/.local/lib/aletheia" \
+  "     pip install --target \"$HOME/.local/lib/aletheia\" \"$here/bindings/python\"" \
+  "     set -gx PYTHONPATH \"$HOME/.local/lib/aletheia\"" \
   "     python -c 'import aletheia; from aletheia import FFIBackend; FFIBackend()'" \
   "" \
   "   C++  (CMake; fetches nlohmann/json + yaml-cpp + OpenXLSX at configure time):" \
   "     # in your project's CMakeLists.txt:" \
-  "     add_subdirectory($here/bindings/cpp aletheia-cpp)" \
+  "     add_subdirectory(\"$here/bindings/cpp\" aletheia-cpp)" \
   "     target_link_libraries(your_app PRIVATE aletheia::aletheia-cpp)" \
   "" \
   "   Go  (in your module):" \
-  "     go mod edit -replace github.com/aletheia-automotive/aletheia-go=$here/bindings/go" \
+  "     go mod edit -replace \"github.com/aletheia-automotive/aletheia-go=$here/bindings/go\"" \
   "     go get github.com/aletheia-automotive/aletheia-go/aletheia" \
   "" \
   "   Rust  (in your crate's Cargo.toml):" \

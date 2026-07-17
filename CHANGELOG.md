@@ -22,8 +22,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   Aletheia from Python, C++, Go, or Rust with no Agda/GHC toolchain. The tarball
   also carries the project `LICENSE`; the bundled Python wrapper requires Python
   3.14+ and its install notes cover PEP 668 (externally-managed environments). A
-  `dist`
-  self-check fails the build if a binding is dropped or `go.work` leaks, and the
+  `dist` self-check fails the build if a binding is dropped or `go.work` leaks, and the
   release workflow gains a functional smoke test (unpack → source `env.sh` from a
   foreign directory → load the `.so` from the bundled Python package) that gates
   publish. The C++ `CMakeLists.txt` gains a namespaced `aletheia::aletheia-cpp`

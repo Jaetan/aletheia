@@ -56,22 +56,22 @@ Each recipe assumes `ALETHEIA_LIB` is set (step 1); `<A>` is the unpack path.
 **Python** (requires **Python 3.14+**; no third-party runtime dependencies). Into a virtual environment you have created and activated, `pip install <A>/bindings/python`. With no venv — including on an externally-managed / [PEP 668](https://peps.python.org/pep-0668/) Python, where a plain `pip install` into the system environment is refused — install into an isolated directory and put it on `PYTHONPATH`:
 
 ```bash
-pip install --target ~/.local/lib/aletheia <A>/bindings/python
-export PYTHONPATH=~/.local/lib/aletheia
+pip install --target "$HOME/.local/lib/aletheia" "<A>/bindings/python"
+export PYTHONPATH="$HOME/.local/lib/aletheia"   # fish: set -gx PYTHONPATH "$HOME/.local/lib/aletheia"
 python -c 'import aletheia; from aletheia import FFIBackend; FFIBackend()'
 ```
 
 **C++** (CMake; fetches nlohmann/json + yaml-cpp + OpenXLSX at configure time, so a network connection is required for the first configure):
 
 ```cmake
-add_subdirectory(<A>/bindings/cpp aletheia-cpp)
+add_subdirectory("<A>/bindings/cpp" aletheia-cpp)
 target_link_libraries(your_app PRIVATE aletheia::aletheia-cpp)
 ```
 
 **Go** — the bundled module is standalone: it ships **no** `go.work` (a stray `go.work` would hijack your own module resolution). Add it with a `replace`:
 
 ```bash
-go mod edit -replace github.com/aletheia-automotive/aletheia-go=<A>/bindings/go
+go mod edit -replace "github.com/aletheia-automotive/aletheia-go=<A>/bindings/go"
 go get github.com/aletheia-automotive/aletheia-go/aletheia
 ```
 
