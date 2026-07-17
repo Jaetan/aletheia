@@ -55,8 +55,7 @@ cannot honestly advertise capabilities it does not yet have.
      binding usable after a single `source env.sh`. A `dist` self-check and a
      release-workflow smoke test guard the bundle's contents.
    - **Next — native packages + Docker.** Native OS packages (`.deb` / `.rpm`)
-     attached to the Release, and a multi-binding Docker image; then the first
-     public tagged release.
+     attached to the Release, and a multi-binding Docker image.
 2. **`aletheia template <file>.xlsx` CLI subcommand.** A true no-code way to obtain
    the Excel template (today it needs a Python one-liner), so the non-programmer
    on-ramp is real.
