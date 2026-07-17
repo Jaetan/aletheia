@@ -15,9 +15,11 @@
 #   * workflow_dispatch   → build + keyless-sign + self-verify as a DRY-RUN,
 #     WITHOUT publishing — the acceptance test for this pipeline.
 #
-# The self-verify step gates publish: a tarball that does not verify against
-# this workflow's own OIDC identity is never released (matches the repo rule
-# that a gate which cannot fail has a bug).
+# Two gates precede publish: the self-verify step (a tarball that does not
+# verify against this workflow's own OIDC identity is never released) and a
+# functional bundle smoke test (unpack → source env.sh → load the .so from the
+# bundled Python package).  Both match the repo rule that a gate which cannot
+# fail has a bug.
 
 name: Release
 
@@ -158,6 +160,36 @@ jobs:
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             dist/aletheia.tar.gz
           echo "Self-verify OK — signature matches this workflow's OIDC identity."
+
+      - name: Smoke-test the bundle (unpack, source env.sh from a foreign cwd, load the .so)
+        run: |
+          set -euo pipefail
+          # Functional gate: a presence-only check passes on a bundle that cannot
+          # run.  Unpack, run install.sh, then from a DIFFERENT cwd source env.sh
+          # (proving ALETHEIA_LIB resolves ABSOLUTE), install the bundled Python
+          # package into an ISOLATED target dir (`pip install --target`, not a
+          # venv — the pure-ctypes package has no deps, and this keeps the repo's
+          # single-venv convention intact / satisfies check_venv_convention), and
+          # construct a real FFIBackend — exercising the whole chain env.sh ->
+          # absolute ALETHEIA_LIB -> _validate_lib_path -> dlopen -> GHC RTS.  The
+          # C++/Go/Rust wrappers are source over the same .so + the same
+          # ALETHEIA_LIB seam, covered by their in-tree env-constructor tests;
+          # Python needs no compiler, so it stays in this lean job.
+          work="$(mktemp -d)"
+          tar xzf dist/aletheia.tar.gz -C "${work}"
+          bundle="${work}/aletheia"
+          bash "${bundle}/install.sh" >/dev/null
+          python3.14 -m pip install --quiet --target "${work}/site" "${bundle}/bindings/python"
+          (
+            cd /tmp
+            # shellcheck disable=SC1091
+            source "${bundle}/env.sh"
+            case "${ALETHEIA_LIB}" in
+              /*) : ;;
+              *) echo "ALETHEIA_LIB is not absolute: ${ALETHEIA_LIB}" >&2; exit 1 ;;
+            esac
+            PYTHONPATH="${work}/site" python3.14 -c 'import aletheia; from aletheia import FFIBackend, AletheiaClient; print("bundle import OK", aletheia.__version__); FFIBackend(); AletheiaClient(); print("bundle smoke OK: env.sh -> ALETHEIA_LIB -> .so load -> client")'
+          )
 
       - name: Publish the GitHub Release (draft; tag pushes only)
         if: github.event_name == 'push'

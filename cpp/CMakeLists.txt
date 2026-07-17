@@ -281,6 +281,12 @@ set_target_properties(aletheia-cpp PROPERTIES
     SOVERSION 1
     VERSION ${PROJECT_VERSION})
 
+# Namespaced alias so a downstream add_subdirectory() consumer links
+# aletheia::aletheia-cpp — the exact target name find_package() exposes after
+# an install (see the EXPORT block below).  The release bundle vendors this
+# directory, so its consumers and installed consumers use one identical name.
+add_library(aletheia::aletheia-cpp ALIAS aletheia-cpp)
+
 if(ALETHEIA_CLANG_TIDY)
     set_target_properties(aletheia-cpp PROPERTIES
         CXX_CLANG_TIDY "${ALETHEIA_CLANG_TIDY_COMMAND}")
@@ -360,7 +366,12 @@ install(TARGETS aletheia-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 option(BUILD_TESTING "Build test suite" ON)
 
-if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+# The tests/ tree is not shipped in the release bundle (see `dist` in
+# Shakefile.hs), so also require it to be present: a bundle consumer who runs a
+# plain standalone `cmake bindings/cpp` then gets the library + CLI cleanly
+# instead of a configure error on the absent test sources.
+if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
+        AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     FetchContent_Declare(Catch2
         URL https://github.com/catchorg/Catch2/archive/refs/tags/v3.7.1.tar.gz
         URL_HASH SHA256=c991b247a1a0d7bb9c39aa35faf0fe9e19764213f28ffba3109388e62ee0269c)

@@ -2,17 +2,91 @@
 
 ---
 **Version**: 3.0.0 (canonical sources: `haskell-shim/aletheia.cabal` `version:` field and `python/pyproject.toml` `version =` field — update those when bumping)
-**Last Updated**: 2026-07-07
+**Last Updated**: 2026-07-17
 **Platform**: Linux x86-64 only
 ---
 
-> **Python users**: The library is loaded automatically via ctypes. This guide is for C, C++, Go, and Rust consumers integrating `libaletheia-ffi.so` directly.
+> **New to Aletheia?** The fastest path is a **release bundle**: one tarball with the verified library and all four language wrappers (Python, C++, Go, Rust), usable after a single `source env.sh`. See [Using a release bundle](#using-a-release-bundle). The per-language sections further down are the in-depth integration reference (explicit `.so`-path constructors, RPATH, Docker).
 
-How to package, distribute, and integrate `libaletheia-ffi.so` into C, C++, Go, and Rust projects.
+How to package, distribute, and integrate Aletheia — the self-contained release bundle, and `libaletheia-ffi.so` directly into C, C++, Go, and Rust projects.
 
-**Prerequisites**: Build Aletheia first following [BUILDING.md](BUILDING.md). The `dist` target requires `patchelf` (see below).
+## Using a release bundle
+
+A GitHub release ships one self-contained tarball — `aletheia.tar.gz` — that carries the verified library **and** all four language wrappers. Download it, verify it ([RELEASE.md § Verifying release artifacts](RELEASE.md#verifying-release-artifacts-consumer-side)), unpack it anywhere, and you are ready to use Aletheia from Python, C++, Go, or Rust in minutes — no Agda or GHC toolchain required.
+
+```
+aletheia/
+├── lib/libaletheia-ffi.so      # verified Agda kernel + GHC runtime (RPATH=$ORIGIN)
+├── lib/libHS*.so               # GHC runtime dependencies
+├── include/aletheia.h          # C ABI header (C / C++-via-C consumers)
+├── bindings/
+│   ├── python/                 # pure-ctypes package (pip install)
+│   ├── cpp/                    # CMake wrapper (add_subdirectory)
+│   ├── go/                     # Go module (cgo + dlopen)
+│   └── rust/                   # Rust crate (dlopen)
+├── env.sh   env.fish           # source to export ALETHEIA_LIB (absolute path)
+├── install.sh   install.fish   # print the shell + per-language wiring steps
+├── MANIFEST.txt                # toolchain pin + per-artifact SHA-256 hashes
+├── README.txt                  # consumer entry point
+├── aletheia-sbom.cdx.json      # CycloneDX 1.5 SBOM
+└── LICENSE.md                  # BSD-2-Clause license text
+```
+
+Why source and not just a header + `.so`? For C there is nothing more to ship — `include/aletheia.h` + `lib/libaletheia-ffi.so` is the whole interface. But Python, Go, and Rust have no header/compiled-lib split: their libraries *are* source (a pure-ctypes package, a Go module, a Rust crate). The `bindings/` trees carry each wrapper in its only distributable form — library files only, no tests or benchmarks.
+
+### 1. Make the library discoverable
+
+Every binding locates `libaletheia-ffi.so` at runtime through the `ALETHEIA_LIB` environment variable. `env.sh` / `env.fish` set it to an **absolute** path derived from the script's own location, so the value is correct no matter where you unpacked:
+
+```bash
+# bash / zsh — for this shell, or add the line to ~/.bashrc / ~/.zshrc:
+source /path/to/aletheia/env.sh
+```
+```fish
+# fish — for this shell, or add the line to ~/.config/fish/config.fish:
+source /path/to/aletheia/env.fish
+```
+
+Running `./install.sh` (or `./install.fish`) prints exactly these lines for your unpack location plus the per-language recipes below. It does **not** edit your shell startup files — you stay in control.
+
+### 2. Wire it into your language
+
+Each recipe assumes `ALETHEIA_LIB` is set (step 1); `<A>` is the unpack path.
+
+**Python** (requires **Python 3.14+**; no third-party runtime dependencies). Into a virtual environment you have created and activated, `pip install <A>/bindings/python`. With no venv — including on an externally-managed / [PEP 668](https://peps.python.org/pep-0668/) Python, where a plain `pip install` into the system environment is refused — install into an isolated directory and put it on `PYTHONPATH`:
+
+```bash
+pip install --target "$HOME/.local/lib/aletheia" "<A>/bindings/python"
+export PYTHONPATH="$HOME/.local/lib/aletheia"   # fish: set -gx PYTHONPATH "$HOME/.local/lib/aletheia"
+python -c 'import aletheia; from aletheia import FFIBackend; FFIBackend()'
+```
+
+**C++** (CMake; fetches nlohmann/json + yaml-cpp + OpenXLSX at configure time, so a network connection is required for the first configure):
+
+```cmake
+add_subdirectory("<A>/bindings/cpp" aletheia-cpp)
+target_link_libraries(your_app PRIVATE aletheia::aletheia-cpp)
+```
+
+**Go** — the bundled module is standalone: it ships **no** `go.work` (a stray `go.work` would hijack your own module resolution). Add it with a `replace`:
+
+```bash
+go mod edit -replace "github.com/aletheia-automotive/aletheia-go=<A>/bindings/go"
+go get github.com/aletheia-automotive/aletheia-go/aletheia
+```
+
+**Rust**:
+
+```toml
+[dependencies]
+aletheia = { path = "<A>/bindings/rust" }
+```
+
+The per-language **reference** sections below cover each API surface, the explicit `.so`-path constructors, RPATH, and Docker in depth.
 
 ## Building the Distribution
+
+**Prerequisites**: Build Aletheia first following [BUILDING.md](BUILDING.md). The `dist` target requires `patchelf` (see below).
 
 ```bash
 # patchelf is required for RPATH patching
@@ -23,19 +97,7 @@ How to package, distribute, and integrate `libaletheia-ffi.so` into C, C++, Go, 
 cabal run shake -- dist
 ```
 
-This produces:
-
-```
-dist/
-├── aletheia/
-│   ├── lib/
-│   │   ├── libaletheia-ffi.so          # Main library (Agda core)
-│   │   ├── libHS*.so                   # GHC runtime libraries
-│   │   └── libffi.so.*                 # libffi (bundled from GHC)
-│   └── include/
-│       └── aletheia.h                  # C API header
-└── aletheia.tar.gz                     # Compressed tarball
-```
+This produces `dist/aletheia/` — the full bundle (verified library, all four `bindings/`, `env.sh`/`env.fish`, `install.sh`/`install.fish`, `MANIFEST.txt`, SBOM; see [Using a release bundle](#using-a-release-bundle) for the layout) — and the reproducible `dist/aletheia.tar.gz` (with `.sha256`, plus `.sig` and `.crt` when the build is signed). The `bindings/` trees are staged straight from `HEAD` via `git archive` (tracked files only — no build junk, no `go.work`, no tests).
 
 All `.so` files are stripped (`--strip-unneeded`) and set to `RPATH=$ORIGIN` for self-contained dependency resolution. No `LD_LIBRARY_PATH` needed.
 
@@ -332,7 +394,7 @@ ENV ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so
 | Approach | Used by | How it finds the .so |
 |----------|---------|---------------------|
 | **Link-time** (`-laletheia-ffi`) | C | `-L` at compile time + `RPATH` at runtime |
-| **dlopen** (runtime) | C++, Go, Rust, Python | Full path passed to `dlopen()` (Rust via the `ALETHEIA_LIB` env var) |
+| **dlopen** (runtime) | C++, Go, Rust, Python | An explicit `.so` path, **or** the `ALETHEIA_LIB` env var — all four bindings support both; the release bundle's `env.sh` sets `ALETHEIA_LIB` |
 
 C++, Go, and Rust use `dlopen` because they wrap the FFI through a `Backend` interface that abstracts the loading mechanism, enabling mock backends for testing without a real `.so`.
 
