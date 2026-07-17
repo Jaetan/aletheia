@@ -33,12 +33,15 @@ proven. Phase 6 is planned (a few of its binding items already delivered).
 **Adoption prerequisites — do first.** These gate the rest of Phase 6: the tool
 cannot honestly advertise capabilities it does not yet have.
 
-1. **Prebuilt / installable distribution** — the leading adoption blocker, now in
-   progress. Today the only way to obtain Aletheia is a full from-source
-   `Agda → Haskell → libaletheia-ffi.so` build. The chosen delivery is a **GitHub
-   Release carrying a self-contained, cosign-signed `.tar.gz` bundle** the user
-   downloads and is productive with in minutes — not a pip wheel (native `.deb` /
-   `.rpm` packages follow as a later step below). Progress:
+1. **Prebuilt / installable distribution** — the leading adoption blocker,
+   **shipped in v4.0.0 (2026-07-17)**. Previously the only way to obtain Aletheia
+   was a full from-source `Agda → Haskell → libaletheia-ffi.so` build; now a
+   **GitHub Release carries a self-contained, cosign-signed `.tar.gz` bundle** the
+   user downloads and is productive with in minutes — not a pip wheel (native
+   `.deb` / `.rpm` packages follow as a later step below). A real-downloader walk
+   confirmed the full path end-to-end: download → verify (`sha256` + `cosign`) →
+   `install.sh` → `pip install --target` → `source env.sh` → run a real LTL
+   verification, on a clean interpreter. Delivered:
    - **✅ Release automation (done).** A tag-triggered workflow builds the
      reproducible tarball, **keyless-signs** it (Sigstore via the GitHub Actions
      OIDC identity — no signing key in CI), self-verifies the signature (publish
