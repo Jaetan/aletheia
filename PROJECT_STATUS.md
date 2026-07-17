@@ -49,7 +49,7 @@ cannot honestly advertise capabilities it does not yet have.
      `ALETHEIA_LIB`) and `install.sh` / `install.fish` (which print the per-shell
      and per-language wiring steps without editing any startup file). All four
      bindings resolve the library from `ALETHEIA_LIB`, so one download makes every
-     binding usable after a single `source env.sh`. A build-time self-check and a
+     binding usable after a single `source env.sh`. A `dist` self-check and a
      release-workflow smoke test guard the bundle's contents.
    - **Next — native packages + Docker.** Native OS packages (`.deb` / `.rpm`)
      attached to the Release, and a multi-binding Docker image; then the first
