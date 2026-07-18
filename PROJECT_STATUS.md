@@ -58,10 +58,11 @@ cannot honestly advertise capabilities it does not yet have.
      - **Native packages + Docker.** Native OS packages (`.deb` / `.rpm`) attached
        to the Release, and a multi-binding Docker image (extend `Dockerfile.runtime`
        / `shake docker` past today's Python-only consumer).
-     - **Always-on bundle-staging gate.** A fast gate that `bash -n` / `fish -n`s
-       the packaging scripts and asserts every `git archive` pathspec resolves to a
-       tracked file, so bundle staging cannot silently rot between releases — today
-       the `dist` self-check only fires when `dist` actually runs.
+     - **Always-on bundle-staging gate.** A fast gate that runs `bash -n` /
+       `fish -n` on the packaging scripts and asserts every `git archive`
+       pathspec resolves to a tracked file, so bundle staging cannot silently rot
+       between releases — today the `dist` self-check only fires when `dist`
+       actually runs.
      - **SBOM covers the bundled binding sources**, not just the `.so` + GHC deps.
      - **Real-workflow validation in C++ / Go / Rust** from the bundle. Python is
        proven end-to-end (the real-downloader walk ran a real LTL verification); the
