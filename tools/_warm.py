@@ -376,7 +376,10 @@ def all_agda_files() -> list[RelPath]:
 def changed_agda_files() -> list[RelPath]:
     """Return ``.agda`` files changed vs the merge-base with ``main``, src-relative.
 
-    The per-push scope (``git diff --name-only main...HEAD -- src/``).  Sound for
+    The per-push scope (``git diff --name-only --diff-filter=d main...HEAD --
+    src/``).  Deleted files are excluded (``--diff-filter=d``): a deleted module
+    has no imports left to analyze, and reading it would crash — its former
+    importers, when they changed too, are in the scope on their own.  Sound for
     a name whose last use was removed in a CHANGED file; a name made dead by an
     edit in an UNCHANGED file (cross-file deadness) is caught only by the periodic
     whole-tree (``--all``) sweep — so the per-push gate is complete *modulo* that
@@ -391,6 +394,7 @@ def changed_agda_files() -> list[RelPath]:
             str(root),
             "diff",
             "--name-only",
+            "--diff-filter=d",
             "main...HEAD",
             "--",
             "src/",

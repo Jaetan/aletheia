@@ -82,19 +82,13 @@ decRatToℕ?-NatDecRat-value (mkNatDecRat (mkDecRat -[1+ _ ] _       _       _) 
 -- WELL-FORMEDNESS — value constructor matches attribute type
 -- ============================================================================
 --
--- `DBCAttribute` carries `AttrValue` independently of the looked-up
--- `AttrType`; a hand-built DBC could (in principle) place an `AVFloat`
--- under an `ATInt`-typed name.  The roundtrip target only quantifies
--- over well-formed `DBCAttribute` lists, where each value's
--- constructor matches the looked-up def's type.  This relation
--- captures the pairing.
+-- `ValueMatchesType` is defined in the non-`Properties` home
+-- `Aletheia.DBC.TextParser.WellFormedAttr` (the runtime checker decides it
+-- there via `vmt?`); re-exported here for the attribute proof tree, which
+-- reads the predicate from this module.
 
-data ValueMatchesType : AttrType → AttrValue → Set where
-  VMTInt    : ∀ {mn mx} z → ValueMatchesType (ATInt mn mx)   (AVInt z)
-  VMTFloat  : ∀ {mn mx} d → ValueMatchesType (ATFloat mn mx) (AVFloat d)
-  VMTString : ∀ s         → ValueMatchesType ATString        (AVString s)
-  VMTEnum   : ∀ {ls} n    → ValueMatchesType (ATEnum ls)     (AVEnum n)
-  VMTHex    : ∀ {mn mx} n → ValueMatchesType (ATHex mn mx)   (AVHex n)
+open import Aletheia.DBC.TextParser.WellFormedAttr public
+  using (ValueMatchesType; VMTInt; VMTFloat; VMTString; VMTEnum; VMTHex)
 
 -- ============================================================================
 -- RAW VALUE EMISSION (formatter ↔ raw-form bridge)

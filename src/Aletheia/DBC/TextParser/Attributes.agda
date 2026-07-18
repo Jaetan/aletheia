@@ -55,7 +55,7 @@
 module Aletheia.DBC.TextParser.Attributes where
 open import Aletheia.DBC.Identifier using (Identifier)
 
-open import Data.Bool using (true; false; if_then_else_)
+open import Data.Bool using (true; false)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (List; []; _∷_)
@@ -570,15 +570,9 @@ collectRawDefs (RawDef d     ∷ rest) = d ∷ collectRawDefs rest
 collectRawDefs (RawDefault _ ∷ rest) = collectRawDefs rest
 collectRawDefs (RawAssign _  ∷ rest) = collectRawDefs rest
 
--- Look up an attribute definition by name.  Linear scan; fine for the
--- small def counts seen in practice (corpus: single digits).  Both name and
--- AttrDef.name are `List Char`.
-lookupDef : List Char → List AttrDef → Maybe AttrDef
-lookupDef _ [] = nothing
-lookupDef name (d ∷ rest) =
-  if ⌊ ListProps.≡-dec _≟ᶜ_ name (AttrDef.name d) ⌋
-    then just d
-    else lookupDef name rest
+-- Def-by-name lookup, shared with the formatter's emit path.
+open import Aletheia.DBC.AttrLookup public
+  using (lookupDef)
 
 -- Refine a single raw attribute given the ambient AttrDef list.  Defs
 -- pass through untouched; defaults/assignments require a matching def

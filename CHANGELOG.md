@@ -10,8 +10,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- The `iwyu` import gate no longer crashes when a branch deletes an `.agda`
+  module: the per-push scope collector excludes deleted paths
+  (`--diff-filter=d`) — a deleted module has no imports left to analyze, and
+  its changed importers enter the scope on their own. Regression-tested.
+
 ### Changed
 
+- Internal proof-hygiene refactor — wire behavior unchanged. The Bool-valued
+  leaves of the `format_dbc_text` well-formedness checker are reified into
+  stock `Dec` deciders consumed through the shared `requireDec` combinator, so
+  the hand-written Bool-to-predicate pairing lemmas (including the whole
+  `Sound/Master` proof module) are deleted; and the attribute-definition
+  lookup is single-sourced in a new `Aletheia.DBC.AttrLookup` module shared by
+  the text formatter and text parser (previously two identical per-side
+  clones, plus a bridging lemma proving them equal — also deleted).
 - Internal — no library or runtime behavior change; the one tooling-behavior
   change is that the memory-citation checker becomes strictly stricter (its
   backlog-doc exemption is removed, so the renamed design plan is scanned like

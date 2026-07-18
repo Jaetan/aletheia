@@ -137,6 +137,40 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 - **Verdict** — `CAN'T` (under current constraints) / `HOLD`. The marginal Dec
   alloc is dominated by JSON parsing itself; not worth an Unsafe-module entry.
 
+### C.2 — Erased-proof decidables on the hot path (replace Bool-fast-path + lemma)
+
+- **Where** — the per-frame Bool fast paths that pair a `Bool` function with a
+  separate equivalence lemma: `_≡csᵇ_` + its lemma family
+  (`src/Aletheia/DBC/Identifier.agda`), the `mkBoundedBitVec` bounds dispatch
+  (`src/Aletheia/CAN/Encoding.agda` — which already feeds a `Dec` yes-payload
+  into an `@0` slot), and future hot-path predicates.
+- **Origin** — user proposal during the E.5 scoping analysis: proofs can be
+  erased, so `Dec`-shaped APIs need not cost anything at runtime.
+- **Verified facts** (empirical probes, Agda 2.8.0 + stdlib 2.3 + MAlonzo, under
+  this repo's exact flags): a `Dec₀` record with `does : Bool` and an
+  `@0 proof : Reflects P does` field type-checks under `--safe --without-K`
+  with library `--erasure` and **compiles to a GHC `newtype` over `Bool`** —
+  runtime-identical to the bare fast path. Constraints that shape the design:
+  (1) building `Dec₀` by wrapping a stdlib decider (`fromDec`) silently
+  re-allocates the full stock `Dec` upstream — construct from `_≡ᵇ_`-style
+  primitives + `Reflects.fromEquivalence` only; (2) an erased proof cannot be
+  consumed by relevant definitions (erased `Reflects` matches are rejected, and
+  erased `_≡_` matches are rejected under `--without-K` even with
+  `--erased-matches`), so cold verification paths that feed soundness lemmas
+  must keep *relevant* `Dec` — the two uses are mutually exclusive per proof;
+  (3) `recompute₀ : Dec A → @0 A → A` is definable `--safe`-clean (erased-absurd
+  trick), bridging erased witnesses back to relevant ones via a relevant decider.
+- **Done looks like** — the fast path and its correctness travel as one
+  self-certifying value; the erasure checker mechanically enforces what is
+  today a convention, plus a `check-erasure`-style Shakefile assertion pinning
+  the `newtype … Bool` MAlonzo shape.
+- **Cost / risk** — Medium. Runtime target is **identical**, not faster — this
+  is convention-hardening, not a perf win; the standing benchmark rule applies
+  (MAlonzo's `coe`-wrapped projections could plausibly shift GHC inlining, so
+  only a benchmark ratifies "identical").
+- **Verdict** — `INVESTIGATE`. Promote when next touching a hot-path predicate,
+  or when the convention-enforcement value justifies the benchmark cycle.
+
 ---
 
 ## D. Accepted constraints (documented exceptions, not pending work)
@@ -228,6 +262,18 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ### E.5 — Reify Bool-valued checker leaves into `Dec`/`Reflects`
 
+- **STATUS ✅ DONE (2026-07-18)** — all 8 Bool leaves reified into stock relevant
+  `Dec` deciders consumed via the shared `requireDec` combinator (`isAlways?` /
+  `masterOk?` / `whenOk?` / `mcGo?` / `masterCoherent?` in the master cluster;
+  `vmt?` / `enumOk?` / `wfAttrType?` in the attribute cluster); `Sound/Master.agda`
+  (125 L of hand-written Bool-reflection pairing) deleted outright and
+  `Sound/Attr.agda` cut 193→77 L, the shared `requireDec-sound/-complete` replacing
+  every deleted pairing lemma. Wire-frozen (same issues, codes, order — verified by
+  real-`.so` probes on both branches of every decider) and theorem-frozen
+  (`wfTextIssues-sound/-complete` statements byte-identical). Predicates that the
+  runtime checker now decides moved to closure-light non-`Properties` homes
+  (`Formatter.WellFormedText.Foundations`, `TextParser.WellFormedAttr`) with
+  `open … public` re-exports keeping every proof-side consumer unchanged.
 - **Where** — the Bool-valued leaves of the `wfTextIssues` checker tree:
   `isAlwaysᵇ`, `masterOkᵇ`, `whenOkᵇ`, `mcGo`, `masterCoherentᵇ`, `vmtᵇ`,
   `enumOkᵇ`, … (`src/Aletheia/DBC/TextParser/WellFormedCheck.agda` and its
@@ -242,10 +288,16 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 - **Cost / risk** — Medium; touches the `WellFormedCheck` proof tree; keep the
   hot path Bool-valued where MAlonzo allocation matters (the checker runs
   per-`format_dbc_text` call, not per-frame — `Dec` cost is acceptable here).
-- **Verdict** — `SCHEDULED` (user, 2026-07-18): the next work item.
+- **Verdict** — ✅ **DONE** (2026-07-18); see STATUS above.
 
 ### E.6 — Consolidate the two `lookupDef` clones (SSOT)
 
+- **STATUS ✅ DONE (2026-07-18)** — the single definition lives in the new
+  `Aletheia.DBC.AttrLookup` module (depends only on `DBC.Types` + stdlib); both
+  attributes modules re-export it (`open … public`) so every consumer's import
+  path still works, the two clones are deleted, and the
+  `parser-eq-formatter-lookupDef` bridging lemma vanished with them (the two
+  sides are now definitionally one symbol).
 - **Where** — `src/Aletheia/DBC/TextFormatter/Attributes.agda:92` and
   `src/Aletheia/DBC/TextParser/Attributes.agda:576` — two textually identical
   `lookupDef : List Char → List AttrDef → Maybe AttrDef` definitions.
@@ -256,8 +308,8 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   re-pointed.
 - **Cost / risk** — Low; watch the import graph for cycles (the cycle-break
   pattern applies if one arises).
-- **Verdict** — `SCHEDULED` (small hygiene item; fold into the next pass over
-  the attributes modules, e.g. alongside E.5).
+- **Verdict** — ✅ **DONE** (2026-07-18, folded in alongside E.5 as planned);
+  see STATUS above.
 
 ---
 
@@ -567,8 +619,8 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 Cheapest / highest-confidence first, so early wins de-risk the harder items:
 
-1. **E.5 / E.6 / G.3 / H.2** — scheduled, cheap, self-contained (E.5 first, per
-   the 2026-07-18 scheduling decision; E.6 folds in alongside; G.3 + H.2 pair).
+1. **G.3 / H.2** — scheduled, cheap, self-contained (the pair remaining in this
+   tier now that E.5 / E.6 are ✅ done — see their entries).
 2. **E.3** — scheduled, non-blocking tightness analysis; land anytime.
 3. **A.1 / A.3 / B.1** — gated on a concrete consuming DBC / property.
 4. **C.1 / D.1 / F.1 / F.2 / H.1** — accepted / blocked / demand-gated; no action unless constraints change (H.1: a public C++ test mock — promote on concrete external-consumer demand).

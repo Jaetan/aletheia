@@ -30,7 +30,7 @@ open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult; advancePositions;
          _>>=_; pure; many)
 open import Aletheia.DBC.Types using
-  ( AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
+  ( AttrType
   ; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar
   ; ASNodeMsg; ASNodeSig
   ; AttrDef; mkAttrDef)
@@ -65,15 +65,12 @@ open import Aletheia.DBC.TextParser.Format.AttrDef as FmtAD using
 -- (`Properties/Attributes/Line.agda`).
 -- ============================================================================
 
--- WfAttrType: ENUM must be non-empty (DBC grammar requirement; an empty
--- ENUM is rejected at the lexical level by `parseEnumLabels`'s `do
--- h ← parseStringLit; t ← many ...; pure (h ∷ t)` — at least one label).
-data WfAttrType : AttrType → Set where
-  WfATInt    : ∀ mn mx → WfAttrType (ATInt mn mx)
-  WfATFloat  : ∀ mn mx → WfAttrType (ATFloat mn mx)
-  WfATString : WfAttrType ATString
-  WfATEnum   : ∀ x xs → WfAttrType (ATEnum (x ∷ xs))
-  WfATHex    : ∀ mn mx → WfAttrType (ATHex mn mx)
+-- `WfAttrType` is defined in the non-`Properties` home
+-- `Aletheia.DBC.TextParser.WellFormedAttr` (the runtime checker decides it
+-- there via `wfAttrType?`); re-exported here for the facade and the
+-- per-line roundtrip proofs, which read it from this module.
+open import Aletheia.DBC.TextParser.WellFormedAttr public
+  using (WfAttrType; WfATInt; WfATFloat; WfATString; WfATEnum; WfATHex)
 
 -- WfAttrDef-NotRel: scope is a standard scope (not rel).  Carries
 -- `WfAttrType` for the type field.

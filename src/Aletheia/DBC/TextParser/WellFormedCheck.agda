@@ -8,8 +8,9 @@
 -- condition, so the `FormatDBCText` handler can report "round-trips, or here's at
 -- least one reason it falls outside the proven round-trip envelope".
 -- (`WellFormedTextDBCAgg` is SUFFICIENT-not-necessary for round-trip — a non-empty
--- result means "not proven to round-trip", never "will not".)  Runtime-side — NO
--- proofs; the soundness/completeness tree lives in
+-- result means "not proven to round-trip", never "will not".)  Runtime-side — no
+-- standalone lemmas (`Dec`-valued leaves carry their own refutations); the
+-- soundness/completeness tree lives in
 -- `Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound`.
 --
 -- All functions are cold-path (format path, not the per-frame streaming hot
@@ -17,19 +18,25 @@
 -- applies to streaming only).
 module Aletheia.DBC.TextParser.WellFormedCheck where
 
-open import Data.Bool using (Bool; true; false; _∧_; if_then_else_)
-open import Data.Bool.ListAction using (any; all)
-open import Data.Char using (Char)
+open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
+open import Data.Empty using (⊥)
 open import Data.List using (List; []; _∷_; map; concatMap) renaming (_++_ to _++ₗ_)
-open import Data.List.NonEmpty using () renaming (_∷_ to _∷⁺_)
+open import Data.List.Membership.Propositional using (find; lose)
+open import Data.List.NonEmpty using (List⁺) renaming (_∷_ to _∷⁺_)
+import Data.List.Properties as ListProps
+open import Data.List.Relation.Unary.All as All using (all?)
 open import Data.List.Relation.Unary.AllPairs using (allPairs?)
+open import Data.List.Relation.Unary.Any using (any?)
 open import Data.Maybe using (Maybe; nothing; just)
-open import Data.Maybe.Properties using (≡-dec)
+open import Data.Maybe.Properties using (≡-dec; just-injective)
 open import Data.Nat using (ℕ; suc; _+_; _*_; _∸_)
 open import Data.Nat.Properties using (_<?_; _≤?_; _≟_)
 open import Data.Nat.Show using () renaming (show to showℕ)
+open import Data.Product using (_×_; _,_)
 open import Data.String using (String; fromList) renaming (_++_ to _++ₛ_)
-open import Relation.Nullary.Decidable using (¬?; ⌊_⌋)
+open import Data.Unit using (tt)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans)
+open import Relation.Nullary.Decidable using (Dec; yes; no; ¬?; _×-dec_)
 
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Constants using (max-physical-bits)
@@ -37,10 +44,15 @@ open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
-open import Aletheia.DBC.Identifier using (Identifier; nameStr; _≟ᴵ_; _≡csᵇ_)
+open import Aletheia.DBC.Identifier using (Identifier; nameStr; _≟ᴵ_)
+open import Aletheia.DBC.Formatter.WellFormedText.Foundations using (MasterCoherent; mc-no-mux; mc-mux)
 open import Aletheia.DBC.TextFormatter.Topology using (findMuxMaster)
 open import Aletheia.DBC.TextFormatter.Attributes using (nthLabel; collectDefs)
 open import Aletheia.DBC.TextParser.Attributes using (findLabel; lookupDef)
+open import Aletheia.DBC.TextParser.WellFormedAttr using
+  ( ValueMatchesType; VMTInt; VMTFloat; VMTString; VMTEnum; VMTHex
+  ; WfAttrType; WfATInt; WfATFloat; WfATString; WfATEnum; WfATHex
+  ; DefaultEnumOK )
 open import Aletheia.DBC.DecRat.Refinement using (natDecRatToℕ)
 open import Aletheia.DBC.Types using
   ( RawValueDesc; ValidationIssue; mkIssue; IsWarning
@@ -154,77 +166,143 @@ pGo (When _ (_ ∷⁺ (_ ∷ _))) name =
 presenceIssue : DBCSignal → List ValidationIssue
 presenceIssue s = pGo (DBCSignal.presence s) (nameStr (DBCSignal.name s))
 
--- ── master coherence (WF field `mc` = MasterCoherent), Bool leaves ──────────
+-- ── master coherence (WF field `mc` = MasterCoherent), decided directly ─────
 --
--- Exposed on the `findMuxMaster` result: `mcGo` takes the `Maybe (List Char)`
--- master name as an argument, so the soundness proof (`mcGo-sound`) controls the
--- case-split externally.  Bool-valued,
--- no `with`.  `MasterCoherent` = single Always master, and every `When` selector
--- names it.
+-- `MasterCoherent` (Formatter/WellFormedText/Foundations.agda) = single `Always` master, and
+-- every `When` selector names it.  Decided by stock `Dec`: `any? (masterOk? n)`
+-- exhibits the master (with the `∈` witness `mc-mux` needs, via `find`) and
+-- `all? (whenOk? n)` lands the slaves `All` field verbatim, so `requireDec-sound`
+-- turns "no issue" into the WF field with no Bool-reflection bridge.  `mcGo?`
+-- takes the `findMuxMaster` result as an argument together with its equation
+-- (`masterCoherent?` instantiates `refl`), keeping the case-split `with`-free
+-- on the scrutinee.
 
-isAlwaysᵇ : SignalPresence → Bool
-isAlwaysᵇ Always     = true
-isAlwaysᵇ (When _ _) = false
+isAlways? : (p : SignalPresence) → Dec (p ≡ Always)
+isAlways? Always     = yes refl
+isAlways? (When _ _) = no λ ()
 
-masterOkᵇ : List Char → DBCSignal → Bool
-masterOkᵇ n s = (Identifier.name (DBCSignal.name s) ≡csᵇ n) ∧ isAlwaysᵇ (DBCSignal.presence s)
+-- The master conjunct of `mc-mux`: the signal carries the master's name and is
+-- `Always`-present — exactly the constructor's name/presence witness pair.
+MasterOk : List Char → DBCSignal → Set
+MasterOk n s = (Identifier.name (DBCSignal.name s) ≡ n) × (DBCSignal.presence s ≡ Always)
 
-wGo : List Char → SignalPresence → Bool
-wGo _ Always     = true
-wGo n (When m _) = Identifier.name m ≡csᵇ n
+masterOk? : (n : List Char) (s : DBCSignal) → Dec (MasterOk n s)
+masterOk? n s =
+  ListProps.≡-dec _≟ᶜ_ (Identifier.name (DBCSignal.name s)) n
+    ×-dec isAlways? (DBCSignal.presence s)
 
-whenOkᵇ : List Char → DBCSignal → Bool
-whenOkᵇ n s = wGo n (DBCSignal.presence s)
+-- The slave conjunct of `mc-mux`, stated in the SAME ∀-shape as the
+-- constructor's `All` field, so `all? (whenOk? n) sigs` produces that field
+-- with no per-element conversion.
+WhenNames : List Char → SignalPresence → Set
+WhenNames n p = ∀ (m : Identifier) (vs : List⁺ ℕ) → p ≡ When m vs → Identifier.name m ≡ n
 
-mcGo : Maybe (List Char) → List DBCSignal → Bool
-mcGo nothing  _    = true
-mcGo (just n) sigs = any (masterOkᵇ n) sigs ∧ all (whenOkᵇ n) sigs
+whenNames? : (n : List Char) (p : SignalPresence) → Dec (WhenNames n p)
+whenNames? n Always      = yes λ _ _ ()
+whenNames? n (When m vs) with ListProps.≡-dec _≟ᶜ_ (Identifier.name m) n
+... | yes eq = yes λ { _ _ refl → eq }
+... | no ¬eq = no λ f → ¬eq (f m vs refl)
 
-masterCoherentᵇ : List DBCSignal → Bool
-masterCoherentᵇ sigs = mcGo (findMuxMaster sigs) sigs
+whenOk? : (n : List Char) (s : DBCSignal) → Dec (WhenNames n (DBCSignal.presence s))
+whenOk? n s = whenNames? n (DBCSignal.presence s)
+
+private
+  just≢nothing : ∀ {A : Set} {x : A} → just x ≡ nothing → ⊥
+  just≢nothing ()
+
+mcGo? : (mm : Maybe (List Char)) (sigs : List DBCSignal)
+  → findMuxMaster sigs ≡ mm → Dec (MasterCoherent sigs)
+mcGo? nothing  sigs eq = yes (mc-no-mux eq)
+mcGo? (just n) sigs eq
+  with any? (masterOk? n) sigs ×-dec all? (whenOk? n) sigs
+... | yes (anyOk , allOk) =
+  let (ms , ms∈sigs , nameEq , presEq) = find anyOk
+  in yes (mc-mux n eq ms ms∈sigs nameEq presEq allOk)
+... | no ¬both = no λ where
+  (mc-no-mux eqN) → just≢nothing (trans (sym eq) eqN)
+  (mc-mux n′ eq′ ms ms∈sigs nameEq presEq slaves) →
+    let n′≡n = just-injective (trans (sym eq′) eq)
+    in ¬both ( lose ms∈sigs (trans nameEq n′≡n , presEq)
+             , All.map (λ {s} f m vs weq → trans (f m vs weq) n′≡n) slaves )
+
+masterCoherent? : (sigs : List DBCSignal) → Dec (MasterCoherent sigs)
+masterCoherent? sigs = mcGo? (findMuxMaster sigs) sigs refl
 
 mcIssue : List DBCSignal → List ValidationIssue
 mcIssue sigs =
-  if masterCoherentᵇ sigs then []
-  else mkIssue IsWarning MuxMasterIncoherent
-         ("message multiplexing is incoherent (no single Always master, or a "
-          ++ₛ "selector names a different master)")
-       ∷ []
+  requireDec (masterCoherent? sigs)
+    (mkIssue IsWarning MuxMasterIncoherent
+      ("message multiplexing is incoherent (no single Always master, or a "
+       ++ₛ "selector names a different master)"))
 
 -- ── attributes (WF field `attr-wfs` = WFAttribute) — checked NOWHERE by the
--- validator today, so nothing to mirror; the leaves mirror the Properties
--- predicates directly.  (Chunk E1: the two structural Bool leaves.) ──────────
+-- validator today, so nothing to mirror; the leaves decide the shared
+-- `WellFormedAttr` predicates directly with stock `Dec`. ─────────────────────
 
--- WfAttrType (Properties/Attributes/Def.agda): every AttrType is well-formed
--- EXCEPT an empty enum (`ATEnum []`), the sole reject.
+-- WfAttrType: every AttrType is well-formed EXCEPT an empty enum
+-- (`ATEnum []`), the sole reject (its `WfATEnum` constructor demands a cons).
+wfAttrType? : (t : AttrType) → Dec (WfAttrType t)
+wfAttrType? (ATInt mn mx)     = yes (WfATInt mn mx)
+wfAttrType? (ATFloat mn mx)   = yes (WfATFloat mn mx)
+wfAttrType? ATString          = yes WfATString
+wfAttrType? (ATEnum [])       = no λ ()
+wfAttrType? (ATEnum (x ∷ xs)) = yes (WfATEnum x xs)
+wfAttrType? (ATHex mn mx)     = yes (WfATHex mn mx)
+
 wfAttrTypeIssues : AttrType → List ValidationIssue
-wfAttrTypeIssues (ATEnum []) =
-  mkIssue IsWarning AttributeEnumEmpty "attribute enum type declares no labels" ∷ []
-wfAttrTypeIssues _ = []
+wfAttrTypeIssues t =
+  requireDec (wfAttrType? t)
+    (mkIssue IsWarning AttributeEnumEmpty "attribute enum type declares no labels")
 
--- ValueMatchesType (Properties/Attributes/Common.agda: VMTInt/Float/String/Enum/Hex
--- — the 5 diagonal constructor pairs).  `vmtᵇ` is its Bool image.
-vmtᵇ : AttrType → AttrValue → Bool
-vmtᵇ (ATInt _ _)   (AVInt _)    = true
-vmtᵇ (ATFloat _ _) (AVFloat _)  = true
-vmtᵇ ATString      (AVString _) = true
-vmtᵇ (ATEnum _)    (AVEnum _)   = true
-vmtᵇ (ATHex _ _)   (AVHex _)    = true
-vmtᵇ _             _            = false
+-- ValueMatchesType has exactly the 5 diagonal `AT*`↔`AV*` constructor pairs,
+-- so the decider is the 5×5 double-match: each diagonal clause returns the
+-- constructor (carrying the value witness); the 20 off-diagonal pairs have no
+-- constructor, so `no λ ()` refutes.
+vmt? : (t : AttrType) (v : AttrValue) → Dec (ValueMatchesType t v)
+vmt? (ATInt _ _)   (AVInt z)    = yes (VMTInt z)
+vmt? (ATFloat _ _) (AVFloat d)  = yes (VMTFloat d)
+vmt? ATString      (AVString s) = yes (VMTString s)
+vmt? (ATEnum _)    (AVEnum n)   = yes (VMTEnum n)
+vmt? (ATHex _ _)   (AVHex n)    = yes (VMTHex n)
+vmt? (ATInt _ _)   (AVFloat _)  = no λ ()
+vmt? (ATInt _ _)   (AVString _) = no λ ()
+vmt? (ATInt _ _)   (AVEnum _)   = no λ ()
+vmt? (ATInt _ _)   (AVHex _)    = no λ ()
+vmt? (ATFloat _ _) (AVInt _)    = no λ ()
+vmt? (ATFloat _ _) (AVString _) = no λ ()
+vmt? (ATFloat _ _) (AVEnum _)   = no λ ()
+vmt? (ATFloat _ _) (AVHex _)    = no λ ()
+vmt? ATString      (AVInt _)    = no λ ()
+vmt? ATString      (AVFloat _)  = no λ ()
+vmt? ATString      (AVEnum _)   = no λ ()
+vmt? ATString      (AVHex _)    = no λ ()
+vmt? (ATEnum _)    (AVInt _)    = no λ ()
+vmt? (ATEnum _)    (AVFloat _)  = no λ ()
+vmt? (ATEnum _)    (AVString _) = no λ ()
+vmt? (ATEnum _)    (AVHex _)    = no λ ()
+vmt? (ATHex _ _)   (AVInt _)    = no λ ()
+vmt? (ATHex _ _)   (AVFloat _)  = no λ ()
+vmt? (ATHex _ _)   (AVString _) = no λ ()
+vmt? (ATHex _ _)   (AVEnum _)   = no λ ()
 
--- DefaultEnumOK (Properties/Aggregator/Foundations.agda): an ATEnum
--- default whose value is `AVEnum n` emits the label STRING `nthLabel n labels`,
--- which must resolve back to the SAME index — `findLabel (nthLabel n labels)
--- labels ≡ just n` (label uniqueness + index-in-bounds).  Vacuously `⊤` for every
--- non-(ATEnum × AVEnum) pair.  `enumOkᵇ` is its Bool image, decided by `Maybe ℕ`
--- decidable equality; the catch-all keeps it `with`-free (the soundness proof
--- re-matches these concrete patterns, where `DefaultEnumOK` reduces).  Only
--- the DEFAULT path consults it (assign values emit the index directly, no bridge).
-enumOkᵇ : AttrType → AttrValue → Bool
-enumOkᵇ (ATEnum labels) (AVEnum n) =
-  ⌊ ≡-dec _≟_ (findLabel (nthLabel (natDecRatToℕ n) labels) labels)
-              (just (natDecRatToℕ n)) ⌋
-enumOkᵇ _ _ = true
+-- DefaultEnumOK is the bridge `findLabel (nthLabel n labels) labels ≡ just n`
+-- on exactly (ATEnum, AVEnum) — where the decider IS `Maybe ℕ` decidable
+-- equality — and `⊤` (so `yes tt`) everywhere else.  Match the AttrType
+-- FIRST, mirroring `DefaultEnumOK`'s own clause order, so every clause's
+-- goal reduces (under a non-enum type it is `⊤` for ANY value).  Only the
+-- DEFAULT path consults it (assign values emit the index directly, no bridge).
+enumOk? : (t : AttrType) (v : AttrValue) → Dec (DefaultEnumOK t v)
+enumOk? (ATEnum labels) (AVEnum n) =
+  ≡-dec _≟_ (findLabel (nthLabel (natDecRatToℕ n) labels) labels)
+            (just (natDecRatToℕ n))
+enumOk? (ATInt _ _)   _            = yes tt
+enumOk? (ATFloat _ _) _            = yes tt
+enumOk? ATString      _            = yes tt
+enumOk? (ATHex _ _)   _            = yes tt
+enumOk? (ATEnum _)    (AVInt _)    = yes tt
+enumOk? (ATEnum _)    (AVFloat _)  = yes tt
+enumOk? (ATEnum _)    (AVString _) = yes tt
+enumOk? (ATEnum _)    (AVHex _)    = yes tt
 
 -- ── attribute dispatch (WF field `attr-wfs` = WFAttribute, 3 arms) ───────────
 --
@@ -242,16 +320,15 @@ enumOkᵇ _ _ = true
 
 -- Name resolution + value/type match — the two premises SHARED by the default and
 -- assign arms.  `nothing` (name never declared) → `UnknownAttributeName`; `just
--- def` → `AttributeValueTypeMismatch` unless `vmtᵇ` holds.
+-- def` → `AttributeValueTypeMismatch` unless `ValueMatchesType` holds.
 resolveDefIssues : Maybe AttrDef → AttrValue → String → List ValidationIssue
 resolveDefIssues nothing    _ nm =
   mkIssue IsWarning UnknownAttributeName
     ("attribute '" ++ₛ nm ++ₛ "' is referenced but never declared (no BA_DEF_ line)") ∷ []
 resolveDefIssues (just def) v _  =
-  if vmtᵇ (AttrDef.attrType def) v then []
-  else mkIssue IsWarning AttributeValueTypeMismatch
-         "attribute value's constructor does not match the declared attribute type"
-       ∷ []
+  requireDec (vmt? (AttrDef.attrType def) v)
+    (mkIssue IsWarning AttributeValueTypeMismatch
+      "attribute value's constructor does not match the declared attribute type")
 
 -- Enum-default stability — the default-arm-ONLY premise (`DefaultEnumOK`).  Assign
 -- values emit the index directly (`rawOfAssignValue`), so this is NOT consulted on
@@ -259,10 +336,9 @@ resolveDefIssues (just def) v _  =
 enumDefaultIssue : Maybe AttrDef → AttrValue → List ValidationIssue
 enumDefaultIssue nothing    _ = []
 enumDefaultIssue (just def) v =
-  if enumOkᵇ (AttrDef.attrType def) v then []
-  else mkIssue IsWarning AttributeEnumDefaultUnstable
-         "enum default label does not round-trip to its index (duplicate labels or out-of-range index)"
-       ∷ []
+  requireDec (enumOk? (AttrDef.attrType def) v)
+    (mkIssue IsWarning AttributeEnumDefaultUnstable
+      "enum default label does not round-trip to its index (duplicate labels or out-of-range index)")
 
 attrIssues : List AttrDef → DBCAttribute → List ValidationIssue
 attrIssues _    (DBCAttrDef d)     = wfAttrTypeIssues (AttrDef.attrType d)

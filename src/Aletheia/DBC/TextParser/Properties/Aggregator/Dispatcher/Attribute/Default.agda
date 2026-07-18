@@ -6,15 +6,12 @@
 -- `DBCAttrDefault` shape.  (Bisecting heap blowup: AVString-only.)
 module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.Default where
 
-open import Data.Bool using (true; false)
-open import Data.Char  using (Char) renaming (_≟_ to _≟ᶜ_)
+open import Data.Char  using (Char)
 open import Data.Integer using (+_)
-open import Data.List  using (List; []; _∷_)
+open import Data.List  using (List; _∷_)
   renaming (_++_ to _++ₗ_)
-import Data.List.Properties as ListProps
 open import Data.List.Properties using ()
   renaming (++-assoc to ++ₗ-assoc)
-open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Data.Maybe using (just)
 open import Data.Product using (proj₂)
 open import Data.String using (toList)
@@ -44,8 +41,6 @@ open import Aletheia.DBC.TextFormatter.Attributes using
   ; emitDefaultValue-chars
   ; nthLabel
   )
-import Aletheia.DBC.TextFormatter.Attributes as FmtAttrs
-import Aletheia.DBC.TextParser.Attributes    as ParserAttrs
 open import Aletheia.DBC.TextFormatter.Emitter using
   ( quoteStringLit-chars
   ; showDecRat-dec-chars
@@ -280,20 +275,6 @@ private
          (parseAttrLine-roundtrip-RawDefault-RavDecRatBareInt
             pos name (+ natDecRatToℕ n) outer ss-NL))
 
-  -- Parser-side and formatter-side `lookupDef` are defined identically in
-  -- separate modules.  WFAttribute uses parser-side; emit uses formatter-side.
-  -- Bridge by structural induction on the def list — both functions reduce
-  -- through the same `if ⌊ ListProps.≡-dec ... ⌋ then ... else ...` body.
-  parser-eq-formatter-lookupDef :
-      ∀ (name : List Char) (defs : List AttrDef)
-    → ParserAttrs.lookupDef name defs
-      ≡ FmtAttrs.lookupDef    name defs
-  parser-eq-formatter-lookupDef _    [] = refl
-  parser-eq-formatter-lookupDef name (d ∷ rest)
-      with ⌊ ListProps.≡-dec _≟ᶜ_ name (AttrDef.name d) ⌋
-  ... | true  = refl
-  ... | false = parser-eq-formatter-lookupDef name rest
-
   -- Small bridge lemmas decompose `emit` and `rawOf` for AVEnum-default into
   -- (a) outer structural shell — refl by `emitAttrDefault-chars` reduction;
   -- (b) `emitDefaultValue-chars` resolution under formatter-side `lookup-eq`
@@ -314,17 +295,17 @@ private
   emit-default-value-AVEnum-eq :
       ∀ (defs : List AttrDef) (name : List Char) (n : NatDecRat)
         (defname : List Char) (defscope : _) (labels : List (List Char))
-    → FmtAttrs.lookupDef name defs ≡ just (mkAttrDef defname defscope (ATEnum labels))
+    → lookupDef name defs ≡ just (mkAttrDef defname defscope (ATEnum labels))
     → emitDefaultValue-chars defs name (AVEnum n)
       ≡ quoteStringLit-chars (nthLabel (natDecRatToℕ n) labels)
   emit-default-value-AVEnum-eq defs name n defname defscope labels fmt-lookup-eq
-    with FmtAttrs.lookupDef name defs | fmt-lookup-eq
+    with lookupDef name defs | fmt-lookup-eq
   ... | _ | refl = refl
 
   emit-AVEnum-eq :
       ∀ (defs : List AttrDef) (name : List Char) (n : NatDecRat)
         (defname : List Char) (defscope : _) (labels : List (List Char))
-    → ParserAttrs.lookupDef name defs ≡ just (mkAttrDef defname defscope (ATEnum labels))
+    → lookupDef name defs ≡ just (mkAttrDef defname defscope (ATEnum labels))
     → emitAttribute-chars defs (DBCAttrDefault (mkAttrDefault name (AVEnum n)))
       ≡ toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
          ' ' ∷ quoteStringLit-chars (nthLabel (natDecRatToℕ n) labels) ++ₗ
@@ -334,19 +315,17 @@ private
       (cong (λ vstr → toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
                        ' ' ∷ vstr ++ₗ toList ";\n")
             (emit-default-value-AVEnum-eq
-               defs name n defname defscope labels
-               (trans (sym (parser-eq-formatter-lookupDef name defs))
-                      parser-lookup-eq)))
+               defs name n defname defscope labels parser-lookup-eq))
 
   rawOf-AVEnum-eq :
       ∀ (defs : List AttrDef) (name : List Char) (n : NatDecRat)
         (defname : List Char) (defscope : _) (labels : List (List Char))
-    → ParserAttrs.lookupDef name defs ≡ just (mkAttrDef defname defscope (ATEnum labels))
+    → lookupDef name defs ≡ just (mkAttrDef defname defscope (ATEnum labels))
     → rawOf defs (DBCAttrDefault (mkAttrDefault name (AVEnum n)))
       ≡ RawDefault (mkRawAttrDefault name
                       (RavString (nthLabel (natDecRatToℕ n) labels)))
   rawOf-AVEnum-eq defs name n defname defscope labels parser-lookup-eq
-    with ParserAttrs.lookupDef name defs | parser-lookup-eq
+    with lookupDef name defs | parser-lookup-eq
   ... | _ | refl = refl
 
   on-AVEnum-with-ATEnum :
