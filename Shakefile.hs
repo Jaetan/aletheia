@@ -632,6 +632,11 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- cost), reached via `Format.agda`.  No naming scheme removes them without
         -- gutting the verified-by-construction DSL, and this pattern does not match
         -- them (their `.Properties` sits deeper than `DBC.Properties`).
+        --
+        -- Naming-blind closure drift (a runtime import transitively dragging proof
+        -- modules that do NOT match this prefix) is covered by the sibling
+        -- snapshot gate `tools/check_runtime_closure.py`, which pins the whole
+        -- closure to a reviewed snapshot.
         let cabalFile = "haskell-shim/aletheia.cabal"
         -- Read and match here rather than shelling out to grep: the comparison is
         -- exact (no regex dialect whose portability must be reasoned about), a

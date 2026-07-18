@@ -10,6 +10,21 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Runtime-closure snapshot gate** (`tools/check_runtime_closure.py`, wired
+  into `run_ci`). The foreign library's module list is auto-generated from the
+  Agda import graph, so a dependency drag — one new import transitively pulling
+  proof modules into the compiled `.so` — used to land silently, visible only
+  to a human reading the generated cabal diff (name-based checks cannot catch
+  proof modules that don't carry `Properties` in their names). The gate pins
+  the closure to a reviewed snapshot (`haskell-shim/runtime-closure.snapshot`):
+  any growth or shrinkage fails with the exact module lists (proof-shaped
+  additions called out first) until the snapshot is consciously regenerated in
+  the same change. Fails closed on a missing snapshot and refuses to pass
+  vacuously on unreadable input; regression tests prove every failure mode
+  fails.
+
 ### Fixed
 
 - The `iwyu` import gate no longer crashes when a branch deletes an `.agda`
