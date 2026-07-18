@@ -71,7 +71,7 @@ Build and contribute:
 4. **[Branch & PR Hygiene](development/BRANCH_PR_HYGIENE.md)** - The local-first + server-enforced gate model, required checks, and merge rules for `main`
 5. **[Release Guide](development/RELEASE.md)** - Tagging, signing (cosign), publishing, and supply-chain verification procedure
 6. **[Feature Matrix](FEATURE_MATRIX.yaml)** - Cross-binding feature parity matrix — the canonical record of which capability each binding (Python / C++ / Go / Rust / CLI) supports, and why any gap exists
-7. **[Deferred Items](development/DEFERRED_ITEMS.md)** - The in-source-deferral backlog and per-item re-examination (E.2's closure-route proof strategies: [E2_PROOF_STRATEGY.md](development/E2_PROOF_STRATEGY.md))
+7. **[Deferred Items](development/DEFERRED_ITEMS.md)** - The in-source-deferral backlog and per-item re-examination
 8. **[SOME/IP Design Draft](development/SOMEIP_DESIGN.md)** - Proposed architecture for SOME/IP support (verified monitor over captured traffic; one shared library; parameterized LTL kernel) — draft, not scheduled
 9. **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
 10. **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure

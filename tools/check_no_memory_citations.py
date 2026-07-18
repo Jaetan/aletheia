@@ -21,8 +21,6 @@ Every tracked, non-binary file is scanned EXCEPT:
   ``CHANGELOG.md`` and ``PROJECT_STATUS.md`` are read by users, so a store pointer
   is as dead for their readers as for anyone's — they are gated, and being
   historical does not license an unresolvable pointer;
-* the ``docs/development/E2_*`` proof-strategy backlog docs — kept with their
-  internal references while the E.2 proof is live, and deleted once it lands;
 * the detectors and their fixtures (this gate, ``check_docs``,
   ``check_no_review_marks``, and their tests) — they carry citation-shaped strings
   by construction. Excluded BY EXACT PATH so the exclusion cannot mask a real
@@ -137,7 +135,6 @@ _EXEMPT_FILES = {
 _EXEMPT_PREFIXES = (
     ".archive/",  # review work record
     "AGENTS/",  # per-language coding-standard docs (AI-process infra)
-    "docs/development/E2_",  # E.2 proof-strategy backlog docs (deleted once the proof lands)
 )
 
 

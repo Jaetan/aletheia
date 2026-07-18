@@ -21,14 +21,42 @@
 -- `…Aggregator.Dispatcher.Attribute.Foundations.identifier-name-stop`,
 -- generalised across the five remaining sections.
 --
--- Scope (DEFERRED_ITEMS.md E.2 "bounded slice"): the five name-stop record
--- fields auto-derive; `wellFormedFromValidity` proves the cascade composes
--- by reducing the `WellFormedTextDBCAgg` precondition from nine fields to
--- the four that genuinely carry content beyond Identifier-validity — the
--- two heavy proofs (`MessageWF` per-signal aggregation, `WFAttribute`
--- BA_DEF_ typing) and the two validator-backed fields (CHECK 18
--- `msg-ids-unique`, CHECK 23 `unresolved-empty`).  Those four remain
--- hypotheses here; closing them is the reassessment point.
+-- Scope: the five name-stop record fields auto-derive;
+-- `wellFormedFromValidity` proves the cascade composes by reducing the
+-- `WellFormedTextDBCAgg` precondition from nine fields to the four that
+-- genuinely carry content beyond Identifier-validity — the two heavy
+-- proofs (`MessageWF` per-signal aggregation, `WFAttribute` BA_DEF_
+-- typing) and the two validator-related fields (CHECK 1
+-- `msg-ids-unique`, CHECK 23 `unresolved-empty`).  Those four are
+-- hypotheses here, and necessarily so:
+--
+-- WHY THIS MODULE CANNOT BE STRENGTHENED TO `validity ⇒ WellFormedTextDBCAgg`.
+-- The record means "this DBC survives the lossy text round-trip
+-- unchanged", and DBC validity does not imply that.  Counterexample
+-- class: a DBC with a signal multiplexed on several selector values
+-- passes every error-class validator check (the validator rightly
+-- accepts the construct — it is expressible in the JSON model), yet the
+-- text formatter emits only the head selector value, so parse-back
+-- yields a *different* DBC and `MessageWF`'s presence field is false.
+-- The implication fails because text emission is lossy on constructs
+-- the validator accepts — a fact about the formatter, not a missing
+-- proof.  It becomes provable only if emission is made lossless (or the
+-- hypothesis is strengthened past plain validity).
+--
+-- WHY NO GUARANTEE DEPENDS ON THAT IMPLICATION.  Two independent,
+-- machine-checked results cover the ground the implication would have:
+-- 1. The record is decidable at runtime:
+--    `wfTextIssues d ≡ [] ⟺ WellFormedTextDBCAgg d`
+--    (`wfTextIssues-sound` / `wfTextIssues-complete`,
+--    `Properties.WellFormedCheck.Sound`) — so any given DBC's membership
+--    is checkable, sound AND complete, with no hypothesis at all.
+-- 2. The shipped `format_dbc_text` guarantee never routes through this
+--    record: the handler runs the exact per-DBC check `roundTripsWithᵇ`
+--    (re-parse the emitted text, compare by decidable DBC equality),
+--    whose soundness (`Properties.RoundTripCheck.Sound`) is axiom-free
+--    and hypothesis-free.  Emitted text provably re-parses to the input,
+--    or the handler refuses with a typed error — with or without the
+--    universal implication.
 module Aletheia.DBC.TextParser.Properties.WellFormedFromValidity where
 
 open import Data.Bool using (Bool; true; false; T; _∧_)
@@ -125,9 +153,11 @@ commentTargetStop c with DBCComment.target c
 -- The five name-stop record fields auto-derive from Identifier-validity, so
 -- the `WellFormedTextDBCAgg` precondition collapses to the four fields that
 -- carry genuine content: the two heavy proofs (`MessageWF`, `WFAttribute`)
--- and the two validator-backed fields (`msg-ids-unique` ← CHECK 1,
--- `unresolved-empty` ← CHECK 23).  Discharging those four is the
--- reassessment point (DEFERRED_ITEMS.md E.2); they remain hypotheses here.
+-- and the two validator-related fields (`msg-ids-unique` ← CHECK 1,
+-- `unresolved-empty` ← CHECK 23).  Those four are hypotheses by necessity —
+-- validity does not imply them while text emission is lossy (see the module
+-- header for the counterexample class and for the two machine-checked
+-- results that make the guarantee independent of this implication).
 wellFormedFromValidity : ∀ (d : DBC)
   → All MessageWF (DBC.messages d)
   → All (WFAttribute (collectDefs (DBC.attributes d))) (DBC.attributes d)

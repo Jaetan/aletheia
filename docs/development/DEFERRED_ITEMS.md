@@ -57,6 +57,27 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   correlation.
 - **Blockers / deps** — needs a data-model decision: where multi-value presence
   is stored on `DBCSignal` and how the aggregator joins `SG_` + `SG_MUL_VAL_`.
+- **Design-ahead plan** — [EXTENDED_MUX_DESIGN.md](EXTENDED_MUX_DESIGN.md) (rev-2, panel-reviewed):
+  the Q1–Q5 decision set, the file-cumulative-span bound design, module layout +
+  lemma signatures, corpus-snapshot-flip deliverables, the §12 demand-gate
+  trigger/carve-out, and the §12.3 mandatory re-verification pass. Its file:line
+  citations are pinned to the 2026-07-12 tree; note the always-strict
+  `format_dbc_text` work has since ADDED `WellFormedTextPresence`/`wfps`
+  consumers (`WellFormedCheck.agda`, `Properties/WellFormedCheck/Sound.agda`,
+  `Sound/Signal.agda`) that post-date the plan's §5.6 deletion inventory — the
+  §12.3 pass covers exactly this class.
+- **Round-trip context (terminal state of the discharge question).** `wfps`
+  (single-value presence) is the lossless-emission wall: this item (+ A.3 for
+  `mc`) is the only work that shrinks `format_dbc_text`'s refusal class. The
+  universal implication "validateDBC-clean ⇒ `WellFormedTextDBCAgg`" is
+  structurally false today (a valid multi-value-mux DBC is the counterexample)
+  and REMAINS false even after A.1/A.3: `attr-wfs`, `wf-sigs`/`pvs`, and
+  `unresolved-empty` sit behind warning-class checks by design (error-class
+  rejection would break the load path and was rejected). The shipped state —
+  the `wfTextIssues` decision procedure (sound + complete), the exact
+  `roundTripsWithᵇ` check, and the typed refusal — is the terminal achievable
+  form; the reasoning lives in the
+  `Properties.WellFormedFromValidity` module header.
 - **Verdict** — `INVESTIGATE`. Real feature, real cost. Worth it only if a
   consuming DBC actually uses multi-value mux; check the target corpus first.
 
@@ -70,6 +91,9 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   that are both multiplexed and multiplexors.
 - **Cost / risk** — **High**, and entangled with A.1 (both are the extended-mux
   story). Nested mux is rare in practice.
+- **Design-ahead plan** — [EXTENDED_MUX_DESIGN.md](EXTENDED_MUX_DESIGN.md) § 9 records the A.3
+  prerequisites (`MuxParentsWF`, the masters-set emitter, and why the A.1
+  collection-policy choice enables A.3).
 - **Verdict** — `HOLD`. Lowest practical demand; revisit only alongside A.1.
 
 ---
@@ -135,132 +159,15 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ## E. Proof completeness
 
-### E.2 — `WellFormedTextDBCAgg` runtime discharge
-
-- **STATUS 2026-07-15 — route (b) SHIPPED; the user-facing concern is RESOLVED.**
-  The reject-path redesign (route (b) below) is implemented across E.2 route (b)
-  slices 1–3: `format_dbc_text` is now **always strict**. It evaluates the exact
-  round-trip check `roundTripsWithᵇ` (axiom-free soundness, `RoundTripCheck/Sound.agda`)
-  and returns the `.dbc` text plus advisory `wfTextIssues` warnings when the DBC
-  provably round-trips, or a typed `handler_text_roundtrip_failed` refusal — led by
-  the error-severity `text_roundtrip_divergence` — when it does not. The emitted-text
-  guarantee is machine-checked (`formatDBCTextResult-sound`), and the handler needs
-  **no** `WellFormedTextDBCAgg` discharge: the exact check carries no such
-  precondition, so the four undischarged fields analysed below no longer gate the
-  guarantee. The shipped design is always-strict with **no `strict` flag** (it
-  evolved from the plan's format-anyway-default + opt-in-strict — a flag would imply
-  wanting non-round-tripping text). All four bindings surface the enriched return +
-  typed refusal (in-place BREAKING); FEATURE_MATRIX row `dbc_text_roundtrip_check`.
-  **Routes (a)/(c) remain HOLD** — they would make emission lossless and let
-  `WellFormedTextDBCAgg` itself be discharged, but are off the critical path now that
-  the guarantee is observable. The analysis below is retained as the rationale for
-  choosing route (b).
-- **Where** — `src/Aletheia/DBC/TextParser/WellFormed.agda:85` (the record);
-  handler `src/Aletheia/Protocol/Handlers/FormatDBCText.agda`.
-- **Origin** — text round-trip proof obligation (`WellFormedTextDBCAgg` precondition).
-- **Today** — the `FormatDBCText` handler emits
-  `formatText (deriveNodesIfEmpty dbc)` unconditionally; `formatText : DBC →
-  String` is total and takes no proof argument. `WellFormedTextDBCAgg` is the
-  precondition of a *separate* theorem
-  (`Substrate.Unsafe.parseText-on-formatText`) the handler never invokes at
-  runtime.
-- **Not a correctness gap.** The handler type-checks under `--safe` with no
-  `postulate` and imports neither the round-trip theorem nor any axiom, so it
-  carries **zero undischarged proof obligations** — "can the runtime hit an
-  undischarged case?" is definitionally *no*. A DBC violating the predicate
-  yields output that is *lossy-on-round-trip*, **never wrong and never a crash**
-  (documented best-effort contract; all four bindings qualify the claim with
-  "for any well-formed DBC").
-- **Bounded slice (done).** `WellFormedFromValidity` derives **five** of the nine
-  `WellFormedTextDBCAgg` fields — the name-stop fields `node-stops`, `vt-stops`,
-  `ev-stops`, `cm-stops`, `sg-wfs` — **unconditionally** from `Identifier`-validity
-  (via the `isIdentStart→¬isHSpace` bridge). Four fields remain: `msg-wfs`
-  (`All MessageWF`), `attr-wfs` (`All WFAttribute`), `msg-ids-unique`, and
-  `unresolved-empty`.
-- **`validateDBC`-clean does not discharge the remaining four.** The precondition
-  `errorIssues (validateDBCFull d) ≡ []` is built from **only the 8 error-class
-  checks** (`Validity/Theorem.agda`); warning-class checks contribute nothing. Of
-  the four residual fields it discharges **only `msg-ids-unique`** (CHECK 1, error;
-  via `checkAllDuplicateMessageIds-sound`, one routine `AllPairs`-map step from the
-  field's mapped form — that bridge lemma is currently unwritten).
-  The other three are walls:
-  - `unresolved-empty` (`DBC.unresolvedValueDescs d ≡ []`) — CHECK 23 is
-    **warn-only** (one warning per unresolved entry, `Checks.agda:604-613`;
-    warnings never enter `errorIssues`), so validateDBC-clean asserts nothing
-    about this field. (CHECK-23 *silence* does imply `≡ []` — but that is a
-    caller-side warning inspection, not the theorem's error-clean hypothesis.)
-  - `attr-wfs` (`WFAttribute`) — BA_DEF_ value↔type matching, enum-label
-    uniqueness, and name resolution are checked **nowhere** (CHECK 18 is only a
-    warn-only duplicate-name check). A fully-unchecked wall.
-  - `msg-wfs` (`All MessageWF`) — one unenforced sub-field collapses the record:
-    `wfps` / `item-pres` (require single-value mux — the formatter drops
-    multi-value `SG_MUL_VAL_`, **item A.1**), `wf-sigs` (CHECK 15/16 are
-    warnings), `pvs` (BE `msb-ge-len` is unchecked and *distinct* from CHECK 8's
-    `BitsInFrame`), and `mc` (CHECK 4/5 give mux resolvability/acyclicity, not
-    `MasterCoherent`'s single-master / master-`Always` shape). Its cleanly-closeable
-    sub-fields (`fb-bound`, `name-pre`/`send-pre`, `sig-names-unique` — CHECK 2)
-    don't rescue it.
-- **The implication is structurally false.** `WellFormedTextDBCAgg` really means
-  "this DBC survives the lossy text round-trip unchanged", and validity does not
-  imply that while emission is lossy: a valid DBC using **multi-value mux** passes
-  `validateDBC` clean yet fails `wfps`, because the formatter drops `SG_MUL_VAL_`
-  (**A.1**). One blocked field disproves it — and the validator neither does nor
-  should reject the construct.
-- **What full closure requires** — either (a) make text emission lossless (the
-  **A.1 / A.3** multi-value-mux + nested-mux completeness work, which removes the
-  lossy-emission restrictions); (b) a **reject-path redesign** where the handler
-  runs a `TextRoundTrippable?` decision and returns a typed refusal for
-  non-round-trippable DBCs ("`format_dbc_text` round-trips, or tells you it can't");
-  or (c) new validator **error**-class checks for attribute-typing / presence /
-  master-coherence / physical-validity that strengthen the hypothesis. All three are
-  materially larger, separate decisions — not incremental proof work.
-- **Verdict** — `HOLD` for full closure. Correctness question **resolved (no
-  gap)**; the bounded slice is done (five of nine fields). Full closure is a
-  multi-front program per the above. (The `BO_TX_BU_` message-senders text
-  round-trip, once tracked alongside this, shipped standalone for its own
-  text-surface value and removed the former `MessageWF.senders-empty`
-  restriction — but it did not close E.2.)
-- **Re-examined 2026-07-12** — every claim above adversarially verified against
-  source and upheld (plus one the entry missed: the Rust rustdoc lacked the
-  round-trip qualifier the other three bindings carry — fixed in the same
-  accuracy batch as this update). Key re-framing: the theorem's precondition is
-  **unobservable** — no user-facing surface can evaluate `WellFormedTextDBCAgg`,
-  so a user cannot distinguish "my export is proven-faithful" from "my export
-  silently dropped multi-value mux". Routes **scheduled (b) ≫ (a) ≫ (c)**:
-  - **(b) first** — a runtime checker for the predicate at the format handler,
-    surfaced as a #150-style issues envelope (format-anyway default, opt-in
-    strict refusal): the only route that makes the guarantee observable
-    ("round-trips, or tells you it can't"), wire-additive (binding returns
-    enriched in place — BREAKING, ratified 2026-07-12: no sibling methods),
-    medium and self-contained. Pinned as a prerequisite of any
-    text-export-bearing product surface.
-  - **(a) second** — lossless emission (A.1 multi-value `SG_MUL_VAL_`, then
-    A.3 nested mux): the only route that removes the `wfps` wall; stays
-    corpus-gated per A.1's own gate; design-ahead plan maintained.
-  - **(c) last** — stronger validator: **rejected standalone** (cannot close
-    `wfps` while emission is lossy; every new error-class check breaks the load
-    path); its useful checks fold into (b)'s diagnostics or an opt-in strict
-    profile.
-
-  Adversarially-reviewed proof strategies for all three routes:
-  [E2_PROOF_STRATEGY.md](E2_PROOF_STRATEGY.md).
-
-  > **On completion — delete the proof-strategy docs (user directive 2026-07-16).**
-  > `E2_PROOF_STRATEGY.md` and `E2_ROUTE_{A,B,C}.md` exist only to track this proof
-  > while it is in flight; they carry internal IDs (`E.2`, `route (b)`, `slice N`,
-  > `§6.4`) that are deliberately exempt from the no-tracking-IDs-in-docs rule
-  > *because* they are backlog, not product docs. Once the whole E.2 proof lands,
-  > **delete those four files and remove their references from this file** — the
-  > proof then lives in the source, and the strategy docs have no further purpose.
-
 ### E.3 — V1 diagnostic tightness classification (round-trip-necessary vs merely-bundled)
 
 - **Where** — the `wfTextIssues` checker (`src/Aletheia/DBC/TextParser/WellFormedCheck.agda`)
   and the round-trip proof `parseText-on-formatText`
   (`src/Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda:128`).
-- **Origin** — the 2026-07-13 adversarial review of E.2 route (b) slice 1. Slice 1
-  proves `wfTextIssues d ≡ [] ⟺ WellFormedTextDBCAgg d`, and `WellFormedTextDBCAgg`
-  is **sufficient-not-necessary** for round-tripping (it is the antecedent of
+- **Origin** — the 2026-07-13 adversarial review of the `wfTextIssues` checker.
+  The checker's decision procedure proves `wfTextIssues d ≡ [] ⟺
+  WellFormedTextDBCAgg d`, and `WellFormedTextDBCAgg` is
+  **sufficient-not-necessary** for round-tripping (it is the antecedent of
   `parseText-on-formatText`; no converse). So a non-empty `wfTextIssues` (a flag)
   does **not** prove the DBC fails to round-trip — some flagged DBCs may survive.
 - **The task** — trace `parseText-on-formatText` and classify **each**
@@ -278,11 +185,12 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   `unresolved-empty` look **tight** (genuine formatter loss — A.1). Verify each.
 - **Optional downstream** — tighten or condition the merely-bundled checks to cut
   false alarms, or mark those diagnostics "conditional" in the wire/docs.
-- **NOT blocking E.2.** V2 (route-b slice 2) dissolves the over-approximation for
-  the only decision that needs exactness (strict-mode refusal gates on the V2 exact
-  check, never on `WellFormedTextDBCAgg` necessity); V1 diagnostics are already
-  worded "round-trip not proven", never "will not" (E2_ROUTE_B.md §7.6). Land
-  anytime after slice 1 — a good fit for a multi-agent proof-trace workflow.
+- **Not blocking any guarantee.** The exact check `roundTripsWithᵇ` dissolves the
+  over-approximation for the only decision that needs exactness (the
+  `format_dbc_text` refusal gates on the exact re-parse check, never on
+  `WellFormedTextDBCAgg` necessity); the `wfTextIssues` diagnostics are already
+  worded "round-trip not proven", never "will not". Land anytime — a good fit
+  for a multi-agent proof-trace workflow.
 - **Verdict** — `SCHEDULED` (quality/tightening analysis, non-blocking).
 
 ### E.4 — Comment-quality pass over the E.2-arc modules
@@ -317,6 +225,39 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   the pass shipped folded into the tree-wide comment-quality PR #193 (same close, broader
   scope) rather than as the originally-planned standalone PR.
 - **Verdict** — ✅ **DONE** (2026-07-16, #193); see STATUS above.
+
+### E.5 — Reify Bool-valued checker leaves into `Dec`/`Reflects`
+
+- **Where** — the Bool-valued leaves of the `wfTextIssues` checker tree:
+  `isAlwaysᵇ`, `masterOkᵇ`, `whenOkᵇ`, `mcGo`, `masterCoherentᵇ`, `vmtᵇ`,
+  `enumOkᵇ`, … (`src/Aletheia/DBC/TextParser/WellFormedCheck.agda` and its
+  `Properties/WellFormedCheck/Sound*` lemma tree).
+- **Origin** — user directive 2026-07-13, gated on the always-strict
+  `format_dbc_text` arc landing (it has).
+- **Today** — each leaf is a plain `Bool` with a separate hand-written
+  soundness lemma in the `Sound*` tree pairing it back to the predicate.
+- **Done looks like** — leaves return `Dec`/`Reflects` (or proof-carrying
+  results), so the pairing lemmas shrink or vanish; checker behavior
+  unchanged (proof-hygiene refactor only).
+- **Cost / risk** — Medium; touches the `WellFormedCheck` proof tree; keep the
+  hot path Bool-valued where MAlonzo allocation matters (the checker runs
+  per-`format_dbc_text` call, not per-frame — `Dec` cost is acceptable here).
+- **Verdict** — `SCHEDULED` (user, 2026-07-18): the next work item.
+
+### E.6 — Consolidate the two `lookupDef` clones (SSOT)
+
+- **Where** — `src/Aletheia/DBC/TextFormatter/Attributes.agda:92` and
+  `src/Aletheia/DBC/TextParser/Attributes.agda:576` — two textually identical
+  `lookupDef : List Char → List AttrDef → Maybe AttrDef` definitions.
+- **Today** — the formatter and parser each carry their own copy; a change to
+  one can silently diverge from the other.
+- **Done looks like** — one shared definition (natural home: a common
+  attributes module both import), clones deleted; any proof mentioning either
+  re-pointed.
+- **Cost / risk** — Low; watch the import graph for cycles (the cycle-break
+  pattern applies if one arises).
+- **Verdict** — `SCHEDULED` (small hygiene item; fold into the next pass over
+  the attributes modules, e.g. alongside E.5).
 
 ---
 
@@ -517,6 +458,25 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   imports. So finish slice-3, land it, then F3 rebases cleanly on top.
 - **Verdict** — ✅ **DONE** (2026-07-15); see STATUS above.
 
+### G.3 — Cross-binding `IssueCode` completeness parity test
+
+- **Where** — the per-binding issue-code enumerations (`python/aletheia/codes/_issue.py`,
+  Go/C++/Rust counterparts) vs the kernel's `formatIssueCode` arms
+  (`src/Aletheia/Protocol/ResponseFormat.agda`).
+- **Today** — per-binding parity tests check the codes each binding *uses*;
+  no gate asserts every kernel-emittable issue-code string is *known* to every
+  binding, so a new kernel code can reach a binding as an unknown string
+  without failing CI.
+- **Done looks like** — a completeness gate (per binding, or one matrix-style
+  test) that enumerates the kernel's emittable issue codes and fails when any
+  binding's enum lacks one. Follows the gate-teeth rule: inject a fake code
+  and assert the gate fails.
+- **Cost / risk** — Low-medium; needs a machine-readable SSOT for the kernel's
+  code list (generate from `ResponseFormat.agda`, or a checked snapshot like
+  `ffi-exports.snapshot`).
+- **Verdict** — `SCHEDULED` (test-gap candidate; pairs naturally with H.2's
+  enum-growth decision).
+
 ---
 
 ## H. Binding ergonomics
@@ -547,6 +507,22 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   their own `IBackend`; the pre-built configurable mock is the only delta.
 - **Verdict** — `HOLD` (planned, demand-gated). Promote to `DO` when a concrete
   external C++ consumer needs it.
+
+### H.2 — Rust `IssueCode` enum-growth policy (`#[non_exhaustive]`?)
+
+- **Where** — `rust/src/response.rs:156` (`pub enum IssueCode`).
+- **Today** — the enum is **not** `#[non_exhaustive]`, so every future
+  issue-code addition is a source-breaking change for downstream crates doing
+  exhaustive matches (each addition forces a major-version signal under the
+  project's SemVer pledge).
+- **The decision** — adopt `#[non_exhaustive]` (one breaking change now;
+  future additions become non-breaking, downstream must carry a `_` arm) vs
+  keep exhaustive matching (maximal compile-time coverage for consumers, at
+  the price of a breaking release per new code). Same question applies to
+  `ErrorCode` if it shares the shape.
+- **Cost / risk** — Trivial mechanically; the cost is the API-policy choice.
+  Decide before the next Rust-facing release that adds a code.
+- **Verdict** — `SCHEDULED` (decision item; pairs with G.3).
 
 ---
 
@@ -591,13 +567,12 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 Cheapest / highest-confidence first, so early wins de-risk the harder items:
 
-1. **E.2** (`WellFormedTextDBCAgg`) — ✅ re-examined 2026-07-12: no correctness
-   gap (confirmed); closure routes scheduled (b) ≫ (a) ≫ (c) with
-   adversarially-reviewed proof strategies in
-   [E2_PROOF_STRATEGY.md](E2_PROOF_STRATEGY.md).
-2. **A.1 / A.3 / B.1** — gated on a concrete consuming DBC / property.
-3. **C.1 / D.1 / F.1 / F.2 / H.1** — accepted / blocked / demand-gated; no action unless constraints change (H.1: a public C++ test mock — promote on concrete external-consumer demand).
-4. **I.1** (Go/C++ arm64 overflow guard) — target-gated; no action until a concrete non-amd64 embedded target with a verified full cross-toolchain (GHC + clang + rustc) is chosen.
+1. **E.5 / E.6 / G.3 / H.2** — scheduled, cheap, self-contained (E.5 first, per
+   the 2026-07-18 scheduling decision; E.6 folds in alongside; G.3 + H.2 pair).
+2. **E.3** — scheduled, non-blocking tightness analysis; land anytime.
+3. **A.1 / A.3 / B.1** — gated on a concrete consuming DBC / property.
+4. **C.1 / D.1 / F.1 / F.2 / H.1** — accepted / blocked / demand-gated; no action unless constraints change (H.1: a public C++ test mock — promote on concrete external-consumer demand).
+5. **I.1** (Go/C++ arm64 overflow guard) — target-gated; no action until a concrete non-amd64 embedded target with a verified full cross-toolchain (GHC + clang + rustc) is chosen.
 
 > Each item graduates from this doc to a real task only after a per-item
 > decision with the user. This file is the backlog + rationale, not a commitment.

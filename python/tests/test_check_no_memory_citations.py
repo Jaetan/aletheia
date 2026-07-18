@@ -129,9 +129,6 @@ def test_user_facing_docs_are_gated() -> None:
         "AGENTS.md",
         "AGENTS/python.md",
         "docs/development/DEFERRED_ITEMS.md",
-        # E.2 proof-strategy backlog docs (deleted once the proof lands)
-        "docs/development/E2_ROUTE_B.md",
-        "docs/development/E2_PROOF_STRATEGY.md",
         # review work record
         ".archive/reviews/r20/round.yaml",
     ],
@@ -175,7 +172,6 @@ def test_gated_files_are_in_scope(rel: str) -> None:
         "assets/logo.png",  # binary
         "build/x.agdai",  # binary interface
         "CLAUDE.md",  # exempt AI-infra doc
-        "docs/development/E2_ROUTE_A.md",  # exempt backlog doc
         "tools/check_no_review_marks.py",  # exempt detector
     ],
 )
