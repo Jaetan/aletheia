@@ -323,6 +323,9 @@ pytest_add_cli_args = [
     # Same shape: covers the iwyu per-push scope collector (repo-root `tools`
     # package).  Infra coverage, not hot-path.
     "--ignore=tests/test_warm_changed_files.py",
+    # Same shape: covers the runtime-closure snapshot gate (repo-root `tools`
+    # package).  Infra coverage, not hot-path.
+    "--ignore=tests/test_check_runtime_closure.py",
     # The demo gate reaches repo-root `examples/demo` via parents[2] (only
     # `python/` in the relocated mutants/ tree, so the glob is empty) AND runs
     # each demo in a SUBPROCESS that imports the INSTALLED package, never the

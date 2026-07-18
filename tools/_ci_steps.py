@@ -542,6 +542,11 @@ def _run_gha_checks(runner: Runner) -> None:
         cwd=runner.repo_root,
     )
     runner.step(
+        "check-runtime-closure",
+        [runner.python, "-m", "tools.check_runtime_closure"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
         "check-install-freshness",
         [runner.python, "-m", "tools.check_install_freshness"],
         cwd=runner.repo_root,
