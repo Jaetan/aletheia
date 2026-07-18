@@ -10,6 +10,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- The `iwyu` import gate no longer crashes when a branch deletes an `.agda`
+  module: the per-push scope collector excludes deleted paths
+  (`--diff-filter=d`) — a deleted module has no imports left to analyze, and
+  its changed importers enter the scope on their own. Regression-tested.
+
 ### Changed
 
 - Internal proof-hygiene refactor — wire behavior unchanged. The Bool-valued
