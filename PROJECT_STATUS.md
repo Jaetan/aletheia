@@ -54,8 +54,19 @@ cannot honestly advertise capabilities it does not yet have.
      bindings resolve the library from `ALETHEIA_LIB`, so one download makes every
      binding usable after a single `source env.sh`. A `dist` self-check and a
      release-workflow smoke test guard the bundle's contents.
-   - **Next — native packages + Docker.** Native OS packages (`.deb` / `.rpm`)
-     attached to the Release, and a multi-binding Docker image.
+   - **Remaining — do next (distribution hardening):**
+     - **Native packages + Docker.** Native OS packages (`.deb` / `.rpm`) attached
+       to the Release, and a multi-binding Docker image (extend `Dockerfile.runtime`
+       / `shake docker` past today's Python-only consumer).
+     - **Always-on bundle-staging gate.** A fast gate that `bash -n` / `fish -n`s
+       the packaging scripts and asserts every `git archive` pathspec resolves to a
+       tracked file, so bundle staging cannot silently rot between releases — today
+       the `dist` self-check only fires when `dist` actually runs.
+     - **SBOM covers the bundled binding sources**, not just the `.so` + GHC deps.
+     - **Real-workflow validation in C++ / Go / Rust** from the bundle. Python is
+       proven end-to-end (the real-downloader walk ran a real LTL verification); the
+       other three are verified to load the `.so` but not yet exercised on a full
+       workflow from the published artifact.
 2. **`aletheia template <file>.xlsx` CLI subcommand.** A true no-code way to obtain
    the Excel template (today it needs a Python one-liner), so the non-programmer
    on-ramp is real.
