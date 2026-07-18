@@ -94,18 +94,11 @@ def main() -> int:
         return COULD_NOT_CHECK
 
     if args.update:
-        _ = args.snapshot.write_text("\n".join(current) + "\n", encoding="utf-8")
-        emit(f"check-runtime-closure: snapshot updated ({len(current)} modules).")
-        return 0
+        return _write_snapshot(args.snapshot, current)
 
-    try:
-        pinned = [ln for ln in args.snapshot.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    except OSError:
-        emit(
-            f"check-runtime-closure: FAIL — snapshot {args.snapshot} is missing. "
-            + "Review the closure, then create it: python -m tools.check_runtime_closure --update"
-        )
-        return 1
+    pinned = _load_pinned(args.snapshot)
+    if isinstance(pinned, int):
+        return pinned
 
     added, removed = compare(current, pinned)
     if not added and not removed:
@@ -113,6 +106,40 @@ def main() -> int:
         return 0
     _report_drift(added, removed)
     return 1
+
+
+def _write_snapshot(snapshot: Path, current: list[str]) -> int:
+    """Write the snapshot from the current closure; clean FAIL on write errors."""
+    try:
+        _ = snapshot.write_text("\n".join(current) + "\n", encoding="utf-8")
+    except OSError as exc:
+        emit(f"check-runtime-closure: FAIL — could not write snapshot: {exc}")
+        return 1
+    emit(f"check-runtime-closure: snapshot updated ({len(current)} modules).")
+    return 0
+
+
+def _load_pinned(snapshot: Path) -> list[str] | int:
+    """Read the snapshot; an int is the exit code for a failed read.
+
+    Keyed on the errno class, not a blanket ``OSError``: a truly absent
+    snapshot is the fail-closed first-run case (with the ``--update`` hint),
+    while a permissions/encoding failure is COULD-NOT-CHECK — mislabelling it
+    "missing" would send the operator to the wrong fix.  Lines are stripped on
+    ingest so editor-introduced padding never reads as module drift.
+    """
+    try:
+        text = snapshot.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        emit(
+            f"check-runtime-closure: FAIL — snapshot {snapshot} is missing. "
+            + "Review the closure, then create it: python -m tools.check_runtime_closure --update"
+        )
+        return 1
+    except OSError as exc:
+        emit(f"check-runtime-closure: COULD NOT CHECK — snapshot unreadable: {exc}")
+        return COULD_NOT_CHECK
+    return [stripped for ln in text.splitlines() if (stripped := ln.strip())]
 
 
 def _report_drift(added: list[str], removed: list[str]) -> None:

@@ -106,3 +106,35 @@ def test_vacuous_cabal_could_not_check(tmp_path: Path, monkeypatch: pytest.Monke
     """A cabal with no MAlonzo.Code.* lines is COULD-NOT-CHECK (exit 2), never OK."""
     cabal, snap = _paths(tmp_path, cabal="library\n  build-depends: base\n")
     assert _run(monkeypatch, ["--cabal", str(cabal), "--snapshot", str(snap)]) == 2
+
+
+def test_whitespace_padded_snapshot_is_not_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Editor-introduced padding in the snapshot must not read as module drift."""
+    cabal, snap = _paths(tmp_path)
+    _ = snap.write_text(
+        "  MAlonzo.Code.Aletheia.CAN.Frame  \nMAlonzo.Code.Aletheia.Prelude\n\n",
+        encoding="utf-8",
+    )
+    assert _run(monkeypatch, ["--cabal", str(cabal), "--snapshot", str(snap)]) == 0
+
+
+def test_unreadable_snapshot_is_could_not_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A snapshot that exists but cannot be read is COULD-NOT-CHECK, not 'missing'."""
+    cabal, _snap = _paths(tmp_path)
+    snap_dir = tmp_path / "snapshot-as-directory"
+    snap_dir.mkdir()
+    assert _run(monkeypatch, ["--cabal", str(cabal), "--snapshot", str(snap_dir)]) == 2
+
+
+def test_update_write_failure_fails_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """TEETH: an --update that cannot write reports a clean FAIL, no traceback."""
+    cabal, _snap = _paths(tmp_path)
+    bad_snap = tmp_path / "no-such-dir" / "runtime-closure.snapshot"
+    assert _run(monkeypatch, ["--update", "--cabal", str(cabal), "--snapshot", str(bad_snap)]) == 1
+    assert "could not write snapshot" in capsys.readouterr().out
