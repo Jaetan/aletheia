@@ -77,7 +77,9 @@ cannot honestly advertise capabilities it does not yet have.
 **Candidate tracks.** A native Haskell binding (the core is already Haskell, so it
 needs no FFI); a python-can replacement (verified CAN-log readers for
 ASC / BLF / MF4); a GHC `--bignum=native` rebuild to drop the libgmp LGPL
-dependency; and SOME/IP support for automotive Ethernet.
+dependency; and SOME/IP support for automotive Ethernet — architecture drafted in
+[SOMEIP_DESIGN.md](docs/development/SOMEIP_DESIGN.md) (verified monitor over
+captured traffic; one shared library; parameterized LTL kernel; not scheduled).
 
 **DBC text round-trip guarantee.**
 `format_dbc_text` is always-strict: it returns `.dbc` text that provably

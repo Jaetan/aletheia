@@ -72,10 +72,11 @@ Build and contribute:
 5. **[Release Guide](development/RELEASE.md)** - Tagging, signing (cosign), publishing, and supply-chain verification procedure
 6. **[Feature Matrix](FEATURE_MATRIX.yaml)** - Cross-binding feature parity matrix — the canonical record of which capability each binding (Python / C++ / Go / Rust / CLI) supports, and why any gap exists
 7. **[Deferred Items](development/DEFERRED_ITEMS.md)** - The in-source-deferral backlog and per-item re-examination (E.2's closure-route proof strategies: [E2_PROOF_STRATEGY.md](development/E2_PROOF_STRATEGY.md))
-8. **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
-9. **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
-10. **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
-11. **[CHANGELOG](../CHANGELOG.md)** - Public-API change log (per `[Added]` / `[Changed]` / `[Removed]` per AGENTS.md "Public API stability and CHANGELOG discipline")
+8. **[SOME/IP Design Draft](development/SOMEIP_DESIGN.md)** - Proposed architecture for SOME/IP support (verified monitor over captured traffic; one shared library; parameterized LTL kernel) — draft, not scheduled
+9. **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
+10. **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
+11. **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
+12. **[CHANGELOG](../CHANGELOG.md)** - Public-API change log (per `[Added]` / `[Changed]` / `[Removed]` per AGENTS.md "Public API stability and CHANGELOG discipline")
 
 ---
 
