@@ -445,7 +445,7 @@ proofModules =
     -- procedure `wfTextIssues` decides `WellFormedTextDBCAgg` — `wfTextIssues d
     -- ≡ [] ⟺ WellFormedTextDBCAgg d`.  One root here covers
     -- the whole subtree transitively: the checker (`WellFormedCheck`) and the
-    -- three soundness leaves (`Sound/{Signal,Master,Attr}`).  Needs an explicit
+    -- two soundness leaves (`Sound/{Signal,Attr}`).  Needs an explicit
     -- root: proof modules are never in Main's closure (`check-no-properties-in-
     -- runtime` enforces that), so nothing else would type-check them.
     , "Aletheia/DBC/TextParser/Properties/WellFormedCheck/Sound.agda"

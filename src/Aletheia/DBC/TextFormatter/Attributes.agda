@@ -52,14 +52,12 @@ module Aletheia.DBC.TextFormatter.Attributes where
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.DecRat.Refinement using (intDecRatToℤ; natDecRatToℕ)
 
-open import Data.Bool using (Bool; true; false; if_then_else_)
-open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
+open import Data.Bool using (Bool; true; false)
+open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
-import Data.List.Properties as ListProps
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
 open import Data.String using (toList)
-open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.DBC.Types using
   ( AttrScope; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar
@@ -87,14 +85,9 @@ collectDefs (DBCAttrDef d     ∷ rest) = d ∷ collectDefs rest
 collectDefs (DBCAttrDefault _ ∷ rest) = collectDefs rest
 collectDefs (DBCAttrAssign _  ∷ rest) = collectDefs rest
 
--- Linear scan (small def counts in practice — single digits in corpus).
--- Both name and AttrDef.name are `List Char`.
-lookupDef : List Char → List AttrDef → Maybe AttrDef
-lookupDef _ [] = nothing
-lookupDef name (d ∷ rest) =
-  if ⌊ ListProps.≡-dec _≟ᶜ_ name (AttrDef.name d) ⌋
-    then just d
-    else lookupDef name rest
+-- Def-by-name lookup, shared with the parser's refinement pass.
+open import Aletheia.DBC.AttrLookup public
+  using (lookupDef)
 
 -- Nth element lookup, returns `[]` on out-of-bounds (matches the
 -- graceful-degradation contract for `AVEnum` defaults).

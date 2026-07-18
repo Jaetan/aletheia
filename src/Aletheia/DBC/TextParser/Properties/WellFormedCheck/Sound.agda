@@ -3,7 +3,7 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- Facade for the checker soundness/completeness tree: assembles the
--- signal/master/attribute leaf lemmas (`Sound.Signal`/`.Master`/`.Attr`) into the
+-- signal/attribute leaf lemmas (`Sound.Signal`/`.Attr`) into the
 -- per-message `MessageWF` reconstruction and the top theorem
 -- `wfTextIssues d ≡ [] ⟺ WellFormedTextDBCAgg d`, composing through
 -- `wellFormedFromValidity` (which discharges the five name-stop Agg fields).
@@ -11,9 +11,7 @@
 module Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound where
 
 open import Data.List using (List; []; _∷_; map)
-open import Data.Bool.Properties using (T-≡)
 open import Data.Product using (proj₁; proj₂)
-open import Function.Bundles using (Equivalence)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
 open import Relation.Nullary.Decidable using (¬?)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs; allPairs?)
@@ -33,19 +31,17 @@ open import Aletheia.DBC.TextFormatter.Attributes using (collectDefs)
 open import Aletheia.DBC.TextParser.WellFormed using (WellFormedTextDBCAgg)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using (WFAttribute)
 open import Aletheia.DBC.TextParser.WellFormedCheck using
-  (mcIssue; masterCoherentᵇ; checkSigNamesUnique; checkMsgIdsUnique; checkUnresolved; checkTextMessage; checkAttrs; wfTextIssues)
+  (mcIssue; masterCoherent?; checkSigNamesUnique; checkMsgIdsUnique; checkUnresolved; checkTextMessage; checkAttrs; wfTextIssues)
 open import Aletheia.DBC.TextParser.Properties.Topology.Message using (MessageWF)
 open import Aletheia.DBC.TextParser.Properties.Topology.SignalList using (SignalLineWF)
 open import Aletheia.DBC.TextParser.Properties.Topology.Signal using (recvHeadStop)
 open import Aletheia.DBC.TextParser.Properties.WellFormedFromValidity using
   (identNameStop; signalNameStop; wellFormedFromValidity)
-open import Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound.Master using
-  (masterCoherentᵇ-sound; masterCoherentᵇ-complete)
 open import Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound.Signal using
   (signalBounds-sound; pGo-sound; pvGo-sound;
    signalBounds-complete; pGo-complete; pvGo-complete)
 open import Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound.Attr using
-  (if-[]-sound; attrIssues-sound; if-[]-complete; attrIssues-complete)
+  (attrIssues-sound; attrIssues-complete)
 
 -- ── issue-list → predicate bridges (soundness) ───────────────────────────────
 --
@@ -54,12 +50,10 @@ open import Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound.Attr using
 -- internalising the `if`-elim / `requireDec-sound` / empty-list reasoning so the
 -- `MessageWF` / `WellFormedTextDBCAgg` assembly reads as a flat record.
 
--- `mcIssue sigs = if masterCoherentᵇ sigs then [] else (…∷[])`; peel the `if`
--- (`if-[]-sound`, reused from Sound.Attr), turn `T b` into `b ≡ true` (`T-≡`),
--- feed `masterCoherentᵇ-sound`.
+-- `mcIssue sigs = requireDec (masterCoherent? sigs) …`, so the shared
+-- `requireDec-sound` lands `MasterCoherent` directly.
 mcIssue-sound : ∀ (sigs : List DBCSignal) → mcIssue sigs ≡ [] → MasterCoherent sigs
-mcIssue-sound sigs eq =
-  masterCoherentᵇ-sound sigs (Equivalence.to T-≡ (if-[]-sound (masterCoherentᵇ sigs) _ eq))
+mcIssue-sound sigs eq = requireDec-sound (masterCoherent? sigs) _ eq
 
 -- Both uniqueness parts decide `AllPairs _≢_ (map … )` directly (the checker's
 -- `allPairs? (¬? ∘ _≟_)` is exactly `Dec (AllPairs _≢_ …)`), so `requireDec-sound`
@@ -168,9 +162,7 @@ wfTextIssues-sound d premise =
 -- `wfTextIssues` a genuine decision procedure for `WellFormedTextDBCAgg`.
 
 mcIssue-complete : ∀ (sigs : List DBCSignal) → MasterCoherent sigs → mcIssue sigs ≡ []
-mcIssue-complete sigs mc =
-  if-[]-complete (masterCoherentᵇ sigs) _
-    (Equivalence.from T-≡ (masterCoherentᵇ-complete sigs mc))
+mcIssue-complete sigs mc = requireDec-complete (masterCoherent? sigs) _ mc
 
 checkSigNamesUnique-complete : ∀ (sigs : List DBCSignal)
   → AllPairs _≢_ (map DBCSignal.name sigs) → checkSigNamesUnique sigs ≡ []

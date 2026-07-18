@@ -48,6 +48,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.CAN.Frame
                       MAlonzo.Code.Aletheia.CAN.Signal
                       MAlonzo.Code.Aletheia.CAN.SignalExtraction
+                      MAlonzo.Code.Aletheia.DBC.AttrLookup
                       MAlonzo.Code.Aletheia.DBC.BoundWalks
                       MAlonzo.Code.Aletheia.DBC.CanonicalReceivers
                       MAlonzo.Code.Aletheia.DBC.DecRat
@@ -59,6 +60,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.DBC.Decidable.Equality.Full
                       MAlonzo.Code.Aletheia.DBC.Decidable.WellFormedness
                       MAlonzo.Code.Aletheia.DBC.Formatter
+                      MAlonzo.Code.Aletheia.DBC.Formatter.WellFormedText.Foundations
                       MAlonzo.Code.Aletheia.DBC.Identifier
                       MAlonzo.Code.Aletheia.DBC.JSONParser
                       MAlonzo.Code.Aletheia.DBC.RationalRenderer
@@ -118,6 +120,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.DBC.TextParser.ValueDescriptions
                       MAlonzo.Code.Aletheia.DBC.TextParser.ValueTables
                       MAlonzo.Code.Aletheia.DBC.TextParser.ValueTypes
+                      MAlonzo.Code.Aletheia.DBC.TextParser.WellFormedAttr
                       MAlonzo.Code.Aletheia.DBC.TextParser.WellFormedCheck
                       MAlonzo.Code.Aletheia.DBC.Types
                       MAlonzo.Code.Aletheia.DBC.Validator

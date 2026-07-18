@@ -15,10 +15,12 @@
 --     `rawOfDefaultValue` + per-AttrType refine-roundtrip lemmas
 --     (`ValueMatchesType` predicate + 5 `refine*Value-rawOf*-roundtrip`
 --     lemmas).  This module lifts those to whole-attribute level.
---   * `TextFormatter.Attributes` — `collectDefs` / `lookupDef` /
+--   * `TextFormatter.Attributes` — `collectDefs` /
 --     `emitAttribute-chars` (typed-side).
---   * `TextParser.Attributes` — `refineAttribute` / `lookupDef` /
+--   * `TextParser.Attributes` — `refineAttribute` /
 --     `RawDBCAttribute` constructors.
+--   * `DBC.AttrLookup` — `lookupDef` (the def-by-name lookup shared by
+--     the formatter's emit path and the parser's refinement pass).
 --   * `TextFormatter.TopLevel` — section emitters (`emitValueTables-
 --     chars`, `emitMessages-chars`, …).
 --   * `TextParser.TopLevel` — `TopStmt` + `parseTopStmt` + `partition-
@@ -34,7 +36,6 @@ open import Data.Char  using (Char)
 open import Data.List  using (List; []; map)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just; nothing)
-open import Data.Unit  using (⊤)
 open import Relation.Binary.PropositionalEquality
   using (_≡_)
 
@@ -53,9 +54,8 @@ open import Aletheia.DBC.TextParser.Attributes using
   ; RawAttrValue;    RavString; RavDecRat
   ; mkRawAttrDefault
   ; mkRawAttrAssign
-  ; findLabel
   )
-open import Aletheia.DBC.TextParser.Attributes as ParserAttrs using ()
+open import Aletheia.DBC.AttrLookup using (lookupDef)
 open import Aletheia.DBC.TextParser.ValueTables using (RawValueDesc)
 open import Aletheia.DBC.TextParser.ValueDescriptions using (collectFromMessages)
 open import Aletheia.DBC.TextFormatter.Attributes using
@@ -107,7 +107,7 @@ private
   ... | AVString s = RavString s
   ... | AVHex n    = RavDecRat (NatDecRat.value n)
   ... | AVEnum n
-      with ParserAttrs.lookupDef (AttrDefault.name d) defs
+      with lookupDef (AttrDefault.name d) defs
   ...   | nothing = RavString []
   ...   | just def
       with AttrDef.attrType def
@@ -139,23 +139,24 @@ rawOf _    (DBCAttrAssign a)  =
 -- type, and (for ATEnum × AVEnum default context) the label-uniqueness
 -- bridge `findLabel (nthLabel n labels) labels ≡ just n` holds.
 
--- Vacuous unless the value is AVEnum under a default in an ATEnum def.
-DefaultEnumOK : AttrType → AttrValue → Set
-DefaultEnumOK (ATEnum labels) (AVEnum n) =
-  findLabel (nthLabel (natDecRatToℕ n) labels) labels ≡ just (natDecRatToℕ n)
-DefaultEnumOK _               _          = ⊤
+-- `DefaultEnumOK` (vacuous unless the value is AVEnum under a default in
+-- an ATEnum def) is defined in the non-`Properties` home
+-- `Aletheia.DBC.TextParser.WellFormedAttr` (the runtime checker decides it
+-- there via `enumOk?`); re-exported here for the aggregator proof tree.
+open import Aletheia.DBC.TextParser.WellFormedAttr public
+  using (DefaultEnumOK)
 
 data WFAttribute (defs : List AttrDef) : DBCAttribute → Set where
   wfDef     : ∀ d → WfAttrType (AttrDef.attrType d) → WFAttribute defs (DBCAttrDef d)
   wfDefault :
       ∀ d def
-    → ParserAttrs.lookupDef (AttrDefault.name d) defs ≡ just def
+    → lookupDef (AttrDefault.name d) defs ≡ just def
     → ValueMatchesType (AttrDef.attrType def) (AttrDefault.value d)
     → DefaultEnumOK     (AttrDef.attrType def) (AttrDefault.value d)
     → WFAttribute defs (DBCAttrDefault d)
   wfAssign  :
       ∀ a def
-    → ParserAttrs.lookupDef (AttrAssign.name a) defs ≡ just def
+    → lookupDef (AttrAssign.name a) defs ≡ just def
     → ValueMatchesType (AttrDef.attrType def) (AttrAssign.value a)
     → WFAttribute defs (DBCAttrAssign a)
 
