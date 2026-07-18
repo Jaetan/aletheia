@@ -1,12 +1,17 @@
-> **Provenance** — rev. 2 (post-adversarial-panel) proof strategy for E.2 route (a),
-> produced 2026-07-12 by the multi-agent deep-dive indexed in
-> [E2_PROOF_STRATEGY.md](E2_PROOF_STRATEGY.md) (method, panel record, scheduling).
-> Route ranking and the E.2 schedule live in [DEFERRED_ITEMS.md](DEFERRED_ITEMS.md) § E.2.
-> File:line references are pinned to the 2026-07-12 tree (post-#176 `e9d609f9` plus the
-> E.2 accuracy batch); re-verify them against the current tree before executing.
+> **Provenance** — rev. 2 (post-adversarial-panel) design-ahead plan for
+> lossless extended-mux text emission, produced 2026-07-12 by a multi-agent
+> deep-dive. This is the maintained design plan for
+> [DEFERRED_ITEMS.md](DEFERRED_ITEMS.md) **§ A.1 / § A.3** (its lifecycle
+> follows those items; internal "E.2 route (a)" labels in section prose are
+> historical — they name the closed backlog item this plan originated under).
+> File:line references are pinned to the 2026-07-12 tree; the always-strict
+> `format_dbc_text` work has since added `WellFormedTextPresence`/`wfps`
+> consumers (`WellFormedCheck.agda`, `Properties/WellFormedCheck/Sound.agda`,
+> `Sound/Signal.agda`) that post-date §5.6's deletion inventory — run the §12.3
+> re-verification pass against the current tree before executing.
 
-# E.2 Route (a) — Lossless Extended-Mux Text Emission (A.1 → A.3)
-## Definitive proof strategy — design-ahead document, demand-gated (rev 2, post-panel)
+# Lossless Extended-Mux Text Emission (A.1 → A.3)
+## Design-ahead plan, demand-gated (rev 2, post-panel)
 
 **Status**: DESIGN-AHEAD. Not to be executed until the trigger (§12) fires. All file/line citations verified against the working tree 2026-07-12 (`main`, post-#176); rev 2 incorporates the adversarial-panel findings (bound-design rework, fixture-flip obligations, cascade completions). Re-run the §12.3 re-verification pass before execution — the proof layer has parallel doc-comment edits in flight (WellFormed.agda, FormatDBCText.agda, WellFormedFromValidity.agda).
 

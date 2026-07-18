@@ -10,6 +10,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Internal — no behavior change. The DBC text round-trip proof documentation now
+  lives in the source: the `WellFormedFromValidity` module header explains why
+  DBC validity cannot imply the round-trip predicate (text emission is lossy on
+  constructs the validator accepts) and why no guarantee depends on that
+  implication (the predicate is runtime-decidable, sound and complete, and
+  `format_dbc_text`'s guarantee routes through the hypothesis-free exact
+  re-parse check). The retired proof-strategy notes were removed alongside; the
+  surviving extended-mux design plan was renamed to a content-based name
+  (`EXTENDED_MUX_DESIGN.md`), letting the memory-citation checker drop its
+  backlog-doc exemption entirely.
+
 ## [4.0.0] — 2026-07-17
 
 ### Added

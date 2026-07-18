@@ -81,6 +81,14 @@ open import Aletheia.DBC.TextFormatter.Attributes using
 -- Bundles every per-section precondition the text universal roundtrip
 -- needs.  Each field is the same predicate the matching Layer 3 / 4
 -- per-construct slim takes.
+--
+-- Membership is decidable at runtime, soundly and completely:
+-- `wfTextIssues d ≡ [] ⟺ WellFormedTextDBCAgg d`
+-- (`Properties.WellFormedCheck.Sound`).  DBC validity does NOT imply this
+-- predicate — text emission is lossy on constructs the validator accepts —
+-- and no runtime guarantee depends on that implication; see the
+-- `Properties.WellFormedFromValidity` module header for the counterexample
+-- class and the two results that carry the guarantee instead.
 
 record WellFormedTextDBCAgg (d : DBC) : Set where
   field
