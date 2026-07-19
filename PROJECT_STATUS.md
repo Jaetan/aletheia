@@ -54,20 +54,31 @@ cannot honestly advertise capabilities it does not yet have.
      bindings resolve the library from `ALETHEIA_LIB`, so one download makes every
      binding usable after a single `source env.sh`. A `dist` self-check and a
      release-workflow smoke test guard the bundle's contents.
-   - **Remaining — in progress (distribution hardening, started 2026-07-19):**
-     - **Native packages + Docker.** Native OS packages (`.deb` / `.rpm`) attached
-       to the Release, and a multi-binding Docker image (extend `Dockerfile.runtime`
-       / `shake docker` past today's Python-only consumer).
-     - **Always-on bundle-staging gate.** A fast gate that runs `bash -n` /
-       `fish -n` on the packaging scripts and asserts every `git archive`
-       pathspec resolves to a tracked file, so bundle staging cannot silently rot
-       between releases — today the `dist` self-check only fires when `dist`
-       actually runs.
-     - **SBOM covers the bundled binding sources**, not just the `.so` + GHC deps.
-     - **Real-workflow validation in C++ / Go / Rust** from the bundle. Python is
-       proven end-to-end (the real-downloader walk ran a real LTL verification); the
-       other three are verified to load the `.so` but not yet exercised on a full
-       workflow from the published artifact.
+   - **✅ Distribution hardening (complete, 2026-07-19).** Every follow-up
+     shipped, each with an empirically proven failure mode:
+     - **Always-on bundle-staging gate** (`check-dist-staging`, also in the
+       pre-commit fast tier): every `git archive` pathspec must resolve —
+       including `:(exclude)` inner globs, which `git archive` itself passes
+       over silently — and the packaging scripts must be tracked and
+       syntax-clean (`bash -n` / `fish -n`, fish installed in CI).
+     - **SBOM bills the bundled binding sources**: manifest parsers over the
+       staged tree (still zero external SBOM tooling), one merged CycloneDX
+       document, and a coverage gate that fails the dist on any
+       manifest-declared dependency missing from the bill.
+     - **Real-workflow validation from the bundle**: a validator executes the
+       installers' own printed recipes and drives one consumer per compiled
+       binding (C++ / Go / Rust) through a real LTL scenario; it gates
+       publish, and the repo's first scheduled workflow re-validates weekly —
+       both a fresh dist from HEAD and a replay of the latest published
+       Release as a real downloader.
+     - **Native packages + published image**: `.deb` / `.rpm` built from one
+       nfpm manifest (payload = the bundle at `/opt/aletheia`, byte-identity
+       proven; opt-in env; the rpm depends on the libgmp soname so it
+       resolves across rpm distros), attached to the Release keyless-signed
+       with the self-verify loop covering every artifact; the runtime
+       container image is published to GHCR with its digest keyless-signed,
+       and its build fails unless every compiled binding builds against the
+       image's own payload.
 2. **`aletheia template <file>.xlsx` CLI subcommand.** A true no-code way to obtain
    the Excel template (today it needs a Python one-liner), so the non-programmer
    on-ramp is real.
