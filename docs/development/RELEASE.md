@@ -402,8 +402,8 @@ tar -xOzf aletheia.tar.gz aletheia/MANIFEST.txt
 
 The native packages verify with the **same recipe** — substitute the
 package file name for `aletheia.tar.gz` (each has its own `.sha256`,
-`.sig`, and `.crt` sidecars on the Release; worked example in
-[DISTRIBUTION.md § Installing from a native package](DISTRIBUTION.md#installing-from-a-native-package-deb--rpm)).
+`.sig`, and `.crt` sidecars on the Release). Worked example:
+[DISTRIBUTION.md § Installing from a native package](DISTRIBUTION.md#installing-from-a-native-package-deb--rpm).
 The container image verifies with `cosign verify` against the same
 workflow identity (see
 [Container image on GHCR](#container-image-on-ghcr)).

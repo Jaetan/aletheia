@@ -1766,7 +1766,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         putInfo ""
         putInfo "  Install (opt-in env — no maintainer scripts, no profile.d):"
         putInfo $ "    sudo dpkg -i " ++ debFile ++ "      # Debian/Ubuntu (needs libgmp10)"
-        putInfo $ "    sudo rpm -i " ++ rpmFile ++ "   # RPM distros (needs gmp-libs)"
+        putInfo $ "    sudo rpm -i " ++ rpmFile ++ "   # RPM distros (needs the libgmp runtime)"
         putInfo "    source /opt/aletheia/env.sh    # bash/zsh (fish: env.fish)"
         putInfo ""
 
