@@ -332,6 +332,10 @@ pytest_add_cli_args = [
     # test_wire_codes_parity.py, is ignored with the repo-root-path cluster
     # above — it reads ../../docs/WIRE_CODES.yaml.)
     "--ignore=tests/test_check_wire_codes.py",
+    # Same shape: covers the dist bundle-staging gate (repo-root `tools`
+    # package; also reads ../../Shakefile.hs, outside the relocated mutants/
+    # tree).  Infra coverage, not hot-path.
+    "--ignore=tests/test_check_dist_staging.py",
     # The demo gate reaches repo-root `examples/demo` via parents[2] (only
     # `python/` in the relocated mutants/ tree, so the glob is empty) AND runs
     # each demo in a SUBPROCESS that imports the INSTALLED package, never the
