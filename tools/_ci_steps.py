@@ -88,12 +88,16 @@ HEAVY_STEPS: frozenset[str] = frozenset(
 # + SPDX/review-mark/venv hygiene + the two Python linters (ruff, pylint — both
 # interpreted, no compile).  The split of ``gofmt``/``cargo fmt`` out of their
 # ``go vet``/``clippy`` partners exists to make this allowlist expressible.
+# ``check-dist-staging`` qualifies too: it only parses Shakefile.hs and runs
+# ``git ls-files`` / shell syntax checks, and ``git ls-files`` reads the INDEX —
+# exactly the staged content the pre-commit tier is defined over.
 FAST_STEPS: frozenset[str] = frozenset(
     {
         "check-spdx-headers",
         "check-no-review-marks",
         "check-no-memory-citations",
         "check-venv-convention",
+        "check-dist-staging",
         "clang-format",
         "gofmt",
         "cargo fmt",
@@ -551,9 +555,27 @@ def _run_gha_checks(runner: Runner) -> None:
         [runner.python, "-m", "tools.check_wire_codes"],
         cwd=runner.repo_root,
     )
+    # Always-on parse-only mode: PR runners have no dist tree, so this runs the
+    # SBOM's four binding-manifest parsers against the REPO manifests (python/
+    # go/ rust/ cpp/ share the staged bindings tree's layout), catching parser
+    # rot and manifest-shape drift on every PR.  The full SBOM-vs-manifest
+    # cross-check runs inside the Shakefile `dist` rule against the staged
+    # bundle.  Not in FAST_STEPS: the FAST tier's allowlist is deliberately
+    # scoped to per-file format/lint hygiene, and the manifests this gate reads
+    # change too rarely to earn a per-commit slot — CI + pre-push cover it.
+    runner.step(
+        "check-sbom-coverage",
+        [runner.python, "-m", "tools.check_sbom_coverage", "--parse-only"],
+        cwd=runner.repo_root,
+    )
     runner.step(
         "check-install-freshness",
         [runner.python, "-m", "tools.check_install_freshness"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
+        "check-dist-staging",
+        [runner.python, "-m", "tools.check_dist_staging"],
         cwd=runner.repo_root,
     )
 
