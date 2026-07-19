@@ -1,9 +1,10 @@
 # RELEASE.md
 
 The release pipeline for Aletheia.  Cuts a tagged distribution tarball,
-records a CycloneDX SBOM, signs the tarball with cosign (keyless in CI,
-key-based for local cuts), and produces the verifiable artifact set
-consumers should rely on.
+native packages (`.deb` + `.rpm`) over the same payload, and a runtime
+container image on GHCR; records a CycloneDX SBOM; signs every artifact
+with cosign (keyless in CI, key-based for local cuts); and produces the
+verifiable artifact set consumers should rely on.
 
 Cross-references:
 
@@ -111,6 +112,84 @@ and validates that tarball: a true replay of the consumer's download path.
 The scheduled lane also runs the validator's `--self-test`, which corrupts
 copies of the bundle and asserts each corrupted copy FAILS validation — the
 gate's teeth are themselves gated.
+
+## Native packages (.deb / .rpm)
+
+After the bundle validation, the release workflow builds native Linux
+packages from the **same staged payload the tarball ships** —
+`cabal run shake -- packages` maps `dist/aletheia` wholesale to
+`/opt/aletheia` through the single `contents:` entry in
+[`packaging/nfpm.yaml`](../../packaging/nfpm.yaml) (nfpm renders both
+formats from that one manifest; nfpm itself is installed SHA-pinned, like
+cosign).  The `packages` rule self-checks that the packed payload lists the
+kernel `.so` under `/opt/aletheia/lib`, and the workflow then `dpkg -i`
+install-smokes the `.deb` on the runner (env.sh → kernel load → clean
+removal) and structurally checks the `.rpm` payload listing before anything
+is published.
+
+Artifacts per package: the `.deb`/`.rpm` itself, a `.sha256` sidecar, and a
+keyless cosign `.sig` + `.crt` pair — verified in CI by the same
+self-verify loop as the tarball, and by consumers with the same
+`cosign verify-blob` recipe (see
+[Verifying release artifacts](#verifying-release-artifacts-consumer-side)).
+
+**Reproducibility scope (honest):** the packages are **hash-pinned per
+release, not bit-reproducible**.  Empirically (nfpm 2.47.0, both formats):
+without `SOURCE_DATE_EPOCH` two packagings of the same staged tree already
+differ (nfpm stamps wall-clock into package metadata); with it — the
+`packages` rule sets it to the commit epoch, matching the dist rule's
+no-wall-clock stance — both formats are bit-identical across re-packagings
+of the *same* staged tree, but nfpm does not clamp payload file mtimes, so
+a re-staged tree yields different package bytes.  Verify the pinned hash
+and signature, not a rebuild.  (The tarball's stronger guarantee is
+unchanged — see
+[Reproducible build verification](#reproducible-build-verification).)
+
+Locally, `cabal run shake -- packages` produces the same artifact set
+(unsigned-with-warning unless a signing mode is configured); it requires
+`nfpm` on `PATH` — the pinned version + SHA-256 are recorded in
+`packaging/nfpm.yaml`'s header comment.
+
+## Container image on GHCR
+
+On a `v*` tag push, after the draft Release is published, the workflow
+pushes the runtime image (built from `Dockerfile.runtime` over the same
+`dist/aletheia` payload) to GitHub Container Registry:
+
+- `ghcr.io/jaetan/aletheia:X.Y.Z` (the release version) and `:latest`;
+- the image **digest** is keyless-signed (`cosign sign`) under the same
+  workflow OIDC identity as the blob artifacts — the digest, not a tag,
+  because tags are movable and the digest is content-addressed.
+
+The image build is itself a publish gate and runs *before* anything is
+published: throwaway verify stages must build the bundled Rust crate and
+C++ binding (clang-22), and build **and run** a Go consumer, against the
+image's own `/opt/aletheia` — so an image whose bindings cannot consume its
+kernel never ships.  The push happens last because it is the one
+non-draft publish surface: GHCR has no draft state, a failed push is
+idempotently retryable, and by that point every verification gate has
+passed.
+
+Consumers verify the image against the workflow identity:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp \
+    '^https://github\.com/Jaetan/aletheia/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/jaetan/aletheia:X.Y.Z
+```
+
+`cosign verify` resolves the tag to its digest and verifies the signature
+over that digest; pin the digest in your own `FROM`/`COPY --from`
+references for full immutability
+([DISTRIBUTION.md § Docker](DISTRIBUTION.md#docker)).
+
+**Maintainer note — one-time GHCR visibility flip:** the *first* push
+creates the `aletheia` package on GHCR as **private**.  Consumers cannot
+pull until you flip it once: GitHub → your profile → Packages →
+`aletheia` → Package settings → Change visibility → Public.  Subsequent
+release pushes keep the visibility; no further action needed.
 
 ## Reproducible build verification
 
@@ -321,6 +400,14 @@ tar -xOzf aletheia.tar.gz aletheia/aletheia-sbom.cdx.json | jq .
 tar -xOzf aletheia.tar.gz aletheia/MANIFEST.txt
 ```
 
+The native packages verify with the **same recipe** — substitute the
+package file name for `aletheia.tar.gz` (each has its own `.sha256`,
+`.sig`, and `.crt` sidecars on the Release; worked example in
+[DISTRIBUTION.md § Installing from a native package](DISTRIBUTION.md#installing-from-a-native-package-deb--rpm)).
+The container image verifies with `cosign verify` against the same
+workflow identity (see
+[Container image on GHCR](#container-image-on-ghcr)).
+
 A failure in any of these is a stop-the-world event for the consumer.
 
 ## Release checklist
@@ -364,15 +451,20 @@ A failure in any of these is a stop-the-world event for the consumer.
 
 - [ ] Tag the release commit and push: `git tag -s vX.Y.Z -m "Aletheia vX.Y.Z"`
       then `git push origin vX.Y.Z`.
-- [ ] `release.yml` goes green — it builds, keyless-signs, **self-verifies**
-      the tarball against the workflow OIDC identity, and **validates the
-      bundle** across the bindings (see
-      [Release-path bundle validation](#release-path-bundle-validation)).
-      Publish is gated on those checks, so a green run means the artifact is
+- [ ] `release.yml` goes green — it builds, keyless-signs, **self-verifies
+      every signed artifact** (tarball + `.deb` + `.rpm`) against the workflow
+      OIDC identity, **validates the bundle** across the bindings (see
+      [Release-path bundle validation](#release-path-bundle-validation)),
+      **install-smokes the `.deb`**, and **builds the runtime image** (whose
+      verify stages exercise every compiled binding against it).  Publish is
+      gated on all of these, so a green run means every artifact is
       verifiable *and* consumable.
 - [ ] Review the resulting **draft** GitHub Release, then flip it from draft to
       published.  (Smoke-test beforehand with `gh workflow run release.yml` — the
-      full build + sign + self-verify as a dry-run, no publish.)
+      full build + sign + self-verify as a dry-run, no publish or push.)
+- [ ] **First release with an image only:** flip the GHCR package visibility
+      to Public (see the maintainer note under
+      [Container image on GHCR](#container-image-on-ghcr)).
 
 ### Local release (fallback — cut off CI)
 

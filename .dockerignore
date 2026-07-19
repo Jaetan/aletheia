@@ -28,5 +28,8 @@ __pycache__/
 *.pyc
 *.egg-info/
 
-# Don't exclude dist/ — Dockerfile.runtime needs it
-# Don't exclude python/ — both Dockerfiles need it
+# Don't exclude dist/ — Dockerfile.runtime needs it (its Python binding is
+# installed from the bundle at dist/aletheia/bindings/python)
+# Don't exclude python/ — Dockerfile (source build) needs it
+# Don't exclude tools/bundle_validation/ or examples/demo/ — the
+# Dockerfile.runtime verify stages build/run the Go consumer from them

@@ -276,15 +276,18 @@ checkFFINames ffiFile = do
             Nothing -> return ()  -- unreachable: loadFFIModuleContents covers every module
 
 -- | Parse the digest-pinned base image from Dockerfile.runtime.
--- Returns the value after `FROM ` up to end-of-line (e.g.
--- `python:3.14-slim@sha256:...`).  Falls back to "unknown" if no
--- `FROM` line is found.
+-- Returns the image reference of the FIRST `FROM` line — the runtime
+-- stage's base (e.g. `python:3.14-slim@sha256:...`); later `FROM` lines
+-- belong to the throwaway verify stages, which ship no bytes.  Takes only
+-- the first token so a `FROM <image> AS <stage>` alias is not captured.
+-- Falls back to "unknown" if no `FROM` line is found.
 parseFromBase :: String -> String
 parseFromBase dockerfile =
-    case [ rest | l <- lines dockerfile
+    case [ base | l <- lines dockerfile
                 , Just rest <- [stripPrefix "FROM " l]
+                , base:_ <- [words rest]
                 ]
-      of (x:_) -> strip x
+      of (x:_) -> x
          []    -> "unknown"
 
 -- | Parse the pinned libgmp10 version from Dockerfile.runtime.
@@ -339,6 +342,75 @@ sha256file :: FilePath -> Action String
 sha256file p = do
     Stdout out <- cmd "sha256sum" p
     return $ takeWhile (/= ' ') out
+
+-- | Artifact-signing configuration, resolved from the environment once per
+-- rule (cosign presence + the ALETHEIA_COSIGN_* selectors) so every rule
+-- that signs release artifacts — the dist tarball, the native packages —
+-- resolves the mode by the same policy.  Precedence: keyless (CI, ambient
+-- OIDC) wins over the keyring key; absent cosign or neither selector set
+-- → unsigned.
+data SignConfig = SignConfig
+    { scMode :: String        -- ^ "keyless" | "keyed" | "none"
+    , scKey  :: Maybe String  -- ^ ALETHEIA_COSIGN_KEY value (key-based path)
+    , scTlog :: Maybe String  -- ^ ALETHEIA_COSIGN_TLOG value (keyed tlog opt-in)
+    }
+
+resolveSignConfig :: Action SignConfig
+resolveSignConfig = do
+    Exit cosignPresent <- cmd Shell "command -v cosign >/dev/null 2>&1"
+    keylessEnv <- liftIO $ lookupEnv "ALETHEIA_COSIGN_KEYLESS"
+    cosignKey  <- liftIO $ lookupEnv "ALETHEIA_COSIGN_KEY"
+    tlogEnv    <- liftIO $ lookupEnv "ALETHEIA_COSIGN_TLOG"
+    let mode
+          | ExitFailure _ <- cosignPresent = "none"
+          | keylessEnv == Just "1"         = "keyless"
+          | Just _ <- cosignKey            = "keyed"
+          | otherwise                      = "none"
+    return SignConfig { scMode = mode, scKey = cosignKey, scTlog = tlogEnv }
+
+-- | Sign one artifact with cosign per the resolved signing configuration,
+-- emitting a @<path>.sig@ sibling (and, keyless only, the short-lived
+-- Fulcio certificate as @<path>.crt@).
+--
+-- Keyless / Sigstore: the ephemeral signing key is minted from the ambient
+-- GitHub Actions OIDC token (needs id-token: write) and discarded after
+-- use.  tlog upload stays ON (cosign's keyless default) — the short-lived
+-- Fulcio cert is verifiable only via its Rekor transparency-log entry.
+--
+-- Key-based: default @--tlog-upload=false@ — per-dev-run signing should not
+-- push every artifact hash to the public Sigstore Rekor log; release
+-- signing opts back in via ALETHEIA_COSIGN_TLOG=1.
+--
+-- Returns True when a signature was produced.  Unsigned mode warns and
+-- returns False — release verification fails closed on the consumer side
+-- via cosign verify-blob, not here.
+signArtifact :: SignConfig -> FilePath -> Action Bool
+signArtifact cfg path = case (scMode cfg, scKey cfg) of
+    ("keyless", _) -> do
+        putInfo $ "Signing " ++ path ++ " with cosign (keyless / ambient OIDC, tlog on)..."
+        cmd_ Shell $
+            "cosign sign-blob --yes" ++
+            " --output-signature '" ++ path ++ ".sig'" ++
+            " --output-certificate '" ++ path ++ ".crt'" ++
+            " '" ++ path ++ "'"
+        return True
+    ("keyed", Just keyPath) -> do
+        let tlogFlag = case scTlog cfg of
+                Just "1" -> "--tlog-upload=true"
+                _        -> "--tlog-upload=false"
+        putInfo $ "Signing " ++ path ++ " with cosign (key-based, " ++ tlogFlag ++ ")..."
+        cmd_ Shell $
+            "COSIGN_PASSWORD=\"${COSIGN_PASSWORD:-}\" cosign sign-blob --yes " ++
+            tlogFlag ++
+            " --key '" ++ keyPath ++ "'" ++
+            " --output-signature '" ++ path ++ ".sig'" ++
+            " '" ++ path ++ "'"
+        return True
+    _ -> do
+        putWarn $ path ++ " NOT signed — cosign missing, or neither " ++
+            "ALETHEIA_COSIGN_KEYLESS=1 nor ALETHEIA_COSIGN_KEY set.\n" ++
+            "  See docs/development/RELEASE.md § Signing."
+        return False
 
 -- | Check that patchelf and Python 3.12+ are available.
 checkPrerequisites :: Action ()
@@ -1418,24 +1490,14 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- embedded in MANIFEST.txt matches the signature the tarball actually
         -- carries.  A keyless tarball must NOT tell its consumer to run
         -- `--key cosign.pub` (wrong material for that artifact), and vice versa.
-        -- Precedence: keyless (CI, ambient OIDC) wins over the keyring key;
-        -- absent cosign or neither selector set → unsigned.
-        Exit cosignPresent <- cmd Shell "command -v cosign >/dev/null 2>&1"
-        keylessEnv <- liftIO $ lookupEnv "ALETHEIA_COSIGN_KEYLESS"
-        cosignKey  <- liftIO $ lookupEnv "ALETHEIA_COSIGN_KEY"
-        tlogEnv    <- liftIO $ lookupEnv "ALETHEIA_COSIGN_TLOG"
-        let signMode :: String
-            signMode
-              | ExitFailure _ <- cosignPresent = "none"
-              | keylessEnv == Just "1"         = "keyless"
-              | Just _ <- cosignKey            = "keyed"
-              | otherwise                      = "none"
+        signCfg <- resolveSignConfig
+        let signMode = scMode signCfg
 
         -- The key-based verify command must match how THIS tarball was signed:
         -- cosign checks the Rekor tlog by default, so a build signed WITHOUT
         -- tlog (ALETHEIA_COSIGN_TLOG≠1 — the dev default) must be verified with
         -- --insecure-ignore-tlog.  Keyless always uploads to tlog (no flag).
-        let keyedTlog = case tlogEnv of
+        let keyedTlog = case scTlog signCfg of
               Just "1" -> ""
               _        -> "--insecure-ignore-tlog "
 
@@ -1540,44 +1602,12 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         tarballHash <- sha256file tarball
         liftIO $ writeFile tarHashFile (tarballHash ++ "  " ++ takeFileName tarball ++ "\n")
 
-        -- CICD-5.4: sign the tarball per the signing mode resolved above.
-        -- Skip-with-warning when unsigned — release verification fails closed
-        -- on the consumer side via cosign verify-blob, not here.
-        sigPresent <- case (signMode, cosignKey) of
-            ("keyless", _) -> do
-                -- Keyless / Sigstore: the ephemeral signing key is minted from
-                -- the ambient GitHub Actions OIDC token (needs id-token: write)
-                -- and discarded after use.  tlog upload stays ON (cosign's
-                -- keyless default) — the short-lived Fulcio cert is verifiable
-                -- only via its Rekor transparency-log entry.  Emits .sig + .crt.
-                putInfo "Signing tarball with cosign (keyless / ambient OIDC, tlog on)..."
-                cmd_ Shell $
-                    "cosign sign-blob --yes" ++
-                    " --output-signature '" ++ tarSigFile ++ "'" ++
-                    " --output-certificate '" ++ tarCrtFile ++ "'" ++
-                    " '" ++ tarball ++ "'"
-                return True
-            ("keyed", Just keyPath) -> do
-                -- Default --tlog-upload=false: per-dev-run signing should not
-                -- push every artifact hash to the public Sigstore Rekor log.
-                -- Release signing opts back in via ALETHEIA_COSIGN_TLOG=1
-                -- (tlogEnv resolved up front, shared with the MANIFEST recipe).
-                let tlogFlag = case tlogEnv of
-                        Just "1" -> "--tlog-upload=true"
-                        _        -> "--tlog-upload=false"
-                putInfo $ "Signing tarball with cosign (key-based, " ++ tlogFlag ++ ")..."
-                cmd_ Shell $
-                    "COSIGN_PASSWORD=\"${COSIGN_PASSWORD:-}\" cosign sign-blob --yes " ++
-                    tlogFlag ++
-                    " --key '" ++ keyPath ++ "'" ++
-                    " --output-signature '" ++ tarSigFile ++ "'" ++
-                    " '" ++ tarball ++ "'"
-                return True
-            _ -> do
-                putWarn $ "Tarball NOT signed — cosign missing, or neither " ++
-                    "ALETHEIA_COSIGN_KEYLESS=1 nor ALETHEIA_COSIGN_KEY set.\n" ++
-                    "  See docs/development/RELEASE.md § Signing."
-                return False
+        -- CICD-5.4: sign the tarball per the signing mode resolved above
+        -- (signArtifact emits the .sig — and, keyless, .crt — siblings whose
+        -- paths the cleanup at the top of this rule removed).  Skip-with-warning
+        -- when unsigned — release verification fails closed on the consumer
+        -- side via cosign verify-blob, not here.
+        sigPresent <- signArtifact signCfg tarball
 
         -- Report
         Stdout distSize <- cmd Shell ("du -sh " ++ distDir ++ " | cut -f1")
@@ -1616,6 +1646,130 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         putInfo "        -Wl,-rpath,'$ORIGIN/../lib' -laletheia-ffi app.c"
         putInfo ""
 
+    -- Native OS packages (.deb + .rpm) over the SAME payload the release
+    -- tarball ships: packaging/nfpm.yaml maps the staged dist/aletheia tree
+    -- wholesale to /opt/aletheia (a single `type: tree` entry — the payload
+    -- SSOT; never a second file list).  A separate target on purpose: a local
+    -- `cabal run shake -- dist` stays nfpm-free, and only the release
+    -- workflow adds `packages` on top.
+    --
+    -- The packages are hash-pinned per release (each gets a .sha256 sidecar
+    -- and a cosign signature), NOT claimed bit-reproducible.  Empirically
+    -- probed (nfpm 2.47.0, both formats): without SOURCE_DATE_EPOCH two
+    -- back-to-back packagings of the SAME staged tree already differ (nfpm
+    -- stamps wall-clock into package metadata); with SOURCE_DATE_EPOCH set
+    -- both formats ARE bit-identical across re-packagings of the same tree,
+    -- but nfpm does not clamp the payload files' mtimes to the epoch, so a
+    -- re-staged dist/aletheia tree (fresh `shake dist`) still yields
+    -- different package bytes.  End-to-end repro would additionally need the
+    -- staging tree's mtimes normalized; until then consumers verify the
+    -- pinned hash + signature, not a rebuild.
+    phony "packages" $ do
+        need ["dist"]
+
+        -- nfpm is a hard requirement here (unlike cosign, which degrades to
+        -- unsigned-with-warning): a packages invocation without nfpm could
+        -- only produce nothing.  Install is SHA-pinned, like cosign's.
+        Exit nfpmPresent <- cmd Shell "command -v nfpm >/dev/null 2>&1"
+        case nfpmPresent of
+            ExitSuccess -> return ()
+            ExitFailure _ -> error $
+                "packages: nfpm not found on PATH — install the SHA-pinned " ++
+                "release from https://github.com/goreleaser/nfpm/releases " ++
+                "(see packaging/nfpm.yaml for the pinned version + sha256)."
+
+        -- Same version parse the dist rule uses: the package version is the
+        -- cabal-parsed distVer, injected into packaging/nfpm.yaml via the
+        -- NFPM_VERSION environment variable — one authority, no drift.
+        pkgCabal <- liftIO $ readFile "haskell-shim/aletheia.cabal"
+        let pkgVer = parseCabalVersion pkgCabal
+        when (null pkgVer) $
+            error "Could not parse `version:` from haskell-shim/aletheia.cabal"
+
+        -- Explicit conventional file names (deb: name_version_arch; rpm:
+        -- name-version-release.arch with nfpm's default release of 1) so this
+        -- rule knows exactly which files to self-check, hash, and sign.
+        let debFile = "dist/aletheia_" ++ pkgVer ++ "_amd64.deb"
+        let rpmFile = "dist/aletheia-" ++ pkgVer ++ "-1.x86_64.rpm"
+
+        -- Release hygiene: a version bump would otherwise leave the prior
+        -- version's packages (and their sidecars) in dist/ — prune every
+        -- package artifact, not just the current names.
+        cmd_ Shell $ "rm -f dist/*.deb dist/*.rpm" ++
+            concat [ " dist/*." ++ fmt ++ ext
+                   | fmt <- ["deb", "rpm"]
+                   , ext <- [".sha256", ".sig", ".crt"] ]
+
+        -- SOURCE_DATE_EPOCH = commit time, matching the dist rule's stance
+        -- that artifact metadata derives from source state, never wall-clock.
+        -- Empirically it pins nfpm's own metadata timestamps in both formats
+        -- (see the reproducibility note on this rule) — e.g. the rpm Build
+        -- Date becomes the commit time.
+        Stdout pkgCommitTime <- cmd Shell "git log -1 --format=%ct HEAD"
+        let pkgEpoch = strip pkgCommitTime
+
+        forM_ [("deb", debFile), ("rpm", rpmFile)] $ \(fmt, out) -> do
+            putInfo $ "Packaging " ++ out ++ " (nfpm, payload = dist/aletheia -> /opt/aletheia)..."
+            cmd_ (AddEnv "NFPM_VERSION" pkgVer)
+                (AddEnv "SOURCE_DATE_EPOCH" pkgEpoch)
+                "nfpm" "package" "-f" "packaging/nfpm.yaml" "-p" fmt "-t" out
+
+        -- Self-check with teeth (mirrors the dist staging self-check): both
+        -- packages must exist non-empty, and the packed payload must carry
+        -- the kernel .so under /opt/aletheia/lib — a wrong `src:` in
+        -- packaging/nfpm.yaml or a silently-empty tree map fails the build
+        -- here, not at a consumer's install.
+        forM_ [debFile, rpmFile] $ \p -> do
+            present <- doesFileExist p
+            unless present $
+                error $ "packages: " ++ p ++ " was not produced"
+            size <- liftIO $ SysDir.getFileSize p
+            when (size <= 0) $
+                error $ "packages: " ++ p ++ " is empty"
+        Stdout debContents <- cmd "dpkg-deb" "--contents" debFile
+        unless ("./opt/aletheia/lib/libaletheia-ffi.so" `isInfixOf` debContents) $
+            error $ "packages: " ++ debFile ++
+                " does not list the kernel .so under /opt/aletheia/lib — " ++
+                "the packaging/nfpm.yaml contents map no longer covers the staged tree"
+        -- Same payload assertion for the .rpm when rpm is available (the
+        -- release runner has it; both formats pack the same contents map, so
+        -- the .deb check above already guards the mapping itself).
+        Exit rpmPresent <- cmd Shell "command -v rpm >/dev/null 2>&1"
+        case rpmPresent of
+            ExitSuccess -> do
+                Stdout rpmContents <- cmd "rpm" "-qlp" rpmFile
+                unless ("/opt/aletheia/lib/libaletheia-ffi.so" `isInfixOf` rpmContents) $
+                    error $ "packages: " ++ rpmFile ++
+                        " does not list the kernel .so under /opt/aletheia/lib"
+            ExitFailure _ ->
+                putWarn $ "packages: rpm not on PATH — skipped the .rpm payload " ++
+                    "listing self-check (the .deb payload check covers the shared " ++
+                    "contents map; install rpm to close this leg locally)."
+
+        -- Hash-pin + sign each package, exactly like the tarball: a .sha256
+        -- sidecar (sha256sum -c compatible) and a cosign signature per the
+        -- resolved signing mode.
+        pkgCfg <- resolveSignConfig
+        pkgHashes <- forM [debFile, rpmFile] $ \p -> do
+            h <- sha256file p
+            liftIO $ writeFile (p ++ ".sha256") (h ++ "  " ++ takeFileName p ++ "\n")
+            _ <- signArtifact pkgCfg p
+            return (takeFileName p, h)
+
+        putInfo ""
+        putInfo "════════════════════════════════════════════════════════════════"
+        putInfo "  Native packages built (payload = the dist bundle at /opt/aletheia)"
+        putInfo "════════════════════════════════════════════════════════════════"
+        putInfo ""
+        forM_ pkgHashes $ \(n, h) ->
+            putInfo $ "  dist/" ++ n ++ "  (sha256 " ++ take 12 h ++ "...)"
+        putInfo ""
+        putInfo "  Install (opt-in env — no maintainer scripts, no profile.d):"
+        putInfo $ "    sudo dpkg -i " ++ debFile ++ "      # Debian/Ubuntu (needs libgmp10)"
+        putInfo $ "    sudo rpm -i " ++ rpmFile ++ "   # RPM distros (needs gmp-libs)"
+        putInfo "    source /opt/aletheia/env.sh    # bash/zsh (fish: env.fish)"
+        putInfo ""
+
     phony "install-python" $ do
         need ["build/libaletheia-ffi.so"]
         -- CICD-3.1 closure: strip secret env vars
@@ -1638,6 +1792,14 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- so consumers can pin by commit.  Base image is digest-pinned in
         -- Dockerfile.runtime; the local image tag here is the consumer-facing
         -- handle.
+        --
+        -- The image build itself carries the cross-binding smoke: the
+        -- Dockerfile's throwaway verify stages build the bundled Rust and C++
+        -- bindings and build+RUN a Go consumer against the image's own
+        -- /opt/aletheia, and the final stage force-depends on all three — so
+        -- `docker build` failing IS the gate.  The Python smoke (FFIBackend
+        -- construction against the packaged .so) runs inside the runtime
+        -- stage.  Requires BuildKit (default since Docker 23).
         Stdout shortSha <- cmd Shell "git rev-parse --short HEAD"
         let shaTag = "aletheia:" ++ strip shortSha
         putInfo $ "Building Docker runtime image (tags: aletheia:latest, " ++ shaTag ++ ")..."
@@ -1653,7 +1815,10 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- digest-pinned base image (parsed from `FROM ...@sha256:...`),
         -- and the libgmp10 Debian version (parsed from the `apt-get
         -- install` line).  All three are reproducible-build inputs the
-        -- consumer needs to verify image provenance.
+        -- consumer needs to verify image provenance.  The image now also
+        -- ships the four binding source trees under /opt/aletheia/bindings;
+        -- adding them as SBOM components is a follow-up — this SBOM covers
+        -- the kernel .so closure + image-layer pins only.
         Stdout imageIdRaw <- cmd Shell "docker images aletheia:latest --no-trunc --format '{{.ID}}'"
         Stdout commitTimeRaw <- cmd Shell "git log -1 --pretty=%ct"
         dockerfile <- liftIO $ readFile "Dockerfile.runtime"

@@ -1,0 +1,68 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# nfpm packaging manifest — one YAML yields BOTH native package formats
+# (.deb and .rpm) via `cabal run shake -- packages` (release path only;
+# a local `cabal run shake -- dist` stays nfpm-free).
+#
+# Payload SSOT: the single `type: tree` entry under `contents:` maps the
+# ENTIRE staged release bundle (dist/aletheia — the same bytes the release
+# tarball ships) to /opt/aletheia.  Never add a second file list here — the
+# Shakefile dist rule is the only authority on what the bundle contains, and
+# the packages rule's self-check proves the mapping by asserting the kernel
+# .so is listed under /opt/aletheia/lib in the packed payload.
+#
+# /opt/aletheia (not /usr/lib) on purpose: the bundle carries its own GHC
+# runtime .so closure with RPATH=$ORIGIN, and those libraries must never
+# land in /usr/lib where they could shadow distro-managed ones.
+#
+# Environment wiring is STRICTLY opt-in — no maintainer scripts (no
+# `scripts:` section, ever), no profile.d drop-ins.  The user sources
+# /opt/aletheia/env.sh (bash/zsh) or /opt/aletheia/env.fish (fish), both
+# shipped inside the payload.
+#
+# ${NFPM_VERSION} is injected by the Shake packages rule from the cabal
+# `version:` field (the same parse the dist rule uses), so the package
+# version cannot drift from the built artifact's.
+#
+# nfpm itself is installed SHA-pinned (like cosign in release.yml):
+#   version 2.47.0, nfpm_2.47.0_Linux_x86_64.tar.gz,
+#   sha256 0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783
+name: aletheia
+# amd64-only: the packaged .so closure is built for x86-64 Linux (nfpm
+# renders this as `amd64` in the .deb and `x86_64` in the .rpm).
+arch: amd64
+platform: linux
+version: ${NFPM_VERSION}
+section: libs
+priority: optional
+maintainer: Nicolas Pelletier <nicolas.pelletier3@gmail.com>
+description: |
+  Formally verified CAN frame analysis using Linear Temporal Logic.
+  Ships the Agda-verified kernel (libaletheia-ffi.so) with its GHC runtime
+  closure, the C ABI header, and the Python/C++/Go/Rust binding sources
+  under /opt/aletheia.  x86-64 Linux only.  Environment wiring is opt-in:
+  source /opt/aletheia/env.sh (bash/zsh) or /opt/aletheia/env.fish (fish).
+vendor: Nicolas Pelletier
+homepage: https://github.com/Jaetan/aletheia
+license: BSD-2-Clause
+contents:
+  - src: dist/aletheia
+    dst: /opt/aletheia
+    type: tree
+# The ONLY runtime dependency beyond glibc is GMP (verified by ldd over the
+# packaged .so closure: every other DT_NEEDED entry resolves inside
+# /opt/aletheia/lib via RPATH=$ORIGIN, or to glibc).  The package name for
+# the GMP shared library differs per ecosystem, hence the per-format
+# override rather than a shared top-level `depends:`.
+overrides:
+  deb:
+    depends:
+      - libgmp10
+  rpm:
+    depends:
+      # Soname dependency, not a package name: the GMP runtime package is
+      # named differently across rpm distros (Fedora/RHEL `gmp`, openSUSE
+      # `gmp-libs`), but every one of them Provides this soname — so the
+      # dependency resolves everywhere the library exists.
+      - libgmp.so.10()(64bit)
