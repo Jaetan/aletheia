@@ -1,0 +1,354 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# Scheduled bundle validation — the between-releases counterpart of the
+# publish gate in release.yml.  Nothing else runs `shake dist` between release
+# cuts, so staging / installer-recipe / binding rot would otherwise surface
+# only at the NEXT release.  Independent jobs, molded on pr-heavy-lanes.yml
+# (same toolchain steps + shared cache keys):
+#
+#   * head-dist — builds an UNSIGNED `shake dist` from the current default
+#     branch and runs tools/bundle_validate.py against it with every compiled
+#     binding required, plus the validator's --self-test (corrupted copies of
+#     the bundle must FAIL validation — a gate that cannot fail has a bug).
+#   * release-replay — downloads the latest PUBLISHED GitHub Release exactly
+#     as a consumer would (the RELEASE.md § Verifying release artifacts
+#     commands: sha256 sidecar + keyless cosign against the release
+#     workflow's OIDC identity), then validates that tarball the same way.
+#     This replays the real download path end-to-end, catching anything that
+#     rots around an already-published artifact (recipes, toolchains, the
+#     Release assets themselves).
+#
+# Weekly cadence: cheap enough to never think about, frequent enough that rot
+# is caught within days — and the runs keep the shared caches warm.
+# workflow_dispatch remains for manual replays (e.g. right after editing
+# packaging/ or the installers).
+
+name: Bundle validation (scheduled)
+
+on:
+  schedule:
+    # Weekly, Monday early-UTC (an offset minute, per GitHub's guidance to
+    # avoid the on-the-hour load spike).  Scheduled runs execute on the
+    # default branch.
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bundle-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GHC_VERSION: '9.6.7'
+  AGDA_VERSION: '2.8.0'
+  STDLIB_VERSION: 'v2.3'
+
+jobs:
+  # ── Job 1: build a fresh (unsigned) dist from HEAD and validate it ─────────
+  head-dist:
+    name: validate a fresh dist from HEAD
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v7
+        with:
+          # `shake dist` derives the reproducible tarball mtime + SBOM epoch
+          # from `git log -1 --format=%ct HEAD` and stages the bindings via
+          # `git archive HEAD`, so the commit must be reachable.
+          fetch-depth: 0
+
+      - name: Set up GHC + cabal
+        run: |
+          set -euo pipefail
+          # Pin the legacy ~/.cabal layout so the cache path + PATH agree (see
+          # pr-full-ci.yml for the full rationale).
+          echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
+          export CABAL_DIR="${HOME}/.cabal"
+          sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
+          ghcup install ghc "${GHC_VERSION}" --set
+          ghcup install cabal 3.12.1.0 --set
+          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
+          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
+
+      - name: Restore cabal store (Agda library + executable + deps)
+        id: cabal-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Update cabal package index (only on a cabal-store cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        run: cabal update
+
+      - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
+        run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
+
+      - name: Save cabal store (only on a cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
+        uses: actions/cache@v6
+        with:
+          path: ~/.agda/agda-stdlib
+          key: agda-stdlib-${{ env.STDLIB_VERSION }}
+
+      - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.agda
+          if [ ! -d ~/.agda/agda-stdlib/.git ]; then
+            git clone --depth 1 --branch "${STDLIB_VERSION}" \
+              https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib
+          fi
+          echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
+          echo "standard-library" > ~/.agda/defaults
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Create the dev venv (python/.venv)
+        run: |
+          set -euo pipefail
+          # `shake dist` runs tools.sbom_generate under this venv.
+          python3.14 -m venv python/.venv
+          python/.venv/bin/pip install --upgrade pip
+          python/.venv/bin/pip install -e 'python/.[dev]'
+
+      # Restore-only: the exact-sha tree is seeded by the push:main runs of
+      # the PR workflows (pr-full-ci / pr-heavy-lanes, same key + prefix), so
+      # a weekly run restores the newest match and the `.so` build inside
+      # `shake dist` is incremental instead of cold.
+      - name: Restore incremental build tree (build/ + dist-newstyle/)
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            build
+            dist-newstyle
+            haskell-shim/dist-newstyle
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
+          restore-keys: |
+            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
+
+      # UNSIGNED by design: no ALETHEIA_COSIGN_* is set, so `shake dist` skips
+      # signing with a warning.  This job validates staging + recipes + the
+      # bindings, not provenance — signing stays a release.yml concern, and
+      # the release-replay job below verifies a published signature.
+      - name: Build the distribution tarball (unsigned)
+        run: cabal run shake -- dist
+
+      # Consumer toolchains — copied from pr-full-ci.yml with the same cache
+      # keys, so the caches seeded there are shared.  --require below turns a
+      # missing-toolchain skip into a failure, so these steps are load-bearing.
+      - name: Set up Go (bundle consumer toolchain)
+        uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache-dependency-path: |
+            go/go.sum
+            go/excel/go.sum
+
+      - name: Set up Rust (stable, minimal — bundle consumer toolchain)
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustc --version && cargo --version
+
+      - name: Cache clang-22 .debs (Clang is a large download)
+        uses: actions/cache@v6
+        with:
+          path: ~/llvm-cache
+          key: clang22-noble-v1
+      # ubuntu-24.04 pre-installs only clang ≤19; the bundled C++ binding
+      # enforces Clang (cpp/CMakeLists.txt), so install clang-22 (the
+      # supported toolchain) from apt.llvm.org.  Same package set + cache key
+      # as pr-full-ci.yml so this workflow shares the deb cache seeded there.
+      - name: Install C++ toolchain (clang-22 from apt.llvm.org)
+        run: |
+          set -euo pipefail
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm22.list >/dev/null
+          sudo apt-get update
+          mkdir -p ~/llvm-cache
+          if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
+            sudo apt-get install -y --download-only \
+              -o Dir::Cache::archives="${HOME}/llvm-cache" \
+              clang-22 clang-tidy-22 libstdc++-14-dev
+            sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
+          fi
+          sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
+
+      # The bundle ships install.fish / env.fish; with fish on PATH the
+      # validator also runs the fish installer, checks bash/fish recipe
+      # parity, and sources env.fish.
+      - name: Install fish (recipe-parity leg of the bundle validation)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fish
+
+      # FETCHCONTENT_BASE_DIR for the C++ consumer configure — keyed on
+      # cpp/CMakeLists.txt, which pins the dependency versions (the bundled
+      # binding is staged from the same tree).  Same key as release.yml.
+      - name: Cache C++ FetchContent deps (bundle consumer)
+        uses: actions/cache@v6
+        with:
+          path: ~/fetchcontent-cache
+          key: bundle-cpp-deps-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
+
+      - name: Validate the bundle across the compiled bindings
+        run: |
+          set -euo pipefail
+          python/.venv/bin/python3 -m tools.bundle_validate dist/aletheia.tar.gz \
+            --require cpp,go,rust \
+            --fetchcontent-cache "${HOME}/fetchcontent-cache"
+
+      - name: Self-test the validator (corrupted bundles must fail)
+        run: |
+          set -euo pipefail
+          python/.venv/bin/python3 -m tools.bundle_validate dist/aletheia.tar.gz --self-test
+
+  # ── Job 2: replay the consumer's download path on the latest Release ───────
+  release-replay:
+    name: validate the latest published Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      # The validator's consumer fixtures + scenario .dbc live in the repo;
+      # the artifact under test is the downloaded Release tarball.
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      # Consumer toolchains — same steps + cache keys as the head-dist job
+      # above (and pr-full-ci.yml); see the comments there.
+      - name: Set up Go (bundle consumer toolchain)
+        uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache-dependency-path: |
+            go/go.sum
+            go/excel/go.sum
+
+      - name: Set up Rust (stable, minimal — bundle consumer toolchain)
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustc --version && cargo --version
+
+      - name: Cache clang-22 .debs (Clang is a large download)
+        uses: actions/cache@v6
+        with:
+          path: ~/llvm-cache
+          key: clang22-noble-v1
+
+      - name: Install C++ toolchain (clang-22 from apt.llvm.org)
+        run: |
+          set -euo pipefail
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm22.list >/dev/null
+          sudo apt-get update
+          mkdir -p ~/llvm-cache
+          if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
+            sudo apt-get install -y --download-only \
+              -o Dir::Cache::archives="${HOME}/llvm-cache" \
+              clang-22 clang-tidy-22 libstdc++-14-dev
+            sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
+          fi
+          sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
+
+      - name: Install fish (recipe-parity leg of the bundle validation)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fish
+
+      # Same key as the head-dist job: the latest release's dependency pins
+      # may lag the checked-out cpp/CMakeLists.txt, in which case FetchContent
+      # simply re-downloads the differing versions — a cache miss, not an
+      # error.
+      - name: Cache C++ FetchContent deps (bundle consumer)
+        uses: actions/cache@v6
+        with:
+          path: ~/fetchcontent-cache
+          key: bundle-cpp-deps-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
+
+      - name: Install cosign (SHA-pinned)
+        env:
+          # Keep in sync with release.yml + docs/development/RELEASE.md.
+          COSIGN_VERSION: '2.4.1'
+          COSIGN_SHA256: '8b24b946dd5809c6bd93de08033bcf6bc0ed7d336b7785787c080f574b89249b'
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/cosign \
+            "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64"
+          echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum -c -
+          sudo install -m 0755 /tmp/cosign /usr/local/bin/cosign
+          rm /tmp/cosign
+          cosign version
+
+      - name: Download the latest published Release (the consumer recipe)
+        run: |
+          set -euo pipefail
+          # The exact consumer flow from RELEASE.md § Verifying release
+          # artifacts, pointed at releases/latest — which only ever resolves
+          # to a PUBLISHED release (drafts are invisible to consumers and to
+          # this URL alike).  No token: the release assets are public.
+          mkdir -p "${RUNNER_TEMP}/release"
+          cd "${RUNNER_TEMP}/release"
+          base="https://github.com/Jaetan/aletheia/releases/latest/download"
+          for f in aletheia.tar.gz aletheia.tar.gz.sha256 aletheia.tar.gz.sig aletheia.tar.gz.crt; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -O "${base}/${f}"
+          done
+          sha256sum -c aletheia.tar.gz.sha256
+
+      - name: Verify provenance (keyless cosign vs the release workflow identity)
+        run: |
+          set -euo pipefail
+          cd "${RUNNER_TEMP}/release"
+          # The identity regexp from RELEASE.md § Verifying release artifacts:
+          # a release tarball is only ever keyless-signed by release.yml
+          # running on a v* tag.
+          cosign verify-blob \
+            --certificate aletheia.tar.gz.crt \
+            --signature aletheia.tar.gz.sig \
+            --certificate-identity-regexp \
+              '^https://github\.com/Jaetan/aletheia/\.github/workflows/release\.yml@refs/tags/v' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            aletheia.tar.gz
+          echo "Provenance OK — proceeding to consumer validation."
+
+      # System python3 (3.14 via setup-python): tools.bundle_validate is
+      # stdlib-only, and this job never builds the repo, so creating the dev
+      # venv would be pure overhead (precedent: pr-heavy-lanes.yml's
+      # reproducible-build lane invokes its tool the same way).
+      - name: Validate the downloaded bundle across the compiled bindings
+        run: |
+          set -euo pipefail
+          python3 -m tools.bundle_validate "${RUNNER_TEMP}/release/aletheia.tar.gz" \
+            --require cpp,go,rust \
+            --fetchcontent-cache "${HOME}/fetchcontent-cache"

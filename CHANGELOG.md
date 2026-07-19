@@ -28,6 +28,27 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Release bundles are validated end-to-end across the compiled bindings,
+  gating publish.** `tools/bundle_validate.py` unpacks the distribution
+  tarball, runs both bundled installers capturing their printed per-language
+  recipes, executes those exact recipe lines (the recipes users read are the
+  recipes CI runs), checks `install.sh`/`install.fish` recipe parity and an
+  absolute `ALETHEIA_LIB` from `env.sh`/`env.fish` sourced in a foreign cwd,
+  then builds and runs one consumer program per compiled binding (C++, Go,
+  Rust) through the verified kernel: parse a real `.dbc`, arm an LTL
+  property, stream a conforming and a violating frame, and assert exactly
+  one violation with the expected enrichment. A missing toolchain is a
+  precise skip locally and a failure under `--require`; `--self-test`
+  proves the gate has teeth by corrupting bundle copies and asserting each
+  corruption fails validation. `release.yml` now gates publish on this
+  validation (consumer toolchains installed with cache keys shared with the
+  PR workflows), and the repo's first scheduled workflow
+  (`bundle-validation.yml`, weekly + manual dispatch) both builds an
+  unsigned `dist` from HEAD and replays the published-Release consumer path
+  verbatim — download, `sha256sum -c`, cosign keyless verification against
+  the release workflow's identity, then the same validation — so staging,
+  recipe, or binding rot surfaces between releases instead of at the next
+  tag.
 - **The release SBOM now bills the bundled binding source trees, gated.**
   `tools/sbom_generate.py` gains hand-rolled manifest parsers — one per
   bundled binding, still zero external SBOM tooling — behind `--bindings-dir`,

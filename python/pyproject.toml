@@ -380,6 +380,10 @@ pytest_add_cli_args = [
     # coverage gate (repo-root `tools` package).  Infra coverage, not hot-path.
     "--ignore=tests/test_sbom_generate.py",
     "--ignore=tests/test_check_sbom_coverage.py",
+    # Same class: covers the release-bundle consumer gate (repo-root `tools`
+    # package), so it ModuleNotFound-aborts collection in the relocated
+    # mutants/ tree.  Infra coverage, not hot-path.
+    "--ignore=tests/test_bundle_validate.py",
     # Two excel-loader tests resolve the SHARED cross-binding fixture via
     # ``Path(__file__).resolve().parents[2] / "examples" / "demo" /
     # "demo_workbook.xlsx"`` — repo-root from python/tests/, but python/ from

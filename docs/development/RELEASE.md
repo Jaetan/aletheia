@@ -27,10 +27,12 @@ and what trust anchor verifies it**:
 The **CI path is the default.**  Pushing a `v*` tag runs
 [`.github/workflows/release.yml`](../../.github/workflows/release.yml), which
 builds via `shake dist`, keyless-signs the tarball, **self-verifies it against
-its own OIDC identity — publish is gated on that check** — and publishes a
-**draft** GitHub Release for the maintainer to review and flip public.  Keyless
-means no signing key or passphrase ever lives in CI; the key stays in the local
-keyring, used only by the fallback path.
+its own OIDC identity**, **validates the bundle end-to-end from every binding**
+(see [Release-path bundle validation](#release-path-bundle-validation) —
+publish is gated on these checks), and publishes a **draft** GitHub Release for
+the maintainer to review and flip public.  Keyless means no signing key or
+passphrase ever lives in CI; the key stays in the local keyring, used only by
+the fallback path.
 
 Use the **local path** for releases cut off CI (a hotfix from the maintainer's
 machine, or CI unavailable).
@@ -73,6 +75,42 @@ cosign verify-blob \
   --signature dist/aletheia.tar.gz.sig \
   dist/aletheia.tar.gz
 ```
+
+## Release-path bundle validation
+
+Publish is gated on more than the signature.  After the keyless self-verify,
+`release.yml` smoke-tests the bundled Python package (unpack → `source env.sh`
+from a foreign cwd → load the `.so` → construct a real client) and then runs
+the bundle validator ([`tools/bundle_validate.py`](../../tools/bundle_validate.py))
+against the freshly built tarball with every compiled binding required
+(`--require cpp,go,rust`).  The validator:
+
+- unpacks the tarball and runs `install.sh` **and** `install.fish`, capturing
+  their printed per-language recipes and checking the blocks are identical
+  across shells;
+- **executes the exact recipe lines the installers print** — never a re-typed
+  copy — so an installer edit that breaks a recipe fails the gate instead of
+  drifting past what users read;
+- sources `env.sh` / `env.fish` from a foreign cwd and asserts they agree on
+  an **absolute** `ALETHEIA_LIB`;
+- builds and runs one small consumer program per compiled binding (C++, Go,
+  Rust) through the verified kernel: env-constructor → parse a real `.dbc` →
+  set an LTL property → stream a conforming and a violating frame → assert
+  exactly one violation → end the stream.
+
+A release can also rot *between* cuts (recipes, toolchains, staging, the
+published assets themselves), so the same validation runs on a weekly schedule
+([`.github/workflows/bundle-validation.yml`](../../.github/workflows/bundle-validation.yml)):
+one job builds an unsigned `shake dist` from the default branch and validates
+it — catching staging/recipe/binding rot while no release is in flight — and a
+second job downloads the **latest published** GitHub Release, verifies it
+exactly as a consumer would (sha256 sidecar + keyless cosign against the
+release workflow identity — the commands under
+[Verifying release artifacts](#verifying-release-artifacts-consumer-side)),
+and validates that tarball: a true replay of the consumer's download path.
+The scheduled lane also runs the validator's `--self-test`, which corrupts
+copies of the bundle and asserts each corrupted copy FAILS validation — the
+gate's teeth are themselves gated.
 
 ## Reproducible build verification
 
@@ -326,9 +364,12 @@ A failure in any of these is a stop-the-world event for the consumer.
 
 - [ ] Tag the release commit and push: `git tag -s vX.Y.Z -m "Aletheia vX.Y.Z"`
       then `git push origin vX.Y.Z`.
-- [ ] `release.yml` goes green — it builds, keyless-signs, and **self-verifies**
-      the tarball against the workflow OIDC identity (publish is gated on that
-      check, so a green run means the artifact is verifiable).
+- [ ] `release.yml` goes green — it builds, keyless-signs, **self-verifies**
+      the tarball against the workflow OIDC identity, and **validates the
+      bundle** across the bindings (see
+      [Release-path bundle validation](#release-path-bundle-validation)).
+      Publish is gated on those checks, so a green run means the artifact is
+      verifiable *and* consumable.
 - [ ] Review the resulting **draft** GitHub Release, then flip it from draft to
       published.  (Smoke-test beforehand with `gh workflow run release.yml` — the
       full build + sign + self-verify as a dry-run, no publish.)
