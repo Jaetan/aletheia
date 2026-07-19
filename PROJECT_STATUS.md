@@ -54,7 +54,7 @@ cannot honestly advertise capabilities it does not yet have.
      bindings resolve the library from `ALETHEIA_LIB`, so one download makes every
      binding usable after a single `source env.sh`. A `dist` self-check and a
      release-workflow smoke test guard the bundle's contents.
-   - **Remaining — do next (distribution hardening):**
+   - **Remaining — in progress (distribution hardening, started 2026-07-19):**
      - **Native packages + Docker.** Native OS packages (`.deb` / `.rpm`) attached
        to the Release, and a multi-binding Docker image (extend `Dockerfile.runtime`
        / `shake docker` past today's Python-only consumer).
