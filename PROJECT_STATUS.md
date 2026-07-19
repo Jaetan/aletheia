@@ -54,7 +54,7 @@ cannot honestly advertise capabilities it does not yet have.
      bindings resolve the library from `ALETHEIA_LIB`, so one download makes every
      binding usable after a single `source env.sh`. A `dist` self-check and a
      release-workflow smoke test guard the bundle's contents.
-   - **✅ Distribution hardening (complete, 2026-07-19).** All four follow-ups
+   - **✅ Distribution hardening (complete, 2026-07-19).** Every follow-up
      shipped, each with an empirically proven failure mode:
      - **Always-on bundle-staging gate** (`check-dist-staging`, also in the
        pre-commit fast tier): every `git archive` pathspec must resolve —
