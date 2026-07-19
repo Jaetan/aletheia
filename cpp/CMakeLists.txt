@@ -531,6 +531,20 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
     set_tests_properties(log_events_tests PROPERTIES
         ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
 
+    # Cross-binding wire-code parity test (yaml-cpp + aletheia-cpp, Catch2).
+    # Reads docs/WIRE_CODES.yaml (the kernel-anchored wire-code SSOT) and
+    # asserts the IssueCode and ErrorCode enums are each a bijection with
+    # their YAML section — every kernel code maps to a non-Unknown enumerator
+    # and no enumerator lacks an SSOT row. Pure vocabulary test: no RTS, no
+    # FFI backend, so no rts_setup_listener.cpp.
+    add_executable(wire_codes_tests tests/test_wire_codes_parity.cpp)
+    target_link_libraries(wire_codes_tests
+        PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
+    add_test(NAME wire_codes_tests COMMAND wire_codes_tests)
+    # See feature_matrix_tests above.
+    set_tests_properties(wire_codes_tests PROPERTIES
+        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
+
     # Cat 33d cross-binding integration. Counterpart of
     # python/tests/test_cross_binding_integration.py and
     # go/aletheia/cross_binding_integration_test.go.  No shared corpus or

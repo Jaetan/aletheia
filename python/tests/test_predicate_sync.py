@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Agda/Python ``PredicateType`` enum synchronization.
 
-Mirrors ``test_error_code_sync.py``: guards the Python
-``PredicateType`` enum in ``aletheia.types`` against drift from
-Agda's signal-predicate JSON tags emitted by
-``src/Aletheia/LTL/JSON/Format.agda``.
+Guards the Python ``PredicateType`` enum in ``aletheia.types``
+against drift from Agda's signal-predicate JSON tags emitted by
+``src/Aletheia/LTL/JSON/Format.agda`` — the same Agda-literal
+parsing idiom ``tools/check_wire_codes.py`` uses for the wire-code
+vocabularies.
 
 Rationale: the binding-layer ``PredicateType`` enum is the cross-
 binding machine-readable contract — Go and C++ have parallel enums.

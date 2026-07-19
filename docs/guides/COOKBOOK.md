@@ -308,9 +308,10 @@ The most common codes you'll see:
 | `duplicate_message_id` | Two messages share the same CAN ID. | error |
 | `unknown_message_sender` | `BU_` sender declared but not in node list. | warning |
 
-The 21 IssueCode names are the authoritative cross-binding identifiers — see
-`python/aletheia/codes/_issue.py` (mirror) or `src/Aletheia/DBC/Types.agda`
-(SSOT) for the full enum. The full list lives in
+The IssueCode names are the authoritative cross-binding identifiers — the
+full vocabulary lives in `docs/WIRE_CODES.yaml` (the cross-binding SSOT,
+gated against the Agda kernel), mirrored by every binding's enum (e.g.
+`python/aletheia/codes/_issue.py`). Per-code meanings live in
 [`PROTOCOL.md`](../architecture/PROTOCOL.md#error-code-reference). The structured `code` field
 is the stable contract — `detail` text is for humans and may change between
 releases.

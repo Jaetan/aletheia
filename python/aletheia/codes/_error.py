@@ -9,9 +9,11 @@ The wire values here correspond 1:1 to the strings emitted by
 in ``src/Aletheia/Error.agda``.
 
 Kept in its own module so the protocol TypedDicts and the enum don't all
-pile into one oversized file.  ``tests/test_error_code_sync.py`` parses
-the Agda source and asserts this enum is a reciprocal superset — drift
-either direction fails CI.
+pile into one oversized file.  The wire values are pinned two ways:
+``docs/WIRE_CODES.yaml`` (the cross-binding SSOT) is anchored to the Agda
+formatters by the ``check-wire-codes`` run_ci gate, and
+``tests/test_wire_codes_parity.py`` asserts this enum equals the YAML's
+``error_codes`` section — drift in either direction fails CI.
 """
 
 from enum import StrEnum

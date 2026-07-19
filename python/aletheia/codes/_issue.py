@@ -7,6 +7,12 @@ Mirror of the Agda ``IssueCode`` ADT and the Go ``Issue*`` constants in
 ``cpp/include/aletheia/validation.hpp``.  The public ``aletheia`` package
 re-exports ``IssueCode`` and ``ValidationIssue`` (see ``__init__.py``);
 ``IssueSeverity`` is accessible as ``aletheia.codes.IssueSeverity``.
+
+The wire values are pinned two ways: ``docs/WIRE_CODES.yaml`` (the
+cross-binding SSOT) is anchored to the Agda formatters by the
+``check-wire-codes`` run_ci gate, and ``tests/test_wire_codes_parity.py``
+asserts this enum equals the YAML's ``issue_codes`` section — drift in
+either direction fails CI.
 """
 
 from enum import StrEnum

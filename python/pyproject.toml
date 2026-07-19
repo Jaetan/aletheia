@@ -309,6 +309,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_cross_binding_integration.py",
     "--ignore=tests/test_feature_matrix_parity.py",
     "--ignore=tests/test_log_events_parity.py",
+    "--ignore=tests/test_wire_codes_parity.py",
     "--ignore=tests/test_unified_client.py",
     # test_check_no_review_marks.py imports the repo-root `tools` package (the
     # review-mark gate it covers) — `import tools` ModuleNotFound-aborts
@@ -326,6 +327,11 @@ pytest_add_cli_args = [
     # Same shape: covers the runtime-closure snapshot gate (repo-root `tools`
     # package).  Infra coverage, not hot-path.
     "--ignore=tests/test_check_runtime_closure.py",
+    # Same shape: covers the wire-code SSOT gate (repo-root `tools` package).
+    # Infra coverage, not hot-path.  (Its YAML↔enum parity companion,
+    # test_wire_codes_parity.py, is ignored with the repo-root-path cluster
+    # above — it reads ../../docs/WIRE_CODES.yaml.)
+    "--ignore=tests/test_check_wire_codes.py",
     # The demo gate reaches repo-root `examples/demo` via parents[2] (only
     # `python/` in the relocated mutants/ tree, so the glob is empty) AND runs
     # each demo in a SUBPROCESS that imports the INSTALLED package, never the

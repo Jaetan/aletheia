@@ -512,22 +512,30 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ### G.3 — Cross-binding `IssueCode` completeness parity test
 
-- **Where** — the per-binding issue-code enumerations (`python/aletheia/codes/_issue.py`,
-  Go/C++/Rust counterparts) vs the kernel's `formatIssueCode` arms
-  (`src/Aletheia/Protocol/ResponseFormat.agda`).
-- **Today** — per-binding parity tests check the codes each binding *uses*;
-  no gate asserts every kernel-emittable issue-code string is *known* to every
-  binding, so a new kernel code can reach a binding as an unknown string
-  without failing CI.
-- **Done looks like** — a completeness gate (per binding, or one matrix-style
-  test) that enumerates the kernel's emittable issue codes and fails when any
-  binding's enum lacks one. Follows the gate-teeth rule: inject a fake code
-  and assert the gate fails.
-- **Cost / risk** — Low-medium; needs a machine-readable SSOT for the kernel's
-  code list (generate from `ResponseFormat.agda`, or a checked snapshot like
-  `ffi-exports.snapshot`).
-- **Verdict** — `SCHEDULED` (test-gap candidate; pairs naturally with H.2's
-  enum-growth decision).
+- **STATUS: ✅ DONE (2026-07-19).** Shipped at the user-ratified "both
+  vocabularies" scope — issue codes AND error codes. `docs/WIRE_CODES.yaml`
+  is the cross-binding SSOT (both vocabularies, kernel declaration order,
+  addition protocol in the header);
+  `tools/check_wire_codes.py` (run_ci step `check-wire-codes`) anchors it to
+  the kernel formatters (`formatIssueCode` + the per-ADT `*ErrorCode`
+  families and the top-level `errorCode`)
+  with reciprocal set equality plus declaration-order enforcement, failing
+  closed on missing/malformed/vacuous input. Each binding is anchored to the
+  YAML by a completeness test cloning its LOG_EVENTS parity mechanics:
+  `python/tests/test_wire_codes_parity.py` (supersedes the retired
+  `test_error_code_sync.py` — previously the only gate, one vocabulary, one
+  binding), `go/aletheia/wire_codes_parity_test.go`,
+  `cpp/tests/test_wire_codes_parity.cpp` (count-anchor + injectivity
+  bijection), and `rust/tests/wire_codes.rs` (issue codes decode to named
+  variants; error codes — no `ErrorCode` enum by design — are pinned as
+  lossless `Error::Core` passthrough with the typed lifts SSOT-checked).
+  Gate-teeth proven empirically: phantom-code injections fail the gate and
+  every binding suite, and regression tests pin each failure mode.
+- **Original gap** — per-binding parity tests checked only the codes each
+  binding *uses*; no gate asserted every kernel-emittable code is *known* to
+  every binding, so a new kernel code could reach a binding as an unknown
+  string without failing CI.
+- **Verdict** — ✅ **DONE** (2026-07-19); see STATUS above.
 
 ---
 
@@ -562,19 +570,26 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ### H.2 — Rust `IssueCode` enum-growth policy (`#[non_exhaustive]`?)
 
-- **Where** — `rust/src/response.rs:156` (`pub enum IssueCode`).
-- **Today** — the enum is **not** `#[non_exhaustive]`, so every future
-  issue-code addition is a source-breaking change for downstream crates doing
-  exhaustive matches (each addition forces a major-version signal under the
-  project's SemVer pledge).
-- **The decision** — adopt `#[non_exhaustive]` (one breaking change now;
+- **STATUS: ✅ DONE (2026-07-19).** Decision ratified: **hybrid** —
+  `#[non_exhaustive]` on the two enums that mirror kernel-minted, growing
+  vocabularies (`IssueCode` in `rust/src/response.rs`, `Error` in
+  `rust/src/error.rs`), with `IssueCode::Unknown(String)` retained (the
+  attribute solves compile-time growth for downstream crates; `Unknown`
+  solves runtime version-skew — they are complements, the
+  `std::io::ErrorKind` pattern). Rustdoc on both enums now states the
+  open-vocabulary policy and the skew-stable idiom (key on
+  `IssueCode::as_str`, never on `Unknown`'s payload). The deliberately
+  closed enums (`IssueSeverity`, `Verdict`, the LTL AST) stay exhaustive:
+  their variant sets are semantically fixed, so a new variant there *should*
+  break consumers. One breaking Rust release absorbs the flip; every future
+  code/variant addition is then non-breaking.
+- **Where** — `rust/src/response.rs` (`pub enum IssueCode`),
+  `rust/src/error.rs` (`pub enum Error`).
+- **Original decision** — adopt `#[non_exhaustive]` (one breaking change now;
   future additions become non-breaking, downstream must carry a `_` arm) vs
   keep exhaustive matching (maximal compile-time coverage for consumers, at
-  the price of a breaking release per new code). Same question applies to
-  `ErrorCode` if it shares the shape.
-- **Cost / risk** — Trivial mechanically; the cost is the API-policy choice.
-  Decide before the next Rust-facing release that adds a code.
-- **Verdict** — `SCHEDULED` (decision item; pairs with G.3).
+  the price of a breaking release per new code).
+- **Verdict** — ✅ **DONE** (2026-07-19); see STATUS above.
 
 ---
 
@@ -619,10 +634,12 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 Cheapest / highest-confidence first, so early wins de-risk the harder items:
 
-1. **G.3 / H.2** — scheduled, cheap, self-contained (the pair remaining in this
-   tier now that E.5 / E.6 are ✅ done — see their entries).
-2. **E.3** — scheduled, non-blocking tightness analysis; land anytime.
-3. **A.1 / A.3 / B.1** — gated on a concrete consuming DBC / property.
+1. **E.3** — scheduled, non-blocking tightness analysis; land anytime (the
+   sole remaining scheduled item now that E.5 / E.6 / G.3 / H.2 are ✅ done —
+   see their entries).
+2. **A.1 / A.3 / B.1** — gated on a concrete consuming DBC / property.
+3. **C.2** — investigate-on-trigger: revisit when next touching a hot-path
+   predicate (erased-proof `Dec₀` vs the Bool-fast-path + lemma pattern).
 4. **C.1 / D.1 / F.1 / F.2 / H.1** — accepted / blocked / demand-gated; no action unless constraints change (H.1: a public C++ test mock — promote on concrete external-consumer demand).
 5. **I.1** (Go/C++ arm64 overflow guard) — target-gated; no action until a concrete non-amd64 embedded target with a verified full cross-toolchain (GHC + clang + rustc) is chosen.
 
