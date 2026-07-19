@@ -81,6 +81,20 @@ def test_python_unparseable_requirement_fails(tmp_path: Path) -> None:
         _ = parse_binding_components(tree)
 
 
+def test_python_missing_extras_table_is_valid_and_bills_nothing(tmp_path: Path) -> None:
+    """PEP 621 makes the extras table optional: absent = no extras, not a shape error.
+
+    The parser bills zero Python components for it; the coverage gate's
+    vacuous-parse refusal is the backstop that keeps such an empty parse from
+    silently blessing a bundle.
+    """
+    tree = make_bindings_tree(tmp_path)
+    no_extras = PYPROJECT.split("[project.optional-dependencies]", maxsplit=1)[0]
+    assert "optional-dependencies" not in no_extras  # the table really is gone
+    _ = (tree / "python" / "pyproject.toml").write_text(no_extras, encoding="utf-8")
+    assert parse_binding_components(tree)["python"] == []
+
+
 def test_go_requires_become_required_components_with_h1_property(tmp_path: Path) -> None:
     """Go requires are required-scope; the h1 dirhash is a property, never ``hashes``."""
     tree = make_bindings_tree(tmp_path)

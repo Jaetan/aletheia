@@ -306,8 +306,14 @@ def _python_components(bindings_dir: Path) -> list[Component]:
     data = cast("dict[str, object]", tomllib.loads(path.read_text(encoding="utf-8")))
     project = _table(data.get("project"), f"{path}: [project]")
     project_name = _string(project.get("name"), f"{path}: project.name")
-    extras = _table(
-        project.get("optional-dependencies"), f"{path}: [project.optional-dependencies]"
+    # PEP 621 makes [project.optional-dependencies] an optional table: absent
+    # means "no extras declared" — a valid shape, not a malformed manifest —
+    # and the binding then bills zero extra components.  The coverage gate's
+    # vacuous-parse refusal is the backstop that keeps an unexpectedly empty
+    # parse from ever passing silently.
+    extras_raw = project.get("optional-dependencies")
+    extras = (
+        {} if extras_raw is None else _table(extras_raw, f"{path}: [project.optional-dependencies]")
     )
     pulled: dict[tuple[str, str], set[str]] = {}  # (name, spec) -> extras that pull it
     for extra, entries in extras.items():
