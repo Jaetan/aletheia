@@ -29,6 +29,7 @@ from tools.bundle_validate import (
     parity_problems,
     parse_args,
     recipe_shape_errors,
+    self_test,
 )
 
 # A captured install.sh transcript shape: the same section layout the real
@@ -260,3 +261,22 @@ class TestSelfTestCorruptions:
         bundle.mkdir()
         with pytest.raises(FileNotFoundError):
             corrupt_missing_so(bundle)
+
+    def test_all_cases_skipped_is_could_not_check(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """TEETH: a self-test that skipped every case must not claim PASS.
+
+        With every consumer toolchain reported missing, nothing is executed
+        and nothing is proven — the vacuous outcome is COULD NOT CHECK, never
+        a passing teeth-proof.
+        """
+        tarball = tmp_path / "aletheia.tar.gz"
+        _ = tarball.write_bytes(b"placeholder, never unpacked on the all-skipped path")
+        cfg, _run = parse_args([str(tarball), "--self-test"])
+
+        def _all_absent(_binding: str) -> str:
+            return "toolchain absent (test)"
+
+        monkeypatch.setattr("tools.bundle_validate.missing_tool", _all_absent)
+        assert self_test(cfg) == 2

@@ -528,11 +528,18 @@ def _run_corruption(
 
 
 def self_test(cfg: Config) -> int:
-    """Prove the gate can fail: every corrupted bundle must FAIL validation."""
+    """Prove the gate can fail: every corrupted bundle must FAIL validation.
+
+    Exit contract: 0 — every executed corruption failed validation (with any
+    toolchain-blocked case skipped visibly); 1 — a corruption survived, or the
+    tarball is absent; 2 — COULD NOT CHECK: every case was skipped, so nothing
+    was proven (a vacuous teeth-proof must never report PASS).
+    """
     if not cfg.tarball.is_file():
         emit(f"bundle validator self-test: FAIL — tarball not found: {cfg.tarball}")
         return 1
     survived: list[str] = []
+    executed: list[str] = []
     for name, corrupt, bindings in _SELF_TEST_CASES:
         blockers = [
             f"{binding}: {problem}"
@@ -545,6 +552,7 @@ def self_test(cfg: Config) -> int:
             # teeth-proof.  Skip visibly instead (CI has every toolchain).
             emit(f"[self-test] skip {name}: {'; '.join(blockers)}")
             continue
+        executed.append(name)
         emit(f"[self-test] {name}: corrupting a copy of the bundle")
         returncode = _run_corruption(cfg, name, corrupt, bindings)
         if returncode == 0:
@@ -555,7 +563,14 @@ def self_test(cfg: Config) -> int:
     if survived:
         emit(f"bundle validator self-test: FAIL — corruptions survived: {', '.join(survived)}")
         return 1
-    emit("bundle validator self-test: PASS — every corruption failed validation")
+    if not executed:
+        emit(
+            "bundle validator self-test: COULD NOT CHECK — every corruption case was "
+            + "skipped for missing toolchains, so nothing was proven; install the "
+            + "consumer toolchains (or run where CI does) to get a real teeth-proof"
+        )
+        return 2
+    emit("bundle validator self-test: PASS — every executed corruption failed validation")
     return 0
 
 
