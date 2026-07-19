@@ -547,6 +547,11 @@ def _run_gha_checks(runner: Runner) -> None:
         cwd=runner.repo_root,
     )
     runner.step(
+        "check-wire-codes",
+        [runner.python, "-m", "tools.check_wire_codes"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
         "check-install-freshness",
         [runner.python, "-m", "tools.check_install_freshness"],
         cwd=runner.repo_root,

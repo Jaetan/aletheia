@@ -152,7 +152,16 @@ impl std::fmt::Display for IssueSeverity {
 /// ADT and the Python / Go / C++ vocabularies. Unknown wire codes map to
 /// [`IssueCode::Unknown`] so a future core code round-trips rather than failing
 /// the decode (the code set may grow; cf. the strict [`IssueSeverity`]).
+///
+/// The vocabulary is minted by the kernel and grows with kernel features, so
+/// this enum is `#[non_exhaustive]`: matches outside this crate carry a `_`
+/// arm, and a new kernel code is not a breaking change. Version-skew note: a
+/// code arrives as [`IssueCode::Unknown`] while this crate predates it and as
+/// a named variant once the crate knows it — so logic that must be stable
+/// across crate upgrades should key on [`IssueCode::as_str`] (the wire string
+/// for named and unknown codes alike), never on `Unknown`'s payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum IssueCode {
     /// Two messages share the same CAN id.
     DuplicateMessageId,

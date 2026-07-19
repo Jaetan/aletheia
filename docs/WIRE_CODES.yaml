@@ -1,0 +1,337 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# Aletheia Cross-Binding Wire-Code Vocabulary
+#
+# Authoritative source for the two string-code vocabularies the Agda kernel
+# emits onto the JSON wire:
+#
+#   issue_codes -- DBC validation issue codes, carried in `issues[].code`
+#                  (validation / parsed-DBC / DBC-text responses and the
+#                  structured `issues` payload of validation / round-trip
+#                  error envelopes).  Emitted by `formatIssueCode` in
+#                  src/Aletheia/Protocol/ResponseFormat.agda.
+#   error_codes -- machine-readable error codes, carried in the flat `code`
+#                  field of the error envelope.  Emitted by the eight
+#                  `*ErrorCode` formatter families in src/Aletheia/Error.agda.
+#
+# Schema:
+#   issue_codes[] / error_codes[]: one entry per wire code
+#     name:        the literal wire string (matches the Agda formatter arm and
+#                  every binding's vocabulary member)
+#     description: one-sentence summary of what the code reports
+#
+# Entry order mirrors kernel declaration order — the formatter-arm order in
+# the Agda sources above — and tools/check_wire_codes.py enforces it alongside
+# reciprocal set equality (run_ci step `check-wire-codes`).  Order matters
+# because MAlonzo numbers ADT constructors in declaration order; the IssueCode
+# ADT carries an append-only rule (src/Aletheia/DBC/Types.agda).
+#
+# Cross-binding parity gates (YAML <-> binding vocabulary):
+#   python/tests/test_wire_codes_parity.py  -- YAML <-> IssueCode/ErrorCode StrEnums
+#   go/aletheia/wire_codes_parity_test.go   -- YAML <-> Issue*/Code* constants
+#   cpp/tests/test_wire_codes_parity.cpp    -- YAML <-> IssueCode/ErrorCode enums
+#   rust/tests/wire_codes.rs                -- YAML <-> IssueCode variants; error
+#                                              codes pass through Error::Core
+#                                              losslessly (no ErrorCode enum by
+#                                              design; three typed lifts pinned)
+#
+# Adding a new wire code requires coordinated edits:
+#   1. add the Agda constructor (IssueCode: at the END of the ADT, per the
+#      append-only rule) and its formatter arm
+#   2. add the row here, at the position matching the new arm
+#   3. add the matching member in each binding's vocabulary (Python
+#      aletheia/codes/, Go result.go / error.go constants, C++
+#      validation_issue.hpp / error.hpp + the json_parse.cpp tables, Rust
+#      response.rs for issue codes)
+#   4. document it in docs/architecture/PROTOCOL.md (Error Code Reference /
+#      the ValidateDBC issue-code list)
+#
+# Removing a code requires removing all of the above and a CHANGELOG entry
+# under [Removed] per AGENTS.md "Public API stability and CHANGELOG discipline".
+
+# ── Validation issue codes (formatIssueCode, ResponseFormat.agda) ──
+issue_codes:
+
+  # DBC validator diagnostics (ValidateDBC / DBC load paths).
+
+  - name: duplicate_message_id
+    description: Two messages share the same CAN ID.
+
+  - name: duplicate_signal_name
+    description: Two signals in the same message share a name.
+
+  - name: factor_zero
+    description: A signal's scaling factor is zero, making physical-value conversion undefined.
+
+  - name: multiplexor_not_found
+    description: A multiplexed signal references a multiplexor signal that is absent from its message.
+
+  - name: multiplexor_cycle
+    description: A multiplexor chain references itself (cycle).
+
+  - name: global_name_collision
+    description: A signal name is not unique across all messages.
+
+  - name: min_exceeds_max
+    description: A signal's physical minimum exceeds its maximum.
+
+  - name: signal_exceeds_dlc
+    description: A signal's bit range extends past the message's DLC byte count.
+
+  - name: signal_overlap
+    description: Two signals occupy overlapping bit positions.
+
+  - name: bit_length_zero
+    description: A signal has zero bit length.
+
+  - name: duplicate_message_name
+    description: Two messages share the same name.
+
+  - name: offset_scale_range
+    description: A signal's offset/scale combination produces values outside its declared range.
+
+  - name: empty_message
+    description: A message declares no signals.
+
+  - name: start_bit_out_of_range
+    description: A signal's start bit exceeds the frame capacity.
+
+  - name: bit_length_excessive
+    description: A signal's bit length exceeds 64 bits.
+
+  - name: multiplexor_non_unit_scaling
+    description: A multiplexor signal has non-unit scaling (factor not 1 or offset not 0).
+
+  - name: duplicate_attribute_name
+    description: BA_DEF_ declares the same attribute name twice.
+
+  - name: unknown_comment_target
+    description: A CM_ entry references a node, message, or signal that is not declared.
+
+  - name: unknown_message_sender
+    description: A message's sender node is not listed in BU_.
+
+  - name: unknown_signal_receiver
+    description: A signal's receiver node is not listed in BU_.
+
+  - name: unknown_value_description_target
+    description: A VAL_ entry references a (CAN ID, signal name) pair with no matching signal.
+
+  # Text-round-trip checker diagnostics (FormatDBCText).
+
+  - name: text_roundtrip_divergence
+    description: Re-parsing the emitted .dbc text does not reproduce the input DBC.
+
+  - name: multi_value_mux_selector
+    description: A multiplexed signal is present for multiple selector values, which .dbc text cannot express.
+
+  - name: mux_master_incoherent
+    description: A multiplexor master signal's presence is inconsistent with its multiplexed signals.
+
+  - name: big_endian_msb_layout
+    description: A big-endian signal's MSB-first bit layout does not round-trip through .dbc text.
+
+  - name: unknown_attribute_name
+    description: A BA_ assignment or default references an attribute with no BA_DEF_ declaration.
+
+  - name: attribute_value_type_mismatch
+    description: An attribute value's type does not match its BA_DEF_ declaration.
+
+  - name: attribute_enum_empty
+    description: An ENUM attribute declares no values.
+
+  - name: attribute_enum_default_unstable
+    description: An ENUM attribute's default index does not resolve back to itself.
+
+# ── Error codes (the eight *ErrorCode families, Error.agda) ──
+error_codes:
+
+  # parseErrorCode -- malformed DBC or property JSON.
+
+  - name: parse_missing_field
+    description: A required JSON field is absent.
+
+  - name: parse_invalid_byte_order
+    description: A byte-order string is neither little_endian nor big_endian.
+
+  - name: parse_invalid_presence
+    description: A signal presence string is not a recognised presence kind.
+
+  - name: parse_missing_signed
+    description: A signal's signed field is absent.
+
+  - name: parse_invalid_signed
+    description: A signed value is neither signed nor unsigned (legacy string form).
+
+  - name: parse_not_an_object
+    description: An array element expected to be a JSON object is not one.
+
+  - name: parse_ext_can_id_out_of_range
+    description: An extended CAN ID exceeds the 29-bit maximum.
+
+  - name: parse_std_can_id_out_of_range
+    description: A standard CAN ID exceeds the 11-bit maximum.
+
+  - name: parse_default_can_id_out_of_range
+    description: A CAN ID exceeds the standard range without the extended flag set.
+
+  - name: parse_invalid_dlc_bytes
+    description: A DLC byte count is not a valid CAN / CAN-FD length.
+
+  - name: parse_root_not_object
+    description: The top-level JSON value is not an object.
+
+  - name: parse_missing_signal_name
+    description: A signal object has no name field.
+
+  - name: parse_signal_bit_length_zero
+    description: A signal's bit length is zero.
+
+  - name: parse_signal_overflows_frame
+    description: A signal's bit range exceeds the frame size.
+
+  - name: parse_signal_msb_below_bit_length
+    description: A big-endian signal's MSB position is below its bit length minus one.
+
+  - name: parse_invalid_kind
+    description: An enum-like string field carries an unrecognised value.
+
+  - name: parse_non_terminating_rational
+    description: A rational field is not representable as a terminating decimal.
+
+  - name: parse_invalid_identifier
+    description: A string is not a valid DBC identifier.
+
+  - name: parse_non_integer_multiplex_value
+    description: A multiplex_values array contains a non-natural element.
+
+  # extractionErrorCode -- signal extraction on a data frame.
+
+  - name: extraction_mux_value_mismatch
+    description: The frame's multiplexor value does not select this signal.
+
+  - name: extraction_mux_signal_not_found
+    description: The named multiplexor signal is missing from the message definition.
+
+  - name: extraction_mux_chain_cycle
+    description: The multiplexor chain exceeded its recursion depth (cycle).
+
+  - name: extraction_mux_extraction_failed
+    description: Reading the multiplexor signal's own bits failed.
+
+  - name: extraction_bit_extraction_failed
+    description: A bit-level read or scaling step failed.
+
+  # frameErrorCode -- binary frame build/update paths.
+
+  - name: frame_signal_not_found
+    description: The named signal is not in the target message.
+
+  - name: frame_signal_index_oob
+    description: An internal signal index is out of range.
+
+  - name: frame_injection_failed
+    description: Bit-packing a signal value into the frame failed.
+
+  - name: frame_signals_overlap
+    description: Two requested signals occupy overlapping bits.
+
+  - name: frame_can_id_not_found
+    description: The CAN ID is not present in the loaded DBC.
+
+  - name: frame_can_id_mismatch
+    description: The request's CAN ID does not match the frame being updated.
+
+  - name: frame_signal_value_out_of_bounds
+    description: A physical value lies outside the signal's declared minimum/maximum range.
+
+  # routeErrorCode -- command dispatch.
+
+  - name: route_missing_field
+    description: A command-level required field is missing.
+
+  - name: route_missing_array
+    description: A command expects an array field that is absent.
+
+  - name: route_unknown_command
+    description: The command value is not recognised.
+
+  - name: route_missing_command_field
+    description: The request has no command field.
+
+  - name: route_dlc_exceeds_max
+    description: The DLC exceeds the maximum DLC code (15).
+
+  - name: route_byte_array_parse_failed
+    description: The data array could not be parsed as bytes.
+
+  - name: route_byte_count_mismatch
+    description: The data length does not match the DLC's byte count.
+
+  - name: route_missing_dbc_field
+    description: A DBC command is missing its dbc field.
+
+  - name: route_missing_props_field
+    description: setProperties is missing its properties field.
+
+  # handlerErrorCode -- stream state machine.
+
+  - name: handler_no_dbc
+    description: The operation requires a loaded DBC.
+
+  - name: handler_already_streaming
+    description: startStream was called while a stream is already active.
+
+  - name: handler_not_streaming
+    description: A frame was submitted outside streaming mode.
+
+  - name: handler_stream_not_started
+    description: endStream was called before startStream.
+
+  - name: handler_stream_active
+    description: The operation is forbidden while a stream is active.
+
+  - name: handler_property_parse_failed
+    description: An LTL property failed to parse.
+
+  - name: handler_invalid_dlc_code
+    description: The DLC is not in the CAN / CAN-FD table.
+
+  - name: handler_validation_failed
+    description: DBC validation surfaced an error on load; the envelope's issues array carries the full list.
+
+  - name: handler_text_roundtrip_failed
+    description: FormatDBCText refused because the emitted .dbc text does not re-parse to the input DBC.
+
+  - name: handler_non_monotonic_timestamp
+    description: The current frame's timestamp is below the previous frame's.
+
+  # dispatchErrorCode -- top-level request routing.
+
+  - name: dispatch_missing_type_field
+    description: The request has no type field.
+
+  - name: dispatch_unknown_message_type
+    description: The type value is not recognised.
+
+  - name: dispatch_invalid_json
+    description: The request was not valid JSON.
+
+  - name: dispatch_request_not_object
+    description: The top-level value is not a JSON object.
+
+  # dbcTextParseErrorCode -- parseDBCText / formatDBCText.
+
+  - name: dbc_text_parse_failure
+    description: The .dbc text could not be parsed.
+
+  - name: dbc_text_trailing_input
+    description: The top-level .dbc parse stopped at the first unparseable statement.
+
+  - name: dbc_text_attribute_refinement_failed
+    description: A BA_DEF_DEF_ / BA_ / BA_REL_ entry failed attribute refinement.
+
+  # errorCode (top-level) -- the consolidated adversarial-input bound.
+
+  - name: input_bound_exceeded
+    description: An adversarial-input bound was exceeded; the structured bound_kind field discriminates which limit.

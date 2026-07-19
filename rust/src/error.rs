@@ -12,7 +12,14 @@ use crate::response::ValidationIssue;
 /// `Clone` lets the process-global RTS-init latch (`RTS_INIT`) replay the first
 /// init outcome on every `ensure_rts` call, so the source variants must stay
 /// clonable — wrapped library / JSON errors are flattened to owned `String`s.
+///
+/// Kernel feature work grows this enum (typed refusals lift new kernel error
+/// codes into variants), so it is `#[non_exhaustive]`: matches outside this
+/// crate carry a `_` arm, and a new variant is not a breaking change. Errors
+/// the crate does not lift stay reachable as [`Error::Core`] with the raw
+/// wire `code` string.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum Error {
     /// `libaletheia-ffi.so` could not be loaded (resolved path + underlying message).
     LibraryLoad { path: String, source: String },
