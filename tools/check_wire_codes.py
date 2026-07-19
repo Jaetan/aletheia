@@ -5,8 +5,9 @@
 The Agda kernel emits exactly two string-code vocabularies onto the JSON
 wire: DBC validation issue codes (``formatIssueCode`` in
 ``src/Aletheia/Protocol/ResponseFormat.agda``, the ``issues[].code`` field)
-and error codes (the eight ``*ErrorCode`` formatter families in
-``src/Aletheia/Error.agda``, the error envelope's ``code`` field).  Every
+and error codes (the per-ADT ``*ErrorCode`` formatter families plus the
+top-level ``errorCode`` in ``src/Aletheia/Error.agda``, the error
+envelope's ``code`` field).  Every
 binding mirrors both vocabularies, but all four decoders deliberately pass
 unknown codes through at runtime (the forward-compatibility channel), so a
 NEW kernel code reaches production as an unrecognised string without any
@@ -59,7 +60,7 @@ ERROR_CODE_SOURCE = Path("Aletheia") / "Error.agda"
 # The issue-code formatter: one literal arm per IssueCode constructor.
 ISSUE_CODE_FUNCTIONS: tuple[str, ...] = ("formatIssueCode",)
 
-# The seven per-ADT ``*ErrorCode`` functions plus the top-level ``errorCode``
+# The per-ADT ``*ErrorCode`` functions plus the top-level ``errorCode``
 # (which carries the consolidated ``input_bound_exceeded`` literal directly;
 # its other arms delegate to the family formatters).
 ERROR_CODE_FUNCTIONS: tuple[str, ...] = (

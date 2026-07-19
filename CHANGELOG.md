@@ -14,7 +14,8 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 - **Rust: `IssueCode` and `Error` are now `#[non_exhaustive]` (BREAKING — Rust
   only).** Both enums mirror vocabularies minted by the kernel, which grow with
-  kernel features (issue codes went 21→29 across recent releases), so the
+  kernel features (the issue-code vocabulary has grown release over
+  release), so the
   attribute states what was already true: the authoritative list lives
   upstream, and downstream matches must carry a `_` arm. Future code and
   variant additions thereby stop being breaking changes. Runtime behavior is
@@ -29,8 +30,9 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 - **Cross-binding wire-code SSOT + kernel parity gate** (`docs/WIRE_CODES.yaml`
   + `tools/check_wire_codes.py`, run_ci step `check-wire-codes`). The kernel's
-  two wire vocabularies — the 29 validation issue codes (`formatIssueCode`)
-  and the 58 error codes (the eight `*ErrorCode` formatter families) — are now
+  two wire vocabularies — the validation issue codes (`formatIssueCode`)
+  and the error codes (the per-ADT `*ErrorCode` formatter families plus
+  the top-level `errorCode`) — are now
   pinned to one reviewed YAML manifest: the gate parses the Agda formatter
   arms and asserts reciprocal set equality plus kernel declaration order, so a
   new kernel code cannot reach the wire without its SSOT row (every binding
@@ -40,14 +42,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   YAML by `python/tests/test_wire_codes_parity.py`, which supersedes the
   Agda-parsing `test_error_code_sync.py` (removed). Fails closed on a missing
   or malformed YAML; regression tests prove every failure mode fails. The
-  other three bindings are anchored by the same-shaped parity tests
+  other bindings are anchored by the same-shaped parity tests
   `go/aletheia/wire_codes_parity_test.go` (reciprocal set equality against
   the `Issue*`/`Code*` constants), `cpp/tests/test_wire_codes_parity.cpp`
   (bijection with the `IssueCode`/`ErrorCode` enums — every kernel code maps
   to a non-`Unknown` enumerator and vice versa), and `rust/tests/wire_codes.rs`
   (every issue code decodes to a named `IssueCode` variant; error codes —
   Rust has no `ErrorCode` enum by design — are driven through the client
-  decode path and must surface verbatim in `Error::Core`, with the three
+  decode path and must surface verbatim in `Error::Core`, with the
   typed lifts pinned to SSOT membership).
 - **Runtime-closure snapshot gate** (`tools/check_runtime_closure.py`, wired
   into `run_ci`). The foreign library's module list is auto-generated from the

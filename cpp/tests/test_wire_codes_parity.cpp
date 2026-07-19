@@ -133,8 +133,8 @@ TEST_CASE("issue codes are a bijection with the IssueCode enum", "[parity][wire_
         CHECK(yaml_names.contains(name));
         rendered.insert(name);
     }
-    // Injectivity: 29 enumerators -> 29 distinct wire strings; with the count
-    // anchor above this closes the bijection (YAML -> binding included).
+    // Injectivity: every named enumerator -> a distinct wire string; with the
+    // count anchor above this closes the bijection (YAML -> binding included).
     CHECK(rendered.size() == k_named_issue_count);
 }
 

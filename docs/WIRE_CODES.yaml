@@ -11,8 +11,9 @@
 #                  error envelopes).  Emitted by `formatIssueCode` in
 #                  src/Aletheia/Protocol/ResponseFormat.agda.
 #   error_codes -- machine-readable error codes, carried in the flat `code`
-#                  field of the error envelope.  Emitted by the eight
-#                  `*ErrorCode` formatter families in src/Aletheia/Error.agda.
+#                  field of the error envelope.  Emitted by the per-ADT
+#                  `*ErrorCode` formatter families plus the top-level
+#                  `errorCode` in src/Aletheia/Error.agda.
 #
 # Schema:
 #   issue_codes[] / error_codes[]: one entry per wire code
@@ -33,7 +34,7 @@
 #   rust/tests/wire_codes.rs                -- YAML <-> IssueCode variants; error
 #                                              codes pass through Error::Core
 #                                              losslessly (no ErrorCode enum by
-#                                              design; three typed lifts pinned)
+#                                              design; typed lifts pinned)
 #
 # Adding a new wire code requires coordinated edits:
 #   1. add the Agda constructor (IssueCode: at the END of the ADT, per the
@@ -143,7 +144,7 @@ issue_codes:
   - name: attribute_enum_default_unstable
     description: An ENUM attribute's default index does not resolve back to itself.
 
-# ── Error codes (the eight *ErrorCode families, Error.agda) ──
+# ── Error codes (the *ErrorCode families + errorCode, Error.agda) ──
 error_codes:
 
   # parseErrorCode -- malformed DBC or property JSON.

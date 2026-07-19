@@ -18,11 +18,12 @@
 //!
 //! Error codes: Rust deliberately has NO `ErrorCode` enum — kernel error
 //! codes travel as an open `String` in [`Error::Core`] (Go-consistent,
-//! addition-proof), with exactly three codes lifted to typed variants. The
+//! addition-proof), with the structured refusal codes lifted to typed
+//! variants. The
 //! completeness statement for an open vocabulary is lossless passthrough:
 //! every SSOT error code is driven through the real client decode path over
 //! a [`MockBackend`] and must surface verbatim in `Error::Core { code, .. }`.
-//! The three typed lifts are pinned separately: their trigger codes must be
+//! The typed lifts are pinned separately: their trigger codes must be
 //! SSOT members (a kernel rename rewrites the YAML via the kernel gate and
 //! fails here, flagging the stale Rust literal) and their structured
 //! envelopes must produce the typed variant carrying the same wire code.
@@ -94,7 +95,7 @@ fn every_error_code_passes_through_the_client_losslessly() {
     let client = Client::with_backend(Box::new(mock));
 
     for name in &yaml_names {
-        // A bare error envelope: the three structured lifts degrade to
+        // A bare error envelope: the structured lifts degrade to
         // Error::Core without their payload fields, so every code takes the
         // same open-world passthrough path here.
         feeder.respond_json(format!(

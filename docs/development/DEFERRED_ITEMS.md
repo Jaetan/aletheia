@@ -514,10 +514,11 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 - **STATUS: ✅ DONE (2026-07-19).** Shipped at the user-ratified "both
   vocabularies" scope — issue codes AND error codes. `docs/WIRE_CODES.yaml`
-  is the cross-binding SSOT (29 issue codes + 58 error codes, kernel
-  declaration order, addition protocol in the header);
+  is the cross-binding SSOT (both vocabularies, kernel declaration order,
+  addition protocol in the header);
   `tools/check_wire_codes.py` (run_ci step `check-wire-codes`) anchors it to
-  the kernel formatters (`formatIssueCode` + the eight `*ErrorCode` families)
+  the kernel formatters (`formatIssueCode` + the per-ADT `*ErrorCode`
+  families and the top-level `errorCode`)
   with reciprocal set equality plus declaration-order enforcement, failing
   closed on missing/malformed/vacuous input. Each binding is anchored to the
   YAML by a completeness test cloning its LOG_EVENTS parity mechanics:
@@ -527,9 +528,9 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   `cpp/tests/test_wire_codes_parity.cpp` (count-anchor + injectivity
   bijection), and `rust/tests/wire_codes.rs` (issue codes decode to named
   variants; error codes — no `ErrorCode` enum by design — are pinned as
-  lossless `Error::Core` passthrough with the three typed lifts SSOT-checked).
+  lossless `Error::Core` passthrough with the typed lifts SSOT-checked).
   Gate-teeth proven empirically: phantom-code injections fail the gate and
-  every binding suite, and 13 regression tests pin each failure mode.
+  every binding suite, and regression tests pin each failure mode.
 - **Original gap** — per-binding parity tests checked only the codes each
   binding *uses*; no gate asserted every kernel-emittable code is *known* to
   every binding, so a new kernel code could reach a binding as an unknown
