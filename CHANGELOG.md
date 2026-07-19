@@ -44,6 +44,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   without fish fails closed rather than skipping — pr-full-ci.yml now
   installs fish). Fails closed on a Shakefile parse it cannot fully trust;
   regression tests prove every failure mode fails.
+- **Cross-binding wire-code SSOT + kernel parity gate** (`docs/WIRE_CODES.yaml`
   + `tools/check_wire_codes.py`, run_ci step `check-wire-codes`). The kernel's
   two wire vocabularies — the validation issue codes (`formatIssueCode`)
   and the error codes (the per-ADT `*ErrorCode` formatter families plus
