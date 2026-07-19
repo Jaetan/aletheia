@@ -1499,6 +1499,9 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- UR-3.2 / CICD-5.3: SBOM (CycloneDX 1.5).  Pass the git commit epoch
         -- as --source-epoch so the SBOM timestamp + UUID5 are derived from
         -- source state, not wall-clock — required for artifact-level repro.
+        -- --bindings-dir points at the STAGED bindings tree so the bill also
+        -- covers the bundled binding source trees' declared dependencies
+        -- (the SBOM must describe the bytes that ship, not the worktree).
         putInfo "Generating SBOM..."
         let distGhcDeps = map (\dep -> distLib </> takeFileName dep) ghcDeps
         cmd_ pythonBin "-m" "tools.sbom_generate"
@@ -1506,7 +1509,16 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             "--main-so" mainSoDist
             "--out" sbomFile
             "--source-epoch" commitEpoch
+            "--bindings-dir" distBindings
             distGhcDeps
+
+        -- SBOM coverage gate: re-parse the staged binding manifests and assert
+        -- every dependency they declare appears in the SBOM just written.
+        -- Fail-loud like the staging self-check above (cmd_ aborts the dist on
+        -- a non-zero exit).
+        cmd_ pythonBin "-m" "tools.check_sbom_coverage"
+            "--sbom" sbomFile
+            "--bindings" distBindings
 
         -- Reproducible tarball: sort entries + pin mtime to the git commit time
         -- + zero owner/group.  Use `gzip -n` to suppress gzip's per-invocation

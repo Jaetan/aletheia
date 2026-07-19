@@ -555,6 +555,19 @@ def _run_gha_checks(runner: Runner) -> None:
         [runner.python, "-m", "tools.check_wire_codes"],
         cwd=runner.repo_root,
     )
+    # Always-on parse-only mode: PR runners have no dist tree, so this runs the
+    # SBOM's four binding-manifest parsers against the REPO manifests (python/
+    # go/ rust/ cpp/ share the staged bindings tree's layout), catching parser
+    # rot and manifest-shape drift on every PR.  The full SBOM-vs-manifest
+    # cross-check runs inside the Shakefile `dist` rule against the staged
+    # bundle.  Not in FAST_STEPS: the FAST tier's allowlist is deliberately
+    # scoped to per-file format/lint hygiene, and the manifests this gate reads
+    # change too rarely to earn a per-commit slot — CI + pre-push cover it.
+    runner.step(
+        "check-sbom-coverage",
+        [runner.python, "-m", "tools.check_sbom_coverage", "--parse-only"],
+        cwd=runner.repo_root,
+    )
     runner.step(
         "check-install-freshness",
         [runner.python, "-m", "tools.check_install_freshness"],

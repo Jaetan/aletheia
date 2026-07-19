@@ -28,6 +28,32 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **The release SBOM now bills the bundled binding source trees, gated.**
+  `tools/sbom_generate.py` gains hand-rolled manifest parsers — one per
+  bundled binding, still zero external SBOM tooling — behind `--bindings-dir`,
+  reading the STAGED `dist/aletheia/bindings` tree (the SBOM must describe
+  the bytes that ship, not the worktree): Python optional-extra requirements
+  (scope `optional`, the requirement range carried verbatim — a purl never
+  gets an invented pin), `go.mod` requires (scope `required`; the `go.sum`
+  `h1:` Merkle dirhash rides a `golang:h1` property, deliberately never a
+  `hashes`/SHA-256 entry a validator could not reproduce), `Cargo.toml` +
+  `Cargo.lock` (direct dependencies classified by default-feature
+  reachability; the remaining lock closure — which Cargo cannot split into
+  runtime vs dev — over-reported as scope `optional` with a marker property;
+  exact lock versions and real SHA-256 checksums), and CMake
+  `FetchContent_Declare` pins (URL-derived version, archive SHA-256; the
+  test-only Catch2 declare allowlisted; any unparsed declare is a hard error
+  via an occurrence-count cross-check). Every binding component carries an
+  `aletheia:binding` property and the component list is sorted, keeping two
+  `dist` runs of one commit byte-identical. The new
+  `tools/check_sbom_coverage.py` gate re-runs the same parsers and fails the
+  dist on any manifest-declared dependency missing from the SBOM (wired into
+  the Shakefile dist rule right after SBOM generation), and runs always-on in
+  `tools/run_ci.py` as `check-sbom-coverage --parse-only` against the repo
+  manifests (a parser-rot tripwire — PR runners have no dist tree). The first
+  tests for `sbom_generate` land alongside: fixture-matrix coverage in both
+  directions per parser, a byte-determinism pin, and teeth tests proving
+  every coverage-gate failure mode exits non-zero.
 - **Always-on release bundle-staging gate** (`tools/check_dist_staging.py`,
   run_ci step `check-dist-staging`, also in the pre-commit FAST tier). The
   inputs `cabal run shake -- dist` stages — the `stageBinding` pathspec lists
