@@ -88,12 +88,16 @@ HEAVY_STEPS: frozenset[str] = frozenset(
 # + SPDX/review-mark/venv hygiene + the two Python linters (ruff, pylint — both
 # interpreted, no compile).  The split of ``gofmt``/``cargo fmt`` out of their
 # ``go vet``/``clippy`` partners exists to make this allowlist expressible.
+# ``check-dist-staging`` qualifies too: it only parses Shakefile.hs and runs
+# ``git ls-files`` / shell syntax checks, and ``git ls-files`` reads the INDEX —
+# exactly the staged content the pre-commit tier is defined over.
 FAST_STEPS: frozenset[str] = frozenset(
     {
         "check-spdx-headers",
         "check-no-review-marks",
         "check-no-memory-citations",
         "check-venv-convention",
+        "check-dist-staging",
         "clang-format",
         "gofmt",
         "cargo fmt",
@@ -567,6 +571,11 @@ def _run_gha_checks(runner: Runner) -> None:
     runner.step(
         "check-install-freshness",
         [runner.python, "-m", "tools.check_install_freshness"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
+        "check-dist-staging",
+        [runner.python, "-m", "tools.check_dist_staging"],
         cwd=runner.repo_root,
     )
 

@@ -54,6 +54,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   tests for `sbom_generate` land alongside: fixture-matrix coverage in both
   directions per parser, a byte-determinism pin, and teeth tests proving
   every coverage-gate failure mode exits non-zero.
+- **Always-on release bundle-staging gate** (`tools/check_dist_staging.py`,
+  run_ci step `check-dist-staging`, also in the pre-commit FAST tier). The
+  inputs `cabal run shake -- dist` stages — the `stageBinding` pathspec lists
+  in `Shakefile.hs`, the `packaging/` consumer entry scripts, `LICENSE.md` —
+  used to be exercised only at release time, so a renamed path or an
+  untracked script surfaced when a tag was cut. The gate re-checks them on
+  every CI run: each positive pathspec must match a tracked file (moving the
+  `git archive` release failure to PR time), each `:(exclude)` glob's inner
+  pattern must also match (new coverage — `git archive` passes silently over
+  a dead exclude, so the Go test files would silently ship if they moved),
+  `go/go.work` must stay unselected by the go binding's pathspecs
+  (front-running dist's packed-output check), and the packaging scripts must
+  be tracked and syntax-clean (`bash -n` / `fish --no-execute`; a CI runner
+  without fish fails closed rather than skipping — pr-full-ci.yml now
+  installs fish). Fails closed on a Shakefile parse it cannot fully trust;
+  regression tests prove every failure mode fails.
 - **Cross-binding wire-code SSOT + kernel parity gate** (`docs/WIRE_CODES.yaml`
   + `tools/check_wire_codes.py`, run_ci step `check-wire-codes`). The kernel's
   two wire vocabularies — the validation issue codes (`formatIssueCode`)

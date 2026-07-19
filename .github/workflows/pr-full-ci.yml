@@ -249,6 +249,18 @@ jobs:
           sudo install -m 0755 actionlint /usr/local/bin/actionlint
           actionlint --version
 
+      # run_ci's check-dist-staging gate syntax-checks the packaging/*.fish
+      # consumer entry scripts via `fish --no-execute`.  On a runner (detected
+      # through GITHUB_ACTIONS) the gate treats a missing fish as a
+      # misconfiguration and fails closed — never a skip — so a broken .fish
+      # entry script cannot ship because the runner happened to lack the shell.
+      # Install it here so the check is genuinely always-on in CI.  apt lists
+      # were already updated by the clang-22 step above.
+      - name: Install fish (check-dist-staging syntax-checks packaging/*.fish)
+        run: |
+          set -euo pipefail
+          command -v fish >/dev/null || sudo apt-get install -y fish
+
       # ── Incremental build-tree cache (Agda .agdai + MAlonzo .hs + the cabal
       # foreign-lib build) ───────────────────────────────────────────────────
       # The single biggest CI-speed lever.  Without it every run is a COLD build
