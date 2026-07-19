@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# Bundle-consumer fixture (Rust) — Cargo manifest template.
+# tools/bundle_validate.py substitutes the placeholder on the final line with
+# the dependencies block printed by the bundle's install.sh, verbatim, so the
+# recipe users read is the recipe this consumer builds with.  The placeholder
+# token must appear exactly once — the substitution refuses the template
+# otherwise.
+[package]
+name = "consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+@ALETHEIA_DEPENDENCIES@

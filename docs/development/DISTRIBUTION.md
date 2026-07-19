@@ -14,6 +14,8 @@ How to package, distribute, and integrate Aletheia — the self-contained releas
 
 A GitHub release ships one self-contained tarball — `aletheia.tar.gz` — that carries the verified library **and** all four language wrappers. Download it, verify it ([RELEASE.md § Verifying release artifacts](RELEASE.md#verifying-release-artifacts-consumer-side)), unpack it anywhere, and you are ready to use Aletheia from Python, C++, Go, or Rust in minutes — no Agda or GHC toolchain required.
 
+Every release is validated this way before it is published: the release workflow builds one consumer program per compiled binding (C++, Go, Rust) from the exact recipes `install.sh` / `install.fish` print and drives a real verification scenario through the bundle's kernel, alongside a Python smoke test of the same `env.sh` → `ALETHEIA_LIB` chain. A weekly scheduled workflow replays the same validation against both a fresh `shake dist` from the default branch and the latest published release. See [RELEASE.md § Release-path bundle validation](RELEASE.md#release-path-bundle-validation).
+
 ```
 aletheia/
 ├── lib/libaletheia-ffi.so      # verified Agda kernel + GHC runtime (RPATH=$ORIGIN)

@@ -372,6 +372,10 @@ pytest_add_cli_args = [
     "--ignore=tests/test_check_no_review_marks.py",
     "--ignore=tests/test_check_no_memory_citations.py",
     "--ignore=tests/test_mutation_run_scope.py",
+    # Same class: covers the release-bundle consumer gate (repo-root `tools`
+    # package), so it ModuleNotFound-aborts collection in the relocated
+    # mutants/ tree.  Infra coverage, not hot-path.
+    "--ignore=tests/test_bundle_validate.py",
     # Two excel-loader tests resolve the SHARED cross-binding fixture via
     # ``Path(__file__).resolve().parents[2] / "examples" / "demo" /
     # "demo_workbook.xlsx"`` — repo-root from python/tests/, but python/ from

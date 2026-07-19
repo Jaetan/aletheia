@@ -15,11 +15,13 @@
 #   * workflow_dispatch   → build + keyless-sign + self-verify as a DRY-RUN,
 #     WITHOUT publishing — the acceptance test for this pipeline.
 #
-# Two gates precede publish: the self-verify step (a tarball that does not
-# verify against this workflow's own OIDC identity is never released) and a
-# functional bundle smoke test (unpack → source env.sh → load the .so from the
-# bundled Python package).  Both match the repo rule that a gate which cannot
-# fail has a bug.
+# Publish is gated on the self-verify step (a tarball that does not verify
+# against this workflow's own OIDC identity is never released), a functional
+# bundle smoke test (unpack → source env.sh → load the .so from the bundled
+# Python package), and the cross-binding bundle validation
+# (tools/bundle_validate.py builds + runs a real consumer per compiled binding
+# from the recipes the bundled installers print).  Each matches the repo rule
+# that a gate which cannot fail has a bug.
 
 name: Release
 
@@ -171,10 +173,10 @@ jobs:
           # venv — the pure-ctypes package has no deps, and this keeps the repo's
           # single-venv convention intact / satisfies check_venv_convention), and
           # construct a real FFIBackend — exercising the whole chain env.sh ->
-          # absolute ALETHEIA_LIB -> _validate_lib_path -> dlopen -> GHC RTS.  The
-          # C++/Go/Rust wrappers are source over the same .so + the same
-          # ALETHEIA_LIB seam, covered by their in-tree env-constructor tests;
-          # Python needs no compiler, so it stays in this lean job.
+          # absolute ALETHEIA_LIB -> _validate_lib_path -> dlopen -> GHC RTS.
+          # Python needs no compiler, so it runs right here; the compiled
+          # wrappers (C++/Go/Rust) are exercised from the bundle by the
+          # validation step below.
           work="$(mktemp -d)"
           tar xzf dist/aletheia.tar.gz -C "${work}"
           bundle="${work}/aletheia"
@@ -190,6 +192,86 @@ jobs:
             esac
             PYTHONPATH="${work}/site" python3.14 -c 'import aletheia; from aletheia import FFIBackend, AletheiaClient; print("bundle import OK", aletheia.__version__); FFIBackend(); AletheiaClient(); print("bundle smoke OK: env.sh -> ALETHEIA_LIB -> .so load -> client")'
           )
+
+      # ── Bundle validation across the compiled bindings (gates publish) ──────
+      # tools/bundle_validate.py unpacks dist/aletheia.tar.gz, runs the bundled
+      # installers capturing their printed per-language recipes, EXECUTES those
+      # exact recipe lines (the recipes users read are the recipes CI runs),
+      # and drives one consumer program per compiled binding through the
+      # verified kernel: env-constructor -> parse a real .dbc -> LTL property
+      # -> conforming + violating frame -> exactly one violation.  --require
+      # turns a missing-toolchain skip into a failure, so the toolchain steps
+      # below are load-bearing.  They are copied from pr-full-ci.yml with the
+      # same cache keys, so the caches seeded there are shared.
+      - name: Set up Go (bundle consumer toolchain)
+        uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache-dependency-path: |
+            go/go.sum
+            go/excel/go.sum
+
+      # The runner ships rustup; a stable toolchain with the minimal profile is
+      # all the consumer build needs (no clippy/rustfmt here — the consumer is
+      # built, not linted).
+      - name: Set up Rust (stable, minimal — bundle consumer toolchain)
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustc --version && cargo --version
+
+      - name: Cache clang-22 .debs (Clang is a large download)
+        uses: actions/cache@v6
+        with:
+          path: ~/llvm-cache
+          key: clang22-noble-v1
+      # ubuntu-24.04 pre-installs only clang ≤19; the bundled C++ binding
+      # enforces Clang (cpp/CMakeLists.txt), so install clang-22 (the supported
+      # toolchain) from apt.llvm.org.  Same package set + cache key as
+      # pr-full-ci.yml so this workflow shares the deb cache seeded there.
+      - name: Install C++ toolchain (clang-22 from apt.llvm.org)
+        run: |
+          set -euo pipefail
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm22.list >/dev/null
+          sudo apt-get update
+          mkdir -p ~/llvm-cache
+          if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
+            sudo apt-get install -y --download-only \
+              -o Dir::Cache::archives="${HOME}/llvm-cache" \
+              clang-22 clang-tidy-22 libstdc++-14-dev
+            sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
+          fi
+          sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
+
+      # The bundle ships install.fish / env.fish; with fish on PATH the
+      # validator also runs the fish installer, checks bash/fish recipe
+      # parity, and sources env.fish — the multi-shell divergence class the
+      # v4.0.0 review caught by hand.
+      - name: Install fish (recipe-parity leg of the bundle validation)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fish
+
+      # FETCHCONTENT_BASE_DIR for the C++ consumer configure: without it every
+      # run re-downloads nlohmann/json + yaml-cpp + OpenXLSX into the per-run
+      # temp tree.  Keyed on cpp/CMakeLists.txt, which pins the dependency
+      # versions (the bundled binding is staged from the same tree).
+      - name: Cache C++ FetchContent deps (bundle consumer)
+        uses: actions/cache@v6
+        with:
+          path: ~/fetchcontent-cache
+          key: bundle-cpp-deps-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
+
+      - name: Validate the bundle across the compiled bindings (gates publish)
+        run: |
+          set -euo pipefail
+          python/.venv/bin/python3 -m tools.bundle_validate dist/aletheia.tar.gz \
+            --require cpp,go,rust \
+            --fetchcontent-cache "${HOME}/fetchcontent-cache"
 
       - name: Publish the GitHub Release (draft; tag pushes only)
         if: github.event_name == 'push'
