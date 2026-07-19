@@ -2,7 +2,7 @@
 
 ---
 **Version**: 4.0.0 (canonical sources: `haskell-shim/aletheia.cabal` `version:` field and `python/pyproject.toml` `version =` field — update those when bumping)
-**Last Updated**: 2026-07-17
+**Last Updated**: 2026-07-19
 **Platform**: Linux x86-64 only
 ---
 
@@ -86,6 +86,49 @@ aletheia = { path = "<A>/bindings/rust" }
 
 The per-language **reference** sections below cover each API surface, the explicit `.so`-path constructors, RPATH, and Docker in depth.
 
+## Installing from a native package (.deb / .rpm)
+
+Each release also ships the bundle as native Linux packages — `aletheia_<version>_amd64.deb` and `aletheia-<version>-1.x86_64.rpm`, where `<version>` is the four-component cabal form (e.g. `4.0.0.0` for release v4.0.0). Both install the **exact payload of `aletheia.tar.gz`** to `/opt/aletheia` — deliberately not `/usr/lib`: the bundle carries its own GHC runtime `.so` closure (`RPATH=$ORIGIN`), which must never land where it could shadow distro-managed libraries. x86-64 Linux only, as stated in the package metadata.
+
+The only declared dependency beyond glibc is the GMP runtime: `libgmp10` (deb) / the `libgmp.so.10()(64bit)` soname (rpm — a soname rather than a package name, because the owning package differs across rpm distros: Fedora/RHEL ship it as `gmp`, openSUSE as `gmp-libs`).
+
+Download a package with its sidecars from the GitHub Release, verify, install:
+
+```bash
+BASE=https://github.com/Jaetan/aletheia/releases/download/vX.Y.Z
+PKG=aletheia_<version>_amd64.deb          # rpm: aletheia-<version>-1.x86_64.rpm
+curl -fsSLO "$BASE/$PKG";     curl -fsSLO "$BASE/$PKG.sha256"
+curl -fsSLO "$BASE/$PKG.sig"; curl -fsSLO "$BASE/$PKG.crt"
+
+sha256sum -c "$PKG.sha256"
+cosign verify-blob \
+  --certificate "$PKG.crt" --signature "$PKG.sig" \
+  --certificate-identity-regexp \
+    '^https://github\.com/Jaetan/aletheia/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  "$PKG"
+
+sudo dpkg -i "$PKG"                              # Debian/Ubuntu
+# sudo rpm -i aletheia-<version>-1.x86_64.rpm    # RPM distros
+```
+
+Environment wiring stays **strictly opt-in**: the packages run no maintainer scripts and install no `profile.d` drop-ins. Activate per shell exactly as with the tarball —
+
+```bash
+source /opt/aletheia/env.sh    # bash/zsh (fish: source /opt/aletheia/env.fish)
+```
+
+— then follow [step 2 of the bundle instructions](#2-wire-it-into-your-language) with `<A>` = `/opt/aletheia`.
+
+Uninstall:
+
+```bash
+sudo dpkg -r aletheia          # Debian/Ubuntu
+# sudo rpm -e aletheia         # RPM distros
+```
+
+Before publish, CI install-smokes every release's `.deb` for real — `dpkg -i`, `source /opt/aletheia/env.sh` from a foreign cwd, a kernel load through the packaged Python binding, clean `dpkg -r` — and structurally checks the `.rpm` payload listing; both formats pack the same contents map (`packaging/nfpm.yaml`), so their payloads are identical by construction. See [RELEASE.md § Native packages](RELEASE.md#native-packages-deb--rpm) for the artifact and verification details, including the honest reproducibility scope.
+
 ## Building the Distribution
 
 **Prerequisites**: Build Aletheia first following [BUILDING.md](BUILDING.md). The `dist` target requires `patchelf` (see below).
@@ -112,7 +155,7 @@ See [DEPENDENCIES.md](../../DEPENDENCIES.md) for the complete list with licenses
 | Library | Package (Debian/Ubuntu) | Package (Fedora) |
 |---------|------------------------|-------------------|
 | `libc`, `libm`, `libpthread` | `libc6` (always present) | `glibc` (always present) |
-| `libgmp` | `libgmp10` | `gmp-libs` |
+| `libgmp` | `libgmp10` | `gmp` |
 
 If you see `error while loading shared libraries: libgmp.so.10: cannot open shared object file`, install the package above.
 
@@ -362,12 +405,61 @@ cargo build --release
 
 ### Docker
 
+#### Pull the published image (GHCR)
+
+Each release pushes a runtime image to GitHub Container Registry, tagged with the release version (`X.Y.Z`, from the `vX.Y.Z` tag) and `latest`, and keyless-signs the image **digest** (tags are movable; the digest is content-addressed):
+
+```bash
+docker pull ghcr.io/jaetan/aletheia:X.Y.Z
+
+# Verify the signature against the release workflow identity:
+cosign verify \
+  --certificate-identity-regexp \
+    '^https://github\.com/Jaetan/aletheia/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/jaetan/aletheia:X.Y.Z
+```
+
+The image carries the full release bundle at `/opt/aletheia` (verified kernel + GHC runtime closure, C header, all four binding sources, env scripts, MANIFEST, SBOM), has the **bundled** Python binding pre-installed — byte-identical to `/opt/aletheia/bindings/python`, never a separate copy — and presets `ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so`. Python needs no further wiring:
+
+```bash
+docker run --rm ghcr.io/jaetan/aletheia:X.Y.Z python3 -c \
+  "from aletheia import AletheiaClient; print('OK')"
+```
+
+Every image build is gated by throwaway verify stages: the bundled Rust crate and C++ binding (clang-22, the enforced toolchain) must build — and a Go consumer must build **and run** a real LTL scenario — against the image's own `/opt/aletheia`, or the build fails. The stages ship nothing; the image stays slim.
+
+#### C++ / Go / Rust consumer images (`COPY --from`)
+
+The image doubles as a distribution vehicle for compiled-language consumers — `COPY --from` it instead of downloading and unpacking the tarball inside your Dockerfile:
+
+```dockerfile
+FROM golang:1.25-trixie AS build
+COPY --from=ghcr.io/jaetan/aletheia:X.Y.Z /opt/aletheia /opt/aletheia
+WORKDIR /app
+COPY . .
+RUN go mod edit -replace "github.com/aletheia-automotive/aletheia-go=/opt/aletheia/bindings/go" && \
+    go get github.com/aletheia-automotive/aletheia-go/aletheia && \
+    CGO_ENABLED=1 go build -o app .
+
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends libgmp10 && rm -rf /var/lib/apt/lists/*
+COPY --from=build /opt/aletheia/lib /opt/aletheia/lib
+COPY --from=build /app/app /usr/local/bin/app
+ENV ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so
+CMD ["app"]
+```
+
+The same shape serves C++ (`add_subdirectory(/opt/aletheia/bindings/cpp aletheia-cpp)`) and Rust (`aletheia = { path = "/opt/aletheia/bindings/rust" }`): build against the copied bindings, then carry only `/opt/aletheia/lib` plus your binary into the final stage and set `ALETHEIA_LIB`.
+
+#### Building the image locally
+
 Two Dockerfiles are provided in the repository root:
 
 | File | Purpose | Base image |
 |------|---------|------------|
 | `Dockerfile` | Build from source (CI/CD) | `haskell:9.6.7` → `python:3.14-slim` |
-| `Dockerfile.runtime` | Runtime from pre-built dist | `python:3.14-slim` |
+| `Dockerfile.runtime` | Runtime from pre-built dist | `python:3.14-slim` (+ digest-pinned throwaway verify stages) |
 
 ```bash
 # Build runtime image from pre-built dist (fast)
@@ -382,10 +474,10 @@ docker run --rm aletheia:runtime python3 -c \
   "from aletheia import AletheiaClient; print('OK')"
 ```
 
-For C/C++/Go/Rust consumers who don't need Python, use the dist tarball with a minimal base image:
+For C/C++/Go/Rust consumers who don't need Python and build from a local checkout, the dist tree with a minimal base image is still the smallest option:
 
 ```dockerfile
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends libgmp10 && rm -rf /var/lib/apt/lists/*
 COPY dist/aletheia /opt/aletheia
 ENV ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so
@@ -417,7 +509,7 @@ See `aletheia.h` for the authoritative specification. In summary:
 Verify the path exists: `ls -la /path/to/lib/libaletheia-ffi.so`
 
 **`error while loading shared libraries: libgmp.so.10`**
-Install libgmp: `sudo apt install libgmp10` (Debian/Ubuntu) or `sudo dnf install gmp-libs` (Fedora).
+Install libgmp: `sudo apt install libgmp10` (Debian/Ubuntu) or `sudo dnf install gmp` (Fedora).
 
 **`dlsym failed for aletheia_init: undefined symbol`**
 The `.so` was stripped too aggressively. Rebuild with `cabal run shake -- dist` (uses `--strip-unneeded`, not `--strip-all`).

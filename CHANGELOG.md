@@ -28,6 +28,32 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Native `.deb` / `.rpm` packages and a GHCR-published container image join
+  the release.** `cabal run shake -- packages` builds both native packages
+  from one declarative `packaging/nfpm.yaml` (nfpm, SHA-pinned in CI): the
+  payload is the release bundle mapped wholesale to `/opt/aletheia` — proven
+  byte-identical to the tarball's tree by extraction diff — with strictly
+  opt-in environment wiring (no maintainer scripts, no `profile.d`; consumers
+  source `/opt/aletheia/env.sh` or `env.fish`), x86-64-only metadata, and the
+  GMP runtime as the only dependency beyond glibc (`libgmp10` for deb; the
+  `libgmp.so.10()(64bit)` soname for rpm, which resolves across rpm distros
+  regardless of the owning package's name). Packages are hash-pinned and
+  keyless-signed per release — deliberately not claimed bit-reproducible:
+  `SOURCE_DATE_EPOCH` empirically pins nfpm's own metadata but not payload
+  mtimes. The release workflow builds and publishes them with the cosign
+  self-verify loop extended over every signed artifact, a real `dpkg -i`
+  install smoke, and an rpm payload structural check. The runtime container
+  image is now published to `ghcr.io/jaetan/aletheia` (version + latest tags)
+  with its digest keyless-signed and OCI source/description/licenses labels;
+  the push runs last, after the draft Release publishes, so a failed release
+  never leaves a live orphaned image. `Dockerfile.runtime` installs the
+  Python binding from the bundled payload rather than the worktree (fixing a
+  skew where the image's binding could differ from the bundle it shipped)
+  and gains throwaway BuildKit verify stages — Go, Rust, and C++ (clang-22,
+  the enforced toolchain) each build a consumer against the image's own
+  `/opt/aletheia` — so the image cannot build unless every compiled binding
+  works against the exact bytes it ships, while the final image stays slim
+  with no toolchains aboard.
 - **Release bundles are validated end-to-end across the compiled bindings,
   gating publish.** `tools/bundle_validate.py` unpacks the distribution
   tarball, runs both bundled installers capturing their printed per-language

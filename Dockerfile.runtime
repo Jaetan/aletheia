@@ -9,6 +9,23 @@
 #
 # Or use the Shake target:
 #   cabal run shake -- docker
+#
+# Multi-stage layout (BuildKit — the default builder in Docker 23+; the
+# `RUN --mount=type=bind,from=...` gate below requires it):
+#   runtime      — the shipped image: the dist bundle at /opt/aletheia + the
+#                  BUNDLED Python binding installed from it (never from the
+#                  worktree, so the image's binding is byte-identical to the
+#                  bundle's).
+#   verify-go    — throwaway: builds AND RUNS a Go consumer against the
+#                  image's /opt/aletheia (dlopen of the packaged kernel).
+#   verify-rust  — throwaway: cargo-builds the bundled Rust crate.
+#   verify-cpp   — throwaway: CMake-builds the bundled C++ binding with
+#                  clang-22 (the enforced toolchain, from apt.llvm.org).
+#   final        — FROM runtime; force-depends on every verify stage via
+#                  ephemeral bind mounts, so a plain `docker build` FAILS
+#                  unless all three compiled bindings build/load against the
+#                  image's .so — while the shipped image COPYs nothing from
+#                  them and stays slim.
 
 #
 # CICD-5.5: base image pinned by SHA-256 digest, not floating tag.  The tag
@@ -17,7 +34,14 @@
 #   docker buildx imagetools inspect python:3.14-slim   # multi-arch index digest
 # The digest below is the OCI multi-arch manifest list at last refresh —
 # pinning by digest makes `docker build` bit-reproducible at the base layer.
-FROM python:3.14-slim@sha256:c845af9399020c7e562969a13689e929074a10fd057acd1b1fad06a2fb068e97
+FROM python:3.14-slim@sha256:c845af9399020c7e562969a13689e929074a10fd057acd1b1fad06a2fb068e97 AS runtime
+
+# OCI provenance labels.  `source` is load-bearing for GHCR: it links the
+# pushed package to the repository (release.yml pushes this image to
+# ghcr.io/jaetan/aletheia and keyless-signs the digest).
+LABEL org.opencontainers.image.source="https://github.com/Jaetan/aletheia" \
+      org.opencontainers.image.description="Formally verified CAN frame analysis (LTL) — verified kernel + Python binding; C++/Go/Rust binding sources under /opt/aletheia/bindings" \
+      org.opencontainers.image.licenses="BSD-2-Clause"
 
 # CICD-2.2: pin apt mirror to snapshot.debian.org and the libgmp10 package
 # version, so the install layer is reproducible against upstream Debian
@@ -44,18 +68,93 @@ RUN sed -i "s|http://deb.debian.org/debian-security|http://snapshot.debian.org/a
     apt-get install -y --no-install-recommends libgmp10=2:6.3.0+dfsg-3 && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy pre-built shared libraries and C header
+# Copy the pre-built release bundle: verified kernel + GHC runtime closure
+# (RPATH=$ORIGIN), C ABI header, all four language binding sources, env
+# scripts, MANIFEST, SBOM, license.
 COPY dist/aletheia /opt/aletheia
 
-# Install Python package
-COPY python /tmp/python
-RUN pip install --no-cache-dir /tmp/python && rm -rf /tmp/python
+# Install the Python binding FROM THE BUNDLE — not from the worktree — so the
+# image's installed package is byte-identical to what /opt/aletheia/bindings
+# ships (and to what a tarball/.deb/.rpm consumer installs).
+RUN pip install --no-cache-dir /opt/aletheia/bindings/python
 
 # Tell aletheia where to find the .so (no _install_config.py needed)
 ENV ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so
 
-# Smoke test — verifies .so loads and Python package works
-RUN python3 -c "from aletheia import AletheiaClient; print('OK')"
+# Smoke test — FFIBackend() dlopens the packaged .so and boots the GHC RTS,
+# so this proves the kernel actually loads, not just that the import works.
+RUN python3 -c "from aletheia import FFIBackend, AletheiaClient; FFIBackend(); print('OK')"
 
 # No ENTRYPOINT — this is a library image, not a service
 WORKDIR /work
+
+# ── Throwaway verify stages ─────────────────────────────────────────────────
+# Each stage takes /opt/aletheia FROM THE RUNTIME STAGE (the exact bytes the
+# image ships) and proves a compiled binding builds — and for Go, runs —
+# against it.  Nothing from these stages is copied into the final image.
+# Their base images are digest-pinned like the runtime base; their apt/cargo/
+# go module fetches float, deliberately: these stages ship no bytes, so
+# snapshot-pinning them would add churn without hardening the artifact.
+
+# Go: build the bundle-consumer fixture against the bundled module via the
+# same `go mod edit -replace` wiring install.sh prints, then RUN it — the
+# consumer dlopens the image's kernel and drives a real LTL scenario
+# (parse .dbc → property → conforming + violating frame → one violation).
+# Refresh: docker buildx imagetools inspect golang:1.25-trixie
+FROM golang:1.25-trixie@sha256:c699a45b4ed445f5a618233d1910f7c889dd52b831594047eff8e6a52794c814 AS verify-go
+COPY --from=runtime /opt/aletheia /opt/aletheia
+COPY tools/bundle_validation/consumer_go /verify
+COPY examples/demo/vehicle.dbc /verify/vehicle.dbc
+WORKDIR /verify
+RUN go mod init consumer && \
+    go mod edit -replace github.com/aletheia-automotive/aletheia-go=/opt/aletheia/bindings/go && \
+    go get github.com/aletheia-automotive/aletheia-go/aletheia && \
+    CGO_ENABLED=1 go build -o consumer .
+RUN ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so ./consumer vehicle.dbc && \
+    echo go > /verified
+
+# Rust: build the bundled crate standalone (default features), with the
+# shipped Cargo.lock enforced.  The crate dlopens at runtime, so a build
+# proves the bundled source tree is complete and compiles.
+# Refresh: docker buildx imagetools inspect rust:1.93-trixie
+FROM rust:1.93-trixie@sha256:ecbe59a8408895edd02d9ef422504b8501dd9fa1526de27a45b73406d734d659 AS verify-rust
+COPY --from=runtime /opt/aletheia /opt/aletheia
+WORKDIR /opt/aletheia/bindings/rust
+RUN cargo build --release --locked && \
+    echo rust > /verified
+
+# C++: CMake-configure + build the bundled binding standalone, FAITHFUL to
+# the enforced toolchain — clang-22 from apt.llvm.org (cpp/CMakeLists.txt
+# hard-rejects anything else) with noble's libstdc++-14 (C++23 <expected>),
+# mirroring the release workflow's toolchain step.  The bundle ships no
+# tests/, so a standalone configure builds the library + CLI only.
+# FetchContent (nlohmann/json, yaml-cpp, OpenXLSX) is URL+SHA-pinned in the
+# bundled CMakeLists and needs network on first configure.
+# Refresh: docker buildx imagetools inspect ubuntu:24.04
+FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90 AS verify-cpp
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates wget cmake make libstdc++-14-dev && \
+    wget -qO /etc/apt/trusted.gpg.d/apt.llvm.org.asc \
+        https://apt.llvm.org/llvm-snapshot.gpg.key && \
+    echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
+        > /etc/apt/sources.list.d/llvm22.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends clang-22 && \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=runtime /opt/aletheia /opt/aletheia
+RUN cmake -S /opt/aletheia/bindings/cpp -B /build \
+        -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 \
+        -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build /build --parallel && \
+    echo cpp > /verified
+
+# ── Final image ─────────────────────────────────────────────────────────────
+# FROM runtime, plus an ephemeral bind mount per verify stage: the mounts
+# force BuildKit to BUILD all three stages (their failures fail this build)
+# while copying zero bytes into the shipped image.
+FROM runtime
+RUN --mount=type=bind,from=verify-go,source=/verified,target=/tmp/verified-go \
+    --mount=type=bind,from=verify-rust,source=/verified,target=/tmp/verified-rust \
+    --mount=type=bind,from=verify-cpp,source=/verified,target=/tmp/verified-cpp \
+    cat /tmp/verified-go /tmp/verified-rust /tmp/verified-cpp

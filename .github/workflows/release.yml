@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: BSD-2-Clause
 #
 # Tag-triggered release automation.  Builds the reproducible distribution
-# tarball via `cabal run shake -- dist` and publishes it to a GitHub Release.
+# tarball via `cabal run shake -- dist`, the native packages (.deb + .rpm)
+# via `cabal run shake -- packages`, and the runtime container image, then
+# publishes the artifacts to a GitHub Release and the image to GHCR.
 #
 # Signing is KEYLESS (Sigstore / GitHub Actions ambient OIDC → short-lived
 # Fulcio certificate + Rekor transparency log): no signing key or passphrase
@@ -11,17 +13,30 @@
 #
 # Triggers:
 #   * push of a `v*` tag  → build + keyless-sign + self-verify + publish a DRAFT
-#     release (the maintainer flips it public after a look).
+#     release (the maintainer flips it public after a look), then push + sign
+#     the container image on GHCR.
 #   * workflow_dispatch   → build + keyless-sign + self-verify as a DRY-RUN,
-#     WITHOUT publishing — the acceptance test for this pipeline.
+#     WITHOUT publishing or pushing — the acceptance test for this pipeline.
 #
-# Publish is gated on the self-verify step (a tarball that does not verify
-# against this workflow's own OIDC identity is never released), a functional
-# bundle smoke test (unpack → source env.sh → load the .so from the bundled
-# Python package), and the cross-binding bundle validation
-# (tools/bundle_validate.py builds + runs a real consumer per compiled binding
-# from the recipes the bundled installers print).  Each matches the repo rule
-# that a gate which cannot fail has a bug.
+# Publish is gated on the self-verify steps (an artifact that does not verify
+# against this workflow's own OIDC identity is never released — the loop
+# covers EVERY signed artifact: tarball, .deb, .rpm), a functional bundle
+# smoke test (unpack → source env.sh → load the .so from the bundled Python
+# package), the cross-binding bundle validation (tools/bundle_validate.py
+# builds + runs a real consumer per compiled binding from the recipes the
+# bundled installers print), a real `dpkg -i` install smoke of the .deb, and
+# the runtime-image build (whose in-Dockerfile verify stages build/load every
+# compiled binding against the image's own /opt/aletheia).  Each matches the
+# repo rule that a gate which cannot fail has a bug.
+#
+# Ordering: every artifact — tarball, packages, image — is built AND verified
+# BEFORE anything is published anywhere, so a failure leaves nothing
+# half-published.  The GHCR push runs AFTER the Release publish: the draft
+# Release is the reviewable anchor, and a failed push can be retried
+# idempotently, whereas an image pushed for a release that then failed to
+# publish would be live-but-orphaned (GHCR has no draft state).  Residual:
+# GHCR versions are pullable immediately on push (no draft gate) — accepted,
+# because the push only happens after every verification gate has passed.
 
 name: Release
 
@@ -41,10 +56,15 @@ jobs:
   release:
     name: build + keyless-sign + publish
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # The runtime-image build (in-Dockerfile verify stages: Go + Rust + C++
+    # with clang-22) and the native-package build sit on top of the ~35 min
+    # dist + validation pipeline, so this lane needs more headroom than the
+    # PR lanes.
+    timeout-minutes: 90
     permissions:
       contents: write   # create the Release + upload assets (tag pushes only)
       id-token: write   # mint the ambient OIDC token for keyless Sigstore signing
+      packages: write   # push the runtime image to GHCR (tag pushes only)
     env:
       GHC_VERSION: '9.6.7'
       AGDA_VERSION: '2.8.0'
@@ -273,6 +293,110 @@ jobs:
             --require cpp,go,rust \
             --fetchcontent-cache "${HOME}/fetchcontent-cache"
 
+      # ── Native packages (.deb + .rpm) over the validated payload ────────────
+      # nfpm is installed SHA-pinned exactly like cosign (pin recorded in
+      # packaging/nfpm.yaml's header comment — keep the two in sync).  rpm is
+      # installed for the `shake packages` .rpm payload self-check and the
+      # structural check below.
+      - name: Install nfpm (SHA-pinned) + rpm
+        env:
+          NFPM_VERSION: '2.47.0'
+          NFPM_SHA256: '0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783'
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/nfpm.tar.gz \
+            "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+          echo "${NFPM_SHA256}  /tmp/nfpm.tar.gz" | sha256sum -c -
+          tar -C /tmp -xzf /tmp/nfpm.tar.gz nfpm
+          sudo install -m 0755 /tmp/nfpm /usr/local/bin/nfpm
+          rm /tmp/nfpm /tmp/nfpm.tar.gz
+          nfpm --version
+          sudo apt-get install -y --no-install-recommends rpm
+
+      # `shake packages` re-needs `dist` (a Shake phony re-runs), so the
+      # tarball is rebuilt + re-signed here.  That is sound because the dist
+      # tarball is byte-reproducible for a given commit + toolchain (commit-
+      # epoch mtimes, `gzip -n`, sorted entries): the bundle the validator
+      # just exercised is bit-identical to the one published below, and the
+      # fresh signature set is what the complete self-verify loop checks.
+      # The proof gates re-run warm off the cached .agdai from the first
+      # dist.  The packages themselves are hash-pinned per release (.sha256
+      # sidecar + keyless signature each), NOT bit-reproducible end-to-end —
+      # see the reproducibility note on the Shakefile `packages` rule.
+      - name: Build + keyless-sign the native packages (.deb + .rpm)
+        env:
+          ALETHEIA_COSIGN_KEYLESS: '1'
+        run: cabal run shake -- packages
+
+      # A partial verify loop is the classic gate-that-cannot-fail bug: every
+      # signed artifact must verify against THIS workflow's OIDC identity or
+      # nothing is published.  The count assertion keeps the loop honest — a
+      # glob that matches nothing would otherwise verify nothing and pass.
+      - name: Self-verify EVERY signed artifact (gates publish)
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          artifacts=(dist/aletheia.tar.gz dist/*.deb dist/*.rpm)
+          if [ "${#artifacts[@]}" -ne 3 ]; then
+            echo "expected exactly 3 signed artifacts (tarball + .deb + .rpm), found ${#artifacts[@]}: ${artifacts[*]}" >&2
+            exit 1
+          fi
+          for artifact in "${artifacts[@]}"; do
+            cosign verify-blob \
+              --certificate "${artifact}.crt" \
+              --signature "${artifact}.sig" \
+              --certificate-identity "https://github.com/${GITHUB_WORKFLOW_REF}" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "${artifact}"
+            echo "Self-verify OK: ${artifact}"
+          done
+
+      # Functional gate for the .deb: a real `dpkg -i` on this runner, then
+      # the exact consumer chain the package README promises — source
+      # /opt/aletheia/env.sh from a foreign cwd, install the packaged Python
+      # binding, dlopen the installed .so — then clean removal.  The .rpm
+      # gets a structural payload check only: a dnf-container install smoke
+      # is out of scope for this lane (the `shake packages` self-check has
+      # already proven both formats pack the same contents map, and the .deb
+      # leg exercises those payload bytes functionally).
+      - name: Package install smoke (.deb) + payload structural check (.rpm)
+        run: |
+          set -euo pipefail
+          sudo dpkg -i dist/aletheia_*_amd64.deb
+          test -f /opt/aletheia/lib/libaletheia-ffi.so
+          work="$(mktemp -d)"
+          python3.14 -m pip install --quiet --target "${work}/site" /opt/aletheia/bindings/python
+          (
+            cd /tmp
+            # shellcheck disable=SC1091
+            source /opt/aletheia/env.sh
+            case "${ALETHEIA_LIB}" in
+              /opt/aletheia/lib/*) : ;;
+              *) echo "ALETHEIA_LIB does not point into the installed package: ${ALETHEIA_LIB}" >&2; exit 1 ;;
+            esac
+            PYTHONPATH="${work}/site" python3.14 -c 'import aletheia; from aletheia import FFIBackend, AletheiaClient; FFIBackend(); AletheiaClient(); print("deb smoke OK: dpkg -i -> env.sh -> .so load -> client")'
+          )
+          sudo dpkg -r aletheia
+          if [ -e /opt/aletheia ]; then
+            echo "dpkg -r left /opt/aletheia behind" >&2
+            exit 1
+          fi
+          listing="$(rpm -qlp dist/aletheia-*.x86_64.rpm)"
+          test -n "${listing}"
+          for entry in /opt/aletheia/lib/libaletheia-ffi.so /opt/aletheia/env.sh /opt/aletheia/env.fish /opt/aletheia/bindings/python/pyproject.toml; do
+            grep -qx "${entry}" <<<"${listing}"
+          done
+          echo "rpm payload listing OK"
+
+      # ── Runtime container image (built + verified BEFORE any publish) ───────
+      # The Dockerfile's throwaway verify stages make this build the gate:
+      # it fails unless the bundled Go consumer builds AND runs (dlopens the
+      # image's kernel), and the bundled Rust crate + C++ binding (clang-22)
+      # build against the image's own /opt/aletheia.  The push to GHCR
+      # happens only after the Release publish succeeds, further below.
+      - name: Build the runtime image (in-build cross-binding verification)
+        run: docker build -t aletheia:release -f Dockerfile.runtime .
+
       - name: Publish the GitHub Release (draft; tag pushes only)
         if: github.event_name == 'push'
         env:
@@ -287,17 +411,55 @@ jobs:
           # (the .crt + the identity in RELEASE.md), NOT keys/cosign.pub — so
           # cosign.pub is deliberately NOT a release asset here (shipping it
           # would invite a --key verify that cannot succeed on a keyless sig).
+          #
+          # The package names carry the cabal version, which is four-component
+          # (e.g. `4.0.0.0` for tag v4.0.0) — hence the globs rather than a
+          # name computed from the three-component tag.  The self-verify loop
+          # above has already asserted exactly one .deb and one .rpm exist.
           assets=(
             dist/aletheia.tar.gz
             dist/aletheia.tar.gz.sha256
             dist/aletheia.tar.gz.sig
             dist/aletheia.tar.gz.crt
           )
+          for pkg in dist/*.deb dist/*.rpm; do
+            assets+=("${pkg}" "${pkg}.sha256" "${pkg}.sig" "${pkg}.crt")
+          done
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" "${assets[@]}" --clobber
           else
             gh release create "${GITHUB_REF_NAME}" "${assets[@]}" \
               --draft \
               --title "Aletheia ${GITHUB_REF_NAME}" \
-              --notes "Keyless-signed (Sigstore) distribution tarball. Verify per docs/development/RELEASE.md § Verifying release artifacts."
+              --notes "Keyless-signed (Sigstore) release: distribution tarball, .deb/.rpm packages, and the container image on GHCR. Verify per docs/development/RELEASE.md § Verifying release artifacts."
           fi
+
+      # GHCR push runs LAST (see the ordering note at the top of this file):
+      # the image was already built + verified above; a failure here is
+      # retryable idempotently (docker push and `gh release upload --clobber`
+      # both converge on re-run).  The digest — not a tag — is what gets
+      # keyless-signed: tags are movable, digests are content-addressed.
+      # Maintainer note: the FIRST push creates the GHCR package PRIVATE; the
+      # one-time visibility flip to Public is a manual step (RELEASE.md
+      # § Container image on GHCR).
+      - name: Push the runtime image to GHCR + keyless-sign the digest (tag pushes only)
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # GHCR requires a lowercase namespace; the repo owner is `Jaetan`.
+          image="ghcr.io/$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')/aletheia"
+          version="${GITHUB_REF_NAME#v}"
+          echo "${GH_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker tag aletheia:release "${image}:${version}"
+          docker tag aletheia:release "${image}:latest"
+          docker push "${image}:${version}"
+          docker push "${image}:latest"
+          # Resolve the content-addressed digest the registry assigned, then
+          # sign THAT (both tags point at the same digest).
+          digest="$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${image}:${version}" \
+            | grep -m1 "^${image}@sha256:")"
+          test -n "${digest}"
+          cosign sign --yes "${digest}"
+          echo "Pushed + keyless-signed ${digest}"
