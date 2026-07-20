@@ -4,7 +4,7 @@
 
 -- DBC structural validator: individual check functions.
 --
--- Purpose: Per-check functions for all 16 DBC validity conditions.
+-- Purpose: Per-check functions for the DBC validity conditions.
 -- Each check returns [] (no issues) or a singleton list (issue found).
 -- checkAll* variants lift per-element checks to full message lists via concatMap.
 -- Role: Used by Validity proofs (ErrorChecks, WarningChecks) and composed
@@ -70,6 +70,8 @@ open import Data.List.Relation.Unary.Any using (any?)
 open import Data.List.Membership.DecPropositional _≟ₛ_ using (_∈?_)
 open import Aletheia.DBC.Validity.Combinators using
   (requireDec; rejectDec; checkAgainst; triangularCheck)
+open import Aletheia.DBC.TextParser.WellFormedCheck.Foundations using
+  (presenceIssue; mcIssue)
 
 -- ============================================================================
 -- DECIDABLE HELPERS
@@ -611,3 +613,36 @@ checkUnknownValueDescriptionTarget rvd =
 
 checkAllUnknownValueDescriptionTargets : List RawValueDesc → List ValidationIssue
 checkAllUnknownValueDescriptionTargets = concatMap checkUnknownValueDescriptionTarget
+
+-- ============================================================================
+-- CHECK 24: MULTI-VALUE MUX SELECTOR
+-- ============================================================================
+-- Warning-class mirror of the text-round-trip checker's `wfps` diagnostic:
+-- a signal multiplexed on more than one selector value loads and streams
+-- fine, but `.dbc` text cannot express it (the SG_ grammar carries a single
+-- selector), so `formatDBCText` refuses the DBC.  The per-signal decider
+-- `presenceIssue` is the SSOT, shared with `wfTextIssues`
+-- (TextParser/WellFormedCheck/Foundations.agda documents the condition; the
+-- E.3 tightness header lives in TextParser/WellFormedCheck.agda); this
+-- lifting is the validator's only contribution.  Warning severity: the shape
+-- is fully usable for streaming — only the text round-trip is off the table.
+
+checkAllMultiValueMuxSelectors : List DBCMessage → List ValidationIssue
+checkAllMultiValueMuxSelectors = concatMap λ msg →
+  concatMap presenceIssue (DBCMessage.signals msg)
+
+-- ============================================================================
+-- CHECK 25: MUX MASTER INCOHERENT
+-- ============================================================================
+-- Warning-class mirror of the text-round-trip checker's `mc` diagnostic:
+-- a message whose multiplexing is incoherent — no single `Always` master, or
+-- a `When` selector naming a different master (the split-master shape loads
+-- error-free: CHECK 4 sees each named master present, CHECK 5 sees no cycle).
+-- `.dbc` text keeps only one `M` marker, so re-parse would rebind every slave
+-- to that master and `formatDBCText` refuses the DBC.  The per-message
+-- decider `mcIssue` is the SSOT, shared with `wfTextIssues`; same
+-- warning-severity rationale as CHECK 24.
+
+checkAllMuxMasterIncoherent : List DBCMessage → List ValidationIssue
+checkAllMuxMasterIncoherent = concatMap λ msg →
+  mcIssue (DBCMessage.signals msg)

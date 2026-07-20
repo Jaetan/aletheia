@@ -74,8 +74,10 @@
 --   This is the counterexample class documented in
 --   Properties/WellFormedFromValidity.agda.  Witness class: a multi-value
 --   selector is refused (the divergence error plus this warning); the
---   singleton control succeeds.  The validate route reports nothing for the
---   shape — this checker is the only surface that names it.
+--   singleton control succeeds.  The structural validator mirrors this
+--   diagnostic warning-class (`checkAllMultiValueMuxSelectors` in
+--   Validator/Checks.agda reuses `presenceIssue`), so `validateDBC` and the
+--   loading routes also name the shape; warnings never block a load.
 --
 -- • `mc` (`mcIssue` → MuxMasterIncoherent): TIGHT; reachable via the JSON
 --   routes.  A `When` slave's own master reference is dropped at emission
@@ -86,9 +88,11 @@
 --   a slave naming a different master → rebound to the emitted master, a
 --   different DBC.  Witness class: absent-master, split-master, and
 --   self-cycle DBCs are all refused; the split-master shape (slaves under two
---   `Always` masters) even LOADS error-free — no error-class validator check
---   covers it, so this warning is the only diagnostic naming the refusal
---   cause.  The text route cannot construct a violator (a parse either fails
+--   `Always` masters) LOADS error-free — no error-class validator check
+--   covers it, and the structural validator mirrors this diagnostic
+--   warning-class (`checkAllMuxMasterIncoherent` in Validator/Checks.agda
+--   reuses `mcIssue`), so the load surfaces the warning without blocking.
+--   The text route cannot construct a violator (a parse either fails
 --   or yields the single-master assignment, coherent by construction).
 --
 -- • `sig-names-unique` (`checkSigNamesUnique` → DuplicateSignalName):
@@ -153,25 +157,16 @@
 -- and this classification — to be revisited.
 module Aletheia.DBC.TextParser.WellFormedCheck where
 
-open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
-open import Data.Empty using (⊥)
 open import Data.List using (List; []; _∷_; map; concatMap) renaming (_++_ to _++ₗ_)
-open import Data.List.Membership.Propositional using (find; lose)
-open import Data.List.NonEmpty using (List⁺) renaming (_∷_ to _∷⁺_)
-import Data.List.Properties as ListProps
-open import Data.List.Relation.Unary.All as All using (all?)
 open import Data.List.Relation.Unary.AllPairs using (allPairs?)
-open import Data.List.Relation.Unary.Any using (any?)
 open import Data.Maybe using (Maybe; nothing; just)
-open import Data.Maybe.Properties using (≡-dec; just-injective)
+open import Data.Maybe.Properties using (≡-dec)
 open import Data.Nat using (ℕ; suc; _+_; _*_; _∸_)
 open import Data.Nat.Properties using (_<?_; _≤?_; _≟_)
 open import Data.Nat.Show using () renaming (show to showℕ)
-open import Data.Product using (_×_; _,_)
 open import Data.String using (String; fromList) renaming (_++_ to _++ₛ_)
 open import Data.Unit using (tt)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans)
-open import Relation.Nullary.Decidable using (Dec; yes; no; ¬?; _×-dec_)
+open import Relation.Nullary.Decidable using (Dec; yes; no; ¬?)
 
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Constants using (max-physical-bits)
@@ -179,9 +174,7 @@ open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
-open import Aletheia.DBC.Identifier using (Identifier; nameStr; _≟ᴵ_)
-open import Aletheia.DBC.Formatter.WellFormedText.Foundations using (MasterCoherent; mc-no-mux; mc-mux)
-open import Aletheia.DBC.TextFormatter.Topology using (findMuxMaster)
+open import Aletheia.DBC.Identifier using (nameStr; _≟ᴵ_)
 open import Aletheia.DBC.TextFormatter.Attributes using (nthLabel; collectDefs)
 open import Aletheia.DBC.TextParser.Attributes using (findLabel; lookupDef)
 open import Aletheia.DBC.TextParser.WellFormedAttr using
@@ -191,17 +184,24 @@ open import Aletheia.DBC.TextParser.WellFormedAttr using
 open import Aletheia.DBC.DecRat.Refinement using (natDecRatToℕ)
 open import Aletheia.DBC.Types using
   ( RawValueDesc; ValidationIssue; mkIssue; IsWarning
-  ; DBCSignal; DBCMessage; DBC; SignalPresence; Always; When
+  ; DBCSignal; DBCMessage; DBC
   ; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
   ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
   ; DuplicateSignalName; DuplicateMessageId; UnknownValueDescriptionTarget
   ; StartBitOutOfRange; BitLengthExcessive; BitLengthZero; SignalExceedsDLC
-  ; BigEndianMSBLayout; MultiValueMuxSelector; MuxMasterIncoherent
+  ; BigEndianMSBLayout
   ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
   ; AttrDef; AttrDefault; AttrAssign
   ; AttributeEnumEmpty; UnknownAttributeName; AttributeValueTypeMismatch
   ; AttributeEnumDefaultUnstable )
 open import Aletheia.DBC.Validity.Combinators using (requireDec)
+
+-- The mux-presence (`wfps`) and master-coherence (`mc`) deciders live in the
+-- Foundations submodule — the structural validator's warning-class mirrors
+-- import them from there without dragging this module's text-parser closure.
+-- Re-exported publicly so this module remains the single import surface for
+-- the whole WF-checker family (wfTextIssues below composes them directly).
+open import Aletheia.DBC.TextParser.WellFormedCheck.Foundations public
 
 -- ── unresolved value descriptions (WF field `unresolved-empty`) ──────────────
 --
@@ -247,11 +247,12 @@ checkMsgIdsUnique msgs =
 
 -- ── signal arithmetic (WF `wf-sigs` = All WellFormedSignal, whose payload is
 -- WellFormedSignalDef — the two bounds decided here; `pvs` =
--- PhysicallyValid; `wfps` = single-value presence) ──────────────────────────
+-- PhysicallyValid; the `wfps` single-value-presence decider lives in
+-- Foundations, re-exported above) ────────────────────────────────────────────
 --
 -- EXPOSED SCRUTINEE: `pvGo`
--- takes the `ByteOrder` and `pGo` the `SignalPresence` as explicit arguments and
--- pattern-match structurally — deliberately NO `with` here.  The checker is then
+-- takes the `ByteOrder` as an explicit argument and
+-- pattern-matches structurally — deliberately NO `with` here.  The checker is then
 -- a plain function of the scrutinee, so the soundness proof can
 -- `with … in eq` the scrutinee EXTERNALLY and this application reduces cleanly
 -- (past `with`-reduction failures came from `with`-abstracting internally).  Each
@@ -288,87 +289,6 @@ pvGo BigEndian fb sd name =
 
 pvIssues : ℕ → DBCSignal → List ValidationIssue
 pvIssues fb s = pvGo (DBCSignal.byteOrder s) fb (DBCSignal.signalDef s) (nameStr (DBCSignal.name s))
-
-pGo : SignalPresence → String → List ValidationIssue
-pGo Always                  _    = []
-pGo (When _ (_ ∷⁺ []))      _    = []
-pGo (When _ (_ ∷⁺ (_ ∷ _))) name =
-  mkIssue IsWarning MultiValueMuxSelector
-    ("signal '" ++ₛ name
-     ++ₛ "': multi-value mux selector — text form emits only the first selector value")
-  ∷ []
-
-presenceIssue : DBCSignal → List ValidationIssue
-presenceIssue s = pGo (DBCSignal.presence s) (nameStr (DBCSignal.name s))
-
--- ── master coherence (WF field `mc` = MasterCoherent), decided directly ─────
---
--- `MasterCoherent` (Formatter/WellFormedText/Foundations.agda) = single `Always` master, and
--- every `When` selector names it.  Decided by stock `Dec`: `any? (masterOk? n)`
--- exhibits the master (with the `∈` witness `mc-mux` needs, via `find`) and
--- `all? (whenOk? n)` lands the slaves `All` field verbatim, so `requireDec-sound`
--- turns "no issue" into the WF field with no Bool-reflection bridge.  `mcGo?`
--- takes the `findMuxMaster` result as an argument together with its equation
--- (`masterCoherent?` instantiates `refl`), keeping the case-split `with`-free
--- on the scrutinee.
-
-isAlways? : (p : SignalPresence) → Dec (p ≡ Always)
-isAlways? Always     = yes refl
-isAlways? (When _ _) = no λ ()
-
--- The master conjunct of `mc-mux`: the signal carries the master's name and is
--- `Always`-present — exactly the constructor's name/presence witness pair.
-MasterOk : List Char → DBCSignal → Set
-MasterOk n s = (Identifier.name (DBCSignal.name s) ≡ n) × (DBCSignal.presence s ≡ Always)
-
-masterOk? : (n : List Char) (s : DBCSignal) → Dec (MasterOk n s)
-masterOk? n s =
-  ListProps.≡-dec _≟ᶜ_ (Identifier.name (DBCSignal.name s)) n
-    ×-dec isAlways? (DBCSignal.presence s)
-
--- The slave conjunct of `mc-mux`, stated in the SAME ∀-shape as the
--- constructor's `All` field, so `all? (whenOk? n) sigs` produces that field
--- with no per-element conversion.
-WhenNames : List Char → SignalPresence → Set
-WhenNames n p = ∀ (m : Identifier) (vs : List⁺ ℕ) → p ≡ When m vs → Identifier.name m ≡ n
-
-whenNames? : (n : List Char) (p : SignalPresence) → Dec (WhenNames n p)
-whenNames? n Always      = yes λ _ _ ()
-whenNames? n (When m vs) with ListProps.≡-dec _≟ᶜ_ (Identifier.name m) n
-... | yes eq = yes λ { _ _ refl → eq }
-... | no ¬eq = no λ f → ¬eq (f m vs refl)
-
-whenOk? : (n : List Char) (s : DBCSignal) → Dec (WhenNames n (DBCSignal.presence s))
-whenOk? n s = whenNames? n (DBCSignal.presence s)
-
-private
-  just≢nothing : ∀ {A : Set} {x : A} → just x ≡ nothing → ⊥
-  just≢nothing ()
-
-mcGo? : (mm : Maybe (List Char)) (sigs : List DBCSignal)
-  → findMuxMaster sigs ≡ mm → Dec (MasterCoherent sigs)
-mcGo? nothing  sigs eq = yes (mc-no-mux eq)
-mcGo? (just n) sigs eq
-  with any? (masterOk? n) sigs ×-dec all? (whenOk? n) sigs
-... | yes (anyOk , allOk) =
-  let (ms , ms∈sigs , nameEq , presEq) = find anyOk
-  in yes (mc-mux n eq ms ms∈sigs nameEq presEq allOk)
-... | no ¬both = no λ where
-  (mc-no-mux eqN) → just≢nothing (trans (sym eq) eqN)
-  (mc-mux n′ eq′ ms ms∈sigs nameEq presEq slaves) →
-    let n′≡n = just-injective (trans (sym eq′) eq)
-    in ¬both ( lose ms∈sigs (trans nameEq n′≡n , presEq)
-             , All.map (λ {s} f m vs weq → trans (f m vs weq) n′≡n) slaves )
-
-masterCoherent? : (sigs : List DBCSignal) → Dec (MasterCoherent sigs)
-masterCoherent? sigs = mcGo? (findMuxMaster sigs) sigs refl
-
-mcIssue : List DBCSignal → List ValidationIssue
-mcIssue sigs =
-  requireDec (masterCoherent? sigs)
-    (mkIssue IsWarning MuxMasterIncoherent
-      ("message multiplexing is incoherent (no single Always master, or a "
-       ++ₛ "selector names a different master)"))
 
 -- ── attributes (WF field `attr-wfs` = WFAttribute) — checked NOWHERE by the
 -- validator today, so nothing to mirror; the leaves decide the shared

@@ -12,6 +12,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The structural validator now names the round-trip-fatal mux shapes.**
+  `validate_dbc` and the DBC-loading routes emit warning-class issues for the
+  shapes that load cleanly yet cannot survive the text round-trip:
+  `multi_value_mux_selector` (a signal multiplexed on more than one selector
+  value) and `mux_master_incoherent` (no single Always master, or a selector
+  naming a different master — nested-mux chains included). The validator
+  reuses the text-round-trip checker's own deciders, so the diagnostics are
+  byte-identical to those `format_dbc_text` attaches to its refusal — closing
+  the blind spot the tightness classification proved (previously the
+  formatter's refusal was the only surface naming these shapes). Warnings
+  never block a load: `has_errors` stays false and such DBCs load and stream
+  as before. The wire vocabulary is unchanged — the codes already existed and
+  every binding already decodes them.
 - **The round-trip diagnostics carry a proven tightness classification.** The
   `wfTextIssues` checker's module header now records, for every
   diagnostic-bearing well-formedness condition, whether a flag always means a

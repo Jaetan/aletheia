@@ -922,6 +922,137 @@ class TestBitLengthExcessive:
         assert bl_issues == []
 
 
+class TestMultiValueMuxSelector:
+    """Check 24: warning-class mirror of the round-trip multi-value-mux diagnostic.
+
+    A signal multiplexed on more than one selector value loads and streams
+    fine, but ``.dbc`` text cannot express it (``format_dbc_text`` refuses the
+    shape with the same code), so validation names it with a warning that
+    never blocks the load.
+    """
+
+    @staticmethod
+    def _multi_value_dbc() -> DBCDefinition:
+        return _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("Mux", start_bit=0, length=8),
+                        mux_signal("Payload", "Mux", [1, 2], start_bit=8, length=8),
+                    ],
+                ),
+            ]
+        )
+
+    def test_multi_value_selector_warned(self) -> None:
+        """A multi-value selector draws the warning; has_errors stays False."""
+        with AletheiaClient() as client:
+            result = client.validate_dbc(self._multi_value_dbc())
+
+        assert result["has_errors"] is False
+        pairs = [(i["severity"], i["code"]) for i in result["issues"]]
+        assert ("warning", "multi_value_mux_selector") in pairs
+
+    def test_singleton_selector_clean(self) -> None:
+        """The singleton-selector control reports no mirror warning."""
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("Mux", start_bit=0, length=8),
+                        _make_mux_signal("Payload", "Mux", 1, start_bit=8, length=8),
+                    ],
+                ),
+            ]
+        )
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        codes = [i["code"] for i in result["issues"]]
+        assert "multi_value_mux_selector" not in codes
+
+    def test_load_succeeds_with_warning(self) -> None:
+        """parse_dbc loads the shape and surfaces the warning without blocking."""
+        with AletheiaClient() as client:
+            response = client.parse_dbc(self._multi_value_dbc())
+
+        assert response["status"] == "success", response
+        codes = [w["code"] for w in response["warnings"]]
+        assert "multi_value_mux_selector" in codes
+
+
+class TestMuxMasterIncoherent:
+    """Check 25: warning-class mirror of the round-trip master-coherence diagnostic.
+
+    The split-master shape (slaves under two Always masters) passes every
+    error-class mux check — each named master exists and there is no cycle —
+    but ``.dbc`` text keeps a single ``M`` marker, so re-parsing the emitted
+    text would rebind every slave to one master (``format_dbc_text`` refuses
+    the shape with the same code).  Validation names it with a warning that
+    never blocks the load.
+    """
+
+    @staticmethod
+    def _split_master_dbc() -> DBCDefinition:
+        return _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("MuxA", start_bit=0, length=8),
+                        _make_signal("MuxB", start_bit=8, length=8),
+                        _make_mux_signal("A", "MuxA", 0, start_bit=16, length=8),
+                        _make_mux_signal("B", "MuxB", 0, start_bit=24, length=8),
+                    ],
+                ),
+            ]
+        )
+
+    def test_split_master_warned(self) -> None:
+        """Slaves under two Always masters draw the warning; no errors."""
+        with AletheiaClient() as client:
+            result = client.validate_dbc(self._split_master_dbc())
+
+        assert result["has_errors"] is False
+        pairs = [(i["severity"], i["code"]) for i in result["issues"]]
+        assert ("warning", "mux_master_incoherent") in pairs
+
+    def test_single_master_clean(self) -> None:
+        """The coherent single-master control reports no mirror warning."""
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [
+                        _make_signal("Mux", start_bit=0, length=8),
+                        _make_mux_signal("A", "Mux", 0, start_bit=16, length=8),
+                        _make_mux_signal("B", "Mux", 1, start_bit=24, length=8),
+                    ],
+                ),
+            ]
+        )
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        codes = [i["code"] for i in result["issues"]]
+        assert "mux_master_incoherent" not in codes
+
+    def test_load_succeeds_with_warning(self) -> None:
+        """parse_dbc loads the split-master shape and surfaces the warning."""
+        with AletheiaClient() as client:
+            response = client.parse_dbc(self._split_master_dbc())
+
+        assert response["status"] == "success", response
+        codes = [w["code"] for w in response["warnings"]]
+        assert "mux_master_incoherent" in codes
+
+
 class TestParseDBCDualLayerValidation:
     """Tests that parseDBC runs validateDBCFull as a second validation layer."""
 

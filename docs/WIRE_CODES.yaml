@@ -118,7 +118,10 @@ issue_codes:
   - name: unknown_value_description_target
     description: A VAL_ entry references a (CAN ID, signal name) pair with no matching signal.
 
-  # Text-round-trip checker diagnostics (FormatDBCText).
+  # Text-round-trip checker diagnostics.  Attached to FormatDBCText's result
+  # or refusal; the mux-shape codes below are ALSO emitted warning-class by
+  # the structural validator (ValidateDBC and the DBC-loading routes), which
+  # reuses the same deciders.
 
   - name: text_roundtrip_divergence
     description: Re-parsing the emitted .dbc text does not reproduce the input DBC.

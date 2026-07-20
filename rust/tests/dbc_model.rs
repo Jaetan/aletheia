@@ -139,3 +139,115 @@ fn validate_dbc_flags_an_invalid_document() {
     assert!(result.has_errors, "an over-DLC signal must be an error");
     assert!(!result.issues.is_empty(), "errors must carry issues");
 }
+
+// ── warning-class validator mirrors of the round-trip mux diagnostics ───────
+//
+// CHECK 24 (multi_value_mux_selector) and CHECK 25 (mux_master_incoherent)
+// mirror the text-round-trip checker warning-class: both shapes load and
+// stream fine but cannot round-trip to `.dbc` text (`format_dbc_text` refuses
+// them with the same codes). The text route only ever yields
+// singleton-selector, single-master assignments, so each shape is built by
+// mutating the typed document and submitting it over the JSON route.
+
+use aletheia::{IssueCode, IssueSeverity, ValidationIssue};
+
+fn has_warning(issues: &[ValidationIssue], code: &IssueCode) -> bool {
+    issues
+        .iter()
+        .any(|i| i.severity == IssueSeverity::Warning && &i.code == code)
+}
+
+#[test]
+fn validate_dbc_warns_on_a_multi_value_mux_selector() {
+    let c = client();
+    let mut dbc = c.parse_dbc_text(DBC).expect("parse DBC text").dbc;
+    // Widen PayloadA's selector to {0, 3}: still disjoint from PayloadB (1)
+    // and PayloadC (2), so no error-class overlap co-presence arises — the
+    // mirror warning is the only diagnostic the shape earns.
+    let sig = dbc.messages[0]
+        .signals
+        .iter_mut()
+        .find(|s| s.name == "PayloadA")
+        .expect("PayloadA present");
+    match &mut sig.presence {
+        Presence::Multiplexed { values, .. } => *values = vec![0, 3],
+        Presence::Always => panic!("PayloadA should be multiplexed"),
+    }
+
+    let result = c.validate_dbc(&dbc).expect("validate_dbc");
+    assert!(
+        !result.has_errors,
+        "the mirror is warning-class — has_errors must stay false: {:?}",
+        result.issues
+    );
+    assert!(
+        has_warning(&result.issues, &IssueCode::MultiValueMuxSelector),
+        "expected a multi_value_mux_selector warning, got {:?}",
+        result.issues
+    );
+
+    // The load route surfaces the same warning without blocking.
+    let parsed = c.parse_dbc(&dbc).expect("a warning-only shape must load");
+    assert!(
+        has_warning(&parsed.warnings, &IssueCode::MultiValueMuxSelector),
+        "expected the warning on the load, got {:?}",
+        parsed.warnings
+    );
+}
+
+#[test]
+fn validate_dbc_warns_on_a_split_mux_master() {
+    let c = client();
+    let mut dbc = c.parse_dbc_text(DBC).expect("parse DBC text").dbc;
+    // Re-point one slave at the Always signal CommonCounter: both named
+    // masters exist and there is no cycle (no error-class check trips), but
+    // the slaves now sit under two masters — the split-master shape.
+    let sig = dbc.messages[0]
+        .signals
+        .iter_mut()
+        .find(|s| s.name == "PayloadB")
+        .expect("PayloadB present");
+    match &mut sig.presence {
+        Presence::Multiplexed { multiplexor, .. } => {
+            *multiplexor = "CommonCounter".to_owned();
+        }
+        Presence::Always => panic!("PayloadB should be multiplexed"),
+    }
+    // Signals under different masters may now be co-present, so give
+    // PayloadB its own bit range — the mux-aware overlap check would
+    // otherwise report an error-class signal_overlap.
+    sig.start_bit = 32;
+
+    let result = c.validate_dbc(&dbc).expect("validate_dbc");
+    assert!(
+        !result.has_errors,
+        "the mirror is warning-class — has_errors must stay false: {:?}",
+        result.issues
+    );
+    assert!(
+        has_warning(&result.issues, &IssueCode::MuxMasterIncoherent),
+        "expected a mux_master_incoherent warning, got {:?}",
+        result.issues
+    );
+
+    // The load route surfaces the same warning without blocking.
+    let parsed = c.parse_dbc(&dbc).expect("a warning-only shape must load");
+    assert!(
+        has_warning(&parsed.warnings, &IssueCode::MuxMasterIncoherent),
+        "expected the warning on the load, got {:?}",
+        parsed.warnings
+    );
+}
+
+#[test]
+fn validate_dbc_reports_no_mirror_warnings_for_the_coherent_corpus() {
+    let c = client();
+    let dbc = c.parse_dbc_text(DBC).expect("parse DBC text").dbc;
+    let result = c.validate_dbc(&dbc).expect("validate_dbc");
+    assert!(
+        !has_warning(&result.issues, &IssueCode::MultiValueMuxSelector)
+            && !has_warning(&result.issues, &IssueCode::MuxMasterIncoherent),
+        "the singleton-selector, single-master corpus drew a mirror warning: {:?}",
+        result.issues
+    );
+}

@@ -122,6 +122,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.DBC.TextParser.ValueTypes
                       MAlonzo.Code.Aletheia.DBC.TextParser.WellFormedAttr
                       MAlonzo.Code.Aletheia.DBC.TextParser.WellFormedCheck
+                      MAlonzo.Code.Aletheia.DBC.TextParser.WellFormedCheck.Foundations
                       MAlonzo.Code.Aletheia.DBC.Types
                       MAlonzo.Code.Aletheia.DBC.Validator
                       MAlonzo.Code.Aletheia.DBC.Validator.Checks

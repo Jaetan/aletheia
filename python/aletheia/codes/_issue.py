@@ -50,8 +50,10 @@ class IssueCode(StrEnum):
     UNKNOWN_MESSAGE_SENDER = "unknown_message_sender"
     UNKNOWN_SIGNAL_RECEIVER = "unknown_signal_receiver"
     UNKNOWN_VALUE_DESCRIPTION_TARGET = "unknown_value_description_target"
-    # Text round-trip diagnostics, emitted by format_dbc_text (error-severity for
-    # divergence, warning-severity for the rest).
+    # Text round-trip diagnostics, introduced by format_dbc_text's checker
+    # (error-severity for divergence, warning-severity for the rest).
+    # validate_dbc and the DBC-loading routes mirror MULTI_VALUE_MUX_SELECTOR
+    # and MUX_MASTER_INCOHERENT warning-class, via the same kernel deciders.
     TEXT_ROUNDTRIP_DIVERGENCE = "text_roundtrip_divergence"
     MULTI_VALUE_MUX_SELECTOR = "multi_value_mux_selector"
     MUX_MASTER_INCOHERENT = "mux_master_incoherent"

@@ -4,7 +4,7 @@
 
 -- Warning check severity proofs and soundness/completeness.
 --
--- Purpose: (1) Prove all 8 warning checks emit only IsWarning severity.
+-- Purpose: (1) Prove every warning check emits only IsWarning severity.
 -- (2) Prove soundness (check ≡ [] → predicate) and completeness
 -- (predicate → check ≡ []) for each warning check, relating the
 -- validator functions to the predicates in Validity.agda.
@@ -40,7 +40,12 @@ open import Aletheia.DBC.Validator using
   ; checkAllUnknownAdditionalSenders
   ; checkUnknownValueDescriptionTarget
   ; checkAllUnknownValueDescriptionTargets
+  ; checkAllMultiValueMuxSelectors
+  ; checkAllMuxMasterIncoherent
   )
+open import Aletheia.DBC.TextParser.WellFormedCheck.Foundations using
+  (pGo; presenceIssue; mcIssue; masterCoherent?)
+open import Data.List.NonEmpty using () renaming (_∷_ to _∷⁺_)
 open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.DBC.Validity using
   ( MinLeqMax; DistinctMessageNames; NonEmptySignals
@@ -750,3 +755,50 @@ checkAllUnknownValueDescriptionTargets-allW rvds = All-concatMap (go rvds)
     go : ∀ xs → All (λ rvd → All W (checkUnknownValueDescriptionTarget rvd)) xs
     go [] = []
     go (rvd ∷ xs) = checkUnknownValueDescriptionTarget-allW rvd ∷ go xs
+
+-- ============================================================================
+-- CHECK 24: MULTI-VALUE MUX SELECTOR — Severity
+-- ============================================================================
+-- The decider (`presenceIssue`/`pGo`) is the text-round-trip WF checker's,
+-- shared via TextParser/WellFormedCheck/Foundations.agda — only severity is
+-- proven here; the soundness/completeness tree for the underlying condition
+-- lives with `wfTextIssues` (Properties.WellFormedCheck.Sound).
+
+pGo-allW : ∀ p nm → All W (pGo p nm)
+pGo-allW Always                  _ = []
+pGo-allW (When _ (_ ∷⁺ []))      _ = []
+pGo-allW (When _ (_ ∷⁺ (_ ∷ _))) _ = refl ∷ []
+
+presenceIssue-allW : ∀ s → All W (presenceIssue s)
+presenceIssue-allW s = pGo-allW (DBCSignal.presence s) _
+
+checkAllMultiValueMuxSelectors-allW : ∀ msgs →
+  All W (checkAllMultiValueMuxSelectors msgs)
+checkAllMultiValueMuxSelectors-allW msgs = All-concatMap (goMsgs msgs)
+  where
+    goSigs : ∀ sigs → All (λ s → All W (presenceIssue s)) sigs
+    goSigs [] = []
+    goSigs (s ∷ ss) = presenceIssue-allW s ∷ goSigs ss
+
+    goMsgs : ∀ ms → All (λ m → All W (concatMap presenceIssue (DBCMessage.signals m))) ms
+    goMsgs [] = []
+    goMsgs (m ∷ ms) = All-concatMap (goSigs (DBCMessage.signals m)) ∷ goMsgs ms
+
+-- ============================================================================
+-- CHECK 25: MUX MASTER INCOHERENT — Severity
+-- ============================================================================
+-- Same sharing story as CHECK 24: `mcIssue`/`masterCoherent?` come from the
+-- WF checker's Foundations module; only severity is proven here.
+
+mcIssue-allW : ∀ sigs → All W (mcIssue sigs)
+mcIssue-allW sigs with masterCoherent? sigs
+... | yes _ = []
+... | no  _ = refl ∷ []
+
+checkAllMuxMasterIncoherent-allW : ∀ msgs →
+  All W (checkAllMuxMasterIncoherent msgs)
+checkAllMuxMasterIncoherent-allW msgs = All-concatMap (go msgs)
+  where
+    go : ∀ ms → All (λ m → All W (mcIssue (DBCMessage.signals m))) ms
+    go [] = []
+    go (m ∷ ms) = mcIssue-allW (DBCMessage.signals m) ∷ go ms
