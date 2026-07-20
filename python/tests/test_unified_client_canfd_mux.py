@@ -270,12 +270,21 @@ class TestNestedMultiplexing:
         ]
     )
 
-    def test_nested_mux_dbc_validates_clean(self) -> None:
-        """Nested mux is no longer rejected by validation."""
+    def test_nested_mux_dbc_validates_without_errors(self) -> None:
+        """Nested mux loads and streams: no error-class issue blocks it.
+
+        The validator's warning-class round-trip mirror does flag the shape:
+        a nested multiplexor chain is outside the ``.dbc`` text round-trip
+        envelope (``format_dbc_text`` refuses it with the same
+        ``mux_master_incoherent`` diagnostic), so validation reports exactly
+        that warning while ``has_errors`` stays False.
+        """
         with AletheiaClient() as client:
             result = client.validate_dbc(self.NESTED_DBC)
             assert result["has_errors"] is False
-            assert result["issues"] == []
+            assert [(i["severity"], i["code"]) for i in result["issues"]] == [
+                ("warning", "mux_master_incoherent")
+            ]
 
     def test_full_chain_match_extracts_leaf(self) -> None:
         """Mode==3 and SubMode==7 → Detail extracts."""

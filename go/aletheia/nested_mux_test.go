@@ -84,14 +84,19 @@ func TestNestedMux_ParseDBCAccepted(t *testing.T) {
 	}
 }
 
-// TestNestedMux_ValidateClean verifies that a well-formed nested mux DBC
-// produces no validation errors.
-func TestNestedMux_ValidateClean(t *testing.T) {
+// TestNestedMux_ValidateWithoutErrors verifies that a well-formed nested mux
+// DBC produces no validation errors. The canned response mirrors the real
+// kernel: a nested multiplexor chain is outside the .dbc text round-trip
+// envelope, so the validator's warning-class mirror reports
+// mux_master_incoherent while has_errors stays false (warnings never block).
+func TestNestedMux_ValidateWithoutErrors(t *testing.T) {
 	mock := aletheia.NewMockBackend(
 		aletheia.Respond(`{
 			"status":"validation",
 			"has_errors":false,
-			"issues":[]
+			"issues":[
+				{"severity":"warning","code":"mux_master_incoherent","detail":"message multiplexing is incoherent (no single Always master, or a selector names a different master)"}
+			]
 		}`),
 	)
 	c, err := aletheia.NewClient(mock)
@@ -106,6 +111,10 @@ func TestNestedMux_ValidateClean(t *testing.T) {
 	}
 	if result.HasErrors {
 		t.Errorf("expected no errors, got %d issues", len(result.Issues))
+	}
+	if len(result.Issues) != 1 || result.Issues[0].Code != aletheia.IssueMuxMasterIncoherent ||
+		result.Issues[0].Severity != aletheia.SeverityWarning {
+		t.Errorf("expected exactly the mux_master_incoherent warning, got %+v", result.Issues)
 	}
 }
 

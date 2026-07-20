@@ -8,7 +8,7 @@
 -- completeness : ValidDBC dbc → errorIssues (validateDBCFull dbc) ≡ []
 --
 -- Together these establish: the validator reports no errors if and only if
--- the DBC satisfies all 8 formal validity conditions.
+-- the DBC satisfies every formal validity condition (the ValidDBC record).
 module Aletheia.DBC.Validity.Theorem where
 
 open import Aletheia.DBC.Types using (DBC)
@@ -25,6 +25,8 @@ open import Aletheia.DBC.Validator using
   ; checkAllDuplicateAttributeNames; checkAllUnknownCommentTargets
   ; checkAllUnknownMessageSenders; checkAllUnknownSignalReceivers
   ; checkAllUnknownAdditionalSenders
+  ; checkAllUnknownValueDescriptionTargets
+  ; checkAllMultiValueMuxSelectors
   )
 open import Aletheia.DBC.Validity using (ValidDBC)
 open import Aletheia.DBC.Validity.Composition using
@@ -56,6 +58,8 @@ open import Aletheia.DBC.Validity.WarningChecks using
   ; checkAllUnknownMessageSenders-allW; checkAllUnknownSignalReceivers-allW
   ; checkAllUnknownAdditionalSenders-allW
   ; checkAllUnknownValueDescriptionTargets-allW
+  ; checkAllMultiValueMuxSelectors-allW
+  ; checkAllMuxMasterIncoherent-allW
   )
 open import Data.List using ([])
 open import Data.Product using (proj₁; proj₂)
@@ -146,8 +150,12 @@ completeness dbc v =
     (errorIssues-allW _ (checkAllUnknownSignalReceivers-allW msgs nodes))
   (ei-combine (checkAllUnknownAdditionalSenders msgs nodes) _
     (errorIssues-allW _ (checkAllUnknownAdditionalSenders-allW msgs nodes))
+  (ei-combine (checkAllUnknownValueDescriptionTargets urvds) _
     (errorIssues-allW _ (checkAllUnknownValueDescriptionTargets-allW urvds))
-  ))))))))))))))))))))
+  (ei-combine (checkAllMultiValueMuxSelectors msgs) _
+    (errorIssues-allW _ (checkAllMultiValueMuxSelectors-allW msgs))
+    (errorIssues-allW _ (checkAllMuxMasterIncoherent-allW msgs))
+  ))))))))))))))))))))))
   where
     msgs    = DBC.messages dbc
     nodes   = DBC.nodes dbc

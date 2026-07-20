@@ -148,6 +148,48 @@ static auto make_multi_value_mux_dbc() -> DbcDefinition {
     };
 }
 
+// A DBC with slaves under TWO Always masters (the split-master shape).  Every
+// error-class mux check passes — each named master exists and there is no
+// cycle — but .dbc text keeps a single M marker, so re-parsing the emitted
+// text would rebind every slave to one master; the JSON side admits the shape.
+static auto make_split_master_mux_dbc() -> DbcDefinition {
+    auto id = StandardId::create(0x124).value();
+    auto dlc = Dlc::create(8).value();
+
+    auto make_sig = [](std::string_view name, std::uint16_t start_bit,
+                       SignalPresence presence) -> DbcSignal {
+        return DbcSignal{
+            .name = SignalName{std::string{name}},
+            .start_bit = BitPosition{start_bit},
+            .bit_length = BitLength{8},
+            .byte_order = ByteOrder::LittleEndian,
+            .is_signed = false,
+            .factor = RationalFactor{Rational{1, 1}},
+            .offset = RationalOffset{Rational{0, 1}},
+            .minimum = RationalBound{Rational{0, 1}},
+            .maximum = RationalBound{Rational{255, 1}},
+            .unit = Unit{""},
+            .presence = std::move(presence),
+        };
+    };
+    return DbcDefinition{
+        .version = "",
+        .messages = {DbcMessage{
+            .id = CanId{id},
+            .name = MessageName{"SplitMaster"},
+            .dlc = dlc,
+            .sender = NodeName{"ECU"},
+            .signals =
+                {
+                    make_sig("MuxA", 0, AlwaysPresent{}),
+                    make_sig("MuxB", 8, AlwaysPresent{}),
+                    make_sig("A", 16, Multiplexed{SignalName{"MuxA"}, {MultiplexValue{0}}}),
+                    make_sig("B", 24, Multiplexed{SignalName{"MuxB"}, {MultiplexValue{0}}}),
+                },
+        }},
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Integration tests
 // ---------------------------------------------------------------------------
@@ -749,6 +791,52 @@ VAL_ 999 GhostSignal 0 "Off" 1 "On" ;
     CHECK(hit);
 }
 
+namespace {
+auto has_warning(const std::vector<ValidationIssue>& issues, IssueCode code) -> bool {
+    return std::ranges::any_of(issues, [code](const ValidationIssue& issue) {
+        return issue.code == code && issue.severity == IssueSeverity::Warning;
+    });
+}
+} // namespace
+
+TEST_CASE("CHECK 24 multi_value_mux_selector warning via real FFI",
+          "[integration][dbc][validator][mux]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    // validate_dbc mirrors the round-trip diagnostic warning-class: the shape
+    // loads and streams fine, so has_errors stays false.
+    auto result = client.validate_dbc(std::stop_token{}, make_multi_value_mux_dbc());
+    REQUIRE(result.has_value());
+    CHECK_FALSE(result->has_errors);
+    CHECK(has_warning(result->issues, IssueCode::MultiValueMuxSelector));
+
+    // The load route surfaces the same warning without blocking.
+    auto parsed = client.parse_dbc(std::stop_token{}, make_multi_value_mux_dbc());
+    REQUIRE(parsed.has_value());
+    CHECK(has_warning(parsed->warnings, IssueCode::MultiValueMuxSelector));
+}
+
+TEST_CASE("CHECK 25 mux_master_incoherent warning via real FFI",
+          "[integration][dbc][validator][mux]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    // The split-master shape passes every error-class mux check, so only the
+    // warning-class mirror names it.
+    auto result = client.validate_dbc(std::stop_token{}, make_split_master_mux_dbc());
+    REQUIRE(result.has_value());
+    CHECK_FALSE(result->has_errors);
+    CHECK(has_warning(result->issues, IssueCode::MuxMasterIncoherent));
+
+    // The load route surfaces the same warning without blocking.
+    auto parsed = client.parse_dbc(std::stop_token{}, make_split_master_mux_dbc());
+    REQUIRE(parsed.has_value());
+    CHECK(has_warning(parsed->warnings, IssueCode::MuxMasterIncoherent));
+}
+
 TEST_CASE("rejected DBC text parse carries typed validation issues via real FFI",
           "[integration][dbc][validation]") {
     auto lib = find_lib();
@@ -990,14 +1078,19 @@ static auto contains_signal(const std::vector<SignalName>& names, std::string_vi
     return std::ranges::any_of(names, [&](const auto& n) { return n.get() == want; });
 }
 
-TEST_CASE("nested mux DBC validates clean via real FFI", "[integration][nested_mux]") {
+TEST_CASE("nested mux DBC validates without errors via real FFI", "[integration][nested_mux]") {
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
+    // No error-class issue blocks the nested-mux shape; the validator's
+    // warning-class round-trip mirror does flag it (a nested multiplexor
+    // chain is outside the .dbc text round-trip envelope — format_dbc_text
+    // refuses the identical shape with the same code).
     auto result = client.validate_dbc(std::stop_token{}, make_nested_mux_dbc());
     REQUIRE(result.has_value());
     CHECK_FALSE(result->has_errors);
+    CHECK(has_warning(result->issues, IssueCode::MuxMasterIncoherent));
 }
 
 TEST_CASE("nested mux full chain match extracts leaf via real FFI", "[integration][nested_mux]") {

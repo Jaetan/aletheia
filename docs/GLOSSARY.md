@@ -44,7 +44,7 @@ Plain-language definitions of the CAN, DBC, and verification terms used across t
 
 **Multiplexed signals** — several different signals that share the same bits of a message at different times, with one "multiplexor" field in the frame stating which signal those bits currently represent.
 
-**Well-formed DBC** — a DBC that satisfies the structural conditions a given guarantee assumes. Aletheia uses two distinct senses, and they are not the same: *validator-clean* (`aletheia validate` reports no errors — the precondition of the decoding and checking guarantees) and *text-round-trip well-formed* (a stricter nine-condition class, `WellFormedTextDBCAgg` in the proofs, that the "export to `.dbc` text, parse it back, get the original" guarantee assumes). A DBC can validate clean and still fall outside the second class — for example one using multi-value multiplexing, which today exports lossily.
+**Well-formed DBC** — a DBC that satisfies the structural conditions a given guarantee assumes. Aletheia uses two distinct senses, and they are not the same: *validator-clean* (`aletheia validate` reports no errors — the precondition of the decoding and checking guarantees) and *text-round-trip well-formed* (a stricter class, `WellFormedTextDBCAgg` in the proofs, that the "export to `.dbc` text, parse it back, get the original" guarantee assumes). A DBC can validate error-free and still fall outside the second class — for example one using multi-value multiplexing. Such a DBC loads and streams fine; the validator names the round-trip-fatal mux shapes with warning-class issues, and `format_dbc_text` refuses them rather than emitting lossy text.
 
 ---
 

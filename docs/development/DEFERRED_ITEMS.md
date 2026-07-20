@@ -70,10 +70,12 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
   (single-value presence) is the lossless-emission wall: this item (+ A.3 for
   `mc`) is the only work that shrinks `format_dbc_text`'s refusal class. The
   universal implication "validateDBC-clean ⇒ `WellFormedTextDBCAgg`" is
-  structurally false today (a valid multi-value-mux DBC is the counterexample)
-  and REMAINS false even after A.1/A.3: `attr-wfs`, `wf-sigs`/`pvs`, and
-  `unresolved-empty` sit behind warning-class checks by design (error-class
-  rejection would break the load path and was rejected). The shipped state —
+  structurally false today (a valid multi-value-mux DBC is the counterexample —
+  the structural validator names that shape with a warning-class mirror check,
+  but warnings do not affect validity) and REMAINS false even after A.1/A.3:
+  `attr-wfs`, `wf-sigs`/`pvs`, and `unresolved-empty` sit behind warning-class
+  checks by design (error-class rejection would break the load path and was
+  rejected). The shipped state —
   the `wfTextIssues` decision procedure (sound + complete), the exact
   `roundTripsWithᵇ` check, and the typed refusal — is the terminal achievable
   form; the reasoning lives in the

@@ -115,9 +115,12 @@ Load a DBC (Database CAN) structure from JSON format.
 ```json
 {
   "status": "success",
-  "message": "DBC parsed successfully"
+  "dbc": { ... },
+  "warnings": []
 }
 ```
+
+The success response echoes the canonical parsed body (`dbc`) plus `warnings` — the warning-severity validation issues, in the same `{severity, code, detail}` element shape as [ValidateDBC](#3-validatedbc)'s `issues`. Warnings never block a load; error-severity issues instead refuse it with `handler_validation_failed` (see [§ Wire shape](#wire-shape)).
 
 **Response** (Error):
 ```json
@@ -312,9 +315,11 @@ Validate a DBC definition for structural correctness. Returns all issues found (
 - Response `has_errors`: true if any issue has severity "error"
 - Response `issues`: Array of validation issues
 
-**Issue Codes** (21 total):
-- **Error** (8): `duplicate_message_id`, `duplicate_signal_name`, `factor_zero`, `multiplexor_not_found`, `multiplexor_cycle`, `signal_exceeds_dlc`, `signal_overlap`, `bit_length_zero`
-- **Warning** (13): `global_name_collision`, `min_exceeds_max`, `duplicate_message_name`, `offset_scale_range`, `empty_message`, `start_bit_out_of_range`, `bit_length_excessive`, `multiplexor_non_unit_scaling`, `duplicate_attribute_name`, `unknown_comment_target`, `unknown_message_sender`, `unknown_signal_receiver`, `unknown_value_description_target`
+**Issue Codes**:
+- **Error**: `duplicate_message_id`, `duplicate_signal_name`, `factor_zero`, `multiplexor_not_found`, `multiplexor_cycle`, `signal_exceeds_dlc`, `signal_overlap`, `bit_length_zero`
+- **Warning**: `global_name_collision`, `min_exceeds_max`, `duplicate_message_name`, `offset_scale_range`, `empty_message`, `start_bit_out_of_range`, `bit_length_excessive`, `multiplexor_non_unit_scaling`, `duplicate_attribute_name`, `unknown_comment_target`, `unknown_message_sender`, `unknown_signal_receiver`, `unknown_value_description_target`, `multi_value_mux_selector`, `mux_master_incoherent`
+
+The last two warning codes mirror the [FormatDBCText](#formatdbctext) round-trip checker's diagnostics, driven by the same kernel deciders: the DBC loads and streams fine, but cannot be expressed as round-tripping `.dbc` text — `formatDBCText` would refuse it. Like every warning, they never block a load (`has_errors` stays `false` when only warnings are present).
 
 **State Requirements**: Does NOT require `parseDBC`. Does NOT modify client state (read-only probe).
 
@@ -409,7 +414,7 @@ Render a DBC definition (JSON wire shape) back to `.dbc` file text via the verif
 
 The refusal envelope shares the `{severity, code, detail}` element shape, the `has_errors` flag, and the one-issue-decoder contract with the `handler_validation_failed` envelope (see [§ Wire shape](#wire-shape)) — a binding decodes both with the same issue decoder.
 
-**Round-trip issue codes** (the eight codes this command's checker introduces; all severity **warning** except `text_roundtrip_divergence`). These are distinct from the 21 structural-validation codes under [ValidateDBC](#3-validatedbc) — `validateDBC` never emits them, and `formatDBCText` is the only command that does:
+**Round-trip issue codes** (the codes this command's checker introduces; all severity **warning** except `text_roundtrip_divergence`). They are documented separately from the structural-validation codes under [ValidateDBC](#3-validatedbc), with two shared codes: `multi_value_mux_selector` and `mux_master_incoherent` are also emitted by `validateDBC` and the DBC-loading routes as warning-class mirrors driven by the same kernel deciders (a shape that loads cleanly but cannot round-trip to `.dbc` text is named without calling `formatDBCText`); the remaining codes are emitted by `formatDBCText` only:
 
 | Code | Severity | Meaning |
 |---|---|---|
