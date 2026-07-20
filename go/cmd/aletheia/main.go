@@ -488,7 +488,7 @@ func cmdSignals(argv []string) int {
 				offsetStr = "+" + offsetStr
 			}
 			fmt.Printf("  %-20s bits[%d:%d] %s %-8s x%s %s %s\n",
-				string(sig.Name), uint16(sig.StartBit), uint8(sig.BitLength),
+				string(sig.Name), uint16(sig.StartBit), uint16(sig.BitLength),
 				order, sign, factorStr, offsetStr, string(sig.Unit))
 		}
 	}

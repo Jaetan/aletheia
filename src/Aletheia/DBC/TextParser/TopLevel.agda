@@ -72,7 +72,9 @@ open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 
+open import Aletheia.Error using (DBCTextParseError)
 open import Aletheia.Parser.Combinators using
   (Parser; pure; _>>=_; _<|>_; _*>_;
    fail; many)
@@ -146,6 +148,11 @@ parseBOTxBu = do
 data TopStmt : Set where
   TSValueTable  : ValueTable      → TopStmt
   TSMessage     : DBCMessage      → TopStmt
+  -- A BO_ block that parsed syntactically but whose signal geometry the
+  -- entry gate refused: carries `buildSignal`'s typed
+  -- `SignalGeometryError`.  Bucketed into `CollectedTop.signalErrors`;
+  -- `finalizeParse` refuses the whole parse with the FIRST such error.
+  TSSignalError : DBCTextParseError → TopStmt
   TSBOTxBu      : RawMsgSenders   → TopStmt
   TSEnvVar      : EnvironmentVar  → TopStmt
   TSComment     : DBCComment      → TopStmt
@@ -184,6 +191,15 @@ data TopStmt : Set where
 -- measured for one dispatcher under the 10-way variant).  Head-dispatch
 -- reduces in a single pattern-match step, keeping per-dispatcher
 -- elaboration bounded.
+-- `parseMessage` yields `inj₂` on success and `inj₁` when a signal's
+-- geometry was refused (the block still consumed); the sum is folded
+-- into the matching TopStmt constructor here.  Public (not in the
+-- private dispatcher block) so the dispatcher roundtrip proofs can spell
+-- the BO alternative's exact continuation.
+foldMessage : DBCTextParseError ⊎ DBCMessage → TopStmt
+foldMessage (inj₁ e) = TSSignalError e
+foldMessage (inj₂ m) = TSMessage m
+
 private
   parseTopStmt-V : Parser TopStmt
   parseTopStmt-V = (parseValueTable       >>= λ vt  → pure (TSValueTable vt))
@@ -194,7 +210,7 @@ private
 
   parseTopStmt-BO : Parser TopStmt
   parseTopStmt-BO = (parseBOTxBu  >>= λ rms → pure (TSBOTxBu rms))
-                <|> (parseMessage >>= λ m   → pure (TSMessage m))
+                <|> (parseMessage >>= λ em  → pure (foldMessage em))
 
   parseTopStmt-SI : Parser TopStmt
   parseTopStmt-SI = (parseSigValType  *> pure TSSigValType)
@@ -243,9 +259,12 @@ record CollectedTop : Set where
     signalGroups    : List SignalGroup
     rawValueDescs   : List RawValueDesc
     rawMsgSenders   : List RawMsgSenders
+    -- Typed geometry refusals from BO_ blocks (wire order).  Non-empty
+    -- aborts the parse in `finalizeParse` with the first entry.
+    signalErrors    : List DBCTextParseError
 
 emptyCollected : CollectedTop
-emptyCollected = mkCollectedTop [] [] [] [] [] [] [] []
+emptyCollected = mkCollectedTop [] [] [] [] [] [] [] [] []
 
 -- Cons one `TopStmt` onto its matching bucket.  Drop constructors pass
 -- the accumulator through unchanged.
@@ -254,6 +273,8 @@ consTop (TSValueTable vt)  c =
   record c { valueTables     = vt ∷ CollectedTop.valueTables     c }
 consTop (TSMessage m)      c =
   record c { messages        = m  ∷ CollectedTop.messages        c }
+consTop (TSSignalError e)  c =
+  record c { signalErrors    = e  ∷ CollectedTop.signalErrors    c }
 consTop (TSBOTxBu rms)     c =
   record c { rawMsgSenders   = rms ∷ CollectedTop.rawMsgSenders   c }
 consTop (TSEnvVar e)       c =

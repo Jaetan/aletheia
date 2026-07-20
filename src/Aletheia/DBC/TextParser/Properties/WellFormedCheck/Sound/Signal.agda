@@ -7,20 +7,33 @@
 -- leaf's "issues ≡ []" verdict to the matching `Formatter.WellFormed` /
 -- `.WellFormedText` predicate (soundness), and back (completeness).  Reached by
 -- the `Sound.agda` facade.
+--
+-- The geometry leaves decide the shared frame-capacity deciders
+-- (`DBC.Decidable.SignalGeometry`), so:
+--   • `checkSignalBounds fb s ≡ []` yields the capacity bounds directly
+--     (`signalBounds-caps`) and lifts to the type-level `WellFormedSignal`
+--     ceiling under `fb ≤ 64` (`signalBounds-sound`);
+--   • completeness runs from `PhysicallyValid` (whose conjuncts ARE the
+--     capacity forms) rather than from the weaker ceiling record;
+--   • `pvGo-sound` takes the two capacity bounds as premises on the LE arm
+--     (they are decided by `checkSignalBounds`, not re-decided by `pvGo` —
+--     one emission per condition).
 module Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound.Signal where
 
 open import Data.List using (List; []; _∷_)
 open import Data.List.NonEmpty using () renaming (_∷_ to _∷⁺_)
-open import Data.Nat using (ℕ; suc; _≤_; _<_; _+_; _*_; _∸_)
-open import Data.Nat.Properties using (_<?_; _≤?_)
-open import Data.Product using (proj₁; proj₂)
+open import Data.Nat using (ℕ; s≤s; _≤_; _<_; _+_; _*_)
+open import Data.Nat.Properties using (≤-trans; <-≤-trans; *-monoˡ-≤; m<m+n)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.String using (String)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; subst)
 
-open import Aletheia.CAN.Constants using (max-physical-bits)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
+open import Aletheia.CAN.Endianness.Properties using (fits⇒bl≤cap)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.DBC.Types using (DBCSignal; SignalPresence; Always; When)
+open import Aletheia.DBC.Decidable.SignalGeometry using
+  (startBitInFrame?; bitLengthInFrame?; bitLengthPositive?; signalFitsFrame?)
 open import Aletheia.DBC.Formatter.WellFormed using
   (WellFormedSignal; WellFormedSignalDef; PhysicallyValid; pv-LE; pv-BE)
 open import Aletheia.DBC.Formatter.WellFormedText using
@@ -31,30 +44,41 @@ open import Aletheia.DBC.Validity.ListLemmas using
   (++-≡[]-split; ++-≡[]-combine)
 open import Aletheia.DBC.TextParser.WellFormedCheck using (checkSignalBounds; pGo; pvGo)
 
--- ── bounds (WF field `wf-sigs` = WellFormedSignal, via WellFormedSignalDef) ──
---
--- `checkSignalBounds s = requireDec (startBit <? max-physical-bits) …  ++ₗ
---  requireDec (bitLength <? suc max-physical-bits) …`, and `WellFormedSignalDef`
--- carries EXACTLY those two propositions (Formatter/WellFormed.agda; `< suc n` is the
--- record's bitLength-bound form directly — no ≤/< conversion).  So the bridge is
--- a single `++-≡[]-split` + two `requireDec-sound`, assembling the nested record.
+-- ── bounds (frame-capacity forms; WF field `wf-sigs` via the ceiling) ────────
 
-signalBounds-sound : ∀ (s : DBCSignal) → checkSignalBounds s ≡ [] → WellFormedSignal s
-signalBounds-sound s eq = record
+signalBounds-caps : ∀ (fb : ℕ) (s : DBCSignal) → checkSignalBounds fb s ≡ []
+  → (SignalDef.startBit (DBCSignal.signalDef s) < fb * 8)
+    × (SignalDef.bitLength (DBCSignal.signalDef s) ≤ fb * 8)
+signalBounds-caps fb s eq =
+  requireDec-sound (startBitInFrame? fb (SignalDef.startBit (DBCSignal.signalDef s)))
+                   _ (proj₁ (++-≡[]-split eq)) ,
+  requireDec-sound (bitLengthInFrame? fb (SignalDef.bitLength (DBCSignal.signalDef s)))
+                   _ (proj₂ (++-≡[]-split eq))
+
+-- Ceiling lift: dlcBytes ≤ 64 turns both capacity bounds into the
+-- `WellFormedSignalDef` record (64 * 8 reduces to max-physical-bits).
+signalBounds-sound : ∀ (fb : ℕ) (s : DBCSignal) → fb ≤ 64
+  → checkSignalBounds fb s ≡ [] → WellFormedSignal s
+signalBounds-sound fb s fb≤64 eq = record
   { def-wf = record
-      { startBit-bound  =
-          requireDec-sound (SignalDef.startBit  (DBCSignal.signalDef s) <? max-physical-bits)
-                           _ (proj₁ (++-≡[]-split eq))
-      ; bitLength-bound =
-          requireDec-sound (SignalDef.bitLength (DBCSignal.signalDef s) <? suc max-physical-bits)
-                           _ (proj₂ (++-≡[]-split eq)) } }
+      { startBit-bound  = <-≤-trans (proj₁ caps) (*-monoˡ-≤ 8 fb≤64)
+      ; bitLength-bound = s≤s (≤-trans (proj₂ caps) (*-monoˡ-≤ 8 fb≤64))
+      } }
+  where caps = signalBounds-caps fb s eq
 
-signalBounds-complete : ∀ (s : DBCSignal) → WellFormedSignal s → checkSignalBounds s ≡ []
-signalBounds-complete s wf = ++-≡[]-combine
-  (requireDec-complete (SignalDef.startBit  (DBCSignal.signalDef s) <? max-physical-bits)
-                       _ (WellFormedSignalDef.startBit-bound  (WellFormedSignal.def-wf wf)))
-  (requireDec-complete (SignalDef.bitLength (DBCSignal.signalDef s) <? suc max-physical-bits)
-                       _ (WellFormedSignalDef.bitLength-bound (WellFormedSignal.def-wf wf)))
+-- Completeness runs from PhysicallyValid: its LE conjuncts are the two
+-- capacity forms verbatim; the BE fits conjunct implies both.
+signalBounds-complete : ∀ (fb : ℕ) (s : DBCSignal)
+  → PhysicallyValid fb s → checkSignalBounds fb s ≡ []
+signalBounds-complete fb s (pv-LE _ _ sbF blF) = ++-≡[]-combine
+  (requireDec-complete (startBitInFrame? fb (SignalDef.startBit (DBCSignal.signalDef s))) _ sbF)
+  (requireDec-complete (bitLengthInFrame? fb (SignalDef.bitLength (DBCSignal.signalDef s))) _ blF)
+signalBounds-complete fb s (pv-BE _ lp fits) = ++-≡[]-combine
+  (requireDec-complete (startBitInFrame? fb (SignalDef.startBit (DBCSignal.signalDef s))) _
+    (<-≤-trans (m<m+n (SignalDef.startBit (DBCSignal.signalDef s)) lp) fits))
+  (requireDec-complete (bitLengthInFrame? fb (SignalDef.bitLength (DBCSignal.signalDef s))) _
+    (fits⇒bl≤cap fb (SignalDef.startBit (DBCSignal.signalDef s))
+       (SignalDef.bitLength (DBCSignal.signalDef s)) fits))
 
 -- ── presence (WF field `wfps` = WellFormedTextPresence) ──────────────────────
 --
@@ -84,41 +108,38 @@ pGo-complete (When _ (_ ∷⁺ [])) _ wftp-when-single = refl
 -- `bo-eq` reflection feeds `pv-{LE,BE}`'s first arg directly; each requireDec
 -- fact (stated over `sd`) is `subst`-transported
 -- through `sd-eq : signalDef s ≡ sd` into the `signalDef s` form the ctor needs.
--- NO `rewrite` over a parser goal (there is none — pvGo is pure arithmetic).
+-- The LE arm's capacity conjuncts arrive as premises (from
+-- `signalBounds-caps` — decided by `checkSignalBounds`, not re-decided here).
 
 pvGo-sound : ∀ (bo : ByteOrder) (fb : ℕ) (sd : SignalDef) (nm : String) (s : DBCSignal)
   → DBCSignal.byteOrder s ≡ bo → DBCSignal.signalDef s ≡ sd
+  → SignalDef.startBit sd < fb * 8
+  → SignalDef.bitLength sd ≤ fb * 8
   → pvGo bo fb sd nm ≡ [] → PhysicallyValid fb s
-pvGo-sound LittleEndian fb sd nm s bo-eq sd-eq eq =
+pvGo-sound LittleEndian fb sd nm s bo-eq sd-eq sbF blF eq =
   pv-LE bo-eq
     (subst (λ z → 1 ≤ SignalDef.bitLength z) (sym sd-eq)
-      (requireDec-sound (1 ≤? SignalDef.bitLength sd) _ eq))
-pvGo-sound BigEndian fb sd nm s bo-eq sd-eq eq =
+      (requireDec-sound (bitLengthPositive? (SignalDef.bitLength sd)) _ eq))
+    (subst (λ z → SignalDef.startBit z < fb * 8) (sym sd-eq) sbF)
+    (subst (λ z → SignalDef.bitLength z ≤ fb * 8) (sym sd-eq) blF)
+pvGo-sound BigEndian fb sd nm s bo-eq sd-eq _ _ eq =
   pv-BE bo-eq
     (subst (λ z → 1 ≤ SignalDef.bitLength z) (sym sd-eq)
-      (requireDec-sound (1 ≤? SignalDef.bitLength sd) _ (proj₁ split1)))
-    (subst (λ z → SignalDef.startBit z + SignalDef.bitLength z ∸ 1 < fb * 8) (sym sd-eq)
-      (requireDec-sound (SignalDef.startBit sd + SignalDef.bitLength sd ∸ 1 <? fb * 8)
-                        _ (proj₁ split2)))
-    (subst (λ z → SignalDef.bitLength z ∸ 1 ≤ SignalDef.startBit z) (sym sd-eq)
-      (requireDec-sound (SignalDef.bitLength sd ∸ 1 ≤? SignalDef.startBit sd)
-                        _ (proj₂ split2)))
+      (requireDec-sound (bitLengthPositive? (SignalDef.bitLength sd)) _ (proj₁ split1)))
+    (subst (λ z → SignalDef.startBit z + SignalDef.bitLength z ≤ fb * 8) (sym sd-eq)
+      (requireDec-sound (signalFitsFrame? fb (SignalDef.startBit sd) (SignalDef.bitLength sd))
+                        _ (proj₂ split1)))
   where
     split1 = ++-≡[]-split eq
-    split2 = ++-≡[]-split (proj₂ split1)
 
 pvGo-complete : ∀ (fb : ℕ) (nm : String) (s : DBCSignal)
   → PhysicallyValid fb s
   → pvGo (DBCSignal.byteOrder s) fb (DBCSignal.signalDef s) nm ≡ []
-pvGo-complete fb nm s (pv-LE bo-eq len-pos) rewrite bo-eq =
-  requireDec-complete (1 ≤? SignalDef.bitLength (DBCSignal.signalDef s)) _ len-pos
-pvGo-complete fb nm s (pv-BE bo-eq len-pos fits msb) rewrite bo-eq =
+pvGo-complete fb nm s (pv-LE bo-eq len-pos _ _) rewrite bo-eq =
+  requireDec-complete (bitLengthPositive? (SignalDef.bitLength (DBCSignal.signalDef s))) _ len-pos
+pvGo-complete fb nm s (pv-BE bo-eq len-pos fits) rewrite bo-eq =
   ++-≡[]-combine
-    (requireDec-complete (1 ≤? SignalDef.bitLength (DBCSignal.signalDef s)) _ len-pos)
-    (++-≡[]-combine
-      (requireDec-complete
-        (SignalDef.startBit (DBCSignal.signalDef s) + SignalDef.bitLength (DBCSignal.signalDef s) ∸ 1
-           <? fb * 8) _ fits)
-      (requireDec-complete
-        (SignalDef.bitLength (DBCSignal.signalDef s) ∸ 1 ≤? SignalDef.startBit (DBCSignal.signalDef s))
-        _ msb))
+    (requireDec-complete (bitLengthPositive? (SignalDef.bitLength (DBCSignal.signalDef s))) _ len-pos)
+    (requireDec-complete
+      (signalFitsFrame? fb (SignalDef.startBit (DBCSignal.signalDef s))
+        (SignalDef.bitLength (DBCSignal.signalDef s))) _ fits)

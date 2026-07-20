@@ -21,14 +21,14 @@
 -- `Aletheia.DBC.TextParser.Topology` (the re-export facade) for the
 -- header note kept under that name for backwards compatibility.
 module Aletheia.DBC.TextParser.Topology.SignalLine where
-open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 
-open import Data.Bool using (if_then_else_)
 open import Data.List using (List; []; _∷_)
 open import Data.List.NonEmpty as List⁺ using ()
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; _+_; _%_; _≤ᵇ_)
+open import Data.Nat using (ℕ)
 open import Data.Product using (proj₁; proj₂)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 
 open import Aletheia.Parser.Combinators using
   (Parser; pure; fail; _>>=_; _*>_;
@@ -50,8 +50,9 @@ open import Aletheia.DBC.Types using
 open import Aletheia.CAN.DLC using (bytesToValidDLC)
 open import Aletheia.CAN.Endianness using
   (convertStartBit)
-open import Aletheia.CAN.Constants using
-  (max-physical-bits)
+open import Aletheia.DBC.Decidable.SignalGeometry using (geometryRefusal)
+open import Aletheia.Error using
+  (ParseError; DBCTextParseError; SignalGeometryError)
 
 -- ============================================================================
 -- BU_ (NODES)
@@ -121,32 +122,45 @@ resolvePresence (just m) (BothMux n) = just (When m (n List⁺.∷ []))
 resolvePresence nothing  (SelBy _)   = nothing
 resolvePresence nothing  (BothMux _) = nothing
 
--- Assemble a `DBCSignal` from a `RawSignal` + resolved presence.  Applies
--- the same `% max-physical-bits` clamps and `convertStartBit` call as
--- `JSONParser.parseSignalFields` so both paths produce the same internal
--- representation.
+-- Wrap the shared gate core's verdict for one raw signal: a refusal
+-- becomes the typed `SignalGeometryError` (the SAME geometry `ParseError`
+-- the JSON route emits, anchored by the signal's name), acceptance
+-- becomes the assembled `DBCSignal`.  Top-level Maybe-eliminator (not
+-- `with`) so roundtrip proofs can rewrite the `geometryRefusal` result
+-- and let the application reduce.
+finishSignalGate : Maybe ParseError → Identifier → DBCSignal
+                 → DBCTextParseError ⊎ DBCSignal
+finishSignalGate (just pe) nm _   = inj₁ (SignalGeometryError (nameStr nm) pe)
+finishSignalGate nothing   _  sig = inj₂ sig
+
+-- Assemble a `DBCSignal` from a `RawSignal` + resolved presence.  Runs the
+-- same geometry gate core (`SignalGeometry.geometryRefusal`, on the RAW
+-- pre-conversion values against the frame capacity) and the same
+-- `convertStartBit` call as `JSONParser.parseSignalFields`, so both
+-- entry routes refuse the same out-of-capacity shapes with one wire
+-- vocabulary and produce the same internal representation on acceptance
+-- (no modulo clamps: out-of-range geometry is refused, never silently
+-- normalized).
 --
--- Bitlength=0 rejection (2026-05-15): both byte
--- orders require `bitLength ≥ 1` at parse time, matching the JSON path's
--- `physicalGate` LE branch.  Without this gate, the LE side of the text
--- parser would still accept zero-length signals and defer to the validator
--- — leaving the parse boundary asymmetric across byte orders.  Other BE
--- physical-gate constraints (signal-in-frame, MSB-above-LSB) remain
--- validator-side for the text path.
-buildSignal : (frameBytes : ℕ) → Maybe Identifier → RawSignal → Maybe DBCSignal
+-- Result: `nothing` = mux reference unresolvable (parser-level `fail`,
+-- positioned via the watermark, as before); `just (inj₁ e)` = typed
+-- geometry refusal, surfaced through `finalizeParse`'s error channel;
+-- `just (inj₂ s)` = the signal.
+buildSignal : (frameBytes : ℕ) → Maybe Identifier → RawSignal
+            → Maybe (DBCTextParseError ⊎ DBCSignal)
 buildSignal frameBytes master raw
   with resolvePresence master (RawSignal.muxMarker raw)
 ... | nothing = nothing
 ... | just presence =
   let bo  = RawSignal.byteOrder raw
-      sb  = RawSignal.startBit  raw % max-physical-bits
-      bl  = RawSignal.bitLength raw % (1 + max-physical-bits)
-      csb = convertStartBit frameBytes bo sb bl
-  in if 1 ≤ᵇ bl
-       then just (record
+      sb  = RawSignal.startBit  raw
+      bl  = RawSignal.bitLength raw
+  in just (finishSignalGate (geometryRefusal frameBytes bo sb bl)
+       (RawSignal.name raw)
+       (record
          { name      = RawSignal.name raw
          ; signalDef = record
-             { startBit  = csb
+             { startBit  = convertStartBit frameBytes bo sb bl
              ; bitLength = bl
              ; isSigned  = RawSignal.isSigned raw
              ; factor    = RawSignal.factor raw
@@ -159,27 +173,30 @@ buildSignal frameBytes master raw
          ; presence  = presence
          ; receivers = RawSignal.receivers raw
          ; valueDescriptions = []  -- VAL_ entries are scattered across the file; the partition+refine pass at the top level fills this from RawValueDesc collection.  Empty default keeps `buildSignal` total when no VAL_ entries reference this signal.
-         })
-       else nothing
+         }))
 
--- Resolve all signals in a BO_ block.  Fails (`nothing`) if any signal's
--- mux reference can't be resolved — that is the only failure mode, since
--- CAN ID + DLC are handled in `parseMessage` and the physical gate is
--- deferred.
+-- Resolve all signals in a BO_ block.  `nothing` if any signal's mux
+-- reference can't be resolved (parser-level fail, as before);
+-- `just (inj₁ e)` propagates the FIRST typed geometry refusal in line
+-- order; `just (inj₂ sigs)` on success.  CAN ID + DLC stay in
+-- `parseMessage`.
 --
 -- Inner walker `buildAllRaw` exposed at top level so the `resolveSignalList
 -- -roundtrip` proof can induct on it directly (`where`-bound names aren't
 -- accessible from outside the surrounding definition).
 buildAllRaw : (frameBytes : ℕ) → Maybe Identifier
-            → List RawSignal → Maybe (List DBCSignal)
-buildAllRaw _          _ [] = just []
+            → List RawSignal → Maybe (DBCTextParseError ⊎ List DBCSignal)
+buildAllRaw _          _ [] = just (inj₂ [])
 buildAllRaw frameBytes m (r ∷ rest) with buildSignal frameBytes m r
-... | nothing = nothing
-... | just s  with buildAllRaw frameBytes m rest
-...   | nothing  = nothing
-...   | just ss  = just (s ∷ ss)
+... | nothing        = nothing
+... | just (inj₁ e)  = just (inj₁ e)
+... | just (inj₂ s)  with buildAllRaw frameBytes m rest
+...   | nothing          = nothing
+...   | just (inj₁ e)    = just (inj₁ e)
+...   | just (inj₂ ss)   = just (inj₂ (s ∷ ss))
 
-resolveSignalList : (frameBytes : ℕ) → List RawSignal → Maybe (List DBCSignal)
+resolveSignalList : (frameBytes : ℕ) → List RawSignal
+                  → Maybe (DBCTextParseError ⊎ List DBCSignal)
 resolveSignalList frameBytes raws =
   buildAllRaw frameBytes (findMuxName raws) raws
 
@@ -190,21 +207,22 @@ resolveSignalList frameBytes raws =
 -- Inner builder (top-level so the `parseMessage-roundtrip` proof can
 -- reference it directly; was a `where`-bound helper of `parseMessage`).
 buildMessage : ℕ → Identifier → ℕ → Identifier
-             → List RawSignal → Parser DBCMessage
+             → List RawSignal → Parser (DBCTextParseError ⊎ DBCMessage)
 buildMessage rawId msgName rawDlc msgSender raws with buildCANId rawId
 ... | nothing = fail
 ... | just canId with bytesToValidDLC rawDlc
 ...   | nothing = fail
 ...   | just dlc with resolveSignalList rawDlc raws
 ...     | nothing = fail
-...     | just sigs = pure (record
+...     | just (inj₁ e) = pure (inj₁ e)
+...     | just (inj₂ sigs) = pure (inj₂ (record
           { id      = canId
           ; name    = msgName
           ; dlc     = dlc
           ; sender  = msgSender
           ; senders = []
           ; signals = sigs
-          })
+          }))
 
 -- Parse a BO_ block: header + SG_ lines + trailing blanks.  Fails if:
 --   * the CAN ID is out of range (`buildCANId` returns nothing),
@@ -213,6 +231,10 @@ buildMessage rawId msgName rawDlc msgSender raws with buildCANId rawId
 --   * any SG_ line's mux reference can't be resolved.
 -- On any of these the partial consumption is discarded by the outer
 -- `<|>` / `many` — see the module header for the error-semantics note.
+-- A geometry-refused SG_ line is NOT a parser failure: the block parses
+-- (consuming its input) and the parse VALUE carries the typed
+-- `SignalGeometryError`, which the top level surfaces through
+-- `finalizeParse`'s error channel.
 --
 -- Header chunk derived from the Format DSL `messageHeaderFmt`,
 -- so the universal `roundtrip` theorem in `Format.agda` discharges the
@@ -220,7 +242,7 @@ buildMessage rawId msgName rawDlc msgSender raws with buildCANId rawId
 -- `Properties.Topology.Message`).  Production permissiveness (zero-or-more
 -- whitespace at the formatter's `parseWSOpt` slots, both LF and CR-LF
 -- newline) is preserved by the DSL's `wsOpt`/`ws`/`newlineFmt`.
-parseMessage : Parser DBCMessage
+parseMessage : Parser (DBCTextParseError ⊎ DBCMessage)
 parseMessage = parse messageHeaderFmt >>= λ hdr →
   let rawId     = proj₁ hdr
       msgName   = proj₁ (proj₂ hdr)
@@ -232,5 +254,5 @@ parseMessage = parse messageHeaderFmt >>= λ hdr →
 
 -- Zero-or-more BO_ blocks.  Each `parseMessage` absorbs its own trailing
 -- blanks; `many` composes without an inter-message combinator.
-parseMessages : Parser (List DBCMessage)
+parseMessages : Parser (List (DBCTextParseError ⊎ DBCMessage))
 parseMessages = many parseMessage

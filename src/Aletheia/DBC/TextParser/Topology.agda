@@ -45,12 +45,13 @@
 -- `Extended (raw − 2^31)`; raw < 2^31 decodes to `Standard raw` (must fit
 -- in 11 bits).  Mirrored by `TextFormatter.Topology.rawCanIdℕ`.
 --
--- Validation scope: range-checks on CAN ID, DLC byte count, and
--- mux reference resolution; the `physicalGate` predicate from
--- `JSONParser.parseSignalFields` is NOT applied at text-parse time — it is
--- a semantic-layer validator concern, and applying it here would couple
--- the parser to `ParseError` (out of scope for this validation layer,
--- which stays on `Maybe`-valued parsers throughout).
+-- Validation scope: range-checks on CAN ID, DLC byte count, mux reference
+-- resolution, and signal geometry — `buildSignal` runs the SAME gate core
+-- (`SignalGeometry.geometryRefusal`) as `JSONParser.parseSignalFields`, so
+-- both entry routes refuse out-of-capacity geometry with one typed wire
+-- vocabulary.  Mux failures stay `Maybe`-valued (positioned parser fail);
+-- geometry refusals ride the parse VALUE as `SignalGeometryError` and
+-- surface through `finalizeParse`'s error channel.
 --
 -- Deferred to later sub-commits:
 --   * Multi-value mux selectors (`SG_MUL_VAL_`) — the syntactic drop
@@ -60,8 +61,6 @@
 --     a later mux-integration sub-commit.  Single-value `m<N>`
 --     selectors map to a singleton `values = N List⁺.∷ []` today.
 --   * BO_TX_BU_ `senders` — future sub-commit; for now `senders = []`.
---   * Integer-valued SG_ signals with `signalDef.startBit` physical-gate
---     rejection — leave to the validator per the scope note above.
 module Aletheia.DBC.TextParser.Topology where
 
 open import Aletheia.DBC.TextParser.Topology.Foundations public

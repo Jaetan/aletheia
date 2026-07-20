@@ -124,7 +124,7 @@ parseSignFlag =
 -- ============================================================================
 
 -- The 12 fields captured directly from the SG_ line, before mux
--- resolution and physical-bit clamping.  `receivers` is a
+-- resolution and the geometry entry gate.  `receivers` is a
 -- `CanonicalReceivers` (the canonical-form invariant is type-level so
 -- `Format.SignalLine.signalLineFmt`'s receivers field can use the iso
 -- `canonicalReceiversFmt : Format CanonicalReceivers` directly without

@@ -5,151 +5,150 @@
 -- Signal-level well-formedness proofs for the DBC JSON parser.
 --
 -- Purpose: Prove that if parseSignalFields/parseSignal succeeds, the result
--- satisfies WellFormedSignal (startBit < max-physical-bits, bitLength < suc max-physical-bits).
--- Key insight: The parser enforces bounds via _%_ (modulo), and m%n<n
--- from Data.Nat.DivMod proves modular results are in-bounds.
--- For BigEndian, convertStartBit applies physicalBitPos then subtracts,
--- so convertStartBit-wf-bound provides the startBit bound.
+-- is WellFormedSignal AND PhysicallyValid, and that the accepted signal's
+-- internal geometry unconverts back to the SUBMITTED start bit / bit length
+-- (the geometry-echo faithfulness: the kernel's JSON emission reproduces
+-- what the caller sent — no clamp, no relocation).
+-- Key insight: the witnesses come from the entry gate itself — inverting
+-- `geometryRefusal ≡ nothing` (SignalGeometry.Properties) yields exactly
+-- the frame-capacity conditions, the frame-capacity bridges
+-- (Endianness.Properties.StartBit) lift them to the internal form, and
+-- `convertStartBit-roundtrip`'s hypotheses are the BE gate conditions
+-- verbatim — the gate is that lemma's consumer.
 -- Role: Used by MessageWF for the signal-list component.
 module Aletheia.DBC.JSONParser.SignalWF where
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.CanonicalReceivers using (mkCanonicalFromList)
 
-open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _%_; _/_; _≤ᵇ_; _<ᵇ_; suc; zero; z≤n; s≤s; _∸_)
-open import Data.Nat.DivMod using (m%n<n)
-open import Data.Nat.Properties using (≤-trans; m∸n≤m; *-monoˡ-≤; ≤ᵇ⇒≤; <ᵇ⇒<)
+open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; s≤s)
+open import Data.Nat.Properties using (≤-trans; <-≤-trans; *-monoˡ-≤)
 open import Data.List using ([]; _∷_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.String using (String)
-open import Data.Product using (_×_; _,_; proj₁; proj₂)
+open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃₂)
 open import Data.Maybe using (just; nothing)
-open import Data.Bool using (true; false; T)
-open import Data.Unit using (tt)
 open import Data.Sum using (inj₁; inj₂)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; subst)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 open import Aletheia.JSON using (JNull; JBool; JNumber; JString; JArray; JObject;
-  lookupChars; lookupNat; lookupArray)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; convertStartBit)
-open import Aletheia.CAN.Endianness.Properties using (convertStartBit-wf-bound)
+  lookupChars; lookupArray)
+open import Aletheia.CAN.Endianness using
+  (ByteOrder; LittleEndian; BigEndian; convertStartBit; unconvertStartBit)
+open import Aletheia.CAN.Endianness.Properties using
+  (convertStartBit-roundtrip; convertStartBit-BE-fits; convertStartBit-BE-inFrame)
 open import Aletheia.DBC.Types using (DBCSignal)
+open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.DBC.JSONParser using (parseSignalFields; parseSignal; parseSignalList; lookupDecRat;
   parseByteOrder; parseSigned; parseSignalPresence; addSignalContext; physicalGate; validateIdent; validateIdentList;
-  parseOptionalArray; parseCharsList; parseValueEntryList)
+  parseOptionalArray; parseCharsList; parseValueEntryList; lookupNatStrict)
+open import Aletheia.DBC.Decidable.SignalGeometry using (geometryRefusal)
+open import Aletheia.DBC.Decidable.SignalGeometry.Properties using
+  (geometryRefusal-inv-LE; geometryRefusal-inv-BE)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
   PhysicallyValid; pv-LE; pv-BE)
-open import Aletheia.CAN.Constants using (max-physical-bits; 8≤max-physical-bits)
 
 -- ============================================================================
--- HELPER: convertStartBit bound for parser well-formedness
+-- POST-PRESENCE TAIL: gate inversion → WF × PV × geometry echo
 -- ============================================================================
 
 private
-  -- 0 ∸ n ≡ 0 for any n. Needed because BUILTIN NATMINUS doesn't reduce
-  -- when the second argument is a stuck expression (like s / 8).
-  0∸n≡0 : ∀ n → 0 ∸ n ≡ 0
-  0∸n≡0 zero    = refl
-  0∸n≡0 (suc _) = refl
+  -- Ceiling bridge: a capacity bound (< / ≤ frameBytes * 8) lifts to the
+  -- type-level `max-physical-bits` ceiling when frameBytes ≤ 64
+  -- (64 * 8 reduces to max-physical-bits definitionally).
+  cap⇒ceiling-< : ∀ {frameBytes x} → frameBytes ≤ 64 → x < frameBytes * 8 → x < 512
+  cap⇒ceiling-< fb≤64 x< = <-≤-trans x< (*-monoˡ-≤ 8 fb≤64)
 
-  -- convertStartBit produces < max-physical-bits for valid frame byte counts (≤ 64).
-  -- LE case: identity, so s < max-physical-bits suffices.
-  -- BE case (zero): physicalBitPos 0 BE s = (0 ∸ (s/8))*8 + s%8; rewrite stuck
-  --   subtraction via 0∸n≡0 to get s%8 ∸ (l∸1) < 8 ≤ max-physical-bits.
-  -- BE case (suc n): uses generic convertStartBit-wf-bound.
-  convertSB-bound : ∀ n bo s l → n ≤ 64 → s < max-physical-bits → convertStartBit n bo s l < max-physical-bits
-  convertSB-bound _ LittleEndian s _ _ s<mpb = s<mpb
-  convertSB-bound zero BigEndian s l _ _ = subst (_< max-physical-bits) (sym eq) bound
-    where
-      eq : convertStartBit 0 BigEndian s l ≡ s % 8 ∸ (l ∸ 1)
-      eq = cong (_∸ (l ∸ 1)) (cong (λ x → x * 8 + s % 8) (0∸n≡0 (s / 8)))
-      bound : s % 8 ∸ (l ∸ 1) < max-physical-bits
-      bound = ≤-trans (≤-trans (s≤s (m∸n≤m (s % 8) (l ∸ 1))) (m%n<n s 8)) 8≤max-physical-bits
-  convertSB-bound (suc n) BigEndian s l n≤64 s<mpb =
-    convertStartBit-wf-bound (suc n) BigEndian s l (s≤s z≤n) (*-monoˡ-≤ 8 n≤64) s<mpb
+  cap⇒ceiling-≤ : ∀ {frameBytes x} → frameBytes ≤ 64 → x ≤ frameBytes * 8 → x ≤ 512
+  cap⇒ceiling-≤ fb≤64 x≤ = ≤-trans x≤ (*-monoˡ-≤ 8 fb≤64)
 
-  -- Combined helper extracting BOTH WellFormedSignal AND PhysicallyValid in a
-  -- single pass after the 11-deep with-chain. Takes byte order as an explicit
-  -- parameter so we can pattern-match: LE now also forces a `1 ≤ᵇ bl` gate
-  -- so both branches do at least one
-  -- with-step; BE adds a 3-deep with-chain on top of the LE shape.
-  -- Combining eliminates the duplicate postPresence-wf/postPresence-pv pair.
-  postPresence-wf×pv :
-    ∀ (frameBytes : ℕ) (ctx : String) (name : Identifier) (bo : ByteOrder)
-      (sb-mod : ℕ) (sb-bound : sb-mod < max-physical-bits)
-      (bl-mod : ℕ) (bl-bound : bl-mod < suc max-physical-bits)
-      isSigned factor offset minimum maximum unit presence receivers vds sig
-    → frameBytes ≤ 64
-    → addSignalContext ctx (physicalGate frameBytes bo
-        (convertStartBit frameBytes bo sb-mod bl-mod)
-        bl-mod
-        (record
-          { name = name
-          ; signalDef = record
-              { startBit = convertStartBit frameBytes bo sb-mod bl-mod
-              ; bitLength = bl-mod
-              ; isSigned = isSigned
-              ; factor = factor
-              ; offset = offset
-              ; minimum = minimum
-              ; maximum = maximum
-              }
-          ; byteOrder = bo
-          ; unit = unit
-          ; presence = presence
-          ; receivers = receivers
-          ; valueDescriptions = vds
-          }))
-      ≡ inj₂ sig
-    → WellFormedSignal sig × PhysicallyValid frameBytes sig
-  postPresence-wf×pv frameBytes ctx name LittleEndian sb-mod sb-bound bl-mod bl-bound
-    isSigned factor offset minimum maximum unit presence receivers vds sig fb≤64 eq
-    with 1 ≤ᵇ bl-mod in b1 | eq
-  ... | false | ()
-  ... | true | refl =
-    record { def-wf = record
-      { startBit-bound = sb-bound
-      ; bitLength-bound = bl-bound
-      } }
-    , pv-LE refl (≤ᵇ⇒≤ 1 bl-mod (subst T (sym b1) tt))
-  postPresence-wf×pv frameBytes ctx name BigEndian sb-mod sb-bound bl-mod bl-bound
-    isSigned factor offset minimum maximum unit presence receivers vds sig fb≤64 eq
-    with 1 ≤ᵇ bl-mod in b1 | eq
-  ... | false | ()
-  ... | true | eq₁
-    with (convertStartBit frameBytes BigEndian sb-mod bl-mod + bl-mod) ∸ 1 <ᵇ frameBytes * 8 in b2 | eq₁
-  ... | false | ()
-  ... | true | eq₂
-    with bl-mod ∸ 1 ≤ᵇ convertStartBit frameBytes BigEndian sb-mod bl-mod in b3 | eq₂
-  ... | false | ()
-  ... | true | refl =
-    record { def-wf = record
-      { startBit-bound = convertSB-bound frameBytes BigEndian sb-mod bl-mod fb≤64 sb-bound
-      ; bitLength-bound = bl-bound
-      } }
-    , pv-BE refl
-        (≤ᵇ⇒≤ 1 bl-mod (subst T (sym b1) tt))
-        (<ᵇ⇒< (convertStartBit frameBytes BigEndian sb-mod bl-mod + bl-mod ∸ 1) (frameBytes * 8) (subst T (sym b2) tt))
-        (≤ᵇ⇒≤ (bl-mod ∸ 1) (convertStartBit frameBytes BigEndian sb-mod bl-mod) (subst T (sym b3) tt))
+-- Result bundle for the accepted signal: well-formedness, physical
+-- validity, and the geometry echo (the formatter's `unconvertStartBit`
+-- applied to the stored internal geometry reproduces the submitted raw
+-- start bit; the stored bit length IS the submitted one).
+SignalGate : (frameBytes sb bl : ℕ) → DBCSignal → Set
+SignalGate frameBytes sb bl sig =
+  WellFormedSignal sig
+  × PhysicallyValid frameBytes sig
+  × (unconvertStartBit frameBytes (DBCSignal.byteOrder sig)
+       (SignalDef.startBit (DBCSignal.signalDef sig))
+       (SignalDef.bitLength (DBCSignal.signalDef sig)) ≡ sb)
+  × (SignalDef.bitLength (DBCSignal.signalDef sig) ≡ bl)
+
+-- Extract the full bundle after the with-chain reaches the gate.  Takes
+-- byte order as an explicit parameter so we can pattern-match; the gate
+-- verdict (`geometryRefusal`) is the ONLY scrutinee — its inversion
+-- supplies every witness.
+postPresence-gate :
+  ∀ (frameBytes : ℕ) (ctx : String) (name : Identifier) (bo : ByteOrder)
+    (sb bl : ℕ)
+    isSigned factor offset minimum maximum unit presence receivers vds sig
+  → frameBytes ≤ 64
+  → addSignalContext ctx (physicalGate frameBytes bo sb bl (record
+      { name = name
+      ; signalDef = record
+          { startBit = convertStartBit frameBytes bo sb bl
+          ; bitLength = bl
+          ; isSigned = isSigned
+          ; factor = factor
+          ; offset = offset
+          ; minimum = minimum
+          ; maximum = maximum
+          }
+      ; byteOrder = bo
+      ; unit = unit
+      ; presence = presence
+      ; receivers = receivers
+      ; valueDescriptions = vds
+      }))
+    ≡ inj₂ sig
+  → SignalGate frameBytes sb bl sig
+postPresence-gate frameBytes ctx name LittleEndian sb bl
+  isSigned factor offset minimum maximum unit presence receivers vds sig fb≤64 eq
+  with geometryRefusal frameBytes LittleEndian sb bl in g-eq | eq
+... | just _  | ()
+... | nothing | refl =
+  let (lp , sbF , blF) = geometryRefusal-inv-LE frameBytes sb bl g-eq
+  in record { def-wf = record
+       { startBit-bound  = cap⇒ceiling-< fb≤64 sbF
+       ; bitLength-bound = s≤s (cap⇒ceiling-≤ fb≤64 blF)
+       } }
+   , pv-LE refl lp sbF blF
+   , refl
+   , refl
+postPresence-gate frameBytes ctx name BigEndian sb bl
+  isSigned factor offset minimum maximum unit presence receivers vds sig fb≤64 eq
+  with geometryRefusal frameBytes BigEndian sb bl in g-eq | eq
+... | just _  | ()
+... | nothing | refl =
+  let (lp , sbF , blF , nw) = geometryRefusal-inv-BE frameBytes sb bl g-eq
+  in record { def-wf = record
+       { startBit-bound  = cap⇒ceiling-< fb≤64 (convertStartBit-BE-inFrame frameBytes sb bl sbF)
+       ; bitLength-bound = s≤s (cap⇒ceiling-≤ fb≤64 blF)
+       } }
+   , pv-BE refl lp (convertStartBit-BE-fits frameBytes sb bl lp sbF nw)
+   , convertStartBit-roundtrip frameBytes sb bl lp sbF nw
+   , refl
 
 -- ============================================================================
--- COMBINED SIGNAL FIELDS WELL-FORMEDNESS + PHYSICAL VALIDITY
+-- COMBINED SIGNAL FIELDS RESULT (single with-chain)
 -- ============================================================================
 
--- If parseSignalFields succeeds, the result is both well-formed AND physically valid.
--- A single 11-deep with-chain (finding A15: eliminates the duplicate -wf/-pv chains).
--- Strategy: nested with on each lookup/parse step. Failure cases are absurd.
--- In the final success case, postPresence-wf×pv extracts both properties.
-parseSignalFields-wf×pv : ∀ frameBytes ctx name obj sig
+-- If parseSignalFields succeeds, the submitted geometry exists, and the
+-- result satisfies the full gate bundle against it.
+parseSignalFields-full : ∀ frameBytes ctx name obj sig
   → frameBytes ≤ 64
   → parseSignalFields frameBytes ctx name obj ≡ inj₂ sig
-  → WellFormedSignal sig × PhysicallyValid frameBytes sig
-parseSignalFields-wf×pv frameBytes ctx name obj sig fb≤64 eq
-  with lookupNat "startBit" obj | eq
-... | nothing | ()
-... | just sb | eq₁
-  with lookupNat "length" obj | eq₁
-...   | nothing | ()
-...   | just bl | eq₂
+  → ∃₂ λ sb bl →
+        (lookupNatStrict "startBit" obj ≡ inj₂ sb)
+      × (lookupNatStrict "length" obj ≡ inj₂ bl)
+      × SignalGate frameBytes sb bl sig
+parseSignalFields-full frameBytes ctx name obj sig fb≤64 eq
+  with lookupNatStrict "startBit" obj | eq
+... | inj₁ _ | ()
+... | inj₂ sb | eq₁
+  with lookupNatStrict "length" obj | eq₁
+...   | inj₁ _ | ()
+...   | inj₂ bl | eq₂
     with lookupChars "byteOrder" obj | eq₂
 ...     | nothing | ()
 ...     | just boStr | eq₃
@@ -189,12 +188,26 @@ parseSignalFields-wf×pv frameBytes ctx name obj sig fb≤64 eq
                             with validateIdentList receivers | eq₁₄
 ...                             | inj₁ _ | ()
 ...                             | inj₂ receiverIds | eq₁₅ =
-                                  postPresence-wf×pv frameBytes ctx nameId bo
-                                    (sb % max-physical-bits) (m%n<n sb max-physical-bits)
-                                    (bl % suc max-physical-bits) (m%n<n bl (suc max-physical-bits))
-                                    isSigned factor offset minimum maximum unit presence (mkCanonicalFromList receiverIds) vds sig fb≤64 eq₁₅
+                                  -- the with-abstraction replaced the two lookup
+                                  -- occurrences in the goal with their patterns,
+                                  -- so both lookup equations close by refl
+                                  sb , bl , refl , refl ,
+                                  postPresence-gate frameBytes ctx nameId bo sb bl
+                                    isSigned factor offset minimum maximum unit presence
+                                    (mkCanonicalFromList receiverIds) vds sig fb≤64 eq₁₅
 
--- Projections of the combined proof (preserve backward-compatible API).
+-- ============================================================================
+-- PROJECTIONS (backward-compatible API)
+-- ============================================================================
+
+parseSignalFields-wf×pv : ∀ frameBytes ctx name obj sig
+  → frameBytes ≤ 64
+  → parseSignalFields frameBytes ctx name obj ≡ inj₂ sig
+  → WellFormedSignal sig × PhysicallyValid frameBytes sig
+parseSignalFields-wf×pv frameBytes ctx name obj sig fb≤64 eq
+  with parseSignalFields-full frameBytes ctx name obj sig fb≤64 eq
+... | _ , _ , _ , _ , wf , pv , _ = wf , pv
+
 parseSignalFields-wf : ∀ frameBytes ctx name obj sig
   → frameBytes ≤ 64
   → parseSignalFields frameBytes ctx name obj ≡ inj₂ sig → WellFormedSignal sig
@@ -206,6 +219,25 @@ parseSignalFields-pv : ∀ frameBytes ctx name obj sig
   → parseSignalFields frameBytes ctx name obj ≡ inj₂ sig → PhysicallyValid frameBytes sig
 parseSignalFields-pv frameBytes ctx name obj sig fb≤64 eq =
   proj₂ (parseSignalFields-wf×pv frameBytes ctx name obj sig fb≤64 eq)
+
+-- Geometry-echo faithfulness: the accepted signal's stored geometry maps
+-- back (via the formatter's `unconvertStartBit`) to exactly the submitted
+-- startBit/length.  `convertStartBit-roundtrip` is consumed by the BE arm
+-- of `postPresence-gate` — its hypotheses are the entry gate's conditions.
+parseSignalFields-echo : ∀ frameBytes ctx name obj sig
+  → frameBytes ≤ 64
+  → parseSignalFields frameBytes ctx name obj ≡ inj₂ sig
+  → ∃₂ λ sb bl →
+        (lookupNatStrict "startBit" obj ≡ inj₂ sb)
+      × (lookupNatStrict "length" obj ≡ inj₂ bl)
+      × (unconvertStartBit frameBytes (DBCSignal.byteOrder sig)
+           (SignalDef.startBit (DBCSignal.signalDef sig))
+           (SignalDef.bitLength (DBCSignal.signalDef sig)) ≡ sb)
+      × (SignalDef.bitLength (DBCSignal.signalDef sig) ≡ bl)
+parseSignalFields-echo frameBytes ctx name obj sig fb≤64 eq
+  with parseSignalFields-full frameBytes ctx name obj sig fb≤64 eq
+... | sb , bl , sb-look , bl-look , _ , _ , sb-echo , bl-echo =
+      sb , bl , sb-look , bl-look , sb-echo , bl-echo
 
 -- ============================================================================
 -- SIGNAL WELL-FORMEDNESS

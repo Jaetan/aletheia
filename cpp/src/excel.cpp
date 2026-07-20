@@ -421,15 +421,15 @@ static auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
                                  "]: " + std::to_string(start_bit_val));
     auto bit_length_val = get_int(cells, "Length", ctx_str);
     if (bit_length_val < 0 ||
-        std::cmp_greater(bit_length_val, std::numeric_limits<std::uint8_t>::max()))
+        std::cmp_greater(bit_length_val, std::numeric_limits<std::uint16_t>::max()))
         throw std::runtime_error(ctx_str + ": 'Length' out of range [0, " +
-                                 std::to_string(std::numeric_limits<std::uint8_t>::max()) +
+                                 std::to_string(std::numeric_limits<std::uint16_t>::max()) +
                                  "]: " + std::to_string(bit_length_val));
 
     return DbcSignal{
         .name = SignalName{get_str(cells, "Signal", ctx_str)},
         .start_bit = BitPosition{static_cast<std::uint16_t>(start_bit_val)},
-        .bit_length = BitLength{static_cast<std::uint8_t>(bit_length_val)},
+        .bit_length = BitLength{static_cast<std::uint16_t>(bit_length_val)},
         .byte_order = byte_order,
         .is_signed = get_bool(cells, "Signed", ctx_str),
         .factor = RationalFactor{get_decimal(cells, "Factor", ctx_str)},

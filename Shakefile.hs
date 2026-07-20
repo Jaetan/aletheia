@@ -482,6 +482,10 @@ proofModules =
     , "Aletheia/CAN/Endianness/Properties.agda"
     -- DBC
     , "Aletheia/DBC/Properties.agda"
+    -- Gate⇒checker geometry deadness/liveness theorem: entry-gate acceptance
+    -- (either route) empties every geometry checker arm, and the arms are
+    -- non-vacuous.  Unimported by other proofs, so it needs its own root.
+    , "Aletheia/DBC/Properties/GeometryGateDeadness.agda"
     , "Aletheia/DBC/JSONParser/Properties.agda"
     , "Aletheia/DBC/Validity/Theorem.agda"
     , "Aletheia/DBC/Formatter/Properties.agda"

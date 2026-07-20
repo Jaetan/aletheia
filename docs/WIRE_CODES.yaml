@@ -98,7 +98,7 @@ issue_codes:
     description: A signal's start bit exceeds the frame capacity.
 
   - name: bit_length_excessive
-    description: A signal's bit length exceeds 64 bits.
+    description: A signal's bit length exceeds the frame capacity.
 
   - name: multiplexor_non_unit_scaling
     description: A multiplexor signal has non-unit scaling (factor not 1 or offset not 0).
@@ -131,9 +131,6 @@ issue_codes:
 
   - name: mux_master_incoherent
     description: A multiplexor master signal's presence is inconsistent with its multiplexed signals.
-
-  - name: big_endian_msb_layout
-    description: A big-endian signal's MSB-first bit layout does not round-trip through .dbc text.
 
   - name: unknown_attribute_name
     description: A BA_ assignment or default references an attribute with no BA_DEF_ declaration.
@@ -191,11 +188,14 @@ error_codes:
   - name: parse_signal_bit_length_zero
     description: A signal's bit length is zero.
 
-  - name: parse_signal_overflows_frame
-    description: A signal's bit range exceeds the frame size.
+  - name: parse_signal_start_bit_exceeds_frame
+    description: A signal's start bit lies outside the message's frame capacity.
 
-  - name: parse_signal_msb_below_bit_length
-    description: A big-endian signal's MSB position is below its bit length minus one.
+  - name: parse_signal_bit_length_exceeds_frame
+    description: A signal's bit length exceeds the message's frame capacity.
+
+  - name: parse_signal_big_endian_overflow
+    description: A big-endian signal's descending bit run extends past the end of the frame.
 
   - name: parse_invalid_kind
     description: An enum-like string field carries an unrecognised value.
@@ -208,6 +208,9 @@ error_codes:
 
   - name: parse_non_integer_multiplex_value
     description: A multiplex_values array contains a non-natural element.
+
+  - name: parse_non_natural_field
+    description: A field is present but its value is not a JSON natural number.
 
   # extractionErrorCode -- signal extraction on a data frame.
 

@@ -88,7 +88,12 @@ class TestMessageMetaValidation:
 
 
 class TestSignalBitValidation:
-    """Signal ``startBit`` 0-511 / ``length`` 1-64."""
+    """Signal ``startBit`` 0-511 / ``length`` 1-512 (the type-level ceiling).
+
+    The decode guard only rejects values no CAN-FD frame could ever hold;
+    whether a signal fits its containing message's frame is the kernel's
+    authoritative check at DBC entry.
+    """
 
     def test_rejects_start_bit_over_511(self) -> None:
         """Reject a startBit above 511."""
@@ -110,17 +115,17 @@ class TestSignalBitValidation:
         with pytest.raises(ProtocolError):
             normalize_signal(sig)
 
-    def test_rejects_length_over_64(self) -> None:
-        """Reject a bit length above 64."""
+    def test_rejects_length_over_512(self) -> None:
+        """Reject a bit length above the type-level ceiling."""
         sig = _valid_signal()
-        sig["length"] = 65
+        sig["length"] = 513
         with pytest.raises(ProtocolError):
             normalize_signal(sig)
 
     def test_accepts_max_length(self) -> None:
-        """Accept the 64-bit boundary."""
+        """Accept the full-frame CAN-FD boundary."""
         sig = _valid_signal()
-        sig["length"] = 64
+        sig["length"] = 512
         assert normalize_signal(sig)["name"] == "S"
 
 

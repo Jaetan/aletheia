@@ -22,6 +22,7 @@ open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Identifier using (_≟ᴵ_)
 open import Aletheia.DBC.Types using (DBC; DBCSignal; DBCMessage; DBCAttribute; RawValueDesc)
+open import Aletheia.DBC.Formatter.WellFormed using (PhysicallyValid)
 open import Aletheia.DBC.Formatter.WellFormedText using (MasterCoherent; WellFormedTextPresence)
 open import Aletheia.DBC.Validity.Combinators using (requireDec-sound; requireDec-complete)
 open import Aletheia.DBC.Validity.ListLemmas using
@@ -31,14 +32,15 @@ open import Aletheia.DBC.TextFormatter.Attributes using (collectDefs)
 open import Aletheia.DBC.TextParser.WellFormed using (WellFormedTextDBCAgg)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using (WFAttribute)
 open import Aletheia.DBC.TextParser.WellFormedCheck using
-  (mcIssue; masterCoherent?; checkSigNamesUnique; checkMsgIdsUnique; checkUnresolved; checkTextMessage; checkAttrs; wfTextIssues)
+  (mcIssue; masterCoherent?; checkSigNamesUnique; checkMsgIdsUnique; checkUnresolved;
+   checkTextMessage; checkAttrs; wfTextIssues; checkSignalBounds; pvGo)
 open import Aletheia.DBC.TextParser.Properties.Topology.Message using (MessageWF)
 open import Aletheia.DBC.TextParser.Properties.Topology.SignalList using (SignalLineWF)
 open import Aletheia.DBC.TextParser.Properties.Topology.Signal using (recvHeadStop)
 open import Aletheia.DBC.TextParser.Properties.WellFormedFromValidity using
   (identNameStop; signalNameStop; wellFormedFromValidity)
 open import Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound.Signal using
-  (signalBounds-sound; pGo-sound; pvGo-sound;
+  (signalBounds-sound; signalBounds-caps; pGo-sound; pvGo-sound;
    signalBounds-complete; pGo-complete; pvGo-complete)
 open import Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound.Attr using
   (attrIssues-sound; attrIssues-complete)
@@ -96,10 +98,10 @@ signalLineWF-of s wp = record
 checkTextMessage-sound : ∀ (m : DBCMessage) → checkTextMessage m ≡ [] → MessageWF m
 checkTextMessage-sound m premise = record
   { fb-bound         = dlcBytes-bounded (DBCMessage.dlc m)
-  ; wf-sigs          = All.map (λ {s} → signalBounds-sound s) (concatMap-≡[]-sound c-eq)
-  ; pvs              = All.map
-      (λ {s} p → pvGo-sound (DBCSignal.byteOrder s) fb (DBCSignal.signalDef s) _ s refl refl p)
-      (concatMap-≡[]-sound d-eq)
+  ; wf-sigs          = All.map
+      (λ {s} → signalBounds-sound fb s (dlcBytes-bounded (DBCMessage.dlc m)))
+      (concatMap-≡[]-sound c-eq)
+  ; pvs              = pvs-all sigs (concatMap-≡[]-sound c-eq) (concatMap-≡[]-sound d-eq)
   ; wfps             = wfps-all
   ; mc               = mcIssue-sound sigs b-eq
   ; name-pre         = identNameStop (DBCMessage.name m)
@@ -117,12 +119,25 @@ checkTextMessage-sound m premise = record
     split2 = ++-≡[]-split (proj₂ split1)
     b-eq   = proj₁ split2                                  -- mcIssue sigs ≡ []
     split3 = ++-≡[]-split (proj₂ split2)
-    c-eq   = proj₁ split3                                  -- concatMap checkSignalBounds sigs ≡ []
+    c-eq   = proj₁ split3                                  -- concatMap (checkSignalBounds fb) sigs ≡ []
     split4 = ++-≡[]-split (proj₂ split3)
     d-eq   = proj₁ split4                                  -- concatMap (pvIssues fb) sigs ≡ []
     e-eq   = proj₂ split4                                  -- concatMap presenceIssue sigs ≡ []
     wfps-all = All.map (λ {s} p → pGo-sound (DBCSignal.presence s) _ p)
                  (concatMap-≡[]-sound e-eq)
+    -- PhysicallyValid needs BOTH per-signal verdicts: the LE arm's
+    -- capacity conjuncts come from `checkSignalBounds` (via
+    -- `signalBounds-caps`), the rest from `pvGo`'s own arms — walk the
+    -- two All-lists in lockstep.
+    pvs-all : ∀ (ss : List (DBCSignal))
+      → All (λ s → checkSignalBounds fb s ≡ []) ss
+      → All (λ s → pvGo (DBCSignal.byteOrder s) fb (DBCSignal.signalDef s) _ ≡ []) ss
+      → All (PhysicallyValid fb) ss
+    pvs-all [] All.[] All.[] = All.[]
+    pvs-all (s ∷ ss) (bnd All.∷ bnds) (p All.∷ ps) =
+      pvGo-sound (DBCSignal.byteOrder s) fb (DBCSignal.signalDef s) _ s refl refl
+        (proj₁ (signalBounds-caps fb s bnd)) (proj₂ (signalBounds-caps fb s bnd)) p
+      All.∷ pvs-all ss bnds ps
 
 -- ── the top theorem: wfTextIssues d ≡ [] → WellFormedTextDBCAgg d ─────
 
@@ -190,8 +205,10 @@ checkTextMessage-complete m wf =
     fb   = dlcBytes (DBCMessage.dlc m)
     a-eq = checkSigNamesUnique-complete sigs (MessageWF.sig-names-unique wf)
     b-eq = mcIssue-complete sigs (MessageWF.mc wf)
+    -- bounds completeness runs from the PhysicallyValid list (its
+    -- capacity conjuncts), not the ceiling-only wf-sigs list.
     c-eq = concatMap-≡[]-complete
-             (All.map (λ {s} → signalBounds-complete s) (MessageWF.wf-sigs wf))
+             (All.map (λ {s} → signalBounds-complete fb s) (MessageWF.pvs wf))
     d-eq = concatMap-≡[]-complete
              (All.map (λ {s} p → pvGo-complete fb _ s p) (MessageWF.pvs wf))
     e-eq = concatMap-≡[]-complete

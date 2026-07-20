@@ -47,9 +47,12 @@ if TYPE_CHECKING:
 # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
 _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")
 
-# Signal bit-layout bounds the core guarantees (see Aletheia.DBC.SignalWF).
+# Signal bit-layout sanity ceilings mirroring the core's type-level bounds
+# (Aletheia.CAN.Constants.max-physical-bits — the largest CAN-FD frame).
+# Per-frame fit is the kernel's authoritative check at DBC entry; these
+# guards only reject values no frame could ever hold.
 _MAX_START_BIT = 511
-_MAX_BIT_LENGTH = 64
+_MAX_BIT_LENGTH = 512
 # Multiplex selector values are u32 (cross-binding parity with Go/C++/Rust).
 _MAX_MULTIPLEX_VALUE = (1 << 32) - 1
 
@@ -208,7 +211,7 @@ def normalize_signal(raw_sig: Mapping[str, JSONValue]) -> DBCSignal:
 
 
 def _validate_signal_bits(sig: Mapping[str, object]) -> None:
-    """Reject an out-of-range startBit (0-511) or bit length (1-64)."""
+    """Reject an out-of-range startBit (0-511) or bit length (1-512)."""
     start_bit = sig.get("startBit")
     if not is_pure_int(start_bit) or not 0 <= start_bit <= _MAX_START_BIT:
         msg = f"Expected signal 'startBit' in 0-{_MAX_START_BIT}, got {start_bit!r}"

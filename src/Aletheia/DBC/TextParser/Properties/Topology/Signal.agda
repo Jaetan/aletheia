@@ -111,7 +111,7 @@ SignalNameStop sig =
 --   * `RawSignal.muxMarker` is supplied by the dispatcher.
 --   * `RawSignal.startBit` is the formatter-emitted RAW value
 --     `unconvertStartBit fb bo (SignalDef.startBit def) (SignalDef.bitLength def)`,
---     not the post-`% max-physical-bits` clamped value.  The `% / convert`
+--     before `buildSignal`'s convert step.  The unconvert/convert
 --     roundtrip is handled by a later composition step.
 --   * `RawSignal.receivers ≡ DBCSignal.receivers sig` directly
 --     (both fields are `CanonicalReceivers` — no projection needed).

@@ -14,7 +14,7 @@
 module Aletheia.Error where
 
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
-open import Data.Nat using (ℕ; _∸_)
+open import Data.Nat using (ℕ; _∸_; _*_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.List using (List)
 open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
@@ -41,12 +41,21 @@ data ParseError : Set where
   InvalidDLCBytes         : ℕ → ParseError
   RootNotObject           : ParseError
   MissingSignalName       : ParseError
-  -- Physical-validity errors (BigEndian signals only):
-  -- enforced by JSONParser so parseDBCWithErrors yields WellFormedDBCRT,
-  -- closing the parse-format-parse weak inverse without a hypothesis.
+  -- Signal-geometry refusals, decided against the containing message's
+  -- frame capacity (dlcBytes * 8) by the shared deciders in
+  -- DBC.Decidable.SignalGeometry.  Enforced at BOTH entry routes (the JSON
+  -- parseSignalFields gate and, wrapped in SignalGeometryError below, the
+  -- text buildSignal gate), so parseDBCWithErrors yields WellFormedDBCRT
+  -- and out-of-range geometry is refused instead of silently normalized.
+  -- Each constructor carries the SUBMITTED values so the refusal names
+  -- exactly what the caller sent.
   SignalBitLengthZero     : ParseError                -- bitLength must be ≥ 1
-  SignalOverflowsFrame    : ℕ → ℕ → ℕ → ParseError    -- startBit, bitLength, frameBytes
-  SignalMSBBelowBitLength : ℕ → ℕ → ParseError        -- startBit, bitLength
+  SignalStartBitExceedsFrame  : ℕ → ℕ → ParseError    -- startBit, frameBytes
+  SignalBitLengthExceedsFrame : ℕ → ℕ → ParseError    -- bitLength, frameBytes
+  -- Big-endian no-wrap violation on the PRE-conversion (Motorola/DBC-wire)
+  -- MSB position: descending bitLength bits from the MSB runs past the end
+  -- of the frame (the shape convertStartBit's monus would silently relocate).
+  SignalBigEndianOverflow : ℕ → ℕ → ℕ → ParseError    -- startBit, bitLength, frameBytes
   -- Unknown discriminator in a kind-tagged wire object. First argument is the
   -- domain name ("commentTarget", "attrScope", etc.); second is the offending
   -- value. Used by Tier 2 DBC metadata parsers (nodes / comments / attributes).
@@ -71,6 +80,11 @@ data ParseError : Set where
   -- `InvalidPresence "non-integer in multiplex_values"` literal which
   -- collapsed both classes onto a single wire code.
   NonIntegerMultiplexValue : ParseError
+  -- Field present but its value is not a JSON natural number (negative,
+  -- fractional, or non-numeric).  Split from `MissingField` so a supplied
+  -- but non-natural geometry value is reported truthfully instead of as an
+  -- absent key (the prior lookupNat conflation).  Carries the field name.
+  NonNaturalField         : String → ParseError
   InContext               : String → ParseError → ParseError
   -- NOTE: Adversarial-input bounds are emitted via the top-level
   -- `Error.InputBoundExceeded` ctor (consolidated from the three
@@ -105,12 +119,16 @@ formatParseError MissingSignalName =
   "missing signal 'name' field"
 formatParseError SignalBitLengthZero =
   "signal bit length must be ≥ 1"
-formatParseError (SignalOverflowsFrame sb bl fb) =
-  "signal at startBit " ++ₛ showℕ sb ++ₛ " with length " ++ₛ showℕ bl
-    ++ₛ " overflows frame (" ++ₛ showℕ fb ++ₛ " bytes)"
-formatParseError (SignalMSBBelowBitLength sb bl) =
-  "bigEndian signal MSB position " ++ₛ showℕ sb
-    ++ₛ " below bitLength " ++ₛ showℕ bl ++ₛ " ∸ 1"
+formatParseError (SignalStartBitExceedsFrame sb fb) =
+  "signal start bit " ++ₛ showℕ sb ++ₛ " is outside the frame ("
+    ++ₛ showℕ fb ++ₛ " bytes = " ++ₛ showℕ (fb * 8) ++ₛ " bits)"
+formatParseError (SignalBitLengthExceedsFrame bl fb) =
+  "signal bit length " ++ₛ showℕ bl ++ₛ " exceeds the frame capacity ("
+    ++ₛ showℕ fb ++ₛ " bytes = " ++ₛ showℕ (fb * 8) ++ₛ " bits)"
+formatParseError (SignalBigEndianOverflow sb bl fb) =
+  "big-endian signal at start bit " ++ₛ showℕ sb ++ₛ " with length "
+    ++ₛ showℕ bl ++ₛ " runs past the end of the frame ("
+    ++ₛ showℕ fb ++ₛ " bytes)"
 formatParseError (InvalidKind domain value) =
   "invalid " ++ₛ domain ++ₛ " kind '" ++ₛ value ++ₛ "'"
 formatParseError (NonTerminatingRational f) =
@@ -119,6 +137,8 @@ formatParseError (InvalidIdentifier s) =
   "'" ++ₛ s ++ₛ "' is not a valid DBC identifier (must start with letter or '_', followed by alphanumerics or '_')"
 formatParseError NonIntegerMultiplexValue =
   "non-integer value in 'multiplex_values' array (every element must be a JSON natural number)"
+formatParseError (NonNaturalField f) =
+  "field '" ++ₛ f ++ₛ "' must be a JSON natural number (non-negative integer)"
 formatParseError (InContext ctx inner) =
   ctx ++ₛ ": " ++ₛ formatParseError inner
 
@@ -136,12 +156,14 @@ parseErrorCode (InvalidDLCBytes _)        = "parse_invalid_dlc_bytes"
 parseErrorCode RootNotObject              = "parse_root_not_object"
 parseErrorCode MissingSignalName          = "parse_missing_signal_name"
 parseErrorCode SignalBitLengthZero        = "parse_signal_bit_length_zero"
-parseErrorCode (SignalOverflowsFrame _ _ _) = "parse_signal_overflows_frame"
-parseErrorCode (SignalMSBBelowBitLength _ _) = "parse_signal_msb_below_bit_length"
+parseErrorCode (SignalStartBitExceedsFrame _ _)  = "parse_signal_start_bit_exceeds_frame"
+parseErrorCode (SignalBitLengthExceedsFrame _ _) = "parse_signal_bit_length_exceeds_frame"
+parseErrorCode (SignalBigEndianOverflow _ _ _)   = "parse_signal_big_endian_overflow"
 parseErrorCode (InvalidKind _ _)          = "parse_invalid_kind"
 parseErrorCode (NonTerminatingRational _) = "parse_non_terminating_rational"
 parseErrorCode (InvalidIdentifier _)       = "parse_invalid_identifier"
 parseErrorCode NonIntegerMultiplexValue    = "parse_non_integer_multiplex_value"
+parseErrorCode (NonNaturalField _)         = "parse_non_natural_field"
 parseErrorCode (InContext _ inner)         = parseErrorCode inner
 
 -- ============================================================================
@@ -403,6 +425,14 @@ data DBCTextParseError : Set where
   -- error pinpoints WHICH `BA_DEF_DEF_` / `BA_` / `BA_REL_` entry failed
   -- and WHY (unknown attribute vs ill-typed value).
   AttributeRefinementFailed : AttrRefineCause → String → DBCTextParseError
+  -- Signal-geometry refusal from the text route's `buildSignal` gate.
+  -- Carries the offending signal's name plus the SAME typed geometry
+  -- `ParseError` the JSON route emits, so both entry routes refuse with a
+  -- single wire vocabulary (the code forwards to `parseErrorCode`, like
+  -- `WrappedParse` on the other ADTs).  Not positioned: the geometry gate
+  -- runs after the SG_ line has parsed, so the signal NAME (not a byte
+  -- offset) is the anchor the current parser can supply.
+  SignalGeometryError       : String → ParseError → DBCTextParseError
   -- NOTE: DBC-text-input bytes adversarial bound emits via the top-level
   -- `Error.InputBoundExceeded` ctor.
 
@@ -422,11 +452,14 @@ formatDBCTextParseError (AttributeRefinementFailed UnknownAttrDef name) =
 formatDBCTextParseError (AttributeRefinementFailed IllTypedValue name) =
   "attribute refinement failed: the value given for '" ++ₛ name
     ++ₛ "' does not fit its declared type"
+formatDBCTextParseError (SignalGeometryError name inner) =
+  "signal '" ++ₛ name ++ₛ "': " ++ₛ formatParseError inner
 
 dbcTextParseErrorCode : DBCTextParseError → String
 dbcTextParseErrorCode (ParseFailure _)            = "dbc_text_parse_failure"
 dbcTextParseErrorCode (TrailingInput _ _)         = "dbc_text_trailing_input"
 dbcTextParseErrorCode (AttributeRefinementFailed _ _) = "dbc_text_attribute_refinement_failed"
+dbcTextParseErrorCode (SignalGeometryError _ inner)   = parseErrorCode inner
 
 -- ============================================================================
 -- TOP-LEVEL ERROR SUM

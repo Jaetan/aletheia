@@ -236,9 +236,16 @@ finalizeParse (w , just res) with remaining res
 ... | (_ ∷ _) = inj₁ (TrailingInput w (position res))
 ... | []      with value res
 ...   | (ver , nodes , stmts) with partitionTopStmts stmts
-...     | collected with refineAttributes (CollectedTop.rawAttributes collected)
-...       | inj₁ (cause , bad) = inj₁ (AttributeRefinementFailed cause (fromList bad))
-...       | inj₂ attrs         = inj₂ (buildDBC ver nodes collected attrs)
+-- A geometry-refused SG_ line (bucketed as `signalErrors`) aborts the
+-- parse with the FIRST refusal in wire order, before attribute
+-- refinement — the typed `SignalGeometryError` names the signal and the
+-- submitted values (the signal name, not a byte offset, is the anchor
+-- the current parser can supply on this channel).
+...     | collected with CollectedTop.signalErrors collected
+...       | (e ∷ _) = inj₁ e
+...       | [] with refineAttributes (CollectedTop.rawAttributes collected)
+...         | inj₁ (cause , bad) = inj₁ (AttributeRefinementFailed cause (fromList bad))
+...         | inj₂ attrs         = inj₂ (buildDBC ver nodes collected attrs)
 
 -- Parse a DBC text image given as a `List Char`.  The parser already
 -- operates on `List Char` throughout — `runParserPartial` takes one — so

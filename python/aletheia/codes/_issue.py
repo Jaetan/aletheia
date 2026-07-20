@@ -57,7 +57,6 @@ class IssueCode(StrEnum):
     TEXT_ROUNDTRIP_DIVERGENCE = "text_roundtrip_divergence"
     MULTI_VALUE_MUX_SELECTOR = "multi_value_mux_selector"
     MUX_MASTER_INCOHERENT = "mux_master_incoherent"
-    BIG_ENDIAN_MSB_LAYOUT = "big_endian_msb_layout"
     UNKNOWN_ATTRIBUTE_NAME = "unknown_attribute_name"
     ATTRIBUTE_VALUE_TYPE_MISMATCH = "attribute_value_type_mismatch"
     ATTRIBUTE_ENUM_EMPTY = "attribute_enum_empty"

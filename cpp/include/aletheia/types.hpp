@@ -233,7 +233,7 @@ static_assert(!detail::StrongOfable<RationalFactor, double, int>,
 // ---------------------------------------------------------------------------
 
 using BitPosition = Strong<struct BitPositionTag, std::uint16_t>;
-using BitLength = Strong<struct BitLengthTag, std::uint8_t>;
+using BitLength = Strong<struct BitLengthTag, std::uint16_t>;
 using PropertyIndex = Strong<struct PropertyIndexTag, std::size_t>;
 using MultiplexValue = Strong<struct MultiplexValueTag, std::uint32_t>;
 

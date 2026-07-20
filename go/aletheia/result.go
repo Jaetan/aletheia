@@ -203,7 +203,7 @@ const (
 	IssueEmptyMessage IssueCode = "empty_message"
 	// IssueStartBitOutOfRange — signal start bit exceeds frame capacity.
 	IssueStartBitOutOfRange IssueCode = "start_bit_out_of_range"
-	// IssueBitLengthExcessive — signal bit length exceeds 64 bits.
+	// IssueBitLengthExcessive — signal bit length exceeds the frame capacity.
 	IssueBitLengthExcessive IssueCode = "bit_length_excessive"
 	// IssueMultiplexorNonUnitScaling — multiplexor signal has non-unit scaling (factor≠1 or offset≠0).
 	IssueMultiplexorNonUnitScaling IssueCode = "multiplexor_non_unit_scaling"
@@ -223,8 +223,6 @@ const (
 	IssueMultiValueMuxSelector IssueCode = "multi_value_mux_selector"
 	// IssueMuxMasterIncoherent — the mux master signal's presence is inconsistent with its slaves.
 	IssueMuxMasterIncoherent IssueCode = "mux_master_incoherent"
-	// IssueBigEndianMSBLayout — a big-endian signal's MSB-first bit layout does not round-trip through .dbc text.
-	IssueBigEndianMSBLayout IssueCode = "big_endian_msb_layout"
 	// IssueUnknownAttributeName — a BA_ assignment/default references an attribute with no BA_DEF_ declaration.
 	IssueUnknownAttributeName IssueCode = "unknown_attribute_name"
 	// IssueAttributeValueTypeMismatch — an attribute value's type does not match its BA_DEF_ declaration.

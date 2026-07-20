@@ -58,6 +58,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.DBC.Decidable.Disjointness
                       MAlonzo.Code.Aletheia.DBC.Decidable.Equality
                       MAlonzo.Code.Aletheia.DBC.Decidable.Equality.Full
+                      MAlonzo.Code.Aletheia.DBC.Decidable.SignalGeometry
                       MAlonzo.Code.Aletheia.DBC.Decidable.WellFormedness
                       MAlonzo.Code.Aletheia.DBC.Formatter
                       MAlonzo.Code.Aletheia.DBC.Formatter.WellFormedText.Foundations

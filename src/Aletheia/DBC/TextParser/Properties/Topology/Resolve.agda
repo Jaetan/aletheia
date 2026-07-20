@@ -28,7 +28,7 @@
 -- BO_-header `messageHeaderFmt` to close `parseMessage-roundtrip`.
 module Aletheia.DBC.TextParser.Properties.Topology.Resolve where
 
-open import Data.Bool using (true; false; if_then_else_)
+open import Data.Bool using (true; false)
 open import Data.Bool.Properties using (T-irrelevant)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 import Data.List.Properties as ListProps
@@ -39,11 +39,9 @@ open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.List.NonEmpty as List⁺ using (List⁺; _∷_)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; _<_; _≤_; _+_; _%_; _≤ᵇ_)
-open import Data.Nat.DivMod using (m<n⇒m%n≡m)
-open import Data.Nat.Properties using (≤⇒≤ᵇ)
-open import Aletheia.Prelude using (T→true)
+open import Data.Nat using (ℕ; _≤_)
 open import Data.Product using (_×_; _,_; Σ)
+open import Data.Sum using (inj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
 open import Relation.Nullary using (yes; no)
@@ -54,18 +52,18 @@ open import Aletheia.DBC.Types using
   (DBCSignal; SignalPresence; Always; When; clearVds)
 
 open import Aletheia.CAN.Endianness using
-  (LittleEndian; BigEndian;
-   convertStartBit; unconvertStartBit)
+  (BigEndian; convertStartBit; unconvertStartBit)
 open import Aletheia.CAN.Endianness.Properties.StartBit using
-  (unconvertStartBit-roundtrip)
+  (unconvertStartBit-roundtrip; fits⇒∸<; fits⇒1≤n; fits⇒bl≤cap;
+   unconvertSB-BE-inFrame; unconvertSB-BE-noWrap)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Constants using
-  (max-physical-bits)
+open import Aletheia.DBC.Decidable.SignalGeometry using (geometryRefusal)
+open import Aletheia.DBC.Decidable.SignalGeometry.Properties using
+  (geometryRefusal-accept-LE; geometryRefusal-accept-BE)
 
 open import Aletheia.DBC.Formatter.WellFormed using
-  (WellFormedSignal; WellFormedSignalDef;
-   PhysicallyValid; pv-LE; pv-BE;
-   unconvertSB-bound; unconvertSB-bound-BE)
+  (WellFormedSignal;
+   PhysicallyValid; pv-LE; pv-BE)
 open import Aletheia.DBC.Formatter.WellFormedText using
   (WellFormedTextPresence; wftp-always; wftp-when-single;
    MasterCoherent; mc-no-mux; mc-mux)
@@ -76,7 +74,7 @@ open import Aletheia.DBC.TextParser.Topology.Foundations using
   (IsMux)
 open import Aletheia.DBC.TextParser.Topology using
   (findMuxName; buildSignal; buildAllRaw;
-   resolveSignalList)
+   resolveSignalList; finishSignalGate)
 open import Aletheia.DBC.TextParser.Properties.Topology.SignalList using
   (expectedMux; expectedRawOfDBC)
 
@@ -96,63 +94,48 @@ ident-eq-from-name (mkIdent cs₁ v₁) (mkIdent .cs₁ v₂) refl =
 
 
 -- ============================================================================
--- BITLENGTH / STARTBIT MOD IDENTITIES
+-- GATE ACCEPTANCE + CONVERT ∘ UNCONVERT ≡ id (abstract byte order)
 -- ============================================================================
 
--- `bitLength % (1 + max-physical-bits) ≡ bitLength` under the
--- `bitLength < suc max-physical-bits` bound from `WellFormedSignalDef`.
-bitLength-mod-id : ∀ (sd : SignalDef)
-  → WellFormedSignalDef sd
-  → SignalDef.bitLength sd % (1 + max-physical-bits) ≡ SignalDef.bitLength sd
-bitLength-mod-id sd wf-sd =
-  m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound wf-sd)
+-- Both helpers keep the signal's byte order ABSTRACT in their statements
+-- (so the field-recovery rewrite below never rewrites `byteOrder sig`
+-- inside the record, preserving record-η against `clearVds sig`) and
+-- dispatch on the PhysicallyValid constructor internally.
 
--- `unconvertStartBit fb bo s l < max-physical-bits` (the bound used to
--- collapse `% max-physical-bits` to identity).  Dispatches on byteOrder:
--- LE returns `s` directly (bound from `WellFormedSignalDef.startBit-bound`);
--- BE goes through `unconvertSB-bound-BE` (needs `fb ≤ 64`).
-unconvertSB-bounded :
-    ∀ (sig : DBCSignal) (fb : ℕ)
-  → fb ≤ 64
-  → WellFormedSignalDef (DBCSignal.signalDef sig)
-  → unconvertStartBit fb (DBCSignal.byteOrder sig)
-                         (SignalDef.startBit (DBCSignal.signalDef sig))
-                         (SignalDef.bitLength (DBCSignal.signalDef sig))
-    < max-physical-bits
-unconvertSB-bounded sig fb fb≤64 wf-sd with DBCSignal.byteOrder sig
-... | LittleEndian =
-  unconvertSB-bound fb (SignalDef.startBit (DBCSignal.signalDef sig))
-                       (SignalDef.bitLength (DBCSignal.signalDef sig))
-                       fb≤64 (WellFormedSignalDef.startBit-bound wf-sd)
-... | BigEndian =
-  unconvertSB-bound-BE fb (SignalDef.startBit (DBCSignal.signalDef sig))
-                          (SignalDef.bitLength (DBCSignal.signalDef sig))
-                          fb≤64
+-- The formatter-emitted raw geometry passes the shared entry gate.
+gate-accepts : ∀ (sig : DBCSignal) (fb : ℕ)
+  → PhysicallyValid fb sig
+  → geometryRefusal fb (DBCSignal.byteOrder sig)
+      (unconvertStartBit fb (DBCSignal.byteOrder sig)
+        (SignalDef.startBit (DBCSignal.signalDef sig))
+        (SignalDef.bitLength (DBCSignal.signalDef sig)))
+      (SignalDef.bitLength (DBCSignal.signalDef sig))
+    ≡ nothing
+gate-accepts sig fb (pv-LE bo-eq lp sbF blF) rewrite bo-eq =
+  geometryRefusal-accept-LE fb
+    (SignalDef.startBit (DBCSignal.signalDef sig))
+    (SignalDef.bitLength (DBCSignal.signalDef sig)) lp sbF blF
+gate-accepts sig fb (pv-BE bo-eq lp fits) rewrite bo-eq =
+  geometryRefusal-accept-BE fb
+    (unconvertStartBit fb BigEndian
+      (SignalDef.startBit (DBCSignal.signalDef sig))
+      (SignalDef.bitLength (DBCSignal.signalDef sig)))
+    (SignalDef.bitLength (DBCSignal.signalDef sig))
+    lp
+    (unconvertSB-BE-inFrame fb
+      (SignalDef.startBit (DBCSignal.signalDef sig))
+      (SignalDef.bitLength (DBCSignal.signalDef sig))
+      (fits⇒1≤n fb (SignalDef.startBit (DBCSignal.signalDef sig))
+        (SignalDef.bitLength (DBCSignal.signalDef sig)) lp fits))
+    (fits⇒bl≤cap fb (SignalDef.startBit (DBCSignal.signalDef sig))
+      (SignalDef.bitLength (DBCSignal.signalDef sig)) fits)
+    (unconvertSB-BE-noWrap fb
+      (SignalDef.startBit (DBCSignal.signalDef sig))
+      (SignalDef.bitLength (DBCSignal.signalDef sig)) lp fits)
 
--- `unconvertStartBit … % max-physical-bits ≡ unconvertStartBit …`.
-unconvertSB-mod-id :
-    ∀ (sig : DBCSignal) (fb : ℕ)
-  → fb ≤ 64
-  → WellFormedSignalDef (DBCSignal.signalDef sig)
-  → unconvertStartBit fb (DBCSignal.byteOrder sig)
-                         (SignalDef.startBit (DBCSignal.signalDef sig))
-                         (SignalDef.bitLength (DBCSignal.signalDef sig))
-    % max-physical-bits
-    ≡ unconvertStartBit fb (DBCSignal.byteOrder sig)
-                            (SignalDef.startBit (DBCSignal.signalDef sig))
-                            (SignalDef.bitLength (DBCSignal.signalDef sig))
-unconvertSB-mod-id sig fb fb≤64 wf-sd =
-  m<n⇒m%n≡m (unconvertSB-bounded sig fb fb≤64 wf-sd)
-
-
--- ============================================================================
--- CONVERT ∘ UNCONVERT ≡ id
--- ============================================================================
-
--- Closing the start-bit roundtrip: `convertStartBit fb bo (unconvertStartBit
--- fb bo s l) l ≡ s` under WF.  LE: both functions are identity on `s`.  BE:
--- delegates to `unconvertStartBit-roundtrip` from `Endianness/Properties/
--- StartBit`, with the three pv-BE constraints.
+-- Closing the start-bit roundtrip: LE is identity on both sides; BE
+-- delegates to `unconvertStartBit-roundtrip` with the strict in-frame
+-- form derived from the fits conjunct.
 convert-unconvert-id :
     ∀ (sig : DBCSignal) (fb : ℕ)
   → PhysicallyValid fb sig
@@ -162,61 +145,28 @@ convert-unconvert-id :
         (SignalDef.bitLength (DBCSignal.signalDef sig)))
       (SignalDef.bitLength (DBCSignal.signalDef sig))
     ≡ SignalDef.startBit (DBCSignal.signalDef sig)
-convert-unconvert-id sig fb (pv-LE bo-eq _) rewrite bo-eq = refl
-convert-unconvert-id sig fb (pv-BE bo-eq len-pos fits msb-ge-len)
-  rewrite bo-eq =
-  unconvertStartBit-roundtrip fb _ _ len-pos fits msb-ge-len
-
-
--- ============================================================================
--- SIGNAL DEF RECOVERY — start bit + bit length both round-trip
--- ============================================================================
-
--- Combined startBit roundtrip including the `% max-physical-bits` /
--- `% (1 + max-physical-bits)` collapse: the buildSignal output's
--- startBit equals the original sig's startBit.
-startBit-recovers : ∀ (sig : DBCSignal) (fb : ℕ)
-  → fb ≤ 64
-  → WellFormedSignalDef (DBCSignal.signalDef sig)
-  → PhysicallyValid fb sig
-  → convertStartBit fb (DBCSignal.byteOrder sig)
-      (unconvertStartBit fb (DBCSignal.byteOrder sig)
-        (SignalDef.startBit (DBCSignal.signalDef sig))
-        (SignalDef.bitLength (DBCSignal.signalDef sig))
-       % max-physical-bits)
-      (SignalDef.bitLength (DBCSignal.signalDef sig)
-       % (1 + max-physical-bits))
-    ≡ SignalDef.startBit (DBCSignal.signalDef sig)
-startBit-recovers sig fb fb≤64 wf-sd pv
-  rewrite unconvertSB-mod-id sig fb fb≤64 wf-sd
-        | bitLength-mod-id (DBCSignal.signalDef sig) wf-sd =
-  convert-unconvert-id sig fb pv
-
+convert-unconvert-id sig fb (pv-LE bo-eq _ _ _) rewrite bo-eq = refl
+convert-unconvert-id sig fb (pv-BE bo-eq lp fits) rewrite bo-eq =
+  unconvertStartBit-roundtrip fb
+    (SignalDef.startBit (DBCSignal.signalDef sig))
+    (SignalDef.bitLength (DBCSignal.signalDef sig))
+    lp
+    (fits⇒∸< fb (SignalDef.startBit (DBCSignal.signalDef sig))
+      (SignalDef.bitLength (DBCSignal.signalDef sig)) lp fits)
 
 -- ============================================================================
 -- BUILDSIGNAL OUTPUT RECORD ≡ sig — the unifying field-recovery lemma
 -- ============================================================================
 
--- Extract the `1 ≤ bitLength` witness from a `PhysicallyValid` certificate.
--- Both LE and BE constructors carry it (pv-LE was extended with the
--- constraint that pv-BE already had; here we collapse the dispatch back
--- into a single accessor for the buildSignal gate discharge below).
-physicallyValid-len-pos : ∀ (sig : DBCSignal) (fb : ℕ)
-  → PhysicallyValid fb sig
-  → 1 ≤ SignalDef.bitLength (DBCSignal.signalDef sig)
-physicallyValid-len-pos _ _ (pv-LE _ lp)       = lp
-physicallyValid-len-pos _ _ (pv-BE _ lp _ _)   = lp
-
 -- Given that resolvePresence delivers a presence equal to `sig.presence`,
--- the buildSignal output's `if 1 ≤ᵇ bl then just record else nothing` form
--- equals `just (clearVds sig)`.  Closes by:
---   1. `bitLength-mod-id` collapses both the field and the if-condition's
---      `bl % (1 + max-physical-bits)` to `SignalDef.bitLength sig.sd`.
---   2. `T→true (≤⇒≤ᵇ len-pos)` rewrites the condition `1 ≤ᵇ bitLength sd`
---      to `true`, letting if-reduction step into the `then` branch.
---   3. `startBit-recovers` collapses the convertStartBit ∘ unconvertStartBit
---      composition (uses startBit-bound + convert-unconvert-id internally).
---   4. `presence-eq` substitutes presence-result for sig.presence.
+-- the buildSignal output — the shared geometry gate applied to the
+-- formatter-emitted raw geometry, wrapping the reassembled record —
+-- equals `just (inj₂ (clearVds sig))`.  Closes by:
+--   1. `gate-accepts` rewrites the gate verdict to `nothing`.
+--   2. `convert-unconvert-id` collapses the convertStartBit ∘
+--      unconvertStartBit composition.
+--   3. `presence-eq` substitutes presence-result for sig.presence;
+--      record-η closes the equation.
 -- buildSignal hardcodes `valueDescriptions = []`, so the recovered
 -- record matches `clearVds sig` (sig modulo the cleared VAL_ field).  The
 -- Universal at the top-level layer threads `attachValueDescs ∘
@@ -224,24 +174,24 @@ physicallyValid-len-pos _ _ (pv-BE _ lp _ _)   = lp
 -- post-buildSignal.
 buildSignal-fields-recover :
     ∀ (sig : DBCSignal) (fb : ℕ) (presence-result : SignalPresence)
-  → fb ≤ 64
-  → WellFormedSignal sig
   → PhysicallyValid fb sig
   → presence-result ≡ DBCSignal.presence sig
-  → (if 1 ≤ᵇ (SignalDef.bitLength (DBCSignal.signalDef sig)
-              % (1 + max-physical-bits))
-       then just (record
+  → just (finishSignalGate
+       (geometryRefusal fb (DBCSignal.byteOrder sig)
+          (unconvertStartBit fb (DBCSignal.byteOrder sig)
+             (SignalDef.startBit (DBCSignal.signalDef sig))
+             (SignalDef.bitLength (DBCSignal.signalDef sig)))
+          (SignalDef.bitLength (DBCSignal.signalDef sig)))
+       (DBCSignal.name sig)
+       (record
          { name      = DBCSignal.name sig
          ; signalDef = record
              { startBit  = convertStartBit fb (DBCSignal.byteOrder sig)
                              (unconvertStartBit fb (DBCSignal.byteOrder sig)
                                 (SignalDef.startBit (DBCSignal.signalDef sig))
-                                (SignalDef.bitLength (DBCSignal.signalDef sig))
-                              % max-physical-bits)
-                             (SignalDef.bitLength (DBCSignal.signalDef sig)
-                              % (1 + max-physical-bits))
+                                (SignalDef.bitLength (DBCSignal.signalDef sig)))
+                             (SignalDef.bitLength (DBCSignal.signalDef sig))
              ; bitLength = SignalDef.bitLength (DBCSignal.signalDef sig)
-                           % (1 + max-physical-bits)
              ; isSigned  = SignalDef.isSigned (DBCSignal.signalDef sig)
              ; factor    = SignalDef.factor (DBCSignal.signalDef sig)
              ; offset    = SignalDef.offset (DBCSignal.signalDef sig)
@@ -253,15 +203,11 @@ buildSignal-fields-recover :
          ; presence  = presence-result
          ; receivers = DBCSignal.receivers sig
          ; valueDescriptions = []
-         })
-       else nothing)
-    ≡ just (clearVds sig)
-buildSignal-fields-recover sig fb presence-result fb≤64 wf-sig pv presence-eq
-  rewrite startBit-recovers sig fb fb≤64
-            (WellFormedSignal.def-wf wf-sig) pv
-        | bitLength-mod-id (DBCSignal.signalDef sig)
-            (WellFormedSignal.def-wf wf-sig)
-        | T→true (≤⇒≤ᵇ (physicallyValid-len-pos sig fb pv))
+         }))
+    ≡ just (inj₂ (clearVds sig))
+buildSignal-fields-recover sig fb presence-result pv presence-eq
+  rewrite gate-accepts sig fb pv
+        | convert-unconvert-id sig fb pv
         | presence-eq = refl
 
 
@@ -277,27 +223,26 @@ buildSignal-fields-recover sig fb presence-result fb≤64 wf-sig pv presence-eq
 -- `just Always`).  Hence we case-split on (master, name-match) but
 -- collapse all branches to the same fields-recover application.
 --
--- The result is `just (clearVds sig)` (buildSignal hardcodes vds = []);
--- the Universal threads `attachValueDescs ∘ collectFromMessages ≡ id`
--- post-buildSignal to recover the original.
+-- The result is `just (inj₂ (clearVds sig))` (buildSignal hardcodes
+-- vds = []); the Universal threads `attachValueDescs ∘ collectFromMessages
+-- ≡ id` post-buildSignal to recover the original.
 buildSignal-roundtrip-Always :
     ∀ (master : Maybe (List Char)) (fb : ℕ) (sig : DBCSignal)
       (m : Maybe Identifier)
   → DBCSignal.presence sig ≡ Always
-  → fb ≤ 64
-  → WellFormedSignal sig
   → PhysicallyValid fb sig
-  → buildSignal fb m (expectedRawOfDBC master fb sig) ≡ just (clearVds sig)
-buildSignal-roundtrip-Always master fb sig m presence-eq fb≤64 wf-sig pv
+  → buildSignal fb m (expectedRawOfDBC master fb sig)
+    ≡ just (inj₂ (clearVds sig))
+buildSignal-roundtrip-Always master fb sig m presence-eq pv
   rewrite presence-eq with master
 ... | nothing =
-  buildSignal-fields-recover sig fb Always fb≤64 wf-sig pv (sym presence-eq)
+  buildSignal-fields-recover sig fb Always pv (sym presence-eq)
 ... | just mName with ⌊ ListProps.≡-dec _≟ᶜ_
                        (Identifier.name (DBCSignal.name sig)) mName ⌋
 ...   | true =
-  buildSignal-fields-recover sig fb Always fb≤64 wf-sig pv (sym presence-eq)
+  buildSignal-fields-recover sig fb Always pv (sym presence-eq)
 ...   | false =
-  buildSignal-fields-recover sig fb Always fb≤64 wf-sig pv (sym presence-eq)
+  buildSignal-fields-recover sig fb Always pv (sym presence-eq)
 
 -- When case (singleton via WellFormedTextPresence): buildSignal succeeds
 -- ONLY when `m = just <Identifier with name = sig-master's name>` —
@@ -310,15 +255,13 @@ buildSignal-roundtrip-When :
       (m sig-master : Identifier) (v : ℕ)
   → DBCSignal.presence sig ≡ When sig-master (v ∷ [])
   → m ≡ sig-master
-  → fb ≤ 64
-  → WellFormedSignal sig
   → PhysicallyValid fb sig
-  → buildSignal fb (just m) (expectedRawOfDBC master fb sig) ≡ just (clearVds sig)
-buildSignal-roundtrip-When master fb sig m sig-master v presence-eq m-eq
-                           fb≤64 wf-sig pv
+  → buildSignal fb (just m) (expectedRawOfDBC master fb sig)
+    ≡ just (inj₂ (clearVds sig))
+buildSignal-roundtrip-When master fb sig m sig-master v presence-eq m-eq pv
   rewrite presence-eq | m-eq =
   buildSignal-fields-recover sig fb (When sig-master (v ∷ []))
-                              fb≤64 wf-sig pv (sym presence-eq)
+                              pv (sym presence-eq)
 
 
 -- ============================================================================
@@ -452,13 +395,11 @@ findMuxName-finds-master fb (s ∷ rest) masterName masterSig
 data SigOK (m : Maybe Identifier) (fb : ℕ) : DBCSignal → Set where
   sigok-always : ∀ {sig}
                → DBCSignal.presence sig ≡ Always
-               → WellFormedSignal sig
                → PhysicallyValid fb sig
                → SigOK m fb sig
   sigok-when   : ∀ {sig sig-master v}
                → DBCSignal.presence sig ≡ When sig-master (v ∷ [])
                → m ≡ just sig-master
-               → WellFormedSignal sig
                → PhysicallyValid fb sig
                → SigOK m fb sig
 
@@ -471,37 +412,34 @@ data SigOK (m : Maybe Identifier) (fb : ℕ) : DBCSignal → Set where
 -- roundtrip (Always or When branch per the SigOK constructor) and
 -- recurses on the tail.
 --
--- The result is `just (map clearVds sigs)` (not `just sigs`); the
+-- The result is `just (inj₂ (map clearVds sigs))` (not `just sigs`); the
 -- per-message buildMessage-roundtrip then bridges via the
 -- attachValueDescs-on-collected lemma at the Universal layer.
 buildAllRaw-roundtrip :
     ∀ (master : Maybe (List Char)) (fb : ℕ) (m : Maybe Identifier)
       (sigs : List DBCSignal)
-  → fb ≤ 64
   → All (SigOK m fb) sigs
   → buildAllRaw fb m (map (expectedRawOfDBC master fb) sigs)
-    ≡ just (map clearVds sigs)
-buildAllRaw-roundtrip _ _ _ [] _ All.[] = refl
+    ≡ just (inj₂ (map clearVds sigs))
+buildAllRaw-roundtrip _ _ _ [] All.[] = refl
 buildAllRaw-roundtrip master fb m (sig ∷ rest)
-                      fb≤64 (sigok All.∷ rest-wfs) =
+                      (sigok All.∷ rest-oks) =
   go sigok
   where
     rec : buildAllRaw fb m (map (expectedRawOfDBC master fb) rest)
-        ≡ just (map clearVds rest)
-    rec = buildAllRaw-roundtrip master fb m rest fb≤64 rest-wfs
+        ≡ just (inj₂ (map clearVds rest))
+    rec = buildAllRaw-roundtrip master fb m rest rest-oks
 
     go : SigOK m fb sig
        → buildAllRaw fb m (map (expectedRawOfDBC master fb) (sig ∷ rest))
-         ≡ just (clearVds sig ∷ map clearVds rest)
-    go (sigok-always pres-eq wf-sig pv)
-      rewrite buildSignal-roundtrip-Always master fb sig m pres-eq
-                                            fb≤64 wf-sig pv
+         ≡ just (inj₂ (clearVds sig ∷ map clearVds rest))
+    go (sigok-always pres-eq pv)
+      rewrite buildSignal-roundtrip-Always master fb sig m pres-eq pv
             | rec = refl
     go (sigok-when {sig-master = sig-master} {v = v}
-                   pres-eq refl wf-sig pv)
+                   pres-eq refl pv)
       rewrite buildSignal-roundtrip-When master fb sig sig-master
-                                          sig-master v pres-eq refl
-                                          fb≤64 wf-sig pv
+                                          sig-master v pres-eq refl pv
             | rec = refl
 
 
@@ -513,17 +451,15 @@ buildAllRaw-roundtrip master fb m (sig ∷ rest)
 -- Always); each `SigOK` is sigok-always; m can be anything.
 all-sigOK-no-mux :
     ∀ (fb : ℕ) (m : Maybe Identifier) (sigs : List DBCSignal)
-  → All WellFormedSignal sigs
   → All (PhysicallyValid fb) sigs
   → All (λ s → DBCSignal.presence s ≡ Always) sigs
   → All (SigOK m fb) sigs
-all-sigOK-no-mux _  _ [] _ _ _ = All.[]
+all-sigOK-no-mux _  _ [] _ _ = All.[]
 all-sigOK-no-mux fb m (sig ∷ rest)
-                 (wf-sig All.∷ rest-wfs)
                  (pv All.∷ rest-pvs)
                  (pres-eq All.∷ rest-pres-eqs) =
-  sigok-always pres-eq wf-sig pv All.∷
-    all-sigOK-no-mux fb m rest rest-wfs rest-pvs rest-pres-eqs
+  sigok-always pres-eq pv All.∷
+    all-sigOK-no-mux fb m rest rest-pvs rest-pres-eqs
 
 -- mc-mux case: each sig's SigOK comes from per-signal WFTP — Always
 -- gives sigok-always (m-irrelevant); When gives sigok-when with the
@@ -533,7 +469,6 @@ all-sigOK-mc-mux :
     ∀ (fb : ℕ) (sigs : List DBCSignal) (id : Identifier)
       (masterName : List Char)
   → Identifier.name id ≡ masterName
-  → All WellFormedSignal sigs
   → All (PhysicallyValid fb) sigs
   → All (λ s → WellFormedTextPresence (DBCSignal.presence s)) sigs
   → All (λ s → (m : Identifier) (vs : List⁺ ℕ)
@@ -541,16 +476,15 @@ all-sigOK-mc-mux :
              → Identifier.name m ≡ masterName)
         sigs
   → All (SigOK (just id) fb) sigs
-all-sigOK-mc-mux _ [] _ _ _ _ _ _ _ = All.[]
+all-sigOK-mc-mux _ [] _ _ _ _ _ _ = All.[]
 all-sigOK-mc-mux fb (sig ∷ rest) id masterName id-name-eq
-                 (wf-sig All.∷ rest-wfs)
                  (pv All.∷ rest-pvs)
                  (wfp All.∷ rest-wfps)
                  (coh All.∷ rest-cohs) =
-  sigOK-from-wfp fb sig id masterName id-name-eq wf-sig pv wfp coh
+  sigOK-from-wfp fb sig id masterName id-name-eq pv wfp coh
     All.∷
     all-sigOK-mc-mux fb rest id masterName id-name-eq
-                     rest-wfs rest-pvs rest-wfps rest-cohs
+                     rest-pvs rest-wfps rest-cohs
   where
     -- Per-signal SigOK derivation under WellFormedTextPresence + the
     -- coh-clause from MasterCoherent.  Cases on (presence, wfp)
@@ -561,14 +495,13 @@ all-sigOK-mc-mux fb (sig ∷ rest) id masterName id-name-eq
     sigOK-from-wfp : ∀ (fb : ℕ) (sig : DBCSignal) (id : Identifier)
                        (masterName : List Char)
       → Identifier.name id ≡ masterName
-      → WellFormedSignal sig
       → PhysicallyValid fb sig
       → WellFormedTextPresence (DBCSignal.presence sig)
       → ((m : Identifier) (vs : List⁺ ℕ)
            → DBCSignal.presence sig ≡ When m vs
            → Identifier.name m ≡ masterName)
       → SigOK (just id) fb sig
-    sigOK-from-wfp fb sig id masterName id-name-eq wf-sig pv wfp coh =
+    sigOK-from-wfp fb sig id masterName id-name-eq pv wfp coh =
       helper (DBCSignal.presence sig) refl wfp
       where
         helper : ∀ (p : SignalPresence)
@@ -576,9 +509,9 @@ all-sigOK-mc-mux fb (sig ∷ rest) id masterName id-name-eq
                → WellFormedTextPresence p
                → SigOK (just id) fb sig
         helper Always              p-eq wftp-always       =
-          sigok-always p-eq wf-sig pv
+          sigok-always p-eq pv
         helper (When sm (v ∷ [])) p-eq wftp-when-single =
-          sigok-when p-eq (cong just id-eq-sm) wf-sig pv
+          sigok-when p-eq (cong just id-eq-sm) pv
           where
             sm-name-eq : Identifier.name sm ≡ masterName
             sm-name-eq = coh sm (v List⁺.∷ []) p-eq
@@ -601,9 +534,13 @@ all-sigOK-mc-mux fb (sig ∷ rest) id masterName id-name-eq
 -- uses `master = findMuxMaster sigs`, so the parser-side roundtrip
 -- closes directly on this expression.
 --
--- The result is `just (map clearVds sigs)` (not `just sigs`); the
+-- The result is `just (inj₂ (map clearVds sigs))` (not `just sigs`); the
 -- per-message and Universal layers thread `attachValueDescs` to bridge
 -- the cleared form back to the original.
+-- The WellFormedSignal and `fb ≤ 64` hypotheses are retained for the
+-- established call shape (buildMessage-roundtrip supplies them from
+-- MessageWF); the proof itself runs on the PhysicallyValid capacity
+-- conjuncts alone.
 resolveSignalList-roundtrip :
     ∀ (fb : ℕ) (sigs : List DBCSignal)
   → fb ≤ 64
@@ -613,8 +550,8 @@ resolveSignalList-roundtrip :
   → MasterCoherent sigs
   → resolveSignalList fb
        (map (expectedRawOfDBC (findMuxMaster sigs) fb) sigs)
-    ≡ just (map clearVds sigs)
-resolveSignalList-roundtrip fb sigs fb≤64 wf-sigs pvs wfps mc =
+    ≡ just (inj₂ (map clearVds sigs))
+resolveSignalList-roundtrip fb sigs _ _ pvs wfps mc =
   go mc
   where
     -- Inside `resolveSignalList`, the call is `buildAllRaw fb (findMuxName
@@ -624,14 +561,13 @@ resolveSignalList-roundtrip fb sigs fb≤64 wf-sigs pvs wfps mc =
     go : MasterCoherent sigs
        → resolveSignalList fb
             (map (expectedRawOfDBC (findMuxMaster sigs) fb) sigs)
-         ≡ just (map clearVds sigs)
+         ≡ just (inj₂ (map clearVds sigs))
     go (mc-no-mux nothing-eq)
       rewrite nothing-eq =
       let all-always = findMuxMaster-nothing→all-Always sigs nothing-eq
-          all-ok     = all-sigOK-no-mux fb nothing sigs wf-sigs pvs all-always
+          all-ok     = all-sigOK-no-mux fb nothing sigs pvs all-always
           fmn-eq     = findMuxName-on-no-mux fb sigs all-always
-          rec        = buildAllRaw-roundtrip nothing fb nothing sigs
-                                              fb≤64 all-ok
+          rec        = buildAllRaw-roundtrip nothing fb nothing sigs all-ok
        in trans (cong (λ m → buildAllRaw fb m
                               (map (expectedRawOfDBC nothing fb) sigs))
                        fmn-eq)
@@ -644,9 +580,9 @@ resolveSignalList-roundtrip fb sigs fb≤64 wf-sigs pvs wfps mc =
           id-name-eq = Data.Product.proj₁ (Data.Product.proj₂ fmn-result)
           fmn-eq     = Data.Product.proj₂ (Data.Product.proj₂ fmn-result)
           all-ok     = all-sigOK-mc-mux fb sigs id masterName id-name-eq
-                         wf-sigs pvs wfps coh-list
+                         pvs wfps coh-list
           rec        = buildAllRaw-roundtrip (just masterName) fb (just id)
-                                              sigs fb≤64 all-ok
+                                              sigs all-ok
        in trans (cong (λ m → buildAllRaw fb m
                               (map (expectedRawOfDBC (just masterName) fb)
                                    sigs))

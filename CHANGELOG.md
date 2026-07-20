@@ -12,6 +12,33 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Out-of-range signal geometry is refused at entry with typed errors
+  (BREAKING on the JSON wire).** Both parse routes previously normalized
+  silently — start bits and bit lengths were mod-reduced into range at the
+  boundary (a submitted start bit one past the ceiling became zero, with no
+  issue reported), and big-endian signals could be relocated by the
+  conversion's floor — so `format_dbc_text`'s guarantee was measured against
+  values the caller never sent, and the error class of the refusals that did
+  fire depended on where the reduction landed. The kernel now refuses: a new
+  shared geometry decider family (one `Dec` form per condition, parameterized
+  by the containing message's frame capacity — the DLC already distinguishes
+  classic CAN from CAN-FD, so the bound is the frame's, not a global
+  constant) gates BOTH routes, emitting new typed error codes that name the
+  submitted values (`parse_signal_start_bit_exceeds_frame`,
+  `parse_signal_bit_length_exceeds_frame`, `parse_signal_big_endian_overflow`,
+  and `parse_non_natural_field` for present-but-non-natural numeric fields,
+  previously misreported as missing). The big-endian no-wrap check is
+  re-aimed at the pre-conversion MSB position — textbook Motorola layouts the
+  JSON route falsely refused now load on both routes, restoring the kernel's
+  closure under its own emission (a text-loadable DBC's emitted JSON is
+  always re-ingestible; regression-tested). The validator's geometry arms now
+  consume the same deciders (a machine-checked theorem proves gate acceptance
+  implies those arms are empty — deadness is proven, not observed), and every
+  binding's response decoder accepts full-frame CAN-FD signal lengths (the
+  old classic-CAN cap crashed decoding the kernel's own success response).
+  The retired clamp-identity lemmas leave the proof tree; the previously
+  surplus round-trip hypotheses are now genuinely consumed by the re-aimed
+  gate.
 - **The structural validator now names the round-trip-fatal mux shapes.**
   `validate_dbc` and the DBC-loading routes emit warning-class issues for the
   shapes that load cleanly yet cannot survive the text round-trip:
@@ -180,6 +207,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   the same change. Fails closed on a missing snapshot and refuses to pass
   vacuously on unreadable input; regression tests prove every failure mode
   fails.
+
+### Removed
+
+- Wire codes retired by the geometry entry gate (per the WIRE_CODES removal
+  protocol; every binding's vocabulary and the completeness gates updated in
+  lockstep): the error codes `parse_signal_overflows_frame` and
+  `parse_signal_msb_below_bit_length` (superseded by the frame-capacity and
+  pre-conversion no-wrap refusals above) and the issue code
+  `big_endian_msb_layout` (its validator arm checked the post-conversion
+  value — the condition the re-aim corrected — and no longer exists).
 
 ### Fixed
 

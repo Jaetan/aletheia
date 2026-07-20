@@ -94,10 +94,12 @@ const (
 	CodeParseMissingSignalName = "parse_missing_signal_name"
 	// CodeParseSignalBitLengthZero — signal has zero bit length.
 	CodeParseSignalBitLengthZero = "parse_signal_bit_length_zero"
-	// CodeParseSignalOverflowsFrame — signal bit range extends beyond frame DLC.
-	CodeParseSignalOverflowsFrame = "parse_signal_overflows_frame"
-	// CodeParseSignalMSBBelowBitLength — signal MSB is less than its declared bit length.
-	CodeParseSignalMSBBelowBitLength = "parse_signal_msb_below_bit_length"
+	// CodeParseSignalStartBitExceedsFrame — signal start bit lies outside the message's frame capacity.
+	CodeParseSignalStartBitExceedsFrame = "parse_signal_start_bit_exceeds_frame"
+	// CodeParseSignalBitLengthExceedsFrame — signal bit length exceeds the message's frame capacity.
+	CodeParseSignalBitLengthExceedsFrame = "parse_signal_bit_length_exceeds_frame"
+	// CodeParseSignalBigEndianOverflow — big-endian signal's descending bit run extends past the end of the frame.
+	CodeParseSignalBigEndianOverflow = "parse_signal_big_endian_overflow"
 	// CodeParseInvalidKind — kind tag not recognized.
 	CodeParseInvalidKind = "parse_invalid_kind"
 	// CodeParseNonTerminatingRational — rational value lacks a terminating decimal representation.
@@ -106,6 +108,8 @@ const (
 	CodeParseInvalidIdentifier = "parse_invalid_identifier"
 	// CodeParseNonIntegerMultiplexValue — `multiplex_values` array contains a non-natural element.
 	CodeParseNonIntegerMultiplexValue = "parse_non_integer_multiplex_value"
+	// CodeParseNonNaturalField — a field is present but its value is not a JSON natural number.
+	CodeParseNonNaturalField = "parse_non_natural_field"
 
 	// CodeDBCTextParseFailure — generic .dbc text parse failure.
 	CodeDBCTextParseFailure = "dbc_text_parse_failure"

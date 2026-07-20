@@ -475,8 +475,10 @@ fn decode_signal(sig: &Value) -> Result<DbcSignal, Error> {
         )));
     }
     let length = u32_field(sig, "length")?;
-    if !(1..=64).contains(&length) {
-        return Err(protocol(format!("bit length {length} out of range (1-64)")));
+    if !(1..=512).contains(&length) {
+        return Err(protocol(format!(
+            "bit length {length} out of range (1-512)"
+        )));
     }
     Ok(DbcSignal {
         name: str_field(sig, "name"),
@@ -1435,7 +1437,8 @@ mod tests {
         assert!(decode_message(&m).is_err());
     }
 
-    // signal startBit 0-511 / length 1-64
+    // signal startBit 0-511 / length 1-512 (the type-level ceiling: the
+    // largest CAN-FD frame; per-frame fit is the kernel's entry-gate check)
     #[test]
     fn signal_rejects_start_bit_over_511() {
         let mut s = valid_signal();
@@ -1458,16 +1461,16 @@ mod tests {
     }
 
     #[test]
-    fn signal_rejects_length_over_64() {
+    fn signal_rejects_length_over_512() {
         let mut s = valid_signal();
-        s["length"] = json!(65);
+        s["length"] = json!(513);
         assert!(decode_signal(&s).is_err());
     }
 
     #[test]
     fn signal_accepts_max_length() {
         let mut s = valid_signal();
-        s["length"] = json!(64);
+        s["length"] = json!(512);
         assert!(decode_signal(&s).is_ok());
     }
 

@@ -126,18 +126,81 @@ fn validate_dbc_reports_no_errors_for_the_valid_corpus() {
 fn validate_dbc_flags_an_invalid_document() {
     let c = client();
     let mut dbc = c.parse_dbc_text(KITCHEN).expect("parse DBC text").dbc;
-    // Shrink a populated message to 0 bytes: every signal's bit range now
-    // exceeds the DLC — a structural error the validator must report (pins the
-    // has_errors == true branch the valid-corpus test never reaches).
+    // Give two messages the same CAN ID: a structural error the validator
+    // must report (pins the has_errors == true branch the valid-corpus test
+    // never reaches).  Geometry violations no longer serve here — shrinking
+    // a DLC under its signals is refused by the shared entry gate with a
+    // typed parse error before the validator runs.
+    let first_id = dbc.messages.first().expect("a message").id;
+    let second = dbc.messages.get_mut(1).expect("a second message");
+    second.id = first_id;
+    let result = c.validate_dbc(&dbc).expect("validate_dbc");
+    assert!(result.has_errors, "a duplicate CAN ID must be an error");
+    assert!(!result.issues.is_empty(), "errors must carry issues");
+}
+
+#[test]
+fn validate_dbc_refuses_out_of_frame_geometry_at_the_gate() {
+    let c = client();
+    let mut dbc = c.parse_dbc_text(KITCHEN).expect("parse DBC text").dbc;
+    // Shrink a populated message to 0 bytes: every signal's geometry is now
+    // outside the frame capacity, and the shared entry gate refuses the
+    // document with a typed parse error naming the submitted values —
+    // before any validation issue list is produced.
     let msg = dbc
         .messages
         .iter_mut()
         .find(|m| !m.signals.is_empty())
         .expect("a message with signals");
     msg.dlc = 0;
-    let result = c.validate_dbc(&dbc).expect("validate_dbc");
-    assert!(result.has_errors, "an over-DLC signal must be an error");
-    assert!(!result.issues.is_empty(), "errors must carry issues");
+    let err = c
+        .validate_dbc(&dbc)
+        .expect_err("gate must refuse dlc=0 with signals");
+    let aletheia::Error::Core { code, .. } = err else {
+        panic!("expected a typed core refusal, got {err:?}");
+    };
+    assert!(
+        code.starts_with("parse_signal_"),
+        "expected a parse_signal_* geometry refusal, got {code}"
+    );
+}
+
+/// A signal spanning the whole 64-byte CAN-FD frame is kernel-legal (the
+/// entry gate checks per-frame fit), so the binding's response decoder must
+/// accept the echo rather than re-rejecting it with a stale classic-CAN
+/// bit-length cap — the decode guard is only the type-level ceiling.
+const FULL_FRAME_FD: &str = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: Engine\n\nBO_ 100 Wide: 64 Engine\n SG_ Blob : 0|512@1+ (1,0) [0|0] \"\" Engine\n";
+
+/// The textbook Motorola layout — MSB at bit 7, descending through the whole
+/// DLC-2 frame — loads on the text route and the SAME document is accepted
+/// back by the JSON route (kernel closure under its own emission).
+const MOTOROLA_FULL_FRAME: &str = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: Engine\n\nBO_ 100 Msg: 2 Engine\n SG_ Sig : 7|16@0+ (1,0) [0|0] \"\" Engine\n";
+
+#[test]
+fn motorola_full_frame_signal_closes_over_both_routes() {
+    let c = client();
+    let loaded = c
+        .parse_dbc_text(MOTOROLA_FULL_FRAME)
+        .expect("text route")
+        .dbc;
+    let sig = &loaded.messages[0].signals[0];
+    assert_eq!((sig.start_bit, sig.length), (7, 16));
+
+    let echoed = c.parse_dbc(&loaded).expect("JSON route echo").dbc;
+    let sig = &echoed.messages[0].signals[0];
+    assert_eq!((sig.start_bit, sig.length), (7, 16));
+}
+
+#[test]
+fn full_frame_fd_signal_decodes_through_both_routes() {
+    let c = client();
+    let loaded = c.parse_dbc_text(FULL_FRAME_FD).expect("text route").dbc;
+    let sig = &loaded.messages[0].signals[0];
+    assert_eq!((sig.start_bit, sig.length), (0, 512));
+
+    let echoed = c.parse_dbc(&loaded).expect("JSON route echo").dbc;
+    let sig = &echoed.messages[0].signals[0];
+    assert_eq!((sig.start_bit, sig.length), (0, 512));
 }
 
 // ── warning-class validator mirrors of the round-trip mux diagnostics ───────

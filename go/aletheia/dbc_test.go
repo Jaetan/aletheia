@@ -995,7 +995,7 @@ func TestFormatDBC_LengthExcessive(t *testing.T) {
 				"messages":[{
 					"id":100,"extended":false,"name":"Msg","dlc":8,"sender":"ECU",
 					"signals":[{
-						"name":"Sig","startBit":0,"length":65,"byteOrder":"little_endian",
+						"name":"Sig","startBit":0,"length":513,"byteOrder":"little_endian",
 						"signed":false,"factor":1,"offset":0,"minimum":0,"maximum":255,"unit":""
 					}]
 				}]
@@ -1010,7 +1010,7 @@ func TestFormatDBC_LengthExcessive(t *testing.T) {
 
 	_, err = c.FormatDBC(ctx)
 	if err == nil {
-		t.Fatal("expected error for length=65")
+		t.Fatal("expected error for length=513")
 	}
 	var aErr *aletheia.Error
 	if !errors.As(err, &aErr) {
@@ -1020,6 +1020,45 @@ func TestFormatDBC_LengthExcessive(t *testing.T) {
 		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
 	}
 	requireErrorContains(t, err, "out of range")
+}
+
+// TestFormatDBC_FullFrameFDSignalDecodes pins the decode guard to the
+// type-level ceiling: a signal spanning the whole 64-byte CAN-FD frame is
+// kernel-legal (the entry gate checks per-frame fit), so the binding's
+// response decoder must accept it rather than re-rejecting with a stale
+// classic-CAN bit-length cap.
+func TestFormatDBC_FullFrameFDSignalDecodes(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{
+			"status":"success",
+			"dbc":{
+				"version":"",
+				"messages":[{
+					"id":100,"extended":false,"name":"Wide","dlc":64,"sender":"ECU",
+					"signals":[{
+						"name":"Blob","startBit":0,"length":512,"byteOrder":"little_endian",
+						"signed":false,"factor":1,"offset":0,"minimum":0,"maximum":0,
+						"unit":"","presence":"always"
+					}]
+				}]
+			}
+		}`),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	dbc, err := c.FormatDBC(ctx)
+	if err != nil {
+		t.Fatalf("FormatDBC: %v", err)
+	}
+	sig := dbc.Messages[0].Signals[0]
+	if sig.StartBit != 0 || sig.BitLength != 512 {
+		t.Errorf("full-frame FD signal: got bits[%d:%d], want bits[0:512]",
+			uint16(sig.StartBit), uint16(sig.BitLength))
+	}
 }
 
 // --- Signal presence-discriminator validation tests ---

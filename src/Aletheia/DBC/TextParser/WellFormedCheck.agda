@@ -33,37 +33,30 @@
 -- check at all.
 --
 -- • `wf-sigs` (`checkSignalBounds` → StartBitOutOfRange / BitLengthExcessive):
---   UNREACHABLE — tight in principle, invariant by construction in practice.
---   The bounds are spent collapsing the text parser's entry clamps to
---   identities: `buildSignal` (TextParser/Topology/SignalLine.agda) reduces
---   the raw start bit and bit length modulo the physical-bit bounds, and
---   `bitLength-mod-id` / `unconvertSB-mod-id` (Properties/Topology/
---   Resolve.agda) consume the WF certificates to cancel those reductions.
---   But the SAME clamps run on every public parse route (`buildSignal` on
---   text, `parseSignalFields` in JSONParser.agda on the wire), so no
---   kernel-resident DBC can violate the bounds: out-of-range geometry is
---   normalized into range or refused with a typed parse error before a DBC
---   value exists.  Witness class: out-of-range start bits / lengths submitted
---   on every public parse route come back clamped in the kernel's own echo;
---   no diagnostic of this arm can fire on any publicly reachable DBC.
+--   UNREACHABLE, PROVEN — the arms decide the shared frame-capacity
+--   deciders (`DBC.Decidable.SignalGeometry`) on the internal geometry, and
+--   the SAME deciders gate BOTH public parse routes on the raw geometry
+--   (`physicalGate` in JSONParser.agda, `buildSignal` in TextParser/
+--   Topology/SignalLine.agda) — out-of-capacity geometry is refused with a
+--   typed parse error before a DBC value exists (never clamped; the former
+--   modulo normalization is retired).  The deadness is machine-checked:
+--   `DBC.Properties.GeometryGateDeadness` proves each arm empty on any
+--   gate-accepted signal, so no diagnostic of this arm can fire on any
+--   publicly reachable DBC.
 --
--- • `pvs` (`pvGo` → BitLengthZero / SignalExceedsDLC / BigEndianMSBLayout):
---   UNREACHABLE at the formatter — the gate deciding the condition also
---   guards the door.  The FormatDBCText handler re-parses its JSON `dbc`
---   argument through `parseDBCWithErrors`, whose `physicalGate` decides
---   exactly the `PhysicallyValid` conjuncts (machine-checked by
---   `parseSignalFields-pv`, JSONParser/SignalWF.agda) and refuses violators
---   with typed parse errors.  A DBC violating only the MSB-layout conjunct IS
---   kernel-reachable through the text route (it loads with warnings), but
---   that value cannot re-enter FormatDBCText.  In principle the conjuncts are
---   mixed: length-positivity is tight (a zero-length signal emits an SG_ line
---   `buildSignal` rejects on re-parse); the big-endian frame bound is tight
---   except on a monus-clamped fixed-point subclass no route constructs; the
---   MSB-layout hypothesis is bound but unused by
---   `unconvertStartBit-roundtrip` (CAN/Endianness/Properties/StartBit.agda) —
---   merely bundled for the format→parse direction.  Witness class: every
---   violating JSON submission is refused by `physicalGate` (typed
---   parse_signal_* errors), never by the round-trip check.
+-- • `pvs` (`pvGo` → BitLengthZero / SignalExceedsDLC): UNREACHABLE, PROVEN
+--   — the same gate⇒checker deadness theorem covers both arms: the entry
+--   gates decide exactly the `PhysicallyValid` conjuncts (machine-checked
+--   by `parseSignalFields-pv`, JSONParser/SignalWF.agda), so a violating
+--   signal is refused (typed parse_signal_* errors) on every route that
+--   could put a DBC in front of this checker.  In principle the arms are
+--   tight: a zero-length signal emits an SG_ line `buildSignal` rejects on
+--   re-parse, and a frame-overflowing big-endian run has no emittable
+--   Motorola anchor.  The former MSB-layout arm is gone with its
+--   `PhysicallyValid` conjunct — it tested the post-conversion start bit,
+--   which falsely excluded textbook Motorola layouts; the re-aimed no-wrap
+--   condition lives in the entry gates on the PRE-conversion MSB position,
+--   and on the internal representation it is implied by the fits conjunct.
 --
 -- • `wfps` (`pGo` → MultiValueMuxSelector): TIGHT (round-trip-necessary);
 --   reachable via the JSON routes.  `emitMuxMarker-chars`
@@ -161,16 +154,17 @@ open import Data.List using (List; []; _∷_; map; concatMap) renaming (_++_ to 
 open import Data.List.Relation.Unary.AllPairs using (allPairs?)
 open import Data.Maybe using (Maybe; nothing; just)
 open import Data.Maybe.Properties using (≡-dec)
-open import Data.Nat using (ℕ; suc; _+_; _*_; _∸_)
-open import Data.Nat.Properties using (_<?_; _≤?_; _≟_)
+open import Data.Nat using (ℕ)
+open import Data.Nat.Properties using (_≟_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.String using (String; fromList) renaming (_++_ to _++ₛ_)
 open import Data.Unit using (tt)
 open import Relation.Nullary.Decidable using (Dec; yes; no; ¬?)
 
 open import Aletheia.CAN.Frame using (CANId)
-open import Aletheia.CAN.Constants using (max-physical-bits)
 open import Aletheia.CAN.DLC using (dlcBytes)
+open import Aletheia.DBC.Decidable.SignalGeometry using
+  (startBitInFrame?; bitLengthInFrame?; bitLengthPositive?; signalFitsFrame?)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
@@ -189,7 +183,6 @@ open import Aletheia.DBC.Types using
   ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
   ; DuplicateSignalName; DuplicateMessageId; UnknownValueDescriptionTarget
   ; StartBitOutOfRange; BitLengthExcessive; BitLengthZero; SignalExceedsDLC
-  ; BigEndianMSBLayout
   ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
   ; AttrDef; AttrDefault; AttrAssign
   ; AttributeEnumEmpty; UnknownAttributeName; AttributeValueTypeMismatch
@@ -246,46 +239,48 @@ checkMsgIdsUnique msgs =
       "duplicate message CAN ID (text round-trip needs unique message IDs)")
 
 -- ── signal arithmetic (WF `wf-sigs` = All WellFormedSignal, whose payload is
--- WellFormedSignalDef — the two bounds decided here; `pvs` =
--- PhysicallyValid; the `wfps` single-value-presence decider lives in
--- Foundations, re-exported above) ────────────────────────────────────────────
+-- WellFormedSignalDef — derived from the frame-capacity arms below via the
+-- `dlcBytes ≤ 64` ceiling; `pvs` = PhysicallyValid; the `wfps`
+-- single-value-presence decider lives in Foundations, re-exported above) ─────
+--
+-- The geometry arms consume the shared deciders
+-- (`DBC.Decidable.SignalGeometry`) — the SAME `Dec` forms the entry gates
+-- run — on the signal's INTERNAL (post-conversion) geometry against the
+-- message's frame capacity.  The gate⇒checker deadness theorem
+-- (`DBC.Properties.GeometryGateDeadness`) proves every arm here is empty
+-- on any signal the entry gates accepted; the arms stay as
+-- defense-in-depth for kernel-internally constructed values.
 --
 -- EXPOSED SCRUTINEE: `pvGo`
 -- takes the `ByteOrder` as an explicit argument and
 -- pattern-matches structurally — deliberately NO `with` here.  The checker is then
 -- a plain function of the scrutinee, so the soundness proof can
 -- `with … in eq` the scrutinee EXTERNALLY and this application reduces cleanly
--- (past `with`-reduction failures came from `with`-abstracting internally).  Each
--- `requireDec` decides the EXACT proposition its WF record field carries
--- (Formatter/WellFormed.agda) so `requireDec-sound` lands it with no conversion.
+-- (past `with`-reduction failures came from `with`-abstracting internally).
 
-checkSignalBounds : DBCSignal → List ValidationIssue
-checkSignalBounds s =
-  requireDec (SignalDef.startBit (DBCSignal.signalDef s) <? max-physical-bits)
+checkSignalBounds : ℕ → DBCSignal → List ValidationIssue
+checkSignalBounds fb s =
+  requireDec (startBitInFrame? fb (SignalDef.startBit (DBCSignal.signalDef s)))
     (mkIssue IsWarning StartBitOutOfRange
-      ("signal '" ++ₛ nameStr (DBCSignal.name s) ++ₛ "': start bit ≥ the physical-bit bound"))
+      ("signal '" ++ₛ nameStr (DBCSignal.name s) ++ₛ "': start bit is outside the frame capacity"))
   ++ₗ
-  requireDec (SignalDef.bitLength (DBCSignal.signalDef s) <? suc max-physical-bits)
+  requireDec (bitLengthInFrame? fb (SignalDef.bitLength (DBCSignal.signalDef s)))
     (mkIssue IsWarning BitLengthExcessive
-      ("signal '" ++ₛ nameStr (DBCSignal.name s) ++ₛ "': bit length exceeds the physical-bit bound"))
+      ("signal '" ++ₛ nameStr (DBCSignal.name s) ++ₛ "': bit length exceeds the frame capacity"))
 
 pvGo : ByteOrder → ℕ → SignalDef → String → List ValidationIssue
 pvGo LittleEndian _ sd name =
-  requireDec (1 ≤? SignalDef.bitLength sd)
+  requireDec (bitLengthPositive? (SignalDef.bitLength sd))
     (mkIssue IsWarning BitLengthZero
       ("signal '" ++ₛ name ++ₛ "': bit length must be at least 1"))
 pvGo BigEndian fb sd name =
-  requireDec (1 ≤? SignalDef.bitLength sd)
+  requireDec (bitLengthPositive? (SignalDef.bitLength sd))
     (mkIssue IsWarning BitLengthZero
       ("signal '" ++ₛ name ++ₛ "': bit length must be at least 1"))
   ++ₗ
-  requireDec (SignalDef.startBit sd + SignalDef.bitLength sd ∸ 1 <? fb * 8)
+  requireDec (signalFitsFrame? fb (SignalDef.startBit sd) (SignalDef.bitLength sd))
     (mkIssue IsWarning SignalExceedsDLC
       ("signal '" ++ₛ name ++ₛ "': big-endian signal exceeds the frame bit width"))
-  ++ₗ
-  requireDec (SignalDef.bitLength sd ∸ 1 ≤? SignalDef.startBit sd)
-    (mkIssue IsWarning BigEndianMSBLayout
-      ("signal '" ++ₛ name ++ₛ "': big-endian MSB layout (bitLength − 1 must be ≤ startBit)"))
 
 pvIssues : ℕ → DBCSignal → List ValidationIssue
 pvIssues fb s = pvGo (DBCSignal.byteOrder s) fb (DBCSignal.signalDef s) (nameStr (DBCSignal.name s))
@@ -423,7 +418,7 @@ checkTextMessage : DBCMessage → List ValidationIssue
 checkTextMessage m =
      checkSigNamesUnique (DBCMessage.signals m)
   ++ₗ mcIssue            (DBCMessage.signals m)
-  ++ₗ concatMap checkSignalBounds                        (DBCMessage.signals m)
+  ++ₗ concatMap (checkSignalBounds (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)
   ++ₗ concatMap (pvIssues (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)
   ++ₗ concatMap presenceIssue                            (DBCMessage.signals m)
 

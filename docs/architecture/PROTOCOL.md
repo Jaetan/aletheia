@@ -140,8 +140,8 @@ The success response echoes the canonical parsed body (`dbc`) plus `warnings` �
   - `sender`: Node that sends this message
   - `signals`: Array of signal definitions
     - `name`: Signal name (must be unique within message)
-    - `startBit`: Bit position in frame (0-511 for CAN-FD; 0-63 for standard CAN)
-    - `length`: Signal length in bits (1-512 for CAN-FD; 1-64 for standard CAN)
+    - `startBit`: Bit position in frame (below the message's frame capacity `dlcToBytes(dlc) * 8`)
+    - `length`: Signal length in bits (at least 1, at most the message's frame capacity `dlcToBytes(dlc) * 8`)
     - `byteOrder`: "little_endian" or "big_endian"
     - `signed`: Boolean, true for signed integers
     - `factor`: Scaling factor (rational as decimal)
@@ -149,6 +149,23 @@ The success response echoes the canonical parsed body (`dbc`) plus `warnings` �
     - `minimum`: Minimum physical value
     - `maximum`: Maximum physical value
     - `presence`: "always" for always-present signals (default if omitted); multiplexed signals use `multiplexor` and `multiplex_values` fields instead (see Multiplexing Support below)
+
+**Signal geometry — frame-capacity bound, refuse posture**. A signal's bit
+geometry is bounded by its containing message's frame capacity,
+`dlcToBytes(dlc) * 8` bits — the DLC already encodes classic CAN vs CAN-FD, so
+there is no separate per-protocol bound. The kernel checks the SUBMITTED
+values at entry and refuses out-of-capacity geometry with a typed error naming
+them (`parse_signal_start_bit_exceeds_frame`,
+`parse_signal_bit_length_exceeds_frame`, `parse_signal_bit_length_zero`;
+values are never normalized or clamped into range). For big-endian (Motorola)
+signals, `startBit` names the physical MSB and the descending run of `length`
+bits must stay inside the frame (`parse_signal_big_endian_overflow`
+otherwise); the textbook full-frame layout — MSB at bit 7 descending through
+the whole frame — is accepted. Both DBC entry routes (this command and
+[ParseDBCText](#dbc-text-parse-errors--parsedbctext--formatdbctext)) run the
+same gate and emit the same codes; text-route refusals are anchored by the
+signal's name (`signal 'NAME': ...`) rather than a byte position, because the
+gate runs after the `SG_` line parses.
 
 **State Transition**: `WaitingForDBC` → `ReadyToStream`
 
@@ -387,7 +404,7 @@ Render a DBC definition (JSON wire shape) back to `.dbc` file text via the verif
   "status": "success",
   "text": "VERSION \"\"\n\nBO_ 256 Engine: 8 ECU\n ...",
   "issues": [
-    {"severity": "warning", "code": "big_endian_msb_layout", "detail": "..."}
+    {"severity": "warning", "code": "multi_value_mux_selector", "detail": "..."}
   ]
 }
 ```
@@ -421,7 +438,6 @@ The refusal envelope shares the `{severity, code, detail}` element shape, the `h
 | `text_roundtrip_divergence` | error | The emitted `.dbc` text does not re-parse to the input DBC — the refusal marker, prepended on every refusal |
 | `multi_value_mux_selector` | warning | A signal is multiplexed on more than one selector value — expressible in JSON, not in the `.dbc` `SG_` grammar |
 | `mux_master_incoherent` | warning | A multiplexed message's multiplexor master signal is missing or inconsistent |
-| `big_endian_msb_layout` | warning | A big-endian signal's MSB-first bit layout falls outside the round-trip-provable envelope |
 | `unknown_attribute_name` | warning | A `BA_` attribute value references a name never declared via `BA_DEF_` |
 | `attribute_value_type_mismatch` | warning | An attribute value does not fit its declared `BA_DEF_` type |
 | `attribute_enum_empty` | warning | An `ENUM` attribute type declares no labels |
@@ -1333,11 +1349,13 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `parse_root_not_object` | Top-level JSON is not an object | Wrap the request in `{...}` |
 | `parse_missing_signal_name` | Signal object has no `name` | Add `"name": "..."` |
 | `parse_signal_bit_length_zero` | Signal `length` is zero | Must be `≥ 1` |
-| `parse_signal_overflows_frame` | Signal's bit range exceeds frame size | Check `startBit + length` against `dlcToBytes(dlc) * 8` |
-| `parse_signal_msb_below_bit_length` | Big-endian signal's MSB position below `length − 1` | Big-endian `startBit` is the MSB; must be `≥ length − 1` |
+| `parse_signal_start_bit_exceeds_frame` | Signal `startBit` lies outside the message's frame capacity | Must be `< dlcToBytes(dlc) * 8` |
+| `parse_signal_bit_length_exceeds_frame` | Signal `length` exceeds the message's frame capacity | Must be `≤ dlcToBytes(dlc) * 8` |
+| `parse_signal_big_endian_overflow` | Big-endian signal's descending bit run extends past the end of the frame | The Motorola `startBit` names the MSB; `length` bits must fit below it within the frame |
 | `parse_invalid_kind` | An enum-like string field carries an unrecognised value (`invalid <domain> kind '<value>'`) | Use one of the documented values for that field |
 | `parse_non_terminating_rational` | A rational field is non-terminating in decimal (denominator has a prime factor outside {2, 5}) | Use a value representable as a terminating decimal |
 | `parse_invalid_identifier` | String is not a valid DBC identifier (must start with a letter or `_`, then alphanumerics/`_`) | Fix the identifier name |
+| `parse_non_natural_field` | A field is present but its value is not a JSON natural number | Supply a non-negative integer |
 
 #### Extraction errors — signal extraction on a data frame
 
@@ -1406,6 +1424,14 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `dbc_text_parse_failure` | The `.dbc` text could not be parsed (structured `line`/`column` mark the deepest byte any parse attempt reached) | Check the file against the DBC grammar at the reported byte; run `validate` for structural issues |
 | `dbc_text_trailing_input` | The top-level parse stopped at the first unparseable statement — structured `line`/`column` mark the exact failing byte inside it, `statement_line`/`statement_column` where the statement starts | Fix the statement at the reported byte |
 | `dbc_text_attribute_refinement_failed` | A `BA_DEF_DEF_` / `BA_` / `BA_REL_` entry failed refinement — the message names the offending attribute and whether it is undeclared or its value does not fit the declared type | Declare the attribute via `BA_DEF_` first; keep values inside the declared type (e.g. `ENUM` indices in range) |
+
+Signal-geometry refusals on the text route reuse the JSON route's
+`parse_signal_*` codes (both routes run the same entry gate — see the
+[ParseDBC](#1-parsedbc) geometry semantics). They are anchored by the signal's
+name (`signal 'NAME': ...`) rather than the positioned `line`/`column`
+watermark: the gate runs after the `SG_` line parses, so the offending
+statement is already consumed. The positioned channel above remains for
+syntactic failures.
 
 ---
 
