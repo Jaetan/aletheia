@@ -594,12 +594,14 @@ class Runner:
             sys.stderr.flush()
 
     def _emit(self, result: StepResult) -> None:
-        """Tee one step's captured output; record its ✓/✗ line in the log.
+        """Record one step's deterministic block: header to terminal+log, body to log.
 
-        The ✓/✗ terminal line already fired live via :meth:`_progress`, so here
-        it goes to the LOG only — keeping the log's deterministic shape without
-        duplicating lines on the terminal.  A failure's output tail still goes
-        to stderr (the live line carries no detail).
+        The step header tees to stdout AND the log; the step's captured output
+        goes to the LOG only (the terminal's live view is :meth:`_progress`).
+        The ✓/✗ line already fired live on stderr, so here it goes to the LOG
+        only — keeping the log's deterministic shape without duplicating lines
+        on the terminal.  A failure's output tail still goes to stderr (the
+        live line carries no detail).
         """
         self._tee(f"\n─── {result.name} ({int(result.duration)}s) ───")
         _ = self.log_fh.write(result.output)
