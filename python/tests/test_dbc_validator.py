@@ -321,12 +321,11 @@ class TestSignalExceedsDLC:
         assert exceeds == []
 
     def test_big_endian_signal_exceeds_dlc(self) -> None:
-        # BE signals that overflow the frame are now rejected by the JSON
-        # parser's `physicalGate` (PhysicallyValid enforcement) before the
-        # validator runs — system review §12.1, parser produces
-        # WellFormedDBCRT directly. This test documents the new layer:
-        # parse_signal_overflows_frame surfaces here instead of the
-        # downstream validator's signal_exceeds_dlc.
+        # Out-of-capacity geometry is refused by the shared entry gate
+        # (`geometryRefusal`) before the validator runs; the typed error
+        # names the SUBMITTED values.  A length wider than the whole
+        # frame draws `parse_signal_bit_length_exceeds_frame` here
+        # instead of the downstream validator's signal_exceeds_dlc.
         """Verify big endian signal exceeds dlc."""
         dbc = _make_dbc(
             [
@@ -348,7 +347,37 @@ class TestSignalExceedsDLC:
         )
         with (
             AletheiaClient() as client,
-            pytest.raises(ProtocolError, match="overflows frame"),
+            pytest.raises(ProtocolError, match="bit length 33 exceeds the frame capacity"),
+        ):
+            client.validate_dbc(dbc)
+
+    @pytest.mark.parametrize("field", ["startBit", "length"])
+    def test_negative_geometry_field_refused_truthfully(self, field: str) -> None:
+        """A negative geometry value draws the strict non-natural refusal.
+
+        The kernel's strict natural-number lookup distinguishes a present
+        non-natural value from an absent field, so a negative ``startBit``
+        or ``length`` is refused as ``parse_non_natural_field`` naming the
+        offending field — never absorbed by a clamp or misreported as a
+        missing field.
+        """
+        dbc = _make_dbc(
+            [
+                _make_message(
+                    0x100,
+                    "Msg1",
+                    [_make_signal("Neg", start_bit=0, length=8)],
+                ),
+            ]
+        )
+        signal = cast("dict[str, object]", dbc["messages"][0]["signals"][0])
+        signal[field] = -1
+        with (
+            AletheiaClient() as client,
+            pytest.raises(
+                ProtocolError,
+                match=f"field '{field}' must be a JSON natural number",
+            ),
         ):
             client.validate_dbc(dbc)
 
@@ -379,7 +408,10 @@ class TestSignalExceedsDLC:
         assert exceeds == []
 
     def test_small_dlc_catches_overflow(self) -> None:
-        # DLC=2 means only 16 bits; signal at bit 16 with length 8 exceeds
+        # DLC=2 means only 16 bits; an in-gate signal (start bit 12 < 16,
+        # length 8 ≤ 16) whose extent still runs past the frame keeps the
+        # validator's CHECK 8 arm live (a start bit at/past 16 would be
+        # refused earlier by the entry gate with a typed parse error).
         """Verify small dlc catches overflow."""
         dbc = _make_dbc(
             [
@@ -388,7 +420,7 @@ class TestSignalExceedsDLC:
                     "Msg1",
                     [
                         _make_signal(
-                            "Overflow", start_bit=16, length=8, byte_order="little_endian"
+                            "Overflow", start_bit=12, length=8, byte_order="little_endian"
                         ),
                     ],
                     dlc=2,
@@ -470,11 +502,10 @@ class TestSignalOverlap:
 class TestBitLengthZero:
     """Check 10: Signal bit length must not be zero.
 
-    Both byte orders are now rejected at the JSON parser boundary
-    (`physicalGate`) with `parse_signal_bit_length_zero` — previously, LE
-    bl=0 was deferred to the validator's `bit_length_zero` warning (BE
-    bl=0 already rejected at parse time). The validator check stays as
-    defense-in-depth but is unreachable from any external parse path.
+    Both byte orders are refused at the shared entry gate (its
+    positive-length condition) with ``parse_signal_bit_length_zero``.
+    The validator check stays as defense-in-depth but is proven
+    unreachable from the public parse routes (``GeometryGateDeadness``).
     """
 
     def test_zero_length_le_rejected_at_parse(self) -> None:
@@ -828,11 +859,12 @@ class TestEmptyMessage:
 
 
 class TestStartBitOutOfRange:
-    """Check 15: Start bit >= 64 is suspicious.
+    """Check 15: start bit at/past the containing message's frame capacity.
 
-    Note: DBC parser clamps startBit via % 64, so values >= 64 wrap to 0.
-    This check is defense-in-depth for programmatically constructed DBCs.
-    We test with values within the parser's range (0-63).
+    The shared entry gate refuses such geometry with a typed parse error
+    before the validator runs (proven dead on the public routes by
+    ``GeometryGateDeadness``), so these tests pin the non-firing side:
+    an in-frame start bit never draws the issue.
     """
 
     def test_start_bit_63_ok(self) -> None:
@@ -875,15 +907,16 @@ class TestStartBitOutOfRange:
 
 
 class TestBitLengthExcessive:
-    """Check 16: Bit length > 64 is suspicious.
+    """Check 16: bit length exceeding the containing message's frame capacity.
 
-    Note: DBC parser clamps bitLength via % 65, so values >= 65 wrap.
-    This check is defense-in-depth for programmatically constructed DBCs.
-    We test with values within the parser's range (0-64).
+    The shared entry gate refuses such geometry with a typed parse error
+    before the validator runs (proven dead on the public routes by
+    ``GeometryGateDeadness``), so these tests pin the non-firing side:
+    an in-frame bit length never draws the issue.
     """
 
     def test_bit_length_32_ok(self) -> None:
-        # Test with 32-bit signal — well within the 64-bit limit
+        # A 32-bit signal fits the default 8-byte frame with room to spare.
         """Verify bit length 32 ok."""
         dbc = _make_dbc(
             [

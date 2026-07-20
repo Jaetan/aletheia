@@ -36,7 +36,6 @@ open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; cong; tra
 open import Data.String using (String)
 open import Data.Bool using (Bool; true; false)
 open import Data.Product using (_×_)
-open import Aletheia.CAN.Constants using (max-physical-bits)
 
 -- ============================================================================
 -- PER-SIGNAL PREDICATES
@@ -146,15 +145,17 @@ DistinctMessageNames m1 m2 = messageNameStr m1 ≢ messageNameStr m2
 NonEmptySignals : DBCMessage → Set
 NonEmptySignals msg = DBCMessage.signals msg ≢ []
 
--- Check 15: startBit < max-physical-bits
-StartBitInRange : DBCSignal → Set
-StartBitInRange sig =
-  SignalDef.startBit (DBCSignal.signalDef sig) < max-physical-bits
+-- Check 15: start bit inside the message's frame capacity
+-- (dlcBytes * 8 — the spec-correct geometry bound; the global
+-- max-physical-bits constant remains only as the type-level ceiling).
+StartBitInRange : ℕ → DBCSignal → Set
+StartBitInRange payloadBytes sig =
+  SignalDef.startBit (DBCSignal.signalDef sig) < payloadBytes * 8
 
--- Check 16: bitLength ≤ max-physical-bits
-BitLengthInRange : DBCSignal → Set
-BitLengthInRange sig =
-  SignalDef.bitLength (DBCSignal.signalDef sig) ≤ max-physical-bits
+-- Check 16: bit length within the message's frame capacity
+BitLengthInRange : ℕ → DBCSignal → Set
+BitLengthInRange payloadBytes sig =
+  SignalDef.bitLength (DBCSignal.signalDef sig) ≤ payloadBytes * 8
 
 -- Check 6: No shared signal names between messages
 DisjointSignalNames : List String → List String → Set

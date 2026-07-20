@@ -42,6 +42,9 @@ open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult; advancePosition; advancePositions;
    _>>=_; _*>_; many)
 open import Aletheia.DBC.Identifier using (Identifier)
+open import Data.Sum using (_⊎_; inj₂)
+
+open import Aletheia.Error using (DBCTextParseError)
 open import Aletheia.DBC.Types using
   (DBCMessage; DBCSignal; clearBothMsg)
 open import Aletheia.CAN.DLC using (dlcBytes)
@@ -217,11 +220,12 @@ emitMessage-chars-decompose msg =
 -- buildMessage-roundtrip
 -- ============================================================================
 
--- `buildMessage` succeeds with `just (clearBothMsg msg)` when:
+-- `buildMessage` succeeds with `just (inj₂ (clearBothMsg msg))` when:
 --   * `buildCANId (rawCanIdℕ msg.id) ≡ just msg.id` (canid-roundtrip)
 --   * `bytesToValidDLC (dlcBytes msg.dlc) ≡ just msg.dlc` (dlc-roundtrip)
---   * `resolveSignalList (dlcBytes msg.dlc) (map ...) ≡ just (map clearVds msg.signals)`
---     (`resolveSignalList-roundtrip` returns the cleared form)
+--   * `resolveSignalList (dlcBytes msg.dlc) (map ...) ≡ just (inj₂ (map clearVds msg.signals))`
+--     (`resolveSignalList-roundtrip` returns the cleared form past the
+--     geometry gate)
 -- `buildMessage` hardcodes `senders = []`, so the result is `clearBothMsg msg`
 -- (= `clearVdsMsg msg` with senders also cleared); the `senders-empty`
 -- precondition was dropped, and the BO_TX_BU_ section restores the senders
@@ -251,7 +255,7 @@ buildMessage-roundtrip :
               (dlcBytes (DBCMessage.dlc msg)))
            (DBCMessage.signals msg))
       pos rest)
-    ≡ just (mkResult (clearBothMsg msg) pos rest)
+    ≡ just (mkResult (inj₂ (clearBothMsg msg)) pos rest)
 -- The `senders-empty` precondition is dropped.  `buildMessage` hardcodes
 -- `senders = []`, and `clearBothMsg msg` (= `clearVdsMsg msg` with senders
 -- also cleared) is record-η-equal to that output, so the result is exactly
@@ -399,7 +403,7 @@ parseMessage-roundtrip :
   → ParseFailsAt signalLineFmt ('\n' ∷ outer-suffix)
   → SuffixStops isNewlineStart outer-suffix
   → proj₂ (parseMessage pos (emitMessage-chars msg ++ₗ outer-suffix))
-    ≡ just (mkResult (clearBothMsg msg)
+    ≡ just (mkResult (inj₂ (clearBothMsg msg))
              (advancePositions pos (emitMessage-chars msg))
              outer-suffix)
 parseMessage-roundtrip pos msg outer-suffix
@@ -445,7 +449,8 @@ parseMessage-roundtrip pos msg outer-suffix
     pos-after-nl   = advancePosition  pos-after-sigs '\n'
 
     -- Continuations.
-    cont-after-hdr : (ℕ × Identifier × ℕ × Identifier) → Parser DBCMessage
+    cont-after-hdr : (ℕ × Identifier × ℕ × Identifier)
+                   → Parser (DBCTextParseError ⊎ DBCMessage)
     cont-after-hdr hdr =
       let r = proj₁ hdr
           n = proj₁ (proj₂ hdr)
@@ -455,12 +460,12 @@ parseMessage-roundtrip pos msg outer-suffix
          many parseNewline *>
          buildMessage r n d s rs
 
-    cont-after-sigs : List RawSignal → Parser DBCMessage
+    cont-after-sigs : List RawSignal → Parser (DBCTextParseError ⊎ DBCMessage)
     cont-after-sigs rs =
       many parseNewline *>
       buildMessage rawId msgName rawDlc msgSender rs
 
-    cont-after-nl : List Char → Parser DBCMessage
+    cont-after-nl : List Char → Parser (DBCTextParseError ⊎ DBCMessage)
     cont-after-nl _ =
       buildMessage rawId msgName rawDlc msgSender raws
 
@@ -531,13 +536,13 @@ parseMessage-roundtrip pos msg outer-suffix
 
     step-build :
       proj₂ (cont-after-nl ('\n' ∷ []) pos-after-nl outer-suffix)
-      ≡ just (mkResult (clearBothMsg msg)
+      ≡ just (mkResult (inj₂ (clearBothMsg msg))
                 (advancePositions pos (emitMessage-chars msg))
                 outer-suffix)
     step-build =
       trans (buildMessage-roundtrip msg pos-after-nl outer-suffix
               fb≤64 wf-sigs pvs wfps mc)
-            (cong (λ p → just (mkResult (clearBothMsg msg) p outer-suffix)) pos-eq)
+            (cong (λ p → just (mkResult (inj₂ (clearBothMsg msg)) p outer-suffix)) pos-eq)
 
 
 -- ============================================================================
@@ -619,7 +624,7 @@ parseMessage-roundtrip-bundled :
   → MessageWF msg
   → SuffixStops isNewlineStart outer-suffix
   → proj₂ (parseMessage pos (emitMessage-chars msg ++ₗ outer-suffix))
-    ≡ just (mkResult (clearBothMsg msg)
+    ≡ just (mkResult (inj₂ (clearBothMsg msg))
              (advancePositions pos (emitMessage-chars msg))
              outer-suffix)
 parseMessage-roundtrip-bundled pos msg outer-suffix wf nl-stop =
@@ -649,7 +654,7 @@ parseMessages-roundtrip :
   → (∀ (pos' : Position) → proj₂ (parseMessage pos' outer-suffix) ≡ nothing)
   → proj₂ (many parseMessage pos
       (foldr (λ m acc → emitMessage-chars m ++ₗ acc) [] msgs ++ₗ outer-suffix))
-    ≡ just (mkResult (map clearBothMsg msgs)
+    ≡ just (mkResult (map (λ m → inj₂ (clearBothMsg m)) msgs)
              (advancePositions pos
                (foldr (λ m acc → emitMessage-chars m ++ₗ acc) [] msgs))
              outer-suffix)
@@ -658,7 +663,7 @@ parseMessages-roundtrip pos msgs outer-suffix msgs-stops os pf =
     parseMessage
     emitMessage-chars
     MessageWF
-    clearBothMsg
+    (λ m → inj₂ (clearBothMsg m))
     parseMessage-roundtrip-bundled
     emitMessage-chars-nonzero
     emitMessage-chars-head-not-newline

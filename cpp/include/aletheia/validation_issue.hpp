@@ -41,7 +41,6 @@ enum class IssueCode {
     TextRoundtripDivergence,
     MultiValueMuxSelector,
     MuxMasterIncoherent,
-    BigEndianMsbLayout,
     UnknownAttributeName,
     AttributeValueTypeMismatch,
     AttributeEnumEmpty,

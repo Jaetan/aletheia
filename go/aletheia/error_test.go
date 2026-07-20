@@ -124,23 +124,22 @@ func TestDoubleClose(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Parse error codes from the PhysicallyValid gate (2026-04-08, 2026-05-15)
+// Parse error codes from the signal-geometry entry gate
 // ---------------------------------------------------------------------------
-// DBC/JSONParser.agda's physicalGate enforces parse-time constraints. Both
-// byte orders require bitLength ≥ 1 (LE was previously permissive on
-// bl=0, deferring to the validator's BitLengthZero warning — now
-// uniformly rejected at the parse boundary, completing BE-LE parity).
-// BigEndian additionally enforces two
-// roundtrip-shape constraints:
+// The kernel refuses out-of-capacity signal geometry at parse time via the
+// shared gate (DBC/Decidable/SignalGeometry.agda's geometryRefusal, applied
+// to the SUBMITTED values against dlcBytes * 8). Both byte orders share the
+// frame-capacity conditions; BigEndian additionally enforces the
+// pre-conversion no-wrap condition:
 //
-//   • bitLength ≥ 1                     → SignalBitLengthZero (BE + LE)
-//   • csb + bl − 1 < frameBytes * 8      → SignalOverflowsFrame (BE only)
-//   • bl − 1 ≤ csb                      → SignalMSBBelowBitLength (BE only)
+//   • bitLength ≥ 1                     → SignalBitLengthZero
+//   • startBit < frameBytes * 8         → SignalStartBitExceedsFrame
+//   • bitLength ≤ frameBytes * 8        → SignalBitLengthExceedsFrame
+//   • no wrap past the frame end        → SignalBigEndianOverflow (BE only)
 //
-// Go's surface for this layer is JSON error-code parsing — the actual
-// physicalGate logic lives in Agda and is verified by the real-FFI
-// C++/Python tests (both byte orders covered after the 2026-05-15 LE
-// parity completion). These tests exercise the Go binding's JSON
+// Go's surface for this layer is JSON error-code parsing — the gate itself
+// lives in Agda and is verified by the real-FFI C++/Python tests (both
+// byte orders covered). These tests exercise the Go binding's JSON
 // error-code extraction via MockBackend, ensuring the codes round-trip
 // through parseErrorResponse into aErr.Code with the expected
 // ErrProtocol kind.
@@ -175,12 +174,12 @@ func TestParseError_SignalBitLengthZero(t *testing.T) {
 	}
 }
 
-func TestParseError_SignalOverflowsFrame(t *testing.T) {
+func TestParseError_SignalStartBitExceedsFrame(t *testing.T) {
 	mock := aletheia.NewMockBackend(
 		aletheia.Respond(`{
 			"status": "error",
-			"code": "parse_signal_overflows_frame",
-			"message": "signal overflows frame: startBit=0 bitLength=33 frameBytes=4"
+			"code": "parse_signal_start_bit_exceeds_frame",
+			"message": "signal start bit 100 is outside the frame (8 bytes = 64 bits)"
 		}`),
 	)
 	c, err := aletheia.NewClient(mock)
@@ -197,20 +196,20 @@ func TestParseError_SignalOverflowsFrame(t *testing.T) {
 	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
-	if aErr.Code != aletheia.CodeParseSignalOverflowsFrame {
-		t.Errorf("expected code %q, got %q", aletheia.CodeParseSignalOverflowsFrame, aErr.Code)
+	if aErr.Code != aletheia.CodeParseSignalStartBitExceedsFrame {
+		t.Errorf("expected code %q, got %q", aletheia.CodeParseSignalStartBitExceedsFrame, aErr.Code)
 	}
 	if aErr.Kind != aletheia.ErrProtocol {
 		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
 	}
 }
 
-func TestParseError_SignalMSBBelowBitLength(t *testing.T) {
+func TestParseError_SignalBigEndianOverflow(t *testing.T) {
 	mock := aletheia.NewMockBackend(
 		aletheia.Respond(`{
 			"status": "error",
-			"code": "parse_signal_msb_below_bit_length",
-			"message": "signal MSB below bitLength: csb=0 bl=2"
+			"code": "parse_signal_big_endian_overflow",
+			"message": "big-endian signal at start bit 62 with length 8 runs past the end of the frame (8 bytes)"
 		}`),
 	)
 	c, err := aletheia.NewClient(mock)
@@ -227,8 +226,8 @@ func TestParseError_SignalMSBBelowBitLength(t *testing.T) {
 	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
-	if aErr.Code != aletheia.CodeParseSignalMSBBelowBitLength {
-		t.Errorf("expected code %q, got %q", aletheia.CodeParseSignalMSBBelowBitLength, aErr.Code)
+	if aErr.Code != aletheia.CodeParseSignalBigEndianOverflow {
+		t.Errorf("expected code %q, got %q", aletheia.CodeParseSignalBigEndianOverflow, aErr.Code)
 	}
 	if aErr.Kind != aletheia.ErrProtocol {
 		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
@@ -236,20 +235,21 @@ func TestParseError_SignalMSBBelowBitLength(t *testing.T) {
 }
 
 func TestParseError_CodeConstantsExported(t *testing.T) {
-	// Regression guard: the three parse error codes added in 2026-04-08 must
-	// remain exported as public constants with the exact string values that
-	// Agda emits. These are matched directly by application code that wants
-	// to react to specific parse errors (e.g. "signal bit length zero" →
-	// "try re-exporting with a wider bit length"), so a typo would silently
-	// break error-recovery logic in downstream tools.
+	// Regression guard: the parse error codes must remain exported as public
+	// constants with the exact string values that Agda emits. These are
+	// matched directly by application code that wants to react to specific
+	// parse errors (e.g. "signal bit length zero" → "try re-exporting with a
+	// wider bit length"), so a typo would silently break error-recovery
+	// logic in downstream tools.
 	tests := []struct {
 		name string
 		got  string
 		want string
 	}{
 		{"SignalBitLengthZero", aletheia.CodeParseSignalBitLengthZero, "parse_signal_bit_length_zero"},
-		{"SignalOverflowsFrame", aletheia.CodeParseSignalOverflowsFrame, "parse_signal_overflows_frame"},
-		{"SignalMSBBelowBitLength", aletheia.CodeParseSignalMSBBelowBitLength, "parse_signal_msb_below_bit_length"},
+		{"SignalStartBitExceedsFrame", aletheia.CodeParseSignalStartBitExceedsFrame, "parse_signal_start_bit_exceeds_frame"},
+		{"SignalBitLengthExceedsFrame", aletheia.CodeParseSignalBitLengthExceedsFrame, "parse_signal_bit_length_exceeds_frame"},
+		{"SignalBigEndianOverflow", aletheia.CodeParseSignalBigEndianOverflow, "parse_signal_big_endian_overflow"},
 		{"NonTerminatingRational", aletheia.CodeParseNonTerminatingRational, "parse_non_terminating_rational"},
 		{"NonIntegerMultiplexValue", aletheia.CodeParseNonIntegerMultiplexValue, "parse_non_integer_multiplex_value"},
 	}

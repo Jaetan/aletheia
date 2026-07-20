@@ -2179,8 +2179,8 @@ func parseDBCSignal(j map[string]any) (DBCSignal, error) {
 	if err != nil {
 		return zero, wrapProtocolError("invalid length", err)
 	}
-	if length < 1 || length > 64 {
-		return zero, protocolError(fmt.Sprintf("bit length %d out of range (1-64)", length))
+	if length < 1 || length > MaxBitLength {
+		return zero, protocolError(fmt.Sprintf("bit length %d out of range (1-%d)", length, MaxBitLength))
 	}
 
 	presence, err := parseSignalPresence(j)

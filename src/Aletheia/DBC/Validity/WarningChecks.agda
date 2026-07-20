@@ -68,7 +68,6 @@ open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.List.Relation.Unary.Any using (Any; any?)
 open import Data.String using () renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
-open import Data.Nat.Properties using (_≤?_; _<?_)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
 open import Aletheia.DBC.DecRat using (0ᵈ; 1ᵈ; toℚ; _≟ᵈ_; _≤?ᵈ_)
 open import Data.Maybe using (just; nothing)
@@ -80,7 +79,8 @@ open import Relation.Nullary using (yes; no; ¬_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Data.List.Membership.DecPropositional _≟ₛ_ using (_∈?_)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Constants using (max-physical-bits)
+open import Aletheia.CAN.DLC using (dlcBytes)
+open import Aletheia.DBC.Decidable.SignalGeometry using (startBitInFrame?; bitLengthInFrame?)
 
 private
   -- Severity predicate shorthand
@@ -422,9 +422,9 @@ checkAllEmptyMessage-complete =
 -- CHECK 15: START BIT OUT OF RANGE — Severity
 -- ============================================================================
 
-checkStartBitOutOfRange-allW : ∀ msgName sig → All W (checkStartBitOutOfRange msgName sig)
-checkStartBitOutOfRange-allW msgName sig
-  with SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits
+checkStartBitOutOfRange-allW : ∀ msgName dlc sig → All W (checkStartBitOutOfRange msgName dlc sig)
+checkStartBitOutOfRange-allW msgName dlc sig
+  with startBitInFrame? dlc (SignalDef.startBit (DBCSignal.signalDef sig))
 ... | yes _ = []
 ... | no  _ = refl ∷ []
 
@@ -434,43 +434,47 @@ checkAllStartBitOutOfRange-allW (msg ∷ rest) =
   ++⁺ (All-concatMap (go (DBCMessage.signals msg)))
          (checkAllStartBitOutOfRange-allW rest)
   where
-    go : ∀ sigs → All (λ sig → All W (checkStartBitOutOfRange (messageNameStr msg) sig)) sigs
+    go : ∀ sigs → All (λ sig → All W (checkStartBitOutOfRange (messageNameStr msg)
+                                        (dlcBytes (DBCMessage.dlc msg)) sig)) sigs
     go [] = []
-    go (sig ∷ sigs) = checkStartBitOutOfRange-allW (messageNameStr msg) sig ∷ go sigs
+    go (sig ∷ sigs) = checkStartBitOutOfRange-allW (messageNameStr msg)
+                        (dlcBytes (DBCMessage.dlc msg)) sig ∷ go sigs
 
 -- ============================================================================
 -- CHECK 15: START BIT OUT OF RANGE — Soundness/Completeness
 -- ============================================================================
 
-checkStartBitOutOfRange-sound : ∀ msgName sig →
-  checkStartBitOutOfRange msgName sig ≡ [] → StartBitInRange sig
-checkStartBitOutOfRange-sound _ sig =
-  requireDec-sound (SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits) _
+checkStartBitOutOfRange-sound : ∀ msgName dlc sig →
+  checkStartBitOutOfRange msgName dlc sig ≡ [] → StartBitInRange dlc sig
+checkStartBitOutOfRange-sound _ dlc sig =
+  requireDec-sound (startBitInFrame? dlc (SignalDef.startBit (DBCSignal.signalDef sig))) _
 
-checkStartBitOutOfRange-complete : ∀ msgName sig →
-  StartBitInRange sig → checkStartBitOutOfRange msgName sig ≡ []
-checkStartBitOutOfRange-complete _ sig =
-  requireDec-complete (SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits) _
+checkStartBitOutOfRange-complete : ∀ msgName dlc sig →
+  StartBitInRange dlc sig → checkStartBitOutOfRange msgName dlc sig ≡ []
+checkStartBitOutOfRange-complete _ dlc sig =
+  requireDec-complete (startBitInFrame? dlc (SignalDef.startBit (DBCSignal.signalDef sig))) _
 
 checkAllStartBitOutOfRange-sound : ∀ msgs →
   checkAllStartBitOutOfRange msgs ≡ [] →
-  All (λ m → All StartBitInRange (DBCMessage.signals m)) msgs
+  All (λ m → All (StartBitInRange (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)) msgs
 checkAllStartBitOutOfRange-sound = liftConcatMap-sound _ λ msg →
-  liftConcatMap-sound _ (checkStartBitOutOfRange-sound (messageNameStr msg)) _
+  liftConcatMap-sound _ (checkStartBitOutOfRange-sound (messageNameStr msg)
+                          (dlcBytes (DBCMessage.dlc msg))) _
 
 checkAllStartBitOutOfRange-complete : ∀ msgs →
-  All (λ m → All StartBitInRange (DBCMessage.signals m)) msgs →
+  All (λ m → All (StartBitInRange (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)) msgs →
   checkAllStartBitOutOfRange msgs ≡ []
 checkAllStartBitOutOfRange-complete = liftConcatMap-complete _ λ msg →
-  liftConcatMap-complete _ (checkStartBitOutOfRange-complete (messageNameStr msg)) _
+  liftConcatMap-complete _ (checkStartBitOutOfRange-complete (messageNameStr msg)
+                             (dlcBytes (DBCMessage.dlc msg))) _
 
 -- ============================================================================
 -- CHECK 16: BIT LENGTH EXCESSIVE — Severity
 -- ============================================================================
 
-checkBitLengthExcessive-allW : ∀ msgName sig → All W (checkBitLengthExcessive msgName sig)
-checkBitLengthExcessive-allW msgName sig
-  with SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits
+checkBitLengthExcessive-allW : ∀ msgName dlc sig → All W (checkBitLengthExcessive msgName dlc sig)
+checkBitLengthExcessive-allW msgName dlc sig
+  with bitLengthInFrame? dlc (SignalDef.bitLength (DBCSignal.signalDef sig))
 ... | yes _ = []
 ... | no  _ = refl ∷ []
 
@@ -480,35 +484,39 @@ checkAllBitLengthExcessive-allW (msg ∷ rest) =
   ++⁺ (All-concatMap (go (DBCMessage.signals msg)))
          (checkAllBitLengthExcessive-allW rest)
   where
-    go : ∀ sigs → All (λ sig → All W (checkBitLengthExcessive (messageNameStr msg) sig)) sigs
+    go : ∀ sigs → All (λ sig → All W (checkBitLengthExcessive (messageNameStr msg)
+                                        (dlcBytes (DBCMessage.dlc msg)) sig)) sigs
     go [] = []
-    go (sig ∷ sigs) = checkBitLengthExcessive-allW (messageNameStr msg) sig ∷ go sigs
+    go (sig ∷ sigs) = checkBitLengthExcessive-allW (messageNameStr msg)
+                        (dlcBytes (DBCMessage.dlc msg)) sig ∷ go sigs
 
 -- ============================================================================
 -- CHECK 16: BIT LENGTH EXCESSIVE — Soundness/Completeness
 -- ============================================================================
 
-checkBitLengthExcessive-sound : ∀ msgName sig →
-  checkBitLengthExcessive msgName sig ≡ [] → BitLengthInRange sig
-checkBitLengthExcessive-sound _ sig =
-  requireDec-sound (SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits) _
+checkBitLengthExcessive-sound : ∀ msgName dlc sig →
+  checkBitLengthExcessive msgName dlc sig ≡ [] → BitLengthInRange dlc sig
+checkBitLengthExcessive-sound _ dlc sig =
+  requireDec-sound (bitLengthInFrame? dlc (SignalDef.bitLength (DBCSignal.signalDef sig))) _
 
-checkBitLengthExcessive-complete : ∀ msgName sig →
-  BitLengthInRange sig → checkBitLengthExcessive msgName sig ≡ []
-checkBitLengthExcessive-complete _ sig =
-  requireDec-complete (SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits) _
+checkBitLengthExcessive-complete : ∀ msgName dlc sig →
+  BitLengthInRange dlc sig → checkBitLengthExcessive msgName dlc sig ≡ []
+checkBitLengthExcessive-complete _ dlc sig =
+  requireDec-complete (bitLengthInFrame? dlc (SignalDef.bitLength (DBCSignal.signalDef sig))) _
 
 checkAllBitLengthExcessive-sound : ∀ msgs →
   checkAllBitLengthExcessive msgs ≡ [] →
-  All (λ m → All BitLengthInRange (DBCMessage.signals m)) msgs
+  All (λ m → All (BitLengthInRange (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)) msgs
 checkAllBitLengthExcessive-sound = liftConcatMap-sound _ λ msg →
-  liftConcatMap-sound _ (checkBitLengthExcessive-sound (messageNameStr msg)) _
+  liftConcatMap-sound _ (checkBitLengthExcessive-sound (messageNameStr msg)
+                          (dlcBytes (DBCMessage.dlc msg))) _
 
 checkAllBitLengthExcessive-complete : ∀ msgs →
-  All (λ m → All BitLengthInRange (DBCMessage.signals m)) msgs →
+  All (λ m → All (BitLengthInRange (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)) msgs →
   checkAllBitLengthExcessive msgs ≡ []
 checkAllBitLengthExcessive-complete = liftConcatMap-complete _ λ msg →
-  liftConcatMap-complete _ (checkBitLengthExcessive-complete (messageNameStr msg)) _
+  liftConcatMap-complete _ (checkBitLengthExcessive-complete (messageNameStr msg)
+                             (dlcBytes (DBCMessage.dlc msg))) _
 
 -- ============================================================================
 -- CHECK 17: MULTIPLEXOR NON-UNIT SCALING — Severity

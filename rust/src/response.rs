@@ -211,8 +211,6 @@ pub enum IssueCode {
     MultiValueMuxSelector,
     /// The mux master signal's presence is inconsistent with its slaves.
     MuxMasterIncoherent,
-    /// A big-endian signal's MSB-first bit layout does not round-trip through `.dbc` text.
-    BigEndianMsbLayout,
     /// A `BA_` assignment/default references an attribute with no `BA_DEF_` declaration.
     UnknownAttributeName,
     /// An attribute value's type does not match its `BA_DEF_` declaration.
@@ -255,7 +253,6 @@ impl IssueCode {
             "text_roundtrip_divergence" => IssueCode::TextRoundtripDivergence,
             "multi_value_mux_selector" => IssueCode::MultiValueMuxSelector,
             "mux_master_incoherent" => IssueCode::MuxMasterIncoherent,
-            "big_endian_msb_layout" => IssueCode::BigEndianMsbLayout,
             "unknown_attribute_name" => IssueCode::UnknownAttributeName,
             "attribute_value_type_mismatch" => IssueCode::AttributeValueTypeMismatch,
             "attribute_enum_empty" => IssueCode::AttributeEnumEmpty,
@@ -292,7 +289,6 @@ impl IssueCode {
             IssueCode::TextRoundtripDivergence => "text_roundtrip_divergence",
             IssueCode::MultiValueMuxSelector => "multi_value_mux_selector",
             IssueCode::MuxMasterIncoherent => "mux_master_incoherent",
-            IssueCode::BigEndianMsbLayout => "big_endian_msb_layout",
             IssueCode::UnknownAttributeName => "unknown_attribute_name",
             IssueCode::AttributeValueTypeMismatch => "attribute_value_type_mismatch",
             IssueCode::AttributeEnumEmpty => "attribute_enum_empty",

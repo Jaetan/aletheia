@@ -44,12 +44,14 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"parse_root_not_object", ErrorCode::ParseRootNotObject},
     {"parse_missing_signal_name", ErrorCode::ParseMissingSignalName},
     {"parse_signal_bit_length_zero", ErrorCode::ParseSignalBitLengthZero},
-    {"parse_signal_overflows_frame", ErrorCode::ParseSignalOverflowsFrame},
-    {"parse_signal_msb_below_bit_length", ErrorCode::ParseSignalMsbBelowBitLength},
+    {"parse_signal_start_bit_exceeds_frame", ErrorCode::ParseSignalStartBitExceedsFrame},
+    {"parse_signal_bit_length_exceeds_frame", ErrorCode::ParseSignalBitLengthExceedsFrame},
+    {"parse_signal_big_endian_overflow", ErrorCode::ParseSignalBigEndianOverflow},
     {"parse_invalid_kind", ErrorCode::ParseInvalidKind},
     {"parse_non_terminating_rational", ErrorCode::ParseNonTerminatingRational},
     {"parse_invalid_identifier", ErrorCode::ParseInvalidIdentifier},
     {"parse_non_integer_multiplex_value", ErrorCode::ParseNonIntegerMultiplexValue},
+    {"parse_non_natural_field", ErrorCode::ParseNonNaturalField},
     // DBC text parse errors
     {"dbc_text_parse_failure", ErrorCode::DBCTextParseFailure},
     {"dbc_text_trailing_input", ErrorCode::DBCTextTrailingInput},
@@ -353,7 +355,6 @@ constexpr auto issue_code_table = std::to_array<IssueCodeEntry>({
     {"text_roundtrip_divergence", IssueCode::TextRoundtripDivergence},
     {"multi_value_mux_selector", IssueCode::MultiValueMuxSelector},
     {"mux_master_incoherent", IssueCode::MuxMasterIncoherent},
-    {"big_endian_msb_layout", IssueCode::BigEndianMsbLayout},
     {"unknown_attribute_name", IssueCode::UnknownAttributeName},
     {"attribute_value_type_mismatch", IssueCode::AttributeValueTypeMismatch},
     {"attribute_enum_empty", IssueCode::AttributeEnumEmpty},
@@ -489,14 +490,14 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
         throw std::runtime_error("startBit " + std::to_string(start_bit_raw) +
                                  " out of range (0-511)");
     const auto length_raw = require_uint<std::uint32_t>(j.at("length"), "length");
-    if (length_raw < 1 || length_raw > 64)
+    if (length_raw < 1 || length_raw > 512)
         throw std::runtime_error("bit length " + std::to_string(length_raw) +
-                                 " out of range (1-64)");
+                                 " out of range (1-512)");
 
     return DbcSignal{
         .name = SignalName{j.at("name").get<std::string>()},
         .start_bit = BitPosition{static_cast<std::uint16_t>(start_bit_raw)},
-        .bit_length = BitLength{static_cast<std::uint8_t>(length_raw)},
+        .bit_length = BitLength{static_cast<std::uint16_t>(length_raw)},
         .byte_order = bo,
         .is_signed = j.value("signed", false),
         .factor = RationalFactor{parse_rational(j.at("factor"))},

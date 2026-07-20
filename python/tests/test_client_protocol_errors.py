@@ -161,7 +161,7 @@ class TestFormatDbcTextErrorPaths:
         ``status`` / ``text`` / ``issues`` keys and the ``"success"`` literal.
         """
         issues: list[JSONValue] = [
-            {"severity": "warning", "code": "big_endian_msb_layout", "detail": "be"},
+            {"severity": "warning", "code": "multi_value_mux_selector", "detail": "mux"},
             {"severity": "warning", "code": "attribute_enum_empty", "detail": "no labels"},
         ]
         backend = MockBackend(

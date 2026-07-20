@@ -381,7 +381,6 @@ data IssueCode : Set where
   TextRoundTripDivergence       : IssueCode
   MultiValueMuxSelector         : IssueCode
   MuxMasterIncoherent           : IssueCode
-  BigEndianMSBLayout            : IssueCode
   UnknownAttributeName          : IssueCode
   AttributeValueTypeMismatch    : IssueCode
   AttributeEnumEmpty            : IssueCode

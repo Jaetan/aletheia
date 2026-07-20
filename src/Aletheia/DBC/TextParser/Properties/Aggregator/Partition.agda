@@ -181,6 +181,7 @@ partitionTopStmts-bridge :
         (DBC.signalGroups    d)
         (collectFromMessages (DBC.messages d))
         (collectSenders      (DBC.messages d))
+        []
 partitionTopStmts-bridge defs d =
   trans (partitionTopStmts-foldr (map (liftTopStmt defs) (toTopStmtsTyped d))) compose
   where
@@ -396,18 +397,19 @@ partitionTopStmts-bridge defs d =
                             (cong (λ z → foldr consTop z chunkCM)
                               (foldr-++ consTop emptyCollected chunkAT _))))))))))))
 
-    -- 7-arity cong helper for cleaning up `xs ++ []` to `xs` in each
-    -- field via `++ₗ-identityʳ`.  The 7th arg covers the new
-    -- TVD-chunk contribution `acc-VT.rawValueDescs ≡ rvds ++ []`.
+    -- Per-field cong helper for cleaning up `xs ++ []` to `xs` in each
+    -- bucket via `++ₗ-identityʳ`.  The `signalErrors` slot needs no
+    -- cleanup — no typed-shadow chunk ever conses onto it, so it stays
+    -- `[]` on both sides.
     cong-mkCollectedTop :
         ∀ {a a' b b' c c' dd dd' e e' f f' g g' h h'} →
         a ≡ a' → b ≡ b' → c ≡ c' → dd ≡ dd' → e ≡ e' → f ≡ f' → g ≡ g' → h ≡ h'
-      → mkCollectedTop a b c dd e f g h ≡ mkCollectedTop a' b' c' dd' e' f' g' h'
+      → mkCollectedTop a b c dd e f g h [] ≡ mkCollectedTop a' b' c' dd' e' f' g' h' []
     cong-mkCollectedTop refl refl refl refl refl refl refl refl = refl
 
     final-eq :
         acc-VT
-      ≡ mkCollectedTop (map clearBothMsg msgs) vts evs cms (map (rawOf defs) attrs) sgs rvds rmss
+      ≡ mkCollectedTop (map clearBothMsg msgs) vts evs cms (map (rawOf defs) attrs) sgs rvds rmss []
     final-eq = cong-mkCollectedTop
                  (++ₗ-identityʳ (map clearBothMsg msgs))
                  (++ₗ-identityʳ vts)
@@ -421,7 +423,7 @@ partitionTopStmts-bridge defs d =
     compose :
         foldr consTop emptyCollected
               (map (liftTopStmt defs) (toTopStmtsTyped d))
-      ≡ mkCollectedTop (map clearBothMsg msgs) vts evs cms (map (rawOf defs) attrs) sgs rvds rmss
+      ≡ mkCollectedTop (map clearBothMsg msgs) vts evs cms (map (rawOf defs) attrs) sgs rvds rmss []
     compose =
       trans (cong (foldr consTop emptyCollected) map-distrib)
         (trans foldr-app-bridge

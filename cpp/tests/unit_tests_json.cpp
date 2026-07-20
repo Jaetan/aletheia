@@ -1706,7 +1706,9 @@ TEST_CASE("parse_dbc_response rejects a non-boolean extended flag",
     CHECK_FALSE(detail::parse_dbc_response(j.dump()).has_value());
 }
 
-// signal startBit 0-511 / length 1-64
+// signal startBit 0-511 / length 1-512 (the type-level ceiling: the largest
+// CAN-FD frame; per-frame fit is the kernel's entry-gate check, not the
+// decoder's)
 TEST_CASE("parse_dbc_response rejects out-of-range startBit/length",
           "[json][parse][dbc][validation]") {
     auto reject = [](const char* field, int value) {
@@ -1723,8 +1725,8 @@ TEST_CASE("parse_dbc_response rejects out-of-range startBit/length",
     CHECK(accept("startBit", 511)); // boundary
     CHECK(reject("length", 0));
     CHECK(accept("length", 1)); // minimum valid length (lower boundary)
-    CHECK(reject("length", 65));
-    CHECK(accept("length", 64)); // CAN-FD boundary
+    CHECK(reject("length", 513));
+    CHECK(accept("length", 512)); // full-frame CAN-FD boundary
 }
 
 // explicit presence discriminator (unknown / missing rejected)
@@ -1992,14 +1994,14 @@ TEST_CASE("parse_dbc_response lifts a status=error envelope", "[json][parse][err
 // its malformed branches (the real-FFI integration tests never emit these).
 TEST_CASE("parse_dbc_text_response decodes a success response with issues", "[json][parse]") {
     auto r = detail::parse_dbc_text_response(
-        R"({"status":"success","text":"VERSION \"\"\n","issues":[{"severity":"warning","code":"big_endian_msb_layout","detail":"be"}]})");
+        R"({"status":"success","text":"VERSION \"\"\n","issues":[{"severity":"warning","code":"multi_value_mux_selector","detail":"mux"}]})");
     REQUIRE(r.has_value());
     CHECK(r->text == "VERSION \"\"\n");
     REQUIRE(r->issues.size() == 1);
     CHECK(r->issues[0].severity == IssueSeverity::Warning);
-    CHECK(r->issues[0].code == IssueCode::BigEndianMsbLayout);
-    CHECK(r->issues[0].code_raw == "big_endian_msb_layout");
-    CHECK(r->issues[0].detail == "be");
+    CHECK(r->issues[0].code == IssueCode::MultiValueMuxSelector);
+    CHECK(r->issues[0].code_raw == "multi_value_mux_selector");
+    CHECK(r->issues[0].detail == "mux");
 }
 
 TEST_CASE("parse_dbc_text_response defaults an absent issues field to empty", "[json][parse]") {

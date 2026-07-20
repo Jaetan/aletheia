@@ -374,6 +374,77 @@ func TestCrossBinding_IdentifierOverMaxRejected(t *testing.T) {
 	}
 }
 
+// TestCrossBinding_GeometryGateRefusesOutOfFrameStartBit asserts the shared
+// entry gate refuses out-of-capacity geometry on the JSON route with a typed
+// parse error naming the submitted value (mirrors Python's
+// TestGeometryGateParity and the C++ [parse_error] integration cases).
+func TestCrossBinding_GeometryGateRefusesOutOfFrameStartBit(t *testing.T) {
+	c := newCrossBindingClient(t)
+	sid, _ := NewStandardID(256)
+	d, _ := NewDLC(1)
+	dbc := DBCDefinition{
+		Version: "1.0",
+		Messages: []DBCMessage{{
+			ID: sid, Name: "Tiny", DLC: d, Sender: "ECU",
+			Signals: []DBCSignal{{
+				Name:      "OutOfFrame",
+				StartBit:  8, // first bit past the 1-byte frame
+				BitLength: 8,
+				ByteOrder: LittleEndian,
+				Factor:    Rational{Numerator: 1, Denominator: 1},
+				Offset:    Rational{Numerator: 0, Denominator: 1},
+				Minimum:   Rational{Numerator: 0, Denominator: 1},
+				Maximum:   Rational{Numerator: 255, Denominator: 1},
+				Presence:  AlwaysPresent{},
+			}},
+		}},
+	}
+	_, err := c.ParseDBC(context.Background(), dbc)
+	if err == nil {
+		t.Fatal("expected the entry gate to refuse an out-of-frame start bit")
+	}
+	var aErr *Error
+	if !errors.As(err, &aErr) {
+		t.Fatalf("expected *aletheia.Error, got %T: %v", err, err)
+	}
+	if aErr.Code != CodeParseSignalStartBitExceedsFrame {
+		t.Errorf("Code = %q, want %q", aErr.Code, CodeParseSignalStartBitExceedsFrame)
+	}
+	if !strings.Contains(aErr.Message, "8") {
+		t.Errorf("Message = %q, want it to name the submitted start bit", aErr.Message)
+	}
+}
+
+// TestCrossBinding_MotorolaFullFrameClosure pins kernel closure under its own
+// emission for the textbook Motorola layout: a full-frame big-endian signal
+// (MSB at bit 7, descending through the whole DLC-2 frame) loads on the text
+// route and the SAME document is accepted back by the JSON route.
+func TestCrossBinding_MotorolaFullFrameClosure(t *testing.T) {
+	c := newCrossBindingClient(t)
+	ctx := context.Background()
+	text := "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: Engine\n\n" +
+		"BO_ 100 Msg: 2 Engine\n" +
+		" SG_ Sig : 7|16@0+ (1,0) [0|0] \"\" Engine\n"
+	loaded, err := c.ParseDBCText(ctx, text)
+	if err != nil {
+		t.Fatalf("ParseDBCText: %v", err)
+	}
+	sig := loaded.DBC.Messages[0].Signals[0]
+	if sig.StartBit != 7 || sig.BitLength != 16 {
+		t.Fatalf("text route: got bits[%d:%d], want bits[7:16]",
+			uint16(sig.StartBit), uint16(sig.BitLength))
+	}
+	echoed, err := c.ParseDBC(ctx, loaded.DBC)
+	if err != nil {
+		t.Fatalf("JSON route must accept the text-loaded document: %v", err)
+	}
+	sig = echoed.DBC.Messages[0].Signals[0]
+	if sig.StartBit != 7 || sig.BitLength != 16 {
+		t.Errorf("JSON route: got bits[%d:%d], want bits[7:16]",
+			uint16(sig.StartBit), uint16(sig.BitLength))
+	}
+}
+
 // TestCrossBinding_ErrorTypeShape asserts that *aletheia.Error has the
 // documented field set when surfaced (mirrors Python's
 // test_error_response_keys_when_observed_directly).

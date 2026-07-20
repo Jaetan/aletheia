@@ -6,7 +6,7 @@
 --
 -- `emitMessage-chars msg ++ outer` starts with 'B'∷'O'∷'_'∷' ', so
 -- parseTopStmt reduces to its BO-bucket:
--- `(parseBOTxBu >>= λ rms → pure (TSBOTxBu rms)) <|> (parseMessage >>= λ m → pure (TSMessage m))`.
+-- `(parseBOTxBu >>= λ rms → pure (TSBOTxBu rms)) <|> (parseMessage >>= λ em → pure (foldMessage em))`.
 --
 -- parseBOTxBu (the Format-DSL parser) opens with the `"BO_TX_BU_"`
 -- literal (char 3 = 'T'); on the emitter's `'B'∷'O'∷'_'∷' '∷…` it fails at
@@ -19,6 +19,7 @@ open import Data.List  using (List)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just; nothing)
 open import Data.Product using (proj₂)
+open import Data.Sum using (inj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans)
 
@@ -28,7 +29,7 @@ open import Aletheia.Parser.Combinators using
 
 open import Aletheia.DBC.Types using (DBCMessage; clearBothMsg)
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TSMessage; TSBOTxBu; parseTopStmt; parseBOTxBu)
+  (TSMessage; TSBOTxBu; foldMessage; parseTopStmt; parseBOTxBu)
 open import Aletheia.DBC.TextParser.Topology using
   (parseMessage)
 
@@ -61,7 +62,7 @@ parseTopStmt-on-emit-TM-eq :
                      outer)
 parseTopStmt-on-emit-TM-eq pos msg outer wf nl-stop =
   trans (alt-right-nothing (parseBOTxBu >>= λ rms → pure (TSBOTxBu rms))
-                            (parseMessage >>= λ m → pure (TSMessage m))
+                            (parseMessage >>= λ em → pure (foldMessage em))
                             pos input
                             botxbu-fail)
         alt-msg-eq
@@ -75,10 +76,11 @@ parseTopStmt-on-emit-TM-eq pos msg outer wf nl-stop =
     botxbu-fail : proj₂ ((parseBOTxBu >>= λ rms → pure (TSBOTxBu rms)) pos input) ≡ nothing
     botxbu-fail = refl
 
-    p-msg-eq : proj₂ (parseMessage pos input) ≡ just (mkResult (clearBothMsg msg) pos-msg outer)
+    p-msg-eq : proj₂ (parseMessage pos input)
+             ≡ just (mkResult (inj₂ (clearBothMsg msg)) pos-msg outer)
     p-msg-eq = parseMessage-roundtrip-bundled pos msg outer wf nl-stop
 
-    alt-msg-eq : proj₂ ((parseMessage >>= λ m → pure (TSMessage m)) pos input)
+    alt-msg-eq : proj₂ ((parseMessage >>= λ em → pure (foldMessage em)) pos input)
                  ≡ just (mkResult (TSMessage (clearBothMsg msg)) pos-msg outer)
-    alt-msg-eq = bind-just-step parseMessage (λ m → pure (TSMessage m))
-                   pos input (clearBothMsg msg) pos-msg outer p-msg-eq
+    alt-msg-eq = bind-just-step parseMessage (λ em → pure (foldMessage em))
+                   pos input (inj₂ (clearBothMsg msg)) pos-msg outer p-msg-eq

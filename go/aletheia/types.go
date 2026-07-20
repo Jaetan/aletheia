@@ -120,15 +120,18 @@ func NewBitPosition(v uint16) (BitPosition, error) {
 	return BitPosition(v), nil
 }
 
-// BitLength is a signal length in bits (1-64). Use [NewBitLength] to create one.
-type BitLength uint8
+// BitLength is a signal length in bits (1-512). Use [NewBitLength] to create one.
+type BitLength uint16
 
-// MaxBitLength is the largest valid signal length in bits for a CAN-FD frame.
-// Use it to validate external data before calling [NewBitLength].
-const MaxBitLength = 64
+// MaxBitLength is the largest valid signal length in bits for a CAN-FD frame
+// (64 bytes × 8 bits). Use it to validate external data before calling
+// [NewBitLength]. Whether a signal actually fits its containing message's
+// frame is the kernel's authoritative check at DBC entry; this constant is
+// only the type-level ceiling no frame could ever exceed.
+const MaxBitLength = 512
 
-// NewBitLength creates a validated BitLength. Returns an error if v < 1 or v > 64.
-func NewBitLength(v uint8) (BitLength, error) {
+// NewBitLength creates a validated BitLength. Returns an error if v < 1 or v > 512.
+func NewBitLength(v uint16) (BitLength, error) {
 	if v < 1 || v > MaxBitLength {
 		return 0, validationError(fmt.Sprintf("bit length %d out of range [1, %d]", v, MaxBitLength))
 	}
@@ -157,7 +160,7 @@ const MaxExtendedID = 1<<29 - 1
 //
 // The asymmetry between StandardID/ExtendedID exposing values via a
 // Value() uint32 method while primitive typedefs (BitPosition uint16,
-// BitLength uint8, etc.) use direct conversion (uint16(bp), uint8(bl))
+// BitLength uint16, etc.) use direct conversion (uint16(bp), uint16(bl))
 // is intentional and structural, not naming.
 // StandardID/ExtendedID wrap an unexported field (enforces NewStandardID
 // validation; raw construction is unrepresentable), so Value() is the only

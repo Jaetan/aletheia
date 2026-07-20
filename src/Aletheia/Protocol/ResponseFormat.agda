@@ -37,7 +37,7 @@ open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   DuplicateAttributeName; UnknownCommentTarget; UnknownMessageSender;
   UnknownSignalReceiver; UnknownValueDescriptionTarget;
   TextRoundTripDivergence; MultiValueMuxSelector; MuxMasterIncoherent;
-  BigEndianMSBLayout; UnknownAttributeName; AttributeValueTypeMismatch;
+  UnknownAttributeName; AttributeValueTypeMismatch;
   AttributeEnumEmpty; AttributeEnumDefaultUnstable;
   ValidationIssue)
 open import Aletheia.DBC.Validator using (hasAnyError)
@@ -126,7 +126,6 @@ formatIssueCode UnknownValueDescriptionTarget = "unknown_value_description_targe
 formatIssueCode TextRoundTripDivergence       = "text_roundtrip_divergence"
 formatIssueCode MultiValueMuxSelector         = "multi_value_mux_selector"
 formatIssueCode MuxMasterIncoherent           = "mux_master_incoherent"
-formatIssueCode BigEndianMSBLayout            = "big_endian_msb_layout"
 formatIssueCode UnknownAttributeName          = "unknown_attribute_name"
 formatIssueCode AttributeValueTypeMismatch    = "attribute_value_type_mismatch"
 formatIssueCode AttributeEnumEmpty            = "attribute_enum_empty"

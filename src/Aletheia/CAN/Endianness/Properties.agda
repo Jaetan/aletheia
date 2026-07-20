@@ -41,6 +41,14 @@ open import Aletheia.CAN.Endianness.Properties.StartBit public using
   ; physicalBitPos-BE-involutive
   ; convertStartBit-roundtrip
   ; unconvertStartBit-roundtrip
+  ; fits⇒∸<
+  ; fits⇒1≤n
+  ; fits⇒bl≤cap
+  ; startBitInFrame⇒1≤n
+  ; convertStartBit-BE-fits
+  ; convertStartBit-BE-inFrame
+  ; unconvertSB-BE-inFrame
+  ; unconvertSB-BE-noWrap
   )
 
 -- Cross-byte-order bit preservation and mixed-order commutativity

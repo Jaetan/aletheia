@@ -51,21 +51,21 @@ open import Data.String as String using (String; fromList) renaming (_++_ to _++
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
-open import Data.Nat using (ℕ; suc; _%_; _≤ᵇ_; _+_; _<ᵇ_; _∸_; _*_)
+open import Data.Nat using (ℕ; suc; _+_; _<ᵇ_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
-open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max; max-physical-bits)
-open import Aletheia.Prelude using (require; _>>=ₑ_; ifᵀ_then_else_; mapₑ)
+open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
+open import Aletheia.DBC.Decidable.SignalGeometry using (geometryRefusal)
+open import Aletheia.Prelude using (require; _>>=ₑ_; ifᵀ_then_else_; mapₑ; lookupByKey)
 open import Aletheia.Error using
-  ( Error; ParseErr; InputBoundExceeded; WithContext
+  ( Error; ParseError; ParseErr; InputBoundExceeded; WithContext
   ; MissingField; InvalidByteOrder; InvalidPresence
   ; MissingSigned; InvalidSigned; NotAnObject; ExtCANIdOutOfRange
   ; StdCANIdOutOfRange; DefaultCANIdOutOfRange; InvalidDLCBytes
   ; RootNotObject; MissingSignalName; InContext
-  ; SignalBitLengthZero; SignalOverflowsFrame; SignalMSBBelowBitLength
   ; InvalidKind; NonTerminatingRational; InvalidIdentifier
-  ; NonIntegerMultiplexValue
+  ; NonIntegerMultiplexValue; NonNaturalField
   )
 open import Aletheia.Limits using (IdentifierLength; max-identifier-length)
 open import Aletheia.DBC.DecRat using (DecRat; fromℚ?)
@@ -238,41 +238,45 @@ parseValueEntry obj =
 parseValueEntryList : List JSON → Error ⊎ List (ℕ × List Char)
 parseValueEntryList = parseObjectList "valueEntry" parseValueEntry 0
 
--- Physical-validity gate (BigEndian signals only).
--- Both byte orders require `bitLength ≥ 1` — parse-time rejection of
--- zero-length signals (previously LE-permissive with the validator
--- catching the violation post-parse;
--- the validator path stays as defense-in-depth but is unreachable from
--- any parse-driven external entry point now).
--- BE signals additionally satisfy two BE-roundtrip constraints:
---   • startBit + bitLength − 1 < frameBytes * 8       (signal fits in the frame)
---   • bitLength − 1 ≤ startBit                        (BE LSB is below the MSB)
--- Defined as a top-level function (not where-bound) so SignalWF proofs can
--- case-split on the byte order without crossing a private where-scope.
+-- Geometry-field lookup: distinguishes an absent key (`MissingField`) from
+-- a present value that is not a JSON natural number (`NonNaturalField`), so
+-- a negative or fractional startBit/length is reported truthfully instead
+-- of as a missing field.
+lookupNatStrict : String → List (String × JSON) → Error ⊎ ℕ
+lookupNatStrict key obj with lookupByKey key obj
+... | nothing = inj₁ (ParseErr (MissingField key))
+... | just v with getNat v
+...   | nothing = inj₁ (ParseErr (NonNaturalField key))
+...   | just n  = inj₂ n
+
+-- Signal-geometry entry gate, JSON envelope.  Runs the shared gate core
+-- `SignalGeometry.geometryRefusal` on the RAW (pre-conversion) geometry
+-- against the containing message's frame capacity and wraps any refusal
+-- as `ParseErr` (the text route's `buildSignal` wraps the SAME core's
+-- refusal as `SignalGeometryError`).  The caller passes the record
+-- already carrying the converted geometry; the gate scrutinizes only the
+-- raw values.  `finishGate` is a top-level Maybe-eliminator (not `with`)
+-- so roundtrip proofs can rewrite the `geometryRefusal` result and let
+-- the application reduce.
+finishGate : Maybe ParseError → DBCSignal → Error ⊎ DBCSignal
+finishGate (just pe) _   = inj₁ (ParseErr pe)
+finishGate nothing   sig = inj₂ sig
+
 physicalGate : ℕ → ByteOrder → ℕ → ℕ → DBCSignal → Error ⊎ DBCSignal
-physicalGate _         LittleEndian _   bl sig =
-  ifᵀ 1 ≤ᵇ bl
-    then (λ _ → inj₂ sig)
-    else inj₁ (ParseErr SignalBitLengthZero)
-physicalGate frameBytes BigEndian   csb bl sig =
-  ifᵀ 1 ≤ᵇ bl
-    then (λ _ →
-      ifᵀ csb + bl ∸ 1 <ᵇ frameBytes * 8
-        then (λ _ →
-          ifᵀ bl ∸ 1 ≤ᵇ csb
-            then (λ _ → inj₂ sig)
-            else inj₁ (ParseErr (SignalMSBBelowBitLength csb bl)))
-        else inj₁ (ParseErr (SignalOverflowsFrame csb bl frameBytes)))
-    else inj₁ (ParseErr SignalBitLengthZero)
+physicalGate frameBytes bo sb bl sig =
+  finishGate (geometryRefusal frameBytes bo sb bl) sig
 
 -- Parse signal fields from JSON (extracted from parseSignal where-block so proofs can case-split).
--- frameBytes: the message's DLC byte count, used for convertStartBit on BE signals.
+-- frameBytes: the message's DLC byte count — the geometry bound (capacity =
+-- frameBytes * 8) and the convertStartBit frame parameter for BE signals.
 -- `name` is the already-extracted signal name as `List Char`.
+-- The submitted startBit/length reach the gate UNMODIFIED (no modulo
+-- normalization): out-of-capacity geometry is refused, never clamped.
 parseSignalFields : ℕ → String → List Char → List (String × JSON) → Error ⊎ DBCSignal
 parseSignalFields frameBytes ctx name obj =
   addSignalContext ctx (
-    require (ParseErr (MissingField "startBit")) (lookupNat "startBit" obj) >>=ₑ λ startBit →
-    require (ParseErr (MissingField "length")) (lookupNat "length" obj) >>=ₑ λ bitLength →
+    lookupNatStrict "startBit" obj >>=ₑ λ startBit →
+    lookupNatStrict "length" obj >>=ₑ λ bitLength →
     require (ParseErr (MissingField "byteOrder")) (lookupChars "byteOrder" obj) >>=ₑ λ byteOrderChars →
     parseByteOrder byteOrderChars >>=ₑ λ byteOrder →
     parseSigned obj >>=ₑ λ isSigned →
@@ -286,14 +290,11 @@ parseSignalFields frameBytes ctx name obj =
     parseOptionalArray parseValueEntryList (lookupArray "valueDescriptions" obj) >>=ₑ λ vds →
     validateIdent name >>=ₑ λ nameId →
     validateIdentList receivers >>=ₑ λ receiverIds →
-    let sb  = startBit % max-physical-bits
-        bl  = bitLength % (1 + max-physical-bits)
-        csb = convertStartBit frameBytes byteOrder sb bl
-    in physicalGate frameBytes byteOrder csb bl (record
+    physicalGate frameBytes byteOrder startBit bitLength (record
       { name = nameId
       ; signalDef = record
-          { startBit = csb
-          ; bitLength = bl
+          { startBit = convertStartBit frameBytes byteOrder startBit bitLength
+          ; bitLength = bitLength
           ; isSigned = isSigned
           ; factor = factor
           ; offset = offset

@@ -9,29 +9,25 @@
 -- Role: Foundation layer for SignalRoundtrip and MessageRoundtrip proofs.
 module Aletheia.DBC.Formatter.WellFormed where
 
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; z≤n; s≤s; _/_; _%_)
-open import Data.Nat.DivMod using (m%n<n)
+open import Data.Nat using (ℕ; suc; _+_; _*_; _<_; _≤_)
 open import Data.Nat.Divisibility using (1∣_; _∣?_)
-open import Data.Nat.Properties using (<-≤-trans; *-monoˡ-≤)
 open import Data.Integer using (+_; -[1+_])
-open import Data.List using ()
 open import Data.List.Relation.Unary.All using (All)
 open import Data.Empty as Empty using (⊥-elim)
 open import Data.Maybe using (just)
 open import Data.Sum using (inj₂)
 open import Relation.Nullary using (yes; no)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong; subst)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.DBC.Formatter using (ℕtoJSON; ℤtoJSON; formatByteOrder)
 open import Aletheia.DBC.JSONParser using (parseByteOrder)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Endianness using (LittleEndian; BigEndian; unconvertStartBit)
-open import Aletheia.CAN.Endianness.Properties using (physicalBitPos-BE-bounded-any)
+open import Aletheia.CAN.Endianness using (LittleEndian; BigEndian)
 open import Aletheia.JSON using (getNat; getInt)
 open import Aletheia.JSON.Properties using (getNat-ℕtoℚ)
-open import Aletheia.CAN.Constants using (max-physical-bits; 8≤max-physical-bits)
+open import Aletheia.CAN.Constants using (max-physical-bits)
 
 
 -- ============================================================================
@@ -52,32 +48,38 @@ record WellFormedMessage (m : DBCMessage) : Set where
     dlc-bound  : dlcBytes (DBCMessage.dlc m) ≤ 64
     signals-wf : All WellFormedSignal (DBCMessage.signals m)
 
--- Additional constraints on a signal within a frame, needed for the BigEndian
--- unconvert→convert roundtrip AND for parse-time bit-length-positivity
--- (LE bl=0 is rejected at the JSON parse boundary, completing BE-LE
--- parity).
+-- Frame-capacity constraints on a signal's INTERNAL (post-conversion)
+-- geometry — exactly what the entry gates (`JSONParser.physicalGate`,
+-- `TextParser.Topology.SignalLine.buildSignal`) establish, and what the
+-- emit→re-parse roundtrips consume.
 --
--- BE signals carry three constraints:
---   • len-pos       — bitLength ≥ 1 (signals must occupy at least one bit).
---   • fits-in-frame — startBit + bitLength − 1 < frameBytes * 8.
---   • msb-ge-len    — bitLength − 1 ≤ startBit (the BE LSB is below the MSB).
+-- LE signals carry the three linear-form conditions the gate checks
+-- directly (internal geometry = raw geometry for LE):
+--   • len-pos     — bitLength ≥ 1 (signals must occupy at least one bit).
+--   • sb-in-frame — startBit < frameBytes * 8.
+--   • bl-in-frame — bitLength ≤ frameBytes * 8.
 --
--- LE signals carry the len-pos constraint only.  `msb-ge-len` and
--- `fits-in-frame` would reject most real LE signals (a typical 8-bit LE
--- signal at startBit 0 has `msb = 7 > 0 = startBit`); the unconvert→convert
--- roundtrip is the identity for LE so neither is needed.
+-- BE signals carry len-pos plus the fits conjunct
+--   • fits-in-frame — startBit + bitLength ≤ frameBytes * 8
+-- (the `Validity.BitsInFrame` form, decided by the shared
+-- `SignalGeometry.signalFitsFrame?`).  The raw-side gate conditions
+-- (MSB in frame + no-wrap) imply it via `convertStartBit-BE-fits`, and it
+-- alone drives the unconvert→convert roundtrip
+-- (`unconvertStartBit-roundtrip`) — the internal start/length bounds
+-- follow from it, so BE needs no separate linear conjuncts.  The former
+-- MSB-layout conjunct (`bitLength − 1 ≤ startBit`, post-conversion) is
+-- gone: it was never consumed by the roundtrip and falsely excluded
+-- textbook Motorola layouts whose internal run starts near bit 0.
 data PhysicallyValid (frameBytes : ℕ) (s : DBCSignal) : Set where
-  -- LE signals: still require bitLength ≥ 1 (parse-time gate matches BE).
   pv-LE : DBCSignal.byteOrder s ≡ LittleEndian
         → 1 ≤ SignalDef.bitLength (DBCSignal.signalDef s)
+        → SignalDef.startBit (DBCSignal.signalDef s) < frameBytes * 8
+        → SignalDef.bitLength (DBCSignal.signalDef s) ≤ frameBytes * 8
         → PhysicallyValid frameBytes s
-  -- BE signals: three constraints needed for unconvert→convert roundtrip.
   pv-BE : DBCSignal.byteOrder s ≡ BigEndian
         → 1 ≤ SignalDef.bitLength (DBCSignal.signalDef s)
         → SignalDef.startBit (DBCSignal.signalDef s) +
-          SignalDef.bitLength (DBCSignal.signalDef s) ∸ 1 < frameBytes * 8
-        → SignalDef.bitLength (DBCSignal.signalDef s) ∸ 1 ≤
-          SignalDef.startBit (DBCSignal.signalDef s)
+          SignalDef.bitLength (DBCSignal.signalDef s) ≤ frameBytes * 8
         → PhysicallyValid frameBytes s
 
 -- Full well-formedness for message roundtrip: WellFormedMessage plus
@@ -148,35 +150,3 @@ byteOrder-roundtrip : ∀ bo → parseByteOrder (formatByteOrder bo) ≡ inj₂ 
 byteOrder-roundtrip LittleEndian = refl
 byteOrder-roundtrip BigEndian = refl
 
--- ============================================================================
--- UNCONVERT STARTBIT BOUNDS
--- ============================================================================
-
--- unconvertStartBit n _ s l < max-physical-bits when n ≤ 64.
--- LE case: unconvertStartBit _ LE s _ = s, and s < max-physical-bits from WellFormedSignalDef.
--- BE case (suc n): physicalBitPos (suc n) BE x < (suc n)*8 ≤ 64*8 = max-physical-bits.
--- BE case (zero): physicalBitPos 0 BE x = (0∸(x/8))*8 + x%8 = x%8 < 8 ≤ max-physical-bits.
-unconvertSB-bound : ∀ n s l → n ≤ 64 → s < max-physical-bits
-  → unconvertStartBit n LittleEndian s l < max-physical-bits
-unconvertSB-bound _ s _ _ s<mpb = s<mpb
-
-private
-  0∸x≡0 : ∀ m → 0 ∸ m ≡ 0
-  0∸x≡0 zero    = refl
-  0∸x≡0 (suc _) = refl
-
-unconvertSB-bound-BE-zero : ∀ s l → unconvertStartBit 0 BigEndian s l < max-physical-bits
-unconvertSB-bound-BE-zero s l = bound
-  where
-    x = s + l ∸ 1
-    eq : unconvertStartBit 0 BigEndian s l ≡ x % 8
-    eq = cong (λ v → v * 8 + x % 8) (0∸x≡0 (x / 8))
-    bound : unconvertStartBit 0 BigEndian s l < max-physical-bits
-    bound = subst (_< max-physical-bits) (sym eq) (<-≤-trans (m%n<n x 8) 8≤max-physical-bits)
-
-unconvertSB-bound-BE : ∀ n s l → n ≤ 64
-  → unconvertStartBit n BigEndian s l < max-physical-bits
-unconvertSB-bound-BE zero s l _ = unconvertSB-bound-BE-zero s l
-unconvertSB-bound-BE (suc n') s l n≤64 =
-  <-≤-trans (physicalBitPos-BE-bounded-any (suc n') (s + l ∸ 1) (s≤s z≤n))
-            (*-monoˡ-≤ 8 n≤64)

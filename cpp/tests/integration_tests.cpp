@@ -1642,18 +1642,15 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
 }
 
 // ---------------------------------------------------------------------------
-// Parse error codes from the PhysicallyValid gate (2026-04-08, 2026-05-15)
+// Parse error codes from the signal-geometry entry gate
 // ---------------------------------------------------------------------------
-// The JSON parser enforces PhysicallyValid at parse time via
-// DBC/JSONParser.agda's physicalGate. Both byte orders require
-// bitLength ≥ 1 (LE was previously permissive on bl=0, deferring to the
-// validator's BitLengthZero warning — now uniformly rejected at the parse
-// boundary, completing BE-LE parity).
-// BE additionally enforces two roundtrip-shape constraints:
-//   • bitLength ≥ 1                     → SignalBitLengthZero (BE + LE)
-//   • csb + bl − 1 < frameBytes * 8      → SignalOverflowsFrame (BE only)
-//   • bl − 1 ≤ csb                      → SignalMSBBelowBitLength (BE only)
-// where csb = convertStartBit(frameBytes, BE, startBit, bitLength).
+// The JSON parser refuses out-of-capacity signal geometry at parse time via
+// the shared gate (DBC/Decidable/SignalGeometry.agda's geometryRefusal,
+// applied to the SUBMITTED pre-conversion values against dlcBytes * 8):
+//   • bitLength ≥ 1                     → SignalBitLengthZero
+//   • startBit < frameBytes * 8         → SignalStartBitExceedsFrame
+//   • bitLength ≤ frameBytes * 8        → SignalBitLengthExceedsFrame
+//   • no wrap past the frame end        → SignalBigEndianOverflow (BE only)
 // These tests verify the C++ binding surfaces each parse error code via
 // AletheiaError::code() when feeding a malformed DBC through the real FFI.
 
@@ -1662,7 +1659,7 @@ namespace {
 // Minimal DBC helper that wraps a single signal of the given byte order
 // inside a one-message DBC. Callers supply the signal's start_bit,
 // bit_length, byte order, and the message DLC.
-auto make_single_signal_dbc(std::uint16_t start_bit, std::uint8_t bit_length, ByteOrder byte_order,
+auto make_single_signal_dbc(std::uint16_t start_bit, std::uint16_t bit_length, ByteOrder byte_order,
                             std::uint8_t dlc_bytes) -> DbcDefinition {
     DbcSignal sig{
         .name = SignalName{"Bad"},
@@ -1678,7 +1675,10 @@ auto make_single_signal_dbc(std::uint16_t start_bit, std::uint8_t bit_length, By
         .presence = AlwaysPresent{},
     };
     auto id = StandardId::create(0x100).value();
-    auto dlc = Dlc::create(dlc_bytes).value();
+    // dlc_bytes is a PAYLOAD byte count; Dlc::create takes the DLC CODE, so a
+    // CAN-FD size like 64 must go through the bytes→code mapping (they only
+    // coincide for classic-CAN sizes up to code 8).
+    auto dlc = bytes_to_dlc(dlc_bytes).value();
     return DbcDefinition{
         .version = "1.0",
         .messages = {DbcMessage{
@@ -1693,7 +1693,7 @@ auto make_single_signal_dbc(std::uint16_t start_bit, std::uint8_t bit_length, By
 
 // Convenience wrapper preserving the original `make_single_be_signal_dbc`
 // signature (used by the surrounding BE-specific test cases below).
-auto make_single_be_signal_dbc(std::uint16_t start_bit, std::uint8_t bit_length,
+auto make_single_be_signal_dbc(std::uint16_t start_bit, std::uint16_t bit_length,
                                std::uint8_t dlc_bytes) -> DbcDefinition {
     return make_single_signal_dbc(start_bit, bit_length, ByteOrder::BigEndian, dlc_bytes);
 }
@@ -1706,7 +1706,8 @@ TEST_CASE("parse DBC: BigEndian signal with length=0 → parse_signal_bit_length
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    // BE signal, length=0 → physicalGate's `1 ≤ᵇ bl` check fails → SignalBitLengthZero.
+    // BE signal, length=0 → the shared geometry gate's positive-length
+    // condition fails → SignalBitLengthZero.
     auto dbc = make_single_be_signal_dbc(/*start_bit=*/7, /*bit_length=*/0, /*dlc_bytes=*/1);
 
     auto result = client.parse_dbc(std::stop_token{}, dbc);
@@ -1721,8 +1722,8 @@ TEST_CASE("parse DBC: LittleEndian signal with length=0 → parse_signal_bit_len
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    // LE signal, length=0 → physicalGate's `1 ≤ᵇ bl` check fails →
-    // SignalBitLengthZero (completes BE-LE parity).
+    // LE signal, length=0 → the shared geometry gate's positive-length
+    // condition fails → SignalBitLengthZero (identical for both byte orders).
     auto dbc = make_single_signal_dbc(/*start_bit=*/0, /*bit_length=*/0, ByteOrder::LittleEndian,
                                       /*dlc_bytes=*/1);
 
@@ -1732,52 +1733,111 @@ TEST_CASE("parse DBC: LittleEndian signal with length=0 → parse_signal_bit_len
     CHECK(result.error().kind() == ErrorKind::Protocol);
 }
 
-TEST_CASE("parse DBC: BigEndian signal overflowing frame → parse_signal_overflows_frame",
-          "[integration][parse_error]") {
-    auto lib = find_lib();
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
-
-    // BE signal: start_bit=7 (MSB of byte 0), length=33, dlc=4 → 32 bits of frame.
-    // physicalBitPos(4, BE, 7) = 31, csb = 31 ∸ 32 = 0 (monus),
-    // csb + bl − 1 = 32, 32 < 32 is false → SignalOverflowsFrame.
-    // Mirrors python/tests/test_dbc_validator.py::test_big_endian_signal_exceeds_dlc.
-    auto dbc = make_single_be_signal_dbc(/*start_bit=*/7, /*bit_length=*/33, /*dlc_bytes=*/4);
-
-    auto result = client.parse_dbc(std::stop_token{}, dbc);
-    REQUIRE_FALSE(result.has_value());
-    CHECK(result.error().code() == ErrorCode::ParseSignalOverflowsFrame);
-    CHECK(result.error().kind() == ErrorKind::Protocol);
-}
-
 TEST_CASE(
-    "parse DBC: BigEndian signal with MSB below bitLength → parse_signal_msb_below_bit_length",
+    "parse DBC: BigEndian signal wider than the frame → parse_signal_bit_length_exceeds_frame",
     "[integration][parse_error]") {
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    // BE signal: start_bit=0, length=2, dlc=1.
-    // physicalBitPos(1, BE, 0) = 0, csb = 0 ∸ 1 = 0 (monus),
-    // csb + bl − 1 = 1, 1 < 8 → passes overflow check,
-    // bl − 1 ≤ csb → 1 ≤ 0 is false → SignalMSBBelowBitLength.
+    // BE signal: start_bit=7 (MSB of byte 0), length=33, dlc=4 → 32 bits of
+    // frame.  The entry gate refuses the SUBMITTED length against the frame
+    // capacity (33 ≤ 32 fails), before any start-bit conversion.
+    // Mirrors python/tests/test_dbc_validator.py::test_big_endian_signal_exceeds_dlc.
+    auto dbc = make_single_be_signal_dbc(/*start_bit=*/7, /*bit_length=*/33, /*dlc_bytes=*/4);
+
+    auto result = client.parse_dbc(std::stop_token{}, dbc);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().code() == ErrorCode::ParseSignalBitLengthExceedsFrame);
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("parse DBC: BigEndian run past the frame end → parse_signal_big_endian_overflow",
+          "[integration][parse_error]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    // BE signal: start_bit=0, length=2, dlc=1.  The Motorola MSB anchor is
+    // the frame's LAST bit position (physicalBitPos(1, BE, 0) = 0), so a
+    // descending run of two bits leaves the frame — the pre-conversion
+    // no-wrap condition (bl − 1 ≤ physicalBitPos) fails and the gate
+    // refuses (the former post-conversion check would have silently
+    // relocated the run via the monus floor).
     auto dbc = make_single_be_signal_dbc(/*start_bit=*/0, /*bit_length=*/2, /*dlc_bytes=*/1);
 
     auto result = client.parse_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(result.has_value());
-    CHECK(result.error().code() == ErrorCode::ParseSignalMsbBelowBitLength);
+    CHECK(result.error().code() == ErrorCode::ParseSignalBigEndianOverflow);
     CHECK(result.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("parse DBC: out-of-frame start bit → parse_signal_start_bit_exceeds_frame",
+          "[integration][parse_error]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    // LE signal whose start bit is the first position past the 1-byte frame.
+    auto dbc = make_single_signal_dbc(/*start_bit=*/8, /*bit_length=*/8, ByteOrder::LittleEndian,
+                                      /*dlc_bytes=*/1);
+
+    auto result = client.parse_dbc(std::stop_token{}, dbc);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().code() == ErrorCode::ParseSignalStartBitExceedsFrame);
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("parse DBC: text-loaded Motorola full-frame signal is accepted back by the JSON route",
+          "[integration][parse_error]") {
+    // Kernel closure under its own emission: the textbook Motorola layout
+    // (MSB at bit 7, descending through the whole DLC-2 frame) loads on the
+    // text route, and the SAME document is accepted back by parse_dbc.
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    const std::string text = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: Engine\n\n"
+                             "BO_ 100 Msg: 2 Engine\n"
+                             " SG_ Sig : 7|16@0+ (1,0) [0|0] \"\" Engine\n";
+    auto loaded = client.parse_dbc_text(std::stop_token{}, text);
+    REQUIRE(loaded.has_value());
+    const auto& sig = loaded->dbc.messages.at(0).signals.at(0);
+    CHECK(sig.start_bit.get() == 7);
+    CHECK(sig.bit_length.get() == 16);
+
+    auto echoed = client.parse_dbc(std::stop_token{}, loaded->dbc);
+    CHECK(echoed.has_value());
+}
+
+TEST_CASE("parse DBC: full-frame CAN-FD signal decodes back through format_dbc",
+          "[integration][parse_error]") {
+    // A signal spanning the whole 64-byte frame is kernel-legal (the entry
+    // gate checks per-frame fit), so the binding's response decoder must
+    // accept the echo rather than re-rejecting it with a stale classic-CAN
+    // bit-length cap — the decode guard is only the type-level ceiling.
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    auto dbc = make_single_signal_dbc(/*start_bit=*/0, /*bit_length=*/512, ByteOrder::LittleEndian,
+                                      /*dlc_bytes=*/64);
+    REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
+
+    auto echoed = client.format_dbc(std::stop_token{});
+    REQUIRE(echoed.has_value());
+    const auto& sig = echoed->messages.at(0).signals.at(0);
+    CHECK(sig.start_bit.get() == 0);
+    CHECK(sig.bit_length.get() == 512);
 }
 
 TEST_CASE("validate DBC: LittleEndian signal with length=0 rejected at parse",
           "[integration][parse_error]") {
-    // Previously, LE signals passed through physicalGate unchanged and
-    // length=0 was caught downstream by the validator's
-    // IssueCode::BitLengthZero warning. The fix makes
-    // physicalGate's `1 ≤ᵇ bl` check fire for BOTH byte orders, so LE
-    // length=0 now surfaces as a parse error from validate_dbc — same
-    // behavior as BE (BE-LE parity completion). The validator check
-    // remains as defense-in-depth but is unreachable from the parse path.
+    // The shared geometry gate's positive-length condition fires for BOTH
+    // byte orders, so LE length=0 surfaces as a parse error from
+    // validate_dbc.  The validator's IssueCode::BitLengthZero arm remains
+    // as defense-in-depth but is proven unreachable from the public parse
+    // routes (Aletheia.DBC.Properties.GeometryGateDeadness).
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));

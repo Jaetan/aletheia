@@ -43,7 +43,7 @@ open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextParser.Senders using
   (RawMsgSenders; mkRawMsgSenders; collectSenders; prependSenders)
 open import Aletheia.DBC.TextParser.TopLevel using
-  (TopStmt; TSBOTxBu; TSMessage; parseTopStmt; parseBOTxBu; buildSendersResult)
+  (TopStmt; TSBOTxBu; foldMessage; parseTopStmt; parseBOTxBu; buildSendersResult)
 open import Aletheia.DBC.TextParser.Topology using (parseMessage)
 open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
 open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
@@ -201,7 +201,7 @@ parseTopStmt-on-emit-TBO-eq :
                      outer)
 parseTopStmt-on-emit-TBO-eq pos rms outer stop nl-stop =
   alt-left-just (parseBOTxBu  >>= λ r → pure (TSBOTxBu r))
-                (parseMessage >>= λ m → pure (TSMessage m))
+                (parseMessage >>= λ em → pure (foldMessage em))
                 pos input
                 (mkResult (TSBOTxBu rms) pos-bo outer)
                 left-success

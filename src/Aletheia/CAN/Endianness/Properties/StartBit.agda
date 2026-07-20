@@ -9,7 +9,11 @@
 -- Exports: vec/arithmetic helpers (used by CrossOrder), lookupSafe-swapBytes,
 --   physicalBitPos-BE-bounded, physicalBitPos-BE-bounded-any, physicalBitPos-BE-involutive,
 --   physicalBitPos-BE-div8, physicalBitPos-BE-mod8,
---   convertStartBit-wf-bound, convertStartBit-roundtrip, unconvertStartBit-roundtrip.
+--   convertStartBit-wf-bound, convertStartBit-roundtrip, unconvertStartBit-roundtrip,
+--   and the frame-capacity bridges consumed by the geometry entry gates
+--   (fits⇒∸<, fits⇒1≤n, fits⇒bl≤cap, startBitInFrame⇒1≤n,
+--   convertStartBit-BE-fits, convertStartBit-BE-inFrame,
+--   unconvertSB-BE-inFrame, unconvertSB-BE-noWrap).
 module Aletheia.CAN.Endianness.Properties.StartBit where
 
 open import Aletheia.CAN.Endianness using
@@ -22,7 +26,7 @@ open import Aletheia.CAN.Endianness using
 open import Aletheia.CAN.Frame using (Byte)
 open import Data.Vec using (Vec; []; _∷_; _∷ʳ_; reverse)
 open import Data.Vec.Properties using (reverse-involutive; reverse-∷)
-open import Data.Nat as Nat using (zero; suc; _+_; _∸_; _*_; _<_; _≤_; s≤s; _/_; _%_)
+open import Data.Nat as Nat using (zero; suc; _+_; _∸_; _*_; _<_; _≤_; s≤s; z≤n; _/_; _%_)
 open import Data.Nat.DivMod using (m%n<n; m<n⇒m%n≡m; m≡m%n+[m/n]*n; m<n*o⇒m/o<n; [m+n]%n≡m%n)
 open import Data.Nat.Properties using (_<?_; +-suc; +-comm; +-assoc; +-identityʳ; ≤-<-trans; ≤-antisym; ≮⇒≥; m∸n≤m; n∸n≡0; <-≤-trans; +-monoʳ-<; *-monoˡ-≤)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst)
@@ -236,10 +240,13 @@ convertStartBit-roundtrip n s (suc k) _ s<n*8 k≤p =
     open import Data.Nat.Properties using (m∸n+n≡m)
     p = physicalBitPos n BigEndian s
 
+-- No MSB-layout hypothesis: the once-bundled `l ∸ 1 ≤ s` premise was never
+-- used by the proof body — the involutivity step needs only the in-frame
+-- bound — so the signature carries exactly what the proof consumes.
 unconvertStartBit-roundtrip : ∀ n s l →
-  1 ≤ l → s + l ∸ 1 < n * 8 → l ∸ 1 ≤ s →
+  1 ≤ l → s + l ∸ 1 < n * 8 →
   convertStartBit n BigEndian (unconvertStartBit n BigEndian s l) l ≡ s
-unconvertStartBit-roundtrip n s (suc k) _ sk<n*8 k≤s =
+unconvertStartBit-roundtrip n s (suc k) _ sk<n*8 =
   begin
     physicalBitPos n BigEndian (physicalBitPos n BigEndian (s + suc k ∸ 1)) ∸ k
   ≡⟨ cong (λ x → physicalBitPos n BigEndian (physicalBitPos n BigEndian x) ∸ k) reduce ⟩
@@ -254,3 +261,69 @@ unconvertStartBit-roundtrip n s (suc k) _ sk<n*8 k≤s =
     open import Data.Nat.Properties using (m+n∸n≡m)
     reduce : s + suc k ∸ 1 ≡ s + k
     reduce = cong (_∸ 1) (+-suc s k)
+
+-- ============================================================================
+-- FRAME-CAPACITY BRIDGES (consumed by the geometry entry gates' proofs)
+-- ============================================================================
+
+-- The internal-form fits conjunct (`s + l ≤ n * 8`, PhysicallyValid pv-BE /
+-- Validity.BitsInFrame) implies the strict monus form that
+-- `unconvertStartBit-roundtrip` / `physicalBitPos-BE-involutive` consume.
+fits⇒∸< : ∀ n s l → 1 ≤ l → s + l ≤ n * 8 → s + l ∸ 1 < n * 8
+fits⇒∸< n s (suc k) _ fits rewrite +-suc s k = fits
+
+-- A frame that holds at least one signal bit is non-empty.
+fits⇒1≤n : ∀ n s l → 1 ≤ l → s + l ≤ n * 8 → 1 ≤ n
+fits⇒1≤n zero    s (suc k) _ fits with subst (_≤ 0) (+-suc s k) fits
+... | ()
+fits⇒1≤n (suc n) _ _       _ _    = s≤s z≤n
+
+-- A signal that fits the frame has bit length within the frame capacity.
+fits⇒bl≤cap : ∀ n s l → s + l ≤ n * 8 → l ≤ n * 8
+fits⇒bl≤cap n s l fits = ≤-trans (m≤n+m l s) fits
+  where open import Data.Nat.Properties using (≤-trans; m≤n+m)
+
+-- A start bit inside the frame forces a non-empty frame.
+startBitInFrame⇒1≤n : ∀ {n s} → s < n * 8 → 1 ≤ n
+startBitInFrame⇒1≤n {zero}  ()
+startBitInFrame⇒1≤n {suc n} _ = s≤s z≤n
+
+-- The entry gate's three raw-side conditions (positive length, MSB inside
+-- the frame, no wrap past the frame end) imply the internal-form fits
+-- conjunct: with no wrap, the monus in `convertStartBit` cannot floor, so
+-- the internal run ends exactly at the physical MSB position, which the
+-- in-frame bound keeps inside the frame.
+convertStartBit-BE-fits : ∀ n s l → 1 ≤ l → s < n * 8
+  → l ∸ 1 ≤ physicalBitPos n BigEndian s
+  → convertStartBit n BigEndian s l + l ≤ n * 8
+convertStartBit-BE-fits n s (suc k) _ s<n8 k≤p =
+  subst (_≤ n * 8) (sym run-eq)
+        (physicalBitPos-BE-bounded-any n s (startBitInFrame⇒1≤n s<n8))
+  where
+    open import Data.Nat.Properties using (m∸n+n≡m)
+    p = physicalBitPos n BigEndian s
+    run-eq : (p ∸ k) + suc k ≡ suc p
+    run-eq = trans (+-suc (p ∸ k) k) (cong suc (m∸n+n≡m k≤p))
+
+-- The internal (converted) start bit inherits the raw MSB's in-frame bound.
+convertStartBit-BE-inFrame : ∀ n s l → s < n * 8
+  → convertStartBit n BigEndian s l < n * 8
+convertStartBit-BE-inFrame n s l s<n8 =
+  ≤-<-trans (m∸n≤m (physicalBitPos n BigEndian s) (l ∸ 1))
+            (physicalBitPos-BE-bounded-any n s (startBitInFrame⇒1≤n s<n8))
+
+-- The formatter's emitted (raw) start bit lies inside the frame.
+unconvertSB-BE-inFrame : ∀ n s l → 1 ≤ n
+  → unconvertStartBit n BigEndian s l < n * 8
+unconvertSB-BE-inFrame n s l 1≤n = physicalBitPos-BE-bounded-any n (s + l ∸ 1) 1≤n
+
+-- The formatter's emitted (raw) start bit satisfies the entry gate's
+-- no-wrap condition: its physical MSB position is the internal run's end,
+-- which sits at least `l ∸ 1` bits into the frame.
+unconvertSB-BE-noWrap : ∀ n s l → 1 ≤ l → s + l ≤ n * 8
+  → l ∸ 1 ≤ physicalBitPos n BigEndian (unconvertStartBit n BigEndian s l)
+unconvertSB-BE-noWrap n s (suc k) lp fits
+  rewrite physicalBitPos-BE-involutive n (s + suc k ∸ 1) (fits⇒∸< n s (suc k) lp fits)
+        | +-suc s k
+  = m≤n+m k s
+  where open import Data.Nat.Properties using (m≤n+m)

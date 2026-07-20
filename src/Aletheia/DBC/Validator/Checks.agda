@@ -43,8 +43,9 @@ open import Aletheia.DBC.Types using
   ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
   )
 open import Aletheia.CAN.Frame using (CANId)
-open import Aletheia.CAN.Constants using (max-physical-bits)
 open import Aletheia.DBC.Decidable using (signalPairValid?)
+open import Aletheia.DBC.Decidable.SignalGeometry using
+  (startBitInFrame?; bitLengthInFrame?; signalFitsFrame?)
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_; findSignalInList)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
@@ -55,8 +56,8 @@ open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Bool using (Bool; true; false)
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _^_; _∸_; pred)
-open import Data.Nat.Properties using (_≤?_; _<?_; _≟_)
+open import Data.Nat using (ℕ; zero; suc; _^_; _∸_; pred)
+open import Data.Nat.Properties using (_≟_)
 open import Data.Maybe using (Maybe; just; nothing) renaming (map to mapₘ)
 open import Data.Rational using (ℚ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_)
 open import Aletheia.Prelude using (ℕtoℚ; fromℤ)
@@ -280,8 +281,9 @@ checkAllMinMax = liftPerSignal checkMinMaxSig
 
 checkSignalExceedsDLC : String → ℕ → DBCSignal → List ValidationIssue
 checkSignalExceedsDLC msgName dlc sig =
-  requireDec (SignalDef.startBit (DBCSignal.signalDef sig)
-              + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8)
+  requireDec (signalFitsFrame? dlc
+               (SignalDef.startBit (DBCSignal.signalDef sig))
+               (SignalDef.bitLength (DBCSignal.signalDef sig)))
              (mkIssue IsError SignalExceedsDLC
                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ signalNameStr sig
                 ++ₛ "': bit range exceeds DLC"))
@@ -416,29 +418,33 @@ checkAllEmptyMessage = concatMap checkEmptyMessage
 -- CHECK 15: START BIT OUT OF RANGE
 -- ============================================================================
 
-checkStartBitOutOfRange : String → DBCSignal → List ValidationIssue
-checkStartBitOutOfRange msgName sig =
-  requireDec (SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits)
+checkStartBitOutOfRange : String → ℕ → DBCSignal → List ValidationIssue
+checkStartBitOutOfRange msgName dlc sig =
+  requireDec (startBitInFrame? dlc (SignalDef.startBit (DBCSignal.signalDef sig)))
              (mkIssue IsWarning StartBitOutOfRange
                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ signalNameStr sig
-                ++ₛ "': start bit ≥ max-physical-bits"))
+                ++ₛ "': start bit is outside the frame capacity"))
 
 checkAllStartBitOutOfRange : List DBCMessage → List ValidationIssue
-checkAllStartBitOutOfRange = liftPerSignal checkStartBitOutOfRange
+checkAllStartBitOutOfRange = concatMap λ msg →
+  concatMap (checkStartBitOutOfRange (messageNameStr msg) (dlcBytes (DBCMessage.dlc msg)))
+            (DBCMessage.signals msg)
 
 -- ============================================================================
 -- CHECK 16: BIT LENGTH EXCESSIVE
 -- ============================================================================
 
-checkBitLengthExcessive : String → DBCSignal → List ValidationIssue
-checkBitLengthExcessive msgName sig =
-  requireDec (SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits)
+checkBitLengthExcessive : String → ℕ → DBCSignal → List ValidationIssue
+checkBitLengthExcessive msgName dlc sig =
+  requireDec (bitLengthInFrame? dlc (SignalDef.bitLength (DBCSignal.signalDef sig)))
              (mkIssue IsWarning BitLengthExcessive
                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ signalNameStr sig
-                ++ₛ "': bit length exceeds max-physical-bits"))
+                ++ₛ "': bit length exceeds the frame capacity"))
 
 checkAllBitLengthExcessive : List DBCMessage → List ValidationIssue
-checkAllBitLengthExcessive = liftPerSignal checkBitLengthExcessive
+checkAllBitLengthExcessive = concatMap λ msg →
+  concatMap (checkBitLengthExcessive (messageNameStr msg) (dlcBytes (DBCMessage.dlc msg)))
+            (DBCMessage.signals msg)
 
 -- ============================================================================
 -- CHECK 18: DUPLICATE ATTRIBUTE NAME (BA_DEF_ names only)
