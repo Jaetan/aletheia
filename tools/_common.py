@@ -92,8 +92,13 @@ def emit(message: str = "") -> None:
     A single chokepoint for tool output: keeps bare ``print`` out of the package
     (ruff ``T201``) while still sending results to stdout exactly as ``print``
     would.  Use this for normal output; diagnostics go to ``sys.stderr``.
+
+    Flushes per line: gate output is read live through pipes (the pre-push
+    hook, CI), where block buffering would otherwise hold lines back until the
+    buffer fills or the process exits.
     """
     _ = sys.stdout.write(message + "\n")
+    sys.stdout.flush()
 
 
 def sha256_file(path: Path) -> str:

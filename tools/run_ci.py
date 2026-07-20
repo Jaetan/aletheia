@@ -134,6 +134,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -142,7 +143,7 @@ from typing import TYPE_CHECKING, TextIO
 from tools._ci_steps import FAST_STEPS, HEAVY_STEPS, register_all_steps
 from tools._common import emit, find_executable, git_toplevel
 from tools._resources import cpu_budget
-from tools._scheduler import Step, StepResult, run_lanes
+from tools._scheduler import Step, StepEvent, StepResult, run_lanes
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -461,6 +462,7 @@ class Runner:
     ctx: RunContext
     start: float = field(init=False, default=0.0)
     log_fh: TextIO = field(init=False)
+    _progress_lock: threading.Lock = field(init=False, default_factory=threading.Lock)
     _registry: list[Step] = field(init=False, default_factory=list)
     _skips: list[tuple[str, str]] = field(init=False, default_factory=list)
 
@@ -569,19 +571,50 @@ class Runner:
             lanes.setdefault(entry.lane, []).append(entry)
         return list(lanes.values())
 
+    def _progress(self, event: StepEvent) -> None:
+        """Write one live progress line to stderr the moment a step starts/ends.
+
+        Fires from worker threads under ``--parallel``, hence the lock — each
+        line lands whole.  This is the LIVE channel; the deterministic
+        lane-then-step record (full outputs, ✓/✗ lines) still lands in the log
+        via :meth:`_emit`, so the log reads identically run-to-run while the
+        terminal shows what is happening as it happens.
+        """
+        if event.result is None:
+            line = f"  ▶ {event.name} …"
+        elif event.result.returncode == 0:
+            line = f"  ✓ {event.name} ({int(event.result.duration)}s)"
+        else:
+            line = (
+                f"  ✗ {event.name} FAILED "
+                f"(exit {event.result.returncode}, {int(event.result.duration)}s)"
+            )
+        with self._progress_lock:
+            _ = sys.stderr.write(line + "\n")
+            sys.stderr.flush()
+
     def _emit(self, result: StepResult) -> None:
-        """Tee one step's captured output and its ✓/✗ summary line."""
+        """Record one step's deterministic block: header to terminal+log, body to log.
+
+        The step header tees to stdout AND the log; the step's captured output
+        goes to the LOG only (the terminal's live view is :meth:`_progress`).
+        The ✓/✗ line already fired live on stderr, so here it goes to the LOG
+        only — keeping the log's deterministic shape without duplicating lines
+        on the terminal.  A failure's output tail still goes to stderr (the
+        live line carries no detail).
+        """
         self._tee(f"\n─── {result.name} ({int(result.duration)}s) ───")
         _ = self.log_fh.write(result.output)
         if not result.output.endswith("\n"):
             _ = self.log_fh.write("\n")
-        self.log_fh.flush()
         if result.returncode == 0:
-            self._tee_err(f"  ✓ {result.name} ({int(result.duration)}s)")
+            _ = self.log_fh.write(f"  ✓ {result.name} ({int(result.duration)}s)\n")
+            self.log_fh.flush()
             return
-        self._tee_err(
-            f"  ✗ {result.name} FAILED (exit {result.returncode}, {int(result.duration)}s)",
+        _ = self.log_fh.write(
+            f"  ✗ {result.name} FAILED (exit {result.returncode}, {int(result.duration)}s)\n",
         )
+        self.log_fh.flush()
         self._tee_err("─── tail of failed step output ───")
         for line in result.output.splitlines()[-FAILURE_TAIL_LINES:]:
             _ = sys.stderr.write(line + "\n")
@@ -616,7 +649,13 @@ class Runner:
         build = next((s for s in self._registry if s.name == "build"), None)
         rest = [s for s in self._registry if s.name != "build"]
         if build is not None:
-            (built,) = run_lanes([[build]], max_workers=1, heavy_limit=1, serial=True)
+            (built,) = run_lanes(
+                [[build]],
+                max_workers=1,
+                heavy_limit=1,
+                serial=True,
+                progress=self._progress,
+            )
             self._emit(built)
             results.append(built)
             if built.returncode != 0:
@@ -627,6 +666,7 @@ class Runner:
             max_workers=cpu_budget(),
             heavy_limit=self.opts.heavy_limit,
             serial=not self.opts.parallel,
+            progress=self._progress,
         )
         for result in lane_results:
             self._emit(result)

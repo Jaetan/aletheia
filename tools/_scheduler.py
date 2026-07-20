@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
     from pathlib import Path
 
 _POSIX_SHELL = "/bin/sh"
@@ -67,12 +67,39 @@ class StepResult:
     duration: float
 
 
-def _run_one(step: Step, heavy_sem: threading.Semaphore) -> StepResult:
-    """Execute one step, capturing combined output; honour the memory semaphore."""
-    start = time.monotonic()
+@dataclass(frozen=True)
+class StepEvent:
+    """A live progress event: a step started, or finished with its outcome.
+
+    ``phase`` is ``"start"`` (``result`` is ``None``) or ``"done"`` (``result``
+    carries the outcome).  Events fire the moment they happen — from worker
+    threads under ``--parallel`` — so a consumer that writes them to a terminal
+    must serialize its own writes; the deterministic lane-then-step ordering of
+    :func:`run_lanes`'s RETURN VALUE is unaffected by observation.
+    """
+
+    phase: str
+    name: str
+    result: StepResult | None = None
+
+
+def _run_one(
+    step: Step,
+    heavy_sem: threading.Semaphore,
+    progress: Callable[[StepEvent], None] | None,
+) -> StepResult:
+    """Execute one step, capturing combined output; honour the memory semaphore.
+
+    The ``start`` event fires after the heavy-semaphore wait, so it marks the
+    step actually RUNNING (not queued behind the OOM guard) and the reported
+    duration matches what the observer perceives.
+    """
     if step.heavy:
         heavy_sem.acquire()
+    start = time.monotonic()
     try:
+        if progress is not None:
+            progress(StepEvent("start", step.name))
         argv: Sequence[str]
         argv = [_POSIX_SHELL, "-c", step.cmd] if isinstance(step.cmd, str) else step.cmd
         proc = subprocess.run(
@@ -86,14 +113,21 @@ def _run_one(step: Step, heavy_sem: threading.Semaphore) -> StepResult:
     finally:
         if step.heavy:
             heavy_sem.release()
-    return StepResult(step.name, proc.returncode, proc.stdout, time.monotonic() - start)
+    result = StepResult(step.name, proc.returncode, proc.stdout, time.monotonic() - start)
+    if progress is not None:
+        progress(StepEvent("done", step.name, result))
+    return result
 
 
-def _run_lane(lane: Sequence[Step], heavy_sem: threading.Semaphore) -> list[StepResult]:
+def _run_lane(
+    lane: Sequence[Step],
+    heavy_sem: threading.Semaphore,
+    progress: Callable[[StepEvent], None] | None,
+) -> list[StepResult]:
     """Run a lane's steps serially, stopping at the first failure (deps follow)."""
     results: list[StepResult] = []
     for step in lane:
-        result = _run_one(step, heavy_sem)
+        result = _run_one(step, heavy_sem, progress)
         results.append(result)
         if result.returncode != 0:
             break  # later steps in THIS lane depend on the failed one; skip them
@@ -106,6 +140,7 @@ def run_lanes(
     max_workers: int,
     heavy_limit: int,
     serial: bool = False,
+    progress: Callable[[StepEvent], None] | None = None,
 ) -> list[StepResult]:
     """Run ``lanes`` concurrently (bounded by ``max_workers``) and collect results.
 
@@ -115,15 +150,20 @@ def run_lanes(
     lane-then-step order, deterministic regardless of completion timing, so the
     caller can tee them without interleaving.  Any exception inside a lane
     propagates (it is never silently dropped).
+
+    ``progress`` observes each step's start and completion the moment they
+    happen (from worker threads under parallel mode) — the live channel for a
+    terminal spinner or per-step timing, deliberately separate from the
+    deterministic result stream.  A ``None`` progress is zero-overhead.
     """
     heavy_sem = threading.Semaphore(max(1, heavy_limit))
     if serial:
         out: list[StepResult] = []
         for lane in lanes:
-            out.extend(_run_lane(lane, heavy_sem))
+            out.extend(_run_lane(lane, heavy_sem, progress))
         return out
     with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
-        futures = [executor.submit(_run_lane, lane, heavy_sem) for lane in lanes]
+        futures = [executor.submit(_run_lane, lane, heavy_sem, progress) for lane in lanes]
         per_lane = [future.result() for future in futures]
     return [result for lane_results in per_lane for result in lane_results]
 
