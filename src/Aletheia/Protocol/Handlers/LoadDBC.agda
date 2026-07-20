@@ -20,12 +20,12 @@
 -- `ValidationResponse` rather than loading a stream session.
 --
 -- Heap constraint: this module's import closure is deliberately free of the
--- DBC text-parser closure (`TextParser → TopLevel → ~30 modules`) and of the
--- text formatter's own `TopLevel` aggregation.  It imports the validator /
--- formatter / bound-walk substrate that both consumers already carry — which,
--- through the validator's warning-class mux-coherence mirrors
--- (`Validator/Checks` → `TextParser.WellFormedCheck.Foundations`), includes
--- the two formatter leaves `TextFormatter.Topology`/`Emitter` (for
+-- DBC text-parser closure (`TextParser → TopLevel` and its transitive module
+-- tree) and of the text formatter's own `TopLevel` aggregation.  It imports
+-- the validator / formatter / bound-walk substrate that both consumers
+-- already carry — which, through the validator's warning-class mux-coherence
+-- mirrors (`Validator/Checks` → `TextParser.WellFormedCheck.Foundations`),
+-- includes the formatter leaves `TextFormatter.Topology`/`Emitter` (for
 -- `findMuxMaster`) but nothing further — so `Aletheia.Protocol.Handlers` can
 -- import it WITHOUT dragging in the text-parser closure that exhausted the
 -- 16 GiB elaborator cap pre-split (see the `Handlers.ParseDBCText` module
