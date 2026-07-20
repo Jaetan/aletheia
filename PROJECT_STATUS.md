@@ -97,9 +97,13 @@ captured traffic; one shared library; parameterized LTL kernel; not scheduled).
 re-parses to the input DBC, or a typed `handler_text_roundtrip_failed` refusal —
 machine-checked (`formatDBCTextResult-sound`), across all four bindings. Every
 caller sees a result that is either provably faithful or explicitly refused,
-never silently lossy. Two heavier capabilities remain deferred, off the critical
-path: emitting the currently-lossy constructs (e.g. multi-value multiplexing)
-without loss, and a stronger validator.
+never silently lossy. Every diagnostic behind that guarantee now carries a
+proven tightness classification (recorded in the checker's module header), and
+the structural validator names the round-trip-fatal mux shapes with
+warning-class issues at validate/load — reusing the round-trip checker's own
+deciders, so the surfaces cannot disagree. The heavier capability that remains
+deferred, off the critical path: emitting the currently-lossy constructs
+(e.g. multi-value multiplexing) without loss.
 
 Living detail and rationale for the above live in
 [`docs/development/DEFERRED_ITEMS.md`](docs/development/DEFERRED_ITEMS.md) and the
