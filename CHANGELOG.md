@@ -17,7 +17,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   diagnostic-bearing well-formedness condition, whether a flag always means a
   genuine text-form loss (round-trip-necessary: the presence, master-coherence,
   attribute, and unresolved-value-description conditions) or can false-alarm
-  (merely-bundled: the two uniqueness conditions, whose flags ride along on
+  (merely-bundled: the uniqueness conditions, whose flags ride along on
   DBCs that provably round-trip — they exist for the first-match collapse of
   id-keyed re-attachment, which only divergent payloads trigger), or can never
   fire on a public route at all (the signal-geometry bounds, made invariant by

@@ -44,8 +44,8 @@
 --   kernel-resident DBC can violate the bounds: out-of-range geometry is
 --   normalized into range or refused with a typed parse error before a DBC
 --   value exists.  Witness class: out-of-range start bits / lengths submitted
---   on both routes come back clamped in the kernel's own echo; neither
---   diagnostic can fire on any DBC reachable through public routes.
+--   on every public parse route come back clamped in the kernel's own echo;
+--   no diagnostic of this arm can fire on any publicly reachable DBC.
 --
 -- • `pvs` (`pvGo` → BitLengthZero / SignalExceedsDLC / BigEndianMSBLayout):
 --   UNREACHABLE at the formatter — the gate deciding the condition also
@@ -103,12 +103,12 @@
 --   SUCCESSFULLY with this warning attached — the emission is itself the
 --   machine-checked round-trip proof — while divergent payloads under the
 --   shared key are refused.  Load-unreachable: the validator's error-class
---   duplicate-signal-name check refuses both load routes, so violators reach
+--   duplicate-signal-name check refuses every load route, so violators reach
 --   the kernel only through the stateless FormatDBCText / ValidateDBC routes.
 --
 -- • `msg-ids-unique` (`checkMsgIdsUnique` → DuplicateMessageId):
 --   MERELY-BUNDLED — the same first-match mechanism as `sig-names-unique`,
---   through both id-keyed collapse channels: VAL_ re-attachment keyed
+--   through the id-keyed collapse channels: VAL_ re-attachment keyed
 --   (CAN id, signal name) (`lookup-vd`) and BO_TX_BU_ senders re-attachment
 --   keyed on the CAN id alone (`lookup-senders`, TextParser/Senders.agda).
 --   Witness class: duplicate-id DBCs with no (or identical) id-keyed payloads
@@ -135,7 +135,7 @@
 --   the field by construction (the text route cannot express a violator).
 --
 -- • `unresolved-empty` (`checkUnresolved` → UnknownValueDescriptionTarget):
---   TIGHT; reachable via BOTH routes (the JSON wire preserves a supplied
+--   TIGHT; reachable via the JSON and text routes alike (the JSON wire preserves a supplied
 --   non-empty list verbatim, and the text route builds one from any stray
 --   VAL_ line).  `formatChars` (TextFormatter/TopLevel.agda) has no operand
 --   position for `DBC.unresolvedValueDescs` — the field has no emission site

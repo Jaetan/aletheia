@@ -220,9 +220,9 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 - **Where** — `unconvertStartBit-roundtrip` (binds its msb-ge-len hypothesis
   without using it) and `unconvertSB-bounded`'s BigEndian branch (discharges
-  from the frame bound alone, without `startBit-bound`) — both under
+  from the frame bound alone, without `startBit-bound`) — under
   `src/Aletheia/DBC/TextParser/Properties/Topology/`.
-- **Origin** — the E.3 tightness classification (2026-07-20): both halves ride
+- **Origin** — the E.3 tightness classification (2026-07-20): each rides
   free in the format→parse direction.
 - **Done looks like** — the unused hypotheses dropped (or a comment recording
   why they stay for statement symmetry), with the full proof gate battery green.
