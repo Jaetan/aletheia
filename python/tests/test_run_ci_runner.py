@@ -214,3 +214,21 @@ def test_parallel_mode_surfaces_failure(tmp_path: Path) -> None:
     runner.step("a", "exit 0", lane="x")
     runner.step("boom", "exit 5", lane="y")
     assert runner.run() == 1
+
+
+def test_live_progress_streams_to_stderr(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Each step draws a live start line and a live outcome line on stderr.
+
+    The log keeps its deterministic ✓/✗ record; the terminal channel is the
+    live one — this pins that the runner emits both halves.
+    """
+    runner = _runner(tmp_path)
+    runner.step("quickstep", "exit 0", lane="x")
+    assert runner.run() == 0
+    err = capsys.readouterr().err
+    assert "▶ quickstep" in err
+    assert "✓ quickstep" in err
+    log = (tmp_path / "ci.log").read_text(encoding="utf-8")
+    assert "✓ quickstep" in log  # the deterministic record still lands in the log

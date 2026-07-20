@@ -12,6 +12,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The CI sweep streams live per-step progress.** `tools/run_ci.py`
+  previously collected every lane's results before printing anything, so
+  after the banner the terminal stayed silent until the whole sweep finished
+  and the per-step lines arrived in one burst. The scheduler now exposes a
+  progress seam observing each step the moment it starts and finishes, and
+  the runner streams those events to stderr immediately — a start line when
+  a step begins and its ✓/✗ line with duration the moment it completes —
+  while the log file keeps its deterministic lane-then-step record
+  unchanged. Gate output lines also flush per line at the shared `emit`
+  chokepoint, so nothing sits in a pipe buffer under the pre-push hook.
+  Verified live through a pipe: lines arrive spread across the run rather
+  than at exit.
 - **Out-of-range signal geometry is refused at entry with typed errors
   (BREAKING on the JSON wire).** Both parse routes previously normalized
   silently — start bits and bit lengths were mod-reduced into range at the

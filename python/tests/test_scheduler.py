@@ -11,7 +11,7 @@ output capture, and deterministic result ordering.
 
 from __future__ import annotations
 
-from tools._scheduler import Step, all_passed, run_lanes
+from tools._scheduler import Step, StepEvent, all_passed, run_lanes
 
 
 def _step(name: str, sh: str, *, heavy: bool = False) -> Step:
@@ -95,3 +95,32 @@ def test_heavy_steps_execute_under_the_gate() -> None:
     results = run_lanes(lanes, max_workers=2, heavy_limit=1)
     assert all_passed(results)
     assert any("HEAVY" in r.output for r in results)
+
+
+def test_progress_observes_start_and_done_per_step() -> None:
+    """The live channel fires a start and a done event for every executed step.
+
+    Within a lane the order is start→done per step in lane order; the done
+    event carries the step's real result (the fail case pins the exit code).
+    """
+    events: list[StepEvent] = []
+    lanes = [[_step("first", "exit 0"), _step("boom", "exit 4")]]
+    results = run_lanes(lanes, max_workers=1, heavy_limit=1, progress=events.append)
+    assert not all_passed(results)
+    assert [(e.phase, e.name) for e in events] == [
+        ("start", "first"),
+        ("done", "first"),
+        ("start", "boom"),
+        ("done", "boom"),
+    ]
+    done_boom = events[-1]
+    assert done_boom.result is not None
+    assert done_boom.result.returncode == 4
+    assert events[0].result is None  # a start event carries no outcome yet
+
+
+def test_progress_none_is_supported() -> None:
+    """The default (no observer) runs exactly as before — the seam is optional."""
+    lanes = [[_step("quiet", "exit 0")]]
+    results = run_lanes(lanes, max_workers=1, heavy_limit=1)
+    assert all_passed(results)
