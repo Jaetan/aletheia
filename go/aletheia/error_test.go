@@ -250,6 +250,7 @@ func TestParseError_CodeConstantsExported(t *testing.T) {
 		{"SignalStartBitExceedsFrame", aletheia.CodeParseSignalStartBitExceedsFrame, "parse_signal_start_bit_exceeds_frame"},
 		{"SignalBitLengthExceedsFrame", aletheia.CodeParseSignalBitLengthExceedsFrame, "parse_signal_bit_length_exceeds_frame"},
 		{"SignalBigEndianOverflow", aletheia.CodeParseSignalBigEndianOverflow, "parse_signal_big_endian_overflow"},
+		{"NonNaturalField", aletheia.CodeParseNonNaturalField, "parse_non_natural_field"},
 		{"NonTerminatingRational", aletheia.CodeParseNonTerminatingRational, "parse_non_terminating_rational"},
 		{"NonIntegerMultiplexValue", aletheia.CodeParseNonIntegerMultiplexValue, "parse_non_integer_multiplex_value"},
 	}
