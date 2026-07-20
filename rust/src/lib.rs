@@ -160,7 +160,8 @@ fn resolve_signal_indices(
 /// validation, response decoding, violation enrichment, logging — on this side.
 /// The default backend owns a thread-pinned GHC `StreamState`, so it is `!Send`,
 /// which makes `Client` `!Send + !Sync` too (cross-thread use is a future slice,
-/// tracked `planned`; for async use, see [`AsyncClient`]).
+/// tracked `planned`; for async use, see `AsyncClient` behind the `async`
+/// feature — a doc link would only resolve when that feature is enabled).
 pub struct Client {
     /// The FFI-boundary backend every raw operation is routed through.
     backend: Box<dyn Backend>,
@@ -646,7 +647,11 @@ impl Client {
     /// only when the emitted text provably re-parses to the input DBC —
     /// `parse_dbc_text(&format_dbc_text(d)?.text)` returns `d` byte-identical (a
     /// stricter condition than validating clean — see the "well-formed DBC" entry
-    /// in `docs/GLOSSARY.md`). The returned `issues` may be non-empty even on a
+    /// in `docs/GLOSSARY.md`). That guarantee holds at the text-parser level: for
+    /// a [`Dbc`] carrying duplicates that are error-class at load (duplicate
+    /// message ids / signal names — emitted here with warnings), the text
+    /// round-trips in the proof but [`Self::parse_dbc_text`]'s validating load
+    /// refuses it. The returned `issues` may be non-empty even on a
     /// proven round-trip. Does not modify this stream's loaded state.
     ///
     /// # Errors

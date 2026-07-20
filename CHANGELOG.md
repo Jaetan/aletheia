@@ -12,6 +12,21 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The round-trip diagnostics carry a proven tightness classification.** The
+  `wfTextIssues` checker's module header now records, for every
+  diagnostic-bearing well-formedness condition, whether a flag always means a
+  genuine text-form loss (round-trip-necessary: the presence, master-coherence,
+  attribute, and unresolved-value-description conditions) or can false-alarm
+  (merely-bundled: the uniqueness conditions, whose flags ride along on
+  DBCs that provably round-trip — they exist for the first-match collapse of
+  id-keyed re-attachment, which only divergent payloads trigger), or can never
+  fire on a public route at all (the signal-geometry bounds, made invariant by
+  the parse routes' entry clamps) — each verdict backed by a proof trace and a
+  kernel-verified witness. The `format_dbc_text` documentation in every
+  binding now states the guarantee's exact level: the emitted text re-parses
+  to the input at the text-parser level, while a DBC carrying load-error-class
+  duplicates round-trips in the proof but is refused by the validating load
+  route. Comment/documentation only — no library or runtime behavior change.
 - **Rust: `IssueCode` and `Error` are now `#[non_exhaustive]` (BREAKING — Rust
   only).** Both enums mirror vocabularies minted by the kernel, which grow with
   kernel features (the issue-code vocabulary has grown release over

@@ -104,8 +104,12 @@ record WellFormedTextDBCAgg (d : DBC) : Set where
     -- in `Properties.Aggregator.Refine.ValueDescriptions`): two distinct
     -- messages with the same CAN ID would have their per-signal VAL_
     -- entries collapse onto whichever message `lookup-vd` finds first,
-    -- breaking the round-trip.  Validator's CHECK 1 (`DuplicateMessageId`,
-    -- an error-class check) enforces this at DBC-load time.
+    -- breaking the round-trip.  The same first-match collapse also runs
+    -- through the `BO_TX_BU_` senders channel: message senders re-attach via
+    -- `lookup-senders` (keyed on the CAN id alone), so duplicate ids also
+    -- collapse divergent sender lists onto the first match.  Validator's
+    -- CHECK 1 (`DuplicateMessageId`, an error-class check) enforces this at
+    -- DBC-load time.
     msg-ids-unique : AllPairs _≢_ (map DBCMessage.id (DBC.messages d))
     -- `formatText` does not emit lines for
     -- `DBC.unresolvedValueDescs` entries (no canonical text representation
