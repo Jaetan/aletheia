@@ -16,6 +16,141 @@
 -- All functions are cold-path (format path, not the per-frame streaming hot
 -- path), so `Dec` allocation is acceptable here (the hot-path performance rule
 -- applies to streaming only).
+--
+-- ── TIGHTNESS: which conditions are round-trip-NECESSARY ─────────────────────
+--
+-- `WellFormedTextDBCAgg` is sufficient for the round-trip, but its fields are
+-- not all necessary.  Some diagnostics below mark genuine loss — every
+-- violating DBC fails `parseText ∘ formatText`, so the handler's per-DBC
+-- `roundTripsWithᵇ` check (Protocol/Handlers/FormatDBCText.agda) refuses with
+-- the typed `TextRoundTripFailed` error — while others mark only the boundary
+-- of the proven envelope: violating DBCs exist that the kernel PROVES
+-- round-trip (it emits their text, and emission is only reachable on a passed
+-- check, per `formatDBCTextResult-sound`).  Each verdict below names the loss
+-- (or loss-absence) mechanism and the witness class confirmed against the
+-- running kernel with `format_dbc_text` as the exact oracle; "reachability"
+-- says which public routes can put a violating DBC in front of the round-trip
+-- check at all.
+--
+-- • `wf-sigs` (`checkSignalBounds` → StartBitOutOfRange / BitLengthExcessive):
+--   UNREACHABLE — tight in principle, invariant by construction in practice.
+--   The bounds are spent collapsing the text parser's entry clamps to
+--   identities: `buildSignal` (TextParser/Topology/SignalLine.agda) reduces
+--   the raw start bit and bit length modulo the physical-bit bounds, and
+--   `bitLength-mod-id` / `unconvertSB-mod-id` (Properties/Topology/
+--   Resolve.agda) consume the WF certificates to cancel those reductions.
+--   But the SAME clamps run on every public parse route (`buildSignal` on
+--   text, `parseSignalFields` in JSONParser.agda on the wire), so no
+--   kernel-resident DBC can violate the bounds: out-of-range geometry is
+--   normalized into range or refused with a typed parse error before a DBC
+--   value exists.  Witness class: out-of-range start bits / lengths submitted
+--   on both routes come back clamped in the kernel's own echo; neither
+--   diagnostic can fire on any DBC reachable through public routes.
+--
+-- • `pvs` (`pvGo` → BitLengthZero / SignalExceedsDLC / BigEndianMSBLayout):
+--   UNREACHABLE at the formatter — the gate deciding the condition also
+--   guards the door.  The FormatDBCText handler re-parses its JSON `dbc`
+--   argument through `parseDBCWithErrors`, whose `physicalGate` decides
+--   exactly the `PhysicallyValid` conjuncts (machine-checked by
+--   `parseSignalFields-pv`, JSONParser/SignalWF.agda) and refuses violators
+--   with typed parse errors.  A DBC violating only the MSB-layout conjunct IS
+--   kernel-reachable through the text route (it loads with warnings), but
+--   that value cannot re-enter FormatDBCText.  In principle the conjuncts are
+--   mixed: length-positivity is tight (a zero-length signal emits an SG_ line
+--   `buildSignal` rejects on re-parse); the big-endian frame bound is tight
+--   except on a monus-clamped fixed-point subclass no route constructs; the
+--   MSB-layout hypothesis is bound but unused by
+--   `unconvertStartBit-roundtrip` (CAN/Endianness/Properties/StartBit.agda) —
+--   merely bundled for the format→parse direction.  Witness class: every
+--   violating JSON submission is refused by `physicalGate` (typed
+--   parse_signal_* errors), never by the round-trip check.
+--
+-- • `wfps` (`pGo` → MultiValueMuxSelector): TIGHT (round-trip-necessary);
+--   reachable via the JSON routes.  `emitMuxMarker-chars`
+--   (TextFormatter/Topology.agda) emits only the HEAD selector value, and —
+--   stronger — `resolvePresence` (TextParser/Topology/SignalLine.agda) only
+--   ever constructs singleton `When`, so a multi-value presence lies outside
+--   the image of `parseText` altogether: no emitted text could round-trip it.
+--   This is the counterexample class documented in
+--   Properties/WellFormedFromValidity.agda.  Witness class: a multi-value
+--   selector is refused (the divergence error plus this warning); the
+--   singleton control succeeds.  The validate route reports nothing for the
+--   shape — this checker is the only surface that names it.
+--
+-- • `mc` (`mcIssue` → MuxMasterIncoherent): TIGHT; reachable via the JSON
+--   routes.  A `When` slave's own master reference is dropped at emission
+--   (`emitMuxMarker-chars` keeps only the selector value); the master's name
+--   survives only as the `M` marker on an `Always` signal, and re-parse
+--   rebinds every slave to that single `findMuxName` master
+--   (`resolvePresence`).  Master absent → the marked block fails to re-parse;
+--   a slave naming a different master → rebound to the emitted master, a
+--   different DBC.  Witness class: absent-master, split-master, and
+--   self-cycle DBCs are all refused; the split-master shape (slaves under two
+--   `Always` masters) even LOADS error-free — no error-class validator check
+--   covers it, so this warning is the only diagnostic naming the refusal
+--   cause.  The text route cannot construct a violator (a parse either fails
+--   or yields the single-master assignment, coherent by construction).
+--
+-- • `sig-names-unique` (`checkSigNamesUnique` → DuplicateSignalName):
+--   MERELY-BUNDLED.  The proof spends it making the VAL_ re-attachment
+--   collapse invariant: `formatText` flattens per-signal value descriptions
+--   into VAL_ lines keyed (CAN id, signal name), and parse-back re-attaches
+--   by `lookup-vd`'s FIRST match (TextParser/ValueDescriptions.agda), so
+--   every same-named signal receives the group's first collected payload.
+--   SG_ emission itself is positional and name-agnostic — name duplication
+--   alone loses nothing.  Witness class: duplicate-name messages whose
+--   same-named signals carry no (or identical) value descriptions FORMAT
+--   SUCCESSFULLY with this warning attached — the emission is itself the
+--   machine-checked round-trip proof — while divergent payloads under the
+--   shared key are refused.  Load-unreachable: the validator's error-class
+--   duplicate-signal-name check refuses both load routes, so violators reach
+--   the kernel only through the stateless FormatDBCText / ValidateDBC routes.
+--
+-- • `msg-ids-unique` (`checkMsgIdsUnique` → DuplicateMessageId):
+--   MERELY-BUNDLED — the same first-match mechanism as `sig-names-unique`,
+--   through both id-keyed collapse channels: VAL_ re-attachment keyed
+--   (CAN id, signal name) (`lookup-vd`) and BO_TX_BU_ senders re-attachment
+--   keyed on the CAN id alone (`lookup-senders`, TextParser/Senders.agda).
+--   Witness class: duplicate-id DBCs with no (or identical) id-keyed payloads
+--   format successfully with this warning; divergent VAL_ payloads or a
+--   one-sided senders list are refused.  Load-unreachable (the validator's
+--   duplicate-message-id check is error-class); note the same wire code is
+--   warning-class here and error-class there.
+--
+-- • `attr-wfs` (`checkAttrs` → AttributeEnumEmpty / UnknownAttributeName /
+--   AttributeValueTypeMismatch / AttributeEnumDefaultUnstable): TIGHT on
+--   every arm; reachable via the JSON routes — including the LOAD route,
+--   since the validator has no error-class attribute-shape checks.  Loss
+--   sites: an empty-ENUM def emits a label list the grammar cannot re-parse
+--   (`parseEnumLabels` demands at least one label); an undeclared name makes
+--   `refineAttribute` fail on re-parse (and an enum default under a missing
+--   def collapses to `emitDefaultValue-chars`' sentinel at emission);
+--   off-diagonal values are re-typed by `refineDefaultValue` /
+--   `refineAssignValue`, which dispatch on the DECLARED type, so re-parse can
+--   only produce diagonal constructors; an unstable enum default emits its
+--   label string and `findLabel`'s first match recovers a different index.
+--   Witness class: every violating shape — including an integral float under
+--   an INT def, and a string equal to a declared enum label — is refused with
+--   exactly the matching warning riding the refusal; text-parsed DBCs satisfy
+--   the field by construction (the text route cannot express a violator).
+--
+-- • `unresolved-empty` (`checkUnresolved` → UnknownValueDescriptionTarget):
+--   TIGHT; reachable via BOTH routes (the JSON wire preserves a supplied
+--   non-empty list verbatim, and the text route builds one from any stray
+--   VAL_ line).  `formatChars` (TextFormatter/TopLevel.agda) has no operand
+--   position for `DBC.unresolvedValueDescs` — the field has no emission site
+--   (deliberately: see the field's comment in TextParser/WellFormed.agda) —
+--   and parse-back rebuilds the field as `[]` unconditionally
+--   (`unresolvedRVDs-on-clearBothMsgs-collectFromMessages`), so a non-empty
+--   input diverges as a theorem-level falsity, not a coverage gap.  Witness
+--   class: a stray unresolved entry via either route is refused with this
+--   warning naming the offending entry; the empty control succeeds.
+--
+-- The verdicts are relative to the shipped emitter/parser pair: if
+-- SG_MUL_VAL_ emission and cross-line resolution ever land (the extended-mux
+-- design plan), `wfps` flips to merely-bundled on exactly the shapes that
+-- syntax expresses, and nested multiplexing would force `MasterCoherent` —
+-- and this classification — to be revisited.
 module Aletheia.DBC.TextParser.WellFormedCheck where
 
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)

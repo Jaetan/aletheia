@@ -413,7 +413,11 @@ func (c *Client) FormatDBC(ctx context.Context) (*DBCDefinition, error) {
 // (warning-severity, advisory).  Always strict: it returns a [DBCText] only when
 // the emitted text provably re-parses to the input DBC — ParseDBCText(
 // FormatDBCText(d).Text) returns d byte-identical (a stricter condition than
-// validating clean — see the "well-formed DBC" entry in docs/GLOSSARY.md).  A
+// validating clean — see the "well-formed DBC" entry in docs/GLOSSARY.md).
+// That guarantee holds at the text-parser level: for a DBC carrying duplicates
+// that are error-class at load (duplicate message ids / signal names — emitted
+// here with warnings), the text round-trips in the proof but ParseDBCText's
+// validating load refuses it.  A
 // DBC whose text does not round-trip is refused with a typed
 // [TextRoundTripFailedError] rather than lossy text.  Does not modify client
 // state — pass any DBCDefinition value (typically from ParseDBCText, FormatDBC,

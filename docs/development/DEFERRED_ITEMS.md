@@ -194,39 +194,41 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ## E. Proof completeness
 
-### E.3 — V1 diagnostic tightness classification (round-trip-necessary vs merely-bundled)
+### E.7 — Provably-dead diagnostic arms: keep as defense-in-depth, or prove-and-prune
 
-- **Where** — the `wfTextIssues` checker (`src/Aletheia/DBC/TextParser/WellFormedCheck.agda`)
-  and the round-trip proof `parseText-on-formatText`
-  (`src/Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda:128`).
-- **Origin** — the 2026-07-13 adversarial review of the `wfTextIssues` checker.
-  The checker's decision procedure proves `wfTextIssues d ≡ [] ⟺
-  WellFormedTextDBCAgg d`, and `WellFormedTextDBCAgg` is
-  **sufficient-not-necessary** for round-tripping (it is the antecedent of
-  `parseText-on-formatText`; no converse). So a non-empty `wfTextIssues` (a flag)
-  does **not** prove the DBC fails to round-trip — some flagged DBCs may survive.
-- **The task** — trace `parseText-on-formatText` and classify **each**
-  `WellFormedTextDBCAgg` conjunct (hence each `wfTextIssues` diagnostic) as either
-  **round-trip-NECESSARY** (tight — a flag always means a genuine loss) or
-  **MERELY-BUNDLED** (can false-alarm — the DBC round-trips despite the flag).
-  Deliverable: a per-condition table turning today's *reasoned* examples into
-  *proven* statements.
-- **Grounded hypotheses to confirm/refute** (from the review): the uniqueness
-  conjuncts `sig-names-unique`/`msg-ids-unique` read as `VAL_`-collapse-specific
-  (their field comments) ⇒ likely merely-bundled for a DBC with no value
-  descriptions (`messages`/`signals` are order-preserving lists); the
-  physical-validity bounds (`wf-sigs`/`pvs`) look text-irrelevant (the formatter
-  prints raw numbers) ⇒ likely merely-bundled; `wfps` (multi-value mux) and
-  `unresolved-empty` look **tight** (genuine formatter loss — A.1). Verify each.
-- **Optional downstream** — tighten or condition the merely-bundled checks to cut
-  false alarms, or mark those diagnostics "conditional" in the wire/docs.
-- **Not blocking any guarantee.** The exact check `roundTripsWithᵇ` dissolves the
-  over-approximation for the only decision that needs exactness (the
-  `format_dbc_text` refusal gates on the exact re-parse check, never on
-  `WellFormedTextDBCAgg` necessity); the `wfTextIssues` diagnostics are already
-  worded "round-trip not proven", never "will not". Land anytime — a good fit
-  for a multi-agent proof-trace workflow.
-- **Verdict** — `SCHEDULED` (quality/tightening analysis, non-blocking).
+- **Where** — the `checkSignalBounds` and `pvIssues` arms of `wfTextIssues`
+  (`src/Aletheia/DBC/TextParser/WellFormedCheck.agda`; the tightness
+  classification in that module's header records the full analysis).
+- **Origin** — the E.3 tightness classification (2026-07-20). The `wf-sigs`
+  bound codes can fire on NO public route (every parse route clamps signal
+  geometry into range at entry, making the bound an invariant of kernel-resident
+  DBCs), and the `pvs` arms cannot fire on the FormatDBCText route (the
+  handler's own JSON ingestion gate decides the same propositions first and
+  refuses with typed parse errors).
+- **The decision** — keep the arms as documented defense-in-depth (the checker
+  must decide every `WellFormedTextDBCAgg` field to keep the
+  `wfTextIssues ≡ [] ⟺ WF` equivalence total; the header documents why they
+  cannot fire), or prove the deadness (a lemma of the shape "`physicalGate`
+  success ⇒ `pvIssues ≡ []`" looks within reach) and re-scope the checker.
+- **Cost / risk** — the lemma route is a genuine proof (medium); the
+  keep-documented route costs nothing further. Risk of pruning: the equivalence
+  proof restructures around the removed arms.
+- **Verdict** — `INVESTIGATE` (decide the disposition; the documented state is
+  already sound).
+
+### E.8 — Proof-surplus hypotheses in the signal-geometry round-trip lemmas
+
+- **Where** — `unconvertStartBit-roundtrip` (binds its msb-ge-len hypothesis
+  without using it) and `unconvertSB-bounded`'s BigEndian branch (discharges
+  from the frame bound alone, without `startBit-bound`) — both under
+  `src/Aletheia/DBC/TextParser/Properties/Topology/`.
+- **Origin** — the E.3 tightness classification (2026-07-20): both halves ride
+  free in the format→parse direction.
+- **Done looks like** — the unused hypotheses dropped (or a comment recording
+  why they stay for statement symmetry), with the full proof gate battery green.
+- **Cost / risk** — small proof-hygiene pass; the risk is signature churn in
+  the lemmas' importers.
+- **Verdict** — `HOLD` (land anytime; batch with the next proof-touching work).
 
 ## F. Parked by prior user decision (re-confirm, don't re-open lightly)
 
@@ -318,17 +320,40 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ---
 
+## J. Entry-boundary semantics
+
+### J.1 — Normalize-vs-refuse for out-of-range signal geometry at the JSON boundary
+
+- **Where** — the JSON DBC ingestion path (`parseSignalFields` / `buildSignal`
+  clamps: start bit and bit length are mod-reduced into range at entry).
+- **Origin** — the E.3 tightness classification (2026-07-20), observed live:
+  a submitted start bit of 512 becomes 0 and an oversized bit length is
+  mod-reduced, with `validate_dbc` reporting no issues — so `format_dbc_text`'s
+  always-strict guarantee is measured against the clamped in-kernel DBC, not
+  the caller's literal input, and the caller gets back text whose numbers
+  differ from what they sent with an empty issues list.
+- **The decision** — keep the normalize-at-entry contract (documented), refuse
+  out-of-range geometry with a typed error (matching the refuse posture the
+  same path already applies to zero-length and MSB-below-length shapes), or
+  surface a warning-class diagnostic when a clamp actually changed a value.
+- **Cost / risk** — refusing is a behavior change on the JSON wire (breaking
+  for callers relying on silent clamping — none known); warning-class surfacing
+  needs a new wire code (WIRE_CODES.yaml + parity tests per binding).
+- **Verdict** — `INVESTIGATE` (a contract decision; the current behavior is
+  consistent but silent).
+
 ## Re-examination order (proposed)
 
 Cheapest / highest-confidence first, so early wins de-risk the harder items:
 
-1. **E.3** — scheduled, non-blocking tightness analysis; land anytime (the
-   sole remaining scheduled item).
-2. **A.1 / A.3 / B.1** — gated on a concrete consuming DBC / property.
-3. **C.2** — investigate-on-trigger: revisit when next touching a hot-path
+1. **J.1 / E.7** — investigate-class contract/disposition decisions raised by
+   the E.3 tightness classification; each is a discussion + a scoped change.
+2. **E.8** — small proof-hygiene pass; batch with the next proof-touching work.
+3. **A.1 / A.3 / B.1** — gated on a concrete consuming DBC / property.
+4. **C.2** — investigate-on-trigger: revisit when next touching a hot-path
    predicate (erased-proof `Dec₀` vs the Bool-fast-path + lemma pattern).
-4. **C.1 / D.1 / F.1 / F.2 / H.1** — accepted / blocked / demand-gated; no action unless constraints change (H.1: a public C++ test mock — promote on concrete external-consumer demand).
-5. **I.1** (Go/C++ arm64 overflow guard) — target-gated; no action until a concrete non-amd64 embedded target with a verified full cross-toolchain (GHC + clang + rustc) is chosen.
+5. **C.1 / D.1 / F.1 / F.2 / H.1** — accepted / blocked / demand-gated; no action unless constraints change (H.1: a public C++ test mock — promote on concrete external-consumer demand).
+6. **I.1** (Go/C++ arm64 overflow guard) — target-gated; no action until a concrete non-amd64 embedded target with a verified full cross-toolchain (GHC + clang + rustc) is chosen.
 
 > Each item graduates from this doc to a real task only after a per-item
 > decision with the user. This file is the backlog + rationale, not a commitment.

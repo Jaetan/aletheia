@@ -111,7 +111,11 @@ public:
     // when the emitted text provably re-parses to the input DBC —
     // parse_dbc_text(format_dbc_text(d)->text) returns d byte-identical (a
     // stricter condition than validating clean — see the "well-formed DBC" entry
-    // in docs/GLOSSARY.md).  A DBC whose text does not round-trip is refused with
+    // in docs/GLOSSARY.md).  That guarantee holds at the text-parser level: for
+    // a DBC carrying duplicates that are error-class at load (duplicate message
+    // ids / signal names — emitted here with warnings), the text round-trips in
+    // the proof but parse_dbc_text's validating load refuses it.
+    // A DBC whose text does not round-trip is refused with
     // an AletheiaError of kind ErrorKind::TextRoundtrip (code
     // HandlerTextRoundtripFailed, carrying the diagnostics via issues()) rather
     // than lossy text.  Does not modify client state — pass any DbcDefinition

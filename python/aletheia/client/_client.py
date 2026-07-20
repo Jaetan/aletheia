@@ -530,7 +530,11 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         Always strict: returns text ONLY when that text provably re-parses to the
         input DBC — ``parse_dbc_text(format_dbc_text(d)["text"])`` reproduces ``d``
         byte-identical (a stricter condition than validating clean — see the
-        "well-formed DBC" entry in ``docs/GLOSSARY.md``).  The returned
+        "well-formed DBC" entry in ``docs/GLOSSARY.md``).  That guarantee holds at
+        the text-parser level; for a DBC carrying duplicates that are error-class
+        at load (duplicate message ids / signal names — emitted here with
+        warnings), the emitted text round-trips in the proof but
+        :meth:`parse_dbc_text`'s validating load refuses it.  The returned
         :class:`~aletheia.types.DBCTextResponse` carries the ``.dbc`` ``text`` plus
         ``issues`` (``wfTextIssues`` diagnostics — warning-severity, advisory; MAY
         be non-empty even on a proven round-trip).  A DBC whose text does NOT
