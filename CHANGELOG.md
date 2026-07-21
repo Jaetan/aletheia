@@ -12,6 +12,9 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- CI workflows run on `actions/setup-go` and `actions/setup-python` v7
+  (folding in Dependabot's individual bumps, which cannot carry the
+  CHANGELOG entry the workflow-path gate requires).
 - **Every rational component on the JSON wire is now bounded to the Int64
   range (BREAKING on the JSON wire).** The kernel previously accepted bare
   JSON integers of unbounded magnitude in rational positions, while the

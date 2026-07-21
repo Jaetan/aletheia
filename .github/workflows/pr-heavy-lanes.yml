@@ -129,7 +129,7 @@ jobs:
           echo "standard-library" > ~/.agda/defaults
 
       - name: Set up Python 3.14
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.14'
 
@@ -207,7 +207,7 @@ jobs:
           echo "standard-library" > ~/.agda/defaults
 
       - name: Set up Python 3.14
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.14'
 
@@ -219,7 +219,7 @@ jobs:
           python/.venv/bin/pip install -e 'python/.[dev]'
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
           cache-dependency-path: |
@@ -397,7 +397,7 @@ jobs:
           echo "standard-library" > ~/.agda/defaults
 
       - name: Set up Python 3.14
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.14'
 
@@ -409,7 +409,7 @@ jobs:
           python/.venv/bin/pip install -e 'python/.[dev,mutation]'
 
       - name: Set up Go + gremlins
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
           cache-dependency-path: |

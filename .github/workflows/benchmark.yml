@@ -135,7 +135,7 @@ jobs:
           echo "standard-library" > ~/.agda/defaults
 
       - name: Set up Python 3.14
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.14'
           # Cache pip's wheel-download cache, keyed on the dependency manifest,
@@ -145,7 +145,7 @@ jobs:
           cache-dependency-path: python/pyproject.toml
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
           cache-dependency-path: |
