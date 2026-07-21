@@ -229,13 +229,19 @@ func CreateTemplate(path string) error {
 // Internal: sheet readers
 // ---------------------------------------------------------------------------
 
-// xlsxCell is a cell's trimmed string value plus whether it is stored as text
-// (a shared / inline string). Strict coercion needs that distinction: a number
-// stored as text is rejected for a numeric field. excelize reports a native
-// number as CellTypeNumber (a saved file) or CellTypeUnset (an unsaved cell), a
-// boolean as CellTypeBool, and text as CellTypeSharedString / CellTypeInlineString.
+// xlsxCell is a cell's trimmed grid value (the DISPLAY rendering excelize's
+// GetRows returns — number-format applied, so a stored 256.7 can display as
+// "257"), its raw stored value (the literal the file carries, format-free),
+// and whether it is stored as text (a shared / inline string). Strict coercion
+// needs the text distinction: a number stored as text is rejected for a
+// numeric field. The type is read from the cell's `t` attribute — xlsx OMITS
+// the attribute for its default numeric type, so a saved native number reports
+// CellTypeUnset (CellTypeNumber would need an explicit t="n", which writers
+// rarely emit); booleans report CellTypeBool, and text reports
+// CellTypeSharedString / CellTypeInlineString.
 type xlsxCell struct {
 	value  string
+	raw    string
 	isText bool
 }
 
@@ -273,8 +279,16 @@ func readTypedRows(f *excelize.File, sheet string) ([]map[string]xlsxCell, error
 				// number-as-text cell slip past the strict numeric check.
 				return nil, aletheia.WrapValidationError(fmt.Sprintf("cell type at %s", coord), cterr)
 			}
+			raw, rerr := f.GetCellValue(sheet, coord, excelize.Options{RawCellValue: true})
+			if rerr != nil {
+				// Same fail-closed stance as the cell-type fetch: a missing
+				// raw value would let a display rendering stand in for the
+				// stored value on the strict numeric paths.
+				return nil, aletheia.WrapValidationError(fmt.Sprintf("raw cell value at %s", coord), rerr)
+			}
 			m[h] = xlsxCell{
 				value:  val,
+				raw:    strings.TrimSpace(raw),
 				isText: ct == excelize.CellTypeSharedString || ct == excelize.CellTypeInlineString,
 			}
 		}
@@ -551,7 +565,7 @@ func parseDBCRows(rows []map[string]xlsxCell) (*aletheia.DBCDefinition, error) {
 		if !ok {
 			return nil, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid 'Message ID'", rowNum))
 		}
-		msgID, err := parseMessageID(idCell.value, rowNum)
+		msgID, err := parseMessageID(idCell, rowNum)
 		if err != nil {
 			return nil, err
 		}
@@ -752,22 +766,65 @@ func xlsxDBCSignal(row map[string]xlsxCell, rowNum int) (aletheia.DBCSignal, err
 	}, nil
 }
 
-func parseMessageID(val string, rowNum int) (int64, error) {
-	stripped := strings.TrimSpace(val)
-	if strings.HasPrefix(strings.ToLower(stripped), "0x") {
-		n, err := strconv.ParseInt(stripped[2:], 16, 64)
+// parseMessageID accepts a text cell holding an integer or 0x-hex literal, or
+// a native number cell whose RAW stored value is exactly integral. The grid
+// value of a number cell is its DISPLAY rendering (number-format applied — a
+// stored 256.7 shown under the integer format "0" displays as "257"), so the
+// numeric form is parsed from the raw stored value only, and only when it is a
+// pure optional-sign digit run.
+func parseMessageID(c xlsxCell, rowNum int) (int64, error) {
+	if c.isText {
+		stripped := strings.TrimSpace(c.value)
+		if strings.HasPrefix(strings.ToLower(stripped), "0x") {
+			n, err := strconv.ParseInt(stripped[2:], 16, 64)
+			if err != nil {
+				return 0, aletheia.NewValidationError(fmt.Sprintf(
+					"row %d: invalid 'Message ID' -- expected integer or hex string (e.g. 0x100)", rowNum))
+			}
+			return n, nil
+		}
+		n, err := strconv.ParseInt(stripped, 10, 64)
 		if err != nil {
 			return 0, aletheia.NewValidationError(fmt.Sprintf(
 				"row %d: invalid 'Message ID' -- expected integer or hex string (e.g. 0x100)", rowNum))
 		}
 		return n, nil
 	}
-	n, err := strconv.ParseInt(stripped, 10, 64)
+	if !isSignedDigitRun(c.raw) {
+		return 0, aletheia.NewValidationError(fmt.Sprintf(
+			"row %d: invalid 'Message ID' -- number cell stores %q, which is not a whole number (a hex ID needs a text cell)",
+			rowNum, c.raw))
+	}
+	n, err := strconv.ParseInt(c.raw, 10, 64)
 	if err != nil {
 		return 0, aletheia.NewValidationError(fmt.Sprintf(
-			"row %d: invalid 'Message ID' -- expected integer or hex string (e.g. 0x100)", rowNum))
+			"row %d: invalid 'Message ID' -- number cell stores %q, which does not fit a 64-bit integer",
+			rowNum, c.raw))
 	}
 	return n, nil
+}
+
+// isSignedDigitRun reports whether s is a non-empty ASCII digit run with an
+// optional single leading sign — the only raw stored shape a native number
+// cell may carry into ParseInt (anything else, e.g. scientific notation, is
+// not exactly integral as stored).
+func isSignedDigitRun(s string) bool {
+	if s == "" {
+		return false
+	}
+	i := 0
+	if s[0] == '+' || s[0] == '-' {
+		i = 1
+	}
+	if i == len(s) {
+		return false
+	}
+	for ; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------
@@ -800,11 +857,19 @@ func xlsxRational(d map[string]xlsxCell, key string, rowNum int) (aletheia.Ratio
 		return aletheia.Rational{}, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
 	}
 	if !c.isText {
+		// Echo the RAW stored value: the grid value is the display rendering,
+		// which a number format may have rounded away from what the file holds.
 		return aletheia.Rational{}, aletheia.NewValidationError(fmt.Sprintf(
 			"row %d: '%s' is a number cell (got %q); format it as TEXT so the exact value is preserved (a number cell stores a lossy float)",
-			rowNum, key, c.value))
+			rowNum, key, c.raw))
 	}
-	return aletheia.FromDecimal(strings.TrimSpace(c.value))
+	r, err := aletheia.FromDecimal(strings.TrimSpace(c.value))
+	if err != nil {
+		// The kernel knows the literal, not the workbook position — prefix the
+		// refusal with this loader's own row/field context.
+		return aletheia.Rational{}, aletheia.WrapValidationError(fmt.Sprintf("row %d: invalid '%s'", rowNum, key), err)
+	}
+	return r, nil
 }
 
 // xlsxInt requires a TEXT-formatted whole-number cell: the kernel
@@ -817,13 +882,15 @@ func xlsxInt(d map[string]xlsxCell, key string, rowNum int) (int64, error) {
 		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
 	}
 	if !c.isText {
+		// Raw echo for the same reason as xlsxRational.
 		return 0, aletheia.NewValidationError(fmt.Sprintf(
 			"row %d: '%s' is a number cell (got %q); format it as TEXT so the exact value is preserved (a number cell stores a lossy float)",
-			rowNum, key, c.value))
+			rowNum, key, c.raw))
 	}
 	r, err := aletheia.FromDecimal(strings.TrimSpace(c.value))
 	if err != nil {
-		return 0, err
+		// Same row/field context prefix as xlsxRational.
+		return 0, aletheia.WrapValidationError(fmt.Sprintf("row %d: invalid '%s'", rowNum, key), err)
 	}
 	if r.Denominator != 1 {
 		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be a whole number, got %q", rowNum, key, c.value))
@@ -832,19 +899,35 @@ func xlsxInt(d map[string]xlsxCell, key string, rowNum int) (int64, error) {
 }
 
 // xlsxBool accepts the multi-form boolean Python's get_bool accepts: a native
-// boolean, an integral 1/0, or TRUE/FALSE text (case-insensitive).
+// boolean, a number cell whose RAW stored value is exactly 1/0, or TRUE/FALSE
+// /1/0 text (case-insensitive). The numeric form is gated on the raw stored
+// value — the grid value is the display rendering, so a stored 1.4 can display
+// as "1" and must not coerce to TRUE. (A native boolean passes the same gate:
+// xlsx stores it as exactly 1 or 0.)
 func xlsxBool(d map[string]xlsxCell, key string, rowNum int) (bool, error) {
 	c, ok := d[key]
 	if !ok || c.value == "" {
 		return false, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
 	}
-	switch strings.ToLower(strings.TrimSpace(c.value)) {
-	case "true", "1":
+	if c.isText {
+		switch strings.ToLower(strings.TrimSpace(c.value)) {
+		case "true", "1":
+			return true, nil
+		case "false", "0":
+			return false, nil
+		default:
+			return false, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be TRUE/FALSE or 1/0, got %q", rowNum, key, c.value))
+		}
+	}
+	switch c.raw {
+	case "1":
 		return true, nil
-	case "false", "0":
+	case "0":
 		return false, nil
 	default:
-		return false, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be TRUE/FALSE or 1/0, got %q", rowNum, key, c.value))
+		return false, aletheia.NewValidationError(fmt.Sprintf(
+			"row %d: '%s' must be TRUE/FALSE or 1/0, got a number cell storing %q (only exactly 1 or 0 is a boolean)",
+			rowNum, key, c.raw))
 	}
 }
 

@@ -36,6 +36,7 @@ BOUND_KIND_STRING_LENGTH: Final[str] = "string_length"
 BOUND_KIND_ATOM_COUNT: Final[str] = "atom_count"
 BOUND_KIND_FRAME_BYTE_COUNT: Final[str] = "frame_byte_count"
 BOUND_KIND_PROPERTY_COUNT: Final[str] = "property_count"
+BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE: Final[str] = "rational_component_magnitude"
 
 # ============================================================================
 # BOUND CONSTANTS
@@ -78,6 +79,11 @@ MAX_PROPERTIES_PER_STREAM: Final[int] = 1024
 # CAN frame payload byte count (CAN-FD maximum).
 MAX_FRAME_BYTE_COUNT: Final[int] = 64
 
+# Magnitude cap on a JSON number's rational components (|numerator| and
+# denominator of the exact rational it denotes): the signed 64-bit wire
+# range shared with the binary FFI's rational slots and the decimal SSOT.
+MAX_RATIONAL_COMPONENT_MAGNITUDE: Final[int] = 9223372036854775807
+
 
 __all__ = [
     "BOUND_KIND_ARRAY_CARDINALITY",
@@ -87,6 +93,7 @@ __all__ = [
     "BOUND_KIND_INPUT_LENGTH_BYTES",
     "BOUND_KIND_NESTING_DEPTH",
     "BOUND_KIND_PROPERTY_COUNT",
+    "BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE",
     "BOUND_KIND_STRING_LENGTH",
     "MAX_ATOM_COUNT_PER_PROPERTY",
     "MAX_ATTRIBUTES_PER_FILE",
@@ -97,6 +104,7 @@ __all__ = [
     "MAX_MESSAGES_PER_FILE",
     "MAX_NESTING_DEPTH",
     "MAX_PROPERTIES_PER_STREAM",
+    "MAX_RATIONAL_COMPONENT_MAGNITUDE",
     "MAX_SIGNALS_PER_MESSAGE",
     "MAX_STRING_LENGTH_BYTES",
     "MAX_VALUE_DESCRIPTIONS_PER_FILE",

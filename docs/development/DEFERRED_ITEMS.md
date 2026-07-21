@@ -247,40 +247,42 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 - **Verdict** — `HOLD` (planned, demand-gated). Promote to `DO` when a concrete
   external C++ consumer needs it.
 
-## I. Portability / cross-architecture
+## K. Runtime resource parameters
 
-### I.1 — Go/C++ float→int overflow guard assumes amd64 conversion semantics
+### K.1 — Central SSOT for the kernel's heap and CPU parameters
 
-- **Where** — `go/aletheia/types.go` (`FloatToRational` round-trip guard + its
-  in-code amd64 `NB`); `cpp/src/types.cpp:27-29` (the `from_double` post-cast
-  equality check it mirrors).
-- **Origin** — 2026-06-24, advisor-flagged while fixing the
-  amd64 silent-wrap.
-- **Today** — both guards reject an int64-overflowing integral float (e.g. 2^63)
-  by casting to int64 and comparing the round-trip back to double. Correct on
-  amd64, where an out-of-range float→int conversion **wraps** to MinInt64 (so the
-  round-trip fails and 2^63 is rejected). On arm64 the same conversion
-  **saturates** to MaxInt64, and `double(MaxInt64) == 2^63` is true, so the guard
-  would **falsely accept** 2^63 — re-introducing the silent wrong-value-with-no-
-  error bug the earlier fix closed. Rust/Python use range/scaling checks that don't depend on
-  conversion semantics. CI builds + tests amd64 only.
-- **Done looks like** — Go + C++ switch to an arch-independent bound check
-  (`v >= -2^63 && v < 2^63`, both exact float64 literals) that never performs an
-  out-of-range cast, so 2^63 is rejected on every architecture; Rust/Python
-  re-verified for the same property.
-- **Cost / risk** — **Low** (a few lines × 2 bindings + tests). Risk: it makes
-  Go/C++ use a different mechanism than the round-trip mirror they share today —
-  a deliberate cross-binding mechanism change, so land it as one lockstep edit.
-- **Blockers / deps** — **gated on a prior, larger question**: Aletheia runs on
-  non-amd64 only if the *entire* stack cross-compiles to that target — the
-  GHC/MAlonzo `.so`, the C++ binding, and the Rust binding all need a
-  known-complete cross-toolchain (GHC cross-compiler + clang + rustc) for the
-  chosen architecture. Until a concrete embedded target with verified cross
-  compilers for all three is selected, there is no architecture on which this
-  guard can be wrong, so the fix is not actionable.
-- **Verdict** — `HOLD` (target-gated). Promote to `DO` only once a concrete
-  non-amd64 embedded target with a verified full cross-toolchain is chosen;
-  revisit alongside that cross-compilation work.
+- **Where** — the four RTS init sites, each building its own `+RTS … -RTS`
+  argv: `python/aletheia/client/_ffi.py` (`DEFAULT_RTS_HEAP_CAP`),
+  `cpp/src/ffi_backend.cpp` (`detail::rts_init_args`), `go/aletheia/ffi.go`
+  (`call_hs_init_rts`), `rust/src/backend.rs` (the RTS spec latch).  Adjacent
+  build/CI knobs carrying the same class of number: the Agda type-check heap
+  cap and thread count documented in `CLAUDE.md`, and the sweep's heavy-step
+  and CPU budgets in `tools/_ci_steps.py` / `tools/_resources.py`.
+- **Origin** — 2026-07-21.  Two WSL2 host crashes were traced to an unbounded
+  computation in kernel code; the escalation path was that the loaded kernel's
+  RTS has no heap limit, so a runaway exhausts host memory instead of failing
+  the call.  The fix added a heap cap to the Python client only.  The same
+  investigation found the documented host memory figure stale (the machine
+  reports half of it, and the thread count no longer matches the core count).
+- **Today** — the heap cap exists in exactly one binding, so the host is only
+  protected when the kernel is driven from Python; the capability count is
+  plumbed independently in all four; the build-side numbers live in prose,
+  measured against a host that no longer matches.  Nothing ties any of them
+  together and nothing detects drift.
+- **Done looks like** — one checked-in declaration of the kernel's runtime
+  resource parameters (heap cap, default capability count) mirrored by every
+  binding's RTS init, with a `run_ci` parity gate that fails when a binding
+  drifts — the machinery `docs/WIRE_CODES.yaml` + `tools/check_wire_codes.py`
+  and the limits SSOT + `tools/check_limits_parity.py` already establish.  The
+  build/CI knobs restated against the measured envelope rather than a
+  remembered host.
+- **Cost / risk** — Low-medium: three small init-site edits plus the SSOT, its
+  gate, and per-binding parity tests, all following an existing template.  The
+  risk is choosing the number badly: the heap cap must stay a *containment*
+  bound with measured headroom (kernel working sets observed here are far
+  below it), never a tuned budget — too low breaks legitimate heavy work.
+- **Verdict** — `DO` — the next scheduled task (user-ratified 2026-07-21,
+  during the wire-exactness arc that produced the crash findings above).
 
 ---
 
@@ -288,11 +290,11 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 Cheapest / highest-confidence first, so early wins de-risk the harder items:
 
-1. **A.1 / A.3 / B.1** — gated on a concrete consuming DBC / property.
-2. **C.2** — investigate-on-trigger: revisit when next touching a hot-path
+1. **K.1** — scheduled: the next task (user-ratified 2026-07-21).
+2. **A.1 / A.3 / B.1** — gated on a concrete consuming DBC / property.
+3. **C.2** — investigate-on-trigger: revisit when next touching a hot-path
    predicate (erased-proof `Dec₀` vs the Bool-fast-path + lemma pattern).
-3. **C.1 / D.1 / F.1 / F.2 / H.1** — accepted / blocked / demand-gated; no action unless constraints change (H.1: a public C++ test mock — promote on concrete external-consumer demand).
-4. **I.1** (Go/C++ arm64 overflow guard) — target-gated; no action until a concrete non-amd64 embedded target with a verified full cross-toolchain (GHC + clang + rustc) is chosen.
+4. **C.1 / D.1 / F.1 / F.2 / H.1** — accepted / blocked / demand-gated; no action unless constraints change (H.1: a public C++ test mock — promote on concrete external-consumer demand).
 
 > Each item graduates from this doc to a real task only after a per-item
 > decision with the user. This file is the backlog + rationale, not a commitment.

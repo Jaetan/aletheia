@@ -18,6 +18,7 @@ Example:
 
 """
 
+import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -193,7 +194,19 @@ def convert_message(
 
 
 def timestamp_to_us(timestamp: float) -> int:
-    """Convert seconds (float) to microseconds (int)."""
+    """Convert seconds (float) to microseconds (int).
+
+    Raises:
+        ValueError: If *timestamp* is non-finite (NaN or ±infinity).  Both
+            classes share one error so ``iter_can_log``'s ``on_error``
+            contract stays total — "skip" drops the frame, "raise"
+            propagates.  A bare ``int(±inf)`` would raise ``OverflowError``
+            instead, which neither mode handles.
+
+    """
+    if not math.isfinite(timestamp):
+        msg = f"non-finite CAN log timestamp: {timestamp}"
+        raise ValueError(msg)
     return int(timestamp * 1_000_000)
 
 

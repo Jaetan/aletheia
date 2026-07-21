@@ -96,7 +96,7 @@ constexpr auto k_named_issue_count = static_cast<std::size_t>(IssueCode::Unknown
 // named enumerator's value. Appending a new enumerator after it fails the
 // count checks below until this anchor is moved to the new last member.
 constexpr auto k_named_error_count =
-    static_cast<std::size_t>(ErrorCode::ExtractionBitExtractionFailed);
+    static_cast<std::size_t>(ErrorCode::ExtractionValueExceedsWireRange);
 
 } // namespace
 

@@ -77,6 +77,21 @@ class TestSendErrorRemote:
         with AletheiaClient() as client, pytest.raises(ValidationError, match="non-negative"):
             client.send_remote(timestamp=-1, can_id=256)
 
+    def test_send_error_over_ceiling_timestamp_rejected(self) -> None:
+        """send_error rejects timestamps beyond the unsigned 64-bit wire field.
+
+        The binary FFI carries the timestamp in an unsigned 64-bit slot;
+        without the up-front bound a larger Python int silently wrapped
+        modulo the slot width at the ctypes boundary.
+        """
+        with AletheiaClient() as client, pytest.raises(ValidationError, match="unsigned 64-bit"):
+            client.send_error(timestamp=2**64)
+
+    def test_send_remote_over_ceiling_timestamp_rejected(self) -> None:
+        """send_remote rejects timestamps beyond the unsigned 64-bit wire field."""
+        with AletheiaClient() as client, pytest.raises(ValidationError, match="unsigned 64-bit"):
+            client.send_remote(timestamp=2**64, can_id=256)
+
     def test_send_remote_invalid_can_id_rejected(self) -> None:
         """send_remote rejects out-of-range standard CAN IDs."""
         with AletheiaClient() as client, pytest.raises(ValidationError, match="Invalid"):

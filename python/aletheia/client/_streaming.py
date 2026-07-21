@@ -43,11 +43,11 @@ from aletheia.client._types import (
     SignalExtractionResult,
     StateError,
     StreamCaches,
-    ValidationError,
     call_send_frame,
     make_frame_result,
     validate_can_id,
     validate_payload_length,
+    validate_timestamp,
 )
 
 if TYPE_CHECKING:
@@ -261,9 +261,7 @@ class StreamingMixin(ClientHostState):
             AckResponse, PropertyBatchResponse, or ErrorResponse
 
         """
-        if timestamp < 0:
-            msg = "timestamp must be non-negative"
-            raise ValidationError(msg)
+        validate_timestamp(timestamp)
         validate_can_id(can_id, extended=extended)
         validate_payload_length(dlc, data)  # validates dlc is in [0, 15]
 
@@ -454,9 +452,7 @@ class StreamingMixin(ClientHostState):
                 non-monotonic timestamp).
 
         """
-        if timestamp < 0:
-            msg = "timestamp must be non-negative"
-            raise ValidationError(msg)
+        validate_timestamp(timestamp)
         with self._ffi_lock:
             if self._backend is None or self._state is None:
                 msg = "Client not initialized — use 'with' statement"
@@ -500,9 +496,7 @@ class StreamingMixin(ClientHostState):
                 non-monotonic timestamp).
 
         """
-        if timestamp < 0:
-            msg = "timestamp must be non-negative"
-            raise ValidationError(msg)
+        validate_timestamp(timestamp)
         validate_can_id(can_id, extended=extended)
         with self._ffi_lock:
             if self._backend is None or self._state is None:

@@ -202,6 +202,9 @@ const (
 	CodeExtractionMuxExtractionFailed = "extraction_mux_extraction_failed"
 	// CodeExtractionBitExtractionFailed — bit-extraction step failed (out-of-range / scaling error).
 	CodeExtractionBitExtractionFailed = "extraction_bit_extraction_failed"
+	// CodeExtractionValueExceedsWireRange — the extracted exact value's reduced
+	// numerator or denominator exceeds the signed 64-bit binary-wire range.
+	CodeExtractionValueExceedsWireRange = "extraction_value_exceeds_wire_range"
 )
 
 // newError builds a typed *Error without a wire code or inner cause.

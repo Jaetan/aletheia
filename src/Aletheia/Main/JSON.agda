@@ -22,7 +22,7 @@ open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Aletheia.Parser.Combinators using (runParser)
 open import Aletheia.Parser.Position using (Position)
 open import Aletheia.Protocol.JSON using (JSON; JObject; parseJSON; lookupString)
-open import Aletheia.Protocol.JSON.Types using (jsonDepth)
+open import Aletheia.Protocol.JSON.Types using (jsonDepth; jsonMaxComponent)
 open import Aletheia.Protocol.Routing using (parseCommand)
 open import Aletheia.Protocol.StreamState using (StreamState)
 open import Aletheia.Protocol.Handlers using (processStreamCommand)
@@ -32,8 +32,8 @@ open import Aletheia.Error using
   ; MissingTypeField; UnknownMessageType; InvalidJSON; RequestNotObject
   )
 open import Aletheia.Limits using
-  ( InputLengthBytes; NestingDepth
-  ; max-json-bytes; max-nesting-depth
+  ( InputLengthBytes; NestingDepth; RationalComponentMagnitude
+  ; max-json-bytes; max-nesting-depth; max-rational-component-magnitude
   )
 open import Aletheia.Main.Binary using (wrapJSON)
 import Aletheia.Protocol.Message as Msg
@@ -58,15 +58,20 @@ private
     then tryParseCommand state obj
     else wrapJSON (state , Msg.Response.Error (DispatchErr (UnknownMessageType msgType)))
 
-  -- Post-parse nesting-depth check.  The JSON parser terminates
-  -- structurally on `length
-  -- input`, so deep adversarial inputs parse cleanly; this guard measures
-  -- the actual depth of the parsed tree and rejects above `max-nesting-
-  -- depth` with `ParseErr (InputBoundExceeded NestingDepth observed limit)`,
-  -- exposing the structured `bound_kind / observed / limit` triple via
-  -- `errorExtras`.  Previously the code emitted the untyped
-  -- `DispatchErr InvalidJSON` from inside `parseJSON`; moving the check
-  -- here keeps `parseJSON` a pure inverse of `formatJSON`.
+  -- Post-parse tree bounds.  The JSON parser terminates structurally on
+  -- `length input`, so deep or numerically absurd adversarial inputs
+  -- parse cleanly; these guards measure the parsed tree and reject with
+  -- typed `InputBoundExceeded` errors exposing the structured
+  -- `bound_kind / observed / limit` triple via `errorExtras`:
+  --   * nesting depth above `max-nesting-depth` (`jsonDepth`);
+  --   * any number whose rational components exceed the Int64 wire
+  --     range (`jsonMaxComponent` vs `max-rational-component-magnitude`)
+  --     — one bound over every kernel-bound numeric position, matching
+  --     the range the decimal SSOT and the binary FFI's rational slots
+  --     enforce, so a bare JSON integer cannot carry a component the
+  --     wire cannot represent.
+  -- The checks live here rather than inside `parseJSON` to keep the
+  -- parser a pure inverse of `formatJSON`.
   -- Takes the full `runParser` pair: the failure watermark (proj₁) feeds
   -- the positioned `InvalidJSON` on the nothing arm; the success arm
   -- drops both the watermark and the end position.
@@ -74,8 +79,13 @@ private
   handleParsedJSON state (w , nothing) = wrapJSON (state , Msg.Response.Error (DispatchErr (InvalidJSON w)))
   handleParsedJSON state (_ , just (j , _)) =
     let depth = jsonDepth j
+        comp  = jsonMaxComponent j
     in if depth <ᵇ suc max-nesting-depth
-       then handleJSONObject state j
+       then (if comp ≤ᵇ max-rational-component-magnitude
+             then handleJSONObject state j
+             else wrapJSON (state , Msg.Response.Error
+                    (InputBoundExceeded RationalComponentMagnitude comp
+                                        max-rational-component-magnitude)))
        else wrapJSON (state , Msg.Response.Error
               (InputBoundExceeded NestingDepth depth max-nesting-depth))
     where

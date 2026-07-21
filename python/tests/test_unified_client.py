@@ -26,7 +26,14 @@ from pathlib import Path
 import pytest
 from _stream_helpers import send_test_frame
 
-from aletheia import AletheiaClient, DBCDefinition, ProtocolError, Signal, StateError
+from aletheia import (
+    AletheiaClient,
+    DBCDefinition,
+    ProtocolError,
+    Signal,
+    StateError,
+    ValidationError,
+)
 from aletheia.dbc import dbc_to_json
 from aletheia.types import DLCCode, LTLFormula
 
@@ -122,6 +129,36 @@ class TestAletheiaClientStreaming:
             assert "type" in response
             assert any(e["status"] == "fails" for e in response["results"])
 
+            client.end_stream()
+
+    def test_send_frame_over_ceiling_timestamp_rejected(self, simple_dbc: DBCDefinition) -> None:
+        """A timestamp beyond the unsigned 64-bit wire field is refused up front.
+
+        Regression: the binary FFI's timestamp slot is unsigned 64-bit, and
+        the ctypes boundary masks an over-range Python int modulo the slot
+        width.  Before the bound, sending ``2**64 + 1000`` µs after an
+        accepted frame at 5000 µs — strictly larger, so an honest crossing
+        is monotonic — reached the kernel as 1000 µs and came back as a
+        ``handler_non_monotonic_timestamp`` error naming the wrapped value.
+        """
+        with AletheiaClient() as client:
+            client.parse_dbc(simple_dbc)
+            client.set_properties([])
+            client.start_stream()
+            response = client.send_frame(
+                timestamp=5000,
+                can_id=256,
+                dlc=DLCCode(8),
+                data=bytearray(8),
+            )
+            assert response.get("status") == "ack"
+            with pytest.raises(ValidationError, match="unsigned 64-bit"):
+                client.send_frame(
+                    timestamp=2**64 + 1000,
+                    can_id=256,
+                    dlc=DLCCode(8),
+                    data=bytearray(8),
+                )
             client.end_stream()
 
 

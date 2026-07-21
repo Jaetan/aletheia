@@ -57,6 +57,21 @@ class TestTimestampConversion:
         """Verify large timestamp."""
         assert timestamp_to_us(3600.0) == 3_600_000_000
 
+    def test_nan_raises_value_error(self) -> None:
+        """A NaN timestamp raises ValueError — no microsecond value exists."""
+        with pytest.raises(ValueError, match="non-finite"):
+            timestamp_to_us(float("nan"))
+
+    def test_positive_infinity_raises_value_error(self) -> None:
+        """+inf raises the same ValueError class as NaN (shared fate)."""
+        with pytest.raises(ValueError, match="non-finite"):
+            timestamp_to_us(float("inf"))
+
+    def test_negative_infinity_raises_value_error(self) -> None:
+        """-inf raises the same ValueError class as NaN (shared fate)."""
+        with pytest.raises(ValueError, match="non-finite"):
+            timestamp_to_us(float("-inf"))
+
 
 # ============================================================================
 # Data normalization
@@ -396,6 +411,49 @@ class TestLoadCanLog:
         assert len(frames) == 1
         # python-can sets dlc = len(data) = 2, so data stays 2 bytes
         assert len(frames[0][3]) == frames[0][2]
+
+
+# ============================================================================
+# Non-finite log timestamps — skip totality
+# ============================================================================
+
+# candump .log line format; the middle line's timestamp is the probe value.
+_CANDUMP_WITH_TIMESTAMP = """\
+(1.000000) can0 100#DEADBEEF00000000
+({ts}) can0 100#DEADBEEF00000000
+(2.000000) can0 100#DEADBEEF00000000
+"""
+
+
+class TestNonFiniteLogTimestamps:
+    """NaN and ±infinity timestamps share a fate in each ``on_error`` mode.
+
+    A candump line carries its timestamp as a float literal, so a corrupt
+    log can hand python-can ``nan``, ``±inf``, or an overflowing literal
+    that floats to ``inf``.  Skip mode drops the corrupt frame and keeps
+    the finite neighbours; raise mode propagates the ``ValueError`` that
+    ``timestamp_to_us`` raises for every non-finite value.
+    """
+
+    @staticmethod
+    def _write_log(path: Path, ts: str) -> None:
+        path.write_text(_CANDUMP_WITH_TIMESTAMP.format(ts=ts))
+
+    @pytest.mark.parametrize("ts", ["nan", "inf", "-inf", "1e400"])
+    def test_skip_mode_drops_the_corrupt_frame(self, tmp_path: Path, ts: str) -> None:
+        """Skip mode keeps the finite frames and drops the non-finite one."""
+        log = tmp_path / "corrupt.log"
+        self._write_log(log, ts)
+        frames = list(iter_can_log(log, on_error="skip"))
+        assert [f.timestamp for f in frames] == [1_000_000, 2_000_000]
+
+    @pytest.mark.parametrize("ts", ["nan", "inf", "-inf", "1e400"])
+    def test_raise_mode_raises_value_error(self, tmp_path: Path, ts: str) -> None:
+        """Raise mode propagates ValueError for every non-finite timestamp."""
+        log = tmp_path / "corrupt.log"
+        self._write_log(log, ts)
+        with pytest.raises(ValueError, match="non-finite"):
+            list(iter_can_log(log, on_error="raise"))
 
 
 # ============================================================================

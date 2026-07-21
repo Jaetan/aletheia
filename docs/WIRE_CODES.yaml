@@ -229,6 +229,9 @@ error_codes:
   - name: extraction_bit_extraction_failed
     description: A bit-level read or scaling step failed.
 
+  - name: extraction_value_exceeds_wire_range
+    description: The extracted exact value's reduced numerator or denominator exceeds the signed 64-bit binary-wire range.
+
   # frameErrorCode -- binary frame build/update paths.
 
   - name: frame_signal_not_found

@@ -55,6 +55,11 @@ class ExtractionErrorCode(IntEnum):
     OUT_OF_BOUNDS = 1
     # Agda: ``Aletheia.CAN.BatchExtraction.ExtractionFailed``
     EXTRACTION_FAILED = 2
+    # Agda: ``Aletheia.CAN.BatchExtraction.ValueExceedsWireRange`` — the
+    # exact value's reduced numerator or denominator exceeds the signed
+    # 64-bit range of the wire's rational slots; the FFI shim reroutes the
+    # signal here instead of letting the int64 slot wrap silently.
+    VALUE_EXCEEDS_WIRE_RANGE = 3
 
 
 # Human-readable message for each code — keyed on the enum so a renamed
@@ -65,6 +70,7 @@ EXTRACTION_ERROR_MESSAGES_BY_CODE: dict[ExtractionErrorCode, str] = {
     ExtractionErrorCode.NOT_IN_DBC: "Signal not found in DBC",
     ExtractionErrorCode.OUT_OF_BOUNDS: "Value out of bounds",
     ExtractionErrorCode.EXTRACTION_FAILED: "Extraction failed",
+    ExtractionErrorCode.VALUE_EXCEEDS_WIRE_RANGE: "Value exceeds Int64 wire range",
 }
 
 # Legacy positional alias preserved for the existing ``_parse_errors_segment``

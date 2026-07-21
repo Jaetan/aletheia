@@ -121,13 +121,21 @@ data ExtractionErrorCode : Set where
   NotInDBC          : ExtractionErrorCode  -- 0: signal name not found in DBC message
   OutOfBounds       : ExtractionErrorCode  -- 1: extracted value outside min/max range
   ExtractionFailed  : ExtractionErrorCode  -- 2: bit extraction or scaling failed
+  -- 3: the exact value's reduced numerator or denominator exceeds the
+  -- signed 64-bit range of the binary wire's rational slots.  Never
+  -- produced by the kernel categorizers below — the FFI shim's binary
+  -- encoder (AletheiaFFI/BinaryOutput.hs) detects the condition at the
+  -- poke boundary and reroutes the signal to the error stream with this
+  -- code (string twin: `extraction_value_exceeds_wire_range`).
+  ValueExceedsWireRange : ExtractionErrorCode
 
 -- Encode ExtractionErrorCode as ℕ for binary wire format serialization.
 -- Must match Main.agda binary output documentation and AletheiaFFI.hs.
 extractionErrorCodeToℕ : ExtractionErrorCode → ℕ
-extractionErrorCodeToℕ NotInDBC         = 0
-extractionErrorCodeToℕ OutOfBounds      = 1
-extractionErrorCodeToℕ ExtractionFailed = 2
+extractionErrorCodeToℕ NotInDBC              = 0
+extractionErrorCodeToℕ OutOfBounds           = 1
+extractionErrorCodeToℕ ExtractionFailed      = 2
+extractionErrorCodeToℕ ValueExceedsWireRange = 3
 
 IndexedExtractionResults : Set
 IndexedExtractionResults = PartitionedResults ℕ ExtractionErrorCode

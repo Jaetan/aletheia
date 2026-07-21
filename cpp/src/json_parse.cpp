@@ -98,6 +98,7 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"extraction_mux_chain_cycle", ErrorCode::ExtractionMuxChainCycle},
     {"extraction_mux_extraction_failed", ErrorCode::ExtractionMuxExtractionFailed},
     {"extraction_bit_extraction_failed", ErrorCode::ExtractionBitExtractionFailed},
+    {"extraction_value_exceeds_wire_range", ErrorCode::ExtractionValueExceedsWireRange},
 });
 
 } // namespace

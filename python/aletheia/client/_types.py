@@ -493,6 +493,13 @@ class CANFrameTuple(NamedTuple):
 _MAX_STANDARD_ID = (1 << 11) - 1  # 11-bit CAN ID
 _MAX_EXTENDED_ID = (1 << 29) - 1  # 29-bit CAN ID
 
+# The binary FFI's frame/event timestamp slot is unsigned 64-bit
+# (``ctypes.c_uint64`` on this side, ``Word64`` in the Haskell shim), and
+# ctypes masks an over-range Python int modulo the slot width instead of
+# failing — a too-large microseconds value would cross the wire silently
+# wrapped to a smaller one.  Refused up front alongside the negative check.
+MAX_TIMESTAMP_US = (1 << 64) - 1
+
 
 def validate_can_id(can_id: int, *, extended: bool) -> None:
     """Validate that a CAN ID is within the legal range.
@@ -505,6 +512,25 @@ def validate_can_id(can_id: int, *, extended: bool) -> None:
     kind = "extended" if extended else "standard"
     if can_id < 0 or can_id > max_id:
         msg = f"Invalid {kind} CAN ID: {can_id} (must be 0-{max_id})"
+        raise ValidationError(msg)
+
+
+def validate_timestamp(timestamp: int) -> None:
+    """Validate that a microseconds timestamp fits the unsigned 64-bit wire slot.
+
+    Raises:
+        ValidationError: If timestamp is negative or exceeds
+            ``MAX_TIMESTAMP_US``.
+
+    """
+    if timestamp < 0:
+        msg = "timestamp must be non-negative"
+        raise ValidationError(msg)
+    if timestamp > MAX_TIMESTAMP_US:
+        msg = (
+            f"timestamp must fit the unsigned 64-bit wire field "
+            f"(at most {MAX_TIMESTAMP_US} microseconds), got {timestamp}"
+        )
         raise ValidationError(msg)
 
 

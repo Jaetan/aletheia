@@ -21,7 +21,18 @@ open import Data.Char using (Char)
 open import Data.String using (String; toList)
 open import Data.List using (List; []; _∷_)
 open import Data.Bool using (Bool)
-open import Data.Nat using (ℕ; suc; _⊔_)
+open import Data.Integer using (∣_∣)
+-- `_⊔′_`, NOT `_⊔_`: stdlib's `_⊔_` is defined by structural recursion on the
+-- unary view, so MAlonzo compiles it to decrement-and-recurse — cost linear in
+-- the VALUE of its arguments, not their bit width, and not tail recursive.  On
+-- a rational component that is fatal: a submitted factor of `<17 digits>/10^17`
+-- makes the measurement below allocate until the host dies (the JSON-bound
+-- check would itself be unbounded in the magnitude it exists to bound).
+-- `_⊔′_` is stdlib's primitive-comparison max (constant time); `⊔≡⊔′` in
+-- Data.Nat.Properties converts between them should a proof ever need the
+-- recursive form.  Both measurements here feed Bool bound checks only, so
+-- neither has a proof obligation to preserve.
+open import Data.Nat using (ℕ; suc; _⊔′_)
 open import Data.Rational using (ℚ)
 open import Data.Product using (_×_; proj₂)
 open import Function using (_∘_)
@@ -61,9 +72,37 @@ mutual
   -- Maximum depth across a list of JSON values (children of an Array).
   listDepth : List JSON → ℕ
   listDepth []       = 0
-  listDepth (x ∷ xs) = jsonDepth x ⊔ listDepth xs
+  listDepth (x ∷ xs) = jsonDepth x ⊔′ listDepth xs
 
   -- Maximum depth across an Object's field values; keys carry no nesting.
   fieldsDepth : List (String × JSON) → ℕ
   fieldsDepth []           = 0
-  fieldsDepth (kv ∷ rest)  = jsonDepth (proj₂ kv) ⊔ fieldsDepth rest
+  fieldsDepth (kv ∷ rest)  = jsonDepth (proj₂ kv) ⊔′ fieldsDepth rest
+
+-- Largest rational-component magnitude of any number in a JSON value:
+-- the maximum over all `JNumber q` of `∣ numerator q ∣ ⊔′ denominator q`
+-- (the parsed, reduced components — reduction only shrinks magnitudes,
+-- so a bounded submitted literal stays bounded).  Companion to
+-- `jsonDepth`: direct measurement of the parsed tree, consumed by the
+-- post-parse `max-rational-component-magnitude` bound (the Int64 wire
+-- range) at the `processJSONLine` surface.  Primitives without numeric
+-- content and empty containers contribute 0.
+mutual
+  jsonMaxComponent : JSON → ℕ
+  jsonMaxComponent JNull            = 0
+  jsonMaxComponent (JBool _)        = 0
+  jsonMaxComponent (JNumber q)      = ∣ ℚ.numerator q ∣ ⊔′ suc (ℚ.denominator-1 q)
+  jsonMaxComponent (JString _)      = 0
+  jsonMaxComponent (JArray xs)      = listMaxComponent xs
+  jsonMaxComponent (JObject fields) = fieldsMaxComponent fields
+
+  -- Maximum component magnitude across an Array's elements.
+  listMaxComponent : List JSON → ℕ
+  listMaxComponent []       = 0
+  listMaxComponent (x ∷ xs) = jsonMaxComponent x ⊔′ listMaxComponent xs
+
+  -- Maximum component magnitude across an Object's field values; keys
+  -- carry no numeric content.
+  fieldsMaxComponent : List (String × JSON) → ℕ
+  fieldsMaxComponent []          = 0
+  fieldsMaxComponent (kv ∷ rest) = jsonMaxComponent (proj₂ kv) ⊔′ fieldsMaxComponent rest

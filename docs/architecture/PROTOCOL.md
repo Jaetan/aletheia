@@ -1247,6 +1247,9 @@ The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/L
 | DBC identifier length | 128 chars | `identifier_length` |
 | Quoted-string body length | 64 KiB (65,536 bytes) | `string_length` |
 | CAN frame payload bytes | 64 (CAN-FD max) | `frame_byte_count` |
+| Rational components of any JSON number (\|numerator\| and denominator of the exact rational it denotes, reduced) | 9,223,372,036,854,775,807 (2⁶³ − 1) | `rational_component_magnitude` |
+
+The rational-component bound is measured on the parsed tree like the nesting-depth bound (reduction only shrinks component magnitudes, so a bounded submitted literal stays bounded). It pins the JSON wire to the same signed 64-bit range the binary FFI's rational slots and the typed decimal path (`aletheia_parse_decimal`) already enforce — one Int64 bound on every wire, so a bare JSON integer cannot smuggle a component the binary wire cannot represent. The limit is symmetric in magnitude: numerator −2⁶³ is refused even though a two's-complement slot could carry it, keeping the structured `observed` / `limit` pair a plain magnitude comparison.
 
 ### Wire shape
 
@@ -1254,7 +1257,7 @@ The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/L
 
 | Code | bound_kind values |
 |---|---|
-| `input_bound_exceeded` | `input_length_bytes` / `nesting_depth` / `array_cardinality` / `identifier_length` / `string_length` / `atom_count` / `property_count` / `frame_byte_count` |
+| `input_bound_exceeded` | `input_length_bytes` / `nesting_depth` / `array_cardinality` / `identifier_length` / `string_length` / `atom_count` / `property_count` / `frame_byte_count` / `rational_component_magnitude` |
 
 The `message` field embeds the kind label, observed value, and limit; the structured `bound_kind` / `observed` / `limit` fields appear on the envelope alongside `code` and `message`. Example:
 
@@ -1366,6 +1369,7 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `extraction_mux_chain_cycle` | Multiplexor chain exceeded recursion depth (cycle?) | Simplify or break the multiplexor chain |
 | `extraction_mux_extraction_failed` | Failed to read the multiplexor signal's own bits | Check the multiplexor signal's `startBit`/`length` |
 | `extraction_bit_extraction_failed` | Bit-level read or scaling failed | Usually a DBC/frame-size mismatch |
+| `extraction_value_exceeds_wire_range` | The extracted exact value's reduced numerator or denominator exceeds the signed 64-bit range of the binary wire's rational slots, so the value cannot travel the wire (the FFI encoder reroutes the signal to `errors` instead of letting the value wrap silently) | Per-signal runtime condition, not a DBC defect — reduction alone can push a component over the range even when every DBC field and frame byte is in range; rescale the signal's `factor`/`offset` if the exact value must travel |
 
 #### Frame errors — binary build/update paths (`aletheia_build_frame_bin` / `aletheia_update_frame_bin`)
 

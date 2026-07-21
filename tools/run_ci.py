@@ -520,7 +520,6 @@ class Runner:
                     f"Mode:     {mode}",
                     f"Opt-ins:  {opt_in}",
                     f"Log:      {self.ctx.log_path}",
-                    "",
                 ]
             ),
         )
@@ -594,19 +593,21 @@ class Runner:
             sys.stderr.flush()
 
     def _emit(self, result: StepResult) -> None:
-        """Record one step's deterministic block: header to terminal+log, body to log.
+        """Record one step's deterministic block in the LOG (header, body, ✓/✗).
 
-        The step header tees to stdout AND the log; the step's captured output
-        goes to the LOG only (the terminal's live view is :meth:`_progress`).
-        The ✓/✗ line already fired live on stderr, so here it goes to the LOG
-        only — keeping the log's deterministic shape without duplicating lines
-        on the terminal.  A failure's output tail still goes to stderr (the
-        live line carries no detail).
+        Nothing here reaches the terminal on success: the terminal's record is
+        the live :meth:`_progress` channel, and teeing the headers too left the
+        report as a burst of content-free header lines separated by blanks.
+        The log alone keeps the deterministic lane-then-step blocks — dense,
+        with no filler blank lines: the header rule is the block separator,
+        and an empty output contributes nothing.  A failure's output tail
+        still goes to stderr (the live ✗ line carries no detail).
         """
-        self._tee(f"\n─── {result.name} ({int(result.duration)}s) ───")
-        _ = self.log_fh.write(result.output)
-        if not result.output.endswith("\n"):
-            _ = self.log_fh.write("\n")
+        _ = self.log_fh.write(f"─── {result.name} ({int(result.duration)}s) ───\n")
+        if result.output:
+            _ = self.log_fh.write(result.output)
+            if not result.output.endswith("\n"):
+                _ = self.log_fh.write("\n")
         if result.returncode == 0:
             _ = self.log_fh.write(f"  ✓ {result.name} ({int(result.duration)}s)\n")
             self.log_fh.flush()
@@ -681,7 +682,6 @@ class Runner:
             self._tee(
                 "\n".join(
                     [
-                        "",
                         "═══ CI summary ═══",
                         f"Result:   ALL {total} STEPS PASSED",
                         f"Duration: {elapsed}s ({elapsed // 60}m{elapsed % 60:02d}s)",

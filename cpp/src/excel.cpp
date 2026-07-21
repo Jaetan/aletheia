@@ -18,9 +18,11 @@
 #include <exception>
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <limits>
 #include <map>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -75,15 +77,85 @@ static auto when_then_headers() -> const std::vector<std::string>& {
 // Cell value conversion helper
 // ---------------------------------------------------------------------------
 
-/// Convert an XLCellValue to a string, returning empty for empty cells.
-static auto cell_to_string(const OpenXLSX::XLCellValue& val) -> std::string {
+static auto row_ctx(int row_num) -> std::string {
+    return "Row " + std::to_string(row_num);
+}
+
+/// Extract the literal text of a cell's <v> element from the cell's own XML
+/// (XLCell::print). OpenXLSX's public API exposes only the PARSED value, and
+/// for an Integer-classified cell that parse is a prefix-read — it silently
+/// turns dot-free scientific notation ("1e16") into 1 and an empty <v/> into
+/// 0 — so the raw stored text must come from the XML itself. XML entities are
+/// left encoded (they cannot form a digit run, so the strictness check treats
+/// them as the garbage they are). Returns "" for a missing or empty <v>.
+static auto raw_stored_v_text(const OpenXLSX::XLCell& cell) -> std::string {
+    std::ostringstream os;
+    cell.print(os);
+    const std::string xml = os.str();
+    // Within a <c> cell node, <v> is the only child element starting with 'v'.
+    std::size_t pos = 0;
+    while ((pos = xml.find("<v", pos)) != std::string::npos) {
+        const std::size_t after = pos + 2;
+        if (after >= xml.size())
+            break;
+        const char next = xml[after];
+        if (next == '>') { // <v>text</v>
+            const std::size_t close = xml.find("</v>", after + 1);
+            if (close == std::string::npos)
+                break;
+            return xml.substr(after + 1, close - (after + 1));
+        }
+        if (next == '/' || next == ' ') { // <v/> or <v attr...>
+            const std::size_t gt = xml.find('>', after);
+            if (gt == std::string::npos)
+                break;
+            if (xml[gt - 1] == '/')
+                return ""; // self-closing: an empty <v/>
+            const std::size_t close = xml.find("</v>", gt);
+            if (close == std::string::npos)
+                break;
+            return xml.substr(gt + 1, close - (gt + 1));
+        }
+        pos = after; // a longer element name — keep scanning
+    }
+    return "";
+}
+
+/// True when s is a non-empty ASCII digit run with an optional single leading
+/// sign — the only raw stored shape whose Integer parse is exact rather than a
+/// prefix-read.
+static auto is_signed_digit_run(std::string_view s) -> bool {
+    if (s.starts_with('+') || s.starts_with('-'))
+        s.remove_prefix(1);
+    if (s.empty())
+        return false;
+    return std::ranges::all_of(s, [](char ch) { return ch >= '0' && ch <= '9'; });
+}
+
+/// Convert a cell to its loader-string form, returning empty for empty cells.
+/// The Integer branch trusts the parsed value only after verifying the raw
+/// stored <v> text is a pure optional-sign digit run (see raw_stored_v_text);
+/// anything else — dot-free scientific notation, an empty <v/> — is refused
+/// truthfully, naming the stored text. Float values render shortest
+/// round-trip: they are only ever echoed in rejection messages, and a
+/// fixed-precision rendering would misstate the stored value.
+static auto cell_to_string(const OpenXLSX::XLCell& cell, const std::string& header, int row_num)
+    -> std::string {
+    const OpenXLSX::XLCellValue val = cell.value();
     switch (val.type()) {
     case OpenXLSX::XLValueType::String:
         return val.get<std::string>();
-    case OpenXLSX::XLValueType::Integer:
+    case OpenXLSX::XLValueType::Integer: {
+        const std::string raw = raw_stored_v_text(cell);
+        if (!is_signed_digit_run(raw))
+            throw std::runtime_error(row_ctx(row_num) + ": '" + header + "' number cell stores \"" +
+                                     raw +
+                                     "\", which is not a plain integer (store the digits "
+                                     "verbatim, or format the cell as text)");
         return std::to_string(val.get<std::int64_t>());
+    }
     case OpenXLSX::XLValueType::Float:
-        return std::to_string(val.get<double>());
+        return std::format("{}", val.get<double>());
     case OpenXLSX::XLValueType::Boolean:
         return val.get<bool>() ? "TRUE" : "FALSE";
     default:
@@ -115,12 +187,12 @@ static auto row_to_map(OpenXLSX::XLWorksheet& ws, int row, const std::vector<std
     for (std::size_t i = 0; i < headers.size(); ++i) {
         if (headers[i].empty())
             continue; // a column with no header name is ignored
-        const OpenXLSX::XLCellValue val = ws.cell(row, static_cast<std::uint16_t>(i + 1)).value();
-        auto str_val = cell_to_string(val);
+        const auto cell = ws.cell(row, static_cast<std::uint16_t>(i + 1));
+        auto str_val = cell_to_string(cell, headers[i], row);
         if (str_val.empty())
             continue;
-        result[headers[i]] =
-            CellVal{.value = str_val, .is_text = val.type() == OpenXLSX::XLValueType::String};
+        result[headers[i]] = CellVal{
+            .value = str_val, .is_text = cell.value().type() == OpenXLSX::XLValueType::String};
     }
     return result;
 }
@@ -158,7 +230,9 @@ static auto get_any(const CellMap& cells, const std::string& key, const std::str
 // authored as text-formatted cells and parsed exactly by the kernel decimal
 // SSOT (Rational::from_decimal).  RTS-gated: an FfiBackend must be live first;
 // the loader's outer `catch (const std::runtime_error&)` converts both the
-// runtime-down and the malformed-literal throws into a Validation Result.
+// runtime-down and the malformed-literal throws into a Validation Result.  A
+// kernel decimal refusal is re-thrown with the row/field context prefixed —
+// the kernel knows the literal, not the workbook position.
 static auto get_decimal(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> Rational {
     auto it = cells.find(key);
@@ -169,13 +243,20 @@ static auto get_decimal(const CellMap& cells, const std::string& key, const std:
                                  it->second.value +
                                  "); format it as TEXT so the exact value is preserved "
                                  "(a number cell stores a lossy float)");
-    return Rational::from_decimal(it->second.value);
+    try {
+        return Rational::from_decimal(it->second.value);
+    } catch (const AletheiaException& ex) {
+        if (ex.kind() != ErrorKind::Validation)
+            throw; // runtime-down / ABI faults are not properties of the cell
+        throw std::runtime_error(ctx_str + ": invalid '" + key + "': " + ex.what());
+    }
 }
 
 // get_int requires a TEXT cell holding a whole number (DLC / Start Bit / Length
 // / Multiplex Value / Time).  Same inverted contract as get_decimal: a numeric
 // cell is rejected; the text is parsed exactly via the kernel decimal SSOT and
-// must reduce to denominator 1.
+// must reduce to denominator 1.  Kernel refusals gain the same row/field
+// context prefix as get_decimal.
 static auto get_int(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> std::int64_t {
     auto it = cells.find(key);
@@ -186,7 +267,15 @@ static auto get_int(const CellMap& cells, const std::string& key, const std::str
                                  it->second.value +
                                  "); format it as TEXT so the exact value is preserved "
                                  "(a number cell stores a lossy float)");
-    auto value = Rational::from_decimal(it->second.value);
+    auto value = [&]() -> Rational {
+        try {
+            return Rational::from_decimal(it->second.value);
+        } catch (const AletheiaException& ex) {
+            if (ex.kind() != ErrorKind::Validation)
+                throw; // runtime-down / ABI faults are not properties of the cell
+            throw std::runtime_error(ctx_str + ": invalid '" + key + "': " + ex.what());
+        }
+    }();
     if (value.denominator() != 1)
         throw std::runtime_error(ctx_str + ": '" + key + "' value " + it->second.value +
                                  " is not a whole number");
@@ -211,10 +300,6 @@ static auto get_bool(const CellMap& cells, const std::string& key, const std::st
     if (upper == "FALSE" || upper == "0")
         return false;
     throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected TRUE/FALSE)");
-}
-
-static auto row_ctx(int row_num) -> std::string {
-    return "Row " + std::to_string(row_num);
 }
 
 static auto has_key(const CellMap& cells, const std::string& key) -> bool {

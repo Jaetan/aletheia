@@ -185,6 +185,7 @@ var goErrorCodes = []string{
 	aletheia.CodeExtractionMuxChainCycle,
 	aletheia.CodeExtractionMuxExtractionFailed,
 	aletheia.CodeExtractionBitExtractionFailed,
+	aletheia.CodeExtractionValueExceedsWireRange,
 }
 
 // ----- 1. YAML schema sanity -----

@@ -28,6 +28,10 @@ const (
 	BoundKindAtomCount        = "atom_count"
 	BoundKindFrameByteCount   = "frame_byte_count"
 	BoundKindPropertyCount    = "property_count"
+
+	// BoundKindRationalComponentMagnitude — a JSON number's rational
+	// component (|numerator| or denominator) exceeds the Int64 wire range.
+	BoundKindRationalComponentMagnitude = "rational_component_magnitude"
 )
 
 // Numeric bound constants — mirror src/Aletheia/Limits.agda exactly.
@@ -68,4 +72,10 @@ const (
 
 	// MaxFrameByteCount — CAN frame payload byte count (CAN-FD maximum).
 	MaxFrameByteCount = 64
+
+	// MaxRationalComponentMagnitude — magnitude cap on a JSON number's
+	// rational components (|numerator| and denominator of the exact
+	// rational it denotes): the signed 64-bit wire range shared with the
+	// binary FFI's rational slots and the decimal SSOT.
+	MaxRationalComponentMagnitude = 9223372036854775807
 )

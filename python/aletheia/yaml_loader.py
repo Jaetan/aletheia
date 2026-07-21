@@ -59,6 +59,8 @@ When/Then checks (causal)::
 
 from __future__ import annotations
 
+import math
+from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -116,6 +118,39 @@ _NoFloatSafeLoader: type[yaml.SafeLoader] = type(
         }
     },
 )
+
+
+def _construct_tagged_float(loader: yaml.SafeLoader, node: yaml.Node) -> Fraction:
+    """Construct an explicitly ``!!float``-tagged scalar as an exact rational.
+
+    The implicit float resolver above governs only *untagged* scalars (a bare
+    ``1.5`` stays a string and is parsed exactly by the kernel SSOT); an
+    EXPLICIT ``!!float`` tag names the YAML float type, so the scalar is
+    accepted at IEEE-754 double semantics: every finite double is losslessly
+    representable as a rational, and ``Fraction(float)`` is the double's exact
+    value.  Non-representable values (NaN / ±infinity) are refused — no exact
+    rational exists for them.  The Go/C++/Rust loaders accept the same tagged
+    scalar via its literal text, so a losslessly-representable literal (e.g.
+    ``!!float 11.5``) loads to the identical rational in all four bindings.
+    """
+    if not isinstance(node, yaml.ScalarNode):
+        msg = "YAML !!float tag must be applied to a scalar value"
+        raise ValidationError(msg)
+    try:
+        value = loader.construct_yaml_float(node)
+    except ValueError as exc:
+        msg = f"YAML !!float scalar {node.value!r} is not a valid float literal"
+        raise ValidationError(msg) from exc
+    if not math.isfinite(value):
+        msg = (
+            f"YAML !!float scalar {node.value!r} is not finite; only finite "
+            "tagged floats have an exact rational value"
+        )
+        raise ValidationError(msg)
+    return Fraction(value)
+
+
+_NoFloatSafeLoader.add_constructor(_YAML_FLOAT_TAG, _construct_tagged_float)
 
 
 def _safe_load_no_float(stream: str | TextIO) -> object:

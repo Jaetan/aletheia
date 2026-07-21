@@ -179,6 +179,15 @@ data ExtractionError : Set where
   -- Routed through the typed Error sum rather than carrying a raw String at the
   -- ExtractionResult layer, so all errors share a single ADT.
   BitExtractionFailed    : String → ExtractionError
+  -- The extracted exact value cannot travel a binary-wire rational slot:
+  -- its reduced numerator or denominator exceeds the signed 64-bit range.
+  -- The code is minted here (the wire-code SSOT); detection happens in the
+  -- FFI shim's binary encoder, which reroutes the affected signal to the
+  -- per-signal error stream instead of letting the i64 poke wrap silently.
+  -- Exact reduction can push a component past the wire range even when
+  -- every DBC field and frame byte is in range, so this is a per-signal
+  -- runtime condition, not a DBC validation issue.
+  ValueExceedsWireRange  : ExtractionError
   InContext              : String → ExtractionError → ExtractionError
 
 formatExtractionError : ExtractionError → String
@@ -190,6 +199,8 @@ formatExtractionError (MuxExtractionFailed name) =
   "failed to extract multiplexor signal '" ++ₛ name ++ₛ "'"
 formatExtractionError (BitExtractionFailed reason) =
   "bit extraction failed: " ++ₛ reason
+formatExtractionError ValueExceedsWireRange =
+  "extracted value's numerator or denominator exceeds the Int64 wire range"
 formatExtractionError (InContext ctx inner) =
   ctx ++ₛ ": " ++ₛ formatExtractionError inner
 
@@ -199,6 +210,7 @@ extractionErrorCode (MuxSignalNotFound _)    = "extraction_mux_signal_not_found"
 extractionErrorCode MuxChainCycle            = "extraction_mux_chain_cycle"
 extractionErrorCode (MuxExtractionFailed _)  = "extraction_mux_extraction_failed"
 extractionErrorCode (BitExtractionFailed _)  = "extraction_bit_extraction_failed"
+extractionErrorCode ValueExceedsWireRange    = "extraction_value_exceeds_wire_range"
 extractionErrorCode (InContext _ inner)      = extractionErrorCode inner
 
 -- ============================================================================

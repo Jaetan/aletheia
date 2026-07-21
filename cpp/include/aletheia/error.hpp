@@ -125,6 +125,7 @@ enum class ErrorCode {
     ExtractionMuxChainCycle,
     ExtractionMuxExtractionFailed,
     ExtractionBitExtractionFailed,
+    ExtractionValueExceedsWireRange,
 };
 
 /// Parse an error code string from Agda JSON into the enum.
