@@ -10,7 +10,8 @@
 -- the corresponding coerce target type mismatches the GHC heap object and
 -- crashes here on first call (or on a forced traversal of the result).
 --
--- Coverage matches the 11 entries in haskell-shim/ffi-exports.snapshot:
+-- Coverage matches the entries in haskell-shim/ffi-exports.snapshot
+-- (the SSOT the check-ffi-exports gate diffs against):
 --   1. d_initialState_50         — exercised in setup
 --   2. d_processJSONLine_74      — exercised in setup (DBC load + setProps)
 --   3. d_processStartStreamDirect_24  — exercised in setup
