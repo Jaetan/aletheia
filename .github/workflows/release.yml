@@ -224,7 +224,7 @@ jobs:
       # below are load-bearing.  They are copied from pr-full-ci.yml with the
       # same cache keys, so the caches seeded there are shared.
       - name: Set up Go (bundle consumer toolchain)
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
           cache-dependency-path: |

@@ -134,7 +134,7 @@ jobs:
           python/.venv/bin/pip install -e 'python/.[dev]'
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
           # The Go modules live under go/ and go/excel/, not the repo root, so
