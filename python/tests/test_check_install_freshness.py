@@ -15,7 +15,17 @@ from pathlib import Path
 
 import pytest
 
-from tools.check_install_freshness import BUILD_SO, find_problems, main
+from tools.check_install_freshness import (
+    BUILD_SO,
+    RelinkCertificate,
+    chain_baseline,
+    find_problems,
+    gnu_build_id,
+    load_relink_certificate,
+    main,
+    relink_certificate_path,
+    write_relink_certificate,
+)
 
 # The real built kernel — a genuine ELF carrying a GNU build-id note. Present
 # after `cabal run shake -- build`; absent on a fresh clone (skip the build-id
@@ -232,3 +242,85 @@ def test_real_elf_matches_by_build_id_and_mixed_pair_falls_back(tmp_path: Path) 
     # joint decision falls back to SHA-256 → different → stale (no crash).
     _write(dist_so, b"not an elf")
     assert any("stale dist/" in problem for problem in find_problems(repo, unused_prefix))
+
+
+def _mutate_build_id(elf_bytes: bytes, build_id_hex: str, index: int = 0) -> tuple[bytes, str]:
+    """Return a copy of *elf_bytes* whose GNU build-id differs at byte *index*.
+
+    The note's descriptor bytes are located by value (the id is long enough
+    to be unique in the image) and one byte is flipped — producing a second
+    genuine ELF that parses identically but reports a different id, which is
+    exactly what a probe relink of the same inputs looks like.  Chained
+    mutations must flip DIFFERENT indices: flipping the same byte twice is
+    the identity and would silently recreate the original id.
+    """
+    desc = bytes.fromhex(build_id_hex)
+    assert elf_bytes.count(desc) == 1, "build-id bytes not unique in the image"
+    flipped = desc[:index] + bytes([desc[index] ^ 0xFF]) + desc[index + 1 :]
+    return elf_bytes.replace(desc, flipped), flipped.hex()
+
+
+def test_relink_certificate_bridges_probe_relinked_build(tmp_path: Path) -> None:
+    """A certified baseline install stays fresh against the post-probe library.
+
+    Reproduces the false-stale that blocked a push: install, then a sweep
+    whose staleness probes relink the .so (new build-id, same inputs). The
+    certificate written by the staleness gate must bridge exactly that pair
+    — and must go inert the moment the build/ library is neither side of it
+    (a REAL rebuild), so it can never vouch for true rot.
+    """
+    if not _REAL_SO.is_file():
+        pytest.skip(f"{_REAL_SO} not built — run 'cabal run shake -- build' to exercise this")
+    baseline_bytes = _REAL_SO.read_bytes()
+    baseline_id = gnu_build_id(_REAL_SO)
+    if baseline_id is None:
+        pytest.skip("built .so carries no GNU build-id note")
+    post_probe_bytes, post_probe_id = _mutate_build_id(baseline_bytes, baseline_id)
+
+    repo = tmp_path / "repo"
+    _write(repo / "build" / "libaletheia-ffi.so", post_probe_bytes)
+    prefix = _make_prefix(tmp_path, baseline_bytes)
+
+    # Without a certificate the divergent ids are (correctly) stale.
+    assert _run(repo, prefix) == 1
+
+    # The staleness gate's certificate bridges baseline → post-probe.
+    write_relink_certificate(
+        repo, RelinkCertificate(baseline_build_id=baseline_id, post_probe_build_id=post_probe_id)
+    )
+    assert _run(repo, prefix) == 0
+
+    # A REAL rebuild mints an id the certificate does not name on its
+    # post-probe side — the certificate must go inert, not vouch onward.
+    rebuilt_bytes, _rebuilt_id = _mutate_build_id(post_probe_bytes, post_probe_id, index=1)
+    _write(repo / "build" / "libaletheia-ffi.so", rebuilt_bytes)
+    assert _run(repo, prefix) == 1
+
+
+def test_relink_certificate_loader_rejects_malformed(tmp_path: Path) -> None:
+    """Absent, non-JSON, and wrong-shape certificates all read as None."""
+    repo = tmp_path / "repo"
+    (repo / "build").mkdir(parents=True)
+    assert load_relink_certificate(repo) is None
+    cert_file = relink_certificate_path(repo)
+    _ = cert_file.write_text("not json", encoding="utf-8")
+    assert load_relink_certificate(repo) is None
+    _ = cert_file.write_text('{"baseline_build_id": ""}', encoding="utf-8")
+    assert load_relink_certificate(repo) is None
+    _ = cert_file.write_text(
+        '{"baseline_build_id": "aa", "post_probe_build_id": "bb"}', encoding="utf-8"
+    )
+    assert load_relink_certificate(repo) == RelinkCertificate("aa", "bb")
+
+
+def test_chain_baseline_compresses_consecutive_probe_cycles() -> None:
+    """Back-to-back probe cycles keep vouching for the ORIGINAL baseline.
+
+    A local sweep and the pre-push sweep both probe without a reinstall in
+    between; the second cycle must chain (prior post-probe id == the library
+    it starts from), while a broken chain starts fresh from the current id.
+    """
+    first = RelinkCertificate(baseline_build_id="orig", post_probe_build_id="relink1")
+    assert chain_baseline(first, "relink1") == "orig"  # chained
+    assert chain_baseline(first, "rebuilt") == "rebuilt"  # real rebuild broke it
+    assert chain_baseline(None, "current") == "current"  # first cycle ever

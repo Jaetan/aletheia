@@ -232,3 +232,7 @@ def test_live_progress_streams_to_stderr(
     assert "✓ quickstep" in err
     log = (tmp_path / "ci.log").read_text(encoding="utf-8")
     assert "✓ quickstep" in log  # the deterministic record still lands in the log
+    # Dense blocks: the header rule is the separator; an empty-output step's
+    # ✓ line follows its header directly — no filler blank lines in the log.
+    assert "quickstep (0s) ───\n  ✓ quickstep" in log
+    assert "\n\n─── quickstep" not in log

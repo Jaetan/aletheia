@@ -48,6 +48,14 @@ from tools._common import (
     untrack_inflight,
 )
 from tools._warm import REPO_ROOT
+from tools.check_install_freshness import (
+    RelinkCertificate,
+    chain_baseline,
+    gnu_build_id,
+    load_relink_certificate,
+    relink_certificate_path,
+    write_relink_certificate,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -172,6 +180,20 @@ def main() -> int:
     if originals is None:
         return 1
 
+    # The probes below RELINK the .so, and GHC recompilation is not
+    # symbol-deterministic — the reverted final relink carries a fresh GNU
+    # build-id for the same link inputs.  Record the baseline id now (chaining
+    # through any prior certificate whose post-probe id matches — consecutive
+    # probe cycles keep vouching for the oldest baseline) and drop the old
+    # certificate immediately, so a run that dies mid-probe leaves nothing
+    # vouching for a half-probed library.  On full PASS the certificate is
+    # rewritten, letting the freshness gate accept a deployed copy of the
+    # baseline build against the post-probe library (same inputs, proven by
+    # this gate's own edit/revert checks).
+    baseline_id = chain_baseline(load_relink_certificate(REPO_ROOT), gnu_build_id(_SO) or "")
+    cert_file = relink_certificate_path(REPO_ROOT)
+    cert_file.unlink(missing_ok=True)
+
     install_restore_handlers()
     for probe in _PROBES:
         track_inflight(str(probe.file), originals[probe.file])
@@ -184,6 +206,13 @@ def main() -> int:
         for probe in _PROBES:
             _ = probe.file.write_text(originals[probe.file], encoding="utf-8")
             untrack_inflight(str(probe.file))
+
+    post_probe_id = gnu_build_id(_SO)
+    if baseline_id and post_probe_id is not None and post_probe_id != baseline_id:
+        write_relink_certificate(
+            REPO_ROOT,
+            RelinkCertificate(baseline_build_id=baseline_id, post_probe_build_id=post_probe_id),
+        )
 
     emit("=== build-incremental gate: PASS — edits/reverts reach the .so; no-op is incremental ===")
     return 0

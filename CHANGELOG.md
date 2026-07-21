@@ -34,7 +34,9 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   the runner streams those events to stderr immediately — a start line when
   a step begins and its ✓/✗ line with duration the moment it completes —
   while the log file keeps its deterministic lane-then-step record
-  unchanged. Gate output lines also flush per line at the shared `emit`
+  unchanged (the per-step headers now live in the log only — teeing them to
+  the terminal too left the report a burst of content-free header lines).
+  Gate output lines also flush per line at the shared `emit`
   chokepoint, so nothing sits in a pipe buffer under the pre-push hook.
   Verified live through a pipe: lines arrive spread across the run rather
   than at exit.
@@ -284,6 +286,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The freshness gate no longer reports a fresh install stale after the
+  build-staleness probes relink the kernel.** GHC recompilation is not
+  symbol-deterministic, so the staleness gate's edit/revert probes can mint
+  a new GNU build-id for a library linked from identical inputs — and the
+  freshness gate, comparing build-ids, then failed the pre-push sweep on a
+  correctly installed kernel. The staleness gate now records its own proof
+  (baseline and post-probe build-ids, chained across consecutive probe
+  cycles) in a certificate under `build/`, and the freshness gate accepts
+  exactly that certified pair; a real rebuild mints an id the certificate
+  does not name, so true rot still fails.
 - **Binary extract responses no longer wrap out-of-range values silently.**
   A signal whose exact physical value passed the kernel's own bounds check
   could come back from `extract_signals` as a wrong value with an empty
