@@ -33,6 +33,24 @@ def parse_json_object(s: str) -> dict[str, JSONValue]:
     return parsed
 
 
+# Default maximum heap for the loaded kernel's GHC RTS.
+#
+# The RTS has NO heap limit by default, so a runaway allocation inside the
+# kernel is not a failed call — it exhausts host memory and the OOM killer
+# takes the whole machine down (observed twice while probing a kernel defect
+# whose cost grew with a rational's magnitude).  With a cap the same runaway
+# raises a heap overflow, the FFI call returns an error, and the process — and
+# the host — survive.
+#
+# The value is a containment bound, not a working-set estimate: the largest
+# kernel working set measured on this project is under two gigabytes (the full
+# proof gate), and ordinary client use sits near a hundred megabytes, so this
+# leaves ample headroom while staying far below any developer host's memory.
+# Override per process with ``ALETHEIA_RTS_OPTS`` (its flags are appended after
+# this one, and the RTS honours the last occurrence).
+DEFAULT_RTS_HEAP_CAP = b"-M3G"
+
+
 class RTSState:
     """Module-level GHC RTS management.
 
@@ -75,14 +93,14 @@ class RTSState:
                 ]
                 init_fn.restype = None
                 extra_rts = os.environ.get("ALETHEIA_RTS_OPTS", "").split()
-                if rts_cores > 1 or extra_rts:
-                    args: list[bytes] = [b"aletheia", b"+RTS"]
-                    if rts_cores > 1:
-                        args.append(b"-N" + str(rts_cores).encode())
-                    args.extend(flag.encode("ascii") for flag in extra_rts)
-                    args.append(b"-RTS")
-                else:
-                    args = [b"aletheia"]
+                # The heap cap goes FIRST so a caller-supplied -M in
+                # ALETHEIA_RTS_OPTS lands later and wins (the RTS honours the
+                # last occurrence of a flag).
+                args: list[bytes] = [b"aletheia", b"+RTS", DEFAULT_RTS_HEAP_CAP]
+                if rts_cores > 1:
+                    args.append(b"-N" + str(rts_cores).encode())
+                args.extend(flag.encode("ascii") for flag in extra_rts)
+                args.append(b"-RTS")
                 argc = ctypes.c_int(len(args))
                 argv = (ctypes.c_char_p * len(args))(*args)
                 argv_ptr = ctypes.cast(argv, ctypes.POINTER(ctypes.c_char_p))

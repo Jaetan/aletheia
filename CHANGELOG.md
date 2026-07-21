@@ -12,6 +12,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Every rational component on the JSON wire is now bounded to the Int64
+  range (BREAKING on the JSON wire).** The kernel previously accepted bare
+  JSON integers of unbounded magnitude in rational positions, while the
+  decimal SSOT and the binary wire's rational slots both enforce the signed
+  64-bit range — an asymmetry that let a component the wire cannot represent
+  enter through the integer channel. A post-parse measurement of the JSON
+  tree now refuses any number whose reduced numerator or denominator exceeds
+  the bound, with the typed `input_bound_exceeded` envelope carrying the
+  structured `bound_kind` / `observed` / `limit` triple (new bound kind:
+  `rational_component_magnitude`, mirrored in the Python and Go limits
+  surfaces and their parity gate). Callers that relied on out-of-range
+  integers being accepted — an accidental capability, observed only as
+  divergence between the Python YAML loader and the other bindings — now get
+  a truthful refusal, and the YAML loaders of all four bindings converge.
 - **The CI sweep streams live per-step progress.** `tools/run_ci.py`
   previously collected every lane's results before printing anything, so
   after the banner the terminal stayed silent until the whole sweep finished
@@ -92,9 +106,47 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `IssueCode::as_str`, as the enum's documentation now explains). The
   deliberately closed enums (`IssueSeverity`, `Verdict`, the LTL AST) remain
   exhaustive.
+- Internal proof-hygiene refactor — wire behavior unchanged. The Bool-valued
+  leaves of the `format_dbc_text` well-formedness checker are reified into
+  stock `Dec` deciders consumed through the shared `requireDec` combinator, so
+  the hand-written Bool-to-predicate pairing lemmas (including the whole
+  `Sound/Master` proof module) are deleted; and the attribute-definition
+  lookup is single-sourced in a new `Aletheia.DBC.AttrLookup` module shared by
+  the text formatter and text parser (previously two identical per-side
+  clones, plus a bridging lemma proving them equal — also deleted).
+- Internal — no library or runtime behavior change; the one tooling-behavior
+  change is that the memory-citation checker becomes strictly stricter (its
+  backlog-doc exemption is removed, so the renamed design plan is scanned like
+  any other doc). The DBC text round-trip proof documentation now
+  lives in the source: the `WellFormedFromValidity` module header explains why
+  DBC validity cannot imply the round-trip predicate (text emission is lossy on
+  constructs the validator accepts) and why no guarantee depends on that
+  implication (the predicate is runtime-decidable, sound and complete, and
+  `format_dbc_text`'s guarantee routes through the hypothesis-free exact
+  re-parse check). The retired proof-strategy notes were removed alongside; the
+  surviving extended-mux design plan carries a content-based name
+  (`EXTENDED_MUX_DESIGN.md`), which is what enables the exemption removal above.
 
 ### Added
 
+- **A binary-wire encoder guard with a new extraction error code
+  (`extraction_value_exceeds_wire_range`).** Exact-arithmetic reduction can
+  push an extracted value's numerator or denominator past the signed 64-bit
+  binary-wire slots even when every ingested literal was in range, so the
+  FFI shim's response encoder now bounds-checks both components before the
+  wire pokes and reroutes the affected signal to the existing per-signal
+  error stream, with the code minted in the kernel's extraction-error
+  vocabulary per the wire-code SSOT protocol (YAML row, per-binding
+  vocabulary members and decoder messages, parity-gate anchors). Regression
+  suites pin both directions: over-range components become a typed error
+  entry, and components exactly at the Int64 boundary still travel exactly.
+- **The Python client caps the embedded kernel's heap by default.** The GHC
+  RTS runs uncapped unless told otherwise, so a runaway allocation inside
+  the kernel previously escalated to a host-level out-of-memory kill instead
+  of a failed call. `hs_init` now always receives a heap cap (a containment
+  bound far above the kernel's measured working set); flags in
+  `ALETHEIA_RTS_OPTS` are appended after it, so a caller-supplied `-M`
+  still wins.
 - **Native `.deb` / `.rpm` packages and a GHCR-published container image join
   the release.** `cabal run shake -- packages` builds both native packages
   from one declarative `packaging/nfpm.yaml` (nfpm, SHA-pinned in CI): the
@@ -232,33 +284,45 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **Binary extract responses no longer wrap out-of-range values silently.**
+  A signal whose exact physical value passed the kernel's own bounds check
+  could come back from `extract_signals` as a wrong value with an empty
+  error list in every binding: the response encoder poked unbounded
+  integers into the Int64 wire slots and the numerator wrapped. Such
+  signals now surface as a typed per-signal error entry (see the encoder
+  guard under Added); violation enrichment was verified to route through
+  the same guarded wire.
+- **Excel loaders no longer trust display formatting or prefix parsing for
+  numeric cells (Go, C++).** A native number cell storing a fractional
+  Message ID under an integer display format loaded as the DISPLAYED id in
+  Go (silent wrong message), and C++ accepted dot-free scientific notation
+  and empty stored values as valid ids via prefix parsing. Both loaders now
+  require the RAW stored value to be exactly integral — Python's reference
+  semantics — refusing anything else truthfully; the Go boolean column
+  applies the same raw-value discipline. Kernel decimal refusals in both
+  loaders now carry the row/field context their sibling diagnostics already
+  had, and rejection messages echo the raw stored value
+  (shortest-round-trip rendering in C++) instead of a truncated or
+  display-formatted one. Rust's Excel loader already reads raw stored
+  values and needed no change.
+- **Python timestamp ingestion refuses values past the unsigned 64-bit wire
+  ceiling.** A large-enough microsecond timestamp silently wrapped at the
+  FFI boundary (reachable from a malformed candump line), surfacing only as
+  a confusing monotonicity error; all three streaming entry points now
+  refuse it with the same `ValidationError` the negative check raises, and
+  `iter_can_log` treats every non-finite timestamp uniformly (NaN and
+  infinities are skipped in skip mode and raise the documented error class
+  otherwise — infinities previously crashed both modes).
+- **Python's YAML check loader accepts explicitly `!!float`-tagged scalars
+  exactly.** It was the only binding refusing a tagged, losslessly
+  representable float that Go, C++, and Rust load exactly — and its
+  refusal leaked Excel wording into a YAML context. Finite tagged floats
+  now convert to the double's exact rational value; non-finite ones are
+  refused with YAML-appropriate wording.
 - The `iwyu` import gate no longer crashes when a branch deletes an `.agda`
   module: the per-push scope collector excludes deleted paths
   (`--diff-filter=d`) — a deleted module has no imports left to analyze, and
   its changed importers enter the scope on their own. Regression-tested.
-
-### Changed
-
-- Internal proof-hygiene refactor — wire behavior unchanged. The Bool-valued
-  leaves of the `format_dbc_text` well-formedness checker are reified into
-  stock `Dec` deciders consumed through the shared `requireDec` combinator, so
-  the hand-written Bool-to-predicate pairing lemmas (including the whole
-  `Sound/Master` proof module) are deleted; and the attribute-definition
-  lookup is single-sourced in a new `Aletheia.DBC.AttrLookup` module shared by
-  the text formatter and text parser (previously two identical per-side
-  clones, plus a bridging lemma proving them equal — also deleted).
-- Internal — no library or runtime behavior change; the one tooling-behavior
-  change is that the memory-citation checker becomes strictly stricter (its
-  backlog-doc exemption is removed, so the renamed design plan is scanned like
-  any other doc). The DBC text round-trip proof documentation now
-  lives in the source: the `WellFormedFromValidity` module header explains why
-  DBC validity cannot imply the round-trip predicate (text emission is lossy on
-  constructs the validator accepts) and why no guarantee depends on that
-  implication (the predicate is runtime-decidable, sound and complete, and
-  `format_dbc_text`'s guarantee routes through the hypothesis-free exact
-  re-parse check). The retired proof-strategy notes were removed alongside; the
-  surviving extended-mux design plan carries a content-based name
-  (`EXTENDED_MUX_DESIGN.md`), which is what enables the exemption removal above.
 
 ## [4.0.0] — 2026-07-17
 

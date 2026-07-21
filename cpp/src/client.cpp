@@ -238,11 +238,15 @@ auto AletheiaClient::format_dbc_text(std::stop_token stop, const DbcDefinition& 
 // Error code → message mapping for binary extraction.  Must match
 // `extractionErrorCodeToℕ` + the `resultToString` cases in
 // `src/Aletheia/CAN/BatchExtraction.agda` (the constructor-to-code ordering
-// in `ExtractionErrorCode` is the wire format).
+// in `ExtractionErrorCode` is the wire format).  Code 3 is emitted by the
+// FFI shim's binary encoder guard: a value whose reduced numerator or
+// denominator exceeds the Int64 wire range is rerouted to the error stream
+// instead of wrapping in the i64 slot.
 constexpr std::array extraction_error_messages = {
-    std::string_view{"Signal not found in DBC"}, // 0
-    std::string_view{"Value out of bounds"},     // 1
-    std::string_view{"Extraction failed"},       // 2
+    std::string_view{"Signal not found in DBC"},        // 0
+    std::string_view{"Value out of bounds"},            // 1
+    std::string_view{"Extraction failed"},              // 2
+    std::string_view{"Value exceeds Int64 wire range"}, // 3
 };
 
 // Constructs a SignalValue from a wire-extracted (idx, num, den) triple.

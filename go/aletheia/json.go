@@ -1224,11 +1224,16 @@ func parseFrameDataResponse(raw string) (FramePayload, error) {
 }
 
 // extractionErrorMessages maps error codes from binary extraction to messages.
-// Must match Agda categorizeIndexed: 0 = not_in_dbc, 1 = out_of_bounds, 2 = extraction_failed.
+// Indexed by the u8 wire value pinned in Agda extractionErrorCodeToℕ
+// (Aletheia.CAN.BatchExtraction.ExtractionErrorCode); codes 0-2 come from the
+// kernel categorizer, code 3 from the FFI shim's binary encoder guard (a
+// value whose reduced numerator or denominator exceeds the Int64 wire range
+// is rerouted to the error stream instead of wrapping).
 var extractionErrorMessages = [...]string{
 	"Signal not found in DBC",
 	"Value out of bounds",
 	"Extraction failed",
+	"Value exceeds Int64 wire range",
 }
 
 // parseExtractionBin parses a packed binary extraction buffer into an ExtractionResult.

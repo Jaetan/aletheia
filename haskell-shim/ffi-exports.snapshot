@@ -24,7 +24,7 @@
 # ============================================================================
 F: Aletheia/DBC/RationalRenderer:d_formatRational_166
 F: Aletheia/DBC/TextParser/DecimalEntry:d_parseDecimal_16
-F: Aletheia/Main/JSON:d_processJSONLine_72
+F: Aletheia/Main/JSON:d_processJSONLine_74
 F: Aletheia/Main/Binary:d_processFrameDirect_12
 F: Aletheia/Main/Binary:d_processEventDirect_18
 F: Aletheia/Main/Binary:d_processStartStreamDirect_24
@@ -43,7 +43,7 @@ F: Aletheia/CAN/DLC:d_dlcToBytes_6
 F: Aletheia/CAN/BatchExtraction:d_values_22
 F: Aletheia/CAN/BatchExtraction:d_errors_24
 F: Aletheia/CAN/BatchExtraction:d_absent_26
-F: Aletheia/CAN/BatchExtraction:d_extractionErrorCodeToℕ_148
+F: Aletheia/CAN/BatchExtraction:d_extractionErrorCodeToℕ_150
 F: Data/Rational/Base:d_numerator_14
 F: Data/Rational/Base:d_denominatorℕ_20
 F: Agda/Builtin/Sigma:d_fst_28
@@ -60,9 +60,12 @@ F: Agda/Builtin/Sigma:d_snd_30
 #     C_mkℚ_24 / C_'91''93'_32 / C__'8759'__38 / C__'44'__32
 #   * AletheiaFFI/BinaryOutput.hs + AletheiaFFI.hs (lines 228, 230)
 #     C_inj'8321'_38 / C_inj'8322'_42 (Sum branches)
+#   * AletheiaFFI/BinaryOutput.hs C_ValueExceedsWireRange_148 (the
+#     encoder guard's reroute code, fed to extractionErrorCodeToℕ)
 C: Aletheia/CAN/Frame:C_Standard_12
 C: Aletheia/CAN/Frame:C_Extended_16
 C: Aletheia/CAN/Frame:C_constructor_36
+C: Aletheia/CAN/BatchExtraction:C_ValueExceedsWireRange_148
 C: Aletheia/CAN/DLC:C_mkDLC_28
 C: Aletheia/Trace/Time:C_mkTs_26
 C: Aletheia/Trace/CANTrace:C_constructor_32

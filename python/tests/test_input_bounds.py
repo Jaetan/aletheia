@@ -19,11 +19,12 @@ rejects oversize files with :class:`InputBoundExceededError` before
 allocating buffers / parsing.
 """
 
+from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from _dbc_helpers import dbc, message
+from _dbc_helpers import dbc, message, signal
 
 from aletheia import (
     AletheiaClient,
@@ -40,7 +41,7 @@ from aletheia.yaml_loader import load_checks
 
 if TYPE_CHECKING:
     from aletheia.dsl import Predicate
-    from aletheia.types import DBCDefinition, LTLFormula
+    from aletheia.types import DBCDefinition, ErrorResponse, LTLFormula
 
 
 def _path_exists_false(_self: Path) -> bool:
@@ -149,6 +150,16 @@ class TestLimitsConstants:
         assert limits.BOUND_KIND_ATOM_COUNT == "atom_count"
         assert limits.BOUND_KIND_FRAME_BYTE_COUNT == "frame_byte_count"
         assert limits.BOUND_KIND_PROPERTY_COUNT == "property_count"
+        assert limits.BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE == "rational_component_magnitude"
+
+    def test_max_rational_component_magnitude_is_int64_max(self) -> None:
+        """Rational-component cap is the signed 64-bit wire range.
+
+        Mirrors ``max-rational-component-magnitude`` in ``Aletheia.Limits``:
+        the same range the binary FFI's rational slots and the decimal SSOT
+        enforce, so one Int64 bound covers every wire.
+        """
+        assert limits.MAX_RATIONAL_COMPONENT_MAGNITUDE == 2**63 - 1
 
     def test_per_section_cardinalities(self) -> None:
         """Cardinality bounds for messages / signals / attributes / VAL_."""
@@ -463,6 +474,109 @@ class TestErrorCodes:
         assert limits.BOUND_KIND_STRING_LENGTH == "string_length"
         assert limits.BOUND_KIND_ATOM_COUNT == "atom_count"
         assert limits.BOUND_KIND_FRAME_BYTE_COUNT == "frame_byte_count"
+        assert limits.BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE == "rational_component_magnitude"
+
+
+class TestRationalComponentMagnitudeBound:
+    """Typed Int64 bound on every JSON number's rational components.
+
+    Post-parse tree bound at the ``processJSONLine`` surface (companion
+    to the nesting-depth check): ``jsonMaxComponent`` measures the
+    largest ``|numerator|`` / denominator of the exact rational any JSON
+    number in the parsed tree denotes, and anything past
+    ``max-rational-component-magnitude`` — the signed 64-bit range the
+    binary wire's rational slots and the decimal SSOT already enforce —
+    is rejected with the typed ``input_bound_exceeded`` envelope.  A bare
+    JSON integer can therefore no longer smuggle a component the wire
+    cannot represent past the typed decimal path (pre-bound, such a
+    number was accepted into the kernel's unbounded ℚ and only surfaced
+    at the binary encoder).
+
+    Boundary pinned tight from both sides: the refusal cases sit exactly
+    one past the limit, the acceptance cases exactly at it.
+    """
+
+    _LIMIT = limits.MAX_RATIONAL_COMPONENT_MAGNITUDE
+
+    @staticmethod
+    def _factor_dbc(factor: Fraction) -> DBCDefinition:
+        """One-signal DBC whose factor carries the component under test."""
+        return dbc([message(256, "M", [signal("S", factor=factor)])])
+
+    def _assert_bound_refusal(self, response: object) -> None:
+        """Assert the typed refusal envelope with the structured triple."""
+        r = cast("ErrorResponse", response)
+        assert r["status"] == "error", r
+        assert r["code"] == "input_bound_exceeded", r
+        assert r.get("bound_kind") == limits.BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE, r
+        assert r.get("observed") == self._LIMIT + 1, r
+        assert r.get("limit") == self._LIMIT, r
+
+    def test_parse_dbc_component_one_past_int64_refused(self) -> None:
+        """A factor numerator one past Int64 max refuses with the triple."""
+        with AletheiaClient() as client:
+            self._assert_bound_refusal(
+                client.parse_dbc(self._factor_dbc(Fraction(self._LIMIT + 1)))
+            )
+
+    def test_parse_dbc_component_at_int64_max_accepted(self) -> None:
+        """The same position exactly at Int64 max is accepted (tightness)."""
+        with AletheiaClient() as client:
+            r = client.parse_dbc(self._factor_dbc(Fraction(self._LIMIT)))
+            assert r["status"] == "success", r
+
+    def test_parse_dbc_negative_component_at_magnitude_refused(self) -> None:
+        """Numerator −2⁶³ is refused: the limit is symmetric in magnitude.
+
+        The single Int64 value with magnitude one past the positive cap
+        would fit the binary wire's two's-complement slot, but the kernel
+        keeps ONE symmetric magnitude limit so the structured
+        ``observed`` / ``limit`` pair stays a plain magnitude comparison.
+        """
+        with AletheiaClient() as client:
+            self._assert_bound_refusal(
+                client.parse_dbc(self._factor_dbc(Fraction(-(self._LIMIT + 1))))
+            )
+
+    def test_set_properties_bare_integer_one_past_refused(self) -> None:
+        """The bound covers every command surface, not just ``parseDBC``.
+
+        A bare-integer predicate value in ``setProperties`` is a rational
+        position on the JSON wire; one past Int64 max refuses with the
+        same typed envelope.
+        """
+        over = cast(
+            "LTLFormula",
+            {
+                "operator": "atomic",
+                "predicate": {
+                    "predicate": "equals",
+                    "signal": "S",
+                    "value": self._LIMIT + 1,
+                },
+            },
+        )
+        with AletheiaClient() as client:
+            assert client.parse_dbc(self._factor_dbc(Fraction(1)))["status"] == "success"
+            self._assert_bound_refusal(client.set_properties([over]))
+
+    def test_set_properties_bare_integer_at_max_accepted(self) -> None:
+        """The same predicate value exactly at Int64 max is accepted."""
+        at = cast(
+            "LTLFormula",
+            {
+                "operator": "atomic",
+                "predicate": {
+                    "predicate": "equals",
+                    "signal": "S",
+                    "value": self._LIMIT,
+                },
+            },
+        )
+        with AletheiaClient() as client:
+            assert client.parse_dbc(self._factor_dbc(Fraction(1)))["status"] == "success"
+            r = client.set_properties([at])
+            assert r["status"] == "success", r
 
 
 class TestPythonLoaderBoundChecks:

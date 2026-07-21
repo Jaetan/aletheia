@@ -83,6 +83,24 @@ class TestParseExtractionBuffer:
         result = parse_extraction_buffer(header + errs, NAMES)
         assert result.errors == {"Speed": "Unknown error code 255"}
 
+    def test_value_exceeds_wire_range_code(self) -> None:
+        """The encoder-guard reroute code decodes to its Int64 message.
+
+        The FFI shim emits this code for values whose reduced numerator
+        or denominator does not fit the wire's Int64 rational slots; the
+        decoded message must name that range so the caller can tell the
+        reroute apart from a kernel-side extraction failure.
+        """
+        header = struct.pack("<HHH", 0, 1, 0)
+        errs = struct.pack("<HB", 0, ExtractionErrorCode.VALUE_EXCEEDS_WIRE_RANGE)
+        result = parse_extraction_buffer(header + errs, NAMES)
+        message = result.errors["Speed"]
+        assert (
+            message
+            == EXTRACTION_ERROR_MESSAGES_BY_CODE[ExtractionErrorCode.VALUE_EXCEEDS_WIRE_RANGE]
+        )
+        assert "Int64 wire range" in message
+
     def test_absent_segment(self) -> None:
         """Absent entries decoded."""
         header = struct.pack("<HHH", 0, 0, 2)
@@ -160,6 +178,10 @@ class TestExtractionErrorCodeSync:
             stripped = line.strip()
             if not stripped or not line.startswith(" "):
                 break
+            # Documentation comments interleave with constructors inside
+            # the data block — they are not constructor lines.
+            if stripped.startswith("--"):
+                continue
             # Constructor lines look like ``Name : ExtractionErrorCode ...``
             head = stripped.split(":", 1)[0].strip()
             if head:
@@ -175,6 +197,7 @@ class TestExtractionErrorCodeSync:
             "NotInDBC": "NOT_IN_DBC",
             "OutOfBounds": "OUT_OF_BOUNDS",
             "ExtractionFailed": "EXTRACTION_FAILED",
+            "ValueExceedsWireRange": "VALUE_EXCEEDS_WIRE_RANGE",
         }
         agda_ctors = self._agda_constructors()
         assert agda_ctors, "no constructors parsed from Agda source"

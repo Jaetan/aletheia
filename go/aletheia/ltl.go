@@ -12,8 +12,8 @@ type Predicate interface {
 // Predicate values carry exact [Rational] precision per the DecRat
 // universal principle — wire-symmetric with C++ ``rational_to_json`` and
 // Python's ``Fraction``.
-// Use [IntRational] for exact integer literals; for arbitrary floats,
-// see the convenience helpers used by the [CheckSignalBuilder] surface.
+// Use [IntRational] for exact integer literals and [FromDecimal] for
+// decimal-literal text (parsed exactly by the kernel decimal SSOT).
 
 // Equals tests whether a signal's value equals a specific value.
 type Equals struct {

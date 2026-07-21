@@ -1318,6 +1318,139 @@ func TestLoadExcelDBCRejectsNumberCell(t *testing.T) {
 	requireErrorContains(t, err, "format it as TEXT")
 }
 
+// --- Raw-stored-value discipline (native number cells) ----------------------
+
+// makeRawDBCWorkbook builds a single-row DBC workbook whose cells are all text
+// EXCEPT the ones the caller overrides via mutate — used by the raw-stored-value
+// tests, which need genuine native number/boolean cells that the all-text
+// makeDBCWorkbook helper cannot author.
+func makeRawDBCWorkbook(t *testing.T, mutate func(f *excelize.File)) string {
+	t.Helper()
+	f := excelize.NewFile()
+	defer f.Close()
+	if err := f.SetSheetName("Sheet1", "DBC"); err != nil {
+		t.Fatal(err)
+	}
+	for i, h := range dbcHeaders {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		_ = f.SetCellValue("DBC", cell, h)
+	}
+	textCells := map[string]string{
+		"A2": "256", "B2": "M", "C2": "FALSE", "D2": "8", "E2": "Sig",
+		"F2": "0", "G2": "8", "H2": "little_endian", "I2": "FALSE",
+		"J2": "1", "K2": "0", "L2": "0", "M2": "1", "N2": "u",
+	}
+	for cell, v := range textCells {
+		_ = f.SetCellValue("DBC", cell, v)
+	}
+	mutate(f)
+	path := filepath.Join(t.TempDir(), "dbc.xlsx")
+	if err := f.SaveAs(path); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// numFmtInteger applies the built-in integer number format "0" to a cell so its
+// display rendering ROUNDS the stored value — the adversarial gap between what
+// excelize's GetRows shows and what the file stores.
+func numFmtInteger(t *testing.T, f *excelize.File, cell string) {
+	t.Helper()
+	style, err := f.NewStyle(&excelize.Style{NumFmt: 1}) // built-in format "0"
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.SetCellStyle("DBC", cell, cell, style); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLoadExcelDBCRejectsFractionalStoredMessageID locks the raw-stored-value
+// discipline for Message ID: excelize grid values are DISPLAY renderings, so a
+// number cell storing 256.7 under the integer number format "0" displays as
+// "257" — trusting the display would load a silently wrong Message ID. The
+// loader must consult the raw stored value, refuse the non-integral number, and
+// echo the stored value (never the display rendering).
+func TestLoadExcelDBCRejectsFractionalStoredMessageID(t *testing.T) {
+	path := makeRawDBCWorkbook(t, func(f *excelize.File) {
+		_ = f.SetCellValue("DBC", "A2", 256.7)
+		numFmtInteger(t, f, "A2")
+	})
+	_, err := LoadDbc(path)
+	requireErrorContains(t, err, "invalid 'Message ID'")
+	requireErrorContains(t, err, `"256.7"`)
+	if err != nil && strings.Contains(err.Error(), `"257"`) {
+		t.Errorf("error echoes the display rendering, want the raw stored value: %v", err)
+	}
+}
+
+// TestLoadExcelDBCRejectsNonIntegralBoolCell locks the same discipline for the
+// boolean multi-form: a number cell is a valid boolean ONLY when its raw stored
+// value is exactly 1 or 0. Stored 1.4 displays as "1" under the integer format
+// — trusting the display would silently coerce it to TRUE.
+func TestLoadExcelDBCRejectsNonIntegralBoolCell(t *testing.T) {
+	path := makeRawDBCWorkbook(t, func(f *excelize.File) {
+		_ = f.SetCellValue("DBC", "I2", 1.4)
+		numFmtInteger(t, f, "I2")
+	})
+	_, err := LoadDbc(path)
+	requireErrorContains(t, err, "'Signed'")
+	requireErrorContains(t, err, `"1.4"`)
+}
+
+// TestLoadExcelDBCMessageIDNativeIntegerCell is the positive lock guarding the
+// raw-value gate from over-rejecting: a native number cell whose raw stored
+// value is exactly integral is a legitimate Message ID.
+func TestLoadExcelDBCMessageIDNativeIntegerCell(t *testing.T) {
+	path := makeRawDBCWorkbook(t, func(f *excelize.File) {
+		_ = f.SetCellValue("DBC", "A2", 256)
+	})
+	dbc, err := LoadDbc(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dbc.Messages[0].ID.Value() != 256 {
+		t.Errorf("ID: got %d, want 256", dbc.Messages[0].ID.Value())
+	}
+}
+
+// TestLoadExcelDBCSignedNativeBoolCell: a native boolean cell stays a valid
+// boolean under the raw-value gate (its raw stored value is exactly 1/0).
+func TestLoadExcelDBCSignedNativeBoolCell(t *testing.T) {
+	path := makeRawDBCWorkbook(t, func(f *excelize.File) {
+		_ = f.SetCellValue("DBC", "I2", true)
+	})
+	dbc, err := LoadDbc(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !dbc.Messages[0].Signals[0].IsSigned {
+		t.Error("expected IsSigned=true for a native TRUE cell")
+	}
+}
+
+// TestLoadExcelDBCDecimalRefusalCarriesRowContext: a kernel decimal refusal
+// surfaced through xlsxRational must carry the loader's own "row N: 'Field'"
+// prefix so the operator can find the offending cell (the kernel knows the
+// literal, not the workbook position).
+func TestLoadExcelDBCDecimalRefusalCarriesRowContext(t *testing.T) {
+	path := makeRawDBCWorkbook(t, func(f *excelize.File) {
+		_ = f.SetCellValue("DBC", "J2", "abc") // Factor: text, not decimal grammar
+	})
+	_, err := LoadDbc(path)
+	requireErrorContains(t, err, "row 2: invalid 'Factor'")
+}
+
+// TestLoadExcelDBCIntRefusalCarriesRowContext: same contract for the
+// whole-number path (xlsxInt).
+func TestLoadExcelDBCIntRefusalCarriesRowContext(t *testing.T) {
+	path := makeRawDBCWorkbook(t, func(f *excelize.File) {
+		_ = f.SetCellValue("DBC", "D2", "eight") // DLC: text, not decimal grammar
+	})
+	_, err := LoadDbc(path)
+	requireErrorContains(t, err, "row 2: invalid 'DLC'")
+}
+
 // TestLoadExcelDemoWorkbookDBC is the cross-binding portability lock: the shared
 // demo workbook's DBC sheet omits the Extended column, so every binding must
 // load it as standard 11-bit messages (matching Python / C++ / Rust).

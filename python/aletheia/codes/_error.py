@@ -96,6 +96,7 @@ class ErrorCode(StrEnum):
     EXTRACTION_MUX_CHAIN_CYCLE = "extraction_mux_chain_cycle"
     EXTRACTION_MUX_EXTRACTION_FAILED = "extraction_mux_extraction_failed"
     EXTRACTION_BIT_EXTRACTION_FAILED = "extraction_bit_extraction_failed"
+    EXTRACTION_VALUE_EXCEEDS_WIRE_RANGE = "extraction_value_exceeds_wire_range"
 
 
 __all__ = ["ErrorCode"]

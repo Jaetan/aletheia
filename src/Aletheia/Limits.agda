@@ -63,6 +63,10 @@ data BoundKind : Set where
   FrameByteCount          : BoundKind
   -- Number of properties submitted in one `setProperties` call.
   PropertyCount           : BoundKind
+  -- Magnitude of a JSON number's rational components (|numerator| and
+  -- denominator of the exact ℚ a JSON number literal or
+  -- {"numerator", "denominator"} object component denotes).
+  RationalComponentMagnitude : BoundKind
 
 boundKindCode : BoundKind → String
 boundKindCode InputLengthBytes  = "input_length_bytes"
@@ -73,6 +77,7 @@ boundKindCode StringLength      = "string_length"
 boundKindCode AtomCount         = "atom_count"
 boundKindCode FrameByteCount    = "frame_byte_count"
 boundKindCode PropertyCount     = "property_count"
+boundKindCode RationalComponentMagnitude = "rational_component_magnitude"
 
 boundKindLabel : BoundKind → String
 boundKindLabel InputLengthBytes  = "input length (bytes)"
@@ -83,6 +88,7 @@ boundKindLabel StringLength      = "string length"
 boundKindLabel AtomCount         = "atom count"
 boundKindLabel FrameByteCount    = "frame byte count"
 boundKindLabel PropertyCount     = "property count"
+boundKindLabel RationalComponentMagnitude = "rational component magnitude"
 
 -- ============================================================================
 -- BOUND CONSTANTS
@@ -157,4 +163,18 @@ max-frame-byte-count = 64
 -- analyses run 1-50 properties per stream so this is ~20x headroom.
 max-properties-per-stream : ℕ
 max-properties-per-stream = 1024
+
+-- Magnitude cap on every JSON number's rational components: |numerator|
+-- and denominator of the exact ℚ each number denotes, measured on the
+-- parsed (reduced) form.  2^63 - 1 — the signed 64-bit wire range that
+-- the binary FFI's rational slots and the decimal SSOT
+-- (`aletheia_parse_decimal`, Int64-checked at the marshaling boundary)
+-- already enforce; the JSON wire enforces the same range so a bare
+-- integer cannot smuggle an unrepresentable component past the typed
+-- decimal path.  Magnitude formulation: the single Int64 value with
+-- magnitude 2^63 (numerator -2^63) is refused here even though the
+-- binary wire could carry it, keeping one symmetric limit in the
+-- structured `observed` / `limit` wire triple.
+max-rational-component-magnitude : ℕ
+max-rational-component-magnitude = 9223372036854775807
 

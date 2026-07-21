@@ -54,21 +54,25 @@ def get_str(d: Mapping[str, JSONValue], key: str, ctx: str) -> str:
     return val
 
 
-def get_number(d: Mapping[str, JSONValue], key: str, ctx: str) -> Fraction:
+def get_number(d: Mapping[str, JSONValue | Fraction], key: str, ctx: str) -> Fraction:
     """Extract a required numeric field from *d* as an exact rational.
 
     The float principle: no float ever materialises.  An integer is
     read exactly (``Fraction(n)``); a decimal arrives as its original STRING
     (YAML's float resolver is disabled; Excel uses the all-text contract) and
-    is parsed exactly via the kernel SSOT :func:`~aletheia.from_decimal`.  A
-    ``float`` cell is **rejected** with a "format it as TEXT" message — a
-    spreadsheet number cell stores a lossy IEEE-754 double.  Booleans are
-    rejected (``isinstance(True, int)`` is ``True``, but a boolean is not a
-    number).  Mirrors Rust ``get_rational`` / Go / C++.
+    is parsed exactly via the kernel SSOT :func:`~aletheia.from_decimal`; an
+    explicitly ``!!float``-tagged YAML scalar arrives as the exact
+    ``Fraction`` the loader's float-tag constructor produced.  A ``float``
+    cell is **rejected** with a "format it as TEXT" message — a spreadsheet
+    number cell stores a lossy IEEE-754 double.  Booleans are rejected
+    (``isinstance(True, int)`` is ``True``, but a boolean is not a number).
+    Mirrors Rust ``get_rational`` / Go / C++.
 
     Decimal parsing is RTS-gated (see :func:`~aletheia.from_decimal`).
     """
     val = d.get(key)
+    if isinstance(val, Fraction):
+        return val
     if is_pure_int(val):
         return Fraction(val)
     if isinstance(val, str):

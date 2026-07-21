@@ -147,6 +147,43 @@ void make_dbc_workbook(const std::filesystem::path& path,
     doc.close();
 }
 
+/// Build a one-row DBC workbook whose Message ID cell is a native number cell,
+/// then (when raw_override is non-null) rewrite that cell's raw stored <v>
+/// text by patching the sheet XML inside the saved archive through OpenXLSX's
+/// public XLZipArchive — the typed setters cannot author a dot-free scientific
+/// literal or an empty <v/>. Every other field is text per the all-text
+/// contract. id_value doubles as the patch anchor, so surgery callers pass a
+/// sentinel unique within the sheet XML.
+void make_dbc_workbook_with_raw_id(const std::filesystem::path& path, std::int64_t id_value,
+                                   const char* raw_override) {
+    OpenXLSX::XLDocument doc;
+    doc.create(path.string(), OpenXLSX::XLForceOverwrite);
+    doc.workbook().worksheet("Sheet1").setName("DBC");
+    auto ws = doc.workbook().worksheet("DBC");
+    write_header(ws, dbc_hdr);
+    write_row(ws, 2,
+              {"", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1", "0", "0", "255", "",
+               "", "", ""});
+    ws.cell(2, 1).value() = id_value; // native number cell
+    doc.save();
+    doc.close();
+    if (raw_override == nullptr)
+        return;
+    const std::string sheet_name = "xl/worksheets/sheet1.xml";
+    const std::string needle = "<v>" + std::to_string(id_value) + "</v>";
+    const std::string replacement =
+        (*raw_override == '\0') ? std::string{"<v/>"} : "<v>" + std::string{raw_override} + "</v>";
+    OpenXLSX::XLZipArchive zip;
+    zip.open(path.string());
+    std::string xml = zip.getEntry(sheet_name);
+    const auto pos = xml.find(needle);
+    REQUIRE(pos != std::string::npos);
+    xml.replace(pos, needle.size(), replacement);
+    zip.addEntry(sheet_name, xml);
+    zip.save();
+    zip.close();
+}
+
 } // namespace
 
 // ===========================================================================
@@ -922,6 +959,61 @@ TEST_CASE("excel: DBC strict rejects a Factor stored as a native number", "[exce
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE_FALSE(result.has_value());
     CHECK_THAT(std::string(result.error().message()), ContainsSubstring("format it as TEXT"));
+    // The echo must be the shortest round-trip rendering of the stored double —
+    // a fixed-six-decimal rendering ("0.250000") would misstate the cell.
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("(got 0.25)"));
+}
+
+// ===========================================================================
+// Raw-stored-value discipline (native number cells)
+// ===========================================================================
+
+// OpenXLSX classifies a number cell (no `t` attribute) whose stored text has
+// no '.' and no negative exponent as Integer, and the underlying XML read
+// prefix-parses that text — so a stored "1e16" would silently load as Message
+// ID 1 and an empty <v/> as ID 0. The loader must trust the integer read only
+// after verifying the raw stored text is a pure optional-sign digit run, and
+// refuse truthfully otherwise.
+
+TEST_CASE("excel: DBC Message ID storing dot-free scientific notation is refused",
+          "[excel][dbc][strict]") {
+    TempFile tf("excel_dbc_msgid_sci.xlsx");
+    make_dbc_workbook_with_raw_id(tf.path, 31337421, "1e16");
+    auto result = load_dbc_from_excel(tf.path);
+    REQUIRE_FALSE(result.has_value()); // a prefix-parse would load Message ID 1
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("1e16"));
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("Message ID"));
+}
+
+TEST_CASE("excel: DBC Message ID with an empty stored <v/> is refused", "[excel][dbc][strict]") {
+    TempFile tf("excel_dbc_msgid_empty_v.xlsx");
+    make_dbc_workbook_with_raw_id(tf.path, 31337421, "");
+    auto result = load_dbc_from_excel(tf.path);
+    REQUIRE_FALSE(result.has_value()); // a prefix-parse would load Message ID 0
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("Message ID"));
+}
+
+// Positive lock guarding the raw check from over-rejecting: a native number
+// cell whose stored text is a plain digit run is a legitimate Message ID.
+TEST_CASE("excel: DBC Message ID as a native integer cell loads", "[excel][dbc]") {
+    TempFile tf("excel_dbc_msgid_native.xlsx");
+    make_dbc_workbook_with_raw_id(tf.path, 256, nullptr);
+    auto result = load_dbc_from_excel(tf.path);
+    REQUIRE(result.has_value());
+    REQUIRE(result->messages.size() == 1);
+    CHECK(std::holds_alternative<StandardId>(result->messages[0].id));
+}
+
+// A kernel decimal refusal surfaced through get_decimal/get_int must carry the
+// loader's own "Row N: invalid 'Field'" prefix — the kernel knows the literal,
+// not the workbook position.
+TEST_CASE("excel: kernel decimal refusal carries row and field context", "[excel][dbc]") {
+    TempFile tf("excel_decimal_ctx.xlsx");
+    make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE",
+                                 "abc", "0", "0", "255", "", "", "", ""}});
+    auto result = load_dbc_from_excel(tf.path);
+    REQUIRE_FALSE(result.has_value());
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("Row 2: invalid 'Factor'"));
 }
 
 // Cross-binding portability lock: the shared demo workbook's DBC sheet omits the
