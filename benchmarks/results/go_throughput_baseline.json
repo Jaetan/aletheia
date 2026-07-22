@@ -1,73 +1,73 @@
 {
   "benchmark": "throughput",
   "language": "go",
-  "timestamp": "2026-05-12T07:02:25Z",
+  "timestamp": "2026-07-22T21:49:34Z",
   "system": {
     "cpu": "amd64",
-    "cores": 32,
+    "cores": 24,
     "platform": "linux",
-    "go": "go1.26.2"
+    "go": "go1.26.3"
   },
   "results": [
     {
       "name": "CAN 2.0B: Stream LTL (2 props)",
       "frames": 10000,
-      "runs": 5,
-      "fps_mean": 129905.7,
-      "fps_stdev": 6528.2,
-      "fps_min": 120165.3,
-      "fps_max": 137578.1,
-      "us_per_frame": 7.7
+      "runs": 10,
+      "fps_mean": 252484.8,
+      "fps_stdev": 9460.9,
+      "fps_min": 239367.6,
+      "fps_max": 267594.1,
+      "us_per_frame": 4
     },
     {
       "name": "CAN 2.0B: Signal Extraction",
       "frames": 10000,
-      "runs": 5,
-      "fps_mean": 186675.9,
-      "fps_stdev": 3517.8,
-      "fps_min": 182753.9,
-      "fps_max": 190600.3,
-      "us_per_frame": 5.4
+      "runs": 10,
+      "fps_mean": 326634.4,
+      "fps_stdev": 5914.7,
+      "fps_min": 317801.8,
+      "fps_max": 337287.5,
+      "us_per_frame": 3.1
     },
     {
       "name": "CAN 2.0B: Frame Building",
       "frames": 10000,
-      "runs": 5,
-      "fps_mean": 70596.5,
-      "fps_stdev": 692.2,
-      "fps_min": 69843.6,
-      "fps_max": 71354.3,
-      "us_per_frame": 14.2
+      "runs": 10,
+      "fps_mean": 122681.9,
+      "fps_stdev": 2578.8,
+      "fps_min": 119380.4,
+      "fps_max": 125867.2,
+      "us_per_frame": 8.2
     },
     {
       "name": "CAN-FD:   Stream LTL (3 props)",
       "frames": 10000,
-      "runs": 5,
-      "fps_mean": 64591.8,
-      "fps_stdev": 3777.3,
-      "fps_min": 58254.6,
-      "fps_max": 67951.9,
-      "us_per_frame": 15.5
+      "runs": 10,
+      "fps_mean": 151909.4,
+      "fps_stdev": 2838.5,
+      "fps_min": 149028.6,
+      "fps_max": 156797.7,
+      "us_per_frame": 6.6
     },
     {
       "name": "CAN-FD:   Signal Extraction",
       "frames": 10000,
-      "runs": 5,
-      "fps_mean": 14913.4,
-      "fps_stdev": 223.2,
-      "fps_min": 14622.5,
-      "fps_max": 15180.1,
-      "us_per_frame": 67.1
+      "runs": 10,
+      "fps_mean": 26057.6,
+      "fps_stdev": 204.6,
+      "fps_min": 25697.7,
+      "fps_max": 26297,
+      "us_per_frame": 38.4
     },
     {
       "name": "CAN-FD:   Frame Building",
       "frames": 10000,
-      "runs": 5,
-      "fps_mean": 16712.7,
-      "fps_stdev": 185,
-      "fps_min": 16415.1,
-      "fps_max": 16858.7,
-      "us_per_frame": 59.8
+      "runs": 10,
+      "fps_mean": 31515.4,
+      "fps_stdev": 316.7,
+      "fps_min": 31157.8,
+      "fps_max": 32028.4,
+      "us_per_frame": 31.7
     }
   ]
 }
