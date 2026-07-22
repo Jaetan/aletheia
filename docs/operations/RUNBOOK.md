@@ -496,7 +496,7 @@ with `-M16G` per CLAUDE.md), not at runtime — the runtime kernel is
 size-bounded by the input bounds above.
 
 **Action:** Type-check the offending Agda module by itself with the
-canonical `agda +RTS -N32 -M16G -RTS` invocation; raise the cap only
+canonical `agda +RTS -M16G -RTS` invocation; raise the cap only
 if the module is known to need it. At runtime, an `InputBoundExceeded`
 fires before heap exhaustion in normal usage; an OOM signals either
 a missing bound check or a pathological internal allocation pattern

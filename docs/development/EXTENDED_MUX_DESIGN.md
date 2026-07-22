@@ -75,7 +75,7 @@ Byte-identity of emitted text is explicitly not a target (`TextParser.agda:12-13
 
 ### Q4 — Bound design for range materialization (AGENTS cat 32, mandatory) — REWRITTEN rev 2
 
-**The threat is the product, not the single range.** `max-dbc-text-bytes = 67108864` (64 MiB, `Limits.agda:92-93`). A max-span range under rev 1's per-range cap (`0-1024,` ≈ 7 bytes) costs 1025 materialized ℕ per ~7 input bytes: an *accepted* adversarial file materializes ≈ (64 MiB / 7) × 1025 ≈ 10¹⁰ values — hundreds of GB of MAlonzo heap on the 62 GiB host. Any per-range or per-line constant multiplies an input-linear count by that constant; only a **file-cumulative** bound caps the amplification. This is exactly the AGENTS.md:46 failure mode ("a verified-terminating parser … will still produce a 10⁷-element list that exhausts heap downstream").
+**The threat is the product, not the single range.** `max-dbc-text-bytes = 67108864` (64 MiB, `Limits.agda:92-93`). A max-span range under rev 1's per-range cap (`0-1024,` ≈ 7 bytes) costs 1025 materialized ℕ per ~7 input bytes: an *accepted* adversarial file materializes ≈ (64 MiB / 7) × 1025 ≈ 10¹⁰ values — hundreds of GB of MAlonzo heap — far past the host's memory. Any per-range or per-line constant multiplies an input-linear count by that constant; only a **file-cumulative** bound caps the amplification. This is exactly the AGENTS.md:46 failure mode ("a verified-terminating parser … will still produce a 10⁷-element list that exhausts heap downstream").
 
 **Two independent checks, split by kind** (this split is what reconciles the CAN-ID precedent with the cat-32 letter):
 
@@ -659,7 +659,7 @@ unresolvedRVDs-on-clearAllMsgs-collectFromMessages :
 
 ## 6. Proof order (what unblocks what) + per-step verification
 
-`AGDA="agda +RTS -N32 -M16G -RTS"` from `src/`. The `-M16G` cap is the runaway-elaboration tripwire — if a step OOMs, fix the proof shape (cong-only/helper), never raise the cap first.
+`AGDA="agda +RTS -M16G -RTS"` from `src/`. The `-M16G` cap is the runaway-elaboration tripwire — if a step OOMs, fix the proof shape (cong-only/helper), never raise the cap first.
 
 | # | Step | Depends on | Verify |
 |---|---|---|---|

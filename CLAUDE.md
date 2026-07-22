@@ -30,10 +30,10 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 
 **Type-check command** (always cap heap):
 ```bash
-/home/nicolas/.cabal/bin/agda +RTS -N32 -M16G -RTS src/Aletheia/YourModule.agda
+/home/nicolas/.cabal/bin/agda +RTS -M16G -RTS src/Aletheia/YourModule.agda
 ```
-- `-N32`: parallel GHC; critical for Protocol/StreamState.agda and Main.agda (17s vs >120s timeout).
-- `-M16G`: heap cap; prevents runaway elaboration on the 62 GiB host. Doubles as a tripwire — bump only when a specific module legitimately needs it.
+- `-M16G`: heap cap; prevents runaway elaboration on the memory-limited WSL2 host. Doubles as a tripwire — bump only when a specific module legitimately needs it. This is the load-bearing flag.
+- `-N` (parallel GHC) is optional and gives no measured single-module speedup — even the heaviest modules (Protocol/StreamState.agda, Main.agda) type-check in a few seconds at `-N1`, slightly slower at higher `-N`. Parallelism pays off at the whole-build level (Shake's `shakeThreads=0`), not per module.
 - First build compiles stdlib (~20s, cached thereafter).
 
 ## Global Project Rules
@@ -95,7 +95,7 @@ See [Building Guide](docs/development/BUILDING.md). Quick reference:
 
 ```bash
 # Type-check a single module
-cd src && agda +RTS -N32 -M16G -RTS Aletheia/YourModule.agda
+cd src && agda +RTS -M16G -RTS Aletheia/YourModule.agda
 
 # Build everything (Agda → Haskell → libaletheia-ffi.so) — incremental + hash-safe
 cabal run shake -- build
@@ -126,7 +126,7 @@ Agda packages: **Parser/**, **CAN/**, **DBC/**, **LTL/** (Syntax, Incremental, S
 ## Development Workflow
 
 1. Edit Agda source.
-2. Type-check fast: `cd src && agda +RTS -N32 -M16G -RTS Aletheia/Parser/Combinators.agda`.
+2. Type-check fast: `cd src && agda +RTS -M16G -RTS Aletheia/Parser/Combinators.agda`.
 3. Full build: `cabal run shake -- build` (also rebuilds `libaletheia-ffi.so`).
 4. Run tests for affected bindings.
 
@@ -201,7 +201,7 @@ Build-time issues are catalogued in [BUILDING.md § Troubleshooting](docs/develo
 
 - **Build failures**: `cabal run shake -- clean && cabal run shake -- build`.
 - **MAlonzo name mismatch**: build prints exact `sed` command — run it.
-- **Type-checking timeout**: always `+RTS -N32 -M16G -RTS`.
+- **Type-checking OOM / runaway elaboration**: always cap the heap `+RTS -M16G -RTS`.
 - **`hs_init` failure / `aletheia_init() returned null`**: `.so` built against different GHC than loaded. Rebuild (`cabal run shake -- build`); ensure no stale copy in `$LD_LIBRARY_PATH`.
 - **`.so` load failure**: loader checks `_install_config.LIBRARY_PATH` → `LD_LIBRARY_PATH` → `/usr/local/lib`. Regen via `cabal run shake -- install` or set `ALETHEIA_FFI_PATH`.
 - **ctypes signature mismatch (Python)**: `.so` and Python package versions drifted. Compare `python -m aletheia --version` vs `strings libaletheia-ffi.so | grep aletheia-ffi-`.
@@ -211,7 +211,7 @@ Build-time issues are catalogued in [BUILDING.md § Troubleshooting](docs/develo
 ## Performance Considerations
 
 - **Parser combinators**: structural recursion on input length, not fuel — fuel breaks termination or blows up type-checking. See `Parser/Combinators.agda`.
-- **Type-checking**: always `+RTS -N32 -RTS` (StreamState/Main otherwise time out past 120s).
+- **Type-checking**: always cap the heap `+RTS -M16G -RTS`; `-N` gives no per-module speedup (see the Type-check command note).
 - **Hot path**: `Dec`-valued predicates allocate proof terms per call in MAlonzo. Replace with `Bool`-valued fast path + equivalence lemma. See `extractSignalCoreFast` for the pattern.
 
 ## Implementation Phases
@@ -227,7 +227,7 @@ Start with the [Project Pitch](docs/PITCH.md) for context.
 **Operational pitfalls** (most are caught by build/lint, but easy to trip on first time):
 - `Dec`-valued predicates on the streaming hot path: MAlonzo allocates per call. Use `Bool`-valued fast path + equivalence lemma (`extractSignalCoreFast`).
 - Fuel-based parser combinators: structural recursion on `length input` only.
-- Type-checking without `+RTS -N32 -RTS`: large modules time out past 120s.
+- Type-checking without `+RTS -M16G -RTS`: a runaway elaboration can OOM the host instead of failing the build.
 - Running tools from the repo root: `pytest` / `basedpyright` / `pylint` need `cd python` first (config picks up nearest `pyproject.toml`).
 
 **Key terms used elsewhere in this file:**
@@ -238,7 +238,7 @@ Start with the [Project Pitch](docs/PITCH.md) for context.
 
 **Code style**: per-language conventions live in [AGENTS.md](AGENTS.md). Don't duplicate here.
 
-**Pre-commit minimum** (doc-only changes): `agda +RTS -N32 -M16G -RTS src/Aletheia/Main.agda` → `cabal run shake -- build` → relevant binding tests.
+**Pre-commit minimum** (doc-only changes): `agda +RTS -M16G -RTS src/Aletheia/Main.agda` → `cabal run shake -- build` → relevant binding tests.
 
 **For code changes**, the Agda-side minimum is `build` PLUS the proof-side Shake gates — `build` only type-checks Main.agda's runtime transitive closure (the runtime path that flows into `libaletheia-ffi.so`), so Properties / *Roundtrip / *WF / Substrate.Unsafe modules are NOT reached by it. Run all of:
 - `cabal run shake -- check-properties` — walks the proof tree (Properties / *Roundtrip / *WF + universal aggregator + Substrate.Unsafe); the actual proof-correctness gate
@@ -256,7 +256,7 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 ## Current Session Progress
 
-**🔢 I.1 CLOSE — ONE INT64 BOUND ON EVERY WIRE ✅ MERGED 2026-07-21 (#229 `186bdcd1`; BREAKING JSON wire; I.1 removed, K.1 filed as the ratified next task).** The re-exam proved the filed item obsolete (its guards were deleted by the decimal-SSOT sweep; no user-reachable float→int cast survives — verified per binding) and surfaced the real successor defects, all fixed in one arc: **JSON-wire Int64 component bound** (`rational_component_magnitude`, typed `input_bound_exceeded`; converges the Python-vs-everyone YAML divergence) · **binary-encoder guard** (exact REDUCTION pushes components past the wire even with in-range inputs; kernel-verified values returned as garbage with empty errors in every binding — now a typed per-signal error via `extraction_value_exceeds_wire_range`, full WIRE_CODES protocol, completeness proof extended; enrichment verified same-wire, no second channel) · **Excel raw-stored-value discipline Go+C++** (display-format Message IDs / prefix-parsed scientific / empty cells no longer load as wrong-but-valid; Python is the reference, Rust verified already-correct) · **Py timestamp wire-ceiling + NaN/inf totality + `!!float` exact-accept**. Every defense proven failing pre-fix. **Two WSL2 host crashes during development, cause found+fixed**: stdlib `_⊔_` compiles to VALUE-linear allocation under MAlonzo (→ `_⊔′_` everywhere in runtime code; `memory/feedback_value_linear_stdlib_cost.md`) + the kernel RTS ran uncapped (→ default heap cap in the Python client; K.1 extends it ×4 via an SSOT). Rode along: freshness-gate relink certificate (staleness-gate probes mint fresh build-ids nondeterministically; its PASS now certifies the pair — true rot still fails) · dense/live sweep report (#224 + #229 fixups). Then the Dependabot batch cleared the board: #228 hypothesis + #227 ruff merged (rebases via Dependabot); #230 folds the setup-go/setup-python v7 bumps with the CHANGELOG entry the workflow-path gate requires (#225/#226 closed superseded — the standing pattern for future action bumps). Detail: CHANGELOG + git #224/#229/#230.
+**🔧 RTS/EXACTNESS ARC ✅ COMPLETE 2026-07-22 (I.1 #229 → streaming #232 → K.1 #233; three linked closes, several BREAKING JSON-wire entries pending in [Unreleased]).** **I.1 (`186bdcd1`)** — filed item obsolete (guards deleted by the decimal-SSOT sweep); shipped the real successors: one Int64 bound on every wire (`rational_component_magnitude` JSON bound + binary-encoder guard `extraction_value_exceeds_wire_range`, since exact REDUCTION defeats in-range inputs) · Excel raw-stored-value discipline Go+C++ · Py timestamp ceiling + NaN/inf totality + `!!float` accept. **Streaming residency+throughput (`7c43ebb0` #232)** — root-caused an unbounded per-frame cache-thunk leak that killed long monitors; fix bounds residency AND ends up FASTER than pre-arc (CAN-FD +48%), machine-checked verdict-preserving (`handleDataFrame-verdict-preserved`, stepL/adequacy untouched; extract-once shared table driven by the known readable set). **K.1 (`155a8068` #233)** — runtime GHC heap cap (`-M3G`) across all four bindings via `hs_init_with_rtsopts`, SSOT `docs/RESOURCE_BUDGETS.yaml` + `check-rts-runtime` gate, containment-by-abort; also fixed a live GHCRTS-non-safe-option startup crash. Build tier DROPPED by user decision (builds use host resources; `-N` = runtime CAN-bus count). **Two WSL2 host crashes root-caused+fixed** (stdlib `_⊔_` value-linear under MAlonzo → `_⊔′_`; the leak) → [[feedback_value_linear_stdlib_cost]]. Mutation-gate lessons: a mutmut-hostile new test breaks the Python BASELINE (needs `--ignore`); a new C++ index-boundary loop over `string_view` yields an equivalent `<→<=` mutant (prefer `find_*_of`). Detail: CHANGELOG + git #229/#232/#233 + `memory/project_k1_rts_ssot.md`.
 
 **⛩️ GEOMETRY REFUSE-AT-ENTRY ✅ MERGED 2026-07-21 (#222 `eba7b8bc`; J.1+E.7+E.8 closed — the E.3 follow-ups arc, BREAKING JSON wire).** The deep analysis surfaced real defects behind the innocuous backlog items (cross-surface crash: kernel-legal full-frame FD signals crashed every binding's decoder · false-refusal of textbook Motorola layouts · broken closure under emission · a second silent-rewrite channel in the BE conversion floor · clamp-position-dependent error classes). Shipped: **frame-capacity bounds** (the DLC decides classic vs FD; shared decider family `DBC.Decidable.SignalGeometry` consumed by entry gates, validator arms, AND checker — the form-skews can no longer be expressed) · **refuse-at-entry both routes/channels** (mod clamps + monus relocation retire; typed errors name SUBMITTED values; negative geometry gets a truthful `parse_non_natural_field`) · **BE no-wrap re-aimed pre-conversion** (Motorola layouts load; kernel closed under its own emission, regression-tested) · **E.7 = arms kept + machine-checked deadness theorem** (`DBC.Properties.GeometryGateDeadness`) · **E.8 resolved by consumption** (the re-aimed gate is `convertStartBit-roundtrip`'s first consumer). Wire codes per the addition/removal protocol (geometry refusals added; superseded codes + `big_endian_msb_layout` removed); binding decoders accept full-frame FD lengths. The battery caught a real stage-2 helper bug (payload bytes passed as DLC code — coincidence-correct up to classic CAN). Detail: CHANGELOG + git #222.
 
