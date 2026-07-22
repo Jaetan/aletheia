@@ -555,6 +555,11 @@ def _run_gha_checks(runner: Runner) -> None:
         [runner.python, "-m", "tools.check_wire_codes"],
         cwd=runner.repo_root,
     )
+    runner.step(
+        "check-rts-runtime",
+        [runner.python, "-m", "tools.check_rts_runtime"],
+        cwd=runner.repo_root,
+    )
     # Always-on parse-only mode: PR runners have no dist tree, so this runs the
     # SBOM's four binding-manifest parsers against the REPO manifests (python/
     # go/ rust/ cpp/ share the staged bindings tree's layout), catching parser

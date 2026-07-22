@@ -16,20 +16,27 @@
 
 #include <aletheia/error.hpp>
 
-#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace aletheia::detail {
 
-// GHC RTS argv for a requested core count, or nullopt for the single-core
-// default (the caller then does `hs_init(nullptr, nullptr)`).  `rts_cores > 1`
-// yields the `{"aletheia", "+RTS", "-N<n>", "-RTS"}` argv; `<= 1` yields
-// nullopt.  The std::string storage is owned by the returned array — the
-// caller takes `.data()` for hs_init's `char**` without const_cast.
-auto rts_init_args(int rts_cores) -> std::optional<std::array<std::string, 4>>;
+// GHC RTS argv for hs_init_with_rtsopts.  ALWAYS includes the containment heap
+// cap (rts_params.hpp `rts_heap_cap_flag`), so the host is protected regardless
+// of the requested core count — unlike the old optional form, which returned
+// nullopt (and thus NO cap) for the single-core default.  Layout per the SSOT
+// argv_order: `{"aletheia", "+RTS", "-M<cap>", "-N<n>" iff rts_cores >
+// rts_default_cores, <override flags>, "-RTS"}`.  `override_opts` is the raw
+// ALETHEIA_RTS_OPTS string, whitespace-split and appended after the cap — taken
+// as a PARAMETER (the caller does the getenv) so this stays a pure, unit-
+// testable decision.  The std::string storage is owned by the returned vector;
+// the caller copies its `.data()` pointers into process-lifetime storage for
+// hs_init (GHC retains argv).
+auto rts_init_args(int rts_cores, std::string_view override_opts) -> std::vector<std::string>;
 
 // Detect a requested-vs-active RTS core mismatch (the renderer-first downgrade
 // case).  Returns `{active, requested}` — the order `rts_mismatch_info()`

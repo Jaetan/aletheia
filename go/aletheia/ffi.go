@@ -23,9 +23,6 @@ package aletheia
 // // Typed trampolines so cgo can call function pointers loaded via dlsym.
 // // cgo cannot call through C function pointer variables directly.
 //
-// static void call_hs_init(void *fn, int *argc, char ***argv) {
-//     ((void (*)(int*, char***))fn)(argc, argv);
-// }
 // static void* call_init(void *fn) {
 //     return ((void* (*)(void))fn)();
 // }
@@ -103,42 +100,33 @@ package aletheia
 //     ((void (*)(uint8_t*))fn)(ptr);
 // }
 //
-// // call_hs_init_rts builds argv and calls hs_init with +RTS -N<cores> -RTS.
+// // hs_init argv marshalling.  The Go side (rts.go rtsInitArgv) assembles the
+// // flag list — {aletheia, +RTS, -M<cap>, -N<k> iff k>1, override flags, -RTS}
+// // — and these helpers move it into C-owned storage that outlives the call.
 // //
-// // Why strdup() rather than passing &args directly to hs_init:
-// //   per the GHC user's guide §16.2 / Haskell-side "GHC.RTS.startupHaskell",
-// //   hs_init's contract is that argv pointers MAY be retained for the
-// //   process lifetime — the runtime parses +RTS flags lazily, and some
-// //   bookkeeping (e.g. the stored program name returned by getProgName)
-// //   keeps a live reference to the original strings.  Stack-allocated or
-// //   Go-managed memory would not be safe across the hs_init return.
+// // Why C-owned (calloc + strdup via CString), never Go memory:
+// //   hs_init_with_rtsopts MAY retain the argv array and its strings for the
+// //   whole process lifetime (the runtime parses +RTS flags lazily and keeps a
+// //   live reference to, e.g., the stored program name).  cgo forbids C from
+// //   retaining a Go pointer past the call, so both the array and every string
+// //   must be C allocations.
 // //
 // // Why we never free():
-// //   (a) The retention window is the entire process lifetime — GHC has no
-// //       hs_release_argv hook and no documented point at which the strings
-// //       become unreachable.
-// //   (b) The leak is bounded — exactly four small heap blocks
-// //       ("aletheia" / "+RTS" / "-N<cores>" / "-RTS"), allocated once per
-// //       process at first FFIBackend.Init() call (see lazyInit() guard
-// //       below).  Total ~40 bytes, no growth.
-// //   (c) Cross-binding parity — Python's `aletheia/_ffi.py` and C++'s
-// //       `cpp/src/ffi_backend.cpp` both follow the same one-shot retain-
-// //       forever pattern with the same rationale.  Diverging here would
-// //       complicate the cross-binding leak audit (RUNBOOK.md §4 describes
-// //       the expected steady-state RSS profile).
-// static void call_hs_init_rts(void *fn, int cores) {
-//     char buf[16];
-//     snprintf(buf, sizeof(buf), "-N%d", cores);
-//     char *args[4];
-//     args[0] = strdup("aletheia");
-//     args[1] = strdup("+RTS");
-//     args[2] = strdup(buf);
-//     args[3] = strdup("-RTS");
-//     int argc = 4;
-//     char **argv = args;
+// //   The retention window is the entire process lifetime — GHC has no
+// //   hs_release_argv hook — and the leak is bounded: one small array + a
+// //   handful of short strings, allocated once at first RTS init.  Python's
+// //   `aletheia/client/_ffi.py`, C++'s `cpp/src/ffi_backend.cpp`, and Rust's
+// //   `rust/src/backend.rs` all follow the same one-shot retain-forever pattern.
+// static char** g_alloc_argv(int n) {
+//     return (char**)calloc((size_t)n, sizeof(char*));
+// }
+// static void g_set_argv(char **argv, int i, char *s) {
+//     argv[i] = s;  // s is a CString the Go caller intentionally leaks
+// }
+// static void call_hs_init_argv(void *fn, int argc, char **argv) {
+//     // hs_init_with_rtsopts is void(int*, char***); it may rewrite the local
+//     // argc/argv copies (stripping the +RTS…-RTS span), which we discard.
 //     ((void (*)(int*, char***))fn)(&argc, &argv);
-//     // Per the multi-line rationale above: bounded one-shot leak, retained
-//     // for hs_init's documented argv lifetime; not freed.
 // }
 import "C"
 
@@ -197,8 +185,8 @@ func StablePtrCount() int64 {
 //   - CGO_ENABLED=1 (links -ldl for dynamic loading)
 //   - libaletheia-ffi.so built from the Agda core
 //
-// The GHC runtime system is initialized once per process via hs_init and
-// never finalized. All FFI calls are pinned to OS threads via
+// The GHC runtime system is initialized once per process via
+// hs_init_with_rtsopts (rts.go) and never finalized. All FFI calls are pinned to OS threads via
 // [runtime.LockOSThread] because the GHC RTS has per-capability state.
 type FFIBackend struct {
 	handle              unsafe.Pointer // dlopen handle
@@ -298,7 +286,7 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	// `renderer.go`, independent of FFIBackend, so tests that never
 	// instantiate a backend still route through the same Agda kernel
 	// function.
-	//   hs_init                       — GHC RTS initialization (called once per process)
+	//   hs_init_with_rtsopts          — GHC RTS initialization (called once per process; see rts.go)
 	//   aletheia_init                 — create a new session (returns StablePtr)
 	//   aletheia_process              — send JSON command, receive JSON response
 	//   aletheia_send_frame           — binary CAN frame (streaming LTL hot path)
@@ -314,7 +302,7 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	//   aletheia_free_buf             — free Haskell-allocated binary buffers
 	//   aletheia_free_str             — free Haskell-allocated response strings
 	//   aletheia_close                — finalize and free session state
-	hsInit, err := loadSym(handle, "hs_init")
+	hsInit, err := loadSym(handle, rtsInitSymbol)
 	if err != nil {
 		return nil, err
 	}
@@ -395,11 +383,17 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	hsInitMu.Lock()
 	defer hsInitMu.Unlock()
 	if !hsInitDone {
-		if cfg.rtsCores > 1 {
-			C.call_hs_init_rts(hsInit, C.int(cfg.rtsCores))
-		} else {
-			C.call_hs_init(hsInit, nil, nil)
+		// Always build the argv WITH the heap cap present (rts.go rtsInitArgv),
+		// so the host is contained regardless of the requested core count —
+		// unlike the old path, which passed no argv (and thus no cap) for the
+		// single-core default.  The C array + strings are intentionally leaked
+		// (GHC retains argv; see the g_alloc_argv rationale above).
+		argv := rtsInitArgv(cfg.rtsCores)
+		cargv := C.g_alloc_argv(C.int(len(argv)))
+		for i, s := range argv {
+			C.g_set_argv(cargv, C.int(i), C.CString(s))
 		}
+		C.call_hs_init_argv(hsInit, C.int(len(argv)), cargv)
 		hsInitCores = cfg.rtsCores
 		hsInitDone = true
 	} else if cfg.rtsCores != hsInitCores && cfg.logger != nil {

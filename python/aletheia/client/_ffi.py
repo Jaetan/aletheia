@@ -33,22 +33,44 @@ def parse_json_object(s: str) -> dict[str, JSONValue]:
     return parsed
 
 
-# Default maximum heap for the loaded kernel's GHC RTS.
+# Runtime RTS parameters — SSOT: docs/RESOURCE_BUDGETS.yaml (runtime block);
+# mirrored here verbatim.  Parity with the SSOT is enforced by
+# tools/check_rts_runtime.py (a run_ci gate) and test_rts_runtime_parity.py.
 #
-# The RTS has NO heap limit by default, so a runaway allocation inside the
-# kernel is not a failed call — it exhausts host memory and the OOM killer
-# takes the whole machine down (observed twice while probing a kernel defect
-# whose cost grew with a rational's magnitude).  With a cap the same runaway
-# raises a heap overflow, the FFI call returns an error, and the process — and
-# the host — survive.
+# Default maximum heap for the loaded kernel's GHC RTS.  The RTS has NO heap
+# limit by default, so a runaway allocation inside the kernel is not a failed
+# call — it exhausts host memory and the OOM killer takes the whole machine
+# down (observed twice while probing a kernel defect whose cost grew with a
+# rational's magnitude).
 #
-# The value is a containment bound, not a working-set estimate: the largest
-# kernel working set measured on this project is under two gigabytes (the full
-# proof gate), and ordinary client use sits near a hundred megabytes, so this
-# leaves ample headroom while staying far below any developer host's memory.
-# Override per process with ``ALETHEIA_RTS_OPTS`` (its flags are appended after
-# this one, and the RTS honours the last occurrence).
+# CONTAINMENT-BY-ABORT contract: the cap does NOT yield a recoverable error.
+# When it fires, GHC's heap-overflow check trips and the foreign-export
+# wrapper's ``rts_checkSchedStatus`` calls ``stg_exit`` on the non-Success
+# return, so the PROCESS TERMINATES with a diagnostic
+# (``aletheia: aletheia_process: Return code (4) not ok``).  There is no
+# catchable error and no partial result — the guarantee is that the HOST
+# survives while the process does not.
+#
+# The value is a containment bound, not a working-set estimate: the heaviest
+# kernel working set measured on this project is ~1.5 GiB (the full proof
+# gate), and ordinary client use sits near a hundred megabytes, so this leaves
+# ample headroom while staying far below any developer host's memory.  Override
+# per process with ``ALETHEIA_RTS_OPTS`` (its flags are appended after this one,
+# and the RTS honours the last occurrence, so a caller -M wins).
 DEFAULT_RTS_HEAP_CAP = b"-M3G"
+
+# GHC capability count when a caller does not ask for more (single-bus
+# monitoring).  A ``-N`` flag is emitted only when ``rts_cores`` exceeds this.
+DEFAULT_RTS_CORES = 1
+
+# The GHC entry point used to start the RTS.  Plain ``hs_init`` cannot carry
+# the ``-M`` cap under the .so's link-time RtsOptsSafeOnly (it aborts at init
+# with "Most RTS options are disabled"); ``hs_init_with_rtsopts`` honours the
+# full flag set.  Both share the C signature ``void(int*, char***)``.
+RTS_INIT_SYMBOL = "hs_init_with_rtsopts"
+
+# Environment variable whose whitespace-split flags are appended after the cap.
+RTS_OVERRIDE_ENV = "ALETHEIA_RTS_OPTS"
 
 
 class RTSState:
@@ -67,7 +89,7 @@ class RTSState:
     _lock: threading.Lock = threading.Lock()
 
     @classmethod
-    def acquire(cls, lib: ctypes.CDLL, rts_cores: int = 1) -> None:
+    def acquire(cls, lib: ctypes.CDLL, rts_cores: int = DEFAULT_RTS_CORES) -> None:
         """Increment RTS reference count, initializing on first use.
 
         Args:
@@ -86,18 +108,18 @@ class RTSState:
                 # regardless of the shared library's link-time -rtsopts level
                 # (which has no effect for native-shared libraries per the
                 # GHC linker).
-                init_fn = lib.hs_init_with_rtsopts
+                init_fn = getattr(lib, RTS_INIT_SYMBOL)
                 init_fn.argtypes = [
                     ctypes.POINTER(ctypes.c_int),
                     ctypes.POINTER(ctypes.POINTER(ctypes.c_char_p)),
                 ]
                 init_fn.restype = None
-                extra_rts = os.environ.get("ALETHEIA_RTS_OPTS", "").split()
+                extra_rts = os.environ.get(RTS_OVERRIDE_ENV, "").split()
                 # The heap cap goes FIRST so a caller-supplied -M in
                 # ALETHEIA_RTS_OPTS lands later and wins (the RTS honours the
                 # last occurrence of a flag).
                 args: list[bytes] = [b"aletheia", b"+RTS", DEFAULT_RTS_HEAP_CAP]
-                if rts_cores > 1:
+                if rts_cores > DEFAULT_RTS_CORES:
                     args.append(b"-N" + str(rts_cores).encode())
                 args.extend(flag.encode("ascii") for flag in extra_rts)
                 args.append(b"-RTS")

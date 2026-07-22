@@ -37,6 +37,58 @@ pub(crate) type StateHandle = *mut c_void;
 /// CAN-FD's largest payload; frames longer than this are rejected before the FFI.
 const MAX_FRAME_BYTES: usize = 64;
 
+// Runtime GHC RTS parameters — SSOT: docs/RESOURCE_BUDGETS.yaml (runtime
+// block); mirrored here verbatim.  Parity with the SSOT is enforced by
+// tools/check_rts_runtime.py (a run_ci gate) and the `rts_params` test module
+// at the bottom of this file.
+//
+// CONTAINMENT-BY-ABORT contract: the heap cap does NOT yield a recoverable
+// error.  The loaded kernel's GHC RTS has no heap limit by default, so a
+// runaway allocation exhausts host memory and the OOM killer takes the whole
+// machine down.  With the cap in place the same runaway trips GHC's
+// heap-overflow check and the foreign-export wrapper aborts the PROCESS
+// (`aletheia: aletheia_process: Return code (4) not ok`).  There is no
+// catchable error and no partial result — the host survives, the process does
+// not.  A containment bound with measured headroom (heaviest kernel working
+// set observed ~1.5 GiB), never a tuned working-set budget.
+
+/// Default -M heap cap emitted into the RTS argv (see [`build_rts_argv`]).
+const RTS_HEAP_CAP_FLAG: &str = "-M3G";
+/// GHC capability count for single-bus monitoring; a `-N` flag is emitted only
+/// when a caller requests more.
+const RTS_DEFAULT_CORES: u32 = 1;
+/// The GHC entry point that starts the RTS.  Plain `hs_init` cannot carry the
+/// `-M` cap under the `.so`'s link-time RtsOptsSafeOnly (it aborts at init with
+/// "Most RTS options are disabled"); `hs_init_with_rtsopts` honours the full
+/// flag set.  Same C signature (`void(int*, char***)`), so the switch is a pure
+/// string change.
+const RTS_INIT_SYMBOL: &str = "hs_init_with_rtsopts";
+/// Environment variable whose whitespace-split flags are appended after the cap
+/// (and after an optional `-N`), so a caller `-M` wins (the RTS honours the
+/// last occurrence).
+const RTS_OVERRIDE_ENV: &str = "ALETHEIA_RTS_OPTS";
+
+/// Assemble the argv passed to `hs_init_with_rtsopts`, per the SSOT argv_order:
+/// `{progname, +RTS, heap_cap, -N<k> iff k>1, override flags, -RTS}`.  The cap
+/// is ALWAYS present, so the host is contained regardless of the requested core
+/// count.  Pure (no FFI, no env read — `override_opts` is passed in), so it is
+/// unit-testable and the parity test can drive it directly.
+fn build_rts_argv(cores: Option<u32>, override_opts: &str) -> Vec<String> {
+    let mut argv = vec![
+        "aletheia".to_owned(),
+        "+RTS".to_owned(),
+        RTS_HEAP_CAP_FLAG.to_owned(),
+    ];
+    if let Some(k) = cores {
+        if k > RTS_DEFAULT_CORES {
+            argv.push(format!("-N{k}"));
+        }
+    }
+    argv.extend(override_opts.split_whitespace().map(str::to_owned));
+    argv.push("-RTS".to_owned());
+    argv
+}
+
 // --- FFI signatures (binary fast path) ------------------------------------
 
 type SendFrameFn = unsafe extern "C" fn(
@@ -304,7 +356,9 @@ impl Symbols {
                 init: symbol::<InitFn>(lib, b"aletheia_init\0")?,
                 close: symbol::<CloseFn>(lib, b"aletheia_close\0")?,
                 free_str: symbol::<FreeStrFn>(lib, b"aletheia_free_str\0")?,
-                hs_init: symbol::<HsInitFn>(lib, b"hs_init\0")?,
+                // NUL-terminate the mirrored RTS_INIT_SYMBOL for dlsym.  Plain
+                // hs_init cannot carry the -M cap under RtsOptsSafeOnly.
+                hs_init: symbol::<HsInitFn>(lib, format!("{RTS_INIT_SYMBOL}\0").as_bytes())?,
             })
         }
     }
@@ -508,33 +562,36 @@ fn spec_str(cores: Option<u32>) -> String {
     cores.map_or_else(|| "default".to_string(), |k| format!("-N{k}"))
 }
 
-/// Run `hs_init`, either with GHC defaults (`cores = None`) or a leaked
-/// `+RTS -N<k> -RTS` argv (`cores = Some(k)`). GHC retains the argv pointers for
-/// the process lifetime, so the strings and the array are intentionally leaked.
+/// Run `hs_init_with_rtsopts` with an argv that ALWAYS carries the containment
+/// heap cap ([`build_rts_argv`]), plus `-N<k>` when `cores` exceeds the default
+/// and any `ALETHEIA_RTS_OPTS` flags.  Unlike before, the `cores = None` /
+/// default arm no longer passes NULL argv (and thus no cap) — the host must be
+/// contained no matter the requested core count.  GHC retains the argv pointers
+/// for the process lifetime, so the strings and the array are intentionally
+/// leaked.
 ///
-/// Infallible today (the `hs_init` symbol is pre-resolved in [`Symbols`]), but
-/// kept `Result`-shaped: [`RTS_INIT`] latches a `Result` so a failed first init
+/// Infallible today (the init symbol is pre-resolved in [`Symbols`]), but kept
+/// `Result`-shaped: [`RTS_INIT`] latches a `Result` so a failed first init
 /// would fail every later one identically, and this is its only writer.
 fn init_rts(syms: &Symbols, cores: Option<u32>) -> Result<(), Error> {
     let hs_init = &syms.hs_init;
-    match cores {
-        // SAFETY (both arms): `hs_init` is `void hs_init(int *argc, char ***argv)`.
-        // NULL/NULL selects GHC default flags.
-        None => unsafe { hs_init(std::ptr::null_mut(), std::ptr::null_mut()) },
-        Some(k) => {
-            // `into_raw` / `Box::leak` deliberately leak: GHC retains argv.
-            let argv: Vec<*mut c_char> = vec![
-                CString::new("aletheia").expect("no NUL").into_raw(),
-                CString::new("+RTS").expect("no NUL").into_raw(),
-                CString::new(format!("-N{k}")).expect("no NUL").into_raw(),
-                CString::new("-RTS").expect("no NUL").into_raw(),
-                std::ptr::null_mut(),
-            ];
-            let mut argc: c_int = 4;
-            let mut argv_ptr = Box::leak(argv.into_boxed_slice()).as_mut_ptr();
-            unsafe { hs_init(&mut argc, &mut argv_ptr) };
-        }
-    }
+    let override_opts = std::env::var(RTS_OVERRIDE_ENV).unwrap_or_default();
+    // `into_raw` / `Box::leak` deliberately leak: GHC retains argv for the
+    // process lifetime (no hs_release hook), and the RTS is never torn down.
+    let mut argv: Vec<*mut c_char> = build_rts_argv(cores, &override_opts)
+        .into_iter()
+        .map(|s| {
+            CString::new(s)
+                .expect("no interior NUL in RTS flag")
+                .into_raw()
+        })
+        .collect();
+    let mut argc: c_int = c_int::try_from(argv.len()).expect("RTS argv length fits c_int");
+    argv.push(std::ptr::null_mut());
+    let mut argv_ptr = Box::leak(argv.into_boxed_slice()).as_mut_ptr();
+    // SAFETY: `hs_init` is `void hs_init(int *argc, char ***argv)`; argv is a
+    // leaked, NUL-terminated array of leaked C strings, valid for the process.
+    unsafe { hs_init(&mut argc, &mut argv_ptr) };
     Ok(())
 }
 
@@ -842,5 +899,85 @@ impl Drop for FfiBackend {
             // not used again after `aletheia_close` releases it.
             unsafe { (syms.close)(self.handle) };
         }
+    }
+}
+
+#[cfg(test)]
+mod rts_params {
+    //! Rust leg of the runtime-RTS parity chain: assert this binding's mirrored
+    //! constants equal `docs/RESOURCE_BUDGETS.yaml` (the cross-binding SSOT,
+    //! itself enforced against every binding by `tools/check_rts_runtime.py`).
+    //! An internal `#[cfg(test)]` module (not a `tests/` integration test) so it
+    //! reads the private mirror constants directly — matching how the Python /
+    //! Go / C++ mirrors are private to their binding.
+
+    use std::path::Path;
+
+    use yaml_rust2::YamlLoader;
+
+    use super::{
+        build_rts_argv, RTS_DEFAULT_CORES, RTS_HEAP_CAP_FLAG, RTS_INIT_SYMBOL, RTS_OVERRIDE_ENV,
+    };
+
+    fn ssot() -> yaml_rust2::Yaml {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/RESOURCE_BUDGETS.yaml");
+        let text = std::fs::read_to_string(&path).expect("read docs/RESOURCE_BUDGETS.yaml");
+        let docs = YamlLoader::load_from_str(&text).expect("parse RESOURCE_BUDGETS.yaml");
+        docs[0]["runtime"].clone()
+    }
+
+    #[test]
+    fn mirror_matches_ssot() {
+        let runtime = ssot();
+        assert_eq!(
+            runtime["heap_cap"]["flag"].as_str(),
+            Some(RTS_HEAP_CAP_FLAG),
+            "RTS_HEAP_CAP_FLAG drifted from docs/RESOURCE_BUDGETS.yaml runtime.heap_cap.flag"
+        );
+        assert_eq!(
+            runtime["default_cores"]["value"].as_i64(),
+            Some(i64::from(RTS_DEFAULT_CORES)),
+            "RTS_DEFAULT_CORES drifted from runtime.default_cores.value"
+        );
+        assert_eq!(
+            runtime["init_symbol"].as_str(),
+            Some(RTS_INIT_SYMBOL),
+            "RTS_INIT_SYMBOL drifted from runtime.init_symbol"
+        );
+        assert_eq!(
+            runtime["heap_cap"]["override_env"].as_str(),
+            Some(RTS_OVERRIDE_ENV),
+            "RTS_OVERRIDE_ENV drifted from runtime.heap_cap.override_env"
+        );
+    }
+
+    #[test]
+    fn argv_always_carries_the_cap() {
+        // Default cores: cap present, no -N.
+        assert_eq!(
+            build_rts_argv(None, ""),
+            vec!["aletheia", "+RTS", RTS_HEAP_CAP_FLAG, "-RTS"]
+        );
+        assert_eq!(
+            build_rts_argv(Some(1), ""),
+            vec!["aletheia", "+RTS", RTS_HEAP_CAP_FLAG, "-RTS"]
+        );
+        // Multi-core: -N appended after the cap.
+        assert_eq!(
+            build_rts_argv(Some(4), ""),
+            vec!["aletheia", "+RTS", RTS_HEAP_CAP_FLAG, "-N4", "-RTS"]
+        );
+        // Override flags land after the cap (so a caller -M occurs last, wins).
+        assert_eq!(
+            build_rts_argv(Some(1), "  -M12M   -hT "),
+            vec![
+                "aletheia",
+                "+RTS",
+                RTS_HEAP_CAP_FLAG,
+                "-M12M",
+                "-hT",
+                "-RTS"
+            ]
+        );
     }
 }
