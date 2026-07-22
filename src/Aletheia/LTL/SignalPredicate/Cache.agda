@@ -8,17 +8,20 @@
 -- Purpose: Maintain last-known signal values with observation timestamps.
 -- Operations: lookupCache, updateCache, emptyCache (record-level API).
 -- List-level: lookupEntries, updateEntries (exported for proofs).
+-- Evaluation control: withForcedCache (+ its transparency lemma) — see the
+--   "SPINE FORCING" section for why the streaming step needs it.
 -- Role: Used by StreamState for incremental LTL evaluation with cache fallback.
 module Aletheia.LTL.SignalPredicate.Cache where
 
+open import Agda.Builtin.Strict using (primForce; primForceLemma)
 open import Aletheia.Prelude using (List; Maybe; T; []; _,_; _×_; _∘_; _∷_; false; if_then_else_; just; nothing; proj₁; sym; true; tt; ℚ)
-open import Data.Bool using ()
+open import Data.Bool using (Bool)
 open import Data.Char using (Char)
 open import Data.Rational using ()
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.List.Relation.Unary.AllPairs as AP using (AllPairs; []; _∷_)
 open import Data.Unit using ()
-open import Relation.Binary.PropositionalEquality using (_≢_; subst)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; subst)
 open import Aletheia.Trace.Time using (Timestamp; μs)
 
 -- Bool-valued List Char equality (hot-path Dec-allocation escape).
@@ -132,3 +135,61 @@ lookupCache name cache = lookupEntries name (SignalCache.entries cache)
 updateCache : List Char → ℚ → Timestamp μs → SignalCache → SignalCache
 updateCache name val ts (mkSignalCache es u) =
   mkSignalCache (updateEntries name val ts es) (updateEntries-unique name val ts es u)
+
+-- ============================================================================
+-- SPINE FORCING (bounded streaming residency)
+-- ============================================================================
+
+-- Why this exists.  MAlonzo compiles the cache lazily, and the streaming step
+-- stores its freshly-derived cache into the next `StreamState` without ever
+-- demanding it.  Two thunk chains then accumulate, one per accepted frame, and
+-- each link captures the frame it was derived from — so the whole trace stays
+-- reachable and residency grows without bound:
+--
+--   * the cache VALUE itself: `updateCacheFromFrame dbc cache ts frame` is
+--     stored unevaluated, and its `frame` argument keeps that frame alive.
+--     Both no-op arms (unknown message id, message with no signals) return the
+--     incoming cache without matching on it, so the chain never self-collapses.
+--   * the ENTRY SPINE: `updateEntries`' non-matching clause leaves its tail as
+--     a thunk holding the extracted value, hence the frame it came from.
+--     `lookupEntries` only walks as far as its first key match, so every entry
+--     past that point keeps its tail thunk.
+--
+-- Forcing the entry spine collapses both: projecting `entries` demands the
+-- cache value (first chain), and walking the spine demands every tail (second).
+-- Agda has no strict-field annotation, so `primForce` — which MAlonzo emits as
+-- Haskell's `seq` — is the only `--safe` lever.
+--
+-- `spineForced` walks the spine and allocates nothing: each clause is a tail
+-- call, so demanding its `Bool` result to weak head normal form drives the walk
+-- to the end of the list.  The walk itself is one pointer chase per cached
+-- signal per accepted frame.  The larger cost is what the walk *demands*: the
+-- streaming step now performs the cache update for every signal the frame
+-- carries, where laziness previously deferred that work forever — deferring it
+-- is exactly what retained the frame, so paying it is not optional.
+--
+-- Depth: the spine only.  A cached ℚ left unevaluated retains the frame it was
+-- extracted from, but the next observation of that signal overwrites it, so
+-- that retention is bounded by the DBC's signal count rather than growing with
+-- the trace.
+spineForced : CacheEntries → Bool
+spineForced []       = true
+spineForced (_ ∷ es) = spineForced es
+
+-- Evaluate `c`'s entry spine, then hand `c` to the continuation.
+--
+-- The continuation form is load-bearing: it puts the `primForce` on the
+-- streaming step's RESULT rather than on the cache it passes along.  Only the
+-- result is demanded every frame (the FFI boundary reads the response), so a
+-- `primForce` buried in an argument position would sit unevaluated on exactly
+-- the no-op arms described above.
+withForcedCache : {B : Set} → SignalCache → (SignalCache → B) → B
+withForcedCache c k = primForce (spineForced (SignalCache.entries c)) (λ _ → k c)
+
+-- Transparency: forcing changes evaluation order only, never the value.
+-- Proofs about the streaming step rewrite with this to recover the unforced
+-- form, so `withForcedCache` costs the proof surface one rewrite and no
+-- restatement.
+withForcedCache-id : {B : Set} (c : SignalCache) (k : SignalCache → B)
+                   → withForcedCache c k ≡ k c
+withForcedCache-id c k = primForceLemma (spineForced (SignalCache.entries c)) (λ _ → k c)

@@ -29,7 +29,9 @@ open import Aletheia.Protocol.StreamState
            PropertyState; mkPropertyState)
 open import Aletheia.Protocol.StreamState.Internals
     using (classifyStepResult; stepProperty; dispatchIterResult;
-           mkPredTable; updateCacheFromFrame)
+           mkPredTableT; extractTable; updateCacheFromFrame; readableSignals)
+open import Aletheia.LTL.SignalPredicate.Cache using (withForcedCache; withForcedCache-id)
+open import Aletheia.LTL.SignalPredicate.Evaluation using (withForcedTable-id)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData)
 open import Aletheia.Protocol.Iteration using (advance; halt; complete; iterate; iterate-correct; specResult; specHalt; specCompletions)
@@ -44,7 +46,7 @@ open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ; _<_; _%_)
 open import Data.Nat.DivMod using (m<n⇒m%n≡m)
 open import Data.Fin using (Fin; toℕ)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; cong)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong)
 
 -- ============================================================================
 -- PROPERTY 1: State machine guards
@@ -106,19 +108,21 @@ classifyStepResult-satisfied prop = refl
 -- ============================================================================
 
 -- Forward: If stepL returns Violated, stepProperty halts with matching evidence.
-stepProperty-violated : ∀ {n} dbc cache tf (prop : PropertyState n) ce
-  → stepL (mkPredTable dbc cache (PropertyState.atoms prop)) (PropertyState.proc prop) tf ≡ Violated ce
-  → stepProperty dbc cache tf prop ≡ halt (PropertyState.index prop , ce)
-stepProperty-violated dbc cache tf prop ce steq rewrite steq = refl
+-- The runtime table drives `mkPredTableT`; `table` is threaded through so the
+-- statement names the same table `handleDataFrame` builds for the frame.
+stepProperty-violated : ∀ {n} dbc table cache tf (prop : PropertyState n) ce
+  → stepL (mkPredTableT table dbc cache (PropertyState.atoms prop)) (PropertyState.proc prop) tf ≡ Violated ce
+  → stepProperty dbc table cache tf prop ≡ halt (PropertyState.index prop , ce)
+stepProperty-violated dbc table cache tf prop ce steq rewrite steq = refl
 
 -- Backward: If stepProperty halts, stepL returned Violated.
 -- Returns: proof that idx matches the property index, and the stepL equality.
-stepProperty-halt-implies-violated : ∀ {n} dbc cache tf (prop : PropertyState n) (idx : Fin n) ce
-  → stepProperty dbc cache tf prop ≡ halt (idx , ce)
+stepProperty-halt-implies-violated : ∀ {n} dbc table cache tf (prop : PropertyState n) (idx : Fin n) ce
+  → stepProperty dbc table cache tf prop ≡ halt (idx , ce)
   → idx ≡ PropertyState.index prop
-    × stepL (mkPredTable dbc cache (PropertyState.atoms prop)) (PropertyState.proc prop) tf ≡ Violated ce
-stepProperty-halt-implies-violated dbc cache tf prop idx ce eq
-  with stepL (mkPredTable dbc cache (PropertyState.atoms prop)) (PropertyState.proc prop) tf | eq
+    × stepL (mkPredTableT table dbc cache (PropertyState.atoms prop)) (PropertyState.proc prop) tf ≡ Violated ce
+stepProperty-halt-implies-violated dbc table cache tf prop idx ce eq
+  with stepL (mkPredTableT table dbc cache (PropertyState.atoms prop)) (PropertyState.proc prop) tf | eq
 ... | Continue _ _  | ()
 ... | Violated .ce  | refl = refl , refl
 ... | Satisfied     | ()
@@ -171,13 +175,25 @@ dispatchIterResult-violation dbc ps idx ce completions tf cache = refl
 handleDataFrame-streaming : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf
   → checkMonotonic prev tf ≡ nothing
   → handleDataFrame (Streaming n dbc props prev cache) tf
-    ≡ let updatedCache = updateCacheFromFrame dbc cache
-                           (timestamp tf) (TimedFrame.frame tf)
+    ≡ let readable     = readableSignals props
+          table        = extractTable dbc (TimedFrame.frame tf) readable
+          updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf) readable
       in dispatchIterResult dbc
-           (iterate (stepProperty dbc cache tf) props)
+           (iterate (stepProperty dbc table cache tf) props)
            tf updatedCache
+-- The `withForcedTable-id` / `withForcedCache-id` steps discharge the
+-- evaluation-order control the streaming step applies to the per-frame
+-- extraction table and its outgoing cache: forcing is transparent, so the
+-- decomposition is stated in the unforced form its consumers reason with.
 handleDataFrame-streaming dbc props prev cache tf mono
-  rewrite mono = refl
+  rewrite mono =
+    trans (withForcedTable-id table (withForcedCache updatedCache k))
+          (withForcedCache-id updatedCache k)
+  where
+    readable     = readableSignals props
+    table        = extractTable dbc (TimedFrame.frame tf) readable
+    updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf) readable
+    k = dispatchIterResult dbc (iterate (stepProperty dbc table cache tf) props) tf
 
 -- ============================================================================
 -- PROPERTY 7: Ack soundness — Ack means no halt AND no completion
@@ -192,11 +208,15 @@ handleDataFrame-streaming dbc props prev cache tf mono
 handleDataFrame-ack-sound : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf
   → checkMonotonic prev tf ≡ nothing
   → proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf) ≡ Response.Ack
-  → proj₁ (proj₂ (iterate (stepProperty dbc cache tf) props)) ≡ nothing
-  × proj₂ (proj₂ (iterate (stepProperty dbc cache tf) props)) ≡ []
+  → proj₁ (proj₂ (iterate (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props)) ≡ nothing
+  × proj₂ (proj₂ (iterate (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props)) ≡ []
+-- `resp-eq` is transported along the PROPERTY 6 decomposition before the
+-- case-split: the streaming step controls its own evaluation order (per-frame
+-- extraction table + outgoing cache), so the response is read off
+-- `dispatchIterResult` rather than off `handleDataFrame`.
 handleDataFrame-ack-sound dbc props prev cache tf mono resp-eq
-  rewrite mono
-  with iterate (stepProperty dbc cache tf) props | resp-eq
+  with iterate (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props
+     | trans (sym (cong proj₂ (handleDataFrame-streaming dbc props prev cache tf mono))) resp-eq
 ... | (ps , nothing , [])         | _  = refl , refl
 ... | (ps , nothing , _ ∷ _)      | ()
 ... | (ps , just (idx , ce) , _)  | ()
@@ -213,11 +233,11 @@ handleDataFrame-ack-sound dbc props prev cache tf mono resp-eq
 handleDataFrame-events-sound : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf pr
   → checkMonotonic prev tf ≡ nothing
   → proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf) ≡ Response.PropertyResponse pr
-  → (∃[ e ] proj₁ (proj₂ (iterate (stepProperty dbc cache tf) props)) ≡ just e)
-    ⊎ (∃[ c ] ∃[ cs ] proj₂ (proj₂ (iterate (stepProperty dbc cache tf) props)) ≡ c ∷ cs)
+  → (∃[ e ] proj₁ (proj₂ (iterate (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props)) ≡ just e)
+    ⊎ (∃[ c ] ∃[ cs ] proj₂ (proj₂ (iterate (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props)) ≡ c ∷ cs)
 handleDataFrame-events-sound dbc props prev cache tf pr mono resp-eq
-  rewrite mono
-  with iterate (stepProperty dbc cache tf) props | resp-eq
+  with iterate (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props
+     | trans (sym (cong proj₂ (handleDataFrame-streaming dbc props prev cache tf mono))) resp-eq
 ... | (ps , nothing , [])         | ()
 ... | (ps , nothing , c ∷ cs)     | _ = inj₂ (c , cs , refl)
 ... | (ps , just e , _)           | _ = inj₁ (e , refl)
@@ -233,15 +253,16 @@ handleDataFrame-events-sound dbc props prev cache tf pr mono resp-eq
 -- would be a PropertyResponse carrying the satisfaction list.
 handleDataFrame-ack-complete : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf
   → checkMonotonic prev tf ≡ nothing
-  → specHalt (stepProperty dbc cache tf) props ≡ nothing
-  → specCompletions (stepProperty dbc cache tf) props ≡ []
+  → specHalt (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props ≡ nothing
+  → specCompletions (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props ≡ []
   → proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf) ≡ Response.Ack
-handleDataFrame-ack-complete dbc props prev cache tf mono spec-halt spec-comp
-  rewrite mono =
-    cong (λ p → proj₂ (dispatchIterResult dbc p tf updatedCache)) iter-eq
+handleDataFrame-ack-complete dbc props prev cache tf mono spec-halt spec-comp =
+    trans (cong proj₂ (handleDataFrame-streaming dbc props prev cache tf mono))
+          (cong (λ p → proj₂ (dispatchIterResult dbc p tf updatedCache)) iter-eq)
   where
-    step = stepProperty dbc cache tf
-    updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf)
+    table = extractTable dbc (TimedFrame.frame tf) (readableSignals props)
+    step = stepProperty dbc table cache tf
+    updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf) (readableSignals props)
     iter-eq : iterate step props ≡ (specResult step props , nothing , [])
     iter-eq = trans (iterate-correct step props)
                     (cong₂ (λ h c → (specResult step props , h , c)) spec-halt spec-comp)
@@ -261,21 +282,22 @@ handleDataFrame-ack-complete dbc props prev cache tf mono spec-halt spec-comp
 -- (possibly empty) satisfaction list.
 handleDataFrame-violation-complete : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf (idx : Fin n) ce
   → checkMonotonic prev tf ≡ nothing
-  → specHalt (stepProperty dbc cache tf) props ≡ just (idx , ce)
+  → specHalt (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props ≡ just (idx , ce)
   → proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf)
     ≡ Response.PropertyResponse
         (map (λ i → PR.PropertyResult.Satisfaction (toℕ i))
-             (specCompletions (stepProperty dbc cache tf) props)
+             (specCompletions (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props)
          ++ₗ (PR.PropertyResult.Violation (toℕ idx)
                 (mkCounterexampleData (TimedFrame.timestamp (Counterexample.violatingFrame ce))
                                       (Counterexample.reason ce))
               ∷ []))
-handleDataFrame-violation-complete dbc props prev cache tf idx ce mono spec-eq
-  rewrite mono =
-    cong (λ p → proj₂ (dispatchIterResult dbc p tf updatedCache)) iter-eq
+handleDataFrame-violation-complete dbc props prev cache tf idx ce mono spec-eq =
+    trans (cong proj₂ (handleDataFrame-streaming dbc props prev cache tf mono))
+          (cong (λ p → proj₂ (dispatchIterResult dbc p tf updatedCache)) iter-eq)
   where
-    step = stepProperty dbc cache tf
-    updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf)
+    table = extractTable dbc (TimedFrame.frame tf) (readableSignals props)
+    step = stepProperty dbc table cache tf
+    updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf) (readableSignals props)
     iter-eq : iterate step props ≡
                 (specResult step props , just (idx , ce) , specCompletions step props)
     iter-eq = trans (iterate-correct step props)

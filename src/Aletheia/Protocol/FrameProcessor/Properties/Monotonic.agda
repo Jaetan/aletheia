@@ -26,7 +26,7 @@ module Aletheia.Protocol.FrameProcessor.Properties.Monotonic where
 open import Aletheia.Protocol.StreamState
     using (Streaming; handleDataFrame; checkMonotonic)
 open import Aletheia.Protocol.StreamState.Internals
-    using (stepProperty; dispatchIterResult; updateCacheFromFrame)
+    using (stepProperty; dispatchIterResult; extractTable; updateCacheFromFrame; readableSignals)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.Iteration using (iterate)
 open import Aletheia.Protocol.FrameProcessor.Properties.Step
@@ -103,10 +103,11 @@ handleDataFrame-rejects-regress n dbc props p cache tf tf<p
 handleDataFrame-accepts-monotonic : ∀ n dbc props p cache tf
   → timestampℕ p ≤ timestampℕ tf
   → handleDataFrame (Streaming n dbc props (just p) cache) tf
-    ≡ let updatedCache = updateCacheFromFrame dbc cache
-                           (timestamp tf) (TimedFrame.frame tf)
+    ≡ let readable     = readableSignals props
+          table        = extractTable dbc (TimedFrame.frame tf) readable
+          updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf) readable
       in dispatchIterResult dbc
-           (iterate (stepProperty dbc cache tf) props)
+           (iterate (stepProperty dbc table cache tf) props)
            tf updatedCache
 handleDataFrame-accepts-monotonic n dbc props p cache tf p≤tf =
   handleDataFrame-streaming dbc props (just p) cache tf
@@ -115,10 +116,11 @@ handleDataFrame-accepts-monotonic n dbc props p cache tf p≤tf =
 -- After StartStream (prev = nothing), the first frame is always accepted.
 handleDataFrame-first-frame : ∀ n dbc props cache tf
   → handleDataFrame (Streaming n dbc props nothing cache) tf
-    ≡ let updatedCache = updateCacheFromFrame dbc cache
-                           (timestamp tf) (TimedFrame.frame tf)
+    ≡ let readable     = readableSignals props
+          table        = extractTable dbc (TimedFrame.frame tf) readable
+          updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf) readable
       in dispatchIterResult dbc
-           (iterate (stepProperty dbc cache tf) props)
+           (iterate (stepProperty dbc table cache tf) props)
            tf updatedCache
 handleDataFrame-first-frame n dbc props cache tf =
   handleDataFrame-streaming dbc props nothing cache tf refl

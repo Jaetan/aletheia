@@ -32,7 +32,11 @@ open import Aletheia.Protocol.StreamState.Types public
 
 -- Private import for use in handleDataFrame below
 open import Aletheia.Protocol.StreamState.Internals
-  using (updateCacheFromFrame; stepProperty; dispatchIterResult)
+  using (extractTable; cacheFromTable; readableSignals; stepProperty; dispatchIterResult)
+open import Aletheia.LTL.SignalPredicate.Cache using (SignalCache; withForcedCache)
+open import Aletheia.LTL.SignalPredicate.Evaluation using (ExtractTable; withForcedTable)
+open import Aletheia.DBC.Types using (DBC)
+open import Data.List using (List)
 
 -- ============================================================================
 -- FRAME PROCESSING (LTL Checking) — public API
@@ -47,6 +51,22 @@ checkMonotonic (just p) tf with timestampℕ tf <ᵇ timestampℕ p
 ... | false = nothing
 ... | true  = just (NonMonotonicTimestamp (timestampℕ tf) (timestampℕ p))
 
+-- Process an accepted frame with the ONE shared extraction table.
+--
+-- `table` is a function PARAMETER, not a `let`-binding: MAlonzo/GHC share a
+-- lambda-bound argument (one thunk, forced once and memoized), whereas Agda
+-- inlines a `let` into each use site — which would recompute `extractTable`
+-- separately for the cache update AND for evaluation, defeating extract-once.
+-- Keeping the single extraction here is what makes the optimization real.
+-- `withForcedTable`/`withForcedCache` then force the table spine and the
+-- outgoing cache so the accepted frame is released (bounded residency).
+stepFrameShared : ∀ {n} → DBC → List (PropertyState n) → TimedFrame → SignalCache
+                → ExtractTable → StreamState × Response
+stepFrameShared dbc props tf cache table =
+  withForcedTable table
+    (withForcedCache (cacheFromTable (timestamp tf) table cache)
+      (dispatchIterResult dbc (iterate (stepProperty dbc table cache tf) props) tf))
+
 -- Process incoming CAN frame with incremental LTL property checking.
 --
 -- In Streaming phase: enforces timestamp monotonicity against the previous
@@ -59,7 +79,18 @@ checkMonotonic (just p) tf with timestampℕ tf <ᵇ timestampℕ p
 -- rejected here with a NonMonotonicTimestamp HandlerError; the state's `prev`
 -- field is left unchanged so the next frame is checked against the same anchor.
 --
--- O(1) Memory: Properties maintain fixed-size LTLProc state (no trace accumulation).
+-- O(1) Memory: Properties maintain fixed-size LTLProc state (no trace
+-- accumulation), and `withForcedTable`/`withForcedCache` evaluate the per-frame
+-- extraction table and the outgoing signal cache so the accepted frame is
+-- released instead of being retained behind unevaluated thunks (rationale in
+-- `SignalPredicate.Evaluation`, spine forcing, and `SignalPredicate.Cache`,
+-- SPINE FORCING).
+-- Bounded work / extract-once: the frame is extracted once into `table` over
+-- `readableSignals props` — the signal names some active predicate can actually
+-- read — and that single table both warms the cache (`cacheFromTable`) and
+-- drives predicate evaluation (via `stepProperty`), so no readable signal is
+-- extracted twice and signals no predicate consults are neither extracted nor
+-- cached (rationale in `StreamState.Internals`). Observationally invisible.
 -- Violation Reporting: First violation halts iteration with counterexample evidence.
 handleDataFrame : StreamState → TimedFrame → StreamState × Response
 handleDataFrame WaitingForDBC _ =
@@ -70,8 +101,7 @@ handleDataFrame state@(Streaming _ dbc props prev cache) tf with checkMonotonic 
 ... | just err =
   (state , Response.Error (WithContext "DataFrame" (HandlerErr err)))
 ... | nothing =
-  let updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf)
-  in dispatchIterResult dbc (iterate (stepProperty dbc cache tf) props) tf updatedCache
+  stepFrameShared dbc props tf cache (extractTable dbc (TimedFrame.frame tf) (readableSignals props))
 
 -- Dispatch a trace event: data frames go through handleDataFrame,
 -- error and remote frames are acknowledged without LTL evaluation

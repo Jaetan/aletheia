@@ -20,7 +20,7 @@
 module Aletheia.Protocol.FrameProcessor.Properties.Handlers where
 
 open import Aletheia.Protocol.StreamState using (getDBC; PropertyState)
-open import Aletheia.Protocol.StreamState.Internals using (stepProperty)
+open import Aletheia.Protocol.StreamState.Internals using (stepProperty; extractTable; readableSignals)
 open import Aletheia.Protocol.Message using (Ack)
 open import Aletheia.Protocol.ResponseFormat using (formatResponse)
 open import Aletheia.Protocol.ResponseFormat.Properties using (formatResponse-ack-unique)
@@ -33,7 +33,7 @@ open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.Protocol.Iteration using (iterate)
 open import Aletheia.Protocol.FrameProcessor.Properties.Step
     using (handleDataFrame-ack-sound)
-open import Aletheia.Trace.CANTrace using ()
+open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.CAN.DLC using ()
 open import Aletheia.Protocol.StreamState using (handleDataFrame; checkMonotonic; Streaming)
 open import Data.List using (List; [])
@@ -73,8 +73,8 @@ processFrameDirect-response state tf with handleDataFrame state tf
 processFrameDirect-ack-sound-json : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf
   → checkMonotonic prev tf ≡ nothing
   → formatResponse (proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf)) ≡ formatResponse Ack
-  → proj₁ (proj₂ (iterate (stepProperty dbc cache tf) props)) ≡ nothing
-  × proj₂ (proj₂ (iterate (stepProperty dbc cache tf) props)) ≡ []
+  → proj₁ (proj₂ (iterate (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props)) ≡ nothing
+  × proj₂ (proj₂ (iterate (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props)) ≡ []
 processFrameDirect-ack-sound-json dbc props prev cache tf mono fmt-eq =
   handleDataFrame-ack-sound dbc props prev cache tf mono
     (formatResponse-ack-unique (proj₂ (handleDataFrame (Streaming _ dbc props prev cache) tf)) fmt-eq)
