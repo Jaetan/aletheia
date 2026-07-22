@@ -12,6 +12,21 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The loaded kernel's GHC runtime now runs under a default heap cap in every
+  binding (Python, C++, Go, Rust), not just Python.** The runtime has no heap
+  limit by default, so a runaway allocation in kernel code exhausted host memory
+  and the OS OOM killer took the whole machine down; only Python previously
+  passed a cap. All four bindings now start the runtime through
+  `hs_init_with_rtsopts` with a `-M3G` default cap. The cap is
+  **containment-by-abort**, not a recoverable error: when a computation exceeds
+  it the process terminates with a diagnostic (a GHC heap-exhaustion abort) so
+  the host survives — there is no catchable error and no partial result. The cap
+  is a fixed containment bound with measured headroom (far above the heaviest
+  observed kernel working set, far below any host's RAM), overridable per
+  process with `ALETHEIA_RTS_OPTS` (its flags win, being applied last). The
+  runtime RTS parameters are pinned by a new cross-binding SSOT
+  (`docs/RESOURCE_BUDGETS.yaml`) and a `check-rts-runtime` parity gate, with the
+  method and rationale in `docs/development/RESOURCE_PARAMETERS.md`.
 - CI workflows run on `actions/setup-go` and `actions/setup-python` v7
   (folding in Dependabot's individual bumps, which cannot carry the
   CHANGELOG entry the workflow-path gate requires).
@@ -289,8 +304,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
-- **Long-running stream monitoring no longer grows unbounded in memory, and
-  is now faster than before.** A monitored stream retained every accepted
+- **The Go, C++, and Rust bindings no longer crash at startup when `GHCRTS` is
+  set to a non-safe RTS option.** Those bindings initialised the runtime through
+  the plain `hs_init`, which — because the shared library is linked with GHC's
+  default `RtsOptsSafeOnly` — aborts immediately ("Most RTS options are
+  disabled. Use hs_init_with_rtsopts() to enable them.") whenever the
+  environment's `GHCRTS` carries any non-safe flag (for example a `-M` heap cap
+  or a profiling flag). Switching all three to `hs_init_with_rtsopts` (which
+  Python already used) removes the crash and, as a side effect, is what lets
+  every binding carry the new default heap cap. The Python binding was
+  unaffected. A monitored stream retained every accepted
   frame behind the signal cache's unevaluated thunks, so residency climbed by
   roughly a kibibyte per frame until the process exhausted the GHC heap and
   aborted — a monitor could not run indefinitely. The streaming step now

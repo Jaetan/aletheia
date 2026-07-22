@@ -237,6 +237,16 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._client",
             "reject_formula_inexact",
         ),
+        # Runtime RTS mirror constants + the FFI-lib locator — the Python leg of
+        # the RTS-parameter parity chain (docs/RESOURCE_BUDGETS.yaml). These are
+        # RTS-init implementation detail, private by design like the peer
+        # bindings' mirrors; the parity + containment tests reach through to
+        # compare them against the SSOT and to skip when the .so is absent.
+        ("test_rts_runtime_parity.py", "aletheia.client._ffi", "DEFAULT_RTS_CORES"),
+        ("test_rts_runtime_parity.py", "aletheia.client._ffi", "DEFAULT_RTS_HEAP_CAP"),
+        ("test_rts_runtime_parity.py", "aletheia.client._ffi", "RTS_INIT_SYMBOL"),
+        ("test_rts_runtime_parity.py", "aletheia.client._ffi", "RTS_OVERRIDE_ENV"),
+        ("test_rts_runtime_parity.py", "aletheia.client._ffi", "find_ffi_library"),
     )
 )
 

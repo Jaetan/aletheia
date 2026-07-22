@@ -545,6 +545,37 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
     set_tests_properties(wire_codes_tests PROPERTIES
         ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
 
+    # Runtime RTS-parameter parity test (yaml-cpp + detail/rts_params.hpp,
+    # Catch2). Reads docs/RESOURCE_BUDGETS.yaml (the kernel-runtime RTS SSOT)
+    # and asserts the C++ mirror constants match. Pure: no RTS, no FFI backend.
+    add_executable(rts_params_tests tests/test_rts_params_parity.cpp)
+    target_include_directories(rts_params_tests PRIVATE src)
+    target_link_libraries(rts_params_tests
+        PRIVATE yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
+    add_test(NAME rts_params_tests COMMAND rts_params_tests)
+    # See feature_matrix_tests above.
+    set_tests_properties(rts_params_tests PROPERTIES
+        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
+
+    # RTS heap-cap containment (behavioural). rts_heap_cap_workload is a
+    # standalone helper (its own main, real FFI) that the rts_heap_cap_tests
+    # Catch2 test forks twice: default cap parses cleanly; a tight
+    # ALETHEIA_RTS_OPTS=-M12M cap aborts the process. The test itself creates no
+    # FfiBackend (starts no RTS), so its fork() is safe; the workload binary path
+    # is passed as a compile def (a TARGET_FILE genexpr, like doc_example_tests).
+    add_executable(rts_heap_cap_workload tests/rts_heap_cap_workload.cpp)
+    target_link_libraries(rts_heap_cap_workload PRIVATE aletheia-cpp)
+    target_compile_features(rts_heap_cap_workload PRIVATE cxx_std_23)
+
+    add_executable(rts_heap_cap_tests tests/test_rts_heap_cap.cpp)
+    target_link_libraries(rts_heap_cap_tests PRIVATE Catch2::Catch2WithMain)
+    target_compile_definitions(rts_heap_cap_tests
+        PRIVATE ALETHEIA_RTS_WORKLOAD_BIN="$<TARGET_FILE:rts_heap_cap_workload>")
+    add_dependencies(rts_heap_cap_tests rts_heap_cap_workload)
+    add_test(NAME rts_heap_cap_tests COMMAND rts_heap_cap_tests)
+    set_tests_properties(rts_heap_cap_tests PROPERTIES
+        ENVIRONMENT "ALETHEIA_LIB=${CMAKE_CURRENT_SOURCE_DIR}/../build/libaletheia-ffi.so")
+
     # Cat 33d cross-binding integration. Counterpart of
     # python/tests/test_cross_binding_integration.py and
     # go/aletheia/cross_binding_integration_test.go.  No shared corpus or

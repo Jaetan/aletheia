@@ -13,11 +13,13 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "detail/ffi_logic.hpp"
+#include "detail/rts_params.hpp"
 
 #include <aletheia/error.hpp>
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 using namespace aletheia;
 
@@ -43,24 +45,39 @@ void reset_free() {
 
 // --- rts_init_args ---------------------------------------------------------
 
-TEST_CASE("rts_init_args: single-core requests yield no +RTS argv", "[ffi][logic][rts]") {
-    // Kills `rts_cores > 1` → `>= 1`: a >= mutant would build argv at cores == 1.
-    CHECK_FALSE(detail::rts_init_args(1).has_value());
-    CHECK_FALSE(detail::rts_init_args(0).has_value());
+TEST_CASE("rts_init_args: the heap cap is ALWAYS present, single-core adds no -N",
+          "[ffi][logic][rts]") {
+    const std::string cap{detail::rts_heap_cap_flag};
+    // Kills `rts_cores > rts_default_cores` → `>=`: a >= mutant would inject -N
+    // at the default core count.  The cap must be present regardless.
+    const auto one = detail::rts_init_args(1, "");
+    CHECK(one == std::vector<std::string>{"aletheia", "+RTS", cap, "-RTS"});
+    const auto zero = detail::rts_init_args(0, "");
+    CHECK(zero == std::vector<std::string>{"aletheia", "+RTS", cap, "-RTS"});
 }
 
-TEST_CASE("rts_init_args: multi-core requests build +RTS -N<n> argv", "[ffi][logic][rts]") {
-    // Kills `rts_cores > 1` → `<= 1`: a <= mutant would yield nullopt at cores == 4.
-    auto four = detail::rts_init_args(4);
-    REQUIRE(four.has_value());
-    CHECK((*four)[0] == "aletheia");
-    CHECK((*four)[1] == "+RTS");
-    CHECK((*four)[2] == "-N4");
-    CHECK((*four)[3] == "-RTS");
+TEST_CASE("rts_init_args: multi-core requests append -N<n> after the cap", "[ffi][logic][rts]") {
+    const std::string cap{detail::rts_heap_cap_flag};
+    // Kills `rts_cores > rts_default_cores` → `<=`: a <= mutant would omit -N at cores == 4.
+    const auto four = detail::rts_init_args(4, "");
+    CHECK(four == std::vector<std::string>{"aletheia", "+RTS", cap, "-N4", "-RTS"});
+    const auto two = detail::rts_init_args(2, "");
+    CHECK(two == std::vector<std::string>{"aletheia", "+RTS", cap, "-N2", "-RTS"});
+}
 
-    auto two = detail::rts_init_args(2);
-    REQUIRE(two.has_value());
-    CHECK((*two)[2] == "-N2");
+TEST_CASE("rts_init_args: ALETHEIA_RTS_OPTS flags land after the cap (so a caller -M wins)",
+          "[ffi][logic][rts]") {
+    const std::string cap{detail::rts_heap_cap_flag};
+    // Override flags are whitespace-split and appended after the cap and any
+    // -N, before the closing -RTS — so a caller -M occurs LAST and wins.
+    const auto over = detail::rts_init_args(1, "  -M12M   -hT ");
+    CHECK(over == std::vector<std::string>{"aletheia", "+RTS", cap, "-M12M", "-hT", "-RTS"});
+    // With multi-core: cap, -N, then override.
+    const auto both = detail::rts_init_args(2, "-M64M");
+    CHECK(both == std::vector<std::string>{"aletheia", "+RTS", cap, "-N2", "-M64M", "-RTS"});
+    // Empty / whitespace-only override adds nothing.
+    const auto empty = detail::rts_init_args(1, "   ");
+    CHECK(empty == std::vector<std::string>{"aletheia", "+RTS", cap, "-RTS"});
 }
 
 // --- rts_cores_mismatch ----------------------------------------------------

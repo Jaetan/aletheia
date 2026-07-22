@@ -1,0 +1,106 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# Aletheia Cross-Binding Runtime Resource Parameters
+#
+# Authoritative source for the GHC RTS parameters every binding passes to the
+# loaded kernel's runtime when it brings the RTS up.  The four bindings (Python,
+# C++, Go, Rust) each load the SAME libaletheia-ffi.so and each initialise the
+# GHC RTS once per process; this file is the single value every one of them
+# mirrors, so the loaded kernel runs under identical runtime limits no matter
+# which language drove it.
+#
+# Containment-by-abort contract (READ THIS before touching heap_cap):
+#   The heap cap is a CONTAINMENT bound, not a recoverable error channel.  The
+#   kernel's GHC RTS has NO heap limit by default, so a runaway allocation in
+#   kernel code is not a failed call — it exhausts host memory and the OS OOM
+#   killer takes the whole machine down (observed twice on this project).  With
+#   the cap in place the SAME runaway instead trips GHC's heap-overflow check,
+#   and the foreign-export wrapper's `rts_checkSchedStatus` calls `stg_exit` on
+#   the non-Success return: the PROCESS TERMINATES with a diagnostic
+#   (`aletheia: aletheia_process: Return code (4) not ok`).  There is no
+#   catchable error, no partial result — the guarantee is precisely that the
+#   HOST survives while the process does not.  Do not describe this cap as
+#   "returning an error"; it does not.
+#
+# Why hand-mirrored, not read at runtime:
+#   Each binding hardcodes these values behind a one-line "SSOT:
+#   docs/RESOURCE_BUDGETS.yaml; mirrored verbatim" comment (the convention
+#   python/aletheia/limits.py uses).  A bundled binding cannot read this file —
+#   the dist bundle does not ship docs/ — and putting a file-open + YAML-parse
+#   on the RTS-init path would be the wrong dependency for code whose job is to
+#   survive a runaway.  Parity is enforced statically instead:
+#   tools/check_rts_runtime.py reads this file and asserts every binding's
+#   mirror matches (a run_ci gate), and each binding carries a parity test that
+#   reads this file and checks its own mirror.
+#
+# Init symbol:
+#   The `.so` is linked with GHC's default RtsOptsSafeOnly, so passing a `-M`
+#   flag through the plain `hs_init` makes the RTS ABORT AT INIT ("Most RTS
+#   options are disabled. Use hs_init_with_rtsopts() to enable them.").  Every
+#   binding therefore initialises through `hs_init_with_rtsopts`, which honours
+#   the full flag set.  Both symbols resolve through the .so's transitive
+#   libHSrts dependency and share the identical C signature `void(int*,
+#   char***)`, so the choice is a pure string change (no relink, no
+#   check-ffi-exports movement — that snapshot covers the aletheia_* MAlonzo
+#   exports only).
+#
+# Override precedence:
+#   A process may append RTS flags via the ALETHEIA_RTS_OPTS environment
+#   variable.  Its flags land AFTER the mirrored cap in argv, and the RTS
+#   honours the LAST occurrence of a repeated flag (and processes argv after
+#   GHCRTS), so a caller-supplied `-M` in ALETHEIA_RTS_OPTS wins over the
+#   default and a containment `-M` in argv cannot be weakened by the
+#   environment.
+#
+# Changing a value:
+#   1. edit the value here (heap_cap.flag / default_cores.value / init_symbol);
+#   2. update the mirrored constant in every binding
+#      (python/aletheia/client/_ffi.py, go/aletheia/rts.go,
+#      cpp/src/detail/rts_params.hpp, rust/src/backend.rs);
+#   3. the heap cap must stay a CONTAINMENT bound with measured headroom (see
+#      docs/development/RESOURCE_PARAMETERS.md for the re-measurement method),
+#      never a tuned working-set budget;
+#   4. add a CHANGELOG entry (a runtime behaviour change is user-visible).
+#
+# Scope: this file is the SSOT for the loaded kernel's RUNTIME RTS parameters
+# only.  Build/CI resource knobs (Agda type-check heap, job counts) are NOT
+# centralised here by design — a build uses whatever the building host offers
+# (the offline sweep's own reserve for the interactive host is the only cap),
+# so there is nothing host-invariant to pin.
+
+runtime:
+
+  # The default maximum total heap for the loaded kernel's GHC RTS.
+  heap_cap:
+    # The literal flag every binding emits into the +RTS … -RTS argv.
+    flag: "-M3G"
+    # Same value in bytes (3 * 1024^3), so the gate and docs can state it
+    # numerically.
+    bytes: 3221225472
+    rationale: >
+      Containment bound (the host survives via a controlled GHC HeapExhausted
+      abort of the process), NOT a working-set budget.  Measured kernel working
+      sets are far below it (heaviest gate observed ~1.5 GiB; ordinary client
+      use ~0.1 GiB), and it sits far below any developer host's RAM.  Override
+      per process with ALETHEIA_RTS_OPTS (appended after this flag; the RTS
+      honours the last occurrence, so a caller -M wins).
+    # Environment variable whose whitespace-split flags are appended after the
+    # cap (and after an optional -N), so a caller can tighten or extend the RTS
+    # options of a single process.
+    override_env: ALETHEIA_RTS_OPTS
+
+  # GHC capability count (-N).  1 = single-bus monitoring (the default); a
+  # binding emits -N<k> only when a caller requests k > 1 (multi-bus).
+  default_cores:
+    flag_prefix: "-N"
+    value: 1
+
+  # The GHC entry point every binding calls to start the RTS (see "Init symbol"
+  # above).  Plain hs_init cannot carry the -M cap under the .so's link-time
+  # RtsOptsSafeOnly.
+  init_symbol: hs_init_with_rtsopts
+
+  # The argv every binding assembles for hs_init_with_rtsopts.  cores_if_gt_1 is
+  # present only when the requested capability count exceeds default_cores;
+  # override_env_flags are the whitespace-split ALETHEIA_RTS_OPTS tokens.
+  argv_order: [progname, "+RTS", heap_cap, cores_if_gt_1, override_env_flags, "-RTS"]

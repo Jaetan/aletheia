@@ -13,10 +13,10 @@
 
 #include "detail/ffi_logic.hpp"
 #include "detail/rts_init.hpp"
+#include "detail/rts_params.hpp"
 
 #include <dlfcn.h>
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -177,7 +177,8 @@ public:
                 AletheiaError{ErrorKind::Ffi, std::string("dlopen failed: ") + dlerror()});
 
         try {
-            auto hs_init = load_sym<HsInitFn>(handle_, "hs_init");
+            auto hs_init =
+                load_sym<HsInitFn>(handle_, std::string{detail::rts_init_symbol}.c_str());
             init_fn_ = load_sym<AletheiaInitFn>(handle_, "aletheia_init");
             process_fn_ = load_sym<AletheiaProcessFn>(handle_, "aletheia_process");
             send_frame_fn_ = load_sym<AletheiaSendFrameFn>(handle_, "aletheia_send_frame");
@@ -209,18 +210,29 @@ public:
             auto& rts = detail::rts_init_state();
             const std::scoped_lock lock(rts.mu);
             if (!rts.initialized) {
-                if (auto args = detail::rts_init_args(rts_cores)) {
-                    // hs_init requires char** (non-const) for argv. The backing
-                    // std::string storage (owned by `args`, alive for this block)
-                    // gives char* via .data() without const_cast.
-                    std::array<char*, 4> argv_storage = {(*args)[0].data(), (*args)[1].data(),
-                                                         (*args)[2].data(), (*args)[3].data()};
-                    auto argc = static_cast<int>(argv_storage.size());
-                    auto* argv = argv_storage.data();
-                    hs_init(&argc, &argv);
-                } else {
-                    hs_init(nullptr, nullptr);
-                }
+                // The argv ALWAYS carries the containment heap cap (rts_init_args
+                // is non-optional now).  hs_init_with_rtsopts MAY retain argv for
+                // the whole process lifetime, so the backing storage must outlive
+                // this call — a block-scoped array (the old code) would be freed
+                // on return while GHC still references the strings.  Function-
+                // local statics give process-lifetime storage without a raw
+                // owning `new`; this block runs exactly once (guarded by
+                // rts.initialized under rts.mu), so the runtime-valued
+                // initialisers evaluate once.
+                const char* override_env =
+                    std::getenv(std::string{detail::rts_override_env}.c_str());
+                static std::vector<std::string> rts_argv =
+                    detail::rts_init_args(rts_cores, override_env != nullptr ? override_env : "");
+                static std::vector<char*> rts_argv_ptrs = [] {
+                    std::vector<char*> ptrs;
+                    ptrs.reserve(rts_argv.size());
+                    for (auto& arg : rts_argv)
+                        ptrs.push_back(arg.data());
+                    return ptrs;
+                }();
+                auto argc = static_cast<int>(rts_argv_ptrs.size());
+                auto** argv = rts_argv_ptrs.data();
+                hs_init(&argc, &argv);
                 rts.cores = rts_cores;
                 rts.initialized = true;
             } else if (auto mismatch = detail::rts_cores_mismatch(rts_cores, rts.cores)) {

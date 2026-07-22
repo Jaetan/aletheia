@@ -6,21 +6,43 @@
 
 #include "ffi_logic.hpp"
 
+#include "rts_params.hpp"
+
 #include <aletheia/error.hpp>
 
-#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace aletheia::detail {
 
-auto rts_init_args(int rts_cores) -> std::optional<std::array<std::string, 4>> {
-    if (rts_cores > 1)
-        return std::array<std::string, 4>{"aletheia", "+RTS", "-N" + std::to_string(rts_cores),
-                                          "-RTS"};
-    return std::nullopt;
+// Locale-independent ASCII-whitespace test for splitting ALETHEIA_RTS_OPTS.
+static auto is_rts_space(char c) -> bool {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
+}
+
+auto rts_init_args(int rts_cores, std::string_view override_opts) -> std::vector<std::string> {
+    // The heap cap is ALWAYS present and goes FIRST, so a caller -M in
+    // override_opts lands later and wins (the RTS honours the last occurrence).
+    std::vector<std::string> args{"aletheia", "+RTS", std::string{rts_heap_cap_flag}};
+    if (rts_cores > rts_default_cores)
+        args.push_back("-N" + std::to_string(rts_cores));
+    // Whitespace-split override_opts and append each token.
+    for (std::size_t i = 0; i < override_opts.size();) {
+        while (i < override_opts.size() && is_rts_space(override_opts[i]))
+            ++i;
+        const std::size_t start = i;
+        while (i < override_opts.size() && !is_rts_space(override_opts[i]))
+            ++i;
+        if (i > start)
+            args.emplace_back(override_opts.substr(start, i - start));
+    }
+    args.emplace_back("-RTS");
+    return args;
 }
 
 auto rts_cores_mismatch(int requested, int active) -> std::optional<std::pair<int, int>> {
