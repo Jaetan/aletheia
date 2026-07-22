@@ -57,13 +57,20 @@ open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
 
 open import Aletheia.LTL.SignalPredicate using
   (SignalPredicate; SignalCache; mkCachedSignal;
-   lookupCache; extractTruthValue)
+   lookupCache; extractTruthValue; emptyCache)
 open import Aletheia.LTL.SignalPredicate.Evaluation.Properties using (signalOf)
 open import Aletheia.Protocol.StreamState.Internals using
   (updateCacheFromFrame; mkPredTable; _∈ᵇ_)
 open import Aletheia.Protocol.FrameProcessor.Properties.Cache using
   (updateCacheFromFrame-coherent;
-   updateCacheFromFrame-monotone)
+   updateCacheFromFrame-monotone;
+   updateCacheFromFrame-keys-⊆;
+   pigeonhole)
+open import Data.Nat using (_≤_)
+open import Data.List.Properties using (length-map)
+open import Data.List.Relation.Unary.AllPairs.Properties using (map⁺)
+open import Data.List.Relation.Binary.Subset.Propositional using (_⊆_)
+open import Relation.Binary.PropositionalEquality using (_≢_; subst)
 open import Aletheia.LTL.Coalgebra using (LTLProc; denot)
 open import Aletheia.LTL.Semantics using (⟦_⟧)
 open import Aletheia.LTL.Adequacy using (runL)
@@ -292,3 +299,37 @@ streaming-adequacy dbc σ atoms cache₀ proc σ' obs bound =
   warm-cache-agreement dbc (cacheAfter dbc σ cache₀ (map signalOf atoms)) atoms proc σ'
     (streaming-warms-cache dbc σ atoms cache₀ (map signalOf atoms) obs (all-atoms-readable atoms))
     bound
+
+-- ============================================================================
+-- STRUCTURAL ENTRY-COUNT BOUND (trace-independent)
+-- ============================================================================
+
+-- Every key in the cache built over a trace is one of the readable names: each
+-- frame's update keeps the key set inside `readable` (`updateCacheFromFrame-keys-⊆`),
+-- and the fold starts from a key set already inside it.
+cacheAfter-keys-⊆ : ∀ dbc σ cache readable →
+  map proj₁ (SignalCache.entries cache) ⊆ readable →
+  map proj₁ (SignalCache.entries (cacheAfter dbc σ cache readable)) ⊆ readable
+cacheAfter-keys-⊆ dbc []       cache readable sub = sub
+cacheAfter-keys-⊆ dbc (tf ∷ σ) cache readable sub =
+  cacheAfter-keys-⊆ dbc σ
+    (updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf) readable) readable
+    (updateCacheFromFrame-keys-⊆ dbc cache (timestamp tf) (TimedFrame.frame tf) readable sub)
+
+-- Trace-independent structural entry-count bound: the signal cache built over
+-- ANY trace holds at most `length readable` entries.  This rules out an
+-- entries-grow-with-the-trace failure mode by pinning the (duplicate-free) key
+-- set inside the fixed readable set and counting via `pigeonhole`.  It is NOT a
+-- residency bound — bounded residency is a thunk-forcing property of the
+-- compiled runtime, outside what Agda observes.  `@0` because it reads the
+-- cache's erased `UniqueKeys` invariant.
+@0 cacheAfter-entry-count-bounded : ∀ dbc σ readable →
+  length (SignalCache.entries (cacheAfter dbc σ emptyCache readable)) ≤ length readable
+cacheAfter-entry-count-bounded dbc σ readable =
+  subst (λ k → k ≤ length readable)
+        (length-map proj₁ (SignalCache.entries C))
+        (pigeonhole (map proj₁ (SignalCache.entries C)) readable
+          (map⁺ {R = _≢_} {f = proj₁} (SignalCache.unique C))
+          (cacheAfter-keys-⊆ dbc σ emptyCache readable (λ ())))
+  where
+    C = cacheAfter dbc σ emptyCache readable

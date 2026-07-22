@@ -240,8 +240,11 @@ mkPredTableT table dbc cache atoms n frame =
 -- because it is DERIVED from the atoms.  Soundness rests on `props` being
 -- invariant over the cache's whole lifetime: the only transitions that change
 -- the property set (`handleSetProperties`, DBC (re)load) reset the cache to
--- `emptyCache`, and `SetProperties` is rejected mid-stream — so a signal that
--- becomes readable later is never read against a cache that predates it.
+-- `emptyCache`, and `SetProperties` is rejected mid-stream — machine-checked by
+-- `handleSetProperties-streaming-rejected` (`FrameProcessor.Properties.Handlers`),
+-- which proves `handleSetProperties` on a `Streaming` state returns that state
+-- verbatim with a `StreamActive` error.  So a signal that becomes readable later
+-- is never read against a cache that predates it.
 
 -- Bool membership of a signal name in the readable set (≡csᵇ fast path — never
 -- `Dec`, which would allocate a proof term per signal per frame on the hot path).
