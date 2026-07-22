@@ -9,21 +9,24 @@
 -- Not part of the public streaming API.
 --
 -- Exports: Formula indexing (collectAtomsAcc, indexHelper, lookupAtom),
---   signal cache updates (updateSignals, updateCacheFromFrame),
---   PredTable construction (mkPredTable),
+--   shared per-frame extraction table (extractTable, cacheFromTable) and the
+--   signal cache update (updateCacheFromFrame),
+--   PredTable construction (mkPredTable spec, mkPredTableT runtime),
 --   frame processing helpers (classifyStepResult, stepProperty, dispatchIterResult).
 module Aletheia.Protocol.StreamState.Internals where
-open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Identifier using (_≡csᵇ_)
 
-open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_; map; concatMap) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; suc)
 open import Data.Fin using (Fin; toℕ)
 open import Data.Product using (_×_; _,_)
+open import Data.Bool using (Bool; true; false; if_then_else_)
+open import Data.Char using (Char)
 open import Function using (case_of_)
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
+open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate; Unknown; SignalCache; updateCache; evalPredicateTV; extractTruthValue)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; Unknown; SignalCache; updateCache; evalPredicateTV; evalPredicateTVT; extractTruthValue; signalOf; ExtractTable)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL)
 open import Aletheia.LTL.Simplify using (simplify)
@@ -32,7 +35,6 @@ open import Aletheia.Protocol.StreamState.Types using (StreamState; Streaming; P
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.Trace.Time using (Timestamp; μs)
 open import Aletheia.CAN.Frame using (CANFrame)
-open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; complete)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData)
 open import Aletheia.Prelude using (listIndex)
@@ -177,11 +179,14 @@ lookupAtom xs n = listIndex n xs
 --
 -- The key invariant maintained by handleDataFrame in StreamState.agda is
 -- the "evaluate then update" ordering:
---   stepProperty dbc cache tf       — evaluates predicates with OLD cache
---   updatedCache = updateCacheFromFrame ...  — updates cache for NEXT frame
--- This ensures that delta predicates (ChangedBy, StableWithin) see the
--- correct previous value (from cache) and current value (from frame),
--- without the cache update interfering with the current frame's evaluation.
+--   stepProperty dbc table cache tf         — evaluates predicates with OLD cache
+--   updatedCache = cacheFromTable ts table cache  — updates cache for NEXT frame
+-- Both consume the same per-frame extraction `table`, but predicate evaluation
+-- reads the OLD cache for the last-known-value fallback while the cache update
+-- produces the cache for the NEXT frame.  This ensures that delta predicates
+-- (ChangedBy, StableWithin) see the correct previous value (from the old cache)
+-- and current value (from the table), without the cache update interfering with
+-- the current frame's evaluation.
 --
 -- A formal proof of this ordering invariant is open: it
 -- would require a foundational lemma `updateEntries-self-lookup :
@@ -197,25 +202,91 @@ mkPredTable dbc cache atoms n frame =
     nothing     → Unknown
     (just pred) → evalPredicateTV dbc cache pred (TimedFrame.frame frame)
 
+-- Runtime PredTable driven by the shared per-frame extraction table.
+-- Mirrors `mkPredTable` but reads each atom's signal value from `table`
+-- (`evalPredicateTVT`) instead of re-extracting from `frame` — the streaming
+-- step builds `table` once per accepted frame and shares it with the cache
+-- update.  `dbc` and the per-index `frame` are unused (the extraction is
+-- already in `table`); the signature keeps `mkPredTable`'s shape so the two
+-- tables are pointwise comparable.  `mkPredTable` itself is retained as the
+-- adequacy spec (Adequacy.WarmCache / streaming-adequacy reason about it).
+mkPredTableT : ExtractTable → DBC → SignalCache → List SignalPredicate → PredTable
+mkPredTableT table dbc cache atoms n frame =
+  case lookupAtom atoms n of λ where
+    nothing     → Unknown
+    (just pred) → evalPredicateTVT table cache pred
+
 -- ============================================================================
 -- SIGNAL CACHE UPDATES
 -- ============================================================================
 
--- Update cache with all signals from a signal list.
-updateSignals : ∀ {n} → DBC → CANFrame n → Timestamp μs → List DBCSignal → SignalCache → SignalCache
-updateSignals dbc frame ts [] c = c
-updateSignals dbc frame ts (sig ∷ sigs) c =
-  let sigName = Identifier.name (DBCSignal.name sig)
-  in case extractTruthValue sigName dbc frame of λ where
-    nothing  → updateSignals dbc frame ts sigs c
-    (just v) → updateSignals dbc frame ts sigs (updateCache sigName v ts c)
+-- ── Shared per-frame extraction table (bounded residency + extract-once) ─────
+--
+-- A cached signal value is only ever CONSULTED for a signal that some active
+-- predicate's atom targets: `mkPredTableT`/`evalPredicateTVT` read the cache as
+-- the last-known-value fallback for an atom's signal, and `collectUncachedWarnings`
+-- looks up each atom's signal at EndStream — both key on `signalOf(atom)` over
+-- the active `PropertyState.atoms`.  Every other signal a frame carries is
+-- cached-but-never-read.
+--
+-- `readableSignals` derives the exact set of consultable signal names from the
+-- active property atoms.  `extractTable` runs `extractTruthValue` once per
+-- readable name and keeps the successes; the SAME table then warms the cache
+-- (`cacheFromTable`) AND drives predicate evaluation (`mkPredTableT`).  This is
+-- observationally identical to extracting per consumer: a name-keyed entry's
+-- value is a pure function of the name (`extractTruthValue name dbc frame`), so
+-- every consumer that consults a readable name reads the same value it would
+-- have re-extracted, and the readable set never drifts narrower than the readers
+-- because it is DERIVED from the atoms.  Soundness rests on `props` being
+-- invariant over the cache's whole lifetime: the only transitions that change
+-- the property set (`handleSetProperties`, DBC (re)load) reset the cache to
+-- `emptyCache`, and `SetProperties` is rejected mid-stream — so a signal that
+-- becomes readable later is never read against a cache that predates it.
 
--- Update cache with all signals extractable from a frame
-updateCacheFromFrame : ∀ {n} → DBC → SignalCache → Timestamp μs → CANFrame n → SignalCache
-updateCacheFromFrame dbc cache ts frame =
-  case findMessageById (CANFrame.id frame) dbc of λ where
-    nothing    → cache
-    (just msg) → updateSignals dbc frame ts (DBCMessage.signals msg) cache
+-- Bool membership of a signal name in the readable set (≡csᵇ fast path — never
+-- `Dec`, which would allocate a proof term per signal per frame on the hot path).
+-- Retained for the proof surface (`readableSignals` coverage / `AllReadable`);
+-- the runtime table build no longer needs a membership test.
+_∈ᵇ_ : List Char → List (List Char) → Bool
+name ∈ᵇ []       = false
+name ∈ᵇ (x ∷ xs) = if name ≡csᵇ x then true else name ∈ᵇ xs
+
+-- The signal names any active predicate can read: the union over the active
+-- properties of each atom's target signal.  Recomputed per frame from `props`
+-- (carried by the `Streaming` constructor) so no `StreamState` field is added.
+readableSignals : ∀ {n} → List (PropertyState n) → List (List Char)
+readableSignals props = concatMap (λ p → map signalOf (PropertyState.atoms p)) props
+
+-- Extract the readable-name list from the frame into a name-keyed table of
+-- successes.  A name is kept iff `extractTruthValue name dbc frame ≡ just v`;
+-- failures are dropped.  The list is `readableSignals props` (a plain
+-- concatenation, so a signal read by several atoms appears — and is extracted —
+-- once per occurrence, not deduplicated).  This is the single extraction pass
+-- the streaming step shares between the cache update and predicate eval,
+-- replacing the previous two independent passes.
+extractTable : ∀ {n} → DBC → CANFrame n → List (List Char) → ExtractTable
+extractTable dbc frame []             = []
+extractTable dbc frame (name ∷ names) =
+  case extractTruthValue name dbc frame of λ where
+    nothing  → extractTable dbc frame names
+    (just v) → (name , v) ∷ extractTable dbc frame names
+
+-- Fold the extraction table into the cache (last-writer-wins per `updateCache`,
+-- one shared timestamp).  Warms exactly the readable names the table recorded.
+cacheFromTable : Timestamp μs → ExtractTable → SignalCache → SignalCache
+cacheFromTable ts []               cache = cache
+cacheFromTable ts ((name , v) ∷ rest) cache =
+  cacheFromTable ts rest (updateCache name v ts cache)
+
+-- Update cache with the readable signals extractable from a frame, via the
+-- shared extraction table.  Takes the readable-name list as a parameter; the
+-- body folds the table rather than re-extracting per signal, so the streaming
+-- step passes the same table into predicate evaluation without a second
+-- extraction pass.  The result is definitionally `cacheFromTable` of the
+-- table, which the frame-processor proofs name directly.
+updateCacheFromFrame : ∀ {n} → DBC → SignalCache → Timestamp μs → CANFrame n → List (List Char) → SignalCache
+updateCacheFromFrame dbc cache ts frame readable =
+  cacheFromTable ts (extractTable dbc frame readable) cache
 
 -- ============================================================================
 -- FRAME PROCESSING HELPERS
@@ -270,12 +341,15 @@ classifyStepResult (Violated ce) prop = halt (PropertyState.index prop , ce)
 --     witness or stay `Continue` until EndStream.
 classifyStepResult Satisfied prop = complete (PropertyState.index prop)
 
--- Step one property: build PredTable, call stepL, classify result.
-stepProperty : ∀ {n} → DBC → SignalCache → TimedFrame → PropertyState n
+-- Step one property: build the runtime PredTable from the shared extraction
+-- table, call stepL, classify result.  The `table` is built once per accepted
+-- frame in `handleDataFrame` and shared across every property (and the cache
+-- update), so no property re-extracts.
+stepProperty : ∀ {n} → DBC → ExtractTable → SignalCache → TimedFrame → PropertyState n
              → StepOutcome (PropertyState n) (Fin n × Counterexample) (Fin n)
-stepProperty dbc cache tf prop =
-  let table = mkPredTable dbc cache (PropertyState.atoms prop)
-      result = stepL table (PropertyState.proc prop) tf
+stepProperty dbc table cache tf prop =
+  let ptable = mkPredTableT table dbc cache (PropertyState.atoms prop)
+      result = stepL ptable (PropertyState.proc prop) tf
   in classifyStepResult result prop
 
 -- Dispatch iteration result to StreamState × Response.  Iterator returns

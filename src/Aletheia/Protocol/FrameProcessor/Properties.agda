@@ -43,9 +43,10 @@ open import Aletheia.Protocol.FrameProcessor.Properties.Step public
 -- ============================================================================
 -- CACHE UPDATE PROPERTIES (P10-P13, P23-P26, P30)
 -- ============================================================================
--- Decomposition lemmas for `updateCache`, `updateSignals`, and
--- `updateCacheFromFrame`, plus the monotonicity / timestamp-bound
--- preservation properties consumed by `Protocol.Adequacy.WarmCache`, plus the
+-- `updateCache` step lemmas plus properties of the shared per-frame extraction
+-- table (`extractTable`/`cacheFromTable`) that `updateCacheFromFrame` folds:
+-- table-lookup faithfulness, the monotonicity / timestamp-bound / no-message
+-- preservation properties consumed by `Protocol.Adequacy.WarmCache`, and the
 -- coherence property (P30) showing that the post-update cache for a frame
 -- agrees with the value `extractTruthValue` would compute on the same frame.
 open import Aletheia.Protocol.FrameProcessor.Properties.Cache public
@@ -89,3 +90,17 @@ open import Aletheia.Protocol.FrameProcessor.Properties.Bounded public
 -- `Coalgebra.Properties`.
 open import Aletheia.Protocol.FrameProcessor.Properties.Monotonic public
   using ( )
+
+-- ============================================================================
+-- EXTRACT-ONCE VERDICT PRESERVATION
+-- ============================================================================
+-- The runtime step drives predicate evaluation from the shared per-frame
+-- extraction table (`mkPredTableT`), while adequacy reasons about the
+-- frame-extracting spec (`mkPredTable`).  This bridge proves the two produce the
+-- SAME `StepOutcome` when the table covers the property's atoms — which
+-- `handleDataFrame` guarantees by building the table over `readableSignals props`
+-- — so the extract-once optimization is proof-carrying on the eval side.  Pulled
+-- in as a walk root here (nothing else imports it) and the first consumer of
+-- `extractTable-faithful`.
+open import Aletheia.Protocol.FrameProcessor.Properties.VerdictPreserved public
+  using ( stepL-cong; evalPredicateTVT-faithful; stepProperty-preserves )

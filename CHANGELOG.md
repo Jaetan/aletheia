@@ -289,6 +289,21 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **Long-running stream monitoring no longer grows unbounded in memory, and
+  is now faster than before.** A monitored stream retained every accepted
+  frame behind the signal cache's unevaluated thunks, so residency climbed by
+  roughly a kibibyte per frame until the process exhausted the GHC heap and
+  aborted — a monitor could not run indefinitely. The streaming step now
+  evaluates the signal cache it derives per frame (proven to bound residency;
+  a regression test asserts a flat plateau over millions of frames), and it
+  derives each frame's signal values in a single shared pass consumed by both
+  the property evaluation and the cache, replacing the previous two
+  independent extraction passes. Net effect on the verified core's streaming
+  throughput, measured against the pre-change build: comfortably faster
+  (CAN-FD Stream-LTL and classic-CAN Stream-LTL both improved), with residency
+  now bounded. The optimization is machine-checked: a new
+  verdict-preservation theorem proves the per-frame result is unchanged, and
+  the LTL adequacy proofs are untouched.
 - **The freshness gate no longer reports a fresh install stale after the
   build-staleness probes relink the kernel.** GHC recompilation is not
   symbol-deterministic, so the staleness gate's edit/revert probes can mint

@@ -18,7 +18,7 @@
 --   emptyCache-timestamps≤    — empty cache satisfies any bound
 --
 -- Role: Building blocks for composite properties in FrameProcessor/Properties.agda
--- (updateSignals-monotone, updateCacheFromFrame-timestamps≤, etc.)
+-- (cacheFromTable-monotone, updateCacheFromFrame-timestamps≤, etc.)
 module Aletheia.LTL.SignalPredicate.Cache.Properties where
 
 open import Aletheia.LTL.SignalPredicate.Cache

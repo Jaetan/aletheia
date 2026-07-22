@@ -22,17 +22,13 @@
 -- converts the warm-cache agreement theorem from conditional to
 -- unconditional on observing traces.
 --
--- Proof architecture (advisor-approved four-lemma layout):
---   L1 `updateSignals-warms` — inducts on `SigPresent name sigs` (derived
---      from `findSignalInList name sigs ≡ just sig`). At the matching
---      position: `updateSignals-step-hit` + `lookupCache-updateCache-hit`
---      + `updateSignals-monotone` (P23). At non-matching positions:
---      case-split on `extractTruthValue (Identifier.name (DBCSignal.name s)) dbc frame` and
---      recurse — `updateSignals` reduces in parallel because it
---      pattern-matches on the same scrutinee.
---   L2 `updateCacheFromFrame-warms` — decomposes `extractTruthValue ≡ just v`
---      through the nested `with`s of `extractSignalWithContext`, then
---      composes `updateCacheFromFrame-match` with L1.
+-- Proof architecture (three-lemma layout over the shared extraction table):
+--   L2 `updateCacheFromFrame-warms` — a readable observed name lands in the
+--      cache.  Direct corollary of `updateCacheFromFrame-coherent`
+--      (FrameProcessor.Properties.Cache): the extract-once fold is keyed by the
+--      readable name (`extractTruthValue name`, a function of the name), so a
+--      successful extraction plus `(name ∈ᵇ readable) ≡ true` suffices — no
+--      signal-list presence witness or filter bridge is required.
 --   L3 `cacheAfter-warms` — inducts on `ObservedIn`. At `here`: warm the
 --      cache for this frame, then iterate `updateCacheFromFrame-monotone`
 --      over the tail. At `there`: recurse on the tail.
@@ -44,42 +40,29 @@
 -- resolution lemmas elsewhere in the adequacy chain, not by the cache-warming
 -- step. Callers that need to compose with metric operators will pass
 -- `Monotonic σ` to those lemmas independently.
---
--- No bridging lemma is needed for the name↔Identifier.name (DBCSignal.name matchup):
--- `updateSignals` pattern-matches on `extractTruthValue (Identifier.name (DBCSignal.name sig))
--- dbc frame` with exactly that syntactic form, so `subst` on the
--- name-equality suffices to align hypothesis types.
 module Aletheia.Protocol.Adequacy.StreamingWarm where
 open import Aletheia.DBC.Identifier using
-    (Identifier; _≡csᵇ_; ≡csᵇ-sound)
+    (_≡csᵇ_; ≡csᵇ-refl-eq)
 
-open import Aletheia.Prelude using (List; Maybe; T; []; _,_; _×_; _∷_; _≡_; cong; false; just; length; nothing; proj₁; proj₂; refl; sym; trans; true; tt)
-open import Data.Empty using (⊥; ⊥-elim)
-open import Data.List using ()
-open import Data.Maybe using ()
+open import Aletheia.Prelude using (List; Maybe; []; _,_; _×_; _∷_; _≡_; false; just; length; proj₁; proj₂; refl; true; tt)
+open import Data.List using (map)
 open import Data.Product using (∃-syntax)
 open import Data.Char using (Char)
-open import Data.Bool using ()
+open import Data.Bool using (true; false)
 open import Data.Unit using (⊤)
-open import Relation.Binary.PropositionalEquality using (subst)
 
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
+open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.CAN.Frame using (CANFrame)
-open import Aletheia.CAN.DBCHelpers using (findMessageById; findSignalByName; findSignalInList)
-open import Aletheia.CAN.SignalExtraction using ()
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
 
 open import Aletheia.LTL.SignalPredicate using
   (SignalPredicate; SignalCache; mkCachedSignal;
-   lookupCache; updateCache; extractTruthValue)
+   lookupCache; extractTruthValue)
 open import Aletheia.LTL.SignalPredicate.Evaluation.Properties using (signalOf)
 open import Aletheia.Protocol.StreamState.Internals using
-  (updateCacheFromFrame; updateSignals; mkPredTable)
+  (updateCacheFromFrame; mkPredTable; _∈ᵇ_)
 open import Aletheia.Protocol.FrameProcessor.Properties.Cache using
-  (lookupCache-updateCache-hit;
-   updateSignals-step-hit;
-   updateCacheFromFrame-match;
-   updateSignals-monotone;
+  (updateCacheFromFrame-coherent;
    updateCacheFromFrame-monotone)
 open import Aletheia.LTL.Coalgebra using (LTLProc; denot)
 open import Aletheia.LTL.Semantics using (⟦_⟧)
@@ -88,180 +71,23 @@ open import Aletheia.Protocol.FrameProcessor.Properties using (AllBelow)
 open import Aletheia.Protocol.Adequacy.WarmCache using (AllCached; warm-cache-agreement)
 
 -- ============================================================================
--- ABSURDITY HELPER
--- ============================================================================
-
--- `nothing ≡ just v` is uninhabited. Local helper to avoid littering the
--- proof with inline `λ ()` at each impossible branch.
---
--- This local helper is preferred over the stdlib
--- `Data.Maybe.Properties.just≢nothing`: the stdlib equivalent gives the
--- OPPOSITE direction (`just v ≡ nothing → ⊥`), so adoption requires
--- `≢-sym` wrapping + an import.  The local 2-line absurdity helper is
--- shorter than the stdlib path AND reads more directly at the call sites
--- (`⊥-elim (nothing≢just eq)` matches the shape of `eq : nothing ≡ just v`
--- produced by the `with`-discrimination on line 213/215).  Revisit only if
--- stdlib gains a directly-signatured `nothing≢just`, or a project-wide
--- audit standardises on stdlib absurdity imports.
-private
-  nothing≢just : ∀ {A : Set} {v : A} → _≡_ {A = Maybe A} nothing (just v) → ⊥
-  nothing≢just ()
-
--- ============================================================================
--- SIGNAL PRESENCE IN A SIGNAL LIST
--- ============================================================================
-
--- Witness that `name` is the name of some signal in `sigs`. Structural on
--- the list; used as the induction parameter for `updateSignals-warms`.
--- Dual to `findSignalInList`'s `just` outcome: every result of
--- `findSignalInList name sigs ≡ just sig` produces a `SigPresent name sigs`
--- via `findSignalInList→SigPresent`.
-data SigPresent (name : List Char) : List DBCSignal → Set where
-  here  : ∀ {sig sigs} →
-          Identifier.name (DBCSignal.name sig) ≡ name →
-          SigPresent name (sig ∷ sigs)
-  there : ∀ {sig sigs} →
-          SigPresent name sigs →
-          SigPresent name (sig ∷ sigs)
-
--- `findSignalInList` discovery establishes `SigPresent`. The `yes` branch
--- of `findSignalInList` witnesses `name ≡ Identifier.name (DBCSignal.name s)`, which is the
--- `here` case (with `sym` to flip the equation direction). The `no` branch
--- recurses on the tail, giving the `there` case.
-findSignalInList→SigPresent : ∀ name sigs sig →
-  findSignalInList name sigs ≡ just sig →
-  SigPresent name sigs
-findSignalInList→SigPresent name (s ∷ ss) sig eq
-  with name ≡csᵇ Identifier.name (DBCSignal.name s) in eq-name
-... | true  = here (sym (≡csᵇ-sound name (Identifier.name (DBCSignal.name s))
-                          (subst T (sym eq-name) tt)))
-... | false = there (findSignalInList→SigPresent name ss sig eq)
-
--- ============================================================================
--- L1: updateSignals WARMS THE CACHE FOR OBSERVED NAMES
--- ============================================================================
-
--- If `name` appears as the name of some signal in `sigs` and extraction for
--- `name` succeeds on `frame`, then the cache has an entry for `name` after
--- `updateSignals` processes `sigs`.
---
--- Structural induction on `SigPresent`:
---  * `here nameEq` — the head signal's name matches `name`. Write `(name, v)`
---    into the cache via `updateSignals-step-hit` + `lookupCache-updateCache-hit`,
---    then use `updateSignals-monotone` (P23) so the entry survives the
---    remaining signals in the list.
---  * `there pres` — `name` is somewhere deeper in `sigs`. Case-split on the
---    head's extraction outcome: skip (no cache change) or write the head's
---    value (cache grows); both paths recurse structurally on `pres`.
-updateSignals-warms : ∀ {n} dbc (frame : CANFrame n) ts name v sigs cache →
-  SigPresent name sigs →
-  extractTruthValue name dbc frame ≡ just v →
-  ∃[ cs ] lookupCache name (updateSignals dbc frame ts sigs cache) ≡ just cs
-updateSignals-warms dbc frame ts name v (s ∷ ss) cache (here nameEq) ext =
-  let ext' : extractTruthValue (Identifier.name (DBCSignal.name s)) dbc frame ≡ just v
-      ext' = subst (λ n → extractTruthValue n dbc frame ≡ just v) (sym nameEq) ext
-
-      step : updateSignals dbc frame ts (s ∷ ss) cache
-           ≡ updateSignals dbc frame ts ss (updateCache (Identifier.name (DBCSignal.name s)) v ts cache)
-      step = updateSignals-step-hit dbc frame ts s ss cache v ext'
-
-      hit₁ : lookupCache (Identifier.name (DBCSignal.name s)) (updateCache (Identifier.name (DBCSignal.name s)) v ts cache)
-           ≡ just (mkCachedSignal v ts)
-      hit₁ = lookupCache-updateCache-hit (Identifier.name (DBCSignal.name s)) v ts cache
-
-      mono = updateSignals-monotone dbc frame ts ss
-               (updateCache (Identifier.name (DBCSignal.name s)) v ts cache)
-               (Identifier.name (DBCSignal.name s)) (mkCachedSignal v ts) hit₁
-      cs'    = proj₁ mono
-      monoEq = proj₂ mono
-
-      shifted : lookupCache name
-                  (updateSignals dbc frame ts ss (updateCache (Identifier.name (DBCSignal.name s)) v ts cache))
-              ≡ just cs'
-      shifted = subst
-                  (λ m → lookupCache m
-                            (updateSignals dbc frame ts ss
-                               (updateCache (Identifier.name (DBCSignal.name s)) v ts cache))
-                          ≡ just cs')
-                  nameEq monoEq
-  in cs' , trans (cong (lookupCache name) step) shifted
-updateSignals-warms dbc frame ts name v (s ∷ ss) cache (there pres) ext
-  with extractTruthValue (Identifier.name (DBCSignal.name s)) dbc frame
-... | nothing = updateSignals-warms dbc frame ts name v ss cache pres ext
-... | just v' = updateSignals-warms dbc frame ts name v ss
-                  (updateCache (Identifier.name (DBCSignal.name s)) v' ts cache) pres ext
-
--- ============================================================================
--- STRUCTURE RECOVERY FROM A SUCCESSFUL EXTRACTION
--- ============================================================================
-
--- A successful `extractTruthValue` witnesses both a message match and a
--- signal match at that message. Decomposes the nested `with`s of
--- `extractSignalWithContext`; the only non-absurd outcome is
--- `findMessageById ≡ just msg ∧ findSignalByName name msg ≡ just sig`, in
--- which case `extractSignalDirect` must have returned `Success`.
---
--- Proof shape: two nested `with`s, with asymmetric equation handling.
--- * The outer `with findMessageById …` DOES abstract in the goal — the
---   goal mentions `findMessageById …` directly on the LHS of the first
---   equation, so the `just msg` branch commits that slot to `just msg ≡
---   just msg`, filled by `refl`. Un-abstracted at the caller, this becomes
---   `findMessageById … ≡ just msg` as advertised.
--- * The inner `with findSignalByName name msg` does NOT abstract — the
---   goal mentions `findSignalByName name m` where `m` is the outer Σ-bound
---   variable (not yet committed to `msg`), so the inner scrutinee has no
---   syntactic occurrences to abstract. We need `in sigEq` to carry the
---   equation explicitly into the branch, then return `sigEq` itself.
-extractTruthValue→msg-sig : ∀ {n} dbc (frame : CANFrame n) name v →
-  extractTruthValue name dbc frame ≡ just v →
-  ∃[ msg ] ∃[ sig ]
-    (findMessageById (CANFrame.id frame) dbc ≡ just msg ×
-     findSignalByName name msg ≡ just sig)
-extractTruthValue→msg-sig dbc frame name v eq
-  with findMessageById (CANFrame.id frame) dbc
-... | nothing  = ⊥-elim (nothing≢just eq)
-... | just msg with findSignalByName name msg in sigEq
-...   | nothing  = ⊥-elim (nothing≢just eq)
-...   | just sig = msg , sig , refl , sigEq
-
--- ============================================================================
 -- L2: updateCacheFromFrame WARMS THE CACHE
 -- ============================================================================
 
--- If extraction for `name` succeeds on the frame, then the cache has an
--- entry for `name` after `updateCacheFromFrame`. The proof composes the
--- message/signal decomposition with L1 via `updateCacheFromFrame-match`.
---
--- Uses the `trans (cong _ matchEq) …` template (mirroring Cache.agda's
--- `updateCacheFromFrame-coherent`) rather than `rewrite findEq`, since
--- `findMessageById` appears in both the outer reduction of
--- `updateCacheFromFrame` and the inner reduction of
--- `extractSignalWithContext` — a single `rewrite` would re-abstract both
--- occurrences and leave goal and hypothesis types with different normal
--- forms.
-updateCacheFromFrame-warms : ∀ {n} dbc cache ts (frame : CANFrame n) name v →
+-- If a readable name extracts on the frame, the cache has an entry for it after
+-- `updateCacheFromFrame`.  A direct corollary of cache coherence
+-- (`updateCacheFromFrame-coherent`): the extract-once fold records the exact
+-- extracted value, so the entry is `mkCachedSignal v ts`.  The extraction table
+-- is keyed by the readable name (`extractTruthValue name`, a function of the
+-- name), so no signal-list presence witness or filter bridge is needed — the
+-- `(name ∈ᵇ readable) ≡ true` premise alone discharges it.
+updateCacheFromFrame-warms : ∀ {n} dbc cache ts (frame : CANFrame n) readable name v →
+  (name ∈ᵇ readable) ≡ true →
   extractTruthValue name dbc frame ≡ just v →
-  ∃[ cs ] lookupCache name (updateCacheFromFrame dbc cache ts frame) ≡ just cs
-updateCacheFromFrame-warms dbc cache ts frame name v ext =
-  let decomp  = extractTruthValue→msg-sig dbc frame name v ext
-      msg     = proj₁ decomp
-      rest₁   = proj₂ decomp
-      sig     = proj₁ rest₁
-      rest₂   = proj₂ rest₁
-      findEq  = proj₁ rest₂
-      sigEq   = proj₂ rest₂
-
-      pres : SigPresent name (DBCMessage.signals msg)
-      pres = findSignalInList→SigPresent name (DBCMessage.signals msg) sig sigEq
-
-      l1 = updateSignals-warms dbc frame ts name v (DBCMessage.signals msg) cache pres ext
-      cs    = proj₁ l1
-      l1Eq  = proj₂ l1
-
-      matchEq : updateCacheFromFrame dbc cache ts frame
-              ≡ updateSignals dbc frame ts (DBCMessage.signals msg) cache
-      matchEq = updateCacheFromFrame-match dbc cache ts frame msg findEq
-  in cs , trans (cong (lookupCache name) matchEq) l1Eq
+  ∃[ cs ] lookupCache name (updateCacheFromFrame dbc cache ts frame readable) ≡ just cs
+updateCacheFromFrame-warms dbc cache ts frame readable name v inSet ext =
+  mkCachedSignal v ts
+  , updateCacheFromFrame-coherent dbc cache ts frame readable name v inSet ext
 
 -- ============================================================================
 -- CACHE FOLD AND OBSERVATION PREDICATE
@@ -270,11 +96,11 @@ updateCacheFromFrame-warms dbc cache ts frame name v ext =
 -- Trace-level cache update: fold `updateCacheFromFrame` over σ starting
 -- from `cache₀`. This is what the streaming pipeline actually computes
 -- (up to monotonicity checks, which do not affect the cache state).
-cacheAfter : DBC → List TimedFrame → SignalCache → SignalCache
-cacheAfter dbc []       cache = cache
-cacheAfter dbc (tf ∷ σ) cache =
+cacheAfter : DBC → List TimedFrame → SignalCache → List (List Char) → SignalCache
+cacheAfter dbc []       cache readable = cache
+cacheAfter dbc (tf ∷ σ) cache readable =
   cacheAfter dbc σ
-    (updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf))
+    (updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf) readable) readable
 
 -- `name` is extracted from some frame in σ. Structural on σ to match the
 -- recursion pattern of `cacheAfter`; existential over the extracted value
@@ -294,38 +120,39 @@ data ObservedIn (dbc : DBC) (name : List Char) : List TimedFrame → Set where
 -- Monotonicity of `cacheAfter`: any key already in the cache stays in the
 -- cache throughout the trace. Folds `updateCacheFromFrame-monotone` (P25)
 -- over σ; each step preserves presence, with the value possibly updated.
-cacheAfter-monotone : ∀ dbc σ cache name cached →
+cacheAfter-monotone : ∀ dbc σ cache readable name cached →
   lookupCache name cache ≡ just cached →
-  ∃[ cached' ] lookupCache name (cacheAfter dbc σ cache) ≡ just cached'
-cacheAfter-monotone dbc []       cache name cached eq = cached , eq
-cacheAfter-monotone dbc (tf ∷ σ) cache name cached eq =
+  ∃[ cached' ] lookupCache name (cacheAfter dbc σ cache readable) ≡ just cached'
+cacheAfter-monotone dbc []       cache readable name cached eq = cached , eq
+cacheAfter-monotone dbc (tf ∷ σ) cache readable name cached eq =
   let ts     = timestamp tf
       frame  = TimedFrame.frame tf
-      step   = updateCacheFromFrame-monotone dbc cache ts frame name cached eq
+      step   = updateCacheFromFrame-monotone dbc cache ts frame readable name cached eq
       c₁     = proj₁ step
       eq₁    = proj₂ step
   in cacheAfter-monotone dbc σ
-       (updateCacheFromFrame dbc cache ts frame) name c₁ eq₁
+       (updateCacheFromFrame dbc cache ts frame readable) readable name c₁ eq₁
 
 -- If `name` is observed somewhere in σ, then `cacheAfter σ cache` has an
 -- entry for `name`. At the observing frame, L2 warms the cache; then
 -- `cacheAfter-monotone` carries the entry through the remaining trace.
-cacheAfter-warms : ∀ dbc σ cache name →
+cacheAfter-warms : ∀ dbc σ cache readable name →
+  (name ∈ᵇ readable) ≡ true →
   ObservedIn dbc name σ →
-  ∃[ cs ] lookupCache name (cacheAfter dbc σ cache) ≡ just cs
-cacheAfter-warms dbc (tf ∷ σ) cache name (here {v = v} ext) =
+  ∃[ cs ] lookupCache name (cacheAfter dbc σ cache readable) ≡ just cs
+cacheAfter-warms dbc (tf ∷ σ) cache readable name inSet (here {v = v} ext) =
   let ts    = timestamp tf
       frame = TimedFrame.frame tf
-      l2    = updateCacheFromFrame-warms dbc cache ts frame name v ext
+      l2    = updateCacheFromFrame-warms dbc cache ts frame readable name v inSet ext
       c₁    = proj₁ l2
       eq₁   = proj₂ l2
   in cacheAfter-monotone dbc σ
-       (updateCacheFromFrame dbc cache ts frame) name c₁ eq₁
-cacheAfter-warms dbc (tf ∷ σ) cache name (there rest) =
+       (updateCacheFromFrame dbc cache ts frame readable) readable name c₁ eq₁
+cacheAfter-warms dbc (tf ∷ σ) cache readable name inSet (there rest) =
   let ts    = timestamp tf
       frame = TimedFrame.frame tf
   in cacheAfter-warms dbc σ
-       (updateCacheFromFrame dbc cache ts frame) name rest
+       (updateCacheFromFrame dbc cache ts frame readable) readable name inSet rest
 
 -- ============================================================================
 -- L4: STREAMING WARMS CACHE (HEADLINE SA.19.3)
@@ -338,17 +165,47 @@ AllObserved : DBC → List TimedFrame → List SignalPredicate → Set
 AllObserved dbc σ []       = ⊤
 AllObserved dbc σ (p ∷ ps) = ObservedIn dbc (signalOf p) σ × AllObserved dbc σ ps
 
+-- Every atom's target signal is in the readable set. Mirrors AllObserved's
+-- shape so streaming-warms-cache can zip it. At the real config the readable
+-- set IS the atoms' signals (map signalOf atoms), so this holds by
+-- construction — proven by all-atoms-readable below — and never becomes a
+-- caller-facing premise: streaming-adequacy discharges it internally.
+AllReadable : List SignalPredicate → List (List Char) → Set
+AllReadable []       readable = ⊤
+AllReadable (p ∷ ps) readable = ((signalOf p ∈ᵇ readable) ≡ true) × AllReadable ps readable
+
+-- Membership is monotone under a larger (cons-extended) readable set.
+∈ᵇ-cons : ∀ name y xs → (name ∈ᵇ xs) ≡ true → (name ∈ᵇ (y ∷ xs)) ≡ true
+∈ᵇ-cons name y xs h with name ≡csᵇ y
+... | true  = refl
+... | false = h
+
+AllReadable-cons : ∀ atoms y readable →
+  AllReadable atoms readable → AllReadable atoms (y ∷ readable)
+AllReadable-cons []       y readable _              = tt
+AllReadable-cons (p ∷ ps) y readable (inSet , rest) =
+  ∈ᵇ-cons (signalOf p) y readable inSet , AllReadable-cons ps y readable rest
+
+-- The atoms' own signal-name list is a readable set covering every atom.
+all-atoms-readable : ∀ (atoms : List SignalPredicate) → AllReadable atoms (map signalOf atoms)
+all-atoms-readable []       = tt
+all-atoms-readable (p ∷ ps) = head∈ , AllReadable-cons ps (signalOf p) (map signalOf ps) (all-atoms-readable ps)
+  where
+    head∈ : (signalOf p ∈ᵇ (signalOf p ∷ map signalOf ps)) ≡ true
+    head∈ rewrite ≡csᵇ-refl-eq (signalOf p) = refl
+
 -- Headline theorem closing SA.19.3. Each atom `p`'s target signal is
 -- observed in σ ⇒ `AllCached` holds on the cache produced by streaming.
 -- Composed with `warm-cache-agreement`, removes the dangling premise
 -- that made the streaming-adequacy theorem conditional.
-streaming-warms-cache : ∀ dbc σ atoms cache →
+streaming-warms-cache : ∀ dbc σ atoms cache readable →
   AllObserved dbc σ atoms →
-  AllCached (cacheAfter dbc σ cache) atoms
-streaming-warms-cache dbc σ []       cache _              = tt
-streaming-warms-cache dbc σ (p ∷ ps) cache (obs , obsAll) =
-    cacheAfter-warms dbc σ cache (signalOf p) obs
-  , streaming-warms-cache dbc σ ps cache obsAll
+  AllReadable atoms readable →
+  AllCached (cacheAfter dbc σ cache readable) atoms
+streaming-warms-cache dbc σ []       cache readable _              _               = tt
+streaming-warms-cache dbc σ (p ∷ ps) cache readable (obs , obsAll) (inSet , rdAll) =
+    cacheAfter-warms dbc σ cache readable (signalOf p) inSet obs
+  , streaming-warms-cache dbc σ ps cache readable obsAll rdAll
 
 -- ============================================================================
 -- UNCONDITIONAL STREAMING ADEQUACY
@@ -422,12 +279,16 @@ streaming-warms-cache dbc σ (p ∷ ps) cache (obs , obsAll) =
 -- separate: in practice they will typically be the same trace, but the
 -- theorem does not require that — once the cache has seen every atom's
 -- signal at least once, future evaluations on any trace are definite.
+-- The runtime cache is `cacheAfter … (map signalOf atoms)` — the readable set
+-- the streaming filter uses. `AllReadable` is discharged internally by
+-- `all-atoms-readable`, so the caller-facing precondition set stays exactly
+-- {AllObserved, AllBelow} — the added premise is proven here, never exposed.
 streaming-adequacy : ∀ dbc σ atoms cache₀ (proc : LTLProc) σ'
   → AllObserved dbc σ atoms
   → AllBelow (length atoms) proc
-  → runL (mkPredTable dbc (cacheAfter dbc σ cache₀) atoms) proc σ'
-    ≡ ⟦ denot (mkPredTable dbc (cacheAfter dbc σ cache₀) atoms) proc ⟧ σ'
+  → runL (mkPredTable dbc (cacheAfter dbc σ cache₀ (map signalOf atoms)) atoms) proc σ'
+    ≡ ⟦ denot (mkPredTable dbc (cacheAfter dbc σ cache₀ (map signalOf atoms)) atoms) proc ⟧ σ'
 streaming-adequacy dbc σ atoms cache₀ proc σ' obs bound =
-  warm-cache-agreement dbc (cacheAfter dbc σ cache₀) atoms proc σ'
-    (streaming-warms-cache dbc σ atoms cache₀ obs)
+  warm-cache-agreement dbc (cacheAfter dbc σ cache₀ (map signalOf atoms)) atoms proc σ'
+    (streaming-warms-cache dbc σ atoms cache₀ (map signalOf atoms) obs (all-atoms-readable atoms))
     bound
