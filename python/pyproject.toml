@@ -332,6 +332,10 @@ pytest_add_cli_args = [
     # test_wire_codes_parity.py, is ignored with the repo-root-path cluster
     # above — it reads ../../docs/WIRE_CODES.yaml.)
     "--ignore=tests/test_check_wire_codes.py",
+    # Same shape as test_wire_codes_parity.py: reads ../../docs/RESOURCE_BUDGETS.yaml
+    # (repo-root path, wrong from the relocated mutants/ tree) AND boots the real
+    # FFI in a subprocess to prove the heap cap fires (no .so under mutants/).
+    "--ignore=tests/test_rts_runtime_parity.py",
     # Same shape: covers the dist bundle-staging gate (repo-root `tools`
     # package; also reads ../../Shakefile.hs, outside the relocated mutants/
     # tree).  Infra coverage, not hot-path.

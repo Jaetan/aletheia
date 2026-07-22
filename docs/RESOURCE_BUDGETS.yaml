@@ -44,13 +44,15 @@
 #   check-ffi-exports movement — that snapshot covers the aletheia_* MAlonzo
 #   exports only).
 #
-# Override precedence:
-#   A process may append RTS flags via the ALETHEIA_RTS_OPTS environment
-#   variable.  Its flags land AFTER the mirrored cap in argv, and the RTS
-#   honours the LAST occurrence of a repeated flag (and processes argv after
-#   GHCRTS), so a caller-supplied `-M` in ALETHEIA_RTS_OPTS wins over the
-#   default and a containment `-M` in argv cannot be weakened by the
-#   environment.
+# Override precedence (two distinct environment channels, opposite effects):
+#   * ALETHEIA_RTS_OPTS is the EXPLICIT per-process override.  Its flags are
+#     spliced INTO argv, AFTER the mirrored cap; the RTS honours the LAST
+#     occurrence of a repeated flag, so a `-M` here wins over the default.
+#     This is the intended way to raise (or lower) the cap for one process.
+#   * GHCRTS is the AMBIENT environment channel.  The RTS processes it BEFORE
+#     the argv `+RTS` block, so the argv cap always lands last and wins — an
+#     ambient GHCRTS cannot weaken the containment cap.  (This ordering is
+#     also why the cap must travel in argv, not be left to GHCRTS.)
 #
 # Changing a value:
 #   1. edit the value here (heap_cap.flag / default_cores.value / init_symbol);

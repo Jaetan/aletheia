@@ -313,7 +313,9 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   or a profiling flag). Switching all three to `hs_init_with_rtsopts` (which
   Python already used) removes the crash and, as a side effect, is what lets
   every binding carry the new default heap cap. The Python binding was
-  unaffected. A monitored stream retained every accepted
+  unaffected.
+- **Long-running stream monitoring no longer grows unbounded in memory, and is
+  now faster than before.** A monitored stream retained every accepted
   frame behind the signal cache's unevaluated thunks, so residency climbed by
   roughly a kibibyte per frame until the process exhausted the GHC heap and
   aborted — a monitor could not run indefinitely. The streaming step now
