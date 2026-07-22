@@ -3,71 +3,71 @@
   "language": "cpp",
   "results": [
     {
-      "fps_max": 141336.6,
-      "fps_mean": 132708.1,
-      "fps_min": 119197.1,
-      "fps_stdev": 8718.9,
+      "fps_max": 272784.3,
+      "fps_mean": 262137.5,
+      "fps_min": 255680.5,
+      "fps_stdev": 5061.2,
       "frames": 10000,
       "name": "CAN 2.0B: Stream LTL (2 props)",
-      "runs": 5,
-      "us_per_frame": 7.5
+      "runs": 10,
+      "us_per_frame": 3.8
     },
     {
-      "fps_max": 222998.4,
-      "fps_mean": 214106.9,
-      "fps_min": 207719.0,
-      "fps_stdev": 6046.6,
+      "fps_max": 385510.1,
+      "fps_mean": 370126.0,
+      "fps_min": 315910.2,
+      "fps_stdev": 20215.3,
       "frames": 10000,
       "name": "CAN 2.0B: Signal Extraction",
-      "runs": 5,
-      "us_per_frame": 4.7
+      "runs": 10,
+      "us_per_frame": 2.7
     },
     {
-      "fps_max": 73353.1,
-      "fps_mean": 72417.0,
-      "fps_min": 70370.7,
-      "fps_stdev": 1228.0,
+      "fps_max": 130254.3,
+      "fps_mean": 127822.5,
+      "fps_min": 124698.6,
+      "fps_stdev": 1791.8,
       "frames": 10000,
       "name": "CAN 2.0B: Frame Building",
-      "runs": 5,
-      "us_per_frame": 13.8
+      "runs": 10,
+      "us_per_frame": 7.8
     },
     {
-      "fps_max": 71428.7,
-      "fps_mean": 65961.3,
-      "fps_min": 59414.4,
-      "fps_stdev": 4423.0,
+      "fps_max": 165019.6,
+      "fps_mean": 159725.4,
+      "fps_min": 154029.9,
+      "fps_stdev": 3116.1,
       "frames": 10000,
       "name": "CAN-FD:   Stream LTL (3 props)",
-      "runs": 5,
-      "us_per_frame": 15.2
+      "runs": 10,
+      "us_per_frame": 6.3
     },
     {
-      "fps_max": 15635.7,
-      "fps_mean": 15536.6,
-      "fps_min": 15411.0,
-      "fps_stdev": 80.7,
+      "fps_max": 26912.3,
+      "fps_mean": 26610.1,
+      "fps_min": 26329.5,
+      "fps_stdev": 186.1,
       "frames": 10000,
       "name": "CAN-FD:   Signal Extraction",
-      "runs": 5,
-      "us_per_frame": 64.4
+      "runs": 10,
+      "us_per_frame": 37.6
     },
     {
-      "fps_max": 17302.5,
-      "fps_mean": 17196.7,
-      "fps_min": 17087.7,
-      "fps_stdev": 92.5,
+      "fps_max": 32018.1,
+      "fps_mean": 31590.7,
+      "fps_min": 31038.9,
+      "fps_stdev": 338.2,
       "frames": 10000,
       "name": "CAN-FD:   Frame Building",
-      "runs": 5,
-      "us_per_frame": 58.2
+      "runs": 10,
+      "us_per_frame": 31.7
     }
   ],
   "system": {
     "build_type": "Release",
-    "cores": 32,
-    "cpu": "AMD Ryzen 9 5950X 16-Core Processor",
+    "cores": 24,
+    "cpu": "Intel(R) Core(TM) Ultra 9 285K",
     "platform": "Linux"
   },
-  "timestamp": "2026-05-12T07:02:11Z"
+  "timestamp": "2026-07-22T21:49:18Z"
 }

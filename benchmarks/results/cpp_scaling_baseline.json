@@ -1,0 +1,51 @@
+{
+  "benchmark": "scaling",
+  "language": "cpp",
+  "results": {
+    "property_count": [
+      {
+        "fps": 390404.8,
+        "properties": 1,
+        "relative": 1.0,
+        "us_per_frame": 2.6
+      },
+      {
+        "fps": 269310.9,
+        "properties": 2,
+        "relative": 0.69,
+        "us_per_frame": 3.7
+      },
+      {
+        "fps": 253786.5,
+        "properties": 3,
+        "relative": 0.65,
+        "us_per_frame": 3.9
+      },
+      {
+        "fps": 152274.0,
+        "properties": 5,
+        "relative": 0.39,
+        "us_per_frame": 6.6
+      },
+      {
+        "fps": 117846.7,
+        "properties": 7,
+        "relative": 0.302,
+        "us_per_frame": 8.5
+      },
+      {
+        "fps": 87469.7,
+        "properties": 10,
+        "relative": 0.224,
+        "us_per_frame": 11.4
+      }
+    ]
+  },
+  "system": {
+    "build_type": "Release",
+    "cores": 24,
+    "cpu": "Intel(R) Core(TM) Ultra 9 285K",
+    "platform": "Linux"
+  },
+  "timestamp": "2026-07-22T21:50:23Z"
+}

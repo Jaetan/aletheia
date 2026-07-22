@@ -1,0 +1,49 @@
+{
+  "benchmark": "scaling",
+  "language": "go",
+  "timestamp": "2026-07-22T21:50:24Z",
+  "system": {
+    "cpu": "amd64",
+    "cores": 24,
+    "platform": "linux",
+    "go": "go1.26.3"
+  },
+  "results": [
+    {
+      "properties": 1,
+      "fps": 340849.4,
+      "us_per_frame": 2.9,
+      "relative": 1
+    },
+    {
+      "properties": 2,
+      "fps": 248829,
+      "us_per_frame": 4,
+      "relative": 0.73
+    },
+    {
+      "properties": 3,
+      "fps": 239716.5,
+      "us_per_frame": 4.2,
+      "relative": 0.703
+    },
+    {
+      "properties": 5,
+      "fps": 147631.9,
+      "us_per_frame": 6.8,
+      "relative": 0.433
+    },
+    {
+      "properties": 7,
+      "fps": 112100.7,
+      "us_per_frame": 8.9,
+      "relative": 0.329
+    },
+    {
+      "properties": 10,
+      "fps": 84064.6,
+      "us_per_frame": 11.9,
+      "relative": 0.247
+    }
+  ]
+}

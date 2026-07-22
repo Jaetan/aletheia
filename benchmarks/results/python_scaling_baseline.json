@@ -1,0 +1,127 @@
+{
+  "benchmark": "scaling",
+  "language": "python",
+  "timestamp": "2026-07-22T21:50:22.259557+00:00",
+  "system": {
+    "cpu": "x86_64",
+    "cores": 24,
+    "platform": "Linux",
+    "python": "3.14.5"
+  },
+  "results": {
+    "trace_size_can20": [
+      {
+        "frames": 1000,
+        "fps": 177467.4,
+        "relative": 1.0
+      },
+      {
+        "frames": 5000,
+        "fps": 177288.7,
+        "relative": 0.999
+      },
+      {
+        "frames": 10000,
+        "fps": 180404.8,
+        "relative": 1.017
+      },
+      {
+        "frames": 50000,
+        "fps": 187775.4,
+        "relative": 1.058
+      }
+    ],
+    "trace_size_canfd": [
+      {
+        "frames": 1000,
+        "fps": 159290.4,
+        "relative": 1.0
+      },
+      {
+        "frames": 5000,
+        "fps": 167287.8,
+        "relative": 1.05
+      },
+      {
+        "frames": 10000,
+        "fps": 170418.4,
+        "relative": 1.07
+      },
+      {
+        "frames": 50000,
+        "fps": 175421.7,
+        "relative": 1.101
+      }
+    ],
+    "property_count": [
+      {
+        "properties": 1,
+        "fps": 181127.3,
+        "us_per_frame": 5.5,
+        "relative": 1.0
+      },
+      {
+        "properties": 2,
+        "fps": 149511.7,
+        "us_per_frame": 6.7,
+        "relative": 0.825
+      },
+      {
+        "properties": 3,
+        "fps": 137732.0,
+        "us_per_frame": 7.3,
+        "relative": 0.76
+      },
+      {
+        "properties": 5,
+        "fps": 102137.8,
+        "us_per_frame": 9.8,
+        "relative": 0.564
+      },
+      {
+        "properties": 7,
+        "fps": 82325.4,
+        "us_per_frame": 12.1,
+        "relative": 0.455
+      },
+      {
+        "properties": 10,
+        "fps": 64707.1,
+        "us_per_frame": 15.5,
+        "relative": 0.357
+      }
+    ],
+    "property_complexity": [
+      {
+        "complexity": "Simple predicate",
+        "fps": 186620.8,
+        "us_per_frame": 5.4,
+        "relative": 1.0
+      },
+      {
+        "complexity": "Range predicate",
+        "fps": 184216.6,
+        "us_per_frame": 5.4,
+        "relative": 0.987
+      },
+      {
+        "complexity": "Two predicates (AND)",
+        "fps": 146135.8,
+        "us_per_frame": 6.8,
+        "relative": 0.783
+      },
+      {
+        "complexity": "Three predicates",
+        "fps": 141854.9,
+        "us_per_frame": 7.0,
+        "relative": 0.76
+      },
+      {
+        "complexity": "Implication",
+        "fps": 133310.1,
+        "us_per_frame": 7.5,
+        "relative": 0.714
+      }
+    ]
+  }
+}

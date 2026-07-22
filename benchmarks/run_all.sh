@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Cross-Language Benchmark Runner
 #
-# Builds all bindings and runs throughput benchmarks for Python, C++, and Go.
+# Builds all bindings and runs throughput benchmarks for Python, C++, Go, and Rust.
 # Results are saved as JSON in benchmarks/results/.
 #
 # Usage:
@@ -14,6 +14,7 @@
 #     - Python venv activated with aletheia installed
 #     - C++ benchmark built (cd cpp && cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 && cmake --build build)
 #     - Go benchmark built (cd go && go build -o benchmarks/benchmark ./benchmarks/)
+#     - Rust toolchain (cargo) on PATH — this script builds the Rust benchmark itself
 
 set -euo pipefail
 
@@ -186,6 +187,32 @@ if [[ -f "$GO_BIN" ]]; then
     fi
 else
     echo ">>> SKIP: Go benchmark not built ($GO_BIN)"
+fi
+
+# --- Rust ---
+# Unlike the pre-built C++/Go binaries, the Rust benchmark is built here (a
+# release example target; incremental, so a warm tree is near-instant). A build
+# failure — e.g. cargo not installed — is a graceful SKIP, matching the
+# optional-binding behaviour of the other lanes; the Rust source itself is
+# gated by run_ci's cargo lanes, not this script.
+RUST_DIR="$PROJECT_DIR/rust"
+RUST_BIN="$RUST_DIR/target/release/examples/benchmark"
+if RUST_BUILD_LOG="$(cd "$RUST_DIR" && cargo build --release --example benchmark 2>&1)"; then
+    RUST_ARGS=("$BENCH" --json)
+    case $BENCH in
+        throughput|latency) RUST_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
+        scaling) RUST_ARGS+=(--frames 5000) ;;
+    esac
+
+    if run_benchmark "Rust" "$RESULTS_DIR/rust_${BENCH}.json" \
+        "$RUST_BIN" "${RUST_ARGS[@]}"; then
+        SUCCEEDED+=(Rust)
+    else
+        FAILED+=(Rust)
+    fi
+else
+    echo ">>> SKIP: Rust benchmark failed to build (is cargo installed?)" >&2
+    printf '%s\n' "$RUST_BUILD_LOG" >&2
 fi
 
 # --- Compare ---
