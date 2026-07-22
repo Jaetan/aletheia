@@ -20,10 +20,8 @@
 
 namespace aletheia::detail {
 
-// Locale-independent ASCII-whitespace test for splitting ALETHEIA_RTS_OPTS.
-static auto is_rts_space(char c) -> bool {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
-}
+// ASCII whitespace that separates ALETHEIA_RTS_OPTS tokens.
+static constexpr std::string_view k_rts_ws{" \t\n\r\v\f"};
 
 auto rts_init_args(int rts_cores, std::string_view override_opts) -> std::vector<std::string> {
     // The heap cap is ALWAYS present and goes FIRST, so a caller -M in
@@ -31,15 +29,16 @@ auto rts_init_args(int rts_cores, std::string_view override_opts) -> std::vector
     std::vector<std::string> args{"aletheia", "+RTS", std::string{rts_heap_cap_flag}};
     if (rts_cores > rts_default_cores)
         args.push_back("-N" + std::to_string(rts_cores));
-    // Whitespace-split override_opts and append each token.
-    for (std::size_t i = 0; i < override_opts.size();) {
-        while (i < override_opts.size() && is_rts_space(override_opts[i]))
-            ++i;
-        const std::size_t start = i;
-        while (i < override_opts.size() && !is_rts_space(override_opts[i]))
-            ++i;
-        if (i > start)
-            args.emplace_back(override_opts.substr(start, i - start));
+    // Whitespace-split override_opts and append each token.  The find-based form
+    // carries no manual index-boundary comparison: the `< size()` guard such a
+    // loop needs is a genuine equivalent under string_view's defined `[size()]`
+    // read (it returns a non-space), so a mutation flipping it to `<=` cannot be
+    // killed by any input.  find_first_*_of avoids the construct entirely.
+    for (std::size_t start = override_opts.find_first_not_of(k_rts_ws);
+         start != std::string_view::npos;) {
+        const std::size_t end = override_opts.find_first_of(k_rts_ws, start);
+        args.emplace_back(override_opts.substr(start, end - start));
+        start = override_opts.find_first_not_of(k_rts_ws, end);
     }
     args.emplace_back("-RTS");
     return args;
