@@ -360,10 +360,11 @@ updateCacheFromFrame-timestamps≤ dbc cache ts frame readable h =
 -- invariant.  It is NOT the residency bound — bounded residency is a
 -- thunk-forcing property of the compiled runtime, outside what Agda observes.
 --
--- Two ingredients: (1) every cache key is a readable name (`…-keys-⊆` below,
--- built from `updateEntries-keys-⊆`), and (2) a duplicate-free list all of whose
--- elements lie in `ys` has length ≤ `length ys` (`pigeonhole`).  The cache's key
--- set is duplicate-free by the `SignalCache`'s `UniqueKeys` invariant.
+-- It combines a key-set containment (every cache key is a readable name —
+-- `…-keys-⊆` below, built from `updateEntries-keys-⊆`) with a pigeonhole (a
+-- duplicate-free list all of whose elements lie in `ys` has length ≤ `length
+-- ys`).  The cache's key set is duplicate-free by the `SignalCache`'s
+-- `UniqueKeys` invariant.
 --
 -- On reusing the standard library: the only pigeonhole stdlib provides
 -- (`Data.List.Fresh.Membership.Setoid.Properties.injection`) types BOTH lists as
@@ -375,7 +376,7 @@ updateCacheFromFrame-timestamps≤ dbc cache ts frame readable h =
 
 private
   -- Removing the element pointed at by `x∈xs` from `xs` either was `z` itself
-  -- (`x ≡ z`) or leaves `z` in the remainder.  The four cases reduce
+  -- (`x ≡ z`) or leaves `z` in the remainder.  Each case reduces
   -- definitionally through `_─_ = removeAt … (index …)`.
   remove-inv : ∀ {a} {A : Set a} {x z : A} {xs} (x∈xs : x ∈ xs) →
     z ∈ xs → x ≡ z ⊎ z ∈ (xs ─ x∈xs)
