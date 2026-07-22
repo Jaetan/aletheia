@@ -257,10 +257,13 @@ name ∈ᵇ (x ∷ xs) = if name ≡csᵇ x then true else name ∈ᵇ xs
 readableSignals : ∀ {n} → List (PropertyState n) → List (List Char)
 readableSignals props = concatMap (λ p → map signalOf (PropertyState.atoms p)) props
 
--- Extract every readable signal from the frame exactly once, keeping the
--- successes as a name-keyed table.  A name is kept iff `extractTruthValue name
--- dbc frame ≡ just v`; failures are dropped.  This is the single extraction
--- pass the streaming step shares between the cache update and predicate eval.
+-- Extract the readable-name list from the frame into a name-keyed table of
+-- successes.  A name is kept iff `extractTruthValue name dbc frame ≡ just v`;
+-- failures are dropped.  The list is `readableSignals props` (a plain
+-- concatenation, so a signal read by several atoms appears — and is extracted —
+-- once per occurrence, not deduplicated).  This is the single extraction pass
+-- the streaming step shares between the cache update and predicate eval,
+-- replacing the previous two independent passes.
 extractTable : ∀ {n} → DBC → CANFrame n → List (List Char) → ExtractTable
 extractTable dbc frame []             = []
 extractTable dbc frame (name ∷ names) =
@@ -275,10 +278,12 @@ cacheFromTable ts []               cache = cache
 cacheFromTable ts ((name , v) ∷ rest) cache =
   cacheFromTable ts rest (updateCache name v ts cache)
 
--- Update cache with all readable signals extractable from a frame, via the
--- shared extraction table.  Signature stable; the body now folds the table
--- rather than re-extracting per signal, so the streaming step can pass the
--- same table into predicate evaluation without a second extraction pass.
+-- Update cache with the readable signals extractable from a frame, via the
+-- shared extraction table.  Takes the readable-name list as a parameter; the
+-- body folds the table rather than re-extracting per signal, so the streaming
+-- step passes the same table into predicate evaluation without a second
+-- extraction pass.  The result is definitionally `cacheFromTable` of the
+-- table, which the frame-processor proofs name directly.
 updateCacheFromFrame : ∀ {n} → DBC → SignalCache → Timestamp μs → CANFrame n → List (List Char) → SignalCache
 updateCacheFromFrame dbc cache ts frame readable =
   cacheFromTable ts (extractTable dbc frame readable) cache

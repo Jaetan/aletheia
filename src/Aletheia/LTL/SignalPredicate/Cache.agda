@@ -146,10 +146,11 @@ updateCache name val ts (mkSignalCache es u) =
 -- each link captures the frame it was derived from — so the whole trace stays
 -- reachable and residency grows without bound:
 --
---   * the cache VALUE itself: `updateCacheFromFrame dbc cache ts frame` is
---     stored unevaluated, and its `frame` argument keeps that frame alive.
---     Both no-op arms (unknown message id, message with no signals) return the
---     incoming cache without matching on it, so the chain never self-collapses.
+--   * the cache VALUE itself: `updateCacheFromFrame dbc cache ts frame
+--     readable` is stored unevaluated, and its `frame` argument keeps that
+--     frame alive.  The no-op arm (no readable name extracts a success, e.g.
+--     an unknown message id) returns the incoming cache without matching on
+--     it, so the chain never self-collapses.
 --   * the ENTRY SPINE: `updateEntries`' non-matching clause leaves its tail as
 --     a thunk holding the extracted value, hence the frame it came from.
 --     `lookupEntries` only walks as far as its first key match, so every entry
@@ -164,9 +165,9 @@ updateCache name val ts (mkSignalCache es u) =
 -- call, so demanding its `Bool` result to weak head normal form drives the walk
 -- to the end of the list.  The walk itself is one pointer chase per cached
 -- signal per accepted frame.  The larger cost is what the walk *demands*: the
--- streaming step now performs the cache update for every signal the frame
--- carries, where laziness previously deferred that work forever — deferring it
--- is exactly what retained the frame, so paying it is not optional.
+-- streaming step now performs the cache update for every readable signal the
+-- frame carries, where laziness previously deferred that work forever —
+-- deferring it is exactly what retained the frame, so paying it is not optional.
 --
 -- Depth: the spine only.  A cached ℚ left unevaluated retains the frame it was
 -- extracted from, but the next observation of that signal overwrites it, so

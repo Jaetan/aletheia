@@ -93,8 +93,17 @@ def main() -> int:
     )
 
     with AletheiaClient() as client:
-        client.parse_dbc(dbc)
-        client.set_properties(properties)
+        # Fail loud on setup errors: an error-path session would still run the
+        # loop but measure nothing meaningful, giving false coverage for the
+        # bounded-residency regression.
+        parsed = client.parse_dbc(dbc)
+        if parsed.get("status") != "success":
+            msg = f"parse_dbc failed: {parsed}"
+            raise RuntimeError(msg)
+        props_resp = client.set_properties(properties)
+        if props_resp.get("status") != "success":
+            msg = f"set_properties failed: {props_resp}"
+            raise RuntimeError(msg)
         client.start_stream()
         baseline = peak_kib()
         started = time.monotonic()
