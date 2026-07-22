@@ -21,13 +21,14 @@ module Aletheia.Protocol.FrameProcessor.Properties.Handlers where
 
 open import Aletheia.Protocol.StreamState using (getDBC; PropertyState)
 open import Aletheia.Protocol.StreamState.Internals using (stepProperty; extractTable; readableSignals)
-open import Aletheia.Protocol.Message using (Ack)
+open import Aletheia.Protocol.Message using (Ack; Response)
+open import Aletheia.Error using (WithContext; HandlerErr; StreamActive)
 open import Aletheia.Protocol.ResponseFormat using (formatResponse)
 open import Aletheia.Protocol.ResponseFormat.Properties using (formatResponse-ack-unique)
 open import Aletheia.Protocol.JSON using (JSON; formatJSON)
 open import Aletheia.Main using (processFrameDirect)
 open import Aletheia.Protocol.Handlers
-    using (handleExtractAllSignals; handleFormatDBC)
+    using (handleExtractAllSignals; handleFormatDBC; handleSetProperties)
 open import Aletheia.Protocol.Handlers.FormatDBCText using (handleFormatDBCText)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.Protocol.Iteration using (iterate)
@@ -108,3 +109,20 @@ handleFormatDBCText-preserves-state dbcJSON state
   with parseDBCWithErrors dbcJSON
 ... | inj₁ _ = refl
 ... | inj₂ _ = refl
+
+-- ============================================================================
+-- SetProperties is rejected mid-stream (extract-once soundness premise)
+-- ============================================================================
+
+-- The extract-once optimization in StreamState.Internals is sound only because
+-- the active property set — and hence the readable-signal set derived from it —
+-- is invariant over the signal cache's lifetime.  The single transition that
+-- could change that set while a cache is live is `SetProperties`.  This lemma
+-- pins the runtime contract that makes the premise hold: on a `Streaming` state,
+-- `handleSetProperties` returns the state VERBATIM (cache untouched) with a
+-- `StreamActive` error, so the property set can never shift under a live cache.
+handleSetProperties-streaming-rejected : ∀ {n} propJSONs dbc (props : List (PropertyState n)) prev cache →
+  handleSetProperties propJSONs (Streaming n dbc props prev cache)
+    ≡ (Streaming n dbc props prev cache ,
+       Response.Error (WithContext "SetProperties" (HandlerErr StreamActive)))
+handleSetProperties-streaming-rejected propJSONs dbc props prev cache = refl

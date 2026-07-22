@@ -27,16 +27,28 @@ open import Aletheia.LTL.SignalPredicate
            lookupEntries; updateEntries; extractTruthValue;
            lookupET)
 open import Aletheia.LTL.SignalPredicate.Cache.Properties
-    using (AllTimestamps≤; updateCache-monotone; updateCache-timestamps≤)
+    using (AllTimestamps≤; updateCache-monotone; updateCache-timestamps≤; updateEntries-keys-⊆)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Data.Bool using (true; false; T)
 open import Data.Unit using (tt)
-open import Data.Product using (_,_; ∃-syntax)
+open import Data.Product using (_,_; proj₁; ∃-syntax)
 open import Data.Maybe using (just; nothing)
 open import Data.Maybe.Properties using (just-injective)
-open import Data.List using (List; []; _∷_)
+open import Data.List using (List; []; _∷_; map; length)
+open import Data.List.Relation.Unary.Any using (here; there; index; _─_)
+open import Data.List.Relation.Unary.All as All using ()
+open import Data.List.Relation.Unary.Unique.Propositional using (Unique)
+open import Data.List.Relation.Unary.AllPairs using () renaming (_∷_ to _∷ᵖ_)
+open import Data.List.Membership.Propositional using (_∈_)
+open import Data.List.Relation.Binary.Subset.Propositional using (_⊆_)
+open import Data.List.Relation.Binary.Subset.Propositional.Properties
+    using (⊆-trans; xs⊆x∷xs; ∈-∷⁺ʳ)
+open import Data.List.Properties using (length-removeAt′)
+open import Data.Nat using (_≤_; z≤n; s≤s)
+open import Data.Nat.Properties using (≤-trans; ≤-reflexive)
 open import Data.Empty using (⊥; ⊥-elim)
+open import Data.Sum.Base using (_⊎_; inj₁; inj₂; map₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; trans; cong; subst)
 
 -- ============================================================================
@@ -336,3 +348,98 @@ updateCacheFromFrame-timestamps≤ : ∀ {m} dbc cache ts (frame : CANFrame m) r
   AllTimestamps≤ ts (SignalCache.entries (updateCacheFromFrame dbc cache ts frame readable))
 updateCacheFromFrame-timestamps≤ dbc cache ts frame readable h =
   cacheFromTable-timestamps≤ ts (extractTable dbc frame readable) cache h
+
+-- ============================================================================
+-- STRUCTURAL ENTRY-COUNT BOUND (key-set ⊆ readable set + pigeonhole)
+-- ============================================================================
+--
+-- The cache's entry count is bounded by the length of the readable-signal set,
+-- independent of trace length.  This is a STRUCTURAL COMPLETENESS statement: it
+-- rules out a hypothetical "entries grow with the trace" failure mode by pinning
+-- the key set to the (fixed) readable set and counting with the uniqueness
+-- invariant.  It is NOT the residency bound — bounded residency is a
+-- thunk-forcing property of the compiled runtime, outside what Agda observes.
+--
+-- It combines a key-set containment (every cache key is a readable name —
+-- `…-keys-⊆` below, built from `updateEntries-keys-⊆`) with a pigeonhole (a
+-- duplicate-free list all of whose elements lie in `ys` has length ≤ `length
+-- ys`).  The cache's key set is duplicate-free by the `SignalCache`'s
+-- `UniqueKeys` invariant.
+--
+-- On reusing the standard library: the only pigeonhole stdlib provides
+-- (`Data.List.Fresh.Membership.Setoid.Properties.injection`) types BOTH lists as
+-- duplicate-free `List#`, so it would require the readable set to be
+-- duplicate-free too — but `readableSignals` is a plain concatenation with
+-- repeats.  The form needed here (unique `xs`, arbitrary `ys`) is not in the
+-- library, so it is proved directly, reusing the stdlib removal machinery
+-- (`_─_` = `removeAt` at an `Any` index, and `length-removeAt′`) for the step.
+
+private
+  -- Removing the element pointed at by `x∈xs` from `xs` either was `z` itself
+  -- (`x ≡ z`) or leaves `z` in the remainder.  Each case reduces
+  -- definitionally through `_─_ = removeAt … (index …)`.
+  remove-inv : ∀ {a} {A : Set a} {x z : A} {xs} (x∈xs : x ∈ xs) →
+    z ∈ xs → x ≡ z ⊎ z ∈ (xs ─ x∈xs)
+  remove-inv (here x≡w) (here z≡w) = inj₁ (trans x≡w (sym z≡w))
+  remove-inv (here x≡w) (there z∈) = inj₂ z∈
+  remove-inv (there x∈) (here z≡w) = inj₂ (here z≡w)
+  remove-inv (there x∈) (there z∈) = map₂ there (remove-inv x∈ z∈)
+
+-- Pigeonhole: a duplicate-free `xs`, all of whose elements are members of `ys`,
+-- has `length xs ≤ length ys` (`ys` need not be duplicate-free).  Induct on `xs`,
+-- removing the head's witnessed occurrence from `ys` each step; uniqueness of
+-- `xs` discharges the "head reappears in the tail" case.
+pigeonhole : ∀ {a} {A : Set a} (xs ys : List A) →
+  Unique xs → xs ⊆ ys → length xs ≤ length ys
+pigeonhole []       ys u             sub = z≤n
+pigeonhole (x ∷ xs) ys (x∉xs ∷ᵖ uxs) sub =
+  ≤-trans (s≤s (pigeonhole xs (ys ─ x∈ys) uxs sub'))
+          (≤-reflexive (sym (length-removeAt′ ys (index x∈ys))))
+  where
+    x∈ys : x ∈ ys
+    x∈ys = sub (here refl)
+    sub' : xs ⊆ (ys ─ x∈ys)
+    sub' z∈xs with remove-inv x∈ys (sub (there z∈xs))
+    ... | inj₁ x≡z   = ⊥-elim (All.lookup x∉xs z∈xs x≡z)
+    ... | inj₂ z∈ys─ = z∈ys─
+
+-- Every key the extraction table records is one of the readable names it was
+-- built from (`extractTable` only keeps `name ∷ …` entries for `name ∈ readable`).
+extractTable-keys-⊆-readable : ∀ {n} dbc (frame : CANFrame n) readable →
+  map proj₁ (extractTable dbc frame readable) ⊆ readable
+extractTable-keys-⊆-readable dbc frame []             = λ ()
+extractTable-keys-⊆-readable dbc frame (name ∷ names)
+  with extractTruthValue name dbc frame
+... | nothing = ⊆-trans (extractTable-keys-⊆-readable dbc frame names)
+                        (xs⊆x∷xs names name)
+... | just v  = ∈-∷⁺ʳ (here refl)
+                      (⊆-trans (extractTable-keys-⊆-readable dbc frame names)
+                               (xs⊆x∷xs names name))
+
+-- Record-level lift of `updateEntries-keys-⊆`.
+updateCache-keys-⊆ : ∀ name val ts cache →
+  map proj₁ (SignalCache.entries (updateCache name val ts cache))
+    ⊆ (name ∷ map proj₁ (SignalCache.entries cache))
+updateCache-keys-⊆ name val ts (mkSignalCache es _) = updateEntries-keys-⊆ name val ts es
+
+-- Folding a table into the cache keeps every key inside `bound`, given the
+-- table's keys and the incoming cache's keys are both inside `bound`.
+cacheFromTable-keys-⊆ : ∀ ts table cache bound →
+  map proj₁ table ⊆ bound →
+  map proj₁ (SignalCache.entries cache) ⊆ bound →
+  map proj₁ (SignalCache.entries (cacheFromTable ts table cache)) ⊆ bound
+cacheFromTable-keys-⊆ ts []               cache bound _        cacheSub = cacheSub
+cacheFromTable-keys-⊆ ts ((m , w) ∷ rest) cache bound tableSub cacheSub =
+  cacheFromTable-keys-⊆ ts rest (updateCache m w ts cache) bound
+    (⊆-trans (xs⊆x∷xs (map proj₁ rest) m) tableSub)
+    (⊆-trans (updateCache-keys-⊆ m w ts cache)
+             (∈-∷⁺ʳ (tableSub (here refl)) cacheSub))
+
+-- Processing one frame keeps every cache key inside the readable set.
+updateCacheFromFrame-keys-⊆ : ∀ {n} dbc cache ts (frame : CANFrame n) readable →
+  map proj₁ (SignalCache.entries cache) ⊆ readable →
+  map proj₁ (SignalCache.entries (updateCacheFromFrame dbc cache ts frame readable)) ⊆ readable
+updateCacheFromFrame-keys-⊆ dbc cache ts frame readable cacheSub =
+  cacheFromTable-keys-⊆ ts (extractTable dbc frame readable) cache readable
+    (extractTable-keys-⊆-readable dbc frame readable)
+    cacheSub

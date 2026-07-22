@@ -27,12 +27,16 @@ open import Aletheia.LTL.SignalPredicate.Cache
 open import Aletheia.DBC.Identifier using
   (_≡csᵇ_; ≡csᵇ-sound; ≡csᵇ-refl-eq)
 open import Data.Bool using (true; false; T)
-open import Data.List using ([]; _∷_; length)
+open import Data.List using ([]; _∷_; length; map)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
+open import Data.List.Relation.Unary.Any using (here; there)
+open import Data.List.Relation.Binary.Subset.Propositional using (_⊆_)
+open import Data.List.Relation.Binary.Subset.Propositional.Properties
+  using (⊆-refl; ⊆-trans; ∷⁺ʳ; xs⊆x∷xs; ∈-∷⁺ʳ)
 open import Data.Nat using (_≤_; z≤n; s≤s)
 open import Data.Nat.Properties using (≤-refl)
 open import Aletheia.Trace.Time using (Timestamp; μs; _≤ᵗ_)
-open import Data.Product using (_,_; proj₂; ∃)
+open import Data.Product using (_,_; proj₁; proj₂; ∃)
 open import Data.Maybe using (just)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; subst)
@@ -100,6 +104,23 @@ updateEntries-length≤ name val ts ((n , v) ∷ rest)
   with name ≡csᵇ n
 ... | true  = ≤-refl
 ... | false = s≤s (updateEntries-length≤ name val ts rest)
+
+-- Key-set containment: one update introduces at most the updated `name` as a
+-- new key.  Every key of the updated list is either `name` or a key that was
+-- already present — the update never invents an unrelated key.  This is the
+-- per-update step of the trace-independent entry-count bound: iterated over a
+-- frame's extraction table and then over a trace, it confines the cache's key
+-- set to the readable-signal set.
+updateEntries-keys-⊆ : ∀ name val ts es →
+  map proj₁ (updateEntries name val ts es) ⊆ (name ∷ map proj₁ es)
+updateEntries-keys-⊆ name val ts [] = ⊆-refl
+updateEntries-keys-⊆ name val ts ((n , cached) ∷ rest)
+  with name ≡csᵇ n
+... | true  = ∷⁺ʳ name (xs⊆x∷xs (map proj₁ rest) n)
+... | false =
+  ∈-∷⁺ʳ (there (here refl))
+        (⊆-trans (updateEntries-keys-⊆ name val ts rest)
+                 (∷⁺ʳ name (xs⊆x∷xs (map proj₁ rest) n)))
 
 -- ============================================================================
 -- RECORD-LEVEL PROPERTIES

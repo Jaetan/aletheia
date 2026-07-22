@@ -319,8 +319,8 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   frame behind the signal cache's unevaluated thunks, so residency climbed by
   roughly a kibibyte per frame until the process exhausted the GHC heap and
   aborted — a monitor could not run indefinitely. The streaming step now
-  evaluates the signal cache it derives per frame (proven to bound residency;
-  a regression test asserts a flat plateau over millions of frames), and it
+  evaluates the signal cache it derives per frame, which bounds residency in
+  practice (a regression test asserts a flat plateau over millions of frames), and it
   derives each frame's signal values in a single shared pass consumed by both
   the property evaluation and the cache, replacing the previous two
   independent extraction passes. Net effect on the verified core's streaming
