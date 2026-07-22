@@ -666,7 +666,7 @@ and never ships stale; it runs as `run_ci`'s `build` prerequisite. Its mechanics
 For faster iteration when developing Agda code:
 ```bash
 cd src
-agda +RTS -M16G -RTS Aletheia/YourModule.agda  # Type-check only (parallel, heap-capped)
+agda +RTS -M16G -RTS Aletheia/YourModule.agda  # Type-check only (heap-capped)
 ```
 
 **Important**: Always use `+RTS -M16G -RTS` for ad-hoc type-checking. `-M16G` caps the heap and doubles as a runaway-elaboration tripwire on the memory-limited WSL2 host — without it a runaway elaboration OOM-kills the host instead of failing the build. `-N` (parallel GHC) is optional: it gives no measured single-module speedup — even the heaviest modules (`StreamState.agda`, `Main.agda`) type-check in a few seconds at `-N1`, marginally slower at higher `-N` — so parallelism belongs at the whole-build level (Shake's `shakeThreads=0`), not per-module invocations. See AGENTS.md § Agda > Verification for the review-tightening (`-M4G`) variant.

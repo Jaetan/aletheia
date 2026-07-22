@@ -201,7 +201,7 @@ Build-time issues are catalogued in [BUILDING.md § Troubleshooting](docs/develo
 
 - **Build failures**: `cabal run shake -- clean && cabal run shake -- build`.
 - **MAlonzo name mismatch**: build prints exact `sed` command — run it.
-- **Type-checking timeout**: always `+RTS -M16G -RTS`.
+- **Type-checking OOM / runaway elaboration**: always cap the heap `+RTS -M16G -RTS`.
 - **`hs_init` failure / `aletheia_init() returned null`**: `.so` built against different GHC than loaded. Rebuild (`cabal run shake -- build`); ensure no stale copy in `$LD_LIBRARY_PATH`.
 - **`.so` load failure**: loader checks `_install_config.LIBRARY_PATH` → `LD_LIBRARY_PATH` → `/usr/local/lib`. Regen via `cabal run shake -- install` or set `ALETHEIA_FFI_PATH`.
 - **ctypes signature mismatch (Python)**: `.so` and Python package versions drifted. Compare `python -m aletheia --version` vs `strings libaletheia-ffi.so | grep aletheia-ffi-`.
