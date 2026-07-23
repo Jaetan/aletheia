@@ -194,12 +194,16 @@ class TestExtractionTrailingBytes:
     """``parse_extraction_buffer`` rejects trailing bytes."""
 
     def test_accepts_exact_buffer(self) -> None:
-        """Accept a buffer consumed exactly (one value, no tail)."""
-        buf = struct.pack("<HHH", 1, 0, 0) + struct.pack("<Hqq", 0, 100, 1)
+        """Accept a buffer consumed exactly (one value, empty offsets table, no tail)."""
+        buf = (
+            struct.pack("<HHHI", 1, 0, 0, 0) + struct.pack("<Hqq", 0, 100, 1) + struct.pack("<I", 0)
+        )
         assert parse_extraction_buffer(buf, ("Speed",)).values == {"Speed": 100.0}
 
     def test_rejects_trailing_bytes(self) -> None:
         """Reject a buffer with a trailing byte past the computed layout."""
-        buf = struct.pack("<HHH", 1, 0, 0) + struct.pack("<Hqq", 0, 100, 1)
+        buf = (
+            struct.pack("<HHHI", 1, 0, 0, 0) + struct.pack("<Hqq", 0, 100, 1) + struct.pack("<I", 0)
+        )
         with pytest.raises(ProtocolError, match="trailing"):
             parse_extraction_buffer(buf + b"\x00", ("Speed",))

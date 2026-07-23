@@ -19,11 +19,21 @@
 --
 -- processExtractBin:
 --   Success: Haskell-allocated buffer (free with aletheia_free_buf).
---   Layout:
---     Header:  3 × u16 (nValues, nErrors, nAbsent)
+--   Layout (offsets-table variant — every segment start is O(1) arithmetic
+--   from the header; reason i is an O(1) slice):
+--     Header:  3 × u16 (nValues, nErrors, nAbsent) + u32 reasonBytes
 --     Values:  nValues × (signal_index:u16, numerator:i64, denominator:i64) = 18 bytes each
 --     Errors:  nErrors × (signal_index:u16, error_code:u8) = 3 bytes each
---              Error codes: 0=not_in_dbc, 1=out_of_bounds, 2=extraction_failed
+--              Error codes: the u8 values pinned by extractionErrorCodeToℕ
+--              (CAN/BatchExtraction.agda — one distinct code per
+--              distinguishable error; injectivity machine-checked in
+--              Batch.Properties.ReasonParity).
+--     Offsets: (nErrors + 1) × u32 — cumulative byte offsets into Reasons;
+--              off[0] = 0, monotone non-decreasing, off[nErrors] = reasonBytes.
+--              Decoders MUST verify all three before slicing.
+--     Reasons: reasonBytes of UTF-8; error i's reason = bytes [off[i], off[i+1]).
+--              Same strings the JSON path formats (shared resultToString;
+--              machine-checked reason-parity).
 --     Absent:  nAbsent × (signal_index:u16) = 2 bytes each
 --   Error:   error string via outErr pointer; return code 1.
 --

@@ -520,3 +520,75 @@ func TestCrossBinding_NestingDepthLiftsToInputBoundExceeded(t *testing.T) {
 		t.Errorf("Observed = %d, want > %d", bex.Observed, MaxNestingDepth)
 	}
 }
+
+// TestCrossBinding_BinaryExtractionReasonParity asserts binary/JSON reason
+// parity end-to-end against the real kernel: the error reason on the packed
+// binary extraction wire is the kernel-minted detailed string, byte-identical
+// to what the JSON path surfaces for the same error (shared kernel formatter;
+// reason parity machine-checked kernel-side). An out-of-bounds frame is
+// decoded through both paths and the reasons compared for EXACT equality.
+func TestCrossBinding_BinaryExtractionReasonParity(t *testing.T) {
+	c := newCrossBindingClient(t)
+	ctx := context.Background()
+	sid, _ := NewStandardID(256)
+	d, _ := NewDLC(8)
+	dbc := DBCDefinition{
+		Version: "1.0",
+		Messages: []DBCMessage{{
+			ID:     sid,
+			Name:   "TestMessage",
+			DLC:    d,
+			Sender: "ECU",
+			Signals: []DBCSignal{{
+				Name:      "BoundedSignal",
+				StartBit:  0,
+				BitLength: 16,
+				ByteOrder: LittleEndian,
+				IsSigned:  false,
+				Factor:    Rational{Numerator: 1, Denominator: 4},
+				Offset:    Rational{Numerator: 0, Denominator: 1},
+				Minimum:   Rational{Numerator: 0, Denominator: 1},
+				Maximum:   Rational{Numerator: 8000, Denominator: 1},
+				Presence:  AlwaysPresent{},
+			}},
+		}},
+	}
+	if _, err := c.ParseDBC(ctx, dbc); err != nil {
+		t.Fatalf("ParseDBC: %v", err)
+	}
+	// Raw 65535 scales to 16383.75, above the 8000 maximum → one extraction error.
+	payload := FramePayload{0xFF, 0xFF, 0, 0, 0, 0, 0, 0}
+
+	// Binary path: ParseDBC populated the signal-name cache, so the public
+	// ExtractSignals commits to the packed-binary wire.
+	binRes, err := c.ExtractSignals(ctx, sid, d, payload)
+	if err != nil {
+		t.Fatalf("ExtractSignals (binary path): %v", err)
+	}
+	if len(binRes.Errors) != 1 {
+		t.Fatalf("binary path: len(Errors) = %d, want 1 (out-of-bounds)", len(binRes.Errors))
+	}
+
+	// JSON path: the same frame through the backend's JSON extraction endpoint.
+	resp, err := c.backend.ExtractSignalsBinary(c.state, sid, d, []byte(payload))
+	if err != nil {
+		t.Fatalf("ExtractSignalsBinary (JSON path): %v", err)
+	}
+	jsonRes, err := parseExtractionResponse(resp)
+	if err != nil {
+		t.Fatalf("parseExtractionResponse: %v", err)
+	}
+	if len(jsonRes.Errors) != 1 {
+		t.Fatalf("JSON path: len(Errors) = %d, want 1 (out-of-bounds)", len(jsonRes.Errors))
+	}
+
+	if binRes.Errors[0].Name != jsonRes.Errors[0].Name {
+		t.Errorf("error name: binary %q != JSON %q", binRes.Errors[0].Name, jsonRes.Errors[0].Name)
+	}
+	if binRes.Errors[0].Error != jsonRes.Errors[0].Error {
+		t.Errorf("error reason: binary %q != JSON %q", binRes.Errors[0].Error, jsonRes.Errors[0].Error)
+	}
+	if !strings.Contains(binRes.Errors[0].Error, "out of bounds") {
+		t.Errorf("reason should be the detailed out-of-bounds string, got %q", binRes.Errors[0].Error)
+	}
+}

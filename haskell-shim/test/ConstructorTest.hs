@@ -123,11 +123,13 @@ mkSignalPair idx num den =
         (unsafeCoerce (AgdaRational.C_mkℚ_24 num (den - 1)))
 
 -- | Walk PartitionedResults — forces field dispatch + full list traversals
--- of values / errors / absent. Mirrors packPartitionedResults
--- (BinaryOutput.hs lines 55-71). Returns concrete tuples so `show` can
--- force every embedded coerce.
+-- of values / errors / absent. Mirrors packPartitionedResults in
+-- BinaryOutput.hs. Returns concrete tuples so `show` can force every
+-- embedded coerce.  An error entry is a nested Σ: (index, (code, reason)) —
+-- forcing the reason Text is the drift guard for the reason-string slot the
+-- binary wire's offsets segment transports.
 walkPartitionedResults :: AgdaBatch.T_PartitionedResults_10
-                       -> ([(Integer, Integer, Integer)], [(Integer, Integer)], [Integer])
+                       -> ([(Integer, Integer, Integer)], [(Integer, Integer, T.Text)], [Integer])
 walkPartitionedResults ier =
     let vals = unsafeCoerce (AgdaBatch.d_values_22 ier) :: [AgdaSigma.T_Σ_14]
         errs = unsafeCoerce (AgdaBatch.d_errors_24 ier) :: [AgdaSigma.T_Σ_14]
@@ -142,9 +144,11 @@ walkPartitionedResults ier =
         in (idx, num, den)
     walkErrorPair p =
         let idx  = unsafeCoerce (AgdaSigma.d_fst_28 p) :: Integer
-            code = AgdaBatch.d_extractionErrorCodeToℕ_150
-                     (unsafeCoerce (AgdaSigma.d_snd_30 p))
-        in (idx, code)
+            codeReason = unsafeCoerce (AgdaSigma.d_snd_30 p) :: AgdaSigma.T_Σ_14
+            code = AgdaBatch.d_extractionErrorCodeToℕ_158
+                     (unsafeCoerce (AgdaSigma.d_fst_28 codeReason))
+            reason = unsafeCoerce (AgdaSigma.d_snd_30 codeReason) :: T.Text
+        in (idx, code, reason)
 
 -- | Construct a TimedFrame via binary MAlonzo constructors.
 -- Mirrors aletheia_send_frame's construction in AletheiaFFI.hs.
@@ -281,7 +285,14 @@ main = do
             , "\"signals\":[{\"name\":\"Speed\",\"startBit\":0,\"length\":16,"
             , "\"byteOrder\":\"little_endian\",\"signed\":false,"
             , "\"factor\":1,\"offset\":0,\"minimum\":0,\"maximum\":65535,"
-            , "\"unit\":\"kph\"}]}]}}"
+            , "\"unit\":\"kph\"},"
+            -- Temp's narrow [0, 100] bound exists so an extraction can produce
+            -- an ERROR entry (ValueOutOfBounds) — test 12b walks its nested
+            -- (code, reason) pair, the reason-Text drift guard.
+            , "{\"name\":\"Temp\",\"startBit\":16,\"length\":8,"
+            , "\"byteOrder\":\"little_endian\",\"signed\":false,"
+            , "\"factor\":1,\"offset\":0,\"minimum\":0,\"maximum\":100,"
+            , "\"unit\":\"C\"}]}]}}"
             ]
     let (state1, resp1) = processJSON state0 dbcJSON
     putStrLn $ "Setup: Load DBC → " ++ T.unpack resp1
@@ -425,7 +436,7 @@ main = do
     -- ------------------------------------------------------------------------
     -- Test 12: d_processExtractBin_102 (highest-risk: PartitionedResults coerce)
     -- ------------------------------------------------------------------------
-    putStrLn "Test 12: processExtractBin — Speed=400, expect inj₂ PartitionedResults with 1 value"
+    putStrLn "Test 12: processExtractBin — Speed=400, Temp=0, expect inj₂ PartitionedResults with 2 values"
     let bytes12 = [144, 1, 0, 0, 0, 0, 0, 0]  -- 400 = 0x0190; LE → [0x90, 0x01].
     let (_, r12) = extractBin state3 256 False 8 bytes12
     pass12 <- case r12 of
@@ -434,12 +445,33 @@ main = do
             putStrLn $ "  values:  " ++ show vals
             putStrLn $ "  errors:  " ++ show errs
             putStrLn $ "  absent:  " ++ show abss
-            -- Speed at signal index 0, raw=400, factor=1, offset=0 → 400/1.
+            -- Speed at signal index 0, raw=400, factor=1, offset=0 → 400/1;
+            -- Temp at signal index 1, raw=0 → 0/1 (in bounds).
             -- d_denominatorℕ_20 returns the actual denominator (the record's
             -- denominator-1 field plus one), so 400/1 reads as (0, 400, 1).
-            assertTrue "Extract success — 1 value (idx=0, num=400, den=1), 0 errors"
+            assertTrue "Extract success — values (0,400,1) and (1,0,1), 0 errors"
                        ("got vals=" ++ show vals ++ ", errs=" ++ show errs)
-                       (vals == [(0, 400, 1)] && null errs)
+                       (vals == [(0, 400, 1), (1, 0, 1)] && null errs)
+        Left err -> do
+            putStrLn $ "  Unexpected error: " ++ T.unpack err
+            return False
+
+    putStrLn "Test 12b: processExtractBin — Temp=200 out of [0, 100], expect error entry with kernel reason"
+    let bytes12b = [144, 1, 200, 0, 0, 0, 0, 0]  -- Temp raw byte = 200.
+    let (_, r12b) = extractBin state3 256 False 8 bytes12b
+    pass12b <- case r12b of
+        Right ier -> do
+            let (vals, errs, abss) = walkPartitionedResults ier
+            putStrLn $ "  values:  " ++ show vals
+            putStrLn $ "  errors:  " ++ show errs
+            putStrLn $ "  absent:  " ++ show abss
+            -- Forcing the reason Text is the drift guard for the nested
+            -- (code, reason) Σ; the exact string pins the shared
+            -- resultToString formatting (OutOfBounds wire code = 1).
+            assertTrue "Extract error — (1, 1, \"value out of bounds: 200 not in [0, 100]\")"
+                       ("got errs=" ++ show errs)
+                       (errs == [(1, 1, T.pack "value out of bounds: 200 not in [0, 100]")]
+                        && vals == [(0, 400, 1)])
         Left err -> do
             putStrLn $ "  Unexpected error: " ++ T.unpack err
             return False
@@ -480,7 +512,7 @@ main = do
     -- Summary
     -- ------------------------------------------------------------------------
     let allPass = and [pass1, pass2, pass3, pass4, pass5, pass6, pass7, pass8,
-                       pass9, pass10, pass11, pass12, pass13, pass14, pass15]
+                       pass9, pass10, pass11, pass12, pass12b, pass13, pass14, pass15]
     if allPass
-        then putStrLn "All 15 checks passed (11/11 FFI exports + BRS/ESI binary)." >> exitSuccess
+        then putStrLn "All 16 checks passed (11/11 FFI exports + BRS/ESI binary)." >> exitSuccess
         else putStrLn "SOME CHECKS FAILED." >> exitFailure

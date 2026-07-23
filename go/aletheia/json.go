@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // --- Serialization (Go → JSON for Agda core) ---
@@ -1223,29 +1224,44 @@ func parseFrameDataResponse(raw string) (FramePayload, error) {
 	return payload, nil
 }
 
-// extractionErrorMessages maps error codes from binary extraction to messages.
-// Indexed by the u8 wire value pinned in Agda extractionErrorCodeToℕ
-// (Aletheia.CAN.BatchExtraction.ExtractionErrorCode); codes 0-2 come from the
-// kernel categorizer, code 3 from the FFI shim's binary encoder guard (a
-// value whose reduced numerator or denominator exceeds the Int64 wire range
-// is rerouted to the error stream instead of wrapping).
-var extractionErrorMessages = [...]string{
-	"Signal not found in DBC",
-	"Value out of bounds",
-	"Extraction failed",
-	"Value exceeds Int64 wire range",
-}
-
 // parseExtractionBin parses a packed binary extraction buffer into an ExtractionResult.
-// Buffer layout: [nvals:u16][nerrs:u16][nabss:u16] + values(18B) + errors(3B) + absent(2B).
+//
+// Buffer layout (canonical wire doc: the processExtractBin header comment in
+// src/Aletheia/Main/Binary.agda):
+//
+//	Header:  [nvals:u16][nerrs:u16][nabss:u16][reasonBytes:u32]  (10 bytes)
+//	Values:  nvals × (idx:u16, num:i64, den:i64)                 (18 bytes each)
+//	Errors:  nerrs × (idx:u16, code:u8)                          (3 bytes each)
+//	Offsets: (nerrs+1) × u32 — cumulative byte offsets into Reasons;
+//	         off[0] = 0, monotone non-decreasing, off[nerrs] = reasonBytes.
+//	Reasons: reasonBytes of UTF-8; error i's reason = bytes [off[i], off[i+1]).
+//	Absent:  nabss × (idx:u16)                                   (2 bytes each)
+//
+// Each error's reason is the kernel-minted detailed string carried on the
+// wire — byte-identical to what the JSON path surfaces for the same error.
+// The u8 error code (mirror of the Agda SSOT extractionErrorCodeToℕ in
+// Aletheia.CAN.BatchExtraction, injectivity machine-checked) is transported
+// for machine consumption but not surfaced on ExtractionResult: the JSON path
+// has no code field, and binary/JSON parity of the public surface is a repo
+// invariant. Unknown codes are not rejected — the reason is authoritative.
 func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
-	if len(buf) < 6 {
+	const headerSize = 10
+	if len(buf) < headerSize {
 		return nil, protocolError("extraction binary buffer too short")
 	}
-	nvals := binary.LittleEndian.Uint16(buf[0:2])
-	nerrs := binary.LittleEndian.Uint16(buf[2:4])
-	nabss := binary.LittleEndian.Uint16(buf[4:6])
-	off := 6
+	nvals := int(binary.LittleEndian.Uint16(buf[0:2]))
+	nerrs := int(binary.LittleEndian.Uint16(buf[2:4]))
+	nabss := int(binary.LittleEndian.Uint16(buf[4:6]))
+	reasonBytes := int(binary.LittleEndian.Uint32(buf[6:10]))
+
+	// Exact total-size check up front: shorter AND longer are both protocol
+	// errors. A size mismatch indicates drift between the Agda writer and the
+	// Go reader and would silently hide bugs if ignored.
+	want := headerSize + 18*nvals + 3*nerrs + 4*(nerrs+1) + reasonBytes + 2*nabss
+	if len(buf) != want {
+		return nil, protocolError(fmt.Sprintf("extraction binary buffer size mismatch: got %d bytes, want %d", len(buf), want))
+	}
+	off := headerSize
 
 	result := &ExtractionResult{
 		Values: make([]SignalValue, 0, nvals),
@@ -1254,9 +1270,6 @@ func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
 	}
 
 	for range nvals {
-		if off+18 > len(buf) {
-			return nil, protocolError("extraction binary buffer truncated in values")
-		}
 		idx := binary.LittleEndian.Uint16(buf[off : off+2])
 		num := int64(binary.LittleEndian.Uint64(buf[off+2 : off+10]))
 		den := int64(binary.LittleEndian.Uint64(buf[off+10 : off+18]))
@@ -1272,37 +1285,58 @@ func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
 		result.Values = append(result.Values, SignalValue{Name: name, Value: Rational{Numerator: num, Denominator: den}})
 	}
 
-	for range nerrs {
-		if off+3 > len(buf) {
-			return nil, protocolError("extraction binary buffer truncated in errors")
+	// Zero-error fast path (the per-frame hot case): with no errors and an
+	// empty reasons blob, the three offsets-table invariants collapse to the
+	// single entry being 0 — one read instead of the general machinery.  Any
+	// other shape (including a malformed one) takes the general path below,
+	// which raises the canonical invariant errors.
+	if nerrs == 0 && reasonBytes == 0 && binary.LittleEndian.Uint32(buf[off:off+4]) == 0 {
+		off += 4
+	} else {
+		// Errors segment carries (idx, code); the reason strings live in the
+		// Reasons blob, addressed via the Offsets table that follows.
+		errIdx := make([]uint16, 0, nerrs)
+		for range nerrs {
+			errIdx = append(errIdx, binary.LittleEndian.Uint16(buf[off:off+2]))
+			// buf[off+2] is the u8 error code — transported, not surfaced (see
+			// the function comment).
+			off += 3
 		}
-		idx := binary.LittleEndian.Uint16(buf[off : off+2])
-		code := buf[off+2]
-		off += 3
-		name := signalNameByIndex(names, idx)
-		var msg string
-		if int(code) < len(extractionErrorMessages) {
-			msg = extractionErrorMessages[code]
-		} else {
-			msg = fmt.Sprintf("unknown error code %d", code)
+
+		// Offsets table — always present, the single entry 0 when nerrs == 0.
+		// All three invariants must hold before slicing the Reasons blob.
+		offsets := make([]int, nerrs+1)
+		for i := range offsets {
+			offsets[i] = int(binary.LittleEndian.Uint32(buf[off : off+4]))
+			off += 4
 		}
-		result.Errors = append(result.Errors, SignalError{Name: name, Error: msg})
+		if offsets[0] != 0 {
+			return nil, protocolError(fmt.Sprintf("extraction binary reason offsets must start at 0, got %d", offsets[0]))
+		}
+		for i := 1; i < len(offsets); i++ {
+			if offsets[i] < offsets[i-1] {
+				return nil, protocolError(fmt.Sprintf("extraction binary reason offsets not monotone: offset %d is %d after %d", i, offsets[i], offsets[i-1]))
+			}
+		}
+		if offsets[nerrs] != reasonBytes {
+			return nil, protocolError(fmt.Sprintf("extraction binary reason offsets end at %d, want reasonBytes %d", offsets[nerrs], reasonBytes))
+		}
+
+		reasons := buf[off : off+reasonBytes]
+		off += reasonBytes
+		for i, idx := range errIdx {
+			reason := reasons[offsets[i]:offsets[i+1]]
+			if !utf8.Valid(reason) {
+				return nil, protocolError(fmt.Sprintf("extraction binary reason %d is not valid UTF-8", i))
+			}
+			result.Errors = append(result.Errors, SignalError{Name: signalNameByIndex(names, idx), Error: string(reason)})
+		}
 	}
 
 	for range nabss {
-		if off+2 > len(buf) {
-			return nil, protocolError("extraction binary buffer truncated in absent")
-		}
 		idx := binary.LittleEndian.Uint16(buf[off : off+2])
 		off += 2
 		result.Absent = append(result.Absent, signalNameByIndex(names, idx))
-	}
-
-	// Reject trailing bytes: the header (6B) + all entries must consume the whole
-	// buffer. Extra bytes indicate a protocol mismatch between Agda writer and Go
-	// reader and would silently hide bugs if ignored.
-	if off != len(buf) {
-		return nil, protocolError(fmt.Sprintf("extraction binary buffer has %d trailing bytes", len(buf)-off))
 	}
 
 	result.buildIndex()

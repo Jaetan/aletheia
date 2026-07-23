@@ -5,6 +5,7 @@
 // Run with: ctest -R integration (or ./integration_tests)
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <aletheia/aletheia.hpp>
 
@@ -15,6 +16,7 @@
 #include <array>
 #include <barrier>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <expected>
@@ -323,13 +325,15 @@ namespace {
 // Delegates every backend operation to a real FFI backend so parse_dbc (which
 // populates the client's signal-name cache and thus arms the binary extraction
 // path) works for real — except extract_signals_bin, which hands back a
-// caller-supplied buffer.  Lets us drive parse_extraction_bin's size-validation
-// paths through the public API: a buffer that is too short (truncation) OR
-// too long (trailing bytes) must surface a Protocol error, not decode as a
-// silent success.
+// caller-supplied result.  Lets us drive parse_extraction_bin's validation
+// paths through the public API with crafted wire buffers (truncation, size
+// mismatch, offset-table violations, invalid UTF-8 — each must surface a
+// Protocol error, not decode as a silent success), or force the JSON fallback
+// by handing back an ErrorKind::BinaryUnsupported error.
 class FixedBinExtractBackend : public IBackend {
 public:
-    FixedBinExtractBackend(std::unique_ptr<IBackend> inner, std::vector<std::byte> buf)
+    FixedBinExtractBackend(std::unique_ptr<IBackend> inner,
+                           std::expected<std::vector<std::byte>, AletheiaError> buf)
         : inner_(std::move(inner))
         , buf_(std::move(buf)) {}
 
@@ -364,7 +368,7 @@ public:
         return inner_->extract_signals_binary(state, id, dlc, data);
     }
 
-    // The method under test: hand back the caller-supplied buffer verbatim.
+    // The method under test: hand back the caller-supplied result verbatim.
     auto extract_signals_bin(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
                              std::span<const std::byte> /*data*/)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
@@ -373,53 +377,246 @@ public:
 
 private:
     std::unique_ptr<IBackend> inner_;
-    std::vector<std::byte> buf_;
+    std::expected<std::vector<std::byte>, AletheiaError> buf_;
 };
+
+// Little-endian builder for crafted extraction wire buffers (native byte
+// order; the client refuses to compile on big-endian hosts). Layout under
+// test: src/Aletheia/Main/Binary.agda, processExtractBin header comment.
+struct WireBuf {
+    std::vector<std::byte> bytes;
+
+    void u8(std::uint8_t v) { bytes.push_back(std::byte{v}); }
+    void u16(std::uint16_t v) {
+        u8(static_cast<std::uint8_t>(v & 0xFF));
+        u8(static_cast<std::uint8_t>(v >> 8));
+    }
+    void u32(std::uint32_t v) {
+        u16(static_cast<std::uint16_t>(v & 0xFFFF));
+        u16(static_cast<std::uint16_t>(v >> 16));
+    }
+    void i64(std::int64_t v) {
+        auto u = static_cast<std::uint64_t>(v);
+        for (int i = 0; i < 8; ++i)
+            u8(static_cast<std::uint8_t>((u >> (8 * i)) & 0xFF));
+    }
+    void str(std::string_view s) {
+        for (char c : s)
+            u8(static_cast<std::uint8_t>(c));
+    }
+    void header(std::uint16_t nvals, std::uint16_t nerrs, std::uint16_t nabss,
+                std::uint32_t reason_bytes) {
+        u16(nvals);
+        u16(nerrs);
+        u16(nabss);
+        u32(reason_bytes);
+    }
+};
+
+// Runs extract_signals against a crafted binary extraction buffer through the
+// public API (real .so for parse_dbc; the fixed buffer for the binary path).
+static auto extract_with_crafted_buf(std::vector<std::byte> buf) -> Result<ExtractionResult> {
+    auto backend = std::make_unique<FixedBinExtractBackend>(make_ffi_backend(find_lib()),
+                                                            /*buf=*/std::move(buf));
+    AletheiaClient client(std::move(backend));
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    return client.extract_signals(std::stop_token{}, id, dlc, data);
+}
+
+static auto expect_protocol_error(std::vector<std::byte> buf) {
+    auto result = extract_with_crafted_buf(std::move(buf));
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    return result.error();
+}
 
 } // namespace
 
+TEST_CASE("binary extraction decodes values, wire reasons, and absent exactly", "[integration]") {
+    // One value, two errors with distinct kernel-minted reasons — the first
+    // contains multi-byte UTF-8, so the second slice's byte offset differs
+    // from its character offset (proves the offsets are byte counts) — and
+    // one absent signal.  The second error carries an unknown u8 code (42):
+    // codes are transported, never rejected — the wire reason is
+    // authoritative.
+    const std::string_view reason_a = "value Δ out of bounds: 16383.75 not in [0, 8000]";
+    const std::string_view reason_b = "signal 'X' not found in message";
+    WireBuf w;
+    w.header(/*nvals=*/1, /*nerrs=*/2, /*nabss=*/1,
+             static_cast<std::uint32_t>(reason_a.size() + reason_b.size()));
+    // Values: Speed (idx 0) = 250/2 = 125.
+    w.u16(0);
+    w.i64(250);
+    w.i64(2);
+    // Errors: RPM (idx 1, code 1 = OutOfBounds) + idx 7 (not in the message
+    // → placeholder name) with unknown code 42.
+    w.u16(1);
+    w.u8(1);
+    w.u16(7);
+    w.u8(42);
+    // Offsets (nerrs + 1 entries, cumulative byte counts into Reasons).
+    w.u32(0);
+    w.u32(static_cast<std::uint32_t>(reason_a.size()));
+    w.u32(static_cast<std::uint32_t>(reason_a.size() + reason_b.size()));
+    // Reasons blob, then Absent: idx 6 (placeholder name).
+    w.str(reason_a);
+    w.str(reason_b);
+    w.u16(6);
+
+    auto result = extract_with_crafted_buf(std::move(w.bytes));
+    REQUIRE(result.has_value());
+    REQUIRE(result->values.size() == 1);
+    CHECK(result->values[0].name == SignalName{"Speed"});
+    CHECK(result->values[0].value == PhysicalValue{Rational{125, 1}});
+    REQUIRE(result->errors.size() == 2);
+    CHECK(result->errors[0].name == SignalName{"RPM"});
+    CHECK(result->errors[0].reason == reason_a);
+    CHECK(result->errors[1].name == SignalName{"signal_7"});
+    CHECK(result->errors[1].reason == reason_b);
+    REQUIRE(result->absent.size() == 1);
+    CHECK(result->absent[0] == SignalName{"signal_6"});
+}
+
+TEST_CASE("binary extraction with zero errors decodes the lone offset entry", "[integration]") {
+    // With nErrors == 0 the offsets segment is still present: exactly one
+    // u32 entry that must be 0 (== reasonBytes).
+    WireBuf w;
+    w.header(/*nvals=*/1, /*nerrs=*/0, /*nabss=*/0, /*reason_bytes=*/0);
+    w.u16(1); // RPM
+    w.i64(3000);
+    w.i64(1);
+    w.u32(0); // lone offsets entry
+
+    auto result = extract_with_crafted_buf(std::move(w.bytes));
+    REQUIRE(result.has_value());
+    REQUIRE(result->values.size() == 1);
+    CHECK(result->values[0].name == SignalName{"RPM"});
+    CHECK(result->errors.empty());
+    CHECK(result->absent.empty());
+}
+
 TEST_CASE("truncated binary extraction surfaces a Protocol error", "[integration]") {
-    auto lib = find_lib();
-    // A 3-byte buffer is shorter than the mandatory 6-byte header.
-    auto backend = std::make_unique<FixedBinExtractBackend>(
-        make_ffi_backend(lib), std::vector<std::byte>(3, std::byte{0}));
-    AletheiaClient client(std::move(backend));
-
-    // Loads the DBC for real → the client's signal-name cache is populated, so
-    // extract_signals takes the binary path and calls our fixed-buffer override.
-    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
-
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
-    FramePayload data{std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
-                      std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}};
-
-    auto result = client.extract_signals(std::stop_token{}, id, dlc, data);
-    // Pre-fix this returned a success-empty ExtractionResult (zero signals);
-    // the fix makes a truncated buffer a Protocol error.
-    REQUIRE_FALSE(result.has_value());
-    CHECK(result.error().kind() == ErrorKind::Protocol);
+    // A 9-byte buffer is one byte short of the mandatory 10-byte header
+    // (3×u16 counts + u32 reasonBytes).
+    expect_protocol_error(std::vector<std::byte>(9, std::byte{0}));
 }
 
 TEST_CASE("binary extraction with trailing bytes surfaces a Protocol error", "[integration]") {
+    // An all-zero 10-byte header (0 values / 0 errors / 0 absent, 0 reason
+    // bytes) plus the mandatory lone offsets entry is exactly expected_size
+    // == 14; the 15th byte is trailing data the layout does not account for,
+    // so the decoder must reject it rather than ignore the tail.
+    expect_protocol_error(std::vector<std::byte>(15, std::byte{0}));
+}
+
+TEST_CASE("binary extraction rejects a nonzero first reason offset", "[integration]") {
+    WireBuf w;
+    w.header(/*nvals=*/0, /*nerrs=*/1, /*nabss=*/0, /*reason_bytes=*/4);
+    w.u16(0);
+    w.u8(1);
+    w.u32(1); // off[0] must be 0
+    w.u32(4);
+    w.str("abcd");
+    auto err = expect_protocol_error(std::move(w.bytes));
+    CHECK(std::string_view{err.message()}.find("offsets") != std::string_view::npos);
+}
+
+TEST_CASE("binary extraction rejects non-monotone reason offsets", "[integration]") {
+    WireBuf w;
+    w.header(/*nvals=*/0, /*nerrs=*/2, /*nabss=*/0, /*reason_bytes=*/4);
+    w.u16(0);
+    w.u8(1);
+    w.u16(1);
+    w.u8(1);
+    w.u32(0);
+    w.u32(5); // decreases into off[2] = 4
+    w.u32(4);
+    w.str("abcd");
+    auto err = expect_protocol_error(std::move(w.bytes));
+    CHECK(std::string_view{err.message()}.find("offsets") != std::string_view::npos);
+}
+
+TEST_CASE("binary extraction rejects a final offset that mismatches reasonBytes", "[integration]") {
+    WireBuf w;
+    w.header(/*nvals=*/0, /*nerrs=*/1, /*nabss=*/0, /*reason_bytes=*/4);
+    w.u16(0);
+    w.u8(1);
+    w.u32(0);
+    w.u32(3); // off[nErrors] must equal reasonBytes (4)
+    w.str("abcd");
+    auto err = expect_protocol_error(std::move(w.bytes));
+    CHECK(std::string_view{err.message()}.find("offsets") != std::string_view::npos);
+}
+
+TEST_CASE("binary extraction rejects invalid UTF-8 in a reason slice", "[integration]") {
+    WireBuf w;
+    w.header(/*nvals=*/0, /*nerrs=*/1, /*nabss=*/0, /*reason_bytes=*/2);
+    w.u16(0);
+    w.u8(1);
+    w.u32(0);
+    w.u32(2);
+    w.u8(0xFF); // 0xFF is never valid in UTF-8
+    w.u8(0xFE);
+    auto err = expect_protocol_error(std::move(w.bytes));
+    CHECK(std::string_view{err.message()}.find("UTF-8") != std::string_view::npos);
+}
+
+TEST_CASE("binary extraction rejects a non-positive denominator", "[integration]") {
+    // den == 0 hits the zero-denominator guard; den < 0 is rejected by the
+    // Rational newtype (denominators are strictly positive on the wire).
+    const auto den = GENERATE(std::int64_t{0}, std::int64_t{-3});
+    WireBuf w;
+    w.header(/*nvals=*/1, /*nerrs=*/0, /*nabss=*/0, /*reason_bytes=*/0);
+    w.u16(0);
+    w.i64(250);
+    w.i64(den);
+    w.u32(0); // lone offsets entry
+    expect_protocol_error(std::move(w.bytes));
+}
+
+TEST_CASE("binary and JSON extraction agree byte-for-byte on error reasons",
+          "[integration][parity]") {
+    // Same out-of-bounds frame through both wire paths: the binary path
+    // (kernel-minted reason carried on the wire) and the JSON path (reason
+    // formatted by the same kernel resultToString) must surface identical
+    // reason strings — reason parity is machine-checked kernel-side
+    // (Aletheia.CAN.Batch.Properties.ReasonParity); this pins the C++
+    // binding's end of it.
     auto lib = find_lib();
-    // A valid all-zero 6-byte header (0 values / 0 errors / 0 abs) is exactly
-    // expected_size == 6; the 7th byte is trailing data the layout does not
-    // account for, so the decoder must reject it rather than ignore the tail.
-    auto backend = std::make_unique<FixedBinExtractBackend>(
-        make_ffi_backend(lib), std::vector<std::byte>(7, std::byte{0}));
-    AletheiaClient client(std::move(backend));
-
-    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
-
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
-    FramePayload data{std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
-                      std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}};
+    // Speed raw 0xFFFF → 6553.5 km/h, above the DBC maximum of 655.35.
+    FramePayload data{std::byte{0xFF}, std::byte{0xFF}, std::byte{0}, std::byte{0},
+                      std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
 
-    auto result = client.extract_signals(std::stop_token{}, id, dlc, data);
-    REQUIRE_FALSE(result.has_value());
-    CHECK(result.error().kind() == ErrorKind::Protocol);
+    AletheiaClient bin_client(make_ffi_backend(lib));
+    REQUIRE(bin_client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+    auto bin = bin_client.extract_signals(std::stop_token{}, id, dlc, data);
+    REQUIRE(bin.has_value());
+
+    // Force the JSON fallback by handing the fixed-result backend a
+    // BinaryUnsupported error (the same sentinel MockBackend uses).
+    auto json_backend = std::make_unique<FixedBinExtractBackend>(
+        make_ffi_backend(lib),
+        std::unexpected(AletheiaError{ErrorKind::BinaryUnsupported,
+                                      "binary path not supported by this backend"}));
+    AletheiaClient json_client(std::move(json_backend));
+    REQUIRE(json_client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+    auto json = json_client.extract_signals(std::stop_token{}, id, dlc, data);
+    REQUIRE(json.has_value());
+
+    REQUIRE(bin->errors.size() == 1);
+    REQUIRE(json->errors.size() == 1);
+    CHECK(bin->errors[0].name == SignalName{"Speed"});
+    CHECK(bin->errors[0].name == json->errors[0].name);
+    CHECK(bin->errors[0].reason == json->errors[0].reason);
+    // The reason is the kernel's detailed out-of-bounds string, not a
+    // generic per-code message.
+    CHECK(std::string_view{bin->errors[0].reason}.find("not in [") != std::string_view::npos);
 }
 
 TEST_CASE("build frame via real FFI", "[integration]") {

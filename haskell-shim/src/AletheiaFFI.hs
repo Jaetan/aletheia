@@ -267,7 +267,9 @@ aletheia_update_frame_bin statePtr canId ext dlc dataPtr dataLen
                   outBuf outErr
 
 -- | Wire format documented in Main.agda processExtractBin (canonical source).
--- Header(3×u16) + Values(×18B) + Errors(×3B) + Absent(×2B). Native byte order.
+-- Header(3×u16 + u32 reasonBytes) + Values(×18B) + Errors(×3B)
+-- + Offsets((nErrors+1)×u32) + Reasons(UTF-8 blob) + Absent(×2B).
+-- Native byte order.
 foreign export ccall aletheia_extract_signals_bin
     :: StateHandle -> Word32 -> Word8 -> Word8
     -> Ptr Word8 -> Word8
@@ -296,11 +298,17 @@ aletheia_extract_signals_bin statePtr canId ext dlc dataPtr dataLen outBufPtr ou
                   AgdaSum.C_inj'8321'_38 errAny ->
                       errorOut (T.unpack (unsafeCoerce errAny :: T.Text)) outErr
                   AgdaSum.C_inj'8322'_42 ierAny -> do
-                      (buf, bufSize) <- packPartitionedResults
+                      packedE <- packPartitionedResults
                           (unsafeCoerce ierAny :: AgdaBatch.T_PartitionedResults_10)
-                      poke outBufPtr buf
-                      poke outSizePtr (fromIntegral bufSize)
-                      return 0
+                      case packedE of
+                          -- Unreachable with kernel-bounded reason strings
+                          -- (u32 offset space), but total: fail loudly, never
+                          -- truncate or wrap.
+                          Left packErr -> errorOut packErr outErr
+                          Right (buf, bufSize) -> do
+                              poke outBufPtr buf
+                              poke outSizePtr (fromIntegral bufSize)
+                              return 0
 
 -- ============================================================================
 -- MEMORY MANAGEMENT

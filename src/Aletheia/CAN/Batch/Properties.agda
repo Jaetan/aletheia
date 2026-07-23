@@ -6,7 +6,7 @@
 --
 -- Purpose: Facade re-exporting all proof lemmas about batch extraction/building
 --   operations from per-topic submodules.
--- Submodules: Roundtrip, Completeness, Capstone.
+-- Submodules: Roundtrip, Completeness, ReasonParity, Capstone.
 --
 -- Proof flow:
 --   1. validateDBCFull dbc succeeds → DBCValid dbc
@@ -37,6 +37,14 @@ open import Aletheia.CAN.Batch.Properties.Roundtrip public using
 open import Aletheia.CAN.Batch.Properties.Completeness public using
   ( totalEntries
   ; extractAll-complete
+  )
+
+-- Binary/JSON reason parity + wire-code distinctness
+open import Aletheia.CAN.Batch.Properties.ReasonParity public using
+  ( reason-parity
+  ; extractionErrorCodeFromℕ
+  ; fromℕ∘toℕ
+  ; extractionErrorCodeToℕ-injective
   )
 
 -- Capstone theorem: ValidDBC → batch roundtrip, representability

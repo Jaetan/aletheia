@@ -19,6 +19,7 @@ import Data.Bits (toIntegralSized)
 import Data.Int (Int8, Int64)
 import Data.Word (Word8, Word16, Word32)
 import qualified Data.Text as T
+import qualified Data.Text.Foreign as TF
 import Unsafe.Coerce (unsafeCoerce)
 
 import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
@@ -57,7 +58,7 @@ dispatchSumResult (AgdaSum.C_inj'8322'_42 vecAny) outBuf _ = do
 -- hardcodes a wire constant — the code mints in the kernel enum.
 valueExceedsWireRangeCode :: Integer
 valueExceedsWireRangeCode =
-    AgdaBatch.d_extractionErrorCodeToℕ_150 AgdaBatch.C_ValueExceedsWireRange_148
+    AgdaBatch.d_extractionErrorCodeToℕ_158 AgdaBatch.C_ValueExceedsWireRange_148
 
 -- | Split one (index, ℚ) value pair into its wire components.  The kernel
 -- rational is unbounded; the wire's rational slots are i64.  `toIntegralSized`
@@ -76,44 +77,70 @@ splitValueEntry pair =
         den = AgdaRational.d_denominatorℕ_20 rat
     in (idx, (,) <$> toIntegralSized num <*> toIntegralSized den)
 
--- | Convert one kernel (index, ExtractionErrorCode) error pair to its wire
--- pair via the kernel's u8 mapping.
-kernelErrorEntry :: AgdaSigma.T_Σ_14 -> (Integer, Integer)
+-- | Reason string for the encoder guard's reroute, pulled from the kernel
+-- (`wireRangeReason` in CAN/BatchExtraction.agda) so the shim never
+-- hardcodes reason text — same SSOT discipline as the reroute code above.
+wireRangeReasonText :: T.Text
+wireRangeReasonText = unsafeCoerce AgdaBatch.d_wireRangeReason_164 :: T.Text
+
+-- | Convert one kernel (index, (code, reason)) error entry to its wire
+-- components via the kernel's u8 mapping.  The reason Text travels the wire
+-- verbatim (UTF-8, delimited by the offsets table) — kernel-minted, never
+-- synthesized here.
+kernelErrorEntry :: AgdaSigma.T_Σ_14 -> (Integer, Integer, T.Text)
 kernelErrorEntry pair =
-    ( unsafeCoerce (AgdaSigma.d_fst_28 pair) :: Integer
-    , AgdaBatch.d_extractionErrorCodeToℕ_150 (unsafeCoerce (AgdaSigma.d_snd_30 pair))
-    )
+    let codeReason = unsafeCoerce (AgdaSigma.d_snd_30 pair) :: AgdaSigma.T_Σ_14
+    in ( unsafeCoerce (AgdaSigma.d_fst_28 pair) :: Integer
+       , AgdaBatch.d_extractionErrorCodeToℕ_158 (unsafeCoerce (AgdaSigma.d_fst_28 codeReason))
+       , unsafeCoerce (AgdaSigma.d_snd_30 codeReason) :: T.Text
+       )
 
 -- | Pack a PartitionedResults into a freshly-malloc'd buffer.
--- Wire format: Header(3×u16: nVals,nErrs,nAbs) + Values(×18B) + Errors(×3B) + Absent(×2B).
+-- Wire format (canonical doc: Main.agda processExtractBin):
+--   Header(3×u16: nVals,nErrs,nAbs + u32 reasonBytes) + Values(×18B)
+--   + Errors(×3B) + Offsets((nErrs+1)×u32, cumulative into Reasons)
+--   + Reasons(UTF-8 blob) + Absent(×2B).
 -- Encoder guard: values whose reduced numerator or denominator does not fit
 -- the i64 wire slots are rerouted to the error stream with the kernel-minted
--- ValueExceedsWireRange code (appended after the kernel's own error entries;
--- binding decoders key on signal index, not segment order).  The counts and
--- buffer size are computed AFTER the partition so the header always matches
--- the written segments.
+-- ValueExceedsWireRange code and wireRangeReason string (appended after the
+-- kernel's own error entries; binding decoders key on signal index, not
+-- segment order).  The counts and buffer size are computed AFTER the
+-- partition so the header always matches the written segments.
+-- Fails loudly (Left) if the reason blob would exceed the u32 offset space —
+-- unreachable with kernel-bounded reason strings, but total: never truncate,
+-- never wrap.
 -- Returns (buffer, total size). Caller frees via aletheia_free_buf.
-packPartitionedResults :: AgdaBatch.T_PartitionedResults_10 -> IO (Ptr Word8, Int)
+packPartitionedResults :: AgdaBatch.T_PartitionedResults_10 -> IO (Either String (Ptr Word8, Int))
 packPartitionedResults ier = do
     let vals = unsafeCoerce (AgdaBatch.d_values_22 ier) :: [AgdaSigma.T_Σ_14]
     let errs = unsafeCoerce (AgdaBatch.d_errors_24 ier) :: [AgdaSigma.T_Σ_14]
     let abss = unsafeCoerce (AgdaBatch.d_absent_26 ier) :: [Integer]
     let split    = map splitValueEntry vals
     let okVals   = [ (idx, n, d) | (idx, Just (n, d)) <- split ]
-    let overflow = [ (idx, valueExceedsWireRangeCode) | (idx, Nothing) <- split ]
-    let errPairs = map kernelErrorEntry errs ++ overflow
+    let overflow = [ (idx, valueExceedsWireRangeCode, wireRangeReasonText)
+                   | (idx, Nothing) <- split ]
+    let errEntries = map kernelErrorEntry errs ++ overflow
+    let offsets  = scanl (+) 0 [ TF.lengthWord8 t | (_, _, t) <- errEntries ]
+    let reasonBytes = last offsets
     let nvals = length okVals
-    let nerrs = length errPairs
+    let nerrs = length errEntries
     let nabss = length abss
-    let bufSize = 6 + nvals * 18 + nerrs * 3 + nabss * 2
-    buf <- mallocBytes bufSize
-    poke (castPtr buf :: Ptr Word16) (fromIntegral nvals)
-    poke (castPtr (buf `plusPtr` 2) :: Ptr Word16) (fromIntegral nerrs)
-    poke (castPtr (buf `plusPtr` 4) :: Ptr Word16) (fromIntegral nabss)
-    p1 <- writeExtrValues (buf `plusPtr` 6) okVals
-    p2 <- writeExtrErrors p1 errPairs
-    _  <- writeExtrAbsent p2 abss
-    return (buf, bufSize)
+    if toInteger reasonBytes > toInteger (maxBound :: Word32)
+      then return (Left "extraction reason blob exceeds the u32 offset space")
+      else do
+        let bufSize = 10 + nvals * 18 + nerrs * 3 + (nerrs + 1) * 4
+                         + reasonBytes + nabss * 2
+        buf <- mallocBytes bufSize
+        poke (castPtr buf :: Ptr Word16) (fromIntegral nvals)
+        poke (castPtr (buf `plusPtr` 2) :: Ptr Word16) (fromIntegral nerrs)
+        poke (castPtr (buf `plusPtr` 4) :: Ptr Word16) (fromIntegral nabss)
+        poke (castPtr (buf `plusPtr` 6) :: Ptr Word32) (fromIntegral reasonBytes)
+        p1 <- writeExtrValues (buf `plusPtr` 10) okVals
+        p2 <- writeExtrErrors p1 [ (i, c) | (i, c, _) <- errEntries ]
+        p3 <- writeExtrOffsets p2 offsets
+        p4 <- writeExtrReasons p3 [ t | (_, _, t) <- errEntries ]
+        _  <- writeExtrAbsent p4 abss
+        return (Right (buf, bufSize))
 
 -- | Write value entries: signal_index(u16) + numerator(i64) + denominator(i64).
 -- Components arrive pre-checked as Int64 (splitValueEntry) — no conversion
@@ -133,6 +160,21 @@ writeExtrErrors ptr ((idx, code):rest) = do
     poke (castPtr ptr :: Ptr Word16) (fromIntegral idx)
     poke (ptr `plusPtr` 2) (fromIntegral code :: Word8)
     writeExtrErrors (ptr `plusPtr` 3) rest
+
+-- | Write the cumulative reason offsets: (nErrors+1) × u32.
+writeExtrOffsets :: Ptr Word8 -> [Int] -> IO (Ptr Word8)
+writeExtrOffsets ptr [] = return ptr
+writeExtrOffsets ptr (o:rest) = do
+    poke (castPtr ptr :: Ptr Word32) (fromIntegral o)
+    writeExtrOffsets (ptr `plusPtr` 4) rest
+
+-- | Write the reason blob: each reason's UTF-8 bytes back to back — the
+-- offsets table written just before delimits them.
+writeExtrReasons :: Ptr Word8 -> [T.Text] -> IO (Ptr Word8)
+writeExtrReasons ptr [] = return ptr
+writeExtrReasons ptr (t:rest) = do
+    TF.unsafeCopyToPtr t ptr
+    writeExtrReasons (ptr `plusPtr` TF.lengthWord8 t) rest
 
 -- | Write absent entries: signal_index(u16).
 writeExtrAbsent :: Ptr Word8 -> [Integer] -> IO (Ptr Word8)
