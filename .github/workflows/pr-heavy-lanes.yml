@@ -84,7 +84,6 @@ jobs:
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
           ghcup install ghc "${GHC_VERSION}" --set
           ghcup install cabal 3.12.1.0 --set
-          cabal update
           echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
 
@@ -97,6 +96,16 @@ jobs:
             ~/.cabal/packages
             ~/.cabal/bin
           key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      # cabal's package index lives in the restored ~/.cabal/packages, so a fresh
+      # `cabal update` is redundant on a cache hit — and running it unconditionally
+      # before the restore made this lane hostage to the hackage-security bootstrap
+      # (the fresh TUF root.json fetch), which fails during a Hackage root-metadata
+      # outage even though the primary is up. Run it only on a miss (mirrors
+      # pr-full-ci.yml), where `cabal install Agda` below needs a current index.
+      - name: Update cabal package index (only on a cabal-store cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        run: cabal update
 
       - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
         run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
@@ -162,7 +171,6 @@ jobs:
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
           ghcup install ghc "${GHC_VERSION}" --set
           ghcup install cabal 3.12.1.0 --set
-          cabal update
           echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
 
@@ -175,6 +183,16 @@ jobs:
             ~/.cabal/packages
             ~/.cabal/bin
           key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      # cabal's package index lives in the restored ~/.cabal/packages, so a fresh
+      # `cabal update` is redundant on a cache hit — and running it unconditionally
+      # before the restore made this lane hostage to the hackage-security bootstrap
+      # (the fresh TUF root.json fetch), which fails during a Hackage root-metadata
+      # outage even though the primary is up. Run it only on a miss (mirrors
+      # pr-full-ci.yml), where `cabal install Agda` below needs a current index.
+      - name: Update cabal package index (only on a cabal-store cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        run: cabal update
 
       - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
         run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
@@ -352,7 +370,6 @@ jobs:
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
           ghcup install ghc "${GHC_VERSION}" --set
           ghcup install cabal 3.12.1.0 --set
-          cabal update
           echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
 
@@ -365,6 +382,16 @@ jobs:
             ~/.cabal/packages
             ~/.cabal/bin
           key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      # cabal's package index lives in the restored ~/.cabal/packages, so a fresh
+      # `cabal update` is redundant on a cache hit — and running it unconditionally
+      # before the restore made this lane hostage to the hackage-security bootstrap
+      # (the fresh TUF root.json fetch), which fails during a Hackage root-metadata
+      # outage even though the primary is up. Run it only on a miss (mirrors
+      # pr-full-ci.yml), where `cabal install Agda` below needs a current index.
+      - name: Update cabal package index (only on a cabal-store cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        run: cabal update
 
       - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
         run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
