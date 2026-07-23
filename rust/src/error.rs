@@ -122,6 +122,15 @@ pub enum Error {
     /// is the underlying error for that frame. (The structured analogue of Go's
     /// / C++'s `"frame N: …"` message prefix and Python's `BatchError.frame_index`.)
     Frame { index: usize, source: Box<Error> },
+    /// Internal signal: this backend has no binary FFI (e.g. a mock), so the
+    /// caller should fall back to the JSON extraction path. The [`Client`] never
+    /// surfaces this to callers — it is consumed by the `extract_signals`
+    /// fallback and is only observable through a custom [`Backend`] impl. Mirrors
+    /// Go's `ErrBinaryPathUnsupported` sentinel.
+    ///
+    /// [`Client`]: crate::Client
+    /// [`Backend`]: crate::Backend
+    BinaryPathUnsupported,
 }
 
 impl Error {
@@ -149,6 +158,9 @@ impl fmt::Display for Error {
             Error::NullResponse => write!(f, "core returned a null response"),
             Error::Validation(msg) => write!(f, "validation error: {msg}"),
             Error::Protocol(msg) => write!(f, "protocol error: {msg}"),
+            Error::BinaryPathUnsupported => {
+                write!(f, "binary extraction path not supported by this backend")
+            }
             Error::Core { code, message } => write!(f, "core error [{code}]: {message}"),
             Error::InputBoundExceeded {
                 bound_kind,

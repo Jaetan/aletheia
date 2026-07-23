@@ -89,6 +89,14 @@ fn validate_frame_len(dlc: Dlc, data: &[u8]) -> Result<(), Error> {
     Ok(())
 }
 
+/// Stable signal-name-cache key from a raw CAN id value + its extended flag
+/// (mirrors Go's `canIDKey`). Bit 32 carries the extended flag — safe because a
+/// CAN id value is at most 29 bits, so a standard and an extended message with
+/// the same numeric id map to distinct keys.
+fn can_key(value: u32, extended: bool) -> u64 {
+    u64::from(value) | (u64::from(extended) << 32)
+}
+
 /// One frame for batch submission via [`Client::send_frames`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Frame {
@@ -177,6 +185,14 @@ pub struct Client {
     /// The most recent frame seen per CAN id during streaming (when diagnostics
     /// are set) — re-extracted at end-of-stream to enrich the final verdicts.
     last_frames: RefCell<HashMap<CanId, (Dlc, Vec<u8>)>>,
+    /// Per-CAN-id ordered signal names, populated from the parsed DBC. The binary
+    /// extraction wire keys values by positional signal index, so this cache maps
+    /// each index back to a name (see `response::decode_extraction_bin`). Keyed by
+    /// [`can_key`] (value + extended bit, mirroring Go's `canIDKey`) so a standard
+    /// and an extended message sharing a numeric id do not collide. No entry for a
+    /// CAN id routes `extract_signals` to the JSON fallback. `RefCell` because the
+    /// client methods take `&self`.
+    signal_names: RefCell<HashMap<u64, Vec<String>>>,
     /// Makes the `!Send + !Sync` contract explicit and future-proof. A
     /// `Box<dyn Backend>` (no `Send` bound) is already `!Send + !Sync`, so this
     /// is not load-bearing today — but it keeps `Client` thread-bound even if a
@@ -344,6 +360,7 @@ impl Client {
             min_level,
             diags: RefCell::new(Vec::new()),
             last_frames: RefCell::new(HashMap::new()),
+            signal_names: RefCell::new(HashMap::new()),
             _not_send_sync: PhantomData,
         }
     }
@@ -578,6 +595,7 @@ impl Client {
         let cmd = json!({ "type": "command", "command": "parseDBCText", "text": text });
         let raw = self.process(&cmd.to_string())?;
         let parsed = dbc::decode_parsed_dbc(&raw)?;
+        self.populate_signal_names(&parsed.dbc);
         self.emit(
             LogLevel::Info,
             events::DBC_PARSED,
@@ -617,6 +635,7 @@ impl Client {
         cmd["dbc"] = dbc.to_value();
         let raw = self.process(&cmd.to_string())?;
         let parsed = dbc::decode_parsed_dbc(&raw)?;
+        self.populate_signal_names(&parsed.dbc);
         self.emit(
             LogLevel::Info,
             events::DBC_PARSED,
@@ -626,6 +645,22 @@ impl Client {
             )],
         );
         Ok(parsed)
+    }
+
+    /// Rebuild the per-CAN-id signal-name cache from a freshly-parsed DBC (the
+    /// canonical, post-validation document the kernel now holds). Replaces the
+    /// whole map so a re-parse cannot leave stale names. Each message's signals
+    /// are stored in positional order — the order the kernel assigns binary-
+    /// extraction indices, so `names[idx]` in `decode_extraction_bin` is correct.
+    fn populate_signal_names(&self, dbc: &Dbc) {
+        let mut cache = self.signal_names.borrow_mut();
+        cache.clear();
+        for msg in &dbc.messages {
+            cache.insert(
+                can_key(msg.id, msg.extended),
+                msg.signals.iter().map(|s| s.name.clone()).collect(),
+            );
+        }
     }
 
     /// Run the structural validator over a typed [`Dbc`] without modifying this
@@ -859,38 +894,62 @@ impl Client {
         data: &[u8],
     ) -> Result<ExtractionResult, Error> {
         validate_frame_len(dlc, data)?;
-        // A backend failure (FFI/process boundary) and a parse failure are the two
-        // observable extraction errors; each is logged at Warn with the same
-        // `canId` + `error` fields as Go's `extractSignalsLocked` (client.go) and
-        // the Python/C++ bindings. Both the public API and the enrichment loop
-        // funnel through here (`extract_all` calls `extract_signals`), so a single
-        // pair of emit sites covers both paths — mirroring Go's shared primitive.
+        // Binary fast path: when the signal names for this CAN id are cached (a DBC
+        // was parsed), decode the packed binary buffer directly — no JSON
+        // serialize/parse. Fall back to the JSON path ONLY when there are no cached
+        // names or the backend has no binary FFI (a mock → BinaryPathUnsupported);
+        // any OTHER binary error is a real failure and is surfaced, not silently
+        // retried on the JSON path. Mirrors Go's extractSignalsLocked. Both the
+        // public API and the enrichment loop funnel through here, so the two emit
+        // sites (process-failed / parse-failed) cover every path.
+        // The signal_names borrow is held across the FFI call + decode so the
+        // cached names pass by reference — no per-call clone on the hot path.
+        // Nothing in this block re-borrows signal_names (the FFI call, the decode,
+        // and log_extraction_failure all touch other state), so the RefCell borrow
+        // is safe; the block scopes it so the JSON fallback below runs with it
+        // already dropped.
+        {
+            let cache = self.signal_names.borrow();
+            if let Some(names) = cache.get(&can_key(id.value(), id.is_extended())) {
+                match self.backend.extract_signals_bin(id, dlc, data) {
+                    Ok(buf) => {
+                        return response::decode_extraction_bin(&buf, names).inspect_err(|e| {
+                            self.log_extraction_failure(id, events::EXTRACTION_PARSE_FAILED, e);
+                        });
+                    }
+                    Err(Error::BinaryPathUnsupported) => { /* fall through to JSON path */ }
+                    Err(e) => {
+                        self.log_extraction_failure(id, events::EXTRACTION_PROCESS_FAILED, &e);
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        // JSON fallback: no cached names, or the backend has no binary path.
         let raw = match self.backend.extract_signals_binary(id, dlc, data) {
             Ok(raw) => raw,
             Err(e) => {
-                let msg = e.to_string();
-                self.emit(
-                    LogLevel::Warn,
-                    events::EXTRACTION_PROCESS_FAILED,
-                    &[
-                        LogField::new("canId", LogValue::U64(u64::from(id.value()))),
-                        LogField::new("error", LogValue::Str(&msg)),
-                    ],
-                );
+                self.log_extraction_failure(id, events::EXTRACTION_PROCESS_FAILED, &e);
                 return Err(e);
             }
         };
         response::decode_extraction(&raw).inspect_err(|e| {
-            let msg = e.to_string();
-            self.emit(
-                LogLevel::Warn,
-                events::EXTRACTION_PARSE_FAILED,
-                &[
-                    LogField::new("canId", LogValue::U64(u64::from(id.value()))),
-                    LogField::new("error", LogValue::Str(&msg)),
-                ],
-            );
+            self.log_extraction_failure(id, events::EXTRACTION_PARSE_FAILED, e);
         })
+    }
+
+    /// Log an extraction failure at Warn with the `canId` + `error` fields Go's
+    /// `extractSignalsLocked` and the Python/C++ bindings use.
+    fn log_extraction_failure(&self, id: CanId, event: &str, err: &Error) {
+        let msg = err.to_string();
+        self.emit(
+            LogLevel::Warn,
+            event,
+            &[
+                LogField::new("canId", LogValue::U64(u64::from(id.value()))),
+                LogField::new("error", LogValue::Str(&msg)),
+            ],
+        );
     }
 
     /// Build a CAN frame payload from named signal values (zero-filled base).
@@ -1037,6 +1096,79 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Correctness gate for the binary extraction fast path: the packed-binary
+    /// decode (values keyed by positional signal INDEX via the name cache) must
+    /// yield the IDENTICAL [`ExtractionResult`] as the trusted JSON path. This is
+    /// what proves the name-cache order aligns with the kernel's index assignment
+    /// — a misalignment would pair the right values with the wrong names on the
+    /// binary path only, so the two paths would disagree. The 3-signal message
+    /// makes any index off-by-one observable.
+    ///
+    /// Needs the real `.so` (run_ci sets `ALETHEIA_LIB`); skips observably when it
+    /// cannot load — the pure `decode_extraction_bin` tests plus the `frame_ops`
+    /// integration tests give the offset-arithmetic + binary-path coverage that
+    /// does not depend on this test running.
+    #[test]
+    fn extract_binary_path_matches_json_path() {
+        const MINIMAL: &str = include_str!("../../python/tests/fixtures/dbc_corpus/minimal.dbc");
+        let Ok(c) = Client::new() else {
+            eprintln!(
+                "SKIP extract_binary_path_matches_json_path: libaletheia-ffi.so \
+                 not loadable (set ALETHEIA_LIB)"
+            );
+            return;
+        };
+        let id = CanId::standard(256).expect("valid id");
+        let dlc = Dlc::new(8).expect("valid dlc");
+
+        // Run one frame through both paths on the same client: the cache is
+        // (re)populated → binary path, then cleared → JSON path.
+        let both = |frame: &[u8]| -> (ExtractionResult, ExtractionResult) {
+            c.parse_dbc_text(MINIMAL).expect("parse DBC"); // (re)populate the name cache
+            let via_binary = c.extract_signals(id, dlc, frame).expect("binary extract");
+            c.signal_names.borrow_mut().clear(); // force the JSON path
+            let via_json = c.extract_signals(id, dlc, frame).expect("json extract");
+            (via_binary, via_json)
+        };
+
+        // All-zero frame: 3 in-range values, no errors/absent. With no errors the
+        // paths agree EXACTLY — the values-section index→name alignment gate (a
+        // mis-ordered name cache would pair the wrong name with a value on the
+        // binary path only).
+        let (bin, json) = both(&[0u8; 8]);
+        assert!(!bin.values.is_empty(), "expected the 3 EngineStatus values");
+        assert_eq!(
+            bin, json,
+            "binary and JSON must agree exactly when there are no errors"
+        );
+
+        // EngineSpeed raw 0xFFFF (16-bit little-endian) → 16383.75 rpm, past the
+        // signal's [0, 8000] range → the kernel emits an `errors` entry. The binary
+        // wire carries only an error CODE, so the binary path's reason is the
+        // generic per-code string (identical to Go/C++/Python), whereas the JSON
+        // path carries the kernel's detailed reason — so the two AGREE on values,
+        // absent, and error signal NAMES (index→name), but the error REASON is
+        // generic on the binary path by design (see the extract_signals doc; a
+        // scheduled follow-up unifies all bindings on detailed reasons).
+        let (bin, json) = both(&[0xFF, 0xFF, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(bin.values, json.values, "non-errored values must agree");
+        assert_eq!(bin.absent, json.absent, "absent must agree");
+        let bin_err_names: Vec<&str> = bin.errors.iter().map(|e| e.name.as_str()).collect();
+        let json_err_names: Vec<&str> = json.errors.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(
+            bin_err_names, json_err_names,
+            "error signal names (index→name) must agree"
+        );
+        assert!(
+            !bin.errors.is_empty(),
+            "expected an out-of-bounds error for EngineSpeed"
+        );
+        assert_eq!(
+            bin.errors[0].reason, "Value out of bounds",
+            "binary path uses the generic per-code reason (peer parity)"
+        );
+    }
 
     /// A diagnostic that references no signals is unreachable through the
     /// formula DSL (every predicate names a signal), so this drives the private

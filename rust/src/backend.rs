@@ -108,6 +108,21 @@ type SendErrorFn = unsafe extern "C" fn(StateHandle, u64) -> *mut c_char;
 type SendRemoteFn = unsafe extern "C" fn(StateHandle, u64, u32, u8) -> *mut c_char;
 type StreamLifecycleFn = unsafe extern "C" fn(StateHandle) -> *mut c_char;
 type ExtractFn = unsafe extern "C" fn(StateHandle, u32, u8, u8, *const u8, u8) -> *mut c_char;
+// Binary extraction (the hot path): the core allocates the response buffer and
+// returns it via `out_buf` / `out_size`; the caller copies it out and frees it
+// with `aletheia_free_buf`. Status/`out_err` follow the build_frame convention.
+type ExtractBinFn = unsafe extern "C" fn(
+    StateHandle,
+    u32,              // canId
+    u8,               // extended
+    u8,               // dlc
+    *const u8,        // data
+    u8,               // dataLen
+    *mut *mut u8,     // out_buf (callee-allocated)
+    *mut u32,         // out_size
+    *mut *mut c_char, // out_err
+) -> i8;
+type FreeBufFn = unsafe extern "C" fn(*mut u8);
 type ProcessFn = unsafe extern "C" fn(StateHandle, *const c_char) -> *mut c_char;
 type FormatDbcFn = unsafe extern "C" fn(StateHandle) -> *mut c_char;
 type FormatRationalFn = unsafe extern "C" fn(i64, i64) -> *mut c_char;
@@ -219,6 +234,21 @@ pub trait Backend {
     /// Backend-specific transport / protocol failure.
     fn extract_signals_binary(&self, id: CanId, dlc: Dlc, data: &[u8]) -> Result<String, Error>;
 
+    /// Extract every signal value from one frame, returning the packed BINARY
+    /// buffer (the hot path — no JSON serialize/parse). The default returns
+    /// [`Error::BinaryPathUnsupported`], signalling the caller to fall back to
+    /// [`Backend::extract_signals_binary`] (the JSON path); a backend without
+    /// real FFI (e.g. a mock) therefore needs no impl. `FfiBackend` overrides
+    /// it. The buffer layout is decoded by `response::decode_extraction_bin`.
+    ///
+    /// # Errors
+    /// [`Error::BinaryPathUnsupported`] by default; a real FFI backend returns
+    /// [`Error::Validation`] / [`Error::Protocol`] on a bad payload or wire fault.
+    fn extract_signals_bin(&self, id: CanId, dlc: Dlc, data: &[u8]) -> Result<Vec<u8>, Error> {
+        let _ = (id, dlc, data);
+        Err(Error::BinaryPathUnsupported)
+    }
+
     /// Build a frame payload from named signal injections; return the
     /// `dlc`-byte payload.
     ///
@@ -322,6 +352,8 @@ pub(crate) struct Symbols {
     end_stream: Symbol<'static, StreamLifecycleFn>,
     format_dbc: Symbol<'static, FormatDbcFn>,
     extract_signals: Symbol<'static, ExtractFn>,
+    extract_signals_bin: Symbol<'static, ExtractBinFn>,
+    free_buf: Symbol<'static, FreeBufFn>,
     build_frame: Symbol<'static, BuildFrameFn>,
     update_frame: Symbol<'static, UpdateFrameFn>,
     format_rational: Symbol<'static, FormatRationalFn>,
@@ -349,6 +381,11 @@ impl Symbols {
                 end_stream: symbol::<StreamLifecycleFn>(lib, b"aletheia_end_stream\0")?,
                 format_dbc: symbol::<FormatDbcFn>(lib, b"aletheia_format_dbc\0")?,
                 extract_signals: symbol::<ExtractFn>(lib, b"aletheia_extract_signals\0")?,
+                extract_signals_bin: symbol::<ExtractBinFn>(
+                    lib,
+                    b"aletheia_extract_signals_bin\0",
+                )?,
+                free_buf: symbol::<FreeBufFn>(lib, b"aletheia_free_buf\0")?,
                 build_frame: symbol::<BuildFrameFn>(lib, b"aletheia_build_frame_bin\0")?,
                 update_frame: symbol::<UpdateFrameFn>(lib, b"aletheia_update_frame_bin\0")?,
                 format_rational: symbol::<FormatRationalFn>(lib, b"aletheia_format_rational\0")?,
@@ -811,6 +848,64 @@ impl Backend for FfiBackend {
                 len,
             )
         })
+    }
+
+    fn extract_signals_bin(&self, id: CanId, dlc: Dlc, data: &[u8]) -> Result<Vec<u8>, Error> {
+        let len = frame_len(data)?;
+        let ext = u8::from(id.is_extended());
+        let syms = symbols()?;
+        let mut out_buf: *mut u8 = std::ptr::null_mut();
+        let mut out_size: u32 = 0;
+        let mut out_err: *mut c_char = std::ptr::null_mut();
+        // SAFETY: `handle` is the live StreamState this backend owns; `data` is
+        // valid for `len` bytes (validated ≤ 64 by `frame_len`); out_buf/out_size/
+        // out_err are out-params the core writes.
+        let status = unsafe {
+            (syms.extract_signals_bin)(
+                self.handle,
+                id.value(),
+                ext,
+                dlc.value(),
+                data.as_ptr(),
+                len,
+                &mut out_buf,
+                &mut out_size,
+                &mut out_err,
+            )
+        };
+        check_buffer_status(status, out_err, &syms.free_str, "extract_signals_bin")?;
+        // On success the core returns a buffer of exactly `out_size` bytes. The
+        // wire always carries at least the 6-byte header, so a null buffer paired
+        // with a non-zero size is a protocol violation, NOT an empty result —
+        // surface it rather than silently dropping data. (A null buffer with size
+        // 0 yields an empty Vec, which decode_extraction_bin then rejects as too
+        // short — a truthful error, not a silent success.)
+        if out_buf.is_null() {
+            if out_size != 0 {
+                return Err(Error::Protocol(format!(
+                    "extract_signals_bin: null buffer with non-zero size {out_size}"
+                )));
+            }
+            return Ok(Vec::new());
+        }
+        // Sanity-cap the core-reported size before copying: the packed buffer
+        // cannot exceed the header plus the maximum u16 count of each section at
+        // its fixed stride, so a larger value is corruption — reject (after
+        // freeing) instead of copying an implausible span.
+        const MAX_EXTRACT_BUF: usize = 6 + (18 + 3 + 2) * (u16::MAX as usize);
+        if out_size as usize > MAX_EXTRACT_BUF {
+            // SAFETY: `out_buf` was allocated by the core; free it before erroring.
+            unsafe { (syms.free_buf)(out_buf) };
+            return Err(Error::Protocol(format!(
+                "extract_signals_bin: buffer size {out_size} exceeds wire maximum {MAX_EXTRACT_BUF}"
+            )));
+        }
+        // SAFETY: the core set `out_buf` to an `out_size`-byte buffer it allocated
+        // (bounded above); copy it out, then return it to the core's allocator.
+        let bytes = unsafe { std::slice::from_raw_parts(out_buf, out_size as usize) }.to_vec();
+        // SAFETY: `out_buf` was allocated by the core; free it with its allocator.
+        unsafe { (syms.free_buf)(out_buf) };
+        Ok(bytes)
     }
 
     fn build_frame_bin(

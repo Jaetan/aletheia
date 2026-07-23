@@ -4,69 +4,69 @@
   "results": [
     {
       "count": 10000,
-      "max_us": 76.9,
-      "mean_us": 3.8,
-      "min_us": 3.2,
+      "max_us": 457.4,
+      "mean_us": 4.0,
+      "min_us": 3.3,
       "name": "CAN 2.0B Streaming LTL",
-      "p50_us": 3.5,
-      "p90_us": 3.9,
-      "p999_us": 35.3,
-      "p99_us": 11.5
+      "p50_us": 3.7,
+      "p90_us": 4.0,
+      "p999_us": 25.7,
+      "p99_us": 11.6
     },
     {
       "count": 10000,
-      "max_us": 77.2,
-      "mean_us": 9.8,
-      "min_us": 8.6,
+      "max_us": 109.1,
+      "mean_us": 2.7,
+      "min_us": 2.4,
       "name": "CAN 2.0B Signal Extraction",
-      "p50_us": 9.3,
-      "p90_us": 10.1,
-      "p999_us": 35.0,
-      "p99_us": 19.9
+      "p50_us": 2.6,
+      "p90_us": 2.7,
+      "p999_us": 17.5,
+      "p99_us": 8.9
     },
     {
       "count": 10000,
-      "max_us": 99.5,
-      "mean_us": 7.7,
-      "min_us": 6.7,
+      "max_us": 129.7,
+      "mean_us": 8.1,
+      "min_us": 7.1,
       "name": "CAN 2.0B Frame Building",
-      "p50_us": 7.2,
-      "p90_us": 7.7,
-      "p999_us": 31.4,
-      "p99_us": 15.9
+      "p50_us": 7.5,
+      "p90_us": 8.1,
+      "p999_us": 49.1,
+      "p99_us": 18.4
     },
     {
       "count": 10000,
-      "max_us": 127.1,
-      "mean_us": 6.5,
-      "min_us": 5.5,
+      "max_us": 129.9,
+      "mean_us": 6.6,
+      "min_us": 5.7,
       "name": "CAN-FD Streaming LTL",
-      "p50_us": 5.9,
-      "p90_us": 6.7,
-      "p999_us": 57.2,
+      "p50_us": 6.1,
+      "p90_us": 6.8,
+      "p999_us": 51.6,
       "p99_us": 19.8
     },
     {
       "count": 10000,
-      "max_us": 1626.9,
-      "mean_us": 137.8,
-      "min_us": 118.3,
+      "max_us": 430.7,
+      "mean_us": 39.6,
+      "min_us": 35.3,
       "name": "CAN-FD Signal Extraction",
-      "p50_us": 130.2,
-      "p90_us": 151.6,
-      "p999_us": 440.6,
-      "p99_us": 234.2
+      "p50_us": 37.1,
+      "p90_us": 45.3,
+      "p999_us": 136.4,
+      "p99_us": 79.1
     },
     {
       "count": 10000,
-      "max_us": 349.5,
-      "mean_us": 31.8,
-      "min_us": 28.0,
+      "max_us": 210.3,
+      "mean_us": 32.7,
+      "min_us": 29.2,
       "name": "CAN-FD Frame Building",
-      "p50_us": 29.7,
-      "p90_us": 35.2,
-      "p999_us": 127.3,
-      "p99_us": 70.4
+      "p50_us": 30.9,
+      "p90_us": 36.4,
+      "p999_us": 117.5,
+      "p99_us": 69.1
     }
   ],
   "system": {
@@ -75,5 +75,5 @@
     "platform": "linux",
     "rust": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
   },
-  "timestamp": "2026-07-23T01:02:15Z"
+  "timestamp": "2026-07-23T06:27:36Z"
 }
