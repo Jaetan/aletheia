@@ -318,6 +318,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **CI: the heavy-lanes workflow (mutation / reproducible-build / stability) no
+  longer re-bootstraps the cabal package index on every run.** It restored the
+  cabal store cache but still ran `cabal update` unconditionally *before* the
+  restore, so each run performed a fresh hackage-security (TUF) `root.json`
+  bootstrap — which fails whenever Hackage's root metadata is transiently
+  unverifiable even though the primary is up (the `pr-full-ci.yml` lane, which
+  runs `cabal update` only on a cache miss, was unaffected). The heavy lanes now
+  restore the cache first and update only on a miss, matching that proven
+  pattern; on the normal cache-hit path they skip `cabal update` entirely.
 - **The Go, C++, and Rust bindings no longer crash at startup when `GHCRTS` is
   set to a non-safe RTS option.** Those bindings initialised the runtime through
   the plain `hs_init`, which — because the shared library is linked with GHC's
