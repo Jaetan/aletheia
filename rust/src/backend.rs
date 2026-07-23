@@ -888,17 +888,23 @@ impl Backend for FfiBackend {
             }
             return Ok(Vec::new());
         }
-        // Sanity-cap the core-reported size before copying: the packed buffer
-        // cannot exceed the 10-byte header plus the maximum u16 count of each
-        // fixed-stride section (values 18 B, errors 3 B, absent 2 B), the
-        // (nErrors + 1) x u32 reason-offsets table, and the u32-length reason
-        // blob — so a larger value is corruption; reject (after freeing) instead
-        // of copying an implausible span. Layout: `response::decode_extraction_bin`
+        // Sanity-cap the core-reported size before copying — a PLAUSIBILITY
+        // bound, not the wire's theoretical maximum (whose u32-length reason
+        // blob would admit a multi-GiB copy from a corrupt size report): the
+        // 10-byte header, the maximum u16 count of each fixed-stride section
+        // (values 18 B, errors 3 B, absent 2 B), the (nErrors + 1) x u32
+        // reason-offsets table, and a generous per-entry reason budget.
+        // Kernel-minted reasons are short (bounded signal names + bounded
+        // decimal renderings + fixed text — well under 512 B each), so any
+        // honest buffer sits far below this cap; a larger reported size is
+        // corruption — reject (after freeing) instead of copying an
+        // implausible span. Layout: `response::decode_extraction_bin`
         // (canonical source: `Aletheia.Main.Binary`, processExtractBin).
+        const MAX_REASON_BYTES_PER_ENTRY: usize = 512;
         const MAX_EXTRACT_BUF: usize = 10
             + (18 + 3 + 2) * (u16::MAX as usize)
             + 4 * (u16::MAX as usize + 1)
-            + u32::MAX as usize;
+            + MAX_REASON_BYTES_PER_ENTRY * (u16::MAX as usize);
         if out_size as usize > MAX_EXTRACT_BUF {
             // SAFETY: `out_buf` was allocated by the core; free it before erroring.
             unsafe { (syms.free_buf)(out_buf) };
