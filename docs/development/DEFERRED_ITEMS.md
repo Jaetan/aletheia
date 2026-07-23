@@ -5,20 +5,21 @@ SPDX-License-Identifier: BSD-2-Clause
 
 # Deferred-items plan & re-examination
 
-> **Status: DRAFT (post-`ci-speed`-merge work).** This document collects every
-> in-source deferral / owed-work note currently in the tree into one place, and
-> records a first-pass *re-examination* of each: is it still worth doing, what
-> would it cost, what blocks it, and the recommended next step.
+> **Status: living backlog.** This document collects every in-source deferral /
+> owed-work note currently in the tree into one place, and records a
+> *re-examination* of each: is it still worth doing, what would it cost, what
+> blocks it, and the recommended next step. An item that ships is removed in
+> the commit that ships it.
 >
-> Provenance: compiled 2026-06-08 during the `ci-speed` pre-merge review. None
-> of these were introduced by `ci-speed`; all pre-date it on `main`. Everything
-> below is an *in-source* deferral, not a carry-over from closed review work.
+> Provenance: first compiled 2026-06-08 during the `ci-speed` pre-merge review
+> (everything here is an *in-source* deferral, not a carry-over from closed
+> review work) and maintained since.
 
 ## How to read this
 
 Each item carries:
 
-- **Where** — `file:line` anchor(s) for the in-source note.
+- **Where** — file + symbol anchor(s) for the in-source note.
 - **Origin** — what introduced the in-source note.
 - **Today** — the current behaviour (what the code does in lieu of the deferred work).
 - **Done looks like** — the end state if we close it.
@@ -40,9 +41,10 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ### A.1 — Multi-value mux `SG_MUL_VAL_` → real `When` selectors
 
-- **Where** — `src/Aletheia/DBC/TextParser/ExtendedMux.agda` (drop-parser);
-  `src/Aletheia/DBC/TextParser/Topology.agda:55`;
-  `src/Aletheia/DBC/TextFormatter/Topology.agda:32`.
+- **Where** — `src/Aletheia/DBC/TextParser/ExtendedMux.agda` (the
+  `parseSigMulVal` drop-parser); `src/Aletheia/DBC/TextParser/Topology.agda`
+  (module-header "Deferred to later sub-commits" note);
+  `src/Aletheia/DBC/TextFormatter/Topology.agda` (module-header emission note).
 - **Origin** — text-parser construct corpus.
 - **Today** — `SG_MUL_VAL_` lines are syntactically parsed and **discarded**
   (`parseSigMulVal : Parser ⊤`). Single-value `m<N>` selectors map to a
@@ -85,7 +87,8 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ### A.3 — Nested multiplexors `m<N>M`
 
-- **Where** — `src/Aletheia/DBC/TextFormatter/Topology.agda:32`.
+- **Where** — `src/Aletheia/DBC/TextFormatter/Topology.agda` (module-header
+  emission note).
 - **Origin** — flagged Phase-6-adjacent.
 - **Today** — not emitted; the formatter emits the head value of `When _ values`
   only (matches single-value cantools output).
@@ -104,7 +107,8 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ### B.1 — CAN-FD bus-bit predicates (BRS / ESI)
 
-- **Where** — `src/Aletheia/Trace/CANTrace.agda:46`.
+- **Where** — `src/Aletheia/Trace/CANTrace.agda` (the `TimedFrame` brs/esi
+  field comment).
 - **Origin** — Phase 5.1 scope note (explicitly Phase 6).
 - **Today** — `Maybe Bool` BRS/ESI metadata is pass-through to bindings via the
   FFI/JSON response, but is **not** liftable to LTL atomic predicates (LTL
@@ -124,7 +128,7 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ### C.1 — `lookupByKey` Bool fast path
 
-- **Where** — `src/Aletheia/Prelude.agda:72`.
+- **Where** — `src/Aletheia/Prelude.agda` (`lookupByKey`).
 - **Origin** — Dec-allocation hot-path sweep.
 - **Today** — `lookupByKey` uses `⌊ _≟ₛ_ ⌋`, allocating a `Dec` cell per
   comparison. Unlike its hot-path siblings (`findSignalInList`,
@@ -180,9 +184,10 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ### D.1 — `NonZero` instance args on stdlib `_÷_`
 
-- **Where** — `src/Aletheia/CAN/Encoding/Properties/Arithmetic/Rational.agda:31`;
-  `src/Aletheia/Data/BitVec/Conversion.agda:14`;
-  `src/Aletheia/CAN/Endianness.agda:28`.
+- **Where** — the module-header `DEFER-stdlib-mandate` notes in
+  `src/Aletheia/CAN/Encoding/Properties/Arithmetic/Rational.agda`,
+  `src/Aletheia/Data/BitVec/Conversion.agda`, and
+  `src/Aletheia/CAN/Endianness.agda`.
 - **Origin** — Agda cat 29 (stdlib-mandate) in-source exception path.
 - **Today** — these modules use `.{{_ : NonZero q}}` on stdlib ℚ `_÷_`; every
   call site supplies the witness explicitly, so there is **no instance-search
@@ -198,7 +203,8 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 
 ### F.1 — Go `FormatDBC` → structured result
 
-- **Where** — `go/aletheia/client.go:396` (in-source DEFERRED/TRACKED block).
+- **Where** — `go/aletheia/client.go` (the `DEFERRED — TRACKED` block above
+  `FormatDBC`).
 - **Origin** — in-source DEFERRED/TRACKED note on `FormatDBC`.
 - **Today** — `FormatDBC` returns `*DBCDefinition`; no structured wrapper.
 - **User decision (2026-06-06)** — "don't do anything yet, keep the note." It's
