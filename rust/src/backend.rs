@@ -875,7 +875,7 @@ impl Backend for FfiBackend {
         };
         check_buffer_status(status, out_err, &syms.free_str, "extract_signals_bin")?;
         // On success the core returns a buffer of exactly `out_size` bytes. The
-        // wire always carries at least the 6-byte header, so a null buffer paired
+        // wire always carries at least the 10-byte header, so a null buffer paired
         // with a non-zero size is a protocol violation, NOT an empty result —
         // surface it rather than silently dropping data. (A null buffer with size
         // 0 yields an empty Vec, which decode_extraction_bin then rejects as too
@@ -889,10 +889,16 @@ impl Backend for FfiBackend {
             return Ok(Vec::new());
         }
         // Sanity-cap the core-reported size before copying: the packed buffer
-        // cannot exceed the header plus the maximum u16 count of each section at
-        // its fixed stride, so a larger value is corruption — reject (after
-        // freeing) instead of copying an implausible span.
-        const MAX_EXTRACT_BUF: usize = 6 + (18 + 3 + 2) * (u16::MAX as usize);
+        // cannot exceed the 10-byte header plus the maximum u16 count of each
+        // fixed-stride section (values 18 B, errors 3 B, absent 2 B), the
+        // (nErrors + 1) x u32 reason-offsets table, and the u32-length reason
+        // blob — so a larger value is corruption; reject (after freeing) instead
+        // of copying an implausible span. Layout: `response::decode_extraction_bin`
+        // (canonical source: `Aletheia.Main.Binary`, processExtractBin).
+        const MAX_EXTRACT_BUF: usize = 10
+            + (18 + 3 + 2) * (u16::MAX as usize)
+            + 4 * (u16::MAX as usize + 1)
+            + u32::MAX as usize;
         if out_size as usize > MAX_EXTRACT_BUF {
             // SAFETY: `out_buf` was allocated by the core; free it before erroring.
             unsafe { (syms.free_buf)(out_buf) };

@@ -29,13 +29,14 @@
 #include <variant>
 #include <vector>
 
-// parse_extraction_bin uses std::memcpy reads
-// in native byte order (per the wire-format note at AletheiaFFI.hs:235).
+// parse_extraction_bin uses std::memcpy reads in native byte order (per the
+// canonical wire-format documentation in src/Aletheia/Main/Binary.agda,
+// processExtractBin header comment).
 // On a big-endian host the same memcpy would silently misinterpret the
 // bytes; refuse to compile rather than ship an architecture-dependent ABI.
 static_assert(std::endian::native == std::endian::little,
               "Aletheia FFI binary layout assumes little-endian native byte order; "
-              "see haskell-shim/src/AletheiaFFI.hs:235 for the wire-format note.");
+              "see src/Aletheia/Main/Binary.agda (processExtractBin) for the wire format.");
 
 namespace aletheia {
 
@@ -235,20 +236,6 @@ auto AletheiaClient::format_dbc_text(std::stop_token stop, const DbcDefinition& 
 // Signals
 // ---------------------------------------------------------------------------
 
-// Error code → message mapping for binary extraction.  Must match
-// `extractionErrorCodeToℕ` + the `resultToString` cases in
-// `src/Aletheia/CAN/BatchExtraction.agda` (the constructor-to-code ordering
-// in `ExtractionErrorCode` is the wire format).  Code 3 is emitted by the
-// FFI shim's binary encoder guard: a value whose reduced numerator or
-// denominator exceeds the Int64 wire range is rerouted to the error stream
-// instead of wrapping in the i64 slot.
-constexpr std::array extraction_error_messages = {
-    std::string_view{"Signal not found in DBC"},        // 0
-    std::string_view{"Value out of bounds"},            // 1
-    std::string_view{"Extraction failed"},              // 2
-    std::string_view{"Value exceeds Int64 wire range"}, // 3
-};
-
 // Constructs a SignalValue from a wire-extracted (idx, num, den) triple.
 // Centralizes the den-positive normalization required for cross-binding
 // wire symmetry and keeps `parse_extraction_bin`
@@ -270,16 +257,137 @@ static auto wire_signal_value(std::uint16_t idx, std::int64_t num, std::int64_t 
     return SignalValue{.name = std::move(name), .value = PhysicalValue{*rat_or_err}};
 }
 
+// True iff `bytes` is well-formed UTF-8 (RFC 3629): continuation bytes in
+// place, no overlong encodings, no surrogate code points, nothing above
+// U+10FFFF, no truncated sequences.  Wire reasons are validated per reason
+// slice — offsets are byte offsets, so a slice boundary that splits a
+// multi-byte sequence makes that slice invalid and is a protocol error.
+static auto is_valid_utf8(std::span<const std::byte> bytes) -> bool {
+    // Minimum code point per sequence length — anything below is overlong.
+    constexpr std::array<std::uint32_t, 5> min_cp = {0, 0, 0x80, 0x800, 0x10000};
+    std::size_t i = 0;
+    while (i < bytes.size()) {
+        const auto b0 = static_cast<std::uint8_t>(bytes[i]);
+        if (b0 < 0x80) {
+            ++i;
+            continue;
+        }
+        std::size_t len = 0;
+        std::uint32_t cp = 0;
+        if ((b0 & 0xE0U) == 0xC0) {
+            len = 2;
+            cp = b0 & 0x1FU;
+        } else if ((b0 & 0xF0U) == 0xE0) {
+            len = 3;
+            cp = b0 & 0x0FU;
+        } else if ((b0 & 0xF8U) == 0xF0) {
+            len = 4;
+            cp = b0 & 0x07U;
+        } else {
+            return false; // Lone continuation byte or invalid lead byte.
+        }
+        if (i + len > bytes.size())
+            return false;
+        for (std::size_t k = 1; k < len; ++k) {
+            const auto bk = static_cast<std::uint8_t>(bytes[i + k]);
+            if ((bk & 0xC0U) != 0x80)
+                return false;
+            cp = (cp << 6U) | (bk & 0x3FU);
+        }
+        if (cp < min_cp[len] || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF))
+            return false;
+        i += len;
+    }
+    return true;
+}
+
+// Decodes the Errors + Offsets + Reasons wire segments starting at
+// `errors_off` (layout: src/Aletheia/Main/Binary.agda, processExtractBin
+// header comment).  Each error's reason is the kernel-minted detailed string
+// carried on the wire — byte-identical to what the JSON path surfaces for
+// the same error.  The u8 error code is transported for machine consumption
+// but is not part of the public result: the JSON path has no code field and
+// binary/JSON parity of the public surface is a repo invariant, so the code
+// is skipped here and unknown codes are not rejected (the reason is
+// authoritative).
+static auto wire_signal_errors(std::span<const std::byte> buf, std::size_t errors_off,
+                               std::uint16_t nerrs, std::uint32_t reason_bytes,
+                               const std::vector<std::string>& names)
+    -> Result<std::vector<SignalError>> {
+    auto read_u16 = [&](std::size_t off) -> std::uint16_t {
+        std::uint16_t v = 0;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        std::memcpy(&v, buf.data() + off, sizeof(v));
+        return v;
+    };
+    auto read_u32 = [&](std::size_t off) -> std::uint32_t {
+        std::uint32_t v = 0;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        std::memcpy(&v, buf.data() + off, sizeof(v));
+        return v;
+    };
+    const std::size_t offsets_off = errors_off + (std::size_t{nerrs} * 3);
+    const std::size_t reasons_off = offsets_off + ((std::size_t{nerrs} + 1) * 4);
+
+    // Offset-table invariants — all three verified before any slicing:
+    // off[0] == 0, monotone non-decreasing, off[nerrs] == reason_bytes.
+    if (read_u32(offsets_off) != 0)
+        return std::unexpected(AletheiaError{
+            ErrorKind::Protocol,
+            std::format("Malformed extraction reason offsets: first offset is {}, must be 0",
+                        read_u32(offsets_off))});
+    for (std::uint16_t i = 0; i < nerrs; ++i) {
+        if (read_u32(offsets_off + (std::size_t{i} * 4)) >
+            read_u32(offsets_off + ((std::size_t{i} + 1) * 4)))
+            return std::unexpected(AletheiaError{
+                ErrorKind::Protocol,
+                std::format("Malformed extraction reason offsets: offset {} decreases", i + 1)});
+    }
+    if (read_u32(offsets_off + (std::size_t{nerrs} * 4)) != reason_bytes)
+        return std::unexpected(AletheiaError{
+            ErrorKind::Protocol,
+            std::format("Malformed extraction reason offsets: last offset {} != reason bytes {}",
+                        read_u32(offsets_off + (std::size_t{nerrs} * 4)), reason_bytes)});
+
+    std::vector<SignalError> errors;
+    errors.reserve(nerrs);
+    for (std::uint16_t i = 0; i < nerrs; ++i) {
+        auto idx = read_u16(errors_off + (std::size_t{i} * 3));
+        auto name =
+            idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
+        const auto lo = read_u32(offsets_off + (std::size_t{i} * 4));
+        const auto hi = read_u32(offsets_off + ((std::size_t{i} + 1) * 4));
+        const auto slice = buf.subspan(reasons_off + lo, hi - lo);
+        if (!is_valid_utf8(slice))
+            return std::unexpected(AletheiaError{
+                ErrorKind::Protocol,
+                std::format("Invalid UTF-8 in extraction reason for {}", std::string_view{name})});
+        std::string reason(slice.size(), '\0');
+        if (!slice.empty())
+            std::memcpy(reason.data(), slice.data(), slice.size());
+        errors.push_back({.name = std::move(name), .reason = std::move(reason)});
+    }
+    return errors;
+}
+
 // Parses the binary extraction layout emitted by `aletheia_extract_signals_bin`.
-// Layout and byte-order (native; little-endian on all supported platforms) are
-// documented at haskell-shim/src/AletheiaFFI.hs:235 — "Header(3×u16) +
-// Values(×18B) + Errors(×3B) + Absent(×2B). Native byte order." Cross-arch
-// deployment would require byteswapping on the reader side.
+// Layout and byte order (native; little-endian on all supported platforms) are
+// documented in src/Aletheia/Main/Binary.agda (processExtractBin header
+// comment): Header (3×u16 counts + u32 reasonBytes) + Values (×18B) +
+// Errors (×3B) + Offsets ((nErrors+1)×u32, always present) + Reasons (UTF-8
+// blob) + Absent (×2B).  Cross-arch deployment would require byteswapping on
+// the reader side.
 static auto parse_extraction_bin(std::span<const std::byte> buf,
                                  const std::vector<std::string>& names)
     -> Result<ExtractionResult> {
     auto read_u16 = [&](std::size_t off) -> std::uint16_t {
         std::uint16_t v = 0;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        std::memcpy(&v, buf.data() + off, sizeof(v));
+        return v;
+    };
+    auto read_u32 = [&](std::size_t off) -> std::uint32_t {
+        std::uint32_t v = 0;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
         std::memcpy(&v, buf.data() + off, sizeof(v));
         return v;
@@ -291,25 +399,27 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
         return v;
     };
 
-    if (buf.size() < 6)
+    if (buf.size() < 10)
         return std::unexpected(AletheiaError{
             ErrorKind::Protocol,
-            std::format("Truncated extraction buffer: {} bytes, need >= 6 for the header",
+            std::format("Truncated extraction buffer: {} bytes, need >= 10 for the header",
                         buf.size())});
     const auto nvals = read_u16(0);
     const auto nerrs = read_u16(2);
     const auto nabss = read_u16(4);
-    // nvals/nerrs/nabss are u16 (max 65535), so the max expected_size is
-    // ~1.5 MB — far below SIZE_MAX on any supported platform.
-    const auto expected_size = std::size_t{6} + (std::size_t{nvals} * 18) +
-                               (std::size_t{nerrs} * 3) + (std::size_t{nabss} * 2);
+    const auto reason_bytes = read_u32(6);
+    // Counts are u16 and reason_bytes is u32, so the max expected_size is
+    // ~4 GiB — far below SIZE_MAX on any supported (64-bit) platform.
+    const auto expected_size = std::size_t{10} + (std::size_t{nvals} * 18) +
+                               (std::size_t{nerrs} * 3) + ((std::size_t{nerrs} + 1) * 4) +
+                               std::size_t{reason_bytes} + (std::size_t{nabss} * 2);
     // Exact-size check: too short is truncation, too long is trailing bytes.
     if (buf.size() != expected_size)
         return std::unexpected(AletheiaError{
             ErrorKind::Protocol,
             std::format("Extraction buffer size mismatch: {} bytes, expected exactly {}",
                         buf.size(), expected_size)});
-    std::size_t off = 6;
+    std::size_t off = 10;
 
     ExtractionResult result;
     result.values.reserve(nvals);
@@ -329,21 +439,14 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
             return std::unexpected(sv.error());
         result.values.push_back(std::move(*sv));
     }
-    result.errors.reserve(nerrs);
-    for (std::uint16_t i = 0; i < nerrs; ++i) {
-        if (off + 3 > buf.size())
-            return std::unexpected(AletheiaError{
-                ErrorKind::Protocol, "Truncated extraction buffer while reading signal errors"});
-        auto idx = read_u16(off);
-        auto code = static_cast<std::uint8_t>(buf[off + 2]);
-        off += 3;
-        auto name =
-            idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
-        auto msg = code < extraction_error_messages.size()
-                       ? std::string{extraction_error_messages[code]}
-                       : std::format("Unknown error code {}", code);
-        result.errors.push_back({.name = std::move(name), .reason = std::move(msg)});
-    }
+    // Errors + Offsets + Reasons — all three segments lie within the buffer
+    // by the exact-size check above; the helper verifies the offset-table
+    // invariants and validates each reason slice as UTF-8.
+    auto errors = wire_signal_errors(buf, off, nerrs, reason_bytes, names);
+    if (!errors)
+        return std::unexpected(errors.error());
+    result.errors = std::move(*errors);
+    off += (std::size_t{nerrs} * 3) + ((std::size_t{nerrs} + 1) * 4) + std::size_t{reason_bytes};
     result.absent.reserve(nabss);
     for (std::uint16_t i = 0; i < nabss; ++i) {
         if (off + 2 > buf.size())

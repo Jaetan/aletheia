@@ -1144,29 +1144,24 @@ mod tests {
         );
 
         // EngineSpeed raw 0xFFFF (16-bit little-endian) → 16383.75 rpm, past the
-        // signal's [0, 8000] range → the kernel emits an `errors` entry. The binary
-        // wire carries only an error CODE, so the binary path's reason is the
-        // generic per-code string (identical to Go/C++/Python), whereas the JSON
-        // path carries the kernel's detailed reason — so the two AGREE on values,
-        // absent, and error signal NAMES (index→name), but the error REASON is
-        // generic on the binary path by design (see the extract_signals doc; a
-        // scheduled follow-up unifies all bindings on detailed reasons).
+        // signal's [0, 8000] range → the kernel emits an `errors` entry. The
+        // binary wire carries the kernel-minted reason string (byte-identical to
+        // the JSON path's), so the two paths agree EXACTLY on the error frame
+        // too — including error signal names AND reasons.
         let (bin, json) = both(&[0xFF, 0xFF, 0, 0, 0, 0, 0, 0]);
-        assert_eq!(bin.values, json.values, "non-errored values must agree");
-        assert_eq!(bin.absent, json.absent, "absent must agree");
-        let bin_err_names: Vec<&str> = bin.errors.iter().map(|e| e.name.as_str()).collect();
-        let json_err_names: Vec<&str> = json.errors.iter().map(|e| e.name.as_str()).collect();
-        assert_eq!(
-            bin_err_names, json_err_names,
-            "error signal names (index→name) must agree"
-        );
         assert!(
             !bin.errors.is_empty(),
             "expected an out-of-bounds error for EngineSpeed"
         );
         assert_eq!(
-            bin.errors[0].reason, "Value out of bounds",
-            "binary path uses the generic per-code reason (peer parity)"
+            bin, json,
+            "binary and JSON must agree exactly, error reasons included"
+        );
+        assert!(
+            bin.errors[0].reason.contains("16383.75"),
+            "the reason must be the kernel's detailed string naming the \
+             offending value, got: {:?}",
+            bin.errors[0].reason
         );
     }
 

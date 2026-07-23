@@ -125,13 +125,13 @@ class TestExtractionValueExceedsWireRange:
         assert "Int64 wire range" in result.errors["S"]
 
     def test_error_message_is_the_exact_wire_range_message(self) -> None:
-        """The rerouted entry surfaces the exact ``ValueExceedsWireRange`` text.
+        """The rerouted entry surfaces the kernel-minted reason verbatim.
 
-        End-to-end pin of the wire byte the shim emits through the
-        binding's code→message decode: callers switch on this message to
-        tell the reroute apart from a kernel-side extraction failure, so
-        its exact public text is part of the contract (the enum↔message
-        table linkage itself is pinned in ``test_binary_extraction.py``).
+        End-to-end pin of the reason string the shim puts on the wire
+        (``wireRangeReason`` in ``Aletheia.CAN.BatchExtraction``): callers
+        switch on this message to tell the reroute apart from a
+        kernel-side extraction failure, so its exact public text is part
+        of the contract.
         """
         factor = Fraction(12345678901234567, 10**17)
         wrap_dbc = dbc(
@@ -146,7 +146,10 @@ class TestExtractionValueExceedsWireRange:
         with AletheiaClient() as client:
             assert client.parse_dbc(wrap_dbc)["status"] == "success"
             result = client.extract_signals(can_id=256, dlc=DLCCode(8), data=_FRAME)
-        assert result.errors["Speed"] == "Value exceeds Int64 wire range"
+        assert (
+            result.errors["Speed"]
+            == "extracted value's numerator or denominator exceeds the Int64 wire range"
+        )
 
 
 class TestWireRangeBoundaryAccepted:

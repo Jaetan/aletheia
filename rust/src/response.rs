@@ -87,9 +87,10 @@ pub struct SignalValue {
     pub value: Rational,
 }
 
-/// One signal's extraction error: the signal name and the core's reason string
-/// (e.g. "Value out of bounds"). Mirrors the Go `SignalError` / Python
-/// `errors: Mapping[str, str]` — the core emits each error as
+/// One signal's extraction error: the signal name and the kernel-minted reason
+/// string (e.g. "value out of bounds: 16383.75 not in [0, 8000]"), identical on
+/// the JSON and binary paths. Mirrors the Go `SignalError` / Python
+/// `errors: Mapping[str, str]` — the JSON path emits each error as
 /// `{"name": …, "error": …}`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignalError {
@@ -643,24 +644,6 @@ pub(crate) fn decode_extraction(raw: &str) -> Result<ExtractionResult, Error> {
     })
 }
 
-/// Error-code -> reason string for binary extraction: the generic per-code
-/// strings shared verbatim with the peer bindings (Go's `extractionErrorMessages`,
-/// C++'s `extraction_error_messages`, Python's `EXTRACTION_ERROR_MESSAGES_BY_CODE`).
-/// The binary wire carries only a `u8` code, so the binary path surfaces THIS
-/// generic reason, whereas the JSON path surfaces the kernel's DETAILED reason
-/// (e.g. `"value out of bounds: 16383.75 not in [0, 8000]"`). The two paths thus
-/// agree on extracted values, absent signals, and error signal NAMES, but the
-/// error REASON is generic on the binary path — matching the peers (a scheduled
-/// follow-up, DEFERRED_ITEMS H.2, unifies all bindings on the detailed reason).
-/// Codes are assigned by the kernel's binary encoder; see `Aletheia.Main.Binary`
-/// (processExtractBin).
-const EXTRACTION_ERROR_MESSAGES: [&str; 4] = [
-    "Signal not found in DBC",        // 0
-    "Value out of bounds",            // 1
-    "Extraction failed",              // 2
-    "Value exceeds Int64 wire range", // 3
-];
-
 /// Resolve a wire signal index to its name via the per-CAN-id name cache,
 /// falling back to `signal_<idx>` for an index past the cache (matching Go's
 /// `signalNameByIndex`).
@@ -675,6 +658,10 @@ fn read_u16_ne(bytes: &[u8]) -> u16 {
     u16::from_ne_bytes(bytes.try_into().expect("caller passes a 2-byte slice"))
 }
 
+fn read_u32_ne(bytes: &[u8]) -> u32 {
+    u32::from_ne_bytes(bytes.try_into().expect("caller passes a 4-byte slice"))
+}
+
 /// Decode the packed binary extraction buffer (the hot path) into the same
 /// [`ExtractionResult`] the JSON path produces.
 ///
@@ -682,42 +669,61 @@ fn read_u16_ne(bytes: &[u8]) -> u16 {
 /// source. Byte order is the host's NATIVE order (Haskell `Storable` poke); the
 /// kernel and every binding run on one host, so `from_ne_bytes` is the faithful
 /// read (identical to little-endian on the supported x86_64 / aarch64 hosts):
-///   header:  3 x u16  (nValues, nErrors, nAbsent)
-///   values:  nValues x (u16 index, i64 numerator, i64 denominator) = 18 bytes
-///   errors:  nErrors x (u16 index, u8 code)                        =  3 bytes
-///   absent:  nAbsent x (u16 index)                                 =  2 bytes
+///
+/// ```text
+/// header:  u16 nValues, u16 nErrors, u16 nAbsent, u32 reasonBytes = 10 bytes
+/// values:  nValues x (u16 index, i64 numerator, i64 denominator)  = 18 bytes
+/// errors:  nErrors x (u16 index, u8 code)                         =  3 bytes
+/// offsets: (nErrors + 1) x u32 -- cumulative byte offsets into reasons;
+///          always present (the single entry 0 when nErrors == 0), and
+///          off[0] == 0, monotone non-decreasing, off[nErrors] == reasonBytes
+///          (all three verified before any reason is sliced)
+/// reasons: reasonBytes of UTF-8; error i's reason = bytes [off[i], off[i+1])
+/// absent:  nAbsent x (u16 index)                                  =  2 bytes
+/// ```
+///
+/// The reason strings are kernel-minted and byte-identical to what the JSON
+/// path surfaces for the same error, so [`SignalError::reason`] carries the
+/// wire reason verbatim. The u8 code is transported for machine consumption
+/// but never surfaced (the public result has no code field -- binary/JSON
+/// parity), and an unknown code is not rejected: the reason is authoritative.
 ///
 /// Pure (bytes + names in, result out; no FFI) so the offset arithmetic is unit-
 /// and mutation-testable -- the real-FFI happy path is excluded from mutation.
-/// A malformed buffer (short header, wrong total length, non-positive
-/// denominator) is rejected rather than panicked-on or silently truncated,
-/// matching the Go decoder and the JSON path's strictness.
+/// A malformed buffer (short header, wrong total length, violated offset
+/// invariants, non-UTF-8 reason bytes, non-positive denominator) is rejected
+/// rather than panicked-on or silently truncated, matching the Go decoder and
+/// the JSON path's strictness.
 pub(crate) fn decode_extraction_bin(
     buf: &[u8],
     names: &[String],
 ) -> Result<ExtractionResult, Error> {
-    if buf.len() < 6 {
+    if buf.len() < 10 {
         return Err(protocol("extraction binary buffer too short for header"));
     }
     let nvals = read_u16_ne(&buf[0..2]) as usize;
     let nerrs = read_u16_ne(&buf[2..4]) as usize;
     let nabss = read_u16_ne(&buf[4..6]) as usize;
+    let reason_bytes = read_u32_ne(&buf[6..10]) as usize;
 
-    // Validate the exact total up front: header + all entries must consume the
+    // Validate the exact total up front: header + all sections must consume the
     // whole buffer, so a truncated OR trailing-byte buffer is rejected before any
-    // slicing (no panic, no silent drop). u16 counts x fixed strides cannot
-    // overflow usize.
-    let expected = 6 + 18 * nvals + 3 * nerrs + 2 * nabss;
+    // slicing (no panic, no silent drop). u16 counts x fixed strides plus a u32
+    // reason-blob length sum below 2^33, which cannot overflow usize on the
+    // supported 64-bit hosts.
+    let expected = 10 + 18 * nvals + 3 * nerrs + 4 * (nerrs + 1) + reason_bytes + 2 * nabss;
     if buf.len() != expected {
         return Err(protocol(format!(
             "extraction binary buffer length {} != expected {expected} \
-             (nValues={nvals}, nErrors={nerrs}, nAbsent={nabss})",
+             (nValues={nvals}, nErrors={nerrs}, nAbsent={nabss}, reasonBytes={reason_bytes})",
             buf.len()
         )));
     }
 
-    let (values_bytes, rest) = buf[6..].split_at(18 * nvals);
-    let (errors_bytes, absent_bytes) = rest.split_at(3 * nerrs);
+    let (values_bytes, rest) = buf[10..].split_at(18 * nvals);
+    let (errors_bytes, rest) = rest.split_at(3 * nerrs);
+    let (offsets_bytes, rest) = rest.split_at(4 * (nerrs + 1));
+    let (reasons_bytes, absent_bytes) = rest.split_at(reason_bytes);
 
     let mut values = Vec::with_capacity(nvals);
     for chunk in values_bytes.chunks_exact(18) {
@@ -738,18 +744,45 @@ pub(crate) fn decode_extraction_bin(
         });
     }
 
+    // The offsets table must satisfy all three wire invariants before any
+    // reason is sliced; together they make every [off[i], off[i+1]) slice
+    // in-bounds, so the reason slicing below cannot panic.
+    let offsets: Vec<u32> = offsets_bytes.chunks_exact(4).map(read_u32_ne).collect();
+    if offsets[0] != 0 {
+        return Err(protocol(format!(
+            "extraction binary reason offsets must start at 0, got {}",
+            offsets[0]
+        )));
+    }
+    if let Some(w) = offsets.windows(2).find(|w| w[0] > w[1]) {
+        return Err(protocol(format!(
+            "extraction binary reason offsets not monotone non-decreasing: {} > {}",
+            w[0], w[1]
+        )));
+    }
+    if offsets[nerrs] as usize != reason_bytes {
+        return Err(protocol(format!(
+            "extraction binary reason offsets end {} != reasonBytes {reason_bytes}",
+            offsets[nerrs]
+        )));
+    }
+
     let mut errors = Vec::with_capacity(nerrs);
-    for chunk in errors_bytes.chunks_exact(3) {
+    for (chunk, span) in errors_bytes.chunks_exact(3).zip(offsets.windows(2)) {
         let idx = read_u16_ne(&chunk[0..2]);
-        let code = chunk[2] as usize;
-        let reason = EXTRACTION_ERROR_MESSAGES.get(code).map_or_else(
-            || format!("unknown error code {code}"),
-            |s| (*s).to_string(),
-        );
-        errors.push(SignalError {
-            name: name_by_index(names, idx),
-            reason,
-        });
+        // chunk[2] is the u8 error code (kernel SSOT: extractionErrorCodeToℕ in
+        // Aletheia.CAN.BatchExtraction) -- transported, never surfaced: the wire
+        // reason below is authoritative, so an unknown code is not rejected.
+        let name = name_by_index(names, idx);
+        let reason = std::str::from_utf8(&reasons_bytes[span[0] as usize..span[1] as usize])
+            .map_err(|e| {
+                protocol(format!(
+                    "extraction binary reason for signal {name:?} (index {idx}) \
+                     is not valid UTF-8: {e}"
+                ))
+            })?
+            .to_string();
+        errors.push(SignalError { name, reason });
     }
 
     let mut absent = Vec::with_capacity(nabss);
@@ -1167,11 +1200,18 @@ mod tests {
         buf.push(code);
     }
 
-    fn bin_header(nvals: u16, nerrs: u16, nabss: u16) -> Vec<u8> {
+    fn push_offsets(buf: &mut Vec<u8>, offsets: &[u32]) {
+        for off in offsets {
+            buf.extend_from_slice(&off.to_ne_bytes());
+        }
+    }
+
+    fn bin_header(nvals: u16, nerrs: u16, nabss: u16, reason_bytes: u32) -> Vec<u8> {
         let mut buf = Vec::new();
         buf.extend_from_slice(&nvals.to_ne_bytes());
         buf.extend_from_slice(&nerrs.to_ne_bytes());
         buf.extend_from_slice(&nabss.to_ne_bytes());
+        buf.extend_from_slice(&reason_bytes.to_ne_bytes());
         buf
     }
 
@@ -1181,11 +1221,19 @@ mod tests {
 
     #[test]
     fn decode_bin_happy_two_of_each() {
-        let mut buf = bin_header(2, 2, 2);
+        // The FIRST reason contains a multi-byte UTF-8 char ('∉' = 3 bytes), so a
+        // decoder that counted chars instead of bytes would slice the SECOND
+        // reason at the wrong boundary — this pins offsets as byte counts.
+        let reason_a = "value out of bounds: 16383.75 ∉ [0, 8000]";
+        let reason_b = "signal 'Speed' not found in message";
+        let blob = [reason_a, reason_b].concat();
+        let mut buf = bin_header(2, 2, 2, blob.len() as u32);
         push_value(&mut buf, 0, 100, 4); // Speed = 100/4
         push_value(&mut buf, 2, -7, 2); // Temp = -7/2
-        push_error(&mut buf, 1, 1); // Rpm: "Value out of bounds"
-        push_error(&mut buf, 0, 2); // Speed: "Extraction failed"
+        push_error(&mut buf, 1, 1); // Rpm: OutOfBounds
+        push_error(&mut buf, 0, 0); // Speed: NotInDBC
+        push_offsets(&mut buf, &[0, reason_a.len() as u32, blob.len() as u32]);
+        buf.extend_from_slice(blob.as_bytes());
         buf.extend_from_slice(&1u16.to_ne_bytes()); // absent: Rpm
         buf.extend_from_slice(&2u16.to_ne_bytes()); // absent: Temp
 
@@ -1208,11 +1256,11 @@ mod tests {
             vec![
                 SignalError {
                     name: "Rpm".into(),
-                    reason: "Value out of bounds".into()
+                    reason: reason_a.into()
                 },
                 SignalError {
                     name: "Speed".into(),
-                    reason: "Extraction failed".into()
+                    reason: reason_b.into()
                 },
             ]
         );
@@ -1221,43 +1269,53 @@ mod tests {
 
     #[test]
     fn decode_bin_empty_is_empty_result() {
-        let buf = bin_header(0, 0, 0);
+        // Zero errors: the offsets section is still present — the single entry 0.
+        let mut buf = bin_header(0, 0, 0, 0);
+        push_offsets(&mut buf, &[0]);
         let r = decode_extraction_bin(&buf, &names()).expect("empty buffer");
         assert!(r.values.is_empty() && r.errors.is_empty() && r.absent.is_empty());
     }
 
     #[test]
-    fn decode_bin_all_error_codes_and_unknown() {
-        let mut buf = bin_header(0, 5, 0);
-        for code in [0u8, 1, 2, 3, 99] {
+    fn decode_bin_transports_every_code_reason_is_authoritative() {
+        // The u8 code never selects the reason — the wire string does. All eight
+        // kernel codes plus an out-of-vocabulary one (99) decode fine, each
+        // surfacing its own wire reason (unknown codes are NOT rejected).
+        let codes = [0u8, 1, 2, 3, 4, 5, 6, 7, 99];
+        let reasons: Vec<String> = codes.iter().map(|c| format!("reason #{c}")).collect();
+        let blob = reasons.concat();
+        let nerrs = u16::try_from(codes.len()).unwrap();
+        let mut buf = bin_header(0, nerrs, 0, blob.len() as u32);
+        for code in codes {
             push_error(&mut buf, 0, code);
         }
+        let mut offsets = vec![0u32];
+        for r in &reasons {
+            offsets.push(offsets.last().unwrap() + r.len() as u32);
+        }
+        push_offsets(&mut buf, &offsets);
+        buf.extend_from_slice(blob.as_bytes());
+
         let r = decode_extraction_bin(&buf, &names()).expect("well-formed");
-        let reasons: Vec<&str> = r.errors.iter().map(|e| e.reason.as_str()).collect();
-        assert_eq!(
-            reasons,
-            vec![
-                "Signal not found in DBC",
-                "Value out of bounds",
-                "Extraction failed",
-                "Value exceeds Int64 wire range",
-                "unknown error code 99",
-            ]
-        );
+        let decoded: Vec<&str> = r.errors.iter().map(|e| e.reason.as_str()).collect();
+        let expected: Vec<&str> = reasons.iter().map(String::as_str).collect();
+        assert_eq!(decoded, expected);
     }
 
     #[test]
     fn decode_bin_name_fallback_for_out_of_range_index() {
-        let mut buf = bin_header(1, 0, 0);
+        let mut buf = bin_header(1, 0, 0, 0);
         push_value(&mut buf, 42, 1, 1); // index past the 3-name cache
+        push_offsets(&mut buf, &[0]);
         let r = decode_extraction_bin(&buf, &names()).expect("well-formed");
         assert_eq!(r.values[0].name, "signal_42");
     }
 
     #[test]
     fn decode_bin_rejects_non_positive_denominator() {
-        let mut buf = bin_header(1, 0, 0);
+        let mut buf = bin_header(1, 0, 0, 0);
         push_value(&mut buf, 0, 5, 0); // den = 0
+        push_offsets(&mut buf, &[0]);
         assert!(matches!(
             decode_extraction_bin(&buf, &names()),
             Err(Error::Protocol(_))
@@ -1266,16 +1324,22 @@ mod tests {
 
     #[test]
     fn decode_bin_rejects_short_header() {
+        // 9 bytes is one short of the 10-byte header.
         assert!(matches!(
-            decode_extraction_bin(&[0, 0, 0], &names()),
+            decode_extraction_bin(&[0u8; 9], &names()),
+            Err(Error::Protocol(_))
+        ));
+        assert!(matches!(
+            decode_extraction_bin(&[], &names()),
             Err(Error::Protocol(_))
         ));
     }
 
     #[test]
     fn decode_bin_rejects_truncated_body() {
-        let mut buf = bin_header(2, 0, 0);
+        let mut buf = bin_header(2, 0, 0, 0);
         push_value(&mut buf, 0, 1, 1); // only 1 of 2 values present
+        push_offsets(&mut buf, &[0]);
         assert!(matches!(
             decode_extraction_bin(&buf, &names()),
             Err(Error::Protocol(_))
@@ -1284,12 +1348,65 @@ mod tests {
 
     #[test]
     fn decode_bin_rejects_trailing_bytes() {
-        let mut buf = bin_header(1, 0, 0);
+        let mut buf = bin_header(1, 0, 0, 0);
         push_value(&mut buf, 0, 1, 1);
+        push_offsets(&mut buf, &[0]);
         buf.push(0xFF); // one byte too many
         assert!(matches!(
             decode_extraction_bin(&buf, &names()),
             Err(Error::Protocol(_))
         ));
+    }
+
+    #[test]
+    fn decode_bin_rejects_nonzero_first_offset() {
+        // off[0] must be 0; the total size is otherwise consistent, so this
+        // failure is attributable to the first-offset invariant alone.
+        let mut buf = bin_header(0, 1, 0, 1);
+        push_error(&mut buf, 0, 1);
+        push_offsets(&mut buf, &[1, 1]);
+        buf.push(b'x');
+        let err = decode_extraction_bin(&buf, &names()).unwrap_err();
+        assert!(err.to_string().contains("must start at 0"), "got: {err}");
+    }
+
+    #[test]
+    fn decode_bin_rejects_non_monotone_offsets() {
+        // off = [0, 2, 1] with reasonBytes = 1: first and last invariants hold,
+        // so this failure is attributable to monotonicity alone.
+        let mut buf = bin_header(0, 2, 0, 1);
+        push_error(&mut buf, 0, 1);
+        push_error(&mut buf, 1, 1);
+        push_offsets(&mut buf, &[0, 2, 1]);
+        buf.push(b'x');
+        let err = decode_extraction_bin(&buf, &names()).unwrap_err();
+        assert!(
+            err.to_string().contains("not monotone non-decreasing"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn decode_bin_rejects_final_offset_mismatch() {
+        // off[nErrors] = 1 but reasonBytes = 2: start + monotonicity hold, so
+        // this failure is attributable to the final-offset invariant alone.
+        let mut buf = bin_header(0, 1, 0, 2);
+        push_error(&mut buf, 0, 1);
+        push_offsets(&mut buf, &[0, 1]);
+        buf.extend_from_slice(b"xy");
+        let err = decode_extraction_bin(&buf, &names()).unwrap_err();
+        assert!(err.to_string().contains("!= reasonBytes"), "got: {err}");
+    }
+
+    #[test]
+    fn decode_bin_rejects_invalid_utf8_reason() {
+        // 0xFF 0xFE is not valid UTF-8 anywhere in a string; the offsets are
+        // consistent, so the decode fails on UTF-8 validation alone.
+        let mut buf = bin_header(0, 1, 0, 2);
+        push_error(&mut buf, 1, 1);
+        push_offsets(&mut buf, &[0, 2]);
+        buf.extend_from_slice(&[0xFF, 0xFE]);
+        let err = decode_extraction_bin(&buf, &names()).unwrap_err();
+        assert!(err.to_string().contains("not valid UTF-8"), "got: {err}");
     }
 }

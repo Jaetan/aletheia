@@ -75,15 +75,21 @@ func FuzzMarshalCommand(f *testing.F) {
 	})
 }
 
-// FuzzDecodeBinaryFrame covers the binary extraction parser (json.go:995).
-// The invariant is "no panic on any byte sequence".  Catches: short reads,
-// length-mismatch (claimed N entries but buffer truncated), out-of-range
-// indices into the names array, malformed Rational denominators.
+// FuzzDecodeBinaryFrame covers the binary extraction parser
+// (parseExtractionBin in json.go; wire doc: the processExtractBin header
+// comment in src/Aletheia/Main/Binary.agda).  The invariant is "no panic on
+// any byte sequence".  Catches: short reads, total-size mismatch (claimed N
+// entries but buffer truncated or padded), out-of-range indices into the
+// names array, malformed Rational denominators, offsets-table invariant
+// violations, invalid UTF-8 in reason slices.
 func FuzzDecodeBinaryFrame(f *testing.F) {
 	f.Add([]byte{0, 0, 0, 0, 0, 0, 0, 0}, "Speed,RPM,Temp")
 	f.Add([]byte{}, "")
 	f.Add([]byte{0xFF, 0xFF, 0xFF, 0xFF}, "X")
 	f.Add(make([]byte, 256), "A,B,C,D,E,F,G,H")
+	f.Add(binExtractionValue(1, 3), "Sig")                          // valid: one value, empty offsets table
+	f.Add(binExtractionErrors([]string{"boom", "näh"}, nil), "Sig") // valid: two errors with reasons
+	f.Add(binExtractionErrors([]string{"x"}, []uint32{0, 2}), "S")  // offsets end != reasonBytes
 
 	f.Fuzz(func(t *testing.T, buf []byte, csvNames string) {
 		var names []string
@@ -96,14 +102,17 @@ func FuzzDecodeBinaryFrame(f *testing.F) {
 }
 
 // binExtractionValue builds a one-value binary extraction buffer (the layout
-// parseExtractionBin reads: nvals/nerrs/nabss u16 header + one 18-byte value of
-// idx:u16, num:u64, den:u64) for the given numerator/denominator.
+// parseExtractionBin reads: nvals/nerrs/nabss u16 + reasonBytes u32 header,
+// one 18-byte value of idx:u16, num:u64, den:u64, then the single-entry
+// offsets table u32 0) for the given numerator/denominator.
 func binExtractionValue(num, den int64) []byte {
-	buf := make([]byte, 6+18)
+	buf := make([]byte, 10+18+4)
 	binary.LittleEndian.PutUint16(buf[0:2], 1) // nvals = 1
-	binary.LittleEndian.PutUint16(buf[6:8], 0) // value idx = 0
-	binary.LittleEndian.PutUint64(buf[8:16], uint64(num))
-	binary.LittleEndian.PutUint64(buf[16:24], uint64(den))
+	// nerrs, nabss, reasonBytes stay 0; the offsets table is the single
+	// u32 0 in the trailing 4 bytes (already zero).
+	binary.LittleEndian.PutUint16(buf[10:12], 0) // value idx = 0
+	binary.LittleEndian.PutUint64(buf[12:20], uint64(num))
+	binary.LittleEndian.PutUint64(buf[20:28], uint64(den))
 	return buf
 }
 

@@ -12,6 +12,33 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The binary extraction wire now carries the kernel's detailed error reason
+  for every extraction error (BREAKING on the binary wire).** The
+  `aletheia_extract_signals_bin` response previously encoded each error as a
+  bare `u8` code, so every binding surfaced a generic per-code string
+  (`"Value out of bounds"`) while the JSON path surfaced the kernel's detailed
+  reason (`"value out of bounds: 16383.75 not in [0, 8000]"`). The wire now
+  transports the reason string itself: the header gains a `u32 reasonBytes`
+  field, and a cumulative offsets table (`(nErrors+1) × u32`, Arrow-style)
+  plus a UTF-8 reason blob sit between the errors and absent segments — every
+  segment start stays O(1) arithmetic from the header, and reason *i* is an
+  O(1) slice. The reason strings are the kernel's own: both extraction
+  categorizers now derive their error text from one shared formatter, so the
+  binary and JSON paths agree byte-for-byte — machine-checked
+  (`reason-parity` in `Aletheia.CAN.Batch.Properties.ReasonParity`). The `u8`
+  code space expands from 4 to 8 so every distinguishable kernel error owns a
+  distinct code (mux-chain and bit-extraction failures no longer collapse
+  into one catch-all; collision-freedom is machine-checked,
+  `extractionErrorCodeToℕ-injective`). All four bindings decode the new
+  layout, surface the wire reason verbatim, and drop their generic per-code
+  message tables; decoders verify the offsets invariants (zero start,
+  monotone, endpoint match) and reject invalid UTF-8. The FFI shim's
+  over-range reroute now attaches the kernel-minted `wireRangeReason` string
+  and fails loudly (never truncates) if a reason blob could exceed the `u32`
+  offset space. Success-path (error-free frame) extraction cost measured
+  within the WSL2 variance band against the pre-change baselines in all four
+  bindings — the Python and Go decoders take a zero-error fast path that
+  collapses the offsets-table validation to a single read.
 - **Rust: `Client::extract_signals` now uses the binary FFI fast path (~3.7×
   faster) instead of parsing a JSON DOM per call.** Once a DBC is parsed the
   client caches each message's ordered signal names and decodes the packed
@@ -22,12 +49,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   (Stream LTL / Frame Building unchanged). Additive, non-breaking API: a new
   default `Backend::extract_signals_bin` trait method (returns the new sentinel
   `Error::BinaryPathUnsupported`, so existing `Backend` impls and `MockBackend`
-  keep working via the JSON fallback). Behavior note: on the binary path an
-  extraction *error* reason is the generic per-code string (e.g. `"Value out of
-  bounds"`), identical to Go/C++/Python; previously Rust alone used the JSON path
-  and surfaced the kernel's detailed reason (e.g. `"value out of bounds: 16383.75
-  not in [0, 8000]"`). This aligns Rust with the peers; a follow-up will unify all
-  bindings on the detailed reason.
+  keep working via the JSON fallback).
 - **The loaded kernel's GHC runtime now runs under a default heap cap in every
   binding (Python, C++, Go, Rust), not just Python.** The runtime has no heap
   limit by default, so a runaway allocation in kernel code exhausted host memory

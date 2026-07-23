@@ -54,16 +54,6 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         (
             "test_binary_extraction.py",
             "aletheia.client._client_bin",
-            "EXTRACTION_ERROR_MESSAGES",
-        ),
-        (
-            "test_binary_extraction.py",
-            "aletheia.client._client_bin",
-            "EXTRACTION_ERROR_MESSAGES_BY_CODE",
-        ),
-        (
-            "test_binary_extraction.py",
-            "aletheia.client._client_bin",
             "ExtractionErrorCode",
         ),
         (

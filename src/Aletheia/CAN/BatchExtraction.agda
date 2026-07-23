@@ -27,7 +27,13 @@ open import Data.Nat using (ℕ; suc)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (just; nothing)
-open import Aletheia.Error using (FrameError; CANIdNotFound; SignalNotFound; SignalValueOutOfBounds; formatFrameError; ExtractionErr; MuxValueMismatch; formatError)
+open import Aletheia.Error using
+  ( FrameError; CANIdNotFound; SignalNotFound; SignalValueOutOfBounds
+  ; formatFrameError; ExtractionErr; formatError
+  ; ExtractionError; MuxValueMismatch; MuxSignalNotFound; MuxChainCycle
+  ; MuxExtractionFailed; BitExtractionFailed; ValueExceedsWireRange; InContext
+  ; formatExtractionError
+  )
 
 -- ============================================================================
 -- PARAMETERIZED RESULT TYPE
@@ -77,16 +83,21 @@ private
   formatBounds : ℚ → ℚ → ℚ → String
   formatBounds v mn mx = formatℚ v ++ₛ " not in [" ++ₛ formatℚ mn ++ₛ ", " ++ₛ formatℚ mx ++ₛ "]"
 
-  resultToString : String → ExtractionResult → String
-  resultToString name SignalNotInDBC = formatFrameError (SignalNotFound name)
-  resultToString _ (SignalNotPresent reason) = formatError (ExtractionErr reason)
-  resultToString _ (ValueOutOfBounds value mn mx) =
-    formatFrameError (SignalValueOutOfBounds (formatBounds value mn mx))
-  resultToString _ (ExtractionFailed reason) = formatError (ExtractionErr reason)
-  -- Unreachable: `categorizeWith` short-circuits `Success` to the success
-  -- arm before applying `toErr`, so `resultToString` is never called on a
-  -- `Success` value.  Empty string is a totality-only sentinel.
-  resultToString _ (Success _) = ""
+-- The single reason formatter for BOTH extraction surfaces: the string-keyed
+-- (JSON) categorizer and the indexed (binary-wire) categorizer each derive
+-- their error reason from this function, so the two paths agree on reason
+-- text by construction (machine-checked: reason-parity in
+-- Aletheia.CAN.Batch.Properties.ReasonParity).
+resultToString : String → ExtractionResult → String
+resultToString name SignalNotInDBC = formatFrameError (SignalNotFound name)
+resultToString _ (SignalNotPresent reason) = formatError (ExtractionErr reason)
+resultToString _ (ValueOutOfBounds value mn mx) =
+  formatFrameError (SignalValueOutOfBounds (formatBounds value mn mx))
+resultToString _ (ExtractionFailed reason) = formatError (ExtractionErr reason)
+-- Unreachable: `categorizeWith` short-circuits `Success` to the success
+-- arm before applying `toErr`, so `resultToString` is never called on a
+-- `Success` value.  Empty string is a totality-only sentinel.
+resultToString _ (Success _) = ""
 
 categorizeResult : String → ExtractionResult → ExtractionResults
 categorizeResult = categorizeWith resultToString
@@ -116,44 +127,84 @@ extractAllSignals dbc frame with findMessageById (CANFrame.id frame) dbc
 -- ============================================================================
 
 -- Extraction error codes for the binary wire format.
--- Constructors map 1:1 to u8 wire values via extractionErrorCodeToℕ.
+-- Constructors map 1:1 to u8 wire values via extractionErrorCodeToℕ, and no
+-- two distinguishable error conditions share a code (machine-checked:
+-- fromℕ∘toℕ in Aletheia.CAN.Batch.Properties.ReasonParity).  The code is the
+-- machine-readable discriminant; the human-readable reason STRING travels the
+-- wire alongside it (offsets-table segment — layout in Aletheia.Main.Binary).
 data ExtractionErrorCode : Set where
-  NotInDBC          : ExtractionErrorCode  -- 0: signal name not found in DBC message
-  OutOfBounds       : ExtractionErrorCode  -- 1: extracted value outside min/max range
-  ExtractionFailed  : ExtractionErrorCode  -- 2: bit extraction or scaling failed
+  NotInDBC            : ExtractionErrorCode  -- 0: signal name not found in DBC message
+  OutOfBounds         : ExtractionErrorCode  -- 1: extracted value outside min/max range
+  BitExtractionFailed : ExtractionErrorCode  -- 2: bit-level read or scaling step failed
   -- 3: the exact value's reduced numerator or denominator exceeds the
   -- signed 64-bit range of the binary wire's rational slots.  Never
   -- produced by the kernel categorizers below — the FFI shim's binary
   -- encoder (AletheiaFFI/BinaryOutput.hs) detects the condition at the
   -- poke boundary and reroutes the signal to the error stream with this
-  -- code (string twin: `extraction_value_exceeds_wire_range`).
+  -- code and the kernel-minted wireRangeReason string (string twin:
+  -- `extraction_value_exceeds_wire_range`).
   ValueExceedsWireRange : ExtractionErrorCode
+  MuxSignalNotFound   : ExtractionErrorCode  -- 4: multiplexor signal missing from message
+  MuxChainCycle       : ExtractionErrorCode  -- 5: multiplexor chain depth exceeded (cycle?)
+  MuxExtractionFailed : ExtractionErrorCode  -- 6: reading the multiplexor's own bits failed
+  -- 7: the frame's multiplexor value does not select this signal.  Never on
+  -- the wire: categorizeWith routes MuxValueMismatch to the absent partition
+  -- before any error code is minted.  Listed so every ExtractionError
+  -- constructor owns a distinct code (totality of extractionErrorToCode
+  -- without code sharing).
+  MuxValueMismatch    : ExtractionErrorCode
 
 -- Encode ExtractionErrorCode as ℕ for binary wire format serialization.
 -- Must match Main.agda binary output documentation and AletheiaFFI.hs.
 extractionErrorCodeToℕ : ExtractionErrorCode → ℕ
 extractionErrorCodeToℕ NotInDBC              = 0
 extractionErrorCodeToℕ OutOfBounds           = 1
-extractionErrorCodeToℕ ExtractionFailed      = 2
+extractionErrorCodeToℕ BitExtractionFailed   = 2
 extractionErrorCodeToℕ ValueExceedsWireRange = 3
+extractionErrorCodeToℕ MuxSignalNotFound     = 4
+extractionErrorCodeToℕ MuxChainCycle         = 5
+extractionErrorCodeToℕ MuxExtractionFailed   = 6
+extractionErrorCodeToℕ MuxValueMismatch      = 7
 
+-- Map a kernel ExtractionError to its wire code.  InContext wrappers carry
+-- no code of their own — the inner error's code travels (mirrors
+-- extractionErrorCode in Aletheia.Error, the string-code SSOT).
+extractionErrorToCode : ExtractionError → ExtractionErrorCode
+extractionErrorToCode MuxValueMismatch        = MuxValueMismatch
+extractionErrorToCode (MuxSignalNotFound _)   = MuxSignalNotFound
+extractionErrorToCode MuxChainCycle           = MuxChainCycle
+extractionErrorToCode (MuxExtractionFailed _) = MuxExtractionFailed
+extractionErrorToCode (BitExtractionFailed _) = BitExtractionFailed
+extractionErrorToCode ValueExceedsWireRange   = ValueExceedsWireRange
+extractionErrorToCode (InContext _ inner)     = extractionErrorToCode inner
+
+-- The reason string the FFI shim's binary encoder attaches when it reroutes
+-- an over-range value to the error stream (code 3).  Kernel-minted so the
+-- shim never hardcodes reason text — same SSOT discipline as the code itself.
+wireRangeReason : String
+wireRangeReason = formatExtractionError ValueExceedsWireRange
+
+-- An indexed error entry carries the wire code AND the same reason string
+-- the JSON path formats for that error (shared resultToString) — the binary
+-- wire is exactly as informative as the JSON wire.
 IndexedExtractionResults : Set
-IndexedExtractionResults = PartitionedResults ℕ ExtractionErrorCode
+IndexedExtractionResults = PartitionedResults ℕ (ExtractionErrorCode × String)
 
-private
-  resultToCode : ℕ → ExtractionResult → ExtractionErrorCode
-  resultToCode _ SignalNotInDBC         = NotInDBC
-  resultToCode _ (SignalNotPresent _)   = ExtractionFailed
-  resultToCode _ (ValueOutOfBounds _ _ _) = OutOfBounds
-  resultToCode _ (ExtractionFailed _)   = ExtractionFailed
-  -- Unreachable: see the matching `resultToString` clause above.  The
-  -- `ExtractionFailed` sentinel is structurally misleading (Success is not
-  -- a failure), but ExtractionErrorCode totality requires a value — pick
-  -- any constructor.  Callers never observe this value.
-  resultToCode _ (Success _)            = ExtractionFailed
+resultToCode : ExtractionResult → ExtractionErrorCode
+resultToCode SignalNotInDBC           = NotInDBC
+resultToCode (SignalNotPresent e)     = extractionErrorToCode e
+resultToCode (ValueOutOfBounds _ _ _) = OutOfBounds
+resultToCode (ExtractionFailed e)     = extractionErrorToCode e
+-- Unreachable: see the matching `resultToString` clause above.  The
+-- `BitExtractionFailed` sentinel is structurally misleading (Success is not
+-- a failure), but ExtractionErrorCode totality requires a value — pick
+-- any constructor.  Callers never observe this value.
+resultToCode (Success _)              = BitExtractionFailed
 
-categorizeIndexed : ℕ → ExtractionResult → IndexedExtractionResults
-categorizeIndexed = categorizeWith resultToCode
+-- The signal NAME is threaded in solely for the reason string (resultToString
+-- embeds it for SignalNotInDBC); the partition key stays the numeric index.
+categorizeIndexed : String → ℕ → ExtractionResult → IndexedExtractionResults
+categorizeIndexed name = categorizeWith (λ _ r → resultToCode r , resultToString name r)
 
 -- Extract all signals from a message, returning indexed results.
 extractAllSignalsIndexedFromMessage : ∀ {n} → CANFrame n → DBCMessage → IndexedExtractionResults
@@ -162,7 +213,7 @@ extractAllSignalsIndexedFromMessage frame msg = go 0 (DBCMessage.signals msg)
     go : ℕ → List DBCSignal → IndexedExtractionResults
     go _ [] = emptyPartitioned
     go idx (sig ∷ sigs) =
-      combinePartitioned (categorizeIndexed idx (extractSignalDirect msg frame sig))
+      combinePartitioned (categorizeIndexed (signalNameStr sig) idx (extractSignalDirect msg frame sig))
                          (go (suc idx) sigs)
 
 extractAllSignalsIndexed : ∀ {n} → DBC → CANFrame n → FrameError ⊎ IndexedExtractionResults
