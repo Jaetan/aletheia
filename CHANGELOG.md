@@ -12,6 +12,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Rust: `Client::extract_signals` now uses the binary FFI fast path (~3.7×
+  faster) instead of parsing a JSON DOM per call.** Once a DBC is parsed the
+  client caches each message's ordered signal names and decodes the packed
+  binary extraction buffer directly (values keyed by signal index), matching the
+  Go/Python/C++ hot path; the JSON path remains the fallback when no DBC name
+  cache is present or the backend has no binary FFI. Measured on this host:
+  CAN 2.0B Signal Extraction 10.2 → 2.7 µs/frame, CAN-FD 137.5 → 37.8 µs/frame
+  (Stream LTL / Frame Building unchanged). Additive, non-breaking API: a new
+  default `Backend::extract_signals_bin` trait method (returns the new sentinel
+  `Error::BinaryPathUnsupported`, so existing `Backend` impls and `MockBackend`
+  keep working via the JSON fallback). Behavior note: on the binary path an
+  extraction *error* reason is the generic per-code string (e.g. `"Value out of
+  bounds"`), identical to Go/C++/Python; previously Rust alone used the JSON path
+  and surfaced the kernel's detailed reason (e.g. `"value out of bounds: 16383.75
+  not in [0, 8000]"`). This aligns Rust with the peers; a follow-up will unify all
+  bindings on the detailed reason.
 - **The loaded kernel's GHC runtime now runs under a default heap cap in every
   binding (Python, C++, Go, Rust), not just Python.** The runtime has no heap
   limit by default, so a runaway allocation in kernel code exhausted host memory

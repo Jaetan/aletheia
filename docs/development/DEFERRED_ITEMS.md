@@ -247,6 +247,39 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 - **Verdict** — `HOLD` (planned, demand-gated). Promote to `DO` when a concrete
   external C++ consumer needs it.
 
+### H.2 — Detailed extraction-error reasons on the binary path (all bindings)
+
+- **Where** — the binary extraction decoders in every binding
+  (`response::decode_extraction_bin` (Rust), `parseExtractionBin` (Go),
+  `_client_bin.py` (Python), `client.cpp` extraction_error_messages (C++)) and
+  the kernel's binary encoder `Aletheia.Main.Binary` (processExtractBin).
+- **Origin** — Rust binary-extraction fast-path work, 2026-07-23; user asked to
+  schedule a PR unifying all bindings on detailed error messages.
+- **Today** — the binary wire carries only a `u8` error CODE per errored signal,
+  so every binding maps it to a shared GENERIC per-code string ("Signal not found
+  in DBC" / "Value out of bounds" / "Extraction failed" / "Value exceeds Int64
+  wire range"). The JSON path surfaces the kernel's DETAILED reason (e.g. "value
+  out of bounds: 16383.75 not in [0, 8000]"), but no binding uses it on the hot
+  path — so extraction errors are cross-binding-consistent but less informative
+  than the kernel knows how to be.
+- **Done looks like** — all four bindings surface the kernel's DETAILED reason for
+  extraction errors while keeping the fast path. Most likely the binary wire is
+  extended to carry the reason string (a length-prefixed string per error entry)
+  so the decoders read it directly — a KERNEL wire change (`processExtractBin` +
+  the WIRE_CODES/format machinery) mirrored by all four decoders + the fidelity
+  gate; the cheaper alternative (per-binding JSON fallback on error frames) is
+  rejected because it would diverge the bindings again.
+- **Cost / risk** — **Medium–High.** A binary-wire schema change touches the
+  kernel encoder, all four decoders, the binary-FFI proofs/fidelity gate, and is
+  BREAKING on the binary wire (version bump). Risk: re-introducing cross-binding
+  drift if the decoders are not kept in lockstep (the check-fidelity + per-binding
+  parity tests are the guard).
+- **Blockers / deps** — none technical; scheduled by the user. Sequence it as its
+  own cross-binding arc (kernel wire + 4 decoders + gate), not folded into other
+  work.
+- **Verdict** — `DO` (scheduled). A deliberate follow-up to the Rust fast-path
+  PR, which intentionally shipped generic reasons for peer parity in the interim.
+
 ## Re-examination order (proposed)
 
 Cheapest / highest-confidence first, so early wins de-risk the harder items:
