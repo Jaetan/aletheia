@@ -236,12 +236,14 @@ def _run_binding_tests(runner: Runner) -> None:
         cwd=runner.repo_root / "python",
     )
     # Cross-binding benchmark-schema conformance (benchmarks/SCHEMA.yaml): drives
-    # each BUILT benchmark binary with a tiny per-mode workload and asserts an
-    # identical schema + verbatim labels across bindings. Here only the Python
-    # binding is built, so this exercises the schema REFERENCE (never vacuous —
-    # Python is required); the benchmark workflow builds all four for the
-    # full-teeth cross-binding check. Pinned to the python lane so it runs after
-    # the .so build, like the pytest steps that also dlopen it.
+    # each benchmark binary with a tiny per-mode workload and asserts an identical
+    # schema + verbatim labels against the SSOT. Default (no --built) checks ONLY
+    # the Python reference: run_ci does not build the C++/Go/Rust benchmark
+    # binaries, and an on-disk compiled binary may be STALE against the current
+    # source (mtime is unreliable across git checkouts/merges), so running it
+    # would be a false signal. The full four-binding check runs in the benchmark
+    # workflow with --built, which builds all four fresh in the same job. Pinned to
+    # the python lane so it runs after the .so build, like the pytest steps.
     runner.step(
         "check-bench-schema",
         [runner.python, "-m", "tools.check_bench_schema"],

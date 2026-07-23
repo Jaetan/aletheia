@@ -280,7 +280,10 @@ jobs:
           set -euo pipefail
           cargo build --release --example benchmark --manifest-path rust/Cargo.toml
           source python/.venv/bin/activate
-          python3 -m tools.check_bench_schema
+          # --built: all four binaries are freshly built in this job, so require +
+          # check every binding (full teeth). run_ci uses the default python-only
+          # mode, which never runs a possibly-stale on-disk compiled binary.
+          python3 -m tools.check_bench_schema --built
 
       - name: Run the cross-language benchmark
         run: |

@@ -12,14 +12,18 @@ workload-independent) so it runs in seconds, and validates STRUCTURE ONLY --
 never the measured values, which are host-dependent.
 
 Binding availability:
-  * Python is REQUIRED (the schema reference; always present via python/.venv).
-    Its absence is a hard failure, so the gate is never vacuous.
-  * C++ / Go / Rust are checked when their built binary is present, and
-    skipped-with-notice otherwise (mirrors tools/mutation_run.py's per-tool
-    skip). CI builds all four, so the full-teeth check runs there.
+  * Python is REQUIRED and always checked (the schema reference; interpreted, so
+    its source IS what runs). Its absence is a hard failure — the gate is never
+    vacuous.
+  * C++ / Go / Rust are checked only under ``--built``, which REQUIRES their
+    binaries to be present (a missing one fails). Off ``--built`` they are skipped:
+    the caller (run_ci) does not build them, and an on-disk binary can be stale
+    against the current source, which would be a false signal. The benchmark
+    workflow builds all four in one job and runs with ``--built`` (full teeth).
 
 Usage:
-    python3 tools/check_bench_schema.py             # check available bindings
+    python3 tools/check_bench_schema.py              # Python reference only
+    python3 tools/check_bench_schema.py --built      # all four (must be built)
     python3 tools/check_bench_schema.py --self-test  # prove the gate has teeth
 """
 
@@ -87,8 +91,17 @@ def _lib_env() -> dict[str, str]:
     return env
 
 
-def _bindings() -> list[Binding]:
-    """Every binding, with an availability probe on its built artifact."""
+def _bindings(*, built: bool) -> list[Binding]:
+    """Every binding.
+
+    Python is interpreted, so its source IS what runs — always checkable and the
+    schema reference. The compiled bindings (C++/Go/Rust) are checked ONLY in
+    ``built`` mode, where the caller guarantees freshly-built binaries in the same
+    job (the benchmark workflow). Off ``built`` mode (run_ci, which does not build
+    the benchmark binaries) they are skipped: an on-disk binary can be STALE
+    against the current source — mtime is unreliable across git checkouts/merges —
+    so running it would be a false signal, not a check.
+    """
     venv_py = REPO / "python" / ".venv" / "bin" / "python3"
     cpp_bin = REPO / "cpp" / "build" / "benchmark"
     go_bin = REPO / "go" / "benchmarks" / "benchmark"
@@ -102,16 +115,30 @@ def _bindings() -> list[Binding]:
             required=True,
             python_module=True,
         ),
+        # In built mode a missing binary is a hard failure (the build step should
+        # have produced it); off built mode the compiled bindings are skipped.
         Binding(
-            "cpp", cpp_bin, REPO, available=cpp_bin.exists(), required=False, python_module=False
+            "cpp",
+            cpp_bin,
+            REPO,
+            available=(built and cpp_bin.exists()),
+            required=built,
+            python_module=False,
         ),
-        Binding("go", go_bin, REPO, available=go_bin.exists(), required=False, python_module=False),
+        Binding(
+            "go",
+            go_bin,
+            REPO,
+            available=(built and go_bin.exists()),
+            required=built,
+            python_module=False,
+        ),
         Binding(
             "rust",
             rust_bin,
             REPO,
-            available=rust_bin.exists(),
-            required=False,
+            available=(built and rust_bin.exists()),
+            required=built,
             python_module=False,
         ),
     ]
@@ -243,17 +270,18 @@ def validate(
     return [f"[{name} / {mode}] {e}" for e in env_errors + body]
 
 
-def check_all(schema: dict[object, object]) -> tuple[list[str], list[str]]:
+def check_all(schema: dict[object, object], *, built: bool) -> tuple[list[str], list[str]]:
     """Check every available binding in every mode. Returns (errors, notices)."""
     errors: list[str] = []
     notices: list[str] = []
     modes = _strs(_obj_map(schema["envelope"])["benchmarks"])
-    for binding in _bindings():
+    for binding in _bindings(built=built):
         if not binding.available:
             if binding.required:
-                errors.append(f"REQUIRED binding {binding.name!r} unavailable (expected .venv)")
+                detail = "expected a built benchmark binary" if built else "expected python/.venv"
+                errors.append(f"REQUIRED binding {binding.name!r} unavailable ({detail})")
             else:
-                notices.append(f"SKIP {binding.name}: binary not built")
+                notices.append(f"SKIP {binding.name}: not checked (pass --built after building it)")
             continue
         for mode in modes:
             try:
@@ -302,6 +330,13 @@ def main() -> int:
     parser.add_argument(
         "--self-test", action="store_true", help="Prove the gate rejects drift, then exit"
     )
+    built_help = (
+        "Also check the C++/Go/Rust binaries (REQUIRED to be present + freshly built). "
+        + "Without it only the Python reference is checked — the compiled binaries are "
+        + "skipped, since an on-disk binary may be stale against the current source. Use "
+        + "in the benchmark workflow, which builds all four in the same job."
+    )
+    parser.add_argument("--built", action="store_true", help=built_help)
     args = parser.parse_args()
 
     raw: object = yaml.safe_load(SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -310,7 +345,7 @@ def main() -> int:
     if bool(args.self_test):
         return _self_test(schema)
 
-    errors, notices = check_all(schema)
+    errors, notices = check_all(schema, built=bool(args.built))
     for notice in notices:
         _out(f"  {notice}")
     if errors:
