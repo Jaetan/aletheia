@@ -34,17 +34,19 @@ class _LatencyRow(TypedDict):
     p99_us: float
 
 
-class _ScalingPropRow(TypedDict):
-    """One property-count scaling row."""
+class _ScalingRow(TypedDict):
+    """One scaling row: an identifying column (frames/properties/complexity) + fps."""
 
-    properties: int
     fps: float
 
 
 class _ScalingResults(TypedDict):
-    """Scaling result payload (a dict of sweeps, not a flat list)."""
+    """Scaling result payload: a dict of four sweeps (see benchmarks/SCHEMA.yaml)."""
 
-    property_count: list[_ScalingPropRow]
+    trace_size_can20: list[_ScalingRow]
+    trace_size_canfd: list[_ScalingRow]
+    property_count: list[_ScalingRow]
+    property_complexity: list[_ScalingRow]
 
 
 class _ThroughputFile(TypedDict):
@@ -163,37 +165,58 @@ def compare_latency(by_language: dict[str, _LatencyFile]) -> None:
     print()
 
 
-def compare_scaling(by_language: dict[str, _ScalingFile]) -> None:
-    """Compare scaling results across languages."""
+# (sweep key in the results dict, identifying column, human title). Mirrors the
+# four sub-benchmarks pinned in benchmarks/SCHEMA.yaml.
+_SCALING_SWEEPS: list[tuple[str, str, str]] = [
+    ("trace_size_can20", "frames", "Trace Size (CAN 2.0B)"),
+    ("trace_size_canfd", "frames", "Trace Size (CAN-FD)"),
+    ("property_count", "properties", "Property Count"),
+    ("property_complexity", "complexity", "Property Complexity"),
+]
+
+
+def _compare_one_sweep(
+    by_language: dict[str, _ScalingFile], sweep_key: str, id_col: str, title: str
+) -> None:
+    """Print one sweep's fps table across languages, keyed on its id column."""
     languages = sorted(by_language.keys())
     col_width = 12
 
     print("=" * 70)
-    print("Property Count Scaling Comparison (fps)")
+    print(f"{title} Scaling Comparison (fps)")
     print("=" * 70)
-
-    header = f"{'Properties':>10}"
+    header = f"{id_col:>12}"
     for lang in languages:
         header += f"{lang:>{col_width}}"
     print(header)
-    print("-" * (10 + col_width * len(languages)))
+    print("-" * (12 + col_width * len(languages)))
 
-    # Use the first language's property counts as reference.
-    ref_counts: list[int] = []
+    # Reference id values come from the first language that has this sweep.
+    ref_ids: list[object] = []
     for data in by_language.values():
-        prop_count = data["results"]["property_count"]
-        if prop_count:
-            ref_counts = [r["properties"] for r in prop_count]
+        rows = cast("list[dict[str, object]]", data["results"].get(sweep_key, []))
+        if rows:
+            ref_ids = [r[id_col] for r in rows]
             break
 
-    for count in ref_counts:
-        row = f"{count:>10}"
+    for idv in ref_ids:
+        label = f"{idv:>12,}" if isinstance(idv, int) else f"{str(idv)[:12]:>12}"
+        row = label
         for lang in languages:
-            prop_count = by_language[lang]["results"]["property_count"]
-            match = next((r for r in prop_count if r["properties"] == count), None)
-            row += f"{match['fps']:>{col_width},.0f}" if match else f"{'—':>{col_width}}"
+            rows = cast("list[dict[str, object]]", by_language[lang]["results"].get(sweep_key, []))
+            match = next((r for r in rows if r.get(id_col) == idv), None)
+            if match:
+                row += f"{float(cast('float', match['fps'])):>{col_width},.0f}"
+            else:
+                row += f"{'—':>{col_width}}"
         print(row)
     print()
+
+
+def compare_scaling(by_language: dict[str, _ScalingFile]) -> None:
+    """Compare all four scaling sweeps across languages."""
+    for sweep_key, id_col, title in _SCALING_SWEEPS:
+        _compare_one_sweep(by_language, sweep_key, id_col, title)
 
 
 def main() -> int:

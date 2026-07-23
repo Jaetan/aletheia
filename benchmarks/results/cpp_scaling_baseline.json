@@ -1,51 +1,137 @@
 {
   "benchmark": "scaling",
   "language": "cpp",
-  "results": {
-    "property_count": [
-      {
-        "fps": 390404.8,
-        "properties": 1,
-        "relative": 1.0,
-        "us_per_frame": 2.6
-      },
-      {
-        "fps": 269310.9,
-        "properties": 2,
-        "relative": 0.69,
-        "us_per_frame": 3.7
-      },
-      {
-        "fps": 253786.5,
-        "properties": 3,
-        "relative": 0.65,
-        "us_per_frame": 3.9
-      },
-      {
-        "fps": 152274.0,
-        "properties": 5,
-        "relative": 0.39,
-        "us_per_frame": 6.6
-      },
-      {
-        "fps": 117846.7,
-        "properties": 7,
-        "relative": 0.302,
-        "us_per_frame": 8.5
-      },
-      {
-        "fps": 87469.7,
-        "properties": 10,
-        "relative": 0.224,
-        "us_per_frame": 11.4
-      }
-    ]
-  },
+  "timestamp": "2026-07-23T01:01:24Z",
   "system": {
     "build_type": "Release",
     "cores": 24,
     "cpu": "Intel(R) Core(TM) Ultra 9 285K",
     "platform": "Linux"
   },
-  "timestamp": "2026-07-22T21:50:23Z"
+  "results": {
+    "trace_size_can20": [
+      {
+        "frames": 1000,
+        "fps": 381022.6,
+        "relative": 1.0
+      },
+      {
+        "frames": 5000,
+        "fps": 395977.1,
+        "relative": 1.039
+      },
+      {
+        "frames": 10000,
+        "fps": 394412.2,
+        "relative": 1.035
+      },
+      {
+        "frames": 50000,
+        "fps": 412345.3,
+        "relative": 1.082
+      },
+      {
+        "frames": 100000,
+        "fps": 398420.4,
+        "relative": 1.046
+      }
+    ],
+    "trace_size_canfd": [
+      {
+        "frames": 1000,
+        "fps": 329872.7,
+        "relative": 1.0
+      },
+      {
+        "frames": 5000,
+        "fps": 347454.5,
+        "relative": 1.053
+      },
+      {
+        "frames": 10000,
+        "fps": 362768.8,
+        "relative": 1.1
+      },
+      {
+        "frames": 50000,
+        "fps": 358216.2,
+        "relative": 1.086
+      },
+      {
+        "frames": 100000,
+        "fps": 359457.0,
+        "relative": 1.09
+      }
+    ],
+    "property_count": [
+      {
+        "properties": 1,
+        "fps": 400180.4,
+        "us_per_frame": 2.5,
+        "relative": 1.0
+      },
+      {
+        "properties": 2,
+        "fps": 264989.4,
+        "us_per_frame": 3.8,
+        "relative": 0.662
+      },
+      {
+        "properties": 3,
+        "fps": 259165.3,
+        "us_per_frame": 3.9,
+        "relative": 0.648
+      },
+      {
+        "properties": 5,
+        "fps": 156624.3,
+        "us_per_frame": 6.4,
+        "relative": 0.391
+      },
+      {
+        "properties": 7,
+        "fps": 118716.6,
+        "us_per_frame": 8.4,
+        "relative": 0.297
+      },
+      {
+        "properties": 10,
+        "fps": 86841.6,
+        "us_per_frame": 11.5,
+        "relative": 0.217
+      }
+    ],
+    "property_complexity": [
+      {
+        "complexity": "Simple predicate",
+        "fps": 389846.8,
+        "us_per_frame": 2.6,
+        "relative": 1.0
+      },
+      {
+        "complexity": "Range predicate",
+        "fps": 405857.9,
+        "us_per_frame": 2.5,
+        "relative": 1.041
+      },
+      {
+        "complexity": "Two predicates (AND)",
+        "fps": 261847.3,
+        "us_per_frame": 3.8,
+        "relative": 0.672
+      },
+      {
+        "complexity": "Three predicates",
+        "fps": 258192.1,
+        "us_per_frame": 3.9,
+        "relative": 0.662
+      },
+      {
+        "complexity": "Implication",
+        "fps": 289689.2,
+        "us_per_frame": 3.5,
+        "relative": 0.743
+      }
+    ]
+  }
 }

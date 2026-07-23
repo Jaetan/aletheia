@@ -17,9 +17,11 @@
 //! ```
 //!
 //! Modes: `throughput` (`--frames N --runs N`), `latency` (`--ops N`),
-//! `scaling` (property-count sweep, `--frames N --runs N`). `--json` sends the
-//! human-readable progress to stderr and prints the JSON report to stdout.
-//! `--quick` shrinks the default sizes for a fast smoke run.
+//! `scaling` (`--runs N --quick`; four sweeps — trace size CAN 2.0B / CAN-FD,
+//! property count, property complexity — emitted as a dict-shaped `results`
+//! payload). `--json` sends the human-readable progress to stderr and prints
+//! the JSON report to stdout. `--quick` shrinks the default sizes for a fast
+//! smoke run (and selects the reduced scaling magnitudes the schema pins).
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -934,46 +936,199 @@ fn run_latency(ops: usize, warmup: usize, json: bool) -> Vec<Value> {
 }
 
 // ---------------------------------------------------------------------------
-// Scaling mode (property-count sweep, CAN 2.0B)
+// Scaling mode — four sweeps under one dict-shaped payload, in the order the
+// cross-binding schema (benchmarks/SCHEMA.yaml, tools/check_bench_schema.py)
+// pins across all four bindings: trace_size_can20, trace_size_canfd,
+// property_count, property_complexity. Every sweep point is the MEAN fps over
+// `runs` streaming passes; `relative = fps / (fps of the first row)`. Rounding:
+// fps / us_per_frame -> 1 dp, relative -> 3 dp (identical to Go / Python).
 // ---------------------------------------------------------------------------
 
-fn run_scaling(frames: u64, runs: usize, json: bool) -> Vec<Value> {
+/// Mean streaming fps over `runs` passes (the robust methodology — noise on an
+/// un-averaged baseline row would multiply into every `relative` in the sweep).
+fn mean_fps(
+    dbc: &Dbc,
+    id: CanId,
+    dlc: Dlc,
+    frame: &[u8],
+    props: &[Formula],
+    num_frames: u64,
+    runs: usize,
+) -> f64 {
+    let mut fps_list = Vec::with_capacity(runs);
+    for _ in 0..runs {
+        fps_list.push(bench_streaming(dbc, id, dlc, frame, props, num_frames));
+    }
+    mean(&fps_list)
+}
+
+/// Trace-size sweep points; `--quick` drops the largest.
+fn trace_sizes(quick: bool) -> Vec<u64> {
+    if quick {
+        vec![1000, 5000, 10000, 50000]
+    } else {
+        vec![1000, 5000, 10000, 50000, 100000]
+    }
+}
+
+/// Sweep one frame type over trace sizes; rows carry `{frames, fps, relative}`.
+#[allow(clippy::too_many_arguments)]
+fn scan_trace_size(
+    dbc: &Dbc,
+    id: CanId,
+    dlc: Dlc,
+    frame: &[u8],
+    props: &[Formula],
+    sizes: &[u64],
+    runs: usize,
+    json: bool,
+    label: &str,
+) -> Vec<Value> {
+    let mut rows = Vec::new();
+    let mut baseline: Option<f64> = None;
+    for &size in sizes {
+        let m = mean_fps(dbc, id, dlc, frame, props, size, runs);
+        let base = *baseline.get_or_insert(m);
+        let relative = if base > 0.0 { m / base } else { 0.0 };
+        log_line(
+            json,
+            &format!("  {label} {size} frames: {m:.0} fps ({relative:.2}x)"),
+        );
+        rows.push(json!({
+            "frames": size,
+            "fps": round1(m),
+            "relative": round3(relative),
+        }));
+    }
+    rows
+}
+
+/// The five property-complexity levels (verbatim labels, CAN 2.0B), in order.
+/// The `Implication` level uses the binding's `Formula::implies` helper; the
+/// `BrakePressure` bound in `Three predicates` is the rational `13107/2`.
+fn complexity_levels() -> Vec<(&'static str, Vec<Formula>)> {
+    let implication = Formula::Always(Box::new(Formula::implies(
+        Formula::Atomic(Predicate::less_than("EngineSpeed", Rational::integer(1000))),
+        Formula::Atomic(Predicate::less_than("EngineTemp", Rational::integer(100))),
+    )));
+    vec![
+        (
+            "Simple predicate",
+            vec![always_less_than("EngineSpeed", Rational::integer(8000))],
+        ),
+        (
+            "Range predicate",
+            vec![always_between("EngineSpeed", 0, 8000)],
+        ),
+        (
+            "Two predicates (AND)",
+            vec![
+                always_between("EngineSpeed", 0, 8000),
+                always_between("EngineTemp", -40, 215),
+            ],
+        ),
+        (
+            "Three predicates",
+            vec![
+                always_between("EngineSpeed", 0, 8000),
+                always_between("EngineTemp", -40, 215),
+                always_less_than("BrakePressure", r(13107, 2)),
+            ],
+        ),
+        ("Implication", vec![implication]),
+    ]
+}
+
+/// Run the four scaling sweeps and return them as ordered `(key, rows)` pairs
+/// (the caller emits them in this order — the schema pins it).
+fn run_scaling(runs: usize, quick: bool, json: bool) -> Vec<(&'static str, Value)> {
     let dbc20 = can20_dbc();
+    let dbcfd = canfd_dbc();
     let f20 = can20_frame();
+    let ffd = canfd_frame();
     let id20 = CanId::standard(0x100).expect("valid standard id");
+    let idfd = CanId::standard(0x200).expect("valid standard id");
     let dlc20 = Dlc::new(8).expect("valid dlc");
-    let counts = [1usize, 2, 3, 5, 7, 10];
+    let dlcfd = Dlc::new(15).expect("valid dlc");
+    let num_frames: u64 = if quick { 5000 } else { 10000 };
+    let sizes = trace_sizes(quick);
 
     // Warmup with a single property.
-    let _ = bench_streaming(&dbc20, id20, dlc20, &f20, &make_properties(1), frames / 10);
+    let _ = bench_streaming(&dbc20, id20, dlc20, &f20, &make_properties(1), 1000);
 
-    let mut results = Vec::new();
-    let mut baseline: Option<f64> = None;
+    // 1 & 2: trace-size sweeps (CAN 2.0B then CAN-FD).
+    log_line(json, "\nTrace size scaling (CAN 2.0B):");
+    let trace20 = scan_trace_size(
+        &dbc20,
+        id20,
+        dlc20,
+        &f20,
+        &[always_between("EngineSpeed", 0, 8000)],
+        &sizes,
+        runs,
+        json,
+        "CAN 2.0B",
+    );
+    log_line(json, "\nTrace size scaling (CAN-FD):");
+    let tracefd = scan_trace_size(
+        &dbcfd,
+        idfd,
+        dlcfd,
+        &ffd,
+        &[always_between("GPSSpeed", 0, 655)],
+        &sizes,
+        runs,
+        json,
+        "CAN-FD",
+    );
+
+    // 3: property-count sweep (10 templates cycled by i mod 10), CAN 2.0B.
+    log_line(json, "\nProperty count scaling (CAN 2.0B):");
+    let counts = [1usize, 2, 3, 5, 7, 10];
+    let mut pc_rows = Vec::new();
+    let mut pc_baseline: Option<f64> = None;
     for &count in &counts {
         let props = make_properties(count);
-        let mut fps_list = Vec::new();
-        for _ in 0..runs {
-            fps_list.push(bench_streaming(&dbc20, id20, dlc20, &f20, &props, frames));
-        }
-        if fps_list.is_empty() {
-            continue;
-        }
-        let m = mean(&fps_list);
-        let base = *baseline.get_or_insert(m);
+        let m = mean_fps(&dbc20, id20, dlc20, &f20, &props, num_frames, runs);
+        let base = *pc_baseline.get_or_insert(m);
         let relative = if base > 0.0 { m / base } else { 0.0 };
         let us_per_frame = if m > 0.0 { 1_000_000.0 / m } else { 0.0 };
         log_line(
             json,
             &format!("  {count} props: {m:.0} fps ({relative:.2}x)"),
         );
-        results.push(json!({
+        pc_rows.push(json!({
             "properties": count,
             "fps": round1(m),
             "us_per_frame": round1(us_per_frame),
             "relative": round3(relative),
         }));
     }
-    results
+
+    // 4: property-complexity sweep, CAN 2.0B.
+    log_line(json, "\nProperty complexity scaling (CAN 2.0B):");
+    let mut cx_rows = Vec::new();
+    let mut cx_baseline: Option<f64> = None;
+    for (label, props) in complexity_levels() {
+        let m = mean_fps(&dbc20, id20, dlc20, &f20, &props, num_frames, runs);
+        let base = *cx_baseline.get_or_insert(m);
+        let relative = if base > 0.0 { m / base } else { 0.0 };
+        let us_per_frame = if m > 0.0 { 1_000_000.0 / m } else { 0.0 };
+        log_line(json, &format!("  {label}: {m:.0} fps ({relative:.2}x)"));
+        cx_rows.push(json!({
+            "complexity": label,
+            "fps": round1(m),
+            "us_per_frame": round1(us_per_frame),
+            "relative": round3(relative),
+        }));
+    }
+
+    vec![
+        ("trace_size_can20", Value::Array(trace20)),
+        ("trace_size_canfd", Value::Array(tracefd)),
+        ("property_count", Value::Array(pc_rows)),
+        ("property_complexity", Value::Array(cx_rows)),
+    ]
 }
 
 // ---------------------------------------------------------------------------
@@ -987,6 +1142,7 @@ struct Args {
     warmup: usize,
     ops: usize,
     json: bool,
+    quick: bool,
 }
 
 fn parse_num<T: std::str::FromStr>(argv: &[String], i: usize, flag: &str) -> T {
@@ -1045,8 +1201,10 @@ fn parse_args() -> Args {
     }
 
     // `--quick` lowers the default sizes for a fast smoke run; explicit flags
-    // still take precedence. It is a Rust-only convenience (Go/C++ have no such
-    // flag) — `run_all.sh` drives the suite with explicit sizes, never `--quick`.
+    // still take precedence. In `scaling` mode it selects the reduced sweep
+    // magnitudes the cross-binding schema pins (matching Go / Python). For
+    // throughput / latency it is a convenience — `run_all.sh` drives those with
+    // explicit sizes, never `--quick`.
     let (def_frames, def_runs, def_ops) = if quick {
         (1000u64, 2usize, 1000usize)
     } else {
@@ -1060,7 +1218,55 @@ fn parse_args() -> Args {
         warmup: warmup.unwrap_or(2),
         ops: ops.unwrap_or(def_ops),
         json,
+        quick,
     }
+}
+
+/// Emit the JSON report for a list-container mode (throughput / latency).
+fn emit_list_report(mode: &str, results: Vec<Value>) {
+    let output = json!({
+        "benchmark": mode,
+        "language": "rust",
+        "timestamp": iso_timestamp(),
+        "system": system_json(),
+        "results": results,
+    });
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&output).expect("serialize benchmark JSON")
+    );
+}
+
+/// Emit the scaling report: a dict-container mode whose `results` object keys
+/// MUST appear in schema order. `serde_json::Value` objects (a `BTreeMap`
+/// without the `preserve_order` feature) would sort the keys, so the results
+/// object is assembled by hand to pin the sub-benchmark order the gate checks.
+fn emit_scaling_report(mode: &str, sweeps: &[(&str, Value)]) {
+    let inner: Vec<String> = sweeps
+        .iter()
+        .map(|(key, rows)| {
+            let rows_json =
+                serde_json::to_string_pretty(rows).expect("serialize scaling sweep rows");
+            // Indent the multi-line array body under the results object.
+            let indented = rows_json.replace('\n', "\n    ");
+            format!("    {}: {indented}", Value::String((*key).to_string()))
+        })
+        .collect();
+    let results_body = inner.join(",\n");
+    let system = serde_json::to_string_pretty(&system_json()).expect("serialize system info");
+    let system_indented = system.replace('\n', "\n  ");
+    println!(
+        "{{\n  {}: {},\n  {}: {},\n  {}: {},\n  {}: {},\n  {}: {{\n{results_body}\n  }}\n}}",
+        Value::String("benchmark".to_string()),
+        Value::String(mode.to_string()),
+        Value::String("language".to_string()),
+        Value::String("rust".to_string()),
+        Value::String("timestamp".to_string()),
+        Value::String(iso_timestamp()),
+        Value::String("system".to_string()),
+        system_indented,
+        Value::String("results".to_string()),
+    );
 }
 
 fn main() {
@@ -1072,37 +1278,33 @@ fn main() {
     );
     log_line(args.json, &format!("Library: {lib}"));
 
-    let results = match args.mode.as_str() {
+    match args.mode.as_str() {
         "throughput" => {
             log_line(args.json, &format!("Frames per run: {}", args.frames));
             log_line(args.json, &format!("Runs: {}", args.runs));
-            run_throughput(args.frames, args.runs, args.warmup, args.json)
+            let results = run_throughput(args.frames, args.runs, args.warmup, args.json);
+            if args.json {
+                emit_list_report(&args.mode, results);
+            }
         }
         "latency" => {
             log_line(args.json, &format!("Operations: {}", args.ops));
-            run_latency(args.ops, args.warmup, args.json)
+            let results = run_latency(args.ops, args.warmup, args.json);
+            if args.json {
+                emit_list_report(&args.mode, results);
+            }
         }
         "scaling" => {
-            log_line(args.json, &format!("Frames per run: {}", args.frames));
-            run_scaling(args.frames, args.runs, args.json)
+            log_line(args.json, &format!("Runs: {}", args.runs));
+            log_line(args.json, &format!("Quick: {}", args.quick));
+            let sweeps = run_scaling(args.runs, args.quick, args.json);
+            if args.json {
+                emit_scaling_report(&args.mode, &sweeps);
+            }
         }
         other => {
             eprintln!("Unknown mode: {other} (use throughput, latency, or scaling)");
             std::process::exit(1);
         }
-    };
-
-    if args.json {
-        let output = json!({
-            "benchmark": args.mode,
-            "language": "rust",
-            "timestamp": iso_timestamp(),
-            "system": system_json(),
-            "results": results,
-        });
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&output).expect("serialize benchmark JSON")
-        );
     }
 }

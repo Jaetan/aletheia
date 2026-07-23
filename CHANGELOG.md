@@ -149,6 +149,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **C++: `ltl::implies(antecedent, consequent)` combinator.** The C++ binding
+  gains an implication constructor (the standard `!antecedent || consequent`
+  encoding, `either(negate(a), c)`), reaching parity with Go's `Implies`, Rust's
+  `Formula::implies`, and Python's `.implies()`. Implication is now offered by
+  all four bindings rather than three.
+- **Cross-binding benchmark-schema SSOT + conformance gate**
+  (`benchmarks/SCHEMA.yaml`, `tools/check_bench_schema.py`, wired into
+  `tools/run_ci.py` and the benchmark workflow). Every binding's benchmark now
+  emits an identical JSON schema — same CLI flags, `results` container, per-row
+  keys, and verbatim lane/sweep labels — for each mode; the gate drives each
+  built binary and fails on any drift. The C++/Go/Rust `scaling` benchmarks
+  gained the trace-size (CAN 2.0B + CAN-FD) and property-complexity sweeps that
+  previously only Python ran, and every scaling point is now run-averaged
+  (`--runs`) across all four bindings.
 - **A binary-wire encoder guard with a new extraction error code
   (`extraction_value_exceeds_wire_range`).** Exact-arithmetic reduction can
   push an extracted value's numerator or denominator past the signed 64-bit

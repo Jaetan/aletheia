@@ -1,7 +1,7 @@
 {
   "benchmark": "latency",
   "language": "python",
-  "timestamp": "2026-07-22T21:50:15.804666+00:00",
+  "timestamp": "2026-07-23T01:02:09.498179+00:00",
   "system": {
     "cpu": "x86_64",
     "cores": 24,
@@ -12,68 +12,68 @@
     {
       "name": "CAN 2.0B Streaming LTL",
       "count": 10000,
-      "mean_us": 7.3,
-      "min_us": 5.7,
-      "max_us": 2588.9,
+      "mean_us": 7.0,
+      "min_us": 5.8,
+      "max_us": 81.1,
       "p50_us": 6.3,
-      "p90_us": 8.3,
-      "p99_us": 19.0,
-      "p999_us": 53.9
+      "p90_us": 8.2,
+      "p99_us": 18.0,
+      "p999_us": 51.9
     },
     {
       "name": "CAN 2.0B Signal Extraction",
       "count": 10000,
-      "mean_us": 7.3,
+      "mean_us": 7.7,
       "min_us": 6.1,
-      "max_us": 327.6,
-      "p50_us": 6.6,
-      "p90_us": 7.3,
-      "p99_us": 20.3,
-      "p999_us": 141.3
+      "max_us": 2657.0,
+      "p50_us": 6.7,
+      "p90_us": 7.7,
+      "p99_us": 19.5,
+      "p999_us": 147.9
     },
     {
       "name": "CAN 2.0B Frame Building",
       "count": 10000,
       "mean_us": 11.8,
       "min_us": 10.0,
-      "max_us": 368.5,
+      "max_us": 300.2,
       "p50_us": 11.0,
       "p90_us": 12.3,
-      "p99_us": 27.9,
-      "p999_us": 60.8
+      "p99_us": 27.7,
+      "p999_us": 78.4
     },
     {
       "name": "CAN-FD Streaming LTL",
       "count": 10000,
-      "mean_us": 9.7,
+      "mean_us": 10.0,
       "min_us": 8.1,
-      "max_us": 374.4,
+      "max_us": 288.4,
       "p50_us": 8.9,
-      "p90_us": 9.9,
-      "p99_us": 25.8,
-      "p999_us": 64.4
+      "p90_us": 11.8,
+      "p99_us": 28.0,
+      "p999_us": 72.9
     },
     {
       "name": "CAN-FD Signal Extraction",
       "count": 10000,
-      "mean_us": 53.5,
-      "min_us": 46.6,
-      "max_us": 506.7,
-      "p50_us": 49.5,
-      "p90_us": 60.1,
-      "p99_us": 109.6,
-      "p999_us": 337.2
+      "mean_us": 53.3,
+      "min_us": 46.5,
+      "max_us": 626.2,
+      "p50_us": 49.7,
+      "p90_us": 60.5,
+      "p99_us": 102.1,
+      "p999_us": 266.1
     },
     {
       "name": "CAN-FD Frame Building",
       "count": 10000,
-      "mean_us": 38.3,
-      "min_us": 33.3,
-      "max_us": 404.7,
-      "p50_us": 35.6,
-      "p90_us": 42.5,
-      "p99_us": 78.3,
-      "p999_us": 224.1
+      "mean_us": 37.9,
+      "min_us": 33.6,
+      "max_us": 381.1,
+      "p50_us": 35.7,
+      "p90_us": 42.1,
+      "p99_us": 75.4,
+      "p999_us": 157.5
     }
   ]
 }

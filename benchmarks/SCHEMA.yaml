@@ -1,0 +1,121 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# Canonical cross-binding benchmark schema — the single source of truth for the
+# "same measurement, same name, every API language" rule.
+#
+# All four benchmark harnesses (Python python/benchmarks/, C++ cpp/benchmarks/,
+# Go go/benchmarks/, Rust rust/examples/benchmark.rs) MUST emit JSON that
+# matches this schema for each mode: identical CLI flag set, identical `results`
+# container, identical per-row key sets, and byte-identical human label strings
+# in the same order. tools/check_bench_schema.py enforces this against every
+# binding on every CI run (structure + labels + types + per-sweep row counts —
+# never the measured values, which are host-dependent).
+#
+# This file is authority. To change a lane name, a row key, or a sweep, edit
+# HERE first, then update all four harnesses; the gate fails until they agree.
+
+envelope:
+  # Every mode, every binding wraps its payload in this object.
+  top_keys: [benchmark, language, timestamp, system, results]
+  languages: [python, cpp, go, rust]
+  benchmarks: [throughput, latency, scaling]
+
+modes:
+
+  throughput:
+    flags: ["--frames", "--runs", "--warmup", "--json"]
+    results_container: list
+    # One object per lane, keys in any order but this exact set.
+    row_keys: [name, frames, runs, fps_mean, fps_stdev, fps_min, fps_max, us_per_frame]
+    # The six lanes, verbatim and in this order. The CAN-FD prefix carries a
+    # colon + THREE spaces for column alignment; CAN 2.0B a colon + ONE space.
+    lane_names:
+      - "CAN 2.0B: Stream LTL (2 props)"
+      - "CAN 2.0B: Signal Extraction"
+      - "CAN 2.0B: Frame Building"
+      - "CAN-FD:   Stream LTL (3 props)"
+      - "CAN-FD:   Signal Extraction"
+      - "CAN-FD:   Frame Building"
+
+  latency:
+    flags: ["--ops", "--warmup", "--json"]
+    results_container: list
+    row_keys: [name, count, mean_us, min_us, max_us, p50_us, p90_us, p99_us, p999_us]
+    # Distinct spelling from throughput (no colon, "Streaming LTL" not
+    # "Stream LTL (N props)") — but IDENTICAL across all four bindings, which is
+    # what the cross-language rule requires. Cross-MODE naming is intentionally
+    # separate.
+    lane_names:
+      - "CAN 2.0B Streaming LTL"
+      - "CAN 2.0B Signal Extraction"
+      - "CAN 2.0B Frame Building"
+      - "CAN-FD Streaming LTL"
+      - "CAN-FD Signal Extraction"
+      - "CAN-FD Frame Building"
+
+  scaling:
+    flags: ["--runs", "--quick", "--json"]
+    # A DICT keyed by sub-benchmark (NOT a flat list) — scaling runs four
+    # distinct sweeps, each its own row schema.
+    results_container: dict
+    sub_benchmarks: [trace_size_can20, trace_size_canfd, property_count, property_complexity]
+    # Per-sub-benchmark row key sets.
+    row_keys:
+      trace_size_can20: [frames, fps, relative]
+      trace_size_canfd: [frames, fps, relative]
+      property_count: [properties, fps, us_per_frame, relative]
+      property_complexity: [complexity, fps, us_per_frame, relative]
+    # Row COUNT per sweep under --quick (the mode the gate runs) — deterministic,
+    # so the gate can assert it without touching measured values.
+    quick_row_counts:
+      trace_size_can20: 4        # [1000, 5000, 10000, 50000] (full drops in 100000)
+      trace_size_canfd: 4
+      property_count: 6          # [1, 2, 3, 5, 7, 10]
+      property_complexity: 5
+    # The five complexity labels, verbatim and in order (the "complexity" row field).
+    complexity_labels:
+      - "Simple predicate"
+      - "Range predicate"
+      - "Two predicates (AND)"
+      - "Three predicates"
+      - "Implication"
+
+# ── Canonical experiment definitions (for the harness authors; the gate checks
+#    structure/labels/counts, not these magnitudes) ───────────────────────────
+experiment:
+  # Averaging: EVERY scaling point is the mean of --runs streaming passes
+  # (default 5). This is the robust methodology; single-pass is NOT used.
+  scaling_runs_default: 5
+  # Frames per timed pass. For trace-size sweeps the size IS the frame count;
+  # for property-count / property-complexity it is fixed:
+  frames_per_point:
+    full: 10000
+    quick: 5000
+  trace_sizes:
+    full: [1000, 5000, 10000, 50000, 100000]
+    quick: [1000, 5000, 10000, 50000]
+  property_counts: [1, 2, 3, 5, 7, 10]
+  # relative = fps / (fps of the first row in the same sweep).
+  relative_baseline: first_row
+  # Rounding (match across bindings): fps -> 1 dp, us_per_frame -> 1 dp,
+  # relative -> 3 dp.
+  rounding: { fps: 1, us_per_frame: 1, relative: 3 }
+  # trace-size sweep properties (one Always-wrapped range predicate each):
+  trace_size_property:
+    can20: "Always(Atomic(Between(EngineSpeed, 0, 8000)))"
+    canfd: "Always(Atomic(Between(GPSSpeed, 0, 655)))"
+  # property-count sweep: 10 templates cycled by (i mod 10); count in property_counts.
+  # property-complexity: the five labelled bundles below (CAN 2.0B).
+  complexity_bundles:
+    - label: "Simple predicate"
+      formula: "Always(Atomic(LessThan(EngineSpeed, 8000)))"
+    - label: "Range predicate"
+      formula: "Always(Atomic(Between(EngineSpeed, 0, 8000)))"
+    - label: "Two predicates (AND)"
+      formula: "[Always(Between(EngineSpeed,0,8000)), Always(Between(EngineTemp,-40,215))]"
+    - label: "Three predicates"
+      formula: "[Always(Between(EngineSpeed,0,8000)), Always(Between(EngineTemp,-40,215)), Always(LessThan(BrakePressure, 13107/2))]"
+    - label: "Implication"
+      # implies is NOT a primitive: it lowers to Or(Not(antecedent), consequent).
+      formula: "Always(Or(Not(Atomic(LessThan(EngineSpeed,1000))), Atomic(LessThan(EngineTemp,100))))"

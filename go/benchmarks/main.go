@@ -675,11 +675,34 @@ func runLatency(backend *aletheia.FFIBackend, out *os.File, numOps, warmup int) 
 // Benchmark: Scaling (property count)
 // ---------------------------------------------------------------------------
 
-type scalingResult struct {
+// Scaling emits four sweeps under one dict-shaped payload; the struct field
+// order below IS the wire order the cross-binding schema (benchmarks/SCHEMA.yaml,
+// tools/check_bench_schema.py) pins across all four bindings.
+type traceSizeRow struct {
+	Frames   int     `json:"frames"`
+	FPS      float64 `json:"fps"`
+	Relative float64 `json:"relative"`
+}
+
+type propCountRow struct {
 	Properties int     `json:"properties"`
 	FPS        float64 `json:"fps"`
 	USPerFrame float64 `json:"us_per_frame"`
 	Relative   float64 `json:"relative"`
+}
+
+type complexityRow struct {
+	Complexity string  `json:"complexity"`
+	FPS        float64 `json:"fps"`
+	USPerFrame float64 `json:"us_per_frame"`
+	Relative   float64 `json:"relative"`
+}
+
+type scalingResults struct {
+	TraceSizeCAN20     []traceSizeRow  `json:"trace_size_can20"`
+	TraceSizeCANFD     []traceSizeRow  `json:"trace_size_canfd"`
+	PropertyCount      []propCountRow  `json:"property_count"`
+	PropertyComplexity []complexityRow `json:"property_complexity"`
 }
 
 func makeProperties(count int) []aletheia.Formula {
@@ -702,58 +725,136 @@ func makeProperties(count int) []aletheia.Formula {
 	return props
 }
 
-func runScaling(backend *aletheia.FFIBackend, out *os.File, numFrames, numRuns int) []scalingResult {
-	dbc20 := can20DBC()
-	counts := []int{1, 2, 3, 5, 7, 10}
-
-	fmt.Fprintf(out, "\n%s\n", strings.Repeat("=", 70))
-	fmt.Fprintf(out, "Property Count Scaling (CAN 2.0B)\n")
-	fmt.Fprintf(out, "%s\n", strings.Repeat("=", 70))
-	fmt.Fprintf(out, "%10s %12s %10s %10s\n", "Properties", "Frames/sec", "us/frame", "Relative")
-	fmt.Fprintf(out, "%s\n", strings.Repeat("-", 45))
-
-	// Warmup.
-	if _, err := benchmarkStreaming(backend, dbc20, can20ID, can20DLC, can20Frame, makeProperties(1), numFrames/10); err != nil {
-		fmt.Fprintf(out, "Warmup error: %v\n", err)
-	}
-
-	var results []scalingResult
-	var baselineFPS float64
-	for _, count := range counts {
-		props := makeProperties(count)
-		var fpsList []float64
-		for r := 0; r < numRuns; r++ {
-			fps, err := benchmarkStreaming(backend, dbc20, can20ID, can20DLC, can20Frame, props, numFrames)
-			if err != nil {
-				fmt.Fprintf(out, "  Error with %d props: %v\n", count, err)
-				continue
-			}
-			fpsList = append(fpsList, fps)
-		}
-		if len(fpsList) == 0 {
+// meanFPS averages streaming fps over numRuns passes (the robust methodology,
+// identical across all four bindings — noise on an un-averaged baseline would
+// multiply into every `relative` in the sweep).
+func meanFPS(backend *aletheia.FFIBackend, out *os.File, dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, props []aletheia.Formula, numFrames, numRuns int) float64 {
+	var fpsList []float64
+	for r := 0; r < numRuns; r++ {
+		fps, err := benchmarkStreaming(backend, dbc, id, dlc, frame, props, numFrames)
+		if err != nil {
+			fmt.Fprintf(out, "  Error: %v\n", err)
 			continue
 		}
-		m := mean(fpsList)
-		if baselineFPS == 0 {
-			baselineFPS = m
-		}
-		relative := m / baselineFPS
-		usPerFrame := 0.0
-		if m > 0 {
-			usPerFrame = 1_000_000 / m
-		}
-		fmt.Fprintf(out, "%10d %12.0f %10.1f %10.2fx\n", count, m, usPerFrame, relative)
-		results = append(results, scalingResult{
-			Properties: count,
-			FPS:        math.Round(m*10) / 10,
-			USPerFrame: math.Round(usPerFrame*10) / 10,
-			Relative:   math.Round(relative*1000) / 1000,
-		})
+		fpsList = append(fpsList, fps)
+	}
+	if len(fpsList) == 0 {
+		return 0
+	}
+	return mean(fpsList)
+}
+
+func round1(x float64) float64 { return math.Round(x*10) / 10 }
+func round3(x float64) float64 { return math.Round(x*1000) / 1000 }
+
+func usPerFrameOf(fps float64) float64 {
+	if fps <= 0 {
+		return 0
+	}
+	return 1_000_000 / fps
+}
+
+func relativeOf(fps, baseline float64) float64 {
+	if baseline <= 0 {
+		return 0
+	}
+	return fps / baseline
+}
+
+func traceSizes(quick bool) []int {
+	if quick {
+		return []int{1000, 5000, 10000, 50000}
+	}
+	return []int{1000, 5000, 10000, 50000, 100000}
+}
+
+// alwaysBetween / alwaysLessThan build the Always-wrapped atomic predicates the
+// scaling sweeps share; the exact signals/bounds mirror python/benchmarks/scaling.py.
+func alwaysBetween(sig string, lo, hi int64) aletheia.Formula {
+	return aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: aletheia.SignalName(sig), Min: aletheia.IntRational(lo), Max: aletheia.IntRational(hi)}}}
+}
+
+func alwaysLessThan(sig string, v int64) aletheia.Formula {
+	return aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: aletheia.SignalName(sig), Value: aletheia.IntRational(v)}}}
+}
+
+func complexityLevels() []struct {
+	label string
+	props []aletheia.Formula
+} {
+	brakeHalf := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "BrakePressure", Value: aletheia.Rational{Numerator: 13107, Denominator: 2}}}}
+	implication := aletheia.Always{Inner: aletheia.Implies(
+		aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "EngineSpeed", Value: aletheia.IntRational(1000)}},
+		aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "EngineTemp", Value: aletheia.IntRational(100)}},
+	)}
+	return []struct {
+		label string
+		props []aletheia.Formula
+	}{
+		{"Simple predicate", []aletheia.Formula{alwaysLessThan("EngineSpeed", 8000)}},
+		{"Range predicate", []aletheia.Formula{alwaysBetween("EngineSpeed", 0, 8000)}},
+		{"Two predicates (AND)", []aletheia.Formula{alwaysBetween("EngineSpeed", 0, 8000), alwaysBetween("EngineTemp", -40, 215)}},
+		{"Three predicates", []aletheia.Formula{alwaysBetween("EngineSpeed", 0, 8000), alwaysBetween("EngineTemp", -40, 215), brakeHalf}},
+		{"Implication", []aletheia.Formula{implication}},
+	}
+}
+
+func runScaling(backend *aletheia.FFIBackend, out *os.File, numRuns int, quick bool) scalingResults {
+	dbc20 := can20DBC()
+	dbcFD := canfdDBC()
+	numFrames := 10000
+	if quick {
+		numFrames = 5000
 	}
 
-	fmt.Fprintf(out, "\nExpected: Some degradation, but should be sub-linear\n")
+	fmt.Fprintf(out, "\n%s\nScaling (runs=%d, quick=%v)\n%s\n", strings.Repeat("=", 70), numRuns, quick, strings.Repeat("=", 70))
+
+	// Warmup.
+	_ = meanFPS(backend, out, dbc20, can20ID, can20DLC, can20Frame, makeProperties(1), 1000, 1)
+
+	scanTrace := func(dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, props []aletheia.Formula) []traceSizeRow {
+		var rows []traceSizeRow
+		var baseline float64
+		for _, size := range traceSizes(quick) {
+			m := meanFPS(backend, out, dbc, id, dlc, frame, props, size, numRuns)
+			if baseline == 0 {
+				baseline = m
+			}
+			rows = append(rows, traceSizeRow{Frames: size, FPS: round1(m), Relative: round3(relativeOf(m, baseline))})
+		}
+		return rows
+	}
+
+	traceCAN20 := scanTrace(dbc20, can20ID, can20DLC, can20Frame, []aletheia.Formula{alwaysBetween("EngineSpeed", 0, 8000)})
+	traceCANFD := scanTrace(dbcFD, canfdID, canfdDLC, canfdFrame, []aletheia.Formula{alwaysBetween("GPSSpeed", 0, 655)})
+
+	var propCount []propCountRow
+	var pcBaseline float64
+	for _, count := range []int{1, 2, 3, 5, 7, 10} {
+		m := meanFPS(backend, out, dbc20, can20ID, can20DLC, can20Frame, makeProperties(count), numFrames, numRuns)
+		if pcBaseline == 0 {
+			pcBaseline = m
+		}
+		propCount = append(propCount, propCountRow{Properties: count, FPS: round1(m), USPerFrame: round1(usPerFrameOf(m)), Relative: round3(relativeOf(m, pcBaseline))})
+	}
+
+	var complexity []complexityRow
+	var cxBaseline float64
+	for _, level := range complexityLevels() {
+		m := meanFPS(backend, out, dbc20, can20ID, can20DLC, can20Frame, level.props, numFrames, numRuns)
+		if cxBaseline == 0 {
+			cxBaseline = m
+		}
+		complexity = append(complexity, complexityRow{Complexity: level.label, FPS: round1(m), USPerFrame: round1(usPerFrameOf(m)), Relative: round3(relativeOf(m, cxBaseline))})
+	}
+
 	fmt.Fprintf(out, "%s\n", strings.Repeat("=", 70))
-	return results
+	return scalingResults{
+		TraceSizeCAN20:     traceCAN20,
+		TraceSizeCANFD:     traceCANFD,
+		PropertyCount:      propCount,
+		PropertyComplexity: complexity,
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -791,6 +892,7 @@ func main() {
 	runs := fs.Int("runs", 5, "Number of runs")
 	warmup := fs.Int("warmup", 2, "Warmup runs (throughput) / warmup ops (latency)")
 	ops := fs.Int("ops", 5000, "Operations to measure (latency)")
+	quick := fs.Bool("quick", false, "Fewer iterations (scaling)")
 	jsonFlag := fs.Bool("json", false, "Emit JSON to stdout")
 
 	// Parse: first positional arg is the mode.
@@ -839,9 +941,9 @@ func main() {
 		}
 
 	case "scaling":
-		fmt.Fprintf(out, "Frames per run: %d\n", *frames)
 		fmt.Fprintf(out, "Runs: %d\n", *runs)
-		results := runScaling(backend, out, *frames, *runs)
+		fmt.Fprintf(out, "Quick: %v\n", *quick)
+		results := runScaling(backend, out, *runs, *quick)
 		if *jsonFlag {
 			emitJSON("scaling", results)
 		}

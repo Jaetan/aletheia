@@ -185,6 +185,13 @@ inline auto either(LtlFormula left, LtlFormula right) -> LtlFormula {
               .right = std::make_unique<LtlFormula>(std::move(right))};
 }
 
+// antecedent -> consequent, the standard LTL encoding !antecedent || consequent.
+// A convenience combinator (implication is not a distinct LtlFormula node);
+// mirrors Go's Implies, Rust's Formula::implies, and Python's .implies().
+inline auto implies(LtlFormula antecedent, LtlFormula consequent) -> LtlFormula {
+    return either(negate(std::move(antecedent)), std::move(consequent));
+}
+
 inline auto next(LtlFormula f) -> LtlFormula {
     return Next{std::make_unique<LtlFormula>(std::move(f))};
 }

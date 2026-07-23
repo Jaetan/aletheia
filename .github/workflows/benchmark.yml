@@ -270,6 +270,21 @@ jobs:
           set -euo pipefail
           cd go && go build -o benchmarks/benchmark ./benchmarks/
 
+      # Full-teeth cross-binding schema check: all four binaries are built here
+      # (C++/Go above, Rust below, Python via the venv), so this asserts the
+      # "same measurement, same name" contract (benchmarks/SCHEMA.yaml) across
+      # every binding — the run_ci copy only reaches the Python reference. Runs
+      # BEFORE the measurement so a schema regression fails fast.
+      - name: Cross-binding benchmark-schema conformance
+        run: |
+          set -euo pipefail
+          cargo build --release --example benchmark --manifest-path rust/Cargo.toml
+          source python/.venv/bin/activate
+          # --built: all four binaries are freshly built in this job, so require +
+          # check every binding (full teeth). run_ci uses the default python-only
+          # mode, which never runs a possibly-stale on-disk compiled binary.
+          python3 -m tools.check_bench_schema --built
+
       - name: Run the cross-language benchmark
         run: |
           set -euo pipefail

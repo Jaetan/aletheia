@@ -235,6 +235,21 @@ def _run_binding_tests(runner: Runner) -> None:
         [runner.python, "-m", "pytest", "tests/", "--ignore=tests/test_cli_parity.py"],
         cwd=runner.repo_root / "python",
     )
+    # Cross-binding benchmark-schema conformance (benchmarks/SCHEMA.yaml): drives
+    # each benchmark binary with a tiny per-mode workload and asserts an identical
+    # schema + verbatim labels against the SSOT. Default (no --built) checks ONLY
+    # the Python reference: run_ci does not build the C++/Go/Rust benchmark
+    # binaries, and an on-disk compiled binary may be STALE against the current
+    # source (mtime is unreliable across git checkouts/merges), so running it
+    # would be a false signal. The full four-binding check runs in the benchmark
+    # workflow with --built, which builds all four fresh in the same job. Pinned to
+    # the python lane so it runs after the .so build, like the pytest steps.
+    runner.step(
+        "check-bench-schema",
+        [runner.python, "-m", "tools.check_bench_schema"],
+        cwd=runner.repo_root,
+        lane="python",
+    )
     # Doc-example fence harness.  Runs from the repo root (cwd=repo_root → would
     # infer the "misc" lane), but it is a pytest invocation sharing the Python
     # toolchain, so pin it to the "python" lane explicitly to keep all pytest
