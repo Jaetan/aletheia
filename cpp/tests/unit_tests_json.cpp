@@ -1622,6 +1622,20 @@ TEST_CASE("format_formula release", "[enrich]") {
     CHECK(format_formula(f) == "A = 1 release B = 0");
 }
 
+TEST_CASE("implies desugars to or(not(antecedent), consequent)", "[enrich]") {
+    auto ante = [] {
+        return ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{50, 1}}));
+    };
+    auto cons = [] {
+        return ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}}));
+    };
+    // implies(a, c) is the standard LTL encoding !a || c — identical to
+    // either(negate(a), c), matching Go's Implies, Rust's Formula::implies, and
+    // Python's .implies(). Asserted structurally via the printer, no literal string.
+    CHECK(format_formula(ltl::implies(ante(), cons())) ==
+          format_formula(ltl::either(ltl::negate(ante()), cons())));
+}
+
 TEST_CASE("format_formula all predicate types", "[enrich]") {
     auto eq = ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{42, 1}}));
     CHECK(format_formula(eq) == "S = 42");

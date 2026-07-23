@@ -113,8 +113,8 @@ FAILED=()
 PYTHON_ARGS=(--json)
 case $BENCH in
     throughput) PYTHON_ARGS=(--frames "$FRAMES" --runs "$RUNS" "${PYTHON_ARGS[@]}") ;;
-    latency)   PYTHON_ARGS=(--ops "$FRAMES" "${PYTHON_ARGS[@]}") ;;
-    scaling)   PYTHON_ARGS=(--quick "${PYTHON_ARGS[@]}") ;;
+    latency)    PYTHON_ARGS=(--ops "$FRAMES" "${PYTHON_ARGS[@]}") ;;
+    scaling)    PYTHON_ARGS=(--runs "$RUNS" "${PYTHON_ARGS[@]}") ;;
 esac
 
 cd "$PROJECT_DIR/python"
@@ -156,8 +156,9 @@ if [[ -f "$CPP_BIN" ]]; then
 
     CPP_ARGS=("$BENCH" --json)
     case $BENCH in
-        throughput|latency) CPP_ARGS+=( --frames "$FRAMES" --runs "$RUNS") ;;
-        scaling) CPP_ARGS+=(--frames 5000) ;;
+        throughput) CPP_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
+        latency)    CPP_ARGS+=(--ops "$FRAMES") ;;
+        scaling)    CPP_ARGS+=(--runs "$RUNS") ;;
     esac
 
     if run_benchmark "C++" "$RESULTS_DIR/cpp_${BENCH}.json" \
@@ -175,8 +176,9 @@ GO_BIN="$PROJECT_DIR/go/benchmarks/benchmark"
 if [[ -f "$GO_BIN" ]]; then
     GO_ARGS=("$BENCH" --json)
     case $BENCH in
-        throughput|latency) GO_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
-        scaling) GO_ARGS+=(--frames 5000) ;;
+        throughput) GO_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
+        latency)    GO_ARGS+=(--ops "$FRAMES") ;;
+        scaling)    GO_ARGS+=(--runs "$RUNS") ;;
     esac
 
     if run_benchmark "Go" "$RESULTS_DIR/go_${BENCH}.json" \
@@ -200,8 +202,9 @@ RUST_BIN="$RUST_DIR/target/release/examples/benchmark"
 if RUST_BUILD_LOG="$(cd "$RUST_DIR" && cargo build --release --example benchmark 2>&1)"; then
     RUST_ARGS=("$BENCH" --json)
     case $BENCH in
-        throughput|latency) RUST_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
-        scaling) RUST_ARGS+=(--frames 5000) ;;
+        throughput) RUST_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
+        latency)    RUST_ARGS+=(--ops "$FRAMES") ;;
+        scaling)    RUST_ARGS+=(--runs "$RUNS") ;;
     esac
 
     if run_benchmark "Rust" "$RESULTS_DIR/rust_${BENCH}.json" \

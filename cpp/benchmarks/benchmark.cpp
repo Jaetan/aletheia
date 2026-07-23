@@ -6,7 +6,7 @@
 // Measures throughput, latency, and scaling for CAN 2.0B and CAN-FD frames
 // through the Aletheia FFI backend.
 //
-// Usage: ./benchmark [throughput|latency|scaling] [--frames N] [--runs N] [--json]
+// Usage: ./benchmark [throughput|latency|scaling] [--frames N] [--runs N] [--quick] [--json]
 
 #include <aletheia/aletheia.hpp>
 
@@ -860,91 +860,285 @@ static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json
 }
 
 // ---------------------------------------------------------------------------
-// Benchmark: scaling (property count, CAN 2.0B only)
+// Benchmark: scaling
+//
+// Four sweeps emitted as a DICT keyed by sub-benchmark, in this exact order:
+// trace_size_can20, trace_size_canfd, property_count, property_complexity.
+// The canonical schema is benchmarks/SCHEMA.yaml; the semantic source is
+// python/benchmarks/scaling.py; go/benchmarks/main.go runScaling is the
+// conformant structural reference. Methodology (identical across bindings):
+// every sweep point is the MEAN fps over --runs streaming passes;
+// relative = fps / (fps of the first row in the same sweep).
 // ---------------------------------------------------------------------------
 
-struct ScalingResult {
-    int property_count;
+struct TraceSizeRow {
+    int frames;
+    double fps;
+    double relative;
+};
+
+struct PropCountRow {
+    int properties;
     double fps;
     double us_per_frame;
     double relative;
 };
 
-static void run_scaling(const fs::path& lib, int num_frames, int num_runs, bool emit_json) {
-    print_header("Aletheia Scaling Benchmark (C++)");
-    std::fprintf(out_file, "Frames per run: %d\n", num_frames);
+struct ComplexityRow {
+    std::string complexity;
+    double fps;
+    double us_per_frame;
+    double relative;
+};
 
-    auto dbc = make_can20_dbc();
+// LtlFormula owns unique_ptr children (not copyable): clone the whole vector so
+// each streaming pass gets its own tree.
+static auto clone_props(const std::vector<LtlFormula>& props) -> std::vector<LtlFormula> {
+    std::vector<LtlFormula> out;
+    out.reserve(props.size());
+    for (const auto& p : props)
+        out.push_back(ltl::clone(p));
+    return out;
+}
+
+// mean_fps averages streaming fps over num_runs passes (the robust methodology,
+// identical across all four bindings — noise on an un-averaged baseline would
+// multiply into every `relative` in the sweep).
+static auto mean_fps(const fs::path& lib, const DbcDefinition& dbc, CanId id, Dlc dlc,
+                     const FramePayload& frame, const std::vector<LtlFormula>& props,
+                     int num_frames, int num_runs) -> double {
+    std::vector<double> fps_runs;
+    fps_runs.reserve(num_runs);
+    for (int r = 0; r < num_runs; ++r)
+        fps_runs.push_back(
+            bench_streaming(lib, dbc, clone_props(props), id, dlc, frame, num_frames));
+    return compute_stats(fps_runs).mean;
+}
+
+static auto round1(double x) -> double {
+    return std::round(x * 10) / 10;
+}
+
+static auto round3(double x) -> double {
+    return std::round(x * 1000) / 1000;
+}
+
+static auto us_per_frame_of(double fps) -> double {
+    return (fps > 0) ? 1'000'000.0 / fps : 0.0;
+}
+
+static auto relative_of(double fps, double baseline) -> double {
+    return (baseline > 0) ? fps / baseline : 0.0;
+}
+
+static auto trace_sizes(bool quick) -> std::vector<int> {
+    if (quick)
+        return {1000, 5000, 10000, 50000};
+    return {1000, 5000, 10000, 50000, 100000};
+}
+
+// always_between / always_less_than build the Always-wrapped atomic predicates
+// the scaling sweeps share; the exact signals/bounds mirror scaling.py.
+static auto always_between(const char* sig, Rational lo, Rational hi) -> LtlFormula {
+    return ltl::always(
+        ltl::atomic(ltl::between(SignalName{sig}, PhysicalValue{lo}, PhysicalValue{hi})));
+}
+
+static auto always_less_than(const char* sig, Rational value) -> LtlFormula {
+    return ltl::always(ltl::atomic(ltl::less_than(SignalName{sig}, PhysicalValue{value})));
+}
+
+// The five property-complexity levels (CAN 2.0B), verbatim labels in order. The
+// "Implication" level uses ltl::implies (antecedent -> consequent lowers to
+// Or(Not(antecedent), consequent)).
+static auto complexity_levels() -> std::vector<std::pair<std::string, std::vector<LtlFormula>>> {
+    std::vector<std::pair<std::string, std::vector<LtlFormula>>> levels;
+
+    {
+        std::vector<LtlFormula> props;
+        props.push_back(always_less_than("EngineSpeed", Rational{8000, 1}));
+        levels.emplace_back("Simple predicate", std::move(props));
+    }
+    {
+        std::vector<LtlFormula> props;
+        props.push_back(always_between("EngineSpeed", Rational{0, 1}, Rational{8000, 1}));
+        levels.emplace_back("Range predicate", std::move(props));
+    }
+    {
+        std::vector<LtlFormula> props;
+        props.push_back(always_between("EngineSpeed", Rational{0, 1}, Rational{8000, 1}));
+        props.push_back(always_between("EngineTemp", Rational{-40, 1}, Rational{215, 1}));
+        levels.emplace_back("Two predicates (AND)", std::move(props));
+    }
+    {
+        std::vector<LtlFormula> props;
+        props.push_back(always_between("EngineSpeed", Rational{0, 1}, Rational{8000, 1}));
+        props.push_back(always_between("EngineTemp", Rational{-40, 1}, Rational{215, 1}));
+        // BrakePressure bound is the RATIONAL 13107/2 (= 6553.5), not an integer.
+        props.push_back(always_less_than("BrakePressure", Rational{13107, 2}));
+        levels.emplace_back("Three predicates", std::move(props));
+    }
+    {
+        std::vector<LtlFormula> props;
+        props.push_back(ltl::always(
+            ltl::implies(ltl::atomic(ltl::less_than(SignalName{"EngineSpeed"},
+                                                    PhysicalValue{Rational{1000, 1}})),
+                         ltl::atomic(ltl::less_than(SignalName{"EngineTemp"},
+                                                    PhysicalValue{Rational{100, 1}})))));
+        levels.emplace_back("Implication", std::move(props));
+    }
+
+    return levels;
+}
+
+static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit_json) {
+    print_header("Aletheia Scaling Benchmark (C++)");
+    std::fprintf(out_file, "Runs: %d\n", num_runs);
+    std::fprintf(out_file, "Quick: %s\n", quick ? "true" : "false");
+
+    auto dbc_20 = make_can20_dbc();
+    auto dbc_fd = make_canfd_dbc();
+    int num_frames = quick ? 5000 : 10000;
 
     // Warmup
     std::fprintf(out_file, "\nWarming up...\n");
     {
-        auto props = make_can20_properties();
-        bench_streaming(lib, dbc, std::move(props), can20_id, can20_dlc, can20_frame, 1000);
+        std::vector<LtlFormula> warm;
+        warm.push_back(always_between("EngineSpeed", Rational{0, 1}, Rational{8000, 1}));
+        (void)mean_fps(lib, dbc_20, can20_id, can20_dlc, can20_frame, warm, 1000, 1);
     }
     std::fprintf(out_file, "Done.\n");
 
-    // Property count scaling
+    // 1./2. Trace-size sweeps (CAN 2.0B, then CAN-FD).
+    auto scan_trace = [&](const char* title, const DbcDefinition& dbc, CanId id, Dlc dlc,
+                          const FramePayload& frame,
+                          const std::vector<LtlFormula>& props) -> std::vector<TraceSizeRow> {
+        std::fprintf(out_file, "\n");
+        print_header(title);
+        std::fprintf(out_file, "%10s %12s %10s\n", "Frames", "Frames/sec", "Relative");
+        print_separator();
+        std::vector<TraceSizeRow> rows;
+        double baseline = 0;
+        for (int size : trace_sizes(quick)) {
+            double fps = mean_fps(lib, dbc, id, dlc, frame, props, size, num_runs);
+            if (baseline == 0)
+                baseline = fps;
+            double relative = relative_of(fps, baseline);
+            std::fprintf(out_file, "%10d %12.0f %10.2fx\n", size, fps, relative);
+            rows.push_back({size, fps, relative});
+        }
+        return rows;
+    };
+
+    std::vector<LtlFormula> trace_props_can20;
+    trace_props_can20.push_back(always_between("EngineSpeed", Rational{0, 1}, Rational{8000, 1}));
+    auto trace_can20 = scan_trace("Trace Size Scaling (CAN 2.0B)", dbc_20, can20_id, can20_dlc,
+                                  can20_frame, trace_props_can20);
+
+    std::vector<LtlFormula> trace_props_canfd;
+    trace_props_canfd.push_back(always_between("GPSSpeed", Rational{0, 1}, Rational{655, 1}));
+    auto trace_canfd = scan_trace("Trace Size Scaling (CAN-FD)", dbc_fd, canfd_id, canfd_dlc,
+                                  canfd_frame, trace_props_canfd);
+
+    // 3. Property-count sweep (CAN 2.0B), 10 templates cycled by i mod 10.
     std::fprintf(out_file, "\n");
     print_header("Property Count Scaling");
-    std::fprintf(out_file, "Testing throughput as property count increases...\n\n");
     std::fprintf(out_file, "%10s %12s %10s %10s\n", "Properties", "Frames/sec", "us/frame",
                  "Relative");
     print_separator();
-
-    constexpr int counts[] = {1, 2, 3, 5, 7, 10};
-    double baseline_fps = 0;
-    std::vector<ScalingResult> results;
-
-    for (int count : counts) {
-        // Build properties for this count
-        std::vector<LtlFormula> props;
-        for (int i = 0; i < count; ++i)
-            props.push_back(make_scaling_property(i));
-
-        // Average over runs
-        std::vector<double> fps_runs;
-        for (int r = 0; r < num_runs; ++r) {
-            // Need to copy properties for each run
-            std::vector<LtlFormula> props_copy;
+    std::vector<PropCountRow> prop_count;
+    {
+        constexpr int counts[] = {1, 2, 3, 5, 7, 10};
+        double baseline = 0;
+        for (int count : counts) {
+            std::vector<LtlFormula> props;
+            props.reserve(count);
             for (int i = 0; i < count; ++i)
-                props_copy.push_back(make_scaling_property(i));
-            fps_runs.push_back(bench_streaming(lib, dbc, std::move(props_copy), can20_id, can20_dlc,
-                                               can20_frame, num_frames));
+                props.push_back(make_scaling_property(i));
+            double fps = mean_fps(lib, dbc_20, can20_id, can20_dlc, can20_frame, props, num_frames,
+                                  num_runs);
+            if (baseline == 0)
+                baseline = fps;
+            double relative = relative_of(fps, baseline);
+            double us = us_per_frame_of(fps);
+            std::fprintf(out_file, "%10d %12.0f %10.1f %10.2fx\n", count, fps, us, relative);
+            prop_count.push_back({count, fps, us, relative});
         }
-        auto stats = compute_stats(fps_runs);
-        double fps = stats.mean;
-
-        if (baseline_fps == 0)
-            baseline_fps = fps;
-        double relative = fps / baseline_fps;
-        double us = 1'000'000.0 / fps;
-
-        std::fprintf(out_file, "%10d %12.0f %10.1f %10.2fx\n", count, fps, us, relative);
-        results.push_back({count, fps, us, relative});
     }
 
-    std::fprintf(out_file, "\nExpected: Some degradation, but should be sub-linear\n");
+    // 4. Property-complexity sweep (CAN 2.0B), five labelled bundles.
+    std::fprintf(out_file, "\n");
+    print_header("Property Complexity Scaling");
+    std::fprintf(out_file, "%-25s %12s %10s %10s\n", "Complexity", "Frames/sec", "us/frame",
+                 "Relative");
+    print_separator();
+    std::vector<ComplexityRow> complexity;
+    {
+        double baseline = 0;
+        for (const auto& [label, props] : complexity_levels()) {
+            double fps = mean_fps(lib, dbc_20, can20_id, can20_dlc, can20_frame, props, num_frames,
+                                  num_runs);
+            if (baseline == 0)
+                baseline = fps;
+            double relative = relative_of(fps, baseline);
+            double us = us_per_frame_of(fps);
+            std::fprintf(out_file, "%-25s %12.0f %10.1f %10.2fx\n", label.c_str(), fps, us,
+                         relative);
+            complexity.push_back({label, fps, us, relative});
+        }
+    }
+
     std::fprintf(out_file,
                  "======================================================================\n");
 
     if (emit_json) {
-        json json_results = json::array();
-        for (const auto& r : results) {
-            json_results.push_back({
-                {"properties", r.property_count},
-                {"fps", std::round(r.fps * 10) / 10},
-                {"us_per_frame", std::round(r.us_per_frame * 10) / 10},
-                {"relative", std::round(r.relative * 1000) / 1000},
-            });
-        }
-        json output = {
-            {"benchmark", "scaling"},
-            {"language", "cpp"},
-            {"timestamp", iso_timestamp()},
-            {"system", get_system_info()},
-            {"results", {{"property_count", json_results}}},
+        // ordered_json (NOT default json, which sorts object keys alphabetically):
+        // the schema pins the sub-benchmark key order, so the whole payload must
+        // preserve insertion order end-to-end.
+        using ordered = nlohmann::ordered_json;
+
+        auto trace_json = [](const std::vector<TraceSizeRow>& rows) -> ordered {
+            ordered arr = ordered::array();
+            for (const auto& r : rows)
+                arr.push_back({
+                    {"frames", r.frames},
+                    {"fps", round1(r.fps)},
+                    {"relative", round3(r.relative)},
+                });
+            return arr;
         };
+
+        ordered prop_count_json = ordered::array();
+        for (const auto& r : prop_count)
+            prop_count_json.push_back({
+                {"properties", r.properties},
+                {"fps", round1(r.fps)},
+                {"us_per_frame", round1(r.us_per_frame)},
+                {"relative", round3(r.relative)},
+            });
+
+        ordered complexity_json = ordered::array();
+        for (const auto& r : complexity)
+            complexity_json.push_back({
+                {"complexity", r.complexity},
+                {"fps", round1(r.fps)},
+                {"us_per_frame", round1(r.us_per_frame)},
+                {"relative", round3(r.relative)},
+            });
+
+        ordered results;
+        results["trace_size_can20"] = trace_json(trace_can20);
+        results["trace_size_canfd"] = trace_json(trace_canfd);
+        results["property_count"] = prop_count_json;
+        results["property_complexity"] = complexity_json;
+
+        ordered output;
+        output["benchmark"] = "scaling";
+        output["language"] = "cpp";
+        output["timestamp"] = iso_timestamp();
+        output["system"] = get_system_info();
+        output["results"] = results;
+
         std::printf("%s\n", output.dump(2).c_str());
     }
 }
@@ -960,6 +1154,7 @@ struct Args {
     int warmup = 2;
     int ops = 5000;       // latency mode: number of operations
     int warmup_ops = 500; // latency mode: warmup operations
+    bool quick = false;   // scaling mode: fewer iterations
     bool json_output = false;
 };
 
@@ -972,6 +1167,7 @@ static void print_usage(const char* argv0) {
         stderr,
         "  --warmup N   Warmup runs (default: 2, throughput) or ops (default: 500, latency)\n");
     std::fprintf(stderr, "  --ops N      Operations to measure (default: 5000, latency)\n");
+    std::fprintf(stderr, "  --quick      Fewer iterations (scaling)\n");
     std::fprintf(stderr, "  --json       Emit JSON to stdout\n");
 }
 
@@ -994,6 +1190,8 @@ static auto parse_args(int argc, char* argv[]) -> Args {
         auto arg = std::string_view{argv[i]};
         if (arg == "--json") {
             args.json_output = true;
+        } else if (arg == "--quick") {
+            args.quick = true;
         } else if (arg == "--frames" && i + 1 < argc) {
             args.frames = std::atoi(argv[++i]);
         } else if (arg == "--runs" && i + 1 < argc) {
@@ -1033,7 +1231,7 @@ int main(int argc, char* argv[]) {
     else if (args.mode == "latency")
         run_latency(lib, args.ops, args.warmup_ops, args.json_output);
     else if (args.mode == "scaling")
-        run_scaling(lib, args.frames, args.runs, args.json_output);
+        run_scaling(lib, args.runs, args.quick, args.json_output);
 
     return 0;
 }

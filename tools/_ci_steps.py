@@ -235,6 +235,19 @@ def _run_binding_tests(runner: Runner) -> None:
         [runner.python, "-m", "pytest", "tests/", "--ignore=tests/test_cli_parity.py"],
         cwd=runner.repo_root / "python",
     )
+    # Cross-binding benchmark-schema conformance (benchmarks/SCHEMA.yaml): drives
+    # each BUILT benchmark binary with a tiny per-mode workload and asserts an
+    # identical schema + verbatim labels across bindings. Here only the Python
+    # binding is built, so this exercises the schema REFERENCE (never vacuous —
+    # Python is required); the benchmark workflow builds all four for the
+    # full-teeth cross-binding check. Pinned to the python lane so it runs after
+    # the .so build, like the pytest steps that also dlopen it.
+    runner.step(
+        "check-bench-schema",
+        [runner.python, "-m", "tools.check_bench_schema"],
+        cwd=runner.repo_root,
+        lane="python",
+    )
     # Doc-example fence harness.  Runs from the repo root (cwd=repo_root → would
     # infer the "misc" lane), but it is a pytest invocation sharing the Python
     # toolchain, so pin it to the "python" lane explicitly to keep all pytest
