@@ -27,6 +27,9 @@ open import Aletheia.DBC.Decidable.Disjointness public using
   ; physicallyDisjoint?
   ; buildPhysicalBits
   ; signalPhysicalBits
+  ; Intersects
+  ; bitsMember₀
+  ; bitsIntersect₀
   ; bitsMemberᵇ
   ; bitsIntersectᵇ
   ; signalsPhysicallyOverlapᵇ

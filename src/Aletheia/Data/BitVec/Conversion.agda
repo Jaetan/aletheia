@@ -244,6 +244,16 @@ mutual
 -- an open expression.  First abstracting `n <ᵇ 2 ^ bl` to a fresh variable,
 -- then matching the Reflects constructor against that variable, lets Agda
 -- unify the index in each clause.
+--
+-- **Why this stays open-coded rather than using `Aletheia.Data.Dec0`:** the
+-- reduction lemma `mkBoundedBitVec-just` below must equate the two branches
+-- RELEVANTLY, which requires the `ofʸ` witness (via `<-irrelevant`) in a
+-- relevant position — an erased Dec₀ certificate cannot leave erased
+-- context, and resurrecting it per call (`recompute₀`) would reintroduce
+-- the relevant-decider allocation this construction exists to avoid.  The
+-- relevant `Reflects` value here is lazily allocated and its payload flows
+-- into an erased slot, which is already the cost floor for a construction
+-- whose consumers need the witness at proof level.
 mkBoundedBitVec : (n bl : ℕ) → Maybe (BitVec bl)
 mkBoundedBitVec n bl with n <ᵇ 2 ^ bl | <ᵇ-reflects-< n (2 ^ bl)
 ... | false | ofⁿ _    = nothing

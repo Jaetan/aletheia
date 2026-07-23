@@ -872,7 +872,24 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                ++ "accessor names changed. Marshal.hs / BinaryOutput.hs "
                ++ "rely on T_Σ_14 / C__'44'__32 / d_fst_28 / d_snd_30 — "
                ++ "update to match current MAlonzo output."
-        putInfo "Erasure guards OK: CANId single-Integer ctor + Timestamp newtype + stdlib constructors + Maybe/Sigma builtins."
+
+        -- Dec₀ zero-cost shape: the erased-certificate decidable record
+        -- (Aletheia.Data.Dec0) must compile to a GHC newtype over Bool —
+        -- the whole point of the erased `Reflects` field.  If MAlonzo ever
+        -- emits it as a plain `data` (e.g. the proof field stops being
+        -- erased), every hot-path predicate built on Dec₀ silently regrows
+        -- a per-call allocation.
+        dec0Base <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/Data/Dec0.hs"
+        let dec0Newtype =
+              any (\l -> "newtype T_Dec" `isPrefixOf` dropWhile (== ' ') l
+                      && "Bool" `isInfixOf` l)
+                  (lines dec0Base)
+        unless dec0Newtype $
+          error $ "check-erasure failed: Dec₀ no longer compiles to a "
+               ++ "newtype over Bool (Aletheia/Data/Dec0.hs). The @0 proof "
+               ++ "field must stay erased — a plain data declaration here "
+               ++ "means every Dec₀-valued hot-path predicate allocates."
+        putInfo "Erasure guards OK: CANId single-Integer ctor + Timestamp newtype + stdlib constructors + Maybe/Sigma builtins + Dec₀ newtype-over-Bool."
 
     phony "check-ffi-exports" $ do
         -- Diff MAlonzo-mangled FFI export names against the checked-in

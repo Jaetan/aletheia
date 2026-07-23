@@ -22,37 +22,59 @@ open import Aletheia.DBC.DecRat using (toℚ)
 open import Aletheia.CAN.DBCHelpers using (findMessageById; findSignalByName)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When; signalNameStr)
 open import Aletheia.Error using (ExtractionError; MuxValueMismatch; MuxSignalNotFound; MuxChainCycle; MuxExtractionFailed)
-open import Data.Rational using (_/_; _≤ᵇ_)
+open import Data.Rational using (ℚ; _/_)
 open import Data.Integer using (+_)
 open import Data.Nat using (ℕ; zero; suc)
-open import Data.List using (List; length)
-open import Data.Bool.ListAction using (any)
+open import Data.List using (List; []; _∷_)
+open import Data.List using (length)
 open import Data.List.NonEmpty as List⁺ using (List⁺)
+open import Data.List.Relation.Unary.Any using (Any; here; there)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Bool using (if_then_else_; _∧_)
+open import Data.Bool using (Bool; false; if_then_else_)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Relation.Binary.PropositionalEquality using (_≡_)
+open import Relation.Nullary.Reflects using (ofⁿ)
+
+open import Aletheia.Data.Dec0 using (Dec₀; dec₀; or₀; map₀; does₀)
+open import Aletheia.Data.Dec0.Rational using (_≟ℚ₀_)
 
 -- ============================================================================
 -- SIGNAL EXTRACTION WITH MULTIPLEXING (NESTED CHAINS SUPPORTED)
 -- ============================================================================
 
+-- Self-certifying selector membership: `does₀` is the same any-fold of
+-- `_≤ᵇ_`-built ℚ equality Bools as before (direct ℤ comparisons — no Dec
+-- proof term per selector per call; the certified `_≟ℚ₀_` twin carries the
+-- correctness as an ERASED certificate instead of allocating one); the
+-- proposition pins the fold to Any-membership of the multiplexor value in
+-- the selector list.  MAlonzo erases the certificates (Dec₀ is a newtype
+-- over Bool).
+muxSelectorMatch₀ : (q : ℚ) (vs : List ℕ) → Dec₀ (Any (λ v → q ≡ (+ v) / 1) vs)
+muxSelectorMatch₀ q [] = dec₀ false (ofⁿ λ ())
+muxSelectorMatch₀ q (v ∷ vs) =
+  map₀ join split (or₀ (q ≟ℚ₀ ((+ v) / 1)) (muxSelectorMatch₀ q vs))
+  where
+    @0 join : (q ≡ (+ v) / 1) ⊎ Any (λ w → q ≡ (+ w) / 1) vs
+            → Any (λ w → q ≡ (+ w) / 1) (v ∷ vs)
+    join (inj₁ p) = here p
+    join (inj₂ a) = there a
+
+    @0 split : Any (λ w → q ≡ (+ w) / 1) (v ∷ vs)
+             → (q ≡ (+ v) / 1) ⊎ Any (λ w → q ≡ (+ w) / 1) vs
+    split (here p)  = inj₁ p
+    split (there a) = inj₂ a
+
 -- Leaf operation: extract a multiplexor signal's value and check whether it
 -- matches any of the expected selector values.
 -- Returns: nothing on match, just reason on mismatch or extraction failure.
--- Bool fast path: `_≤ᵇ_` on ℚ compiles to a direct ℤ comparison without
--- allocating a Dec proof term per selector per call. The previous
--- `⌊ ℚ-Props._≟_ _ _ ⌋` form built a Dec for every selector on every mux
--- signal — an allocation hazard of the same class as the 5aa345e regression.
 matchMuxValue : ∀ {n} → CANFrame n → DBCSignal → List⁺ ℕ → Maybe ExtractionError
 matchMuxValue frame muxSig muxValues
   with extractSignal frame (DBCSignal.signalDef muxSig) (DBCSignal.byteOrder muxSig)
 ... | nothing = just (MuxExtractionFailed (signalNameStr muxSig))
 ... | just muxVal =
-      let matches = any (λ v → let vℚ = (+ v) / 1
-                                in (muxVal ≤ᵇ vℚ) ∧ (vℚ ≤ᵇ muxVal))
-                        (List⁺.toList muxValues)
-      in if matches
-         then nothing
-         else just MuxValueMismatch
+      if does₀ (muxSelectorMatch₀ muxVal (List⁺.toList muxValues))
+      then nothing
+      else just MuxValueMismatch
 
 -- Recursive presence check with bounded fuel, parameterised by SignalPresence
 -- (not by DBCSignal). Pattern-matching directly on the presence keeps the

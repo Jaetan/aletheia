@@ -132,6 +132,9 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.DBC.Validity.ListLemmas
                       MAlonzo.Code.Aletheia.Data.BitVec
                       MAlonzo.Code.Aletheia.Data.BitVec.Conversion
+                      MAlonzo.Code.Aletheia.Data.Dec0
+                      MAlonzo.Code.Aletheia.Data.Dec0.Nat
+                      MAlonzo.Code.Aletheia.Data.Dec0.Rational
                       MAlonzo.Code.Aletheia.Error
                       MAlonzo.Code.Aletheia.JSON
                       MAlonzo.Code.Aletheia.LTL.Coalgebra

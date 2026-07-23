@@ -18,14 +18,18 @@ open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.Encoding using (injectSignal)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; signalNameStr)
-open import Aletheia.DBC.Decidable using (signalPhysicalBits; bitsIntersectᵇ)
+open import Aletheia.DBC.Decidable using (signalPhysicalBits; Intersects; bitsIntersect₀)
+open import Data.List.Relation.Unary.Any using (Any; here; there)
+open import Relation.Nullary.Reflects using (ofⁿ)
+
+open import Aletheia.Data.Dec0 using (Dec₀; dec₀; or₀; map₀; does₀)
 open import Data.Rational using (ℚ)
 open import Data.List using (List; []; _∷_; map)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Vec as Vec using (Vec)
 open import Data.Nat using (ℕ)
-open import Data.Bool using (Bool; true; false; if_then_else_; _∨_)
+open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.Prelude using (listIndex; _>>=ₑ_)
 open import Aletheia.Error using
@@ -37,10 +41,12 @@ open import Aletheia.Error using
 -- OVERLAP DETECTION (endianness-aware, precomputation-hoisted)
 -- ============================================================================
 --
--- Uses the Bool-valued `bitsIntersectᵇ` fast path from `DBC/Properties.agda`.
--- Equivalence with `PhysicallyDisjoint` is proved by
--- `physicallyOverlapᵇ-sound` / `physicallyOverlapᵇ-complete` in that module,
--- so this check is as trustworthy as the `Dec`-valued `physicallyDisjoint?`.
+-- Uses the certified `bitsIntersect₀` fast path from
+-- `DBC.Decidable.Disjointness`; each fold below carries its own erased
+-- Any-membership certificate, and the equivalence with `PhysicallyDisjoint`
+-- is proved by `physicallyOverlapᵇ-sound` / `physicallyOverlapᵇ-complete`
+-- in `DBC.Properties`, so this check is as trustworthy as the `Dec`-valued
+-- `physicallyDisjoint?`.
 --
 -- Performance note: per-signal physical bit positions are precomputed ONCE
 -- in `hasOverlaps`, outside the O(m²) pair loop. This turns the per-frame
@@ -49,22 +55,64 @@ open import Aletheia.Error using
 -- O(m² × l²) cheap Bool operations on precomputed lists. The frame-building
 -- hot path sees a >2x throughput recovery on CAN-FD.
 
+-- The proposition the pair loop decides: some list in the collection
+-- intersects a LATER list (mirrors the suffix recursion below).
+data HasPairOverlap : List (List ℕ) → Set where
+  po-here  : ∀ {bs rest} → Any (Intersects bs) rest → HasPairOverlap (bs ∷ rest)
+  po-there : ∀ {bs rest} → HasPairOverlap rest      → HasPairOverlap (bs ∷ rest)
+
+-- Self-certifying twins: `does₀` is the same `_∨_` fold over
+-- `bitsIntersectᵇ` as the Bool checks below; the erased certificates pin the
+-- folds to Any-membership / HasPairOverlap.  MAlonzo erases the certificates
+-- (Dec₀ is a newtype over Bool), so the runtime cost is the bare fold.
+anyOverlap₀ : (target : List ℕ) (rest : List (List ℕ)) → Dec₀ (Any (Intersects target) rest)
+anyOverlap₀ target [] = dec₀ false (ofⁿ λ ())
+anyOverlap₀ target (bs ∷ rest) =
+  map₀ join split (or₀ (bitsIntersect₀ target bs) (anyOverlap₀ target rest))
+  where
+    @0 join : Intersects target bs ⊎ Any (Intersects target) rest
+            → Any (Intersects target) (bs ∷ rest)
+    join (inj₁ i) = here i
+    join (inj₂ a) = there a
+
+    @0 split : Any (Intersects target) (bs ∷ rest)
+             → Intersects target bs ⊎ Any (Intersects target) rest
+    split (here i)  = inj₁ i
+    split (there a) = inj₂ a
+
+anyPairOverlap₀ : (bss : List (List ℕ)) → Dec₀ (HasPairOverlap bss)
+anyPairOverlap₀ [] = dec₀ false (ofⁿ λ ())
+anyPairOverlap₀ (bs ∷ rest) =
+  map₀ join split (or₀ (anyOverlap₀ bs rest) (anyPairOverlap₀ rest))
+  where
+    @0 join : Any (Intersects bs) rest ⊎ HasPairOverlap rest → HasPairOverlap (bs ∷ rest)
+    join (inj₁ a) = po-here a
+    join (inj₂ h) = po-there h
+
+    @0 split : HasPairOverlap (bs ∷ rest) → Any (Intersects bs) rest ⊎ HasPairOverlap rest
+    split (po-here a)  = inj₁ a
+    split (po-there h) = inj₂ h
+
+hasOverlaps₀ : (n : ℕ) (sigs : List DBCSignal) → Dec₀ (HasPairOverlap (map (signalPhysicalBits n) sigs))
+hasOverlaps₀ n sigs = anyPairOverlap₀ (map (signalPhysicalBits n) sigs)
+
+-- Bool checks — definitional projections of the twins above (runtime shape
+-- unchanged: the same `_∨_` folds as before).
+
 -- Check if any precomputed signal bit list overlaps a given target bit list.
 anyOverlap : List ℕ → List (List ℕ) → Bool
-anyOverlap target [] = false
-anyOverlap target (bs ∷ rest) = bitsIntersectᵇ target bs ∨ anyOverlap target rest
+anyOverlap target rest = does₀ (anyOverlap₀ target rest)
 
 -- Check all pairs of precomputed bit lists for physical overlaps.
 anyPairOverlap : List (List ℕ) → Bool
-anyPairOverlap []         = false
-anyPairOverlap (bs ∷ rest) = anyOverlap bs rest ∨ anyPairOverlap rest
+anyPairOverlap bss = does₀ (anyPairOverlap₀ bss)
 
 -- Check all signal pairs for physical overlaps. Precomputes each signal's
 -- physical bit list ONCE, then runs the O(m²) pair loop over the cached lists.
 -- Returns true if at least one pair of signals occupies the same physical bit.
 -- `n` is the frame byte count (8 for CAN 2.0B, up to 64 for CAN-FD).
 hasOverlaps : ℕ → List DBCSignal → Bool
-hasOverlaps n sigs = anyPairOverlap (map (signalPhysicalBits n) sigs)
+hasOverlaps n sigs = does₀ (hasOverlaps₀ n sigs)
 
 -- ============================================================================
 -- GENERIC SIGNAL LOOKUP (parameterized by resolution strategy)
