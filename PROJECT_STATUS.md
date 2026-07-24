@@ -82,14 +82,14 @@ cannot honestly advertise capabilities it does not yet have.
      - **First tag-triggered release shipped as v5.0.0 (2026-07-24)** — the
        full-path acceptance test for all of the above. The tarball, `.deb`,
        `.rpm`, and GHCR image were published and consumer-verified against the
-       `@refs/tags/v5.0.0` identity. It surfaced and fixed two release-path
+       `@refs/tags/v5.0.0` identity. It surfaced and fixed the release-path
        defects before go-live: the `.deb`/`.rpm` Python binding must be consumed
        via `PYTHONPATH` (not `pip install` from the read-only `/opt` source, which
        setuptools cannot build in place), and a pre-existing GHCR package needs
        the repo granted **Write** under *Manage Actions access* (the docs had
        covered only the visibility flip). The dispatch dry-run
-       (`gh workflow run release.yml`) — the whole pipeline minus the two publish
-       steps — caught the first; the real tag caught the second.
+       (`gh workflow run release.yml`) — the whole pipeline minus its publish
+       steps — caught the Python one; the real tag caught the GHCR one.
 2. **`aletheia template <file>.xlsx` CLI subcommand.** A true no-code way to obtain
    the Excel template (today it needs a Python one-liner), so the non-programmer
    on-ramp is real.
