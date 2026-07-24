@@ -68,6 +68,8 @@ When the user's message is just `READ` (case-insensitive, no other content), int
 
 READ is the read-only counterpart of UPD: rehydrate context at session start, do not write.
 
+When the user's message is just `REL` (case-insensitive, no other content), interpret it as **"Cut a release — execute the release runbook."** Walk [docs/development/RELEASE.md § Release runbook](docs/development/RELEASE.md#release-runbook) top to bottom, honoring each step's acceptance gate before moving on. Steps marked ⚑ (the GPG-signed tag, admin tag creation, the GitHub UI flips) are staged into `.commands-to-run.sh` for the user to run; the agent runs the rest. Do not skip the dispatch dry-run before the real tag — the release pipeline runs only on a tag push or `workflow_dispatch`, so it is the only pre-tag exercise of the sign/package/smoke/image path.
+
 ### Agda Module Requirements (MANDATORY)
 
 Every Agda module MUST start with:
