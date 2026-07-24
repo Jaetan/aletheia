@@ -10,6 +10,8 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+## [5.0.0] — 2026-07-24
+
 ### Added
 
 - **Hot-path Bool predicates are now self-certifying (`Dec₀` reification,
@@ -34,6 +36,164 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   relevantly (`_≡ᵇ-proc_`, `findSignalInList`, `mkBoundedBitVec`'s
   reduction lemma) deliberately keep their relevant-proof form; the
   reasoning is recorded at each site.
+
+
+- **C++: `ltl::implies(antecedent, consequent)` combinator.** The C++ binding
+  gains an implication constructor (the standard `!antecedent || consequent`
+  encoding, `either(negate(a), c)`), reaching parity with Go's `Implies`, Rust's
+  `Formula::implies`, and Python's `.implies()`. Implication is now offered by
+  all four bindings rather than three.
+- **Cross-binding benchmark-schema SSOT + conformance gate**
+  (`benchmarks/SCHEMA.yaml`, `tools/check_bench_schema.py`, wired into
+  `tools/run_ci.py` and the benchmark workflow). Every binding's benchmark now
+  emits an identical JSON schema — same CLI flags, `results` container, per-row
+  keys, and verbatim lane/sweep labels — for each mode; the gate drives each
+  built binary and fails on any drift. The C++/Go/Rust `scaling` benchmarks
+  gained the trace-size (CAN 2.0B + CAN-FD) and property-complexity sweeps that
+  previously only Python ran, and every scaling point is now run-averaged
+  (`--runs`) across all four bindings.
+- **A binary-wire encoder guard with a new extraction error code
+  (`extraction_value_exceeds_wire_range`).** Exact-arithmetic reduction can
+  push an extracted value's numerator or denominator past the signed 64-bit
+  binary-wire slots even when every ingested literal was in range, so the
+  FFI shim's response encoder now bounds-checks both components before the
+  wire pokes and reroutes the affected signal to the existing per-signal
+  error stream, with the code minted in the kernel's extraction-error
+  vocabulary per the wire-code SSOT protocol (YAML row, per-binding
+  vocabulary members and decoder messages, parity-gate anchors). Regression
+  suites pin both directions: over-range components become a typed error
+  entry, and components exactly at the Int64 boundary still travel exactly.
+- **The Python client caps the embedded kernel's heap by default.** The GHC
+  RTS runs uncapped unless told otherwise, so a runaway allocation inside
+  the kernel previously escalated to a host-level out-of-memory kill instead
+  of a failed call. `hs_init` now always receives a heap cap (a containment
+  bound far above the kernel's measured working set); flags in
+  `ALETHEIA_RTS_OPTS` are appended after it, so a caller-supplied `-M`
+  still wins.
+- **Native `.deb` / `.rpm` packages and a GHCR-published container image join
+  the release.** `cabal run shake -- packages` builds both native packages
+  from one declarative `packaging/nfpm.yaml` (nfpm, SHA-pinned in CI): the
+  payload is the release bundle mapped wholesale to `/opt/aletheia` — proven
+  byte-identical to the tarball's tree by extraction diff — with strictly
+  opt-in environment wiring (no maintainer scripts, no `profile.d`; consumers
+  source `/opt/aletheia/env.sh` or `env.fish`), x86-64-only metadata, and the
+  GMP runtime as the only dependency beyond glibc (`libgmp10` for deb; the
+  `libgmp.so.10()(64bit)` soname for rpm, which resolves across rpm distros
+  regardless of the owning package's name). Packages are hash-pinned and
+  keyless-signed per release — deliberately not claimed bit-reproducible:
+  `SOURCE_DATE_EPOCH` empirically pins nfpm's own metadata but not payload
+  mtimes. The release workflow builds and publishes them with the cosign
+  self-verify loop extended over every signed artifact, a real `dpkg -i`
+  install smoke, and an rpm payload structural check. The runtime container
+  image is now published to `ghcr.io/jaetan/aletheia` (version + latest tags)
+  with its digest keyless-signed and OCI source/description/licenses labels;
+  the push runs last, after the draft Release publishes, so a failed release
+  never leaves a live orphaned image. `Dockerfile.runtime` installs the
+  Python binding from the bundled payload rather than the worktree (fixing a
+  skew where the image's binding could differ from the bundle it shipped)
+  and gains throwaway BuildKit verify stages — Go, Rust, and C++ (clang-22,
+  the enforced toolchain) each build a consumer against the image's own
+  `/opt/aletheia` — so the image cannot build unless every compiled binding
+  works against the exact bytes it ships, while the final image stays slim
+  with no toolchains aboard.
+- **Release bundles are validated end-to-end across the compiled bindings,
+  gating publish.** `tools/bundle_validate.py` unpacks the distribution
+  tarball, runs both bundled installers capturing their printed per-language
+  recipes, executes those exact recipe lines (the recipes users read are the
+  recipes CI runs), checks `install.sh`/`install.fish` recipe parity and an
+  absolute `ALETHEIA_LIB` from `env.sh`/`env.fish` sourced in a foreign cwd,
+  then builds and runs one consumer program per compiled binding (C++, Go,
+  Rust) through the verified kernel: parse a real `.dbc`, arm an LTL
+  property, stream a conforming and a violating frame, and assert exactly
+  one violation with the expected enrichment. A missing toolchain is a
+  precise skip locally and a failure under `--require`; `--self-test`
+  proves the gate has teeth by corrupting bundle copies and asserting each
+  corruption fails validation. `release.yml` now gates publish on this
+  validation (consumer toolchains installed with cache keys shared with the
+  PR workflows), and the repo's first scheduled workflow
+  (`bundle-validation.yml`, weekly + manual dispatch) both builds an
+  unsigned `dist` from HEAD and replays the published-Release consumer path
+  verbatim — download, `sha256sum -c`, cosign keyless verification against
+  the release workflow's identity, then the same validation — so staging,
+  recipe, or binding rot surfaces between releases instead of at the next
+  tag.
+- **The release SBOM now bills the bundled binding source trees, gated.**
+  `tools/sbom_generate.py` gains hand-rolled manifest parsers — one per
+  bundled binding, still zero external SBOM tooling — behind `--bindings-dir`,
+  reading the STAGED `dist/aletheia/bindings` tree (the SBOM must describe
+  the bytes that ship, not the worktree): Python optional-extra requirements
+  (scope `optional`, the requirement range carried verbatim — a purl never
+  gets an invented pin), `go.mod` requires (scope `required`; the `go.sum`
+  `h1:` Merkle dirhash rides a `golang:h1` property, deliberately never a
+  `hashes`/SHA-256 entry a validator could not reproduce), `Cargo.toml` +
+  `Cargo.lock` (direct dependencies classified by default-feature
+  reachability; the remaining lock closure — which Cargo cannot split into
+  runtime vs dev — over-reported as scope `optional` with a marker property;
+  exact lock versions and real SHA-256 checksums), and CMake
+  `FetchContent_Declare` pins (URL-derived version, archive SHA-256; the
+  test-only Catch2 declare allowlisted; any unparsed declare is a hard error
+  via an occurrence-count cross-check). Every binding component carries an
+  `aletheia:binding` property and the component list is sorted, keeping two
+  `dist` runs of one commit byte-identical. The new
+  `tools/check_sbom_coverage.py` gate re-runs the same parsers and fails the
+  dist on any manifest-declared dependency missing from the SBOM (wired into
+  the Shakefile dist rule right after SBOM generation), and runs always-on in
+  `tools/run_ci.py` as `check-sbom-coverage --parse-only` against the repo
+  manifests (a parser-rot tripwire — PR runners have no dist tree). The first
+  tests for `sbom_generate` land alongside: fixture-matrix coverage in both
+  directions per parser, a byte-determinism pin, and teeth tests proving
+  every coverage-gate failure mode exits non-zero.
+- **Always-on release bundle-staging gate** (`tools/check_dist_staging.py`,
+  run_ci step `check-dist-staging`, also in the pre-commit FAST tier). The
+  inputs `cabal run shake -- dist` stages — the `stageBinding` pathspec lists
+  in `Shakefile.hs`, the `packaging/` consumer entry scripts, `LICENSE.md` —
+  used to be exercised only at release time, so a renamed path or an
+  untracked script surfaced when a tag was cut. The gate re-checks them on
+  every CI run: each positive pathspec must match a tracked file (moving the
+  `git archive` release failure to PR time), each `:(exclude)` glob's inner
+  pattern must also match (new coverage — `git archive` passes silently over
+  a dead exclude, so the Go test files would silently ship if they moved),
+  `go/go.work` must stay unselected by the go binding's pathspecs
+  (front-running dist's packed-output check), and the packaging scripts must
+  be tracked and syntax-clean (`bash -n` / `fish --no-execute`; a CI runner
+  without fish fails closed rather than skipping — pr-full-ci.yml now
+  installs fish). Fails closed on a Shakefile parse it cannot fully trust;
+  regression tests prove every failure mode fails.
+- **Cross-binding wire-code SSOT + kernel parity gate** (`docs/WIRE_CODES.yaml`
+  + `tools/check_wire_codes.py`, run_ci step `check-wire-codes`). The kernel's
+  two wire vocabularies — the validation issue codes (`formatIssueCode`)
+  and the error codes (the per-ADT `*ErrorCode` formatter families plus
+  the top-level `errorCode`) — are now
+  pinned to one reviewed YAML manifest: the gate parses the Agda formatter
+  arms and asserts reciprocal set equality plus kernel declaration order, so a
+  new kernel code cannot reach the wire without its SSOT row (every binding
+  deliberately passes unknown codes through at runtime, so no test failed on
+  one before; previously only Python's `ErrorCode` was gated — one vocabulary,
+  one binding). The Python `IssueCode`/`ErrorCode` enums are anchored to the
+  YAML by `python/tests/test_wire_codes_parity.py`, which supersedes the
+  Agda-parsing `test_error_code_sync.py` (removed). Fails closed on a missing
+  or malformed YAML; regression tests prove every failure mode fails. The
+  other bindings are anchored by the same-shaped parity tests
+  `go/aletheia/wire_codes_parity_test.go` (reciprocal set equality against
+  the `Issue*`/`Code*` constants), `cpp/tests/test_wire_codes_parity.cpp`
+  (bijection with the `IssueCode`/`ErrorCode` enums — every kernel code maps
+  to a non-`Unknown` enumerator and vice versa), and `rust/tests/wire_codes.rs`
+  (every issue code decodes to a named `IssueCode` variant; error codes —
+  Rust has no `ErrorCode` enum by design — are driven through the client
+  decode path and must surface verbatim in `Error::Core`, with the
+  typed lifts pinned to SSOT membership).
+- **Runtime-closure snapshot gate** (`tools/check_runtime_closure.py`, wired
+  into `run_ci`). The foreign library's module list is auto-generated from the
+  Agda import graph, so a dependency drag — one new import transitively pulling
+  proof modules into the compiled `.so` — used to land silently, visible only
+  to a human reading the generated cabal diff (name-based checks cannot catch
+  proof modules that don't carry `Properties` in their names). The gate pins
+  the closure to a reviewed snapshot (`haskell-shim/runtime-closure.snapshot`):
+  any growth or shrinkage fails with the exact module lists (proof-shaped
+  additions called out first) until the snapshot is consciously regenerated in
+  the same change. Fails closed on a missing snapshot and refuses to pass
+  vacuously on unreadable input; regression tests prove every failure mode
+  fails.
 
 ### Changed
 
@@ -209,165 +369,6 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   re-parse check). The retired proof-strategy notes were removed alongside; the
   surviving extended-mux design plan carries a content-based name
   (`EXTENDED_MUX_DESIGN.md`), which is what enables the exemption removal above.
-
-### Added
-
-- **C++: `ltl::implies(antecedent, consequent)` combinator.** The C++ binding
-  gains an implication constructor (the standard `!antecedent || consequent`
-  encoding, `either(negate(a), c)`), reaching parity with Go's `Implies`, Rust's
-  `Formula::implies`, and Python's `.implies()`. Implication is now offered by
-  all four bindings rather than three.
-- **Cross-binding benchmark-schema SSOT + conformance gate**
-  (`benchmarks/SCHEMA.yaml`, `tools/check_bench_schema.py`, wired into
-  `tools/run_ci.py` and the benchmark workflow). Every binding's benchmark now
-  emits an identical JSON schema — same CLI flags, `results` container, per-row
-  keys, and verbatim lane/sweep labels — for each mode; the gate drives each
-  built binary and fails on any drift. The C++/Go/Rust `scaling` benchmarks
-  gained the trace-size (CAN 2.0B + CAN-FD) and property-complexity sweeps that
-  previously only Python ran, and every scaling point is now run-averaged
-  (`--runs`) across all four bindings.
-- **A binary-wire encoder guard with a new extraction error code
-  (`extraction_value_exceeds_wire_range`).** Exact-arithmetic reduction can
-  push an extracted value's numerator or denominator past the signed 64-bit
-  binary-wire slots even when every ingested literal was in range, so the
-  FFI shim's response encoder now bounds-checks both components before the
-  wire pokes and reroutes the affected signal to the existing per-signal
-  error stream, with the code minted in the kernel's extraction-error
-  vocabulary per the wire-code SSOT protocol (YAML row, per-binding
-  vocabulary members and decoder messages, parity-gate anchors). Regression
-  suites pin both directions: over-range components become a typed error
-  entry, and components exactly at the Int64 boundary still travel exactly.
-- **The Python client caps the embedded kernel's heap by default.** The GHC
-  RTS runs uncapped unless told otherwise, so a runaway allocation inside
-  the kernel previously escalated to a host-level out-of-memory kill instead
-  of a failed call. `hs_init` now always receives a heap cap (a containment
-  bound far above the kernel's measured working set); flags in
-  `ALETHEIA_RTS_OPTS` are appended after it, so a caller-supplied `-M`
-  still wins.
-- **Native `.deb` / `.rpm` packages and a GHCR-published container image join
-  the release.** `cabal run shake -- packages` builds both native packages
-  from one declarative `packaging/nfpm.yaml` (nfpm, SHA-pinned in CI): the
-  payload is the release bundle mapped wholesale to `/opt/aletheia` — proven
-  byte-identical to the tarball's tree by extraction diff — with strictly
-  opt-in environment wiring (no maintainer scripts, no `profile.d`; consumers
-  source `/opt/aletheia/env.sh` or `env.fish`), x86-64-only metadata, and the
-  GMP runtime as the only dependency beyond glibc (`libgmp10` for deb; the
-  `libgmp.so.10()(64bit)` soname for rpm, which resolves across rpm distros
-  regardless of the owning package's name). Packages are hash-pinned and
-  keyless-signed per release — deliberately not claimed bit-reproducible:
-  `SOURCE_DATE_EPOCH` empirically pins nfpm's own metadata but not payload
-  mtimes. The release workflow builds and publishes them with the cosign
-  self-verify loop extended over every signed artifact, a real `dpkg -i`
-  install smoke, and an rpm payload structural check. The runtime container
-  image is now published to `ghcr.io/jaetan/aletheia` (version + latest tags)
-  with its digest keyless-signed and OCI source/description/licenses labels;
-  the push runs last, after the draft Release publishes, so a failed release
-  never leaves a live orphaned image. `Dockerfile.runtime` installs the
-  Python binding from the bundled payload rather than the worktree (fixing a
-  skew where the image's binding could differ from the bundle it shipped)
-  and gains throwaway BuildKit verify stages — Go, Rust, and C++ (clang-22,
-  the enforced toolchain) each build a consumer against the image's own
-  `/opt/aletheia` — so the image cannot build unless every compiled binding
-  works against the exact bytes it ships, while the final image stays slim
-  with no toolchains aboard.
-- **Release bundles are validated end-to-end across the compiled bindings,
-  gating publish.** `tools/bundle_validate.py` unpacks the distribution
-  tarball, runs both bundled installers capturing their printed per-language
-  recipes, executes those exact recipe lines (the recipes users read are the
-  recipes CI runs), checks `install.sh`/`install.fish` recipe parity and an
-  absolute `ALETHEIA_LIB` from `env.sh`/`env.fish` sourced in a foreign cwd,
-  then builds and runs one consumer program per compiled binding (C++, Go,
-  Rust) through the verified kernel: parse a real `.dbc`, arm an LTL
-  property, stream a conforming and a violating frame, and assert exactly
-  one violation with the expected enrichment. A missing toolchain is a
-  precise skip locally and a failure under `--require`; `--self-test`
-  proves the gate has teeth by corrupting bundle copies and asserting each
-  corruption fails validation. `release.yml` now gates publish on this
-  validation (consumer toolchains installed with cache keys shared with the
-  PR workflows), and the repo's first scheduled workflow
-  (`bundle-validation.yml`, weekly + manual dispatch) both builds an
-  unsigned `dist` from HEAD and replays the published-Release consumer path
-  verbatim — download, `sha256sum -c`, cosign keyless verification against
-  the release workflow's identity, then the same validation — so staging,
-  recipe, or binding rot surfaces between releases instead of at the next
-  tag.
-- **The release SBOM now bills the bundled binding source trees, gated.**
-  `tools/sbom_generate.py` gains hand-rolled manifest parsers — one per
-  bundled binding, still zero external SBOM tooling — behind `--bindings-dir`,
-  reading the STAGED `dist/aletheia/bindings` tree (the SBOM must describe
-  the bytes that ship, not the worktree): Python optional-extra requirements
-  (scope `optional`, the requirement range carried verbatim — a purl never
-  gets an invented pin), `go.mod` requires (scope `required`; the `go.sum`
-  `h1:` Merkle dirhash rides a `golang:h1` property, deliberately never a
-  `hashes`/SHA-256 entry a validator could not reproduce), `Cargo.toml` +
-  `Cargo.lock` (direct dependencies classified by default-feature
-  reachability; the remaining lock closure — which Cargo cannot split into
-  runtime vs dev — over-reported as scope `optional` with a marker property;
-  exact lock versions and real SHA-256 checksums), and CMake
-  `FetchContent_Declare` pins (URL-derived version, archive SHA-256; the
-  test-only Catch2 declare allowlisted; any unparsed declare is a hard error
-  via an occurrence-count cross-check). Every binding component carries an
-  `aletheia:binding` property and the component list is sorted, keeping two
-  `dist` runs of one commit byte-identical. The new
-  `tools/check_sbom_coverage.py` gate re-runs the same parsers and fails the
-  dist on any manifest-declared dependency missing from the SBOM (wired into
-  the Shakefile dist rule right after SBOM generation), and runs always-on in
-  `tools/run_ci.py` as `check-sbom-coverage --parse-only` against the repo
-  manifests (a parser-rot tripwire — PR runners have no dist tree). The first
-  tests for `sbom_generate` land alongside: fixture-matrix coverage in both
-  directions per parser, a byte-determinism pin, and teeth tests proving
-  every coverage-gate failure mode exits non-zero.
-- **Always-on release bundle-staging gate** (`tools/check_dist_staging.py`,
-  run_ci step `check-dist-staging`, also in the pre-commit FAST tier). The
-  inputs `cabal run shake -- dist` stages — the `stageBinding` pathspec lists
-  in `Shakefile.hs`, the `packaging/` consumer entry scripts, `LICENSE.md` —
-  used to be exercised only at release time, so a renamed path or an
-  untracked script surfaced when a tag was cut. The gate re-checks them on
-  every CI run: each positive pathspec must match a tracked file (moving the
-  `git archive` release failure to PR time), each `:(exclude)` glob's inner
-  pattern must also match (new coverage — `git archive` passes silently over
-  a dead exclude, so the Go test files would silently ship if they moved),
-  `go/go.work` must stay unselected by the go binding's pathspecs
-  (front-running dist's packed-output check), and the packaging scripts must
-  be tracked and syntax-clean (`bash -n` / `fish --no-execute`; a CI runner
-  without fish fails closed rather than skipping — pr-full-ci.yml now
-  installs fish). Fails closed on a Shakefile parse it cannot fully trust;
-  regression tests prove every failure mode fails.
-- **Cross-binding wire-code SSOT + kernel parity gate** (`docs/WIRE_CODES.yaml`
-  + `tools/check_wire_codes.py`, run_ci step `check-wire-codes`). The kernel's
-  two wire vocabularies — the validation issue codes (`formatIssueCode`)
-  and the error codes (the per-ADT `*ErrorCode` formatter families plus
-  the top-level `errorCode`) — are now
-  pinned to one reviewed YAML manifest: the gate parses the Agda formatter
-  arms and asserts reciprocal set equality plus kernel declaration order, so a
-  new kernel code cannot reach the wire without its SSOT row (every binding
-  deliberately passes unknown codes through at runtime, so no test failed on
-  one before; previously only Python's `ErrorCode` was gated — one vocabulary,
-  one binding). The Python `IssueCode`/`ErrorCode` enums are anchored to the
-  YAML by `python/tests/test_wire_codes_parity.py`, which supersedes the
-  Agda-parsing `test_error_code_sync.py` (removed). Fails closed on a missing
-  or malformed YAML; regression tests prove every failure mode fails. The
-  other bindings are anchored by the same-shaped parity tests
-  `go/aletheia/wire_codes_parity_test.go` (reciprocal set equality against
-  the `Issue*`/`Code*` constants), `cpp/tests/test_wire_codes_parity.cpp`
-  (bijection with the `IssueCode`/`ErrorCode` enums — every kernel code maps
-  to a non-`Unknown` enumerator and vice versa), and `rust/tests/wire_codes.rs`
-  (every issue code decodes to a named `IssueCode` variant; error codes —
-  Rust has no `ErrorCode` enum by design — are driven through the client
-  decode path and must surface verbatim in `Error::Core`, with the
-  typed lifts pinned to SSOT membership).
-- **Runtime-closure snapshot gate** (`tools/check_runtime_closure.py`, wired
-  into `run_ci`). The foreign library's module list is auto-generated from the
-  Agda import graph, so a dependency drag — one new import transitively pulling
-  proof modules into the compiled `.so` — used to land silently, visible only
-  to a human reading the generated cabal diff (name-based checks cannot catch
-  proof modules that don't carry `Properties` in their names). The gate pins
-  the closure to a reviewed snapshot (`haskell-shim/runtime-closure.snapshot`):
-  any growth or shrinkage fails with the exact module lists (proof-shaped
-  additions called out first) until the snapshot is consciously regenerated in
-  the same change. Fails closed on a missing snapshot and refuses to pass
-  vacuously on unreadable input; regression tests prove every failure mode
-  fails.
 
 ### Removed
 

@@ -1,8 +1,8 @@
 # Distributing Aletheia
 
 ---
-**Version**: 4.0.0 (canonical sources: `haskell-shim/aletheia.cabal` `version:` field and `python/pyproject.toml` `version =` field — update those when bumping)
-**Last Updated**: 2026-07-19
+**Version**: 5.0.0 (canonical sources: `haskell-shim/aletheia.cabal` `version:` field and `python/pyproject.toml` `version =` field — update those when bumping)
+**Last Updated**: 2026-07-24
 **Platform**: Linux x86-64 only
 ---
 
@@ -88,7 +88,7 @@ The per-language **reference** sections below cover each API surface, the explic
 
 ## Installing from a native package (.deb / .rpm)
 
-Each release also ships the bundle as native Linux packages — `aletheia_<version>_amd64.deb` and `aletheia-<version>-1.x86_64.rpm`, where `<version>` is the four-component cabal form (e.g. `4.0.0.0` for release v4.0.0). Both install the **exact payload of `aletheia.tar.gz`** to `/opt/aletheia` — deliberately not `/usr/lib`: the bundle carries its own GHC runtime `.so` closure (`RPATH=$ORIGIN`), which must never land where it could shadow distro-managed libraries. x86-64 Linux only, as stated in the package metadata.
+Each release also ships the bundle as native Linux packages — `aletheia_<version>_amd64.deb` and `aletheia-<version>-1.x86_64.rpm`, where `<version>` is the four-component cabal form (e.g. `5.0.0.0` for release v5.0.0). Both install the **exact payload of `aletheia.tar.gz`** to `/opt/aletheia` — deliberately not `/usr/lib`: the bundle carries its own GHC runtime `.so` closure (`RPATH=$ORIGIN`), which must never land where it could shadow distro-managed libraries. x86-64 Linux only, as stated in the package metadata.
 
 The only declared dependency beyond glibc is the GMP runtime: `libgmp10` (deb) / the `libgmp.so.10()(64bit)` soname (rpm — a soname rather than a package name, because the owning package differs across rpm distros: Fedora/RHEL ship it as `gmp`, openSUSE as `gmp-libs`).
 
