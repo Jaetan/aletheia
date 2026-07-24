@@ -72,8 +72,9 @@ git switch -c chore/prepare-vX.Y.Z
 ### 2. Bump every version stamp
 
 Hand-edit the version in the package-metadata files, then refresh the
-`Cargo.lock` local-package entries (`rust/` and `rust/excel/`, below). These are the **only** hand-edited version
-numbers — everything else derives from them.
+`Cargo.lock` local-package entries (`rust/` and `rust/excel/`, below). These
+package files, plus the doc strings noted just below, are the version mentions
+you hand-edit; everything else derives from them.
 ```bash
 # 3-part "X.Y.Z":
 #   python/pyproject.toml      version = "X.Y.Z"
@@ -132,12 +133,15 @@ python/.venv/bin/python3 -m aletheia --version                              # al
 
 ### 5. Run the release gates
 
-- `tools/run_ci.py` (all gates). On the PR (step 6) this runs in CI at the head
-  SHA, which satisfies this gate; run it locally too when releasing off-CI.
-- `tools/check_reproducible_build.py` — two clean builds, sha256 compared (~10-25
-  min). It is not in the default `run_ci.py` battery, but the PR's
-  **`reproducible-build` heavy lane runs it at the head SHA**, so a green PR
-  covers it; run it locally only when releasing off-CI. See
+- **All gates** — `python/.venv/bin/python3 -m tools.run_ci --parallel` (invoke
+  as a module under the venv interpreter — `tools/` scripts carry no shebang). On
+  the PR (step 6) this runs in CI at the head SHA, which satisfies this gate; run
+  it locally too when releasing off-CI.
+- **Reproducible build** — `python/.venv/bin/python3 -m tools.check_reproducible_build`
+  (two clean builds, sha256 compared, ~10-25 min). Not in the default `run_ci.py`
+  battery, but the PR's **`reproducible-build` heavy lane runs it at the head
+  SHA** (same module invocation), so a green PR covers it; run it locally only
+  when releasing off-CI. See
   [Reproducible build verification](#reproducible-build-verification).
 
 **Gate:** both green. A repro-build failure is a stop-the-world event, not a flake.
