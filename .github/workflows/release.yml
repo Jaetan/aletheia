@@ -376,7 +376,7 @@ jobs:
             # /opt; consume it in place via PYTHONPATH — the recipe install.sh
             # prints for a package install.  `pip install /opt/...` cannot work
             # here: pip builds a wheel in the root-owned, unwritable source dir.
-            export PYTHONPATH=/opt/aletheia/bindings/python
+            export PYTHONPATH="/opt/aletheia/bindings/python${PYTHONPATH:+:$PYTHONPATH}"
             python3.14 -c 'import aletheia; from aletheia import FFIBackend, AletheiaClient; FFIBackend(); AletheiaClient(); print("deb smoke OK: dpkg -i -> env.sh + PYTHONPATH -> .so load -> client")'
           )
           sudo dpkg -r aletheia

@@ -41,7 +41,7 @@ Aletheia is unpacked at:
    Python  (requires Python 3.14+; no third-party runtime dependencies).
             Pure-Python: it imports in place with no build step, the way the
             C++/Go/Rust bindings are consumed from bindings/ in place.
-     export PYTHONPATH="${here}/bindings/python"
+     export PYTHONPATH="${here}/bindings/python\${PYTHONPATH:+:\$PYTHONPATH}"
      python -c 'import aletheia; from aletheia import FFIBackend; FFIBackend()'
      # Prefer a pip-managed install (console script on PATH, clean uninstall)?
      # pip builds from the source directory, so run it only where that directory

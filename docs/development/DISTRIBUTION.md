@@ -58,7 +58,7 @@ Each recipe assumes `ALETHEIA_LIB` is set (step 1); `<A>` is the unpack path.
 **Python** (requires **Python 3.14+**; no third-party runtime dependencies). The package is pure-Python and imports in place with no build step — the way the C++/Go/Rust bindings are consumed from `bindings/` in place. Point Python at it (this works read-only, including a `/opt` package install):
 
 ```bash
-export PYTHONPATH="<A>/bindings/python"   # fish: set -gx PYTHONPATH "<A>/bindings/python"
+export PYTHONPATH="<A>/bindings/python${PYTHONPATH:+:$PYTHONPATH}"   # fish: set -gx PYTHONPATH "<A>/bindings/python" $PYTHONPATH
 python -c 'import aletheia; from aletheia import FFIBackend; FFIBackend()'
 ```
 

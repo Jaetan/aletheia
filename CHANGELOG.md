@@ -388,10 +388,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `pip install <dir>` builds a wheel *in that source directory* (setuptools
   `egg_info`), so a non-root user's install failed with `Permission denied`. The
   bundle's `install.sh` / `install.fish` and `DISTRIBUTION.md` now lead with
-  `export PYTHONPATH=<bundle>/bindings/python` — the cross-binding-consistent
-  in-place recipe (the C++/Go/Rust bindings are likewise consumed from
-  `bindings/` in place), which works read-only — and the release `.deb`
-  install-smoke exercises that same recipe rather than a hardcoded `pip install`.
+  putting `<bundle>/bindings/python` on `PYTHONPATH` (prepended, preserving any
+  existing value) — the cross-binding-consistent in-place recipe (the C++/Go/Rust
+  bindings are likewise consumed from `bindings/` in place), which works
+  read-only — and the release `.deb` install-smoke exercises that same recipe
+  rather than a hardcoded `pip install`.
   The pip path stays documented for a writable source (an unpacked tarball, or a
   copy, e.g. inside a venv).
 - **CI: the heavy-lanes workflow (mutation / reproducible-build / stability) no
