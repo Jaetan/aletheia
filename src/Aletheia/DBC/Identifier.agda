@@ -33,6 +33,8 @@ open import Data.Nat using (ℕ; suc; _<ᵇ_)
 open import Data.Nat.Properties using (≡ᵇ⇒≡; ≡⇒≡ᵇ)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂; [_,_]′)
+
+open import Aletheia.Data.Dec0 using (Dec₀; fromBridges)
 open import Data.String as String using (String; fromList; toList)
 open import Data.Unit using (tt)
 open import Data.Empty using (⊥-elim)
@@ -248,6 +250,16 @@ private
 -- the equation is rewritten.
 ≡csᵇ-complete : ∀ cs ds → cs ≡ ds → T (cs ≡csᵇ ds)
 ≡csᵇ-complete cs .cs refl = ≡csᵇ-refl cs
+
+-- Self-certifying twin: packages `_≡csᵇ_` with an ERASED certificate built
+-- from the lemma family below, so a Dec₀-shaped consumer gets the Bool and
+-- its meaning as one value (MAlonzo erases the certificate — Dec₀ is a
+-- newtype over Bool).  The standalone lemmas REMAIN the proof surface: the
+-- cache-correctness and adequacy proofs consume them RELEVANTLY, which an
+-- erased certificate cannot serve — the two are complementary, not
+-- redundant.
+_≟cs₀_ : (cs ds : List Char) → Dec₀ (cs ≡ ds)
+cs ≟cs₀ ds = fromBridges (cs ≡csᵇ ds) (≡csᵇ-sound cs ds) (≡csᵇ-complete cs ds)
 
 -- Anti-soundness: when `_≡csᵇ_` says `false`, the propositional equality
 -- is impossible.  Used in cache-lookup proofs that case-split on the Bool

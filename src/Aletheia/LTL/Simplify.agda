@@ -23,23 +23,33 @@ open import Aletheia.LTL.Syntax using
 open import Aletheia.LTL.Incremental using (Holds; Fails; Unsure)
 open import Data.Nat using (_≡ᵇ_)
 open import Data.Bool using (Bool; true; false; _∧_)
+open import Data.Product using (∃; _,_)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Relation.Nullary.Reflects using (ofʸ; ofⁿ)
+
+open import Aletheia.Data.Dec0 using (Dec₀; dec₀; does₀)
 
 -- ============================================================================
 -- FINALIZATION PREDICATE
 -- ============================================================================
 
--- Boolean check: does finalizeL give Holds definitely?
+-- Self-certifying check: does finalizeL give Holds definitely?
 -- Used by And absorption to guard Always rules against finalization mismatch.
 -- Unsure (Kleene Unknown) is treated as "not definitely Holds" so the
 -- absorption guard stays conservative — keeps the absorption rule
 -- denotationally sound on empty traces under three-valued finalization.
-finalizesHolds : LTLProc → Bool
-finalizesHolds proc with finalizeL proc
-... | Holds    = true
-... | Fails _  = false
-... | Unsure _ = false
+-- The erased certificate pins the guard's meaning (`finalizeL proc ≡ Holds`);
+-- MAlonzo erases it (Dec₀ is a newtype over Bool).
+finalizesHolds₀ : (proc : LTLProc) → Dec₀ (finalizeL proc ≡ Holds)
+finalizesHolds₀ proc with finalizeL proc
+... | Holds    = dec₀ true  (ofʸ refl)
+... | Fails _  = dec₀ false (ofⁿ λ ())
+... | Unsure _ = dec₀ false (ofⁿ λ ())
 
--- Boolean check: does finalizeL give Fails definitely?
+finalizesHolds : LTLProc → Bool
+finalizesHolds proc = does₀ (finalizesHolds₀ proc)
+
+-- Self-certifying check: does finalizeL give Fails definitely?
 -- Used by Or absorption to guard Eventually rules. Under three-valued
 -- finalization, `¬ finalizesHolds` is too weak: it treats Unsure as
 -- permissive, but `φ ∨ F(φ)` with `finalizeL φ = Unsure r` finalizes to
@@ -47,11 +57,14 @@ finalizesHolds proc with finalizeL proc
 -- it with `F(φ)` (which finalizes to Fails) would break adequacy. The
 -- tighter predicate fires only when both sides definitely finalize to
 -- `Fails`, making absorption denotationally sound.
+finalizesFails₀ : (proc : LTLProc) → Dec₀ (∃ λ r → finalizeL proc ≡ Fails r)
+finalizesFails₀ proc with finalizeL proc
+... | Holds    = dec₀ false (ofⁿ λ { (_ , ()) })
+... | Fails r  = dec₀ true  (ofʸ (r , refl))
+... | Unsure _ = dec₀ false (ofⁿ λ { (_ , ()) })
+
 finalizesFails : LTLProc → Bool
-finalizesFails proc with finalizeL proc
-... | Holds    = false
-... | Fails _  = true
-... | Unsure _ = false
+finalizesFails proc = does₀ (finalizesFails₀ proc)
 
 -- ============================================================================
 -- STRUCTURAL EQUALITY

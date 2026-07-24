@@ -16,12 +16,18 @@ open import Aletheia.DBC.Types using (DBCSignal)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; physicalBitPos)
 open import Data.List using (List; []; _∷_)
-open import Data.Nat using (ℕ; zero; suc; _+_; _<_; _≤_; _≡ᵇ_; s≤s)
+open import Data.Nat using (ℕ; zero; suc; _+_; _<_; _≤_; s≤s)
 open import Data.Nat.Properties using (_≟_; _≤?_; ≤-refl; m≤n⇒m≤1+n; ≤∧≢⇒<)
-open import Data.Bool using (Bool; false; _∨_)
+open import Data.Bool using (Bool; false)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
 open import Relation.Nullary using (Dec; yes; no)
+open import Relation.Nullary.Reflects using (ofⁿ)
 open import Function using (case_of_)
+open import Data.List.Relation.Unary.Any using (Any; here; there)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
+
+open import Aletheia.Data.Dec0 using (Dec₀; dec₀; or₀; map₀; does₀)
+open import Aletheia.Data.Dec0.Nat using (_≟ℕ₀_)
 
 -- ============================================================================
 -- LOGICAL SIGNAL DISJOINTNESS
@@ -118,13 +124,46 @@ signalPhysicalBits n sig =
     (SignalDef.bitLength (DBCSignal.signalDef sig))
     0
 
+-- The propositions the fast membership checks decide: `x` occurs in `ys`,
+-- and the two bit lists share at least one position.
+Intersects : List ℕ → List ℕ → Set
+Intersects xs ys = Any (λ x → Any (x ≡_) ys) xs
+
+-- Self-certifying twins: `does₀` is the same `_≡ᵇ_`/`_∨_` fold as the Bool
+-- checks below; the erased certificate pins each fold to its Any-membership
+-- proposition.  MAlonzo erases the certificates (Dec₀ is a newtype over
+-- Bool), so the runtime cost is the bare fold.
+bitsMember₀ : (x : ℕ) (ys : List ℕ) → Dec₀ (Any (x ≡_) ys)
+bitsMember₀ x [] = dec₀ false (ofⁿ λ ())
+bitsMember₀ x (y ∷ ys) = map₀ join split (or₀ (x ≟ℕ₀ y) (bitsMember₀ x ys))
+  where
+    @0 join : (x ≡ y) ⊎ Any (x ≡_) ys → Any (x ≡_) (y ∷ ys)
+    join (inj₁ p) = here p
+    join (inj₂ a) = there a
+
+    @0 split : Any (x ≡_) (y ∷ ys) → (x ≡ y) ⊎ Any (x ≡_) ys
+    split (here p)  = inj₁ p
+    split (there a) = inj₂ a
+
+bitsIntersect₀ : (xs ys : List ℕ) → Dec₀ (Intersects xs ys)
+bitsIntersect₀ []       ys = dec₀ false (ofⁿ λ ())
+bitsIntersect₀ (x ∷ xs) ys = map₀ join split (or₀ (bitsMember₀ x ys) (bitsIntersect₀ xs ys))
+  where
+    @0 join : Any (x ≡_) ys ⊎ Intersects xs ys → Intersects (x ∷ xs) ys
+    join (inj₁ m) = here m
+    join (inj₂ a) = there a
+
+    @0 split : Intersects (x ∷ xs) ys → Any (x ≡_) ys ⊎ Intersects xs ys
+    split (here m)  = inj₁ m
+    split (there a) = inj₂ a
+
+-- Bool membership checks — definitional projections of the twins above
+-- (runtime shape unchanged: the same `_≡ᵇ_`/`_∨_` folds as before).
 bitsMemberᵇ : ℕ → List ℕ → Bool
-bitsMemberᵇ _ []       = false
-bitsMemberᵇ x (y ∷ ys) = (x ≡ᵇ y) ∨ bitsMemberᵇ x ys
+bitsMemberᵇ x ys = does₀ (bitsMember₀ x ys)
 
 bitsIntersectᵇ : List ℕ → List ℕ → Bool
-bitsIntersectᵇ []       _   = false
-bitsIntersectᵇ (x ∷ xs) ys  = bitsMemberᵇ x ys ∨ bitsIntersectᵇ xs ys
+bitsIntersectᵇ xs ys = does₀ (bitsIntersect₀ xs ys)
 
 signalsPhysicallyOverlapᵇ : ℕ → DBCSignal → DBCSignal → Bool
 signalsPhysicallyOverlapᵇ n sig₁ sig₂ =

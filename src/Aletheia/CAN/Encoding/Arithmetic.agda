@@ -16,8 +16,12 @@ open import Data.Nat using (ℕ; zero; suc; _∸_; _^_)
 open import Data.Rational as Rat using (ℚ; _≤ᵇ_; _/_; floor; 0ℚ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_)
 open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ)
 open import Data.Integer as ℤ using (ℤ; +_; -[1+_])
-open import Data.Bool using (Bool; true; false; if_then_else_; _∧_)
+open import Data.Bool using (Bool; T; true; false; if_then_else_; _∧_)
 open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
+import Data.Rational.Properties as ℚP
+
+open import Aletheia.Data.Dec0 using (Dec₀; fromBridges; does₀; T-∧→; T-∧←)
 
 -- Two's complement helpers: sign bit mask and full range for a given bit length
 signBitMask : ℕ → ℕ
@@ -82,6 +86,23 @@ removeScaling signalValue factor offset =
         divideUnnorm n (ℚᵘ.mkℚᵘ -[1+ num ] denom) =    -- Explicit nonzero pattern, instance exists!
           n ℚᵘ.÷ (ℚᵘ.mkℚᵘ -[1+ num ] denom)
 
--- Check if a signal value is within bounds
+-- Self-certifying bounds check: `does₀` is the Bool fast path (two direct ℤ
+-- comparisons via `_≤ᵇ_`); the erased certificate pins its meaning as the
+-- conjunction `minVal ≤ value × value ≤ maxVal`.  MAlonzo erases the
+-- certificate (Dec₀ is a newtype over Bool).
+inBounds₀ : (value minVal maxVal : ℚ) → Dec₀ ((minVal Rat.≤ value) × (value Rat.≤ maxVal))
+inBounds₀ value minVal maxVal =
+  fromBridges ((minVal ≤ᵇ value) ∧ (value ≤ᵇ maxVal)) sound complete
+  where
+    @0 sound : T ((minVal ≤ᵇ value) ∧ (value ≤ᵇ maxVal))
+             → (minVal Rat.≤ value) × (value Rat.≤ maxVal)
+    sound t = ℚP.≤ᵇ⇒≤ (proj₁ (T-∧→ t)) , ℚP.≤ᵇ⇒≤ (proj₂ (T-∧→ t))
+
+    @0 complete : (minVal Rat.≤ value) × (value Rat.≤ maxVal)
+                → T ((minVal ≤ᵇ value) ∧ (value ≤ᵇ maxVal))
+    complete (lo , hi) = T-∧← (ℚP.≤⇒≤ᵇ lo) (ℚP.≤⇒≤ᵇ hi)
+
+-- Check if a signal value is within bounds — definitional projection of
+-- `inBounds₀` (runtime shape unchanged).
 inBounds : ℚ → ℚ → ℚ → Bool
-inBounds value minVal maxVal = (minVal ≤ᵇ value) ∧ (value ≤ᵇ maxVal)
+inBounds value minVal maxVal = does₀ (inBounds₀ value minVal maxVal)

@@ -12,12 +12,15 @@
 module Aletheia.LTL.SignalPredicate.Evaluation where
 
 open import Agda.Builtin.Strict using (primForce; primForceLemma)
-open import Aletheia.Prelude using (Bool; List; Maybe; _∧_; _×_; _,_; _∷_; []; if_then_else_; just; not; nothing; true; ℚ)
+open import Aletheia.Prelude using (Bool; List; Maybe; _∧_; _×_; _,_; _∷_; []; if_then_else_; just; nothing; true; ℚ)
 open import Data.Char using (Char)
-open import Data.Rational as Rat using (∣_∣; 0ℚ; _≤ᵇ_)
+open import Data.Rational as Rat using (∣_∣; 0ℚ)
 open import Data.Maybe using (_<∣>_)
 open import Function using (case_of_)
 open import Relation.Binary.PropositionalEquality using (_≡_)
+
+open import Aletheia.Data.Dec0 using (does₀)
+open import Aletheia.Data.Dec0.Rational using (_≟ℚ₀_; _≤ℚ₀_; _<ℚ₀_; _>ℚ₀_; _≥ℚ₀_)
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
@@ -32,27 +35,29 @@ open import Aletheia.LTL.SignalPredicate.Cache using (CachedSignal; SignalCache;
 -- COMPARISON HELPERS
 -- ============================================================================
 
--- Bool-valued comparisons via `Rat._≤ᵇ_`, which compiles to a direct ℤ
--- comparison without allocating a `Dec` proof term per call. Replacing the
--- previous `⌊ _≟ _ ⌋` / `⌊ _≤? _ ⌋` / `⌊ _<? _ ⌋` forms is a MAlonzo hot-path
--- win of the same class as the 2026-04-07 `signalsPhysicallyOverlapᵇ` fix.
--- See the equivalence proofs in `DBC/Properties/Disjointness.agda` for the
--- template.
+-- Self-certifying comparisons: each `Dec₀` twin (Aletheia.Data.Dec0.Rational)
+-- carries the `Rat._≤ᵇ_`-built Bool (`does₀` — compiles to a direct ℤ
+-- comparison, no `Dec` proof cell per call) together with an ERASED
+-- `Reflects` certificate pinning its meaning (`≡` via antisymmetry, `≤`/`<`
+-- via the stdlib `≤ᵇ` bridges).  The Bool comparators below are definitional
+-- projections of the twins, so the fast path and its correctness can never
+-- drift apart; MAlonzo erases the certificates (Dec₀ is a newtype over Bool
+-- — pinned by `check-erasure`).
 
 _==ℚ_ : ℚ → ℚ → Bool
-x ==ℚ y = (x ≤ᵇ y) ∧ (y ≤ᵇ x)
+x ==ℚ y = does₀ (x ≟ℚ₀ y)
 
 _≤ℚ_ : ℚ → ℚ → Bool
-x ≤ℚ y = x ≤ᵇ y
+x ≤ℚ y = does₀ (x ≤ℚ₀ y)
 
 _<ℚ_ : ℚ → ℚ → Bool
-x <ℚ y = (x ≤ᵇ y) ∧ not (y ≤ᵇ x)
+x <ℚ y = does₀ (x <ℚ₀ y)
 
 _>ℚ_ : ℚ → ℚ → Bool
-x >ℚ y = y <ℚ x
+x >ℚ y = does₀ (x >ℚ₀ y)
 
 _≥ℚ_ : ℚ → ℚ → Bool
-x ≥ℚ y = y ≤ℚ x
+x ≥ℚ y = does₀ (x ≥ℚ₀ y)
 
 -- ============================================================================
 -- HELPER FUNCTIONS

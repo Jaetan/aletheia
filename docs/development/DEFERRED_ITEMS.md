@@ -143,41 +143,6 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 - **Verdict** — `CAN'T` (under current constraints) / `HOLD`. The marginal Dec
   alloc is dominated by JSON parsing itself; not worth an Unsafe-module entry.
 
-### C.2 — Erased-proof decidables on the hot path (replace Bool-fast-path + lemma)
-
-- **Where** — the per-frame Bool fast paths that pair a `Bool` function with a
-  separate equivalence lemma: `_≡csᵇ_` + its lemma family
-  (`src/Aletheia/DBC/Identifier.agda`), the `mkBoundedBitVec` bounds dispatch
-  (`src/Aletheia/CAN/Encoding.agda` — which already feeds a `Dec` yes-payload
-  into an `@0` slot), and future hot-path predicates.
-- **Origin** — user proposal during the 2026-07-18 reify-Bools scoping
-  analysis (the closed cold-checker Dec work): proofs can be erased, so
-  `Dec`-shaped APIs need not cost anything at runtime.
-- **Verified facts** (empirical probes, Agda 2.8.0 + stdlib 2.3 + MAlonzo, under
-  this repo's exact flags): a `Dec₀` record with `does : Bool` and an
-  `@0 proof : Reflects P does` field type-checks under `--safe --without-K`
-  with library `--erasure` and **compiles to a GHC `newtype` over `Bool`** —
-  runtime-identical to the bare fast path. Constraints that shape the design:
-  (1) building `Dec₀` by wrapping a stdlib decider (`fromDec`) silently
-  re-allocates the full stock `Dec` upstream — construct from `_≡ᵇ_`-style
-  primitives + `Reflects.fromEquivalence` only; (2) an erased proof cannot be
-  consumed by relevant definitions (erased `Reflects` matches are rejected, and
-  erased `_≡_` matches are rejected under `--without-K` even with
-  `--erased-matches`), so cold verification paths that feed soundness lemmas
-  must keep *relevant* `Dec` — the two uses are mutually exclusive per proof;
-  (3) `recompute₀ : Dec A → @0 A → A` is definable `--safe`-clean (erased-absurd
-  trick), bridging erased witnesses back to relevant ones via a relevant decider.
-- **Done looks like** — the fast path and its correctness travel as one
-  self-certifying value; the erasure checker mechanically enforces what is
-  today a convention, plus a `check-erasure`-style Shakefile assertion pinning
-  the `newtype … Bool` MAlonzo shape.
-- **Cost / risk** — Medium. Runtime target is **identical**, not faster — this
-  is convention-hardening, not a perf win; the standing benchmark rule applies
-  (MAlonzo's `coe`-wrapped projections could plausibly shift GHC inlining, so
-  only a benchmark ratifies "identical").
-- **Verdict** — `INVESTIGATE`. Promote when next touching a hot-path predicate,
-  or when the convention-enforcement value justifies the benchmark cycle.
-
 ---
 
 ## D. Accepted constraints (documented exceptions, not pending work)
@@ -258,9 +223,7 @@ emitted as empty. The binary/JSON path is unaffected — this is specific to the
 Cheapest / highest-confidence first, so early wins de-risk the harder items:
 
 1. **A.1 / A.3 / B.1** — gated on a concrete consuming DBC / property.
-2. **C.2** — investigate-on-trigger: revisit when next touching a hot-path
-   predicate (erased-proof `Dec₀` vs the Bool-fast-path + lemma pattern).
-3. **C.1 / D.1 / F.1 / F.2 / H.1** — accepted / blocked / demand-gated; no action unless constraints change (H.1: a public C++ test mock — promote on concrete external-consumer demand).
+2. **C.1 / D.1 / F.1 / F.2 / H.1** — accepted / blocked / demand-gated; no action unless constraints change (H.1: a public C++ test mock — promote on concrete external-consumer demand).
 
 > Each item graduates from this doc to a real task only after a per-item
 > decision with the user. This file is the backlog + rationale, not a commitment.

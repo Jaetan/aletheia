@@ -10,6 +10,31 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Hot-path Bool predicates are now self-certifying (`Dec₀` reification,
+  kernel-only, runtime-neutral).** A new `Aletheia.Data.Dec0` module packages
+  a fast-path Bool with an ERASED `Reflects` certificate; MAlonzo compiles
+  the record to a GHC newtype over `Bool` (pinned by a new `check-erasure`
+  guard), so a certified predicate costs exactly what the bare Bool cost —
+  measured identical across all four bindings' benchmark lanes. Reified
+  sites, several of which previously had NO machine-checked meaning at all:
+  the LTL atom comparators (`Aletheia.Data.Dec0.Rational` — equality via
+  antisymmetry, order via the stdlib `≤ᵇ` bridges), the `finalizesHolds` /
+  `finalizesFails` absorption guards (certified against `finalizeL`), the
+  extraction bounds check `inBounds` (certified as the `min ≤ v ≤ max`
+  conjunction), CAN-ID equality `canIdEquals`, the multiplexor selector
+  match (certified as Any-membership), the bit-membership/intersection
+  checks and the frame-building overlap family (certified against a new
+  `HasPairOverlap` proposition), and a `_≟cs₀_` twin packaging identifier
+  equality with its retained lemma family. Existing Bool call sites and
+  every existing proof are unchanged — the Bools are now definitional
+  projections of their certified twins, so the fast path and its meaning
+  can no longer drift apart. Sites whose proofs consume witnesses
+  relevantly (`_≡ᵇ-proc_`, `findSignalInList`, `mkBoundedBitVec`'s
+  reduction lemma) deliberately keep their relevant-proof form; the
+  reasoning is recorded at each site.
+
 ### Changed
 
 - **The binary extraction wire now carries the kernel's detailed error reason

@@ -17,12 +17,15 @@ open import Aletheia.DBC.Identifier using (Identifier; _≡csᵇ_)
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Bool using (Bool; false)
+open import Data.Bool using (Bool; T; false)
 open import Data.Nat using (_≡ᵇ_)
-open import Data.Nat.Properties using (_≟_)
+open import Data.Nat.Properties using (_≟_; ≡ᵇ⇒≡; ≡⇒≡ᵇ)
 open import Relation.Nullary using (Dec; yes; no)
+open import Relation.Nullary.Reflects using (ofⁿ)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Aletheia.Prelude using (findByPredicate)
+
+open import Aletheia.Data.Dec0 using (Dec₀; fromBridges; dec₀; does₀)
 
 -- ============================================================================
 -- CAN ID COMPARISON
@@ -41,11 +44,35 @@ Extended x _ ≟-CANId Extended y _ with x ≟ y
 Standard _ _ ≟-CANId Extended _ _ = no λ ()
 Extended _ _ ≟-CANId Standard _ _ = no λ ()
 
--- Bool equality: direct ℕ field comparison, no Dec allocation.
+-- Self-certifying Bool equality: `does₀` is the direct ℕ field comparison
+-- (no Dec allocation); the erased certificate pins it to propositional CANId
+-- equality (the `.(…)`-irrelevant proof fields collapse definitionally, so ℕ
+-- equality alone closes each constructor case).  MAlonzo erases the
+-- certificate (Dec₀ is a newtype over Bool).
+canIdEquals₀ : (id₁ id₂ : CANId) → Dec₀ (id₁ ≡ id₂)
+canIdEquals₀ (Standard x p) (Standard y q) = fromBridges (x ≡ᵇ y) sound complete
+  where
+    @0 sound : T (x ≡ᵇ y) → Standard x p ≡ Standard y q
+    sound t with ≡ᵇ⇒≡ x y t
+    ... | refl = refl
+
+    @0 complete : Standard x p ≡ Standard y q → T (x ≡ᵇ y)
+    complete refl = ≡⇒≡ᵇ x x refl
+canIdEquals₀ (Extended x p) (Extended y q) = fromBridges (x ≡ᵇ y) sound complete
+  where
+    @0 sound : T (x ≡ᵇ y) → Extended x p ≡ Extended y q
+    sound t with ≡ᵇ⇒≡ x y t
+    ... | refl = refl
+
+    @0 complete : Extended x p ≡ Extended y q → T (x ≡ᵇ y)
+    complete refl = ≡⇒≡ᵇ x x refl
+canIdEquals₀ (Standard _ _) (Extended _ _) = dec₀ false (ofⁿ λ ())
+canIdEquals₀ (Extended _ _) (Standard _ _) = dec₀ false (ofⁿ λ ())
+
+-- Bool equality — definitional projection of `canIdEquals₀` (runtime shape
+-- unchanged: direct ℕ field comparison per constructor case).
 canIdEquals : CANId → CANId → Bool
-canIdEquals (Standard x _) (Standard y _) = x ≡ᵇ y
-canIdEquals (Extended x _) (Extended y _) = x ≡ᵇ y
-canIdEquals _ _ = false
+canIdEquals id₁ id₂ = does₀ (canIdEquals₀ id₁ id₂)
 
 -- ============================================================================
 -- DBC MESSAGE LOOKUP
@@ -69,8 +96,9 @@ findMessageById msgId dbc = findByPredicate matchesId (DBC.messages dbc)
 -- Bool fast path (`_≡csᵇ_ : List Char → List Char → Bool`) avoids the
 -- per-call `Dec` heap cell that `≡-dec _≟ᶜ_` would allocate on every
 -- signal extraction and frame build. Soundness/completeness for the
--- case-split (used by `findSignalInList→SigPresent` in
--- `Protocol/Adequacy/StreamingWarm.agda`) is handled by
+-- case-split (consumed by the cache-correctness proofs in
+-- `Protocol/FrameProcessor/Properties/Cache.agda` and the membership
+-- machinery in `Protocol/Adequacy/StreamingWarm.agda`) is handled by
 -- `Identifier.{≡csᵇ-sound, ≡csᵇ-false→≢}` at proof sites — all `--safe`,
 -- no `prim-string-eq-sound` postulate.
 findSignalInList : List Char → List DBCSignal → Maybe DBCSignal
