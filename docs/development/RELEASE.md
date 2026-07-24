@@ -38,6 +38,216 @@ the fallback path.
 Use the **local path** for releases cut off CI (a hotfix from the maintainer's
 machine, or CI unavailable).
 
+## Release runbook
+
+The **authoritative, ordered sequence** for cutting a release — the steps `REL`
+executes top to bottom, and the steps a maintainer follows to release by hand.
+Walk it in order; do not skip. Each step names its **acceptance gate** (what must
+be true before moving on) and links to the section with the full detail.
+
+Steps marked **⚑** need your GPG key, an admin-only tag, or the GitHub web UI —
+under `REL` these are staged into `.commands-to-run.sh` (or called out) for you to
+run or click; the rest the agent runs. The default is the **CI (tag-triggered)**
+path (see [Release paths](#release-paths)); the local fallback differs only at the
+signing/publish steps and is noted inline.
+
+### 0. Decide the version (SemVer)
+
+Read the accumulated `## [Unreleased]` notes and pick `X.Y.Z` by
+[SemVer](https://semver.org/): **any** BREAKING entry → **MAJOR**; otherwise a new
+`### Added` surface → **MINOR**; otherwise **PATCH**.
+**Gate:** the chosen `X.Y.Z` matches the highest-impact `[Unreleased]` entry.
+
+### 1. ⚑ Branch — the prepare-release commit goes through a PR
+
+`main` is protected (the ruleset requires `tools/run_ci.py (all gates)` +
+`mutation testing`), so the version bump **cannot** be committed straight to
+`main`. Branch first:
+```bash
+git switch main && git fetch origin main && git merge --ff-only origin/main
+git switch -c chore/prepare-vX.Y.Z
+```
+**Gate:** on a fresh branch off an up-to-date `main`.
+
+### 2. Bump every version stamp
+
+Hand-edit the version in the package-metadata files, then refresh the
+`Cargo.lock` local-package entries (`rust/` and `rust/excel/`, below). These
+package files, plus the doc strings noted just below, are the version mentions
+you hand-edit; everything else derives from them.
+```bash
+# 3-part "X.Y.Z":
+#   python/pyproject.toml      version = "X.Y.Z"
+#   cpp/CMakeLists.txt         project(aletheia-cpp VERSION X.Y.Z ...)
+#   rust/Cargo.toml            version = "X.Y.Z"
+#   rust/excel/Cargo.toml      version = "X.Y.Z"
+# 4-part "X.Y.Z.0":
+#   haskell-shim/aletheia.cabal    version: X.Y.Z.0   (the .so + SBOM read this)
+#   shake.cabal                    version: X.Y.Z.0
+cargo update -p aletheia --manifest-path rust/Cargo.toml
+cargo update -p aletheia -p aletheia-excel --manifest-path rust/excel/Cargo.toml
+```
+Also bump the version strings in the docs: the `**Version**:` field and
+`**Last Updated**:` in [`DISTRIBUTION.md`](DISTRIBUTION.md), its native-package
+example, and the `# Should output: X.Y.Z` line in [`BUILDING.md`](BUILDING.md).
+
+**Everything else SSOT-derives — do not hand-edit:** the `.so` banner and the
+CycloneDX SBOM read the version from `haskell-shim/aletheia.cabal`; the
+`.deb`/`.rpm` version is injected into `packaging/nfpm.yaml` from that same field;
+Python's `aletheia.__version__` reads the installed package metadata (pyproject);
+Go derives its version from the git tag. Confirm nothing was missed with the
+**previous** version string:
+```bash
+rg -n -e '<old X.Y.Z>' -e '\bv<old X>\b'   # expect only CHANGELOG history + intentional prose
+```
+**Gate:** no stray occurrence of the previous version outside `CHANGELOG.md`
+history and deliberate prose.
+
+### 3. CHANGELOG — rename and normalize (in THIS commit)
+
+Rename `## [Unreleased]` → `## [X.Y.Z] — YYYY-MM-DD` and add a fresh empty
+`## [Unreleased]` above it. This **must** happen in the prepare-release commit,
+not after publishing: the version bump touches watched `.cabal` files, so
+`check_changelog` requires a `CHANGELOG.md` edit here. While renaming, enforce
+**one `###` header per Keep-a-Changelog category** (`Added`, `Changed`,
+`Removed`, `Fixed`, in that order) — merge any duplicate headers that accumulated
+over the cycle, and confirm the merge is content-preserving with a sorted-line
+diff of the old vs new section.
+**Gate:** `[X.Y.Z]` dated; fresh empty `[Unreleased]`; one header per category.
+
+### 4. Rebuild + redeploy the kernel, smoke the version
+
+The version bump rebuilds `libaletheia-ffi.so` with the new version string, which
+stales any prior `~/.local/lib/aletheia/` install and `dist/` tree — the pre-push
+`check-install-freshness` gate fails until they are refreshed:
+```bash
+cabal run shake -- build      # -> "Shared library created ... (from aletheia-X.Y.Z.0)"
+cabal run shake -- install
+cabal run shake -- dist
+# Python __version__ reads INSTALLED metadata — reinstall to re-read it:
+python/.venv/bin/pip install -e python/. --quiet
+python/.venv/bin/python3 -c 'import aletheia; print(aletheia.__version__)'   # X.Y.Z
+python/.venv/bin/python3 -m aletheia --version                              # aletheia X.Y.Z
+```
+**Gate:** `.so` reports `aletheia-X.Y.Z.0`; `__version__` and the CLI report `X.Y.Z`.
+
+### 5. Run the release gates
+
+- **All gates** — `python/.venv/bin/python3 -m tools.run_ci --parallel` (invoke
+  as a module under the venv interpreter — `tools/` scripts carry no shebang). On
+  the PR (step 6) this runs in CI at the head SHA, which satisfies this gate; run
+  it locally too when releasing off-CI.
+- **Reproducible build** — `python/.venv/bin/python3 -m tools.check_reproducible_build`
+  (two clean builds, sha256 compared, ~10-25 min). Not in the default `run_ci.py`
+  battery, but the PR's **`reproducible-build` heavy lane runs it at the head
+  SHA** (same module invocation), so a green PR covers it; run it locally only
+  when releasing off-CI. See
+  [Reproducible build verification](#reproducible-build-verification).
+
+**Gate:** both green. A repro-build failure is a stop-the-world event, not a flake.
+
+### 6. ⚑ Commit (signed), push, PR, babysit, merge
+
+Stage **only** the prepare-release files by explicit path (never `git add -A`),
+commit **GPG-signed** (`-S`), push, open the PR, babysit CI to
+`mergeStateStatus == CLEAN`, handle **every** review comment (validate + fix, or
+refute — then resolve the thread), then **squash-merge** and fast-forward `main`.
+**Gate:** PR `state == MERGED`, squash commit on `main`, `main == origin/main`.
+
+### 7. Dispatch dry-run — before the real tag
+
+Run the release workflow WITHOUT publishing. This is the cheapest insurance for a
+release, and it is **not optional**: `release.yml`'s `dist → sign → self-verify →
+bundle-validate → package → smoke → image` path runs **only** on a tag push or a
+`workflow_dispatch`, so a fully-green PR can still hide a broken release pipeline.
+```bash
+gh workflow run release.yml --ref main
+gh run watch "$(gh run list --workflow=release.yml --branch main \
+  --event workflow_dispatch -L1 --json databaseId -q '.[0].databaseId')" --exit-status
+```
+Only its publish steps are `if: github.event_name == 'push'`-guarded, so a
+dispatch executes the entire pipeline minus publish — a faithful dry-run. Fix any
+failure and **re-dispatch until green** (each dispatch also exercises steps a
+prior failure left unreached, e.g. the image build after a failed `.deb` smoke).
+**Gate:** the dispatch run is green. Residual it cannot cover: its publish
+steps and the exact `@refs/tags/vX.Y.Z` self-verify identity are first-exercised
+on the real tag (the cert-identity format is deterministic, so this is small but
+inherent to a first release).
+
+### 8. ⚑ Tag the squashed HEAD → release.yml → DRAFT
+
+Tag the **squashed `main` commit** from step 6 (not the pre-merge branch tip),
+signed; tag creation is admin-only (an admin bypass line on push is expected):
+```bash
+git tag -s vX.Y.Z -m "Aletheia vX.Y.Z"
+git push origin vX.Y.Z
+```
+The tag push runs `release.yml`, which keyless-signs the tarball + `.deb` +
+`.rpm`, self-verifies every signed artifact against the workflow OIDC identity,
+validates the bundle across bindings, install-smokes the `.deb`, builds the
+runtime image, publishes a **DRAFT** Release, and pushes + signs the GHCR image.
+Publish is gated on the verification steps.
+*(Local fallback — releasing off CI: instead of tagging, run
+`ALETHEIA_COSIGN_TLOG=1 cabal run shake -- dist` with `ALETHEIA_COSIGN_KEY` set,
+verify with `--key keys/cosign.pub`, then `gh release create vX.Y.Z
+dist/aletheia.tar.gz{,.sha256,.sig}`. See [Signing](#signing).)*
+**Gate:** `release.yml` green; a DRAFT Release exists with the tarball + package +
+sidecar assets. (If the GHCR push step fails, see step 10 — everything upstream
+still succeeded and is recoverable.)
+
+### 9. ⚑ Verify the draft as a consumer, then publish
+
+Before flipping public, download the DRAFT's **actual** assets and verify them
+exactly as a downloader would — integrity + keyless provenance against the tag
+identity (this is the first exercise of the `@refs/tags/vX.Y.Z` identity):
+```bash
+gh release download vX.Y.Z --pattern 'aletheia.tar.gz*'
+sha256sum -c aletheia.tar.gz.sha256
+cosign verify-blob --certificate aletheia.tar.gz.crt --signature aletheia.tar.gz.sig \
+  --certificate-identity-regexp \
+    '^https://github\.com/Jaetan/aletheia/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  aletheia.tar.gz
+```
+Do the same for the `.deb`/`.rpm`, and `cosign verify` the image (see
+[Verifying release artifacts](#verifying-release-artifacts-consumer-side)).
+Optionally set the Release notes from the `[X.Y.Z]` CHANGELOG section
+(`gh release edit vX.Y.Z --notes-file <section>`), then flip **draft →
+published** (`gh release edit vX.Y.Z --draft=false --latest`).
+**Gate:** every artifact verifies OK against the tag identity; the Release is
+published and marked latest.
+
+### 10. ⚑ GHCR one-time setup (first release with an image)
+
+The GHCR image push is the one non-draft publish surface, and its first exercise
+needs a one-time grant. Two cases:
+- **The push CREATED the package** (no prior image existed): the package is
+  created **private** — flip it to Public once: GitHub → your profile → Packages →
+  `aletheia` → Package settings → Change visibility → Public.
+- **The package PRE-EXISTED** (e.g. a manual dev push created it earlier): the
+  automated push fails `denied: permission_denied: write_package` even with
+  `packages: write` in the workflow, because a pre-existing package does not
+  auto-grant the repo's Actions token write access. Fix once: Package settings →
+  **Manage Actions access** → grant the repository role **Write** (belt-and-
+  suspenders: repo → Settings → Actions → General → Workflow permissions → Read
+  and write). Then re-run the failed release run — idempotent — with
+  `gh run rerun <run-id> --failed` (everything upstream already succeeded; the
+  re-run completes the image push and re-clobbers the Release assets with fresh
+  signatures still valid against the tag identity).
+
+Subsequent releases keep the visibility and the grant; no further action.
+**Gate:** `docker pull ghcr.io/jaetan/aletheia:X.Y.Z` succeeds unauthenticated
+(or: skip this step if the release ships no image).
+
+### 11. Post-publish sync (UPD)
+
+**Only after the Release is public**, run a doc-only `UPD`: record
+`vX.Y.Z RELEASED YYYY-MM-DD` in `PROJECT_STATUS.md` / `CLAUDE.md` / the agent
+memory. The `[Unreleased]` → `[X.Y.Z]` CHANGELOG rename was already done in
+step 3, so no post-publish CHANGELOG edit is needed.
+**Gate:** doc state reflects the published release; no forward-looking "RELEASED"
+line existed before step 9.
+
 ## Quick reference
 
 ### CI release (default) — push a tag
@@ -412,76 +622,7 @@ A failure in any of these is a stop-the-world event for the consumer.
 
 ## Release checklist
 
-### Before cutting a release (both paths)
-
-- [ ] Working tree clean (`git status --porcelain` empty).  A dirty
-      tree shows up as `Git tree: dirty` in the MANIFEST and signals
-      that the dist may not match any committed source.
-- [ ] `tools/run_ci.py` passes end-to-end (the always-on gate sweep, ~22-30 min warm).
-- [ ] `tools/check_reproducible_build.py` passes (~10 min cold).
-- [ ] `CHANGELOG.md` has the release's notes accumulated under `## [Unreleased]`
-      (Keep-a-Changelog shape — one `### Added/Changed/Fixed/…` header per
-      category), and **rename `## [Unreleased]` to `## [X.Y.Z] — YYYY-MM-DD`** with a
-      fresh empty `## [Unreleased]` above it — in THIS prepare-release commit, not
-      after publishing. The version bump touches watched `.cabal` files, so
-      `check_changelog` requires the CHANGELOG edit here (this is how v3.0.0 was cut).
-- [ ] Version bumped to `X.Y.Z` in every package-metadata file:
-      `python/pyproject.toml` (`version = "X.Y.Z"`),
-      `haskell-shim/aletheia.cabal` (`version: X.Y.Z.0` — 4-part form; this is
-      also the single source `libaletheia-ffi.so` and the SBOM read their
-      version from, via `tools/sbom_generate.py`),
-      `cpp/CMakeLists.txt` (`project(aletheia-cpp VERSION X.Y.Z ...)`),
-      `rust/Cargo.toml` and `rust/excel/Cargo.toml` (`version = "X.Y.Z"`),
-      then `cargo update -p aletheia` (in `rust/`) and
-      `cargo update -p aletheia -p aletheia-excel` (in `rust/excel/`) to refresh
-      the local-package entries in `rust/Cargo.lock` + `rust/excel/Cargo.lock`
-      without disturbing pinned dependencies,
-      and `shake.cabal` (`version: X.Y.Z.0` — the build orchestrator, bumped in
-      lockstep at every prior release).
-      (Go derives its version from the git tag — no in-file semver to bump.)
-- [ ] **Redeploy the freshly-built kernel before pushing.** The version bump
-      rebuilds `libaletheia-ffi.so` with the new version string, which stales any
-      prior deployment — a `~/.local/lib/aletheia/` install and a `dist/` tree —
-      so the pre-push `check-install-freshness` gate fails until they are
-      refreshed. Run `cabal run shake -- install` **and** `cabal run shake -- dist`
-      after the bump. (A fresh CI checkout has neither, so this is a local-only
-      pre-push concern; it does not affect the GitHub checks.)
-
-### CI release (default)
-
-- [ ] Tag the release commit and push: `git tag -s vX.Y.Z -m "Aletheia vX.Y.Z"`
-      then `git push origin vX.Y.Z`.
-- [ ] `release.yml` goes green — it builds, keyless-signs, **self-verifies
-      every signed artifact** (tarball + `.deb` + `.rpm`) against the workflow
-      OIDC identity, **validates the bundle** across the bindings (see
-      [Release-path bundle validation](#release-path-bundle-validation)),
-      **install-smokes the `.deb`**, and **builds the runtime image** (whose
-      verify stages exercise every compiled binding against it).  Publish is
-      gated on all of these, so a green run means every artifact is
-      verifiable *and* consumable.
-- [ ] Review the resulting **draft** GitHub Release, then flip it from draft to
-      published.  (Smoke-test beforehand with `gh workflow run release.yml` — the
-      full build + sign + self-verify as a dry-run, no publish or push.)
-- [ ] **First release with an image only:** flip the GHCR package visibility
-      to Public (see the maintainer note under
-      [Container image on GHCR](#container-image-on-ghcr)).
-
-### Local release (fallback — cut off CI)
-
-- [ ] Cosign keypair is the current key (`keys/cosign.pub` matches
-      `~/.config/aletheia/cosign.key`).
-- [ ] `ALETHEIA_COSIGN_TLOG=1` exported (release flow uses Rekor).
-- [ ] `cabal run shake -- dist` produces the tarball + `.sha256` + `.sig`
-      (plus MANIFEST + SBOM inside the tarball; no `.crt` — that is keyless-only).
-- [ ] Manual verify (sha256, cosign `--key keys/cosign.pub`, SBOM look-OK).
-- [ ] Create the GitHub Release and upload the tarball + sidecars:
-      `gh release create vX.Y.Z dist/aletheia.tar.gz dist/aletheia.tar.gz.sha256 dist/aletheia.tar.gz.sig`.
-
-### After publishing (both paths)
-
-- [ ] The `CHANGELOG.md` `[Unreleased]` → `[X.Y.Z]` rename + fresh `[Unreleased]`
-      are already done in the prepare-release commit above (forced there by
-      `check_changelog`); no post-publish CHANGELOG edit is needed.
+The ordered [Release runbook](#release-runbook) is the authoritative checklist — walk its numbered steps in order, each with an acceptance gate. (The former standalone checklist was folded into it so the sequence has one home.)
 
 ## Troubleshooting
 
