@@ -364,8 +364,6 @@ jobs:
           set -euo pipefail
           sudo dpkg -i dist/aletheia_*_amd64.deb
           test -f /opt/aletheia/lib/libaletheia-ffi.so
-          work="$(mktemp -d)"
-          python3.14 -m pip install --quiet --target "${work}/site" /opt/aletheia/bindings/python
           (
             cd /tmp
             # shellcheck disable=SC1091
@@ -374,7 +372,12 @@ jobs:
               /opt/aletheia/lib/*) : ;;
               *) echo "ALETHEIA_LIB does not point into the installed package: ${ALETHEIA_LIB}" >&2; exit 1 ;;
             esac
-            PYTHONPATH="${work}/site" python3.14 -c 'import aletheia; from aletheia import FFIBackend, AletheiaClient; FFIBackend(); AletheiaClient(); print("deb smoke OK: dpkg -i -> env.sh -> .so load -> client")'
+            # The packaged Python binding is pure-Python and lives read-only under
+            # /opt; consume it in place via PYTHONPATH — the recipe install.sh
+            # prints for a package install.  `pip install /opt/...` cannot work
+            # here: pip builds a wheel in the root-owned, unwritable source dir.
+            export PYTHONPATH=/opt/aletheia/bindings/python
+            python3.14 -c 'import aletheia; from aletheia import FFIBackend, AletheiaClient; FFIBackend(); AletheiaClient(); print("deb smoke OK: dpkg -i -> env.sh + PYTHONPATH -> .so load -> client")'
           )
           sudo dpkg -r aletheia
           if [ -e /opt/aletheia ]; then

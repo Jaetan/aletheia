@@ -55,13 +55,14 @@ Running `./install.sh` (or `./install.fish`) prints exactly these lines for your
 
 Each recipe assumes `ALETHEIA_LIB` is set (step 1); `<A>` is the unpack path.
 
-**Python** (requires **Python 3.14+**; no third-party runtime dependencies). Into a virtual environment you have created and activated, `pip install <A>/bindings/python`. With no venv — including on an externally-managed / [PEP 668](https://peps.python.org/pep-0668/) Python, where a plain `pip install` into the system environment is refused — install into an isolated directory and put it on `PYTHONPATH`:
+**Python** (requires **Python 3.14+**; no third-party runtime dependencies). The package is pure-Python and imports in place with no build step — the way the C++/Go/Rust bindings are consumed from `bindings/` in place. Point Python at it (this works read-only, including a `/opt` package install):
 
 ```bash
-pip install --target "$HOME/.local/lib/aletheia" "<A>/bindings/python"
-export PYTHONPATH="$HOME/.local/lib/aletheia"   # fish: set -gx PYTHONPATH "$HOME/.local/lib/aletheia"
+export PYTHONPATH="<A>/bindings/python"   # fish: set -gx PYTHONPATH "<A>/bindings/python"
 python -c 'import aletheia; from aletheia import FFIBackend; FFIBackend()'
 ```
+
+Prefer a pip-managed install (console script on `PATH`, clean uninstall)? `pip install "<A>/bindings/python"` — but pip builds a wheel *in the source directory*, so run it only where `<A>` is **writable**: an unpacked tarball, or a copy, e.g. inside a venv you created. On an externally-managed / [PEP 668](https://peps.python.org/pep-0668/) Python add `--target "$HOME/.local/lib/aletheia"` and put that dir on `PYTHONPATH`. A read-only `/opt` package install cannot be pip-installed in place — use the `PYTHONPATH` recipe above.
 
 **C++** (CMake; fetches nlohmann/json + yaml-cpp + OpenXLSX at configure time, so a network connection is required for the first configure):
 

@@ -38,14 +38,16 @@ Aletheia is unpacked at:
 ----------------------------------------------------------------------
 2. Use Aletheia from your language (each reads ALETHEIA_LIB at runtime):
 
-   Python  (requires Python 3.14+; no third-party runtime dependencies):
-     # In a virtual environment you have created and activated:
-     pip install "${here}/bindings/python"
-     # Or, with no venv (works on an externally-managed / PEP 668 Python),
-     # install into an isolated directory and put it on PYTHONPATH:
-     pip install --target "${HOME}/.local/lib/aletheia" "${here}/bindings/python"
-     export PYTHONPATH="${HOME}/.local/lib/aletheia"
+   Python  (requires Python 3.14+; no third-party runtime dependencies).
+            Pure-Python: it imports in place with no build step, the way the
+            C++/Go/Rust bindings are consumed from bindings/ in place.
+     export PYTHONPATH="${here}/bindings/python"
      python -c 'import aletheia; from aletheia import FFIBackend; FFIBackend()'
+     # Prefer a pip-managed install (console script on PATH, clean uninstall)?
+     # pip builds from the source directory, so run it only where that directory
+     # is WRITABLE (an unpacked tarball, or a copy, e.g. inside a venv you made);
+     # a read-only /opt package install must use the PYTHONPATH line above.
+     pip install "${here}/bindings/python"
 
    C++  (CMake; fetches nlohmann/json + yaml-cpp + OpenXLSX at configure time):
      # in your project's CMakeLists.txt:

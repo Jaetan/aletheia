@@ -382,6 +382,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **Native packages (`.deb`/`.rpm`): the bundled Python binding is now consumed
+  in place via `PYTHONPATH`, not `pip install /opt/aletheia/bindings/python`.**
+  The package installs the pure-Python binding read-only under `/opt`, but
+  `pip install <dir>` builds a wheel *in that source directory* (setuptools
+  `egg_info`), so a non-root user's install failed with `Permission denied`. The
+  bundle's `install.sh` / `install.fish` and `DISTRIBUTION.md` now lead with
+  `export PYTHONPATH=<bundle>/bindings/python` — the cross-binding-consistent
+  in-place recipe (the C++/Go/Rust bindings are likewise consumed from
+  `bindings/` in place), which works read-only — and the release `.deb`
+  install-smoke exercises that same recipe rather than a hardcoded `pip install`.
+  The pip path stays documented for a writable source (an unpacked tarball, or a
+  copy, e.g. inside a venv).
 - **CI: the heavy-lanes workflow (mutation / reproducible-build / stability) no
   longer re-bootstraps the cabal package index on every run.** It restored the
   cabal store cache but still ran `cabal update` unconditionally *before* the
