@@ -188,7 +188,7 @@ def _ghc_dep_components(deps: list[Path]) -> list[Component]:
         if not so.is_file():
             continue
         version = "unknown"
-        # Pattern: libHSbase-4.18.2.1-...-ghc9.6.7.so → 4.18.2.1
+        # Pattern: libHSbase-4.19.2.0-...-ghc9.8.4.so → 4.19.2.0
         m = re.match(
             r"libHS([A-Za-z0-9_-]+?)-(\d[\w.-]*?)(?:-[a-z0-9]{8,})?-ghc[\d.]+\.so", so.name
         )

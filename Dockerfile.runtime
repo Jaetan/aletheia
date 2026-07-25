@@ -34,7 +34,7 @@
 #   docker buildx imagetools inspect python:3.14-slim   # multi-arch index digest
 # The digest below is the OCI multi-arch manifest list at last refresh —
 # pinning by digest makes `docker build` bit-reproducible at the base layer.
-FROM python:3.14-slim@sha256:c845af9399020c7e562969a13689e929074a10fd057acd1b1fad06a2fb068e97 AS runtime
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS runtime
 
 # OCI provenance labels.  `source` is load-bearing for GHCR: it links the
 # pushed package to the repository (release.yml pushes this image to
@@ -100,8 +100,8 @@ WORKDIR /work
 # same `go mod edit -replace` wiring install.sh prints, then RUN it — the
 # consumer dlopens the image's kernel and drives a real LTL scenario
 # (parse .dbc → property → conforming + violating frame → one violation).
-# Refresh: docker buildx imagetools inspect golang:1.25-trixie
-FROM golang:1.25-trixie@sha256:c699a45b4ed445f5a618233d1910f7c889dd52b831594047eff8e6a52794c814 AS verify-go
+# Refresh: docker buildx imagetools inspect golang:1.26-trixie
+FROM golang:1.26-trixie@sha256:4ee9ffa999b4583ce281939cdff828763083610292f252279a0cee77473bd9a7 AS verify-go
 COPY --from=runtime /opt/aletheia /opt/aletheia
 COPY tools/bundle_validation/consumer_go /verify
 COPY examples/demo/vehicle.dbc /verify/vehicle.dbc
@@ -116,8 +116,8 @@ RUN ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so ./consumer vehicle.dbc && 
 # Rust: build the bundled crate standalone (default features), with the
 # shipped Cargo.lock enforced.  The crate dlopens at runtime, so a build
 # proves the bundled source tree is complete and compiles.
-# Refresh: docker buildx imagetools inspect rust:1.93-trixie
-FROM rust:1.93-trixie@sha256:ecbe59a8408895edd02d9ef422504b8501dd9fa1526de27a45b73406d734d659 AS verify-rust
+# Refresh: docker buildx imagetools inspect rust:1.97-trixie
+FROM rust:1.97-trixie@sha256:1bcff4befb740599103a2c7cb51058e14479b2e35e3a34a3f0dc4ede09927488 AS verify-rust
 COPY --from=runtime /opt/aletheia /opt/aletheia
 WORKDIR /opt/aletheia/bindings/rust
 RUN cargo build --release --locked && \

@@ -40,7 +40,7 @@ open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans)
-open import Relation.Nullary.Decidable using (Dec; yes; no; _×-dec_)
+open import Relation.Nullary.Decidable using (Dec; yes; no; _×?_)
 
 open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 open import Aletheia.DBC.Formatter.WellFormedText.Foundations using (MasterCoherent; mc-no-mux; mc-mux)
@@ -94,7 +94,7 @@ MasterOk n s = (Identifier.name (DBCSignal.name s) ≡ n) × (DBCSignal.presence
 masterOk? : (n : List Char) (s : DBCSignal) → Dec (MasterOk n s)
 masterOk? n s =
   ListProps.≡-dec _≟ᶜ_ (Identifier.name (DBCSignal.name s)) n
-    ×-dec isAlways? (DBCSignal.presence s)
+    ×? isAlways? (DBCSignal.presence s)
 
 -- The slave conjunct of `mc-mux`, stated in the SAME ∀-shape as the
 -- constructor's `All` field, so `all? (whenOk? n) sigs` produces that field
@@ -119,7 +119,7 @@ mcGo? : (mm : Maybe (List Char)) (sigs : List DBCSignal)
   → findMuxMaster sigs ≡ mm → Dec (MasterCoherent sigs)
 mcGo? nothing  sigs eq = yes (mc-no-mux eq)
 mcGo? (just n) sigs eq
-  with any? (masterOk? n) sigs ×-dec all? (whenOk? n) sigs
+  with any? (masterOk? n) sigs ×? all? (whenOk? n) sigs
 ... | yes (anyOk , allOk) =
   let (ms , ms∈sigs , nameEq , presEq) = find anyOk
   in yes (mc-mux n eq ms ms∈sigs nameEq presEq allOk)

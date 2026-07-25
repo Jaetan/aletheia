@@ -33,7 +33,7 @@
 
 --
 -- Stdlib reference:
---   `agda-stdlib v2.3 Data.String.Unsafe` exports the same two lemmas as
+--   `agda-stdlib v2.4 Data.String.Unsafe` exports the same two lemmas as
 --   `toList∘fromList` and `fromList∘toList`, both proven by `trustMe`
 --   under `{-# OPTIONS --with-K #-}`.  Direct `postulate` here is
 --   semantically identical to stdlib's `trustMe`-backed proofs and

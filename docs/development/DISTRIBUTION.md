@@ -435,7 +435,7 @@ Every image build is gated by throwaway verify stages: the bundled Rust crate an
 The image doubles as a distribution vehicle for compiled-language consumers — `COPY --from` it instead of downloading and unpacking the tarball inside your Dockerfile:
 
 ```dockerfile
-FROM golang:1.25-trixie AS build
+FROM golang:1.26-trixie AS build
 COPY --from=ghcr.io/jaetan/aletheia:X.Y.Z /opt/aletheia /opt/aletheia
 WORKDIR /app
 COPY . .
@@ -455,12 +455,17 @@ The same shape serves C++ (`add_subdirectory(/opt/aletheia/bindings/cpp aletheia
 
 #### Building the image locally
 
-Two Dockerfiles are provided in the repository root:
+The distributed container image is built from the pre-built release bundle:
 
 | File | Purpose | Base image |
 |------|---------|------------|
-| `Dockerfile` | Build from source (CI/CD) | `haskell:9.6.7` → `python:3.14-slim` |
-| `Dockerfile.runtime` | Runtime from pre-built dist | `python:3.14-slim` (+ digest-pinned throwaway verify stages) |
+| `Dockerfile.runtime` | Runtime image from the pre-built dist bundle | `python:3.14-slim` (+ digest-pinned throwaway verify stages that build all four bindings) |
+
+To build from source, clone the repository and run `cabal run shake -- build`
+for the library, or `cabal run shake -- dist` to produce the `dist/aletheia`
+bundle that `Dockerfile.runtime` packages (see [BUILDING.md](BUILDING.md) and the
+command block below — `cabal run shake -- docker` runs `dist` + the image build
+in one step).
 
 ```bash
 # Build runtime image from pre-built dist (fast)

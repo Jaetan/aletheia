@@ -1,13 +1,13 @@
 # Building Aletheia
 
-**Last Updated**: 2026-06-17
+**Last Updated**: 2026-07-25
 
 Version and release metadata live in [DISTRIBUTION.md](DISTRIBUTION.md); phase and status in [PROJECT_STATUS.md](../../PROJECT_STATUS.md).
 
 This document provides step-by-step instructions for building Aletheia from source.
 
-> **Note on version pins.** The toolchain versions called out below (GHC 9.6.7,
-> Cabal 3.12.1.0, Agda 2.8.0, agda-stdlib 2.3) are the *tested* combination, not
+> **Note on version pins.** The toolchain versions called out below (GHC 9.8.4,
+> Cabal 3.16.1.0, Agda 2.8.0, agda-stdlib 2.4) are the *tested* combination, not
 > the *only* combination that works. We pin them in CI and refresh them
 > deliberately during AGENTS.md review rounds — see PROJECT_STATUS.md for the
 > currently active phase, and the **Last Updated** stamp at the top of this file
@@ -54,21 +54,24 @@ for the C++ binding (`<expected>` / `<format>`).
 ### System Requirements
 
 - **OS**: Linux, macOS, or Windows with WSL2
-- **RAM**: 4GB minimum, 8GB recommended (Agda compilation can be memory-intensive)
+- **RAM**: 4GB recommended. A cold build peaks around 1.5GB (measured): the
+  MAlonzo compile runs as a single GHC `--make` process — workers do not stack —
+  heap-capped at 3GB via `-M3G`. Ad-hoc `agda` type-checking is capped at 16GB
+  (`-M16G`) only as a runaway-elaboration tripwire, not memory you must provision.
 - **Disk**: ~2GB for dependencies and build artifacts
 
 ### Required Software
 
 #### 1. GHC (Glasgow Haskell Compiler)
 
-**Version**: 9.4.x or 9.6.x recommended (9.6.7 known-good)
+**Version**: 9.8.x recommended (9.8.4 known-good)
 
 **Installation**:
 ```bash
-# Using ghcup (recommended) — 9.6.7 is the tested version; other 9.4.x/9.6.x should work
+# Using ghcup (recommended) — 9.8.4 is the tested version; other 9.8.x should work
 curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
-ghcup install ghc 9.6.7
-ghcup set ghc 9.6.7
+ghcup install ghc 9.8.4
+ghcup set ghc 9.8.4
 
 # Verify installation
 ghc --version
@@ -76,23 +79,23 @@ ghc --version
 
 #### 2. Cabal
 
-**Version**: 3.12.1.0 (recommended)
+**Version**: 3.16.1.0 (recommended)
 ```bash
 # Usually installed with ghcup
-ghcup install cabal 3.12.1.0
-ghcup set cabal 3.12.1.0
+ghcup install cabal 3.16.1.0
+ghcup set cabal 3.16.1.0
 
 # Update package index
 cabal update
 
 # Verify installation
 cabal --version
-# Should output: cabal-install version 3.12.1.0
+# Should output: cabal-install version 3.16.1.0
 ```
 
 #### 3. Agda
 
-**Version**: 2.8.0 (exact version required — MAlonzo code generation changed between versions; the standard library 2.3 targets this release)
+**Version**: 2.8.0 (exact version required — MAlonzo code generation changed between versions; the standard library 2.4 targets this release)
 ```bash
 # Install via cabal
 cabal install Agda-2.8.0
@@ -117,14 +120,14 @@ fish_add_path ~/.cabal/bin
 
 #### 4. Agda Standard Library
 
-**Version**: 2.3 (exact version required)
+**Version**: 2.4 (exact version required)
 ```bash
 # Clone the standard library
 mkdir -p ~/.agda
 cd ~/.agda
 git clone https://github.com/agda/agda-stdlib.git
 cd agda-stdlib
-git checkout v2.3
+git checkout v2.4
 
 # Register the library with Agda
 mkdir -p ~/.agda
@@ -150,7 +153,7 @@ agda test.agda
 
 **Troubleshooting Agda stdlib**:
 - **`Cannot find module Data.Nat`**: Check that `~/.agda/libraries` contains the full path to `standard-library.agda-lib` and that `~/.agda/defaults` contains `standard-library`.
-- **Version mismatch errors**: Ensure you checked out `v2.3` (not `main`). Run `cd ~/.agda/agda-stdlib && git checkout v2.3`.
+- **Version mismatch errors**: Ensure you checked out `v2.4` (not `main`). Run `cd ~/.agda/agda-stdlib && git checkout v2.4`.
 
 #### 5. Python
 
@@ -669,7 +672,7 @@ cd src
 agda +RTS -M16G -RTS Aletheia/YourModule.agda  # Type-check only (heap-capped)
 ```
 
-**Important**: Always use `+RTS -M16G -RTS` for ad-hoc type-checking. `-M16G` caps the heap and doubles as a runaway-elaboration tripwire on the memory-limited WSL2 host — without it a runaway elaboration OOM-kills the host instead of failing the build. `-N` (parallel GHC) is optional: it gives no measured single-module speedup — even the heaviest modules (`StreamState.agda`, `Main.agda`) type-check in a few seconds at `-N1`, marginally slower at higher `-N` — so parallelism belongs at the whole-build level (Shake's `shakeThreads=0`), not per-module invocations. See AGENTS.md § Agda > Verification for the review-tightening (`-M4G`) variant.
+**Important**: Always use `+RTS -M16G -RTS` for ad-hoc type-checking. `-M16G` caps the heap and doubles as a runaway-elaboration tripwire on the memory-limited WSL2 host — without it a runaway elaboration OOM-kills the host instead of failing the build. The `16G` figure is a ceiling to size to your machine, not a constant: set it to what the host can spare — a good rule is **no more than half of available RAM** — so a runaway trips the cap and fails the build cleanly while the other half stays free for the OS, instead of the host being OOM-killed. `-N` (parallel GHC) is optional: it gives no measured single-module speedup — even the heaviest modules (`StreamState.agda`, `Main.agda`) type-check in a few seconds at `-N1`, marginally slower at higher `-N` — so parallelism belongs at the whole-build level (Shake's `shakeThreads=0`), not per-module invocations. See AGENTS.md § Agda > Verification for the review-tightening (`-M4G`) variant.
 
 ### Verbose Build Output
 ```bash
@@ -703,7 +706,7 @@ agda +RTS -M16G -RTS Aletheia/Protocol/Message.agda  # Check just Message module
 ### Windows (WSL2)
 
 - Use Ubuntu 22.04 LTS or later
-- Ensure WSL2 has sufficient memory allocated (8GB recommended)
+- Ensure WSL2 has enough memory allocated (4GB is comfortable; the build peaks ~1.5GB)
 - Line endings: the repository uses Unix (LF) line endings
 - Ubuntu 26.04+: `sudo apt install python3.14`; older releases: use deadsnakes PPA (see above)
 

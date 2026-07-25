@@ -164,7 +164,7 @@ impossible on `main`.
   zero changed files. On a `push`-to-`main` run, `main...HEAD` is empty so only
   `iwyu --self-test` gates there — fine, because the PR trigger is where it
   actually gates the diff.
-- **Cache key** = `{os, GHC 9.6.7, Agda 2.8.0, stdlib v2.3}`; accept a full
+- **Cache key** = `{os, GHC 9.8.4, Agda 2.8.0, stdlib v2.4}`; accept a full
   rebuild on miss.
 
 ## IWYU scope on the merge path (resolved)

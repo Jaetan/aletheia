@@ -1,7 +1,7 @@
 {
   "benchmark": "scaling",
   "language": "python",
-  "timestamp": "2026-07-23T01:01:12.875845+00:00",
+  "timestamp": "2026-07-25T02:25:33.072616+00:00",
   "system": {
     "cpu": "x86_64",
     "cores": 24,
@@ -12,125 +12,125 @@
     "trace_size_can20": [
       {
         "frames": 1000,
-        "fps": 183688.3,
+        "fps": 189874.1,
         "relative": 1.0
       },
       {
         "frames": 5000,
-        "fps": 179904.5,
-        "relative": 0.979
+        "fps": 201779.7,
+        "relative": 1.063
       },
       {
         "frames": 10000,
-        "fps": 189290.6,
-        "relative": 1.03
+        "fps": 193922.9,
+        "relative": 1.021
       },
       {
         "frames": 50000,
-        "fps": 188844.6,
+        "fps": 195136.5,
         "relative": 1.028
       },
       {
         "frames": 100000,
-        "fps": 188940.6,
-        "relative": 1.029
+        "fps": 196778.2,
+        "relative": 1.036
       }
     ],
     "trace_size_canfd": [
       {
         "frames": 1000,
-        "fps": 152601.9,
+        "fps": 169097.3,
         "relative": 1.0
       },
       {
         "frames": 5000,
-        "fps": 170973.6,
-        "relative": 1.12
+        "fps": 175911.0,
+        "relative": 1.04
       },
       {
         "frames": 10000,
-        "fps": 169509.9,
-        "relative": 1.111
+        "fps": 184671.7,
+        "relative": 1.092
       },
       {
         "frames": 50000,
-        "fps": 174412.8,
-        "relative": 1.143
+        "fps": 186458.2,
+        "relative": 1.103
       },
       {
         "frames": 100000,
-        "fps": 176884.1,
-        "relative": 1.159
+        "fps": 183417.7,
+        "relative": 1.085
       }
     ],
     "property_count": [
       {
         "properties": 1,
-        "fps": 187103.6,
+        "fps": 187377.4,
         "us_per_frame": 5.3,
         "relative": 1.0
       },
       {
         "properties": 2,
-        "fps": 143157.1,
-        "us_per_frame": 7.0,
-        "relative": 0.765
+        "fps": 155280.5,
+        "us_per_frame": 6.4,
+        "relative": 0.829
       },
       {
         "properties": 3,
-        "fps": 142687.0,
-        "us_per_frame": 7.0,
-        "relative": 0.763
+        "fps": 149954.8,
+        "us_per_frame": 6.7,
+        "relative": 0.8
       },
       {
         "properties": 5,
-        "fps": 101078.2,
-        "us_per_frame": 9.9,
-        "relative": 0.54
+        "fps": 106205.5,
+        "us_per_frame": 9.4,
+        "relative": 0.567
       },
       {
         "properties": 7,
-        "fps": 82426.7,
-        "us_per_frame": 12.1,
-        "relative": 0.441
+        "fps": 89345.2,
+        "us_per_frame": 11.2,
+        "relative": 0.477
       },
       {
         "properties": 10,
-        "fps": 64890.2,
-        "us_per_frame": 15.4,
-        "relative": 0.347
+        "fps": 71728.3,
+        "us_per_frame": 13.9,
+        "relative": 0.383
       }
     ],
     "property_complexity": [
       {
         "complexity": "Simple predicate",
-        "fps": 183378.2,
-        "us_per_frame": 5.5,
+        "fps": 193138.7,
+        "us_per_frame": 5.2,
         "relative": 1.0
       },
       {
         "complexity": "Range predicate",
-        "fps": 188427.3,
-        "us_per_frame": 5.3,
-        "relative": 1.028
+        "fps": 192646.7,
+        "us_per_frame": 5.2,
+        "relative": 0.997
       },
       {
         "complexity": "Two predicates (AND)",
-        "fps": 147207.7,
-        "us_per_frame": 6.8,
-        "relative": 0.803
+        "fps": 156064.7,
+        "us_per_frame": 6.4,
+        "relative": 0.808
       },
       {
         "complexity": "Three predicates",
-        "fps": 142385.1,
-        "us_per_frame": 7.0,
-        "relative": 0.776
+        "fps": 148428.7,
+        "us_per_frame": 6.7,
+        "relative": 0.769
       },
       {
         "complexity": "Implication",
-        "fps": 154730.6,
-        "us_per_frame": 6.5,
-        "relative": 0.844
+        "fps": 159453.2,
+        "us_per_frame": 6.3,
+        "relative": 0.826
       }
     ]
   }

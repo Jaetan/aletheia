@@ -51,9 +51,9 @@ permissions:
   contents: read
 
 env:
-  GHC_VERSION: '9.6.7'
+  GHC_VERSION: '9.8.4'
   AGDA_VERSION: '2.8.0'
-  STDLIB_VERSION: 'v2.3'
+  STDLIB_VERSION: 'v2.4'
 
 jobs:
   # ── Lane 1: reproducible-build (REQUIRED-intended; deterministic) ──────────
@@ -83,7 +83,7 @@ jobs:
           export CABAL_DIR="${HOME}/.cabal"
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
           ghcup install ghc "${GHC_VERSION}" --set
-          ghcup install cabal 3.12.1.0 --set
+          ghcup install cabal 3.16.1.0 --set
           echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
 
@@ -170,7 +170,7 @@ jobs:
           export CABAL_DIR="${HOME}/.cabal"
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
           ghcup install ghc "${GHC_VERSION}" --set
-          ghcup install cabal 3.12.1.0 --set
+          ghcup install cabal 3.16.1.0 --set
           echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
 
@@ -369,7 +369,7 @@ jobs:
           export CABAL_DIR="${HOME}/.cabal"
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
           ghcup install ghc "${GHC_VERSION}" --set
-          ghcup install cabal 3.12.1.0 --set
+          ghcup install cabal 3.16.1.0 --set
           echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
 

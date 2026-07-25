@@ -35,17 +35,23 @@ def _capture_git(monkeypatch: pytest.MonkeyPatch, stdout: str) -> list[list[str]
 
 
 def test_scope_diff_excludes_deleted_files(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The git diff that builds the scope must carry ``--diff-filter=d``.
+    """The scope diff must carry ``--diff-filter=d`` and use ``--merge-base``.
 
-    The exclusion of deleted paths happens inside git; dropping the flag
-    reintroduces the FileNotFoundError crash on any module-deleting branch.
+    ``--diff-filter=d``: the exclusion of deleted paths happens inside git;
+    dropping it reintroduces the FileNotFoundError crash on any module-deleting
+    branch.  ``--merge-base main`` (not committed-only ``main...HEAD``): the diff
+    runs merge-base → WORKING TREE, so uncommitted edits are in scope — a
+    committed-only scope no-ops in the dev loop (HEAD == merge-base) and lets a
+    dead import through until it is committed.
     """
     calls = _capture_git(monkeypatch, stdout="")
     assert _warm.changed_agda_files() == []
     assert len(calls) == 1
     argv = calls[0]
     assert "--diff-filter=d" in argv
-    assert "main...HEAD" in argv
+    assert "--merge-base" in argv
+    assert "main" in argv
+    assert "main...HEAD" not in argv
 
 
 def test_scope_maps_to_src_relative_sorted(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -64,11 +70,32 @@ def test_scope_maps_to_src_relative_sorted(monkeypatch: pytest.MonkeyPatch) -> N
     ]
 
 
-def test_scope_git_failure_yields_empty_scope(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A git failure is surfaced as an empty scope, never a crash."""
+def test_scope_git_failure_signals_could_not_check(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A git failure returns None (could-not-check) carrying the exact reason.
+
+    None (git failed) and [] (git ok, nothing changed) are DISTINCT: only [] is a
+    legitimate no-op pass. On failure the emitted line carries git's exact exit
+    code and stderr — never a silent pass or an empty-scope no-op.
+    """
 
     def failing_run_capture(_argv: list[str], **_kwargs: object) -> SimpleNamespace:
-        return SimpleNamespace(returncode=128, stdout="")
+        return SimpleNamespace(returncode=128, stdout="", stderr="fatal: bad revision 'main'")
 
     monkeypatch.setattr(_warm, "run_capture", failing_run_capture)
-    assert _warm.changed_agda_files() == []
+    assert _warm.changed_agda_files() is None
+    reason = capsys.readouterr().out
+    assert "could not compute the changed-file scope" in reason
+    assert "128" in reason
+    assert "fatal: bad revision 'main'" in reason
+
+
+def test_diff_scope_git_failure_propagates_to_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Propagate a git failure to a usage error, not a [] no-op.
+
+    select_files(--diff) returns None on a git failure so run_warm_gate exits
+    non-zero (could-not-check) — a git failure is never squashed to a [] no-op.
+    """
+    monkeypatch.setattr(_warm, "changed_agda_files", lambda: None)
+    assert _warm.select_files(["--check", "--diff"]) is None

@@ -1815,7 +1815,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- handle.
         --
         -- The image build itself carries the cross-binding smoke: the
-        -- Dockerfile's throwaway verify stages build the bundled Rust and C++
+        -- Dockerfile.runtime throwaway verify stages build the bundled Rust and C++
         -- bindings and build+RUN a Go consumer against the image's own
         -- /opt/aletheia, and the final stage force-depends on all three — so
         -- `docker build` failing IS the gate.  The Python smoke (FFIBackend
@@ -1986,7 +1986,8 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- UR-3.3: pass -ffile-prefix-map through to GHC's C compiler so any
         -- C-side debug info / __FILE__ embeddings strip the build-host path.
         -- Cannot use the bare `-fdebug-prefix-map` GHC flag here — that was
-        -- only added to GHC in 9.10, and we pin 9.6.7 (see MANIFEST.txt).
+        -- only added to GHC in 9.10, and we pin GHC 9.8.4 (see the CI
+        -- workflows' GHC_VERSION).
         --
         -- Same-host reproducibility was verified empirically WITHOUT this flag
         -- (two clean builds → bit-identical libaletheia-ffi.so),
@@ -2075,6 +2076,14 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         liftIO $ createDirectoryIfMissing True docDir
         liftIO $ createDirectoryIfMissing True exampleDir
 
+        -- Purge shared libs from any prior install before re-staging: a GHC
+        -- toolchain bump changes the bundled libHS*.so sonames, so the old
+        -- ones (absent from the new dependency list) are never overwritten and
+        -- would accumulate as unreferenced dead weight.  All current .so are
+        -- re-copied below; -maxdepth 1 leaves the venv's own .so untouched.
+        putInfo "Purging shared libraries from any prior install..."
+        cmd_ Shell ("find '" ++ libDir ++ "' -maxdepth 1 -name '*.so*' -type f -delete")
+
         -- Copy main shared library
         putInfo "Copying shared library..."
         cmd_ "cp" "build/libaletheia-ffi.so" libDir
@@ -2089,7 +2098,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                     cmd_ "cp" "-L" dep libDir
                 -- Patch RUNPATH on all .so files so they find each other via $ORIGIN
                 putInfo "Patching RUNPATH on shared libraries..."
-                Stdout soFiles <- cmd Shell ("find " ++ libDir ++ " -name '*.so*' -type f")
+                Stdout soFiles <- cmd Shell ("find '" ++ libDir ++ "' -maxdepth 1 -name '*.so*' -type f")
                 forM_ (filter (not . null) (lines soFiles)) $ \f ->
                     cmd_ "patchelf" "--set-rpath" "$ORIGIN" f
 

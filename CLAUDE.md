@@ -115,8 +115,12 @@ cd python && pylint aletheia/ tests/ benchmarks/
 cd cpp && cmake -B build && cmake --build build && ctest --test-dir build
 cd go && go test ./aletheia/ -v -count=1 -race
 
-# Cross-language benchmarks
-bash benchmarks/run_all.sh --frames 1000 --runs 5 --bench throughput
+# Cross-language benchmarks — baseline methodology: 10000 frames × 10 runs,
+# identical for all four bindings (the committed benchmarks/results/*_baseline.json
+# are generated this way; run all three bench types when refreshing baselines).
+bash benchmarks/run_all.sh --frames 10000 --runs 10 --bench throughput
+bash benchmarks/run_all.sh --frames 10000 --runs 10 --bench latency
+bash benchmarks/run_all.sh --frames 10000 --runs 10 --bench scaling
 ```
 
 ## Architecture

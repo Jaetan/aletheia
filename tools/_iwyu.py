@@ -206,10 +206,27 @@ def _agda_version() -> str:
 
 
 def _store_package_db() -> Path:
-    """Path to the cabal store package.db holding the prebuilt Agda library."""
+    """Path to the cabal store package.db holding the prebuilt Agda library.
+
+    Cabal >= 3.16 names the per-compiler store dir ``ghc-<ver>-<abihash>`` (an
+    ABI-hash suffix); cabal < 3.16 used a plain ``ghc-<ver>``.  Match either —
+    hashed form first, then unhashed — so the reader links the store regardless
+    of the cabal version.  Raises with the exact searched paths if none is found
+    (a could-not-build-reader error, never a silent skip).
+    """
     ghc = find_executable("ghc")
     ghc_version = run_capture([ghc, "--numeric-version"], check=True).stdout.strip()
-    return Path.home() / ".cabal" / "store" / f"ghc-{ghc_version}" / "package.db"
+    store = Path.home() / ".cabal" / "store"
+    for candidate in [*sorted(store.glob(f"ghc-{ghc_version}-*")), store / f"ghc-{ghc_version}"]:
+        db = candidate / "package.db"
+        if db.exists():
+            return db
+    searched = f"{store}/ghc-{ghc_version}-*/package.db or {store}/ghc-{ghc_version}/package.db"
+    message = (
+        f"cabal store package.db not found — searched {searched} "
+        + f"(is Agda cabal-installed for GHC {ghc_version}?)"
+    )
+    raise FileNotFoundError(message)
 
 
 def build_reader() -> Path:
@@ -222,10 +239,7 @@ def build_reader() -> Path:
     binary, source = PKG / "agda-iwyu-reader", PKG / "Main.hs"
     if binary.is_file() and binary.stat().st_mtime >= source.stat().st_mtime:
         return binary
-    db = _store_package_db()
-    if not db.exists():
-        message = f"cabal store package.db not found: {db} (is Agda cabal-installed?)"
-        raise FileNotFoundError(message)
+    db = _store_package_db()  # existing store db, or raises with the exact searched paths
     outdir = Path(tempfile.gettempdir()) / "agda-iwyu-build"
     outdir.mkdir(exist_ok=True)
     result = run_capture(
