@@ -2098,7 +2098,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                     cmd_ "cp" "-L" dep libDir
                 -- Patch RUNPATH on all .so files so they find each other via $ORIGIN
                 putInfo "Patching RUNPATH on shared libraries..."
-                Stdout soFiles <- cmd Shell ("find '" ++ libDir ++ "' -name '*.so*' -type f")
+                Stdout soFiles <- cmd Shell ("find '" ++ libDir ++ "' -maxdepth 1 -name '*.so*' -type f")
                 forM_ (filter (not . null) (lines soFiles)) $ \f ->
                     cmd_ "patchelf" "--set-rpath" "$ORIGIN" f
 

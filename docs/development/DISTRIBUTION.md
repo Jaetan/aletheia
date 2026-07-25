@@ -461,9 +461,11 @@ The distributed container image is built from the pre-built release bundle:
 |------|---------|------------|
 | `Dockerfile.runtime` | Runtime image from the pre-built dist bundle | `python:3.14-slim` (+ digest-pinned throwaway verify stages that build all four bindings) |
 
-To build entirely from source instead, clone the repository and run
-`cabal run shake -- build` (see [BUILDING.md](BUILDING.md)); the container image
-then wraps the resulting bundle via `Dockerfile.runtime`.
+To build from source, clone the repository and run `cabal run shake -- build`
+for the library, or `cabal run shake -- dist` to produce the `dist/aletheia`
+bundle that `Dockerfile.runtime` packages (see [BUILDING.md](BUILDING.md) and the
+command block below — `cabal run shake -- docker` runs `dist` + the image build
+in one step).
 
 ```bash
 # Build runtime image from pre-built dist (fast)

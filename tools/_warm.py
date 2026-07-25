@@ -373,7 +373,7 @@ def all_agda_files() -> list[RelPath]:
     return sorted(str(p.relative_to(SRC)) for p in SRC.rglob("*.agda"))
 
 
-def changed_agda_files() -> list[RelPath]:
+def changed_agda_files() -> list[RelPath] | None:
     """Return ``.agda`` files changed vs the merge-base with ``main``, src-relative.
 
     Scope = the merge-base with ``main`` diffed against the **working tree**
@@ -391,8 +391,11 @@ def changed_agda_files() -> list[RelPath]:
     changed too, are in the scope on their own.  A name made dead by an edit in an
     UNCHANGED file (cross-file deadness) is caught only by the periodic whole-tree
     (``--all``) sweep — so the per-push gate is complete *modulo* that sweep, not
-    on its own.  A git failure (e.g. no ``main`` ref) is surfaced and yields an
-    empty scope rather than a silent pass.
+    on its own.  A git failure (e.g. no ``main`` ref) returns ``None`` — the
+    caller turns that into a could-not-check exit (non-zero) carrying the exact
+    git error, NEVER a silent pass or an empty-scope no-op.  ``None`` (git
+    failed) and ``[]`` (git succeeded, nothing changed) are distinct: only the
+    latter is a legitimate pass.
     """
     root = git_toplevel()
     result = run_capture(
@@ -410,8 +413,12 @@ def changed_agda_files() -> list[RelPath]:
         ],
     )
     if result.returncode != 0:
-        emit("iwyu gate: could not diff vs main (rely on the periodic --all sweep)")
-        return []
+        emit(
+            "iwyu gate: could not compute the changed-file scope — "
+            + f"`git diff --merge-base main` exited {result.returncode}: "
+            + (result.stderr.strip() or "(no stderr)")
+        )
+        return None
     rels: list[RelPath] = []
     for line in result.stdout.splitlines():
         if not line.endswith(".agda"):
@@ -437,6 +444,8 @@ def select_files(args: list[str]) -> list[RelPath] | None:
         return files
     if "--diff" in args:
         files = changed_agda_files()
+        if files is None:
+            return None  # git failure — reason already emitted; caller exits non-zero
         emit(f"iwyu gate: {len(files)} .agda file(s) changed vs main")
         return files
     explicit = [a for a in args if not a.startswith("--")]
