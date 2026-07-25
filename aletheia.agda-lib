@@ -1,6 +1,6 @@
 -- SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 -- SPDX-License-Identifier: BSD-2-Clause
 name: aletheia
-depend: standard-library-2.3
+depend: standard-library-2.4
 include: src
 flags: --erasure

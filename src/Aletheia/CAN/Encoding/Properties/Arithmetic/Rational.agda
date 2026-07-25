@@ -184,7 +184,7 @@ private
     x                                 ∎
     where
       -- Helper: (a + b) - b ≡ a (standard derivation from field laws).
-      -- stdlib 2.3 `Data.Rational.Properties` has no lemma of this shape at
+      -- stdlib 2.4 `Data.Rational.Properties` has no lemma of this shape at
       -- propositional equality; the closest neighbour is `+-minus-telescope`
       -- in `Data.Rational.Unnormalised.Properties` (`(p - q) + (q - r) ≃ p - r`
       -- on ℚᵘ setoid equality `≃`), which would require `toℚᵘ`/`fromℚᵘ`
@@ -341,7 +341,7 @@ private
     where open import Data.Rational.Properties using (*-inverseˡ)
 
   -- Local: fromℤ (a + b) ≡ fromℤ a + fromℤ b
-  -- Needed because stdlib's fromℤ-homo-+ is not available in stdlib 2.3
+  -- Needed because stdlib's fromℤ-homo-+ is not available in stdlib 2.4
   fromℤ-homo-+ : ∀ (a b : ℤ) → fromℤ (a ℤ.+ b) ≡ fromℤ a +ᵣ fromℤ b
   fromℤ-homo-+ a b = begin
     fromℤ (a ℤ.+ b)               ≡⟨ sym (fromℚᵘ-toℚᵘ (fromℤ (a ℤ.+ b))) ⟩

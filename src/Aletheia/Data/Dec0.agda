@@ -27,7 +27,7 @@
 -- exclusive uses of one proof.
 module Aletheia.Data.Dec0 where
 
-open import Data.Bool using (Bool; true; false; T; _∧_; _∨_; not)
+open import Data.Bool using (Bool; true; false; T; _∧_; _∨_)
 open import Data.Empty using (⊥)
 open import Data.Unit using (tt)
 open import Data.Product using (_×_; _,_)
@@ -118,10 +118,3 @@ T-∧→ {true} {true} _ = tt , tt
 
 T-∧← : ∀ {x y : Bool} → T x → T y → T (x ∧ y)
 T-∧← {true} {true} _ _ = tt
-
-T-not→ : ∀ {x : Bool} → T (not x) → ¬ T x
-T-not→ {false} _ ()
-
-T-not← : ∀ {x : Bool} → ¬ T x → T (not x)
-T-not← {false} _  = tt
-T-not← {true}  ¬t = ¬t tt

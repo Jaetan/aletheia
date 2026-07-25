@@ -409,6 +409,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Relation.Binary.Consequences
                       MAlonzo.Code.Relation.Binary.Construct.Closure.Reflexive
                       MAlonzo.Code.Relation.Binary.Construct.Closure.Reflexive.Properties
+                      MAlonzo.Code.Relation.Binary.Construct.Closure.Symmetric
                       MAlonzo.Code.Relation.Binary.Construct.Composition
                       MAlonzo.Code.Relation.Binary.Construct.Constant.Core
                       MAlonzo.Code.Relation.Binary.Construct.Flip.EqAndOrd
