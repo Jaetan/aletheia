@@ -1,6 +1,6 @@
 # Dependencies and Licenses
 
-**Last Updated**: 2026-07-07
+**Last Updated**: 2026-07-25
 
 This document lists all third-party software Aletheia depends on, their licenses,
 and the resulting obligations when distributing Aletheia.
@@ -23,8 +23,8 @@ These tools are used to compile Aletheia but are **not** present in the distribu
 | Dependency | Version | License | Role |
 |---|---|---|---|
 | Agda | 2.8.0 | MIT | Compiler (Agda → Haskell via MAlonzo) |
-| Agda standard library | 2.3 | MIT | Type-checked at compile time |
-| GHC | 9.6.7 | BSD-3-Clause | Compiler (Haskell → machine code) |
+| Agda standard library | 2.4 | MIT | Type-checked at compile time |
+| GHC | 9.8.4 | BSD-3-Clause | Compiler (Haskell → machine code) |
 | Shake | ≥ 0.19 | BSD-3-Clause | Build orchestration |
 | setuptools | ≥ 82.0.1 | MIT | Python build backend |
 | wheel | — | MIT | Python wheel packaging |
@@ -43,18 +43,18 @@ The compiled shared library links against these Haskell and system libraries.
 | Package | Version | License |
 |---|---|---|
 | GHC RTS | 1.0.2 | BSD-3-Clause |
-| base | 4.18.3.0 | BSD-3-Clause |
-| ghc-prim | 0.10.0 | BSD-3-Clause |
+| base | 4.19.2.0 | BSD-3-Clause |
+| ghc-prim | 0.11.0 | BSD-3-Clause |
 | ghc-bignum | 1.3 | BSD-3-Clause |
-| text | 2.0.2 | BSD-2-Clause |
+| text | 2.1.1 | BSD-2-Clause |
 | binary | 0.8.9.1 | BSD-3-Clause |
-| containers | 0.6.7 | BSD-3-Clause |
-| bytestring | 0.11.5.4 | BSD-3-Clause |
+| containers | 0.6.8 | BSD-3-Clause |
+| bytestring | 0.12.1.0 | BSD-3-Clause |
 | array | 0.5.8.0 | BSD-3-Clause |
-| deepseq | 1.4.8.1 | BSD-3-Clause |
+| deepseq | 1.5.1.0 | BSD-3-Clause |
 | pretty | 1.1.3.6 | BSD-3-Clause |
-| template-haskell | 2.20.0.0 | BSD-3-Clause |
-| ghc-boot-th | 9.6.7 | BSD-3-Clause |
+| template-haskell | 2.21.0.0 | BSD-3-Clause |
+| ghc-boot-th | 9.8.4 | BSD-3-Clause |
 
 ### System libraries (dynamically linked)
 

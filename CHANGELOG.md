@@ -10,6 +10,34 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- **Toolchain adopted: GHC 9.6.7 → 9.8.4, Cabal 3.12.1.0 → 3.16.1.0,
+  agda-stdlib v2.3 → v2.4.** The verified kernel, all proof gates, and every
+  binding test pass unchanged on the new toolchain (agda-stdlib v2.4 lists no
+  non-backwards-compatible changes). The shipped `libaletheia-ffi.so` now links
+  the GHC 9.8.4 runtime (base 4.19.2.0, text 2.1.1, containers 0.6.8,
+  bytestring 0.12.1.0, and siblings — see [DEPENDENCIES.md](DEPENDENCIES.md)).
+  No public API or wire-format change. Two stdlib-2.4 fold-ins: the
+  `_×-dec_` → `_×?_` deprecation fixed in the mux well-formedness checker, and
+  the ℚ `_<ℚ₀_` comparator simplified onto the new `Data.Rational._<ᵇ_`
+  primitive.
+- **Docker base images bumped to the latest stable releases**: the verify-stage
+  images `golang:1.25` → `1.26` and `rust:1.93` → `1.97`, plus a digest refresh
+  of the `python:3.14-slim` runtime base — matching the toolchain-support policy.
+- **`shake install` now purges stale shared libraries before re-staging**, so a
+  GHC toolchain bump no longer leaves the prior runtime's `libHS*.so` orphaned
+  in the install prefix.
+
+### Removed
+
+- **The self-contained `Dockerfile`** (in-container from-source build). It was
+  built by no CI, superseded by `Dockerfile.runtime` (the tested, signed,
+  shipped image — itself `COPY --from`-able and already carrying all four
+  binding sources), and had a pre-existing broken `dist` step. Build from source
+  with `cabal run shake -- build` (see [BUILDING.md](docs/development/BUILDING.md));
+  the container image is `Dockerfile.runtime`.
+
 ## [5.0.0] — 2026-07-24
 
 ### Added
