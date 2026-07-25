@@ -28,9 +28,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      GHC_VERSION: '9.6.7'
+      GHC_VERSION: '9.8.4'
       AGDA_VERSION: '2.8.0'
-      STDLIB_VERSION: 'v2.3'
+      STDLIB_VERSION: 'v2.4'
     steps:
       - name: Checkout (full history)
         uses: actions/checkout@v7
@@ -43,7 +43,7 @@ jobs:
       - name: Set up GHC + cabal
         run: |
           set -euo pipefail
-          # Pin cabal to the legacy ~/.cabal layout.  cabal 3.12 otherwise
+          # Pin cabal to the legacy ~/.cabal layout.  cabal 3.12+ otherwise
           # defaults to the XDG store (~/.local/state/cabal/store), which
           # mismatches this job's cache path, PATH (~/.cabal/bin), and the
           # IWYU reader's _store_package_db() (it links Agda from
@@ -58,7 +58,7 @@ jobs:
           # the build over log hygiene if the path differs on a future runner.
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
           ghcup install ghc "${GHC_VERSION}" --set
-          ghcup install cabal 3.12.1.0 --set
+          ghcup install cabal 3.16.1.0 --set
           echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
 
