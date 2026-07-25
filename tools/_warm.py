@@ -376,15 +376,23 @@ def all_agda_files() -> list[RelPath]:
 def changed_agda_files() -> list[RelPath]:
     """Return ``.agda`` files changed vs the merge-base with ``main``, src-relative.
 
-    The per-push scope (``git diff --name-only --diff-filter=d main...HEAD --
-    src/``).  Deleted files are excluded (``--diff-filter=d``): a deleted module
-    has no imports left to analyze, and reading it would crash — its former
-    importers, when they changed too, are in the scope on their own.  Sound for
-    a name whose last use was removed in a CHANGED file; a name made dead by an
-    edit in an UNCHANGED file (cross-file deadness) is caught only by the periodic
-    whole-tree (``--all``) sweep — so the per-push gate is complete *modulo* that
-    sweep, not on its own.  A git failure (e.g. no ``main`` ref) is surfaced and
-    yields an empty scope rather than a silent pass.
+    Scope = the merge-base with ``main`` diffed against the **working tree**
+    (``git diff --name-only --diff-filter=d --merge-base main -- src/``), so
+    UNCOMMITTED edits are included, not only committed ones.  This is load-bearing
+    for the dev loop: a plain ``main...HEAD`` scope (merge-base→HEAD) no-ops when
+    the branch's work is still uncommitted (HEAD == the merge-base → empty scope),
+    so ``run_ci`` would pass a dead import until it was committed and only the
+    pre-push caught it — a gate that silently does nothing on the state a
+    developer actually runs it against.  ``--merge-base main`` diffs merge-base →
+    working tree in one call (git ≥ 2.30); anchoring on the merge-base (not
+    ``main``'s tip) keeps files that only ``main`` changed out of scope.  Deleted
+    files are excluded (``--diff-filter=d``): a deleted module has no imports left
+    to analyze, and reading it would crash — its former importers, when they
+    changed too, are in the scope on their own.  A name made dead by an edit in an
+    UNCHANGED file (cross-file deadness) is caught only by the periodic whole-tree
+    (``--all``) sweep — so the per-push gate is complete *modulo* that sweep, not
+    on its own.  A git failure (e.g. no ``main`` ref) is surfaced and yields an
+    empty scope rather than a silent pass.
     """
     root = git_toplevel()
     result = run_capture(
@@ -395,7 +403,8 @@ def changed_agda_files() -> list[RelPath]:
             "diff",
             "--name-only",
             "--diff-filter=d",
-            "main...HEAD",
+            "--merge-base",
+            "main",
             "--",
             "src/",
         ],

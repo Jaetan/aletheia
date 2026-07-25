@@ -35,17 +35,23 @@ def _capture_git(monkeypatch: pytest.MonkeyPatch, stdout: str) -> list[list[str]
 
 
 def test_scope_diff_excludes_deleted_files(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The git diff that builds the scope must carry ``--diff-filter=d``.
+    """The scope diff must carry ``--diff-filter=d`` and use ``--merge-base``.
 
-    The exclusion of deleted paths happens inside git; dropping the flag
-    reintroduces the FileNotFoundError crash on any module-deleting branch.
+    ``--diff-filter=d``: the exclusion of deleted paths happens inside git;
+    dropping it reintroduces the FileNotFoundError crash on any module-deleting
+    branch.  ``--merge-base main`` (not committed-only ``main...HEAD``): the diff
+    runs merge-base → WORKING TREE, so uncommitted edits are in scope — a
+    committed-only scope no-ops in the dev loop (HEAD == merge-base) and lets a
+    dead import through until it is committed.
     """
     calls = _capture_git(monkeypatch, stdout="")
     assert _warm.changed_agda_files() == []
     assert len(calls) == 1
     argv = calls[0]
     assert "--diff-filter=d" in argv
-    assert "main...HEAD" in argv
+    assert "--merge-base" in argv
+    assert "main" in argv
+    assert "main...HEAD" not in argv
 
 
 def test_scope_maps_to_src_relative_sorted(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -34,7 +34,6 @@ open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_)
 open import Level using (Level)
 open import Relation.Nullary.Decidable.Core using (Dec; yes; no)
-open import Relation.Nullary.Negation.Core using (¬_)
 open import Relation.Nullary.Reflects using
   (Reflects; ofʸ; ofⁿ; invert; fromEquivalence; _⊎-reflects_)
 
