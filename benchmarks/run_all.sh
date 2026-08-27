@@ -3,7 +3,9 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Cross-Language Benchmark Runner
 #
-# Builds all bindings and runs throughput benchmarks for Python, C++, Go, and Rust.
+# Builds the C++/Go/Rust benchmark binaries and runs the selected benchmark
+# (--bench throughput|latency|scaling) for Python, C++, Go and Rust.  The Python
+# binding is interpreted and runs from the venv, so nothing is built for it.
 # Results are saved as JSON in benchmarks/results/.
 #
 # Usage:
@@ -12,9 +14,13 @@
 # Prerequisites:
 #     - libaletheia-ffi.so built (cabal run shake -- build)
 #     - Python venv activated with aletheia installed
-#     - C++ benchmark built (cd cpp && cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 && cmake --build build)
-#     - Go benchmark built (cd go && go build -o benchmarks/benchmark ./benchmarks/)
-#     - Rust toolchain (cargo) on PATH — this script builds the Rust benchmark itself
+#     - C++ tree configured (cd cpp && cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22)
+#     - Go (go) and Rust (cargo) toolchains on PATH
+#
+# The C++, Go, and Rust benchmark binaries are BUILT by this script, never
+# consumed pre-built: a stale binary measures a wire format the current kernel
+# may no longer speak, and its numbers are void rather than merely old.  Each
+# build is incremental; a missing toolchain is a graceful per-lane SKIP.
 
 set -euo pipefail
 
@@ -37,6 +43,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Validate the mode before anything derives a path from it.  BENCH feeds a
+# destructive glob below, and an unchecked value is a data-loss hazard, not just a
+# usage error: `--bench throughput_baseline` would expand to
+# results/*_throughput_baseline.json and delete the committed baselines.
+case "$BENCH" in
+    throughput|latency|scaling) ;;
+    *) echo "ERROR: unknown --bench '$BENCH' (expected throughput, latency or scaling)" >&2; exit 1 ;;
+esac
+
 mkdir -p "$RESULTS_DIR"
 
 export ALETHEIA_LIB="$PROJECT_DIR/build/libaletheia-ffi.so"
@@ -46,6 +61,33 @@ if [[ ! -f "$ALETHEIA_LIB" ]]; then
     exit 1
 fi
 
+# Refuse to run a Debug-mode C++ tree — an -O0 benchmark silently looks like a
+# 20%+ regression.  CMakeLists.txt defaults to Release when the cache is empty,
+# but an explicit -DCMAKE_BUILD_TYPE=Debug from a prior session persists in it.
+# This is a PREFLIGHT: it only reads the cache, and it aborts — so it must run
+# before the destructive clear below, or a Debug tree would delete the previous
+# run's results and exit without producing replacements.
+CPP_CACHE="$PROJECT_DIR/cpp/build/CMakeCache.txt"
+if [[ -f "$CPP_CACHE" ]]; then
+    CPP_BUILD_TYPE="$(awk -F= '/^CMAKE_BUILD_TYPE:/{print $2}' "$CPP_CACHE")"
+    if [[ "$CPP_BUILD_TYPE" == "Debug" ]]; then
+        echo "ERROR: cpp/build is configured with CMAKE_BUILD_TYPE=Debug." >&2
+        echo "       Debug builds produce unoptimized benchmarks." >&2
+        echo "       Reconfigure with:" >&2
+        echo "         rm -rf cpp/build && cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 && cmake --build cpp/build" >&2
+        exit 1
+    fi
+fi
+
+# Clear this mode's results, AFTER the preflight checks above: an abort must not
+# destroy the previous run's results without producing replacements.  A lane that
+# SKIPs (missing toolchain) or FAILs writes no file, so without this its PREVIOUS
+# run's JSON survives and the comparison below — which globs the directory —
+# would present a stale measurement as current under a banner that excludes it.
+# The committed `*_baseline.json` are a different artifact and are never matched by
+# this glob (BENCH is enum-checked above).
+rm -f "$RESULTS_DIR"/*_"${BENCH}".json
+
 echo "=== Aletheia Cross-Language Benchmark ==="
 echo "Benchmark: $BENCH"
 echo "Frames:    $FRAMES"
@@ -53,28 +95,38 @@ echo "Runs:      $RUNS"
 echo "Library:   $ALETHEIA_LIB"
 echo ""
 
-# run_benchmark LANG COMMAND OUTFILE
+# run_benchmark LANG OUTFILE COMMAND...
 #
 # Runs a benchmark command, captures stdout to a temp file, validates the JSON,
-# then atomically moves it to the final output path. Non-JSON lines on stdout
-# (e.g., GHC RTS warnings, cgo diagnostics) are stripped.
+# then atomically moves it to the final output path.  A non-JSON PREAMBLE on
+# stdout (e.g. GHC RTS warnings, cgo diagnostics) is dropped; trailing output is
+# not, and fails the validation rather than being silently trimmed (see the
+# extraction note in the body).
 run_benchmark() {
     local lang="$1"
     local outfile="$2"
     shift 2
     local cmd=("$@")
 
-    local tmpfile
+    local tmpfile errfile
     tmpfile="$(mktemp "$RESULTS_DIR/.tmp.${lang}.XXXXXX")"
-    trap "rm -f '$tmpfile'" RETURN
+    errfile="$(mktemp "$RESULTS_DIR/.err.${lang}.XXXXXX")"
+    trap "rm -f '$tmpfile' '$errfile'" RETURN
 
     echo ">>> Running $lang $BENCH benchmark..."
 
-    # Run benchmark. stdout → tmpfile, stderr → /dev/null (progress output).
-    # Some runtimes (GHC RTS, cgo) print warnings to stdout; we filter to
-    # only the JSON object by extracting from the first '{' to the last '}'.
-    if ! "${cmd[@]}" > "$tmpfile" 2>/dev/null; then
+    # Run benchmark. stdout → tmpfile (the JSON payload), stderr → errfile (the
+    # human-readable progress, which carries the per-run error lines).  stderr is
+    # CAPTURED and replayed on failure, never discarded: it is the only place a
+    # per-run error appears, so discarding it makes a dead lane look like an
+    # absent one.
+    # Some runtimes (GHC RTS, cgo) print warnings to stdout, so the JSON is taken
+    # from the first '{' to END OF FILE — a non-JSON PREAMBLE is dropped, trailing
+    # output is NOT.  Trailing junk therefore fails the parse below rather than
+    # being silently trimmed, and that branch replays the captured stderr.
+    if ! "${cmd[@]}" > "$tmpfile" 2>"$errfile"; then
         echo "    FAIL: $lang benchmark exited with error" >&2
+        sed 's/^/      | /' "$errfile" >&2
         rm -f "$tmpfile"
         return 1
     fi
@@ -94,7 +146,11 @@ except (json.JSONDecodeError, ValueError) as e:
     sys.exit(1)
 " > "$json_out"; then
         echo "    FAIL: $lang benchmark produced invalid JSON" >&2
-        cat "$tmpfile" >&2
+        # Replay stderr here too: a benchmark that prints its per-run errors and
+        # then exits 0 with a truncated payload lands in THIS branch, and its
+        # stderr is the whole diagnosis.
+        sed 's/^/      | /' "$errfile" >&2
+        sed 's/^/      > /' "$tmpfile" >&2
         rm -f "$tmpfile" "$json_out"
         return 1
     fi
@@ -136,44 +192,47 @@ fi
 cd "$PROJECT_DIR"
 
 # --- C++ ---
-CPP_BIN="$PROJECT_DIR/cpp/build/benchmark"
-CPP_CACHE="$PROJECT_DIR/cpp/build/CMakeCache.txt"
-if [[ -f "$CPP_BIN" ]]; then
-    # Refuse to run a Debug-mode C++ tree — an -O0 benchmark silently looks
-    # like a 20%+ regression. CMakeLists.txt defaults
-    # to Release when the cache is empty, but an explicit
-    # -DCMAKE_BUILD_TYPE=Debug from a prior session persists in the cache.
-    if [[ -f "$CPP_CACHE" ]]; then
-        CPP_BUILD_TYPE="$(awk -F= '/^CMAKE_BUILD_TYPE:/{print $2}' "$CPP_CACHE")"
-        if [[ "$CPP_BUILD_TYPE" == "Debug" ]]; then
-            echo "ERROR: cpp/build is configured with CMAKE_BUILD_TYPE=Debug." >&2
-            echo "       Debug builds produce unoptimized benchmarks." >&2
-            echo "       Reconfigure with:" >&2
-            echo "         rm -rf cpp/build && cmake -B cpp/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 && cmake --build cpp/build" >&2
-            exit 1
+# Rebuilt here whenever the tree is configured, for the same reason as Go below:
+# a pre-built binary can predate a kernel wire change and measure a format it
+# cannot decode.  `cmake --build` is incremental, so a warm tree is fast.  An
+# unconfigured tree is a graceful SKIP (configuring needs clang-22 + the
+# FetchContent deps), matching the other optional-binding lanes.
+CPP_DIR="$PROJECT_DIR/cpp"
+CPP_BIN="$CPP_DIR/build/benchmark"
+if [[ -f "$CPP_CACHE" ]]; then
+    if CPP_BUILD_LOG="$(cmake --build "$CPP_DIR/build" --target benchmark 2>&1)"; then
+        CPP_ARGS=("$BENCH" --json)
+        case $BENCH in
+            throughput) CPP_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
+            latency)    CPP_ARGS+=(--ops "$FRAMES") ;;
+            scaling)    CPP_ARGS+=(--runs "$RUNS") ;;
+        esac
+
+        if run_benchmark "C++" "$RESULTS_DIR/cpp_${BENCH}.json" \
+            "$CPP_BIN" "${CPP_ARGS[@]}"; then
+            SUCCEEDED+=(C++)
+        else
+            FAILED+=(C++)
         fi
-    fi
-
-    CPP_ARGS=("$BENCH" --json)
-    case $BENCH in
-        throughput) CPP_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
-        latency)    CPP_ARGS+=(--ops "$FRAMES") ;;
-        scaling)    CPP_ARGS+=(--runs "$RUNS") ;;
-    esac
-
-    if run_benchmark "C++" "$RESULTS_DIR/cpp_${BENCH}.json" \
-        "$CPP_BIN" "${CPP_ARGS[@]}"; then
-        SUCCEEDED+=(C++)
     else
-        FAILED+=(C++)
+        echo ">>> SKIP: C++ benchmark failed to build" >&2
+        printf '%s\n' "$CPP_BUILD_LOG" >&2
     fi
 else
-    echo ">>> SKIP: C++ benchmark not built ($CPP_BIN)"
+    echo ">>> SKIP: C++ benchmark tree not configured ($CPP_CACHE)" >&2
 fi
 
 # --- Go ---
-GO_BIN="$PROJECT_DIR/go/benchmarks/benchmark"
-if [[ -f "$GO_BIN" ]]; then
+# Built here, never consumed pre-built: an on-disk binary can predate a kernel
+# wire change and then measure a format it cannot decode.  That is not
+# hypothetical — a binary predating the detailed-extraction-reason wire format
+# failed every extraction call, and because the failures were silent the two
+# Signal Extraction lanes were simply absent from the results.  `go build` is
+# incremental, so a warm tree is near-instant.  A build failure — e.g. Go not
+# installed — is a graceful SKIP, matching the other optional-binding lanes.
+GO_DIR="$PROJECT_DIR/go"
+GO_BIN="$GO_DIR/benchmarks/benchmark"
+if GO_BUILD_LOG="$(cd "$GO_DIR" && go build -o benchmarks/benchmark ./benchmarks/ 2>&1)"; then
     GO_ARGS=("$BENCH" --json)
     case $BENCH in
         throughput) GO_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
@@ -188,15 +247,16 @@ if [[ -f "$GO_BIN" ]]; then
         FAILED+=(Go)
     fi
 else
-    echo ">>> SKIP: Go benchmark not built ($GO_BIN)"
+    echo ">>> SKIP: Go benchmark failed to build (is go installed?)" >&2
+    printf '%s\n' "$GO_BUILD_LOG" >&2
 fi
 
 # --- Rust ---
-# Unlike the pre-built C++/Go binaries, the Rust benchmark is built here (a
-# release example target; incremental, so a warm tree is near-instant). A build
-# failure — e.g. cargo not installed — is a graceful SKIP, matching the
-# optional-binding behaviour of the other lanes; the Rust source itself is
-# gated by run_ci's cargo lanes, not this script.
+# Built here like the C++ and Go lanes above (a release example target;
+# incremental, so a warm tree is near-instant). A build failure — e.g. cargo not
+# installed — is a graceful SKIP, matching the optional-binding behaviour of the
+# other lanes; the Rust source itself is gated by run_ci's cargo lanes, not this
+# script.
 RUST_DIR="$PROJECT_DIR/rust"
 RUST_BIN="$RUST_DIR/target/release/examples/benchmark"
 if RUST_BUILD_LOG="$(cd "$RUST_DIR" && cargo build --release --example benchmark 2>&1)"; then
@@ -223,7 +283,9 @@ echo ""
 if [[ ${#SUCCEEDED[@]} -gt 0 ]]; then
     echo ">>> Comparison (${SUCCEEDED[*]}):"
     echo ""
-    # Only pass files that exist and were successfully written
+    # Only files written by THIS run: the directory was cleared for this mode
+    # above, so every match is fresh — a skipped or failed lane contributes
+    # nothing rather than its previous numbers.
     COMPARE_FILES=()
     for f in "$RESULTS_DIR"/*_${BENCH}.json; do
         [[ -f "$f" ]] && COMPARE_FILES+=("$f")

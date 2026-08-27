@@ -10,6 +10,32 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **The benchmark harness no longer measures stale binaries.**
+  `benchmarks/run_all.sh` ran the C++ and Go benchmark binaries if the file merely
+  existed, building only Rust. A Go binary predating the detailed-extraction-reason
+  wire format could not decode extraction responses, so both Signal Extraction
+  lanes failed — and were then silently dropped, leaving 4-lane Go baselines in
+  `benchmarks/results/`. The harness now **builds** the C++, Go and Rust benchmarks
+  itself (incremental; a missing toolchain stays a per-lane skip), captures
+  benchmark stderr instead of discarding it and replays it when a lane fails, and
+  clears the selected mode's results first so a skipped or failed lane contributes
+  nothing rather than its previous run's numbers. CI was never affected — the
+  benchmark workflow always built all four in-job.
+- **A benchmark lane that cannot be measured is now an error, not an omission.**
+  The Go harness dropped an all-failed throughput lane, omitted a failed latency
+  lane, and reported a fabricated `0` for a failed scaling point (which divides
+  through every `relative` in the sweep). Any failed run is now fatal — continuing
+  published a row whose `runs` field overstated the sample it was computed from —
+  and neither Go nor Rust can average an empty sample. Python already aborted on a
+  failed operation; the C++ harness does not check its per-operation results and is
+  tracked separately.
+- **All 12 local baselines re-measured** with freshly built binaries. The previous
+  Go throughput/latency baselines are void rather than outdated: they came from a
+  binary that could not decode the wire it was measuring, so its four surviving
+  lanes are as untrustworthy as its two missing ones.
+
 ### Changed
 
 - **Toolchain adopted: GHC 9.6.7 → 9.8.4, Cabal 3.12.1.0 → 3.16.1.0,
