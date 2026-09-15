@@ -1,6 +1,6 @@
 # Task 049: file review of `cpp/src/types.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/types.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/049 (signed later by the dribble).
+
+Claims and guards: `from_decimal` parses a decimal literal into an exact Rational through the kernel (the valid-literal cases in cpp/tests/unit_tests_decimal.cpp, which compare against exact numerator and denominator pairs); a decimal is an exact rational and never a float (eleven static_asserts in types.hpp refuse a floating-point argument at the constructor boundary, and the decimal tests assert exact fractions); the call is lazy-loaded and refuses while the GHC runtime is down (the two runtime-down cases in cpp/tests/rts_init_renderer_uninitialized_tests.cpp, one of them this round's ordering case); the wire envelope is decoded by `decode_decimal_response` (the malformed-literal and overflow cases, which are the envelope's error arm). Every row has a guard.
+
+Findings fixed: the header comment called `decode_decimal_response` the shared wire decoder; it has one caller, this file, so the word was false. The seven-line block also restated the grammar, the float principle and the runtime gate that the declaration in types.hpp states at length, which is the same claim in two places. It is now four lines that name the delegation and point at the declaration. Recorded, not fixed here: `from_decimal` is the only value-returning member of types.hpp without `[[nodiscard]]`; a sweep of every public header at this task found 27 such declarations in seven files, so the rule is XREV task 097 rather than one file's edit.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/049
+claims: 4 rows, 0 without a guard: none needed
+1 line per line: checked, all 22 lines read; four includes, one namespace, one function, and each include supplies a name the file uses
+2 guidelines: checked; the missing [[nodiscard]] is on the declaration in types.hpp and is now part of the directory-wide rule in task 097
+3 modernize: n/a, a one-line delegation has no construct to modernize
+4 catalogue: checked, AGENTS/cpp.md category 13 (FFI lifecycle) and the float principle, which is what the comment now points at rather than restates
+5 value semantics: checked, string_view in and Rational out, both by value
+6 raii: checked, the file owns nothing; the kernel string is owned and freed inside parse_decimal_ffi
+7 dedup: finding, the comment restated the declaration's grammar, float principle and runtime gate
+8 ground truth: finding, "the shared wire decoder" was false, decode_decimal_response has exactly one caller; checked true: it is declared in src/detail/json.hpp and defined in src/json_parse.cpp
+9 history: checked, none
+10 simpler: checked, the delegation is already the simplest shape
+11 comments: 7 to 6, code 9 to 9
+sweep: no mutation names this file; tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 46 run, 44 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 

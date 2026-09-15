@@ -1,10 +1,9 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
-// Rational::from_decimal — parses a decimal literal into an exact Rational via
-// the Agda kernel's decimal SSOT (the float principle: a decimal is an exact
-// rational, never a float). Thin delegate: fetch the raw wire envelope from the
-// renderer's `parse_decimal_ffi` (lazy-load + vocal RTS gate) and decode it with
-// the shared wire decoder `decode_decimal_response`.
+// The out-of-line half of `Rational::from_decimal`, whose grammar, refusals and
+// float principle are stated with the declaration in types.hpp. The kernel owns
+// all three; this file only carries the wire envelope from the renderer to the
+// decoder that reads it.
 #include <aletheia/types.hpp>
 
 #include <aletheia/detail/rational_renderer.hpp>
