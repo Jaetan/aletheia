@@ -1,0 +1,1 @@
+{"status":"error","code":"handler_validation_failed","message":"invalid DBC","has_errors":true,"issues":[{"severity":"error","code":"duplicate_signal_name","detail":"Speed"}]}

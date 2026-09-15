@@ -1,6 +1,6 @@
 # Task 065: file review of `cpp/tests/fuzz/seed/parse_response/validation.json`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/fuzz/seed/parse_response/validation.json`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/063 (signed later by the dribble; this task, 063 and 064 share one snapshot, their fixes being one corpus enrichment).
+
+Claims and guards: the seed claims to be a validation response, and the validation parser accepts it. The file is correct and unchanged.
+
+Finding fixed: its issues array is empty and its has-errors flag is false, so the one thing a validation response exists to carry was never in the corpus, and mutation does not synthesize a well-formed issue object, which needs a known severity, a code and a detail together. A seed carrying two issues, one of each severity, joins the corpus; driven through the parser it comes back with both issues and the flag set. Measured over 61 seconds, the corpus this task and the two before it enriched adds 215 new units against 30 for the three seeds it started with, with no crash.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/063
+claims: 1 row, 0 without a guard: the parser accepts it, measured
+1 line per line: checked, the whole 55-byte document read
+2 guidelines: n/a, not C++
+3 modernize: n/a
+4 catalogue: checked, the severities and the codes the added seed names are the wire's own
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked, the added seed is this one plus the payload it lacks
+8 ground truth: checked, both seeds run through the parser
+9 history: n/a
+10 simpler: checked, the empty response stays as the smallest accepted shape
+11 comments: n/a for a fixture, 0 to 0, code 1 to 1
+sweep: no mutation names this file; the fuzz target runs 61 seconds over the enriched corpus with no crash
+probes: none name this file; the parser traces are the measurement
+decision points: none
+```
 
 ## Contract (carried whole)
 

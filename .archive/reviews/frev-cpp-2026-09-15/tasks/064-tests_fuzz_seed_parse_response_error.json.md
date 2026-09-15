@@ -1,6 +1,6 @@
 # Task 064: file review of `cpp/tests/fuzz/seed/parse_response/error.json`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/fuzz/seed/parse_response/error.json`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/063 (signed later by the dribble; this task, 063 and 065 share one snapshot, their fixes being one corpus enrichment).
+
+Claims and guards: the seed claims to be the wire's error envelope, and driving it through the parsers confirms it is decoded rather than rejected: both the success parser and the frame-response parser return the wire's own message, "out of range", carrying the code the seed names. The file is correct and unchanged.
+
+Finding fixed: the error envelope has two richer forms the corpus did not carry, and both are lifts the parser performs rather than fields it copies. An input-bound refusal carries a bound kind, an observed value and a limit, which the parser lifts into typed bound information and which also overrides the kind the caller guessed; a validation refusal carries a has-errors flag and an issues array, each element of which is parsed into a typed issue. Seeds for both join the corpus, each checked first: the bound seed comes back with the input-bound kind and its bound information populated, the validation seed with one typed issue. Neither lift was reachable by mutating the plain envelope, because both require several well-typed members at once. Measured over 61 seconds, the enriched corpus adds 215 new units against 30, with no crash.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/063
+claims: 1 row, 0 without a guard: the envelope's decoding, measured through two parsers
+1 line per line: checked, the whole 74-byte document read; status, code and message
+2 guidelines: n/a, not C++
+3 modernize: n/a
+4 catalogue: checked, the code the seed names is in docs/WIRE_CODES.yaml, as are the two the added seeds name
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked, the two added seeds differ from this one by the lift each triggers
+8 ground truth: checked, the seed decodes to the wire's message, and both added seeds were run before being committed
+9 history: n/a
+10 simpler: checked, this seed is the smallest error envelope the parser accepts
+11 comments: n/a for a fixture, 0 to 0, code 1 to 1
+sweep: no mutation names this file; the fuzz target runs 61 seconds over the enriched corpus with no crash
+probes: none name this file; the parser traces are the measurement
+decision points: none
+```
 
 ## Contract (carried whole)
 

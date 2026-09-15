@@ -1,6 +1,6 @@
 # Task 063: file review of `cpp/tests/fuzz/seed/parse_response/ack.json`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/fuzz/seed/parse_response/ack.json`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/063 (signed later by the dribble).
+
+Claims and guards: the seed claims to be the acknowledgement the streaming path returns for a frame that raises no event, and driving it through the harness's parsers confirms it: the frame-response parser accepts it, and so does the event-acknowledgement parser. The file is correct and unchanged. Reading it against the parser also shows why it is the cheapest seed there is: the frame-response parser compares the input to two literal acknowledgements before parsing anything, so this seed exercises the fast path and stops.
+
+Finding fixed: the parser's other two accepting shapes had no seed. A frame response that carries events is a batch envelope with a results array, which is the branch the fast path skips, and the success envelope is the only shape the success parser accepts at all. Both join the corpus, each checked by driving it through the parsers first. Measured over 61 seconds, the corpus this task and the next two enriched adds 215 new units against 30 for the three seeds it started with, with no crash.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/063
+claims: 2 rows, 0 without a guard: both measured through the parsers the harness calls
+1 line per line: checked, the whole 17-byte document read
+2 guidelines: n/a, not C++
+3 modernize: n/a
+4 catalogue: checked, the acknowledgement is the literal the parser's fast path compares against, byte for byte
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked, the two added seeds reach branches this one cannot
+8 ground truth: checked, every seed's outcome read off the parser rather than assumed
+9 history: n/a
+10 simpler: checked, this seed is the smallest accepted response
+11 comments: n/a for a fixture, 0 to 0, code 1 to 1
+sweep: no mutation names this file; the fuzz target runs 61 seconds over the enriched corpus with no crash
+probes: none name this file; the parser traces are the measurement
+decision points: none
+```
 
 ## Contract (carried whole)
 
