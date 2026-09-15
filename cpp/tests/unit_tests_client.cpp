@@ -901,3 +901,11 @@ TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaust
         CHECK(*result == std::vector<std::byte>{std::byte{0x01}, std::byte{0x02}});
     }
 }
+
+TEST_CASE("make_mock_backend hands out a MockBackend", "[client][mock]") {
+    // The factory is the only mock an installed consumer can reach, and nothing
+    // else in the tree calls it, so this is the guard on what it hands out.
+    auto backend = make_mock_backend();
+    REQUIRE(backend != nullptr);
+    CHECK(dynamic_cast<MockBackend*>(backend.get()) != nullptr);
+}

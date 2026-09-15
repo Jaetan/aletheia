@@ -1,37 +1,15 @@
-# Task 047: file review of `cpp/src/mock_backend.cpp`
+# Task 100: document review of the two places that describe the C++ public mock (follow-up from task 047)
 
-- status: completed
-- file: `cpp/src/mock_backend.cpp`
-- round base: 726198bb (2026-09-15)
-- pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: none
+- status: pending
+- file: `docs/FEATURE_MATRIX.yaml` (the `mock_backend` C++ note) and `docs/development/DEFERRED_ITEMS.md` (H.1 "Today")
+- round base: b222b613 (2026-09-15)
+- pass: full, over the two passages only, under the document review contract's correctness point
+- gated by: the ruling on what the public mock factory should be. If the factory is made to answer with canned successes the two passages become true and this task closes with no change.
+- origin: both passages describe `make_mock_backend()` as a fixed canned-ack/success backend. The matrix note reads "The public surface (cpp/include/) ships only make_mock_backend() - a fixed canned-ack/success backend"; the deferred item reads "the fixed `make_mock_backend()` factory (canned acks/successes)". The factory hands out a mock with an empty response queue whose first call throws State "mock backend: no queued response for process", proven by probes/cpp_src_mock_backend.cpp--public-factory-answers-without-queueing.sh, red on record. Both passages are read against the probe, not against each other, and whichever the ruling makes true is the one that survives.
 
 ## Report
 
-Full pass. The file itself is unchanged; the guard, the probe, the decision point and two follow-up tasks are in refs/frev/047 (signed later by the dribble).
-
-Claims and guards: the file states one claim, that `make_mock_backend()` creates a `MockBackend` for testing. It had no guard. Nothing in the tree calls the factory (the only spellings outside the declaration and the definition are a CHANGELOG entry, the `mock_backend` note in docs/FEATURE_MATRIX.yaml and H.1 in docs/development/DEFERRED_ITEMS.md), no test covered it, and Mull generates no mutant for the file, so every instrument the repository owns was blind to it. The guard added is a case in cpp/tests/unit_tests_client.cpp asserting the factory returns a non-null pointer to a `MockBackend`; its teeth were proven by making the factory return `nullptr`, rebuilding `unit_tests` and reading the case fail on `0 != nullptr`, then restoring and reading it pass.
-
-Finding pushed, not fixed here: the factory is described in three places as a canned-ack backend, and it is not. `MockBackend` has no user-declared constructor and `responses_` starts empty, so the first call throws State "mock backend: no queued response for process", and `queue_response` lives in the test-internal header cpp/src/detail/mock_backend.hpp that an installed consumer cannot include. Proven by probes/cpp_src_mock_backend.cpp--public-factory-answers-without-queueing.sh, which compiles a consumer against cpp/include only and reads red on record with that message. Which of the three shapes the public surface should take is a decision point, appended to the accumulator; the header comment and the missing `[[nodiscard]]` on the three factory declarations are task 099, and the two documents are task 100.
-
-```
-REPORT 2026-09-15 tree b222b613 fix in refs/frev/047
-claims: 1 row, 1 without a guard: test case "make_mock_backend hands out a MockBackend" in cpp/tests/unit_tests_client.cpp, teeth proven by returning nullptr; probe cpp_src_mock_backend.cpp--public-factory-answers-without-queueing.sh added, red on record
-1 line per line: checked, all 16 lines read; three includes, one namespace, one function, and every one is used
-2 guidelines: checked, R.23 holds (make_unique, no owning raw pointer); the missing [[nodiscard]] is on the declaration in backend.hpp, pushed to task 099
-3 modernize: n/a, the body is already the one-line factory idiom
-4 catalogue: checked, AGENTS/cpp.md category 14(b) (mock fidelity) is the category this file sits in, and it is where the finding came from
-5 value semantics: checked, a unique_ptr by value is the interface's own shape, and IBackend is polymorphic so it cannot be a value
-6 raii: checked, unique_ptr owns the only resource the file creates
-7 dedup: checked, none in file
-8 ground truth: finding, the file's own comment is true but the three descriptions of what the factory hands out are false; the probe is the proof, and the corrections are tasks 099 and 100 once the ruling lands
-9 history: checked, none
-10 simpler: checked, nothing shorter than make_unique exists here
-11 comments: 3 to 3, code 8 to 8
-sweep: no mutation names this file; tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
-probes: 1 added (red on record); store 46 run, 44 pass, 2 red on record (this one and the installed-consumer loader from task 007)
-decision points: appended to the accumulator (the public mock factory's contract)
-```
+(filled when the task is worked; shape in the contract below)
 
 ## Contract (carried whole)
 
