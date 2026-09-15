@@ -1,6 +1,6 @@
 # Task 076: file review of `cpp/tests/test_rts_params_parity.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/test_rts_params_parity.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/076 (signed later by the dribble).
+
+Claims and guards: the file claims the resource-budget document is the cross-binding source of truth, that a repository gate holds every binding to it, and that the four C++ mirror constants match it. All three check out: tools/check_rts_runtime.py is that gate and reports how many bindings it compared; the document's runtime section carries the heap cap with its flag and override variable, the default core count and the initialisation symbol; and the mirror header defines exactly four constants, each of which this case compares. So the case covers the whole mirror rather than a subset, which is the property that would otherwise rot as constants are added. It also claims to be a pure vocabulary test with no runtime and no backend, which the includes bear out.
+
+Finding fixed: the header named a plan identifier for the tier this test belongs to, the class of marker the repository bans in source.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/076
+claims: 3 rows, 0 without a guard: the case itself, and the gate named in the comment was resolved to tools/check_rts_runtime.py
+1 line per line: checked, all 47 lines read
+2 guidelines: checked, the comparisons construct a string from each view once
+3 modernize: n/a
+4 catalogue: checked, AGENTS/cpp.md category 13 (FFI lifecycle) and the single-source-of-truth rules
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked; the repository-root helper is the third copy in the test tree, which XREV task 097 covers
+8 ground truth: checked, four mirror constants against four document keys, and the gate's existence
+9 history: checked, none
+10 simpler: checked
+11 comments: 10 to 10, code 28 to 28
+sweep: no mutation names this file (its own binary, outside the mutation build's unit_tests target); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
