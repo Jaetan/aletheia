@@ -1,6 +1,6 @@
 # Task 051: file review of `cpp/tests/cli_tests.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/cli_tests.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/051 (signed later by the dribble).
+
+Claims and guards: a test file's claims are its assertions and the sentences around them, and each was read against the thing it names. The suite is the counterpart of go/cmd/aletheia/main_test.go (the file exists and covers the same subcommands); every case runs through the real verified core and skips when the shared library is absent (the skip arm is exercised by the guard at the head of every case that needs it); ctest supplies ALETHEIA_REPO_ROOT and ALETHEIA_LIB through set_tests_properties (cpp/CMakeLists.txt sets both for this target); a flag after positionals must still parse, in parity with Python's argparse (confirmed by running argparse with the same subparser shape, which accepts it); `check` exits 2 because it waits on a verified CAN-log reader (the CLI's own state). The suite runs 8 cases and 36 assertions with none skipped when the library is present.
+
+Findings fixed: (a) a comment named an external review and a pull request number, which is the tracking-identifier class the repository bans in source; it now says what the two lines test; (b) a comment argued against a rendering the code no longer has, quoting what it used to print, which is history; it now states the claim the case makes; (c) four temp DBC files were removed by hand after each use, the shape point 6 names: the files are now a small owning type that removes them in its destructor, which also folds the three write-a-temp-DBC bodies into one and drops four `std::error_code` declarations; (d) `<string_view>` was used and not included.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/051
+claims: 5 rows, 0 without a guard: none needed, each is asserted by a case or by the build that supplies it
+1 line per line: checked, all 230 lines read; every assertion asked what it would catch and every fixture what it leaves behind
+2 guidelines: checked, C.21 holds on the new owning type (copy and move deleted, destructor defined) and R.1 is what the finding was about
+3 modernize: checked, the library's behaviour is untouched; the suite passes before and after with the same assertions
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the repository's rule that a comment describes the current state
+5 value semantics: checked, the temp file is held by value in the test's own scope and is neither copyable nor movable
+6 raii: finding, four hand removals are one destructor
+7 dedup: finding, three temp-DBC writers are one type; lib_available has no twin in another test file, so nothing goes to XREV from here
+8 ground truth: checked, go/cmd/aletheia/main_test.go exists, cpp/CMakeLists.txt sets both environment variables for this target, and argparse accepts a flag after positionals as the comment claims
+9 history: finding, the sentence about the previous render is gone with the tracking identifier
+10 simpler: checked, the owning type is the simpler shape and the exit-code assertions are already direct
+11 comments: 34 to 36, code 177 to 179, the rise allowed because the task fixed the hand-release defect in the file
+sweep: no mutation names this file (it is its own binary, outside the mutation build's unit_tests target); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15, and this binary alone runs 8 cases and 36 assertions
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
