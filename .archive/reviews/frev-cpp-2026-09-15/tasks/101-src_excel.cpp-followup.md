@@ -1,37 +1,14 @@
-# Task 050: file review of `cpp/src/yaml.cpp`
+# Task 101: file review of `cpp/src/excel.cpp` (follow-up from task 050)
 
-- status: completed
-- file: `cpp/src/yaml.cpp`
-- round base: 726198bb (2026-09-15)
-- pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: the loader catches std::runtime_error only and converts everything to a Validation error, so an FFI or runtime failure (which get_decimal deliberately re-throws unflattened) reaches the caller mis-kinded, and a non-runtime_error escapes the Result contract; excel.cpp took an AletheiaException arm and a std::exception arm in task 043, with a probe that has proven teeth (from task 043)
+- status: pending
+- file: `cpp/src/excel.cpp`
+- round base: b222b613 (2026-09-15)
+- pass: lenses and diff, over the sentence below plus whatever the lenses fire on
+- origin: the comment above `get_decimal` says "the loader's outer `catch (const std::runtime_error&)` converts both the runtime-down and the malformed-literal throws into a Validation Result". Its own next sentence and the code contradict it: `get_decimal` re-throws a non-Validation `AletheiaException` unchanged, and both outer handlers catch `AletheiaException` first and return `ex.error()` with its kind intact, which is what probes/cpp_src_excel.cpp--loader-keeps-the-runtime-error-kind.sh pins. The same sentence was the one this round's YAML task found false in cpp/src/yaml.cpp, where it described the defect rather than the fix. Correct it against the code, not against the YAML file's wording.
 
 ## Report
 
-Full pass. Fix in refs/frev/050 (signed later by the dribble).
-
-Claims and guards: a document that is not a checks list is refused (the malformed-document cases in cpp/tests/yaml_tests.cpp and the new probe's second arm); every threshold is an exact Rational read through the kernel decimal SSOT, never a double (the exact-fraction assertions in cpp/tests/yaml_tests.cpp and the float principle's static_asserts in types.hpp); a boolean scalar is not a number (a yaml_tests case); a check must carry either a signal or a when and then pair, with the message the Python loader emits at the same two sites (yaml_tests and python/tests/test_yaml_loader_errors.py assert the same string); the inline loader bounds its input like the file loader (cpp/tests/yaml_tests.cpp size-bound cases); and, the row that had no guard, a failure that is not a property of the document keeps its kind.
-
-Finding fixed, a real defect: the loader caught `std::runtime_error`, which `AletheiaException` derives from, and re-kinded everything it caught as Validation. With no backend in the process the kernel decimal parser is down, and loading a check with a decimal threshold returned a Validation error reading "GHC runtime not initialized: create a backend before parsing decimals", so a caller inspecting the kind was told its document was malformed when the runtime was not up. The file's own comment described this as intended. `get_decimal` now re-throws a non-Validation kernel refusal unchanged and prefixes the check's context only onto a Validation one, and the loader catches `AletheiaException` before `std::runtime_error` and returns the error with its kind. This is the shape the Excel loader already has; the new probe is the YAML twin of the Excel one and was read red before the fix and green after. Also folded: the two single-value then conditions differed only in the builder method and both return `ThenCondition`, so they are one branch; and the size-bound comment on the file loader was wrapped mid-phrase.
-
-```
-REPORT 2026-09-15 tree b222b613 fix in refs/frev/050
-claims: 6 rows, 1 without a guard: probe cpp_src_yaml.cpp--loader-keeps-the-runtime-error-kind.sh added, red before the fix and green after
-1 line per line: checked, all 278 lines read; every extractor, every branch of both parsers and both public entry points asked what they refuse and with which kind
-2 guidelines: finding, E.14 and the repository's own kind contract: catching a base type that the library's own exception derives from erased the kind
-3 modernize: checked, the fold of the two then conditions is type-preserving (both arms are ThenCondition) and the whole suite gates it
-4 catalogue: checked, AGENTS/cpp.md category 13 and the float principle; the Python loader at python/aletheia/yaml_loader.py catches only ValueError, so it does not re-kind a kernel failure either and the two bindings now agree
-5 value semantics: checked, YAML::Node is yaml-cpp's own handle type and is passed as the library intends; strings by const reference into the extractors, values by value
-6 raii: checked, the file owns no resource; yaml-cpp owns the document and std::filesystem::path the path
-7 dedup: finding, the two single-value then conditions are one branch; the remaining repetition is the per-key extractor family, which differs by type and message
-8 ground truth: finding, the comment claimed the outer catch converts the runtime-down throw into Validation, which was true and was the defect; the same sentence sits in cpp/src/excel.cpp where it is now false, pushed to task 101
-9 history: checked, none
-10 simpler: checked, the extractors are already the simple shape; the boolean rejection list stays because it buys the specific message the tests assert
-11 comments: 47 to 50, code 190 to 196, the rise allowed because the task fixed a defect in the file
-sweep: no mutation names this file (the mutation build instruments the library and unit_tests, and the YAML suite is its own binary); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
-probes: 1 added; store 47 run, 45 pass, 2 red on record
-decision points: none
-```
+(filled when the task is worked; shape in the contract below)
 
 ## Contract (carried whole)
 
