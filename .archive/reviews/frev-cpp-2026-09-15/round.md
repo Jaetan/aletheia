@@ -22,5 +22,5 @@ Tasks are worked in id order. Follow-ups created during the run get the next fre
 - message files: `.git/frev/msg-<id>.txt`
 - probe store: `probes/` with `probes/run_all.sh`
 - lens: `lens/linecount.py` (comment/code per file), `base/linecount.tsv`, `base/file_gate_map.tsv`
-- current task: none started (round-start record in progress)
+- current task: 002 (001 completed, snapshot refs/frev/001)
 - follow-ups created: 092 (`docs/MUTATION_BENCH.yaml`, mutant count drift found by the base sweep)

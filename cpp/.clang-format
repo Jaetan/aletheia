@@ -48,7 +48,7 @@ BreakBeforeTernaryOperators: true
 BreakConstructorInitializers: BeforeComma
 BreakInheritanceList: BeforeColon
 PackConstructorInitializers: CurrentLine
-AlwaysBreakTemplateDeclarations: Yes
+BreakTemplateDeclarations: Yes
 
 # Spaces
 SpaceAfterCStyleCast: false
@@ -59,10 +59,10 @@ SpaceBeforeCtorInitializerColon: true
 SpaceBeforeInheritanceColon: true
 SpaceBeforeParens: ControlStatements
 SpaceBeforeRangeBasedForLoopColon: true
-SpaceInEmptyBlock: false
+SpaceInEmptyBraces: Never
 SpacesInAngles: Never
 SpacesInContainerLiterals: false
-SpacesInParentheses: false
+SpacesInParens: Never
 SpacesInSquareBrackets: false
 
 # Includes — preserve grouping, sort within groups
