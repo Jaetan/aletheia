@@ -1,13 +1,36 @@
 # Task 096: directory review of the backend interface handles (XREV follow-up from task 009)
 
-- status: pending
+- status: completed
 - directory: `cpp/` (the IBackend surface: `include/aletheia/backend.hpp`, `src/backend.cpp`, `src/ffi_backend.cpp`, `src/client.cpp`, `src/detail/mock_backend.hpp`, `src/mock_backend.cpp`, the tests that implement or call it)
 - round base: b222b613 (2026-09-15)
 - origin: SignalInjection carries a count and three raw parallel pointers whose equal length is stated in a comment only, where the catalogue asks for std::span over pointer-and-size pairs; and the backend state crosses the interface as void* (init returns it, process and close take it), a handle no type checks. Both shapes are shared by every backend and every caller, so a change is a directory-level interface change, not one file's. Design the end state (a span-based injection block, an opaque state type or an owning handle the client holds), measure the call sites, and either land it across the files or record why the current shape stays.
 
 ## Report
 
-(filled when the task is worked)
+Directory pass over the backend interface. No change landed; both shapes are one ruling, appended to the accumulator with the measurement done.
+
+What was measured. Four classes implement the interface in the tree, the production backend, the mock, and two test stubs, and the feature matrix presents the seam as available to an external consumer, so any signature change breaks beyond the repository. The injection block's equal-length invariant is already structural on the only production path, because the client's resolver holds three vectors and flattens them at the interface; the loose shape bites only where a caller builds a block by hand, which one test does, and where an external implementer reads one. The session state's lifetime is already handled, but by hand and in three places: a destructor, a move that exchanges the pointer, and a close helper that swallows an exception.
+
+Why nothing landed. Both shapes appear in the same signatures, so they are one change, and that change is breaking against a seam the project advertises. The directory contract asks for the end state to be designed and the call sites measured, which is done, and for the change to land or the reason to be recorded. The reason is that the choice is between a break with a real gain in checkability and a header sentence that states what the producer already guarantees, and that is the user's to make rather than the review's.
+
+```
+REPORT 2026-09-15 tree refs/frev/097 NO CHANGE
+claims: 2 rows, both appended as one ruling: the block's equal-length invariant, stated in a comment, and the state's ownership, spread over three places in one class
+design and interfaces: finding, appended; the end state is described in the accumulator with both alternatives and their costs
+idioms for the directory's shape: checked, the span-over-pointer-and-size idiom applies and is named in the ruling
+value semantics: checked, the block is passed by value already and is four words; the state is a pointer the client owns
+raii: finding, the state's lifetime is spelled in a destructor, a move and a close helper rather than held by a type; the cost of holding it is the coupling the ruling names
+consistency and compatibility: checked, all four implementers take the same shapes, so the inconsistency is with the rest of the API rather than within the interface
+ease of use at the call sites: finding, one test builds the block by hand with four named initialisers and nothing checks them against each other
+memory and sanitizers: checked, no leak or lifetime fault found; the client's move leaves the source null and its destructor cannot throw
+coverage: checked, the interface's every method is exercised by the mock-backed suites
+ground truth: checked, the comment on the block is true today because of the producer, which is the fact that makes the ruling a choice rather than a fix
+dryness: n/a, the shapes are declared once
+11 comments: unchanged, no file edited
+sweep: n/a, no change
+probes: none added; the ruling's measurements are in the accumulator entry
+decision points: 1 appended
+```
 
 ## Contract (carried whole)
 
