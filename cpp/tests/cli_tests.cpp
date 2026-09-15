@@ -15,7 +15,6 @@
 
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -27,32 +26,33 @@
 #include "temp_path.hpp"
 
 #include "repo_root.hpp"
+#include "text_file.hpp"
 
 using aletheia::test::repo_root;
 
 using aletheia::test::TempPath;
 
-namespace {
+using aletheia::test::read_text_file;
 
-auto lib_available() -> bool {
+static auto lib_available() -> bool {
     if (const char* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0') {
         return std::filesystem::exists(env);
     }
     return std::filesystem::exists(repo_root() / "build" / "libaletheia-ffi.so");
 }
 
-auto run(std::vector<std::string> args) -> int {
+static auto run(std::vector<std::string> args) -> int {
     return aletheia::run_cli(args);
 }
 
 // Run a subcommand capturing stdout, so a test can assert the emitted JSON
 // shape (not just the exit code).
-auto run_capture(std::vector<std::string> args) -> std::pair<int, std::string> {
+static auto run_capture(std::vector<std::string> args) -> std::pair<int, std::string> {
     std::ostringstream oss;
     auto* old = std::cout.rdbuf(oss.rdbuf());
     const int code = aletheia::run_cli(std::move(args));
     std::cout.rdbuf(old);
-    return {code, oss.str()};
+    return {code, std::move(oss).str()};
 }
 
 // A DBC written into the temp directory for one test and removed by its own
@@ -61,16 +61,10 @@ auto run_capture(std::vector<std::string> args) -> std::pair<int, std::string> {
 // An invalid DBC derived from the minimal.dbc fixture by renaming EngineTemp
 // to EngineSpeed — a duplicate signal name, which the verified parser rejects
 // with handler_validation_failed carrying the validation issues.
-auto duplicate_signal_dbc() -> std::string {
+static auto duplicate_signal_dbc() -> std::string {
     const auto fixture =
         repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "minimal.dbc";
-    std::ifstream in{fixture};
-    if (!in) {
-        throw std::runtime_error("cannot read fixture " + fixture.string());
-    }
-    std::ostringstream buf;
-    buf << in.rdbuf();
-    std::string text = buf.str();
+    std::string text = read_text_file(fixture);
     const auto pos = text.find("EngineTemp");
     if (pos == std::string::npos) {
         throw std::runtime_error("minimal.dbc no longer contains EngineTemp");
@@ -78,8 +72,6 @@ auto duplicate_signal_dbc() -> std::string {
     text.replace(pos, std::string_view{"EngineTemp"}.size(), "EngineSpeed");
     return text;
 }
-
-} // namespace
 
 TEST_CASE("CLI smoke over the real FFI core", "[cli]") {
     if (!lib_available()) {
@@ -140,7 +132,7 @@ TEST_CASE("signals text renders a fine-resolution factor exactly via format_rati
                        " SG_ FineSignal : 0|16@1+ (0.0001220703125,0) [0|8] \"x\" Vector__XXX\n"};
     auto [code, out] = run_capture({"signals", "--dbc", dbc.string()});
     CHECK(code == 0);
-    CHECK(out.find("x0.0001220703125") != std::string::npos);
+    CHECK(out.contains("x0.0001220703125"));
 }
 
 TEST_CASE("validate renders the issue list and exits 1 when the parser rejects the DBC", "[cli]") {
@@ -150,9 +142,9 @@ TEST_CASE("validate renders the issue list and exits 1 when the parser rejects t
     const TempPath dbc{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
     auto [code, out] = run_capture({"validate", "--dbc", dbc.string()});
     CHECK(code == 1);
-    CHECK(out.find("Validation FAILED") != std::string::npos);
-    CHECK(out.find("[ERROR] duplicate_signal_name") != std::string::npos);
-    CHECK(out.find("  1. ") != std::string::npos); // the numbered issue list
+    CHECK(out.contains("Validation FAILED"));
+    CHECK(out.contains("[ERROR] duplicate_signal_name"));
+    CHECK(out.contains("  1. ")); // the numbered issue list
 }
 
 TEST_CASE("validate --json emits the has_errors fail shape when the parser rejects the DBC",
@@ -188,8 +180,8 @@ TEST_CASE("validate reports warnings from the single parse pass", "[cli]") {
         (repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "minimal.dbc").string();
     auto [code, out] = run_capture({"validate", "--dbc", dbc});
     CHECK(code == 0);
-    CHECK(out.find("Validation passed with warnings") != std::string::npos);
-    CHECK(out.find("offset_scale_range") != std::string::npos);
+    CHECK(out.contains("Validation passed with warnings"));
+    CHECK(out.contains("offset_scale_range"));
 }
 
 TEST_CASE("rejected and unparseable DBCs stay fatal outside the validate report path", "[cli]") {

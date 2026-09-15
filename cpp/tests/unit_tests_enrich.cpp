@@ -28,23 +28,19 @@
 using namespace aletheia;
 using Catch::Matchers::ContainsSubstring;
 
-namespace {
-
 // One sentinel per logical full-frame extraction: the call cardinality the
 // extract-once shape pins.
-auto count_extraction_sentinels(const MockBackend& mock) -> std::size_t {
+static auto count_extraction_sentinels(const MockBackend& mock) -> std::size_t {
     return static_cast<std::size_t>(
         std::ranges::count(mock.captured(), "<binary:extractAllSignals>"));
 }
 
 // Occurrences of a named log event in a captured level-and-event sequence.
-auto count_log_event(const std::vector<std::pair<LogLevel, std::string>>& events,
-                     std::string_view name) -> std::size_t {
+static auto count_log_event(const std::vector<std::pair<LogLevel, std::string>>& events,
+                            std::string_view name) -> std::size_t {
     return static_cast<std::size_t>(
         std::ranges::count_if(events, [name](const auto& e) { return e.second == name; }));
 }
-
-} // namespace
 
 // ===========================================================================
 // Signal collection tests
@@ -748,11 +744,9 @@ TEST_CASE("end_stream with no tracked frames attaches fallback enrichment withou
 // Extract-once end-of-stream enrichment: the frame-loop's shape
 // ===========================================================================
 
-namespace {
-
 // Two properties over distinct signals, so the EOS wanted-signal union is
 // {SigA, SigB} (mirrors the Python/Go extract-once suites).
-auto two_signal_properties() -> std::vector<LtlFormula> {
+static auto two_signal_properties() -> std::vector<LtlFormula> {
     std::vector<LtlFormula> props;
     props.push_back(ltl::eventually(
         ltl::atomic(ltl::greater_than(SignalName{"SigA"}, PhysicalValue{Rational{10, 1}}))));
@@ -760,8 +754,6 @@ auto two_signal_properties() -> std::vector<LtlFormula> {
         ltl::atomic(ltl::greater_than(SignalName{"SigB"}, PhysicalValue{Rational{10, 1}}))));
     return props;
 }
-
-} // namespace
 
 TEST_CASE("end_stream with all properties holding makes zero extraction calls",
           "[client][enrich]") {
@@ -945,7 +937,8 @@ TEST_CASE("end_stream failed extraction warns once per frame, not per property",
     mock_ptr->queue_response(R"({"status": "error", "code": "decode_error", "message": "boom"})");
 
     std::vector<std::pair<LogLevel, std::string>> events;
-    Logger logger([&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
+    const Logger logger(
+        [&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
     AletheiaClient client(std::move(mock), logger);
 
     REQUIRE(client.set_properties(std::stop_token{}, two_signal_properties()).has_value());
@@ -999,7 +992,8 @@ TEST_CASE("end_stream OOB property_index is excluded while the valid entry is st
     })");
 
     std::vector<std::pair<LogLevel, std::string>> events;
-    Logger logger([&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
+    const Logger logger(
+        [&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
     AletheiaClient client(std::move(mock), logger);
 
     // Only ONE property registered — index 7 is out of bounds.

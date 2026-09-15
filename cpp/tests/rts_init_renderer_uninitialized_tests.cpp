@@ -18,6 +18,7 @@
 // integration_tests; this binary is the renderer-first, runtime-down case.
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <aletheia/aletheia.hpp>
@@ -29,9 +30,7 @@
 
 namespace fs = std::filesystem;
 
-namespace {
-
-auto find_lib() -> fs::path {
+static auto find_lib() -> fs::path {
     // Existence-check ALETHEIA_LIB and fall through if stale, mirroring the
     // renderer's find_library_path verbatim (getenv → string_view !empty →
     // fs::exists): a stale env value must not shadow a present .so, else the
@@ -57,8 +56,6 @@ auto find_lib() -> fs::path {
         "libaletheia-ffi.so not found — set ALETHEIA_LIB or build with 'cabal run shake -- build'");
     return {};
 }
-
-} // namespace
 
 TEST_CASE("renderer is vocal (throws) when the GHC runtime is uninitialised",
           "[rational_renderer][rts_init]") {

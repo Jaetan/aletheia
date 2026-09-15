@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 harness = Path("cpp/tests/doc_example_tests.cpp").read_text(encoding="utf-8")
-listing = re.search(r"kDocFiles\s*=\s*\{(.*?)\};", harness, re.S)
+listing = re.search(r"k_doc_files\s*=\s*\{(.*?)\};", harness, re.S)
 if listing is None:
     print("the harness's document list could not be read")
     raise SystemExit(2)

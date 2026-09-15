@@ -27,32 +27,31 @@
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 
 #include "repo_root.hpp"
+#include "text_file.hpp"
+#include <catch2/catch_message.hpp>
 
 using aletheia::test::repo_root;
 
-namespace {
+using aletheia::test::read_text_file;
 
-constexpr std::array<std::string_view, 3> kValidStatuses = {"implemented", "not_applicable",
-                                                            "planned"};
+constexpr std::array<std::string_view, 3> k_valid_statuses = {"implemented", "not_applicable",
+                                                              "planned"};
 
-constexpr std::array<std::string_view, 4> kBindings = {"python", "cpp", "go", "rust"};
+constexpr std::array<std::string_view, 4> k_bindings = {"python", "cpp", "go", "rust"};
 
-auto matrix_path() -> std::filesystem::path {
+static auto matrix_path() -> std::filesystem::path {
     return repo_root() / "docs" / "FEATURE_MATRIX.yaml";
 }
 
-auto cpp_include_root() -> std::filesystem::path {
+static auto cpp_include_root() -> std::filesystem::path {
     return repo_root() / "cpp" / "include";
 }
 
-auto load_matrix() -> YAML::Node {
+static auto load_matrix() -> YAML::Node {
     const auto path = matrix_path();
     REQUIRE(std::filesystem::exists(path));
     auto root = YAML::LoadFile(path.string());
@@ -62,14 +61,7 @@ auto load_matrix() -> YAML::Node {
     return root;
 }
 
-auto read_file(const std::filesystem::path& path) -> std::string {
-    std::ifstream in{path};
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    return ss.str();
-}
-
-auto is_ident_char(char c) -> bool {
+static auto is_ident_char(char c) -> bool {
     return (std::isalnum(static_cast<unsigned char>(c)) != 0) || c == '_';
 }
 
@@ -80,7 +72,7 @@ auto is_ident_char(char c) -> bool {
 // immediately left of the quote.  Reading a separator as a quote opens a
 // literal that runs to the next apostrophe, and every symbol in that span is
 // blanked out of the search.
-auto is_digit_separator(const std::string& text, std::size_t pos) -> bool {
+static auto is_digit_separator(const std::string& text, std::size_t pos) -> bool {
     if (pos == 0 || pos + 1 >= text.size())
         return false;
     if (!is_ident_char(text[pos - 1]) || !is_ident_char(text[pos + 1]))
@@ -95,7 +87,7 @@ auto is_digit_separator(const std::string& text, std::size_t pos) -> bool {
 // spaces (newlines preserved so offsets and line numbers still line up).
 // Prevents a stale "// removed AletheiaClient" comment from satisfying a
 // whole-word symbol check after the class has actually been deleted.
-auto strip_lexical_noise(std::string text) -> std::string {
+static auto strip_lexical_noise(std::string text) -> std::string {
     const auto n = text.size();
     for (std::size_t i = 0; i < n;) {
         const char c = text[i];
@@ -106,7 +98,7 @@ auto strip_lexical_noise(std::string text) -> std::string {
         } else if (c == '/' && i + 1 < n && text[i + 1] == '*') {
             text[i] = text[i + 1] = ' ';
             i += 2;
-            while (i + 1 < n && !(text[i] == '*' && text[i + 1] == '/')) {
+            while (i + 1 < n && (text[i] != '*' || text[i + 1] != '/')) {
                 if (text[i] != '\n') {
                     text[i] = ' ';
                 }
@@ -141,7 +133,7 @@ auto strip_lexical_noise(std::string text) -> std::string {
     return text;
 }
 
-auto symbol_present(const std::string& text, const std::string& symbol) -> bool {
+static auto symbol_present(const std::string& text, const std::string& symbol) -> bool {
     if (symbol.empty()) {
         return false;
     }
@@ -158,18 +150,16 @@ auto symbol_present(const std::string& text, const std::string& symbol) -> bool 
     return false;
 }
 
-auto is_valid_status(std::string_view status) -> bool {
-    return std::ranges::contains(kValidStatuses, status);
+static auto is_valid_status(std::string_view status) -> bool {
+    return std::ranges::contains(k_valid_statuses, status);
 }
 
-auto trim(std::string s) -> std::string {
+static auto trim(std::string s) -> std::string {
     const auto not_ws = [](unsigned char c) { return std::isspace(c) == 0; };
-    s.erase(s.begin(), std::find_if(s.begin(), s.end(), not_ws));
-    s.erase(std::find_if(s.rbegin(), s.rend(), not_ws).base(), s.end());
+    s.erase(s.begin(), std::ranges::find_if(s, not_ws));
+    s.erase(std::ranges::find_if(s.rbegin(), s.rend(), not_ws).base(), s.end());
     return s;
 }
-
-} // namespace
 
 TEST_CASE("FEATURE_MATRIX schema", "[parity]") {
     const auto root = load_matrix();
@@ -184,7 +174,7 @@ TEST_CASE("FEATURE_MATRIX schema", "[parity]") {
             REQUIRE(bindings);
             REQUIRE(bindings.IsMap());
 
-            for (const auto binding_name : kBindings) {
+            for (const auto binding_name : k_bindings) {
                 const auto binding = bindings[std::string(binding_name)];
                 CAPTURE(binding_name);
                 REQUIRE(binding);
@@ -230,7 +220,7 @@ TEST_CASE("FEATURE_MATRIX C++ entries resolve", "[parity]") {
             CAPTURE(header_path.string());
             REQUIRE(std::filesystem::exists(header_path));
 
-            const auto text = strip_lexical_noise(read_file(header_path));
+            const auto text = strip_lexical_noise(read_text_file(header_path));
             CHECK(symbol_present(text, symbol));
         }
     }

@@ -3,13 +3,13 @@
 // YAML loader tests.
 // Tests YAML check parsing through the Check API with inline YAML strings.
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <aletheia/enrich.hpp>
 #include <aletheia/error.hpp>
 #include <aletheia/yaml.hpp>
 
-#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <ios>
@@ -523,25 +523,25 @@ checks:
 // ===========================================================================
 
 TEST_CASE("yaml: symlink rejected", "[yaml][hardening]") {
-    auto real_ = std::filesystem::temp_directory_path() / "yaml_real_target.yaml";
+    auto real = std::filesystem::temp_directory_path() / "yaml_real_target.yaml";
     {
-        std::ofstream ofs(real_);
+        std::ofstream ofs(real);
         ofs << "checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 200\n";
     }
     auto link = std::filesystem::temp_directory_path() / "yaml_symlink.yaml";
     if (std::filesystem::exists(link))
         std::filesystem::remove(link);
     std::error_code ec;
-    std::filesystem::create_symlink(real_, link, ec);
+    std::filesystem::create_symlink(real, link, ec);
     if (ec) {
-        std::filesystem::remove(real_);
+        std::filesystem::remove(real);
         SUCCEED("Skipping symlink test — symlink creation not permitted on this filesystem");
         return;
     }
 
     auto result = load_checks_from_yaml(link);
     std::filesystem::remove(link);
-    std::filesystem::remove(real_);
+    std::filesystem::remove(real);
     REQUIRE(!result.has_value());
     CHECK(result.error().kind() == ErrorKind::Validation);
     CHECK_THAT(std::string(result.error().message()), ContainsSubstring("symbolic link"));

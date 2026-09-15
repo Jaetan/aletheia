@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -26,6 +27,7 @@
 #include <vector>
 
 #include "temp_path.hpp"
+#include <catch2/matchers/catch_matchers.hpp>
 
 #include "repo_root.hpp"
 
@@ -41,26 +43,32 @@ using Catch::Matchers::ContainsSubstring;
 // Test helpers
 // ===========================================================================
 
-namespace {
+// The header row each sheet kind carries. Held as views over string literals
+// so nothing runs a constructor before main.
+constexpr std::array<std::string_view, 8> checks_hdr = {
+    "Check Name", "Signal", "Condition", "Value", "Min", "Max", "Time (ms)", "Severity"};
 
-/// RAII temp file that removes on destruction.
-// Header constants
-const std::vector<std::string> checks_hdr = {"Check Name", "Signal", "Condition", "Value",
-                                             "Min",        "Max",    "Time (ms)", "Severity"};
-
-const std::vector<std::string> wt_hdr = {
+constexpr std::array<std::string_view, 11> wt_hdr = {
     "Check Name", "When Signal", "When Condition", "When Value",  "Then Signal", "Then Condition",
     "Then Value", "Then Min",    "Then Max",       "Within (ms)", "Severity"};
 
-const std::vector<std::string> dbc_hdr = {
+constexpr std::array<std::string_view, 16> dbc_hdr = {
     "Message ID",      "Message Name", "DLC",    "Signal", "Start Bit", "Length", "Byte Order",
     "Signed",          "Factor",       "Offset", "Min",    "Max",       "Unit",   "Multiplexor",
     "Multiplex Value", "Extended",
 };
 
-void write_header(OpenXLSX::XLWorksheet& ws, const std::vector<std::string>& headers) {
+// Write raw bytes to a binary stream. The stream takes char and the archive
+// fixtures below read as unsigned, so each byte crosses as a value rather than
+// through a cast of the buffer's type.
+static void write_bytes(std::ofstream& ofs, std::span<const unsigned char> bytes) {
+    for (const unsigned char b : bytes)
+        ofs.put(static_cast<char>(b));
+}
+
+static void write_header(OpenXLSX::XLWorksheet& ws, std::span<const std::string_view> headers) {
     for (std::size_t i = 0; i < headers.size(); ++i)
-        ws.cell(1, static_cast<std::uint16_t>(i + 1)).value() = headers[i];
+        ws.cell(1, static_cast<std::uint16_t>(i + 1)).value() = std::string{headers[i]};
 }
 
 /// Write a data row (2-indexed) under the float-principle all-text contract: a
@@ -71,7 +79,7 @@ void write_header(OpenXLSX::XLWorksheet& ws, const std::vector<std::string>& hea
 /// (Rational::from_decimal); a number stored natively is rejected. To author a
 /// number deliberately stored as a *native number* cell (the strict-rejection
 /// tests), write it directly with an int64/double value.
-void write_row(OpenXLSX::XLWorksheet& ws, int row, const std::vector<std::string>& values) {
+static void write_row(OpenXLSX::XLWorksheet& ws, int row, const std::vector<std::string>& values) {
     for (std::size_t i = 0; i < values.size(); ++i) {
         const std::string& s = values[i];
         if (s.empty())
@@ -92,9 +100,9 @@ void write_row(OpenXLSX::XLWorksheet& ws, int row, const std::vector<std::string
 
 /// Create a one-sheet workbook: the sheet renamed, its header row written and
 /// one data row per entry from row 2 down.
-void make_workbook(const std::filesystem::path& path, const std::string& sheet,
-                   const std::vector<std::string>& headers,
-                   const std::vector<std::vector<std::string>>& rows) {
+static void make_workbook(const std::filesystem::path& path, const std::string& sheet,
+                          std::span<const std::string_view> headers,
+                          const std::vector<std::vector<std::string>>& rows) {
     OpenXLSX::XLDocument doc;
     doc.create(path.string(), OpenXLSX::XLForceOverwrite);
     doc.workbook().worksheet("Sheet1").setName(sheet);
@@ -106,18 +114,18 @@ void make_workbook(const std::filesystem::path& path, const std::string& sheet,
     doc.close();
 }
 
-void make_checks_workbook(const std::filesystem::path& path,
-                          const std::vector<std::vector<std::string>>& rows) {
+static void make_checks_workbook(const std::filesystem::path& path,
+                                 const std::vector<std::vector<std::string>>& rows) {
     make_workbook(path, "Checks", checks_hdr, rows);
 }
 
-void make_wt_workbook(const std::filesystem::path& path,
-                      const std::vector<std::vector<std::string>>& rows) {
+static void make_wt_workbook(const std::filesystem::path& path,
+                             const std::vector<std::vector<std::string>>& rows) {
     make_workbook(path, "When-Then", wt_hdr, rows);
 }
 
-void make_dbc_workbook(const std::filesystem::path& path,
-                       const std::vector<std::vector<std::string>>& rows) {
+static void make_dbc_workbook(const std::filesystem::path& path,
+                              const std::vector<std::vector<std::string>>& rows) {
     make_workbook(path, "DBC", dbc_hdr, rows);
 }
 
@@ -128,8 +136,8 @@ void make_dbc_workbook(const std::filesystem::path& path,
 /// literal or an empty <v/>. Every other field is text per the all-text
 /// contract. id_value doubles as the patch anchor, so surgery callers pass a
 /// sentinel unique within the sheet XML.
-void make_dbc_workbook_with_raw_id(const std::filesystem::path& path, std::int64_t id_value,
-                                   const char* raw_override) {
+static void make_dbc_workbook_with_raw_id(const std::filesystem::path& path, std::int64_t id_value,
+                                          const char* raw_override) {
     OpenXLSX::XLDocument doc;
     doc.create(path.string(), OpenXLSX::XLForceOverwrite);
     doc.workbook().worksheet("Sheet1").setName("DBC");
@@ -157,8 +165,6 @@ void make_dbc_workbook_with_raw_id(const std::filesystem::path& path, std::int64
     zip.save();
     zip.close();
 }
-
-} // namespace
 
 // ===========================================================================
 // Simple check conditions
@@ -489,10 +495,10 @@ TEST_CASE("excel: template DBC headers correct", "[excel][template]") {
     OpenXLSX::XLDocument doc;
     doc.open(tf.path.string());
     auto ws = doc.workbook().worksheet("DBC");
-    OpenXLSX::XLCellValue v1 = ws.cell(1, 1).value();
-    OpenXLSX::XLCellValue v3 = ws.cell(1, 3).value();
-    OpenXLSX::XLCellValue v5 = ws.cell(1, 5).value();
-    OpenXLSX::XLCellValue v16 = ws.cell(1, 16).value();
+    const OpenXLSX::XLCellValue v1 = ws.cell(1, 1).value();
+    const OpenXLSX::XLCellValue v3 = ws.cell(1, 3).value();
+    const OpenXLSX::XLCellValue v5 = ws.cell(1, 5).value();
+    const OpenXLSX::XLCellValue v16 = ws.cell(1, 16).value();
     doc.close();
 
     CHECK(v1.get<std::string>() == "Message ID");
@@ -529,9 +535,9 @@ TEST_CASE("excel: template Checks headers correct", "[excel][template]") {
     OpenXLSX::XLDocument doc;
     doc.open(tf.path.string());
     auto ws = doc.workbook().worksheet("Checks");
-    OpenXLSX::XLCellValue v1 = ws.cell(1, 1).value();
-    OpenXLSX::XLCellValue v3 = ws.cell(1, 3).value();
-    OpenXLSX::XLCellValue v8 = ws.cell(1, 8).value();
+    const OpenXLSX::XLCellValue v1 = ws.cell(1, 1).value();
+    const OpenXLSX::XLCellValue v3 = ws.cell(1, 3).value();
+    const OpenXLSX::XLCellValue v8 = ws.cell(1, 8).value();
     doc.close();
 
     CHECK(v1.get<std::string>() == "Check Name");
@@ -547,9 +553,9 @@ TEST_CASE("excel: template When-Then headers correct", "[excel][template]") {
     OpenXLSX::XLDocument doc;
     doc.open(tf.path.string());
     auto ws = doc.workbook().worksheet("When-Then");
-    OpenXLSX::XLCellValue v1 = ws.cell(1, 1).value();
-    OpenXLSX::XLCellValue v10 = ws.cell(1, 10).value();
-    OpenXLSX::XLCellValue v11 = ws.cell(1, 11).value();
+    const OpenXLSX::XLCellValue v1 = ws.cell(1, 1).value();
+    const OpenXLSX::XLCellValue v10 = ws.cell(1, 10).value();
+    const OpenXLSX::XLCellValue v11 = ws.cell(1, 11).value();
     doc.close();
 
     CHECK(v1.get<std::string>() == "Check Name");
@@ -708,7 +714,7 @@ TEST_CASE("excel: DBC factor as integer rational", "[excel][dbc]") {
                                  "0", "0", "255", "", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(result.has_value());
-    auto& factor = result->messages[0].signals[0].factor.get();
+    const auto& factor = result->messages[0].signals[0].factor.get();
     // Integer 1 should be represented as 1/1
     CHECK(factor.numerator() == 1);
     CHECK(factor.denominator() == 1);
@@ -720,7 +726,7 @@ TEST_CASE("excel: DBC factor as fractional rational", "[excel][dbc]") {
                                  "0.1", "0", "0", "300", "km/h", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(result.has_value());
-    auto& factor = result->messages[0].signals[0].factor.get();
+    const auto& factor = result->messages[0].signals[0].factor.get();
     // 0.1 should be represented as 1/10 (after GCD simplification)
     CHECK(factor.numerator() == 1);
     CHECK(factor.denominator() == 10);
@@ -793,17 +799,17 @@ TEST_CASE("excel: template roundtrip — load checks from empty template", "[exc
 // ===========================================================================
 
 TEST_CASE("excel: symlink rejected", "[excel][hardening]") {
-    TempPath real_("excel_real_target.xlsx");
-    make_checks_workbook(real_.path, {{"", "Speed", "never_exceeds", "220", "", "", "", ""}});
-    TempPath link_("excel_symlink.xlsx");
+    TempPath real("excel_real_target.xlsx");
+    make_checks_workbook(real.path, {{"", "Speed", "never_exceeds", "220", "", "", "", ""}});
+    TempPath link("excel_symlink.xlsx");
     std::error_code ec;
-    std::filesystem::create_symlink(real_.path, link_.path, ec);
+    std::filesystem::create_symlink(real.path, link.path, ec);
     if (ec) {
         SUCCEED("Skipping symlink test — symlink creation not permitted on this filesystem");
         return;
     }
 
-    auto result = load_checks_from_excel(link_.path);
+    auto result = load_checks_from_excel(link.path);
     REQUIRE(!result.has_value());
     CHECK(result.error().kind() == ErrorKind::Validation);
     CHECK_THAT(std::string(result.error().message()), ContainsSubstring("symbolic link"));
@@ -815,7 +821,7 @@ TEST_CASE("excel: file size cap rejected", "[excel][hardening]") {
     TempPath tf("excel_oversize.xlsx");
     {
         std::ofstream ofs(tf.path, std::ios::binary);
-        std::vector<char> chunk(1024 * 1024, '\xAA');
+        std::vector<char> chunk(std::size_t{1024} * 1024, '\xAA');
         for (int i = 0; i < 65; ++i) // 65 MiB
             ofs.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
     }
@@ -852,8 +858,7 @@ TEST_CASE("excel: ZIP central-directory bomb rejected", "[excel][hardening]") {
             0x00, 0x00, 0x00, 0x00, // external attrs
             0x00, 0x00, 0x00, 0x00, // relative offset
         };
-        ofs.write(reinterpret_cast<const char*>(cd.data()),
-                  static_cast<std::streamsize>(cd.size()));
+        write_bytes(ofs, cd);
         // -- EOCD record at file tail --
         std::array<unsigned char, 22> eocd{
             0x50, 0x4b, 0x05, 0x06, // signature
@@ -863,8 +868,7 @@ TEST_CASE("excel: ZIP central-directory bomb rejected", "[excel][hardening]") {
             0x00, 0x00, 0x00, 0x00, // CD offset = 0
             0x00, 0x00,             // comment length
         };
-        ofs.write(reinterpret_cast<const char*>(eocd.data()),
-                  static_cast<std::streamsize>(eocd.size()));
+        write_bytes(ofs, eocd);
     }
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(!result.has_value());

@@ -80,6 +80,15 @@ def main(repo: Path | None = None) -> int:
     src_files = {
         p.resolve().relative_to(repo).as_posix() for p in (repo / "cpp" / "src").rglob("*.cpp")
     }
+    # The gate lints the tests too, so an unwired test source must fail here
+    # rather than go unlinted.  The fuzz targets are the one exclusion: they
+    # compile only under the fuzz configuration, which is its own lane with its
+    # own build tree, so this database never lists them.
+    src_files |= {
+        p.resolve().relative_to(repo).as_posix()
+        for p in (repo / "cpp" / "tests").rglob("*.cpp")
+        if "fuzz" not in p.relative_to(repo / "cpp" / "tests").parts
+    }
     if not src_files:
         emit(
             f"check-clang-tidy-coverage: FAIL — no .cpp sources found under {repo / 'cpp' / 'src'}."
@@ -93,13 +102,15 @@ def main(repo: Path | None = None) -> int:
 
     missing = uncovered_sources(src_files, db_files)
     if missing:
-        emit("check-clang-tidy-coverage: cpp/src sources missing from compile_commands.json")
+        emit("check-clang-tidy-coverage: gated C++ sources missing from compile_commands.json")
         emit("(not wired into a CMake target → silently unbuilt and unlinted):")
         for f in missing:
             emit(f"  {f}")
         return 1
 
-    emit(f"check-clang-tidy-coverage: ok ({len(src_files)} cpp/src sources all in the compile DB)")
+    emit(
+        f"check-clang-tidy-coverage: ok ({len(src_files)} gated C++ sources all in the compile DB)"
+    )
     return 0
 
 

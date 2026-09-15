@@ -39,24 +39,24 @@
 #include <cstdlib>
 #include <filesystem>
 #include <set>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "repo_root.hpp"
+#include <catch2/catch_message.hpp>
 
 using aletheia::test::repo_root;
 
 using namespace aletheia;
 
 namespace {
-
 struct WireCodeRow {
     std::string name;
     std::string description;
 };
+} // namespace
 
-auto load_section(const char* section) -> std::vector<WireCodeRow> {
+static auto load_section(const char* section) -> std::vector<WireCodeRow> {
     const auto path = repo_root() / "docs" / "WIRE_CODES.yaml";
     REQUIRE(std::filesystem::exists(path));
     auto root = YAML::LoadFile(path.string());
@@ -75,7 +75,7 @@ auto load_section(const char* section) -> std::vector<WireCodeRow> {
     return out;
 }
 
-auto name_set(const std::vector<WireCodeRow>& rows) -> std::set<std::string> {
+static auto name_set(const std::vector<WireCodeRow>& rows) -> std::set<std::string> {
     std::set<std::string> names;
     for (const auto& row : rows) {
         INFO("duplicate name: " << row.name);
@@ -92,8 +92,6 @@ constexpr auto k_named_issue_count = static_cast<std::size_t>(IssueCode::Unknown
 // count checks below until this anchor is moved to the new last member.
 constexpr auto k_named_error_count =
     static_cast<std::size_t>(ErrorCode::ExtractionValueExceedsWireRange);
-
-} // namespace
 
 // ----- 1. YAML schema sanity -----
 

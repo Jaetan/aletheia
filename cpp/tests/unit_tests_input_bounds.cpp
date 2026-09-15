@@ -163,7 +163,7 @@ TEST_CASE("parse_dbc_text rejects oversize DBC text", "[input_bounds]") {
     aletheia::AletheiaClient client{std::move(mock)};
 
     const std::string big_text(aletheia::max_dbc_text_bytes + 1, 'x');
-    std::stop_source stop_source;
+    const std::stop_source stop_source;
     auto result = client.parse_dbc_text(stop_source.get_token(), big_text);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);

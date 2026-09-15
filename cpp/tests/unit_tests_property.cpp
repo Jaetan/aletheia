@@ -30,10 +30,11 @@ TEST_CASE("Rational round-trips through serialize+parse for any int64 numerator"
     // the boundary classes (zero, positive, negative, max/min int64-ish).
     auto numerator = GENERATE(std::int64_t{0}, std::int64_t{1}, std::int64_t{-1}, std::int64_t{42},
                               std::int64_t{-42}, std::int64_t{1'000'000}, std::int64_t{-1'000'000},
-                              std::int64_t{1LL << 32}, std::int64_t{-(1LL << 32)});
+                              static_cast<std::int64_t>(std::uint64_t{1} << 32U),
+                              -static_cast<std::int64_t>(std::uint64_t{1} << 32U));
     auto denominator =
         GENERATE(std::int64_t{1}, std::int64_t{2}, std::int64_t{7}, std::int64_t{1000});
-    Rational original{numerator, denominator};
+    const Rational original{numerator, denominator};
     // Serialize a wire-form DBC carrying the Rational as a signal factor;
     // round-trip through serialize → parse and assert value equality
     // (cross-multiplication, avoids canonical-form reasoning).
@@ -54,7 +55,7 @@ TEST_CASE("Rational round-trips through serialize+parse for any int64 numerator"
         .unit = Unit{""},
         .presence = AlwaysPresent{},
     };
-    DbcDefinition dbc{
+    const DbcDefinition dbc{
         .version = "1.0",
         .messages = {DbcMessage{
             .id = CanId{*sid},

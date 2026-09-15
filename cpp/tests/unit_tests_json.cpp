@@ -17,6 +17,7 @@
 #include <aletheia/aletheia.hpp>
 #include <aletheia/enrich.hpp>
 
+#include <cstdint>
 #include <nlohmann/json.hpp>
 
 #include <cstddef>
@@ -27,7 +28,7 @@
 #include <vector>
 
 using namespace aletheia;
-using json = nlohmann::json;
+using Json = nlohmann::json;
 using aletheia::test::make_test_dbc;
 using Catch::Matchers::ContainsSubstring;
 
@@ -38,7 +39,7 @@ using Catch::Matchers::ContainsSubstring;
 TEST_CASE("serialize_parse_dbc produces valid JSON", "[json][serialize]") {
     auto dbc = make_test_dbc();
     auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
 
     CHECK(j["type"] == "command");
     CHECK(j["command"] == "parseDBC");
@@ -75,7 +76,7 @@ TEST_CASE("serialize_set_properties produces correct JSON", "[json][serialize]")
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     auto str = detail::serialize_set_properties(props);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
 
     CHECK(j["command"] == "setProperties");
     CHECK(j["properties"].size() == 1);
@@ -104,10 +105,11 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
         .minimum = RationalBound{Rational{-40, 1}},
         .maximum = RationalBound{Rational{215, 1}},
         .unit = Unit{"C"},
-        .presence = Multiplexed{SignalName{"MuxSelector"}, {MultiplexValue{3}}},
+        .presence = Multiplexed{.multiplexor = SignalName{"MuxSelector"},
+                                .multiplex_values = {MultiplexValue{3}}},
     };
 
-    DbcDefinition dbc{
+    const DbcDefinition dbc{
         .version = "",
         .messages = {DbcMessage{
             .id = CanId{id},
@@ -119,13 +121,13 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
     };
 
     auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
     auto& jsig = j["dbc"]["messages"][0]["signals"][0];
 
     CHECK(jsig["byteOrder"] == "big_endian");
     CHECK(jsig["signed"] == true);
     CHECK(jsig["multiplexor"] == "MuxSelector");
-    CHECK(jsig["multiplex_values"] == json::array({3}));
+    CHECK(jsig["multiplex_values"] == Json::array({3}));
     // Multiplexed signals carry an explicit ``"presence": "multiplexed"``
     // discriminator (cross-binding parity with Agda Formatter, Go
     // ``serializeDBC``, and Python).
@@ -136,7 +138,7 @@ TEST_CASE("serialize extended CAN ID in DBC", "[json][serialize]") {
     auto id = ExtendedId::create(0x18FEF100).value();
     auto dlc = Dlc::create(8).value();
 
-    DbcDefinition dbc{
+    const DbcDefinition dbc{
         .version = "",
         .messages = {DbcMessage{
             .id = CanId{id},
@@ -148,7 +150,7 @@ TEST_CASE("serialize extended CAN ID in DBC", "[json][serialize]") {
     };
 
     auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
     auto& msg = j["dbc"]["messages"][0];
 
     CHECK(msg["id"] == 0x18FEF100);
@@ -161,7 +163,7 @@ TEST_CASE("serialize metric temporal operators", "[json][serialize]") {
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     auto str = detail::serialize_set_properties(props);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
 
     CHECK(j["properties"][0]["operator"] == "metricAlways");
     CHECK(j["properties"][0]["timebound"] == 2'000'000);
@@ -173,7 +175,7 @@ TEST_CASE("serialize all predicate types", "[json][serialize]") {
         std::vector<LtlFormula> props;
         props.push_back(std::move(formula));
         auto str = detail::serialize_set_properties(props);
-        auto j = json::parse(str);
+        auto j = Json::parse(str);
         CHECK(j["properties"][0]["predicate"]["predicate"] == expected);
     };
 
@@ -809,7 +811,7 @@ TEST_CASE("serialize_parse_dbc emits Tier 1 metadata arrays", "[json][serialize]
     });
 
     auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
 
     REQUIRE(j["dbc"]["signalGroups"].is_array());
     REQUIRE(j["dbc"]["signalGroups"].size() == 1);
@@ -833,7 +835,7 @@ TEST_CASE("serialize_parse_dbc emits Tier 1 metadata arrays", "[json][serialize]
 TEST_CASE("serialize_parse_dbc emits empty arrays when metadata absent", "[json][serialize][dbc]") {
     auto dbc = make_test_dbc();
     auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
     REQUIRE(j["dbc"]["signalGroups"].is_array());
     CHECK(j["dbc"]["signalGroups"].empty());
     REQUIRE(j["dbc"]["environmentVars"].is_array());
@@ -951,15 +953,77 @@ TEST_CASE("parse_dbc_response env var preserves exact rationals", "[json][parse]
 
 // The targets carry a validated identifier now, so the tests name one the same
 // way the parser does: by value and by width.
-auto std_can_id(std::uint32_t v) -> CanId {
+static auto std_can_id(std::uint32_t v) -> CanId {
     return CanId{StandardId::create(static_cast<std::uint16_t>(v)).value()};
 }
-auto ext_can_id(std::uint32_t v) -> CanId {
+static auto ext_can_id(std::uint32_t v) -> CanId {
     return CanId{ExtendedId::create(v).value()};
 }
 
-TEST_CASE("Tier 2 DBC metadata round-trips through serialize + parse",
-          "[json][serialize][parse][dbc][tier2]") {
+// A DBC carrying one of every Tier 2 shape: nodes, each comment target,
+// each attribute definition kind, a default and an assignment.
+// Every attribute shape the wire carries: a definition per scope and per
+// type, one default and one assignment.
+static void add_tier2_attributes(DbcDefinition& dbc) {
+    dbc.attributes.emplace_back(DbcAttrDef{
+        .name = "GenMsgCycleTime",
+        .scope = DbcAttrScope::Message,
+        .attr_type = DbcAttrTypeInt{.min = 0, .max = 10000},
+    });
+    dbc.attributes.emplace_back(DbcAttrDef{
+        .name = "SignalGain",
+        .scope = DbcAttrScope::Signal,
+        .attr_type = DbcAttrTypeFloat{.min = Rational{-1, 2}, .max = Rational{22, 7}},
+    });
+    dbc.attributes.emplace_back(DbcAttrDef{
+        .name = "BusName",
+        .scope = DbcAttrScope::Network,
+        .attr_type = DbcAttrTypeString{},
+    });
+    dbc.attributes.emplace_back(DbcAttrDef{
+        .name = "ModuleType",
+        .scope = DbcAttrScope::Node,
+        .attr_type = DbcAttrTypeEnum{.values = {"ECU", "Gateway", "Sensor"}},
+    });
+    dbc.attributes.emplace_back(DbcAttrDef{
+        .name = "AddressMask",
+        .scope = DbcAttrScope::Message,
+        .attr_type = DbcAttrTypeHex{.min = 0, .max = 65535},
+    });
+    dbc.attributes.emplace_back(DbcAttrDefault{
+        .name = "GenMsgCycleTime",
+        .value = DbcAttrValueInt{.value = 100},
+    });
+    dbc.attributes.emplace_back(DbcAttrAssign{
+        .name = "GenMsgCycleTime",
+        .target = DbcAttrTargetMessage{.id = std_can_id(256)},
+        .value = DbcAttrValueInt{.value = 20},
+    });
+    dbc.attributes.emplace_back(DbcAttrAssign{
+        .name = "SignalGain",
+        .target = DbcAttrTargetSignal{.id = ext_can_id(512), .signal = "Torque"},
+        .value = DbcAttrValueFloat{.value = Rational{3, 4}},
+    });
+    dbc.attributes.emplace_back(DbcAttrAssign{
+        .name = "ModuleType",
+        .target = DbcAttrTargetNode{.node = NodeName{"ECU1"}},
+        .value = DbcAttrValueEnum{.value = 0},
+    });
+    dbc.attributes.emplace_back(DbcAttrAssign{
+        .name = "SenderRole",
+        .target = DbcAttrTargetNodeMsg{.node = NodeName{"ECU1"}, .id = std_can_id(256)},
+        .value = DbcAttrValueString{.value = "producer"},
+    });
+    dbc.attributes.emplace_back(DbcAttrAssign{
+        .name = "SignalAccess",
+        .target = DbcAttrTargetNodeSig{.node = NodeName{"ECU1"},
+                                       .id = ext_can_id(512),
+                                       .signal = "Torque"},
+        .value = DbcAttrValueHex{.value = 255},
+    });
+}
+
+static auto make_tier2_dbc() -> DbcDefinition {
     auto dbc = make_test_dbc();
     dbc.nodes.push_back(DbcNode{.name = NodeName{"ECU1"}});
     dbc.nodes.push_back(DbcNode{.name = NodeName{"Gateway"}});
@@ -984,66 +1048,15 @@ TEST_CASE("Tier 2 DBC metadata round-trips through serialize + parse",
         .target = DbcCommentTargetEnvVar{.env_var = "AmbientTemp"},
         .text = "Ambient temperature sensor",
     });
+    add_tier2_attributes(dbc);
+    return dbc;
+}
 
-    dbc.attributes.push_back(DbcAttrDef{
-        .name = "GenMsgCycleTime",
-        .scope = DbcAttrScope::Message,
-        .attr_type = DbcAttrTypeInt{.min = 0, .max = 10000},
-    });
-    dbc.attributes.push_back(DbcAttrDef{
-        .name = "SignalGain",
-        .scope = DbcAttrScope::Signal,
-        .attr_type = DbcAttrTypeFloat{.min = Rational{-1, 2}, .max = Rational{22, 7}},
-    });
-    dbc.attributes.push_back(DbcAttrDef{
-        .name = "BusName",
-        .scope = DbcAttrScope::Network,
-        .attr_type = DbcAttrTypeString{},
-    });
-    dbc.attributes.push_back(DbcAttrDef{
-        .name = "ModuleType",
-        .scope = DbcAttrScope::Node,
-        .attr_type = DbcAttrTypeEnum{.values = {"ECU", "Gateway", "Sensor"}},
-    });
-    dbc.attributes.push_back(DbcAttrDef{
-        .name = "AddressMask",
-        .scope = DbcAttrScope::Message,
-        .attr_type = DbcAttrTypeHex{.min = 0, .max = 65535},
-    });
-    dbc.attributes.push_back(DbcAttrDefault{
-        .name = "GenMsgCycleTime",
-        .value = DbcAttrValueInt{.value = 100},
-    });
-    dbc.attributes.push_back(DbcAttrAssign{
-        .name = "GenMsgCycleTime",
-        .target = DbcAttrTargetMessage{.id = std_can_id(256)},
-        .value = DbcAttrValueInt{.value = 20},
-    });
-    dbc.attributes.push_back(DbcAttrAssign{
-        .name = "SignalGain",
-        .target = DbcAttrTargetSignal{.id = ext_can_id(512), .signal = "Torque"},
-        .value = DbcAttrValueFloat{.value = Rational{3, 4}},
-    });
-    dbc.attributes.push_back(DbcAttrAssign{
-        .name = "ModuleType",
-        .target = DbcAttrTargetNode{.node = NodeName{"ECU1"}},
-        .value = DbcAttrValueEnum{.value = 0},
-    });
-    dbc.attributes.push_back(DbcAttrAssign{
-        .name = "SenderRole",
-        .target = DbcAttrTargetNodeMsg{.node = NodeName{"ECU1"}, .id = std_can_id(256)},
-        .value = DbcAttrValueString{.value = "producer"},
-    });
-    dbc.attributes.push_back(DbcAttrAssign{
-        .name = "SignalAccess",
-        .target = DbcAttrTargetNodeSig{.node = NodeName{"ECU1"},
-                                       .id = ext_can_id(512),
-                                       .signal = "Torque"},
-        .value = DbcAttrValueHex{.value = 255},
-    });
-
-    auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+TEST_CASE("Tier 2 DBC metadata serializes to the documented wire shape",
+          "[json][serialize][parse][dbc][tier2]") {
+    const auto dbc = make_tier2_dbc();
+    const auto str = detail::serialize_parse_dbc(dbc);
+    const auto j = Json::parse(str);
 
     // Confirm wire shape: every tagged union carries "kind" first.
     REQUIRE(j["dbc"]["nodes"].is_array());
@@ -1062,10 +1075,17 @@ TEST_CASE("Tier 2 DBC metadata round-trips through serialize + parse",
     // — matches Python's Fraction, drifts under double.
     CHECK(j["dbc"]["attributes"][1]["attrType"]["min"]["numerator"] == -1);
     CHECK(j["dbc"]["attributes"][1]["attrType"]["min"]["denominator"] == 2);
+}
+
+TEST_CASE("Tier 2 DBC metadata survives the parse leg of the round-trip",
+          "[json][serialize][parse][dbc][tier2]") {
+    const auto dbc = make_tier2_dbc();
+    const auto str = detail::serialize_parse_dbc(dbc);
+    const auto j = Json::parse(str);
 
     // Route the serialized JSON through parse_dbc_response (wrap as success
     // envelope) to exercise the parser leg of the round-trip.
-    json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
+    const Json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
     auto result = detail::parse_dbc_response(envelope.dump());
     REQUIRE(result.has_value());
 
@@ -1139,7 +1159,7 @@ TEST_CASE("a target naming an identifier too wide for its width is refused",
     };
     auto too_wide = detail::parse_dbc_response(make(R"({"kind":"message","id":2048})"));
     REQUIRE_FALSE(too_wide.has_value());
-    CHECK(std::string{too_wide.error().message()}.find("2048") != std::string::npos);
+    CHECK(std::string{too_wide.error().message()}.contains("2048"));
 
     // The same value is fine when the target says the identifier is extended.
     auto as_extended =
@@ -1159,14 +1179,14 @@ TEST_CASE("DbcSignal.receivers round-trips through serialize + parse",
     dbc.messages[0].signals[0].receivers = {NodeName{"ECU_A"}, NodeName{"ECU_B"}};
 
     auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
 
     REQUIRE(j["dbc"]["messages"][0]["signals"][0]["receivers"].is_array());
     CHECK(j["dbc"]["messages"][0]["signals"][0]["receivers"].size() == 2);
     CHECK(j["dbc"]["messages"][0]["signals"][0]["receivers"][0] == "ECU_A");
     CHECK(j["dbc"]["messages"][0]["signals"][0]["receivers"][1] == "ECU_B");
 
-    json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
+    const Json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
     auto result = detail::parse_dbc_response(envelope.dump());
     REQUIRE(result.has_value());
     REQUIRE(result->messages.size() == 1);
@@ -1211,14 +1231,14 @@ TEST_CASE("DbcMessage.senders round-trips through serialize + parse",
     dbc.messages[0].senders = {NodeName{"ECU_B"}, NodeName{"ECU_C"}};
 
     auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
 
     REQUIRE(j["dbc"]["messages"][0]["senders"].is_array());
     CHECK(j["dbc"]["messages"][0]["senders"].size() == 2);
     CHECK(j["dbc"]["messages"][0]["senders"][0] == "ECU_B");
     CHECK(j["dbc"]["messages"][0]["senders"][1] == "ECU_C");
 
-    json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
+    const Json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
     auto result = detail::parse_dbc_response(envelope.dump());
     REQUIRE(result.has_value());
     REQUIRE(result->messages.size() == 1);
@@ -1334,13 +1354,13 @@ TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
     // identical to the "dbc" body shape in a parse_dbc RESPONSE, so the
     // wire shape under test is the same one the FFI emits and consumes.
     auto cmd_str = detail::serialize_parse_dbc(dbc);
-    auto cmd_j = json::parse(cmd_str);
+    auto cmd_j = Json::parse(cmd_str);
     REQUIRE(cmd_j.contains("dbc"));
     REQUIRE(cmd_j["dbc"]["unresolvedValueDescs"].is_array());
     REQUIRE(cmd_j["dbc"]["unresolvedValueDescs"].size() == 1);
 
     // Re-wrap the dbc body as a success response and parse it back.
-    json response = {{"status", "success"}, {"dbc", cmd_j["dbc"]}};
+    const Json response = {{"status", "success"}, {"dbc", cmd_j["dbc"]}};
     auto parsed = detail::parse_dbc_response(response.dump());
     REQUIRE(parsed.has_value());
     REQUIRE(parsed->unresolved_value_descs.size() == 1);
@@ -1623,11 +1643,11 @@ TEST_CASE("parse_dbc_response rejects truncating standard CAN ID (70000)", "[jso
 }
 
 TEST_CASE("ExtractionResult::get helper", "[response]") {
-    ExtractionResult result{
+    const ExtractionResult result{
         .values =
             {
-                {SignalName{"Speed"}, PhysicalValue{Rational{120, 1}}},
-                {SignalName{"RPM"}, PhysicalValue{Rational{3000, 1}}},
+                {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{120, 1}}},
+                {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{3000, 1}}},
             },
         .errors = {},
         .absent = {},
@@ -1782,19 +1802,17 @@ TEST_CASE("format_formula metric release", "[enrich]") {
 // decodes; each rejection mutates exactly one field.
 // ===========================================================================
 
-namespace {
-auto base_dbc_response() -> json {
-    auto cmd = json::parse(detail::serialize_parse_dbc(make_test_dbc()));
-    json resp;
+static auto base_dbc_response() -> Json {
+    auto cmd = Json::parse(detail::serialize_parse_dbc(make_test_dbc()));
+    Json resp;
     resp["status"] = "success";
     resp["dbc"] = cmd.at("dbc");
     return resp;
 }
 
-auto first_signal(json& resp) -> json& {
+static auto first_signal(Json& resp) -> Json& {
     return resp.at("dbc").at("messages").at(0).at("signals").at(0);
 }
-} // namespace
 
 TEST_CASE("parse_dbc_response accepts well-formed metadata", "[json][parse][dbc][validation]") {
     CHECK(detail::parse_dbc_response(base_dbc_response().dump()).has_value());
@@ -1848,7 +1866,7 @@ TEST_CASE("parse_dbc_response rejects an unknown or missing presence",
 // multiplexed presence requires non-empty multiplexor + values
 TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
           "[json][parse][dbc][validation]") {
-    auto make_mux = [](const char* mux, json values) {
+    auto make_mux = [](const char* mux, Json values) {
         auto j = base_dbc_response();
         auto& sig = first_signal(j);
         sig["presence"] = "multiplexed";
@@ -1857,9 +1875,9 @@ TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
         return j;
     };
     // empty values
-    CHECK_FALSE(detail::parse_dbc_response(make_mux("Mode", json::array()).dump()).has_value());
+    CHECK_FALSE(detail::parse_dbc_response(make_mux("Mode", Json::array()).dump()).has_value());
     // empty multiplexor
-    CHECK_FALSE(detail::parse_dbc_response(make_mux("", json::array({0})).dump()).has_value());
+    CHECK_FALSE(detail::parse_dbc_response(make_mux("", Json::array({0})).dump()).has_value());
     // missing values
     {
         auto j = base_dbc_response();
@@ -1870,10 +1888,10 @@ TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
         CHECK_FALSE(detail::parse_dbc_response(j.dump()).has_value());
     }
     // multiplex value above the u32 range
-    CHECK_FALSE(detail::parse_dbc_response(make_mux("Mode", json::array({5000000000LL})).dump())
+    CHECK_FALSE(detail::parse_dbc_response(make_mux("Mode", Json::array({5000000000LL})).dump())
                     .has_value());
     // well-formed multiplexed — accepted
-    CHECK(detail::parse_dbc_response(make_mux("Mode", json::array({0, 1})).dump()).has_value());
+    CHECK(detail::parse_dbc_response(make_mux("Mode", Json::array({0, 1})).dump()).has_value());
 }
 
 // ===========================================================================

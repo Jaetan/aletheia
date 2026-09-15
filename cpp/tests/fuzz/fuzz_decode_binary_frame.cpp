@@ -24,6 +24,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <span>
 #include <stop_token>
@@ -31,13 +32,12 @@
 #include <utility>
 #include <vector>
 
-namespace {
-
 using namespace aletheia;
 
 // The one override the decoder needs: the mock's base returns
 // BinaryUnsupported here, which would send the client down the JSON path and
 // past the decoder this harness exists for.
+namespace {
 class BinaryMock : public MockBackend {
 public:
     std::vector<std::byte> bytes;
@@ -48,8 +48,9 @@ public:
         return bytes;
     }
 };
+} // namespace
 
-auto one_message_dbc() -> DbcDefinition {
+static auto one_message_dbc() -> DbcDefinition {
     auto signal = [](const char* name, std::uint16_t start_bit) {
         return DbcSignal{
             .name = SignalName{name},
@@ -76,6 +77,7 @@ auto one_message_dbc() -> DbcDefinition {
     };
     return DbcDefinition{.version = "1.0", .messages = {std::move(message)}};
 }
+namespace {
 
 // Built once: the client, its DBC lookup and the eight payload bytes are the
 // same for every input, and only the decoder's buffer varies.
@@ -83,8 +85,9 @@ struct Harness {
     BinaryMock* mock;
     std::unique_ptr<AletheiaClient> client;
 };
+} // namespace
 
-auto harness() -> Harness& {
+static auto harness() -> Harness& {
     static Harness built = [] {
         auto owned = std::make_unique<BinaryMock>();
         auto* mock = owned.get();
@@ -96,8 +99,6 @@ auto harness() -> Harness& {
     }();
     return built;
 }
-
-} // namespace
 
 extern "C" auto LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) -> int {
     // The decoder reads a length-prefixed value table; a buffer longer than a

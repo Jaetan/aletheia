@@ -3,7 +3,6 @@
 // Integration tests with real libaletheia-ffi.so.
 // Requires: cabal run shake -- build (produces build/libaletheia-ffi.so)
 // Run with: ctest -R integration (or ./integration_tests)
-#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
@@ -14,8 +13,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <exception>
 #include <expected>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -23,9 +24,11 @@
 #include <string_view>
 #include <thread>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "repo_root.hpp"
+#include <catch2/catch_message.hpp>
 
 using aletheia::test::repo_root;
 
@@ -140,7 +143,8 @@ static auto make_multi_value_mux_dbc() -> DbcDefinition {
         .minimum = RationalBound{Rational{0, 1}},
         .maximum = RationalBound{Rational{255, 1}},
         .unit = Unit{""},
-        .presence = Multiplexed{SignalName{"Selector"}, {MultiplexValue{1}, MultiplexValue{2}}},
+        .presence = Multiplexed{.multiplexor = SignalName{"Selector"},
+                                .multiplex_values = {MultiplexValue{1}, MultiplexValue{2}}},
     };
     return DbcDefinition{
         .version = "",
@@ -189,8 +193,12 @@ static auto make_split_master_mux_dbc() -> DbcDefinition {
                 {
                     make_sig("MuxA", 0, AlwaysPresent{}),
                     make_sig("MuxB", 8, AlwaysPresent{}),
-                    make_sig("A", 16, Multiplexed{SignalName{"MuxA"}, {MultiplexValue{0}}}),
-                    make_sig("B", 24, Multiplexed{SignalName{"MuxB"}, {MultiplexValue{0}}}),
+                    make_sig("A", 16,
+                             Multiplexed{.multiplexor = SignalName{"MuxA"},
+                                         .multiplex_values = {MultiplexValue{0}}}),
+                    make_sig("B", 24,
+                             Multiplexed{.multiplexor = SignalName{"MuxB"},
+                                         .multiplex_values = {MultiplexValue{0}}}),
                 },
         }},
     };
@@ -324,8 +332,6 @@ TEST_CASE("extract signals via real FFI", "[integration]") {
     CHECK(result->get(SignalName{"RPM"}).get() == Rational{3000, 1});
 }
 
-namespace {
-
 // Delegates every backend operation to a real FFI backend so parse_dbc (which
 // populates the client's signal-name cache and thus arms the binary extraction
 // path) works for real — except extract_signals_bin, which hands back a
@@ -334,6 +340,7 @@ namespace {
 // mismatch, offset-table violations, invalid UTF-8 — each must surface a
 // Protocol error, not decode as a silent success), or force the JSON fallback
 // by handing back an ErrorKind::BinaryUnsupported error.
+namespace {
 class FixedBinExtractBackend : public IBackend {
 public:
     FixedBinExtractBackend(std::unique_ptr<IBackend> inner,
@@ -399,20 +406,20 @@ struct WireBuf {
 
     void u8(std::uint8_t v) { bytes.push_back(std::byte{v}); }
     void u16(std::uint16_t v) {
-        u8(static_cast<std::uint8_t>(v & 0xFF));
-        u8(static_cast<std::uint8_t>(v >> 8));
+        u8(static_cast<std::uint8_t>(v & 0xFFU));
+        u8(static_cast<std::uint8_t>(std::uint32_t{v} >> 8U));
     }
     void u32(std::uint32_t v) {
-        u16(static_cast<std::uint16_t>(v & 0xFFFF));
-        u16(static_cast<std::uint16_t>(v >> 16));
+        u16(static_cast<std::uint16_t>(v & 0xFFFFU));
+        u16(static_cast<std::uint16_t>(v >> 16U));
     }
     void i64(std::int64_t v) {
         auto u = static_cast<std::uint64_t>(v);
-        for (int i = 0; i < 8; ++i)
-            u8(static_cast<std::uint8_t>((u >> (8 * i)) & 0xFF));
+        for (unsigned i = 0; i < 8; ++i)
+            u8(static_cast<std::uint8_t>((u >> (8U * i)) & 0xFFU));
     }
     void str(std::string_view s) {
-        for (char c : s)
+        for (const char c : s)
             u8(static_cast<std::uint8_t>(c));
     }
     void header(std::uint16_t nvals, std::uint16_t nerrs, std::uint16_t nabss,
@@ -426,6 +433,8 @@ struct WireBuf {
 
 // Runs extract_signals against a crafted binary extraction buffer through the
 // public API (real .so for parse_dbc; the fixed buffer for the binary path).
+} // namespace
+
 static auto extract_with_crafted_buf(std::vector<std::byte> buf) -> Result<ExtractionResult> {
     auto backend = std::make_unique<FixedBinExtractBackend>(make_ffi_backend(find_lib()),
                                                             /*buf=*/std::move(buf));
@@ -444,8 +453,6 @@ static auto expect_protocol_error(std::vector<std::byte> buf) {
     CHECK(result.error().kind() == ErrorKind::Protocol);
     return result.error();
 }
-
-} // namespace
 
 TEST_CASE("binary extraction decodes values, wire reasons, and absent exactly", "[integration]") {
     // One value, two errors with distinct kernel-minted reasons — the first
@@ -533,7 +540,7 @@ TEST_CASE("binary extraction rejects a nonzero first reason offset", "[integrati
     w.u32(4);
     w.str("abcd");
     auto err = expect_protocol_error(std::move(w.bytes));
-    CHECK(std::string_view{err.message()}.find("offsets") != std::string_view::npos);
+    CHECK(std::string_view{err.message()}.contains("offsets"));
 }
 
 TEST_CASE("binary extraction rejects non-monotone reason offsets", "[integration]") {
@@ -548,7 +555,7 @@ TEST_CASE("binary extraction rejects non-monotone reason offsets", "[integration
     w.u32(4);
     w.str("abcd");
     auto err = expect_protocol_error(std::move(w.bytes));
-    CHECK(std::string_view{err.message()}.find("offsets") != std::string_view::npos);
+    CHECK(std::string_view{err.message()}.contains("offsets"));
 }
 
 TEST_CASE("binary extraction rejects a final offset that mismatches reasonBytes", "[integration]") {
@@ -560,7 +567,7 @@ TEST_CASE("binary extraction rejects a final offset that mismatches reasonBytes"
     w.u32(3); // off[nErrors] must equal reasonBytes (4)
     w.str("abcd");
     auto err = expect_protocol_error(std::move(w.bytes));
-    CHECK(std::string_view{err.message()}.find("offsets") != std::string_view::npos);
+    CHECK(std::string_view{err.message()}.contains("offsets"));
 }
 
 TEST_CASE("binary extraction rejects invalid UTF-8 in a reason slice", "[integration]") {
@@ -573,7 +580,7 @@ TEST_CASE("binary extraction rejects invalid UTF-8 in a reason slice", "[integra
     w.u8(0xFF); // 0xFF is never valid in UTF-8
     w.u8(0xFE);
     auto err = expect_protocol_error(std::move(w.bytes));
-    CHECK(std::string_view{err.message()}.find("UTF-8") != std::string_view::npos);
+    CHECK(std::string_view{err.message()}.contains("UTF-8"));
 }
 
 TEST_CASE("binary extraction rejects a non-positive denominator", "[integration]") {
@@ -627,7 +634,7 @@ TEST_CASE("binary and JSON extraction agree byte-for-byte on error reasons",
     CHECK(bin->errors[0].reason == json->errors[0].reason);
     // The reason is the kernel's detailed out-of-bounds string, not a
     // generic per-code message.
-    CHECK(std::string_view{bin->errors[0].reason}.find("not in [") != std::string_view::npos);
+    CHECK(std::string_view{bin->errors[0].reason}.contains("not in ["));
 }
 
 TEST_CASE("build frame via real FFI", "[integration]") {
@@ -639,8 +646,8 @@ TEST_CASE("build frame via real FFI", "[integration]") {
 
     auto id = CanId{StandardId::create(0x100).value()};
     std::vector<SignalValue> signals{
-        {SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}}, // raw = 1000
-        {SignalName{"RPM"}, PhysicalValue{Rational{3000, 1}}},  // raw = 3000
+        {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}}, // raw = 1000
+        {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{3000, 1}}},  // raw = 3000
     };
 
     auto result = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
@@ -665,13 +672,12 @@ TEST_CASE("build frame for a CAN ID with no DBC message errors distinctly", "[in
     // "signal not found", matching Go (resolveSignalIndices) and Python.
     auto id = CanId{StandardId::create(0x200).value()};
     std::vector<SignalValue> signals{
-        {SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}},
+        {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}},
     };
     auto result = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Validation);
-    CHECK(std::string_view{result.error().message()}.find("no DBC message for CAN ID") !=
-          std::string_view::npos);
+    CHECK(std::string_view{result.error().message()}.contains("no DBC message for CAN ID"));
 }
 
 TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
@@ -683,8 +689,8 @@ TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
 
     auto id = CanId{StandardId::create(0x100).value()};
     std::vector<SignalValue> signals{
-        {SignalName{"Speed"}, PhysicalValue{Rational{85, 2}}},
-        {SignalName{"RPM"}, PhysicalValue{Rational{1500, 1}}},
+        {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{85, 2}}},
+        {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{1500, 1}}},
     };
 
     auto built = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
@@ -722,10 +728,11 @@ TEST_CASE("FFI payload guards accept exactly 64 bytes (CAN-FD boundary)",
     const auto dlc = Dlc::create(15).value();                      // CAN-FD DLC 15 = 64 bytes
     const auto known = CanId{StandardId::create(0x100).value()};   // in the DBC → binary path
     const auto unknown = CanId{StandardId::create(0x7FF).value()}; // not in DBC → JSON fallback
-    const std::vector<SignalValue> signals{{SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}}};
+    const std::vector<SignalValue> signals{
+        {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}}};
 
     const auto mentions_exceeds = [](std::string_view msg) {
-        return msg.find("data length exceeds") != std::string_view::npos;
+        return msg.contains("data length exceeds");
     };
     // A 64-byte call must NOT produce the >64 guard error, whether the guard
     // reports by throwing or by returning std::unexpected.  The original
@@ -772,8 +779,8 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
     // Speed 100, 120 and 150 km/h at the DBC's factor of one tenth, all
     // under the threshold.
     for (std::uint16_t raw : {std::uint16_t{1000}, std::uint16_t{1200}, std::uint16_t{1500}}) {
-        FramePayload data{static_cast<std::byte>(raw & 0xFF),
-                          static_cast<std::byte>((raw >> 8) & 0xFF),
+        FramePayload data{static_cast<std::byte>(raw & 0xFFU),
+                          static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
                           std::byte{0},
                           std::byte{0},
                           std::byte{0},
@@ -814,8 +821,8 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
     // Speed 100, 110 and 150 km/h at the DBC's factor of one tenth; the last
     // one breaks the threshold.
     for (std::uint16_t raw : {std::uint16_t{1000}, std::uint16_t{1100}, std::uint16_t{1500}}) {
-        FramePayload data{static_cast<std::byte>(raw & 0xFF),
-                          static_cast<std::byte>((raw >> 8) & 0xFF),
+        FramePayload data{static_cast<std::byte>(raw & 0xFFU),
+                          static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
                           std::byte{0},
                           std::byte{0},
                           std::byte{0},
@@ -832,7 +839,7 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
     REQUIRE(end.has_value());
 
     // Either got a mid-stream violation or end-of-stream violation
-    bool eos_violation = !end->results.empty() && end->results[0].verdict == Verdict::Fails;
+    const bool eos_violation = !end->results.empty() && end->results[0].verdict == Verdict::Fails;
     CHECK((got_violation || eos_violation));
 }
 
@@ -935,7 +942,7 @@ VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;
     REQUIRE(formatted.has_value());
     constexpr std::string_view want_line =
         R"(VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;)";
-    CHECK(formatted->text.find(want_line) != std::string::npos);
+    CHECK(formatted->text.contains(want_line));
     // format_dbc_text is always strict: this DBC round-trips, so it yields a
     // DbcText carrying the (advisory, here empty) wfTextIssues diagnostics.
     CHECK(formatted->issues.empty());
@@ -993,19 +1000,17 @@ VAL_ 999 GhostSignal 0 "Off" 1 "On" ;
 
     auto parsed = client.parse_dbc_text(std::stop_token{}, text);
     REQUIRE(parsed.has_value());
-    bool hit = std::ranges::any_of(parsed->warnings, [](const ValidationIssue& issue) {
+    const bool hit = std::ranges::any_of(parsed->warnings, [](const ValidationIssue& issue) {
         return issue.code == IssueCode::UnknownValueDescriptionTarget;
     });
     CHECK(hit);
 }
 
-namespace {
-auto has_warning(const std::vector<ValidationIssue>& issues, IssueCode code) -> bool {
+static auto has_warning(const std::vector<ValidationIssue>& issues, IssueCode code) -> bool {
     return std::ranges::any_of(issues, [code](const ValidationIssue& issue) {
         return issue.code == code && issue.severity == IssueSeverity::Warning;
     });
 }
-} // namespace
 
 TEST_CASE("CHECK 24 multi_value_mux_selector warning via real FFI",
           "[integration][dbc][validator][mux]") {
@@ -1071,12 +1076,13 @@ BO_ 256 EngineStatus: 8 Engine
     auto parsed = client.parse_dbc_text(std::stop_token{}, text);
     REQUIRE_FALSE(parsed.has_value());
     CHECK(parsed.error().code() == ErrorCode::HandlerValidationFailed);
-    CHECK(std::string{parsed.error().message()}.find("duplicate signal name") != std::string::npos);
+    CHECK(std::string{parsed.error().message()}.contains("duplicate signal name"));
     REQUIRE(parsed.error().issues().has_value());
-    bool hit = std::ranges::any_of(*parsed.error().issues(), [](const ValidationIssue& issue) {
-        return issue.severity == IssueSeverity::Error &&
-               issue.code == IssueCode::DuplicateSignalName;
-    });
+    const bool hit =
+        std::ranges::any_of(*parsed.error().issues(), [](const ValidationIssue& issue) {
+            return issue.severity == IssueSeverity::Error &&
+                   issue.code == IssueCode::DuplicateSignalName;
+        });
     CHECK(hit);
 }
 
@@ -1101,96 +1107,102 @@ BO_ 256 EngineStatus: 8 Engine
 // Same DBC, same frame data, different properties → different verdicts.
 // This proves each client owns independent state.
 
+namespace {
+// One participant of the isolation test: its own client over the real
+// library, stepped through the workflow in lockstep with its peer.
+struct ThreadResult {
+    bool ok = false;
+    Verdict verdict = Verdict::Fails;
+    std::string error;
+};
+} // namespace
+
+static void run_concurrent_client(const fs::path& lib, std::barrier<>& sync,
+                                  PhysicalValue threshold, ThreadResult& out) {
+    try {
+        auto backend = make_ffi_backend(lib);
+        AletheiaClient client(std::move(backend));
+
+        // Step 1: parse DBC
+        auto dbc = make_integration_dbc();
+        auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
+        if (!parse_result.has_value()) {
+            out.error = "parse_dbc failed";
+            sync.arrive_and_drop();
+            return;
+        }
+        sync.arrive_and_wait();
+
+        // Step 2: set properties, each thread with a different threshold
+        auto formula = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, threshold)));
+        std::vector<LtlFormula> props;
+        props.push_back(std::move(formula));
+        if (!client.set_properties(std::stop_token{}, props).has_value()) {
+            out.error = "set_properties failed";
+            sync.arrive_and_drop();
+            return;
+        }
+        sync.arrive_and_wait();
+
+        // Step 3: start stream
+        if (!client.start_stream(std::stop_token{}).has_value()) {
+            out.error = "start_stream failed";
+            sync.arrive_and_drop();
+            return;
+        }
+        sync.arrive_and_wait();
+
+        // Step 4: send frame with Speed = 150
+        auto id = CanId{StandardId::create(0x100).value()};
+        auto dlc = Dlc::create(8).value();
+        const std::uint16_t raw = 1500; // Speed 150 km/h at factor one tenth
+        FramePayload data{static_cast<std::byte>(raw & 0xFFU),
+                          static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
+                          std::byte{0},
+                          std::byte{0},
+                          std::byte{0},
+                          std::byte{0},
+                          std::byte{0},
+                          std::byte{0}};
+        auto send_result =
+            client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
+        if (!send_result.has_value()) {
+            out.error = "send_frame failed";
+            sync.arrive_and_drop();
+            return;
+        }
+        sync.arrive_and_wait();
+
+        // Step 5: end stream and capture verdict
+        auto end = client.end_stream(std::stop_token{});
+        if (!end.has_value() || end->results.empty()) {
+            out.error = "end_stream failed or empty results";
+            return;
+        }
+
+        // Check both mid-stream and EOS for the verdict
+        const bool mid_violation = std::holds_alternative<PropertyBatch>(*send_result);
+        out.verdict = (mid_violation || end->results[0].verdict == Verdict::Fails) ? Verdict::Fails
+                                                                                   : Verdict::Holds;
+        out.ok = true;
+    } catch (const std::exception& e) {
+        out.error = e.what();
+    }
+}
+
 TEST_CASE("concurrent clients have independent state via real FFI", "[integration][concurrent]") {
     auto lib = find_lib();
 
     // Barrier with 2 participants — blocks until both threads arrive.
     std::barrier sync(2);
 
-    struct ThreadResult {
-        bool ok = false;
-        Verdict verdict = Verdict::Fails;
-        std::string error;
-    };
-
-    auto run_client = [&](PhysicalValue threshold, ThreadResult& out) {
-        try {
-            auto backend = make_ffi_backend(lib);
-            AletheiaClient client(std::move(backend));
-
-            // Step 1: parse DBC
-            auto dbc = make_integration_dbc();
-            auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
-            if (!parse_result.has_value()) {
-                out.error = "parse_dbc failed";
-                sync.arrive_and_drop();
-                return;
-            }
-            sync.arrive_and_wait();
-
-            // Step 2: set properties — each thread has a different threshold
-            auto formula = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, threshold)));
-            std::vector<LtlFormula> props;
-            props.push_back(std::move(formula));
-            if (!client.set_properties(std::stop_token{}, props).has_value()) {
-                out.error = "set_properties failed";
-                sync.arrive_and_drop();
-                return;
-            }
-            sync.arrive_and_wait();
-
-            // Step 3: start stream
-            if (!client.start_stream(std::stop_token{}).has_value()) {
-                out.error = "start_stream failed";
-                sync.arrive_and_drop();
-                return;
-            }
-            sync.arrive_and_wait();
-
-            // Step 4: send frame with Speed = 150
-            auto id = CanId{StandardId::create(0x100).value()};
-            auto dlc = Dlc::create(8).value();
-            const std::uint16_t raw = 1500; // Speed 150 km/h at factor one tenth
-            FramePayload data{static_cast<std::byte>(raw & 0xFF),
-                              static_cast<std::byte>((raw >> 8) & 0xFF),
-                              std::byte{0},
-                              std::byte{0},
-                              std::byte{0},
-                              std::byte{0},
-                              std::byte{0},
-                              std::byte{0}};
-            auto send_result =
-                client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
-            if (!send_result.has_value()) {
-                out.error = "send_frame failed";
-                sync.arrive_and_drop();
-                return;
-            }
-            sync.arrive_and_wait();
-
-            // Step 5: end stream and capture verdict
-            auto end = client.end_stream(std::stop_token{});
-            if (!end.has_value() || end->results.empty()) {
-                out.error = "end_stream failed or empty results";
-                return;
-            }
-
-            // Check both mid-stream and EOS for the verdict
-            bool mid_violation = std::holds_alternative<PropertyBatch>(*send_result);
-            out.verdict = (mid_violation || end->results[0].verdict == Verdict::Fails)
-                              ? Verdict::Fails
-                              : Verdict::Holds;
-            out.ok = true;
-        } catch (const std::exception& e) {
-            out.error = e.what();
-        }
-    };
-
     ThreadResult result_lenient; // threshold = 200: Speed 150 < 200 → Holds
     ThreadResult result_strict;  // threshold = 100: Speed 150 >= 100 → Fails
 
-    std::thread thread_a(run_client, PhysicalValue{Rational{200, 1}}, std::ref(result_lenient));
-    std::thread thread_b(run_client, PhysicalValue{Rational{100, 1}}, std::ref(result_strict));
+    std::thread thread_a(run_concurrent_client, std::cref(lib), std::ref(sync),
+                         PhysicalValue{Rational{200, 1}}, std::ref(result_lenient));
+    std::thread thread_b(run_concurrent_client, std::cref(lib), std::ref(sync),
+                         PhysicalValue{Rational{100, 1}}, std::ref(result_strict));
 
     thread_a.join();
     thread_b.join();
@@ -1253,7 +1265,8 @@ static auto make_nested_mux_dbc() -> DbcDefinition {
         .minimum = zero_min,
         .maximum = byte_max,
         .unit = Unit{""},
-        .presence = Multiplexed{SignalName{"Mode"}, {MultiplexValue{3}}},
+        .presence =
+            Multiplexed{.multiplexor = SignalName{"Mode"}, .multiplex_values = {MultiplexValue{3}}},
     };
 
     DbcSignal detail_sig{
@@ -1267,7 +1280,8 @@ static auto make_nested_mux_dbc() -> DbcDefinition {
         .minimum = zero_min,
         .maximum = u16_max,
         .unit = Unit{""},
-        .presence = Multiplexed{SignalName{"SubMode"}, {MultiplexValue{7}}},
+        .presence = Multiplexed{.multiplexor = SignalName{"SubMode"},
+                                .multiplex_values = {MultiplexValue{7}}},
     };
 
     return DbcDefinition{
@@ -1393,7 +1407,8 @@ TEST_CASE("mux cycle rejected by validator via real FFI", "[integration][nested_
         .minimum = zero_min,
         .maximum = byte_max,
         .unit = Unit{""},
-        .presence = Multiplexed{SignalName{"B"}, {MultiplexValue{1}}},
+        .presence =
+            Multiplexed{.multiplexor = SignalName{"B"}, .multiplex_values = {MultiplexValue{1}}},
     };
 
     DbcSignal sig_b{
@@ -1407,10 +1422,11 @@ TEST_CASE("mux cycle rejected by validator via real FFI", "[integration][nested_
         .minimum = zero_min,
         .maximum = byte_max,
         .unit = Unit{""},
-        .presence = Multiplexed{SignalName{"A"}, {MultiplexValue{1}}},
+        .presence =
+            Multiplexed{.multiplexor = SignalName{"A"}, .multiplex_values = {MultiplexValue{1}}},
     };
 
-    DbcDefinition cycle_dbc{
+    const DbcDefinition cycle_dbc{
         .version = "1.0",
         .messages = {DbcMessage{
             .id = CanId{sid},
@@ -1424,7 +1440,7 @@ TEST_CASE("mux cycle rejected by validator via real FFI", "[integration][nested_
     auto result = client.validate_dbc(std::stop_token{}, cycle_dbc);
     REQUIRE(result.has_value());
     REQUIRE(result->has_errors);
-    bool found_cycle = std::ranges::any_of(result->issues, [](const auto& issue) {
+    const bool found_cycle = std::ranges::any_of(result->issues, [](const auto& issue) {
         return issue.code == IssueCode::MultiplexorCycle;
     });
     CHECK(found_cycle);
@@ -1501,8 +1517,8 @@ static auto make_two_message_dbc() -> DbcDefinition {
 }
 
 static auto bytes_of(std::uint16_t raw) -> FramePayload {
-    return FramePayload{static_cast<std::byte>(raw & 0xFF),
-                        static_cast<std::byte>((raw >> 8) & 0xFF),
+    return FramePayload{static_cast<std::byte>(raw & 0xFFU),
+                        static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
                         std::byte{0},
                         std::byte{0},
                         std::byte{0},
@@ -1849,13 +1865,11 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
 // These tests verify the C++ binding surfaces each parse error code via
 // AletheiaError::code() when feeding a malformed DBC through the real FFI.
 
-namespace {
-
 // Minimal DBC helper that wraps a single signal of the given byte order
 // inside a one-message DBC. Callers supply the signal's start_bit,
 // bit_length, byte order, and the message DLC.
-auto make_single_signal_dbc(std::uint16_t start_bit, std::uint16_t bit_length, ByteOrder byte_order,
-                            std::uint8_t dlc_bytes) -> DbcDefinition {
+static auto make_single_signal_dbc(std::uint16_t start_bit, std::uint16_t bit_length,
+                                   ByteOrder byte_order, std::uint8_t dlc_bytes) -> DbcDefinition {
     DbcSignal sig{
         .name = SignalName{"Bad"},
         .start_bit = BitPosition{start_bit},
@@ -1887,12 +1901,10 @@ auto make_single_signal_dbc(std::uint16_t start_bit, std::uint16_t bit_length, B
 }
 
 // The big-endian case, which most of the geometry tests want.
-auto make_single_be_signal_dbc(std::uint16_t start_bit, std::uint16_t bit_length,
-                               std::uint8_t dlc_bytes) -> DbcDefinition {
+static auto make_single_be_signal_dbc(std::uint16_t start_bit, std::uint16_t bit_length,
+                                      std::uint8_t dlc_bytes) -> DbcDefinition {
     return make_single_signal_dbc(start_bit, bit_length, ByteOrder::BigEndian, dlc_bytes);
 }
-
-} // namespace
 
 TEST_CASE("parse DBC: BigEndian signal with length=0 → parse_signal_bit_length_zero",
           "[integration][parse_error]") {
@@ -2049,7 +2061,7 @@ TEST_CASE("validate DBC: LittleEndian signal with length=0 rejected at parse",
         .unit = Unit{""},
         .presence = AlwaysPresent{},
     };
-    DbcDefinition dbc{
+    const DbcDefinition dbc{
         .version = "1.0",
         .messages = {DbcMessage{
             .id = CanId{StandardId::create(0x100).value()},

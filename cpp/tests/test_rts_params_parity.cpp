@@ -13,9 +13,7 @@
 
 #include "detail/rts_params.hpp"
 
-#include <cstdlib>
 #include <filesystem>
-#include <stdexcept>
 #include <string>
 
 #include "repo_root.hpp"

@@ -32,12 +32,12 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
@@ -49,21 +49,23 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "repo_root.hpp"
 #include "temp_path.hpp"
+#include "text_file.hpp"
 
 using aletheia::test::AsDirectory;
 using aletheia::test::repo_root;
 using aletheia::test::TempPath;
 
+using aletheia::test::read_text_file;
+
 namespace fs = std::filesystem;
 
-namespace {
-
 // Tracked markdown files (mirror Go/Python lists).
-constexpr std::array<std::string_view, 6> kDocFiles = {
+constexpr std::array<std::string_view, 6> k_doc_files = {
     "README.md",
     "docs/PITCH.md",
     "docs/architecture/CANCELLATION.md",
@@ -72,6 +74,7 @@ constexpr std::array<std::string_view, 6> kDocFiles = {
     "docs/development/DISTRIBUTION.md",
 };
 
+namespace {
 struct CppFence {
     std::string file;    // repo-relative path
     int line;            // 1-based line number of opening ```cpp
@@ -79,11 +82,12 @@ struct CppFence {
 
     [[nodiscard]] auto display() const -> std::string { return file + ":L" + std::to_string(line); }
 };
+} // namespace
 
 // Repo root + include dir via env vars rather than compile-time defines, so
 // the binary is bit-identical across build locations.  See
 // cpp/tests/test_feature_matrix_parity.cpp.
-auto getenv_required(const char* name) -> std::string {
+static auto getenv_required(const char* name) -> std::string {
     if (const char* env = std::getenv(name); env != nullptr && *env != '\0') {
         return env;
     }
@@ -93,13 +97,13 @@ auto getenv_required(const char* name) -> std::string {
         "in cpp/CMakeLists.txt");
 }
 
-auto doc_include_dir() -> std::string {
+static auto doc_include_dir() -> std::string {
     return getenv_required("ALETHEIA_DOC_INCLUDE");
 }
 
 // findFFILib mirrors the Go harness's findFFILibForDocs.
-auto find_ffi_lib() -> std::string {
-    if (auto* env = std::getenv("ALETHEIA_LIB"); env != nullptr && env[0] != '\0') {
+static auto find_ffi_lib() -> std::string {
+    if (auto* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0') {
         if (fs::exists(env))
             return env;
     }
@@ -116,14 +120,14 @@ auto find_ffi_lib() -> std::string {
     return {};
 }
 
-auto strip_left(std::string_view s) -> std::string_view {
+static auto strip_left(std::string_view s) -> std::string_view {
     while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) {
         s.remove_prefix(1);
     }
     return s;
 }
 
-auto strip_right(std::string_view s) -> std::string_view {
+static auto strip_right(std::string_view s) -> std::string_view {
     while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r')) {
         s.remove_suffix(1);
     }
@@ -131,7 +135,7 @@ auto strip_right(std::string_view s) -> std::string_view {
 }
 
 // Extracts every ```cpp fence from one markdown file.
-auto extract_cpp_fences(const fs::path& abs_path, std::string_view rel_path)
+static auto extract_cpp_fences(const fs::path& abs_path, std::string_view rel_path)
     -> std::vector<CppFence> {
     std::ifstream in(abs_path);
     if (!in) {
@@ -160,7 +164,7 @@ auto extract_cpp_fences(const fs::path& abs_path, std::string_view rel_path)
         }
         // Inside a fence — closing line is exactly ``` after trim.
         if (strip_right(strip_left(line)) == "```") {
-            fences.push_back({std::string{rel_path}, fence_start, body});
+            fences.push_back({.file = std::string{rel_path}, .line = fence_start, .content = body});
             in_fence = false;
             continue;
         }
@@ -173,8 +177,9 @@ auto extract_cpp_fences(const fs::path& abs_path, std::string_view rel_path)
 }
 
 // Substitute hardcoded doc paths to fixture paths (mirror the Go harness).
-auto substitute_paths(std::string body, const std::string& lib_path, const std::string& yaml_fix,
-                      const std::string& excel_fix) -> std::string {
+static auto substitute_paths(std::string body, const std::string& lib_path,
+                             const std::string& yaml_fix, const std::string& excel_fix)
+    -> std::string {
     auto replace_all = [](std::string& s, std::string_view from, std::string_view to) {
         std::size_t pos = 0;
         while ((pos = s.find(from, pos)) != std::string::npos) {
@@ -191,14 +196,14 @@ auto substitute_paths(std::string body, const std::string& lib_path, const std::
 }
 
 // Heuristic: does the body contain a top-level `int main(` declaration?
-auto has_main(std::string_view body) -> bool {
+static auto has_main(std::string_view body) -> bool {
     static const std::regex main_re(
         R"((^|\n)\s*(?:\[\[[^\]]+\]\]\s*)?(?:static\s+|inline\s+|constexpr\s+)?int\s+main\s*\()");
     return std::regex_search(body.cbegin(), body.cend(), main_re);
 }
 
 // Heuristic: does the body contain a #include directive?
-auto has_include(std::string_view body) -> bool {
+static auto has_include(std::string_view body) -> bool {
     static const std::regex inc_re(R"((^|\n)\s*#\s*include\b)");
     return std::regex_search(body.cbegin(), body.cend(), inc_re);
 }
@@ -219,9 +224,8 @@ auto has_include(std::string_view body) -> bool {
 //   - dbc            : aletheia::DbcDefinition (the in-memory DBC parsed into client)
 //
 // `using namespace aletheia;` keeps doc snippets idiomatic.
-auto wrap_body_fragment(std::string body) -> std::string {
-    constexpr std::string_view kPrologue =
-        R"CPP(// Auto-generated wrapper — doc-example harness.
+constexpr std::string_view k_prologue =
+    R"CPP(// Auto-generated wrapper: doc-example harness.
 #include <chrono>
 #include <cstddef>
 #include <cstdlib>
@@ -249,108 +253,109 @@ using namespace aletheia;
 namespace doc_harness_detail {
 
 inline auto build_doc_dbc() -> DbcDefinition {
-    auto rat = [](std::int64_t n, std::int64_t d) {
-        return Rational{n, d};
+auto rat = [](std::int64_t n, std::int64_t d) {
+    return Rational{n, d};
+};
+auto signal_def = [&](std::string_view name, std::uint16_t start_bit,
+                      std::uint8_t bit_length, std::int64_t max_val) {
+    return DbcSignal{
+        .name = SignalName{std::string(name)},
+        .start_bit = BitPosition{start_bit},
+        .bit_length = BitLength{bit_length},
+        .byte_order = ByteOrder::LittleEndian,
+        .is_signed = false,
+        .factor = RationalFactor{rat(1, 1)},
+        .offset = RationalOffset{rat(0, 1)},
+        .minimum = RationalBound{rat(0, 1)},
+        .maximum = RationalBound{rat(max_val, 1)},
+        .unit = Unit{""},
+        .presence = AlwaysPresent{},
+        .receivers = {},
     };
-    auto signal_def = [&](std::string_view name, std::uint16_t start_bit,
-                          std::uint8_t bit_length, std::int64_t max_val) {
-        return DbcSignal{
-            .name = SignalName{std::string(name)},
-            .start_bit = BitPosition{start_bit},
-            .bit_length = BitLength{bit_length},
-            .byte_order = ByteOrder::LittleEndian,
-            .is_signed = false,
-            .factor = RationalFactor{rat(1, 1)},
-            .offset = RationalOffset{rat(0, 1)},
-            .minimum = RationalBound{rat(0, 1)},
-            .maximum = RationalBound{rat(max_val, 1)},
-            .unit = Unit{""},
-            .presence = AlwaysPresent{},
-            .receivers = {},
-        };
-    };
+};
 
-    DbcMessage vehicle_state{
-        .id = StandardId::create(0x100).value(),
-        .name = MessageName{"VehicleState"},
-        .dlc = Dlc::create(8).value(),
-        .sender = NodeName{"ECU"},
-        .senders = {},
-        .signals = {
-            signal_def("VehicleSpeed", 0, 16, 65535),
-            signal_def("Speed", 16, 16, 65535),
-            signal_def("BrakePedal", 32, 8, 255),
-            signal_def("EngineRPM", 40, 8, 255),
-            signal_def("FaultCode", 48, 8, 255),
-            signal_def("ParkingBrake", 56, 1, 1),
-        },
-    };
-    DbcMessage voltages{
-        .id = StandardId::create(0x110).value(),
-        .name = MessageName{"Voltages"},
-        .dlc = Dlc::create(8).value(),
-        .sender = NodeName{"BMS"},
-        .senders = {},
-        .signals = {
-            signal_def("Voltage", 0, 16, 65535),
-            signal_def("BatteryVoltage", 16, 16, 65535),
-            signal_def("CoolantTemp", 32, 8, 255),
-        },
-    };
-    return DbcDefinition{
-        .version = "1.0",
-        .messages = {std::move(vehicle_state), std::move(voltages)},
-    };
+DbcMessage vehicle_state{
+    .id = StandardId::create(0x100).value(),
+    .name = MessageName{"VehicleState"},
+    .dlc = Dlc::create(8).value(),
+    .sender = NodeName{"ECU"},
+    .senders = {},
+    .signals = {
+        signal_def("VehicleSpeed", 0, 16, 65535),
+        signal_def("Speed", 16, 16, 65535),
+        signal_def("BrakePedal", 32, 8, 255),
+        signal_def("EngineRPM", 40, 8, 255),
+        signal_def("FaultCode", 48, 8, 255),
+        signal_def("ParkingBrake", 56, 1, 1),
+    },
+};
+DbcMessage voltages{
+    .id = StandardId::create(0x110).value(),
+    .name = MessageName{"Voltages"},
+    .dlc = Dlc::create(8).value(),
+    .sender = NodeName{"BMS"},
+    .senders = {},
+    .signals = {
+        signal_def("Voltage", 0, 16, 65535),
+        signal_def("BatteryVoltage", 16, 16, 65535),
+        signal_def("CoolantTemp", 32, 8, 255),
+    },
+};
+return DbcDefinition{
+    .version = "1.0",
+    .messages = {std::move(vehicle_state), std::move(voltages)},
+};
 }
 
 } // namespace doc_harness_detail
 
 int main() {
-    auto* env_lib = std::getenv("ALETHEIA_LIB");
-    std::string libPath = (env_lib != nullptr) ? env_lib : "";
+auto* env_lib = std::getenv("ALETHEIA_LIB");
+std::string libPath = (env_lib != nullptr) ? env_lib : "";
 
-    // Two backends: one consumed by the wrapper-scope `client`, one left free
-    // for a fence that constructs its own. GHC RTS init is idempotent in
-    // `make_ffi_backend`, so the second call is cheap (dlopen handle and
-    // StablePtr only).
-    auto initial_backend = make_ffi_backend(libPath);
-    DbcDefinition dbc = doc_harness_detail::build_doc_dbc();
-    AletheiaClient client{std::move(initial_backend)};
-    [[maybe_unused]] auto _parse_result = client.parse_dbc(std::stop_token{}, dbc);
+// Two backends: one consumed by the wrapper-scope `client`, one left free
+// for a fence that constructs its own. GHC RTS init is idempotent in
+// `make_ffi_backend`, so the second call is cheap (dlopen handle and
+// StablePtr only).
+auto initial_backend = make_ffi_backend(libPath);
+DbcDefinition dbc = doc_harness_detail::build_doc_dbc();
+AletheiaClient client{std::move(initial_backend)};
+[[maybe_unused]] auto _parse_result = client.parse_dbc(std::stop_token{}, dbc);
 
-    [[maybe_unused]] auto backend = make_ffi_backend(libPath);
-    [[maybe_unused]] Timestamp ts{0};
-    [[maybe_unused]] CanId can_id = StandardId::create(0x100).value();
-    [[maybe_unused]] CanId canID = can_id;
-    [[maybe_unused]] Dlc dlc = Dlc::create(8).value();
-    [[maybe_unused]] std::vector<std::byte> data_storage(8, std::byte{0});
-    [[maybe_unused]] std::span<const std::byte> data{data_storage};
-    [[maybe_unused]] std::vector<Frame> frames;
+[[maybe_unused]] auto backend = make_ffi_backend(libPath);
+[[maybe_unused]] Timestamp ts{0};
+[[maybe_unused]] CanId can_id = StandardId::create(0x100).value();
+[[maybe_unused]] CanId canID = can_id;
+[[maybe_unused]] Dlc dlc = Dlc::create(8).value();
+[[maybe_unused]] std::vector<std::byte> data_storage(8, std::byte{0});
+[[maybe_unused]] std::span<const std::byte> data{data_storage};
+[[maybe_unused]] std::vector<Frame> frames;
 
-    // Fence body runs in a nested block so fences that redeclare backend /
-    // client / ts / can_id / dlc / data via `auto x = ...` shadow the outer
-    // scope's names cleanly. This matches the Go harness's nested-block
-    // strategy for the body-fragment wrapper.
-    {
+// Fence body runs in a nested block so fences that redeclare backend /
+// client / ts / can_id / dlc / data via `auto x = ...` shadow the outer
+// scope's names cleanly. This matches the Go harness's nested-block
+// strategy for the body-fragment wrapper.
+{
 )CPP";
 
-    constexpr std::string_view kEpilogue = R"CPP(
-    }
+constexpr std::string_view k_epilogue = R"CPP(
+}
 
-    return 0;
+return 0;
 }
 )CPP";
 
+static auto wrap_body_fragment(std::string body) -> std::string {
     std::string out;
-    out.reserve(kPrologue.size() + body.size() + kEpilogue.size());
-    out.append(kPrologue);
+    out.reserve(k_prologue.size() + body.size() + k_epilogue.size());
+    out.append(k_prologue);
     out.append(body);
-    out.append(kEpilogue);
+    out.append(k_epilogue);
     return out;
 }
 
 // Pick a wrapper shape based on body content.
-auto wrap_fence(std::string body) -> std::string {
+static auto wrap_fence(std::string body) -> std::string {
     if (has_main(body))
         return body;
     if (has_include(body)) {
@@ -359,14 +364,14 @@ auto wrap_fence(std::string body) -> std::string {
     return wrap_body_fragment(std::move(body));
 }
 
-auto write_file(const fs::path& path, std::string_view content) -> void {
+static auto write_file(const fs::path& path, std::string_view content) -> void {
     std::ofstream out(path, std::ios::binary);
     out.write(content.data(), static_cast<std::streamsize>(content.size()));
     out.close();
 }
 
 // Run a shell command, capturing stdout+stderr. Returns (exit_code, output).
-auto run_capture(const std::string& cmd) -> std::pair<int, std::string> {
+static auto run_capture(const std::string& cmd) -> std::pair<int, std::string> {
     std::string captured;
     auto* fp = popen((cmd + " 2>&1").c_str(), "r");
     if (fp == nullptr)
@@ -375,7 +380,7 @@ auto run_capture(const std::string& cmd) -> std::pair<int, std::string> {
     while (auto n = std::fread(buf.data(), 1, buf.size(), fp)) {
         captured.append(buf.data(), n);
     }
-    int rc = pclose(fp);
+    const int rc = pclose(fp);
     if (WIFEXITED(rc))
         return {WEXITSTATUS(rc), captured};
     return {rc, captured};
@@ -383,11 +388,11 @@ auto run_capture(const std::string& cmd) -> std::pair<int, std::string> {
 
 // Quote a single shell argument (POSIX sh). Single-quote with embedded-quote
 // escape — adequate for the paths we generate (no nested single quotes).
-auto sh_quote(std::string_view s) -> std::string {
+static auto sh_quote(std::string_view s) -> std::string {
     std::string out;
     out.reserve(s.size() + 2);
     out.push_back('\'');
-    for (char c : s) {
+    for (const char c : s) {
         if (c == '\'')
             out.append("'\\''");
         else
@@ -403,11 +408,11 @@ auto sh_quote(std::string_view s) -> std::string {
 // Cached fence list — extraction is idempotent so we read once and reuse
 // across repeat entries (Catch2 SECTION re-enters the test case body for
 // each section, which would otherwise re-parse the markdown N times).
-auto fence_cache() -> const std::vector<CppFence>& {
+static auto fence_cache() -> const std::vector<CppFence>& {
     static const auto cached = []() {
         std::vector<CppFence> out;
         auto root = repo_root();
-        for (auto rel : kDocFiles) {
+        for (auto rel : k_doc_files) {
             auto path = root / rel;
             if (!fs::exists(path))
                 continue;
@@ -418,8 +423,6 @@ auto fence_cache() -> const std::vector<CppFence>& {
     }();
     return cached;
 }
-
-} // namespace
 
 TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-examples]") {
     auto lib = find_ffi_lib();
@@ -498,19 +501,16 @@ TEST_CASE("doc-example structural gate: no `<!-- cpp notest -->` annotations",
     // a fence from the harness while still rendering as cpp in prose.
     static const std::regex notest_re(R"(<!--\s*cpp\b[^>]*\bnotest\b[^>]*-->)");
     auto root = repo_root();
-    for (auto rel : kDocFiles) {
+    for (auto rel : k_doc_files) {
         auto path = root / rel;
         if (!fs::exists(path))
             continue;
-        std::ifstream in(path);
-        std::stringstream ss;
-        ss << in.rdbuf();
-        auto body = ss.str();
+        auto body = read_text_file(path);
         std::vector<int> offenders;
         auto begin = std::sregex_iterator(body.begin(), body.end(), notest_re);
         auto end = std::sregex_iterator{};
         for (auto it = begin; it != end; ++it) {
-            int line =
+            const int line =
                 static_cast<int>(std::count(body.begin(), body.begin() + it->position(), '\n')) + 1;
             offenders.push_back(line);
         }
@@ -536,6 +536,6 @@ TEST_CASE("doc-example structural gate: at least one ```cpp fence collectively",
     // against a mass rename emptying the doc-example surface. We don't require
     // every individual file to ship a fence — some are prose-heavy — but the
     // collective set must exceed the floor.
-    constexpr std::size_t kMinFences = 6;
-    REQUIRE(fence_cache().size() >= kMinFences);
+    constexpr std::size_t k_min_fences = 6;
+    REQUIRE(fence_cache().size() >= k_min_fences);
 }

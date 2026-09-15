@@ -1,5 +1,7 @@
 ---
 # Enable all checks, then selectively disable.
+# Disables that only test code earns live in cpp/tests/.clang-tidy, which
+# inherits this file; every check disabled below fires on the library.
 # Disabled categories:
 #   altera-*          — FPGA-specific (Intel/Altera OpenCL)
 #   fuchsia-*         — Fuchsia OS conventions (default constructors, overloaded operators)
@@ -23,20 +25,12 @@
 #       — 0xFF vs 0XFF: lowercase hex is more readable
 #   misc-no-recursion
 #       — LTL formula serialization is naturally recursive
-#   cert-err58-cpp
-#       — static storage duration objects with non-trivial constructors (test fixtures)
 #   cppcoreguidelines-owning-memory
 #       — void* for opaque FFI state is intentional
-#   google-build-using-namespace
-#       — `using namespace aletheia` in tests is fine
 #   llvm-header-guard
 #       — we use #pragma once
 #   bugprone-easily-swappable-parameters
 #       — strong typedefs already prevent parameter swaps at the type level
-#   cppcoreguidelines-avoid-do-while
-#       — Catch2 macros expand to do-while
-#   hicpp-no-array-decay, cppcoreguidelines-pro-bounds-array-to-pointer-decay
-#       — Catch2 macros and string literals trigger these
 #   performance-unnecessary-value-param
 #       — strong types are tiny; pass-by-value is intentional for 8-16 byte wrappers
 #   google-readability-braces-around-statements,
@@ -77,14 +71,9 @@ Checks: >
   -cppcoreguidelines-pro-bounds-constant-array-index,
   -readability-uppercase-literal-suffix,
   -misc-no-recursion,
-  -cert-err58-cpp,
   -cppcoreguidelines-owning-memory,
-  -google-build-using-namespace,
   -llvm-header-guard,
   -bugprone-easily-swappable-parameters,
-  -cppcoreguidelines-avoid-do-while,
-  -hicpp-no-array-decay,
-  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
   -performance-unnecessary-value-param,
   -google-readability-braces-around-statements,
   -hicpp-braces-around-statements,
@@ -134,8 +123,10 @@ CheckOptions:
   # An argument comment that is present must match the parameter name exactly
   # (no case or underscore leniency); comments are not required.
   bugprone-argument-comment.StrictMode: 'true'
-  # Treat <nlohmann/json.hpp> as an umbrella header that legitimately re-exports
-  # symbols declared in its own detail/ subtree. Without this, misc-include-cleaner
-  # asks callers to include <nlohmann/json_fwd.hpp> even though the library's
-  # public API is the single <nlohmann/json.hpp> header.
-  misc-include-cleaner.IgnoreHeaders: 'nlohmann/.*;OpenXLSX.*;yaml-cpp/.*'
+  # Headers a call site must not be asked to name. The vendored umbrellas
+  # legitimately re-export symbols their own detail subtrees declare; bits/ is
+  # where the standard library keeps what its public headers include; and the
+  # POSIX surface (popen, setenv, the wait macros) is declared in the C headers
+  # that <cstdio> and <cstdlib> include, so naming a provider for it would mean
+  # naming a C header that modernize-deprecated-headers then rejects.
+  misc-include-cleaner.IgnoreHeaders: 'nlohmann/.*;OpenXLSX.*;yaml-cpp/.*;bits/.*;stdio.h;stdlib.h;sys/.*'

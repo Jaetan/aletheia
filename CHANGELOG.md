@@ -38,6 +38,25 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The C++ test sources are inside the lint gate.** `run-clang-tidy-22` ran over
+  `cpp/src/` only, so 28 test sources, four test headers and four fuzz harnesses
+  were never linted and
+  five checks disabled in `cpp/.clang-tidy` carried reasons that named test code
+  while producing zero findings over the library. Those five now live in a new
+  `cpp/tests/.clang-tidy` that inherits the root configuration: three of the five,
+  alongside six more the tests earn, nine check names in all, each carrying the count
+  it was measured at and the reason it is inherent to Catch2 or to the documentation
+  harness. The other two measured zero once the sources were fixed and are gone. Everything else the gate
+  found in the tests was fixed rather than suppressed and no suppression comment was
+  added: helper functions and variables moved out of their anonymous namespaces to
+  match the project's `static` convention, the whole-file reader four executables had
+  each written for themselves became one header, discarded `[[nodiscard]]` returns
+  became assertions, bitwise work on signed operands became unsigned, two
+  `reinterpret_cast`s and a raw `execl` went away, and four over-long functions were
+  split at their setup. The coverage guard widened with the gate, so an unwired test
+  source fails CI instead of going unlinted; the four fuzz targets, which compile
+  only in the fuzz configuration, stay with the fuzz lane.
+
 - **CMake files are linted.** `.cmake-format.yaml` states the style these files
   already follow, four-space indentation and a hundred-column line, the same
   numbers the C++ format configuration sets; without it the linter reports every

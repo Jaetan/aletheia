@@ -14,8 +14,12 @@ command -v mull-runner-22 > /dev/null || { echo "Mull not installed, claim untes
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
 report=cpp/build-mutation/probe-baseline.json
+# ALETHEIA_LIB is unset for the sweep, not merely left alone: with it set the
+# integration suite's library lookup returns before it reads the repository
+# root, and the two mutants of that read go uncovered, so the same tree scores
+# differently for a developer who has sourced the environment script.
 (cd cpp/build-mutation &&
-    ALETHEIA_REPO_ROOT="$OLDPWD" mull-runner-22 ./unit_tests \
+    env -u ALETHEIA_LIB ALETHEIA_REPO_ROOT="$OLDPWD" mull-runner-22 ./unit_tests \
         --report-name=probe-baseline --reporters=Elements > /dev/null 2>&1) || {
     echo "the sweep did not run"
     exit 1

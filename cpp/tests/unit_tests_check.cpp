@@ -222,7 +222,7 @@ TEST_CASE("Check never_exceeds matches manual ltl", "[check]") {
 
 TEST_CASE("within rejects ms that overflow the microsecond conversion", "[check][overflow]") {
     using std::chrono::milliseconds;
-    constexpr std::int64_t kMaxOk = std::numeric_limits<std::int64_t>::max() / 1000;
+    constexpr std::int64_t k_max_ok = std::numeric_limits<std::int64_t>::max() / 1000;
 
     // when/then path.
     auto when_then = [](std::int64_t ms) {
@@ -232,8 +232,8 @@ TEST_CASE("within rejects ms that overflow the microsecond conversion", "[check]
             .equals(PhysicalValue{Rational{1, 1}})
             .within(milliseconds{ms});
     };
-    CHECK_NOTHROW(when_then(kMaxOk));
-    CHECK_THROWS_AS(when_then(kMaxOk + 1), std::invalid_argument);
+    CHECK_NOTHROW(when_then(k_max_ok));
+    CHECK_THROWS_AS(when_then(k_max_ok + 1), std::invalid_argument);
 
     // settles_between path (the other within() call site).
     auto settles = [](std::int64_t ms) {
@@ -241,8 +241,8 @@ TEST_CASE("within rejects ms that overflow the microsecond conversion", "[check]
             .settles_between(PhysicalValue{Rational{0, 1}}, PhysicalValue{Rational{10, 1}})
             .within(milliseconds{ms});
     };
-    CHECK_NOTHROW(settles(kMaxOk));
-    CHECK_THROWS_AS(settles(kMaxOk + 1), std::invalid_argument);
+    CHECK_NOTHROW(settles(k_max_ok));
+    CHECK_THROWS_AS(settles(k_max_ok + 1), std::invalid_argument);
 
     // The negative-time guard fires through the same helper.
     CHECK_THROWS_AS(when_then(-1), std::invalid_argument);

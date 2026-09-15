@@ -16,10 +16,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <array>
+#include <cstddef>
 #include <cstdlib>
 #include <string>
 #include <utility>
@@ -28,15 +30,14 @@
 #error "ALETHEIA_RTS_WORKLOAD_BIN must be defined (the workload binary path)"
 #endif
 
-namespace {
-
 // Fork+exec the workload with `n` messages and an optional ALETHEIA_RTS_OPTS
 // override, returning its exit code (or -1 if it died from a signal) and
 // whatever it wrote to stdout.  The child inherits ALETHEIA_LIB from this
 // test's environment, which ctest sets.  Its stdout comes back through a pipe
 // so the positive case can read the success sentinel rather than infer it from
 // the exit code; stderr flows to this process's, where a failure shows it.
-auto run_workload(const std::string& n, const char* rts_opts) -> std::pair<int, std::string> {
+static auto run_workload(const std::string& n, const char* rts_opts)
+    -> std::pair<int, std::string> {
     std::array<int, 2> out{};
     REQUIRE(pipe(out.data()) == 0);
 
@@ -49,8 +50,12 @@ auto run_workload(const std::string& n, const char* rts_opts) -> std::pair<int, 
             setenv("ALETHEIA_RTS_OPTS", rts_opts, 1);
         else
             unsetenv("ALETHEIA_RTS_OPTS");
-        execl(ALETHEIA_RTS_WORKLOAD_BIN, ALETHEIA_RTS_WORKLOAD_BIN, n.c_str(),
-              static_cast<char*>(nullptr));
+        // execv over execl: the varargs form has no way to pass the argument
+        // vector without a C-style ellipsis, and both take the same strings.
+        std::string bin{ALETHEIA_RTS_WORKLOAD_BIN};
+        std::string count{n};
+        std::array<char*, 3> args{bin.data(), count.data(), nullptr};
+        execv(bin.c_str(), args.data());
         _exit(127); // exec failed
     }
     REQUIRE(pid > 0);
@@ -69,15 +74,13 @@ auto run_workload(const std::string& n, const char* rts_opts) -> std::pair<int, 
     return {WIFEXITED(status) ? WEXITSTATUS(status) : -1, captured};
 }
 
-} // namespace
-
 TEST_CASE("default cap boots and parses a workload", "[rts][heap_cap]") {
     // The correct path: hs_init_with_rtsopts and the default heap cap. The
     // workload prints its sentinel only after a clean parse, so reading it
     // back pins both the exit code and the path that produced it.
     const auto [code, out] = run_workload("3", nullptr);
     CHECK(code == 0);
-    CHECK(out.find("ALETHEIA_RTS_OK") != std::string::npos);
+    CHECK(out.contains("ALETHEIA_RTS_OK"));
 }
 
 TEST_CASE("a tight heap cap aborts the process", "[rts][heap_cap]") {
@@ -90,5 +93,5 @@ TEST_CASE("a tight heap cap aborts the process", "[rts][heap_cap]") {
     CHECK(code != 3);
     CHECK(code != 2);
     // And it died before the clean-parse path, so the sentinel never printed.
-    CHECK(out.find("ALETHEIA_RTS_OK") == std::string::npos);
+    CHECK(!out.contains("ALETHEIA_RTS_OK"));
 }

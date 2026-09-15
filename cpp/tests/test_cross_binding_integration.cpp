@@ -20,10 +20,15 @@
 #include <aletheia/aletheia.hpp>
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <stop_token>
+#include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -34,12 +39,10 @@ using aletheia::test::repo_root;
 using namespace aletheia;
 namespace fs = std::filesystem;
 
-namespace {
-
 // Matches python/tests/test_cross_binding_integration.py::_CANONICAL_DBC and
 // go/aletheia/cross_binding_integration_test.go::canonicalDBC. Drift of any
 // of the three is the cross-binding hazard the test is designed to catch.
-auto canonical_dbc() -> DbcDefinition {
+static auto canonical_dbc() -> DbcDefinition {
     auto sig_id = StandardId::create(256).value();
     auto dlc = Dlc::create(8).value();
     DbcSignal test_sig{
@@ -67,7 +70,7 @@ auto canonical_dbc() -> DbcDefinition {
     };
 }
 
-auto find_lib() -> fs::path {
+static auto find_lib() -> fs::path {
     // Only when the variable names a file that is there: a stale value must
     // not shadow a library that is, else the suite fails mid-construction
     // instead of skipping.
@@ -82,8 +85,6 @@ auto find_lib() -> fs::path {
     SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
     return {};
 }
-
-} // namespace
 
 TEST_CASE("ParsedDBC response has documented shape", "[cross_binding]") {
     auto lib = find_lib();

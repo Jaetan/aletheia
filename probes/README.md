@@ -6,4 +6,6 @@ Probes are the review's instruments, kept so a later change that breaks what an 
 
 Run them all with `bash probes/run_all.sh`. The runner prints one line per probe and exits non-zero when any probe fails.
 
+Two probes read state the review store keeps outside the tree, under `.git/frev/`: the list of paths a round has touched, and a baseline of what was already untracked when the round opened. The baseline is captured once, at round open and before the round creates anything, with `git ls-files --others --exclude-standard`, and an entry ending in `/` stands for every path beneath it, which is how a corpus a tool fills as it runs is recorded without listing each file. Without it the staging probe cannot tell a file the round forgot to stage from one that was already there, and it says so rather than passing.
+
 A probe is named `<subject>--<property>.sh`, where the subject is the probed file's path with `/` replaced by `_`. A probe that fails after a change is a regression to fix before that change is committed. A probe whose subject was removed on purpose is retired in the same commit that removes the subject, with the reason in the commit message. A probe is never edited to pass.

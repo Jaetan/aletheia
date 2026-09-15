@@ -21,17 +21,18 @@
 // "runtime not initialized" error. (The dedicated renderer-uninitialised test runs
 // in its own ctest process without this listener, so it is not masked.)
 
+#include <catch2/catch_test_run_info.hpp>
+#include <catch2/interfaces/catch_interfaces_reporter.hpp>
 #include <catch2/reporters/catch_reporter_event_listener.hpp>
 #include <catch2/reporters/catch_reporter_registrars.hpp>
 
 #include <aletheia/backend.hpp>
 
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <string_view>
-
-namespace {
 
 // Locate libaletheia-ffi.so the way the renderer's find_library_path does, in
 // the same order and with the same checks: ALETHEIA_LIB, which CI pins, then
@@ -39,7 +40,7 @@ namespace {
 // variable cannot shadow a library that is there. The empty path comes back
 // only when every candidate is exhausted, which leaves the runtime down and
 // the render-dependent tests failing vocally.
-auto find_test_lib() -> std::filesystem::path {
+static auto find_test_lib() -> std::filesystem::path {
     namespace fs = std::filesystem;
     if (auto* env = std::getenv("ALETHEIA_LIB")) {
         const std::string_view env_sv{env};
@@ -56,6 +57,7 @@ auto find_test_lib() -> std::filesystem::path {
     return {};
 }
 
+namespace {
 class RtsSetupListener : public Catch::EventListenerBase {
 public:
     using Catch::EventListenerBase::EventListenerBase;
@@ -75,7 +77,6 @@ public:
 private:
     std::unique_ptr<aletheia::IBackend> backend_;
 };
-
 } // namespace
 
 CATCH_REGISTER_LISTENER(RtsSetupListener)

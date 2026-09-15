@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stop_token>
 #include <string>
@@ -146,14 +147,13 @@ TEST_CASE("Client cancellation: pre-FFI guard rejects already-cancelled stop_tok
     auto* backend = backend_owned.get();
     AletheiaClient client(std::move(backend_owned));
 
-    std::stop_source source;
+    const std::stop_source source;
     source.request_stop(); // cancel BEFORE the call
 
     auto result = client.set_properties(source.get_token(), std::span<const LtlFormula>{});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().kind() == ErrorKind::Cancellation);
-    REQUIRE(std::string_view{result.error().message()}.find("set_properties") !=
-            std::string_view::npos);
+    REQUIRE(std::string_view{result.error().message()}.contains("set_properties"));
     REQUIRE(backend->call_count() == 0); // FFI never reached
 }
 
@@ -192,7 +192,7 @@ TEST_CASE("Client cancellation: in-flight FFI runs to completion", "[cancellatio
     auto* backend = backend_owned.get();
     AletheiaClient client(std::move(backend_owned));
 
-    std::stop_source cancel_source;
+    const std::stop_source cancel_source;
     auto cancel_token = cancel_source.get_token();
 
     // Run set_properties on a worker thread; HoldingBackend blocks inside

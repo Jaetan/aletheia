@@ -15,6 +15,7 @@
 #include "detail/mock_backend.hpp"
 #include <aletheia/aletheia.hpp>
 
+#include <initializer_list>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -31,7 +32,7 @@
 #include <vector>
 
 using namespace aletheia;
-using json = nlohmann::json;
+using Json = nlohmann::json;
 using aletheia::test::make_test_dbc;
 using aletheia::test::parsed_dbc_response_for;
 using Catch::Matchers::ContainsSubstring;
@@ -51,7 +52,7 @@ TEST_CASE("client parse_dbc sends correct JSON and handles success", "[client][m
     CHECK(result.has_value());
     REQUIRE(mock_ptr->captured().size() == 1);
 
-    auto j = json::parse(mock_ptr->last_captured());
+    auto j = Json::parse(mock_ptr->last_captured());
     CHECK(j["command"] == "parseDBC");
     CHECK(j["dbc"]["messages"][0]["id"] == 0x100);
 }
@@ -132,7 +133,7 @@ TEST_CASE("client build_frame requires loaded DBC", "[client][mock]") {
     AletheiaClient client(std::move(mock));
     auto id = CanId{StandardId::create(0x100).value()};
     std::vector<SignalValue> signals{
-        {SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}},
+        {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}},
     };
     auto result = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
 
@@ -182,7 +183,7 @@ TEST_CASE("client streaming workflow", "[client][mock]") {
     // process()); the streaming ops are binary-path calls the mock records as
     // `<binary:…>` sentinels (the real backend drives them through the binary FFI).
     REQUIRE(mock_ptr->captured().size() == 4);
-    CHECK(json::parse(mock_ptr->captured()[0])["command"] == "setProperties");
+    CHECK(Json::parse(mock_ptr->captured()[0])["command"] == "setProperties");
     CHECK(mock_ptr->captured()[1] == "<binary:startStream>");
     CHECK(mock_ptr->captured()[2] == "<binary:sendFrame>");
     CHECK(mock_ptr->captured()[3] == "<binary:endStream>");
@@ -382,7 +383,7 @@ TEST_CASE("client update_frame requires loaded DBC", "[client][mock]") {
     FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
                       std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
     std::vector<SignalValue> signals{
-        {SignalName{"RPM"}, PhysicalValue{Rational{3000, 1}}},
+        {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{3000, 1}}},
     };
 
     auto result = client.update_frame(std::stop_token{}, id, dlc, data, signals);
@@ -405,15 +406,15 @@ TEST_CASE("send_frames all ack", "[client][batch]") {
 
     auto prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
-    (void)client.set_properties(std::stop_token{}, std::span{&prop, 1});
-    (void)client.start_stream(std::stop_token{});
+    REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
-    FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     std::vector<Frame> frames{
-        {Timestamp{1000}, CanId{sid}, dlc, data},
-        {Timestamp{2000}, CanId{sid}, dlc, data},
+        {.timestamp = Timestamp{1000}, .id = CanId{sid}, .dlc = dlc, .data = data},
+        {.timestamp = Timestamp{2000}, .id = CanId{sid}, .dlc = dlc, .data = data},
     };
 
     auto result = client.send_frames(std::stop_token{}, frames);
@@ -433,21 +434,21 @@ TEST_CASE("send_frames stops on error with partial results", "[client][batch]") 
 
     auto prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
-    (void)client.set_properties(std::stop_token{}, std::span{&prop, 1});
-    (void)client.start_stream(std::stop_token{});
+    REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
-    FramePayload good(8, std::byte{0});
-    FramePayload bad(3, std::byte{0}); // 3 bytes vs DLC 8
+    FramePayload const good(8, std::byte{0});
+    FramePayload const bad(3, std::byte{0}); // 3 bytes vs DLC 8
     std::vector<Frame> frames{
-        {Timestamp{1000}, CanId{sid}, dlc, good},
-        {Timestamp{2000}, CanId{sid}, dlc, bad},
+        {.timestamp = Timestamp{1000}, .id = CanId{sid}, .dlc = dlc, .data = good},
+        {.timestamp = Timestamp{2000}, .id = CanId{sid}, .dlc = dlc, .data = bad},
     };
 
     auto result = client.send_frames(std::stop_token{}, frames);
     REQUIRE(result.has_error());
-    CHECK(result.error->message().find("payload") != std::string::npos);
+    CHECK(result.error->message().contains("payload"));
     // Partial results: frame 1 succeeded before frame 2 failed.
     REQUIRE(result.responses.size() == 1);
     CHECK(std::holds_alternative<Ack>(result.responses[0]));
@@ -468,16 +469,16 @@ TEST_CASE("send_frames with violation continues", "[client][batch]") {
 
     auto prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
-    (void)client.set_properties(std::stop_token{}, std::span{&prop, 1});
-    (void)client.start_stream(std::stop_token{});
+    REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
-    FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     std::vector<Frame> frames{
-        {Timestamp{1000}, CanId{sid}, dlc, data},
-        {Timestamp{2000}, CanId{sid}, dlc, data},
-        {Timestamp{3000}, CanId{sid}, dlc, data},
+        {.timestamp = Timestamp{1000}, .id = CanId{sid}, .dlc = dlc, .data = data},
+        {.timestamp = Timestamp{2000}, .id = CanId{sid}, .dlc = dlc, .data = data},
+        {.timestamp = Timestamp{3000}, .id = CanId{sid}, .dlc = dlc, .data = data},
     };
 
     auto result = client.send_frames(std::stop_token{}, frames);
@@ -497,20 +498,20 @@ TEST_CASE("send_frames negative timestamp", "[client][batch]") {
 
     auto prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
-    (void)client.set_properties(std::stop_token{}, std::span{&prop, 1});
-    (void)client.start_stream(std::stop_token{});
+    REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
-    FramePayload data(8, std::byte{0});
+    FramePayload const data(8, std::byte{0});
     std::vector<Frame> frames{
-        {Timestamp{1000}, CanId{sid}, dlc, data},
-        {Timestamp{-1}, CanId{sid}, dlc, data},
+        {.timestamp = Timestamp{1000}, .id = CanId{sid}, .dlc = dlc, .data = data},
+        {.timestamp = Timestamp{-1}, .id = CanId{sid}, .dlc = dlc, .data = data},
     };
 
     auto result = client.send_frames(std::stop_token{}, frames);
     REQUIRE(result.has_error());
-    CHECK(result.error->message().find("non-negative") != std::string::npos);
+    CHECK(result.error->message().contains("non-negative"));
     REQUIRE(result.responses.size() == 1);
     CHECK(std::holds_alternative<Ack>(result.responses[0]));
 }
@@ -524,8 +525,8 @@ TEST_CASE("send_frames payload validation mid-batch reports frame index", "[clie
 
     auto prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
-    (void)client.set_properties(std::stop_token{}, std::span{&prop, 1});
-    (void)client.start_stream(std::stop_token{});
+    REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto sid = CanId{StandardId::create(0x100).value()};
     auto dlc8 = Dlc::create(8).value();
@@ -534,17 +535,25 @@ TEST_CASE("send_frames payload validation mid-batch reports frame index", "[clie
     std::array<std::byte, 8> bad{}; // 8 bytes but DLC says 4
 
     std::vector<Frame> frames;
-    frames.push_back({Timestamp{1000}, sid, dlc8, FramePayload(good.begin(), good.end())});
-    frames.push_back(
-        {Timestamp{2000}, sid, dlc4, FramePayload(bad.begin(), bad.end())}); // mismatch
-    frames.push_back({Timestamp{3000}, sid, dlc8, FramePayload(good.begin(), good.end())});
+    frames.push_back({.timestamp = Timestamp{1000},
+                      .id = sid,
+                      .dlc = dlc8,
+                      .data = FramePayload(good.begin(), good.end())});
+    frames.push_back({.timestamp = Timestamp{2000},
+                      .id = sid,
+                      .dlc = dlc4,
+                      .data = FramePayload(bad.begin(), bad.end())}); // mismatch
+    frames.push_back({.timestamp = Timestamp{3000},
+                      .id = sid,
+                      .dlc = dlc8,
+                      .data = FramePayload(good.begin(), good.end())});
 
     auto result = client.send_frames(std::stop_token{}, frames);
     REQUIRE(result.has_error());
     CHECK(result.responses.size() == 1); // frame 0 succeeded
     auto msg = std::string(result.error->message());
-    CHECK(msg.find("frame 1") != std::string::npos);
-    CHECK(msg.find("payload") != std::string::npos);
+    CHECK(msg.contains("frame 1"));
+    CHECK(msg.contains("payload"));
 }
 
 TEST_CASE("send_frames empty", "[client][batch]") {
@@ -555,8 +564,8 @@ TEST_CASE("send_frames empty", "[client][batch]") {
 
     auto prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
-    (void)client.set_properties(std::stop_token{}, std::span{&prop, 1});
-    (void)client.start_stream(std::stop_token{});
+    REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto result = client.send_frames(std::stop_token{}, {});
     REQUIRE_FALSE(result.has_error());
@@ -567,15 +576,15 @@ TEST_CASE("send_frames empty", "[client][batch]") {
 // send_frames_lazy (lazy streaming variant — std::generator)
 // ===========================================================================
 
-namespace {
-auto count_sentinel(const std::vector<std::string>& log, std::string_view want) -> std::size_t {
+static auto count_sentinel(const std::vector<std::string>& log, std::string_view want)
+    -> std::size_t {
     return static_cast<std::size_t>(std::ranges::count(log, want));
 }
 
 // A mock-backed client already past set_properties + start_stream, with the
 // given per-frame responses queued. Returns the client and a borrowed pointer
 // to its (now client-owned) mock for call-log inspection.
-auto streaming_client(std::initializer_list<const char*> frame_responses)
+static auto streaming_client(std::initializer_list<const char*> frame_responses)
     -> std::pair<AletheiaClient, MockBackend*> {
     auto backend = std::make_unique<MockBackend>();
     backend->queue_response(R"({"status":"success"})"); // set_properties
@@ -587,23 +596,25 @@ auto streaming_client(std::initializer_list<const char*> frame_responses)
     AletheiaClient client(std::move(backend));
     auto prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
-    (void)client.set_properties(std::stop_token{}, std::span{&prop, 1});
-    (void)client.start_stream(std::stop_token{});
+    REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
     return {std::move(client), mock};
 }
 
-auto ack_frames(std::size_t count) -> std::vector<Frame> {
+static auto ack_frames(std::size_t count) -> std::vector<Frame> {
     auto dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
-    FramePayload data(8, std::byte{0});
+    const FramePayload data(8, std::byte{0});
     std::vector<Frame> frames;
+    frames.reserve(count);
     for (std::size_t i = 0; i < count; ++i) {
-        frames.push_back(
-            {Timestamp{static_cast<std::int64_t>((i + 1) * 1000)}, CanId{sid}, dlc, data});
+        frames.push_back({.timestamp = Timestamp{static_cast<std::int64_t>((i + 1) * 1000)},
+                          .id = CanId{sid},
+                          .dlc = dlc,
+                          .data = data});
     }
     return frames;
 }
-} // namespace
 
 TEST_CASE("send_frames_lazy yields one value per frame", "[client][batch][lazy]") {
     auto [client, mock] =
@@ -624,12 +635,12 @@ TEST_CASE("send_frames_lazy stops after first error with frame index", "[client]
     auto [client, mock] = streaming_client({R"({"status":"ack"})"}); // only frame 0 reaches backend
     auto dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
-    FramePayload good(8, std::byte{0});
-    FramePayload bad(3, std::byte{0}); // 3 bytes vs DLC 8
+    FramePayload const good(8, std::byte{0});
+    FramePayload const bad(3, std::byte{0}); // 3 bytes vs DLC 8
     std::vector<Frame> frames{
-        {Timestamp{1000}, CanId{sid}, dlc, good},
-        {Timestamp{2000}, CanId{sid}, dlc, bad},
-        {Timestamp{3000}, CanId{sid}, dlc, good},
+        {.timestamp = Timestamp{1000}, .id = CanId{sid}, .dlc = dlc, .data = good},
+        {.timestamp = Timestamp{2000}, .id = CanId{sid}, .dlc = dlc, .data = bad},
+        {.timestamp = Timestamp{3000}, .id = CanId{sid}, .dlc = dlc, .data = good},
     };
 
     std::size_t oks = 0;
@@ -642,8 +653,8 @@ TEST_CASE("send_frames_lazy stops after first error with frame index", "[client]
         ++oks;
     }
     CHECK(oks == 1);
-    CHECK(err_msg.find("frame 1") != std::string::npos); // index prefix mirrors send_frames
-    CHECK(err_msg.find("payload") != std::string::npos);
+    CHECK(err_msg.contains("frame 1")); // index prefix mirrors send_frames
+    CHECK(err_msg.contains("payload"));
     CHECK(count_sentinel(mock->captured(), "<binary:sendFrame>") == 1); // frame 2 never sent
 }
 
@@ -729,7 +740,7 @@ TEST_CASE("send_frames_lazy honors stop_token mid-stream", "[client][batch][lazy
     auto [client, mock] =
         streaming_client({R"({"status":"ack"})", R"({"status":"ack"})", R"({"status":"ack"})"});
     auto frames = ack_frames(3);
-    std::stop_source source;
+    const std::stop_source source;
 
     std::size_t oks = 0;
     bool saw_cancellation = false;
@@ -760,8 +771,8 @@ TEST_CASE("move-assignment transfers client state", "[client]") {
 
     auto prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
-    (void)a.set_properties(std::stop_token{}, std::span{&prop, 1});
-    (void)a.start_stream(std::stop_token{});
+    REQUIRE(a.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
+    REQUIRE(a.start_stream(std::stop_token{}).has_value());
 
     // Target client: separate backend (will be destroyed on assignment).
     auto backend_b = std::make_unique<MockBackend>();
@@ -807,11 +818,11 @@ TEST_CASE("extraction cache full still works on 257th frame", "[client][enrich][
     auto dlc = Dlc::create(8).value();
 
     // Send 257 frames with distinct data payloads to fill and overflow the cache
-    for (int i = 0; i < 257; ++i) {
+    for (unsigned i = 0; i < 257; ++i) {
         FramePayload data(8, std::byte{0});
         // Vary first two bytes to make each frame key unique
-        data[0] = static_cast<std::byte>(i & 0xFF);
-        data[1] = static_cast<std::byte>((i >> 8) & 0xFF);
+        data[0] = static_cast<std::byte>(i & 0xFFU);
+        data[1] = static_cast<std::byte>((i >> 8U) & 0xFFU);
         auto result = client.send_frame(
             std::stop_token{}, Timestamp{static_cast<std::int64_t>(i) * 1000}, id, dlc, data);
         REQUIRE(result.has_value());
@@ -910,6 +921,7 @@ TEST_CASE("MockBackend throws on queue exhaustion", "[client][mock]") {
 // Counts the releases of the state it hands out, so the handle's own policy has
 // a test as well as the address sanitizer. The counter outlives the backend,
 // which the client owns.
+namespace {
 class CountingCloseBackend : public MockBackend {
 public:
     explicit CountingCloseBackend(int* closes) : closes_(closes) {}
@@ -923,6 +935,7 @@ protected:
 private:
     int* closes_;
 };
+} // namespace
 
 TEST_CASE("the backend state is released exactly once over a client's life", "[client][state]") {
     SECTION("a move transfers the state rather than closing it") {
@@ -930,7 +943,7 @@ TEST_CASE("the backend state is released exactly once over a client's life", "[c
         {
             AletheiaClient client{std::make_unique<CountingCloseBackend>(&closes)};
             CHECK(closes == 0);
-            AletheiaClient moved{std::move(client)};
+            const AletheiaClient moved{std::move(client)};
             CHECK(closes == 0);
         }
         CHECK(closes == 1);
@@ -979,14 +992,14 @@ TEST_CASE("SignalInjection refuses a block the FFI would read past", "[client][i
         const std::vector<std::int64_t> short_numerators{1};
         auto block = SignalInjection::create(indices, short_numerators, denominators);
         REQUIRE_FALSE(block.has_value());
-        CHECK(block.error().find("differ in length") != std::string::npos);
+        CHECK(block.error().contains("differ in length"));
     }
 
     SECTION("a shorter denominator array is refused too") {
         const std::vector<std::int64_t> short_denominators{1};
         auto block = SignalInjection::create(indices, numerators, short_denominators);
         REQUIRE_FALSE(block.has_value());
-        CHECK(block.error().find("differ in length") != std::string::npos);
+        CHECK(block.error().contains("differ in length"));
     }
 }
 

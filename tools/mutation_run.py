@@ -457,10 +457,17 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
     # the repository root from the environment the way ctest passes it.  Mull
     # runs the binary directly, so nothing would set it and every mutant would
     # read killed because the test died at setup.
+    #
+    # ALETHEIA_LIB is dropped for the same reason in reverse: with it set the
+    # library lookup returns before it reads the repository root, leaving that
+    # read's mutants uncovered, so the same tree would score differently for a
+    # caller who had sourced the environment script.
+    mull_env = os.environ | {"ALETHEIA_REPO_ROOT": str(REPO_ROOT)}
+    mull_env.pop("ALETHEIA_LIB", None)
     runner_proc = run_capture(
         [mull_runner, str(unit_tests)],
         cwd=cpp_root,
-        env=os.environ | {"ALETHEIA_REPO_ROOT": str(REPO_ROOT)},
+        env=mull_env,
     )
     raw += "=== mull-runner-22 ===\n" + runner_proc.stdout + runner_proc.stderr + "\n"
     (artifact_dir / "cpp.raw.txt").write_text(raw)

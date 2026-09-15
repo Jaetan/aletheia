@@ -43,7 +43,7 @@ public:
     }
 
     // A directory at an explicit path, created now.
-    TempPath(std::filesystem::path where, AsDirectory) : path(std::move(where)) {
+    TempPath(std::filesystem::path where, AsDirectory /*unused*/) : path(std::move(where)) {
         std::filesystem::create_directories(path);
     }
 

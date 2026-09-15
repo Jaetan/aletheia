@@ -479,14 +479,16 @@ def _run_lints(runner: Runner) -> None:
     runner.step("cmake-lint", cmake_lint_cmd)
 
     # clang-tidy (AGENTS.md § lint gates, mandatory): lint every C++ TU under
-    # cpp/src via run-clang-tidy driven by compile_commands.json.  The compile
-    # database is the single source of truth for coverage, so no subdirectory
-    # (e.g. src/detail/) can be silently dropped the way the old hand-maintained
-    # `src/*.cpp` glob dropped it.  The `cpp/src/` path regex scopes the run to
-    # our sources — third-party `_deps`, tests, and benchmarks are excluded.
+    # cpp/src and cpp/tests via run-clang-tidy driven by compile_commands.json.
+    # The compile database is the single source of truth for coverage, so no
+    # subdirectory (e.g. src/detail/) can be silently dropped the way the old
+    # hand-maintained `src/*.cpp` glob dropped it.  The two path regexes scope
+    # the run to our own sources: third-party `_deps` and the benchmarks are
+    # excluded, and the tests carry their own configuration, which inherits
+    # cpp/.clang-tidy and disables only what Catch2's macros generate.
     runner.step(
         "clang-tidy",
-        "run-clang-tidy-22 -quiet -p build cpp/src/",
+        "run-clang-tidy-22 -quiet -p build cpp/src/ cpp/tests/",
         cwd=runner.repo_root / "cpp",
     )
     # Coverage guard: every cpp/src/**/*.cpp must appear in the compile DB, so a
