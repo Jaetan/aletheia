@@ -1,6 +1,6 @@
 # Task 079: file review of `cpp/tests/unit_tests_cancel.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/unit_tests_cancel.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/079 (signed later by the dribble).
+
+Claims and guards: three claims, each its own case and each deterministic. A token cancelled before the call is refused at the entry guard with a cancellation-kinded error naming the method, and the backend is never reached, which the call counter proves. A cancellation fired mid-batch commits the prefix and reports, which the response count and the call count both pin at the trigger point. A call already inside the FFI runs to completion, which a rendezvous proves rather than a sleep: the double blocks inside the backend, the test waits on a flag until it has entered, fires the cancellation, releases it and reads the worker's outcome after the join. The two document sections the header cites were read and both say what the file says they say: the rule that cancellation is cooperative at FFI boundaries, and the C++ leg of commit-prefix-and-report. The comment that C++ has no analogue of the lock-wait scenario holds, the client being single-client-per-thread with no shared lock.
+
+Findings fixed: a header include sat in the middle of the file, between the anonymous namespace and the first case, rather than in the include block; a comment dated the interface as "now-mandatory"; and two comments described what the rendezvous replaced, a deadline poll and a sleep, rather than what it is. The scope-guard comment, which explains a real hazard, keeps its length but loses the same dating.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/079
+claims: 3 rows, 0 without a guard: each is a case, and none of them sleeps or polls
+1 line per line: checked, all 235 lines read
+2 guidelines: checked, the atomic flags carry release and acquire on both sides and the guard runs on the unwind path the comment describes
+3 modernize: checked, the flags are already the C++20 wait-and-notify shape
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the cancellation contract document
+5 value semantics: checked, the doubles are owned by the client and observed through raw pointers taken before the move
+6 raii: checked, and the scope guard is the file's own answer to a terminate during unwind
+7 dedup: checked, the shared stub base is the deduplication
+8 ground truth: checked, both cited document sections read and both accurate
+9 history: finding, one dating and two descriptions of what the code replaced
+10 simpler: checked
+11 comments: 57 to 57, code 146 to 146
+sweep: this file is part of unit_tests, which the mutation build instruments, and no mutation names it; tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 

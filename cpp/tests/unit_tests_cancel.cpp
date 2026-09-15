@@ -23,6 +23,7 @@
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -32,8 +33,8 @@ using namespace aletheia;
 
 // Shared base for the cancellation-test doubles. The binary streaming/event
 // endpoints are never exercised by these tests (they drive process() /
-// set_properties / send_frame), so the base satisfies the now-mandatory
-// IBackend streaming surface by routing every endpoint through process().
+// set_properties / send_frame), so the base satisfies the mandatory IBackend
+// streaming surface by routing every endpoint through process().
 // Subclasses implement init/close/process with the behaviour under test.
 class StubStreamingBackend : public IBackend {
 public:
@@ -127,8 +128,6 @@ public:
 
 } // namespace
 
-#include <thread>
-
 TEST_CASE("Client cancellation: pre-FFI guard rejects already-cancelled stop_token",
           "[cancellation]") {
     auto backend_owned = std::make_unique<CancelTriggerBackend>(0, nullptr);
@@ -202,27 +201,27 @@ TEST_CASE("Client cancellation: in-flight FFI runs to completion", "[cancellatio
     // unwind. This guard releases the backend (so process() returns) and joins the
     // worker before that destructor runs, turning an assertion failure into a fast,
     // clean failure instead of a terminate. A shared_ptr<void> holding a null
-    // pointer with a deleter is a dependency-free scope guard — the deleter runs
-    // on scope exit, including an exception unwind. Declared after `worker` so it
-    // destructs first; on the happy path the explicit release()/join() below run
-    // first, leaving this a no-op (release() is idempotent; join() is skipped once
-    // the worker is no longer joinable).
+    // pointer with a deleter is a dependency-free scope guard whose deleter runs
+    // on scope exit, an exception unwind included. Declared after `worker` so it
+    // destructs first; on the happy path the explicit release and join below run
+    // first and leave it a no-op, release being idempotent and join skipped once
+    // the worker has been joined.
     const auto worker_guard = std::shared_ptr<void>(nullptr, [backend, &worker](void*) {
         backend->release();
         if (worker.joinable())
             worker.join();
     });
 
-    // Deterministically wait until process() has entered the FFI (replaces the
-    // 2s steady_clock deadline poll). The entered_ semaphore release/acquire
-    // establishes happens-before, so reading call_count() here is race-free.
+    // Deterministically wait until process() has entered the FFI. The entered_
+    // flag's release and acquire establish happens-before, so reading
+    // call_count() here is race-free.
     backend->wait_until_entered();
     REQUIRE(backend->call_count() == 1);
 
-    // Fire cancellation while the FFI is in flight, then release the FFI.
-    // Releasing via the proceed_ semaphore (replaces the sleep_for(20ms)) is
-    // sufficient: the cancel cannot have aborted an already-entered call, and
-    // the worker_ok assertion after join proves the call returned success.
+    // Fire cancellation while the FFI is in flight, then release it. Releasing
+    // through the proceed_ flag is sufficient: the cancel cannot have aborted
+    // an already-entered call, and the assertion after the join proves the
+    // call returned success.
     cancel_source.request_stop();
     backend->release();
     worker.join();
