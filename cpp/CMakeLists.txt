@@ -609,13 +609,10 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT};ALETHEIA_DOC_INCLUDE=${CMAKE_CURRENT_SOURCE_DIR}/include")
 
     # libFuzzer harnesses.  Opt-in via -DALETHEIA_FUZZ=ON; -fsanitize=fuzzer
-    # links its own runtime, so build in a separate directory:
-    #   cmake -B build-fuzz -DALETHEIA_FUZZ=ON \
-    #       -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-    #   cmake --build build-fuzz --target fuzz_parse_response
-    # Run a corpus pass (60s smoke):
-    #   ./build-fuzz/fuzz_parse_response -max_total_time=60 \
-    #       cpp/tests/fuzz/seed/parse_response/
+    # links its own runtime, so these build in a directory of their own.  The
+    # configure and run recipe lives in the comment header of
+    # tests/fuzz/fuzz_parse_response.cpp, which the other three harnesses
+    # already point at.
     option(ALETHEIA_FUZZ "Build libFuzzer harnesses" OFF)
     if(ALETHEIA_FUZZ)
         foreach(target_name parse_response decode_binary_frame parse_dbc_json
