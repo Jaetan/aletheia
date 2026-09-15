@@ -1,37 +1,14 @@
-# Task 062: file review of `cpp/tests/fuzz/seed/parse_rational_number/integer.txt`
+# Task 104: file review of `cpp/src/json_parse.cpp` (follow-up from task 062)
 
-- status: completed
-- file: `cpp/tests/fuzz/seed/parse_rational_number/integer.txt`
-- round base: 726198bb (2026-09-15)
-- pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: none
+- status: pending
+- file: `cpp/src/json_parse.cpp`
+- round base: b222b613 (2026-09-15)
+- pass: lenses and diff, over the integer conversion below plus whatever the lenses fire on
+- origin: a wire integer one past the signed 64-bit maximum is refused, but for the wrong reason and with a message that misstates it. Measured at task 062 by driving the property-result path: 9223372036854775808 as a property index comes back "Negative property_index: -9223372036854775808", the value having wrapped in the conversion before the sign test saw it. The refusal is sound, so nothing unsafe is accepted, but a caller reading the message is told the document said a negative number when it said too large a one, and the same conversion feeds the timestamp. The kernel refuses out-of-range integers at entry on its own side, so the two ends should agree on what they call this. Check the JSON library's own out-of-range reporting for the number before converting, give the refusal its own message, and gate it with a failing-first case; the fuzz seed cpp/tests/fuzz/seed/parse_rational_number/int64_overflow.txt keeps the shape in the corpus.
 
 ## Report
 
-Full pass. Fix in refs/frev/062 (signed later by the dribble).
-
-Claims and guards: the seed claims to be a rational written in its bare integer form, and driving it through the harness's corrected envelope confirms it parses to a value, which is the accepting path the corpus needs to mutate from. The file is correct and unchanged.
-
-Finding fixed, and one recorded: sweeping the integer form for the outcomes the parser can give showed four, of which the corpus seeded one. A plain integer parses; a negative one is refused as a negative index; a value at the signed 64-bit maximum parses; and a value one past it is refused as a negative index of minus that maximum, the number having wrapped in the conversion before the sign test saw it. The last is the one worth keeping in the corpus, so a seed carrying it joins the two. That wrap is also a finding in the parser itself rather than in the seed: the refusal is sound, nothing out of range is accepted, but the message misstates the cause and the same conversion feeds the timestamp, so it is follow-up task 104 with the measurement.
-
-```
-REPORT 2026-09-15 tree b222b613 fix in refs/frev/062
-claims: 1 row, 0 without a guard: the seed parses to a value, measured through the parser
-1 line per line: checked, the whole 3-byte document read
-2 guidelines: n/a, not C++
-3 modernize: n/a
-4 catalogue: checked, the bare integer is the wire's form for a rational with denominator one
-5 value semantics: n/a
-6 raii: n/a
-7 dedup: checked, the new seed reaches an outcome none of the others does
-8 ground truth: finding in the parser, recorded as task 104; the seed itself is checked true against the parser
-9 history: n/a
-10 simpler: checked
-11 comments: n/a for a fixture, 0 to 0, code 1 to 1
-sweep: no mutation names this file; the fuzz target runs over the four-seed corpus with no crash
-probes: none name this file; the four parser traces are the measurement
-decision points: none
-```
+(filled when the task is worked; shape in the contract below)
 
 ## Contract (carried whole)
 
