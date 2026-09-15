@@ -4,7 +4,7 @@
 - file: `cpp/tests/doc_example_tests.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: clang-tidy lens over tests at round base reports 44 unique diagnostics in this file (the CI tidy gate excludes tests; details in base/clang_tidy_tests.txt); each is a candidate for points 2 and 3, checked against the file, never a verdict
+- pushed-in findings: clang-tidy lens over tests at round base reports 44 unique diagnostics in this file (the CI tidy gate excludes tests; details in base/clang_tidy_tests.txt); each is a candidate for points 2 and 3, checked against the file, never a verdict; the file carries two SPDX-License-Identifier lines (BSD-2-Clause and Apache-2.0) at its head, one file one licence; kDocFiles omits cpp/README.md so that file's C++ fence is compiled by nothing (task 004 rewrote the fence as a complete program and probes it; adding cpp/README.md to kDocFiles moves the guard into the harness)
 
 ## Report
 

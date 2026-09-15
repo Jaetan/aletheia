@@ -1,6 +1,6 @@
 # Task 004: file review of `cpp/README.md`
 
-- status: pending
+- status: completed
 - file: `cpp/README.md`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/004 (signed later by the dribble).
+
+Claims and guards: every link and anchor resolves (check_docs gate, green before and after); the quick-start commands are the CI lane's own; the binding loads the kernel through dlopen (CMake links only dl); make_ffi_backend_from_env reads ALETHEIA_LIB and make_ffi_backend takes a path (backend.hpp); the C++ example compiles and runs (no guard before: the doc-example harness lists six documents and not this one, and the fence used three names it never declared; guard added: probes/cpp_README.md--cpp-fence-builds-and-runs.sh, which extracts the fence, builds it with the harness's link line and runs it against the kernel to exit 0); the cancellation sentence (client.hpp states that every operation method takes the token first).
+
+Findings fixed: (a) the fence is a complete program now, declaring its DBC text, one LTL property and one frame, and checking every std::expected it receives instead of discarding [[nodiscard]] results; (b) the Testing section repeated the quick start without the compiler flags, and on this host a bare `cmake -B build` picks g++ 15 and stops on the Clang-only fatal error, so the section is gone and the quick start already ends in ctest; (c) "supported on the streaming entry points" understated the API and now reads "every client method"; (d) the Mull version in the See Also line duplicated a fact owned by the mutation documents and is dropped. Found on the way: the DBC text the fence first copied from the streaming example in docs/reference/CPP_API.md is rejected by the kernel at line 2 (it lacks the NS_ and BS_ sections and the colon after BU_), and that example returns 0 on the failure, so the harness reports it green while it parses nothing; follow-up task 094 for that document. Pushed into the harness's own task: add cpp/README.md to kDocFiles so the guard moves into ctest, and the file's head carries two SPDX licence identifiers.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/004
+claims: 7 rows, 1 without a guard: probe cpp_README.md--cpp-fence-builds-and-runs.sh added
+1 line per line: checked, all 77 lines read; every sentence asked what it claims and what runs it
+2 guidelines: n/a for the prose; the fence follows the binding's own idioms (std::expected checked, strong types, ltl builders)
+3 modernize: finding, the fence is a complete program in the shape the harness accepts verbatim (declares int main); markdown untouched otherwise
+4 catalogue: checked, AGENTS/cpp.md on the doc-example harness (fences compiled and executed, non-runnable fences use the text info string) and the toolchain policy
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: finding, the Testing section duplicated the quick start (removed); the Mull version duplicated the mutation documents (removed)
+8 ground truth: finding, three names undeclared in the fence, the stop_token sentence understated, the bare cmake configure fails on this host; checked true: links, dlopen, the two backend constructors, the harness path
+9 history: checked, none
+10 simpler: checked, the example is the shortest complete workflow the binding supports
+11 comments: 0 to 0, code 57 to 76 (the fence grew from a fragment to a program that runs)
+sweep: no mutation names this file; check_docs green; store 11 run 11 pass
+probes: probes/cpp_README.md--cpp-fence-builds-and-runs.sh added
+decision points: none
+```
 
 ## Contract (carried whole)
 
