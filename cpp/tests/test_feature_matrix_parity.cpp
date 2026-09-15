@@ -81,6 +81,24 @@ auto is_ident_char(char c) -> bool {
     return (std::isalnum(static_cast<unsigned char>(c)) != 0) || c == '_';
 }
 
+// True when the apostrophe at `pos` is a digit separator (1'000, 0xFF'FF)
+// rather than the start or end of a character literal.  Both neighbours are
+// identifier characters and the run to the left begins with a digit, which is
+// what tells a separator from an encoding prefix: u8'a' also has a digit
+// immediately left of the quote.  Reading a separator as a quote opens a
+// literal that runs to the next apostrophe, and every symbol in that span is
+// blanked out of the search.
+auto is_digit_separator(const std::string& text, std::size_t pos) -> bool {
+    if (pos == 0 || pos + 1 >= text.size())
+        return false;
+    if (!is_ident_char(text[pos - 1]) || !is_ident_char(text[pos + 1]))
+        return false;
+    std::size_t start = pos;
+    while (start > 0 && is_ident_char(text[start - 1]))
+        --start;
+    return std::isdigit(static_cast<unsigned char>(text[start])) != 0;
+}
+
 // Overwrite C/C++ comments, string literals, and character literals with
 // spaces (newlines preserved so offsets and line numbers still line up).
 // Prevents a stale "// removed AletheiaClient" comment from satisfying a
@@ -106,7 +124,7 @@ auto strip_lexical_noise(std::string text) -> std::string {
                 text[i] = text[i + 1] = ' ';
                 i += 2;
             }
-        } else if (c == '"' || c == '\'') {
+        } else if (c == '"' || (c == '\'' && !is_digit_separator(text, i))) {
             const char quote = c;
             text[i++] = ' ';
             while (i < n && text[i] != quote) {
@@ -224,4 +242,18 @@ TEST_CASE("FEATURE_MATRIX C++ entries resolve", "[parity]") {
             CHECK(symbol_present(text, symbol));
         }
     }
+}
+
+TEST_CASE("the stripper keeps a digit separator and still blanks a character literal", "[parity]") {
+    // A separator must not open a literal: whatever follows it stays visible
+    // to the whole-word search that the entries above rely on.
+    CHECK(symbol_present(strip_lexical_noise("constexpr int k = 1'000;\nstruct Dlc {};\n"), "Dlc"));
+    CHECK(
+        symbol_present(strip_lexical_noise("constexpr int k = 0xFF'FF;\nstruct Dlc {};\n"), "Dlc"));
+    // A character literal is still blanked, including an encoding-prefixed one
+    // whose prefix ends in a digit, and so is a comment.
+    CHECK_FALSE(symbol_present(strip_lexical_noise("char c = 'D'; struct Dlc {};"), "D"));
+    CHECK_FALSE(symbol_present(strip_lexical_noise("auto c = u8'x'; struct Dlc {};"), "x"));
+    CHECK(symbol_present(strip_lexical_noise("auto c = u8'x'; struct Dlc {};"), "Dlc"));
+    CHECK_FALSE(symbol_present(strip_lexical_noise("// Dlc was removed\n"), "Dlc"));
 }
