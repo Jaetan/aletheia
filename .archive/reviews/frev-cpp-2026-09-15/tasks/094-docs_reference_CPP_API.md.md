@@ -1,6 +1,6 @@
 # Task 094: document review of `docs/reference/CPP_API.md` (follow-up from task 004)
 
-- status: pending
+- status: completed
 - file: `docs/reference/CPP_API.md`
 - round base: b222b613 (2026-09-15)
 - pass: full
@@ -8,7 +8,35 @@
 
 ## Report
 
-(filled when the task is worked)
+Full pass, all nine points at all three granularities. Fix in refs/frev/094 (signed later by the dribble).
+
+Correctness. The streaming example answered a failed call by returning zero, and the harness judges a fence by its exit code, so the example reported green while the kernel refused its DBC text at the second line. Reproduced with the same text through the command-line validator, which answers "DBC text parse failed at line 2, column 1". The text is missing the two sections the grammar requires before the node list, and adding the colon the node line also lacks does not fix it; the minimal text that parses carries an empty version, the two required section headers, the node list, the message and its signal, and that is the text the fence now holds, checked by running the validator over it. Each step now reports the kernel's own message and stops with a non-zero status, so the harness sees the failure. Teeth: with the corrected guard and the old text, the harness fails and prints the kernel's message.
+
+The same shape was swept over every fence the harness compiles, in all six documents it lists. No other fence answers a failure by exiting zero, swallows an exception, or discards a client call's result. That sweep is now a probe, so a reintroduction anywhere in those documents is caught.
+
+Two enumerations were sized from and were short. The predicate list named five of eight and the temporal-operator list four of nine, and a reader takes the parenthesis for the whole set; both are now complete, with the lifting step that a formula needs and the shorthand that takes a predicate directly both named. The error-kind list named four of eight behind an "and so on"; all eight are named. A third enumeration, the sentence counting four bindings, linked three guides and omitted the Go one.
+
+Redundancy. The float principle was stated twice, generally and then as an instruction; the two are one sentence carrying the instruction. The pointer to the client header for exact signatures restated the opening blockquote, and the closing link list repeated the same claim a third time; both are gone. The See Also section stays: all six reference guides carry one, so cutting it here alone would break the shape a reader moves between them with.
+
+Every paragraph and list item is now one line. Every link and anchor resolves, and each cross-document anchor was checked against the target's own headings rather than for the file existing.
+
+Compression, measured. Prose words 637 to 675. The pass cut about thirty-five words of restatement and added about seventy of enumeration, which is the one growth the contract allows, since a partial enumeration read as a whole set is the defect. Lines 254 to 225, because the reflow joins wrapped prose.
+
+```
+REPORT 2026-09-15 tree refs/frev/098 fix in refs/frev/094
+correctness: finding, the streaming fence hid a failing example behind a zero exit and carried a DBC text the kernel refuses; both fixed and the text checked by running the validator over it
+redundancy: finding, the float principle stated twice and the headers-are-the-contract claim three times; one statement each
+clarity: checked, the guard now names the step that failed
+checkability: finding, three enumerations were partial and read as complete; all three counted from the source and widened
+implementability: checked, every symbol named resolves in the public headers
+precis: prose words 637 to 675, the growth entirely the widened enumerations, against about thirty-five words of restatement cut
+one line per paragraph: finding, the whole document was wrapped; every paragraph and list item is now one line
+proof-read: checked, the finished file read whole, not the diff
+diagrams: n/a, the document embeds none
+sweep: the doc-example harness passes over all six documents; with the old text and the new guard it fails, naming the kernel's refusal
+probes: the new fence-shape probe passes, and read red with the zero exit restored
+decision points: none
+```
 
 ## Contract (carried whole)
 
