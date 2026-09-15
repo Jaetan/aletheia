@@ -5,6 +5,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <aletheia/enrich.hpp>
 #include <aletheia/error.hpp>
 #include <aletheia/excel.hpp>
 
@@ -21,7 +22,6 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -138,48 +138,6 @@ void make_dbc_workbook(const std::filesystem::path& path,
     make_workbook(path, "DBC", dbc_hdr, rows);
 }
 
-/// The name of a predicate's alternative, so a case can pin which comparison
-/// the loader chose and not merely that a check came back.
-auto predicate_kind(const Predicate& pred) -> std::string_view {
-    return std::visit(
-        [](const auto& alternative) -> std::string_view {
-            using T = std::decay_t<decltype(alternative)>;
-            if constexpr (std::is_same_v<T, Equals>) {
-                return "equals";
-            } else if constexpr (std::is_same_v<T, LessThan>) {
-                return "less_than";
-            } else if constexpr (std::is_same_v<T, GreaterThan>) {
-                return "greater_than";
-            } else if constexpr (std::is_same_v<T, LessThanOrEqual>) {
-                return "less_than_or_equal";
-            } else if constexpr (std::is_same_v<T, GreaterThanOrEqual>) {
-                return "greater_than_or_equal";
-            } else if constexpr (std::is_same_v<T, Between>) {
-                return "between";
-            } else if constexpr (std::is_same_v<T, ChangedBy>) {
-                return "changed_by";
-            } else {
-                return "stable_within";
-            }
-        },
-        pred);
-}
-
-/// The trigger and the consequent of a when/then check, read off the formula
-/// its builder makes, so a case pins both halves of the dispatch.
-auto when_then_kinds(const CheckResult& check) -> std::string {
-    const auto& formula = check.formula();
-    REQUIRE(formula.has_value());
-    const auto& always = std::get<Always>(formula->value);
-    const auto& disjunction = std::get<Or>(always.formula->value);
-    const auto& negated = std::get<Not>(disjunction.left->value);
-    const auto& trigger = std::get<Atomic>(negated.formula->value);
-    const auto& metric = std::get<MetricEventually>(disjunction.right->value);
-    const auto& consequent = std::get<Atomic>(metric.formula->value);
-    return std::string{predicate_kind(trigger.predicate)} + "/" +
-           std::string{predicate_kind(consequent.predicate)};
-}
-
 /// Build a one-row DBC workbook whose Message ID cell is a native number cell,
 /// then (when raw_override is non-null) rewrite that cell's raw stored <v>
 /// text by patching the sheet XML inside the saved archive through OpenXLSX's
@@ -293,8 +251,9 @@ TEST_CASE("excel: when exceeds then equals", "[excel][when-then]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    CHECK(when_then_kinds((*result)[0]) == "greater_than/equals");
-    CHECK((*result)[0].condition_desc() == "= 1 within 100ms");
+    REQUIRE((*result)[0].to_formula().has_value());
+    CHECK(format_formula(*(*result)[0].to_formula()) ==
+          "always(not(BrakePedal > 50) or eventually within 100ms (BrakeLight = 1))");
 }
 
 TEST_CASE("excel: when equals then exceeds", "[excel][when-then]") {
@@ -304,8 +263,9 @@ TEST_CASE("excel: when equals then exceeds", "[excel][when-then]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    CHECK(when_then_kinds((*result)[0]) == "equals/greater_than");
-    CHECK((*result)[0].condition_desc() == "> 0 within 200ms");
+    REQUIRE((*result)[0].to_formula().has_value());
+    CHECK(format_formula(*(*result)[0].to_formula()) ==
+          "always(not(Gear = 1) or eventually within 200ms (ReverseLight > 0))");
 }
 
 TEST_CASE("excel: when drops_below then stays_between", "[excel][when-then]") {
@@ -315,8 +275,9 @@ TEST_CASE("excel: when drops_below then stays_between", "[excel][when-then]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    CHECK(when_then_kinds((*result)[0]) == "less_than/between");
-    CHECK((*result)[0].condition_desc() == "between 1 and 1 within 500ms");
+    REQUIRE((*result)[0].to_formula().has_value());
+    CHECK(format_formula(*(*result)[0].to_formula()) ==
+          "always(not(FuelLevel < 10) or eventually within 500ms (1 <= FuelWarning <= 1))");
 }
 
 // ===========================================================================
