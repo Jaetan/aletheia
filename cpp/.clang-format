@@ -1,84 +1,44 @@
 ---
+# Every key here changes a value the base style sets differently. A value the
+# base style already gives is not restated, so this file reads as the list of
+# decisions the project has taken rather than as a copy of the style it starts
+# from. A probe pins the effective configuration, so a base-style change that
+# moves one of the values this file leaves alone is caught rather than absorbed.
 Language: Cpp
 BasedOnStyle: LLVM
 
 # Indentation
 IndentWidth: 4
 TabWidth: 4
-UseTab: Never
 AccessModifierOffset: -4
-IndentCaseLabels: false
-IndentPPDirectives: None
-NamespaceIndentation: None
 
 # Line width
 ColumnLimit: 100
 
-# Braces — Attach (K&R)
-BreakBeforeBraces: Attach
-
 # Pointer/reference alignment: Type* name
 PointerAlignment: Left
 ReferenceAlignment: Left
-DerivePointerAlignment: false
 
 # Alignment
-AlignAfterOpenBracket: Align
 AlignConsecutiveAssignments: None
 AlignConsecutiveDeclarations: None
-AlignOperands: Align
-AlignTrailingComments:
-  Kind: Always
-  OverEmptyLines: 0
 
 # Short forms
 AllowShortBlocksOnASingleLine: Empty
-AllowShortCaseLabelsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: InlineOnly
-AllowShortIfStatementsOnASingleLine: Never
-AllowShortLambdasOnASingleLine: All
-AllowShortLoopsOnASingleLine: false
-AllowShortEnumsOnASingleLine: true
 
 # Breaking
-BinPackArguments: true
-BinPackParameters: true
-BreakBeforeBinaryOperators: None
-BreakBeforeTernaryOperators: true
 BreakConstructorInitializers: BeforeComma
-BreakInheritanceList: BeforeColon
 PackConstructorInitializers: CurrentLine
 BreakTemplateDeclarations: Yes
 
 # Spaces
-SpaceAfterCStyleCast: false
-SpaceAfterLogicalNot: false
 SpaceAfterTemplateKeyword: false
-SpaceBeforeAssignmentOperators: true
-SpaceBeforeCtorInitializerColon: true
-SpaceBeforeInheritanceColon: true
-SpaceBeforeParens: ControlStatements
-SpaceBeforeRangeBasedForLoopColon: true
-SpaceInEmptyBraces: Never
-SpacesInAngles: Never
 SpacesInContainerLiterals: false
-SpacesInParens: Never
-SpacesInSquareBrackets: false
 
-# Includes — preserve grouping, sort within groups
-IncludeBlocks: Preserve
-SortIncludes: CaseSensitive
+# Using-declarations, sorted within their block
 SortUsingDeclarations: Lexicographic
 
 # Miscellaneous
-Cpp11BracedListStyle: true
-FixNamespaceComments: true
-MaxEmptyLinesToKeep: 1
-ReflowComments: true
-Standard: Latest
-InsertBraces: false
 InsertNewlineAtEOF: true
 RemoveSemicolon: true
-SeparateDefinitionBlocks: Leave
-EmptyLineBeforeAccessModifier: LogicalBlock
-EmptyLineAfterAccessModifier: Never
