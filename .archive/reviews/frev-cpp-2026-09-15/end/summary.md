@@ -24,7 +24,8 @@ opened over, and that close.
 - `fuzz.txt`: the four fuzz targets, eight seconds each, no crash.
 - `mull/`: the sweep. 62 mutants, 62 killed, no survivor and no timeout. The pre-ruling close read 61
   mutants with one timeout.
-- `probes.txt`: the probe store. 77 probes, 77 pass. The base ran 62 and passed 60.
+- `probes.txt`: the probe store. 77 probes, 77 pass, each now runnable on its own because it states
+  its interpreter and carries the exec bit. The base ran 62 and passed 60.
 - `linecount.tsv`: comment and code lines per tracked file under `cpp/`. Code 17404 to 17798, comments
   4737 to 4989, ratio 0.27 to 0.28.
 - `file_gate_map.tsv`, `file_gate_map.summary.txt`: which tracked file is named by a gate. 91 files and

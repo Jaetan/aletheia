@@ -90,6 +90,10 @@ repository's task store rather than here, because a task is not a file this reco
 - both lens gaps the pre-ruling close carried are closed: the file-to-gate map's generator was saved by
   task 111 and reproduces the base row, and the file-to-probe map's generator is saved now and
   reproduces the row recorded at this close. A probe holds each
+- every tracked shell script states its own interpreter now. Seventy-nine carried no shebang, the
+  whole probe store among them, so running one directly handed it to a shell it was not written for;
+  five use process substitution and would not have run at all. Each opens with the interpreter and
+  carries the exec bit, and the store was re-run from the user's own shell with no prefix
 - one probe that could flake was found and fixed: the mutation baseline check inherited an environment
   variable that changes the sweep's own score, so it answered differently depending on whether the
   caller had sourced the environment script. It and the mutation runner drop the variable now
