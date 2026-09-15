@@ -53,6 +53,12 @@
 #   cppcoreguidelines-pro-bounds-avoid-unchecked-container-access
 #       — operator[] on pre-validated indices is intentional; .at() would add
 #         hot-path bounds-check exceptions (we self-check our bounds)
+#   boost-use-ranges, llvm-use-ranges
+#       each asks for a range algorithm from a library the project does not
+#       depend on, and their fix-its add the include that pulls it in: one
+#       rewrote a fold to boost::accumulate and added <boost/range/numeric.hpp>
+#       to a source that then could not compile. modernize-use-ranges stays
+#       enabled and asks for the standard library's own std::ranges algorithms
 
 Checks: >
   *,
@@ -82,7 +88,9 @@ Checks: >
   -concurrency-mt-unsafe,
   -misc-use-anonymous-namespace,
   -portability-avoid-pragma-once,
-  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
+  -boost-use-ranges,
+  -llvm-use-ranges
 
 # Make findings fatal. Combined with CMAKE_CXX_CLANG_TIDY in CMakeLists.txt
 # (opt-in via -DALETHEIA_CLANG_TIDY=ON), this turns drift into a compile-time

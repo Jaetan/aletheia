@@ -80,14 +80,18 @@ def main(repo: Path | None = None) -> int:
     src_files = {
         p.resolve().relative_to(repo).as_posix() for p in (repo / "cpp" / "src").rglob("*.cpp")
     }
-    # The gate lints the tests too, so an unwired test source must fail here
-    # rather than go unlinted.  The fuzz targets are the one exclusion: they
-    # compile only under the fuzz configuration, which is its own lane with its
-    # own build tree, so this database never lists them.
+    # The gate lints the tests and the benchmarks too, so an unwired source in
+    # either must fail here rather than go unlinted.  The fuzz targets are the
+    # one exclusion: they compile only under the fuzz configuration, which is
+    # its own lane with its own build tree, so this database never lists them.
     src_files |= {
         p.resolve().relative_to(repo).as_posix()
         for p in (repo / "cpp" / "tests").rglob("*.cpp")
         if "fuzz" not in p.relative_to(repo / "cpp" / "tests").parts
+    }
+    src_files |= {
+        p.resolve().relative_to(repo).as_posix()
+        for p in (repo / "cpp" / "benchmarks").rglob("*.cpp")
     }
     if not src_files:
         emit(

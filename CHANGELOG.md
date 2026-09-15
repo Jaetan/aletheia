@@ -38,6 +38,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The C++ benchmark sources are inside the lint gate too.** With the tests at zero the
+  two benchmark sources were the last C++ the repository compiles outside any gate, and
+  they reported 94 findings. All 94 are fixed and none is suppressed: no benchmark
+  configuration was needed, so `cpp/.clang-tidy` alone now covers both. The substantial
+  ones were the argument vector read as a raw pointer, four payload fixtures whose
+  constructors ran before `main` where a throw cannot be caught, eight helper structs
+  without internal linkage, three `using namespace` directives replaced by the
+  twenty-six declarations the harness actually uses, discarded results bound rather
+  than cast away, and three oversized functions split at their sweeps. One fix-it the
+  tool offered was rejected rather than applied: `boost-use-ranges` rewrote a fold to
+  `boost::accumulate` and added a Boost header to a source that then could not compile,
+  so that check and `llvm-use-ranges` are disabled for naming libraries the project does
+  not depend on, leaving `modernize-use-ranges` to ask for `std::ranges`. Measured A/B
+  against the pre-edit source on the same machine: the six throughput lanes move between
+  -2.8% and +5.3%, three up and three down, inside the platform's variance band.
+
 - **The C++ test sources are inside the lint gate.** `run-clang-tidy-22` ran over
   `cpp/src/` only, so 28 test sources, four test headers and four fuzz harnesses
   were never linted and

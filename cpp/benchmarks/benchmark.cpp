@@ -10,6 +10,8 @@
 
 #include <aletheia/aletheia.hpp>
 
+#include <cstddef>
+#include <cstdint>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -19,11 +21,14 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <format>
 #include <fstream>
-#include <numeric>
+#include <functional>
+#include <memory>
 #include <print>
+#include <ratio>
 #include <span>
 #include <stdexcept>
 #include <stop_token>
@@ -35,8 +40,17 @@
 #include <utility>
 #include <vector>
 
-using namespace aletheia;
-using json = nlohmann::json;
+// The names this harness uses, declared rather than pulled in wholesale, so a
+// reader sees which part of the API a benchmark touches.
+using aletheia::AletheiaClient, aletheia::AlwaysPresent, aletheia::BitLength, aletheia::BitPosition,
+    aletheia::ByteOrder, aletheia::CanId, aletheia::DbcDefinition, aletheia::DbcMessage,
+    aletheia::DbcSignal, aletheia::Dlc, aletheia::FramePayload, aletheia::LtlFormula,
+    aletheia::MessageName, aletheia::NodeName, aletheia::PhysicalValue, aletheia::Rational,
+    aletheia::RationalBound, aletheia::RationalFactor, aletheia::RationalOffset, aletheia::Result,
+    aletheia::SignalName, aletheia::SignalValue, aletheia::StandardId, aletheia::Timestamp,
+    aletheia::Unit, aletheia::make_ffi_backend;
+namespace ltl = aletheia::ltl;
+using Json = nlohmann::json;
 namespace fs = std::filesystem;
 
 // ---------------------------------------------------------------------------
@@ -91,7 +105,7 @@ static void check_release_build() {
 #endif
 }
 
-static auto get_system_info() -> json {
+static auto get_system_info() -> Json {
     return {
         {"cpu", get_cpu_model()},
         {"cores", static_cast<int>(std::thread::hardware_concurrency())},
@@ -255,10 +269,15 @@ static auto make_canfd_dbc() -> DbcDefinition {
 // Frame payloads
 // ---------------------------------------------------------------------------
 
-static const FramePayload can20_frame = {
-    std::byte{0x40}, std::byte{0x1F}, std::byte{0x82}, std::byte{0x00},
-    std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
-};
+// The payload fixtures are function-local: a container at namespace scope
+// runs its constructor before main, where a throw cannot be caught.
+static auto can20_frame() -> const FramePayload& {
+    static const FramePayload frame = {
+        std::byte{0x40}, std::byte{0x1F}, std::byte{0x82}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+    };
+    return frame;
+}
 static constexpr auto can20_id = CanId{StandardId::create(0x100).value()};
 static constexpr auto can20_dlc = Dlc::create(8).value();
 
@@ -296,23 +315,32 @@ static auto make_canfd_frame() -> FramePayload {
     return frame;
 }
 
-static const FramePayload canfd_frame = make_canfd_frame();
+static auto canfd_frame() -> const FramePayload& {
+    static const FramePayload frame = make_canfd_frame();
+    return frame;
+}
 static constexpr auto canfd_id = CanId{StandardId::create(0x200).value()};
 static constexpr auto canfd_dlc = Dlc::create(15).value();
 
 // CAN 2.0B signal values for frame building
-static const std::vector<SignalValue> can20_signals = {
-    {SignalName{"EngineSpeed"}, PhysicalValue{Rational{2000, 1}}},
-    {SignalName{"EngineTemp"}, PhysicalValue{Rational{90, 1}}},
-};
+static auto can20_signals() -> const std::vector<SignalValue>& {
+    static const std::vector<SignalValue> values = {
+        {.name = SignalName{"EngineSpeed"}, .value = PhysicalValue{Rational{2000, 1}}},
+        {.name = SignalName{"EngineTemp"}, .value = PhysicalValue{Rational{90, 1}}},
+    };
+    return values;
+}
 
 // CAN-FD signal values for frame building
-static const std::vector<SignalValue> canfd_signals = {
-    {SignalName{"GPSSpeed"}, PhysicalValue{Rational{20, 1}}},
-    {SignalName{"YawRate"}, PhysicalValue{Rational{}}},
-    {SignalName{"WheelSpeedFL"}, PhysicalValue{Rational{10, 1}}},
-    {SignalName{"WheelSpeedFR"}, PhysicalValue{Rational{10, 1}}},
-};
+static auto canfd_signals() -> const std::vector<SignalValue>& {
+    static const std::vector<SignalValue> values = {
+        {.name = SignalName{"GPSSpeed"}, .value = PhysicalValue{Rational{20, 1}}},
+        {.name = SignalName{"YawRate"}, .value = PhysicalValue{Rational{}}},
+        {.name = SignalName{"WheelSpeedFL"}, .value = PhysicalValue{Rational{10, 1}}},
+        {.name = SignalName{"WheelSpeedFR"}, .value = PhysicalValue{Rational{10, 1}}},
+    };
+    return values;
+}
 
 // ---------------------------------------------------------------------------
 // LTL properties
@@ -386,31 +414,34 @@ static auto make_scaling_property(int index) -> LtlFormula {
 // Statistics helpers
 // ---------------------------------------------------------------------------
 
+namespace {
 struct Stats {
     double mean = 0;
     double stdev = 0;
     double min_val = 0;
     double max_val = 0;
 };
+} // namespace
 
 static auto compute_stats(const std::vector<double>& data) -> Stats {
     if (data.empty())
         return {};
     auto n = static_cast<double>(data.size());
-    double sum = std::accumulate(data.begin(), data.end(), 0.0);
-    double mean = sum / n;
+    const double sum = std::ranges::fold_left(data, 0.0, std::plus{});
+    const double mean = sum / n;
     double sq_sum = 0;
     for (auto v : data)
         sq_sum += (v - mean) * (v - mean);
-    double stdev = (data.size() > 1) ? std::sqrt(sq_sum / (n - 1.0)) : 0.0;
+    const double stdev = (data.size() > 1) ? std::sqrt(sq_sum / (n - 1.0)) : 0.0;
     return {
         .mean = mean,
         .stdev = stdev,
-        .min_val = *std::min_element(data.begin(), data.end()),
-        .max_val = *std::max_element(data.begin(), data.end()),
+        .min_val = *std::ranges::min_element(data),
+        .max_val = *std::ranges::max_element(data),
     };
 }
 
+namespace {
 struct LatencyStats {
     std::size_t count = 0;
     double mean_us = 0;
@@ -421,21 +452,22 @@ struct LatencyStats {
     double p99_us = 0;
     double p999_us = 0;
 };
+} // namespace
 
 static auto percentile(const std::vector<double>& sorted, double p) -> double {
     if (sorted.empty())
         return 0.0;
-    double k = static_cast<double>(sorted.size() - 1) * p / 100.0;
+    const double k = static_cast<double>(sorted.size() - 1) * p / 100.0;
     auto f = static_cast<std::size_t>(k);
     auto c = (f + 1 < sorted.size()) ? f + 1 : f;
-    return sorted[f] + (k - static_cast<double>(f)) * (sorted[c] - sorted[f]);
+    return sorted[f] + ((k - static_cast<double>(f)) * (sorted[c] - sorted[f]));
 }
 
 static auto compute_latency_stats(std::vector<double>& latencies_us) -> LatencyStats {
     if (latencies_us.empty())
         return {};
-    std::sort(latencies_us.begin(), latencies_us.end());
-    double sum = std::accumulate(latencies_us.begin(), latencies_us.end(), 0.0);
+    std::ranges::sort(latencies_us);
+    const double sum = std::ranges::fold_left(latencies_us, 0.0, std::plus{});
     return {
         .count = latencies_us.size(),
         .mean_us = sum / static_cast<double>(latencies_us.size()),
@@ -452,8 +484,13 @@ static auto compute_latency_stats(std::vector<double>& latencies_us) -> LatencyS
 // Output helpers
 // ---------------------------------------------------------------------------
 
-// Output destination: stderr when --json is set, stdout otherwise.
-static std::FILE* out_file = stdout;
+// Output destination: stderr when --json is set, stdout otherwise. Held in a
+// function-local static so the destination is reachable without a mutable
+// object at namespace scope.
+static auto out_file() -> std::FILE*& {
+    static std::FILE* destination = stdout;
+    return destination;
+}
 
 static constexpr std::string_view k_rule_heavy =
     "======================================================================";
@@ -461,11 +498,11 @@ static constexpr std::string_view k_rule_light =
     "----------------------------------------------------------------------";
 
 static void print_header(std::string_view title) {
-    std::println(out_file, "{}\n{}\n{}", k_rule_heavy, title, k_rule_heavy);
+    std::println(out_file(), "{}\n{}\n{}", k_rule_heavy, title, k_rule_heavy);
 }
 
 static void print_separator() {
-    std::println(out_file, "{}", k_rule_light);
+    std::println(out_file(), "{}", k_rule_light);
 }
 
 // ---------------------------------------------------------------------------
@@ -500,6 +537,7 @@ static auto make_streaming_client(const fs::path& lib, const DbcDefinition& dbc,
 // Benchmark: throughput
 // ---------------------------------------------------------------------------
 
+namespace {
 struct ThroughputResult {
     std::string name;
     int num_frames;
@@ -507,6 +545,7 @@ struct ThroughputResult {
     Stats fps;
     std::vector<double> all_fps;
 };
+} // namespace
 
 static auto bench_streaming(const fs::path& lib, const DbcDefinition& dbc,
                             std::vector<LtlFormula> properties, CanId id, Dlc dlc,
@@ -514,11 +553,11 @@ static auto bench_streaming(const fs::path& lib, const DbcDefinition& dbc,
     auto client = make_streaming_client(lib, dbc, properties);
 
     auto start = std::chrono::steady_clock::now();
-    for (int i = 0; i < num_frames; ++i)
-        (void)client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
+    for (int i = 0; i < num_frames; ++i) [[maybe_unused]]
+        const auto sent = client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
     auto end = std::chrono::steady_clock::now();
 
-    (void)client.end_stream(std::stop_token{});
+    [[maybe_unused]] const auto ended = client.end_stream(std::stop_token{});
 
     auto elapsed = std::chrono::duration<double>(end - start).count();
     return static_cast<double>(num_frames) / elapsed;
@@ -529,8 +568,8 @@ static auto bench_extraction(const fs::path& lib, const DbcDefinition& dbc, CanI
     auto client = make_client(lib, dbc);
 
     auto start = std::chrono::steady_clock::now();
-    for (int i = 0; i < num_frames; ++i)
-        (void)client.extract_signals(std::stop_token{}, id, dlc, frame);
+    for (int i = 0; i < num_frames; ++i) [[maybe_unused]]
+        const auto extracted = client.extract_signals(std::stop_token{}, id, dlc, frame);
     auto end = std::chrono::steady_clock::now();
 
     auto elapsed = std::chrono::duration<double>(end - start).count();
@@ -542,8 +581,8 @@ static auto bench_building(const fs::path& lib, const DbcDefinition& dbc, CanId 
     auto client = make_client(lib, dbc);
 
     auto start = std::chrono::steady_clock::now();
-    for (int i = 0; i < num_frames; ++i)
-        (void)client.build_frame(std::stop_token{}, id, dlc, signals);
+    for (int i = 0; i < num_frames; ++i) [[maybe_unused]]
+        const auto built = client.build_frame(std::stop_token{}, id, dlc, signals);
     auto end = std::chrono::steady_clock::now();
 
     auto elapsed = std::chrono::duration<double>(end - start).count();
@@ -560,16 +599,16 @@ static auto run_throughput_bench(std::string name, auto bench_fn, int num_frames
     std::vector<double> results;
     results.reserve(num_runs);
     for (int r = 0; r < num_runs; ++r) {
-        double fps = bench_fn(num_frames);
+        const double fps = bench_fn(num_frames);
         results.push_back(fps);
     }
 
     auto stats = compute_stats(results);
 
-    std::println(out_file, "\n{}:", name);
-    std::println(out_file, "----------------------------------------");
+    std::println(out_file(), "\n{}:", name);
+    std::println(out_file(), "----------------------------------------");
     for (int r = 0; r < num_runs; ++r)
-        std::println(out_file, "  Run {}/{}: {:.0f} ops/sec", r + 1, num_runs, results[r]);
+        std::println(out_file(), "  Run {}/{}: {:.0f} ops/sec", r + 1, num_runs, results[r]);
 
     return ThroughputResult{
         .name = std::move(name),
@@ -580,13 +619,10 @@ static auto run_throughput_bench(std::string name, auto bench_fn, int num_frames
     };
 }
 
-static void run_throughput(const fs::path& lib, int num_frames, int num_runs, int warmup,
-                           bool emit_json) {
-    print_header("Aletheia Throughput Benchmark (C++)");
-    std::println(out_file, "Frames per run: {}", num_frames);
-    std::println(out_file, "Runs: {}", num_runs);
-    std::println(out_file, "Warmup runs: {}", warmup);
-
+// The six measurements the throughput mode takes, in the order the summary
+// table prints them.
+static auto collect_throughput_results(const fs::path& lib, int num_frames, int num_runs,
+                                       int warmup) -> std::vector<ThroughputResult> {
     auto dbc_20 = make_can20_dbc();
     auto dbc_fd = make_canfd_dbc();
 
@@ -597,18 +633,18 @@ static void run_throughput(const fs::path& lib, int num_frames, int num_runs, in
         "CAN 2.0B: Stream LTL (2 props)",
         [&](int n) {
             return bench_streaming(lib, dbc_20, make_can20_properties(), can20_id, can20_dlc,
-                                   can20_frame, n);
+                                   can20_frame(), n);
         },
         num_frames, num_runs, warmup));
 
     results.push_back(run_throughput_bench(
         "CAN 2.0B: Signal Extraction",
-        [&](int n) { return bench_extraction(lib, dbc_20, can20_id, can20_dlc, can20_frame, n); },
+        [&](int n) { return bench_extraction(lib, dbc_20, can20_id, can20_dlc, can20_frame(), n); },
         num_frames, num_runs, warmup));
 
     results.push_back(run_throughput_bench(
         "CAN 2.0B: Frame Building",
-        [&](int n) { return bench_building(lib, dbc_20, can20_id, can20_dlc, can20_signals, n); },
+        [&](int n) { return bench_building(lib, dbc_20, can20_id, can20_dlc, can20_signals(), n); },
         num_frames, num_runs, warmup));
 
     // CAN-FD benchmarks
@@ -616,36 +652,47 @@ static void run_throughput(const fs::path& lib, int num_frames, int num_runs, in
         "CAN-FD:   Stream LTL (3 props)",
         [&](int n) {
             return bench_streaming(lib, dbc_fd, make_canfd_properties(), canfd_id, canfd_dlc,
-                                   canfd_frame, n);
+                                   canfd_frame(), n);
         },
         num_frames, num_runs, warmup));
 
     results.push_back(run_throughput_bench(
         "CAN-FD:   Signal Extraction",
-        [&](int n) { return bench_extraction(lib, dbc_fd, canfd_id, canfd_dlc, canfd_frame, n); },
+        [&](int n) { return bench_extraction(lib, dbc_fd, canfd_id, canfd_dlc, canfd_frame(), n); },
         num_frames, num_runs, warmup));
 
     results.push_back(run_throughput_bench(
         "CAN-FD:   Frame Building",
-        [&](int n) { return bench_building(lib, dbc_fd, canfd_id, canfd_dlc, canfd_signals, n); },
+        [&](int n) { return bench_building(lib, dbc_fd, canfd_id, canfd_dlc, canfd_signals(), n); },
         num_frames, num_runs, warmup));
+    return results;
+}
+
+static void run_throughput(const fs::path& lib, int num_frames, int num_runs, int warmup,
+                           bool emit_json) {
+    print_header("Aletheia Throughput Benchmark (C++)");
+    std::println(out_file(), "Frames per run: {}", num_frames);
+    std::println(out_file(), "Runs: {}", num_runs);
+    std::println(out_file(), "Warmup runs: {}", warmup);
+
+    const auto results = collect_throughput_results(lib, num_frames, num_runs, warmup);
 
     // Summary table
-    std::println(out_file, "");
+    std::println(out_file(), "");
     print_header("Summary");
-    std::println(out_file, "{:<35} {:>12} {:>10} {:>10} {:>10}", "Benchmark", "Mean", "Stdev",
+    std::println(out_file(), "{:<35} {:>12} {:>10} {:>10} {:>10}", "Benchmark", "Mean", "Stdev",
                  "Min", "Max");
     print_separator();
     for (const auto& r : results) {
-        std::println(out_file, "{:<35} {:10.0f}/s {:9.0f} {:9.0f} {:9.0f}", r.name, r.fps.mean,
+        std::println(out_file(), "{:<35} {:10.0f}/s {:9.0f} {:9.0f} {:9.0f}", r.name, r.fps.mean,
                      r.fps.stdev, r.fps.min_val, r.fps.max_val);
     }
-    std::println(out_file, "{}", k_rule_heavy);
+    std::println(out_file(), "{}", k_rule_heavy);
 
     if (emit_json) {
-        json json_results = json::array();
+        Json json_results = Json::array();
         for (const auto& r : results) {
-            double us = (r.fps.mean > 0) ? 1'000'000.0 / r.fps.mean : 0;
+            const double us = (r.fps.mean > 0) ? 1'000'000.0 / r.fps.mean : 0;
             json_results.push_back({
                 {"name", r.name},
                 {"frames", r.num_frames},
@@ -657,7 +704,7 @@ static void run_throughput(const fs::path& lib, int num_frames, int num_runs, in
                 {"us_per_frame", std::round(us * 10) / 10},
             });
         }
-        json output = {
+        const Json output = {
             {"benchmark", "throughput"},    {"language", "cpp"},
             {"timestamp", iso_timestamp()}, {"system", get_system_info()},
             {"results", json_results},
@@ -670,24 +717,26 @@ static void run_throughput(const fs::path& lib, int num_frames, int num_runs, in
 // Benchmark: latency
 // ---------------------------------------------------------------------------
 
+namespace {
 struct LatencyResult {
     std::string name;
     LatencyStats stats;
 };
+} // namespace
 
 static void print_latency(std::string_view name, const LatencyStats& s) {
-    std::println(out_file, "\n{}:", name);
-    std::println(out_file, "--------------------------------------------------");
-    std::println(out_file, "  Count:    {} operations", s.count);
-    std::println(out_file, "  Mean:     {:.1f} us", s.mean_us);
-    std::println(out_file, "  Min:      {:.1f} us", s.min_us);
-    std::println(out_file, "  Max:      {:.1f} us", s.max_us);
-    std::println(out_file, "  p50:      {:.1f} us", s.p50_us);
-    std::println(out_file, "  p90:      {:.1f} us", s.p90_us);
-    std::println(out_file, "  p99:      {:.1f} us", s.p99_us);
-    std::println(out_file, "  p99.9:    {:.1f} us", s.p999_us);
+    std::println(out_file(), "\n{}:", name);
+    std::println(out_file(), "--------------------------------------------------");
+    std::println(out_file(), "  Count:    {} operations", s.count);
+    std::println(out_file(), "  Mean:     {:.1f} us", s.mean_us);
+    std::println(out_file(), "  Min:      {:.1f} us", s.min_us);
+    std::println(out_file(), "  Max:      {:.1f} us", s.max_us);
+    std::println(out_file(), "  p50:      {:.1f} us", s.p50_us);
+    std::println(out_file(), "  p90:      {:.1f} us", s.p90_us);
+    std::println(out_file(), "  p99:      {:.1f} us", s.p99_us);
+    std::println(out_file(), "  p99.9:    {:.1f} us", s.p999_us);
     if (s.mean_us > 0)
-        std::println(out_file, "  Implied:  {:.0f} ops/sec (from mean)", 1'000'000.0 / s.mean_us);
+        std::println(out_file(), "  Implied:  {:.0f} ops/sec (from mean)", 1'000'000.0 / s.mean_us);
 }
 
 static auto bench_latency_streaming(const fs::path& lib, const DbcDefinition& dbc,
@@ -697,21 +746,22 @@ static auto bench_latency_streaming(const fs::path& lib, const DbcDefinition& db
     auto client = make_streaming_client(lib, dbc, properties);
 
     // Warmup
-    for (int i = 0; i < warmup; ++i)
-        (void)client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
+    for (int i = 0; i < warmup; ++i) [[maybe_unused]]
+        const auto sent = client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
 
     // Measure
     std::vector<double> latencies;
     latencies.reserve(ops);
     for (int i = 0; i < ops; ++i) {
         auto start = std::chrono::steady_clock::now();
-        (void)client.send_frame(std::stop_token{}, Timestamp{warmup + i}, id, dlc, frame);
+        [[maybe_unused]] const auto sent =
+            client.send_frame(std::stop_token{}, Timestamp{warmup + i}, id, dlc, frame);
         auto end = std::chrono::steady_clock::now();
         auto us = std::chrono::duration<double, std::micro>(end - start).count();
         latencies.push_back(us);
     }
 
-    (void)client.end_stream(std::stop_token{});
+    [[maybe_unused]] const auto ended = client.end_stream(std::stop_token{});
     return compute_latency_stats(latencies);
 }
 
@@ -721,15 +771,16 @@ static auto bench_latency_extraction(const fs::path& lib, const DbcDefinition& d
     auto client = make_client(lib, dbc);
 
     // Warmup
-    for (int i = 0; i < warmup; ++i)
-        (void)client.extract_signals(std::stop_token{}, id, dlc, frame);
+    for (int i = 0; i < warmup; ++i) [[maybe_unused]]
+        const auto extracted = client.extract_signals(std::stop_token{}, id, dlc, frame);
 
     // Measure
     std::vector<double> latencies;
     latencies.reserve(ops);
     for (int i = 0; i < ops; ++i) {
         auto start = std::chrono::steady_clock::now();
-        (void)client.extract_signals(std::stop_token{}, id, dlc, frame);
+        [[maybe_unused]] const auto extracted =
+            client.extract_signals(std::stop_token{}, id, dlc, frame);
         auto end = std::chrono::steady_clock::now();
         latencies.push_back(std::chrono::duration<double, std::micro>(end - start).count());
     }
@@ -743,15 +794,15 @@ static auto bench_latency_building(const fs::path& lib, const DbcDefinition& dbc
     auto client = make_client(lib, dbc);
 
     // Warmup
-    for (int i = 0; i < warmup; ++i)
-        (void)client.build_frame(std::stop_token{}, id, dlc, signals);
+    for (int i = 0; i < warmup; ++i) [[maybe_unused]]
+        const auto built = client.build_frame(std::stop_token{}, id, dlc, signals);
 
     // Measure
     std::vector<double> latencies;
     latencies.reserve(ops);
     for (int i = 0; i < ops; ++i) {
         auto start = std::chrono::steady_clock::now();
-        (void)client.build_frame(std::stop_token{}, id, dlc, signals);
+        [[maybe_unused]] const auto built = client.build_frame(std::stop_token{}, id, dlc, signals);
         auto end = std::chrono::steady_clock::now();
         latencies.push_back(std::chrono::duration<double, std::micro>(end - start).count());
     }
@@ -761,8 +812,8 @@ static auto bench_latency_building(const fs::path& lib, const DbcDefinition& dbc
 
 static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json) {
     print_header("Aletheia Latency Benchmark (C++)");
-    std::println(out_file, "Operations: {}", ops);
-    std::println(out_file, "Warmup: {}", warmup);
+    std::println(out_file(), "Operations: {}", ops);
+    std::println(out_file(), "Warmup: {}", warmup);
 
     auto dbc_20 = make_can20_dbc();
     auto dbc_fd = make_canfd_dbc();
@@ -772,45 +823,45 @@ static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json
     auto run_suite = [&](const char* label, const DbcDefinition& dbc,
                          std::vector<LtlFormula> properties, CanId id, Dlc dlc,
                          const FramePayload& frame, const std::vector<SignalValue>& signals) {
-        std::println(out_file, "\nBenchmarking {} streaming...", label);
+        std::println(out_file(), "\nBenchmarking {} streaming...", label);
         auto s1 =
             bench_latency_streaming(lib, dbc, std::move(properties), id, dlc, frame, warmup, ops);
         auto name = std::format("{} Streaming LTL", label);
         print_latency(name, s1);
-        results.push_back({name, s1});
+        results.push_back({.name = name, .stats = s1});
 
-        std::println(out_file, "\nBenchmarking {} signal extraction...", label);
+        std::println(out_file(), "\nBenchmarking {} signal extraction...", label);
         auto s2 = bench_latency_extraction(lib, dbc, id, dlc, frame, warmup, ops);
         name = std::format("{} Signal Extraction", label);
         print_latency(name, s2);
-        results.push_back({name, s2});
+        results.push_back({.name = name, .stats = s2});
 
-        std::println(out_file, "\nBenchmarking {} frame building...", label);
+        std::println(out_file(), "\nBenchmarking {} frame building...", label);
         auto s3 = bench_latency_building(lib, dbc, id, dlc, signals, warmup, ops);
         name = std::format("{} Frame Building", label);
         print_latency(name, s3);
-        results.push_back({name, s3});
+        results.push_back({.name = name, .stats = s3});
     };
 
-    run_suite("CAN 2.0B", dbc_20, make_can20_properties(), can20_id, can20_dlc, can20_frame,
-              can20_signals);
-    run_suite("CAN-FD", dbc_fd, make_canfd_properties(), canfd_id, canfd_dlc, canfd_frame,
-              canfd_signals);
+    run_suite("CAN 2.0B", dbc_20, make_can20_properties(), can20_id, can20_dlc, can20_frame(),
+              can20_signals());
+    run_suite("CAN-FD", dbc_fd, make_canfd_properties(), canfd_id, canfd_dlc, canfd_frame(),
+              canfd_signals());
 
     // Summary table
-    std::println(out_file, "");
+    std::println(out_file(), "");
     print_header("Summary (all times in microseconds)");
-    std::println(out_file, "{:<30} {:>10} {:>10} {:>10} {:>10}", "Operation", "Mean", "p50", "p99",
-                 "p99.9");
+    std::println(out_file(), "{:<30} {:>10} {:>10} {:>10} {:>10}", "Operation", "Mean", "p50",
+                 "p99", "p99.9");
     print_separator();
     for (const auto& r : results) {
-        std::println(out_file, "{:<30} {:10.1f} {:10.1f} {:10.1f} {:10.1f}", r.name,
+        std::println(out_file(), "{:<30} {:10.1f} {:10.1f} {:10.1f} {:10.1f}", r.name,
                      r.stats.mean_us, r.stats.p50_us, r.stats.p99_us, r.stats.p999_us);
     }
-    std::println(out_file, "{}", k_rule_heavy);
+    std::println(out_file(), "{}", k_rule_heavy);
 
     if (emit_json) {
-        json json_results = json::array();
+        Json json_results = Json::array();
         for (const auto& r : results) {
             json_results.push_back({
                 {"name", r.name},
@@ -824,7 +875,7 @@ static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json
                 {"p999_us", std::round(r.stats.p999_us * 10) / 10},
             });
         }
-        json output = {
+        const Json output = {
             {"benchmark", "latency"},       {"language", "cpp"},
             {"timestamp", iso_timestamp()}, {"system", get_system_info()},
             {"results", json_results},
@@ -845,25 +896,31 @@ static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json
 // relative = fps / (fps of the first row in the same sweep).
 // ---------------------------------------------------------------------------
 
+namespace {
 struct TraceSizeRow {
     int frames;
     double fps;
     double relative;
 };
+} // namespace
 
+namespace {
 struct PropCountRow {
     int properties;
     double fps;
     double us_per_frame;
     double relative;
 };
+} // namespace
 
+namespace {
 struct ComplexityRow {
     std::string complexity;
     double fps;
     double us_per_frame;
     double relative;
 };
+} // namespace
 
 // LtlFormula owns unique_ptr children (not copyable): clone the whole vector so
 // each streaming pass gets its own tree.
@@ -965,59 +1022,70 @@ static auto complexity_levels() -> std::vector<std::pair<std::string, std::vecto
     return levels;
 }
 
-static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit_json) {
-    print_header("Aletheia Scaling Benchmark (C++)");
-    std::println(out_file, "Runs: {}", num_runs);
-    std::println(out_file, "Quick: {}", quick ? "true" : "false");
+// The scaling payload. Written through ordered_json rather than the default,
+// because the schema pins the sub-benchmark key order and the whole document
+// has to preserve insertion order end to end.
+static void emit_scaling_json(const std::vector<TraceSizeRow>& trace_can20,
+                              const std::vector<TraceSizeRow>& trace_canfd,
+                              const std::vector<PropCountRow>& prop_count,
+                              const std::vector<ComplexityRow>& complexity) {
+    // ordered_json (NOT default json, which sorts object keys alphabetically):
+    // the schema pins the sub-benchmark key order, so the whole payload must
+    // preserve insertion order end-to-end.
+    using Ordered = nlohmann::ordered_json;
 
-    auto dbc_20 = make_can20_dbc();
-    auto dbc_fd = make_canfd_dbc();
-    int num_frames = quick ? 5000 : 10000;
-
-    // Warmup
-    std::println(out_file, "\nWarming up...");
-    {
-        std::vector<LtlFormula> warm;
-        warm.push_back(always_between("EngineSpeed", Rational{0, 1}, Rational{8000, 1}));
-        (void)mean_fps(lib, dbc_20, can20_id, can20_dlc, can20_frame, warm, 1000, 1);
-    }
-    std::println(out_file, "Done.");
-
-    // 1./2. Trace-size sweeps (CAN 2.0B, then CAN-FD).
-    auto scan_trace = [&](const char* title, const DbcDefinition& dbc, CanId id, Dlc dlc,
-                          const FramePayload& frame,
-                          const std::vector<LtlFormula>& props) -> std::vector<TraceSizeRow> {
-        std::println(out_file, "");
-        print_header(title);
-        std::println(out_file, "{:>10} {:>12} {:>10}", "Frames", "Frames/sec", "Relative");
-        print_separator();
-        std::vector<TraceSizeRow> rows;
-        double baseline = 0;
-        for (int size : trace_sizes(quick)) {
-            double fps = mean_fps(lib, dbc, id, dlc, frame, props, size, num_runs);
-            if (baseline == 0)
-                baseline = fps;
-            double relative = relative_of(fps, baseline);
-            std::println(out_file, "{:10} {:12.0f} {:10.2f}x", size, fps, relative);
-            rows.push_back({size, fps, relative});
-        }
-        return rows;
+    auto trace_json = [](const std::vector<TraceSizeRow>& rows) -> Ordered {
+        Ordered arr = Ordered::array();
+        for (const auto& r : rows)
+            arr.push_back({
+                {"frames", r.frames},
+                {"fps", round1(r.fps)},
+                {"relative", round3(r.relative)},
+            });
+        return arr;
     };
 
-    std::vector<LtlFormula> trace_props_can20;
-    trace_props_can20.push_back(always_between("EngineSpeed", Rational{0, 1}, Rational{8000, 1}));
-    auto trace_can20 = scan_trace("Trace Size Scaling (CAN 2.0B)", dbc_20, can20_id, can20_dlc,
-                                  can20_frame, trace_props_can20);
+    Ordered prop_count_json = Ordered::array();
+    for (const auto& r : prop_count)
+        prop_count_json.push_back({
+            {"properties", r.properties},
+            {"fps", round1(r.fps)},
+            {"us_per_frame", round1(r.us_per_frame)},
+            {"relative", round3(r.relative)},
+        });
 
-    std::vector<LtlFormula> trace_props_canfd;
-    trace_props_canfd.push_back(always_between("GPSSpeed", Rational{0, 1}, Rational{655, 1}));
-    auto trace_canfd = scan_trace("Trace Size Scaling (CAN-FD)", dbc_fd, canfd_id, canfd_dlc,
-                                  canfd_frame, trace_props_canfd);
+    Ordered complexity_json = Ordered::array();
+    for (const auto& r : complexity)
+        complexity_json.push_back({
+            {"complexity", r.complexity},
+            {"fps", round1(r.fps)},
+            {"us_per_frame", round1(r.us_per_frame)},
+            {"relative", round3(r.relative)},
+        });
 
-    // 3. Property-count sweep (CAN 2.0B), 10 templates cycled by i mod 10.
-    std::println(out_file, "");
+    Ordered results;
+    results["trace_size_can20"] = trace_json(trace_can20);
+    results["trace_size_canfd"] = trace_json(trace_canfd);
+    results["property_count"] = prop_count_json;
+    results["property_complexity"] = complexity_json;
+
+    Ordered output;
+    output["benchmark"] = "scaling";
+    output["language"] = "cpp";
+    output["timestamp"] = iso_timestamp();
+    output["system"] = get_system_info();
+    output["results"] = results;
+
+    std::println("{}", output.dump(2));
+}
+
+// The property-count sweep: the same trace measured against a growing bundle,
+// each count's rate reported against the first as a baseline.
+static auto scan_property_count(const fs::path& lib, const DbcDefinition& dbc, int num_frames,
+                                int num_runs) -> std::vector<PropCountRow> {
+    std::println(out_file(), "");
     print_header("Property Count Scaling");
-    std::println(out_file, "{:>10} {:>12} {:>10} {:>10}", "Properties", "Frames/sec", "us/frame",
+    std::println(out_file(), "{:>10} {:>12} {:>10} {:>10}", "Properties", "Frames/sec", "us/frame",
                  "Relative");
     print_separator();
     std::vector<PropCountRow> prop_count;
@@ -1029,96 +1097,106 @@ static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit
             props.reserve(count);
             for (int i = 0; i < count; ++i)
                 props.push_back(make_scaling_property(i));
-            double fps = mean_fps(lib, dbc_20, can20_id, can20_dlc, can20_frame, props, num_frames,
-                                  num_runs);
+            double fps =
+                mean_fps(lib, dbc, can20_id, can20_dlc, can20_frame(), props, num_frames, num_runs);
             if (baseline == 0)
                 baseline = fps;
             double relative = relative_of(fps, baseline);
             double us = us_per_frame_of(fps);
-            std::println(out_file, "{:10} {:12.0f} {:10.1f} {:10.2f}x", count, fps, us, relative);
-            prop_count.push_back({count, fps, us, relative});
+            std::println(out_file(), "{:10} {:12.0f} {:10.1f} {:10.2f}x", count, fps, us, relative);
+            prop_count.push_back(
+                {.properties = count, .fps = fps, .us_per_frame = us, .relative = relative});
         }
     }
+    return prop_count;
+}
+
+static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit_json) {
+    print_header("Aletheia Scaling Benchmark (C++)");
+    std::println(out_file(), "Runs: {}", num_runs);
+    std::println(out_file(), "Quick: {}", quick ? "true" : "false");
+
+    auto dbc_20 = make_can20_dbc();
+    auto dbc_fd = make_canfd_dbc();
+    const int num_frames = quick ? 5000 : 10000;
+
+    // Warmup
+    std::println(out_file(), "\nWarming up...");
+    {
+        std::vector<LtlFormula> warm;
+        warm.push_back(always_between("EngineSpeed", Rational{0, 1}, Rational{8000, 1}));
+        [[maybe_unused]] const auto warmed =
+            mean_fps(lib, dbc_20, can20_id, can20_dlc, can20_frame(), warm, 1000, 1);
+    }
+    std::println(out_file(), "Done.");
+
+    // 1./2. Trace-size sweeps (CAN 2.0B, then CAN-FD).
+    auto scan_trace = [&](const char* title, const DbcDefinition& dbc, CanId id, Dlc dlc,
+                          const FramePayload& frame,
+                          const std::vector<LtlFormula>& props) -> std::vector<TraceSizeRow> {
+        std::println(out_file(), "");
+        print_header(title);
+        std::println(out_file(), "{:>10} {:>12} {:>10}", "Frames", "Frames/sec", "Relative");
+        print_separator();
+        std::vector<TraceSizeRow> rows;
+        double baseline = 0;
+        for (int size : trace_sizes(quick)) {
+            double fps = mean_fps(lib, dbc, id, dlc, frame, props, size, num_runs);
+            if (baseline == 0)
+                baseline = fps;
+            double relative = relative_of(fps, baseline);
+            std::println(out_file(), "{:10} {:12.0f} {:10.2f}x", size, fps, relative);
+            rows.push_back({.frames = size, .fps = fps, .relative = relative});
+        }
+        return rows;
+    };
+
+    std::vector<LtlFormula> trace_props_can20;
+    trace_props_can20.push_back(always_between("EngineSpeed", Rational{0, 1}, Rational{8000, 1}));
+    auto trace_can20 = scan_trace("Trace Size Scaling (CAN 2.0B)", dbc_20, can20_id, can20_dlc,
+                                  can20_frame(), trace_props_can20);
+
+    std::vector<LtlFormula> trace_props_canfd;
+    trace_props_canfd.push_back(always_between("GPSSpeed", Rational{0, 1}, Rational{655, 1}));
+    auto trace_canfd = scan_trace("Trace Size Scaling (CAN-FD)", dbc_fd, canfd_id, canfd_dlc,
+                                  canfd_frame(), trace_props_canfd);
+
+    const auto prop_count = scan_property_count(lib, dbc_20, num_frames, num_runs);
 
     // 4. Property-complexity sweep (CAN 2.0B), five labelled bundles.
-    std::println(out_file, "");
+    std::println(out_file(), "");
     print_header("Property Complexity Scaling");
-    std::println(out_file, "{:<25} {:>12} {:>10} {:>10}", "Complexity", "Frames/sec", "us/frame",
+    std::println(out_file(), "{:<25} {:>12} {:>10} {:>10}", "Complexity", "Frames/sec", "us/frame",
                  "Relative");
     print_separator();
     std::vector<ComplexityRow> complexity;
     {
         double baseline = 0;
         for (const auto& [label, props] : complexity_levels()) {
-            double fps = mean_fps(lib, dbc_20, can20_id, can20_dlc, can20_frame, props, num_frames,
-                                  num_runs);
+            double fps = mean_fps(lib, dbc_20, can20_id, can20_dlc, can20_frame(), props,
+                                  num_frames, num_runs);
             if (baseline == 0)
                 baseline = fps;
             double relative = relative_of(fps, baseline);
             double us = us_per_frame_of(fps);
-            std::println(out_file, "{:<25} {:12.0f} {:10.1f} {:10.2f}x", label, fps, us, relative);
-            complexity.push_back({label, fps, us, relative});
+            std::println(out_file(), "{:<25} {:12.0f} {:10.1f} {:10.2f}x", label, fps, us,
+                         relative);
+            complexity.push_back(
+                {.complexity = label, .fps = fps, .us_per_frame = us, .relative = relative});
         }
     }
 
-    std::println(out_file, "{}", k_rule_heavy);
+    std::println(out_file(), "{}", k_rule_heavy);
 
-    if (emit_json) {
-        // ordered_json (NOT default json, which sorts object keys alphabetically):
-        // the schema pins the sub-benchmark key order, so the whole payload must
-        // preserve insertion order end-to-end.
-        using ordered = nlohmann::ordered_json;
-
-        auto trace_json = [](const std::vector<TraceSizeRow>& rows) -> ordered {
-            ordered arr = ordered::array();
-            for (const auto& r : rows)
-                arr.push_back({
-                    {"frames", r.frames},
-                    {"fps", round1(r.fps)},
-                    {"relative", round3(r.relative)},
-                });
-            return arr;
-        };
-
-        ordered prop_count_json = ordered::array();
-        for (const auto& r : prop_count)
-            prop_count_json.push_back({
-                {"properties", r.properties},
-                {"fps", round1(r.fps)},
-                {"us_per_frame", round1(r.us_per_frame)},
-                {"relative", round3(r.relative)},
-            });
-
-        ordered complexity_json = ordered::array();
-        for (const auto& r : complexity)
-            complexity_json.push_back({
-                {"complexity", r.complexity},
-                {"fps", round1(r.fps)},
-                {"us_per_frame", round1(r.us_per_frame)},
-                {"relative", round3(r.relative)},
-            });
-
-        ordered results;
-        results["trace_size_can20"] = trace_json(trace_can20);
-        results["trace_size_canfd"] = trace_json(trace_canfd);
-        results["property_count"] = prop_count_json;
-        results["property_complexity"] = complexity_json;
-
-        ordered output;
-        output["benchmark"] = "scaling";
-        output["language"] = "cpp";
-        output["timestamp"] = iso_timestamp();
-        output["system"] = get_system_info();
-        output["results"] = results;
-
-        std::println("{}", output.dump(2));
-    }
+    if (emit_json)
+        emit_scaling_json(trace_can20, trace_canfd, prop_count, complexity);
 }
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing
 // ---------------------------------------------------------------------------
 
+namespace {
 struct Args {
     std::string mode; // "throughput", "latency", "scaling"
     int frames = 10000;
@@ -1129,6 +1207,7 @@ struct Args {
     bool quick = false;   // scaling mode: fewer iterations
     bool json_output = false;
 };
+} // namespace
 
 static void print_usage(std::string_view argv0) {
     std::print(
@@ -1149,18 +1228,19 @@ static void print_usage(std::string_view argv0) {
 // silently benchmarked.
 static auto parse_count(std::string_view option, std::string_view text) -> int {
     int value = 0;
-    auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
-    if (ec != std::errc{} || end != text.data() + text.size() || value < 0) {
+    const auto* const last = std::to_address(text.end());
+    auto [end, ec] = std::from_chars(std::to_address(text.begin()), last, value);
+    if (ec != std::errc{} || end != last || value < 0) {
         std::println(stderr, "{} expects a non-negative whole number, got '{}'", option, text);
         std::exit(1);
     }
     return value;
 }
 
-static auto parse_args(int argc, char* argv[]) -> Args {
+static auto parse_args(std::span<char* const> argv) -> Args {
     Args args;
 
-    if (argc < 2) {
+    if (argv.size() < 2) {
         print_usage(argv[0]);
         std::exit(1);
     }
@@ -1172,21 +1252,21 @@ static auto parse_args(int argc, char* argv[]) -> Args {
         std::exit(1);
     }
 
-    for (int i = 2; i < argc; ++i) {
+    for (std::size_t i = 2; i < argv.size(); ++i) {
         auto arg = std::string_view{argv[i]};
         if (arg == "--json") {
             args.json_output = true;
         } else if (arg == "--quick") {
             args.quick = true;
-        } else if (arg == "--frames" && i + 1 < argc) {
+        } else if (arg == "--frames" && i + 1 < argv.size()) {
             args.frames = parse_count(arg, argv[++i]);
-        } else if (arg == "--runs" && i + 1 < argc) {
+        } else if (arg == "--runs" && i + 1 < argv.size()) {
             args.runs = parse_count(arg, argv[++i]);
-        } else if (arg == "--warmup" && i + 1 < argc) {
-            int val = parse_count(arg, argv[++i]);
+        } else if (arg == "--warmup" && i + 1 < argv.size()) {
+            const int val = parse_count(arg, argv[++i]);
             args.warmup = val;
             args.warmup_ops = val;
-        } else if (arg == "--ops" && i + 1 < argc) {
+        } else if (arg == "--ops" && i + 1 < argv.size()) {
             args.ops = parse_count(arg, argv[++i]);
         } else {
             std::println(stderr, "Unknown option: {}", arg);
@@ -1202,13 +1282,13 @@ static auto parse_args(int argc, char* argv[]) -> Args {
 // Main
 // ---------------------------------------------------------------------------
 
-int main(int argc, char* argv[]) {
+static auto run(std::span<char* const> argv) -> int try {
     check_release_build();
-    auto args = parse_args(argc, argv);
+    const auto args = parse_args(argv);
 
     // When --json is set, human-readable output goes to stderr.
     if (args.json_output)
-        out_file = stderr;
+        out_file() = stderr;
 
     auto lib = find_lib();
 
@@ -1220,4 +1300,20 @@ int main(int argc, char* argv[]) {
         run_scaling(lib, args.runs, args.quick, args.json_output);
 
     return 0;
+} catch (const std::exception& e) {
+    std::println(stderr, "benchmark: {}", e.what());
+    return 1;
+} catch (...) {
+    return 1;
+}
+
+// Nothing leaves main: the harness that drives this binary reads its exit
+// code, and an escaping exception would arrive as a signal instead, which the
+// harness reads as a crash rather than as the refusal it is.
+auto main(int argc, char* argv[]) -> int {
+    try {
+        return run(std::span{argv, static_cast<std::size_t>(argc)});
+    } catch (...) {
+        return 1;
+    }
 }

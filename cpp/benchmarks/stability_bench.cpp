@@ -29,9 +29,11 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -90,7 +92,8 @@ static auto parse_status_field(std::string_view field) -> std::int64_t {
         auto digits = std::string_view{line}.substr(field.size());
         digits.remove_prefix(std::min(digits.find_first_not_of(" \t"), digits.size()));
         std::int64_t value = 0;
-        (void)std::from_chars(digits.data(), digits.data() + digits.size(), value);
+        [[maybe_unused]] const auto read =
+            std::from_chars(std::to_address(digits.begin()), std::to_address(digits.end()), value);
         return value;
     }
     return 0;
@@ -167,7 +170,9 @@ static auto malloc_info_bytes() -> std::int64_t {
         if (value_end == std::string_view::npos)
             break;
         std::int64_t value = 0;
-        (void)std::from_chars(view.data() + value_start, view.data() + value_end, value);
+        const auto digits = view.substr(value_start, value_end - value_start);
+        [[maybe_unused]] const auto read =
+            std::from_chars(std::to_address(digits.begin()), std::to_address(digits.end()), value);
         total_bytes += value;
         pos = value_end;
     }
@@ -188,7 +193,11 @@ static auto take_snapshot() -> Snapshot {
 // cpp/benchmarks/benchmark.cpp but trimmed to one signal so the harness
 // measures resource accounting, not Stream LTL semantics.
 static auto minimal_dbc() -> aletheia::DbcDefinition {
-    using namespace aletheia;
+    using aletheia::AlwaysPresent, aletheia::BitLength, aletheia::BitPosition, aletheia::ByteOrder,
+        aletheia::CanId, aletheia::DbcDefinition, aletheia::DbcMessage, aletheia::DbcSignal,
+        aletheia::Dlc, aletheia::MessageName, aletheia::NodeName, aletheia::Rational,
+        aletheia::RationalBound, aletheia::RationalFactor, aletheia::RationalOffset,
+        aletheia::SignalName, aletheia::StandardId, aletheia::Unit;
     DbcSignal engine_speed{
         .name = SignalName{"EngineSpeed"},
         .start_bit = BitPosition{0},
@@ -222,7 +231,8 @@ static void require(const aletheia::Result<T>& result, std::string_view step) {
 
 static void run_cycle(const std::filesystem::path& lib, const aletheia::DbcDefinition& dbc,
                       int frames_per_cycle) {
-    using namespace aletheia;
+    using aletheia::AletheiaClient, aletheia::CanId, aletheia::Dlc, aletheia::FramePayload,
+        aletheia::make_ffi_backend, aletheia::StandardId, aletheia::Timestamp;
     AletheiaClient client(make_ffi_backend(lib));
     require(client.parse_dbc(std::stop_token{}, dbc), "parse_dbc");
     require(client.start_stream(std::stop_token{}), "start_stream");
@@ -254,8 +264,9 @@ static auto env_count(const char* name, int default_value) -> int {
         return default_value;
     const std::string_view text{env};
     int value = 0;
-    auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
-    if (ec != std::errc{} || end != text.data() + text.size() || value <= 0)
+    const auto* const last = std::to_address(text.end());
+    auto [end, ec] = std::from_chars(std::to_address(text.begin()), last, value);
+    if (ec != std::errc{} || end != last || value <= 0)
         throw std::runtime_error(
             std::format("{} must be a positive whole number, got '{}'", name, text));
     return value;
@@ -274,7 +285,42 @@ static void emit_sub_check_json(const SubCheck& c, bool first) {
                first ? "" : ",\n", c.name, c.gate, c.start, c.end, c.delta, c.threshold, c.passed);
 }
 
-auto main() -> int {
+// Each resource the harness watches, as the pair of snapshots it is judged on.
+static auto build_sub_checks(const Snapshot& start, const Snapshot& end) -> std::vector<SubCheck> {
+    return {
+        {.name = "rss",
+         .gate = "soft_threshold",
+         .start = start.rss_bytes,
+         .end = end.rss_bytes,
+         .delta = end.rss_bytes - start.rss_bytes,
+         .threshold = k_rss_delta_bytes_cap,
+         .passed = std::abs(end.rss_bytes - start.rss_bytes) <= k_rss_delta_bytes_cap},
+        {.name = "fd_count",
+         .gate = "hard_zero",
+         .start = start.fd_count,
+         .end = end.fd_count,
+         .delta = end.fd_count - start.fd_count,
+         .threshold = 0,
+         .passed = end.fd_count == start.fd_count},
+        {.name = "active_thread_count",
+         .gate = "hard_zero",
+         .start = start.active_thread_count,
+         .end = end.active_thread_count,
+         .delta = end.active_thread_count - start.active_thread_count,
+         .threshold = 0,
+         .passed = end.active_thread_count == start.active_thread_count},
+        {.name = "malloc_info",
+         .gate = "soft_threshold",
+         .start = start.malloc_info_bytes,
+         .end = end.malloc_info_bytes,
+         .delta = end.malloc_info_bytes - start.malloc_info_bytes,
+         .threshold = k_malloc_delta_bytes_cap,
+         .passed =
+             std::abs(end.malloc_info_bytes - start.malloc_info_bytes) <= k_malloc_delta_bytes_cap},
+    };
+}
+
+static auto run() -> int {
     int cycles = 0;
     int frames = 0;
     try {
@@ -314,38 +360,7 @@ auto main() -> int {
     const auto elapsed =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 
-    const std::vector<SubCheck> sub_checks = {
-        {.name = "rss",
-         .gate = "soft_threshold",
-         .start = start.rss_bytes,
-         .end = end.rss_bytes,
-         .delta = end.rss_bytes - start.rss_bytes,
-         .threshold = k_rss_delta_bytes_cap,
-         .passed = std::abs(end.rss_bytes - start.rss_bytes) <= k_rss_delta_bytes_cap},
-        {.name = "fd_count",
-         .gate = "hard_zero",
-         .start = start.fd_count,
-         .end = end.fd_count,
-         .delta = end.fd_count - start.fd_count,
-         .threshold = 0,
-         .passed = end.fd_count == start.fd_count},
-        {.name = "active_thread_count",
-         .gate = "hard_zero",
-         .start = start.active_thread_count,
-         .end = end.active_thread_count,
-         .delta = end.active_thread_count - start.active_thread_count,
-         .threshold = 0,
-         .passed = end.active_thread_count == start.active_thread_count},
-        {.name = "malloc_info",
-         .gate = "soft_threshold",
-         .start = start.malloc_info_bytes,
-         .end = end.malloc_info_bytes,
-         .delta = end.malloc_info_bytes - start.malloc_info_bytes,
-         .threshold = k_malloc_delta_bytes_cap,
-         .passed =
-             std::abs(end.malloc_info_bytes - start.malloc_info_bytes) <= k_malloc_delta_bytes_cap},
-    };
-
+    const auto sub_checks = build_sub_checks(start, end);
     const bool all_passed = std::ranges::all_of(sub_checks, &SubCheck::passed);
 
     std::print("{{\n"
@@ -365,4 +380,14 @@ auto main() -> int {
                all_passed);
 
     return all_passed ? 0 : 1;
+}
+
+// Nothing leaves main: the lane that drives this binary reads its exit code,
+// and an escaping exception would arrive as a signal instead.
+auto main() -> int {
+    try {
+        return run();
+    } catch (...) {
+        return 2;
+    }
 }

@@ -1,1 +1,1 @@
-# 104 tracked files under cpp/, 43 named by a gate, 23 named by nothing outside themselves
+# 107 tracked files under cpp/, 83 named by a gate, 24 named by nothing outside themselves

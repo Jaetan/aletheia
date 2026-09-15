@@ -61,3 +61,36 @@ Working order:
 Six of these are breaking changes to the C++ surface and each carries its changelog entry as it lands: the shared library, the removed conversion, the unified search order, the two vocabulary changes to the DBC header, and the interface's typed shapes.
 
 The round-end record is re-taken under `end/` when this pass closes. The record of the pre-ruling close survives as its own snapshot, so the pass is diffed against both the base and that close.
+
+## Ruling pass close
+
+Closed 2026-09-15. Fourteen tasks, 111 to 122 plus 095, 099 and 100, each snapshotted with its own
+message. The list is empty but for 123, which was requested during the pass rather than found by it.
+
+- round-end record re-taken under `end/`, diffed against `base/` and against the pre-ruling close in
+  `end/summary.md`. The pre-ruling close survives as its own snapshot.
+- every gate green: fifteen suites deterministic and randomised, both sanitizer lanes, the format gate
+  over every tracked C++ source, the lint gate over `cpp/src` and `cpp/tests` run from `cpp/`, the CMake
+  lint gate, and the twelve fast-tier steps
+- mutation sweep 62 mutants, 62 killed, no survivor and no timeout; the recorded baseline was corrected
+  to the run
+- probe store 77 probes, 77 pass. The base ran 62 and passed 60; the two that were red by design are
+  green because the rulings that gated them landed
+- report shape checked mechanically by `lens/report_shape.py`: no completed report out of shape
+- file-to-gate map 107 tracked files, 83 named by a gate, against 91 and 44 at the base. The jump is the
+  test tree entering the lint gate
+- four gates that could not fail on the defect they exist to catch were found and fixed during the pass:
+  the em-dash check read captured tool output as prose, the snapshot's staging list was incomplete and
+  the check over it could not see a created file, the mutation lane collapsed to a fraction of its
+  surface while still reporting a full score, and the CMake lint gate scanned no files while exiting zero
+- both lens gaps the pre-ruling close carried are closed: the file-to-gate map's generator was saved by
+  task 111 and reproduces the base row, and the file-to-probe map's generator is saved now and
+  reproduces the row recorded at this close. A probe holds each
+- one probe that could flake was found and fixed: the mutation baseline check inherited an environment
+  variable that changes the sweep's own score, so it answered differently depending on whether the
+  caller had sourced the environment script. It and the mutation runner drop the variable now
+- decision points: two, both opened at the close and both recorded with the round. The benchmarks are
+  outside every gate with 94 findings, which the ruling on the tests deferred until the two were counted
+  apart; and the dependency pins cover what the build fetches and not what those fetches pull
+- follow-ups created during the pass: 123 (`cpp/tests/`, the suites read as assertions rather than as
+  behaviour), requested rather than found, and not worked

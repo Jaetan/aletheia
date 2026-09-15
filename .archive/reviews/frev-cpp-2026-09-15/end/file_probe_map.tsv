@@ -1,18 +1,18 @@
-cpp/.clang-format	probes/cpp_.clang-format--keys-canonical.sh 
+cpp/.clang-format	probes/cpp_.clang-format--effective-config-is-pinned.sh probes/cpp_.clang-format--keys-canonical.sh probes/tools__ci_steps.py--the-format-gate-sees-only-tracked-sources.sh 
 cpp/.clang-tidy	probes/cpp_.clang-tidy--argument-comment-strictmode-does-not-require-comments.sh probes/cpp_.clang-tidy--every-header-uses-pragma-once.sh probes/cpp_.clang-tidy--header-disable-list-matches-checks.sh probes/cpp_.clang-tidy--implicit-bool-conversion-defaults-already-flag-conditions.sh probes/cpp_.clang-tidy--init-variables-includestyle-changes-no-finding.sh 
-cpp/CMakeLists.txt	probes/.gitignore--every-documented-build-tree-is-ignored.sh probes/cpp_CMakeLists.txt--compile-db-carries-no-ccache-launcher.sh probes/cpp_CMakeLists.txt--every-documented-recipe-runs-from-the-same-place.sh probes/cpp_CMakeLists.txt--every-target-compiles-at-the-project-standard.sh probes/cpp_CMakeLists.txt--mull-plugin-rejects-file-prefix-map.sh probes/cpp_CMakeLists.txt--project-version-matches-the-other-bindings.sh probes/cpp_CMakeLists.txt--subdirectory-consumer-gets-library-and-no-tests.sh probes/cpp_tests_fuzz_fuzz_parse_response.cpp--the-recipe-runs-and-is-written-once.sh probes/cpp_tests_repo_root.hpp--one-way-to-find-the-repository.sh 
+cpp/CMakeLists.txt	probes/.gitignore--every-documented-build-tree-is-ignored.sh probes/cpp_CMakeLists.txt--compile-db-carries-no-ccache-launcher.sh probes/cpp_CMakeLists.txt--every-dependency-pin-is-a-release.sh probes/cpp_CMakeLists.txt--every-documented-recipe-runs-from-the-same-place.sh probes/cpp_CMakeLists.txt--every-target-compiles-at-the-project-standard.sh probes/cpp_CMakeLists.txt--mull-plugin-rejects-file-prefix-map.sh probes/cpp_CMakeLists.txt--project-version-matches-the-other-bindings.sh probes/cpp_CMakeLists.txt--subdirectory-consumer-gets-library-and-no-tests.sh probes/cpp_CMakeLists.txt--the-mutation-lane-sees-the-whole-library.sh probes/cpp_tests_fuzz_fuzz_parse_response.cpp--the-recipe-runs-and-is-written-once.sh probes/cpp_tests_repo_root.hpp--one-way-to-find-the-repository.sh 
 cpp/README.md	probes/cpp_README.md--cpp-fence-builds-and-runs.sh 
-cpp/benchmarks/benchmark.cpp	probes/cpp--the-four-library-searches-differ-on-purpose-until-ruled.sh probes/cpp_benchmarks_benchmark.cpp--count-options-refuse-non-numbers.sh probes/cpp_benchmarks_benchmark.cpp--empty-env-falls-back-to-discovery.sh 
-cpp/benchmarks/stability_bench.cpp	probes/cpp--the-four-library-searches-differ-on-purpose-until-ruled.sh probes/cpp_benchmarks_stability_bench.cpp--bad-env-counts-are-refused.sh probes/cpp_benchmarks_stability_bench.cpp--fd-leak-is-caught.sh 
-cpp/cmake/aletheia-cpp-config.cmake.in	probes/cpp_cmake_aletheia-cpp-config.cmake.in--installed-consumer-links-client.sh probes/cpp_cmake_aletheia-cpp-config.cmake.in--installed-consumer-links-yaml-loader.sh 
+cpp/benchmarks/benchmark.cpp	probes/cpp--every-caller-shares-one-library-search.sh probes/cpp_benchmarks_benchmark.cpp--count-options-refuse-non-numbers.sh probes/cpp_benchmarks_benchmark.cpp--empty-env-falls-back-to-discovery.sh 
+cpp/benchmarks/stability_bench.cpp	probes/cpp--every-caller-shares-one-library-search.sh probes/cpp_benchmarks_stability_bench.cpp--bad-env-counts-are-refused.sh probes/cpp_benchmarks_stability_bench.cpp--fd-leak-is-caught.sh 
+cpp/cmake/aletheia-cpp-config.cmake.in	probes/cpp_cmake_aletheia-cpp-config.cmake.in--installed-consumer-links-both-loaders.sh probes/cpp_cmake_aletheia-cpp-config.cmake.in--installed-consumer-links-client.sh 
 cpp/include/aletheia/aletheia.hpp	probes/cpp_include_aletheia_aletheia.hpp--covers-every-public-header-but-cli.sh probes/cpp_include_aletheia_aletheia.hpp--facade-omits-loaders-and-third-party.sh 
-cpp/include/aletheia/backend.hpp	probes/cpp_include_aletheia_backend.hpp--from-env-refuses-unset-and-empty.sh 
+cpp/include/aletheia/backend.hpp	probes/cpp--every-caller-shares-one-library-search.sh probes/cpp_include_aletheia_backend.hpp--from-env-refuses-unset-and-empty.sh probes/cpp_include_aletheia_backend.hpp--state-crosses-as-a-handle.sh probes/cpp_include_aletheia_backend.hpp--the-factory-comment-matches-the-factory.sh 
 cpp/include/aletheia/check.hpp	probes/cpp_include_aletheia_check.hpp--builder-guards-throw.sh probes/cpp_include_aletheia_check.hpp--header-example-compiles.sh 
 cpp/include/aletheia/cli.hpp	probes/cpp_include_aletheia_cli.hpp--exit-codes.sh 
 cpp/include/aletheia/client.hpp	probes/cpp_include_aletheia_client.hpp--comment-citations-resolve.sh probes/cpp_include_aletheia_validation.hpp--the-format-contract-has-one-owner.sh 
-cpp/include/aletheia/dbc.hpp	probes/cpp_include_aletheia_dbc.hpp--definition-mirrors-agda-record.sh 
+cpp/include/aletheia/dbc.hpp	probes/cpp_include_aletheia_dbc.hpp--definition-mirrors-agda-record.sh probes/cpp_include_aletheia_dbc.hpp--node-and-message-fields-are-typed.sh 
 cpp/include/aletheia/detail/cache_keys.hpp	probes/cpp_include_aletheia_detail_cache_keys.hpp--comparator-agrees-with-key-ordering.sh 
-cpp/include/aletheia/detail/rational_renderer.hpp	probes/cpp--the-four-library-searches-differ-on-purpose-until-ruled.sh probes/cpp_include_aletheia_detail_rational_renderer.hpp--library-search-order.sh 
+cpp/include/aletheia/detail/rational_renderer.hpp	probes/cpp_include_aletheia_detail_rational_renderer.hpp--library-search-order.sh 
 cpp/include/aletheia/enrich.hpp	 
 cpp/include/aletheia/error.hpp	probes/cpp_include_aletheia_client.hpp--comment-citations-resolve.sh probes/cpp_include_aletheia_error.hpp--comment-citations-resolve.sh 
 cpp/include/aletheia/excel.hpp	probes/cpp_include_aletheia_excel.hpp--template-never-overwrites.sh 
@@ -20,13 +20,13 @@ cpp/include/aletheia/limits.hpp	probes/cpp_include_aletheia_limits.hpp--mirrors-
 cpp/include/aletheia/log.hpp	 
 cpp/include/aletheia/ltl.hpp	probes/cpp_include_aletheia_ltl.hpp--clone-preserves-every-alternative.sh probes/cpp_include_aletheia_ltl.hpp--mirrors-agda-constructors.sh 
 cpp/include/aletheia/response.hpp	probes/cpp_include_aletheia_response.hpp--comment-citations-resolve.sh 
-cpp/include/aletheia/types.hpp	probes/cpp_include_aletheia_client.hpp--comment-citations-resolve.sh probes/cpp_include_aletheia_types.hpp--dlc-byte-mapping-round-trips.sh probes/cpp_include_aletheia_types.hpp--rational-order-matches-exact-fractions.sh 
+cpp/include/aletheia/types.hpp	probes/cpp_include_aletheia_client.hpp--comment-citations-resolve.sh probes/cpp_include_aletheia_types.hpp--dlc-byte-mapping-round-trips.sh probes/cpp_include_aletheia_types.hpp--no-float-escape-on-the-rational.sh probes/cpp_include_aletheia_types.hpp--rational-order-matches-exact-fractions.sh 
 cpp/include/aletheia/validation.hpp	probes/cpp_include_aletheia_validation.hpp--the-format-contract-has-one-owner.sh 
 cpp/include/aletheia/validation_issue.hpp	 
 cpp/include/aletheia/yaml.hpp	probes/cpp_include_aletheia_yaml.hpp--header-example-compiles.sh 
 cpp/sanitizer-ignorelist.txt	probes/cpp_sanitizer-ignorelist.txt--covers-the-vendored-tree-the-lane-compiles.sh 
 cpp/src/backend.cpp	 
-cpp/src/cli/cli.cpp	probes/cpp--the-four-library-searches-differ-on-purpose-until-ruled.sh 
+cpp/src/cli/cli.cpp	probes/cpp--every-caller-shares-one-library-search.sh 
 cpp/src/cli/main.cpp	probes/cpp_src_cli_main.cpp--empty-argv-exits-two.sh 
 cpp/src/client.cpp	probes/cpp_src_client.cpp--the-two-integer-readers-have-different-byte-orders.sh probes/cpp_src_client.cpp--utf8-validator-agrees-with-python.sh 
 cpp/src/dbc.cpp	probes/cpp_src_dbc.cpp--lookups-survive-mutation-after-caching.sh 
@@ -45,13 +45,15 @@ cpp/src/ffi_backend.cpp	probes/cpp_src_ffi_backend.cpp--refused-construction-loa
 cpp/src/json_parse.cpp	 
 cpp/src/json_serialize.cpp	 
 cpp/src/mock_backend.cpp	probes/cpp_src_mock_backend.cpp--public-factory-answers-without-queueing.sh 
-cpp/src/rational_renderer.cpp	probes/cpp--the-four-library-searches-differ-on-purpose-until-ruled.sh 
+cpp/src/rational_renderer.cpp	probes/cpp--every-caller-shares-one-library-search.sh 
 cpp/src/types.cpp	probes/cpp_.clang-tidy--the-gate-fails-on-a-discarded-return.sh probes/cpp_CMakeLists.txt--mull-plugin-rejects-file-prefix-map.sh probes/tools__ci_steps.py--the-format-gate-sees-only-tracked-sources.sh 
 cpp/src/yaml.cpp	probes/cpp_src_yaml.cpp--loader-keeps-the-runtime-error-kind.sh 
+cpp/tests/.clang-tidy	probes/cpp_.clang-tidy--header-disable-list-matches-checks.sh probes/cpp_tests_.clang-tidy--every-disable-earns-its-place.sh probes/cpp_tests_.clang-tidy--every-disable-is-inert-over-the-library.sh 
 cpp/tests/cli_tests.cpp	 
 cpp/tests/dbc_corpus_parity_tests.cpp	 
 cpp/tests/doc_example_tests.cpp	probes/docs_reference_CPP_API.md--no-compiled-fence-hides-a-failure.sh 
 cpp/tests/excel_tests.cpp	 
+cpp/tests/fuzz/.clang-tidy	probes/cpp_.clang-tidy--header-disable-list-matches-checks.sh 
 cpp/tests/fuzz/fuzz_decode_binary_frame.cpp	 
 cpp/tests/fuzz/fuzz_parse_dbc_json.cpp	 
 cpp/tests/fuzz/fuzz_parse_rational_number.cpp	 
@@ -89,10 +91,11 @@ cpp/tests/test_rts_heap_cap.cpp
 cpp/tests/test_rts_params_parity.cpp	 
 cpp/tests/test_wire_codes_parity.cpp	 
 cpp/tests/testdata/doc_examples/checks.yaml	 
+cpp/tests/text_file.hpp	 
 cpp/tests/unit_tests_cancel.cpp	 
 cpp/tests/unit_tests_check.cpp	 
 cpp/tests/unit_tests_client.cpp	 
-cpp/tests/unit_tests_dbc.cpp	 
+cpp/tests/unit_tests_dbc.cpp	probes/cpp_.clang-tidy--the-gate-fails-on-a-discarded-return.sh 
 cpp/tests/unit_tests_decimal.cpp	 
 cpp/tests/unit_tests_enrich.cpp	 
 cpp/tests/unit_tests_ffi_logic.cpp	 
@@ -102,3 +105,4 @@ cpp/tests/unit_tests_log.cpp
 cpp/tests/unit_tests_property.cpp	 
 cpp/tests/unit_tests_validation.cpp	 
 cpp/tests/yaml_tests.cpp	 
+# 107 tracked files under cpp/, 42 named by a probe

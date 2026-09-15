@@ -1,14 +1,14 @@
 file	mutants	statuses	mutator@line
-cpp/src/client.cpp	4	{'Killed': 4}	cxx_eq_to_ne@279 cxx_lt_to_ge@63 cxx_lt_to_le@63 cxx_ne_to_eq@45
+cpp/src/client.cpp	4	{'Killed': 4}	cxx_eq_to_ne@266 cxx_lt_to_ge@63 cxx_lt_to_le@63 cxx_ne_to_eq@45
 cpp/src/dbc.cpp	2	{'Killed': 2}	cxx_ge_to_gt@38 cxx_ge_to_lt@38
 cpp/src/detail/ffi_logic.cpp	3	{'Killed': 3}	cxx_gt_to_ge@31 cxx_gt_to_le@31 cxx_sub_to_add@41
-cpp/src/ffi_backend.cpp	8	{'Killed': 8}	cxx_eq_to_ne@157 cxx_eq_to_ne@178 cxx_eq_to_ne@199 cxx_eq_to_ne@468 cxx_eq_to_ne@468 cxx_lt_to_ge@191 cxx_lt_to_le@191 cxx_ne_to_eq@243
-cpp/src/json_parse.cpp	19	{'Killed': 19}	cxx_div_to_mul@436 cxx_gt_to_ge@505 cxx_gt_to_ge@509 cxx_gt_to_ge@542 cxx_gt_to_le@505 cxx_gt_to_le@509 cxx_gt_to_le@542 cxx_le_to_gt@320 cxx_le_to_lt@320 cxx_lt_to_ge@1033 cxx_lt_to_ge@509 cxx_lt_to_ge@959 cxx_lt_to_ge@965 cxx_lt_to_le@1033 cxx_lt_to_le@509 cxx_lt_to_le@959 cxx_lt_to_le@965 cxx_ne_to_eq@434 cxx_rem_to_div@434
-cpp/src/json_serialize.cpp	6	{'Killed': 6}	cxx_eq_to_ne@39 cxx_eq_to_ne@39 cxx_eq_to_ne@48 cxx_eq_to_ne@54 cxx_eq_to_ne@55 cxx_eq_to_ne@56
-cpp/src/rational_renderer.cpp	6	{'Killed': 6}	cxx_eq_to_ne@132 cxx_eq_to_ne@146 cxx_eq_to_ne@149 cxx_eq_to_ne@152 cxx_eq_to_ne@191 cxx_ne_to_eq@139
-cpp/tests/integration_tests.cpp	4	{'Killed': 3, 'Timeout': 1}	cxx_lt_to_ge@404 cxx_lt_to_le@404 cxx_mul_to_div@405 cxx_pre_inc_to_pre_dec@404
+cpp/src/ffi_backend.cpp	8	{'Killed': 8}	cxx_eq_to_ne@157 cxx_eq_to_ne@178 cxx_eq_to_ne@199 cxx_eq_to_ne@477 cxx_eq_to_ne@477 cxx_lt_to_ge@191 cxx_lt_to_le@191 cxx_ne_to_eq@243
+cpp/src/json_parse.cpp	19	{'Killed': 19}	cxx_div_to_mul@436 cxx_gt_to_ge@505 cxx_gt_to_ge@509 cxx_gt_to_ge@542 cxx_gt_to_le@505 cxx_gt_to_le@509 cxx_gt_to_le@542 cxx_le_to_gt@320 cxx_le_to_lt@320 cxx_lt_to_ge@1014 cxx_lt_to_ge@509 cxx_lt_to_ge@940 cxx_lt_to_ge@946 cxx_lt_to_le@1014 cxx_lt_to_le@509 cxx_lt_to_le@940 cxx_lt_to_le@946 cxx_ne_to_eq@434 cxx_rem_to_div@434
+cpp/src/json_serialize.cpp	6	{'Killed': 6}	cxx_eq_to_ne@40 cxx_eq_to_ne@40 cxx_eq_to_ne@49 cxx_eq_to_ne@55 cxx_eq_to_ne@56 cxx_eq_to_ne@57
+cpp/src/rational_renderer.cpp	6	{'Killed': 6}	cxx_eq_to_ne@130 cxx_eq_to_ne@144 cxx_eq_to_ne@147 cxx_eq_to_ne@150 cxx_eq_to_ne@189 cxx_ne_to_eq@137
+cpp/tests/integration_tests.cpp	4	{'Killed': 4}	cxx_lt_to_ge@418 cxx_lt_to_le@418 cxx_mul_to_div@419 cxx_pre_inc_to_pre_dec@418
 cpp/tests/repo_root.hpp	2	{'Killed': 2}	cxx_eq_to_ne@27 cxx_eq_to_ne@27
-cpp/tests/unit_tests_cancel.cpp	2	{'Killed': 2}	cxx_pre_inc_to_pre_dec@121 cxx_pre_inc_to_pre_dec@83
-cpp/tests/unit_tests_client.cpp	3	{'Killed': 3}	cxx_lt_to_ge@600 cxx_lt_to_le@600 cxx_pre_inc_to_pre_dec@600
-cpp/tests/unit_tests_ffi_logic.cpp	1	{'Killed': 1}	cxx_pre_inc_to_pre_dec@36
-cpp/tests/unit_tests_validation.cpp	1	{'Killed': 1}	cxx_ne_to_eq@273
+cpp/tests/unit_tests_cancel.cpp	2	{'Killed': 2}	cxx_pre_inc_to_pre_dec@134 cxx_pre_inc_to_pre_dec@96
+cpp/tests/unit_tests_client.cpp	4	{'Killed': 4}	cxx_lt_to_ge@610 cxx_lt_to_le@610 cxx_pre_inc_to_pre_dec@610 cxx_pre_inc_to_pre_dec@931
+cpp/tests/unit_tests_ffi_logic.cpp	1	{'Killed': 1}	cxx_pre_inc_to_pre_dec@40
+cpp/tests/unit_tests_validation.cpp	1	{'Killed': 1}	cxx_ne_to_eq@274
