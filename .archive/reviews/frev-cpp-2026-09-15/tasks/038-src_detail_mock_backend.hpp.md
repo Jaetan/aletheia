@@ -1,6 +1,6 @@
 # Task 038: file review of `cpp/src/detail/mock_backend.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/detail/mock_backend.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,28 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. NO CHANGE to the file; one probe added (in refs/frev/038).
+
+Claims and guards: the mock records the same <binary:OP> sentinels as the Python, Go and Rust mocks (new probe compares the token sets across the four mock sources: nine sentinels, identical); exhaustion throws on the JSON channel and returns an unexpected on the frame channel with the unified message (unit_tests_client's mock-exhaustion cases); the two channels never couple (the separate queues, exercised by the frame-building unit tests); the FEATURE_MATRIX names this file as the mock's home.
+
+```
+REPORT 2026-09-15 tree b222b613 NO CHANGE
+claims: 4 rows, 1 without a guard: probe cpp_src_detail_mock_backend.hpp--sentinels-match-the-other-mocks.sh added
+1 line per line: checked, all 166 lines read
+2 guidelines: checked, overrides marked, nodiscard on the value-returning helpers, the base's nodiscard on init inherited
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md category 14(b) and (c) (mock fidelity and cross-binding mock agreement: the probe pins the sentinel set)
+5 value semantics: checked
+6 raii: n/a, the state is a static sentinel
+7 dedup: checked, the seven one-line overrides are data, not a clone
+8 ground truth: checked, the cross-binding uniformity sentence holds by probe; the PR references are kept by the repository's own rule
+9 history: checked, none
+10 simpler: checked
+11 comments: 60 to 60, code 95 to 95
+sweep: no mutation names this header
+probes: 1 added; store 44 run, 43 pass, 1 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
