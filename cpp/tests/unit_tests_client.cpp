@@ -819,6 +819,54 @@ TEST_CASE("extraction cache full still works on 257th frame", "[client][enrich][
     }
 }
 
+TEST_CASE("the public mock factory answers without anything queued", "[client][mock]") {
+    // What an installed consumer can reach: the factory and the public headers.
+    // The queueing methods are in a test-internal header, so a backend that
+    // refused until its queue was filled would be one they could never call.
+    auto backend = make_mock_backend();
+    REQUIRE(backend);
+    auto state = backend->init();
+
+    SECTION("a control-plane command is acknowledged") {
+        CHECK(backend->process(state, R"({"command":"startStream"})") == R"({"status":"ack"})");
+    }
+
+    SECTION("every binary endpoint is acknowledged") {
+        CHECK(backend->start_stream_binary(state) == R"({"status":"ack"})");
+        CHECK(backend->end_stream_binary(state) == R"({"status":"ack"})");
+        CHECK(backend->format_dbc_binary(state) == R"({"status":"ack"})");
+        CHECK(backend->send_error_binary(state, Timestamp{0}) == R"({"status":"ack"})");
+    }
+
+    SECTION("a frame request comes back as a payload of the size asked for") {
+        auto id = CanId{StandardId::create(0x100).value()};
+        auto dlc = Dlc::create(8).value();
+        auto signals = SignalInjection::create({}, {}, {}).value();
+        auto built = backend->build_frame_bin(state, id, dlc, signals, 8);
+        REQUIRE(built.has_value());
+        CHECK(built->size() == 8);
+        CHECK(std::ranges::all_of(*built, [](std::byte b) { return b == std::byte{0}; }));
+    }
+
+    SECTION("the answer is canned, not consumed: it repeats") {
+        CHECK(backend->start_stream_binary(state) == R"({"status":"ack"})");
+        CHECK(backend->start_stream_binary(state) == R"({"status":"ack"})");
+    }
+}
+
+TEST_CASE("the two doubles differ on purpose", "[client][mock]") {
+    // The public one is fixed, so a consumer who cannot reach a queue still gets
+    // an answer. The test-internal one refuses, because a suite that silently
+    // received a fabricated answer would pass for the wrong reason.
+    MockBackend configurable;
+    auto strict_state = configurable.init();
+    CHECK_THROWS_AS(configurable.process(strict_state, "<binary:sendFrame>"), AletheiaException);
+
+    auto fixed = make_mock_backend();
+    auto fixed_state = fixed->init();
+    CHECK(fixed->process(fixed_state, "<binary:sendFrame>") == R"({"status":"ack"})");
+}
+
 TEST_CASE("MockBackend throws on queue exhaustion", "[client][mock]") {
     MockBackend mock;
     auto state = mock.init();
@@ -982,12 +1030,4 @@ TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaust
         REQUIRE(result.has_value());
         CHECK(*result == std::vector<std::byte>{std::byte{0x01}, std::byte{0x02}});
     }
-}
-
-TEST_CASE("make_mock_backend hands out a MockBackend", "[client][mock]") {
-    // The factory is the only mock an installed consumer can reach, and nothing
-    // else in the tree calls it, so this is the guard on what it hands out.
-    auto backend = make_mock_backend();
-    REQUIRE(backend != nullptr);
-    CHECK(dynamic_cast<MockBackend*>(backend.get()) != nullptr);
 }

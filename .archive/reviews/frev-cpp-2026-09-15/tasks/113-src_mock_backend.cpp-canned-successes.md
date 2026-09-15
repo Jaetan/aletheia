@@ -1,13 +1,44 @@
 # Task 113: the public mock factory refuses the first call every caller makes (ruled)
 
-- status: pending
+- status: completed
 - files: `cpp/src/mock_backend.cpp`, `cpp/src/detail/mock_backend.hpp`, `cpp/include/aletheia/backend.hpp`
 - pass: full
 - origin: Ruled: make the factory hand out a backend that answers with canned successes, so the three descriptions of it become true and an installed consumer can drive a client without the test-internal header. The probe in the store reads red on the current object and must go green by the fix, not by an edit to the probe. The canned answer belongs per operation as data rather than as a queue the factory pre-fills. The failing-first test drives a client through every operation using only the public factory and public headers, with no internal include. This closes the ruling that gates the header comment task and the two-document task, both of which resume after it.
 
 ## Report
 
-(to be written when the task is worked)
+The factory hands out a fixed backend now, and the probe that was red on the old one is green. Fix in refs/frev/113.
+
+Claims and guards. Three places described the public factory as a canned-acknowledgement backend, and the object it handed out refused its first call. The queueing method that would have made it answer lives in a test-internal header an installed consumer cannot include, so the described backend was one such a consumer could never call. The probe in the store proves the claim by compiling a consumer against the installed headers alone, and it reads green by the fix rather than by an edit to itself.
+
+The first shape tried was a mode on the configurable double, chosen at construction, with the factory selecting the canned mode. It worked and the suite covered both modes. The sweep refused it: the comparison that selected the mode survived mutation. The decision lives in a header-inline method that several translation units compile, the linker keeps one copy, and the copy the sweep mutated was the one nothing calls. Flipping the comparison in the source does fail three test cases, so this was a duplicate-copy artifact rather than a coverage gap, but a branch whose mutation cannot be killed is a branch the sweep can no longer watch.
+
+The second shape has no branch. The public factory hands out its own small backend that answers every operation with the wire's acknowledgement and every frame request with a zero-filled payload of the size asked for. It records nothing and decides nothing, which is what fixed means, and it is what the three descriptions have always said. The configurable double is left exactly as it was, still refusing on an empty queue, because a suite that silently received a fabricated answer would pass for the wrong reason. The sweep then reports no survivor.
+
+One test was superseded rather than fixed. It asserted that the factory returns the configurable double, pinning the implementation rather than the contract; what the factory answers is now asserted directly, which is strictly stronger, so the type assertion went.
+
+Two findings on the round's own machinery, both found here and both fixed. The snapshot stages exactly the paths listed in a file, and three paths this pass had edited were never added to it, so the previous task's tree held a retyped interface beside an untyped implementation and would not have built. The tree was rebuilt with the three files at their correct state and checked by building it in isolation from a clean archive. A probe now reads every path the round has changed and refuses any that the staging list does not cover, by itself or by an ancestor directory. It is red on two more files it found that way: two fixes made earlier in this round and never staged.
+
+The recorded mutation baseline moved with the code and is re-measured: 62 mutants where the round end recorded 61, still no survivor, and the single timeout is stable across three consecutive runs.
+
+```
+REPORT 2026-09-15 tree refs/frev/112 fix in refs/frev/113
+claims: 3 rows, 1 without a guard: that the public factory answers, now proved by the store's probe and by tests over every operation
+1 line per line: checked, the factory source is new and read whole, the configurable double read whole and left unchanged
+2 guidelines: checked, the fixed backend holds one constant and overrides every endpoint, with no state to synchronise and no branch to test
+3 modernize: checked, no construct changed for its own sake
+4 catalogue: checked, the candidate of a runtime mode on one class was tried, measured against the sweep, and rejected for a reason the sweep gave
+5 value semantics: n/a
+6 raii: checked, the fixed backend's state is a static sentinel and its release is empty, which the handle calls once
+7 dedup: finding, the mode branch would have put two behaviours in one class; two types share no code and neither carries the other's condition
+8 ground truth: finding, the three descriptions were true of nothing until this landed
+9 history: checked
+10 simpler: finding, the second shape is smaller than the first and removed the mutant the first introduced
+11 comments: 163 to 187, code 848 to 940 over three files; the factory source carries the reason the public double is fixed, which is the defect this task fixed there
+sweep: 62 mutants, 62 killed, no survivor; the mode branch's cxx_eq_to_ne survivor is gone with the branch
+probes: probes/cpp_src_mock_backend.cpp--public-factory-answers-without-queueing.sh green by the fix; probes/review--every-changed-path-is-staged-by-the-snapshot.sh added and red on two files it found; store 64 run, 63 pass, the remaining failure the installed-consumer link this pass lands later
+decision points: none
+```
 
 ---
 

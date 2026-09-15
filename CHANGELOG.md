@@ -38,6 +38,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **`make_mock_backend()` now answers instead of refusing.** The factory handed
+  out the configurable test double with an empty response queue, so the first
+  call on it threw, and the method that fills the queue lives in a test-internal
+  header an installed consumer cannot include. It was a backend such a consumer
+  could never call, while three places described it as a canned-ack backend. It
+  now hands out a fixed backend that answers every operation with the wire's
+  acknowledgement and every frame request with a zero-filled payload of the size
+  asked for. The configurable double is unchanged and still refuses on an empty
+  queue, because a test that silently received a fabricated answer would pass
+  for the wrong reason.
 - **BREAKING (C++): the backend interface takes typed shapes for the session
   state and the signal-injection block.** `IBackend::init()` now returns an
   owning `BackendState` instead of a `void*`, every other method takes

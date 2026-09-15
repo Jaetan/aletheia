@@ -203,7 +203,7 @@ bindings:
       # timeout toward the score rather than as a survivor; the one below is
       # a loop counter in the integration suite.
       survivors: 0
-      total_mutants: 61
+      total_mutants: 62
       timeouts: 1
       score_pct: 100
       run_at: "2026-09-15"
