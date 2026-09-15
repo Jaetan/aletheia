@@ -142,12 +142,11 @@ TEST_CASE("Rational ctor/make reject out-of-int64-range integral inputs", "[type
 
 TEST_CASE("Rational::from_decimal rejects a non-ASCII literal as a Validation error",
           "[types][decimal]") {
-    // Regression guard for the shim's JSON encoding of the echoed `input` field:
-    // the kernel error envelope must stay valid JSON even when the input carries
-    // non-ASCII bytes. Before the Marshal.hs `jsonString` fix, `show` emitted a
-    // `\NNN` decimal escape (invalid JSON), so the decoder failed to parse the
-    // envelope and surfaced a confusing Protocol "malformed response" instead of
-    // the correct Validation "invalid decimal literal". A "1.5€" (UTF-8) input
-    // now round-trips through the envelope to a clean Validation error.
+    // The kernel's error envelope echoes the offending input, and the shim
+    // encodes that field as a JSON string, so the envelope stays valid JSON
+    // when the input carries non-ASCII bytes. Without that, a decimal escape
+    // in the echo would make the envelope unparseable and the caller would see
+    // a Protocol failure about the response rather than the Validation error
+    // about the literal. A UTF-8 literal must reach the caller as the latter.
     expect_validation_throw("1.5\xe2\x82\xac");
 }

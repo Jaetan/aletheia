@@ -1,6 +1,6 @@
 # Task 083: file review of `cpp/tests/unit_tests_decimal.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/unit_tests_decimal.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/083 (signed later by the dribble).
+
+Claims and guards: the file claims its case set is identical to the Python one, and it is, read side by side at this task: the same ten accepted literals with the same numerator and denominator pairs, the same ten malformed ones and the same two that overflow the wire range. It claims the runtime is up in this binary because the unit target links the listener, which the build file confirms, and that the runtime-down case lives in its own binary, which it does. Every accepted literal is asserted as an exact pair rather than approximately, which is the float principle's own statement, and every refusal is asserted by kind, so a refusal that came back as a protocol or kernel failure would fail the case.
+
+Finding fixed: the non-ASCII case explained itself as a regression guard against a defect in the Haskell shim, naming what the code emitted before the fix. It now states the rule the case pins: the envelope echoes the offending input as a JSON string, so a UTF-8 literal reaches the caller as a validation error about the literal rather than a protocol failure about the response.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/083
+claims: 6 rows, 0 without a guard: the three case sets, the interior-NUL refusal, the out-of-range integral refusals and the non-ASCII echo, each a case here
+1 line per line: checked, all 153 lines read
+2 guidelines: checked, the case tables are constexpr arrays of views and the helper takes a view
+3 modernize: n/a
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the float principle
+5 value semantics: checked
+6 raii: n/a
+7 dedup: checked, the three tables and the shared refusal helper are the deduplication
+8 ground truth: checked, all twenty-two cases compared against python/tests/_decimal_cases.py value by value
+9 history: finding, one comment
+10 simpler: checked
+11 comments: 34 to 33, code 101 to 101
+sweep: this file is part of unit_tests, which the mutation build instruments, and no mutation names it; tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
