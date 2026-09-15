@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
-// Cross-binding integration test (Cat 33d).
+// Cross-binding integration test.
 //
 // Counterpart of python/tests/test_cross_binding_integration.py and
 // go/aletheia/cross_binding_integration_test.go. All three tests construct
@@ -64,8 +64,13 @@ auto canonical_dbc() -> DbcDefinition {
 }
 
 auto find_lib() -> fs::path {
-    if (auto* env = std::getenv("ALETHEIA_LIB"))
-        return env;
+    // Only when the variable names a file that is there: a stale value must
+    // not shadow a library that is, else the suite fails mid-construction
+    // instead of skipping.
+    if (auto* env = std::getenv("ALETHEIA_LIB")) {
+        if (const fs::path p{env}; !p.empty() && fs::exists(p))
+            return p;
+    }
     auto project_root = fs::path{__FILE__}.parent_path().parent_path().parent_path();
     auto lib = project_root / "build" / "libaletheia-ffi.so";
     if (fs::exists(lib))
@@ -129,7 +134,7 @@ TEST_CASE("send_frame ack response has documented shape", "[cross_binding]") {
     auto resp = client.send_frame(std::stop_token{}, Timestamp{1000}, CanId{sid}, dlc,
                                   std::span<const std::byte>{payload});
     REQUIRE(resp.has_value());
-    // FrameResponse = variant<Ack, Violation>; signal value 0 < 1000 → Ack.
+    // FrameResponse is an acknowledgement or a property batch; 0 < 1000 acks.
     CHECK(std::holds_alternative<Ack>(resp.value()));
 }
 
@@ -261,14 +266,13 @@ TEST_CASE("invalid CAN ID is rejected at type boundary", "[cross_binding]") {
     CHECK_FALSE(xid.has_value());
 }
 
-// The Identifier validity record enforces max_identifier_length.  The Agda
-// kernel's `validIdentifierᵇ` predicate
-// gained a third conjunct asserting `length name <ᵇ suc max-identifier-
-// length`.  Identifiers at the limit (128 chars) still parse; anything
-// longer is rejected at `mkIdentFromChars` and surfaces as a parse error
-// on the wire (currently `dbc_text_trailing_input` due to parser-monad
-// position semantics; refining to typed `InputBoundExceeded
-// IdentifierLength` is downstream parser-monad plumbing).
+// The Identifier validity record enforces max_identifier_length: the Agda
+// kernel's `validIdentifierᵇ` asserts `length name <ᵇ suc
+// max-identifier-length`, so an identifier at the limit parses and anything
+// longer is rejected at `mkIdentFromChars`. It surfaces on the wire as
+// `dbc_text_trailing_input`, which is what the parser monad's position
+// semantics produce; a typed `InputBoundExceeded IdentifierLength` would need
+// plumbing further down that monad.
 
 TEST_CASE("identifier at max length is accepted", "[cross_binding]") {
     auto lib = find_lib();
@@ -294,10 +298,9 @@ TEST_CASE("identifier over max length is rejected", "[cross_binding]") {
     REQUIRE_FALSE(result.has_value());
 }
 
-// Typed NestingDepth wire-error.  A deeply-nested LTL formula triggers the
-// kernel's `jsonDepth` check at `handleParsedJSON`, emitting
-// `ParseErr (InputBoundExceeded NestingDepth …)` instead of the previously
-// untyped `DispatchErr InvalidJSON`.  The wire carries
+// Typed NestingDepth wire-error.  A deeply-nested LTL formula trips the
+// kernel's `jsonDepth` check at `handleParsedJSON`, which emits
+// `ParseErr (InputBoundExceeded NestingDepth …)`.  The wire carries
 // `bound_kind / observed / limit` which `make_json_error` lifts into
 // `AletheiaError::bound_info()`.  Mirrors Python's
 // `TestNestingDepthBound::test_nested_at_depth_63_rejected` and Go's

@@ -1,6 +1,6 @@
 # Task 071: file review of `cpp/tests/test_cross_binding_integration.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/test_cross_binding_integration.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/071 (signed later by the dribble).
+
+Claims and guards: the file's premise is that the three bindings build identical canonical inputs in code and each asserts the response shapes the protocol document states, rather than diffing a shared corpus, and every counterpart it names exists: the canonical definition in the Python and Go suites, the BRS and ESI passthrough cases in both, the nesting-depth cases in both, and the atom-count suite it defers to. Each shape claim is asserted here: the parsed definition's messages and empty warnings, the validation result's flag and empty issues, the acknowledgement, the property batch with its timestamp, the two-event batch in source order, every combination of the two CAN-FD metadata bits, the identifier bound at and one past the limit, and the nesting-depth refusal with its typed bound information.
+
+Findings fixed: (a) a comment named the frame response as a variant of an acknowledgement and a "Violation", a type this binding does not have, its second alternative being the property batch the same test then unpacks; (b) the library path from the environment was returned unchecked, the same defect two other suites carried, so a stale variable failed the suite mid-construction rather than skipping; (c) two comments dated the kernel, one saying a predicate "gained" a conjunct and one saying what the wire error was before it was typed; (d) a category label that resolves nowhere, the same one the fuzz harnesses carried.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/071
+claims: 9 rows, 0 without a guard: each is a case in this file, and the counterpart names were each resolved in the peer suites
+1 line per line: checked, all 336 lines read
+2 guidelines: checked, spans over the payload arrays, the client owning its backend
+3 modernize: checked, no behaviour moved; the suite passes before and after
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the cross-binding parity rules
+5 value semantics: checked, the definition by value, payloads as spans over local arrays
+6 raii: checked, nothing hand-released
+7 dedup: checked; the per-case client construction is necessary, and the root discovery shared with two other files is the XREV item
+8 ground truth: finding, the frame response's second alternative was named wrongly; checked true: seven counterpart names across the Python and Go suites, and the bound constants against the limits header
+9 history: finding, two datings removed
+10 simpler: checked
+11 comments: 79 to 80, code 221 to 223, the rise allowed because the task fixed the wrong type name and the unchecked variable
+sweep: no mutation names this file (its own binary, outside the mutation build's unit_tests target); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
