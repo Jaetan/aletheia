@@ -1,6 +1,6 @@
 # Task 080: file review of `cpp/tests/unit_tests_check.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/unit_tests_check.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/080 (signed later by the dribble).
+
+Claims and guards: every builder in the check vocabulary is asserted here by its rendered formula, which is the strongest available statement of what a builder produced: the six one-shot and two-step conditions, the four causal chains, and the four equivalences against hand-rolled formulas, each comparing the rendering of the builder's formula with the rendering of the manual one. The metadata accessors, the non-consuming formula accessor, the two negative-time refusals and the millisecond-to-microsecond overflow guard at its exact boundary are all cases too, the last one pinning the accepted maximum and the first rejected value on both call sites. The rational renderer's own maths is not re-asserted here, and the comment saying so names the kernel modules that do prove it; both resolve, the faithfulness statement and the shape module beside it.
+
+Findings fixed: the renderer comment explained the division of labour as a change, saying the value table is "no longer" asserted per binding and that it "used to" be triplicated across three bindings, and a comment called a guard pre-existing. Both now state what holds.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/080
+claims: 17 rows, 0 without a guard: each is a case, and the renderer's maths is guarded in the kernel modules the comment names
+1 line per line: checked, all 355 lines read
+2 guidelines: checked, the builders are used as values and the overflow case computes its boundary from the type rather than writing it
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the float principle, which the fraction-shaped renderings are the binding's end of
+5 value semantics: checked
+6 raii: checked, the client owns the mock
+7 dedup: checked; the equivalence cases deliberately build the same formula twice, which is their point
+8 ground truth: checked, both kernel modules resolved, and every expected rendering is the renderer's own output rather than a transcription
+9 history: finding, two comments
+10 simpler: checked, and this file is where the public renderer used by the Excel suite's correction was found
+11 comments: 53 to 53, code 253 to 253
+sweep: this file is part of unit_tests, which the mutation build instruments, and no mutation names it; tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 

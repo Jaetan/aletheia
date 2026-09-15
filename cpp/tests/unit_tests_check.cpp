@@ -244,7 +244,7 @@ TEST_CASE("within rejects ms that overflow the microsecond conversion", "[check]
     CHECK_NOTHROW(settles(kMaxOk));
     CHECK_THROWS_AS(settles(kMaxOk + 1), std::invalid_argument);
 
-    // The pre-existing negative-time guard still fires through the same helper.
+    // The negative-time guard fires through the same helper.
     CHECK_THROWS_AS(when_then(-1), std::invalid_argument);
 }
 
@@ -318,14 +318,14 @@ TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
 // Smart-fallback Rational renderer in format_formula
 // ===========================================================================
 
-// The renderer's MATH and SHAPE — decimal-vs-N/D fallback, trailing-zero
-// trimming, sign, the k>18 cross-binding guard, and exact (non-scientific,
-// non-{:g}-truncated) decimals — are proven and pinned ONCE in the Agda kernel
-// (RationalRenderer.Faithful.formatℚ-chars-represents + the
-// RationalRenderer.Properties shape golden), so they are no longer re-asserted
-// per binding (this used to triplicate the same value->string table across
-// C++/Go/Python).  What stays C++-specific: that the FFI plumbs through (both
-// output shapes) and that each formula-building path embeds the result.
+// The renderer's maths and shape, the decimal-against-fraction fallback,
+// trailing-zero trimming, the sign, the cross-binding digit guard and exact
+// decimals that are neither scientific nor truncated, are proven once in the
+// kernel: Aletheia.DBC.RationalRenderer.Faithful states
+// formatℚ-chars-represents and the sibling Properties module pins the shape.
+// The binding's own share is what the cases below assert: that the FFI plumbs
+// both output shapes through, and that each formula-building path embeds the
+// result.
 
 TEST_CASE("format_formula plumbs a non-terminating Rational (N/D shape)", "[enrich][rational]") {
     using namespace ltl;
