@@ -83,9 +83,14 @@ constexpr std::size_t k_error_record_bytes = 3;
 constexpr std::size_t k_offset_bytes = 4;
 constexpr std::size_t k_absent_record_bytes = 2;
 
-// Reads one native-order integer at a byte offset the caller has bounds-checked.
+// Reads one integer at a byte offset the caller has bounds-checked, in the
+// host's byte order, which is the order the kernel writes: see the wire-format
+// header of processExtractBin in src/Aletheia/Main/Binary.agda.  Not the same
+// operation as the ZIP walker's little-endian readers in loader_utils.cpp,
+// whose byte order is fixed by that format rather than by the host; the two
+// agree only because the assertion above forbids a big-endian build.
 template<typename T>
-static auto read_le(std::span<const std::byte> buf, std::size_t off) -> T {
+static auto read_native(std::span<const std::byte> buf, std::size_t off) -> T {
     T v{};
     std::memcpy(&v, buf.subspan(off, sizeof(T)).data(), sizeof(T));
     return v;
@@ -341,8 +346,8 @@ static auto wire_signal_errors(std::span<const std::byte> buf, std::size_t error
                                std::uint16_t nerrs, std::uint32_t reason_bytes,
                                const std::vector<std::string>& names)
     -> Result<std::vector<SignalError>> {
-    auto read_u16 = [&](std::size_t off) { return read_le<std::uint16_t>(buf, off); };
-    auto read_u32 = [&](std::size_t off) { return read_le<std::uint32_t>(buf, off); };
+    auto read_u16 = [&](std::size_t off) { return read_native<std::uint16_t>(buf, off); };
+    auto read_u32 = [&](std::size_t off) { return read_native<std::uint32_t>(buf, off); };
     const std::size_t offsets_off = errors_off + (std::size_t{nerrs} * k_error_record_bytes);
     const std::size_t reasons_off = offsets_off + ((std::size_t{nerrs} + 1) * k_offset_bytes);
 
@@ -397,9 +402,9 @@ static auto wire_signal_errors(std::span<const std::byte> buf, std::size_t error
 static auto parse_extraction_bin(std::span<const std::byte> buf,
                                  const std::vector<std::string>& names)
     -> Result<ExtractionResult> {
-    auto read_u16 = [&](std::size_t off) { return read_le<std::uint16_t>(buf, off); };
-    auto read_u32 = [&](std::size_t off) { return read_le<std::uint32_t>(buf, off); };
-    auto read_i64 = [&](std::size_t off) { return read_le<std::int64_t>(buf, off); };
+    auto read_u16 = [&](std::size_t off) { return read_native<std::uint16_t>(buf, off); };
+    auto read_u32 = [&](std::size_t off) { return read_native<std::uint32_t>(buf, off); };
+    auto read_i64 = [&](std::size_t off) { return read_native<std::int64_t>(buf, off); };
 
     if (buf.size() < k_header_bytes)
         return std::unexpected(AletheiaError{
