@@ -1,6 +1,6 @@
 # Task 046: file review of `cpp/src/json_serialize.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/json_serialize.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/046 (signed later by the dribble).
+
+Claims and guards: the canonical wire form (dbc_corpus_parity_tests compares this encoder's output byte-for-byte against the committed snapshots the Python and Go gates also use; unit_tests_json covers the command envelopes); the rational normalisation and its two defensive branches (unit_tests_json, the six Mull mutants in this file, all killed); the formula and predicate tags (the formula-rendering probe from task 042 passes a formula covering every alternative through this serializer on its way to Python, and the clone probe from task 021 compares two serialisations of one tree); the depth cap (unit_tests_input_bounds).
+
+Findings fixed: (a) a history block explained that a dead den<0 branch had been removed and named the two Mull mutants it had harboured; the comment now states why no sign normalisation is needed; (b) comment targets and attribute targets are two variants over the same seven shapes with the same wire form, written out twice as fifty lines; one shape-dispatched target_to_json serves both; (c) the eight array loops of dbc_to_json, and five more in the signal, group, table, enum and raw-value-description encoders, are one json_array; (d) the {value, description} pair was built at three sites; one value_entry_to_json; (e) the five value-comparison predicates and the fourteen formula alternatives each repeated a body that differs only in a wire tag; a tag function plus four member shapes each, so a new alternative of an existing shape needs only its tag; (f) three DBC command envelopes are one dbc_command; (g) "Both variants now carry" and "a cross-binding SSOT fix" rewritten as the standing design. The key order of the output is unaffected by any of this: nlohmann's default object sorts its keys, and the corpus parity test is the byte-level gate.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/046
+claims: 4 rows, 0 without a guard
+1 line per line: checked, all 533 lines read; every encoder asked which Agda formatter arm it mirrors and every repeated body what distinguishes it
+2 guidelines: checked, pure encoders over const references
+3 modernize: finding, requires-expression shape dispatch and a range helper; gate: 15 of 15 ctest with the corpus parity test, tidy gate zero, Mull all killed, the cross-binding rendering probe identical
+4 catalogue: checked, AGENTS/cpp.md category 11 (serialization fidelity: field names, types and structure against the Agda formatter)
+5 value semantics: checked
+6 raii: n/a
+7 dedup: finding, five repeated shapes folded, one of them spanning two 25-line functions
+8 ground truth: checked, the wire tags match the Agda formatter's arms and the parser's tables
+9 history: finding, one block and two phrases
+10 simpler: finding, see 3 and 7
+11 comments: 53 to 60 (seven more lines, in the task that fixed the history block and the duplicated target encoders), code 442 to 405
+sweep: json_serialize.cpp names 6 mutants, all KILLED in the run after the edit; tidy gate zero (one braces finding the refactor introduced was fixed in the same task)
+probes: none added; store 45 run, 44 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 
