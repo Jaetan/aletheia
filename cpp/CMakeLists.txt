@@ -325,6 +325,7 @@ install(FILES
 # aletheia-cpp is PUBLIC so its include dirs reach main.cpp and the tests.
 
 add_library(aletheia-cli-core STATIC src/cli/cli.cpp)
+target_include_directories(aletheia-cli-core PRIVATE src)
 target_link_libraries(aletheia-cli-core
     PUBLIC aletheia-cpp
     PRIVATE nlohmann_json::nlohmann_json)

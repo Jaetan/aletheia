@@ -1,6 +1,6 @@
 # Task 029: file review of `cpp/src/cli/cli.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/cli/cli.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/029 (signed later by the dribble).
+
+Claims and guards: the exit codes (cli_tests and the probe from task 011, green after the edit); every failure becomes exit 2 (the outer handler now also catches non-standard exceptions, so the header's promise holds by construction); the five subcommands and their output (cli_tests pin substrings; the review captured 25 invocations before and after and diffed stdout, stderr and exit codes exactly: identical except the three intended message changes); the DBC text bound (check_file_size_bound from the loaders, exercised by their tests; the CLI now applies it before reading).
+
+Findings fixed: (a) the header comment and the `check` refusal carried a project-phase label and "not yet" plan sentences; both state the present; (b) the exit-code sentence said "violations", which no subcommand returns; the constant is k_exit_validation_failed; (c) run_cli caught std::exception only behind its noexcept; a catch-all returns 2; (d) emit_json could not fail although its caller guarded a failure; it now reports a failed stream, so the guard is live; (e) a DBC file was read whole before the kernel refused an oversize one; the loaders' size-bound check runs first, which needed the CLI core target to see the library's private headers (a target include directory, the pattern the tests already use); (f) the upper-casing loop is a ranges transform. Tried and withdrawn: converting the stream output to std::print broke the CLI tests' stream capture and made tidy see a throwing path in the noexcept handler; run_cli is a library entry whose host redirects the C++ streams, so the streams stay and the comment says why. Pushed to XREV 097: the fourth copy of the library-discovery heuristic.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/029
+claims: 4 rows, 0 without a guard
+1 line per line: checked, all 627 lines read; every message asked what it promises and every path what escapes it
+2 guidelines: finding, catch-all behind noexcept (E.12 family); the rest held (expected results, validated newtypes, from_chars)
+3 modernize: finding, ranges::transform; the std::print conversion tried, measured against the tests, and withdrawn with the reason in the comment
+4 catalogue: checked, AGENTS/cpp.md categories 23 (no exception crosses the noexcept), 28 (the input bound now applied at the file, before the read) and 30 (streams in a CLI entry, documented)
+5 value semantics: checked, spans of strings in, strings out
+6 raii: checked, ifstream and the client own their resources
+7 dedup: finding pushed to XREV 097 (library discovery in four files)
+8 ground truth: finding, plan sentences and the exit-code sentence; the subcommand set and the messages hold
+9 history: finding, two plan sentences
+10 simpler: finding, see 3 and 4
+11 comments: 82 to 86 (four more lines, in the task that fixed the false exit-code sentence and the plan labels), code 499 to 505
+sweep: cli.cpp is outside the mutation build (the CLI core is not instrumented); 15 of 15 ctest, tidy gate zero, 25-invocation output diff clean but for the three intended messages
+probes: none added (the exit-code probe from task 011 covers this file's contract); store 39 run, 38 pass, 1 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 

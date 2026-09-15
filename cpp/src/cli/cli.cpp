@@ -8,14 +8,15 @@
 // format-dbc, mux-query — by dispatching to the real verified Agda core
 // through the dlopen client (no analysis logic is reimplemented here).
 //
-// The `check` subcommand (LTL over a CAN log file) is intentionally absent:
-// it needs a verified CAN-log reader the C++ binding does not yet provide
-// (Phase 6 item — the python-can replacement). DBC sources are `.dbc` text
-// files parsed by the verified text parser; canonical-JSON and `.xlsx`
-// inputs are not yet wired. Flags may appear before or after positionals.
+// There is no `check` subcommand (LTL over a CAN log file): it needs a
+// CAN-log reader the C++ binding does not provide. DBC sources are `.dbc`
+// text files parsed by the verified text parser; canonical-JSON and `.xlsx`
+// inputs are not accepted. Flags may appear before or after positionals.
 //
-// The library path is resolved from $ALETHEIA_LIB, else common build/install
-// locations. Exit codes: 0 ok, 1 violations / validation failed, 2 error.
+// Output goes through std::cout and std::cerr so a host that embeds run_cli
+// (the CLI tests do) can redirect it. The library path is resolved from
+// $ALETHEIA_LIB, else common build/install locations. Exit codes: 0 ok,
+// 1 validation failed, 2 error.
 
 #include <aletheia/backend.hpp>
 #include <aletheia/cli.hpp>
@@ -24,6 +25,8 @@
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/types.hpp>
 #include <aletheia/validation.hpp>
+
+#include "detail/loader_utils.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -62,7 +65,7 @@ using aletheia::StandardId;
 using Json = nlohmann::json;
 
 constexpr int k_exit_ok = 0;
-constexpr int k_exit_violations = 1;
+constexpr int k_exit_validation_failed = 1;
 constexpr int k_exit_error = 2;
 constexpr std::uint32_t k_std_id_max = 0x7FF; // 11-bit standard CAN ID ceiling
 constexpr int k_json_indent = 2;
@@ -93,9 +96,11 @@ static auto die(std::string_view msg) -> int {
     return k_exit_error;
 }
 
+// Reports a stream failure as an error exit, so a broken pipe is not masked
+// by a subcommand's own outcome.
 static auto emit_json(const Json& j) -> int {
     std::cout << j.dump(k_json_indent) << '\n';
-    return k_exit_ok;
+    return std::cout ? k_exit_ok : k_exit_error;
 }
 
 // --- client / DBC loading -------------------------------------------------
@@ -130,15 +135,20 @@ static auto make_client() -> std::expected<AletheiaClient, std::string> {
 // epilogue IS full DBC validation, so the warnings are the complete
 // validation issue list for the parsed DBC (a parse carrying errors is
 // rejected by the kernel and surfaces as a DbcLoadError with core issues).
-// Canonical-JSON and `.xlsx` inputs are not yet wired.
+// Canonical-JSON and `.xlsx` inputs are not accepted. The file's size is
+// checked against the DBC text bound before it is read, as the loaders do.
 static auto load_dbc_text(AletheiaClient& client, const std::string& path)
     -> std::expected<aletheia::ParsedDBC, DbcLoadError> {
     if (path.empty())
         return std::unexpected(DbcLoadError{.message = "no DBC source (use --dbc <file>.dbc)"});
     if (path.ends_with(".json") || path.ends_with(".xlsx"))
-        return std::unexpected(
-            DbcLoadError{.message = path + ": only .dbc text input is supported by the C++ CLI yet "
-                                           "(JSON / .xlsx input not wired)"});
+        return std::unexpected(DbcLoadError{
+            .message = path + ": the C++ CLI accepts .dbc text input only (not JSON or .xlsx)"});
+    if (auto bound = aletheia::detail::check_file_size_bound(path); !bound)
+        return std::unexpected(DbcLoadError{
+            .message = "reading " + path + ": " + std::string{bound.error().message()},
+            .core = std::move(bound.error()),
+        });
     const std::ifstream in{path};
     if (!in)
         return std::unexpected(DbcLoadError{.message = "reading " + path});
@@ -279,7 +289,7 @@ static auto render_validation(bool has_errors, const std::vector<aletheia::Valid
             return code;
         // The exit code reflects the validation outcome in both output
         // modes — a pipeline running --json still needs exit 1 on failure.
-        return has_errors ? k_exit_violations : k_exit_ok;
+        return has_errors ? k_exit_validation_failed : k_exit_ok;
     }
     if (issues.empty()) {
         std::cout << "Validation passed: no issues found\n";
@@ -290,12 +300,12 @@ static auto render_validation(bool has_errors, const std::vector<aletheia::Valid
     int n = 1;
     for (const auto& i : issues) {
         std::string sev{aletheia::to_string(i.severity)};
-        for (char& c : sev)
-            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        std::ranges::transform(sev, sev.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
         std::cout << "  " << n++ << ". [" << sev << "] " << aletheia::issue_code_label(i) << ": "
                   << i.detail << '\n';
     }
-    return has_errors ? k_exit_violations : k_exit_ok;
+    return has_errors ? k_exit_validation_failed : k_exit_ok;
 }
 
 // `has_errors` for a rejected parse is derived from the decoded issue
@@ -597,9 +607,8 @@ static auto dispatch(const std::string& cmd, std::span<const std::string> rest) 
         return cmd_mux_query(*parsed);
     }
     if (cmd == "check") {
-        std::cerr << "Error: 'check' is not available in the C++ CLI yet — it needs a verified "
-                     "CAN-log reader (Phase 6: python-can replacement). Use the Python CLI for "
-                     "log-file checking.\n";
+        std::cerr << "Error: 'check' is not available in the C++ CLI: it needs a CAN-log reader "
+                     "the binding does not provide. Use the Python CLI for log-file checking.\n";
         return k_exit_error;
     }
     if (cmd == "-h" || cmd == "--help" || cmd == "help") {
@@ -621,6 +630,8 @@ auto run_cli(std::span<const std::string> args) noexcept -> int {
         return dispatch(args.front(), args.subspan(1));
     } catch (const std::exception& e) {
         return die(std::string{"unexpected error: "} + e.what());
+    } catch (...) {
+        return die("unexpected error");
     }
 }
 
