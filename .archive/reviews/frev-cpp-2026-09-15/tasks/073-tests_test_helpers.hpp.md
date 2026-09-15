@@ -1,6 +1,6 @@
 # Task 073: file review of `cpp/tests/test_helpers.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/test_helpers.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/073 (signed later by the dribble).
+
+Claims and guards: the header claims its helpers are inline because several translation units in one executable include it, which the build confirms, and that it pulls in no using-namespace directive, which is why every name in it is fully qualified. It claims the response helper renders the canonical success envelope with a definition and an empty warnings list; read against the serializer's own output, that envelope carries exactly a status of success, the definition and the warnings array. And it claims the test definition is a single message with one always-present signal, which it is. The guard on all of it is the unit suite: every mock-backend client, enrichment, serialization and validation case feeds one of these two helpers, so a change to either fails the suite.
+
+Findings fixed: the header said "the one helper defined here is marked inline" where it defines two, both inline; and the include of the detail JSON header walked up out of the test directory by relative path, where the target already puts the source directory on the include path and every other test file spells it from there.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/073
+claims: 4 rows, 0 without a guard: the unit suite exercises both helpers, and the envelope was read against the serializer's own output
+1 line per line: checked, all 60 lines read
+2 guidelines: checked, both helpers return by value and neither holds state
+3 modernize: checked, designated initialisers throughout, which is what the aggregate wants
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests)
+5 value semantics: checked, the definition by const reference in, by value out
+6 raii: checked, nothing owned
+7 dedup: checked, this header is the deduplication
+8 ground truth: finding, the helper count; checked true: the envelope's three members against the serializer
+9 history: checked, none
+10 simpler: checked
+11 comments: 17 to 17, code 33 to 33
+sweep: this header is compiled into unit_tests, which the mutation build instruments, and no mutation names it; tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
