@@ -1,6 +1,6 @@
 # Task 103: file review of `cpp/tests/fuzz/fuzz_parse_rational_number.cpp` (follow-up from task 059)
 
-- status: pending
+- status: completed
 - file: `cpp/tests/fuzz/fuzz_parse_rational_number.cpp`
 - round base: b222b613 (2026-09-15)
 - pass: full, over the envelope the harness builds
@@ -9,7 +9,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass over the envelope. Fix in refs/frev/103 (signed later by the dribble).
+
+Claims and guards: the harness claims to reach the rational-number parser transitively, through a wire shape that embeds a rational. It did not. The frame-response parser dispatches on an acknowledgement, an error, or a batch envelope carrying a results array, and refuses anything else before reading a member; the harness built a bare property object, so every input came back "Unexpected frame response: status=fails type=property" and the parser it is named for never ran.
+
+Finding fixed: the envelope is now the batch shape the parser dispatches on. The proof is the two committed seeds, driven through the parser before and after. Before, both stopped at the envelope. After, the integer seed parses to a value, and the rational-object seed is refused deep inside the integer conversion with "Non-exact rational in integer field", which is the rational parser's own message and could not be reached at all before. Over 61 seconds the target runs 1198360 inputs at 19328 a second with 117 new units and no crash, against the base sweep's 1182155 and 91.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/103
+claims: 1 row, 1 without a guard: the transitive reach, now proven by the two seeds' own error messages
+1 line per line: checked, all 36 lines read
+2 guidelines: checked, the envelope is built once per input from raw string literals
+3 modernize: checked, the raw string literals drop a line of escaping
+4 catalogue: checked, the batch shape is what cpp/src/json_parse.cpp dispatches on and what the Agda emitter produces
+5 value semantics: checked
+6 raii: checked, the harness owns only the envelope string
+7 dedup: checked
+8 ground truth: finding, the envelope was a shape the parser refuses; checked true: the batch shape, by running both seeds through it
+9 history: checked, none
+10 simpler: checked
+11 comments: 17 to 18, code 16 to 16
+sweep: no mutation names this file; the target builds clean and runs 62 seconds without a crash
+probes: none name this file; the before and after seed traces are the measurement
+decision points: none
+```
 
 ## Contract (carried whole)
 
