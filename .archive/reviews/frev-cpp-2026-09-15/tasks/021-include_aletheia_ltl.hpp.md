@@ -1,6 +1,6 @@
 # Task 021: file review of `cpp/include/aletheia/ltl.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/ltl.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/021 (signed later by the dribble).
+
+Claims and guards: the formula alternatives mirror the Agda `data LTL` constructors one to one and the predicate alternatives the union of the Agda ValuePredicate and DeltaPredicate constructors (nothing checked either; new probe parses both sides, fourteen and eight, with WNext as WeakNext); clone deep-copies every alternative (no test named clone; new probe serialises a formula using all fourteen alternatives and all eight predicates through the binding's wire serialiser, destroys the original, and finds the clone's serialisation identical); the implies combinator's cross-binding twins (Go Implies, Rust Formula::implies, Python .implies() found).
+
+Findings fixed: (a) two history sentences ("Previously inherited from std::variant", "Match the pre-refactor behaviour") rewritten as the standing rationale or dropped; (b) "the 14-alternative list" cited a count; the probe counts, the comment does not; (c) twenty-two pure builders and clone are [[nodiscard]]; (d) clone dispatched on fourteen type names; it dispatches on the five aggregate shapes by member (predicate; bound with two children; bound with one; two children; one child), so an alternative of an existing shape needs no new branch and one of a new shape fails the static_assert; the probe shows the copies identical.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/021
+claims: 3 rows, 2 without a guard: probes added for the constructor mirror and for clone
+1 line per line: checked, all 308 lines read; every alternative asked which Agda constructor it is and every builder what discards it
+2 guidelines: finding, nodiscard on the builders; the constrained converting constructor's approved NOLINT left as is
+3 modernize: finding, requires-expressions select the clone shape; gate: clone probe identical before and after, whole tree rebuilt clean, unit, yaml, excel and integration tests green, tidy gate zero
+4 catalogue: checked, AGENTS/cpp.md categories 19 (domain fidelity: the mirror is probed) and 27 (concepts, variant)
+5 value semantics: checked, formulas moved into the builders, predicates by value (a name and a rational)
+6 raii: checked, children owned by unique_ptr
+7 dedup: finding, fourteen clone branches to five
+8 ground truth: checked, the one-to-one claim now holds by probe for formulas and, read precisely, for predicates
+9 history: finding, two sentences
+10 simpler: finding, see 7
+11 comments: 42 to 42, code 224 to 217
+sweep: no mutation names this file (header-only, exercised through every streaming test); tidy gate zero after the edit
+probes: 2 added; store 34 run, 33 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 
