@@ -821,7 +821,7 @@ TEST_CASE("extraction cache full still works on 257th frame", "[client][enrich][
 
 TEST_CASE("MockBackend throws on queue exhaustion", "[client][mock]") {
     MockBackend mock;
-    auto* state = mock.init();
+    auto state = mock.init();
 
     // Empty queue → exhaustion is a harness misconfiguration: the mock throws
     // rather than fabricating a default, as every binding's mock does. The
@@ -859,6 +859,89 @@ TEST_CASE("MockBackend throws on queue exhaustion", "[client][mock]") {
     CHECK_THROWS_AS(mock.process(state, "<binary:sendFrame>"), AletheiaException);
 }
 
+// Counts the releases of the state it hands out, so the handle's own policy has
+// a test as well as the address sanitizer. The counter outlives the backend,
+// which the client owns.
+class CountingCloseBackend : public MockBackend {
+public:
+    explicit CountingCloseBackend(int* closes) : closes_(closes) {}
+
+protected:
+    void close(void* state) override {
+        ++*closes_;
+        MockBackend::close(state);
+    }
+
+private:
+    int* closes_;
+};
+
+TEST_CASE("the backend state is released exactly once over a client's life", "[client][state]") {
+    SECTION("a move transfers the state rather than closing it") {
+        int closes = 0;
+        {
+            AletheiaClient client{std::make_unique<CountingCloseBackend>(&closes)};
+            CHECK(closes == 0);
+            AletheiaClient moved{std::move(client)};
+            CHECK(closes == 0);
+        }
+        CHECK(closes == 1);
+    }
+
+    SECTION("assigning over a client releases what it held, once") {
+        int first_closes = 0;
+        int second_closes = 0;
+        {
+            AletheiaClient first{std::make_unique<CountingCloseBackend>(&first_closes)};
+            AletheiaClient second{std::make_unique<CountingCloseBackend>(&second_closes)};
+            second = std::move(first);
+            // The state the target held is gone; the source's has moved across.
+            CHECK(second_closes == 1);
+            CHECK(first_closes == 0);
+        }
+        CHECK(first_closes == 1);
+        CHECK(second_closes == 1);
+    }
+
+    SECTION("self-assignment releases nothing") {
+        int closes = 0;
+        {
+            AletheiaClient client{std::make_unique<CountingCloseBackend>(&closes)};
+            auto& alias = client;
+            client = std::move(alias);
+            CHECK(closes == 0);
+        }
+        CHECK(closes == 1);
+    }
+}
+
+TEST_CASE("SignalInjection refuses a block the FFI would read past", "[client][injection]") {
+    const std::vector<std::uint32_t> indices{0, 1};
+    const std::vector<std::int64_t> numerators{1, 2};
+    const std::vector<std::int64_t> denominators{1, 2};
+
+    SECTION("three arrays of equal length are accepted") {
+        auto block = SignalInjection::create(indices, numerators, denominators);
+        REQUIRE(block.has_value());
+        CHECK(block->count() == 2);
+        CHECK(block->indices().size() == 2);
+    }
+
+    SECTION("a shorter numerator array is refused, not truncated") {
+        const std::vector<std::int64_t> short_numerators{1};
+        auto block = SignalInjection::create(indices, short_numerators, denominators);
+        REQUIRE_FALSE(block.has_value());
+        CHECK(block.error().find("differ in length") != std::string::npos);
+    }
+
+    SECTION("a shorter denominator array is refused too") {
+        const std::vector<std::int64_t> short_denominators{1};
+        auto block = SignalInjection::create(indices, numerators, short_denominators);
+        REQUIRE_FALSE(block.has_value());
+        CHECK(block.error().find("differ in length") != std::string::npos);
+    }
+}
+
 TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaustion",
           "[client][mock]") {
     // Unlike process() (which returns std::string and throws on exhaustion),
@@ -867,12 +950,11 @@ TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaust
     // unified cross-binding message, it does NOT throw.  The op token is
     // still recorded on the starved call, matching Go / Python / Rust.
     MockBackend mock;
-    auto* state = mock.init();
+    auto state = mock.init();
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
-    // The mock ignores the injection contents; an empty (count 0) block suffices.
-    SignalInjection signals{
-        .count = 0, .indices = nullptr, .numerators = nullptr, .denominators = nullptr};
+    // The mock ignores the injection contents; an empty block suffices.
+    auto signals = SignalInjection::create({}, {}, {}).value();
 
     {
         auto result = mock.build_frame_bin(state, id, dlc, signals, 8);

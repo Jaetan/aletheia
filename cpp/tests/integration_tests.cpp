@@ -341,43 +341,50 @@ public:
         : inner_(std::move(inner))
         , buf_(std::move(buf)) {}
 
-    auto init() -> void* override { return inner_->init(); }
-    auto process(void* state, std::string_view input) -> std::string override {
+    // The handle the inner backend hands out closes through that backend, so
+    // this decorator neither owns nor releases state and needs no close.
+    auto init() -> BackendState override { return inner_->init(); }
+    auto process(const BackendState& state, std::string_view input) -> std::string override {
         return inner_->process(state, input);
     }
-    auto close(void* state) -> void override { inner_->close(state); }
 
-    auto send_frame_binary(void* state, Timestamp ts, const CanId& id, Dlc dlc,
+    auto send_frame_binary(const BackendState& state, Timestamp ts, const CanId& id, Dlc dlc,
                            std::span<const std::byte> data, std::optional<bool> brs,
                            std::optional<bool> esi) -> std::string override {
         return inner_->send_frame_binary(state, ts, id, dlc, data, brs, esi);
     }
-    auto send_error_binary(void* state, Timestamp ts) -> std::string override {
+    auto send_error_binary(const BackendState& state, Timestamp ts) -> std::string override {
         return inner_->send_error_binary(state, ts);
     }
-    auto send_remote_binary(void* state, Timestamp ts, const CanId& id) -> std::string override {
+    auto send_remote_binary(const BackendState& state, Timestamp ts, const CanId& id)
+        -> std::string override {
         return inner_->send_remote_binary(state, ts, id);
     }
-    auto start_stream_binary(void* state) -> std::string override {
+    auto start_stream_binary(const BackendState& state) -> std::string override {
         return inner_->start_stream_binary(state);
     }
-    auto end_stream_binary(void* state) -> std::string override {
+    auto end_stream_binary(const BackendState& state) -> std::string override {
         return inner_->end_stream_binary(state);
     }
-    auto format_dbc_binary(void* state) -> std::string override {
+    auto format_dbc_binary(const BackendState& state) -> std::string override {
         return inner_->format_dbc_binary(state);
     }
-    auto extract_signals_binary(void* state, const CanId& id, Dlc dlc,
+    auto extract_signals_binary(const BackendState& state, const CanId& id, Dlc dlc,
                                 std::span<const std::byte> data) -> std::string override {
         return inner_->extract_signals_binary(state, id, dlc, data);
     }
 
     // The method under test: hand back the caller-supplied result verbatim.
-    auto extract_signals_bin(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
+    auto extract_signals_bin(const BackendState& /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
                              std::span<const std::byte> /*data*/)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         return buf_;
     }
+
+protected:
+    // Never called: the handle this decorator hands out belongs to the inner
+    // backend and closes there.
+    auto close(void* /*state*/) -> void override {}
 
 private:
     std::unique_ptr<IBackend> inner_;

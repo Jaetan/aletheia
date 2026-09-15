@@ -26,9 +26,8 @@ int main() {
     if (!backend)
         return 3;
     try {
-        void* state = backend->init();
+        auto state = backend->init();
         const std::string answer = backend->process(state, R"({"command":"ping"})");
-        backend->close(state);
         return answer.empty() ? 4 : 0;
     } catch (const aletheia::AletheiaException& e) {
         std::cout << "refused: " << e.error().message() << "\n";

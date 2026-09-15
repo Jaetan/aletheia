@@ -38,6 +38,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (C++): the backend interface takes typed shapes for the session
+  state and the signal-injection block.** `IBackend::init()` now returns an
+  owning `BackendState` instead of a `void*`, every other method takes
+  `const BackendState&`, and the release primitive `close()` moved to the
+  protected section with `BackendState` as its only caller, so no call site
+  releases kernel state by hand. `SignalInjection` is no longer an aggregate of
+  a count and three raw pointers: it holds three `std::span`s and is reachable
+  only through `SignalInjection::create`, which refuses arrays that differ in
+  length and a length the wire's 32-bit count cannot carry. Both were shapes
+  whose invariants lived in a comment. In-tree implementers are updated; an
+  out-of-tree implementer of the interface must follow the signatures, and a
+  caller that built an injection block by hand now goes through the factory.
+  The wire is unchanged.
 - **Toolchain adopted: GHC 9.6.7 → 9.8.4, Cabal 3.12.1.0 → 3.16.1.0,
   agda-stdlib v2.3 → v2.4.** The verified kernel, all proof gates, and every
   binding test pass unchanged on the new toolchain (agda-stdlib v2.4 lists no

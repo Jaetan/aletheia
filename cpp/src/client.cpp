@@ -102,7 +102,7 @@ AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
     , state_(backend_->init())
     , logger_(std::move(logger))
     , default_checks_(std::move(default_checks)) {
-    if (state_ == nullptr)
+    if (!state_)
         throw AletheiaException(
             AletheiaError{ErrorKind::Ffi, "backend init() returned null state"});
     if (!logger_)
@@ -118,28 +118,14 @@ AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
     }
 }
 
-// Releases the backend state without letting an exception out: the destructor
-// and the noexcept move assignment both call this, and a throw from either
-// would terminate the program. The FFI close() path allocates nothing, but a
-// backend implementation (a mock, say) may throw, and that is swallowed.
-void AletheiaClient::close_state() noexcept {
-    if (backend_ != nullptr && state_ != nullptr) {
-        try {
-            backend_->close(state_);
-        } catch (...) {
-            static_cast<void>(std::current_exception());
-        }
-    }
-    state_ = nullptr;
-}
-
-AletheiaClient::~AletheiaClient() {
-    close_state();
-}
+// The state handle releases itself, so the destructor has nothing left to do.
+// Destruction order is what carries the policy: state_ is declared after
+// backend_, so it closes through a backend that is still alive.
+AletheiaClient::~AletheiaClient() = default;
 
 AletheiaClient::AletheiaClient(AletheiaClient&& other) noexcept
     : backend_(std::move(other.backend_))
-    , state_(std::exchange(other.state_, nullptr))
+    , state_(std::move(other.state_))
     , logger_(std::move(other.logger_))
     , default_checks_(std::move(other.default_checks_))
     , diags_(std::move(other.diags_))
@@ -151,9 +137,10 @@ AletheiaClient::AletheiaClient(AletheiaClient&& other) noexcept
 
 AletheiaClient& AletheiaClient::operator=(AletheiaClient&& other) noexcept {
     if (this != &other) {
-        close_state();
+        // The handle is assigned before the backend it closes through, so the
+        // state this client held is released while its own backend is alive.
+        state_ = std::move(other.state_);
         backend_ = std::move(other.backend_);
-        state_ = std::exchange(other.state_, nullptr);
         logger_ = std::move(other.logger_);
         default_checks_ = std::move(other.default_checks_);
         diags_ = std::move(other.diags_);
@@ -495,11 +482,11 @@ auto AletheiaClient::extract_signals(std::stop_token stop, CanId id, Dlc dlc,
     return detail::parse_extraction(std::move(resp));
 }
 
-auto AletheiaClient::ResolvedSignals::injection() const -> SignalInjection {
-    return {.count = static_cast<std::uint32_t>(indices.size()),
-            .indices = indices.data(),
-            .numerators = numerators.data(),
-            .denominators = denominators.data()};
+auto AletheiaClient::ResolvedSignals::injection() const -> Result<SignalInjection> {
+    auto block = SignalInjection::create(indices, numerators, denominators);
+    if (!block)
+        return std::unexpected(AletheiaError{ErrorKind::Validation, block.error()});
+    return *block;
 }
 
 auto AletheiaClient::resolve_signals(std::string_view method, CanId id,
@@ -552,7 +539,9 @@ auto AletheiaClient::build_frame(std::stop_token stop, CanId id, Dlc dlc,
         return std::unexpected(resolved.error());
     }
     auto inj = resolved->injection();
-    return backend_->build_frame_bin(state_, id, dlc, inj, dlc_to_bytes(dlc));
+    if (!inj)
+        return std::unexpected(inj.error());
+    return backend_->build_frame_bin(state_, id, dlc, *inj, dlc_to_bytes(dlc));
 }
 
 auto AletheiaClient::update_frame(std::stop_token stop, CanId id, Dlc dlc,
@@ -568,7 +557,9 @@ auto AletheiaClient::update_frame(std::stop_token stop, CanId id, Dlc dlc,
         return std::unexpected(resolved.error());
     }
     auto inj = resolved->injection();
-    return backend_->update_frame_bin(state_, id, dlc, data, inj, dlc_to_bytes(dlc));
+    if (!inj)
+        return std::unexpected(inj.error());
+    return backend_->update_frame_bin(state_, id, dlc, data, *inj, dlc_to_bytes(dlc));
 }
 
 // ---------------------------------------------------------------------------

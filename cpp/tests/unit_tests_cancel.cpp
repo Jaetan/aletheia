@@ -38,25 +38,37 @@ using namespace aletheia;
 // Subclasses implement init/close/process with the behaviour under test.
 class StubStreamingBackend : public IBackend {
 public:
-    auto send_frame_binary(void* state, Timestamp /*ts*/, const CanId& /*id*/, Dlc /*dlc*/,
-                           std::span<const std::byte> /*data*/, std::optional<bool> /*brs*/,
-                           std::optional<bool> /*esi*/) -> std::string override {
-        return process(state, "");
-    }
-    auto send_error_binary(void* state, Timestamp /*ts*/) -> std::string override {
-        return process(state, "");
-    }
-    auto send_remote_binary(void* state, Timestamp /*ts*/, const CanId& /*id*/)
+    auto send_frame_binary(const BackendState& state, Timestamp /*ts*/, const CanId& /*id*/,
+                           Dlc /*dlc*/, std::span<const std::byte> /*data*/,
+                           std::optional<bool> /*brs*/, std::optional<bool> /*esi*/)
         -> std::string override {
         return process(state, "");
     }
-    auto start_stream_binary(void* state) -> std::string override { return process(state, ""); }
-    auto end_stream_binary(void* state) -> std::string override { return process(state, ""); }
-    auto format_dbc_binary(void* state) -> std::string override { return process(state, ""); }
-    auto extract_signals_binary(void* state, const CanId& /*id*/, Dlc /*dlc*/,
+    auto send_error_binary(const BackendState& state, Timestamp /*ts*/) -> std::string override {
+        return process(state, "");
+    }
+    auto send_remote_binary(const BackendState& state, Timestamp /*ts*/, const CanId& /*id*/)
+        -> std::string override {
+        return process(state, "");
+    }
+    auto start_stream_binary(const BackendState& state) -> std::string override {
+        return process(state, "");
+    }
+    auto end_stream_binary(const BackendState& state) -> std::string override {
+        return process(state, "");
+    }
+    auto format_dbc_binary(const BackendState& state) -> std::string override {
+        return process(state, "");
+    }
+    auto extract_signals_binary(const BackendState& state, const CanId& /*id*/, Dlc /*dlc*/,
                                 std::span<const std::byte> /*data*/) -> std::string override {
         return process(state, "");
     }
+
+protected:
+    // Every stub below hands out a static sentinel, so there is nothing to
+    // release and one definition serves them all.
+    void close(void* /*state*/) override {}
 };
 
 // CancelTriggerBackend deterministically fires the supplied stop_source
@@ -76,10 +88,10 @@ public:
 
     [[nodiscard]] auto call_count() const -> std::size_t { return calls_; }
 
-    auto init() -> void* override { return &sentinel; }
-    void close(void* /*state*/) override {}
+    auto init() -> BackendState override { return BackendState{*this, &sentinel}; }
 
-    auto process(void* /*state*/, std::string_view /*input*/) -> std::string override {
+    auto process(const BackendState& /*state*/, std::string_view /*input*/)
+        -> std::string override {
         ++calls_;
         if (calls_ == cancel_after_ && source_ != nullptr)
             source_->request_stop();
@@ -106,8 +118,7 @@ class HoldingBackend : public StubStreamingBackend {
 public:
     [[nodiscard]] auto call_count() const -> std::size_t { return calls_; }
 
-    auto init() -> void* override { return &sentinel; }
-    void close(void* /*state*/) override {}
+    auto init() -> BackendState override { return BackendState{*this, &sentinel}; }
 
     // Blocks until process() has entered the FFI (deterministic rendezvous).
     void wait_until_entered() { entered_.wait(false, std::memory_order_acquire); }
@@ -117,7 +128,8 @@ public:
         proceed_.notify_one();
     }
 
-    auto process(void* /*state*/, std::string_view /*input*/) -> std::string override {
+    auto process(const BackendState& /*state*/, std::string_view /*input*/)
+        -> std::string override {
         ++calls_;
         entered_.test_and_set(std::memory_order_release);
         entered_.notify_one();

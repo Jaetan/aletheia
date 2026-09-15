@@ -275,9 +275,9 @@ public:
         return rts_mismatch_;
     }
 
-    auto init() -> void* override { return init_fn_(); }
+    auto init() -> BackendState override { return BackendState{*this, init_fn_()}; }
 
-    auto process(void* state, std::string_view input) -> std::string override {
+    auto process(const BackendState& state, std::string_view input) -> std::string override {
         // Adversarial-input bound: synthesize an error response before
         // marshaling oversize inputs into Haskell, per AGENTS.md universal
         // rule "Adversarial-input bounds at parser surfaces".  The Agda
@@ -313,11 +313,11 @@ public:
         }
         // The Agda core expects a null-terminated string.
         const std::string input_str{input};
-        return wrap_str_result(process_fn_(state, input_str.c_str()),
+        return wrap_str_result(process_fn_(state.get(), input_str.c_str()),
                                "aletheia_process returned null");
     }
 
-    auto send_frame_binary(void* state, Timestamp ts, const CanId& id, Dlc dlc,
+    auto send_frame_binary(const BackendState& state, Timestamp ts, const CanId& id, Dlc dlc,
                            std::span<const std::byte> data, std::optional<bool> brs,
                            std::optional<bool> esi) -> std::string override {
         const auto timestamp = static_cast<std::uint64_t>(ts.count());
@@ -337,40 +337,40 @@ public:
         const auto [brs_p, brs_v] = encode(brs);
         const auto [esi_p, esi_v] = encode(esi);
 
-        return wrap_str_result(send_frame_fn_(state, timestamp, can_id, extended, dlc_val,
+        return wrap_str_result(send_frame_fn_(state.get(), timestamp, can_id, extended, dlc_val,
                                               as_u8(data.data()), data_len, brs_p, brs_v, esi_p,
                                               esi_v),
                                "aletheia_send_frame returned null");
     }
 
-    auto send_error_binary(void* state, Timestamp ts) -> std::string override {
+    auto send_error_binary(const BackendState& state, Timestamp ts) -> std::string override {
         const auto timestamp = static_cast<std::uint64_t>(ts.count());
-        return wrap_str_result(send_error_fn_(state, timestamp),
+        return wrap_str_result(send_error_fn_(state.get(), timestamp),
                                "aletheia_send_error returned null");
     }
 
-    auto send_remote_binary(void* state, Timestamp ts, const CanId& id) -> std::string override {
+    auto send_remote_binary(const BackendState& state, Timestamp ts, const CanId& id)
+        -> std::string override {
         const auto timestamp = static_cast<std::uint64_t>(ts.count());
         const auto [can_id, extended] = wire_can_id(id);
-        return wrap_str_result(send_remote_fn_(state, timestamp, can_id, extended),
+        return wrap_str_result(send_remote_fn_(state.get(), timestamp, can_id, extended),
                                "aletheia_send_remote returned null");
     }
 
-    void close(void* state) override { close_fn_(state); }
-
-    auto start_stream_binary(void* state) -> std::string override {
-        return wrap_str_result(start_stream_fn_(state), "aletheia_start_stream returned null");
+    auto start_stream_binary(const BackendState& state) -> std::string override {
+        return wrap_str_result(start_stream_fn_(state.get()),
+                               "aletheia_start_stream returned null");
     }
 
-    auto end_stream_binary(void* state) -> std::string override {
-        return wrap_str_result(end_stream_fn_(state), "aletheia_end_stream returned null");
+    auto end_stream_binary(const BackendState& state) -> std::string override {
+        return wrap_str_result(end_stream_fn_(state.get()), "aletheia_end_stream returned null");
     }
 
-    auto format_dbc_binary(void* state) -> std::string override {
-        return wrap_str_result(format_dbc_fn_(state), "aletheia_format_dbc returned null");
+    auto format_dbc_binary(const BackendState& state) -> std::string override {
+        return wrap_str_result(format_dbc_fn_(state.get()), "aletheia_format_dbc returned null");
     }
 
-    auto extract_signals_binary(void* state, const CanId& id, Dlc dlc,
+    auto extract_signals_binary(const BackendState& state, const CanId& id, Dlc dlc,
                                 std::span<const std::byte> data) -> std::string override {
         const auto [can_id, extended] = wire_can_id(id);
         const auto dlc_val = dlc.value();
@@ -378,28 +378,30 @@ public:
             throw AletheiaException(*err);
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
-        return wrap_str_result(
-            extract_signals_fn_(state, can_id, extended, dlc_val, as_u8(data.data()), data_len),
-            "aletheia_extract_signals returned null");
+        return wrap_str_result(extract_signals_fn_(state.get(), can_id, extended, dlc_val,
+                                                   as_u8(data.data()), data_len),
+                               "aletheia_extract_signals returned null");
     }
 
-    auto build_frame_bin(void* state, const CanId& id, Dlc dlc, SignalInjection signals,
-                         std::size_t expected_bytes)
+    auto build_frame_bin(const BackendState& state, const CanId& id, Dlc dlc,
+                         SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         const auto [can_id, extended] = wire_can_id(id);
 
         std::vector<std::byte> buf(expected_bytes);
         char* err_str = nullptr;
-        const auto status = build_frame_bin_fn_(state, can_id, extended, dlc.value(), signals.count,
-                                                signals.indices, signals.numerators,
-                                                signals.denominators, as_u8(buf.data()), &err_str);
+        const auto status =
+            build_frame_bin_fn_(state.get(), can_id, extended, dlc.value(), signals.count(),
+                                signals.indices().data(), signals.numerators().data(),
+                                signals.denominators().data(), as_u8(buf.data()), &err_str);
         if (auto err = detail::ffi_error_from_status(status, err_str, free_str_fn_))
             return std::unexpected(*err);
         return buf;
     }
 
-    auto update_frame_bin(void* state, const CanId& id, Dlc dlc, std::span<const std::byte> data,
-                          SignalInjection signals, std::size_t expected_bytes)
+    auto update_frame_bin(const BackendState& state, const CanId& id, Dlc dlc,
+                          std::span<const std::byte> data, SignalInjection signals,
+                          std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         if (auto err = payload_bound_error(data))
             return std::unexpected(*err);
@@ -409,14 +411,16 @@ public:
         std::vector<std::byte> buf(expected_bytes);
         char* err_str = nullptr;
         const auto status = update_frame_bin_fn_(
-            state, can_id, extended, dlc.value(), as_u8(data.data()), data_len, signals.count,
-            signals.indices, signals.numerators, signals.denominators, as_u8(buf.data()), &err_str);
+            state.get(), can_id, extended, dlc.value(), as_u8(data.data()), data_len,
+            signals.count(), signals.indices().data(), signals.numerators().data(),
+            signals.denominators().data(), as_u8(buf.data()), &err_str);
         if (auto err = detail::ffi_error_from_status(status, err_str, free_str_fn_))
             return std::unexpected(*err);
         return buf;
     }
 
-    auto extract_signals_bin(void* state, const CanId& id, Dlc dlc, std::span<const std::byte> data)
+    auto extract_signals_bin(const BackendState& state, const CanId& id, Dlc dlc,
+                             std::span<const std::byte> data)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         if (auto err = payload_bound_error(data))
             return std::unexpected(*err);
@@ -427,7 +431,7 @@ public:
         std::uint32_t out_size = 0;
         char* err_str = nullptr;
         const auto status =
-            extract_signals_bin_fn_(state, can_id, extended, dlc.value(), as_u8(data.data()),
+            extract_signals_bin_fn_(state.get(), can_id, extended, dlc.value(), as_u8(data.data()),
                                     data_len, &out_buf, &out_size, &err_str);
         if (auto err = detail::ffi_error_from_status(status, err_str, free_str_fn_))
             return std::unexpected(*err);
@@ -445,6 +449,11 @@ public:
         const std::span<const std::byte> out_bytes(as_byte(out_buf), out_size);
         return std::vector<std::byte>(out_bytes.begin(), out_bytes.end());
     }
+
+protected:
+    // Reached only through BackendState, which is the sole owner of the state
+    // this releases.
+    void close(void* state) override { close_fn_(state); }
 };
 
 } // anonymous namespace

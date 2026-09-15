@@ -189,6 +189,28 @@ static_assert(std::is_abstract_v<IBackend>);
 static_assert(std::has_virtual_destructor_v<IBackend>);
 
 // ===========================================================================
+// BackendState: move-only, and its move cannot throw
+// ===========================================================================
+
+// The handle owns the backend's state, so copying it would close twice.
+static_assert(!std::is_copy_constructible_v<BackendState>);
+static_assert(!std::is_copy_assignable_v<BackendState>);
+// The client's own move is noexcept and runs the handle's, so this is what
+// keeps that promise true.
+static_assert(std::is_nothrow_move_constructible_v<BackendState>);
+static_assert(std::is_nothrow_move_assignable_v<BackendState>);
+
+// ===========================================================================
+// SignalInjection: a borrowed view, reachable only through create
+// ===========================================================================
+
+// Three spans and nothing else, so passing it by value copies no data.
+static_assert(std::is_trivially_copyable_v<SignalInjection>);
+// Nothing builds one without the length checks.
+static_assert(!std::is_default_constructible_v<SignalInjection>);
+static_assert(!std::is_aggregate_v<SignalInjection>);
+
+// ===========================================================================
 // Strong<Tag, std::string> explicit conversion to string_view (via direct-init)
 // ===========================================================================
 
