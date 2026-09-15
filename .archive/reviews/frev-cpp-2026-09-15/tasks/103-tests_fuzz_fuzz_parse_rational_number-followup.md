@@ -1,39 +1,15 @@
-# Task 059: file review of `cpp/tests/fuzz/seed/decode_binary_frame/empty.bin`
+# Task 103: file review of `cpp/tests/fuzz/fuzz_parse_rational_number.cpp` (follow-up from task 059)
 
-- status: completed
-- file: `cpp/tests/fuzz/seed/decode_binary_frame/empty.bin`
-- round base: 726198bb (2026-09-15)
-- pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: none
+- status: pending
+- file: `cpp/tests/fuzz/fuzz_parse_rational_number.cpp`
+- round base: b222b613 (2026-09-15)
+- pass: full, over the envelope the harness builds
+- worked immediately before tasks 061 and 062, whose seeds this harness consumes
+- origin: the harness wraps the fuzzer's bytes as the two numeric members of `{"status":"fails","type":"property","property_index":N,"timestamp":N}` and feeds that to `parse_frame_response`, which refuses the shape before reading either member: measured at task 059, both committed seeds come back "Unexpected frame response: status=fails type=property". A property result reaches the rational parser only inside a batch, `{"type":"property_batch","results":[{"status":"fails","property_index":N,"timestamp":N}]}`, which is what cpp/src/json_parse.cpp dispatches on. So the harness has never run the parser it is named for, and the 91 new corpus units the base sweep recorded are the tokenizer's. Correct the envelope, then measure the run against that base figure the way task 055 did.
 
 ## Report
 
-Full pass. Fix in refs/frev/059 (signed later by the dribble).
-
-Claims and guards: a seed's claim is that it is a shape worth mutating from, and the guard is what the decoder does with it. Measured by driving each seed through the harness's own setup: the committed seed is zero bytes and the decoder refuses it at its first check, "Truncated extraction buffer: 0 bytes, need >= 10 for the header". It was the whole corpus, so before this round the fuzzer started from nothing the decoder accepts, and every mutation it tried had to rediscover a ten-byte header before reaching any record loop.
-
-Finding fixed: the corpus now also carries the three smallest accepted shapes, authored against the layout in the decoder's own header comment and in src/Aletheia/Main/Binary.agda: a bare header with every count zero and the always-present offset word, fourteen bytes; the same with one absent-signal record, sixteen bytes; and one with a single value record carrying index zero and the rational 42 over 1, thirty-two bytes. Each was run through the harness's setup and comes back accepted, the last one with one value. The empty seed stays, because truncation is a shape the decoder must refuse. Measured over the same 61 seconds with the rewritten harness, the enriched corpus adds 52 new units against 32 from the empty seed alone, and no crash.
-
-Recorded, not fixed here: driving the other harnesses' seeds the same way showed that the rational-number harness's envelope is refused before either of its numeric members is read, so its two seeds never reach the parser they are for. That is follow-up task 103, ordered immediately before tasks 061 and 062.
-
-```
-REPORT 2026-09-15 tree b222b613 fix in refs/frev/059
-claims: 1 row, 1 without a guard: the seed's own acceptance, now measured through the harness's setup for every seed in the directory
-1 line per line: n/a for a binary fixture; every byte of the three added seeds is accounted for by the layout, which is why their sizes are 14, 16 and 32
-2 guidelines: n/a, not C++
-3 modernize: n/a
-4 catalogue: checked, the layout is the one src/Aletheia/Main/Binary.agda documents and the decoder reads
-5 value semantics: n/a
-6 raii: n/a
-7 dedup: checked, the three shapes differ in exactly one count each
-8 ground truth: finding, the corpus held only a shape the decoder refuses in its first ten bytes; checked true: the layout, the header size and each new seed's acceptance
-9 history: n/a
-10 simpler: checked, each seed is the smallest buffer that reaches its case
-11 comments: n/a for a binary fixture, 0 to 0, code 0 to 0
-sweep: no mutation names this file; the fuzz target runs 61 seconds over the enriched corpus with no crash
-probes: none name this file; the acceptance of every seed was measured through the harness's own client setup
-decision points: none
-```
+(filled when the task is worked; shape in the contract below)
 
 ## Contract (carried whole)
 
