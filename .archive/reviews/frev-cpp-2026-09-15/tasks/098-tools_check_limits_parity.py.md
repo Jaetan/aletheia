@@ -1,6 +1,6 @@
 # Task 098: file review of `tools/check_limits_parity.py` (follow-up from task 019)
 
-- status: pending
+- status: completed
 - file: `tools/check_limits_parity.py`
 - round base: b222b613 (2026-09-15)
 - pass: full
@@ -8,7 +8,36 @@
 
 ## Report
 
-(filled when the task is worked)
+Full pass. Fix in refs/frev/098 (signed later by the dribble).
+
+Claims and guards: the tool's own docstring made a claim about the tree, that the C++ binding holds no mirror of the bounds and consumes only the typed error the kernel returns. The C++ header opens by saying the opposite, that it is the mirror and the values are copied verbatim, and it carries all sixteen constants and all nine wire codes. Nothing held it to that. What a missing gate costs was measured earlier in this round: the mirror was short four bounds and one kind and nobody noticed.
+
+Finding fixed: the gate reads the C++ header the way it already reads the other two and compares both halves. The comparison machinery was already per binding, so the change is a parser, two tables and two calls. Every C++ constant is marked required, because the header promises a verbatim copy of the whole set rather than of the four bounds the binding enforces itself, and a mirror that drops one stops being what it says it is. The message that names a missing required constant used to assert the bound is refused at that binding's language boundary, which is true of the other two and not of this one, so each binding now carries its own reason for the category.
+
+Staged on four arms. Changing a C++ value, changing a C++ wire string, deleting a C++ constant and adding one with no Agda peer each make the gate exit non-zero with a message naming the C++ mirror; restoring the header returns it to zero.
+
+The same false sentence lived in the build rule that invokes the gate, saying Python and C++ have no local mirror and are out of scope. Python had been in scope for some time. Both are now described as they are.
+
+The probe drives the gate over a drifted C++ constant and restores the header in the same step that edits it. Deleting the new arm makes it read "a drifted C++ value was accepted". The mirror's own probe stays: it reads the two files directly and is the review's instrument, where the gate is the build's.
+
+```
+REPORT 2026-09-15 tree refs/frev/093 fix in refs/frev/098
+claims: 2 rows, 1 without a guard: the C++ mirror's verbatim promise, now held by the gate and by the new probe
+1 line per line: checked, the whole tool read, and the build rule that invokes it
+2 guidelines: n/a, not C++
+3 modernize: checked, the summary and the mirror list are built from the per-binding table rather than spelled three times
+4 catalogue: checked, the value parser reuses the shared arithmetic evaluator, widened for the apostrophe digit separator and the integer suffix C++ writes
+5 value semantics: checked
+6 raii: n/a
+7 dedup: checked, the third binding adds a parser and two tables and reuses both comparison routines unchanged
+8 ground truth: finding, the docstring and the build rule both said the C++ binding holds no mirror, and the build rule said the same of Python, which the gate had covered for some time
+9 history: checked, the revert note is stated as what breaks the gate rather than as something once verified
+10 simpler: checked
+11 comments: the tool 41 to 50, code 472 to 557; the build file 753 to 748, code 1378 to 1378
+sweep: no mutation names either file; the eleven fast-tier steps pass, the gate runs green through the build file, ruff and pylint are clean and the type checker reports nothing
+probes: the new gate probe passes and read red with the arm deleted; the mirror's own probe still passes
+decision points: none
+```
 
 ## Contract (carried whole)
 

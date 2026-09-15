@@ -6,55 +6,44 @@ Per AGENTS.md universal rule "Adversarial-input bounds at parser surfaces",
 ``src/Aletheia/Limits.agda`` is the single source of truth for every
 adversarial-input bound enforced anywhere in the Aletheia stack.
 
-Two language bindings mirror a subset of these constants for pre-FFI
-rejection (so pathological inputs are rejected before being marshalled
-across the language boundary):
+Three language bindings mirror these constants for pre-FFI rejection (so
+pathological inputs are rejected before being marshalled across the language
+boundary) and for typed comparison by name:
 
 * ``go/aletheia/limits.go`` — cgo-boundary mirror.
-* ``python/aletheia/limits.py`` — ctypes-boundary mirror (the file IS
-  a verbatim mirror per its header, so the same drift hazard applies as
-  for the Go mirror; this gate covers both).
+* ``python/aletheia/limits.py`` — ctypes-boundary mirror.
+* ``cpp/include/aletheia/limits.hpp`` — dlopen-boundary mirror.
 
-Each mirror's header explicitly says "Single source of truth:
-src/Aletheia/Limits.agda; numeric values are mirrored here verbatim" —
-this script enforces that promise on both sides.
-
-The C++ binding does NOT mirror these constants locally; it consumes
-the typed ``InputBoundExceeded`` error returned from the kernel.  Local
-guards present in C++ (e.g. ``json_serialize.cpp`` depth cap) are
-defense-in-depth using the kernel constant directly via
-``aletheia::max_nesting_depth`` and do not form a separate mirror
-surface.
+Each mirror's header says "Single source of truth: src/Aletheia/Limits.agda;
+numeric values are mirrored here verbatim" — this script enforces that promise
+on all three.
 
 Strategy:
 
-1. Parse ``src/Aletheia/Limits.agda``:
-   * Extract every ``boundKindCode <Tag> = "<wire-string>"`` mapping.
-   * Extract every ``max-<kebab-name> : Nat`` / ``max-<kebab-name> = <number>``
-     pair (numeric constants only; `Bool` constants if any are skipped).
-2. Parse ``go/aletheia/limits.go``:
-   * Extract every ``BoundKind<PascalTag> = "<wire-string>"`` mapping.
-   * Extract every ``Max<PascalName> = <expression>`` const (evaluate the
-     expression — `64 * 1024 * 1024`, `1024`, etc. — and compare).
-3. Cross-check via a manual NAME_MAPPING table.  This avoids ambiguous
-   kebab-case → PascalCase rules (e.g. ``DBC``, ``JSON`` stay uppercase).
-4. Fail on any of: BoundKind wire-string mismatch, BoundKind missing from
-   either side, numeric value mismatch on shared constants, or Agda
-   constant marked REQUIRED but absent from Go.
+1. Parse the SSOT for every ``boundKindCode <Tag> = "<wire>"`` mapping and
+   every ``max-<kebab-name> = <number>`` constant.
+2. Parse each mirror for its own spelling of both — ``BoundKind<Tag>`` and
+   ``Max<Name>`` in Go, ``BOUND_KIND_<TAG>`` and ``MAX_<NAME>`` in Python,
+   ``bound_kind_<tag>`` and ``max_<name>`` in C++ — evaluating the value
+   expression (``64 * 1024 * 1024`` and the like) rather than matching text.
+3. Cross-check through a manual per-binding table, because kebab-case to the
+   mirror's spelling is not a rule (``DBC`` and ``JSON`` stay uppercase).
+4. Fail on a wire-string mismatch, a tag or constant missing from either side,
+   a value mismatch, a REQUIRED constant absent from a mirror, a mirror const
+   with no SSOT peer, or an SSOT entry no table maps.
 
 Exit codes:
-  0 — full parity between Agda SSOT and Go mirror.
+  0 — full parity between Agda SSOT and every mirror.
   1 — at least one divergence detected.
   2 — usage error / file missing / parse failure.
 
-Constants flagged OPTIONAL in NAME_MAPPING are list-cardinality bounds that
-the Agda kernel enforces after JSON parsing; they don't benefit from
-cgo-boundary pre-rejection, so omission from the Go mirror is acceptable.
-REQUIRED constants are input-length / structural bounds where cgo-boundary
-rejection is strictly preferable to letting a pathological buffer cross.
+A constant flagged OPTIONAL is a list-cardinality bound the kernel enforces
+after parsing, so a mirror may omit it: pre-rejection at the language boundary
+buys nothing there.  A REQUIRED constant is an input-length or structural
+bound, where refusing before the buffer crosses is strictly preferable.
 
-Forward-revert verified: changing ``MaxMessagesPerFile = 10000`` to ``9999``
-in ``go/aletheia/limits.go`` fires this script; reverting returns to exit 0.
+Changing ``MaxMessagesPerFile = 10000`` to ``9999`` in the Go mirror fires
+this script; reverting returns to exit 0.
 """
 
 from __future__ import annotations
@@ -75,6 +64,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 AGDA_LIMITS = REPO_ROOT / "src" / "Aletheia" / "Limits.agda"
 GO_LIMITS = REPO_ROOT / "go" / "aletheia" / "limits.go"
 PYTHON_LIMITS = REPO_ROOT / "python" / "aletheia" / "limits.py"
+CPP_LIMITS = REPO_ROOT / "cpp" / "include" / "aletheia" / "limits.hpp"
 
 
 # Manual mapping from Agda kebab-case names to Go PascalCase names.
@@ -147,6 +137,44 @@ PYTHON_BOUND_KIND_MAPPING: dict[str, str] = {
     "RationalComponentMagnitude": "BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE",
 }
 
+# C++ mirror — kebab-case → snake_case.  The header states it mirrors every
+# numeric value verbatim and it carries the whole set, so every constant is
+# REQUIRED: a mirror that drops one stops being the verbatim mirror it claims
+# to be, whether or not the binding enforces that particular bound itself.
+CPP_NAME_MAPPING: dict[str, tuple[str, str]] = {
+    "max-dbc-text-bytes": ("max_dbc_text_bytes", "REQUIRED"),
+    "max-json-bytes": ("max_json_bytes", "REQUIRED"),
+    "max-nesting-depth": ("max_nesting_depth", "REQUIRED"),
+    "max-identifier-length": ("max_identifier_length", "REQUIRED"),
+    "max-string-length-bytes": ("max_string_length_bytes", "REQUIRED"),
+    "max-atom-count-per-property": ("max_atom_count_per_property", "REQUIRED"),
+    "max-frame-byte-count": ("max_frame_byte_count", "REQUIRED"),
+    "max-properties-per-stream": ("max_properties_per_stream", "REQUIRED"),
+    "max-rational-component-magnitude": ("max_rational_component_magnitude", "REQUIRED"),
+    "max-messages-per-file": ("max_messages_per_file", "REQUIRED"),
+    "max-signals-per-message": ("max_signals_per_message", "REQUIRED"),
+    "max-attributes-per-file": ("max_attributes_per_file", "REQUIRED"),
+    "max-value-descriptions-per-file": ("max_value_descriptions_per_file", "REQUIRED"),
+    "max-comments-per-file": ("max_comments_per_file", "REQUIRED"),
+    "max-nodes-per-file": ("max_nodes_per_file", "REQUIRED"),
+    "max-value-tables-per-file": ("max_value_tables_per_file", "REQUIRED"),
+}
+
+
+# C++ BoundKind wire codes: `bound_kind_*` string views in the mirror header.
+CPP_BOUND_KIND_MAPPING: dict[str, str] = {
+    "InputLengthBytes": "bound_kind_input_length_bytes",
+    "NestingDepth": "bound_kind_nesting_depth",
+    "ArrayCardinality": "bound_kind_array_cardinality",
+    "IdentifierLength": "bound_kind_identifier_length",
+    "StringLength": "bound_kind_string_length",
+    "AtomCount": "bound_kind_atom_count",
+    "FrameByteCount": "bound_kind_frame_byte_count",
+    "PropertyCount": "bound_kind_property_count",
+    "RationalComponentMagnitude": "bound_kind_rational_component_magnitude",
+}
+
+
 # BoundKind enum: every entry's wire-code string must match between Agda
 # (`boundKindCode`) and Go (`BoundKind*` consts).  Mapping below pairs the
 # Agda ADT tag with the Go const name.
@@ -180,6 +208,11 @@ _UNARY_OPS: dict[type[ast.unaryop], Callable[[float], float]] = {
     ast.USub: lambda a: -a,
     ast.UAdd: lambda a: +a,
 }
+
+
+# A C++ integer-literal suffix (``64ULL``): not part of the value, and not
+# something Python's parser accepts.
+_DIGIT_SUFFIX = re.compile(r"(?<=\d)[uUlL]+")
 
 
 def _eval_arith_node(node: ast.expr) -> float:
@@ -218,16 +251,16 @@ def _eval_arith_node(node: ast.expr) -> float:
 def _eval_int_expr(expr: str) -> int | None:
     """Evaluate a small integer arithmetic expression safely, or return None.
 
-    Parses ``expr`` (with ``_`` digit separators stripped, as both Go and
-    Python write ``1_000_000``) via ``ast.parse(..., mode="eval")`` and walks
-    the tree through ``_eval_arith_node``'s whitelist.  Returns the integer
-    result, or None when the expression fails to parse, contains a disallowed
-    construct, or does not reduce to an ``int`` (e.g. a true-division result).
-    The silent None return preserves the parsers' "skip lines that don't
-    reduce to an integer constant" behaviour.  Shared by the Go and Python
-    constant parsers, which both emit ``64 * 1024 * 1024`` for 64 MiB.
+    Parses ``expr`` via ``ast.parse(..., mode="eval")`` and walks the tree
+    through ``_eval_arith_node``'s whitelist.  Each language writes the same
+    number its own way, so the digit separators of Go and Python, the ones C++
+    spells with an apostrophe, and a C++ integer suffix are stripped first.
+    Returns the integer result, or None when the expression fails to parse,
+    contains a disallowed construct, or does not reduce to an ``int`` (e.g. a
+    true-division result).  The silent None return preserves the parsers'
+    "skip lines that don't reduce to an integer constant" behaviour.
     """
-    cleaned = expr.strip().replace("_", "")
+    cleaned = _DIGIT_SUFFIX.sub("", expr.strip().replace("_", "").replace("'", ""))
     try:
         tree = ast.parse(cleaned, mode="eval")
         result = _eval_arith_node(tree.body)
@@ -339,6 +372,36 @@ def _parse_python_limits(text: str) -> tuple[dict[str, int], dict[str, str]]:
     return constants, boundkind
 
 
+def _parse_cpp_limits(text: str) -> tuple[dict[str, int], dict[str, str]]:
+    """Parse the C++ limits header — return (max_* constants, bound_kind_* strings).
+
+    Recognises ``inline constexpr std::uint64_t max_name = <expression>;`` and
+    ``inline constexpr std::string_view bound_kind_name = "wire";``.  The wire
+    pattern spans lines because a long code is wrapped onto the next one by the
+    formatter.
+    """
+    max_pattern = re.compile(
+        r"^inline constexpr std::uint64_t\s+(?P<name>max_[a-z0-9_]+)\s*=\s*(?P<expr>[^;]+);",
+        flags=re.MULTILINE,
+    )
+    constants: dict[str, int] = {}
+    for m in max_pattern.finditer(text):
+        value = _eval_int_expr(m.group("expr"))
+        if value is not None:
+            constants[m.group("name")] = value
+
+    bk_pattern = re.compile(
+        r"inline constexpr std::string_view\s+(?P<name>bound_kind_[a-z0-9_]+)\s*=\s*"
+        + r'"(?P<wire>[a-z_]+)"',
+        flags=re.DOTALL,
+    )
+    boundkind: dict[str, str] = {}
+    for m in bk_pattern.finditer(text):
+        boundkind[m.group("name")] = m.group("wire")
+
+    return constants, boundkind
+
+
 @dataclass(frozen=True)
 class _BoundKindCheck:
     """Static configuration for one binding's BoundKind wire-code comparison.
@@ -358,15 +421,17 @@ class _NumericCheck:
     """Static configuration for one binding's numeric-constant comparison.
 
     Bundles the per-binding labels, the Agda-name → (mirror-const, category)
-    mapping, the pre-rejection ``boundary`` and the ``header_path`` cited in
-    REQUIRED-missing messages, leaving the parsed dicts as the only inputs.
+    mapping, and the ``required_reason`` and ``header_path`` a REQUIRED-missing
+    message cites, leaving the parsed dicts as the only inputs.  The reason is
+    per binding because the bindings hold their mirrors for different ends: two
+    refuse at the language boundary, one promises a verbatim copy.
     """
 
     label: str
     mapping: dict[str, tuple[str, str]]
     table_name: str
     binding: str
-    boundary: str
+    required_reason: str
     header_path: str
 
 
@@ -422,7 +487,6 @@ def _check_numeric_parity(
     ``MAX_*`` peer named in ``cfg.mapping``, flagging value mismatches and
     missing REQUIRED peers (an OPTIONAL peer may be absent).  Then reports any
     mirror const the mapping does not account for (a stale mirror).
-    ``cfg.boundary`` names the pre-rejection boundary cited when REQUIRED.
     """
     diffs: list[str] = []
     for agda_name, (mirror_name, category) in cfg.mapping.items():
@@ -434,9 +498,8 @@ def _check_numeric_parity(
         if mirror_val is None and category == "REQUIRED":
             diffs.append(
                 f"{cfg.label}: {cfg.binding} missing '{mirror_name}' "
-                + f"(Agda has '{agda_name}={agda_val}'); marked REQUIRED — every "
-                + f"REQUIRED bound must be pre-rejected at the {cfg.boundary} boundary, "
-                + f"see {cfg.header_path} header"
+                + f"(Agda has '{agda_name}={agda_val}'); marked REQUIRED because "
+                + f"{cfg.required_reason}, see {cfg.header_path} header"
             )
             continue
         if mirror_val is not None and agda_val != mirror_val:
@@ -484,10 +547,11 @@ def _check_agda_drift(agda_consts: dict[str, int], agda_boundkind: dict[str, str
 
 
 def main() -> int:
-    """Check Agda Limits SSOT parity against the Go and Python mirrors."""
+    """Check Agda Limits SSOT parity against the Go, Python and C++ mirrors."""
     agda_consts, agda_boundkind = _parse_agda_limits(_read(AGDA_LIMITS))
     go_consts, go_boundkind = _parse_go_limits(_read(GO_LIMITS))
     py_consts, py_boundkind = _parse_python_limits(_read(PYTHON_LIMITS))
+    cpp_consts, cpp_boundkind = _parse_cpp_limits(_read(CPP_LIMITS))
 
     if not agda_consts:
         _ = sys.stderr.write("check-limits-parity: no max-* constants parsed from Limits.agda\n")
@@ -520,7 +584,9 @@ def main() -> int:
                 mapping=NAME_MAPPING,
                 table_name="NAME_MAPPING",
                 binding="Go",
-                boundary="cgo",
+                required_reason=(
+                    "every REQUIRED bound is refused at the cgo boundary before the buffer crosses"
+                ),
                 header_path="go/aletheia/limits.go",
             ),
             agda_consts,
@@ -548,11 +614,42 @@ def main() -> int:
                 mapping=PYTHON_NAME_MAPPING,
                 table_name="PYTHON_NAME_MAPPING",
                 binding="Python",
-                boundary="ctypes",
+                required_reason=(
+                    "every REQUIRED bound is refused at the ctypes boundary "
+                    "before the buffer crosses"
+                ),
                 header_path="python/aletheia/limits.py",
             ),
             agda_consts,
             py_consts,
+        )
+    )
+    # 5) C++ BoundKind wire-code parity.
+    diffs.extend(
+        _check_boundkind_parity(
+            _BoundKindCheck(
+                label="C++ BoundKind",
+                mapping=CPP_BOUND_KIND_MAPPING,
+                table_name="CPP_BOUND_KIND_MAPPING",
+                binding="C++",
+            ),
+            agda_boundkind,
+            cpp_boundkind,
+        )
+    )
+    # 6) C++ numeric constant parity.
+    diffs.extend(
+        _check_numeric_parity(
+            _NumericCheck(
+                label="C++ max-constant",
+                mapping=CPP_NAME_MAPPING,
+                table_name="CPP_NAME_MAPPING",
+                binding="C++",
+                required_reason="the header mirrors every value verbatim",
+                header_path="cpp/include/aletheia/limits.hpp",
+            ),
+            agda_consts,
+            cpp_consts,
         )
     )
     # Agda-side drift: SSOT entries with no cross-check table mapping.
@@ -562,23 +659,30 @@ def main() -> int:
         _ = sys.stderr.write("check-limits-parity: divergences detected\n\n")
         for d in diffs:
             _ = sys.stderr.write(f"  - {d}\n")
+        mirrors = " / ".join(
+            str(path.relative_to(REPO_ROOT)) for path in (GO_LIMITS, PYTHON_LIMITS, CPP_LIMITS)
+        )
         _ = sys.stderr.write(
             f"\nfound {len(diffs)} divergence(s) between "
             + f"{AGDA_LIMITS.relative_to(REPO_ROOT)} (SSOT) and "
-            + f"{GO_LIMITS.relative_to(REPO_ROOT)} / "
-            + f"{PYTHON_LIMITS.relative_to(REPO_ROOT)} (mirrors).\n"
-            + "Reconcile either by updating the Go / Python mirror, the Agda SSOT, "
-            + "or the NAME_MAPPING / PYTHON_NAME_MAPPING / BOUND_KIND_MAPPING / "
-            + "PYTHON_BOUND_KIND_MAPPING tables in this script "
-            + "(when a new constant is intentionally added or removed).\n"
+            + f"{mirrors} (mirrors).\n"
+            + "Reconcile by updating the mirror, the Agda SSOT, or the mapping table "
+            + "this script names above (when a constant is intentionally added or "
+            + "removed).\n"
         )
         return 1
 
     emit(
-        f"check-limits-parity: Go {len(NAME_MAPPING)} numeric + "
-        + f"{len(BOUND_KIND_MAPPING)} BoundKind; "
-        + f"Python {len(PYTHON_NAME_MAPPING)} numeric + "
-        + f"{len(PYTHON_BOUND_KIND_MAPPING)} BoundKind — all in parity with Agda SSOT"
+        "check-limits-parity: "
+        + "; ".join(
+            f"{binding} {len(numeric)} numeric + {len(kinds)} BoundKind"
+            for binding, numeric, kinds in (
+                ("Go", NAME_MAPPING, BOUND_KIND_MAPPING),
+                ("Python", PYTHON_NAME_MAPPING, PYTHON_BOUND_KIND_MAPPING),
+                ("C++", CPP_NAME_MAPPING, CPP_BOUND_KIND_MAPPING),
+            )
+        )
+        + " — all in parity with Agda SSOT"
     )
     return 0
 
