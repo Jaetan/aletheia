@@ -162,36 +162,23 @@ include(FetchContent)
 
 set(JSON_Install OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(json
-    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
-    URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d)
+    URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+    URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa)
 
 FetchContent_Declare(yaml-cpp
-    URL https://github.com/jbeder/yaml-cpp/archive/refs/tags/0.8.0.tar.gz
-    URL_HASH SHA256=fbe74bbdcee21d656715688706da3c8becfd946d92cd44705cc6098bb23b3a16)
+    URL https://github.com/jbeder/yaml-cpp/archive/refs/tags/yaml-cpp-0.9.0.tar.gz
+    URL_HASH SHA256=25cb043240f828a8c51beb830569634bc7ac603978e0f69d6b63558dadefd49a)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
-# OpenXLSX is pinned to a master commit (2025-07-14) because the latest tagged
-# release is v0.3.2 from 2021, which the upstream README explicitly flags as
-# "severely outdated" and predates the <cstdint> include fix needed for GCC 15.
-# Re-evaluate when troldal/OpenXLSX cuts a new release tag past v0.3.2.
 FetchContent_Declare(OpenXLSX
-    URL https://github.com/troldal/OpenXLSX/archive/5723411d47643ce3b5b9994064c26ca8cd841f13.tar.gz
-    URL_HASH SHA256=86bdb7aa594a0b2bea31cae9e4603832844be2095d7e281e9d7e74003bc16b98)
+    URL https://github.com/troldal/OpenXLSX/archive/refs/tags/v0.5.1.tar.gz
+    URL_HASH SHA256=ad31b3774772c163472ec016020df66743879cbe3eaac770be3e198d950286b9)
 
-# yaml-cpp 0.8.0 has a latent bug around missing <cstdint> / uint16_t that
-# only links cleanly when the parent project defines CMAKE_CXX_STANDARD to at
-# least C++20 (works around the transitive-include path on GCC 15). Scope the
-# workaround to the FetchContent configure step with block(SCOPE_FOR VARIABLES)
-# instead of a global set() — the project's own C++23 requirement (on
-# aletheia-cpp, via target_compile_features below) is then not polluted.
-# CMAKE_POLICY_VERSION_MINIMUM 3.5 also belongs here: yaml-cpp 0.8.0 and
-# OpenXLSX use an old cmake_minimum_required that CMake 4.x rejects without
-# this nudge.
-#
-# TODO: Drop this block when yaml-cpp ≥ 0.8.1 (or whatever release
-# follows 0.8.0) publishes the upstream-merged <cstdint> include fix and we
-# bump FetchContent_Declare above.
+# The dependencies use an old cmake_minimum_required that CMake 4.x rejects,
+# so the configure step is scoped with block(SCOPE_FOR VARIABLES) and nudged
+# with CMAKE_POLICY_VERSION_MINIMUM. Nothing else is overridden here: the
+# dependencies build at the project's own standard.
 # The dependencies build as static archives and are linked into this project's
 # shared library, so their objects must be position independent. Set before the
 # dependencies are made available, because a target picks the value up when it
@@ -199,8 +186,6 @@ FetchContent_Declare(OpenXLSX
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 block(SCOPE_FOR VARIABLES)
-    set(CMAKE_CXX_STANDARD 20)
-    set(CMAKE_CXX_STANDARD_REQUIRED ON)
     set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
     FetchContent_MakeAvailable(json yaml-cpp OpenXLSX)
 endblock()
@@ -378,8 +363,8 @@ option(BUILD_TESTING "Build test suite" ON)
 if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     FetchContent_Declare(Catch2
-        URL https://github.com/catchorg/Catch2/archive/refs/tags/v3.7.1.tar.gz
-        URL_HASH SHA256=c991b247a1a0d7bb9c39aa35faf0fe9e19764213f28ffba3109388e62ee0269c)
+        URL https://github.com/catchorg/Catch2/archive/refs/tags/v3.16.0.tar.gz
+        URL_HASH SHA256=0957cae5821b17ce07f0833aaa52b5137643a8382203221f363a8303c109af34)
     FetchContent_MakeAvailable(Catch2)
 
     enable_testing()

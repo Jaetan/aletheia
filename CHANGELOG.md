@@ -38,6 +38,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The four C++ dependency pins move to their newest releases**: nlohmann/json
+  3.11.3 to 3.12.0, yaml-cpp 0.8.0 to 0.9.0, OpenXLSX from a 2025 master commit
+  to its v0.5.1 release tag, and Catch2 3.7.1 to 3.16.0. Each was bumped and
+  measured on its own. The spreadsheet library now has release tags, so the pin
+  is a tag rather than a commit, and the comment saying its newest release was
+  from 2021 goes with it. The YAML library's 0.9.0 carries the missing-include
+  fix its 0.8.0 needed a C++20 override to work around, so that override is
+  gone and the dependencies build at the project's own standard.
 - **BREAKING (C++): `aletheia-cpp` ships as a shared library.** It was a static
   archive whose yaml-cpp and OpenXLSX dependencies were linked privately behind
   a build-interface guard and neither installed nor exported, so an installed

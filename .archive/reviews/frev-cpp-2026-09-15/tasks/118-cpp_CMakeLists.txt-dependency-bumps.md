@@ -1,13 +1,42 @@
 # Task 118: four dependency pins sit behind their upstream releases and one comment about them is false (ruled)
 
-- status: pending
+- status: completed
 - files: `cpp/CMakeLists.txt`, `cpp/tests/doc_example_tests.cpp` and the defines feeding it
 - pass: full
 - origin: Ruled: bump all four to the newest tag with the harness fix. Three of the four were never measured in isolation, so each bump is measured alone and in order, with its new archive hash recorded beside it. The workspace-standard workaround block that waits for the newer YAML library is retired by that library's bump. The spreadsheet library's bump is the one that needed the harness fix, because its newer release builds its XML and compression dependencies as separate archives that the per-fence link line did not name; check whether that fix is still needed once the library is shared, and say which in the commit. The test framework's bump is the largest jump and is gated by the suites deterministic and randomised, then by the sweep.
 
 ## Report
 
-(to be written when the task is worked)
+All four pins are at their newest release, each bumped and measured alone, and the two comments that had gone stale went with them. Fix in refs/frev/118.
+
+Claims and guards. Three of the four pins had never been measured in isolation, and one carried a comment that was false: the spreadsheet library's declaration said its newest tagged release was from 2021 and pinned a master commit for that reason, while two release tags had been cut since. A pin to a commit is also a pin a reader cannot read as a version and a security advisory cannot match.
+
+Measured one at a time, each with a fresh configure, a full build and the fifteen suites. The JSON library and the spreadsheet library moved with nothing else changed. The test framework's jump is the largest and was gated by the suites deterministically and in random order, then by the sweep.
+
+Two stale comments retired by the measurements rather than by opinion. The spreadsheet library's now has a release tag, so the commit pin and the paragraph explaining it are gone. The YAML library's 0.9.0 carries the missing-include fix that its 0.8.0 needed a C++20 override to work around; the override was removed and the tree configures, builds and passes without it, so the override and the note promising to drop it are both gone and the dependencies build at the project's own standard.
+
+The change the bump was expected to need did not arrive, and the reason is worth recording. The newer spreadsheet library builds its XML and compression dependencies as separate archives, and the documentation-example harness used to name each dependency archive on its per-fence link line, so the bump was expected to need that line widened. The library became shared in the previous task and carries its dependencies inside it, so a fence links one file and the question does not arise.
+
+A probe now requires every dependency to be pinned to a published release by tag and by hash. Putting the commit pin back makes it red.
+
+```
+REPORT 2026-09-15 tree refs/frev/095 fix in refs/frev/118
+claims: 4 rows, 4 without a guard: each pin's claim to be current, now one probe over the form of every pin
+1 line per line: checked, every declaration and the two comment blocks around them read whole
+2 guidelines: n/a
+3 modernize: checked, the standard override is removed because the release that needed it is gone, proven by building without it rather than by reading the release notes
+4 catalogue: n/a
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: n/a
+8 ground truth: finding, the spreadsheet library's comment named a 2021 release as the newest when two tags had been cut since
+9 history: finding, the retired workaround's replacement was first written as an account of what changed and was rewritten to state only what is
+10 simpler: checked, one fewer scoped override and one fewer commit pin
+11 comments: 279 to 266, code 329 to 327; the file loses comment lines because two explanations no longer describe anything
+sweep: 62 mutants, 62 killed, no survivor on the new test framework
+probes: probes/cpp_CMakeLists.txt--every-dependency-pin-is-a-release.sh added, red when a pin is put back to a commit; store 70 run, 70 pass. All four fuzz targets rebuilt on the new dependencies and run forty-five seconds each with no crash
+decision points: none
+```
 
 ---
 
