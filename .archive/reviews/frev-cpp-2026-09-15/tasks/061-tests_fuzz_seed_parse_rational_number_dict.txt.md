@@ -1,6 +1,6 @@
 # Task 061: file review of `cpp/tests/fuzz/seed/parse_rational_number/dict.txt`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/fuzz/seed/parse_rational_number/dict.txt`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/061 (signed later by the dribble).
+
+Claims and guards: the seed claims to be a rational written in its object form, and that the harness's envelope carries it to the rational parser. The first held; the second did not until task 103 corrected the envelope, and this seed is the evidence that it now does: driven through the parser it comes back "Non-exact rational in integer field", which is the rational parser's own refusal of three sevenths in an integer position and was unreachable before. The file is correct and unchanged.
+
+Finding fixed: the parser has a second refusal for the object form that no seed reached, the non-positive denominator, so a seed carrying one over zero joins the corpus; driven through the parser it comes back "Non-positive denominator in rational", a path the other seeds do not touch. The corpus measurement over 61 seconds is 114 new units against 117 for the two-seed corpus, which at this scale is run-to-run variation and not evidence either way; the evidence for the seed is the distinct refusal it reaches, measured directly.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/061
+claims: 2 rows, 0 without a guard: both measured by driving the seed through the parser
+1 line per line: checked, the whole 32-byte document read
+2 guidelines: n/a, not C++
+3 modernize: n/a
+4 catalogue: checked, the object form is the one the wire uses for a non-integral rational
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked, the new seed differs in the member that selects the other refusal
+8 ground truth: checked, both the existing and the new seed's outcomes read off the parser rather than assumed
+9 history: n/a
+10 simpler: checked
+11 comments: n/a for a fixture, 0 to 0, code 1 to 1
+sweep: no mutation names this file; the fuzz target runs 61 seconds over the three-seed corpus with no crash
+probes: none name this file; the parser traces are the measurement
+decision points: none
+```
 
 ## Contract (carried whole)
 
