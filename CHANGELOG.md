@@ -12,6 +12,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The bill of materials reads every C++ pin again, and names the package rather
+  than the fetch.** The generator derived a version from a release tag shaped
+  `v1.2.3` or a bare `1.2.3`, so the yaml-cpp bump to a tag that repeats the project
+  name (`yaml-cpp-0.9.0`) made the pin unreadable and failed the whole bill. It reads
+  that shape now. The two dependencies pinned on the spreadsheet library's behalf are
+  declared under the content name its helper requires, which carries a `_fetch`
+  suffix; the bill strips it, so they appear as `miniz` and `pugixml` with the purls a
+  consumer would look up. Both shapes have a test that fails without the fix.
+
 - **The benchmark harness no longer measures stale binaries.**
   `benchmarks/run_all.sh` ran the C++ and Go benchmark binaries if the file merely
   existed, building only Rust. A Go binary predating the detailed-extraction-reason

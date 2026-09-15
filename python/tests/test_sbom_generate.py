@@ -177,6 +177,45 @@ def test_cpp_pins_become_components_with_sha256(tmp_path: Path) -> None:
     assert props["aletheia:source-url"].endswith("json.tar.xz")
 
 
+def test_cpp_tag_repeating_the_project_name_is_read(tmp_path: Path) -> None:
+    """A release tagged `<project>-<version>` bills the version, not a failure.
+
+    yaml-cpp tags its releases that way, so the plain `v?<digits>` shape does
+    not match and the pin was unreadable, which failed the whole bill.
+    """
+    tree = make_bindings_tree(tmp_path)
+    prefixed = CMAKELISTS.replace(
+        "yaml-cpp/archive/refs/tags/0.8.0.tar.gz",
+        "yaml-cpp/archive/refs/tags/yaml-cpp-0.8.0.tar.gz",
+    )
+    _ = (tree / "cpp" / "CMakeLists.txt").write_text(prefixed, encoding="utf-8")
+    cpp = _by_name(parse_binding_components(tree)["cpp"])
+    assert cpp["yaml-cpp"]["version"] == "0.8.0"
+    assert cpp["yaml-cpp"]["purl"] == "pkg:generic/yaml-cpp@0.8.0"
+
+
+def test_cpp_fetch_suffix_is_not_part_of_the_package_name(tmp_path: Path) -> None:
+    """A pin declared under a `_fetch` content name bills the package name.
+
+    A dependency that fetches its own dependencies is pinned ahead of it under
+    the content name its helper expects, which carries that suffix; the bill
+    names the package a consumer would look up.
+    """
+    tree = make_bindings_tree(tmp_path)
+    extra = CMAKELISTS + (
+        "\n\nFetchContent_Declare(miniz_fetch\n"
+        "    URL https://example.com/richgel999/miniz/archive/refs/tags/3.0.2.tar.gz\n"
+        f"    URL_HASH SHA256={JSON_SHA}\n"
+        "    DOWNLOAD_EXTRACT_TIMESTAMP OFF\n"
+        "    OVERRIDE_FIND_PACKAGE)\n"
+    )
+    _ = (tree / "cpp" / "CMakeLists.txt").write_text(extra, encoding="utf-8")
+    cpp = _by_name(parse_binding_components(tree)["cpp"])
+    assert "miniz" in cpp
+    assert "miniz_fetch" not in cpp
+    assert cpp["miniz"]["purl"] == "pkg:generic/miniz@3.0.2"
+
+
 def test_cpp_unparsed_declare_fails(tmp_path: Path) -> None:
     """TEETH: a FetchContent_Declare shape the parser cannot read raises."""
     tree = make_bindings_tree(tmp_path)
