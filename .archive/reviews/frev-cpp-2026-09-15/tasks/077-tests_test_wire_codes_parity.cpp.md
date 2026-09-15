@@ -1,6 +1,6 @@
 # Task 077: file review of `cpp/tests/test_wire_codes_parity.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/test_wire_codes_parity.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Reviewed, no change.
+
+Claims and guards: this file makes the strongest completeness argument in the test tree and every step of it was checked against the source rather than read. It claims the two vocabulary enums are each in bijection with their section of the wire-code document, and it gets there by anchoring the named-enumerator count on the enum declaration itself: the issue enum declares its unknown sentinel last, so the sentinel's value is the named count, and the error enum declares its sentinel first, so the anchor is the last named enumerator's value. Both were read at this task and both hold, the issue sentinel closing the enum and the error anchor being the final member before the closing brace. The document carries 28 issue codes and 61 error codes, and each case requires the count to match its anchor, so a new enumerator appended past an anchor fails until the anchor moves, which is what makes the anchor unable to rot silently. Injectivity is then asserted through a set on each side, and with the count equal the mapping is a bijection by pigeonhole, which is the argument the header states. The canary case keeps the sentinels outside the vocabulary and pins the decoder's leniency rather than weakening it, and the absence of an unknown row among the error codes is already forced by the bijection case, since such a row would decode to the sentinel and fail there.
+
+Nothing in the file needed changing: no citation is stale, the three peer parity suites it names exist, no comment dates the code, and the counts it uses are anchors read from the enums rather than numbers typed in.
+
+```
+REPORT 2026-09-15 tree b222b613 NO CHANGE
+claims: 5 rows, 0 without a guard: the schema case, the two bijection cases and the canary, each asserted here
+1 line per line: checked, all 169 lines read
+2 guidelines: checked, the anchors are constexpr and the sets are local
+3 modernize: checked, the loops are over sections and rows and have no two-iterator call to replace
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the wire-code source-of-truth rules
+5 value semantics: checked, rows by const reference into the set builder
+6 raii: n/a
+7 dedup: checked; the repository-root helper is the fourth copy in the test tree, which XREV task 097 covers
+8 ground truth: checked, both enum anchors read from their headers, both section sizes measured from the document, and the three peer suites resolved
+9 history: checked, none
+10 simpler: checked, the pigeonhole argument is what lets two set comparisons stand in for an exhaustive table
+11 comments: 54 to 54, code 94 to 94
+sweep: no mutation names this file (its own binary, outside the mutation build's unit_tests target); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
