@@ -246,8 +246,9 @@ TEST_CASE("DbcDefinition::message_by_name", "[dbc]") {
 // indices on first lookup.  If the caller then shrinks the public signals /
 // messages vector, an unguarded cached index is an out-of-bounds read (UB).
 // The guard turns a stale index into a defined "no longer present" (nullptr).
-// Each test builds the cache, shrinks the vector, then re-queries the dropped
-// entry: pre-fix this returned a garbage non-null pointer (or worse).
+// Each case builds the cache, shrinks the vector, then re-queries the dropped
+// entry, which must come back as not-found rather than as a pointer into what
+// the vector no longer holds.
 // ===========================================================================
 
 TEST_CASE("DbcMessage::signal_by_name guards a stale cached index", "[dbc][safety]") {

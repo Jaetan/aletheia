@@ -1,6 +1,6 @@
 # Task 082: file review of `cpp/tests/unit_tests_dbc.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/unit_tests_dbc.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/082 (signed later by the dribble).
+
+Claims and guards: every multiplexing query the message type exposes is asserted here on a fixture built for it, and each is asserted on a non-multiplexed message too, which is where an off-by-one in the always-present partition would show. The lookup caches get four cases of their own and they are the strongest in the file: each builds the cache, then breaks the assumption the cache froze, and requires not-found. Two break it by shrinking the vector so the cached index leaves the bounds, and two break it by replacing the element at the cached index in place so the index stays in bounds and points at the wrong thing, which a bounds-only guard would return. That pair is what proves the caches check the key and not merely the range.
+
+Finding fixed: the section comment described the behaviour before the guard existed, which is history; it now says what a re-query must return.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/082
+claims: 12 rows, 0 without a guard: each query and each cache invariant is a case
+1 line per line: checked, all 330 lines read
+2 guidelines: checked, the fixture is built once per case and moved where a case needs to own a message
+3 modernize: n/a
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests)
+5 value semantics: checked, the queries return views over the message's own signals and the cases hold the message alive
+6 raii: n/a
+7 dedup: checked, the local fixture is the deduplication and the shared one covers the non-multiplexed cases
+8 ground truth: checked, every expected name and count read from the fixture the case builds
+9 history: finding, one sentence
+10 simpler: checked
+11 comments: 41 to 42, code 245 to 245
+sweep: this file is part of unit_tests, which the mutation build instruments, and no mutation names it; tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
