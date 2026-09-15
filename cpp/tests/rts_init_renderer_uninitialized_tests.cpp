@@ -92,3 +92,17 @@ TEST_CASE("Rational::from_decimal is vocal (throws) when the GHC runtime is unin
     REQUIRE_THROWS_WITH(aletheia::Rational::from_decimal("3.14"),
                         Catch::Matchers::ContainsSubstring("runtime not initialized"));
 }
+
+TEST_CASE("a runtime-down decimal parse answers on the runtime, not on the literal",
+          "[rational_renderer][rts_init][decimal]") {
+    const auto lib = find_lib(); // SKIPs if the .so cannot be located
+    aletheia::detail::register_default_lib_path(lib);
+
+    // An interior NUL is refused with a Validation error once the runtime is up,
+    // but the runtime gate comes first: Rust returns RtsNotInitialized before it
+    // looks at the literal, so a runtime-down call here must name the runtime too
+    // rather than the input. This pins the order the two bindings share.
+    using namespace std::string_view_literals;
+    REQUIRE_THROWS_WITH(aletheia::Rational::from_decimal("1\0xyz"sv),
+                        Catch::Matchers::ContainsSubstring("runtime not initialized"));
+}

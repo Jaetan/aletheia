@@ -1,6 +1,6 @@
 # Task 048: file review of `cpp/src/rational_renderer.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/rational_renderer.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/048 (signed later by the dribble).
+
+Claims and guards: the renderer dlopens the library on first use and never initialises the GHC RTS, throwing while it is down (two cases in cpp/tests/rts_init_renderer_uninitialized_tests.cpp, one per entry point, each in its own process because the RTS is process-global); the library search order, ALETHEIA_LIB then a registered path then the loaded-image scan then the build-tree heuristics (probes/cpp_include_aletheia_detail_rational_renderer.hpp--library-search-order.sh); an interior NUL is a Validation fault (a case in cpp/tests/unit_tests_decimal.cpp); a null kernel return throws rather than fabricating a value (unreachable for a well-formed call, so the guard is the mutation at that comparison, KILLED); every render flows through the kernel with no local C++ fallback (cpp/src/enrich.cpp:27 holds the only formatter and it formats an already-rendered Rational). One claim had no guard and now has one, the order in which a runtime-down call and a malformed literal are refused, described under 3.
+
+Findings fixed: (a) three plan labels reading "point 2" are gone, one in the file header and two on the RTS comments; (b) the two entry points carried the same five-step shape, load, refuse while the runtime is down, refuse a null return, own the returned string, copy it out, with the two refusal messages the only difference; they now share one `kernel_string` helper parameterised by those two messages, and the three comment blocks that each restated the vocal contract are one block. The fold's one risk was the refusal order: a naive fold lifts the interior-NUL check above the runtime gate, which would answer Validation where the runtime is down, while rust/src/backend.rs refuses a runtime-down parse before it constructs the CString. The check therefore sits inside the call, after the gate, and a new case in the uninitialised-runtime binary pins it; its teeth were proven by lifting the check out and reading the binary fail, then restoring it and reading it pass.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/048
+claims: 5 rows, 1 without a guard: test case "a runtime-down decimal parse answers on the runtime, not on the literal" added to cpp/tests/rts_init_renderer_uninitialized_tests.cpp, teeth proven by the naive fold
+1 line per line: checked, all 219 lines read; the search order, the dlsym sequence, the once-flag and both entry points asked what they do and whether they need to
+2 guidelines: checked, R.11 and R.20 hold (the dlopen handle is process-lifetime by design and the returned string is owned by a unique_ptr with the kernel's own deleter); the three reinterpret_casts are the dlsym boundary and keep their single-site suppressions
+3 modernize: finding, the duplicated kernel-call shape is one template helper; the refusal order it could have moved is pinned by a new test that goes red under the naive fold
+4 catalogue: checked, AGENTS/cpp.md category 13 (FFI lifecycle) is the category, and the RTS-first rule it states is what the new test pins
+5 value semantics: checked, std::string_view in, std::string out, the state by reference because it is the process singleton
+6 raii: checked, every kernel string is owned by a unique_ptr with the kernel's free function as its deleter, including through the fold
+7 dedup: finding, two bodies became one helper and three comment blocks became one
+8 ground truth: checked, format_value(const Rational&) resolves at cpp/src/enrich.cpp:27, and the null-return refusal is the same message in go/aletheia/renderer.go, go/aletheia/decimal.go and rust/src/backend.rs, so "as Go and Rust do" holds
+9 history: checked, none; the three plan labels are the class of marker the repository bans and they are gone
+10 simpler: checked, the helper is the simpler shape and nothing shorter preserves the two distinct messages
+11 comments: 67 to 60, code 152 to 151
+sweep: cxx_eq_to_ne at 132, cxx_ne_to_eq at 139, cxx_eq_to_ne at 146, 149, 152 and 191 KILLED; 7 mutants at base, 6 now, because the two null-return comparisons at the old 186 and 220 are one comparison at 191 after the fold. The one non-Killed mutant in the sweep is a Timeout at cpp/tests/integration_tests.cpp:400, which carries the same status in the base sweep and names another file
+probes: search-order probe re-run green; store 46 run, 44 pass, 2 red on record (the installed-consumer loader and the public mock factory)
+decision points: none
+```
 
 ## Contract (carried whole)
 
