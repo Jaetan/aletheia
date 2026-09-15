@@ -4,7 +4,7 @@
 - file: `cpp/tests/unit_tests_validation.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: clang-tidy lens over tests at round base reports 25 unique diagnostics in this file (the CI tidy gate excludes tests; details in base/clang_tidy_tests.txt); each is a candidate for points 2 and 3, checked against the file, never a verdict
+- pushed-in findings: clang-tidy lens over tests at round base reports 25 unique diagnostics in this file (the CI tidy gate excludes tests; details in base/clang_tidy_tests.txt); each is a candidate for points 2 and 3, checked against the file, never a verdict; the make_ffi_backend_from_env test covers only the unset variable, while backend.hpp promises the same Validation-kinded refusal for an empty ALETHEIA_LIB (task 009 probes both; add the empty case here so the suite carries it)
 
 ## Report
 

@@ -55,8 +55,10 @@ public:
     // optional default-implementation overrides live in the [OPTIONAL]
     // section below so a new backend implementer can read off the surface.
     // ========================================================================
-    virtual auto init() -> void* = 0;
-    virtual auto process(void* state, std::string_view input) -> std::string = 0;
+    // init returns the backend's state handle, which the caller owns until it
+    // passes it to close; a discarded handle is a leaked kernel state.
+    [[nodiscard]] virtual auto init() -> void* = 0;
+    [[nodiscard]] virtual auto process(void* state, std::string_view input) -> std::string = 0;
     virtual auto close(void* state) -> void = 0;
 
     // Binary frame FFI — bypasses JSON serialization on the send path.
@@ -73,10 +75,7 @@ public:
     // Streaming / event endpoints — also pure-virtual.  There is no honest
     // generic default: only the binary FFI (FFIBackend) or a test double
     // (MockBackend, which records `<binary:OP>` sentinels) can service these,
-    // so every backend declares how it streams.  The former defaults routed
-    // through the JSON `process()` path, mirroring streaming commands the Agda
-    // core no longer accepts (and `send_error`/`send_remote` had no core JSON
-    // command at all) — they were removed.
+    // so every backend declares how it streams.
     [[nodiscard]] virtual auto send_error_binary(void* state, Timestamp ts) -> std::string = 0;
     [[nodiscard]] virtual auto send_remote_binary(void* state, Timestamp ts, const CanId& id)
         -> std::string = 0;
@@ -91,8 +90,10 @@ public:
     // [OPTIONAL] — base class provides a default implementation; specialized
     // backends (e.g. FFIBackend) override these to take the binary-FFI fast
     // path.  Non-FFI backends inherit a default that returns the
-    // `BinaryUnsupported` sentinel (so Client can fall through to JSON) or, for
-    // `rts_mismatch_info`, `std::nullopt`.
+    // `BinaryUnsupported` sentinel: on extract_signals_bin the Client then
+    // falls through to the JSON path, while build_frame_bin and
+    // update_frame_bin surface the error (the JSON path cannot carry signal
+    // indices).  rts_mismatch_info defaults to `std::nullopt`.
     // ========================================================================
 
     // Binary output endpoints — raw payload bytes on success, AletheiaError on failure.
@@ -111,11 +112,11 @@ public:
         -> std::expected<std::vector<std::byte>, AletheiaError>;
 
     // Startup diagnostic for the GHC RTS cores-mismatch case — emitted by
-    // the Client as the `rts.cores_mismatch` log event. Returns
-    // `std::nullopt` when no mismatch occurred, keeping the structured log
-    // schema stable across bindings (Go + Python both emit `active_cores` /
-    // `requested_cores` fields). Out-of-line default in backend.cpp keeps
-    // the ABI stable across binding builds.
+    // the Client as the `rts.cores_mismatch` log event with the
+    // `active_cores` / `requested_cores` fields the other bindings emit.
+    // Returns `std::nullopt` when no mismatch occurred.  Defined out of line
+    // in backend.cpp with the other defaults, so the vtable is emitted there
+    // once.
     [[nodiscard]] virtual auto rts_mismatch_info() const -> std::optional<std::pair<int, int>>;
 
 protected:

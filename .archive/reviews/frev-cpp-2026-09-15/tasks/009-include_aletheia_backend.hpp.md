@@ -1,6 +1,6 @@
 # Task 009: file review of `cpp/include/aletheia/backend.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/backend.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/009 (signed later by the dribble).
+
+Claims and guards: the mandatory and optional split of the interface (every backend in the tree compiles: FfiBackend, MockBackend, the test doubles); the BinaryUnsupported contract (unit_tests_client covers the extract_signals fall-through on the mock; the build_frame case surfaces the error, backend.cpp states so); from_env refuses an unset or empty ALETHEIA_LIB with a Validation-kinded exception (unit_tests_validation covers unset; new probe covers both; the empty case pushed into that test file's task); the kernel ignores BRS and ESI (AletheiaFFI.hs states and implements the pass-through); the cores-mismatch fields are the ones Go and Python emit (checked in go/aletheia/ffi.go and python/aletheia/client/_ffi.py); rts_mismatch_info defined out of line (backend.cpp, with the other defaults).
+
+Findings fixed: (a) the optional-section comment said the sentinel lets the Client fall through to JSON; that holds for extract_signals_bin only, build_frame_bin and update_frame_bin surface it because the JSON path cannot carry signal indices (backend.cpp and client.cpp agree), and the comment now says which; (b) a history sentence about removed defaults is gone; (c) "keeps the ABI stable across binding builds" was not what an out-of-line virtual does; the comment states the vtable emission; (d) init and process are [[nodiscard]]: a discarded state handle is a leaked kernel state and a discarded response is a lost result (whole tree rebuilt, zero warnings, so no caller discards them). Not changed, recorded: SignalInjection's raw parallel pointers and the void* state handle are shapes every backend and caller share, so they go to XREV task 096 rather than one file's edit.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/009
+claims: 7 rows, 1 without a guard: probe cpp_include_aletheia_backend.hpp--from-env-refuses-unset-and-empty.sh added
+1 line per line: checked, all 139 lines read; every declaration asked what discards it and every comment what implements it
+2 guidelines: finding, nodiscard on the two value-returning pure virtuals (F.20 family); C.67 already held (copy and move deleted, protected default constructor, virtual destructor)
+3 modernize: checked; the span-over-pointer-pair rule for SignalInjection is the XREV task
+4 catalogue: checked, AGENTS/cpp.md categories 13 (FFI lifecycle: the handle ownership is now stated at init) and 14(b) (mock fidelity, the sentinel contract restated correctly)
+5 value semantics: checked, Timestamp and Dlc by value, CanId by const reference, spans for payloads; SignalInjection by value (four words)
+6 raii: finding recorded for XREV, the void* handle is released by hand through close; this file's edit states who owns it
+7 dedup: checked, none in file; the shared handle shapes are the XREV task
+8 ground truth: finding, the fall-through sentence and the ABI sentence were false; checked true: from_env kinds, BRS/ESI pass-through, log fields, out-of-line default
+9 history: finding, one sentence removed
+10 simpler: checked
+11 comments: 55 to 56 (one more line, in the task that fixed the false contract sentence), code 63 to 63
+sweep: no mutation names this file; tidy gate over cpp/src 0 diagnostics, whole tree rebuilt clean, unit and integration tests pass
+probes: 1 added; store 20 run, 19 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 
