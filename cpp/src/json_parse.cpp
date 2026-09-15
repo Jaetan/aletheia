@@ -495,8 +495,8 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
 
     auto presence = parse_signal_presence(j);
 
-    auto receivers = parse_optional_array(j, "receivers",
-                                          [](const Json& elem) { return elem.get<std::string>(); });
+    auto receivers = parse_optional_array(
+        j, "receivers", [](const Json& elem) { return NodeName{elem.get<std::string>()}; });
     auto value_descriptions = parse_optional_array(j, "valueDescriptions", [](const Json& elem) {
         return parse_value_entry(elem, "valueDescriptions value");
     });
@@ -562,8 +562,8 @@ static auto parse_message_def(const Json& j) -> DbcMessage {
     for (const auto& s : j.at("signals"))
         signals.push_back(parse_signal_def(s));
 
-    auto senders = parse_optional_array(j, "senders",
-                                        [](const Json& elem) { return elem.get<std::string>(); });
+    auto senders = parse_optional_array(
+        j, "senders", [](const Json& elem) { return NodeName{elem.get<std::string>()}; });
 
     return DbcMessage{
         .id = id,
@@ -628,20 +628,16 @@ static auto parse_value_table(const Json& j) -> DbcValueTable {
 // ---------------------------------------------------------------------------
 
 static auto parse_node(const Json& j) -> DbcNode {
-    return DbcNode{.name = j.at("name").get<std::string>()};
+    return DbcNode{.name = NodeName{j.at("name").get<std::string>()}};
 }
 
-// The {id, extended} pair a message- or signal-scoped target carries.
-namespace {
-struct JsonCanIdFields {
-    std::uint32_t id;
-    bool extended;
-};
-} // namespace
-
-static auto parse_can_id_fields(const Json& j) -> JsonCanIdFields {
-    return {.id = require_uint<std::uint32_t>(j.at("id"), "CAN id"),
-            .extended = j.value("extended", false)};
+// The validated identifier a message- or signal-scoped target names. The wire
+// carries a value and an optional flag; the target carries the type they
+// denote, so an identifier too wide for the width it claims is refused here
+// rather than stored and passed on.
+static auto parse_target_can_id(const Json& j) -> CanId {
+    return json_to_can_id(require_uint<std::uint32_t>(j.at("id"), "CAN id"),
+                          j.value("extended", false));
 }
 
 static auto parse_comment_target(const Json& j) -> DbcCommentTarget {
@@ -649,17 +645,12 @@ static auto parse_comment_target(const Json& j) -> DbcCommentTarget {
     if (kind == "network")
         return DbcCommentTargetNetwork{};
     if (kind == "node")
-        return DbcCommentTargetNode{.node = j.at("node").get<std::string>()};
-    if (kind == "message") {
-        const auto fields = parse_can_id_fields(j);
-        return DbcCommentTargetMessage{.id = fields.id, .extended = fields.extended};
-    }
-    if (kind == "signal") {
-        const auto fields = parse_can_id_fields(j);
-        return DbcCommentTargetSignal{.id = fields.id,
-                                      .extended = fields.extended,
+        return DbcCommentTargetNode{.node = NodeName{j.at("node").get<std::string>()}};
+    if (kind == "message")
+        return DbcCommentTargetMessage{.id = parse_target_can_id(j)};
+    if (kind == "signal")
+        return DbcCommentTargetSignal{.id = parse_target_can_id(j),
                                       .signal = j.at("signal").get<std::string>()};
-    }
     if (kind == "envVar")
         return DbcCommentTargetEnvVar{.env_var = j.at("envVar").get<std::string>()};
     throw std::runtime_error("Unknown comment target kind: " + kind);
@@ -736,31 +727,21 @@ static auto parse_attr_target(const Json& j) -> DbcAttrTarget {
     if (kind == "network")
         return DbcAttrTargetNetwork{};
     if (kind == "node")
-        return DbcAttrTargetNode{.node = j.at("node").get<std::string>()};
-    if (kind == "message") {
-        const auto fields = parse_can_id_fields(j);
-        return DbcAttrTargetMessage{.id = fields.id, .extended = fields.extended};
-    }
-    if (kind == "signal") {
-        const auto fields = parse_can_id_fields(j);
-        return DbcAttrTargetSignal{.id = fields.id,
-                                   .extended = fields.extended,
+        return DbcAttrTargetNode{.node = NodeName{j.at("node").get<std::string>()}};
+    if (kind == "message")
+        return DbcAttrTargetMessage{.id = parse_target_can_id(j)};
+    if (kind == "signal")
+        return DbcAttrTargetSignal{.id = parse_target_can_id(j),
                                    .signal = j.at("signal").get<std::string>()};
-    }
     if (kind == "envVar")
         return DbcAttrTargetEnvVar{.env_var = j.at("envVar").get<std::string>()};
-    if (kind == "nodeMsg") {
-        const auto fields = parse_can_id_fields(j);
-        return DbcAttrTargetNodeMsg{
-            .node = j.at("node").get<std::string>(), .id = fields.id, .extended = fields.extended};
-    }
-    if (kind == "nodeSig") {
-        const auto fields = parse_can_id_fields(j);
-        return DbcAttrTargetNodeSig{.node = j.at("node").get<std::string>(),
-                                    .id = fields.id,
-                                    .extended = fields.extended,
+    if (kind == "nodeMsg")
+        return DbcAttrTargetNodeMsg{.node = NodeName{j.at("node").get<std::string>()},
+                                    .id = parse_target_can_id(j)};
+    if (kind == "nodeSig")
+        return DbcAttrTargetNodeSig{.node = NodeName{j.at("node").get<std::string>()},
+                                    .id = parse_target_can_id(j),
                                     .signal = j.at("signal").get<std::string>()};
-    }
     throw std::runtime_error("Unknown attribute target kind: " + kind);
 }
 

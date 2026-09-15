@@ -38,6 +38,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (C++): node-valued DBC fields and message targets carry their
+  vocabulary types.** `DbcNode::name`, `DbcSignal::receivers`,
+  `DbcMessage::senders` and the node field of every comment and attribute target
+  are `NodeName` instead of `std::string`; the message targets of comments and
+  attributes carry a `CanId` instead of a raw 32-bit value beside a `bool
+  extended`, which is the pair the validated identifier exists to replace. The
+  header opened by saying the definition embeds the vocabulary types, and half
+  of them did not. One behaviour follows from the type: a target naming an
+  identifier too wide for the width it claims is now refused at the parse
+  boundary instead of being stored and passed on. The wire is unchanged, keys
+  and values both.
 - **BREAKING (C++): `DbcDefinition::unresolved_value_descriptions` is renamed
   `unresolved_value_descs`.** The kernel record's field, the wire key both the
   parser and the serializer use, Python's field and Rust's field all carry the

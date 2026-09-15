@@ -1,13 +1,40 @@
 # Task 115: the strong-type coverage of the DBC vocabulary is uneven (ruled)
 
-- status: pending
+- status: completed
 - files: `cpp/include/aletheia/dbc.hpp`, the JSON parser and serializer, the tests
 - pass: full
 - origin: Ruled: give every node-valued field a node name and every message target a validated CAN identifier, which is a breaking source change for any caller reading those fields and makes the header's opening sentence true. Today a message's sender is typed while its senders are plain strings, a signal's receivers are plain strings, a node's name is a plain string, every node field of a comment target and an attribute target is a plain string, and the message targets of comments and attributes carry a raw identifier beside a boolean, which is the pair the validated identifier exists to replace. The wire keys and values do not move either way, so the parser, the serializer and the tests change together and the wire stays byte-identical. Re-run the fuzz target over the DBC JSON parser after the parser changes. Owes a changelog entry.
 
 ## Report
 
-(to be written when the task is worked)
+Every node-valued field and every message target carries its vocabulary type, so the header's opening sentence is true of the whole record. Fix in refs/frev/115.
+
+Claims and guards. The header opens by saying its structures embed the vocabulary types, and half of them did not: a message's sender was typed while its senders were plain strings, a signal's receivers were plain strings, a node's name was a plain string, and every node field of a comment target and an attribute target was a plain string. The message targets carried a raw thirty-two-bit value beside a boolean, which is exactly the pair the validated identifier exists to replace and which the rest of the interface had replaced everywhere a message is named. A sentence a reader can check against the file's own fields and find false is the cheapest kind of wrong, and nothing guarded it.
+
+The wire did not move, keys or values. The parser reads the same keys and builds the types from them, and the serializer writes the same keys back, so a round trip is byte-identical.
+
+One behaviour follows from the type rather than from a decision. A target naming an identifier wider than the width it claims used to be stored and handed on; the validated identifier refuses it, so it is now refused at the parse boundary with the offending value in the message. The test pins both halves: the refusal, and the same value accepted when the target says the identifier is extended. Mutating the width away, by constructing every target identifier as extended, kills three assertions across two cases.
+
+Two findings outside the immediate subject. The first is a fifth implementer of the backend interface, in the fuzz harness for the binary decoder, which the interface change did not reach because the fuzz build is configured separately and was never built in that task; it failed to compile the moment the fuzz build ran. It is retyped, and the lesson is that an interface change owes the fuzz build as well as the default one. The second is that the fuzz targets must be rebuilt before being trusted, which is the repository's own rule for benchmark binaries and applies here for the same reason. All four rebuilt targets ran forty-five seconds each over their seed corpora with no crash, the DBC JSON one 722321 times.
+
+```
+REPORT 2026-09-15 tree refs/frev/114 fix in refs/frev/115
+claims: 8 rows, 8 without a guard: the header's opening sentence over seven field groups plus the target width, now a probe and a test
+1 line per line: checked, every field of the record read against the kernel's own and against its two JSON paths
+2 guidelines: checked, a validated type at the boundary rather than a raw pair carried through, which is the rule the rest of this interface already followed
+3 modernize: n/a
+4 catalogue: n/a
+5 value semantics: checked, the types are the same size as what they replace or smaller; the identifier pair becomes one variant
+6 raii: n/a
+7 dedup: finding, the raw pair appeared in six target structures and the flag handling in two serializer helpers; one type replaces all of it
+8 ground truth: finding, the opening sentence was false of half the record
+9 history: checked
+10 simpler: finding, the serializer's identifier helper takes one argument where it took two, and the parser's target helper returns the type rather than a pair of fields
+11 comments: 562 to 576, code 3337 to 3344 over the five files; each is a file this task fixed a defect in, and the added lines say what the wire still carries and why a target refuses
+sweep: 62 mutants, 62 killed, no survivor
+probes: probes/cpp_include_aletheia_dbc.hpp--node-and-message-fields-are-typed.sh added, red under a target reverted to the raw pair and under a node field reverted to a string; store 67 run, 66 pass, the remaining failure the installed-consumer link this pass lands later
+decision points: none
+```
 
 ---
 

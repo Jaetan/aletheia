@@ -949,26 +949,35 @@ TEST_CASE("parse_dbc_response env var preserves exact rationals", "[json][parse]
 // Tier 2 DBC metadata round-trip — nodes, comments, attributes
 // ===========================================================================
 
+// The targets carry a validated identifier now, so the tests name one the same
+// way the parser does: by value and by width.
+auto std_can_id(std::uint32_t v) -> CanId {
+    return CanId{StandardId::create(static_cast<std::uint16_t>(v)).value()};
+}
+auto ext_can_id(std::uint32_t v) -> CanId {
+    return CanId{ExtendedId::create(v).value()};
+}
+
 TEST_CASE("Tier 2 DBC metadata round-trips through serialize + parse",
           "[json][serialize][parse][dbc][tier2]") {
     auto dbc = make_test_dbc();
-    dbc.nodes.push_back(DbcNode{.name = "ECU1"});
-    dbc.nodes.push_back(DbcNode{.name = "Gateway"});
+    dbc.nodes.push_back(DbcNode{.name = NodeName{"ECU1"}});
+    dbc.nodes.push_back(DbcNode{.name = NodeName{"Gateway"}});
 
     dbc.comments.push_back(DbcComment{
         .target = DbcCommentTargetNetwork{},
         .text = "Vehicle network",
     });
     dbc.comments.push_back(DbcComment{
-        .target = DbcCommentTargetNode{.node = "ECU1"},
+        .target = DbcCommentTargetNode{.node = NodeName{"ECU1"}},
         .text = "Engine control unit",
     });
     dbc.comments.push_back(DbcComment{
-        .target = DbcCommentTargetMessage{.id = 256, .extended = false},
+        .target = DbcCommentTargetMessage{.id = std_can_id(256)},
         .text = "Engine status message",
     });
     dbc.comments.push_back(DbcComment{
-        .target = DbcCommentTargetSignal{.id = 512, .extended = true, .signal = "Torque"},
+        .target = DbcCommentTargetSignal{.id = ext_can_id(512), .signal = "Torque"},
         .text = "Requested torque",
     });
     dbc.comments.push_back(DbcComment{
@@ -1007,28 +1016,29 @@ TEST_CASE("Tier 2 DBC metadata round-trips through serialize + parse",
     });
     dbc.attributes.push_back(DbcAttrAssign{
         .name = "GenMsgCycleTime",
-        .target = DbcAttrTargetMessage{.id = 256, .extended = false},
+        .target = DbcAttrTargetMessage{.id = std_can_id(256)},
         .value = DbcAttrValueInt{.value = 20},
     });
     dbc.attributes.push_back(DbcAttrAssign{
         .name = "SignalGain",
-        .target = DbcAttrTargetSignal{.id = 512, .extended = true, .signal = "Torque"},
+        .target = DbcAttrTargetSignal{.id = ext_can_id(512), .signal = "Torque"},
         .value = DbcAttrValueFloat{.value = Rational{3, 4}},
     });
     dbc.attributes.push_back(DbcAttrAssign{
         .name = "ModuleType",
-        .target = DbcAttrTargetNode{.node = "ECU1"},
+        .target = DbcAttrTargetNode{.node = NodeName{"ECU1"}},
         .value = DbcAttrValueEnum{.value = 0},
     });
     dbc.attributes.push_back(DbcAttrAssign{
         .name = "SenderRole",
-        .target = DbcAttrTargetNodeMsg{.node = "ECU1", .id = 256, .extended = false},
+        .target = DbcAttrTargetNodeMsg{.node = NodeName{"ECU1"}, .id = std_can_id(256)},
         .value = DbcAttrValueString{.value = "producer"},
     });
     dbc.attributes.push_back(DbcAttrAssign{
         .name = "SignalAccess",
-        .target =
-            DbcAttrTargetNodeSig{.node = "ECU1", .id = 512, .extended = true, .signal = "Torque"},
+        .target = DbcAttrTargetNodeSig{.node = NodeName{"ECU1"},
+                                       .id = ext_can_id(512),
+                                       .signal = "Torque"},
         .value = DbcAttrValueHex{.value = 255},
     });
 
@@ -1060,18 +1070,18 @@ TEST_CASE("Tier 2 DBC metadata round-trips through serialize + parse",
     REQUIRE(result.has_value());
 
     REQUIRE(result->nodes.size() == 2);
-    CHECK(result->nodes[0].name == "ECU1");
-    CHECK(result->nodes[1].name == "Gateway");
+    CHECK(result->nodes[0].name.get() == "ECU1");
+    CHECK(result->nodes[1].name.get() == "Gateway");
 
     REQUIRE(result->comments.size() == 5);
     CHECK(std::holds_alternative<DbcCommentTargetNetwork>(result->comments[0].target));
-    CHECK(std::get<DbcCommentTargetNode>(result->comments[1].target).node == "ECU1");
+    CHECK(std::get<DbcCommentTargetNode>(result->comments[1].target).node.get() == "ECU1");
     const auto& msg_ct = std::get<DbcCommentTargetMessage>(result->comments[2].target);
-    CHECK(msg_ct.id == 256);
-    CHECK_FALSE(msg_ct.extended);
+    CHECK(can_id_value(msg_ct.id) == 256);
+    CHECK_FALSE(can_id_is_extended(msg_ct.id));
     const auto& sig_ct = std::get<DbcCommentTargetSignal>(result->comments[3].target);
-    CHECK(sig_ct.id == 512);
-    CHECK(sig_ct.extended);
+    CHECK(can_id_value(sig_ct.id) == 512);
+    CHECK(can_id_is_extended(sig_ct.id));
     CHECK(sig_ct.signal == "Torque");
     CHECK(std::get<DbcCommentTargetEnvVar>(result->comments[4].target).env_var == "AmbientTemp");
 
@@ -1098,23 +1108,47 @@ TEST_CASE("Tier 2 DBC metadata round-trips through serialize + parse",
     // Assignments (target + value parity)
     const auto& assign_sig = std::get<DbcAttrAssign>(result->attributes[7]);
     const auto& sig_tgt = std::get<DbcAttrTargetSignal>(assign_sig.target);
-    CHECK(sig_tgt.id == 512);
-    CHECK(sig_tgt.extended);
+    CHECK(can_id_value(sig_tgt.id) == 512);
+    CHECK(can_id_is_extended(sig_tgt.id));
     CHECK(sig_tgt.signal == "Torque");
     CHECK(std::get<DbcAttrValueFloat>(assign_sig.value).value == Rational{3, 4});
 
     const auto& assign_nm = std::get<DbcAttrAssign>(result->attributes[9]);
     const auto& nm_tgt = std::get<DbcAttrTargetNodeMsg>(assign_nm.target);
-    CHECK(nm_tgt.node == "ECU1");
-    CHECK(nm_tgt.id == 256);
-    CHECK_FALSE(nm_tgt.extended);
+    CHECK(nm_tgt.node.get() == "ECU1");
+    CHECK(can_id_value(nm_tgt.id) == 256);
+    CHECK_FALSE(can_id_is_extended(nm_tgt.id));
 
     const auto& assign_ns = std::get<DbcAttrAssign>(result->attributes[10]);
     const auto& ns_tgt = std::get<DbcAttrTargetNodeSig>(assign_ns.target);
-    CHECK(ns_tgt.node == "ECU1");
+    CHECK(ns_tgt.node.get() == "ECU1");
     CHECK(ns_tgt.signal == "Torque");
-    CHECK(ns_tgt.extended);
+    CHECK(can_id_is_extended(ns_tgt.id));
     CHECK(std::get<DbcAttrValueHex>(assign_ns.value).value == 255);
+}
+
+TEST_CASE("a target naming an identifier too wide for its width is refused",
+          "[json][parse][dbc][tier2]") {
+    // The target carries the same validated identifier a message does, so a
+    // value outside the width it claims is refused at the parse boundary rather
+    // than stored and handed on. 0x800 needs twelve bits; the target says the
+    // identifier is standard, which is eleven.
+    auto make = [](const char* target) {
+        return std::string{R"({"status":"success","dbc":{"version":"1.0","messages":[],)"} +
+               R"("comments":[{"target":)" + target + R"(,"text":"x"}]}})";
+    };
+    auto too_wide = detail::parse_dbc_response(make(R"({"kind":"message","id":2048})"));
+    REQUIRE_FALSE(too_wide.has_value());
+    CHECK(std::string{too_wide.error().message()}.find("2048") != std::string::npos);
+
+    // The same value is fine when the target says the identifier is extended.
+    auto as_extended =
+        detail::parse_dbc_response(make(R"({"kind":"message","id":2048,"extended":true})"));
+    REQUIRE(as_extended.has_value());
+    REQUIRE(as_extended->comments.size() == 1);
+    const auto& t = std::get<DbcCommentTargetMessage>(as_extended->comments[0].target);
+    CHECK(can_id_value(t.id) == 2048);
+    CHECK(can_id_is_extended(t.id));
 }
 
 TEST_CASE("DbcSignal.receivers round-trips through serialize + parse",
@@ -1122,7 +1156,7 @@ TEST_CASE("DbcSignal.receivers round-trips through serialize + parse",
     auto dbc = make_test_dbc();
     REQUIRE(dbc.messages.size() == 1);
     REQUIRE(dbc.messages[0].signals.size() == 1);
-    dbc.messages[0].signals[0].receivers = {"ECU_A", "ECU_B"};
+    dbc.messages[0].signals[0].receivers = {NodeName{"ECU_A"}, NodeName{"ECU_B"}};
 
     auto str = detail::serialize_parse_dbc(dbc);
     auto j = json::parse(str);
@@ -1139,8 +1173,8 @@ TEST_CASE("DbcSignal.receivers round-trips through serialize + parse",
     REQUIRE(result->messages[0].signals.size() == 1);
     const auto& parsed = result->messages[0].signals[0].receivers;
     REQUIRE(parsed.size() == 2);
-    CHECK(parsed[0] == "ECU_A");
-    CHECK(parsed[1] == "ECU_B");
+    CHECK(parsed[0].get() == "ECU_A");
+    CHECK(parsed[1].get() == "ECU_B");
 }
 
 TEST_CASE("parse_dbc_response accepts missing receivers field", "[json][parse][dbc][tier2]") {
@@ -1174,7 +1208,7 @@ TEST_CASE("DbcMessage.senders round-trips through serialize + parse",
     // text differs.
     auto dbc = make_test_dbc();
     REQUIRE(dbc.messages.size() == 1);
-    dbc.messages[0].senders = {"ECU_B", "ECU_C"};
+    dbc.messages[0].senders = {NodeName{"ECU_B"}, NodeName{"ECU_C"}};
 
     auto str = detail::serialize_parse_dbc(dbc);
     auto j = json::parse(str);
@@ -1190,8 +1224,8 @@ TEST_CASE("DbcMessage.senders round-trips through serialize + parse",
     REQUIRE(result->messages.size() == 1);
     const auto& parsed = result->messages[0].senders;
     REQUIRE(parsed.size() == 2);
-    CHECK(parsed[0] == "ECU_B");
-    CHECK(parsed[1] == "ECU_C");
+    CHECK(parsed[0].get() == "ECU_B");
+    CHECK(parsed[1].get() == "ECU_C");
 }
 
 TEST_CASE("parse_dbc_response accepts missing senders field", "[json][parse][dbc][tier2]") {

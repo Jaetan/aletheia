@@ -92,7 +92,7 @@ struct DbcSignal {
     RationalBound maximum;
     Unit unit;
     SignalPresence presence;
-    std::vector<std::string> receivers;
+    std::vector<NodeName> receivers;
     // Inline ``VAL_`` entries attached to this signal. Empty when no
     // ``VAL_`` line names it. Same ``{value, description}`` shape as
     // DbcValueTable::entries — the wire emits both as ordered arrays.
@@ -111,7 +111,7 @@ struct DbcMessage {
     // Additional transmitters declared on BO_TX_BU_ lines. The BO_ primary
     // stays in `sender`; these are the extras the Agda validator binds
     // against the BU_ node table via UnknownMessageSender.
-    std::vector<std::string> senders;
+    std::vector<NodeName> senders;
     std::vector<DbcSignal> signals;
 
     // --- Multiplexing query helpers (defined in dbc.cpp) ---
@@ -191,25 +191,25 @@ struct DbcValueTable {
 // ---------------------------------------------------------------------------
 
 struct DbcNode {
-    std::string name;
+    NodeName name;
 };
 
 // ---- Comment targets (CM_ family) ----
 
 struct DbcCommentTargetNetwork {};
 struct DbcCommentTargetNode {
-    std::string node;
+    NodeName node;
 };
-// Extended flag is emitted on the wire only when true (Agda's formatCANId
-// omits "extended" for 11-bit IDs). Default-false here keeps round-trip
-// byte-identical for the common standard-ID case.
+// A target names a message by the same validated identifier the message
+// carries, so the width and the range are the type's business rather than a
+// raw value beside a flag. The wire is unchanged: "extended" is written only
+// for a 29-bit identifier, which is what the kernel's formatter omits for
+// 11-bit ones.
 struct DbcCommentTargetMessage {
-    std::uint32_t id = 0;
-    bool extended = false;
+    CanId id;
 };
 struct DbcCommentTargetSignal {
-    std::uint32_t id = 0;
-    bool extended = false;
+    CanId id;
     std::string signal;
 };
 struct DbcCommentTargetEnvVar {
@@ -289,29 +289,25 @@ using DbcAttrValue = std::variant<DbcAttrValueInt, DbcAttrValueFloat, DbcAttrVal
 
 struct DbcAttrTargetNetwork {};
 struct DbcAttrTargetNode {
-    std::string node;
+    NodeName node;
 };
 struct DbcAttrTargetMessage {
-    std::uint32_t id = 0;
-    bool extended = false;
+    CanId id;
 };
 struct DbcAttrTargetSignal {
-    std::uint32_t id = 0;
-    bool extended = false;
+    CanId id;
     std::string signal;
 };
 struct DbcAttrTargetEnvVar {
     std::string env_var;
 };
 struct DbcAttrTargetNodeMsg {
-    std::string node;
-    std::uint32_t id = 0;
-    bool extended = false;
+    NodeName node;
+    CanId id;
 };
 struct DbcAttrTargetNodeSig {
-    std::string node;
-    std::uint32_t id = 0;
-    bool extended = false;
+    NodeName node;
+    CanId id;
     std::string signal;
 };
 

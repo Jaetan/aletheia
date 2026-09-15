@@ -42,7 +42,7 @@ class BinaryMock : public MockBackend {
 public:
     std::vector<std::byte> bytes;
 
-    auto extract_signals_bin(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
+    auto extract_signals_bin(const BackendState& /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
                              std::span<const std::byte> /*data*/)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         return bytes;

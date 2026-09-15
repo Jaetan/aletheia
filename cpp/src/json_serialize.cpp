@@ -18,6 +18,7 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
+#include <vector>
 
 using Json = nlohmann::json;
 
@@ -94,6 +95,15 @@ static auto value_entry_to_json(const DbcValueEntry& e) -> Json {
     return {{"value", e.value}, {"description", e.description}};
 }
 
+// A node-valued field crosses the wire as the plain string it always was; the
+// type it carries in the definition says which strings are meant.
+static auto node_names_to_json(const std::vector<NodeName>& names) -> Json {
+    Json out = Json::array();
+    for (const auto& n : names)
+        out.push_back(n.get());
+    return out;
+}
+
 static auto signal_def_to_json(const DbcSignal& s) -> Json {
     Json sig = {
         {"name", s.name.get()},
@@ -106,7 +116,7 @@ static auto signal_def_to_json(const DbcSignal& s) -> Json {
         {"minimum", rational_to_json(s.minimum.get())},
         {"maximum", rational_to_json(s.maximum.get())},
         {"unit", s.unit.get()},
-        {"receivers", s.receivers},
+        {"receivers", node_names_to_json(s.receivers)},
         {"valueDescriptions", json_array(s.value_descriptions, value_entry_to_json)},
     };
     presence_to_json(s.presence, sig);
@@ -115,9 +125,12 @@ static auto signal_def_to_json(const DbcSignal& s) -> Json {
 
 static auto message_to_json(const DbcMessage& m) -> Json {
     Json msg = {
-        {"id", can_id_value(m.id)},   {"name", m.name.get()},
-        {"dlc", dlc_to_bytes(m.dlc)}, {"sender", m.sender.get()},
-        {"senders", m.senders},       {"signals", json_array(m.signals, signal_def_to_json)},
+        {"id", can_id_value(m.id)},
+        {"name", m.name.get()},
+        {"dlc", dlc_to_bytes(m.dlc)},
+        {"sender", m.sender.get()},
+        {"senders", node_names_to_json(m.senders)},
+        {"signals", json_array(m.signals, signal_def_to_json)},
     };
     // Mirror the Agda wire form: emit "extended" only when the CAN ID is
     // extended (29-bit). Agda omits the field for standard 11-bit frames;
@@ -156,12 +169,12 @@ static auto value_table_to_json(const DbcValueTable& t) -> Json {
 // ---------------------------------------------------------------------------
 
 static auto node_to_json(const DbcNode& n) -> Json {
-    return {{"name", n.name}};
+    return {{"name", n.name.get()}};
 }
 
-static auto attach_can_id(Json& obj, std::uint32_t id, bool extended) -> void {
-    obj["id"] = id;
-    if (extended)
+static auto attach_can_id(Json& obj, const CanId& id) -> void {
+    obj["id"] = can_id_value(id);
+    if (can_id_is_extended(id))
         obj["extended"] = true;
 }
 
@@ -176,31 +189,31 @@ static auto target_to_json(const auto& v) -> Json {
                       v.id;
                       v.signal;
                   }) {
-        Json out = {{"kind", "nodeSig"}, {"node", v.node}};
-        attach_can_id(out, v.id, v.extended);
+        Json out = {{"kind", "nodeSig"}, {"node", v.node.get()}};
+        attach_can_id(out, v.id);
         out["signal"] = v.signal;
         return out;
     } else if constexpr (requires {
                              v.node;
                              v.id;
                          }) {
-        Json out = {{"kind", "nodeMsg"}, {"node", v.node}};
-        attach_can_id(out, v.id, v.extended);
+        Json out = {{"kind", "nodeMsg"}, {"node", v.node.get()}};
+        attach_can_id(out, v.id);
         return out;
     } else if constexpr (requires {
                              v.id;
                              v.signal;
                          }) {
         Json out = {{"kind", "signal"}};
-        attach_can_id(out, v.id, v.extended);
+        attach_can_id(out, v.id);
         out["signal"] = v.signal;
         return out;
     } else if constexpr (requires { v.id; }) {
         Json out = {{"kind", "message"}};
-        attach_can_id(out, v.id, v.extended);
+        attach_can_id(out, v.id);
         return out;
     } else if constexpr (requires { v.node; }) {
-        return {{"kind", "node"}, {"node", v.node}};
+        return {{"kind", "node"}, {"node", v.node.get()}};
     } else if constexpr (requires { v.env_var; }) {
         return {{"kind", "envVar"}, {"envVar", v.env_var}};
     } else {
