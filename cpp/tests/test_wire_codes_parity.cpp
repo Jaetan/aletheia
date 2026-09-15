@@ -43,18 +43,13 @@
 #include <string>
 #include <vector>
 
+#include "repo_root.hpp"
+
+using aletheia::test::repo_root;
+
 using namespace aletheia;
 
 namespace {
-
-// Repo root via env var, see test_feature_matrix_parity.cpp.
-auto repo_root() -> std::filesystem::path {
-    if (const char* env = std::getenv("ALETHEIA_REPO_ROOT"); env != nullptr && *env != '\0') {
-        return std::filesystem::path{env};
-    }
-    throw std::runtime_error("ALETHEIA_REPO_ROOT env var not set; expected to be passed by ctest "
-                             "via set_tests_properties(ENVIRONMENT ...) in cpp/CMakeLists.txt");
-}
 
 struct WireCodeRow {
     std::string name;
