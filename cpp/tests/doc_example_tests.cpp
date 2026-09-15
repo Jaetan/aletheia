@@ -51,6 +51,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "temp_path.hpp"
+
+using aletheia::test::AsDirectory;
+using aletheia::test::TempPath;
+
 namespace fs = std::filesystem;
 
 namespace {
@@ -396,22 +401,6 @@ auto sh_quote(std::string_view s) -> std::string {
 
 // A scratch directory that removes itself, so a failing fence (whose assertion
 // throws out of the loop) cannot leave its wrapper sources behind.
-class ScratchDir {
-    fs::path path_;
-
-public:
-    explicit ScratchDir(fs::path path) : path_(std::move(path)) { fs::create_directories(path_); }
-    ScratchDir(const ScratchDir&) = delete;
-    ScratchDir(ScratchDir&&) = delete;
-    auto operator=(const ScratchDir&) -> ScratchDir& = delete;
-    auto operator=(ScratchDir&&) -> ScratchDir& = delete;
-    ~ScratchDir() {
-        std::error_code ec;
-        fs::remove_all(path_, ec);
-    }
-
-    [[nodiscard]] auto path() const -> const fs::path& { return path_; }
-};
 
 // Cached fence list — extraction is idempotent so we read once and reuse
 // across repeat entries (Catch2 SECTION re-enters the test case body for
@@ -449,9 +438,10 @@ TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-exa
     const auto& fences = fence_cache();
     REQUIRE_FALSE(fences.empty());
 
-    const ScratchDir scratch{fs::temp_directory_path() /
-                             ("aletheia_doc_harness_" + std::to_string(::getpid()))};
-    const auto& workdir = scratch.path();
+    const TempPath scratch{fs::temp_directory_path() /
+                               ("aletheia_doc_harness_" + std::to_string(::getpid())),
+                           AsDirectory{}};
+    const auto& workdir = scratch.path;
 
     for (std::size_t i = 0; i < fences.size(); ++i) {
         const auto& fence = fences[i];

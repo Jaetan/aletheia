@@ -25,6 +25,11 @@
 #include <variant>
 #include <vector>
 
+#include "temp_path.hpp"
+
+using aletheia::test::AsDirectory;
+using aletheia::test::TempPath;
+
 using namespace aletheia;
 using Catch::Matchers::ContainsSubstring;
 
@@ -35,24 +40,6 @@ using Catch::Matchers::ContainsSubstring;
 namespace {
 
 /// RAII temp file that removes on destruction.
-struct TempFile {
-    std::filesystem::path path;
-
-    explicit TempFile(const std::string& name)
-        : path(std::filesystem::temp_directory_path() / name) {
-        if (std::filesystem::exists(path))
-            std::filesystem::remove(path);
-    }
-    ~TempFile() {
-        if (std::filesystem::exists(path))
-            std::filesystem::remove(path);
-    }
-    TempFile(const TempFile&) = delete;
-    auto operator=(const TempFile&) -> TempFile& = delete;
-    TempFile(TempFile&&) = delete;
-    auto operator=(TempFile&&) -> TempFile& = delete;
-};
-
 // Header constants
 const std::vector<std::string> checks_hdr = {"Check Name", "Signal", "Condition", "Value",
                                              "Min",        "Max",    "Time (ms)", "Severity"};
@@ -182,7 +169,7 @@ void make_dbc_workbook_with_raw_id(const std::filesystem::path& path, std::int64
 // ===========================================================================
 
 TEST_CASE("excel: never_exceeds", "[excel][simple]") {
-    TempFile tf("excel_never_exceeds.xlsx");
+    TempPath tf("excel_never_exceeds.xlsx");
     // Check Name, Signal, Condition, Value, Min, Max, Time (ms), Severity
     make_checks_workbook(tf.path, {{"", "Speed", "never_exceeds", "220", "", "", "", ""}});
     auto result = load_checks_from_excel(tf.path);
@@ -193,7 +180,7 @@ TEST_CASE("excel: never_exceeds", "[excel][simple]") {
 }
 
 TEST_CASE("excel: never_below", "[excel][simple]") {
-    TempFile tf("excel_never_below.xlsx");
+    TempPath tf("excel_never_below.xlsx");
     make_checks_workbook(tf.path, {{"", "Voltage", "never_below", "11.5", "", "", "", ""}});
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -202,7 +189,7 @@ TEST_CASE("excel: never_below", "[excel][simple]") {
 }
 
 TEST_CASE("excel: stays_between", "[excel][simple]") {
-    TempFile tf("excel_stays_between.xlsx");
+    TempPath tf("excel_stays_between.xlsx");
     make_checks_workbook(tf.path, {{"", "Voltage", "stays_between", "", "11.5", "14.5", "", ""}});
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -211,7 +198,7 @@ TEST_CASE("excel: stays_between", "[excel][simple]") {
 }
 
 TEST_CASE("excel: never_equals", "[excel][simple]") {
-    TempFile tf("excel_never_equals.xlsx");
+    TempPath tf("excel_never_equals.xlsx");
     make_checks_workbook(tf.path, {{"", "ErrorCode", "never_equals", "99", "", "", "", ""}});
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -220,7 +207,7 @@ TEST_CASE("excel: never_equals", "[excel][simple]") {
 }
 
 TEST_CASE("excel: equals always", "[excel][simple]") {
-    TempFile tf("excel_equals.xlsx");
+    TempPath tf("excel_equals.xlsx");
     make_checks_workbook(tf.path, {{"", "ParkingBrake", "equals", "0", "", "", "", ""}});
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -229,7 +216,7 @@ TEST_CASE("excel: equals always", "[excel][simple]") {
 }
 
 TEST_CASE("excel: settles_between", "[excel][simple]") {
-    TempFile tf("excel_settles.xlsx");
+    TempPath tf("excel_settles.xlsx");
     make_checks_workbook(tf.path, {{"", "Coolant", "settles_between", "", "85", "95", "5000", ""}});
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -242,7 +229,7 @@ TEST_CASE("excel: settles_between", "[excel][simple]") {
 // ===========================================================================
 
 TEST_CASE("excel: when exceeds then equals", "[excel][when-then]") {
-    TempFile tf("excel_wt_exc_eq.xlsx");
+    TempPath tf("excel_wt_exc_eq.xlsx");
     // Check Name, When Signal, When Condition, When Value,
     // Then Signal, Then Condition, Then Value, Then Min, Then Max,
     // Within (ms), Severity
@@ -257,7 +244,7 @@ TEST_CASE("excel: when exceeds then equals", "[excel][when-then]") {
 }
 
 TEST_CASE("excel: when equals then exceeds", "[excel][when-then]") {
-    TempFile tf("excel_wt_eq_exc.xlsx");
+    TempPath tf("excel_wt_eq_exc.xlsx");
     make_wt_workbook(
         tf.path, {{"", "Gear", "equals", "1", "ReverseLight", "exceeds", "0", "", "", "200", ""}});
     auto result = load_checks_from_excel(tf.path);
@@ -269,7 +256,7 @@ TEST_CASE("excel: when equals then exceeds", "[excel][when-then]") {
 }
 
 TEST_CASE("excel: when drops_below then stays_between", "[excel][when-then]") {
-    TempFile tf("excel_wt_drop_sb.xlsx");
+    TempPath tf("excel_wt_drop_sb.xlsx");
     make_wt_workbook(tf.path, {{"", "FuelLevel", "drops_below", "10", "FuelWarning",
                                 "stays_between", "", "1", "1", "500", ""}});
     auto result = load_checks_from_excel(tf.path);
@@ -285,7 +272,7 @@ TEST_CASE("excel: when drops_below then stays_between", "[excel][when-then]") {
 // ===========================================================================
 
 TEST_CASE("excel: check name applied", "[excel][metadata]") {
-    TempFile tf("excel_meta_name.xlsx");
+    TempPath tf("excel_meta_name.xlsx");
     make_checks_workbook(tf.path,
                          {{"Speed limit", "Speed", "never_exceeds", "220", "", "", "", ""}});
     auto result = load_checks_from_excel(tf.path);
@@ -294,7 +281,7 @@ TEST_CASE("excel: check name applied", "[excel][metadata]") {
 }
 
 TEST_CASE("excel: severity applied", "[excel][metadata]") {
-    TempFile tf("excel_meta_sev.xlsx");
+    TempPath tf("excel_meta_sev.xlsx");
     make_checks_workbook(tf.path, {{"", "Speed", "never_exceeds", "220", "", "", "", "critical"}});
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -302,7 +289,7 @@ TEST_CASE("excel: severity applied", "[excel][metadata]") {
 }
 
 TEST_CASE("excel: name and severity together", "[excel][metadata]") {
-    TempFile tf("excel_meta_both.xlsx");
+    TempPath tf("excel_meta_both.xlsx");
     make_checks_workbook(
         tf.path, {{"Speed limit", "Speed", "never_exceeds", "220", "", "", "", "critical"}});
     auto result = load_checks_from_excel(tf.path);
@@ -312,7 +299,7 @@ TEST_CASE("excel: name and severity together", "[excel][metadata]") {
 }
 
 TEST_CASE("excel: defaults when no name or severity", "[excel][metadata]") {
-    TempFile tf("excel_meta_defaults.xlsx");
+    TempPath tf("excel_meta_defaults.xlsx");
     make_checks_workbook(tf.path, {{"", "Speed", "never_exceeds", "200", "", "", "", ""}});
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -321,7 +308,7 @@ TEST_CASE("excel: defaults when no name or severity", "[excel][metadata]") {
 }
 
 TEST_CASE("excel: when-then with metadata", "[excel][metadata]") {
-    TempFile tf("excel_meta_wt.xlsx");
+    TempPath tf("excel_meta_wt.xlsx");
     make_wt_workbook(tf.path, {{"Brake response", "BrakePedal", "exceeds", "50", "BrakeLight",
                                 "equals", "1", "", "", "100", "safety"}});
     auto result = load_checks_from_excel(tf.path);
@@ -335,7 +322,7 @@ TEST_CASE("excel: when-then with metadata", "[excel][metadata]") {
 // ===========================================================================
 
 TEST_CASE("excel: DBC single signal", "[excel][dbc]") {
-    TempFile tf("excel_dbc_single.xlsx");
+    TempPath tf("excel_dbc_single.xlsx");
     // Message ID, Message Name, DLC, Signal, Start Bit, Length,
     // Byte Order, Signed, Factor, Offset, Min, Max, Unit,
     // Multiplexor, Multiplex Value
@@ -362,7 +349,7 @@ TEST_CASE("excel: DBC single signal", "[excel][dbc]") {
 }
 
 TEST_CASE("excel: DBC message grouping", "[excel][dbc]") {
-    TempFile tf("excel_dbc_group.xlsx");
+    TempPath tf("excel_dbc_group.xlsx");
     make_dbc_workbook(tf.path, {
                                    {"256", "Msg1", "8", "Sig1", "0", "8", "little_endian", "FALSE",
                                     "1", "0", "0", "255", "", "", "", ""},
@@ -381,7 +368,7 @@ TEST_CASE("excel: DBC message grouping", "[excel][dbc]") {
 }
 
 TEST_CASE("excel: DBC hex message ID", "[excel][dbc]") {
-    TempFile tf("excel_dbc_hex.xlsx");
+    TempPath tf("excel_dbc_hex.xlsx");
     make_dbc_workbook(tf.path, {{"0x100", "HexMsg", "8", "Sig", "0", "8", "little_endian", "FALSE",
                                  "1", "0", "0", "255", "", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
@@ -393,7 +380,7 @@ TEST_CASE("excel: DBC hex message ID", "[excel][dbc]") {
 }
 
 TEST_CASE("excel: DBC signed variants", "[excel][dbc]") {
-    TempFile tf("excel_dbc_signed.xlsx");
+    TempPath tf("excel_dbc_signed.xlsx");
     make_dbc_workbook(tf.path, {
                                    {"256", "M1", "8", "S1", "0", "8", "little_endian", "TRUE", "1",
                                     "0", "-128", "127", "", "", "", ""},
@@ -411,7 +398,7 @@ TEST_CASE("excel: DBC signed variants", "[excel][dbc]") {
 }
 
 TEST_CASE("excel: DBC missing unit defaults to empty", "[excel][dbc]") {
-    TempFile tf("excel_dbc_no_unit.xlsx");
+    TempPath tf("excel_dbc_no_unit.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1",
                                  "0", "0", "255", "", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
@@ -424,7 +411,7 @@ TEST_CASE("excel: DBC missing unit defaults to empty", "[excel][dbc]") {
 // ===========================================================================
 
 TEST_CASE("excel: DBC always present signal", "[excel][mux]") {
-    TempFile tf("excel_mux_always.xlsx");
+    TempPath tf("excel_mux_always.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1",
                                  "0", "0", "255", "", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
@@ -433,7 +420,7 @@ TEST_CASE("excel: DBC always present signal", "[excel][mux]") {
 }
 
 TEST_CASE("excel: DBC multiplexed signal", "[excel][mux]") {
-    TempFile tf("excel_mux_muxed.xlsx");
+    TempPath tf("excel_mux_muxed.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "MuxSig", "0", "8", "little_endian", "FALSE",
                                  "1", "0", "0", "255", "", "Selector", "3", ""}});
     auto result = load_dbc_from_excel(tf.path);
@@ -447,7 +434,7 @@ TEST_CASE("excel: DBC multiplexed signal", "[excel][mux]") {
 }
 
 TEST_CASE("excel: DBC mixed always and mux", "[excel][mux]") {
-    TempFile tf("excel_mux_mixed.xlsx");
+    TempPath tf("excel_mux_mixed.xlsx");
     make_dbc_workbook(tf.path, {
                                    {"256", "Msg", "8", "AlwaysSig", "0", "8", "little_endian",
                                     "FALSE", "1", "0", "0", "255", "", "", "", ""},
@@ -462,7 +449,7 @@ TEST_CASE("excel: DBC mixed always and mux", "[excel][mux]") {
 }
 
 TEST_CASE("excel: DBC partial mux error", "[excel][mux]") {
-    TempFile tf("excel_mux_partial.xlsx");
+    TempPath tf("excel_mux_partial.xlsx");
     // Only Multiplexor provided, no Multiplex Value
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1",
                                  "0", "0", "255", "", "Selector", "", ""}});
@@ -477,14 +464,14 @@ TEST_CASE("excel: DBC partial mux error", "[excel][mux]") {
 // ===========================================================================
 
 TEST_CASE("excel: create template", "[excel][template]") {
-    TempFile tf("excel_template_test.xlsx");
+    TempPath tf("excel_template_test.xlsx");
     auto result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
     CHECK(std::filesystem::exists(tf.path));
 }
 
 TEST_CASE("excel: template has 3 sheets", "[excel][template]") {
-    TempFile tf("excel_template_sheets.xlsx");
+    TempPath tf("excel_template_sheets.xlsx");
     auto result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
 
@@ -499,7 +486,7 @@ TEST_CASE("excel: template has 3 sheets", "[excel][template]") {
 }
 
 TEST_CASE("excel: template DBC headers correct", "[excel][template]") {
-    TempFile tf("excel_template_hdr.xlsx");
+    TempPath tf("excel_template_hdr.xlsx");
     auto result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
 
@@ -519,7 +506,7 @@ TEST_CASE("excel: template DBC headers correct", "[excel][template]") {
 }
 
 TEST_CASE("excel: template headers are bold", "[excel][template]") {
-    TempFile tf("excel_template_bold.xlsx");
+    TempPath tf("excel_template_bold.xlsx");
     auto result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
 
@@ -539,7 +526,7 @@ TEST_CASE("excel: template headers are bold", "[excel][template]") {
 }
 
 TEST_CASE("excel: template Checks headers correct", "[excel][template]") {
-    TempFile tf("excel_template_checks_hdr.xlsx");
+    TempPath tf("excel_template_checks_hdr.xlsx");
     auto result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
 
@@ -557,7 +544,7 @@ TEST_CASE("excel: template Checks headers correct", "[excel][template]") {
 }
 
 TEST_CASE("excel: template When-Then headers correct", "[excel][template]") {
-    TempFile tf("excel_template_wt_hdr.xlsx");
+    TempPath tf("excel_template_wt_hdr.xlsx");
     auto result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
 
@@ -575,7 +562,7 @@ TEST_CASE("excel: template When-Then headers correct", "[excel][template]") {
 }
 
 TEST_CASE("excel: template no overwrite", "[excel][template]") {
-    TempFile tf("excel_template_nooverwrite.xlsx");
+    TempPath tf("excel_template_nooverwrite.xlsx");
     auto first = create_excel_template(tf.path);
     REQUIRE(first.has_value());
     auto second = create_excel_template(tf.path);
@@ -594,7 +581,7 @@ TEST_CASE("excel: file not found", "[excel][error]") {
 }
 
 TEST_CASE("excel: no checks or when-then sheet", "[excel][error]") {
-    TempFile tf("excel_no_sheets.xlsx");
+    TempPath tf("excel_no_sheets.xlsx");
     OpenXLSX::XLDocument doc;
     doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
     // Default sheet is Sheet1, not Checks or When-Then
@@ -606,7 +593,7 @@ TEST_CASE("excel: no checks or when-then sheet", "[excel][error]") {
 }
 
 TEST_CASE("excel: unknown simple condition", "[excel][error]") {
-    TempFile tf("excel_err_cond.xlsx");
+    TempPath tf("excel_err_cond.xlsx");
     make_checks_workbook(tf.path, {{"", "Speed", "bogus_cond", "100", "", "", "", ""}});
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(!result.has_value());
@@ -615,7 +602,7 @@ TEST_CASE("excel: unknown simple condition", "[excel][error]") {
 }
 
 TEST_CASE("excel: missing min for stays_between", "[excel][error]") {
-    TempFile tf("excel_err_min.xlsx");
+    TempPath tf("excel_err_min.xlsx");
     make_checks_workbook(tf.path, {{"", "Voltage", "stays_between", "", "", "14.5", "", ""}});
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(!result.has_value());
@@ -624,7 +611,7 @@ TEST_CASE("excel: missing min for stays_between", "[excel][error]") {
 }
 
 TEST_CASE("excel: missing time for settles_between", "[excel][error]") {
-    TempFile tf("excel_err_time.xlsx");
+    TempPath tf("excel_err_time.xlsx");
     make_checks_workbook(tf.path, {{"", "Coolant", "settles_between", "", "85", "95", "", ""}});
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(!result.has_value());
@@ -632,7 +619,7 @@ TEST_CASE("excel: missing time for settles_between", "[excel][error]") {
 }
 
 TEST_CASE("excel: unknown when condition", "[excel][error]") {
-    TempFile tf("excel_err_when.xlsx");
+    TempPath tf("excel_err_when.xlsx");
     make_wt_workbook(
         tf.path, {{"", "Brake", "bogus_when", "50", "Light", "equals", "1", "", "", "100", ""}});
     auto result = load_checks_from_excel(tf.path);
@@ -642,7 +629,7 @@ TEST_CASE("excel: unknown when condition", "[excel][error]") {
 }
 
 TEST_CASE("excel: unknown then condition", "[excel][error]") {
-    TempFile tf("excel_err_then.xlsx");
+    TempPath tf("excel_err_then.xlsx");
     make_wt_workbook(
         tf.path, {{"", "Brake", "exceeds", "50", "Light", "bogus_then", "1", "", "", "100", ""}});
     auto result = load_checks_from_excel(tf.path);
@@ -652,7 +639,7 @@ TEST_CASE("excel: unknown then condition", "[excel][error]") {
 }
 
 TEST_CASE("excel: DBC invalid byte order", "[excel][error]") {
-    TempFile tf("excel_err_byte_order.xlsx");
+    TempPath tf("excel_err_byte_order.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "wrong_order", "FALSE", "1",
                                  "0", "0", "255", "", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
@@ -662,7 +649,7 @@ TEST_CASE("excel: DBC invalid byte order", "[excel][error]") {
 }
 
 TEST_CASE("excel: DBC invalid message ID", "[excel][error]") {
-    TempFile tf("excel_err_msgid.xlsx");
+    TempPath tf("excel_err_msgid.xlsx");
     make_dbc_workbook(tf.path, {{"not_a_number", "Msg", "8", "Sig", "0", "8", "little_endian",
                                  "FALSE", "1", "0", "0", "255", "", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
@@ -677,7 +664,7 @@ TEST_CASE("excel: DBC file not found", "[excel][error]") {
 }
 
 TEST_CASE("excel: DBC no sheet", "[excel][error]") {
-    TempFile tf("excel_dbc_no_sheet.xlsx");
+    TempPath tf("excel_dbc_no_sheet.xlsx");
     OpenXLSX::XLDocument doc;
     doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
     doc.save();
@@ -692,7 +679,7 @@ TEST_CASE("excel: DBC no sheet", "[excel][error]") {
 // ===========================================================================
 
 TEST_CASE("excel: empty rows are skipped", "[excel][simple]") {
-    TempFile tf("excel_empty_rows.xlsx");
+    TempPath tf("excel_empty_rows.xlsx");
     OpenXLSX::XLDocument doc;
     doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
     doc.workbook().worksheet("Sheet1").setName("Checks");
@@ -720,7 +707,7 @@ TEST_CASE("excel: empty rows are skipped", "[excel][simple]") {
 // ===========================================================================
 
 TEST_CASE("excel: DBC factor as integer rational", "[excel][dbc]") {
-    TempFile tf("excel_dbc_int_factor.xlsx");
+    TempPath tf("excel_dbc_int_factor.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1",
                                  "0", "0", "255", "", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
@@ -732,7 +719,7 @@ TEST_CASE("excel: DBC factor as integer rational", "[excel][dbc]") {
 }
 
 TEST_CASE("excel: DBC factor as fractional rational", "[excel][dbc]") {
-    TempFile tf("excel_dbc_frac_factor.xlsx");
+    TempPath tf("excel_dbc_frac_factor.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE",
                                  "0.1", "0", "0", "300", "km/h", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
@@ -748,7 +735,7 @@ TEST_CASE("excel: DBC factor as fractional rational", "[excel][dbc]") {
 // ===========================================================================
 
 TEST_CASE("excel: DBC extended CAN ID via Extended column", "[excel][dbc]") {
-    TempFile tf("excel_dbc_extended_id.xlsx");
+    TempPath tf("excel_dbc_extended_id.xlsx");
     // ID 0x10000 (65536) with Extended=TRUE — must produce ExtendedId
     make_dbc_workbook(tf.path, {{"65536", "ExtMsg", "8", "Sig1", "0", "16", "little_endian",
                                  "FALSE", "1", "0", "0", "65535", "", "", "", "TRUE"}});
@@ -763,7 +750,7 @@ TEST_CASE("excel: DBC extended CAN ID via Extended column", "[excel][dbc]") {
 }
 
 TEST_CASE("excel: DBC standard ID with Extended=FALSE", "[excel][dbc]") {
-    TempFile tf("excel_dbc_std_explicit.xlsx");
+    TempPath tf("excel_dbc_std_explicit.xlsx");
     // ID 256 with Extended=FALSE — must produce StandardId
     make_dbc_workbook(tf.path, {{"256", "StdMsg", "8", "Sig1", "0", "8", "little_endian", "FALSE",
                                  "1", "0", "0", "255", "", "", "", "FALSE"}});
@@ -775,7 +762,7 @@ TEST_CASE("excel: DBC standard ID with Extended=FALSE", "[excel][dbc]") {
 }
 
 TEST_CASE("excel: DBC standard ID without Extended column", "[excel][dbc]") {
-    TempFile tf("excel_dbc_std_empty.xlsx");
+    TempPath tf("excel_dbc_std_empty.xlsx");
     // Extended column empty — defaults to standard
     make_dbc_workbook(tf.path, {{"256", "StdMsg2", "8", "Sig1", "0", "8", "little_endian", "FALSE",
                                  "1", "0", "0", "255", "", "", "", ""}});
@@ -790,7 +777,7 @@ TEST_CASE("excel: DBC standard ID without Extended column", "[excel][dbc]") {
 // ===========================================================================
 
 TEST_CASE("excel: template roundtrip — load checks from empty template", "[excel][template]") {
-    TempFile tf("excel_template_roundtrip.xlsx");
+    TempPath tf("excel_template_roundtrip.xlsx");
     auto create_result = create_excel_template(tf.path);
     REQUIRE(create_result.has_value());
 
@@ -810,9 +797,9 @@ TEST_CASE("excel: template roundtrip — load checks from empty template", "[exc
 // ===========================================================================
 
 TEST_CASE("excel: symlink rejected", "[excel][hardening]") {
-    TempFile real_("excel_real_target.xlsx");
+    TempPath real_("excel_real_target.xlsx");
     make_checks_workbook(real_.path, {{"", "Speed", "never_exceeds", "220", "", "", "", ""}});
-    TempFile link_("excel_symlink.xlsx");
+    TempPath link_("excel_symlink.xlsx");
     std::error_code ec;
     std::filesystem::create_symlink(real_.path, link_.path, ec);
     if (ec) {
@@ -829,7 +816,7 @@ TEST_CASE("excel: symlink rejected", "[excel][hardening]") {
 TEST_CASE("excel: file size cap rejected", "[excel][hardening]") {
     // Build a non-archive plain file > 64 MiB.  load_checks_from_excel
     // rejects it on size BEFORE attempting OpenXLSX open.
-    TempFile tf("excel_oversize.xlsx");
+    TempPath tf("excel_oversize.xlsx");
     {
         std::ofstream ofs(tf.path, std::ios::binary);
         std::vector<char> chunk(1024 * 1024, '\xAA');
@@ -847,7 +834,7 @@ TEST_CASE("excel: file size cap rejected", "[excel][hardening]") {
 TEST_CASE("excel: ZIP central-directory bomb rejected", "[excel][hardening]") {
     // Forge a tiny "ZIP" with a single CD entry whose uncompressed_size
     // claims to be 1 GiB.  The walker should reject without unpacking.
-    TempFile tf("excel_zip_bomb.xlsx");
+    TempPath tf("excel_zip_bomb.xlsx");
     {
         std::ofstream ofs(tf.path, std::ios::binary);
         // -- One CD entry header, signature 0x02014b50, uncompressed_size = 1 GiB --
@@ -913,7 +900,7 @@ TEST_CASE("excel: create_template parent dir missing rejected", "[excel][hardeni
 // Value cell is written directly as a native int to force a number cell,
 // bypassing the all-text write_row helper.
 TEST_CASE("excel: strict rejects a Value stored as a native number", "[excel][strict]") {
-    TempFile tf("excel_strict_number_value.xlsx");
+    TempPath tf("excel_strict_number_value.xlsx");
     OpenXLSX::XLDocument doc;
     doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
     doc.workbook().worksheet("Sheet1").setName("Checks");
@@ -931,7 +918,7 @@ TEST_CASE("excel: strict rejects a Value stored as a native number", "[excel][st
 }
 
 TEST_CASE("excel: DBC strict rejects a Factor stored as a native number", "[excel][strict][dbc]") {
-    TempFile tf("excel_strict_number_factor.xlsx");
+    TempPath tf("excel_strict_number_factor.xlsx");
     OpenXLSX::XLDocument doc;
     doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
     doc.workbook().worksheet("Sheet1").setName("DBC");
@@ -979,7 +966,7 @@ TEST_CASE("excel: DBC strict rejects a Factor stored as a native number", "[exce
 
 TEST_CASE("excel: DBC Message ID storing dot-free scientific notation is refused",
           "[excel][dbc][strict]") {
-    TempFile tf("excel_dbc_msgid_sci.xlsx");
+    TempPath tf("excel_dbc_msgid_sci.xlsx");
     make_dbc_workbook_with_raw_id(tf.path, 31337421, "1e16");
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE_FALSE(result.has_value()); // a prefix-parse would load Message ID 1
@@ -988,7 +975,7 @@ TEST_CASE("excel: DBC Message ID storing dot-free scientific notation is refused
 }
 
 TEST_CASE("excel: DBC Message ID with an empty stored <v/> is refused", "[excel][dbc][strict]") {
-    TempFile tf("excel_dbc_msgid_empty_v.xlsx");
+    TempPath tf("excel_dbc_msgid_empty_v.xlsx");
     make_dbc_workbook_with_raw_id(tf.path, 31337421, "");
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE_FALSE(result.has_value()); // a prefix-parse would load Message ID 0
@@ -998,7 +985,7 @@ TEST_CASE("excel: DBC Message ID with an empty stored <v/> is refused", "[excel]
 // Positive lock guarding the raw check from over-rejecting: a native number
 // cell whose stored text is a plain digit run is a legitimate Message ID.
 TEST_CASE("excel: DBC Message ID as a native integer cell loads", "[excel][dbc]") {
-    TempFile tf("excel_dbc_msgid_native.xlsx");
+    TempPath tf("excel_dbc_msgid_native.xlsx");
     make_dbc_workbook_with_raw_id(tf.path, 256, nullptr);
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -1010,7 +997,7 @@ TEST_CASE("excel: DBC Message ID as a native integer cell loads", "[excel][dbc]"
 // loader's own "Row N: invalid 'Field'" prefix — the kernel knows the literal,
 // not the workbook position.
 TEST_CASE("excel: kernel decimal refusal carries row and field context", "[excel][dbc]") {
-    TempFile tf("excel_decimal_ctx.xlsx");
+    TempPath tf("excel_decimal_ctx.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE",
                                  "abc", "0", "0", "255", "", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
@@ -1028,4 +1015,36 @@ TEST_CASE("excel: demo workbook DBC loads as standard messages", "[excel][dbc][p
     CHECK(result->messages.size() == 2);
     for (const auto& msg : result->messages)
         CHECK(std::holds_alternative<StandardId>(msg.id));
+}
+
+TEST_CASE("temp path: every shape is removed when its scope ends", "[excel][temp]") {
+    // The three suites that share this type rely on the removal, and nothing
+    // else asserts it: a destructor that stopped removing would leave scratch
+    // files behind for every run without failing a single case.
+    std::filesystem::path reserved;
+    std::filesystem::path written;
+    std::filesystem::path made;
+    {
+        const TempPath bare{"aletheia_temp_path_bare.bin"};
+        reserved = bare.path;
+        std::ofstream{bare.path} << "x";
+        REQUIRE(std::filesystem::exists(reserved));
+
+        const TempPath with_content{"aletheia_temp_path_content.txt", "hello"};
+        written = with_content.path;
+        REQUIRE(std::filesystem::exists(written));
+        std::ifstream in{written};
+        std::string body;
+        in >> body;
+        CHECK(body == "hello");
+
+        const TempPath dir{std::filesystem::temp_directory_path() / "aletheia_temp_path_dir",
+                           AsDirectory{}};
+        made = dir.path;
+        std::ofstream{made / "inside.txt"} << "y";
+        REQUIRE(std::filesystem::is_directory(made));
+    }
+    CHECK_FALSE(std::filesystem::exists(reserved));
+    CHECK_FALSE(std::filesystem::exists(written));
+    CHECK_FALSE(std::filesystem::exists(made));
 }

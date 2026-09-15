@@ -24,6 +24,10 @@
 #include <utility>
 #include <vector>
 
+#include "temp_path.hpp"
+
+using aletheia::test::TempPath;
+
 namespace {
 
 auto repo_root() -> std::filesystem::path {
@@ -57,30 +61,6 @@ auto run_capture(std::vector<std::string> args) -> std::pair<int, std::string> {
 
 // A DBC written into the temp directory for one test and removed by its own
 // destructor, so no test repeats the removal by hand or leaves a file behind.
-class TempDbc {
-    std::filesystem::path path_;
-
-public:
-    TempDbc(std::string_view name, std::string_view text)
-        : path_(std::filesystem::temp_directory_path() / name) {
-        std::ofstream out{path_};
-        out << text;
-        out.close();
-        if (!out) {
-            throw std::runtime_error("cannot write " + path_.string());
-        }
-    }
-    TempDbc(const TempDbc&) = delete;
-    TempDbc(TempDbc&&) = delete;
-    auto operator=(const TempDbc&) -> TempDbc& = delete;
-    auto operator=(TempDbc&&) -> TempDbc& = delete;
-    ~TempDbc() {
-        std::error_code ec;
-        std::filesystem::remove(path_, ec);
-    }
-
-    [[nodiscard]] auto string() const -> std::string { return path_.string(); }
-};
 
 // An invalid DBC derived from the minimal.dbc fixture by renaming EngineTemp
 // to EngineSpeed — a duplicate signal name, which the verified parser rejects
@@ -158,10 +138,10 @@ TEST_CASE("signals text renders a fine-resolution factor exactly via format_rati
     // factor 1/8192 = 0.0001220703125, which every digit of must survive the
     // render: a float64 path drops the tail. example.dbc has no such fine
     // factor, so the test writes its own.
-    const TempDbc dbc{"aletheia_fine_factor.dbc",
-                      "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_:\n\n"
-                      "BO_ 1024 FineMsg: 8 ECU4\n"
-                      " SG_ FineSignal : 0|16@1+ (0.0001220703125,0) [0|8] \"x\" Vector__XXX\n"};
+    const TempPath dbc{"aletheia_fine_factor.dbc",
+                       "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_:\n\n"
+                       "BO_ 1024 FineMsg: 8 ECU4\n"
+                       " SG_ FineSignal : 0|16@1+ (0.0001220703125,0) [0|8] \"x\" Vector__XXX\n"};
     auto [code, out] = run_capture({"signals", "--dbc", dbc.string()});
     CHECK(code == 0);
     CHECK(out.find("x0.0001220703125") != std::string::npos);
@@ -171,7 +151,7 @@ TEST_CASE("validate renders the issue list and exits 1 when the parser rejects t
     if (!lib_available()) {
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
     }
-    const TempDbc dbc{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
+    const TempPath dbc{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
     auto [code, out] = run_capture({"validate", "--dbc", dbc.string()});
     CHECK(code == 1);
     CHECK(out.find("Validation FAILED") != std::string::npos);
@@ -184,7 +164,7 @@ TEST_CASE("validate --json emits the has_errors fail shape when the parser rejec
     if (!lib_available()) {
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
     }
-    const TempDbc dbc{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
+    const TempPath dbc{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
     auto [code, out] = run_capture({"validate", "--dbc", dbc.string(), "--json"});
     // The exit code reflects the validation outcome in both output modes:
     // --json on a has_errors result exits 1 like text mode.
@@ -221,11 +201,11 @@ TEST_CASE("rejected and unparseable DBCs stay fatal outside the validate report 
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
     }
     // Non-validate subcommands die with the stringified parse error.
-    const TempDbc dup{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
+    const TempPath dup{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
     CHECK(run({"signals", "--dbc", dup.string()}) == 2);
     // A syntactically unparseable DBC has no issues payload; validate keeps
     // the fatal-error path.
-    const TempDbc garbage{"aletheia_garbage.dbc", "this is not a dbc file\n"};
+    const TempPath garbage{"aletheia_garbage.dbc", "this is not a dbc file\n"};
     CHECK(run({"validate", "--dbc", garbage.string()}) == 2);
 }
 
