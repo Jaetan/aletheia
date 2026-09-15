@@ -1,6 +1,6 @@
 # Task 006: file review of `cpp/benchmarks/stability_bench.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/benchmarks/stability_bench.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/006 (signed later by the dribble).
+
+Claims and guards: the four sub-checks and their gates (the JSON contract consumed by tools/stability_run.py and gated by check_stability_bench; before and after payloads compared for identical shape and key order); the harness has teeth (the header claimed a forward-revert done once by hand; now probes/cpp_benchmarks_stability_bench.cpp--fd-leak-is-caught.sh compiles a variant leaking one descriptor per cycle and requires the FD gate to fail on it while the clean build passes); the env counts (new probe, red before: a non-numeric cycle count silently ran the default ten cycles); the malloc_info summary (the comment said per-heap totals are summed to avoid double-counting the aggregate, the loop summed every total; measured with a scratch program: two heaps carry two totals each and the aggregate carries three, so arena bytes were counted twice; the aggregate alone is summed now, the reading moved from 5155852 to 4679813 bytes on the same run, a 476 KB difference against a 50 MiB cap, so the cap keeps its meaning); every step of a cycle checked (no injectable failure path, stated).
+
+Findings fixed: (a) the double-counting malloc_info sum and its false comment; (b) start_stream, send_frame and end_stream results were cast to void, so a cycle whose stream never started still measured; every result is checked and thrown through one helper; (c) a bad or non-positive ALETHEIA_STABILITY_CYCLES or FRAMES fell back to the default silently; it is now a setup error with exit 2 and a message; (d) an empty ALETHEIA_LIB was passed to dlopen; empty counts as unset, as in the benchmark; (e) the open_memstream buffer and FILE were released by hand on two paths; both are unique_ptr with the C deleters, the stream closed by scope before the buffer is read; (f) file-local functions moved out of the anonymous namespace to static, the project's stated style, and the three kCamel constants renamed to the lower_case rule; (g) iostream, sstream and stoi replaced by print, from_chars and string_view; (h) history and a category label removed from the header, dates removed from the threshold and warmup comments, the measurements kept. tidy lens: 37 unique diagnostics at base, 10 after.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/006
+claims: 6 rows, 3 without a guard: probes added for the teeth and the env counts; the checked-cycle row stays without a probe (no injectable failure), stated
+1 line per line: checked, all 362 lines read; every measurement asked what it reads and every discard what it hides
+2 guidelines: finding, results never discarded, RAII for the C resources, static for internal linkage, naming rule of the project
+3 modernize: finding, print/format/from_chars/unique_ptr/ranges::all_of; gate: JSON shape and key order identical before and after, harness passes, format gate green, build clean
+4 catalogue: checked, AGENTS/cpp.md long-run resource leakage sub-checks (the four measured here) and category 27 idioms
+5 value semantics: checked, the DBC and path cross by const reference as before; nothing copied per frame
+6 raii: finding, open_memstream buffer and FILE now owned by unique_ptr; the client and backend already were
+7 dedup: finding, four parse checks and three discards became one require helper
+8 ground truth: finding, the malloc_info comment was false (measured); the teeth claim was history and is a probe now; checked true: the /proc fields, the anon_inode exclusion, the tools that consume the JSON
+9 history: finding, forward-revert note and two dated sentences removed, measurements kept
+10 simpler: finding, see 3 and 7
+11 comments: 61 to 62 (one more line, in the task that fixed the double count), code 270 to 276
+sweep: no mutation names this file; stability_bench target builds clean, harness exit 0 on a short run after the edit
+probes: 2 added under probes/cpp_benchmarks_stability_bench.cpp--*.sh, store 15 run 15 pass
+decision points: none
+```
 
 ## Contract (carried whole)
 
