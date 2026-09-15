@@ -133,13 +133,16 @@ def run_capture(
     *,
     cwd: Path | None = None,
     check: bool = False,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run ``cmd`` in text mode, capturing stdout and stderr.
 
     A thin wrapper over ``subprocess.run`` with the project's standard options.
-    ``cmd[0]`` should be an absolute path (see ``find_executable``).
+    ``cmd[0]`` should be an absolute path (see ``find_executable``).  ``env``
+    replaces the whole environment, as ``subprocess.run`` does, so a caller
+    adding one variable passes ``os.environ | {...}``.
     """
-    return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, check=check)
+    return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, check=check, env=env)
 
 
 def git_ls_files(repo: Path, *patterns: str) -> list[str]:

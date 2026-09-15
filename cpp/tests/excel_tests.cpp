@@ -27,6 +27,10 @@
 
 #include "temp_path.hpp"
 
+#include "repo_root.hpp"
+
+using aletheia::test::repo_root;
+
 using aletheia::test::AsDirectory;
 using aletheia::test::TempPath;
 
@@ -84,14 +88,6 @@ void write_row(OpenXLSX::XLWorksheet& ws, int row, const std::vector<std::string
         else
             ws.cell(row, col).value() = s; // numbers AND text → TEXT cell
     }
-}
-
-/// Repo root for loading the shared demo workbook fixture (set by CMake via the
-/// ALETHEIA_REPO_ROOT env var; falls back to the current directory).
-auto repo_root() -> std::filesystem::path {
-    if (const char* env = std::getenv("ALETHEIA_REPO_ROOT"); env != nullptr)
-        return std::filesystem::path(env);
-    return std::filesystem::current_path();
 }
 
 /// Create a one-sheet workbook: the sheet renamed, its header row written and

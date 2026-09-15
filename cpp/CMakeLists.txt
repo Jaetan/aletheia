@@ -417,6 +417,8 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     target_link_libraries(integration_tests
         PRIVATE aletheia-cpp Threads::Threads Catch2::Catch2WithMain)
     add_test(NAME integration_tests COMMAND integration_tests)
+    set_tests_properties(integration_tests PROPERTIES
+        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
     # Cross-binding parity gate (real .so, Catch2, nlohmann_json,
     # detail/json.hpp). Reads python/tests/fixtures/dbc_corpus/*.dbc through the
@@ -429,6 +431,8 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     target_link_libraries(dbc_corpus_parity_tests
         PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
     add_test(NAME dbc_corpus_parity_tests COMMAND dbc_corpus_parity_tests)
+    set_tests_properties(dbc_corpus_parity_tests PROPERTIES
+        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
     # YAML loader tests (yaml-cpp, Catch2). rts_setup_listener.cpp:
     # numeric check fields are parsed via the kernel decimal SSOT
@@ -560,6 +564,8 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         PRIVATE aletheia-cpp Catch2::Catch2WithMain)
     add_test(NAME cross_binding_integration_tests
         COMMAND cross_binding_integration_tests)
+    set_tests_properties(cross_binding_integration_tests PROPERTIES
+        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
     # Doc-example harness.
     #

@@ -453,7 +453,15 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
     raw = built
 
     unit_tests = build_dir / "unit_tests"
-    runner_proc = run_capture([mull_runner, str(unit_tests)], cwd=cpp_root)
+    # The mutation binary folds in the real-FFI integration tests, which read
+    # the repository root from the environment the way ctest passes it.  Mull
+    # runs the binary directly, so nothing would set it and every mutant would
+    # read killed because the test died at setup.
+    runner_proc = run_capture(
+        [mull_runner, str(unit_tests)],
+        cwd=cpp_root,
+        env=os.environ | {"ALETHEIA_REPO_ROOT": str(REPO_ROOT)},
+    )
     raw += "=== mull-runner-22 ===\n" + runner_proc.stdout + runner_proc.stderr + "\n"
     (artifact_dir / "cpp.raw.txt").write_text(raw)
 

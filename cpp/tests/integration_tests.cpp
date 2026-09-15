@@ -25,6 +25,10 @@
 #include <utility>
 #include <vector>
 
+#include "repo_root.hpp"
+
+using aletheia::test::repo_root;
+
 using namespace aletheia;
 namespace fs = std::filesystem;
 
@@ -43,7 +47,7 @@ static auto find_lib() -> fs::path {
     }
 
     // Default: project build directory
-    auto project_root = fs::path{__FILE__}.parent_path().parent_path().parent_path();
+    auto project_root = repo_root();
     auto lib = project_root / "build" / "libaletheia-ffi.so";
     if (fs::exists(lib))
         return lib;

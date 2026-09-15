@@ -51,9 +51,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "repo_root.hpp"
 #include "temp_path.hpp"
 
 using aletheia::test::AsDirectory;
+using aletheia::test::repo_root;
 using aletheia::test::TempPath;
 
 namespace fs = std::filesystem;
@@ -89,10 +91,6 @@ auto getenv_required(const char* name) -> std::string {
         std::string{name} +
         " env var not set; expected from ctest set_tests_properties(ENVIRONMENT ...) "
         "in cpp/CMakeLists.txt");
-}
-
-auto repo_root() -> fs::path {
-    return fs::path{getenv_required("ALETHEIA_REPO_ROOT")};
 }
 
 auto doc_include_dir() -> std::string {

@@ -26,17 +26,13 @@
 
 #include "temp_path.hpp"
 
+#include "repo_root.hpp"
+
+using aletheia::test::repo_root;
+
 using aletheia::test::TempPath;
 
 namespace {
-
-auto repo_root() -> std::filesystem::path {
-    const char* env = std::getenv("ALETHEIA_REPO_ROOT");
-    if (env == nullptr || *env == '\0') {
-        throw std::runtime_error("ALETHEIA_REPO_ROOT env var not set (ctest sets it)");
-    }
-    return std::filesystem::path{env};
-}
 
 auto lib_available() -> bool {
     if (const char* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0') {
