@@ -1,6 +1,6 @@
 # Task 090: file review of `cpp/tests/unit_tests_validation.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/unit_tests_validation.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/090 (signed later by the dribble).
+
+Claims and guards: the payload-length refusals are asserted on all three entry points that take one, each by kind and by the two message fragments that name the observed and expected lengths; the negative-timestamp refusals likewise on the three event senders; the code-to-bytes mapping is asserted across the classic and CAN-FD ranges; the rational comparisons are asserted including the negative cases; and the four boundary-failure paths are asserted by kind, which is what distinguishes a caller's own mistake from a library-load failure. The environment guard that the last two cases need is a scope object that restores what it found, which is what makes them safe to run in sequence with the rest.
+
+Findings fixed: the section comment cited the Python and Go counterparts by line number and both had drifted, one onto a blank line and one onto an unrelated comment, so it names the two symbols instead; the same comment said the kind was never constructed before, which is history, as was a case explaining itself by a migration; and the scope guard spelled its deleted assignments in the leading-return form where the rest of the tree uses the trailing one.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/090
+claims: 12 rows, 0 without a guard: each is a case here
+1 line per line: checked, all 335 lines read
+2 guidelines: checked, C.21 holds on the scope guard, which deletes all four and defines the destructor
+3 modernize: finding, the deleted assignments are the trailing-return form now
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the error-kind rules
+5 value semantics: checked
+6 raii: checked, the environment guard is the file's own answer to a mutated process environment
+7 dedup: checked
+8 ground truth: finding, two drifted citations; checked true: both counterpart symbols exist under their own names
+9 history: finding, two comments
+10 simpler: checked
+11 comments: 43 to 41, code 243 to 243
+sweep: this file is part of unit_tests, which the mutation build instruments, and no mutation names it; tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: the from-env probe added at the header's own task covers the same two refusals from outside the suite and is green; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
