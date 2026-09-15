@@ -1,6 +1,6 @@
 # Task 033: file review of `cpp/src/detail/ffi_logic.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/detail/ffi_logic.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/034 (signed later by the dribble; shared snapshot with task 034).
+
+Claims and guards: the argv layout, the always-present heap cap, the mismatch pair order and the status-to-error conversion (unit_tests_ffi_logic; Mull names six mutants in this file, all killed before and after the edit; test_rts_params_parity pins the constants against docs/RESOURCE_BUDGETS.yaml, whose argv_order the header cites).
+
+Finding fixed: ffi_error_from_status released the Haskell-owned message by hand after copying it; a unique_ptr with the free function as deleter owns it on every path, and a null message skips the deleter, which is the same behaviour the two branches expressed.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/034
+claims: 3 rows, 0 without a guard
+1 line per line: checked, all 64 lines read
+2 guidelines: checked, pure functions over values, one release site
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md category 13 (string ownership across the FFI: now a deleter)
+5 value semantics: checked
+6 raii: finding, the manual free replaced by an owning pointer
+7 dedup: checked, none
+8 ground truth: checked, argv_order exists in the SSOT, the two constants in rts_params.hpp
+9 history: checked, none
+10 simpler: checked
+11 comments: 13 to 15 (two more lines, in the task that fixed the manual release), code 41 to 39
+sweep: ffi_logic.cpp names six mutants, all KILLED after the edit (Mull 100 percent); tidy gate zero
+probes: none added
+decision points: none
+```
 
 ## Contract (carried whole)
 

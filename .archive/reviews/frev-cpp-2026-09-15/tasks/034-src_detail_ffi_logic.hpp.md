@@ -1,6 +1,6 @@
 # Task 034: file review of `cpp/src/detail/ffi_logic.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/detail/ffi_logic.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/034 (signed later by the dribble).
+
+Claims and guards: the three declarations' contracts (unit_tests_ffi_logic); the argv layout citation (docs/RESOURCE_BUDGETS.yaml argv_order, rts_params.hpp rts_heap_cap_flag and rts_default_cores all exist).
+
+Findings fixed: (a) "collapses the error block that was triplicated" and "unlike the old optional form, which returned nullopt" were history; both rewritten as the standing design; (b) the three pure functions are [[nodiscard]].
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/034
+claims: 2 rows, 0 without a guard
+1 line per line: checked, all 55 lines read
+2 guidelines: finding, nodiscard on the three pure functions
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md category 14(e) (the testability rationale is the file's purpose)
+5 value semantics: checked
+6 raii: n/a in the interface
+7 dedup: checked, none
+8 ground truth: checked, every citation resolves
+9 history: finding, two sentences
+10 simpler: checked
+11 comments: 33 to 32, code 14 to 16
+sweep: no mutation names this file; the tests of its definitions green
+probes: none added; store 42 run, 41 pass, 1 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 

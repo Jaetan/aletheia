@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -52,12 +53,11 @@ auto rts_cores_mismatch(int requested, int active) -> std::optional<std::pair<in
 
 auto ffi_error_from_status(std::int8_t status, char* err_str, void (*free_str)(char*))
     -> std::optional<AletheiaError> {
-    if (status != 0) {
-        const std::string msg = err_str != nullptr ? err_str : "Unknown error";
-        if (err_str != nullptr)
-            free_str(err_str);
-        return AletheiaError{ErrorKind::Protocol, msg};
-    }
+    // The Haskell-owned message is released by the deleter on every path out,
+    // and a null message (unique_ptr skips the deleter) reads as unknown.
+    const std::unique_ptr<char, void (*)(char*)> owned{err_str, free_str};
+    if (status != 0)
+        return AletheiaError{ErrorKind::Protocol, owned ? owned.get() : "Unknown error"};
     return std::nullopt;
 }
 
