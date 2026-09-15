@@ -1,6 +1,6 @@
 # Task 016: file review of `cpp/include/aletheia/enrich.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/enrich.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/016 (signed later by the dribble).
+
+Claims and guards: format_formula and build_diagnostic render through the kernel and throw Ffi when it is unavailable (enrich.cpp calls format_rational_ffi, whose vocal contract rts_init_renderer_uninitialized_tests exercises); collect_signals deduplicates in order (unit_tests_enrich has the multi-signal and dedup cases). All three rows guarded.
+
+Finding fixed: the three value-returning functions were not [[nodiscard]]; they are now, and the whole tree builds with zero warnings, so no caller discards them.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/016
+claims: 3 rows, 0 without a guard
+1 line per line: checked, all 30 lines read
+2 guidelines: finding, nodiscard on the three pure functions
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md category 30 (the rendering goes through the kernel renderer, the cross-binding source of the strings)
+5 value semantics: checked, formulas by const reference (move-only trees), results by value
+6 raii: n/a
+7 dedup: checked, none
+8 ground truth: checked, both throw claims trace to the renderer's contract
+9 history: checked, none
+10 simpler: checked
+11 comments: 13 to 13, code 10 to 10
+sweep: no mutation names this file; enrich.cpp carries no Mull mutants at base; whole tree rebuilt clean, unit and log-event tests green, tidy gate zero
+probes: none added; store 27 run, 26 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 
