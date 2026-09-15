@@ -21,7 +21,9 @@ namespace aletheia {
 
 // ---------------------------------------------------------------------------
 // Lazy mutable index — encapsulates the cache behind a private optional map.
-// Public interface is const-safe: ensure() populates once, find() reads.
+// Public interface is const-safe: ensure() populates once, find() reads. The
+// cache is per instance and not synchronised, so a first ensure() racing
+// another thread's ensure() or find() on the same index is not supported.
 // ---------------------------------------------------------------------------
 
 namespace detail {
@@ -160,9 +162,8 @@ enum class DbcVarType : int {
 struct DbcEnvironmentVar {
     std::string name;
     DbcVarType var_type;
-    // Exact rationals — cantools exposes these as int-or-float depending on
-    // var_type; Python uses ``Fraction``, C++ uses ``Rational`` to preserve
-    // decimal intent through the wire round-trip.
+    // Exact rationals: Python uses ``Fraction``, C++ uses ``Rational``, so
+    // decimal intent survives the wire round-trip whatever var_type says.
     Rational initial;
     Rational minimum;
     Rational maximum;
@@ -344,7 +345,7 @@ using DbcAttribute = std::variant<DbcAttrDef, DbcAttrDefault, DbcAttrAssign>;
 // (value, label) entries.  Populated only when the text-parse path
 // encounters a VAL_ line whose (canId, signalName) pair does not match
 // any signal in the parsed messages; the entries are preserved verbatim
-// so the validator's CHECK 23 UnknownValueDescriptionTarget can warn at
+// so the validator's UnknownValueDescriptionTarget check can warn at
 // validation time.
 // ---------------------------------------------------------------------------
 struct DbcRawValueDesc {
@@ -369,13 +370,13 @@ struct DbcRawValueDesc {
 struct DbcDefinition {
     std::string version; // plain string (not a domain identifier)
     std::vector<DbcMessage> messages;
-    // Tier 1 DBC metadata (Agda ``DBC`` record fields 3-5). Absent on the
-    // wire equals empty here — format_dbc always emits all three arrays
-    // even when they are empty.
+    // Tier 1 DBC metadata (the Agda ``DBC`` record's signalGroups,
+    // environmentVars and valueTables). Absent on the wire equals empty here:
+    // format_dbc always emits all three arrays even when they are empty.
     std::vector<DbcSignalGroup> signal_groups;
     std::vector<DbcEnvironmentVar> environment_vars;
     std::vector<DbcValueTable> value_tables;
-    // Tier 2 DBC metadata (Agda ``DBC`` record fields 6-8).
+    // Tier 2 DBC metadata (the record's nodes, comments and attributes).
     std::vector<DbcNode> nodes;
     std::vector<DbcComment> comments;
     std::vector<DbcAttribute> attributes;
