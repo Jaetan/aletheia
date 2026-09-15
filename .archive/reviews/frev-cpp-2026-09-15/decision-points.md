@@ -81,6 +81,8 @@ The question, for both together since both change the same signatures: land the 
 
 ## `cpp/benchmarks/`: the two benchmark sources are in no gate, and the ruling deferred deciding about them
 
+**Ruled 2026-09-15: widen the gate and fix the 94. Carried by task 124, which needed no configuration for the benchmarks at all.**
+
 **Opened at the close of the ruling pass, by the measurement the ruling on the tests asked for.**
 
 The ruling that put the tests inside the lint gate said the informational run counted tests and benchmarks together and that the two were to be separated before anything was decided about benchmarks. They are separated now and the tests are at zero. The benchmarks report 94 findings over two sources, and the record holds the breakdown: 17 pointer-arithmetic sites where the argument vector is read raw, 12 aggregates without designated initialisers, 11 each of missing const and discarded returns, 8 helpers that could take internal linkage, 6 include repairs, 4 objects of static storage duration whose constructors can throw, 3 functions past the size threshold, 3 uses of `using namespace`, 2 non-const globals, 2 exceptions able to escape `main`, and the rest single sites.
@@ -90,6 +92,18 @@ They are not test code, so the reasons in the tests' own configuration do not ca
 The question: widen the gate again to `cpp/benchmarks/` and fix the 94 the way the tests were fixed, which puts every C++ source the repository compiles under one gate; widen the gate and give the benchmarks a configuration of their own for what measurement code earns, which is a smaller change but starts a third configuration whose entries would have to be measured and held by probes like the other two; or leave the benchmarks out and say so in the coding standard, on the ground that a benchmark is measured rather than shipped and that its findings cannot reach a consumer. The measurement does not decide it: nothing here is a defect in behaviour, and the benchmarks pass their own harness today.
 
 ## `cpp/CMakeLists.txt`: the dependency pins cover what the build fetches and not what those fetches pull
+
+**Ruled 2026-09-15: pin the spreadsheet library's own fetches too. Carried at the close.**
+
+The two projects it fetches are declared here now, before the library is made available, because
+FetchContent takes the first declaration of a name and ignores later ones. Both are pinned to a release
+archive whose hash was measured from the download: the zip implementation at 3.0.2 and the XML parser at
+v1.15, the same versions the library asked for by git tag. The names carry the suffix the library's own
+helper appends, and the declarations pass the two extra arguments that helper passes, so its targets
+still resolve. Verified by configuring a fresh tree and reading what landed: both sources are extracted
+archives rather than git clones, and the subbuild records our URLs. The probe that held the old claim
+now also reads what the configured tree fetched and fails on anything this file does not declare, which
+is the half that was missing; it is red with either new declaration removed.
 
 **Opened at the close of the ruling pass, by a probe that went red after the spreadsheet library was bumped.**
 

@@ -1,28 +1,10 @@
-# The split the ruling asked for: the tests counted apart from the benchmarks,
-# taken before anything was decided about either.
+# The split the ruling asked for: the tests counted apart from the benchmarks.
+# Both are now inside the gate, so both read zero; the counts they read before
+# are the measurement each ruling was taken on.
 
-cpp/tests, under the gate as it now runs (28 sources, 4 headers): 0
-cpp/tests/fuzz, under the same gate run against the fuzz tree (4 sources): 0
+cpp/tests, under the gate (28 sources, 4 headers): 0, from 571
+cpp/tests/fuzz, under the same gate run against the fuzz tree (4 sources): 0, from 13
+cpp/benchmarks, under the gate (2 sources): 0, from 94
 
-cpp/benchmarks, not in any gate (2 sources): 94, by check:
-     17 cppcoreguidelines-pro-bounds-pointer-arithmetic
-     12 modernize-use-designated-initializers
-     11 misc-const-correctness
-     11 bugprone-unused-return-value
-      8 misc-use-internal-linkage
-      6 misc-include-cleaner
-      5 boost-use-ranges
-      4 bugprone-throwing-static-initialization,cert-err58-cpp
-      3 readability-function-size
-      3 modernize-use-ranges
-      3 google-build-using-namespace
-      2 readability-identifier-naming
-      2 llvm-use-ranges
-      2 cppcoreguidelines-avoid-non-const-global-variables
-      2 bugprone-exception-escape
-      1 readability-math-missing-parentheses
-      1 cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays
-
-# At the base the two were counted together: 1434 diagnostics, 1120 at the
-# pre-ruling close. The fall from 1120 to 94 is the tests being fixed and the
-# Catch2 bump removing a category the vendored header generated.
+# At the base the tests and the benchmarks were counted together and gated
+# nowhere: 1434 diagnostics, 1120 at the pre-ruling close.

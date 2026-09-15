@@ -38,6 +38,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Every dependency the C++ build fetches is pinned, transitively.** The bumped
+  spreadsheet library stopped vendoring its zip and XML implementations and started
+  fetching them itself, from a git tag and with no hash, so the pin claim covered the
+  four archives the build downloads and not the two further projects one of them pulled
+  in. Both are now declared in `cpp/CMakeLists.txt` ahead of it and pinned to a release
+  archive with a measured hash, at the versions it asked for. The probe that held the
+  claim was widened with the half that was missing: it reads what the configured tree
+  actually fetched and fails on anything the build file does not declare.
+
 - **The C++ benchmark sources are inside the lint gate too.** With the tests at zero the
   two benchmark sources were the last C++ the repository compiles outside any gate, and
   they reported 94 findings. All 94 are fixed and none is suppressed: no benchmark

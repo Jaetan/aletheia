@@ -1,10 +1,10 @@
 code	comment	blank	ratio	file
 21	14	9	0.67	cpp/.clang-format
-59	69	4	1.17	cpp/.clang-tidy
+61	75	4	1.23	cpp/.clang-tidy
 327	265	67	0.81	cpp/CMakeLists.txt
 76	0	23	0.00	cpp/README.md
-960	118	145	0.12	cpp/benchmarks/benchmark.cpp
-273	64	31	0.23	cpp/benchmarks/stability_bench.cpp
+1037	133	149	0.13	cpp/benchmarks/benchmark.cpp
+294	67	32	0.23	cpp/benchmarks/stability_bench.cpp
 3	0	2	0.00	cpp/cmake/aletheia-cpp-config.cmake.in
 15	31	1	2.07	cpp/include/aletheia/aletheia.hpp
 99	93	34	0.94	cpp/include/aletheia/backend.hpp
@@ -106,4 +106,4 @@ code	comment	blank	ratio	file
 74	26	10	0.35	cpp/tests/unit_tests_property.cpp
 244	41	49	0.17	cpp/tests/unit_tests_validation.cpp
 515	35	48	0.07	cpp/tests/yaml_tests.cpp
-17698	4965	2924	0.28	TOTAL
+17798	4989	2929	0.28	TOTAL

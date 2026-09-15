@@ -64,14 +64,18 @@ The round-end record is re-taken under `end/` when this pass closes. The record 
 
 ## Ruling pass close
 
-Closed 2026-09-15. Fourteen tasks, 111 to 122 plus 095, 099 and 100, each snapshotted with its own
-message. The list is empty but for 123, which was requested during the pass rather than found by it.
+Closed 2026-09-15. Fifteen tasks, 111 to 122 and 124 plus 095, 099 and 100, each snapshotted with its
+own message. 124 carries the ruling the benchmarks measurement opened at the first close: the gate
+widened to them and all 94 of their findings were fixed, with no configuration of their own needed.
+The list is empty. One piece of work was requested during the pass rather than found by it, a rewrite
+of the suites in behaviour phrasing, and is ruled to open its own round; it is recorded in the
+repository's task store rather than here, because a task is not a file this record writes.
 
 - round-end record re-taken under `end/`, diffed against `base/` and against the pre-ruling close in
   `end/summary.md`. The pre-ruling close survives as its own snapshot.
 - every gate green: fifteen suites deterministic and randomised, both sanitizer lanes, the format gate
-  over every tracked C++ source, the lint gate over `cpp/src` and `cpp/tests` run from `cpp/`, the CMake
-  lint gate, and the twelve fast-tier steps
+  over every tracked C++ source, the lint gate over `cpp/src`, `cpp/tests` and `cpp/benchmarks` run
+  from `cpp/`, the CMake lint gate, and the twelve fast-tier steps
 - mutation sweep 62 mutants, 62 killed, no survivor and no timeout; the recorded baseline was corrected
   to the run
 - probe store 77 probes, 77 pass. The base ran 62 and passed 60; the two that were red by design are
@@ -89,8 +93,9 @@ message. The list is empty but for 123, which was requested during the pass rath
 - one probe that could flake was found and fixed: the mutation baseline check inherited an environment
   variable that changes the sweep's own score, so it answered differently depending on whether the
   caller had sourced the environment script. It and the mutation runner drop the variable now
-- decision points: two, both opened at the close and both recorded with the round. The benchmarks are
-  outside every gate with 94 findings, which the ruling on the tests deferred until the two were counted
-  apart; and the dependency pins cover what the build fetches and not what those fetches pull
-- follow-ups created during the pass: 123 (`cpp/tests/`, the suites read as assertions rather than as
-  behaviour), requested rather than found, and not worked
+- decision points: two were opened at the first close and both are ruled. The benchmarks are carried
+  by 124; the dependency pins now cover the two projects the spreadsheet library fetches for itself,
+  each pinned to a release archive with a measured hash, and the probe that held the claim reads what
+  the configured tree fetched rather than only what this file declares. None carries to a next round
+- follow-ups created during the pass: one, a rewrite of the suites in behaviour phrasing, requested
+  rather than found, not worked, and recorded in the repository's task store

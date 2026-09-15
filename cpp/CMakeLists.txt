@@ -175,6 +175,25 @@ FetchContent_Declare(OpenXLSX
     URL https://github.com/troldal/OpenXLSX/archive/refs/tags/v0.5.1.tar.gz
     URL_HASH SHA256=ad31b3774772c163472ec016020df66743879cbe3eaac770be3e198d950286b9)
 
+# OpenXLSX no longer vendors its zip and XML implementations; it fetches them
+# for itself, from a git tag and with no hash. Declaring them here first pins
+# both to a release archive whose hash is measured, because FetchContent takes
+# the first declaration of a name and ignores later ones. The names carry the
+# _fetch suffix OpenXLSX's own helper appends, and the two extra arguments are
+# the ones that helper passes: the find_package override its targets rely on,
+# and the timestamp behaviour that makes extraction retrigger compilation.
+FetchContent_Declare(miniz_fetch
+    URL https://github.com/richgel999/miniz/archive/refs/tags/3.0.2.tar.gz
+    URL_HASH SHA256=c4b4c25a4eb81883448ff8924e6dba95c800094a198dc9ce66a292ac2ef8e018
+    DOWNLOAD_EXTRACT_TIMESTAMP OFF
+    OVERRIDE_FIND_PACKAGE)
+
+FetchContent_Declare(pugixml_fetch
+    URL https://github.com/zeux/pugixml/archive/refs/tags/v1.15.tar.gz
+    URL_HASH SHA256=b39647064d9e28297a34278bfb897092bf33b7c487906ddfc094c9e8868bddcb
+    DOWNLOAD_EXTRACT_TIMESTAMP OFF
+    OVERRIDE_FIND_PACKAGE)
+
 # The dependencies use an old cmake_minimum_required that CMake 4.x rejects, so
 # the nudge below is set for their configure step and unset straight after.
 # Nothing else is overridden: they build at the project's own standard.
