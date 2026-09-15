@@ -1,6 +1,6 @@
 # Task 097: directory review of clones and inconsistencies spanning files (XREV follow-up, opened from task 010)
 
-- status: pending
+- status: completed
 - directory: `cpp/`
 - round base: b222b613 (2026-09-15)
 - origin: per-file tasks push every clone that spans two files here rather than widening themselves. Items so far:
@@ -23,7 +23,36 @@
 
 ## Report
 
-(filled when the task is worked)
+Directory pass over twelve items pushed here by the per-file tasks. Nine are fixed, each in its own snapshot; three are rulings, each worked to the measurement and appended. Four follow-up tasks were opened by findings this pass turned up.
+
+Fixed, one snapshot per finding.
+
+The microsecond scale factor was defined twice and now sits once beside the Timestamp alias it scales into, in refs/frev/097a. The two wrappers that turn a Rational into text, each promising the other's output was byte-identical, are one shared function in refs/frev/097b. The CLI's three exit codes, spelled as constants in two files and as prose in the public header, are named constants in that header in refs/frev/097d, with the tests keeping their numeric literals so the constants have teeth from outside. The format_dbc_text strictness contract, written on the method and again on the struct it returns, has one owner in refs/frev/097e. The fuzz build-and-run recipe, written in the build file and in the harness the other three point at, has one owner in refs/frev/097f, and running it showed neither copy worked. The discard rule for the public headers is settled in refs/frev/097g: twenty-one declarations get the attribute, five do not, and the split is argued per group. The three scratch-path types are one in refs/frev/097h, which also fixed a destructor that removed its file through the throwing overloads. The two ways a test found the repository are one in refs/frev/097i, which also gave the mutation runner the variable its folded-in integration tests need.
+
+Dismissed, with the reason recorded. The two multi-byte integer readers looked like a clone and are not: the binary extraction layout carries the host's byte order, which the kernel documents, and the ZIP records are little-endian whatever the host is. Merging them would be correct only under the assertion that forbids a big-endian build. The reader that read native order while being called read_le is renamed in refs/frev/097c, and a probe records the dismissal so a later round re-runs it rather than re-suspecting the clone.
+
+Appended to the accumulator, each worked to the point the ruling gates: the four library searches, with a probe pinning how the four orders differ and the one property any unification must not break; the uneven strong-type coverage of the DBC vocabulary, with every field read; and the one member name that departs from the record and the wire, which the parity probe already carries as its single exception.
+
+Opened as tasks: 107, because the feature-matrix gate read a C++ digit separator as a character literal and blanked live declarations out of its own search, found by adding one constant here; 108, the round's own em-dashes, twenty-nine lines measured against the tree the round started from; 109, because the build file's five recipes disagreed about the directory they are run from, found by running one of them; and 110, because the clang-tidy gate reads clean when run from a directory with no configuration in scope, which is how this round had been running it.
+
+```
+REPORT 2026-09-15 tree refs/frev/107 fixes in refs/frev/097a through refs/frev/097i
+claims: 12 rows, 9 fixed with a guard each, 3 appended as rulings
+design and interfaces: checked, the three shared types added (a scale factor, a scratch path, a repository root) each replace a per-file copy and none widens a public surface
+idioms for the directory's shape: checked, the discard rule is now one rule applied per group rather than per file
+value semantics: checked, the shared readers take their argument by value or const reference and return by value
+raii: finding, three scratch-path types with three lifetimes became one that cannot throw from its destructor
+consistency and compatibility: finding, the exit codes, the format contract and the fuzz recipe each had two spellings and now have one owner
+ease of use at the call sites: checked, the temp-path and repository-root headers are light enough for every suite that needed them, which test_helpers.hpp was not
+memory and sanitizers: n/a this pass, no allocation or lifetime changed except the scratch-path destructor, which now cannot throw
+coverage: checked, every fix carries a guard that was read red, and the two that could not have one (a dismissed candidate, a directory convention) carry probes instead
+ground truth: finding, four claims in comments were false and are corrected; one suspected clone was refuted by the kernel's own documentation
+dryness: 9 duplications removed, each named above with the files it spanned
+11 comments: 1885 to 1911, code 6917 to 6949 over the 27 files this pass touched
+sweep: 61 mutations over the mutation binary, 60 KILLED and the one long-standing timeout in a test loop counter; fifteen suites green; eleven fast-tier steps green; the tidy gate clean over cpp/src, run from the directory task 110 established it must run from
+probes: 8 added this pass, each read red before its fix or with its subject reverted
+decision points: 3 appended
+```
 
 ## Contract (carried whole)
 
