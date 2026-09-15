@@ -1,6 +1,6 @@
 # Task 022: file review of `cpp/include/aletheia/response.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/response.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/022 (signed later by the dribble).
+
+Claims and guards: the citations (new probe: the kernel's formatWarningKind emits "uncached_atom", FinalVerdict has the Unsure constructor Unresolved mirrors, the first-violation halt and the batch ordering are stated in Protocol.StreamState, Protocol.Message and ResponseFormat, the Go and Rust SignalError types exist; Python's errors mapping checked in _types.py); first_violation's behaviour (unit_tests_client, unit_tests_json, unit_tests_enrich and the cross-binding integration test call it); Unresolved as the three-valued verdict (the Agda constructor).
+
+Findings fixed: (a) the PropertyBatch comment narrated what a frame "formerly carried" and the "mid-stream-Satisfaction lift"; it states the present shape and cites the kernel modules that fix it; (b) "Per the Agda invariant" named no source; the comment names the first-violation halt; (c) the two first_violation overloads duplicated the loop; one function with an explicit object parameter (by lvalue reference, so a const batch yields a const pointer) over std::ranges::find_if serves both, and <algorithm> is included for it.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/022
+claims: 4 rows, 1 without a guard: probe cpp_include_aletheia_response.hpp--comment-citations-resolve.sh added
+1 line per line: checked, all 163 lines read
+2 guidelines: checked, nodiscard accessors, value aggregates, pointers returned only into the owning batch and stated as such
+3 modernize: finding, explicit object parameter and a ranges algorithm replace two overloads; gate: whole tree rebuilt clean, unit, cross-binding and integration tests green, tidy gate zero (the first draft's forwarding reference was flagged and replaced by an lvalue reference)
+4 catalogue: checked, AGENTS/cpp.md categories 11 and 12 (the shapes mirror the wire the kernel emits; the batch ordering is now cited from the kernel)
+5 value semantics: checked
+6 raii: n/a
+7 dedup: finding, two loops to one
+8 ground truth: finding, one unsourced invariant sentence; every other citation resolves
+9 history: finding, one sentence
+10 simpler: finding, see 7
+11 comments: 61 to 59, code 77 to 73
+sweep: no mutation names this file; tidy gate zero after the edit
+probes: 1 added; store 35 run, 34 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 
