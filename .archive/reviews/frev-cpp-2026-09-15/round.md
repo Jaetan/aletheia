@@ -33,4 +33,6 @@ Tasks are worked in id order. Follow-ups created during the run get the next fre
 - mutation sweep 61 mutants, 60 killed, one timeout Mull counts toward the score, no survivor
 - probe store 62 probes, 60 pass; the two failures are red by design and cited by the rulings that gate their fixes
 - report shape checked mechanically by `lens/report_shape.py`, keyed on the contract each task carries: 107 completed reports, none out of shape
-- decision points: ten in the accumulator, three of them opened by the directory pass; tasks 095, 099 and 100 wait on three of them
+- decision points: eleven in the accumulator, four of them opened by the directory pass. Two of the eleven gate
+  the three tasks that wait: the ruling on the installed consumer and the loader dependencies gates 095, and
+  the ruling on what the public mock factory should be gates both 099 and 100
