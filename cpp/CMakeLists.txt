@@ -175,20 +175,18 @@ FetchContent_Declare(OpenXLSX
     URL https://github.com/troldal/OpenXLSX/archive/refs/tags/v0.5.1.tar.gz
     URL_HASH SHA256=ad31b3774772c163472ec016020df66743879cbe3eaac770be3e198d950286b9)
 
-# The dependencies use an old cmake_minimum_required that CMake 4.x rejects,
-# so the configure step is scoped with block(SCOPE_FOR VARIABLES) and nudged
-# with CMAKE_POLICY_VERSION_MINIMUM. Nothing else is overridden here: the
-# dependencies build at the project's own standard.
+# The dependencies use an old cmake_minimum_required that CMake 4.x rejects, so
+# the nudge below is set for their configure step and unset straight after.
+# Nothing else is overridden: they build at the project's own standard.
 # The dependencies build as static archives and are linked into this project's
 # shared library, so their objects must be position independent. Set before the
 # dependencies are made available, because a target picks the value up when it
 # is created.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-block(SCOPE_FOR VARIABLES)
-    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-    FetchContent_MakeAvailable(json yaml-cpp OpenXLSX)
-endblock()
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+FetchContent_MakeAvailable(json yaml-cpp OpenXLSX)
+unset(CMAKE_POLICY_VERSION_MINIMUM)
 
 # ---------------------------------------------------------------------------
 # Library
@@ -620,7 +618,8 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
             ALETHEIA_DOC_SANITIZER_FLAG="${ALETHEIA_DOC_SANITIZER_FLAG_VALUE}")
     add_test(NAME doc_example_tests COMMAND doc_example_tests)
     set_tests_properties(doc_example_tests PROPERTIES
-        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT};ALETHEIA_DOC_INCLUDE=${CMAKE_CURRENT_SOURCE_DIR}/include")
+        ENVIRONMENT
+            "${ALETHEIA_TEST_REPO_ROOT};ALETHEIA_DOC_INCLUDE=${CMAKE_CURRENT_SOURCE_DIR}/include")
 
     # libFuzzer harnesses.  Opt-in via -DALETHEIA_FUZZ=ON; -fsanitize=fuzzer
     # links its own runtime, so these build in a directory of their own.  The

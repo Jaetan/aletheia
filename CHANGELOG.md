@@ -38,6 +38,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **CMake files are linted.** `.cmake-format.yaml` states the style these files
+  already follow, four-space indentation and a hundred-column line, the same
+  numbers the C++ format configuration sets; without it the linter reports every
+  deliberate line against its own defaults. The gate joins the pre-commit fast
+  tier and covers the C++ build file and the package config template.
 - **The four C++ dependency pins move to their newest releases**: nlohmann/json
   3.11.3 to 3.12.0, yaml-cpp 0.8.0 to 0.9.0, OpenXLSX from a 2025 master commit
   to its v0.5.1 release tag, and Catch2 3.7.1 to 3.16.0. Each was bumped and

@@ -1,13 +1,40 @@
 # Task 120: CMake files are outside the lint gates and the linter's defaults are not the files' style (ruled)
 
-- status: pending
+- status: completed
 - files: a new CMake format configuration, `cpp/CMakeLists.txt`, `cpp/cmake/aletheia-cpp-config.cmake.in`, the fast tier
 - pass: full
 - origin: Ruled: add a configuration stating the files' own style, indentation of four and the same line width the format configuration uses, and gate CMake files with the linter in the fast tier. Every finding the linter reports today is indentation or line length against defaults these files deliberately do not follow, so the configuration is what makes the gate meaningful rather than noisy. The gate covers the package configuration template as well as the main build file. A gate that cannot fail is not a gate, so the step is staged by breaking it: a violation is injected, the gate must exit non-zero naming it, and that injection becomes a probe.
 
 ## Report
 
-(to be written when the task is worked)
+CMake files are gated now, against the style they already follow. Fix in refs/frev/120.
+
+Claims and guards. The linter reported 281 findings over the two files and every one was indentation or line length, measured against defaults of two spaces and eighty columns that these files deliberately do not follow. A configuration stating the project's own numbers, the same four and hundred the C++ format configuration sets, leaves three real findings. Two were the body of a scope block the tool's flow-control model does not know, and one was a genuinely over-long line.
+
+Rather than exempt the block, it went. Its only remaining job was to scope one variable, because the standard override it also carried was retired with the dependency bump, and a set followed by an unset says the same thing in three lines the tool understands. That is the simpler form on its own terms, not a concession to the linter. The long line is wrapped.
+
+The invocation is the part worth recording, because it has the shape this round keeps finding. The tool's configuration option takes one or more values, so without a separator it reads the file paths as configuration files, scans nothing, prints that it scanned no files, and exits zero. The first correct-looking invocation did exactly that. The gate passes the separator, takes its file list from the index through the repository's own file listing, which is the staged content the pre-commit tier is defined over, and the probe asserts the scanned count as well as the exit, then injects a violation and requires a failure.
+
+The coding standard's lint-gate line now names the CMake gate and the separator, beside the working-directory trap it already records for the C++ linter.
+
+```
+REPORT 2026-09-15 tree refs/frev/119 fix in refs/frev/120
+claims: 2 rows, 2 without a guard: that CMake files follow a style, and that the gate enforcing it runs; both now measured
+1 line per line: checked, both linted files read whole against the findings
+2 guidelines: n/a
+3 modernize: checked, the scope block is replaced by the pair that expresses what it now does
+4 catalogue: n/a
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked, the style's two numbers are stated once per language and the new file says which C++ file they match
+8 ground truth: finding, an invocation that scans nothing and exits zero was the first thing that looked right
+9 history: checked
+10 simpler: finding, three lines replace a four-line scope block whose second purpose no longer exists
+11 comments: the build file 266 to 265 and the orchestrator 228 to 238, code 327 to 327 and 415 to 421; the new configuration is 10 lines of settings under 8 of explanation, which is where the separator trap and the two numbers are recorded
+sweep: no mutation names these files
+probes: probes/tools__ci_steps.py--the-cmake-gate-scans-files.sh added, red when the separator is dropped from the gate's command; store 73 run, 73 pass
+decision points: none
+```
 
 ---
 

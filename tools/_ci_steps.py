@@ -99,6 +99,7 @@ FAST_STEPS: frozenset[str] = frozenset(
         "check-venv-convention",
         "check-dist-staging",
         "clang-format",
+        "cmake-lint",
         "gofmt",
         "cargo fmt",
         "cargo fmt (excel crate)",
@@ -454,6 +455,22 @@ def _run_lints(runner: Runner) -> None:
         f"xargs -0 -r {shlex.quote(clang_format_bin)} --dry-run --Werror"
     )
     runner.step("clang-format", clang_format_cmd, cwd=runner.repo_root / "cpp")
+
+    # cmake-lint over the CMake files, against the style stated in
+    # .cmake-format.yaml rather than the tool's defaults, which differ from this
+    # tree's indentation and line width and would report every deliberate line.
+    #
+    # Two things about the invocation are load-bearing. The config option takes
+    # one or more values, so without the `--` separator it swallows the file
+    # paths as configuration files and the tool scans nothing, prints "files
+    # scanned: 0" and exits zero: a gate that cannot fail. And the file list
+    # comes from `git ls-files`, so the gate reads the index, which is the
+    # staged content this tier is defined over.
+    cmake_lint_cmd = (
+        "git ls-files -z -- 'CMakeLists.txt' '*/CMakeLists.txt' '*.cmake' '*.cmake.in' | "
+        "xargs -0 -r cmake-lint -c .cmake-format.yaml --"
+    )
+    runner.step("cmake-lint", cmake_lint_cmd)
 
     # clang-tidy (AGENTS.md § lint gates, mandatory): lint every C++ TU under
     # cpp/src via run-clang-tidy driven by compile_commands.json.  The compile
