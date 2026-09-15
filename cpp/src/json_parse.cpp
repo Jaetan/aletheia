@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <exception>
 #include <expected>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -144,10 +145,30 @@ static auto make_error(ErrorKind kind, std::string msg, ErrorCode code = ErrorCo
 // negatives as well as floats (`is_number_unsigned` is false for both).  Both
 // preserve the caller's existing range check, which still runs on the returned
 // integer.
+//
+// Both also refuse a value the position cannot hold.  The JSON library keeps
+// a positive literal above the signed maximum as an unsigned one, and the
+// narrowing conversion wraps it: without this check an index one past the
+// signed 64-bit maximum reads as the most negative one and the caller's sign
+// test calls it negative, a CAN id of 2^32 reads as a valid zero, a frame
+// byte of 256 reads as zero.  The refusal names the position's own range, as
+// the kernel names the Int64 wire range it refuses at its own entry.
+template<typename T>
+static auto out_of_range(const Json& j, std::string_view context) -> std::runtime_error {
+    return std::runtime_error(std::string{context} + " is out of range (" +
+                              std::to_string(std::numeric_limits<T>::min()) + " to " +
+                              std::to_string(std::numeric_limits<T>::max()) +
+                              "), got: " + j.dump());
+}
+
 template<typename T>
 static auto require_int(const Json& j, std::string_view context) -> T {
     if (!j.is_number_integer())
         throw std::runtime_error(std::string{context} + " must be an integer, got: " + j.dump());
+    const bool fits = j.is_number_unsigned() ? std::in_range<T>(j.get<std::uint64_t>())
+                                             : std::in_range<T>(j.get<std::int64_t>());
+    if (!fits)
+        throw out_of_range<T>(j, context);
     return j.get<T>();
 }
 
@@ -156,6 +177,8 @@ static auto require_uint(const Json& j, std::string_view context) -> T {
     if (!j.is_number_unsigned())
         throw std::runtime_error(std::string{context} +
                                  " must be a non-negative integer, got: " + j.dump());
+    if (!std::in_range<T>(j.get<std::uint64_t>()))
+        throw out_of_range<T>(j, context);
     return j.get<T>();
 }
 
@@ -335,7 +358,7 @@ auto decode_decimal_response(std::string_view raw) -> Rational {
 // boundary.
 static auto parse_rational(const Json& j) -> Rational {
     if (j.is_number_integer())
-        return Rational{j.get<std::int64_t>(), 1};
+        return Rational{require_int<std::int64_t>(j, "rational integer"), 1};
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
         auto [num, den] = parse_rational_dict(j);
         return Rational{num, den};

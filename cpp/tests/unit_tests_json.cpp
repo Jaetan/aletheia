@@ -1387,6 +1387,57 @@ TEST_CASE("parse_frame_response rejects negative property_index", "[json][parse]
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Negative property_index"));
 }
 
+TEST_CASE("parse_frame_response rejects a property_index above the signed 64-bit range",
+          "[json][parse][error]") {
+    // One past the signed maximum arrives as an unsigned number.  Narrowed
+    // without a range check it wraps to the most negative value, and the sign
+    // test below it then reports a negative index the document never carried.
+    auto result = detail::parse_frame_response(R"({
+        "type": "property_batch",
+        "results": [{
+            "type": "property",
+            "status": "fails",
+            "property_index": 9223372036854775808,
+            "timestamp": 100
+        }]
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("out of range"));
+    CHECK_THAT(std::string{result.error().message()},
+               !ContainsSubstring("Negative property_index"));
+}
+
+TEST_CASE("parse_frame_data rejects a data byte above a byte", "[json][parse][validation]") {
+    // 256 narrows to zero without a range check, so the payload would decode
+    // one byte the document did not state.
+    auto bad = detail::parse_frame_data(R"({"status": "success", "data": [1, 256, 3]})");
+    CHECK_FALSE(bad.has_value());
+    CHECK_THAT(std::string{bad.error().message()}, ContainsSubstring("out of range"));
+    auto ok = detail::parse_frame_data(R"({"status": "success", "data": [1, 255, 3]})");
+    REQUIRE(ok.has_value());
+    CHECK(ok->size() == 3);
+}
+
+TEST_CASE("parse_dbc_response rejects a CAN id above the 32-bit position",
+          "[json][parse][validation]") {
+    // The id position narrows to 32 bits.  2^32 wraps to zero, which is a
+    // valid standard id, so the message would decode under an id the document
+    // never stated.
+    auto make = [](const std::string& id) {
+        return std::string{R"({"status":"success","dbc":{"version":"","messages":[{)"} +
+               R"("id":)" + id +
+               R"(,"name":"M","dlc":8,"sender":"","extended":true,"signals":[]}]}})";
+    };
+    auto bad = detail::parse_dbc_response(make("4294967296"));
+    CHECK_FALSE(bad.has_value());
+    CHECK_THAT(std::string{bad.error().message()}, ContainsSubstring("out of range"));
+    auto ok = detail::parse_dbc_response(make("536870911"));
+    REQUIRE(ok.has_value());
+    REQUIRE(ok->messages.size() == 1);
+    CHECK(std::get<ExtendedId>(ok->messages[0].id).value() == 536870911);
+}
+
 TEST_CASE("parse_stream_result rejects negative property_index", "[json][parse][error]") {
     auto result = detail::parse_stream_result(R"({
         "status": "complete",

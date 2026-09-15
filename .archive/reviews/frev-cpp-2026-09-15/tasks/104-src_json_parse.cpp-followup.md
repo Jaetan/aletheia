@@ -1,6 +1,6 @@
 # Task 104: file review of `cpp/src/json_parse.cpp` (follow-up from task 062)
 
-- status: pending
+- status: completed
 - file: `cpp/src/json_parse.cpp`
 - round base: b222b613 (2026-09-15)
 - pass: lenses and diff, over the integer conversion below plus whatever the lenses fire on
@@ -8,7 +8,34 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Lenses and diff pass over the integer conversions. Fix in refs/frev/104 (signed later by the dribble).
+
+Claims and guards: the two integer helpers claim to refuse a wire number the position cannot take, and the comment above them says the caller's own range check still runs on what they return. Both claims held only for floats. The narrowing conversion itself was unguarded, and the JSON library keeps a positive literal above the signed maximum as an unsigned one, so the conversion wrapped. Nothing in the suite covered a value outside a position's range, so the claim had no guard.
+
+Findings fixed, one class at three widths. A property index one past the signed 64-bit maximum wrapped to the most negative value and the sign test below it answered "Negative property_index", telling the caller the document said a negative number when it said too large a one. The same wrap reached the narrower positions, which the sweep for it found: a CAN id of 2^32 became a valid standard id of zero and the message decoded under an id the document never stated, and a frame data byte of 256 became zero and the payload decoded a byte the document never stated. Both of those were silent acceptances rather than wrong messages, so they are the worse half of the finding. Bare integers reaching the rational parser took the same unguarded conversion and now go through the helper too.
+
+Each is now compared against its own position's range before it is narrowed, with the standard in-range predicate, and the refusal names that range and dumps the value. Three failing-first cases, one per width, were run against the previous tree: all three failed, the index case on the message and the other two on accepting the document. All three pass on the fix and the whole suite is green.
+
+Cross-binding: neither other decoder misreports this. The Rust response type holds the index in 32 bits, so its deserializer refuses anything larger before the value reaches the client, and Python's integers are arbitrary precision, so a large index stays large and positive. C++ was the only end that turned too large into negative.
+
+```
+REPORT 2026-09-15 tree refs/frev/105 fix in refs/frev/104
+claims: 2 rows, 2 without a guard: both integer helpers claimed a refusal they only performed for floats; three cases added, one per position width
+1 line per line: checked, the helpers, the rational parser and every call site of both helpers read whole
+2 guidelines: checked, the narrowing conversion is guarded rather than trusted
+3 modernize: checked, the range test is the standard in-range predicate rather than a hand-written pair of comparisons
+4 catalogue: checked, comparing before narrowing is what the library's own documentation tells a caller to do, since its accessor casts without checking
+5 value semantics: checked, the helpers take the node by reference and return by value
+6 raii: n/a, no resource
+7 dedup: checked, the refusal is built once in a helper the two share
+8 ground truth: finding, the comment claimed both helpers preserve the caller's range check; true for floats only, and now true as written
+9 history: checked, the added comment states the current refusal and the wrap it prevents, not what the file used to do
+10 simpler: checked
+11 comments: 345 to 361, code 2565 to 2619
+sweep: 19 mutations name the file, all KILLED, against 17 at the round base; the two new ones are on the exactness test in the rational-to-integer path
+probes: none name this file; the three failing-first cases are the guard, and the committed overflow seed drives the same path through the fuzz target without a crash
+decision points: none
+```
 
 ## Contract (carried whole)
 
