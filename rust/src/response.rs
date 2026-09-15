@@ -726,7 +726,7 @@ pub(crate) fn decode_extraction_bin(
     let (reasons_bytes, absent_bytes) = rest.split_at(reason_bytes);
 
     let mut values = Vec::with_capacity(nvals);
-    for chunk in values_bytes.chunks_exact(18) {
+    for chunk in values_bytes.as_chunks::<18>().0 {
         let idx = read_u16_ne(&chunk[0..2]);
         let num = i64::from_ne_bytes(chunk[2..10].try_into().expect("8-byte slice"));
         let den = i64::from_ne_bytes(chunk[10..18].try_into().expect("8-byte slice"));
@@ -747,7 +747,12 @@ pub(crate) fn decode_extraction_bin(
     // The offsets table must satisfy all three wire invariants before any
     // reason is sliced; together they make every [off[i], off[i+1]) slice
     // in-bounds, so the reason slicing below cannot panic.
-    let offsets: Vec<u32> = offsets_bytes.chunks_exact(4).map(read_u32_ne).collect();
+    let offsets: Vec<u32> = offsets_bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|chunk| read_u32_ne(chunk))
+        .collect();
     if offsets[0] != 0 {
         return Err(protocol(format!(
             "extraction binary reason offsets must start at 0, got {}",
@@ -768,7 +773,12 @@ pub(crate) fn decode_extraction_bin(
     }
 
     let mut errors = Vec::with_capacity(nerrs);
-    for (chunk, span) in errors_bytes.chunks_exact(3).zip(offsets.windows(2)) {
+    for (chunk, span) in errors_bytes
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(offsets.windows(2))
+    {
         let idx = read_u16_ne(&chunk[0..2]);
         // chunk[2] is the u8 error code (kernel SSOT: extractionErrorCodeToℕ in
         // Aletheia.CAN.BatchExtraction) -- transported, never surfaced: the wire
@@ -786,7 +796,7 @@ pub(crate) fn decode_extraction_bin(
     }
 
     let mut absent = Vec::with_capacity(nabss);
-    for chunk in absent_bytes.chunks_exact(2) {
+    for chunk in absent_bytes.as_chunks::<2>().0 {
         absent.push(name_by_index(names, read_u16_ne(chunk)));
     }
 

@@ -12,6 +12,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The Rust binding passes clippy on the toolchain CI installs.** CI tracks the
+  latest stable Rust, and `clippy::chunks_exact_to_as_chunks` is new in 1.98: it
+  fired on four pre-existing sites in the binary response decoder that no local run
+  could see, because the development toolchain was still on 1.97. The four read
+  `as_chunks::<N>().0` now, which is the same traversal with the chunk width in the
+  type, and the local toolchain was moved to stable so the lint is reproducible.
+
+- **The C++ library builds again on the standard library CI pins.** A filter helper
+  written during the review used the `views::filter | std::ranges::to<std::vector>()`
+  pipe, which needs a libstdc++ point release newer than the one ubuntu-24.04 ships,
+  so the whole C++ build failed on the runner while passing locally on a newer one.
+  It copies with `std::ranges::copy_if` now, and the benchmark's two folds use
+  `std::reduce` rather than `std::ranges::fold_left` for the same reason. The pinned
+  standard library is the floor a consumer building the binding is held to, so the
+  code moved rather than the floor.
+
 - **The bill of materials reads every C++ pin again, and names the package rather
   than the fetch.** The generator derived a version from a release tag shaped
   `v1.2.3` or a bare `1.2.3`, so the yaml-cpp bump to a tag that repeats the project
