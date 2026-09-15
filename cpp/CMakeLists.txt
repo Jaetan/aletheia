@@ -192,6 +192,12 @@ FetchContent_Declare(OpenXLSX
 # TODO: Drop this block when yaml-cpp ≥ 0.8.1 (or whatever release
 # follows 0.8.0) publishes the upstream-merged <cstdint> include fix and we
 # bump FetchContent_Declare above.
+# The dependencies build as static archives and are linked into this project's
+# shared library, so their objects must be position independent. Set before the
+# dependencies are made available, because a target picks the value up when it
+# is created.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 block(SCOPE_FOR VARIABLES)
     set(CMAKE_CXX_STANDARD 20)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -203,7 +209,26 @@ endblock()
 # Library
 # ---------------------------------------------------------------------------
 
-add_library(aletheia-cpp
+# Shared, so that the two loaders work for an installed consumer. The YAML and
+# spreadsheet dependencies are linked privately and are neither installed nor
+# exported; a static archive referencing their symbols left an installed
+# consumer unable to link anything that called a loader, while a shared library
+# carries them inside it and publishes only this project's own symbols.
+#
+# Static under ALETHEIA_MUTATION, and this is load-bearing rather than a
+# preference: the mutation runner discovers mutants in the test executable, and
+# with the library shared it found 14 where the same sources yield 62 linked
+# statically, reporting a clean score over a quarter of the surface. A sweep
+# that cannot see most of the code cannot fail on it. The two link forms compile
+# the same sources with the same flags, and the choice between them is not
+# something a mutant can express, so the lane measures what it always did.
+if(ALETHEIA_MUTATION)
+    set(ALETHEIA_CPP_LINKAGE STATIC)
+else()
+    set(ALETHEIA_CPP_LINKAGE SHARED)
+endif()
+
+add_library(aletheia-cpp ${ALETHEIA_CPP_LINKAGE}
     src/backend.cpp
     src/client.cpp
     src/dbc.cpp
@@ -606,8 +631,6 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         PRIVATE
             ALETHEIA_DOC_CXX="${CMAKE_CXX_COMPILER}"
             ALETHEIA_DOC_LIB_FILE="$<TARGET_FILE:aletheia-cpp>"
-            ALETHEIA_DOC_YAML_LIB="$<TARGET_FILE:yaml-cpp::yaml-cpp>"
-            ALETHEIA_DOC_OPENXLSX_LIB="$<TARGET_FILE:OpenXLSX::OpenXLSX>"
             ALETHEIA_DOC_CXX_STD="23"
             ALETHEIA_DOC_SANITIZER_FLAG="${ALETHEIA_DOC_SANITIZER_FLAG_VALUE}")
     add_test(NAME doc_example_tests COMMAND doc_example_tests)

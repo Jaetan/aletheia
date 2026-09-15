@@ -10,10 +10,11 @@
 # archive is not built.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-lib=cpp/build/libaletheia-cpp.a
-yaml=$(find cpp/build/_deps -maxdepth 2 -name 'libyaml-cpp.a' | head -1)
-xlsx=$(find cpp/build -maxdepth 3 -name 'libOpenXLSX.a' | head -1)
-[ -f "$lib" ] && [ -n "$yaml" ] && [ -n "$xlsx" ] || exit 2
+lib=cpp/build/libaletheia-cpp.so
+# The library is shared and carries its own dependencies, so a scratch binary
+# links it alone; -Wl,-rpath gives the loader the directory the linker already has.
+rpath="-Wl,-rpath,$(cd cpp/build && pwd)"
+[ -f "$lib" ] || exit 2
 scratch=cpp/build/probe-scratch/dbc-stale
 mkdir -p "$scratch" || exit 2
 cat > "$scratch/t.cpp" <<'CPP'
@@ -61,5 +62,5 @@ int main() {
     return failures == 0 ? 0 : 1;
 }
 CPP
-clang++-22 -std=c++23 -Icpp/include "$scratch/t.cpp" "$lib" "$yaml" "$xlsx" -ldl -lpthread -o "$scratch/t" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }
+clang++-22 -std=c++23 -Icpp/include "$scratch/t.cpp" "$lib" $rpath -ldl -lpthread -o "$scratch/t" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }
 "$scratch/t"

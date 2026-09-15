@@ -13,12 +13,13 @@
 # the archive, the kernel or the Python environment is missing.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-lib=cpp/build/libaletheia-cpp.a
-yaml=$(find cpp/build/_deps -maxdepth 2 -name 'libyaml-cpp.a' | head -1)
-xlsx=$(find cpp/build -maxdepth 3 -name 'libOpenXLSX.a' | head -1)
+lib=cpp/build/libaletheia-cpp.so
+# The library is shared and carries its own dependencies, so a scratch binary
+# links it alone; -Wl,-rpath gives the loader the directory the linker already has.
+rpath="-Wl,-rpath,$(cd cpp/build && pwd)"
 json=$(find cpp/build/_deps -maxdepth 2 -type d -name 'json-src' | head -1)
 kernel=$PWD/build/libaletheia-ffi.so
-[ -f "$lib" ] && [ -n "$yaml" ] && [ -n "$xlsx" ] && [ -n "$json" ] && [ -f "$kernel" ] || exit 2
+[ -f "$lib" ] && [ -n "$json" ] && [ -f "$kernel" ] || exit 2
 [ -x python/.venv/bin/python ] || exit 2
 scratch=cpp/build/probe-scratch/enrich-parity
 mkdir -p "$scratch" || exit 2
@@ -72,7 +73,7 @@ int main(int, char** argv) {
     return 0;
 }
 CPP
-clang++-22 -std=c++23 -Icpp/include -Icpp/src -I"$json/include" "$scratch/t.cpp" "$lib" "$yaml" "$xlsx" -ldl -lpthread -o "$scratch/t" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }
+clang++-22 -std=c++23 -Icpp/include -Icpp/src -I"$json/include" "$scratch/t.cpp" "$lib" $rpath -ldl -lpthread -o "$scratch/t" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }
 "$scratch/t" "$kernel" "$scratch/cpp.txt" "$scratch/wire.json" || { echo "C++ side failed"; exit 1; }
 ALETHEIA_LIB="$kernel" python/.venv/bin/python - "$scratch/wire.json" "$scratch/cpp.txt" <<'PY'
 import json, pathlib, sys

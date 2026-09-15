@@ -10,7 +10,10 @@
 # one fails. Exits 2 when cpp/build or the kernel is not built.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-lib=cpp/build/libaletheia-cpp.a
+lib=cpp/build/libaletheia-cpp.so
+# The library is shared and carries its own dependencies, so a scratch binary
+# links it alone; -Wl,-rpath gives the loader the directory the linker already has.
+rpath="-Wl,-rpath,$(cd cpp/build && pwd)"
 [ -f "$lib" ] && [ -f build/libaletheia-ffi.so ] || exit 2
 scratch=cpp/build/probe-scratch/stability-teeth
 mkdir -p "$scratch" || exit 2
@@ -19,7 +22,7 @@ sed -e 's|^#include <malloc.h>|#include <malloc.h>\n#include <fcntl.h>|' \
     -e 's|^    require(client.end_stream(std::stop_token{}), "end_stream");|    require(client.end_stream(std::stop_token{}), "end_stream");\n    (void)open("/dev/null", O_RDONLY); // injected leak|' \
     "$src" > "$scratch/leaky.cpp"
 grep -q 'injected leak' "$scratch/leaky.cpp" || { echo "injection point not found"; exit 1; }
-link="$lib $(find cpp/build/_deps -maxdepth 2 -name 'libyaml-cpp.a' | head -1) $(find cpp/build -maxdepth 3 -name 'libOpenXLSX.a' | head -1) -ldl -lpthread"
+link="$lib $rpath -ldl -lpthread"
 clang++-22 -std=c++23 -O2 -DNDEBUG -Icpp/include "$scratch/leaky.cpp" $link -o "$scratch/leaky" > "$scratch/compile.log" 2>&1 || { tail -3 "$scratch/compile.log"; exit 1; }
 clang++-22 -std=c++23 -O2 -DNDEBUG -Icpp/include "$src" $link -o "$scratch/clean" >> "$scratch/compile.log" 2>&1 || { tail -3 "$scratch/compile.log"; exit 1; }
 export ALETHEIA_LIB=$PWD/build/libaletheia-ffi.so ALETHEIA_STABILITY_CYCLES=2 ALETHEIA_STABILITY_FRAMES=500

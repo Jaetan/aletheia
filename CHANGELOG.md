@@ -38,6 +38,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (C++): `aletheia-cpp` ships as a shared library.** It was a static
+  archive whose yaml-cpp and OpenXLSX dependencies were linked privately behind
+  a build-interface guard and neither installed nor exported, so an installed
+  consumer could link a client-only program but not one that called either
+  loader: the archive referenced symbols nothing supplied. The shared library
+  carries those dependencies inside it and publishes only this project's own
+  symbols, so `find_package(aletheia-cpp)` now gives a consumer the whole
+  surface the installed headers declare. A consumer that linked the archive by
+  path needs its directory on the run-time search path.
 - **BREAKING (C++): the four places that looked for `libaletheia-ffi.so` are one
   search, published as `aletheia::find_ffi_library()`.** They disagreed after
   `$ALETHEIA_LIB`: the renderer consulted the path a `make_ffi_backend` call had

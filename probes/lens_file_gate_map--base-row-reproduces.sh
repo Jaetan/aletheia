@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
 # Claim: the file-to-gate lens is reproducible, so the two ends of a round can be diffed.
 # Probes: .archive/reviews/frev-cpp-2026-09-15/lens/file_gate_map.py and the base row it produced.
 # Non-zero means the recorded base map is not what the saved generator produces from the

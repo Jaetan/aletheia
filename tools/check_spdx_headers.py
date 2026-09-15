@@ -252,6 +252,10 @@ def _scan(
     mismatched: list[tuple[Path, str]] = []
     fixed: list[Path] = []
     for path, style in _candidates(repo_root):
+        # A tracked path whose file is gone is a deletion not yet staged; the
+        # gate reports on what is there rather than crashing on what is not.
+        if not path.is_file():
+            continue
         lines = path.read_text(encoding="utf-8").split("\n")
         if _is_generated(path, lines):
             continue

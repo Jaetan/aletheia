@@ -9,14 +9,15 @@
 # built and build/libaletheia-ffi.so present; exits 2 when they are not.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-lib=cpp/build/libaletheia-cpp.a
-yaml=$(find cpp/build/_deps -maxdepth 2 -name 'libyaml-cpp.a' | head -1)
-xlsx=$(find cpp/build -maxdepth 3 -name 'libOpenXLSX.a' | head -1)
-[ -f "$lib" ] && [ -n "$yaml" ] && [ -n "$xlsx" ] && [ -f build/libaletheia-ffi.so ] || exit 2
+lib=cpp/build/libaletheia-cpp.so
+# The library is shared and carries its own dependencies, so a scratch binary
+# links it alone; -Wl,-rpath gives the loader the directory the linker already has.
+rpath="-Wl,-rpath,$(cd cpp/build && pwd)"
+[ -f "$lib" ] && [ -f build/libaletheia-ffi.so ] || exit 2
 scratch=cpp/build/probe-scratch/readme-fence
 mkdir -p "$scratch" || exit 2
 awk '/^```cpp$/{flag=1; next} /^```$/{flag=0} flag' cpp/README.md > "$scratch/fence.cpp"
 grep -q 'int main' "$scratch/fence.cpp" || { echo "fence is not a complete program"; exit 1; }
-clang++-22 -std=c++23 -Icpp/include "$scratch/fence.cpp" "$lib" "$yaml" "$xlsx" \
+clang++-22 -std=c++23 -Icpp/include "$scratch/fence.cpp" "$lib" $rpath \
     -ldl -lpthread -o "$scratch/fence" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }
 ALETHEIA_LIB=$PWD/build/libaletheia-ffi.so "$scratch/fence"

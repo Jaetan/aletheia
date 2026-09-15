@@ -12,11 +12,12 @@
 # either run behaves otherwise. Exits 2 when the archive or kernel is missing.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-lib=cpp/build/libaletheia-cpp.a
-yaml=$(find cpp/build/_deps -maxdepth 2 -name 'libyaml-cpp.a' | head -1)
-xlsx=$(find cpp/build -maxdepth 3 -name 'libOpenXLSX.a' | head -1)
+lib=cpp/build/libaletheia-cpp.so
+# The library is shared and carries its own dependencies, so a scratch binary
+# links it alone; -Wl,-rpath gives the loader the directory the linker already has.
+rpath="-Wl,-rpath,$(cd cpp/build && pwd)"
 kernel=$PWD/build/libaletheia-ffi.so
-[ -f "$lib" ] && [ -n "$yaml" ] && [ -n "$xlsx" ] && [ -f "$kernel" ] || exit 2
+[ -f "$lib" ] && [ -f "$kernel" ] || exit 2
 scratch=cpp/build/probe-scratch/renderer-order
 mkdir -p "$scratch" || exit 2
 cat > "$scratch/t.cpp" <<'CPP'
@@ -35,7 +36,7 @@ int main(int, char** argv) {
     }
 }
 CPP
-clang++-22 -std=c++23 -Icpp/include "$scratch/t.cpp" "$lib" "$yaml" "$xlsx" -ldl -lpthread -o "$scratch/t" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }
+clang++-22 -std=c++23 -Icpp/include "$scratch/t.cpp" "$lib" $rpath -ldl -lpthread -o "$scratch/t" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }
 ALETHEIA_LIB=/dev/null "$scratch/t" "$kernel" > /dev/null 2>&1; existing_wrong=$?
 ALETHEIA_LIB=/nonexistent/libaletheia-ffi.so "$scratch/t" "$kernel" > "$scratch/out.txt" 2>&1; missing=$?
 [ "$existing_wrong" -eq 3 ] && [ "$missing" -eq 0 ] && grep -q '^0\.5$\|^1/2$' "$scratch/out.txt" || { echo "existing-wrong=$existing_wrong missing=$missing out=$(cat "$scratch/out.txt")"; exit 1; }

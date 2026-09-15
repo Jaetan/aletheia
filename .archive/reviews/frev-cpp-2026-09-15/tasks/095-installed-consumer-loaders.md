@@ -1,6 +1,6 @@
 # Task 095: installed consumers and the loader dependencies (follow-up from task 007, gated by a ruling)
 
-- status: pending, ruled 2026-09-15: build the library shared so the dependencies link into it
+- status: completed
 - worked to the ruling: the failure is reproduced and kept. The two probes in the store build an installed
   consumer and show the client-only program links while a program calling the YAML loader does not, with the
   undefined references named. The three alternatives and their costs are in the accumulator. Nothing here can be
@@ -13,7 +13,40 @@
 
 ## Report
 
-(filled when the task is worked)
+The library is shared, an installed consumer links both loaders, and the probe that opened red at the start of the round is green. Fix in refs/frev/095.
+
+Claims and guards. The distribution guide presents finding the package and linking it without restriction, and the installed archive could not honour that: its YAML and spreadsheet dependencies were linked privately behind a build-interface guard and neither installed nor exported, so the archive referenced symbols nothing supplied. A consumer could link a client-only program and nothing that called a loader. The probe was widened before the fix so both loaders are covered rather than only the YAML one, and it was red for both.
+
+The shared library carries those dependencies inside it and publishes only this project's own symbols, which is why the ruling's shape works where installing the two archives would have exported someone else's build. The dependencies had to become position independent for that, set before they are made available because a target takes the value when it is created.
+
+Three things broke, each a real consequence rather than a nuisance, and the third is the one that mattered.
+
+The documentation-example harness compiled each fence against the library by path and ran it; a path satisfies the linker and not the loader, so every fence failed to start. The fences now carry the library's directory as a run-time search path, and they no longer link the two dependency archives at all, because the library carries them. That also answers, before it was asked, the harness change the dependency bump was expected to need.
+
+Seventeen probes named the archive and the two dependency archives on their link lines. Each now links the one shared library with a run-time search path, and the archive lookups are gone. The whole store passes for the first time in this round.
+
+The mutation lane collapsed, and silently. Built against the shared library the runner found 14 mutants where the same sources yield 62, and reported a hundred per cent over a quarter of the surface: a sweep that cannot see the code cannot fail on it, and nothing in its output said so. The lane links the library statically now, which is a link-time property no mutant can express, so it measures what it always did. A probe pins both the configuration and the count, with a floor below the recorded baseline, and reads red when the mutation branch is pointed back at the shared form.
+
+One finding in a gate, found by running it. The licence-header check read every tracked path and crashed with a traceback on one whose file had been renamed but whose deletion was not yet staged. It now reports on what is there. The deletion is staged too, and the renamed probe is in the staging list.
+
+```
+REPORT 2026-09-15 tree refs/frev/117 fix in refs/frev/095
+claims: 2 rows, 2 without a guard: that an installed consumer can use both loaders, and that the mutation lane sees the library; both now probed
+1 line per line: checked, the library target, its install and export blocks, and the harness's compile and link command read whole
+2 guidelines: n/a
+3 modernize: checked, the link form is a build decision and the change is guarded by the suites, both sanitizer lanes and the fast tier rather than by inspection
+4 catalogue: checked, the position-independent-code requirement for static dependencies of a shared library is the toolchain's rule, confirmed by building rather than by reading
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: finding, two compile definitions feeding the harness the dependency archives are gone, and seventeen probes lost the same pair of lookups
+8 ground truth: finding, the distribution guide's find-and-link presentation was true only of a client-only consumer
+9 history: checked
+10 simpler: checked, a fence links one file where it linked three
+11 comments: 366 to 389, code 956 to 963 over the three files; the added lines say why the mutation lane links differently and why a fence needs a search path, both of which cost a day to rediscover
+sweep: 62 mutants, 62 killed, no survivor, measured after the lane was repaired; 14 before it, which is the finding
+probes: probes/cpp_cmake_aletheia-cpp-config.cmake.in--installed-consumer-links-yaml-loader.sh renamed and widened to both loaders, red for both before the fix and green after; probes/cpp_CMakeLists.txt--the-mutation-lane-sees-the-whole-library.sh added and red when the lane is pointed back at the shared form; seventeen probes repointed at the shared library; store 70 run, 70 pass
+decision points: none
+```
 
 ## Contract (carried whole)
 
