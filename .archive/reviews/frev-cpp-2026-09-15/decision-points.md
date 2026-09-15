@@ -1,51 +1,73 @@
 # Decision-point accumulator for the file review of `cpp/`
 
-- status: pending (collated for the user when the task list is empty)
+- status: all eleven ruled 2026-09-15; each entry carries its ruling and the task that lands it
 - round base: 726198bb (2026-09-15)
 
 Each point: the question and its alternatives in prose, each alternative named by what it proposes. A point that only gates a fix is worked to the ruling it gates before it is written here.
 
 ## `cpp/.clang-format`: 40 of its 61 option keys restate the LLVM base style's default
 
+**Ruled 2026-09-15: list only the project's own decisions. Carried by task 119.**
+
 Measured with `clang-format-22 --dump-config` against `--style=LLVM --dump-config` at the task: 17 keys change the base default (IndentWidth, TabWidth, AccessModifierOffset, ColumnLimit, PointerAlignment, ReferenceAlignment, AlignConsecutiveAssignments, AlignConsecutiveDeclarations, AllowShortBlocksOnASingleLine, AllowShortFunctionsOnASingleLine, BreakConstructorInitializers, PackConstructorInitializers, SpaceAfterTemplateKeyword, SpacesInContainerLiterals, SortUsingDeclarations, InsertNewlineAtEOF, RemoveSemicolon); the other 40 set the value LLVM already has. The question: keep the restated defaults as an explicit statement of the style, or cut them so the file lists only what the project decides. Cutting is behaviour-neutral, provable by the same dump-config equality used for the alias fix, and would shrink the file from 84 lines to about 45. Keeping means a reader sees every choice in one place without knowing the LLVM defaults, at the cost of 40 lines that a later LLVM default change could silently diverge from (a restated value pins it; a cut value follows LLVM). Ruling needed: pin every value explicitly, or list only the project's own decisions.
 
 ## `cpp/.clang-tidy`: five disables are inert for the surface the gate lints
+
+**Ruled 2026-09-15: give tests their own configuration and start linting them, which moves the five disables there. Carried by task 121.**
 
 Measured at the task by re-enabling them over `cpp/src` only (base/tidy_reenable_test_justified.txt): cert-err58-cpp, google-build-using-namespace, cppcoreguidelines-avoid-do-while, hicpp-no-array-decay and cppcoreguidelines-pro-bounds-array-to-pointer-decay produce zero findings in library code; their stated reasons all name test code (Catch2 macros, fixtures, `using namespace` in tests), and neither the CI gate (`run-clang-tidy-22 -p build cpp/src/`) nor the CMake integration (library target only) lints tests. The informational tidy lens over cpp/tests and cpp/benchmarks at base reports 1435 unique diagnostics, so tests are not close to lint-clean under the current check set either way. The question: keep the five disables so the file already describes a configuration under which tests could one day be linted, or drop them as dead configuration and re-add them the day tests enter the gate. A third shape is to give tests their own `.clang-tidy` under cpp/tests with the test-specific disables and start linting them, which is a directory-level change beyond one file's task. Ruling needed: keep, drop, or open the test-lint question as its own task.
 
 ## `cpp/CMakeLists.txt`: four dependency pins sit behind their upstream releases, and one comment about them is now false
 
+**Ruled 2026-09-15: bump all four with the harness fix. Carried by task 118.**
+
 Measured at the task (base/dependency_bump_measurement.txt, scratch tree under cpp/build/probe-scratch/bumproot): the pins are nlohmann/json 3.11.3 (upstream newest v3.12.0), yaml-cpp 0.8.0 (newest yaml-cpp-0.9.0, which the file's own TODO waits for), OpenXLSX at a master commit (newest tags v0.5.0 and v0.5.1, so the comment "the latest tagged release is v0.3.2 from 2021" no longer holds), and Catch2 v3.7.1 (newest v3.16.0). With all four moved to the newest tag at once the tree configures, builds and passes 14 of 15 tests; the doc-example harness fails because OpenXLSX 0.5.1 builds pugixml and miniz as separate static archives and the harness's per-fence link line names only the OpenXLSX archive, so the bump needs the harness (cpp/tests/doc_example_tests.cpp and the TARGET_FILE defines feeding it) to link those too. The three bumps other than OpenXLSX were not measured in isolation. The question: bump all four now with the harness fix, bump only the three that need no other change and leave OpenXLSX pinned, or keep every pin and rewrite the OpenXLSX comment to the current facts. Whichever is chosen, the yaml-cpp TODO block (CMAKE_CXX_STANDARD 20 workaround) is retired only by the yaml-cpp bump, and the new tarball hashes must be recorded with the bump.
 
 ## `cpp/CMakeLists.txt`: cmake-lint reports only style, against defaults the file does not follow
+
+**Ruled 2026-09-15: add a configuration stating the files' own style and gate CMake files in the fast tier. Carried by task 120.**
 
 cmake-lint 0.6 over the file at base reports 315 convention findings and 278 after the task, every one indentation (it expects 2 spaces, the file uses 4) or line length (it expects 80, the file runs to 100 like .clang-format). The repository has no .cmake-format configuration and no CMake lint gate. The question: add a .cmake-format file that states the file's own style (indent 4, line width 100) and gate CMake files with cmake-lint in the fast tier, which would also cover cpp/cmake/aletheia-cpp-config.cmake.in, or leave CMake outside the lint gates as it is today.
 
 ## `cpp/cmake/aletheia-cpp-config.cmake.in` and `cpp/CMakeLists.txt`: an installed consumer cannot link the YAML or Excel loaders
 
+**Ruled 2026-09-15: build the library shared so the dependencies link into it. Carried by task 095.**
+
 Measured at the task (probes/cpp_cmake_aletheia-cpp-config.cmake.in--installed-consumer-links-yaml-loader.sh, red on record): after `cmake --install`, a separate project that finds the package and links aletheia::aletheia-cpp builds a client-only program, but a program calling load_checks_from_yaml fails to link with undefined references into yaml-cpp, and the Excel loader would fail the same way into OpenXLSX. The library is static, its yaml-cpp and OpenXLSX dependencies are linked PRIVATE behind BUILD_INTERFACE only, and neither is installed or exported, so the installed archive references symbols nothing supplies. Consumers through the release bundle (add_subdirectory) are unaffected because FetchContent builds the dependencies for them; docs/development/DISTRIBUTION.md presents find_package consumption without this restriction. The question: install and export the two dependency archives alongside the library (with find_dependency in the config template) so the installed package is whole; build the library shared so the dependencies are linked into it; or state in the distribution guide that installed consumers get the client only and the loaders require the bundle route. Follow-up task 095 carries the fix once ruled.
 
 ## `cpp/include/aletheia/types.hpp`: `Rational::to_double()` is a float escape the library never uses
+
+**Ruled 2026-09-15: remove it and rewrite the five assertions against exact rationals, and evaluate by sweep whether those assertions are needed at all. Carried by task 116.**
 
 Measured at the task: no file under cpp/src calls to_double(); cli.cpp and client.cpp mention it only to say the float principle bars it; the only callers are five Catch2 assertions in cpp/tests/integration_tests.cpp comparing extracted values through Catch::Approx. The header itself proves the float principle at the constructor boundary with static_asserts, and log.hpp states that no float crosses any surface. The question: remove to_double() from the public API and rewrite the five assertions against exact rationals (a breaking removal for any external caller), or keep it as a documented read-only convenience that the library itself never takes. Removal is a two-file change (this header and the integration test) that the whole suite gates.
 
 ## `cpp/src/mock_backend.cpp`: the public mock factory refuses the first call every caller makes
 
+**Ruled 2026-09-15: make the factory answer with canned successes. Carried by task 113, which unblocks tasks 099 and 100.**
+
 Measured at the task: `make_mock_backend()` returns a `MockBackend` whose response queue is empty, and the class's `queue_response` lives in the test-internal header `cpp/src/detail/mock_backend.hpp` that an installed consumer cannot include, so the first `process` call throws State "mock backend: no queued response for process" and there is no public way to load it (probes/cpp_src_mock_backend.cpp--public-factory-answers-without-queueing.sh, red on record). Nothing in the tree calls the factory, no test covered it before this task, and the mutation sweep generates no mutant for the file. Three places describe it as a canned-ack backend: the declaration comment in backend.hpp, the `mock_backend` note in docs/FEATURE_MATRIX.yaml and H.1's "Today" paragraph in docs/development/DEFERRED_ITEMS.md. Python, Go and Rust each ship a public, configurable mock; promoting the C++ one is H.1, which the user has already ruled HOLD and demand-gated, so that is not one of the alternatives here. The question: make the factory hand out a backend that answers with canned successes, so the three descriptions become true and an installed consumer can drive a Client without the internal header; keep the object as it is and correct the three descriptions to say the factory returns an unconfigured mock that refuses until responses are queued, which no public header allows; or drop the factory from the public surface, since nothing uses it and the `IBackend` seam already lets a consumer roll their own, which is a breaking removal from an installed header. Follow-up tasks 099 (the header comment and the missing `[[nodiscard]]` on the three factories) and 100 (the two documents) carry whatever the ruling makes false.
 
 ## `cpp/`: the library is discovered four times over, and the four orders disagree
+
+**Ruled 2026-09-15: unify on the renderer's order. Carried by task 117.**
 
 Measured at the directory task, pinned by probes/cpp--the-four-library-searches-differ-on-purpose-until-ruled.sh. After the `ALETHEIA_LIB` variable, which all four honour and all four treat an empty value as unset, they diverge: the renderer consults the path `make_ffi_backend` registered, then three build directories relative to the working directory, furthest first; the command-line tool tries the same three nearest first and is the only one that then looks in `/usr/local/lib`; the throughput benchmark resolves two candidates relative to its own executable rather than the working directory; and the stability benchmark returns one path without checking it exists. One property constrains any unification and is the reason the renderer consults the registered path at all: the renderer and the backend must resolve to the same library, since a renderer that loaded a different build would format values through a different kernel than the one answering the queries. The question: unify on the renderer's order, which drops the system install directory from the command-line tool and would break a consumer who installed the library there; unify on the union, which adds a system directory to the renderer's search and lets it pick a library the backend did not load; unify on a shared function that takes the candidate list from its caller, so the order is one implementation with four documented policies; or keep four and document each where it lives. Nothing is decided by the measurement alone, because the first two are user-visible in opposite directions.
 
 ## `cpp/include/aletheia/dbc.hpp`: the strong-type coverage of the DBC vocabulary is uneven
 
+**Ruled 2026-09-15: type every node field and every message target. Carried by task 115.**
+
 Measured at the directory task by reading the record's every field. The header opens by saying its structures embed the vocabulary types, and half of them do not. A message's `sender` is a `NodeName` while its `senders` are plain strings; a signal's `receivers` are plain strings; a node's `name` is a plain string; and every node field of a comment target and an attribute target is a plain string. The message targets of comments and attributes carry a raw 32-bit `id` beside a `bool extended`, which is the pair `CanId` exists to replace and which the rest of the API has already replaced everywhere a message is named. The wire shape mirrors the Agda constructors, so changing a field's type runs through the JSON parser, the JSON serializer and the tests together, and the wire keys and values do not move either way. The question: give every node-valued field a `NodeName` and every message target a `CanId`, which is a breaking source change for any caller reading those fields and makes the header's opening sentence true; give them to the fields a caller is most likely to compare against a typed value and say which the header means; or state plainly in the header that the vocabulary types cover the parsed message and signal bodies while the metadata sections carry the wire's own strings. Nothing here is a defect in behaviour, which is why it is a ruling and not a fix.
 
 ## `cpp/include/aletheia/dbc.hpp`: one member name departs from the record and the wire
 
+**Ruled 2026-09-15: rename to follow the record and the wire, and drop the parity probe's exception. Carried by task 114.**
+
 Measured at the directory task and already carried as the single named exception in probes/cpp_include_aletheia_dbc.hpp--definition-mirrors-agda-record.sh, which maps every other field mechanically. The Agda record's field is `unresolvedValueDescs`, that is also the wire key both the parser and the serializer use, Python names its field the same, Go names its parser after it, and Rust's own documentation spells it the same way; C++ alone expands it to `unresolved_value_descriptions`. The question: rename the C++ member to follow the record and the wire, which is a breaking source change for a caller reading it and lets the parity probe drop its one exception; or keep the expanded name as the C++ spelling and keep the exception, since the abbreviation is the only one in the record and reads poorly in a language that spells `value_descriptions` in full one field away.
 
 ## `cpp/`: the backend interface passes a signal block as raw parallel pointers and the session state as `void*`
+
+**Ruled 2026-09-15: land both typed shapes. Carried by task 112.**
 
 Measured at the directory task over the interface and everything that implements or calls it. Four classes implement it in the tree, two of them tests, and the feature matrix presents the seam as available to an external consumer, so a signature change is breaking beyond the repository.
 

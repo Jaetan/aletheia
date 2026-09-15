@@ -1,21 +1,15 @@
-# Task 099: file review of `cpp/include/aletheia/backend.hpp` (follow-up from task 047)
+# Task 111: the file-to-gate map has no saved generator
 
-- status: pending, unblocked 2026-09-15: the mock factory is ruled to answer with canned successes, so the declaration comment becomes true once task 113 lands and this task checks it word for word
-- worked to the ruling: the second finding is fixed. The three factories carry `[[nodiscard]]` as part of the
-  directory-wide discard rule, landed in refs/frev/097g with the guard demonstrated: discarding a marked call in
-  the library sources makes the clang-tidy gate report it twice, and a scratch translation unit outside the tree
-  gets the compiler warning. What remains is the declaration comment saying the factory returns canned responses,
-  which the public mock ruling decides; the probe that reads red on the current object is in the store.
-- file: `cpp/include/aletheia/backend.hpp`
-- round base: b222b613 (2026-09-15)
-- pass: lenses and diff, over the two findings below plus whatever the lenses fire on
-- origin: task 047 found two things the header's own review did not cover. The declaration of `make_mock_backend` carries the comment "Test: returns canned responses"; the object the factory hands out has an empty response queue, so its first call throws State "mock backend: no queued response for process" (probes/cpp_src_mock_backend.cpp--public-factory-answers-without-queueing.sh, red on record). The comment is corrected or made true by the ruling on the public mock contract, so the comment half of this task is gated by that ruling. The second finding is not gated and is no longer this task's alone: `make_ffi_backend`, `make_ffi_backend_from_env` and `make_mock_backend` are the only value-returning declarations in this header without `[[nodiscard]]`, and a discarded `make_ffi_backend` brings the one-shot GHC runtime up with a core count and then destroys the backend, which is the most expensive discard in the binding. Task 049 then measured the same gap across every public header, 27 declarations in seven files, so the rule for the directory is XREV task 097 and this file's three factories are the group it decides first.
+- status: pending
+- files: `lens/`, `base/file_gate_map.tsv`, `end/file_gate_map.tsv`
+- pass: write the generator, regenerate the base row from the base tree, make the two ends comparable
+- origin: The round-end record states that the base map's generator was not kept under `lens/`, so its total of 10 cannot be reproduced and the two maps are not comparable row by row. A lens whose method is not saved is not a lens: it produces a number once and nothing can diff it. Write the generator under `lens/`, run it against the base tree taken from the round base commit, replace `base/file_gate_map.tsv` with its output, and re-run it over the worktree so `end/file_gate_map.tsv` comes from the same method. State in the report what the base total actually is once measured, rather than the number the unsaved run produced.
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+(to be written when the task is worked)
 
-## Contract (carried whole)
+---
 
 ## FREV: the file review contract
 

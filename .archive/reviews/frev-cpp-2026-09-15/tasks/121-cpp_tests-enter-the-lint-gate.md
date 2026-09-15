@@ -1,21 +1,15 @@
-# Task 099: file review of `cpp/include/aletheia/backend.hpp` (follow-up from task 047)
+# Task 121: the test sources are outside the lint gate and five disables exist only for them (ruled)
 
-- status: pending, unblocked 2026-09-15: the mock factory is ruled to answer with canned successes, so the declaration comment becomes true once task 113 lands and this task checks it word for word
-- worked to the ruling: the second finding is fixed. The three factories carry `[[nodiscard]]` as part of the
-  directory-wide discard rule, landed in refs/frev/097g with the guard demonstrated: discarding a marked call in
-  the library sources makes the clang-tidy gate report it twice, and a scratch translation unit outside the tree
-  gets the compiler warning. What remains is the declaration comment saying the factory returns canned responses,
-  which the public mock ruling decides; the probe that reads red on the current object is in the store.
-- file: `cpp/include/aletheia/backend.hpp`
-- round base: b222b613 (2026-09-15)
-- pass: lenses and diff, over the two findings below plus whatever the lenses fire on
-- origin: task 047 found two things the header's own review did not cover. The declaration of `make_mock_backend` carries the comment "Test: returns canned responses"; the object the factory hands out has an empty response queue, so its first call throws State "mock backend: no queued response for process" (probes/cpp_src_mock_backend.cpp--public-factory-answers-without-queueing.sh, red on record). The comment is corrected or made true by the ruling on the public mock contract, so the comment half of this task is gated by that ruling. The second finding is not gated and is no longer this task's alone: `make_ffi_backend`, `make_ffi_backend_from_env` and `make_mock_backend` are the only value-returning declarations in this header without `[[nodiscard]]`, and a discarded `make_ffi_backend` brings the one-shot GHC runtime up with a core count and then destroys the backend, which is the most expensive discard in the binding. Task 049 then measured the same gap across every public header, 27 declarations in seven files, so the rule for the directory is XREV task 097 and this file's three factories are the group it decides first.
+- status: pending
+- files: `cpp/.clang-tidy`, a new configuration under `cpp/tests/`, the test sources, `AGENTS.md`, the orchestrator, the probe store
+- pass: full, across the directory
+- origin: Ruled: give the tests their own configuration and start linting them. The five disables in the root configuration produce zero findings over the library sources and every stated reason names test code, so they move to the tests' own configuration, which inherits the parent. The informational run counts tests and benchmarks together, so the two are separated before anything is decided about benchmarks. Every disable that stays in the tests' configuration carries its measured count and the reason it is inherent to test code; everything else is fixed rather than suppressed, and no suppression comment is added. The gate invocation widens, the coding standard's lint line and the orchestrator's step widen with it, and the teeth probe gains an arm that injects a violation into a test source.
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+(to be written when the task is worked)
 
-## Contract (carried whole)
+---
 
 ## FREV: the file review contract
 

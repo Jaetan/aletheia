@@ -36,3 +36,28 @@ Tasks are worked in id order. Follow-ups created during the run get the next fre
 - decision points: eleven in the accumulator, four of them opened by the directory pass. Two of the eleven gate
   the three tasks that wait: the ruling on the installed consumer and the loader dependencies gates 095, and
   the ruling on what the public mock factory should be gates both 099 and 100
+
+## Ruling pass
+
+Opened 2026-09-15, after every point in the accumulator was ruled. The three tasks that were pending on a ruling resume where their descriptions left off, and each of the other rulings is a task of this pass. Every entry of the accumulator carries the ruling that decides it and the task that lands it.
+
+Working order:
+
+1. 111, the file-to-gate lens has no saved generator, so the pass opens with a lens it can diff at its close
+2. 112, the backend interface takes typed shapes, before anything that implements it is touched
+3. 113, the public mock factory answers with canned successes
+4. 099, the header comment the mock ruling gated
+5. 100, the two documents the mock ruling gated
+6. 114, the member name follows the record and the wire
+7. 115, every node field and message target takes its vocabulary type
+8. 116, the rational-to-double conversion is removed and its assertions are evaluated by sweep
+9. 117, the four library searches unify on the renderer's order
+10. 095, the library is built shared so installed consumers link the loaders
+11. 118, the four dependency pins are bumped
+12. 119, the format configuration lists only the project's own decisions
+13. 120, CMake files get a style configuration and a lint gate
+14. 121, the tests get their own lint configuration and enter the gate
+
+Six of these are breaking changes to the C++ surface and each carries its changelog entry as it lands: the shared library, the removed conversion, the unified search order, the two vocabulary changes to the DBC header, and the interface's typed shapes.
+
+The round-end record is re-taken under `end/` when this pass closes. The record of the pre-ruling close survives as its own snapshot, so the pass is diffed against both the base and that close.

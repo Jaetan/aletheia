@@ -1,6 +1,6 @@
 # Task 100: document review of the two places that describe the C++ public mock (follow-up from task 047)
 
-- status: pending on a ruling
+- status: pending, unblocked 2026-09-15: the mock factory is ruled to answer with canned successes, so both passages are checked word for word against what task 113 builds
 - worked to the ruling: the three places describing the public mock are located and read, and the probe that
   shows the object refusing its first call is in the store, red on record. Which of the three sentences becomes
   true depends on whether the factory is made to answer, corrected to describe an unconfigured mock, or dropped,

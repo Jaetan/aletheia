@@ -1,6 +1,6 @@
 # Task 095: installed consumers and the loader dependencies (follow-up from task 007, gated by a ruling)
 
-- status: pending on a ruling
+- status: pending, ruled 2026-09-15: build the library shared so the dependencies link into it
 - worked to the ruling: the failure is reproduced and kept. The two probes in the store build an installed
   consumer and show the client-only program links while a program calling the YAML loader does not, with the
   undefined references named. The three alternatives and their costs are in the accumulator. Nothing here can be
