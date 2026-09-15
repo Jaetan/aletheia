@@ -29,9 +29,11 @@
 namespace aletheia {
 
 /// Load checks from a YAML file.
-auto load_checks_from_yaml(const std::filesystem::path& path) -> Result<std::vector<CheckResult>>;
+[[nodiscard]] auto load_checks_from_yaml(const std::filesystem::path& path)
+    -> Result<std::vector<CheckResult>>;
 
 /// Load checks from a YAML string.
-auto load_checks_from_yaml_string(std::string_view yaml) -> Result<std::vector<CheckResult>>;
+[[nodiscard]] auto load_checks_from_yaml_string(std::string_view yaml)
+    -> Result<std::vector<CheckResult>>;
 
 } // namespace aletheia

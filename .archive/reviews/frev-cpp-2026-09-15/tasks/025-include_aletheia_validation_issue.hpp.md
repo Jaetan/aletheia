@@ -1,6 +1,6 @@
 # Task 025: file review of `cpp/include/aletheia/validation_issue.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/validation_issue.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/026 (signed later by the dribble; shared snapshot with tasks 024 and 026).
+
+Claims and guards: every IssueCode but Unknown is a bijection with the wire vocabulary (test_wire_codes_parity against docs/WIRE_CODES.yaml); the raw-code round trip and the cross-binding mirrors (Go's string-typed IssueCode, Rust's IssueCode::Unknown(String), both found; unit_tests_validation covers the unknown-code path); to_string and issue_code_label (unit_tests_validation and the CLI tests).
+
+Finding fixed: the comment on the round-trip diagnostics was garbled ("validateDBC and the DBC-loading routes mirror MultiValueMuxSelector and MuxMasterIncoherent warning-class"); it now says what docs/WIRE_CODES.yaml's own note says: the two multiplexing codes are also emitted, warning-class, by the structural validator and the loading routes through the same deciders.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/026
+claims: 3 rows, 0 without a guard
+1 line per line: checked, all 81 lines read; every enumerator asked which wire code it is
+2 guidelines: checked, enum classes, nodiscard on the three functions
+3 modernize: checked
+4 catalogue: checked, the wire-codes SSOT gate
+5 value semantics: checked, string_view returns into static storage
+6 raii: n/a
+7 dedup: checked, none
+8 ground truth: finding, one unreadable sentence rewritten from the SSOT's note; the cross-binding citations resolve
+9 history: checked, none
+10 simpler: checked
+11 comments: 27 to 28 (one more line, in the task that fixed the garbled sentence), code 46 to 46
+sweep: no mutation names this file; tidy gate zero after the edit
+probes: none added
+decision points: none
+```
 
 ## Contract (carried whole)
 

@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #pragma once
 
+#include <aletheia/dbc.hpp>
 #include <aletheia/validation_issue.hpp> // IWYU pragma: export
 
+#include <string>
 #include <vector>
 
 namespace aletheia {
@@ -12,12 +14,6 @@ struct ValidationResult {
     bool has_errors;
     std::vector<ValidationIssue> issues;
 };
-
-} // namespace aletheia
-
-#include <aletheia/dbc.hpp>
-
-namespace aletheia {
 
 // ParsedDBC bundles the parsed body and any non-error issues (warnings)
 // returned by parse_dbc / parse_dbc_text.  Errors short-circuit to the

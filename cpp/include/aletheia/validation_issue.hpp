@@ -35,9 +35,10 @@ enum class IssueCode {
     UnknownMessageSender,
     UnknownSignalReceiver,
     UnknownValueDescriptionTarget,
-    // Text-round-trip checker diagnostics (formatDBCText / round-trip refusal).
-    // validateDBC and the DBC-loading routes mirror MultiValueMuxSelector and
-    // MuxMasterIncoherent warning-class, via the same kernel deciders.
+    // Text-round-trip checker diagnostics, attached to formatDBCText's result
+    // or refusal. The two multiplexing codes are also emitted, warning-class,
+    // by the structural validator (validateDBC and the DBC-loading routes),
+    // which reuses the same kernel deciders.
     TextRoundtripDivergence,
     MultiValueMuxSelector,
     MuxMasterIncoherent,

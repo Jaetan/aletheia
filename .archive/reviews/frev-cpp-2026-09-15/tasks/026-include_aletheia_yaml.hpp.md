@@ -1,6 +1,6 @@
 # Task 026: file review of `cpp/include/aletheia/yaml.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/yaml.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/026 (signed later by the dribble).
+
+Claims and guards: the header's usage example compiles (new probe extracts and compiles it); the two loaders (yaml_tests).
+
+Finding fixed: both loaders were not [[nodiscard]]; they are, and the tree builds with zero warnings.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/026
+claims: 2 rows, 1 without a guard: probe cpp_include_aletheia_yaml.hpp--header-example-compiles.sh added
+1 line per line: checked, all 37 lines read
+2 guidelines: finding, nodiscard on the two Result-returning loaders
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md category 29
+5 value semantics: checked, path by const reference, string_view for the text
+6 raii: n/a
+7 dedup: checked, none
+8 ground truth: checked, the example names real loaders
+9 history: checked, none
+10 simpler: checked
+11 comments: 21 to 21, code 10 to 12
+sweep: no mutation names this file; yaml.cpp carries no Mull mutants at base; yaml tests green after the edit
+probes: 1 added; store 38 run, 37 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 

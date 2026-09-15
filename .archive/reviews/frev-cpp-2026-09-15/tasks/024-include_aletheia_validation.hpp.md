@@ -1,6 +1,6 @@
 # Task 024: file review of `cpp/include/aletheia/validation.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/validation.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/026 (signed later by the dribble; shared snapshot with tasks 025 and 026).
+
+Claims and guards: ParsedDBC carries only warnings (client.cpp constructs it after the error short-circuit; unit_tests_validation); DbcText's strict contract (the kernel's TextRoundtrip refusal, unit_tests_dbc and integration tests); the include shape (build and the tidy gate's include-cleaner).
+
+Findings fixed: (a) the namespace was opened, closed, reopened around a mid-file `#include <aletheia/dbc.hpp>`, a shape only an include cycle justifies, and dbc.hpp includes types.hpp alone; the include sits with the others and the namespace is one block; (b) `<string>` was missing for DbcText::text. Pushed to XREV task 097: the format_dbc_text contract is spelled in prose here and again on the method in client.hpp.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/026
+claims: 3 rows, 0 without a guard
+1 line per line: checked, all 42 lines read
+2 guidelines: checked, aggregates, includes for what is used
+3 modernize: finding, one namespace block; gate: whole tree rebuilt clean, unit, yaml, cli and wire-code tests green, tidy gate zero
+4 catalogue: checked, AGENTS/cpp.md category 3 (include hygiene)
+5 value semantics: checked
+6 raii: n/a
+7 dedup: finding pushed to XREV 097 (contract prose duplicated with client.hpp)
+8 ground truth: checked, both comments trace to client.cpp and the error kinds
+9 history: checked, none
+10 simpler: finding, see 3
+11 comments: 12 to 12, code 20 to 19
+sweep: no mutation names this file; tidy gate zero after the edit
+probes: none added
+decision points: none
+```
 
 ## Contract (carried whole)
 
