@@ -1,6 +1,6 @@
 # Task 075: file review of `cpp/tests/test_rts_heap_cap.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/test_rts_heap_cap.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/075 (signed later by the dribble).
+
+Claims and guards: the file claims the heap cap is containment by abort rather than a recoverable error, so the process dies and the host survives; that the workload must run in its own process because the runtime is one-shot; that this process never starts the runtime, which is what makes forking safe; and that the default cap boots while a tight cap over a large document aborts. The cap it names is the one the binding sets, read at this task in the runtime parameters header, and the override variable it sets is the one that header reads. The two cases are the guard for the behaviour.
+
+Finding fixed: the driver read only the exit code and inferred the rest, saying in its own comment that a clean exit implies the sentinel printed. Nothing checked that: deleting the workload's sentinel line changed no observable outcome. The child's standard output now comes back through a pipe, drained before the wait so a child that filled it cannot deadlock, and the positive case reads the sentinel while the negative case asserts it is absent, which also pins that the abort happened before the clean-parse path. Teeth proven by deleting the sentinel line from the workload: the suite fails, and passes again when it is restored.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/075
+claims: 5 rows, 1 without a guard: the sentinel, now read back through a pipe, teeth proven by deleting the line that prints it
+1 line per line: checked, all 70 lines read before the change and every added line after
+2 guidelines: checked, both pipe ends are closed on both sides of the fork and the read loop ends at end of file
+3 modernize: checked, the pair return keeps the call sites reading as they did
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the repository's rule that a gate which cannot fail has a bug
+5 value semantics: checked, the captured output is returned by value with the code
+6 raii: checked as a finding not taken: the two descriptors are closed on every path through this helper, and wrapping them would need a type this one file would own alone; the directory-wide temp and descriptor helpers are XREV task 097
+7 dedup: checked, none
+8 ground truth: checked, the default cap and the override variable read from cpp/src/detail/rts_params.hpp, the workload's exit codes from the workload
+9 history: checked, none
+10 simpler: checked
+11 comments: 26 to 31, code 35 to 51, the rise allowed because the task closed the unguarded sentinel
+sweep: no mutation names this file (its own binary, outside the mutation build's unit_tests target); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; the teeth check is the measurement
+decision points: none
+```
 
 ## Contract (carried whole)
 
