@@ -1,6 +1,6 @@
 # Task 091: file review of `cpp/tests/yaml_tests.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/yaml_tests.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/091 (signed later by the dribble).
+
+Claims and guards: the loader's every refusal is a case here and each asserts the message fragment that names the field or the condition at fault, which is what a user reads: a missing checks key, a checks value that is not a list, an entry that is neither a signal nor a when, an unknown condition on each of the three sides, each required field missing on each condition that needs it, a check named and unnamed in the message, and an entry that is not a mapping. The hardening cases cover the symlink refusal, the file-size cap, the inline-string cap and the stat-failure path that must be told apart from a missing file. The loading cases cover a file, multiple checks in one document, and the metadata applied from each entry.
+
+Finding fixed: nine cases built a check of a named condition and then asserted only that a formula came back, so the loader could have dispatched any condition and every one would still have passed, the same gap the Excel suite carried. Each now compares the rendered formula, which pins the operator, both signal names where there are two, the deadline and the exact thresholds. The renderings are the renderer's own output, not transcriptions: the settles case's deadline came back normalised to seconds rather than the milliseconds the document asks for, and the case records what the renderer produces. Teeth proven by swapping the loader's never-exceeds dispatch to never-below: one case fails, where none did before.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/091
+claims: 22 rows, 9 without a guard: the condition dispatches, now pinned by rendered formula, teeth proven by swapping one arm
+1 line per line: checked, all 581 lines read
+2 guidelines: checked, the documents are raw string literals and the temp files are removed on every path the cases take
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the loader's refusal vocabulary
+5 value semantics: checked
+6 raii: checked as a finding not taken here: the hardening cases create and remove their own files, which the directory-wide temp-path item in XREV task 097 covers
+7 dedup: checked, each case's document is its own input
+8 ground truth: checked, every expected rendering read from the renderer rather than written from memory, including the one that came back in different units
+9 history: checked, none
+10 simpler: checked, the public renderer is the one mechanism, as in the Excel suite's correction
+11 comments: 35 to 35, code 498 to 515
+sweep: no mutation names this file (its own binary, outside the mutation build's unit_tests target); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15, and this binary alone runs 37 cases and 104 assertions against 95 before the task
+probes: the loader's kind probe added at cpp/src/yaml.cpp's own task covers the runtime-down path from outside the suite and is green; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 

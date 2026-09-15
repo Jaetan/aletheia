@@ -5,6 +5,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <aletheia/enrich.hpp>
 #include <aletheia/error.hpp>
 #include <aletheia/yaml.hpp>
 
@@ -34,6 +35,7 @@ checks:
     REQUIRE(result->size() == 1);
     auto formula = (*result)[0].to_formula();
     REQUIRE(formula.has_value());
+    CHECK(format_formula(*formula) == "always(VehicleSpeed <= 220)");
 }
 
 TEST_CASE("yaml: never_below", "[yaml][simple]") {
@@ -47,6 +49,7 @@ checks:
     REQUIRE(result->size() == 1);
     auto formula = (*result)[0].to_formula();
     REQUIRE(formula.has_value());
+    CHECK(format_formula(*formula) == "always(BatteryVoltage >= 11.5)");
 }
 
 TEST_CASE("yaml: stays_between", "[yaml][simple]") {
@@ -61,6 +64,7 @@ checks:
     REQUIRE(result->size() == 1);
     auto formula = (*result)[0].to_formula();
     REQUIRE(formula.has_value());
+    CHECK(format_formula(*formula) == "always(11.5 <= BatteryVoltage <= 14.5)");
 }
 
 TEST_CASE("yaml: never_equals", "[yaml][simple]") {
@@ -74,6 +78,7 @@ checks:
     REQUIRE(result->size() == 1);
     auto formula = (*result)[0].to_formula();
     REQUIRE(formula.has_value());
+    CHECK(format_formula(*formula) == "never ErrorCode = 99");
 }
 
 TEST_CASE("yaml: equals always", "[yaml][simple]") {
@@ -87,6 +92,7 @@ checks:
     REQUIRE(result->size() == 1);
     auto formula = (*result)[0].to_formula();
     REQUIRE(formula.has_value());
+    CHECK(format_formula(*formula) == "always(ParkingBrake = 0)");
 }
 
 TEST_CASE("yaml: settles_between", "[yaml][simple]") {
@@ -102,6 +108,7 @@ checks:
     REQUIRE(result->size() == 1);
     auto formula = (*result)[0].to_formula();
     REQUIRE(formula.has_value());
+    CHECK(format_formula(*formula) == "always within 5s (85 <= CoolantTemp <= 95)");
 }
 
 // ===========================================================================
@@ -125,6 +132,8 @@ checks:
     REQUIRE(result->size() == 1);
     auto formula = (*result)[0].to_formula();
     REQUIRE(formula.has_value());
+    CHECK(format_formula(*formula) ==
+          "always(not(BrakePedal > 50) or eventually within 100ms (BrakeLight = 1))");
 }
 
 TEST_CASE("yaml: when equals then exceeds", "[yaml][when-then]") {
@@ -142,6 +151,10 @@ checks:
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
+    auto formula = (*result)[0].to_formula();
+    REQUIRE(formula.has_value());
+    CHECK(format_formula(*formula) ==
+          "always(not(GearSelector = 1) or eventually within 200ms (ReverseLight > 0))");
 }
 
 TEST_CASE("yaml: when drops_below then stays_between", "[yaml][when-then]") {
@@ -160,6 +173,10 @@ checks:
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
+    auto formula = (*result)[0].to_formula();
+    REQUIRE(formula.has_value());
+    CHECK(format_formula(*formula) ==
+          "always(not(FuelLevel < 10) or eventually within 500ms (1 <= FuelWarning <= 1))");
 }
 
 // ===========================================================================
