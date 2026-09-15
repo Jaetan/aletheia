@@ -1,6 +1,6 @@
 # Task 008: file review of `cpp/include/aletheia/aletheia.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/aletheia.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/008 (signed later by the dribble).
+
+Claims and guards: the umbrella reaches the whole public API (measured through `clang++ -MM`: every header under cpp/include/aletheia but cli.hpp, with validation_issue.hpp reached through validation.hpp; probe added); the facade pulls only the core (measured: no excel, yaml or enrich header and no third-party header in its closure; probe added); the IWYU export pragmas (the tidy gate's misc-include-cleaner accepts the umbrella include in every test, green at base).
+
+Findings fixed: (a) "the full C++ API" omitted that cli.hpp is not included; the comment names the exclusion and why; (b) the facade was recommended "to avoid the OpenXLSX / yaml-cpp transitive cost": neither entry point includes a third-party header, so the difference is the set of declarations, not compile time; the comment says what is measured; (c) the audience labels ("umbrella-for-quickstart", "facade-for-production") and the "compile time is not a concern" advice rested on that false cost and are gone.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/008
+claims: 3 rows, 2 without a guard: two probes added (umbrella closure, facade closure)
+1 line per line: checked, all 48 lines read; each include asked whether the umbrella needs it (all 14 do) and each sentence what measures it
+2 guidelines: checked, SF.10-style umbrella with explicit exports
+3 modernize: checked, nothing to move
+4 catalogue: checked, AGENTS/cpp.md category 16 (public headers expose no nlohmann or implementation detail): the closures confirm it for the umbrella and the facade
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked, none
+8 ground truth: finding, two false sentences (b, a above) rewritten from the measured closures
+9 history: checked, none
+10 simpler: checked
+11 comments: 32 to 31, code 15 to 15
+sweep: no mutation names this file; format gate green; the umbrella is compiled by every test and by the README probe
+probes: 2 added under probes/cpp_include_aletheia_aletheia.hpp--*.sh; store 19 run, 18 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 

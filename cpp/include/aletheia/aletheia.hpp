@@ -4,26 +4,25 @@
 // Aletheia C++23 Binding — Umbrella Header
 //
 // Formally verified CAN frame analysis via Linear Temporal Logic.
-// Include this single header to access the full C++ API, including the
-// optional Excel and YAML loaders.
+// Include this single header to reach every public header but cli.hpp (the
+// CLI entry point, built as its own library), the optional Excel and YAML
+// loaders included.
 //
-// Two entry points, by audience:
+// Two entry points:
 //
-//   <aletheia/aletheia.hpp>  — umbrella-for-quickstart. Pulls in the core
-//                              API plus the optional loaders (excel.hpp,
-//                              yaml.hpp) and the enrichment helper
-//                              (enrich.hpp). Pick this for tutorials,
-//                              examples, and one-file scripts where
-//                              compile time is not a concern.
+//   <aletheia/aletheia.hpp>  — the umbrella: the core API plus the loaders
+//                              (excel.hpp, yaml.hpp) and the enrichment
+//                              helper (enrich.hpp).
 //
-//   <aletheia/client.hpp>    — facade-for-production. Pulls in only the
-//                              core API (Client, Check, DbcDefinition,
-//                              LtlFormula, logging, errors, responses).
-//                              Pick this when you want to avoid the
-//                              OpenXLSX / yaml-cpp transitive cost in
-//                              production code, and include excel.hpp /
-//                              yaml.hpp / enrich.hpp separately only
-//                              where they are actually needed.
+//   <aletheia/client.hpp>    — the facade: the core API only (Client, Check,
+//                              DbcDefinition, LtlFormula, logging, errors,
+//                              responses). Include excel.hpp, yaml.hpp or
+//                              enrich.hpp beside it where they are used.
+//
+// Neither entry point includes a third-party header: OpenXLSX, yaml-cpp and
+// nlohmann/json stay behind the library's own sources, so the difference is
+// the set of declarations, not compile time (a probe under probes/ measures
+// both closures).
 //
 #pragma once
 
