@@ -1,13 +1,42 @@
 # Task 106: file review of `tools/_ci_steps.py` (follow-up from task 102)
 
-- status: pending
+- status: completed
 - file: `tools/_ci_steps.py`
 - pass: lenses and diff, over the format step's exclusion list plus whatever the lenses fire on
 - origin: the clang-format step enumerates the build trees to prune by hand and the list is short by one. Measured while running the fast tier for task 102: with `cpp/build-fuzz` configured, the step walks it and reports the generated compiler-probe source as unformatted, so the gate fails on a tree nobody authored. The ignore file already names every build tree, the step's list repeats that knowledge and drifts from it, and the same hand-maintained-glob failure is what the neighbouring clang-tidy step's own comment says the compile database exists to prevent. Derive the file list from what the repository tracks, or from the ignore file, so a build tree cannot enter the gate; stage the change by configuring a pruned tree and showing the step no longer sees it.
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Lenses and diff pass over the format step. Fix in refs/frev/106 (signed later by the dribble).
+
+Claims and guards: the step claimed to exclude generated and third-party trees, and it named them one by one. The list was short by one, so with the fuzz build tree configured the step walked the generated compiler-probe source and the gate failed on a file nobody authored. Measured by diffing the two file lists: the walk and the tracked list agree on every file but that one.
+
+Finding fixed: the file list now comes from what the repository tracks, which is what the clang-tidy step beside it already does through the compile database, and its own comment says why. No build tree can enter the list however many of them exist, and a file staged but not committed is still covered, which is what the pre-commit tier needs. The hand-maintained exclusions go with it.
+
+Staged both ways. With the fuzz tree present, the fast tier failed on the old command and passes on the new one. With an unformatted line appended to a tracked source, the step fails, and restoring the file makes the tier pass again, so the gate is not simply looking at less.
+
+The probe reads the step's own command, requires it to ask git and to have stopped walking the filesystem, and checks the tracked list is non-empty, holds no build tree and still names a source the gate must cover. Rewriting the command back to a filesystem walk makes it red.
+
+No other step in the tooling enumerates files by walking; this was the only one.
+
+```
+REPORT 2026-09-15 tree refs/frev/102 fix in refs/frev/106
+claims: 1 row, 1 without a guard: the exclusion of generated trees, now guarded by the provenance probe and by the tier passing with a build tree configured
+1 line per line: checked, the step and its comment read whole, and the surrounding steps read for the same defect
+2 guidelines: n/a, not C++
+3 modernize: checked, the null-separated listing and the no-run-if-empty flag replace a pipeline that would have run the formatter on no arguments
+4 catalogue: checked, asking the version-control system for the file set is what the neighbouring lint step does
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: finding, the list of trees to skip repeated what the ignore file already states; it is gone
+8 ground truth: finding, the comment claimed the step excludes the build trees and it missed one; both list and comment now describe the same rule
+9 history: checked, none
+10 simpler: checked, four lines of code removed
+11 comments: 226 to 228, code 419 to 415
+sweep: no mutation names this file; the eleven fast-tier steps pass with the fuzz tree configured, ruff and pylint are clean and the type checker reports nothing
+probes: the new provenance probe passes, and read red with the walk restored
+decision points: none
+```
 
 ## Contract (carried whole)
 

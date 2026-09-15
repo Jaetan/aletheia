@@ -434,8 +434,10 @@ def _run_lints(runner: Runner) -> None:
     runner.step("gofmt", gofmt_cmd, cwd=runner.repo_root / "go")
     runner.step("go vet", "go vet ./... && (cd excel && go vet ./...)", cwd=runner.repo_root / "go")
 
-    # clang-format: exclude generated / third-party trees + sanitizer/mutation
-    # build trees.
+    # clang-format over what the repository tracks, for the reason the
+    # clang-tidy step below reads the compile database: a hand-maintained list
+    # of trees to skip drifts from the trees that exist, and the one it misses
+    # walks a generated source into the gate.  git also covers a staged file.
     #
     # Route through the venv-pinned clang-format (the ``clang-format`` pip pkg in
     # [dev]) instead of a bare PATH lookup.  clang-format output is
@@ -448,12 +450,8 @@ def _run_lints(runner: Runner) -> None:
     _clang_format = Path(runner.python).parent / "clang-format"
     clang_format_bin = str(_clang_format) if _clang_format.exists() else "clang-format"
     clang_format_cmd = (
-        "find . \\( -path ./build -o -path ./build-tidy "
-        "-o -path ./build-asan -o -path ./build-ubsan "
-        "-o -path ./build-mutation "
-        "-o -path ./_deps -o -path './*/_deps' \\) -prune -o "
-        "\\( -name '*.cpp' -o -name '*.hpp' \\) -print | "
-        f"xargs {shlex.quote(clang_format_bin)} --dry-run --Werror"
+        "git ls-files -z -- '*.cpp' '*.hpp' | "
+        f"xargs -0 -r {shlex.quote(clang_format_bin)} --dry-run --Werror"
     )
     runner.step("clang-format", clang_format_cmd, cwd=runner.repo_root / "cpp")
 
