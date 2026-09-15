@@ -1,6 +1,6 @@
 # Task 087: file review of `cpp/tests/unit_tests_json.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/unit_tests_json.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/087 (signed later by the dribble).
+
+Claims and guards: this is the binding's largest unit file and its claims are its cases, a hundred and more of them across serialization, parsing and the formula printer. The serializer cases pin the wire shape member by member, including the two conventions a reader would not guess: the extended flag omitted on standard frames and the explicit presence discriminator. The strict-integer cases are the strongest group, pinning that a float in an integer position is refused in every region rather than silently truncated, which is what the JSON library would do on its own. The mutation-kill cases each name the mutant they kill, and the sweep shows the parser's own translation unit clean. The reject-branch group covers the shapes the verified core never emits, each asserting a kind and a message fragment so it targets its own branch. The formula printer is pinned for every operator and every predicate.
+
+Findings fixed: (a) a serializer case compared a wire threshold with an approximate float, in a binding whose contract is that no float crosses any surface; the wire carries a whole threshold as an integer and the case now compares it as one, and the approximate-comparison header went with it; (b) two comments cited mutation sites by line number in the parser and both had drifted, one onto a numerator read and one onto the acknowledgement dispatch, so each now names the function and the expression; (c) four comments told the story of shapes the wire used to have or arms that used to be missing, rather than the rule that holds; (d) a comment named a particular sweep of the mutation tool by version.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/087
+claims: 118 rows, 0 without a guard: each is a case in this file
+1 line per line: checked, all 2047 lines read
+2 guidelines: checked, the wire documents are raw string literals and every expectation is compared against a parsed value rather than a substring where the shape matters
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests), the float principle and the wire-code rules
+5 value semantics: checked
+6 raii: n/a
+7 dedup: checked; the serializer-output base the decode-validation group mutates one field at a time is the deduplication
+8 ground truth: finding, two drifted mutation-site citations; checked true: the two mutation sites by name in the parser, and the wire conventions against the serializer
+9 history: finding, four comments
+10 simpler: checked
+11 comments: 171 to 173, code 1676 to 1675, the rise allowed because the task fixed the float comparison and the two drifted citations
+sweep: this file is part of unit_tests, which the mutation build instruments, and no mutation names it; the parser's own translation unit carries mutants that the cases here name and the sweep reads KILLED. Tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 

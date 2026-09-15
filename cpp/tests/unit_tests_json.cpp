@@ -8,7 +8,6 @@
 // formula into a human-readable string.
 #include "test_helpers.hpp"
 
-#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -84,7 +83,10 @@ TEST_CASE("serialize_set_properties produces correct JSON", "[json][serialize]")
     CHECK(j["properties"][0]["formula"]["operator"] == "atomic");
     CHECK(j["properties"][0]["formula"]["predicate"]["predicate"] == "lessThan");
     CHECK(j["properties"][0]["formula"]["predicate"]["signal"] == "Speed");
-    CHECK(j["properties"][0]["formula"]["predicate"]["value"] == Catch::Approx(220.0));
+    // The wire carries a whole threshold as an integer, and the float principle
+    // means it is compared as one: an approximate comparison would read it
+    // through a double.
+    CHECK(j["properties"][0]["formula"]["predicate"]["value"] == 220);
 }
 
 TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
@@ -289,10 +291,10 @@ TEST_CASE("parse_extraction with rational values", "[json][parse]") {
     CHECK(result->values[0].value == PhysicalValue{Rational{1, 3}});
 }
 
-// ── Mutation-kill tests for the binding-layer Rational JSON parsing ──────────
-// The Agda core is proven; the C++ wire-parsing is only tested.  These close
-// real Mull-19 survivors in json_parse.cpp's parse_rational_dict /
-// parse_rational_as_int (each test names the mutant it kills).
+// ── Mutation-kill cases for the binding's rational JSON parsing ─────────────
+// The kernel is proven and the wire parsing here is only tested, so the
+// mutation sweep is what holds these two parsers, parse_rational_dict and
+// parse_rational_as_int, and each case below names the mutant it kills.
 
 TEST_CASE("parse_extraction rejects a negative-denominator rational", "[json][parse][error]") {
     // {1,-3} must be REJECTED, not silently sign-normalized: the kernel emits a
@@ -318,9 +320,10 @@ TEST_CASE("parse_extraction rejects a negative-denominator rational", "[json][pa
 // Go, Rust, and Python already reject floats here.
 
 TEST_CASE("parse_extraction rejects a float signal value", "[json][parse][validation]") {
-    // Region 1: parse_signal_value no longer has a float branch — a bare float
-    // is a wire-format violation, not a value to approximate. Exact rationals
-    // travel as {numerator, denominator}; decimals are parsed by the kernel SSOT.
+    // Region 1, parse_signal_value: a bare float is a wire-format violation,
+    // not a value to approximate. Exact rationals travel as a numerator and a
+    // denominator; decimals are parsed by the kernel's own decimal source of
+    // truth.
     auto result = detail::parse_extraction(R"({
         "status": "success",
         "values": [{"name": "Speed", "value": 120.5}],
@@ -427,8 +430,9 @@ TEST_CASE("parse_frame_data rejects a float data byte", "[json][parse][validatio
 
 TEST_CASE("parse_frame_response integer property_index uses exact division",
           "[json][parse][mutation]") {
-    // property_index {6,3} -> 2 (integer field: num / den).  Kills cxx_div_to_mul
-    // at json_parse.cpp:289 (return num / den): the * mutant yields 18.
+    // property_index {6,3} -> 2 (an integer field divides). Kills the
+    // division-to-multiplication mutant on the return in parse_rational_as_int,
+    // whose product would be 18.
     auto result = detail::parse_frame_response(R"({
         "type": "property_batch",
         "results": [{"type": "property", "status": "fails",
@@ -443,8 +447,9 @@ TEST_CASE("parse_frame_response integer property_index uses exact division",
 }
 
 TEST_CASE("parse_frame_response accepts a zero timestamp", "[json][parse][mutation]") {
-    // timestamp 0 is the legal lower boundary (>= 0).  Kills cxx_lt_to_le at
-    // json_parse.cpp:830 (if ts_val < 0 throw): the <= mutant wrongly rejects 0.
+    // A timestamp of zero is the legal lower boundary. Kills the
+    // less-than-to-less-or-equal mutant on the negative-timestamp refusal in
+    // the property-result parser, which would reject zero.
     auto result = detail::parse_frame_response(R"({
         "type": "property_batch",
         "results": [{"type": "property", "status": "fails",
@@ -1230,9 +1235,9 @@ TEST_CASE("parse_dbc_response rejects unknown comment target kind",
 // ===========================================================================
 // `unresolvedValueDescs` parse / roundtrip
 //
-// The serializer was already emitting `unresolvedValueDescs` while the parse
-// arm was missing (emit ✓ / parse ✗). These tests pin the missing parse-arm
-// so a future regression cannot silently re-drop the field.
+// The field travels in both directions: the serializer emits it and the parser
+// decodes it. These cases pin the parse arm, which is the half a refactor can
+// drop without the serializer noticing.
 // ===========================================================================
 
 TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc]") {
@@ -1392,12 +1397,10 @@ TEST_CASE("parse_stream_result rejects negative property_index", "[json][parse][
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Negative property_index"));
 }
 
-// A missing `timestamp` on a single-violation frame was previously rejected;
-// after the batch-shape migration `timestamp` is optional at the parse layer
-// (the EndStream Holds entries don't have
-// one).  The Agda kernel still always emits `timestamp` on a streaming
-// Fails entry — that contract is enforced upstream, not at the parser.
-// The negative-timestamp / non-integer-timestamp validations remain.
+// `timestamp` is optional at the parse layer, because an end-of-stream entry
+// that holds carries none. The kernel always emits one on a streaming failure,
+// and that contract is enforced upstream rather than here. The negative and
+// non-integer refusals do apply.
 TEST_CASE("parse_frame_response accepts fails with missing timestamp", "[json][parse]") {
     auto result = detail::parse_frame_response(R"({
         "type": "property_batch",
@@ -1455,11 +1458,10 @@ TEST_CASE("parse_rational_as_int rejects non-exact rational", "[json][parse][err
 }
 
 TEST_CASE("parse_frame_response rejects unrecognised top-level type", "[json][parse][error]") {
-    // A top-level `status: "fails"` + `type: "property"` was formerly the
-    // single-violation shape; that shape is now unrecognised at the top level
-    // (violations live inside
-    // `property_batch.results`).  Any top-level shape that isn't ack /
-    // error / property_batch is a protocol violation.
+    // Violations live inside a property batch's results, so a top-level
+    // failure status is not a shape the parser knows. Any top-level shape
+    // other than an acknowledgement, an error or a property batch is a
+    // protocol violation.
     auto result = detail::parse_frame_response(R"({
         "status": "fails",
         "property_index": 0,
@@ -1790,13 +1792,12 @@ TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
 }
 
 // ===========================================================================
-// Wire-decoder reject-branch coverage (cross-binding parity with Go #86 / Rust
-// PR-B). Each drives a detail::parse_* / decode_* decoder with a malformed or
-// unexpected wire response the verified core never emits, so only a direct test
-// reaches these rejects. Tool-measured with llvm-cov (-DALETHEIA_COVERAGE=ON):
-// each case flips a previously-uncovered json_parse.cpp branch. Each asserts the
-// specific error kind + message fragment so the test targets its branch, not
-// merely that *some* decode step failed.
+// Wire-decoder reject branches, in parity with the Go and Rust suites. Each
+// case drives a decoder with a malformed or unexpected wire response the
+// verified core never emits, so only a direct case reaches these refusals, and
+// each asserts the error kind and a message fragment so it targets its own
+// branch rather than merely some failure. The coverage build
+// (-DALETHEIA_COVERAGE=ON) is what shows which branches they reach.
 // ===========================================================================
 
 TEST_CASE("make_json_error rejects a missing code field", "[json][parse][error]") {
