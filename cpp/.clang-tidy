@@ -37,9 +37,6 @@
 #       — Catch2 macros expand to do-while
 #   hicpp-no-array-decay, cppcoreguidelines-pro-bounds-array-to-pointer-decay
 #       — Catch2 macros and string literals trigger these
-#   (cppcoreguidelines-pro-type-reinterpret-cast was previously disabled here;
-#    re-enabled 2026-04-09 once the byte↔uint8_t casts were centralised into
-#    three helpers in ffi_backend.cpp with inline NOLINTNEXTLINE annotations)
 #   performance-unnecessary-value-param
 #       — strong types are tiny; pass-by-value is intentional for 8-16 byte wrappers
 #   google-readability-braces-around-statements,
@@ -49,7 +46,9 @@
 #   performance-enum-size
 #       — suggesting uint8_t base for small enums; premature optimization, harms debuggability
 #   concurrency-mt-unsafe
-#       — flags std::getenv in test helpers; acceptable in test-only code
+#       — flags std::getenv and dlerror, which the library calls once while
+#         loading the shared library or reading its environment (ffi_backend.cpp,
+#         rational_renderer.cpp, cli.cpp) and test helpers call for setup
 #   misc-use-anonymous-namespace
 #       — INVERSE of llvm-prefer-static-over-anonymous-namespace (our adopted style:
 #         `static` for file-local functions/vars, anon namespace only for types);
@@ -60,12 +59,6 @@
 #   cppcoreguidelines-pro-bounds-avoid-unchecked-container-access
 #       — operator[] on pre-validated indices is intentional; .at() would add
 #         hot-path bounds-check exceptions (we self-check our bounds)
-#
-# Previously disabled, now re-enabled (2026-04-09):
-#   modernize-use-nodiscard — valuable for catching ignored return values; NOLINT
-#       intentional ignores rather than silencing project-wide
-#   misc-include-cleaner — catches transitive-include reliance; use IWYU-style pragmas
-#       where necessary
 
 Checks: >
   *,
@@ -111,75 +104,38 @@ HeaderFilterRegex: 'include/aletheia/.*\.hpp$|src/detail/.*\.hpp$'
 
 CheckOptions:
   # Naming conventions — match existing code style
-  - key: readability-identifier-naming.NamespaceCase
-    value: lower_case
-  - key: readability-identifier-naming.ClassCase
-    value: CamelCase
-  - key: readability-identifier-naming.StructCase
-    value: CamelCase
-  - key: readability-identifier-naming.EnumCase
-    value: CamelCase
-  - key: readability-identifier-naming.EnumConstantCase
-    value: CamelCase
-  - key: readability-identifier-naming.FunctionCase
-    value: lower_case
-  - key: readability-identifier-naming.MethodCase
-    value: lower_case
-  - key: readability-identifier-naming.VariableCase
-    value: lower_case
+  readability-identifier-naming.NamespaceCase: lower_case
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+  readability-identifier-naming.EnumConstantCase: CamelCase
+  readability-identifier-naming.FunctionCase: lower_case
+  readability-identifier-naming.MethodCase: lower_case
+  readability-identifier-naming.VariableCase: lower_case
   # Private class members get trailing underscore
-  - key: readability-identifier-naming.PrivateMemberCase
-    value: lower_case
-  - key: readability-identifier-naming.PrivateMemberSuffix
-    value: '_'
+  readability-identifier-naming.PrivateMemberCase: lower_case
+  readability-identifier-naming.PrivateMemberSuffix: '_'
   # Public struct members: no suffix (aggregates use bare names)
-  - key: readability-identifier-naming.PublicMemberCase
-    value: lower_case
-  - key: readability-identifier-naming.PublicMemberSuffix
-    value: ''
-  - key: readability-identifier-naming.ProtectedMemberCase
-    value: lower_case
-  - key: readability-identifier-naming.ProtectedMemberSuffix
-    value: '_'
-  - key: readability-identifier-naming.ParameterCase
-    value: lower_case
-  - key: readability-identifier-naming.TemplateParameterCase
-    value: CamelCase
-  - key: readability-identifier-naming.TypeAliasCase
-    value: CamelCase
-  - key: readability-identifier-naming.ConceptCase
-    value: CamelCase
-  - key: readability-identifier-naming.ConstexprVariableCase
-    value: lower_case
-  - key: readability-identifier-naming.StaticConstantCase
-    value: lower_case
-  - key: readability-identifier-naming.GlobalConstantCase
-    value: lower_case
-  # Thresholds (tightened 2026-04-09 — prior values 30/100/8)
-  - key: readability-function-cognitive-complexity.Threshold
-    value: 25
-  - key: readability-function-size.LineThreshold
-    value: 80
-  - key: readability-function-size.ParameterThreshold
-    value: 8
-  # Catch implicit pointer/integer→bool conversions at the root, rather than
-  # flagging each `if (ptr)` / `if (int)` site individually.
-  - key: readability-implicit-bool-conversion.AllowIntegerConditions
-    value: 'false'
-  - key: readability-implicit-bool-conversion.AllowPointerConditions
-    value: 'false'
-  # Require /*name=*/ comments on every positional argument at call sites
-  # where the parameter name is also present in scope. Helps catch argument
-  # swaps at boundaries the strong typedefs don't cover.
-  - key: bugprone-argument-comment.StrictMode
-    value: 'true'
-  # Default-initialise to zero for fundamental types — silences the
-  # cppcoreguidelines-init-variables finding at the source.
-  - key: cppcoreguidelines-init-variables.IncludeStyle
-    value: google
+  readability-identifier-naming.PublicMemberCase: lower_case
+  readability-identifier-naming.PublicMemberSuffix: ''
+  readability-identifier-naming.ProtectedMemberCase: lower_case
+  readability-identifier-naming.ProtectedMemberSuffix: '_'
+  readability-identifier-naming.ParameterCase: lower_case
+  readability-identifier-naming.TemplateParameterCase: CamelCase
+  readability-identifier-naming.TypeAliasCase: CamelCase
+  readability-identifier-naming.ConceptCase: CamelCase
+  readability-identifier-naming.ConstexprVariableCase: lower_case
+  readability-identifier-naming.StaticConstantCase: lower_case
+  readability-identifier-naming.GlobalConstantCase: lower_case
+  # Thresholds
+  readability-function-cognitive-complexity.Threshold: 25
+  readability-function-size.LineThreshold: 80
+  readability-function-size.ParameterThreshold: 8
+  # An argument comment that is present must match the parameter name exactly
+  # (no case or underscore leniency); comments are not required.
+  bugprone-argument-comment.StrictMode: 'true'
   # Treat <nlohmann/json.hpp> as an umbrella header that legitimately re-exports
   # symbols declared in its own detail/ subtree. Without this, misc-include-cleaner
   # asks callers to include <nlohmann/json_fwd.hpp> even though the library's
   # public API is the single <nlohmann/json.hpp> header.
-  - key: misc-include-cleaner.IgnoreHeaders
-    value: 'nlohmann/.*;OpenXLSX.*;yaml-cpp/.*'
+  misc-include-cleaner.IgnoreHeaders: 'nlohmann/.*;OpenXLSX.*;yaml-cpp/.*'

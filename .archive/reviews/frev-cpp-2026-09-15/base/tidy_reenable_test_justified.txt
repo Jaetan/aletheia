@@ -1,0 +1,49 @@
+Running clang-tidy in 24 threads for 17 files out of 233 in compilation database ...
+[ 1/17][0.3s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/detail/rts_init.cpp
+[ 2/17][0.8s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/detail/ffi_logic.cpp
+[ 3/17][1.9s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/cli/main.cpp
+[ 4/17][2.5s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/backend.cpp
+[ 5/17][2.6s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/mock_backend.cpp
+[ 6/17][2.7s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/rational_renderer.cpp
+/home/nicolas/dev/agda/aletheia/cpp/src/rational_renderer.cpp:88:21: error: function is not thread safe [concurrency-mt-unsafe,-warnings-as-errors]
+   88 |     if (auto* env = std::getenv("ALETHEIA_LIB")) {
+      |                     ^
+/home/nicolas/dev/agda/aletheia/cpp/src/rational_renderer.cpp:133:66: error: function is not thread safe [concurrency-mt-unsafe,-warnings-as-errors]
+  133 |         s.load_error = std::string{"renderer dlopen failed: "} + dlerror();
+      |                                                                  ^
+/home/nicolas/dev/agda/aletheia/cpp/src/rational_renderer.cpp:137:9: error: function is not thread safe [concurrency-mt-unsafe,-warnings-as-errors]
+  137 |         dlerror(); // clear previous errors
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/src/rational_renderer.cpp:139:31: error: function is not thread safe [concurrency-mt-unsafe,-warnings-as-errors]
+  139 |         if (const char* err = dlerror(); err != nullptr) {
+      |                               ^
+
+[ 7/17][3.1s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/ffi_backend.cpp
+/home/nicolas/dev/agda/aletheia/cpp/src/ffi_backend.cpp:140:85: error: function is not thread safe [concurrency-mt-unsafe,-warnings-as-errors]
+  140 |                                                                       name + ": " + dlerror()});
+      |                                                                                     ^
+/home/nicolas/dev/agda/aletheia/cpp/src/ffi_backend.cpp:177:80: error: function is not thread safe [concurrency-mt-unsafe,-warnings-as-errors]
+  177 |                 AletheiaError{ErrorKind::Ffi, std::string("dlopen failed: ") + dlerror()});
+      |                                                                                ^
+/home/nicolas/dev/agda/aletheia/cpp/src/ffi_backend.cpp:223:21: error: function is not thread safe [concurrency-mt-unsafe,-warnings-as-errors]
+  223 |                     std::getenv(std::string{detail::rts_override_env}.c_str());
+      |                     ^
+/home/nicolas/dev/agda/aletheia/cpp/src/ffi_backend.cpp:472:23: error: function is not thread safe [concurrency-mt-unsafe,-warnings-as-errors]
+  472 |     const char* env = std::getenv("ALETHEIA_LIB");
+      |                       ^
+
+[ 8/17][3.3s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/types.cpp
+[ 9/17][4.1s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/detail/loader_utils.cpp
+[10/17][5.4s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/dbc.cpp
+[11/17][7.0s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/yaml.cpp
+[12/17][7.6s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/enrich.cpp
+[13/17][9.2s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/json_serialize.cpp
+[14/17][9.3s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/cli/cli.cpp
+/home/nicolas/dev/agda/aletheia/cpp/src/cli/cli.cpp:104:27: error: function is not thread safe [concurrency-mt-unsafe,-warnings-as-errors]
+  104 |     if (const char* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0')
+      |                           ^
+
+[15/17][10.3s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/json_parse.cpp
+[16/17][11.1s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/excel.cpp
+[17/17][12.7s] clang-tidy-22 -checks=cert-err58-cpp,google-build-using-namespace,cppcoreguidelines-avoid-do-while,hicpp-no-array-decay,cppcoreguidelines-pro-bounds-array-to-pointer-decay,concurrency-mt-unsafe -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/client.cpp
+exit 1
