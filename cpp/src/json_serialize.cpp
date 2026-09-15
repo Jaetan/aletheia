@@ -329,8 +329,7 @@ static auto dbc_to_json(const DbcDefinition& dbc) -> Json {
         {"nodes", json_array(dbc.nodes, node_to_json)},
         {"comments", json_array(dbc.comments, comment_to_json)},
         {"attributes", json_array(dbc.attributes, attribute_to_json)},
-        {"unresolvedValueDescs",
-         json_array(dbc.unresolved_value_descriptions, raw_value_desc_to_json)},
+        {"unresolvedValueDescs", json_array(dbc.unresolved_value_descs, raw_value_desc_to_json)},
     };
 }
 

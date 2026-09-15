@@ -1,13 +1,38 @@
 # Task 114: one member name departs from the record and the wire (ruled)
 
-- status: pending
+- status: completed
 - files: `cpp/include/aletheia/dbc.hpp`, the JSON parser and serializer, the tests, the parity probe
 - pass: full
 - origin: Ruled: rename the C++ member to follow the record and the wire, and let the parity probe drop its one exception. The kernel record's field, the wire key both the parser and the serializer use, the Python field and the Go parser all carry the record's abbreviated spelling; C++ alone expands it. Breaking source change for a caller reading the member, so it owes a changelog entry. Before choosing the spelling, read Python's and Go's own field names rather than assuming them: the ruling follows the record's abbreviation, and the case convention is whatever the binding's identifier-naming check requires. Dropping the probe's exception makes the probe stricter, which is stated in the commit.
 
 ## Report
 
-(to be written when the task is worked)
+The member follows the record and the wire, and the parity probe maps every field with no exception left. Fix in refs/frev/114.
+
+Claims and guards. The probe that maps the C++ definition onto the kernel record carried one hand-written exception, a rewrite rule turning the record's abbreviation into the expanded C++ spelling. An exception in a mechanical map is a claim with no guard: it makes exactly one field unchecked, and it is the field a later rename would silently move. The rename removes the rule, so every field is now derived the same way and the probe reads red on the old spelling, which it could not do before.
+
+A correction measured while carrying the ruling out, and it changes a fact rather than the ruling. The accumulator entry said C++ alone expands the abbreviation. Read field by field: the record and the wire key carry it abbreviated, Python's field carries it verbatim, Rust's carries it in snake case, and Go's field expands it exactly as C++ did. What the entry read as Go following the record is a local variable in Go's serializer, not its field. The ruling is still the right one for C++ and is carried out. The consequence is that Go is now the one binding whose field departs, which is outside this round's directory and is recorded rather than acted on.
+
+The wire did not move, which is the whole reason the rename is safe. The parser reads the same key and the serializer writes it, so the round trip is byte-identical; only the C++ member's spelling changed, through the header, both JSON paths and the tests that name it. Re-running the DBC JSON fuzz target over its seed corpus for a minute confirms the parser: 899209 runs, no crash.
+
+```
+REPORT 2026-09-15 tree refs/frev/100 fix in refs/frev/114
+claims: 1 row, 1 without a guard: the member's agreement with the record, which the probe's exception had excused and now checks
+1 line per line: checked, the record's fields and the header's members read side by side, and the probe's derivation read whole
+2 guidelines: checked, the name follows the record rather than a local preference, which is the rule the header's own opening states
+3 modernize: n/a
+4 catalogue: n/a
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked, the rewrite rule was the duplication, one spelling maintained in two places
+8 ground truth: finding, and a second finding in the record of the finding: the claim that C++ alone expanded it is false of Go
+9 history: checked
+10 simpler: finding, a mechanical map with no exception is the simpler thing and is what landed
+11 comments: 538 to 538, code 3257 to 3256 over the four files the name crosses
+sweep: no mutation names the renamed member; the mutation sweep over the binding is unchanged by a rename
+probes: probes/cpp_include_aletheia_dbc.hpp--definition-mirrors-agda-record.sh lost its exception and reads red on the old spelling; store 67 run, 66 pass, the remaining failure the installed-consumer link this pass lands later
+decision points: none new; the ruled entry carries the correction measured here
+```
 
 ---
 

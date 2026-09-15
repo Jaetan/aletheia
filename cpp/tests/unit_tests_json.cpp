@@ -1261,9 +1261,9 @@ TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc]
         }
     })");
     REQUIRE(result.has_value());
-    REQUIRE(result->unresolved_value_descriptions.size() == 2);
+    REQUIRE(result->unresolved_value_descs.size() == 2);
 
-    const auto& rvd0 = result->unresolved_value_descriptions[0];
+    const auto& rvd0 = result->unresolved_value_descs[0];
     CHECK(std::holds_alternative<StandardId>(rvd0.can_id));
     CHECK(std::get<StandardId>(rvd0.can_id).value() == 256);
     CHECK(rvd0.signal_name == "PhantomSignal");
@@ -1273,7 +1273,7 @@ TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc]
     CHECK(rvd0.entries[1].value == 1);
     CHECK(rvd0.entries[1].description == "On");
 
-    const auto& rvd1 = result->unresolved_value_descriptions[1];
+    const auto& rvd1 = result->unresolved_value_descs[1];
     CHECK(std::holds_alternative<ExtendedId>(rvd1.can_id));
     CHECK(std::get<ExtendedId>(rvd1.can_id).value() == 1234567);
     CHECK(rvd1.signal_name == "GhostSignal");
@@ -1289,7 +1289,7 @@ TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
     // dropped `unresolvedValueDescs` silently; this test pins the field through
     // the full serialize-then-parse cycle.
     auto dbc = make_test_dbc();
-    dbc.unresolved_value_descriptions.push_back(DbcRawValueDesc{
+    dbc.unresolved_value_descs.push_back(DbcRawValueDesc{
         .can_id = CanId{*StandardId::create(0x100)},
         .signal_name = "Phantom",
         .entries = {DbcValueEntry{.value = 0, .description = "Off"},
@@ -1309,8 +1309,8 @@ TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
     json response = {{"status", "success"}, {"dbc", cmd_j["dbc"]}};
     auto parsed = detail::parse_dbc_response(response.dump());
     REQUIRE(parsed.has_value());
-    REQUIRE(parsed->unresolved_value_descriptions.size() == 1);
-    const auto& rvd = parsed->unresolved_value_descriptions[0];
+    REQUIRE(parsed->unresolved_value_descs.size() == 1);
+    const auto& rvd = parsed->unresolved_value_descs[0];
     CHECK(std::holds_alternative<StandardId>(rvd.can_id));
     CHECK(std::get<StandardId>(rvd.can_id).value() == 0x100);
     CHECK(rvd.signal_name == "Phantom");
@@ -1327,7 +1327,7 @@ TEST_CASE("parse_dbc_response accepts missing unresolvedValueDescs", "[json][par
         "dbc": {"version": "1.0", "messages": []}
     })");
     REQUIRE(result.has_value());
-    CHECK(result->unresolved_value_descriptions.empty());
+    CHECK(result->unresolved_value_descs.empty());
 }
 
 TEST_CASE("parse_extraction rejects zero denominator in rational", "[json][parse][error]") {

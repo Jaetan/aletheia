@@ -38,6 +38,12 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (C++): `DbcDefinition::unresolved_value_descriptions` is renamed
+  `unresolved_value_descs`.** The kernel record's field, the wire key both the
+  parser and the serializer use, Python's field and Rust's field all carry the
+  record's abbreviation; the C++ member expanded it, which was the one exception
+  the record-parity probe had to name. The probe now maps every field
+  mechanically. The wire is unchanged: only the C++ member name moves.
 - **`make_mock_backend()` now answers instead of refusing.** The factory handed
   out the configurable test double with an empty response queue, so the first
   call on it threw, and the method that fills the queue lives in a test-internal

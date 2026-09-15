@@ -820,7 +820,7 @@ static auto parse_dbc_definition(const Json& j) -> DbcDefinition {
         .nodes = parse_optional_array(j, "nodes", parse_node),
         .comments = parse_optional_array(j, "comments", parse_comment),
         .attributes = parse_optional_array(j, "attributes", parse_attribute),
-        .unresolved_value_descriptions =
+        .unresolved_value_descs =
             parse_optional_array(j, "unresolvedValueDescs", parse_raw_value_desc),
     };
 }

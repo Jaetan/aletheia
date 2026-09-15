@@ -383,7 +383,7 @@ struct DbcDefinition {
     // VAL_ lines from the text-parse path that did
     // not resolve to any signal in `messages`.  Empty on the JSON-parse
     // path (JSON has no notion of unresolved RVDs structurally).
-    std::vector<DbcRawValueDesc> unresolved_value_descriptions;
+    std::vector<DbcRawValueDesc> unresolved_value_descs;
 
     // --- Lookup helpers (defined in dbc.cpp) ---
 
