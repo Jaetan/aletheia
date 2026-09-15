@@ -15,7 +15,9 @@
 namespace aletheia {
 
 // ---------------------------------------------------------------------------
-// Structured logging — opt-in, zero-cost when no callback is configured.
+// Structured logging — opt-in. With no sink, or below the minimum level, a
+// call returns at its first check; the caller's field list is still built,
+// which is why hot paths test `enabled()` before building one.
 //
 // Usage (single sink):
 //   auto logger = aletheia::Logger([](const aletheia::LogRecord& r) {
@@ -73,7 +75,7 @@ public:
 
     void log(LogLevel lvl, std::string_view event, std::initializer_list<LogField> fields,
              std::source_location loc = std::source_location::current()) const {
-        if (sinks_.empty() || lvl < min_)
+        if (!enabled(lvl))
             return;
         const LogRecord rec{.level = lvl,
                             .event = event,
@@ -104,17 +106,16 @@ public:
     }
 
     // Fast-path check: lets hot-path callers short-circuit before constructing
-    // the `initializer_list<LogField>`.  Mirrors the inverse of `log()`'s
-    // internal early-return guard (`sinks_.empty() || lvl < min_`); keeping the
-    // two in lockstep is what makes the outer guard equivalent.  Go binding's
-    // `slog.Logger.Enabled` is the cross-binding analogue; Python uses
-    // `logging.Logger.isEnabledFor` (see `python/aletheia/client/_client.py`
-    // fast-path guards).
-    [[nodiscard]] bool enabled(LogLevel lvl) const noexcept {
+    // the `initializer_list<LogField>`.  It is also `log()`'s own guard, so the
+    // two cannot drift.  Go binding's `slog.Logger.Enabled` is the
+    // cross-binding analogue; Python uses `logging.Logger.isEnabledFor` (the
+    // fast-path guards in `python/aletheia/client/_log.py` and
+    // `_streaming.py`).
+    [[nodiscard]] auto enabled(LogLevel lvl) const noexcept -> bool {
         return !sinks_.empty() && lvl >= min_;
     }
 
-    explicit operator bool() const { return !sinks_.empty(); }
+    explicit operator bool() const noexcept { return !sinks_.empty(); }
 
 private:
     std::vector<LogCallback> sinks_;

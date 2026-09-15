@@ -1,6 +1,6 @@
 # Task 020: file review of `cpp/include/aletheia/log.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/log.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/020 (signed later by the dribble).
+
+Claims and guards: the record's lifetime and the sink order (unit_tests_log); enabled() mirrors log()'s guard exactly (unit_tests_log has the case, and log() now calls enabled(), so the two cannot drift); the cross-binding analogues (Go's slog Enabled; Python's isEnabledFor guards, which live in _log.py and _streaming.py, not in _client.py as the comment said); the event vocabulary (test_log_events_parity against docs/LOG_EVENTS.yaml).
+
+Findings fixed: (a) log() repeated the enabled() condition inline; it calls enabled(); (b) "zero-cost when no callback is configured" overstated: the caller's field list is still built, which is why hot paths test enabled() first, and the comment now says so; (c) the Python citation named the wrong file; (d) enabled() written in the file's trailing-return style and operator bool marked noexcept.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/020
+claims: 4 rows, 0 without a guard
+1 line per line: checked, all 124 lines read
+2 guidelines: checked, span and string_view views with a stated lifetime, no float on the log surface, noexcept on the two queries
+3 modernize: checked, trailing return on the one declaration that lacked it
+4 catalogue: checked, AGENTS/cpp.md category 30 (lazy formatting: the guard and the enabled() fast path are what it asks for)
+5 value semantics: checked, the record borrows the call's fields for the callback's duration, documented
+6 raii: n/a
+7 dedup: finding, one guard instead of two copies
+8 ground truth: finding, one wrong file cited, one overstated sentence
+9 history: checked, none
+10 simpler: finding, see 7
+11 comments: 37 to 38 (one more line, in the task that fixed the wrong citation), code 68 to 68
+sweep: no mutation names this file; whole tree rebuilt clean, unit and log-event tests green, tidy gate zero
+probes: none added; store 31 run, 30 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 
