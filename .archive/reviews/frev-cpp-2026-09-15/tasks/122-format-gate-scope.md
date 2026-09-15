@@ -1,13 +1,40 @@
 # Task 122: the format gate never sees the C++ sources outside the binding directory (follow-up from task 112)
 
-- status: pending
+- status: completed
 - files: `tools/_ci_steps.py`, `benchmarks/response_overhead.cpp`, `tools/bundle_validation/consumer_cpp/main.cpp`
 - pass: full on the gate step, and on whichever sources the ruling brings into it
 - origin: the format step lists its files with `git ls-files` run from the binding directory, so the listing is exactly that directory and two tracked C++ sources elsewhere in the tree are outside it. Run from the repository root the same command reports both of them as unformatted. Neither is new and neither is covered by any gate, so the round's claim that the format gate covers every tracked source holds only for the directory it runs in. Measure which files the widened listing would add, decide whether each belongs under the binding's style or has a reason to stand outside it, and either widen the step and format them or state in the step what it deliberately excludes and why.
 
 ## Report
 
-(to be written when the task is worked)
+The gate lists every tracked C++ source of the tree, and the two that were never in it now conform. Fix in refs/frev/122.
+
+Claims and guards. The round's own record claimed the format gate covers every tracked source. It covered every tracked source of one directory, because the file listing ran there, and two C++ sources live elsewhere: a standalone response-parsing microbenchmark and the bundle-validation consumer. Neither had ever been inside any gate. Run from the repository root the same listing reported both as unformatted.
+
+Both are formatted now, under the binding's style rather than the tool's defaults, and only the microbenchmark actually moved; the consumer already conformed to the project's style and had been reported only because nothing told the tool which style to use.
+
+That is the second half of the fix and the reason the widening is not just a wider listing. The tool finds a configuration by walking up from each file, and there is none above those two, so a listing from the root would have formatted them to the tool's own defaults while the binding's files followed the project's. The gate names the style explicitly, which also means the tree has one style stated in one file rather than one per directory that happens to have a configuration.
+
+The probe that guarded this gate asserted the listing came from the repository rather than the filesystem, which was true and insufficient. It now also requires the style to be named, requires at least one tracked C++ source to live outside the binding, since that is the subject of the widening, and runs the gate's own command over the whole listing. Dropping the style from the command makes it red, and so does leaving one of the outside sources unformatted.
+
+```
+REPORT 2026-09-15 tree refs/frev/120 fix in refs/frev/122
+claims: 1 row, 1 without a guard: that the gate covers every tracked source, which was false of two files and is now measured over all 81
+1 line per line: checked, the gate's command and both outside sources read whole
+2 guidelines: n/a
+3 modernize: n/a
+4 catalogue: checked, that the tool resolves its configuration by walking up from each file is its own documented behaviour and is why the style is named rather than inferred
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: finding, naming the style once in the gate means the tree has one style rather than one per directory that happens to carry a configuration
+8 ground truth: finding, the round's own claim about this gate was true of one directory
+9 history: checked
+10 simpler: checked, one listing and one style for the whole tree
+11 comments: the orchestrator gains five lines saying why the listing is rooted and the style named; the microbenchmark's own counts are unchanged, its diff being whitespace
+sweep: no mutation names these files
+probes: probes/tools__ci_steps.py--the-format-gate-sees-only-tracked-sources.sh widened, red when the style is dropped and red when an outside source is left unformatted; store 73 run, 73 pass
+decision points: none
+```
 
 ---
 

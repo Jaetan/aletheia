@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
 # The style this repository's CMake files already follow, so the linter checks
 # the project's decisions rather than its own defaults.
 #
