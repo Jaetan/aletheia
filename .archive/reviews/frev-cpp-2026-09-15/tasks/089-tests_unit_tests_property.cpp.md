@@ -1,6 +1,6 @@
 # Task 089: file review of `cpp/tests/unit_tests_property.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/unit_tests_property.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/089 (signed later by the dribble).
+
+Claims and guards: the file claims a rational survives the wire round trip for any numerator, that the standard identifier factory accepts its whole range and rejects everything above it, and that the code factory does the same for its own. Both counterpart suites it names exist. The round-trip case compares by cross-multiplication rather than by canonical form, which is the right comparison for a value that may reduce.
+
+Finding fixed: three of the four factory cases were titled for every value in a range and sampled a handful. The identifier's legal range and the code's whole argument domain are small enough to sweep, and the generator header for ranges was already included, so they are swept: the identifier's 2048 accepted values, the code's 16 accepted and its 240 rejected. The rejected side of the identifier spans the whole 32-bit domain, so that one still samples and its title says so instead of claiming every value. The suite went from 45 assertions to 2524. Teeth proven by making the factory refuse one interior value, 1500: the sweep fails, where the previous sample of five would have passed.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/089
+claims: 4 rows, 3 overclaimed: the two exhaustive-range titles now hold by sweep and the third says it samples
+1 line per line: checked, all 107 lines read
+2 guidelines: checked, the generated value is widened at the call rather than the generator being typed to the narrow type, which keeps the range generator's arithmetic in a type that holds its bound
+3 modernize: checked, the range generator replaces the hand-written sample lists
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests)
+5 value semantics: checked
+6 raii: n/a
+7 dedup: checked
+8 ground truth: checked, both counterpart suites resolved and the two bounds read from the factories
+9 history: checked, none
+10 simpler: checked
+11 comments: 21 to 26, code 76 to 73
+sweep: this file is part of unit_tests, which the mutation build instruments, and no mutation names it; tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15, and this file alone now runs 2524 assertions
+probes: none name this file; the interior-hole check is the teeth measurement
+decision points: none
+```
 
 ## Contract (carried whole)
 

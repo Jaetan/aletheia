@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// Catch2 GENERATE-based property tests (Cat 33c).
+// Catch2 GENERATE-based property tests.
 // Counterpart of go property_test.go and python tests/test_property_*.py.
 //
 // Round-trip + parity properties over generated input ranges.  Catch2's
@@ -76,17 +76,17 @@ TEST_CASE("Rational round-trips through serialize+parse for any int64 numerator"
 }
 
 TEST_CASE("Standard CAN ID factory accepts every value in [0, 2048)", "[property]") {
-    // Bounded sweep of the standard CAN ID range; the upper bound of 2047
-    // is the documented max for 11-bit standard frames.  Any drift in the
-    // factory's accept set surfaces as a bounded-range property failure.
-    auto value =
-        GENERATE(std::uint32_t{0}, std::uint32_t{1}, std::uint32_t{0x7FF}, // 2047, max standard
-                 std::uint32_t{0x100}, std::uint32_t{0x500});
-    auto sid = StandardId::create(value);
+    // Exhaustive over the whole standard range rather than a sample, since the
+    // range is small enough to sweep: any hole in the factory's accept set is
+    // a failure here, not a sampling miss.
+    auto value = GENERATE(range(0, 2048));
+    auto sid = StandardId::create(static_cast<std::uint32_t>(value));
     CHECK(sid.has_value());
 }
 
-TEST_CASE("Standard CAN ID factory rejects every value >= 2048", "[property]") {
+TEST_CASE("Standard CAN ID factory rejects values from 2048 up", "[property]") {
+    // The rejected side spans the whole 32-bit range, so this one samples: the
+    // first illegal value, its successor, and two far above it.
     auto value = GENERATE(std::uint32_t{0x800}, // 2048, first illegal
                           std::uint32_t{0x801}, std::uint32_t{0xFFFF}, std::uint32_t{0xFFFFFFFF});
     auto sid = StandardId::create(value);
@@ -94,14 +94,16 @@ TEST_CASE("Standard CAN ID factory rejects every value >= 2048", "[property]") {
 }
 
 TEST_CASE("DLC factory accepts every value in [0, 15]", "[property]") {
-    auto value = GENERATE(std::uint8_t{0}, std::uint8_t{1}, std::uint8_t{8}, std::uint8_t{9},
-                          std::uint8_t{15});
-    auto dlc = Dlc::create(value);
+    // The code's whole legal range, swept.
+    auto value = GENERATE(range(0, 16));
+    auto dlc = Dlc::create(static_cast<std::uint8_t>(value));
     CHECK(dlc.has_value());
 }
 
 TEST_CASE("DLC factory rejects every value > 15", "[property]") {
-    auto value = GENERATE(std::uint8_t{16}, std::uint8_t{32}, std::uint8_t{100}, std::uint8_t{255});
-    auto dlc = Dlc::create(value);
+    // The argument is a byte, so the rejected side is swept too: every value
+    // from the first illegal one to the largest the type holds.
+    auto value = GENERATE(range(16, 256));
+    auto dlc = Dlc::create(static_cast<std::uint8_t>(value));
     CHECK_FALSE(dlc.has_value());
 }
