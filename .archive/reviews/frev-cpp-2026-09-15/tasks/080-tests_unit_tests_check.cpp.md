@@ -4,7 +4,7 @@
 - file: `cpp/tests/unit_tests_check.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: clang-tidy lens over tests at round base reports 49 unique diagnostics in this file (the CI tidy gate excludes tests; details in base/clang_tidy_tests.txt); each is a candidate for points 2 and 3, checked against the file, never a verdict
+- pushed-in findings: clang-tidy lens over tests at round base reports 49 unique diagnostics in this file (the CI tidy gate excludes tests; details in base/clang_tidy_tests.txt); each is a candidate for points 2 and 3, checked against the file, never a verdict; check.hpp promises std::invalid_argument for an inverted range in stays_between, settles_between and the then-side stays_between, for a negative time bound and for a bound whose microsecond conversion overflows int64, and no test names any of them (a probe covers them since task 010; add the failing-first cases here)
 
 ## Report
 

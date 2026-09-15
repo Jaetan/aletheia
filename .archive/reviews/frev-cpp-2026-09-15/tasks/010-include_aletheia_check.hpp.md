@@ -1,6 +1,6 @@
 # Task 010: file review of `cpp/include/aletheia/check.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/check.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/010 (signed later by the dribble).
+
+Claims and guards: the header's own usage example compiles (probe added, extracts the comment's check:: lines and compiles them); the three refusals the builders promise (lo above hi in the three range builders, a negative bound, a bound whose microsecond conversion overflows int64) throw std::invalid_argument (no test named them; probe added exercising all six sites plus the largest accepted bound; the unit-test version pushed to the check test task); the cross-binding names the comments cite (enrich.cpp's format_value and us_per_millisecond, Go's usPerMillisecond and MaxInt64 guard and formatRationalFFI, Rust's US_PER_MILLISECOND: all found; Python's renderer is format_rational, not _format_rational, fixed); the inclusive semantics of never_exceeds (the less_than_or_equal builder it calls); the lazy description cache (the code path).
+
+Findings fixed: (a) the Python renderer cited by a wrong name; (b) ten explicit std::function<std::string()>{...} wrappers around lambdas handed to constructors that already take std::function by value, so the conversion is implicit and the wrappers were noise; (c) condition_desc() mutates its cache through a const method with no synchronisation, which the comment now states as the instance's threading constraint. Pushed to XREV task 097: us_per_millisecond and the renderer wrapper are defined here and again in enrich.cpp.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/010
+claims: 5 rows, 2 without a guard: probes added for the header example and the builder guards
+1 line per line: checked, all 341 lines read; every builder asked what it refuses and every comment what implements it
+2 guidelines: checked, rvalue-qualified terminal builder, explicit single-argument constructors, nodiscard on every value-returning builder; the const-method cache stated (CP.2 family)
+3 modernize: finding, ten redundant std::function wrappers removed; gate: whole tree rebuilt (zero warnings of our own), unit, yaml, excel and cli tests green, tidy gate zero
+4 catalogue: checked, AGENTS/cpp.md categories 10 (thread safety documented per instance) and 27 (std::format, chrono)
+5 value semantics: checked, PhysicalValue by value (a Rational pair), strings moved into the builders, Predicate copied where two builders share a trigger
+6 raii: n/a, no resource
+7 dedup: finding pushed to XREV 097 (constant and renderer wrapper duplicated in enrich.cpp); in file none
+8 ground truth: finding, one wrong Python name; checked true: of factory, Go and Rust names, enrich.cpp twins, inclusive semantics, the ms-to-us overflow guard
+9 history: checked, none
+10 simpler: finding, see 3
+11 comments: 54 to 57 (three more lines, in the task that fixed the false citation), code 231 to 224
+sweep: no mutation names this file (header-only, exercised through unit_tests_check and the mutation build's tests); tidy gate zero after the edit
+probes: 2 added under probes/cpp_include_aletheia_check.hpp--*.sh; store 22 run, 21 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 
