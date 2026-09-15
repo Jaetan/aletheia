@@ -1,6 +1,6 @@
 # Task 023: file review of `cpp/include/aletheia/types.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/types.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/023 (signed later by the dribble).
+
+Claims and guards: the float principle at the exact-numeric boundary (the header's own static_asserts, which fail every translation unit); Rational's ordering is exact through __int128 (no test named the wide path; new probe prints verdicts for pairs whose cross products exceed 64 bits and checks them against Python's Fraction); the DLC byte mapping and its inverse (new probe round-trips all sixteen codes and refuses every other count up to 65); validated CAN ids and DLC (unit_tests_validation, unit_tests_input_bounds); from_decimal's contract (the renderer's, probed in task 015).
+
+Findings fixed: (a) four history sentences ("merges the previously-separate StrongString", "was double, now Rational", two "Replaces ... site-by-site") rewritten or dropped; (b) bytes_to_dlc carried a second copy of the byte table as sixteen pairs; it now inverts dlc_to_bytes over the one table, and the probe shows the mapping unchanged; (c) dlc_to_bytes and bytes_to_dlc are [[nodiscard]]; (d) Rational::operator== written in the file's trailing-return style; (e) the DLC comment cites the ISO clause. Decision point: to_double() is a float escape no library code takes.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/023
+claims: 5 rows, 2 without a guard: probes added for the rational ordering and the DLC mapping
+1 line per line: checked, all 393 lines read; every type asked what invariant it holds and what enforces it
+2 guidelines: finding, nodiscard on the two pure functions; the constrained constructors, validated factories and defaulted comparisons already held
+3 modernize: finding, one table instead of two; gate: DLC probe green before and after, whole tree rebuilt clean, 15 of 15 ctest, tidy gate zero
+4 catalogue: checked, AGENTS/cpp.md categories 7 (strong types) and 24 (the cross-multiply avoids overflow through __int128, stated and now probed)
+5 value semantics: checked, every vocabulary type is a value
+6 raii: n/a
+7 dedup: finding, the byte table
+8 ground truth: checked, the comments' claims hold; the ISO clause added to the DLC table
+9 history: finding, four sentences
+10 simpler: finding, see 7; decision point on to_double
+11 comments: 137 to 133, code 203 to 187
+sweep: no mutation names this file; every test exercises it; tidy gate zero after the edit
+probes: 2 added; store 37 run, 36 pass, 1 red on record (task 007's loader consumer)
+decision points: appended to the accumulator
+```
 
 ## Contract (carried whole)
 

@@ -35,8 +35,7 @@ namespace aletheia {
 // String specialization: when `T == std::string`, also exposes an
 // explicit `operator std::string_view()` so log/format sites can write
 // `std::string_view{name}` without copying. Concept-gated so non-string
-// strongs can't accidentally convert. This template merges the
-// previously-separate `StrongString<Tag>` into a single template.
+// strongs can't accidentally convert.
 template<typename Tag, typename T>
 class Strong {
     T value_;
@@ -137,7 +136,7 @@ public:
         auto rhs_prod = static_cast<__int128>(rhs.num_) * den_;
         return lhs_prod <=> rhs_prod;
     }
-    constexpr bool operator==(const Rational& rhs) const {
+    constexpr auto operator==(const Rational& rhs) const -> bool {
         return (*this <=> rhs) == std::strong_ordering::equal;
     }
 
@@ -181,9 +180,8 @@ private:
 // {numerator, denominator} pairs; double would lose precision on 1/3, 1/7 etc.
 using PhysicalValue = Strong<struct PhysicalValueTag, Rational>;
 // Signed change threshold for ChangedBy predicates (sign determines direction).
-// Cross-binding parity with Python (Fraction)
-// and Go (Rational) — was double, now Rational so the wire-shape is
-// numerator/denominator-exact across all three bindings.
+// Rational, as Python's Fraction and Go's Rational, so the wire shape is
+// numerator/denominator-exact across the bindings.
 using Delta = Strong<struct DeltaTag, Rational>;
 // Absolute tolerance for StableWithin predicates (Rational for the same reason).
 using Tolerance = Strong<struct ToleranceTag, Rational>;
@@ -282,16 +280,14 @@ public:
 using CanId = std::variant<StandardId, ExtendedId>;
 
 /// Extract the underlying 11- or 29-bit value from a CanId, regardless
-/// of standard vs extended discrimination.  Replaces the
-/// `std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id)`
-/// pattern repeated across the source tree.
+/// of standard vs extended discrimination, so call sites need not visit
+/// the variant themselves.
 [[nodiscard]] constexpr auto can_id_value(const CanId& id) -> std::uint32_t {
     return std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
 }
 
 /// Returns true when the CanId carries an `ExtendedId` (29-bit) variant,
-/// false for `StandardId` (11-bit).  Replaces
-/// `std::holds_alternative<ExtendedId>(id)` site-by-site.
+/// false for `StandardId` (11-bit).
 [[nodiscard]] constexpr auto can_id_is_extended(const CanId& id) -> bool {
     return std::holds_alternative<ExtendedId>(id);
 }
@@ -320,38 +316,22 @@ public:
     auto operator<=>(const Dlc&) const = default;
 };
 
-// CAN-FD DLC to payload byte count mapping.
+// CAN-FD DLC to payload byte count mapping (ISO 11898-1:2015 §8.4.2.4).
 // DLC 0-8 maps directly; 9→12, 10→16, 11→20, 12→24, 13→32, 14→48, 15→64.
-constexpr auto dlc_to_bytes(Dlc dlc) -> std::size_t {
+[[nodiscard]] constexpr auto dlc_to_bytes(Dlc dlc) -> std::size_t {
     constexpr std::array<std::size_t, 16> table = {0, 1,  2,  3,  4,  5,  6,  7,
                                                    8, 12, 16, 20, 24, 32, 48, 64};
     return table[dlc.value()];
 }
 
-// Payload byte count to DLC code.
-// Returns the DLC code for a valid CAN/CAN-FD payload size, or an error.
-inline auto bytes_to_dlc(std::size_t byte_count) -> std::expected<Dlc, std::string> {
-    constexpr std::array<std::pair<std::size_t, std::uint8_t>, 16> table = {{
-        {0, 0},
-        {1, 1},
-        {2, 2},
-        {3, 3},
-        {4, 4},
-        {5, 5},
-        {6, 6},
-        {7, 7},
-        {8, 8},
-        {12, 9},
-        {16, 10},
-        {20, 11},
-        {24, 12},
-        {32, 13},
-        {48, 14},
-        {64, 15},
-    }};
-    for (auto [bytes, code] : table)
-        if (bytes == byte_count)
-            return *Dlc::create(code);
+// Payload byte count to DLC code: the inverse of dlc_to_bytes over the same
+// table, or an error for a byte count no DLC code denotes.
+[[nodiscard]] inline auto bytes_to_dlc(std::size_t byte_count) -> std::expected<Dlc, std::string> {
+    for (std::uint8_t code = 0; code <= 15; ++code) {
+        const auto dlc = *Dlc::create(code);
+        if (dlc_to_bytes(dlc) == byte_count)
+            return dlc;
+    }
     return std::unexpected("invalid DLC byte count: " + std::to_string(byte_count));
 }
 
