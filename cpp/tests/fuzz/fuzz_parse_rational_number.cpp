@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// libFuzzer harness for Rational number parser (Cat 33b).
-// Counterpart of go FuzzParseRationalNumber and python
-// fuzz_parse_rational_number.
+// libFuzzer harness for the rational-number parser.
+// Counterpart of go FuzzParseRationalNumber. Python fuzzes the wire shapes
+// that carry rationals (fuzz_parse_response) rather than the number alone.
 //
 // The Rational parser surface is internal to the json_parse compilation unit
 // (parse_rational_number is a static helper), so this harness exercises it
@@ -20,10 +20,9 @@
 #include <string_view>
 
 extern "C" auto LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) -> int {
-    // Wrap fuzzer input as a numeric value inside a {"propertyIndex": …,
-    // "timestamp": …} envelope so the rational-number parser exercises the
-    // nested-object code path.  The rest of the JSON is a constant prefix
-    // around the fuzz-controlled numeric payload.
+    // Wrap the fuzzer's input as the two numeric members of a property
+    // failure, "property_index" and "timestamp", so the rational-number
+    // parser runs on a nested value. Everything around them is constant.
     auto numeric = std::string_view{reinterpret_cast<const char*>(data), size};
     std::string envelope = "{\"status\":\"fails\",\"type\":\"property\","
                            "\"property_index\":";

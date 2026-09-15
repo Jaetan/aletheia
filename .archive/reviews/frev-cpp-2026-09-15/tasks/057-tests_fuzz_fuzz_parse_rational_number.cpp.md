@@ -1,6 +1,6 @@
 # Task 057: file review of `cpp/tests/fuzz/fuzz_parse_rational_number.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/fuzz/fuzz_parse_rational_number.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/057 (signed later by the dribble).
+
+Claims and guards: the harness says the rational-number parser is static inside the JSON translation unit and is therefore reached transitively through a wire shape that embeds a rational, and that it must not crash on an adversarial literal. Both hold: the parser is a file-local helper in cpp/src/json_parse.cpp, and the run is the guard. The base sweep records 1182155 inputs in 61 seconds with 91 new corpus units, and the re-run at this task gives 1237605 inputs at 19961 a second with 122 new units and no crash, so this harness, unlike the binary-decoder one, has always done work.
+
+Findings fixed: (a) the envelope comment named the member "propertyIndex" while the code writes "property_index", which is what cpp/src/json_parse.cpp reads, so the comment misnamed the wire key it was explaining; (b) the header claimed a Python counterpart named fuzz_parse_rational_number, and python/tests/fuzz holds fuzz_dbc_to_json, fuzz_iter_can_log and fuzz_parse_response and no such file, so the header now says what Python actually fuzzes; (c) the category label that resolves nowhere.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/057
+claims: 2 rows, 0 without a guard: the 61-second run and the static helper's location, both checked
+1 line per line: checked, all 36 lines read; the envelope's constant parts, the two places the fuzzer's bytes land and the parser called
+2 guidelines: checked, the string is built once per input and the view over the fuzzer's buffer does not outlive it
+3 modernize: n/a
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests)
+5 value semantics: checked
+6 raii: checked, the harness owns nothing beyond the envelope string
+7 dedup: checked, the two appends are the two members the shape carries
+8 ground truth: finding, the wire key was misnamed and the Python counterpart does not exist; checked true: the parser's location and the Go counterpart
+9 history: checked, none
+10 simpler: checked
+11 comments: 17 to 16, code 16 to 16
+sweep: no mutation names this file (the fuzz targets are their own build); the target builds clean and runs 62 seconds without a crash
+probes: none name this file; the base sweep's fuzz record is the reference measurement
+decision points: none
+```
 
 ## Contract (carried whole)
 
