@@ -1,6 +1,6 @@
 # Task 027: file review of `cpp/sanitizer-ignorelist.txt`
 
-- status: pending
+- status: completed
 - file: `cpp/sanitizer-ignorelist.txt`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/028 (signed later by the dribble; shared snapshot with task 028).
+
+Claims and guards: the one pattern covers the vendored OpenXLSX tree the lane compiles and the UBSan tree passes the file (new probe checks the fetched layout against the pattern and the flag in the tree's compile flags); the list is needed and sufficient (measured once, twice: with the list withheld the lane aborts on the first zippy misaligned load; with recovery enabled it reports sixty-two misaligned loads, three misaligned stores and one null-pointer argument in zippy.hpp and one bool load in XLStyles.cpp, all Excel tests still passing, and nothing from any other file; the script that reproduces this lives in the round's lens directory, and both outputs under base/).
+
+Findings fixed: (a) "(Cat 33a)" was a category label; (b) "Each entry below names the suppression and the upstream issue it covers" was false, no entry names an upstream issue; (c) the entry's rationale claimed "other XL*.cpp files exhibit similar third-party UB on adversarial spreadsheet content", which the measurement does not show; the comment now states the measured sites and how they were measured.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/028
+claims: 3 rows, 2 without a guard: probe cpp_sanitizer-ignorelist.txt--covers-the-vendored-tree-the-lane-compiles.sh added; the necessity claim measured and recorded (too heavy for the store's every run)
+1 line per line: checked, all 22 lines read
+2 guidelines: n/a
+3 modernize: checked, the special-case-list format is the current one
+4 catalogue: checked, AGENTS/cpp.md category 33(a) (the UBSan lane and its documented gap)
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked, none
+8 ground truth: finding, the upstream-issue sentence and the other-files sentence; the zippy and XLStyles sentences hold by measurement
+9 history: checked, none
+10 simpler: checked
+11 comments: 20 to 22 (two more lines, in the task that fixed two false sentences), code 1 to 1
+sweep: no mutation names this file; the UBSan lane at base is green with the list
+probes: 1 added
+decision points: none
+```
 
 ## Contract (carried whole)
 

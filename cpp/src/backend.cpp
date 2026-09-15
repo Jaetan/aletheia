@@ -15,6 +15,15 @@
 
 namespace aletheia {
 
+// The one sentinel every defaulted binary endpoint returns. The Client falls
+// through to the JSON path on it for extract_signals only; build_frame and
+// update_frame surface it, since their signal indices cannot be reconstructed
+// into JSON without the DBC context. Mirrors Go's ErrBinaryPathUnsupported.
+static auto binary_unsupported() -> std::unexpected<AletheiaError> {
+    return std::unexpected(
+        AletheiaError{ErrorKind::BinaryUnsupported, "binary path not supported by this backend"});
+}
+
 auto IBackend::rts_mismatch_info() const -> std::optional<std::pair<int, int>> {
     return std::nullopt;
 }
@@ -22,29 +31,20 @@ auto IBackend::rts_mismatch_info() const -> std::optional<std::pair<int, int>> {
 auto IBackend::build_frame_bin(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
                                SignalInjection /*signals*/, std::size_t /*expected_bytes*/)
     -> std::expected<std::vector<std::byte>, AletheiaError> {
-    // build_frame uses signal indices, which cannot be reconstructed into
-    // JSON without the DBC context. Non-FFI backends (MockBackend) cannot
-    // service this path — return the BinaryUnsupported sentinel so callers
-    // can detect the limitation; Client does not JSON-fall-through here.
-    return std::unexpected(
-        AletheiaError{ErrorKind::BinaryUnsupported, "binary path not supported by this backend"});
+    return binary_unsupported();
 }
 
 auto IBackend::update_frame_bin(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
                                 std::span<const std::byte> /*data*/, SignalInjection /*signals*/,
                                 std::size_t /*expected_bytes*/)
     -> std::expected<std::vector<std::byte>, AletheiaError> {
-    return std::unexpected(
-        AletheiaError{ErrorKind::BinaryUnsupported, "binary path not supported by this backend"});
+    return binary_unsupported();
 }
 
 auto IBackend::extract_signals_bin(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
                                    std::span<const std::byte> /*data*/)
     -> std::expected<std::vector<std::byte>, AletheiaError> {
-    // Sentinel: Client falls through to the JSON path on this kind,
-    // mirroring Go's ErrBinaryPathUnsupported contract.
-    return std::unexpected(
-        AletheiaError{ErrorKind::BinaryUnsupported, "binary path not supported by this backend"});
+    return binary_unsupported();
 }
 
 } // namespace aletheia

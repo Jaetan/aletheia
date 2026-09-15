@@ -1,6 +1,6 @@
 # Task 028: file review of `cpp/src/backend.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/backend.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/028 (signed later by the dribble).
+
+Claims and guards: the three defaulted binary endpoints return the BinaryUnsupported sentinel and rts_mismatch_info returns nullopt (unit_tests_client exercises the mock's inherited defaults; the fall-through contract is stated once, in backend.hpp since task 009, and the file's own comment now matches it).
+
+Finding fixed: the sentinel error was constructed three times with the same kind and message; one static helper returns it, and its comment carries the contract that the three per-function comments spelled inconsistently (one said the Client does not fall through, one said it does, one said nothing). Mull after the edit: sixty-five mutants, none surviving; none names this file.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/028
+claims: 2 rows, 0 without a guard
+1 line per line: checked, all 50 lines read
+2 guidelines: checked, defaults out of line, unused parameters commented out
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md category 14(b) (mock fidelity: the defaults are the mock's inherited behaviour)
+5 value semantics: checked
+6 raii: n/a
+7 dedup: finding, three sentinel constructions to one helper
+8 ground truth: finding, the per-function comments disagreed on the fall-through; one comment, matching backend.hpp and client.cpp
+9 history: checked, none
+10 simpler: finding, see 7
+11 comments: 12 to 10, code 31 to 32
+sweep: no mutation names this file; the mutation tree rebuilt and Mull run after the edit, 65 mutants all killed; tidy gate zero
+probes: none added; store 39 run, 38 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 
