@@ -1,6 +1,6 @@
 # Task 081: file review of `cpp/tests/unit_tests_client.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/unit_tests_client.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/081 (signed later by the dribble).
+
+Claims and guards: the file is the client's behavioural suite against the mock and every claim in it is a case. The command wire for a parse is asserted by parsing the captured JSON rather than by substring. The binary paths are asserted through the sentinels the mock records, and the streaming workflow pins the whole four-call sequence in order. The lifecycle cases cover a moved-from destructor, a move assignment over a live client, sequential clients and nested scopes, which together are this binding's answer to the double-close guarantee the other bindings test. The batch cases pin all-acknowledged, stop-on-error with the committed prefix, a violation that does not stop the batch, a negative timestamp, the frame index in a mid-batch refusal and the empty batch; the lazy variant repeats them and adds the commit-prefix-by-not-pulling case, the cancellation case and an equality check against the eager path's backend call log. The mock's own exhaustion contract is pinned by kind and by exact message on both the throwing and the returning paths.
+
+Findings fixed: (a) two comments cited guards by line number in the client's source, and both had drifted and were wrong in shape as well: what they describe is one shared noexcept release helper that the destructor and the move assignment both call, not two inline guards; (b) a section heading carried a plan identifier and two comments carried an issue number; (c) one case bound the mock and discarded it with a cast to void, where its three siblings assert the backend call count, so it asserts it too.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/081
+claims: 24 rows, 0 without a guard: each is a case in this file
+1 line per line: checked, all 919 lines read
+2 guidelines: checked, every mock is owned by its client with the raw pointer taken before the move
+3 modernize: checked, the lazy cases already use the generator interface and the ranges count
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the cross-binding mock contract
+5 value semantics: checked, frames by value into the batch, spans at the lazy boundary
+6 raii: checked; the lifecycle cases are about exactly this
+7 dedup: checked, the streaming-client helper is the deduplication and the cache case needs its own loop
+8 ground truth: finding, two drifted citations; checked true: the cache capacity against the header's own constant, and the exhaustion messages against the mock
+9 history: checked, none beyond the identifiers under the tracking finding
+10 simpler: checked
+11 comments: 108 to 110, code 670 to 675, both measured against the round base and both including the factory case task 047 added to this file; this task's own edit left the comment count where it found it and added one assertion
+sweep: this file is part of unit_tests, which the mutation build instruments, and no mutation names it; tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 

@@ -287,13 +287,13 @@ TEST_CASE("client is movable", "[client]") {
 // crash-safe and preserves backend state semantics.
 
 TEST_CASE("moved-from client destructor is safe", "[client][lifecycle]") {
-    // Destructor must handle `state_ == nullptr` without dereferencing —
-    // the guard at client.cpp:56 (`if (backend_ != nullptr && state_ != nullptr)`)
-    // protects against a double close when the source of a move is
-    // subsequently destroyed. This is the C++ equivalent of Python's and
-    // Go's "double close is safe" guarantee: the FFI state pointer is
-    // transferred to the target, and the source is left in a valid-but-
-    // moved-from state whose destructor is a no-op.
+    // Destructor must handle a null state without dereferencing it. Both the
+    // destructor and the move assignment release through one noexcept helper,
+    // close_state, whose guard on the backend and the state protects against a
+    // double close when the source of a move is destroyed afterwards. This is the C++ equivalent of
+    // Python's and Go's "double close is safe" guarantee: the FFI state pointer is transferred to
+    // the target, and the source is left in a valid-but- moved-from state whose destructor is a
+    // no-op.
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
 
@@ -312,9 +312,9 @@ TEST_CASE("moved-from client destructor is safe", "[client][lifecycle]") {
 
 TEST_CASE("move-assignment releases current state before taking new", "[client][lifecycle]") {
     // Move-assigning an already-initialized client to another initialized
-    // client must release the target's current state (so it isn't leaked)
-    // before adopting the source's state. The guard at client.cpp:73
-    // (`if (backend_ != nullptr && state_ != nullptr)`) enforces this.
+    // client must release the target's current state, so it is not leaked,
+    // before adopting the source's. The same close_state helper the destructor
+    // uses is what releases it.
     auto mock_a = std::make_unique<MockBackend>();
     mock_a->queue_response(parsed_dbc_response_for(make_test_dbc()));
     auto mock_b = std::make_unique<MockBackend>();
@@ -665,7 +665,7 @@ TEST_CASE("send_frames_lazy surfaces violations and continues", "[client][batch]
     CHECK(std::holds_alternative<Ack>(got[0]));
     CHECK(std::holds_alternative<PropertyBatch>(got[1])); // a violation does not stop the stream
     CHECK(std::holds_alternative<Ack>(got[2]));
-    (void)mock;
+    CHECK(count_sentinel(mock->captured(), "<binary:sendFrame>") == 3);
 }
 
 TEST_CASE("send_frames_lazy empty source yields nothing", "[client][batch][lazy]") {
@@ -779,7 +779,7 @@ TEST_CASE("move-assignment transfers client state", "[client]") {
 }
 
 // ===========================================================================
-// Cache-full test (C2): extraction cache eviction beyond 256 entries
+// Cache-full: extraction beyond the cache's capacity
 // ===========================================================================
 
 TEST_CASE("extraction cache full still works on 257th frame", "[client][enrich][cache]") {
@@ -824,7 +824,7 @@ TEST_CASE("MockBackend throws on queue exhaustion", "[client][mock]") {
     auto* state = mock.init();
 
     // Empty queue → exhaustion is a harness misconfiguration: the mock throws
-    // rather than fabricating a default (#108 cross-binding unification). The
+    // rather than fabricating a default, as every binding's mock does. The
     // starved request is recorded BEFORE the throw, so captured() stays
     // populated on the erroring call.  Pin the kind AND exact message so a
     // silent downgrade (wrong ErrorKind, or a drifted op token) trips here.
@@ -864,7 +864,7 @@ TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaust
     // Unlike process() (which returns std::string and throws on exhaustion),
     // the binary frame methods return std::expected and the Client forwards the
     // result directly — so exhaustion RETURNS a State-kinded unexpected with the
-    // unified cross-binding message (#108), it does NOT throw.  The op token is
+    // unified cross-binding message, it does NOT throw.  The op token is
     // still recorded on the starved call, matching Go / Python / Rust.
     MockBackend mock;
     auto* state = mock.init();
