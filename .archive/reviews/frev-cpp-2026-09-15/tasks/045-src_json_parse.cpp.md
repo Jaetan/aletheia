@@ -1,6 +1,6 @@
 # Task 045: file review of `cpp/src/json_parse.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/json_parse.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/045 (signed later by the dribble).
+
+Claims and guards: every wire code maps to its enumerator (test_wire_codes_parity pins both tables against docs/WIRE_CODES.yaml, in both directions for the issue codes); the strict decoders (an integer position refusing a float, a rational refusing a float or a non-positive denominator, a missing code or message being a Protocol error, a non-array issues field refused) are covered by unit_tests_json, the DBC corpus parity test and the two fuzz harnesses over this surface; the nesting bound (unit_tests_input_bounds); the seventeen Mull mutants in this file, all killed before and after.
+
+Findings fixed: (a) three string-to-enum tables each carried their own linear scan, and a fourth scan walks one table backwards; one lookup returns an optional and the three call sites say what they do with a miss; (b) parse_signal_value and parse_rational were the same function with one word different in the message, and parse_rational_as_int repeated the shape a third time; one parse_rational with parse_rational_as_int built on it; (c) eight optional metadata arrays were decoded by eight copies of the contains-reserve-loop shape, and three more copies decoded receivers, senders and value descriptions; one parse_optional_array, with the required arrays keeping their own loops so a missing one still throws; (d) the {value, description} pair was built at three sites; one parse_value_entry; (e) parse_can_id_fields wrote through two out-parameters at six call sites; it returns the pair and the sites use designated initialisers; (f) is_input_bound_exceeded_code wrapped one equality behind a history comment; both gone; (g) the BoundKind list in the nesting-bound comment named MessageCount, which is not one of the kernel's nine bound kinds; the comment names the module instead of listing them; (h) three more history sentences (a production regression, "is now a batch envelope", "adding the guard bumped the outer function") and a threshold digit removed.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/045
+claims: 4 rows, 0 without a guard
+1 line per line: checked, all 1204 lines read; every decoder asked what it refuses and every repeated shape what owns it
+2 guidelines: finding, values returned instead of written through out-parameters (F.20)
+3 modernize: finding, invoke_result-deduced helper, designated initialisers, optional-returning lookup; gate: 15 of 15 ctest, tidy gate zero, Mull all killed (the file's seventeen included)
+4 catalogue: checked, AGENTS/cpp.md categories 11 and 12 (serialization fidelity and parser robustness: the strict branches are unchanged, as the tests and mutants show)
+5 value semantics: checked, const Json& in, values out
+6 raii: n/a
+7 dedup: finding, six repeated shapes folded
+8 ground truth: finding, a bound kind that does not exist; every other citation resolves
+9 history: finding, four sentences
+10 simpler: finding, see 3 and 7
+11 comments: 175 to 172, code 933 to 890
+sweep: json_parse.cpp names 17 mutants, all KILLED in the run after the edit; tidy gate zero (three findings the refactor introduced were fixed in the same task: a missing type_traits include, and the file's static-versus-anonymous-namespace style for a helper and a type)
+probes: none added (the wire-code gate, the corpus parity test and two fuzz harnesses already stand over this file)
+decision points: none
+```
 
 ## Contract (carried whole)
 
