@@ -11,11 +11,10 @@
 //      future binding-side emit-call that drifts from the cross-binding
 //      canonical set.
 //
-// This is the "missing mechanism" half of the log-events parity gate: a
-// structural gate mirroring python/tests/test_log_events_parity.py and
-// go/aletheia/log_events_test.go.  It was added alongside the surface fix
-// of Go's rogue 16th `dbc.text_parsed` event so the same class of drift
-// cannot recur silently in any binding.
+// This is the mechanism half of the log-events parity gate, mirroring
+// python/tests/test_log_events_parity.py and go/aletheia/log_events_test.go:
+// a binding that grows an emit call outside the canonical set fails here
+// rather than drifting silently.
 //
 // The workflow exercises:
 //   - parse_dbc          (JSON-shape DBC path → dbc.parsed)
@@ -118,9 +117,7 @@ TEST_CASE("LOG_EVENTS.yaml is well-formed", "[parity][log][yaml]") {
         CHECK(row.name.find('.') != std::string::npos);
         CHECK(seen.insert(row.name).second);
 
-        const bool level_valid =
-            std::find(kValidLevels.begin(), kValidLevels.end(), row.level) != kValidLevels.end();
-        CHECK(level_valid);
+        CHECK(std::ranges::contains(kValidLevels, row.level));
 
         CHECK_FALSE(row.description.empty());
     }
@@ -200,7 +197,7 @@ TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflo
     DbcDefinition dbc{.version = "1.0"};
     REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
 
-    // 2. parse_dbc_text (DBC-text path — was the divergent path in Go)
+    // 2. parse_dbc_text (the DBC-text path, which emits dbc.parsed too)
     REQUIRE(client.parse_dbc_text(std::stop_token{}, kDbcSourceText).has_value());
 
     // 3. set_properties
@@ -244,8 +241,9 @@ TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflo
         CHECK(in_canonical);
     }
 
-    // Sanity floor: dbc.parsed MUST be exercised — that's the path that
-    // drifted; without this the gate is silently weakened.
+    // Sanity floor: dbc.parsed must be exercised. Without it a workflow that
+    // stopped reaching the parse paths would leave the gate asserting nothing
+    // about them.
     CHECK(unique_emitted.contains("dbc.parsed"));
 
     // Sanity floor: the EndStream Complete carries an uncached_atom warning,
@@ -254,11 +252,10 @@ TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflo
     CHECK(unique_emitted.contains("endstream.uncached_atom"));
 }
 
-// Unit test of the gate's rejection logic: confirms the canonical set
-// does NOT contain the rogue dbc.text_parsed event.  This is independent
-// of any binding workflow, so we know the membership check would have
-// caught the original drift even if a future workflow change ever
-// stopped exercising parse_dbc_text.
+// The gate's rejection logic on its own, independent of any workflow: the
+// canonical set must not contain dbc.text_parsed, because the text path emits
+// dbc.parsed like the JSON path and a separate name for it would be an event
+// one binding has and the others do not.
 TEST_CASE("LOG_EVENTS.yaml rejects the known drift event", "[parity][log][regression]") {
     auto known = canonical_event_set();
     CHECK_FALSE(known.contains("dbc.text_parsed"));

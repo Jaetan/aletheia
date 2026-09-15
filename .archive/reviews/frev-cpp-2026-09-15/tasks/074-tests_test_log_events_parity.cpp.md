@@ -1,6 +1,6 @@
 # Task 074: file review of `cpp/tests/test_log_events_parity.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/test_log_events_parity.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/074 (signed later by the dribble).
+
+Claims and guards: the file claims the vocabulary document holds sixteen entries, each with a dotted name, a level from a fixed set and a description, and no duplicates; that every event a comprehensive workflow emits is a member of that vocabulary; and that two events in particular must be exercised so the gate cannot weaken silently. All three are its own cases, and the first is measured rather than asserted from the comment: the document carries sixteen entries and the case requires that number. The workflow drives both parse paths, the property set, the stream, an acknowledged frame, a violating frame with its enrichment, and the end of the stream with a warning, through a mock backend whose queued responses are listed in the order the client consumes them, nine of them, and nine are queued.
+
+Findings fixed: four comments told the story of a drift that has been fixed rather than the rule that holds now. The header said the gate was added alongside a surface fix in another binding and named that binding's rogue event; a step comment said its path "was the divergent path in Go"; a sanity floor said its event is "the path that drifted"; and the rejection case explained itself entirely as what would have caught the original drift. Each now states the rule: a binding that grows an emit call outside the canonical set fails here, both parse paths emit the same event, and the vocabulary must not carry a text-specific name because a separate name would be an event one binding has and the others do not. The level membership test is the ranges algorithm, this target being one that does carry the project's standard.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/074
+claims: 4 rows, 0 without a guard: three are the file's own cases and the fourth, the queued response order, is what the workflow's success proves
+1 line per line: checked, all 266 lines read; every queued response matched to the call that consumes it
+2 guidelines: checked, the mock is owned by the client and the raw pointer kept beside it is only used before the move
+3 modernize: finding, the two-iterator find is the ranges membership test; the compile database confirms this target carries the project's standard, unlike the matrix parity target
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the cross-binding log vocabulary rules
+5 value semantics: checked
+6 raii: checked, nothing hand-released
+7 dedup: checked; the repository-root helper repeats the one in the matrix parity test and says so, which the cross-file item in XREV task 097 covers
+8 ground truth: checked, the sixteen entries measured from the document, both peer test files present, and the two floor events present in the vocabulary
+9 history: finding, four comments told the story of a fixed drift
+10 simpler: checked
+11 comments: 59 to 58, code 164 to 162
+sweep: no mutation names this file (its own binary, outside the mutation build's unit_tests target); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
