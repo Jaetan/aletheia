@@ -74,8 +74,8 @@ void write_header(OpenXLSX::XLWorksheet& ws, const std::vector<std::string>& hea
 
 /// Write a data row (2-indexed) under the float-principle all-text contract: a
 /// boolean fixture string ("TRUE"/"FALSE") becomes a native bool cell, and
-/// EVERYTHING ELSE — numbers (e.g. "220", "0.1") AND text (e.g. a hex id like
-/// "0x100") — is written as a TEXT cell. The loader requires numeric fields to
+/// EVERYTHING ELSE, numbers (e.g. "220", "0.1") AND text (e.g. a hex id like
+/// "0x100"), is written as a TEXT cell. The loader requires numeric fields to
 /// be text-formatted so the exact decimal is parsed by the kernel SSOT
 /// (Rational::from_decimal); a number stored natively is rejected. To author a
 /// number deliberately stored as a *native number* cell (the strict-rejection

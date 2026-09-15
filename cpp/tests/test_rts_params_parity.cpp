@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// Runtime GHC RTS parameters — the C++ leg of the cross-binding parity gate.
+// Runtime GHC RTS parameters: the C++ leg of the cross-binding parity gate.
 //
 // Reads docs/RESOURCE_BUDGETS.yaml (the cross-binding SSOT, itself enforced
 // against every binding by the `check-rts-runtime` run_ci gate) and asserts the

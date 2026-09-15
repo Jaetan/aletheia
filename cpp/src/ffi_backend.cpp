@@ -194,7 +194,7 @@ public:
         if (lib_path.empty())
             throw AletheiaException(
                 AletheiaError{ErrorKind::Validation,
-                              "library path is empty — pass the path of libaletheia-ffi.so"});
+                              "library path is empty: pass the path of libaletheia-ffi.so"});
         handle_ = dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (handle_ == nullptr)
             throw AletheiaException(

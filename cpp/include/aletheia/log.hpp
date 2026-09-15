@@ -15,7 +15,7 @@
 namespace aletheia {
 
 // ---------------------------------------------------------------------------
-// Structured logging — opt-in. With no sink, or below the minimum level, a
+// Structured logging, opt-in. With no sink, or below the minimum level, a
 // call returns at its first check; the caller's field list is still built,
 // which is why hot paths test `enabled()` before building one.
 //

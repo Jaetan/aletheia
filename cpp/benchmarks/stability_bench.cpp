@@ -14,7 +14,7 @@
 // Per the long-run resource-leakage sub-checks in AGENTS/cpp.md, drift on any
 // sub-check is a finding.  Hard-zero gates are exact equality (no noise
 // tolerance allowed); soft-threshold gates carry an empirically-tuned cap
-// inline below — change the value, the diff is visible.  A probe under
+// inline below, so changing the value makes the diff visible.  A probe under
 // probes/ compiles a variant that leaks one descriptor per cycle and checks
 // that the FD gate fails on it.
 //

@@ -39,8 +39,8 @@ namespace aletheia::detail {
     -> std::vector<std::string>;
 
 // Detect a requested-vs-active RTS core mismatch (a later FfiBackend asking
-// for a count the first one did not pass).  Returns `{active, requested}` —
-// the order `rts_mismatch_info()` reports — when the two differ, else nullopt.
+// for a count the first one did not pass).  Returns `{active, requested}` in
+// the order `rts_mismatch_info()` reports when the two differ, else nullopt.
 [[nodiscard]] auto rts_cores_mismatch(int requested, int active)
     -> std::optional<std::pair<int, int>>;
 

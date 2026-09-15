@@ -1,12 +1,12 @@
 # Aletheia C++ API Guide
 
-**Purpose**: Reference for Aletheia's C++ binding — the `AletheiaClient`, the Check API, and the raw LTL DSL. Version in [DISTRIBUTION.md](../development/DISTRIBUTION.md).
+**Purpose**: Reference for Aletheia's C++ binding, covering the `AletheiaClient`, the Check API, and the raw LTL DSL. Version in [DISTRIBUTION.md](../development/DISTRIBUTION.md).
 
-> **Exhaustive per-symbol docs** live as doc-comments in the public headers under `cpp/include/aletheia/` — especially `client.hpp`, `check.hpp`, `ltl.hpp`, `types.hpp`, `dbc.hpp`, `yaml.hpp`, `excel.hpp`, and `error.hpp`. This guide is the narrative walkthrough; the headers are the contract.
+> **Exhaustive per-symbol docs** live as doc-comments in the public headers under `cpp/include/aletheia/`, especially `client.hpp`, `check.hpp`, `ltl.hpp`, `types.hpp`, `dbc.hpp`, `yaml.hpp`, `excel.hpp`, and `error.hpp`. This guide is the narrative walkthrough; the headers are the contract.
 >
-> **Other bindings**: see the [Python API Guide](PYTHON_API.md), the [Go API Guide](GO_API.md), the [Rust API Guide](RUST_API.md), and the [Interface Guide](INTERFACES.md) — the four bindings ship the same verified core with line-by-line-equivalent APIs.
+> **Other bindings**: see the [Python API Guide](PYTHON_API.md), the [Go API Guide](GO_API.md), the [Rust API Guide](RUST_API.md), and the [Interface Guide](INTERFACES.md). The four bindings ship the same verified core with line-by-line-equivalent APIs.
 
-The C++ binding targets the latest stable Clang only — see [BUILDING.md § Toolchain support policy](../development/BUILDING.md#toolchain-support-policy).
+The C++ binding targets the latest stable Clang only. See [BUILDING.md § Toolchain support policy](../development/BUILDING.md#toolchain-support-policy).
 
 ---
 
@@ -46,7 +46,7 @@ int main() {
 
 ## Check API
 
-`check::signal(name)` builds a property from a fluent, plain-English condition — the recommended starting point (no LTL knowledge required). Each terminal returns a `CheckResult` you register with `add_checks`.
+`check::signal(name)` builds a property from a fluent, plain-English condition, the recommended starting point (no LTL knowledge required). Each terminal returns a `CheckResult` you register with `add_checks`.
 
 ```cpp
 using namespace aletheia;
@@ -183,7 +183,7 @@ See [INTERFACES.md](INTERFACES.md) for a worked extract/build round-trip.
 
 ## Error Handling
 
-Every fallible operation returns `aletheia::Result<T>` (`std::expected<T, AletheiaError>`) — there are no exceptions on the normal path. Check `has_value()` / use `operator bool`, and read `error().kind()`, `error().code()`, and `error().message()` on failure:
+Every fallible operation returns `aletheia::Result<T>` (`std::expected<T, AletheiaError>`). There are no exceptions on the normal path. Check `has_value()` / use `operator bool`, and read `error().kind()`, `error().code()`, and `error().message()` on failure:
 
 ```cpp
 using namespace aletheia;
@@ -200,13 +200,13 @@ auto describe = [](const AletheiaError& e) -> std::string_view {
 
 ## Cancellation
 
-Every `AletheiaClient` operation takes a `std::stop_token` as its first parameter. Requesting a stop is observed at frame boundaries with the commit-prefix-and-report contract — already-processed frames stay committed. The cross-binding semantics (Python `asyncio`, Go `context.Context`, C++ `std::stop_token`) are specified in the [Cancellation Contract](../architecture/CANCELLATION.md).
+Every `AletheiaClient` operation takes a `std::stop_token` as its first parameter. Requesting a stop is observed at frame boundaries with the commit-prefix-and-report contract, so already-processed frames stay committed. The cross-binding semantics (Python `asyncio`, Go `context.Context`, C++ `std::stop_token`) are specified in the [Cancellation Contract](../architecture/CANCELLATION.md).
 
 ---
 
 ## Command-line interface
 
-The `aletheia-cli` binary is a thin host CLI over `AletheiaClient`, mirroring the Python `aletheia` subcommands — `validate`, `extract`, `signals`, `format-dbc`, `mux-query` (`check` is deferred; it needs a verified CAN-log reader). The logic lives in `aletheia::run_cli` (`aletheia/cli.hpp`), so it is unit-testable without spawning a process.
+The `aletheia-cli` binary is a thin host CLI over `AletheiaClient`, mirroring the Python `aletheia` subcommands `validate`, `extract`, `signals`, `format-dbc`, `mux-query` (`check` is deferred; it needs a verified CAN-log reader). The logic lives in `aletheia::run_cli` (`aletheia/cli.hpp`), so it is unit-testable without spawning a process.
 
 ```bash
 cmake -S cpp -B cpp/build && cmake --build cpp/build --target aletheia-cli

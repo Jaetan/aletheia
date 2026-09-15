@@ -96,4 +96,4 @@ for the cross-binding contract.
 - [Interface Guide](../docs/reference/INTERFACES.md) — Check API
 - [Distribution Guide](../docs/development/DISTRIBUTION.md) — packaging the `.so`
 - [Cancellation Contract](../docs/architecture/CANCELLATION.md) — `std::stop_token` semantics
-- [Mutation Testing](../docs/operations/MUTATION.md) — the Mull lane
+- [Mutation Testing](../docs/operations/MUTATION.md), the Mull lane

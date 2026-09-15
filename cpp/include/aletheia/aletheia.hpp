@@ -10,11 +10,11 @@
 //
 // Two entry points:
 //
-//   <aletheia/aletheia.hpp>  — the umbrella: the core API plus the loaders
+//   <aletheia/aletheia.hpp>    the umbrella: the core API plus the loaders
 //                              (excel.hpp, yaml.hpp) and the enrichment
 //                              helper (enrich.hpp).
 //
-//   <aletheia/client.hpp>    — the facade: the core API only (Client, Check,
+//   <aletheia/client.hpp>      the facade: the core API only (Client, Check,
 //                              DbcDefinition, LtlFormula, logging, errors,
 //                              responses). Include excel.hpp, yaml.hpp or
 //                              enrich.hpp beside it where they are used.

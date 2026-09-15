@@ -405,7 +405,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         # Mock-only unit sources never execute ffi_backend.cpp, so Mull would
         # report its mutants as uncovered.  Fold the real-.so integration tests
         # into the mutation binary so FfiBackend's FFI-boundary guards are
-        # exercised and killed.  (Mutation build only — the normal unit_tests
+        # exercised and killed.  (Mutation build only; the normal unit_tests
         # stays Mock-only / .so-free for speed.)
         target_sources(unit_tests PRIVATE tests/integration_tests.cpp)
         target_link_libraries(unit_tests PRIVATE Threads::Threads)

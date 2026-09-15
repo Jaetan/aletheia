@@ -10,21 +10,21 @@ Three language bindings mirror these constants for pre-FFI rejection (so
 pathological inputs are rejected before being marshalled across the language
 boundary) and for typed comparison by name:
 
-* ``go/aletheia/limits.go`` — cgo-boundary mirror.
-* ``python/aletheia/limits.py`` — ctypes-boundary mirror.
-* ``cpp/include/aletheia/limits.hpp`` — dlopen-boundary mirror.
+* ``go/aletheia/limits.go``: the cgo-boundary mirror.
+* ``python/aletheia/limits.py``: the ctypes-boundary mirror.
+* ``cpp/include/aletheia/limits.hpp``: the dlopen-boundary mirror.
 
 Each mirror's header says "Single source of truth: src/Aletheia/Limits.agda;
-numeric values are mirrored here verbatim" — this script enforces that promise
-on all three.
+numeric values are mirrored here verbatim", and this script enforces that
+promise on all three.
 
 Strategy:
 
 1. Parse the SSOT for every ``boundKindCode <Tag> = "<wire>"`` mapping and
    every ``max-<kebab-name> = <number>`` constant.
-2. Parse each mirror for its own spelling of both — ``BoundKind<Tag>`` and
+2. Parse each mirror for its own spelling of both: ``BoundKind<Tag>`` and
    ``Max<Name>`` in Go, ``BOUND_KIND_<TAG>`` and ``MAX_<NAME>`` in Python,
-   ``bound_kind_<tag>`` and ``max_<name>`` in C++ — evaluating the value
+   ``bound_kind_<tag>`` and ``max_<name>`` in C++.  Evaluate the value
    expression (``64 * 1024 * 1024`` and the like) rather than matching text.
 3. Cross-check through a manual per-binding table, because kebab-case to the
    mirror's spelling is not a rule (``DBC`` and ``JSON`` stay uppercase).
@@ -33,9 +33,9 @@ Strategy:
    with no SSOT peer, or an SSOT entry no table maps.
 
 Exit codes:
-  0 — full parity between Agda SSOT and every mirror.
-  1 — at least one divergence detected.
-  2 — usage error / file missing / parse failure.
+  0: full parity between Agda SSOT and every mirror.
+  1: at least one divergence detected.
+  2: usage error / file missing / parse failure.
 
 A constant flagged OPTIONAL is a list-cardinality bound the kernel enforces
 after parsing, so a mirror may omit it: pre-rejection at the language boundary
@@ -137,7 +137,7 @@ PYTHON_BOUND_KIND_MAPPING: dict[str, str] = {
     "RationalComponentMagnitude": "BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE",
 }
 
-# C++ mirror — kebab-case → snake_case.  The header states it mirrors every
+# C++ mirror: kebab-case to snake_case.  The header states it mirrors every
 # numeric value verbatim and it carries the whole set, so every constant is
 # REQUIRED: a mirror that drops one stops being the verbatim mirror it claims
 # to be, whether or not the binding enforces that particular bound itself.
@@ -373,7 +373,7 @@ def _parse_python_limits(text: str) -> tuple[dict[str, int], dict[str, str]]:
 
 
 def _parse_cpp_limits(text: str) -> tuple[dict[str, int], dict[str, str]]:
-    """Parse the C++ limits header — return (max_* constants, bound_kind_* strings).
+    """Parse the C++ limits header, returning (max_* constants, bound_kind_* strings).
 
     Recognises ``inline constexpr std::uint64_t max_name = <expression>;`` and
     ``inline constexpr std::string_view bound_kind_name = "wire";``.  The wire
@@ -682,7 +682,7 @@ def main() -> int:
                 ("C++", CPP_NAME_MAPPING, CPP_BOUND_KIND_MAPPING),
             )
         )
-        + " — all in parity with Agda SSOT"
+        + ": all in parity with Agda SSOT"
     )
     return 0
 

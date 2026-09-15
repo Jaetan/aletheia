@@ -46,7 +46,7 @@
 #   performance-enum-size
 #       — suggesting uint8_t base for small enums; premature optimization, harms debuggability
 #   concurrency-mt-unsafe
-#       — flags std::getenv and dlerror, which the library calls once while
+#         flags std::getenv and dlerror, which the library calls once while
 #         loading the shared library or reading its environment (ffi_backend.cpp,
 #         rational_renderer.cpp, cli.cpp) and test helpers call for setup
 #   misc-use-anonymous-namespace
