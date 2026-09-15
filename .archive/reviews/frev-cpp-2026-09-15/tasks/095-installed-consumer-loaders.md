@@ -1,6 +1,11 @@
 # Task 095: installed consumers and the loader dependencies (follow-up from task 007, gated by a ruling)
 
-- status: pending
+- status: pending on a ruling
+- worked to the ruling: the failure is reproduced and kept. The two probes in the store build an installed
+  consumer and show the client-only program links while a program calling the YAML loader does not, with the
+  undefined references named. The three alternatives and their costs are in the accumulator. Nothing here can be
+  chosen by measurement: installing the dependency archives, building the library shared, and narrowing what the
+  distribution guide promises are three different products.
 - files: `cpp/CMakeLists.txt`, `cpp/cmake/aletheia-cpp-config.cmake.in`, `docs/development/DISTRIBUTION.md`
 - round base: b222b613 (2026-09-15)
 - pass: full on each file touched by the ruling

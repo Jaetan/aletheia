@@ -1,6 +1,11 @@
 # Task 099: file review of `cpp/include/aletheia/backend.hpp` (follow-up from task 047)
 
-- status: pending
+- status: pending on a ruling
+- worked to the ruling: the second finding is fixed. The three factories carry `[[nodiscard]]` as part of the
+  directory-wide discard rule, landed in refs/frev/097g with the guard demonstrated: discarding a marked call in
+  the library sources makes the clang-tidy gate report it twice, and a scratch translation unit outside the tree
+  gets the compiler warning. What remains is the declaration comment saying the factory returns canned responses,
+  which the public mock ruling decides; the probe that reads red on the current object is in the store.
 - file: `cpp/include/aletheia/backend.hpp`
 - round base: b222b613 (2026-09-15)
 - pass: lenses and diff, over the two findings below plus whatever the lenses fire on

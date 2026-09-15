@@ -1,6 +1,6 @@
 # Task 092: document review of `docs/MUTATION_BENCH.yaml` (follow-up from the round-start mutation sweep)
 
-- status: pending
+- status: completed
 - file: `docs/MUTATION_BENCH.yaml`
 - round base: b222b613 (2026-09-15)
 - pass: full
@@ -8,7 +8,33 @@
 
 ## Report
 
-(filled when the task is worked)
+Full pass, all nine points at all three granularities. Fix in refs/frev/092 (signed later by the dribble).
+
+Correctness. The C++ record said sixty mutants; a sweep of the configured tree at the end of this round gives sixty-one, zero survivors, one timeout, the same hundred percent score. The count is a measurement of a toolchain and a test surface, both of which this round moved, so it was stale rather than wrong. It is re-measured, and the timeout is recorded beside it, because Mull counts a timeout toward the score rather than as a survivor and a reader comparing the total against the killed count otherwise finds one missing. Only the survivor count feeds the drift gate, checked by reading the runner, so nothing about the lane's behaviour changed.
+
+A second claim was wrong rather than stale. The hot-path comment said Mull mutates the listed files through the compiler plugin. The plugin is attached to the library and the test binary, so Mull mutates whatever those compile: the sweep produces mutants in two sources the list does not name and in four test files, and none at all in four sources it does name. The list is what the static gate requires to exist, which the gate's own code confirms, and the comment now says that.
+
+Compression. The baseline carried twenty-four lines of narrative about how it reached zero, which is history git holds: which survivors an earlier campaign eliminated, which tool version generated how many mutants, what the fix for each was. What survives is what still decides something, in eight lines: the zero floor, the two decisions that hold it, and the note that the surface moves with the compiler. Words 1464 to 1407, lines 215 to 210.
+
+The Python and Go baselines were read and not re-measured. Neither binding's hot-path list names a file this round touched, so neither number can have moved, and re-running those two lanes is minutes of work for a number that cannot have changed.
+
+The probe runs a sweep and compares all three recorded numbers against it, so the next round re-measures instead of trusting the record. Setting the total back to sixty makes it report the disagreement.
+
+```
+REPORT 2026-09-15 tree refs/frev/096 fix in refs/frev/092
+correctness: finding, the C++ mutant total was stale and the hot-path comment described a selection the list does not make; both re-measured against a sweep and the gate's own code
+redundancy: finding, the baseline told the story of reaching zero in twenty-four lines; the decisions that still hold are eight
+clarity: checked, the baseline now reads as a measurement with its two standing decisions
+checkability: finding, nothing compared the record against a run; the probe does
+implementability: checked, every field named is one the runner or the gate reads, and which reads which is stated
+precis: words 1464 to 1407, lines 215 to 210
+one line per paragraph: n/a, a YAML document whose comment blocks are wrapped prose inside a structure the parser owns
+proof-read: checked, the finished file read whole and re-parsed
+diagrams: n/a, the document embeds none
+sweep: 61 mutants, 60 killed, 1 timeout, zero survivors; the static setup gate and the eleven fast-tier steps pass
+probes: the new baseline probe passes, and read red with the old total restored
+decision points: none
+```
 
 ## Contract (carried whole)
 
