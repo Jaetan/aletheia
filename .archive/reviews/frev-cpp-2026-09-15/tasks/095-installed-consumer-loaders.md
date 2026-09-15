@@ -1,35 +1,14 @@
-# Task 007: file review of `cpp/cmake/aletheia-cpp-config.cmake.in`
+# Task 095: installed consumers and the loader dependencies (follow-up from task 007, gated by a ruling)
 
-- status: completed
-- file: `cpp/cmake/aletheia-cpp-config.cmake.in`
-- round base: 726198bb (2026-09-15)
-- pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: none
+- status: pending
+- files: `cpp/CMakeLists.txt`, `cpp/cmake/aletheia-cpp-config.cmake.in`, `docs/development/DISTRIBUTION.md`
+- round base: b222b613 (2026-09-15)
+- pass: full on each file touched by the ruling
+- origin: the installed-consumer probe for the package config template links a client-only program and fails to link one that calls the YAML loader (undefined references into yaml-cpp); the accumulator holds the alternatives. Work the ruling: install and export the dependency archives with find_dependency, or build the library shared, or document the restriction; then turn the red probe green (or retire it with the documented restriction, stating why in the commit).
 
 ## Report
 
-Full pass. NO CHANGE to the file; two probes added, one red on record.
-
-Claims and guards: the template's one purpose, that an installed consumer finds the package and links the exported target, had no guard (nothing in the tree runs cmake --install and a consumer configure). Two probes now do: the client-only consumer links and runs (green); a consumer calling the YAML loader fails to link with undefined references into yaml-cpp (red on record), because the library is static and its yaml-cpp and OpenXLSX dependencies are private build-interface links that are neither installed nor exported. The template is the minimal correct shape (PACKAGE_INIT, the targets file, check_required_components); adding find_dependency lines is part of the ruling, not a change this task can make alone. Decision point recorded; follow-up task 095 carries the fix across CMakeLists.txt, this template and DISTRIBUTION.md.
-
-```
-REPORT 2026-09-15 tree b222b613 NO CHANGE
-claims: 1 row, 1 without a guard: two probes added (client consumer green, loader consumer red on record)
-1 line per line: checked, all 5 lines read
-2 guidelines: n/a
-3 modernize: checked, the three-line configure_package_config_file template is the current idiom
-4 catalogue: checked, AGENTS/cpp.md category 32 (BUILD_INTERFACE/INSTALL_INTERFACE, link scope): the scope choice is exactly what breaks the installed loaders
-5 value semantics: n/a
-6 raii: n/a
-7 dedup: checked, none
-8 ground truth: finding, docs/development/DISTRIBUTION.md presents find_package consumption without the loader restriction; carried by task 095
-9 history: checked, none
-10 simpler: checked
-11 comments: 0 to 0, code 3 to 3
-sweep: no mutation names this file
-probes: 2 added under probes/cpp_cmake_aletheia-cpp-config.cmake.in--*.sh; store 17 run, 16 pass, 1 red on record (the loader consumer)
-decision points: appended to the accumulator
-```
+(filled when the task is worked)
 
 ## Contract (carried whole)
 
