@@ -58,15 +58,15 @@ namespace {
 
 using aletheia::AletheiaClient;
 using aletheia::CanId;
+using aletheia::cli_exit_error;
+using aletheia::cli_exit_ok;
+using aletheia::cli_exit_validation_failed;
 using aletheia::DbcDefinition;
 using aletheia::DbcMessage;
 using aletheia::ExtendedId;
 using aletheia::StandardId;
 using Json = nlohmann::json;
 
-constexpr int k_exit_ok = 0;
-constexpr int k_exit_validation_failed = 1;
-constexpr int k_exit_error = 2;
 constexpr std::uint32_t k_std_id_max = 0x7FF; // 11-bit standard CAN ID ceiling
 constexpr int k_json_indent = 2;
 
@@ -93,14 +93,14 @@ struct DbcLoadError {
 
 static auto die(std::string_view msg) -> int {
     std::cerr << "Error: " << msg << '\n';
-    return k_exit_error;
+    return cli_exit_error;
 }
 
 // Reports a stream failure as an error exit, so a broken pipe is not masked
 // by a subcommand's own outcome.
 static auto emit_json(const Json& j) -> int {
     std::cout << j.dump(k_json_indent) << '\n';
-    return std::cout ? k_exit_ok : k_exit_error;
+    return std::cout ? cli_exit_ok : cli_exit_error;
 }
 
 // --- client / DBC loading -------------------------------------------------
@@ -285,15 +285,15 @@ static auto render_validation(bool has_errors, const std::vector<aletheia::Valid
                                     {"issues", arr}});
         // An emit failure is an operational error and must not be masked
         // by the validation outcome.
-        if (code != k_exit_ok)
+        if (code != cli_exit_ok)
             return code;
         // The exit code reflects the validation outcome in both output
         // modes — a pipeline running --json still needs exit 1 on failure.
-        return has_errors ? k_exit_validation_failed : k_exit_ok;
+        return has_errors ? cli_exit_validation_failed : cli_exit_ok;
     }
     if (issues.empty()) {
         std::cout << "Validation passed: no issues found\n";
-        return k_exit_ok;
+        return cli_exit_ok;
     }
     std::cout << (has_errors ? "Validation FAILED" : "Validation passed with warnings") << " ("
               << issues.size() << " issues)\n\n";
@@ -305,7 +305,7 @@ static auto render_validation(bool has_errors, const std::vector<aletheia::Valid
         std::cout << "  " << n++ << ". [" << sev << "] " << aletheia::issue_code_label(i) << ": "
                   << i.detail << '\n';
     }
-    return has_errors ? k_exit_validation_failed : k_exit_ok;
+    return has_errors ? cli_exit_validation_failed : cli_exit_ok;
 }
 
 // `has_errors` for a rejected parse is derived from the decoded issue
@@ -417,7 +417,7 @@ static auto cmd_extract(const Args& a) -> int {
         std::cout << "  " << v.name.get() << " = " << render_rational(v.value.get()) << '\n';
     for (const auto& e : res->errors)
         std::cout << "  error " << e.name.get() << ": " << e.reason << '\n';
-    return k_exit_ok;
+    return cli_exit_ok;
 }
 
 static void print_signal_line(const aletheia::DbcSignal& sig) {
@@ -439,7 +439,7 @@ static auto cmd_signals(const Args& a) -> int {
         return die(def.error().message);
     if (a.flags.contains("json")) {
         std::cout << aletheia::to_canonical_json(def->dbc) << '\n';
-        return k_exit_ok;
+        return cli_exit_ok;
     }
     std::size_t total = 0;
     for (const auto& msg : def->dbc.messages) {
@@ -451,7 +451,7 @@ static auto cmd_signals(const Args& a) -> int {
         }
     }
     std::cout << '\n' << def->dbc.messages.size() << " messages, " << total << " signals\n";
-    return k_exit_ok;
+    return cli_exit_ok;
 }
 
 static auto cmd_format_dbc(const Args& a) -> int {
@@ -465,7 +465,7 @@ static auto cmd_format_dbc(const Args& a) -> int {
     if (!canonical)
         return die(std::string{canonical.error().message()});
     std::cout << aletheia::to_canonical_json(*canonical) << '\n';
-    return k_exit_ok;
+    return cli_exit_ok;
 }
 
 static auto resolve_mux_message(const DbcDefinition& def, const std::string& ident, bool extended)
@@ -497,7 +497,7 @@ static auto mux_selector(const DbcMessage& msg, const std::string& mux, std::uin
               << " signals\n";
     for (const auto& s : sigs)
         std::cout << "  " << s.name.get() << '\n';
-    return k_exit_ok;
+    return cli_exit_ok;
 }
 
 // mux-query summary mode: every multiplexor, its values, and their signals.
@@ -523,7 +523,7 @@ static auto mux_summary(const DbcMessage& msg, bool as_json) -> int {
               << msg.name.get() << '\n';
     if (!msg.is_multiplexed()) {
         std::cout << "  Not multiplexed — " << msg.signals.size() << " signals always present.\n";
-        return k_exit_ok;
+        return cli_exit_ok;
     }
     for (const auto& name : msg.multiplexor_names()) {
         std::cout << "  " << name.get() << ":\n";
@@ -532,7 +532,7 @@ static auto mux_summary(const DbcMessage& msg, bool as_json) -> int {
             std::cout << "    value " << v.get() << ": " << sigs.size() << " signals\n";
         }
     }
-    return k_exit_ok;
+    return cli_exit_ok;
 }
 
 static auto cmd_mux_query(const Args& a) -> int {
@@ -609,14 +609,14 @@ static auto dispatch(const std::string& cmd, std::span<const std::string> rest) 
     if (cmd == "check") {
         std::cerr << "Error: 'check' is not available in the C++ CLI: it needs a CAN-log reader "
                      "the binding does not provide. Use the Python CLI for log-file checking.\n";
-        return k_exit_error;
+        return cli_exit_error;
     }
     if (cmd == "-h" || cmd == "--help" || cmd == "help") {
         std::cout << k_usage << '\n';
-        return k_exit_ok;
+        return cli_exit_ok;
     }
     std::cerr << "Error: unknown command '" << cmd << "'\n\n" << k_usage << '\n';
-    return k_exit_error;
+    return cli_exit_error;
 }
 
 namespace aletheia {
@@ -625,7 +625,7 @@ auto run_cli(std::span<const std::string> args) noexcept -> int {
     try {
         if (args.empty()) {
             std::cerr << k_usage << '\n';
-            return k_exit_error;
+            return cli_exit_error;
         }
         return dispatch(args.front(), args.subspan(1));
     } catch (const std::exception& e) {

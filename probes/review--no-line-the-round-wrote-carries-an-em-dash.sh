@@ -20,7 +20,7 @@ py=python/.venv/bin/python
 import subprocess
 import sys
 
-DASH = "—"
+DASH = chr(0x2014)  # spelled by code point so this probe is not its own finding
 diff = subprocess.run(
     ["git", "diff", "refs/frev/base"], capture_output=True, text=True, errors="replace", check=False
 )
