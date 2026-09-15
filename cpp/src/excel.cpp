@@ -234,14 +234,14 @@ static auto get_any(const CellMap& cells, const std::string& key, const std::str
 }
 
 // get_decimal requires a TEXT cell holding a decimal literal.  The float
-// principle INVERTS the old contract: a number-typed cell is rejected (a
-// float64 has already lost the authored precision), so numeric fields must be
-// authored as text-formatted cells and parsed exactly by the kernel decimal
-// SSOT (Rational::from_decimal).  RTS-gated: an FfiBackend must be live first;
-// the loader's outer `catch (const std::runtime_error&)` converts both the
-// runtime-down and the malformed-literal throws into a Validation Result.  A
-// kernel decimal refusal is re-thrown with the row/field context prefixed —
-// the kernel knows the literal, not the workbook position.
+// principle refuses a number-typed cell: a float64 has already lost the
+// authored precision, so numeric fields are authored as text-formatted cells
+// and parsed exactly by the kernel decimal SSOT (Rational::from_decimal).
+// RTS-gated: an FfiBackend must be live first.  A kernel decimal refusal is
+// re-thrown with the row and field prefixed, because the kernel knows the
+// literal and not the workbook position, and the loader answers Validation;
+// any other kernel throw passes through unchanged and the loader answers with
+// its own kind.
 static auto get_decimal(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> Rational {
     auto it = cells.find(key);

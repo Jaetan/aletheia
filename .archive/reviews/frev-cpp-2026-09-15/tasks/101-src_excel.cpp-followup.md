@@ -1,6 +1,6 @@
 # Task 101: file review of `cpp/src/excel.cpp` (follow-up from task 050)
 
-- status: pending
+- status: completed
 - file: `cpp/src/excel.cpp`
 - round base: b222b613 (2026-09-15)
 - pass: lenses and diff, over the sentence below plus whatever the lenses fire on
@@ -8,7 +8,32 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Lenses and diff pass over the comment above the decimal cell reader. Fix in refs/frev/101 (signed later by the dribble).
+
+Claims and guards: the sentence claimed the loader's outer handler turns both a runtime-down throw and a malformed-literal throw into a Validation Result. The code does the opposite for the first half. The reader re-throws a non-Validation kernel exception unchanged, and both loader entry points catch the kernel exception type before the general one and return its error with the kind intact. The behaviour the corrected sentence states already has a guard, the probe that loads a workbook of numeric cells with no backend alive and requires an Ffi-kinded refusal. Its teeth were re-proven here: re-kinding the loader's kernel handler to Validation makes it read "kind was 1, expected Ffi" and fail, and the restore makes it pass.
+
+Finding fixed: the sentence now says a kernel decimal refusal is re-thrown with the row and field prefixed and answered as Validation, and that any other kernel throw passes through unchanged so the loader answers with its own kind. The same edit drops the block's reference to what the contract used to be, which described a past state rather than the current one, at no cost in lines.
+
+The rest of the file's comments were swept for the same class: every file name and every qualified or snake-case identifier they cite resolves, and none carries a date, a tracking id, a plan label or a sentence about a previous state.
+
+```
+REPORT 2026-09-15 tree refs/frev/104 fix in refs/frev/101
+claims: 1 row, 0 without a guard: the kind-preserving refusal, guarded by the loader-kind probe, whose teeth were re-proven by re-kinding the handler
+1 line per line: checked, the comment block and both loader handlers read whole; the rest of the file had its full pass
+2 guidelines: n/a, no code changed
+3 modernize: n/a
+4 catalogue: n/a
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked, the corrected sentence is stated once, on the reader that throws, not on the handlers that catch
+8 ground truth: finding, the sentence inverted what the loader does with a non-Validation kernel throw; checked true by the probe and by reading both handlers
+9 history: finding, the block described the contract it replaced; the sentence now states only what holds
+10 simpler: n/a
+11 comments: 126 to 126, code 542 to 542
+sweep: no mutation names this file
+probes: the loader-kind probe passes, and read red under a re-kinded handler
+decision points: none
+```
 
 ## Contract (carried whole)
 
