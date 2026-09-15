@@ -30,7 +30,7 @@ static_assert(!std::is_same_v<NodeName, Unit>);
 // Numeric physical types
 static_assert(!std::is_same_v<PhysicalValue, Delta>);
 
-// Rational strong types (all distinct from each other and from double types)
+// Rational strong types, distinct from each other and from the rational they wrap
 static_assert(!std::is_same_v<RationalFactor, RationalOffset>);
 static_assert(!std::is_same_v<RationalFactor, RationalBound>);
 static_assert(!std::is_same_v<RationalOffset, RationalBound>);
@@ -164,8 +164,8 @@ static_assert(std::variant_size_v<CanId> == 2);
 // LtlFormula variant — correct number of alternatives
 // ===========================================================================
 
-// LtlFormula wraps the LtlFormulaVariant alias by composition; the count must
-// match the Agda kernel's LTL ADT.
+// LtlFormula wraps the LtlFormulaVariant alias by composition; the count is the
+// kernel's own, Atomic through MetricRelease in Aletheia.LTL.Syntax.
 static_assert(std::variant_size_v<LtlFormulaVariant> == 14);
 static_assert(std::variant_size_v<decltype(std::declval<LtlFormula>().value)> == 14);
 static_assert(std::variant_size_v<Predicate> == 8);
@@ -192,10 +192,10 @@ static_assert(std::has_virtual_destructor_v<IBackend>);
 // Strong<Tag, std::string> explicit conversion to string_view (via direct-init)
 // ===========================================================================
 
-// string_view must be constructible from a string-valued Strong (direct-init
-// form: std::string_view{name}), but the conversion is explicit so implicit
-// conversion is disallowed. Concept-gated to T == std::string (the
-// previously-separate StrongString template was merged in).
+// string_view is constructible from a string-valued Strong in the
+// direct-initialisation form std::string_view{name}, and explicitly so: the
+// implicit conversion is disallowed, and the conversion is concept-gated to
+// the string-valued instantiations.
 static_assert(std::is_constructible_v<std::string_view, SignalName>);
 static_assert(std::is_constructible_v<std::string_view, MessageName>);
 static_assert(std::is_constructible_v<std::string_view, NodeName>);
@@ -238,7 +238,7 @@ static_assert(!std::is_copy_constructible_v<CheckResult>);
 static_assert(std::is_move_assignable_v<CheckResult>);
 static_assert(!std::is_copy_assignable_v<CheckResult>);
 
-// If this file compiles, all 100+ static assertions pass.
+// The assertions above are the test; main exists only so the target links.
 int main() {
     return 0;
 }

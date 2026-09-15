@@ -1,6 +1,6 @@
 # Task 070: file review of `cpp/tests/static_tests.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/static_tests.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/070 (signed later by the dribble).
+
+Claims and guards: this file is nothing but claims, 110 of them, and each is its own guard: the compiler refuses the translation unit if one is false, and the target is built by every configure. The pairwise distinctness of the strong types, the validated ranges of the three identifier and length types, the non-linear CAN-FD byte table, the constexpr accessors and comparisons, the move-only client, the abstract backend, the explicit-only string conversions and the variant sizes are all pinned this way. The one claim that reaches outside the file is the formula variant's size, which the comment says is the kernel's own constructor count; read against Aletheia.LTL.Syntax it is: four propositional, six unbounded temporal and four metric constructors, fourteen, and the comment now names the module so the next reader can check it the same way.
+
+Findings fixed: a heading said the rational strong types are distinct from each other "and from double types", and no double-based type exists in this binding, the float principle having removed them; a comment carried the history of a template that was merged into another; and the closing line claimed "100+ static assertions pass", a count in prose where the rule is to name the thing rather than count it.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/070
+claims: 110 rows, 0 without a guard: each assertion is checked by the compiler on every build
+1 line per line: checked, all 244 lines read; every assertion asked what it would catch and every heading whether it describes what follows
+2 guidelines: checked, Con.5 and the constexpr-everywhere rule are what the file exists to pin
+3 modernize: n/a, the file is assertions
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the float principle
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked, the pairwise blocks are complete rather than repetitive: four string types give six pairs and four integer types give six, and both blocks carry exactly that many
+8 ground truth: finding, the "double types" category does not exist; checked true: the fourteen kernel constructors against Aletheia.LTL.Syntax, and the byte table against the CAN-FD mapping
+9 history: finding, one merged-template sentence
+10 simpler: checked
+11 comments: 71 to 71, code 122 to 122
+sweep: no mutation names this file (it is its own binary and contains no runtime code); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; the compiler is the probe
+decision points: none
+```
 
 ## Contract (carried whole)
 
