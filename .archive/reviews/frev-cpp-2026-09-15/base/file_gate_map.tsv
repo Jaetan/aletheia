@@ -1,0 +1,91 @@
+cpp/.clang-format	
+cpp/.clang-tidy	
+cpp/CMakeLists.txt	cpp/tests/test_feature_matrix_parity.cpp cpp/tests/test_log_events_parity.cpp cpp/tests/test_rts_params_parity.cpp cpp/tests/test_wire_codes_parity.cpp .github/workflows/benchmark.yml .github/workflows/bundle-validation.yml .github/workflows/pr-full-ci.yml .github/workflows/pr-heavy-lanes.yml .github/workflows/release.yml tools/check_clang_tidy_coverage.py tools/check_spdx_headers.py tools/sbom_generate.py 
+cpp/README.md	.github/workflows/release.yml tools/check_docs.py tools/_ci_steps.py 
+cpp/benchmarks/benchmark.cpp	
+cpp/benchmarks/stability_bench.cpp	
+cpp/cmake/aletheia-cpp-config.cmake.in	
+cpp/include/aletheia/aletheia.hpp	
+cpp/include/aletheia/backend.hpp	
+cpp/include/aletheia/check.hpp	
+cpp/include/aletheia/cli.hpp	
+cpp/include/aletheia/client.hpp	
+cpp/include/aletheia/dbc.hpp	
+cpp/include/aletheia/detail/cache_keys.hpp	
+cpp/include/aletheia/detail/rational_renderer.hpp	
+cpp/include/aletheia/enrich.hpp	
+cpp/include/aletheia/error.hpp	
+cpp/include/aletheia/excel.hpp	
+cpp/include/aletheia/limits.hpp	
+cpp/include/aletheia/log.hpp	
+cpp/include/aletheia/ltl.hpp	
+cpp/include/aletheia/response.hpp	
+cpp/include/aletheia/types.hpp	
+cpp/include/aletheia/validation.hpp	
+cpp/include/aletheia/validation_issue.hpp	
+cpp/include/aletheia/yaml.hpp	
+cpp/sanitizer-ignorelist.txt	tools/_ci_steps.py 
+cpp/src/backend.cpp	
+cpp/src/cli/cli.cpp	
+cpp/src/cli/main.cpp	
+cpp/src/client.cpp	docs/LOG_EVENTS.yaml 
+cpp/src/dbc.cpp	
+cpp/src/detail/ffi_logic.cpp	
+cpp/src/detail/ffi_logic.hpp	
+cpp/src/detail/json.hpp	
+cpp/src/detail/loader_utils.cpp	
+cpp/src/detail/loader_utils.hpp	
+cpp/src/detail/mock_backend.hpp	docs/FEATURE_MATRIX.yaml 
+cpp/src/detail/rts_init.cpp	
+cpp/src/detail/rts_init.hpp	
+cpp/src/detail/rts_params.hpp	cpp/tests/test_rts_params_parity.cpp 
+cpp/src/enrich.cpp	
+cpp/src/excel.cpp	
+cpp/src/ffi_backend.cpp	
+cpp/src/json_parse.cpp	
+cpp/src/json_serialize.cpp	
+cpp/src/mock_backend.cpp	
+cpp/src/rational_renderer.cpp	
+cpp/src/types.cpp	
+cpp/src/yaml.cpp	
+cpp/tests/cli_tests.cpp	
+cpp/tests/dbc_corpus_parity_tests.cpp	
+cpp/tests/doc_example_tests.cpp	docs/FEATURE_MATRIX.yaml 
+cpp/tests/excel_tests.cpp	
+cpp/tests/fuzz/fuzz_decode_binary_frame.cpp	
+cpp/tests/fuzz/fuzz_parse_dbc_json.cpp	
+cpp/tests/fuzz/fuzz_parse_rational_number.cpp	
+cpp/tests/fuzz/fuzz_parse_response.cpp	
+cpp/tests/fuzz/seed/decode_binary_frame/empty.bin	
+cpp/tests/fuzz/seed/parse_dbc_json/minimal.json	
+cpp/tests/fuzz/seed/parse_rational_number/dict.txt	
+cpp/tests/fuzz/seed/parse_rational_number/integer.txt	
+cpp/tests/fuzz/seed/parse_response/ack.json	
+cpp/tests/fuzz/seed/parse_response/error.json	
+cpp/tests/fuzz/seed/parse_response/validation.json	
+cpp/tests/integration_tests.cpp	
+cpp/tests/rts_heap_cap_workload.cpp	
+cpp/tests/rts_init_renderer_uninitialized_tests.cpp	
+cpp/tests/rts_setup_listener.cpp	
+cpp/tests/static_tests.cpp	
+cpp/tests/test_cross_binding_integration.cpp	
+cpp/tests/test_feature_matrix_parity.cpp	docs/FEATURE_MATRIX.yaml 
+cpp/tests/test_helpers.hpp	
+cpp/tests/test_log_events_parity.cpp	docs/LOG_EVENTS.yaml 
+cpp/tests/test_rts_heap_cap.cpp	
+cpp/tests/test_rts_params_parity.cpp	
+cpp/tests/test_wire_codes_parity.cpp	docs/WIRE_CODES.yaml 
+cpp/tests/testdata/doc_examples/checks.yaml	
+cpp/tests/unit_tests_cancel.cpp	
+cpp/tests/unit_tests_check.cpp	
+cpp/tests/unit_tests_client.cpp	
+cpp/tests/unit_tests_dbc.cpp	
+cpp/tests/unit_tests_decimal.cpp	
+cpp/tests/unit_tests_enrich.cpp	
+cpp/tests/unit_tests_ffi_logic.cpp	
+cpp/tests/unit_tests_input_bounds.cpp	
+cpp/tests/unit_tests_json.cpp	
+cpp/tests/unit_tests_log.cpp	
+cpp/tests/unit_tests_property.cpp	
+cpp/tests/unit_tests_validation.cpp	
+cpp/tests/yaml_tests.cpp	

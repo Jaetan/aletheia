@@ -13,3 +13,14 @@
 ## Working order
 
 Tasks are worked in id order. Follow-ups created during the run get the next free id and are part of the run.
+
+## Resume
+
+- branch: `review/frev-cpp`, forked at `b222b613`
+- parked WIP: stash "benchmark-harness WIP PARKED for the cpp file review" (four benchmark files belonging to `fix/benchmark-harness-staleness`)
+- commit mechanics: per task `bash .git/frev/snapshot.sh <id> <msgfile>` stages every path in `.git/frev/touched.txt`, writes a tree anchored at `refs/frev/<id>` and appends it to `.git/frev/manifest.tsv`; the user's `.commands-to-run.sh` signs the pending manifest with `git commit-tree -S` and moves the branch. The dribble never touches the index.
+- message files: `.git/frev/msg-<id>.txt`
+- probe store: `probes/` with `probes/run_all.sh`
+- lens: `lens/linecount.py` (comment/code per file), `base/linecount.tsv`, `base/file_gate_map.tsv`
+- current task: none started (round-start record in progress)
+- follow-ups created: 092 (`docs/MUTATION_BENCH.yaml`, mutant count drift found by the base sweep)

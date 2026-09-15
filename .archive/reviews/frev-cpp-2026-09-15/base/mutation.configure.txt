@@ -1,0 +1,42 @@
+-- The CXX compiler identification is Clang 22.1.6
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/clang++-22 - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Mutation lane: -fpass-plugin=/home/nicolas/.local/bin/mull-ir-frontend-22 (aletheia-cpp + unit_tests only)
+-- Using the multi-header code from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/json-src/include/
+CMake Deprecation Warning at build-mutation/_deps/yaml-cpp-src/CMakeLists.txt:2 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+-- Performing Test CHARCONV_RESULT
+-- Performing Test CHARCONV_RESULT - Success
+-- Performing Test COMPILER_HAS_HIDDEN_VISIBILITY
+-- Performing Test COMPILER_HAS_HIDDEN_VISIBILITY - Success
+-- Performing Test COMPILER_HAS_HIDDEN_INLINE_VISIBILITY
+-- Performing Test COMPILER_HAS_HIDDEN_INLINE_VISIBILITY - Success
+-- Performing Test COMPILER_HAS_DEPRECATED_ATTR
+-- Performing Test COMPILER_HAS_DEPRECATED_ATTR - Success
+-- The C compiler identification is Clang 22.1.6
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/clang-22 - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Found Doxygen: /usr/bin/doxygen (found version "1.15.0") found components: doxygen dot
+Doxygen build started
+-- Performing Test HAVE_FLAG__ffile_prefix_map__home_nicolas_dev_agda_aletheia_cpp_build_mutation__deps_catch2_src__
+-- Performing Test HAVE_FLAG__ffile_prefix_map__home_nicolas_dev_agda_aletheia_cpp_build_mutation__deps_catch2_src__ - Success
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- benchmark + stability_bench targets require libaletheia-ffi.so at runtime — build the Haskell shim first with `cabal run shake -- build`
+-- Configuring done (5.7s)
+-- Generating done (0.2s)
+-- Build files have been written to: /home/nicolas/dev/agda/aletheia/cpp/build-mutation
