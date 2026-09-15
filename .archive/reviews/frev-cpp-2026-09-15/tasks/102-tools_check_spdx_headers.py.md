@@ -1,37 +1,14 @@
-# Task 053: file review of `cpp/tests/doc_example_tests.cpp`
+# Task 102: file review of `tools/check_spdx_headers.py` (follow-up from task 053)
 
-- status: completed
-- file: `cpp/tests/doc_example_tests.cpp`
-- round base: 726198bb (2026-09-15)
-- pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: clang-tidy lens over tests at round base reports 44 unique diagnostics in this file (the CI tidy gate excludes tests; details in base/clang_tidy_tests.txt); each is a candidate for points 2 and 3, checked against the file, never a verdict; the file carries two SPDX-License-Identifier lines (BSD-2-Clause and Apache-2.0) at its head, one file one licence; kDocFiles omits cpp/README.md so that file's C++ fence is compiled by nothing (task 004 rewrote the fence as a complete program and probes it; adding cpp/README.md to kDocFiles moves the guard into the harness)
+- status: pending
+- file: `tools/check_spdx_headers.py`
+- round base: b222b613 (2026-09-15)
+- pass: full
+- origin: cpp/tests/doc_example_tests.cpp carried two licence identifiers, BSD-2-Clause and Apache-2.0, the second of which matches no licence the repository grants (LICENSE.md is the BSD 2-Clause text alone). The gate reported "SPDX: all in-scope files carry the header" with that file in scope, so it checks presence and not agreement. A gate that cannot fail on the defect it exists to catch has a bug: make it reject a file whose licence identifier is not the repository's, and a file carrying more than one, and stage the new arm by breaking it.
 
 ## Report
 
-Full pass. Fix in refs/frev/053 (signed later by the dribble).
-
-Claims and guards: every fenced C++ block in the six tracked markdown files is compiled and run, and the run is the guard (the binary takes 34 seconds and compiles every fence against the real library); a non-runnable fence must be marked as text rather than hidden behind an HTML comment (the structural gate in this file, which greps the same six files); the collective fence count may not fall below its floor (the second structural gate); the tracked list mirrors the Go and Python harnesses (go/aletheia/doc_examples_test.go lists the same six paths with GO_API.md where this file has CPP_API.md, and the repository's conftest.py collects the Python side); the wrapper's predeclared globals match what the Python harness predeclares (conftest.py builds them in `_make_globals`); the repository root and include directory come from the environment rather than compile-time defines so the binary does not depend on where it was built (both are read through one required-variable helper).
-
-Findings fixed, the first with legal weight: (a) the file carried two licence identifiers, the repository's BSD-2-Clause and an Apache-2.0 line that matches no licence the repository grants, LICENSE.md being the BSD 2-Clause text alone; it was the only file under cpp/ with that line, and the SPDX gate passed with it in scope because the gate checks presence and not agreement, which is follow-up task 102; (b) two comments cited a Go test named TestNoNotestCppFences, which exists nowhere: the Go counterpart is TestNoNotestGoFences in go/aletheia/doc_no_notest_test.go; (c) the wrapper comment attributed `_make_globals` to the Go harness, and it is the Python conftest's; (d) a comment pinned a fence to a line number in another document, which the repository bans and which had already drifted, the cited line now being inside a YAML block; (e) the scratch directory was removed by hand after the loop, so a failing fence, whose assertion throws out of the loop, left its wrapper sources in the temp directory; it is now removed by a destructor; (f) three headers were used and not included, for the count, the runtime error and the wait macros.
-
-```
-REPORT 2026-09-15 tree b222b613 fix in refs/frev/053
-claims: 6 rows, 0 without a guard: none needed, each is asserted by one of the three cases or by the harness the comment names
-1 line per line: checked, all 529 lines read; the fence scanner, the three wrapper shapes, the substitution table, the compile and run commands and both structural gates
-2 guidelines: checked, C.21 holds on the new owning type; the popen handle is released on the only path that reaches it and nothing between the open and the close can throw
-3 modernize: checked, no behaviour changed; the suite compiles and runs every fence before and after
-4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the repository's rules on licence headers, line-number references and include-what-you-use
-5 value semantics: checked, fences by const reference out of the cache, bodies by value into the wrappers because each is rewritten
-6 raii: finding, the scratch directory is a destructor now
-7 dedup: checked, the three wrapper shapes are genuinely different and the substitution table is a list of pairs
-8 ground truth: finding, three citations were false (the Go test name twice, the Go attribution of a Python helper, and the drifted line number); checked true: the six tracked files against the Go list, the conftest helper, both fixture paths and LICENSE.md
-9 history: checked, none
-10 simpler: checked
-11 comments: 92 to 94, code 387 to 402, the rise allowed because the task fixed the licence line, the false citations and the hand-removed directory
-sweep: no mutation names this file (its own binary, outside the mutation build's unit_tests target); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15, and this binary alone takes 34 seconds compiling and running every tracked fence; the SPDX gate re-run passes
-probes: none name this file; store 47 run, 45 pass, 2 red on record
-decision points: none
-```
+(filled when the task is worked; shape in the contract below)
 
 ## Contract (carried whole)
 

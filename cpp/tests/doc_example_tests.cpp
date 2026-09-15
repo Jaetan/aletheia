@@ -1,6 +1,5 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
-// SPDX-License-Identifier: Apache-2.0
 //
 // Doc-example harness — C++ Catch2 mirror of Python's
 // `pytest --markdown-docs` (python/tests/test_doc_examples_harness.py +
@@ -12,8 +11,8 @@
 // end-to-end. A failing fence (compile or runtime) is a test failure
 // reported with `file:Lline` precision. Non-runnable fences (signature
 // sketches, illustrative pseudocode referencing undefined symbols)
-// must use the `text` info string — TestNoNotestCppFences enforces
-// the escape-hatch ban, paralleling the Go rule.
+// must use the `text` info string; the structural gate at the foot of this
+// file enforces that, as TestNoNotestGoFences does for Go.
 //
 // Path substitutions (parallel python/conftest.py loader fakes):
 //
@@ -31,6 +30,7 @@
 //
 // Skipped automatically when `libaletheia-ffi.so` is not findable.
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -40,11 +40,13 @@
 #include <fstream>
 #include <regex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -198,7 +200,8 @@ auto has_include(std::string_view body) -> bool {
     return std::regex_search(body.cbegin(), body.cend(), inc_re);
 }
 
-// Body-fragment wrapper: matches the Go harness's _make_globals dict.
+// Body-fragment wrapper: matches the globals the Python harness predeclares
+// in the repository's conftest.py.
 //
 // Predeclared globals:
 //   - libPath        : string, ALETHEIA_LIB env var
@@ -303,10 +306,10 @@ int main() {
     auto* env_lib = std::getenv("ALETHEIA_LIB");
     std::string libPath = (env_lib != nullptr) ? env_lib : "";
 
-    // Two backends: one consumed by the wrapper-scope `client`, one left
-    // free for fences that construct their own client (INTERFACES.md L665).
-    // GHC RTS init is idempotent in `make_ffi_backend`, so the second call
-    // is cheap (dlopen handle + StablePtr only).
+    // Two backends: one consumed by the wrapper-scope `client`, one left free
+    // for a fence that constructs its own. GHC RTS init is idempotent in
+    // `make_ffi_backend`, so the second call is cheap (dlopen handle and
+    // StablePtr only).
     auto initial_backend = make_ffi_backend(libPath);
     DbcDefinition dbc = doc_harness_detail::build_doc_dbc();
     AletheiaClient client{std::move(initial_backend)};
@@ -391,6 +394,25 @@ auto sh_quote(std::string_view s) -> std::string {
     return out;
 }
 
+// A scratch directory that removes itself, so a failing fence (whose assertion
+// throws out of the loop) cannot leave its wrapper sources behind.
+class ScratchDir {
+    fs::path path_;
+
+public:
+    explicit ScratchDir(fs::path path) : path_(std::move(path)) { fs::create_directories(path_); }
+    ScratchDir(const ScratchDir&) = delete;
+    ScratchDir(ScratchDir&&) = delete;
+    auto operator=(const ScratchDir&) -> ScratchDir& = delete;
+    auto operator=(ScratchDir&&) -> ScratchDir& = delete;
+    ~ScratchDir() {
+        std::error_code ec;
+        fs::remove_all(path_, ec);
+    }
+
+    [[nodiscard]] auto path() const -> const fs::path& { return path_; }
+};
+
 // Cached fence list — extraction is idempotent so we read once and reuse
 // across repeat entries (Catch2 SECTION re-enters the test case body for
 // each section, which would otherwise re-parse the markdown N times).
@@ -427,9 +449,9 @@ TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-exa
     const auto& fences = fence_cache();
     REQUIRE_FALSE(fences.empty());
 
-    fs::path workdir =
-        fs::temp_directory_path() / ("aletheia_doc_harness_" + std::to_string(::getpid()));
-    fs::create_directories(workdir);
+    const ScratchDir scratch{fs::temp_directory_path() /
+                             ("aletheia_doc_harness_" + std::to_string(::getpid()))};
+    const auto& workdir = scratch.path();
 
     for (std::size_t i = 0; i < fences.size(); ++i) {
         const auto& fence = fences[i];
@@ -470,9 +492,6 @@ TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-exa
             REQUIRE(run_rc == 0);
         }
     }
-
-    std::error_code ec;
-    fs::remove_all(workdir, ec);
 }
 
 // ---------------------------------------------------------------------------
@@ -481,7 +500,7 @@ TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-exa
 
 TEST_CASE("doc-example structural gate: no `<!-- cpp notest -->` annotations",
           "[doc-examples][gate]") {
-    // Mirror of Go's TestNoNotestCppFences: a non-runnable fence must use
+    // Mirror of Go's TestNoNotestGoFences: a non-runnable fence must use
     // the `text` info string. The HTML-comment escape hatch silently hides
     // a fence from the harness while still rendering as cpp in prose.
     static const std::regex notest_re(R"(<!--\s*cpp\b[^>]*\bnotest\b[^>]*-->)");
