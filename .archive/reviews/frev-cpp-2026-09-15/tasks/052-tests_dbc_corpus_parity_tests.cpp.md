@@ -1,6 +1,6 @@
 # Task 052: file review of `cpp/tests/dbc_corpus_parity_tests.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/dbc_corpus_parity_tests.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/052 (signed later by the dribble).
+
+Claims and guards: the test is a binding-layer parity gate and not a substitute for the universal Agda roundtrip theorem, which lives in src/Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda (the module exists and carries that proof); the committed snapshots under python/tests/fixtures/dbc_corpus/parity_snapshots are the cross-binding oracle that python/tests/test_dbc_corpus_parity.py and go/aletheia/dbc_corpus_parity_test.go assert against (both files exist and read the same directory); the canonical form is what the binding's own serializer emits (eight snapshots, none of which contains an "extended": false member, which is the claim's own evidence); the suite skips rather than fails when the library is absent. The run covers eight fixtures in 48 assertions.
+
+Findings fixed: (a) the header said one post-processing pass drops "extended": false from message envelopes, and the function's own comment forty lines below said no post-processing is needed; the serializer omits the member, no pass exists, and the header now says what the code does; (b) `find_lib` returned the ALETHEIA_LIB value without looking at it, so an empty or stale variable became the library path and the suite failed partway through constructing the backend instead of skipping; with the variable pointed at a path that does not exist the binary failed before the fix and passes after it, on the build tree, which is the gate for the change; (c) three headers were used and not included, for the sort, the stop token and the move; (d) the sort is the ranges algorithm. Recorded, not fixed here: this file finds the repository root by walking up from `__FILE__`, as two other test files do, while eight read ALETHEIA_REPO_ROOT from ctest; one way for the directory is XREV task 097, because the three need a build-file property each.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/052
+claims: 4 rows, 0 without a guard: none needed, each is asserted by the case or by the files it names
+1 line per line: checked, all 124 lines read; the discovery helpers, the canonicaliser and the loop over the corpus each asked what they assume
+2 guidelines: checked; the include gap is what the pass found, and the raw getenv was the one place the file trusted an environment variable unchecked
+3 modernize: finding, std::ranges::sort for the two-iterator call
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the repository's include-what-you-use rule
+5 value semantics: checked, paths by const reference into the readers, the definition by const reference into the canonicaliser
+6 raii: checked, the streams own their handles and the client owns the backend
+7 dedup: checked in file; the root discovery that repeats across three files is the XREV item
+8 ground truth: finding, the post-processing sentence was false; checked true: the Agda module, both peer parity tests, the snapshot directory and the absence of "extended": false in all eight snapshots
+9 history: checked, none
+10 simpler: checked, the ranges sort is the simpler spelling and the rest is already direct
+11 comments: 35 to 36, code 70 to 75, the rise allowed because the task fixed the false sentence and the unchecked variable in the file
+sweep: no mutation names this file (its own binary, outside the mutation build's unit_tests target); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15, and this binary alone covers eight fixtures in 48 assertions
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
