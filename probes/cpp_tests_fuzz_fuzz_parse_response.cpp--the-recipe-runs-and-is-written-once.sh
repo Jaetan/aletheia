@@ -36,9 +36,9 @@ done
 # The commands below are the comment's own; fail if the comment stops giving
 # them, so the probe cannot drift into testing something the file no longer
 # documents.
-for line in 'cmake -B cpp/build-fuzz -S cpp -DALETHEIA_FUZZ=ON' \
-            'cmake --build cpp/build-fuzz --target fuzz_parse_response' \
-            './cpp/build-fuzz/fuzz_parse_response -max_total_time=60'; do
+for line in 'cmake -B build-fuzz -DALETHEIA_FUZZ=ON' \
+            'cmake --build build-fuzz --target fuzz_parse_response' \
+            './build-fuzz/fuzz_parse_response -max_total_time=60'; do
     grep -qF "$line" "$owner" || {
         echo "the comment no longer gives: $line"
         status=1
@@ -46,17 +46,19 @@ for line in 'cmake -B cpp/build-fuzz -S cpp -DALETHEIA_FUZZ=ON' \
 done
 [ "$status" -eq 0 ] || exit "$status"
 
-cmake -B cpp/build-fuzz -S cpp -DALETHEIA_FUZZ=ON \
+# The comment's paths are relative to cpp/, so the commands run from there.
+cd cpp || exit 2
+cmake -B build-fuzz -DALETHEIA_FUZZ=ON \
     -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > /dev/null 2>&1 || {
     echo "the configure line the comment gives does not run"
     exit 1
 }
-cmake --build cpp/build-fuzz --target fuzz_parse_response > /dev/null 2>&1 || {
+cmake --build build-fuzz --target fuzz_parse_response > /dev/null 2>&1 || {
     echo "the build line the comment gives does not run"
     exit 1
 }
-./cpp/build-fuzz/fuzz_parse_response -max_total_time=1 \
-    cpp/tests/fuzz/seed/parse_response/ > /dev/null 2>&1 || {
+./build-fuzz/fuzz_parse_response -max_total_time=1 \
+    tests/fuzz/seed/parse_response/ > /dev/null 2>&1 || {
     echo "the run line the comment gives does not run"
     exit 1
 }

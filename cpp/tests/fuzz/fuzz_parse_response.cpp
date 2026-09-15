@@ -7,13 +7,13 @@
 // Build and run, for every harness in this directory.  -fsanitize=fuzzer,
 // which cpp/CMakeLists.txt adds to each of them behind the ALETHEIA_FUZZ
 // option, links its own runtime, so they need a directory of their own:
-//   cmake -B cpp/build-fuzz -S cpp -DALETHEIA_FUZZ=ON \
+//   cmake -B build-fuzz -DALETHEIA_FUZZ=ON \
 //       -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-//   cmake --build cpp/build-fuzz --target fuzz_parse_response
-//   ./cpp/build-fuzz/fuzz_parse_response -max_total_time=60 \
-//       cpp/tests/fuzz/seed/parse_response/
-// Every path is from the repository root, which is where the three lines
-// were run to check them.
+//   cmake --build build-fuzz --target fuzz_parse_response
+//   ./build-fuzz/fuzz_parse_response -max_total_time=60 \
+//       tests/fuzz/seed/parse_response/
+// Every path is from cpp/, as in the build file's other lanes, and the three
+// lines were run from there to check them.
 
 #include "../../src/detail/json.hpp"
 
