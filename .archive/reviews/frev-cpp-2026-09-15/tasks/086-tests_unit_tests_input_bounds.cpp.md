@@ -1,6 +1,6 @@
 # Task 086: file review of `cpp/tests/unit_tests_input_bounds.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/unit_tests_input_bounds.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/086 (signed later by the dribble).
+
+Claims and guards: the file claims the binding's limit constants and bound-kind codes mirror the kernel's, that the depth bound covers every parser entry point through one shared helper, that the oversize-text refusal fires before any backend call, and that the structured bound triple is lifted from the wire where present and degrades to nothing where absent. Each is a case. The shared-helper claim was measured rather than taken: the helper is called from eleven places in the parser translation unit, which is the ten declared entry points plus the decimal decoder, so picking one entry point as representative is sound.
+
+Findings fixed: the constant cases were incomplete against the header they mirror. The header defines nine bound kinds and sixteen numeric limits; the cases asserted seven and eleven. The five missing are exactly the ones a previous task in this round added to the header when it completed the mirror against the kernel, and nothing here grew with it, so a case whose title says the constants mirror the kernel was silent about five of them. All are asserted now, and the teeth were proven by changing one constant in the header: the case fails, and passes again when it is restored. Also fixed: a requirement identifier in the header, a comment that described a wire code as new and explained it by what it was split out of, and a hard-coded count of the parser entry points, which is navigation rather than a claim and is now named instead.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/086
+claims: 8 rows, 1 incomplete: the constant mirror, now covering every constant the header defines, teeth proven by changing one
+1 line per line: checked, all 214 lines read
+2 guidelines: checked, the deep-JSON builder reserves before it appends and the bound is read from the constant rather than written
+3 modernize: n/a
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the input-bound rules
+5 value semantics: checked
+6 raii: checked, the client owns the mock
+7 dedup: checked
+8 ground truth: finding, the mirror was short by five constants; checked true: the helper's call sites counted in the parser, and every wire string read from the header
+9 history: finding, one comment
+10 simpler: checked
+11 comments: 53 to 53, code 140 to 147
+sweep: this file is part of unit_tests, which the mutation build instruments, and no mutation names it; tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: the limits mirror probe from the header's own task covers these constants against the kernel and is green; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
