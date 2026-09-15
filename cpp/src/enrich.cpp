@@ -17,17 +17,6 @@
 
 namespace aletheia {
 
-// Cross-binding-identical Rational pretty-printer.  Every render flows
-// through the Agda kernel via `aletheia_format_rational`: the C++ binding
-// calls the same function as Python and Go, so the same Rational value
-// renders to byte-identical output everywhere.  The library is dlopened on
-// first use via the lazy-load in `rational_renderer.cpp`; no local C++
-// fallback exists.  A missing `libaletheia-ffi.so` throws
-// `AletheiaException(Ffi)` rather than silently diverging.
-static auto format_value(const Rational& r) -> std::string {
-    return detail::format_rational_ffi(r.numerator(), r.denominator());
-}
-
 // Greek capital delta, the change-predicate prefix.
 constexpr std::string_view k_delta = "\u0394";
 
@@ -66,21 +55,22 @@ static auto format_predicate(const Predicate& p) -> std::string {
             using T = std::decay_t<decltype(v)>;
             if constexpr (requires { v.value; })
                 return std::format("{} {} {}", std::string_view{v.signal}, comparison_token<T>(),
-                                   format_value(v.value.get()));
+                                   detail::format_rational(v.value.get()));
             else if constexpr (requires {
                                    v.min;
                                    v.max;
                                })
-                return std::format("{} <= {} <= {}", format_value(v.min.get()),
-                                   std::string_view{v.signal}, format_value(v.max.get()));
+                return std::format("{} <= {} <= {}", detail::format_rational(v.min.get()),
+                                   std::string_view{v.signal},
+                                   detail::format_rational(v.max.get()));
             else if constexpr (requires { v.delta; })
                 // The sign of the delta says which direction the change bounds.
-                return std::format(
-                    "{}{} {} {}", k_delta, std::string_view{v.signal},
-                    v.delta.get() >= Rational{0, 1} ? ">=" : "<=", format_value(v.delta.get()));
+                return std::format("{}{} {} {}", k_delta, std::string_view{v.signal},
+                                   v.delta.get() >= Rational{0, 1} ? ">=" : "<=",
+                                   detail::format_rational(v.delta.get()));
             else if constexpr (requires { v.tolerance; })
                 return std::format("|{}{}| <= {}", k_delta, std::string_view{v.signal},
-                                   format_value(v.tolerance.get()));
+                                   detail::format_rational(v.tolerance.get()));
             else
                 static_assert(sizeof(T) == 0, "Unhandled predicate shape in format_predicate");
         },

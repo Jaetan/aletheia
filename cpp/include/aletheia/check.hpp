@@ -34,18 +34,11 @@
 
 namespace aletheia::detail {
 
-// Render a PhysicalValue via the Agda kernel renderer (cross-binding-identical
-// output).  Invoked lazily from `CheckResult::condition_desc()` accessor
-// so the .so need NOT be loadable at Check builder
-// time — only at the first `condition_desc()` read.  The human-readable check
-// description matches the predicate-side `format_value`
-// (`enrich.cpp:format_value(const Rational&)`) byte-for-byte AND matches
-// Python's `format_rational` + Go's `formatRationalFFI` by construction.
-// No local fallback: a missing `libaletheia-ffi.so` throws
-// `AletheiaException(Ffi)` per the rational_renderer.hpp contract.
+// Render a PhysicalValue through the shared kernel renderer.  Invoked lazily
+// from the `CheckResult::condition_desc()` accessor, so the .so need NOT be
+// loadable at Check builder time, only at the first read.
 inline auto fmt_pv(PhysicalValue v) -> std::string {
-    const auto& r = v.get();
-    return format_rational_ffi(r.numerator(), r.denominator());
+    return format_rational(v.get());
 }
 
 // Convert a millisecond bound into the Timestamp (microsecond) domain, rejecting

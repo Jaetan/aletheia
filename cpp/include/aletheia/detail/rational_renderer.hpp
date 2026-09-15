@@ -5,17 +5,18 @@
 // Internal interface for the cross-binding-identical Rational
 // pretty-printer.
 //
-// `format_value(const Rational&)` (in `enrich.cpp`) calls
-// `format_rational_ffi` on every render.  The implementation
+// Every render in the binding goes through `format_rational` below, which
 // dlopens `libaletheia-ffi.so` lazily on first use via `std::call_once`
 // — no local C++ fallback exists, so output is byte-identical to
 // Python's and Go's by construction rather than via a test corpus.
 //
 // Throws `AletheiaException` (kind `Ffi`) when the library cannot be
-// located or symbols cannot be resolved.  Callers may rely on
-// `format_value(const Rational&)` propagating that exception; setting
-// the `ALETHEIA_LIB` environment variable is the standard remedy when
-// the search heuristic does not find the .so (e.g. out-of-tree builds).
+// located or symbols cannot be resolved.  Callers may rely on that
+// exception propagating; setting the `ALETHEIA_LIB` environment variable
+// is the standard remedy when the search heuristic does not find the .so
+// (e.g. out-of-tree builds).
+
+#include <aletheia/types.hpp>
 
 #include <cstdint>
 #include <filesystem>
@@ -28,6 +29,12 @@ namespace aletheia::detail {
 // on first call.  Throws `AletheiaException(Ffi)` if the library is
 // not loadable.
 [[nodiscard]] auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string;
+
+// The one place the binding turns a Rational into text, so the check
+// builder's thresholds and the enrichment renderer's values cannot drift.
+[[nodiscard]] inline auto format_rational(const Rational& r) -> std::string {
+    return format_rational_ffi(r.numerator(), r.denominator());
+}
 
 // Parse a decimal literal into an exact rational via the Agda kernel's
 // `aletheia_parse_decimal`, returning the RAW JSON wire envelope (a bare
