@@ -1,6 +1,6 @@
 # Task 058: file review of `cpp/tests/fuzz/fuzz_parse_response.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/fuzz/fuzz_parse_response.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/058 (signed later by the dribble).
+
+Claims and guards: the harness says each of the six response parsers must survive adversarial input with no undefined behaviour and no exception escaping the API, and the run is the guard. All six resolve in src/detail/json.hpp, both named counterparts exist (FuzzParseResponse in go/aletheia/fuzz_test.go and python/tests/fuzz/fuzz_parse_response.py), and the seed directory the run line names exists with three files. The base sweep records 768394 inputs in 61 seconds with 38 new corpus units; the re-run at this task gives 794370 at 12812 a second with 30 new units and no crash.
+
+Findings fixed: the build note pointed at a "fuzz_targets target group" in cpp/CMakeLists.txt, which has no such group, its fuzz section being a loop that adds one target per harness behind the ALETHEIA_FUZZ option; the note now names the option and the file. The category label that resolves nowhere is gone, the last of the four. Recorded, not fixed here: this header owns the build-and-run recipe that the other three harnesses point at, and cpp/CMakeLists.txt carries the same recipe in its own comment block, which is XREV task 097.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/058
+claims: 1 row, 0 without a guard: the 61-second run, recorded at the round base and re-run here
+1 line per line: checked, all 29 lines read; the six parser calls and the view over the fuzzer's buffer
+2 guidelines: checked, one view, six calls, nothing owned
+3 modernize: n/a
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests)
+5 value semantics: checked
+6 raii: checked, the harness owns nothing
+7 dedup: finding across files, the recipe, pushed to XREV; within the file the six calls are six parsers
+8 ground truth: finding, the target group does not exist; checked true: all six parsers, both counterparts and the seed directory
+9 history: checked, none
+10 simpler: checked
+11 comments: 12 to 12, code 14 to 14
+sweep: no mutation names this file (the fuzz targets are their own build); the target builds clean and runs 62 seconds without a crash
+probes: none name this file; the base sweep's fuzz record is the reference measurement
+decision points: none
+```
 
 ## Contract (carried whole)
 

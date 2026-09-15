@@ -18,6 +18,8 @@
 
   - three test files now own a temp-path type each and a fourth removes by hand: `excel_tests.cpp` has `TempFile`, `cli_tests.cpp` a `TempDbc` that also writes the content, `doc_example_tests.cpp` a `ScratchDir` for a directory, and the fuzz and yaml suites write their own paths. One small owning type in a test header would serve all of them, and `test_helpers.hpp` is where the directory already puts shared test machinery, from tasks 051, 053 and 054
 
+  - the fuzz build-and-run recipe is written twice, in the comment block above the fuzz section of `cpp/CMakeLists.txt` and in the header of `tests/fuzz/fuzz_parse_response.cpp`, which the other three harnesses point at as the owner; one owner and a pointer from the other, from task 058
+
 
 ## Report
 
