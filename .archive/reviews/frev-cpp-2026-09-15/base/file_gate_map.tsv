@@ -1,61 +1,61 @@
-cpp/.clang-format	
-cpp/.clang-tidy	
-cpp/CMakeLists.txt	cpp/tests/test_feature_matrix_parity.cpp cpp/tests/test_log_events_parity.cpp cpp/tests/test_rts_params_parity.cpp cpp/tests/test_wire_codes_parity.cpp .github/workflows/benchmark.yml .github/workflows/bundle-validation.yml .github/workflows/pr-full-ci.yml .github/workflows/pr-heavy-lanes.yml .github/workflows/release.yml tools/check_clang_tidy_coverage.py tools/check_spdx_headers.py tools/sbom_generate.py 
-cpp/README.md	.github/workflows/release.yml tools/check_docs.py tools/_ci_steps.py 
-cpp/benchmarks/benchmark.cpp	
-cpp/benchmarks/stability_bench.cpp	
-cpp/cmake/aletheia-cpp-config.cmake.in	
-cpp/include/aletheia/aletheia.hpp	
-cpp/include/aletheia/backend.hpp	
-cpp/include/aletheia/check.hpp	
-cpp/include/aletheia/cli.hpp	
-cpp/include/aletheia/client.hpp	
-cpp/include/aletheia/dbc.hpp	
-cpp/include/aletheia/detail/cache_keys.hpp	
-cpp/include/aletheia/detail/rational_renderer.hpp	
-cpp/include/aletheia/enrich.hpp	
-cpp/include/aletheia/error.hpp	
-cpp/include/aletheia/excel.hpp	
-cpp/include/aletheia/limits.hpp	
-cpp/include/aletheia/log.hpp	
-cpp/include/aletheia/ltl.hpp	
-cpp/include/aletheia/response.hpp	
-cpp/include/aletheia/types.hpp	
-cpp/include/aletheia/validation.hpp	
-cpp/include/aletheia/validation_issue.hpp	
-cpp/include/aletheia/yaml.hpp	
-cpp/sanitizer-ignorelist.txt	tools/_ci_steps.py 
-cpp/src/backend.cpp	
-cpp/src/cli/cli.cpp	
+cpp/.clang-format	AGENTS/cpp.md CLAUDE.md cpp/README.md
+cpp/.clang-tidy	AGENTS/cpp.md CHANGELOG.md CLAUDE.md cpp/CMakeLists.txt cpp/README.md
+cpp/CMakeLists.txt	.github/dependabot.yml .github/workflows/benchmark.yml .github/workflows/bundle-validation.yml .github/workflows/pr-full-ci.yml .github/workflows/release.yml CHANGELOG.md CLAUDE.md Dockerfile.runtime Shakefile.hs cpp/include/aletheia/types.hpp cpp/tests/doc_example_tests.cpp cpp/tests/test_feature_matrix_parity.cpp cpp/tests/test_log_events_parity.cpp cpp/tests/test_rts_params_parity.cpp cpp/tests/test_wire_codes_parity.cpp docs/development/RELEASE.md python/tests/_sbom_fixtures.py python/tests/test_check_dist_staging.py python/tests/test_mutation_run_scope.py tools/sbom_generate.py
+cpp/README.md	Shakefile.hs
+cpp/benchmarks/benchmark.cpp	cpp/CMakeLists.txt cpp/benchmarks/stability_bench.cpp docs/development/BENCHMARKS.md
+cpp/benchmarks/stability_bench.cpp	CHANGELOG.md cpp/CMakeLists.txt docs/STABILITY_BENCH.yaml docs/operations/STABILITY.md
+cpp/cmake/aletheia-cpp-config.cmake.in	cpp/CMakeLists.txt
+cpp/include/aletheia/aletheia.hpp	CHANGELOG.md cpp/README.md cpp/benchmarks/benchmark.cpp cpp/benchmarks/stability_bench.cpp cpp/tests/dbc_corpus_parity_tests.cpp cpp/tests/integration_tests.cpp cpp/tests/rts_init_renderer_uninitialized_tests.cpp cpp/tests/static_tests.cpp cpp/tests/test_cross_binding_integration.cpp cpp/tests/test_helpers.hpp cpp/tests/test_log_events_parity.cpp cpp/tests/unit_tests_cancel.cpp cpp/tests/unit_tests_check.cpp cpp/tests/unit_tests_client.cpp cpp/tests/unit_tests_dbc.cpp cpp/tests/unit_tests_decimal.cpp cpp/tests/unit_tests_enrich.cpp cpp/tests/unit_tests_json.cpp cpp/tests/unit_tests_log.cpp cpp/tests/unit_tests_validation.cpp docs/guides/TUTORIAL.md docs/reference/CPP_API.md
+cpp/include/aletheia/backend.hpp	CHANGELOG.md cpp/include/aletheia/aletheia.hpp cpp/include/aletheia/client.hpp cpp/src/backend.cpp cpp/src/cli/cli.cpp cpp/src/detail/mock_backend.hpp cpp/src/ffi_backend.cpp cpp/src/mock_backend.cpp cpp/tests/doc_example_tests.cpp cpp/tests/rts_heap_cap_workload.cpp cpp/tests/rts_setup_listener.cpp cpp/tests/test_log_events_parity.cpp cpp/tests/unit_tests_check.cpp cpp/tests/unit_tests_client.cpp cpp/tests/unit_tests_enrich.cpp cpp/tests/unit_tests_input_bounds.cpp cpp/tests/unit_tests_log.cpp cpp/tests/unit_tests_validation.cpp docs/FEATURE_MATRIX.yaml docs/development/DEFERRED_ITEMS.md docs/development/DISTRIBUTION.md docs/guides/TUTORIAL.md docs/reference/CPP_API.md go/aletheia/backend.go python/aletheia/client/_backend.py
+cpp/include/aletheia/check.hpp	CHANGELOG.md cpp/include/aletheia/aletheia.hpp cpp/include/aletheia/client.hpp cpp/include/aletheia/excel.hpp cpp/include/aletheia/yaml.hpp cpp/src/detail/loader_utils.hpp cpp/tests/doc_example_tests.cpp docs/FEATURE_MATRIX.yaml docs/reference/CPP_API.md docs/reference/INTERFACES.md docs/reference/PYTHON_API.md python/aletheia/checks.py
+cpp/include/aletheia/cli.hpp	cpp/src/cli/cli.cpp cpp/src/cli/main.cpp cpp/tests/cli_tests.cpp docs/FEATURE_MATRIX.yaml docs/reference/CPP_API.md
+cpp/include/aletheia/client.hpp	cpp/CMakeLists.txt cpp/include/aletheia/aletheia.hpp cpp/include/aletheia/detail/cache_keys.hpp cpp/include/aletheia/response.hpp cpp/src/cli/cli.cpp cpp/src/client.cpp cpp/tests/doc_example_tests.cpp cpp/tests/fuzz/fuzz_decode_binary_frame.cpp cpp/tests/rts_heap_cap_workload.cpp cpp/tests/unit_tests_input_bounds.cpp docs/FEATURE_MATRIX.yaml docs/architecture/CANCELLATION.md docs/development/DISTRIBUTION.md docs/operations/RUNBOOK.md docs/reference/CPP_API.md docs/reference/INTERFACES.md docs/reference/PYTHON_API.md python/tests/test_check_changelog.py tools/bundle_validation/consumer_cpp/main.cpp
+cpp/include/aletheia/dbc.hpp	cpp/include/aletheia/aletheia.hpp cpp/include/aletheia/client.hpp cpp/include/aletheia/excel.hpp cpp/include/aletheia/validation.hpp cpp/src/cli/cli.cpp cpp/src/dbc.cpp cpp/src/detail/json.hpp cpp/src/json_serialize.cpp cpp/tests/doc_example_tests.cpp cpp/tests/fuzz/fuzz_decode_binary_frame.cpp cpp/tests/unit_tests_property.cpp docs/FEATURE_MATRIX.yaml docs/reference/CPP_API.md
+cpp/include/aletheia/detail/cache_keys.hpp	cpp/CMakeLists.txt cpp/include/aletheia/client.hpp cpp/src/client.cpp
+cpp/include/aletheia/detail/rational_renderer.hpp	cpp/include/aletheia/check.hpp cpp/src/cli/cli.cpp cpp/src/client.cpp cpp/src/enrich.cpp cpp/src/ffi_backend.cpp cpp/src/rational_renderer.cpp cpp/src/types.cpp cpp/tests/rts_init_renderer_uninitialized_tests.cpp
+cpp/include/aletheia/enrich.hpp	cpp/include/aletheia/aletheia.hpp cpp/src/client.cpp cpp/src/enrich.cpp cpp/tests/unit_tests_check.cpp cpp/tests/unit_tests_enrich.cpp cpp/tests/unit_tests_json.cpp
+cpp/include/aletheia/error.hpp	CHANGELOG.md cpp/include/aletheia/aletheia.hpp cpp/include/aletheia/backend.hpp cpp/include/aletheia/client.hpp cpp/include/aletheia/excel.hpp cpp/include/aletheia/response.hpp cpp/include/aletheia/validation_issue.hpp cpp/include/aletheia/yaml.hpp cpp/src/detail/ffi_logic.cpp cpp/src/detail/ffi_logic.hpp cpp/src/detail/json.hpp cpp/src/detail/loader_utils.cpp cpp/src/detail/loader_utils.hpp cpp/src/ffi_backend.cpp cpp/src/rational_renderer.cpp cpp/tests/doc_example_tests.cpp cpp/tests/excel_tests.cpp cpp/tests/test_wire_codes_parity.cpp cpp/tests/unit_tests_ffi_logic.cpp cpp/tests/unit_tests_input_bounds.cpp cpp/tests/unit_tests_validation.cpp cpp/tests/yaml_tests.cpp docs/FEATURE_MATRIX.yaml docs/WIRE_CODES.yaml docs/reference/CPP_API.md
+cpp/include/aletheia/excel.hpp	cpp/include/aletheia/aletheia.hpp cpp/include/aletheia/dbc.hpp cpp/src/excel.cpp cpp/tests/doc_example_tests.cpp cpp/tests/excel_tests.cpp docs/FEATURE_MATRIX.yaml docs/reference/CPP_API.md docs/reference/INTERFACES.md
+cpp/include/aletheia/limits.hpp	CHANGELOG.md cpp/include/aletheia/aletheia.hpp cpp/include/aletheia/error.hpp cpp/src/client.cpp cpp/src/detail/loader_utils.cpp cpp/src/ffi_backend.cpp cpp/src/json_parse.cpp cpp/src/json_serialize.cpp cpp/tests/unit_tests_input_bounds.cpp docs/FEATURE_MATRIX.yaml docs/development/EXTENDED_MUX_DESIGN.md
+cpp/include/aletheia/log.hpp	CHANGELOG.md cpp/include/aletheia/aletheia.hpp cpp/include/aletheia/client.hpp cpp/tests/doc_example_tests.cpp docs/FEATURE_MATRIX.yaml python/tests/test_log_events_parity.py
+cpp/include/aletheia/ltl.hpp	CHANGELOG.md cpp/include/aletheia/aletheia.hpp cpp/include/aletheia/check.hpp cpp/include/aletheia/client.hpp cpp/include/aletheia/enrich.hpp cpp/src/detail/json.hpp cpp/tests/doc_example_tests.cpp docs/FEATURE_MATRIX.yaml docs/reference/CPP_API.md docs/reference/INTERFACES.md docs/reference/PYTHON_API.md
+cpp/include/aletheia/response.hpp	CHANGELOG.md cpp/include/aletheia/aletheia.hpp cpp/include/aletheia/client.hpp cpp/include/aletheia/enrich.hpp cpp/src/detail/json.hpp docs/FEATURE_MATRIX.yaml
+cpp/include/aletheia/types.hpp	CHANGELOG.md cpp/include/aletheia/aletheia.hpp cpp/include/aletheia/backend.hpp cpp/include/aletheia/check.hpp cpp/include/aletheia/client.hpp cpp/include/aletheia/dbc.hpp cpp/include/aletheia/detail/cache_keys.hpp cpp/include/aletheia/ltl.hpp cpp/include/aletheia/response.hpp cpp/src/cli/cli.cpp cpp/src/detail/json.hpp cpp/src/detail/loader_utils.hpp cpp/src/json_serialize.cpp cpp/src/types.cpp cpp/tests/doc_example_tests.cpp cpp/tests/unit_tests_property.cpp docs/FEATURE_MATRIX.yaml docs/development/EXTENDED_MUX_DESIGN.md docs/reference/CPP_API.md
+cpp/include/aletheia/validation.hpp	CHANGELOG.md cpp/include/aletheia/aletheia.hpp cpp/include/aletheia/client.hpp cpp/include/aletheia/validation_issue.hpp cpp/src/cli/cli.cpp cpp/src/detail/json.hpp cpp/src/json_parse.cpp docs/FEATURE_MATRIX.yaml docs/operations/RUNBOOK.md python/aletheia/codes/_issue.py
+cpp/include/aletheia/validation_issue.hpp	CHANGELOG.md cpp/include/aletheia/error.hpp cpp/include/aletheia/validation.hpp cpp/tests/test_wire_codes_parity.cpp docs/FEATURE_MATRIX.yaml docs/WIRE_CODES.yaml
+cpp/include/aletheia/yaml.hpp	cpp/include/aletheia/aletheia.hpp cpp/src/yaml.cpp cpp/tests/doc_example_tests.cpp cpp/tests/yaml_tests.cpp docs/FEATURE_MATRIX.yaml docs/reference/CPP_API.md docs/reference/INTERFACES.md
+cpp/sanitizer-ignorelist.txt	CHANGELOG.md Shakefile.hs cpp/CMakeLists.txt docs/architecture/CGO_NOTES.md tools/_ci_steps.py
+cpp/src/backend.cpp	cpp/.clang-tidy cpp/CMakeLists.txt cpp/include/aletheia/backend.hpp cpp/include/aletheia/limits.hpp cpp/src/detail/ffi_logic.hpp cpp/src/detail/rts_init.hpp cpp/tests/integration_tests.cpp docs/MUTATION_BENCH.yaml docs/operations/MUTATION.md go/aletheia/ffi.go python/tests/test_check_no_memory_citations.py
+cpp/src/cli/cli.cpp	CHANGELOG.md cpp/CMakeLists.txt cpp/include/aletheia/cli.hpp cpp/src/cli/main.cpp docs/CLI_SCENARIOS.yaml
 cpp/src/cli/main.cpp	
-cpp/src/client.cpp	docs/LOG_EVENTS.yaml 
-cpp/src/dbc.cpp	
-cpp/src/detail/ffi_logic.cpp	
-cpp/src/detail/ffi_logic.hpp	
-cpp/src/detail/json.hpp	
-cpp/src/detail/loader_utils.cpp	
-cpp/src/detail/loader_utils.hpp	
-cpp/src/detail/mock_backend.hpp	docs/FEATURE_MATRIX.yaml 
-cpp/src/detail/rts_init.cpp	
-cpp/src/detail/rts_init.hpp	
-cpp/src/detail/rts_params.hpp	cpp/tests/test_rts_params_parity.cpp 
-cpp/src/enrich.cpp	
-cpp/src/excel.cpp	
-cpp/src/ffi_backend.cpp	
-cpp/src/json_parse.cpp	
-cpp/src/json_serialize.cpp	
-cpp/src/mock_backend.cpp	
-cpp/src/rational_renderer.cpp	
-cpp/src/types.cpp	
-cpp/src/yaml.cpp	
-cpp/tests/cli_tests.cpp	
-cpp/tests/dbc_corpus_parity_tests.cpp	
-cpp/tests/doc_example_tests.cpp	docs/FEATURE_MATRIX.yaml 
-cpp/tests/excel_tests.cpp	
+cpp/src/client.cpp	CHANGELOG.md cpp/CMakeLists.txt cpp/tests/integration_tests.cpp cpp/tests/unit_tests_client.cpp docs/LOG_EVENTS.yaml docs/MUTATION_BENCH.yaml docs/architecture/PROTOCOL.md go/aletheia/enrich.go go/aletheia/error_test.go python/aletheia/client/_client.py python/aletheia/client/_enrichment.py python/tests/test_mutation_run_scope.py src/Aletheia/Protocol/Adequacy/StreamingWarm.agda
+cpp/src/dbc.cpp	CHANGELOG.md cpp/CMakeLists.txt cpp/include/aletheia/dbc.hpp docs/MUTATION_BENCH.yaml
+cpp/src/detail/ffi_logic.cpp	CHANGELOG.md cpp/CMakeLists.txt docs/MUTATION_BENCH.yaml
+cpp/src/detail/ffi_logic.hpp	cpp/src/detail/ffi_logic.cpp cpp/src/ffi_backend.cpp cpp/tests/unit_tests_ffi_logic.cpp
+cpp/src/detail/json.hpp	cpp/.clang-tidy cpp/CMakeLists.txt cpp/benchmarks/benchmark.cpp cpp/include/aletheia/detail/rational_renderer.hpp cpp/src/cli/cli.cpp cpp/src/client.cpp cpp/src/json_parse.cpp cpp/src/json_serialize.cpp cpp/src/types.cpp cpp/tests/cli_tests.cpp cpp/tests/dbc_corpus_parity_tests.cpp cpp/tests/fuzz/fuzz_parse_dbc_json.cpp cpp/tests/fuzz/fuzz_parse_rational_number.cpp cpp/tests/fuzz/fuzz_parse_response.cpp cpp/tests/test_helpers.hpp cpp/tests/unit_tests_client.cpp cpp/tests/unit_tests_input_bounds.cpp cpp/tests/unit_tests_json.cpp cpp/tests/unit_tests_property.cpp
+cpp/src/detail/loader_utils.cpp	CHANGELOG.md cpp/CMakeLists.txt
+cpp/src/detail/loader_utils.hpp	cpp/src/detail/loader_utils.cpp cpp/src/excel.cpp cpp/src/yaml.cpp
+cpp/src/detail/mock_backend.hpp	cpp/src/mock_backend.cpp cpp/tests/test_log_events_parity.cpp cpp/tests/unit_tests_check.cpp cpp/tests/unit_tests_client.cpp cpp/tests/unit_tests_enrich.cpp cpp/tests/unit_tests_input_bounds.cpp cpp/tests/unit_tests_log.cpp cpp/tests/unit_tests_validation.cpp docs/FEATURE_MATRIX.yaml docs/development/DEFERRED_ITEMS.md python/aletheia/client/_backend.py
+cpp/src/detail/rts_init.cpp	CHANGELOG.md cpp/CMakeLists.txt
+cpp/src/detail/rts_init.hpp	cpp/src/detail/rts_init.cpp cpp/src/ffi_backend.cpp cpp/src/rational_renderer.cpp cpp/tests/rts_init_renderer_uninitialized_tests.cpp
+cpp/src/detail/rts_params.hpp	cpp/CMakeLists.txt cpp/src/detail/ffi_logic.cpp cpp/src/detail/ffi_logic.hpp cpp/src/ffi_backend.cpp cpp/tests/test_rts_params_parity.cpp cpp/tests/unit_tests_ffi_logic.cpp docs/RESOURCE_BUDGETS.yaml tools/check_rts_runtime.py
+cpp/src/enrich.cpp	CHANGELOG.md cpp/CMakeLists.txt cpp/include/aletheia/check.hpp cpp/include/aletheia/detail/rational_renderer.hpp cpp/src/rational_renderer.cpp docs/MUTATION_BENCH.yaml python/tests/test_enrichment.py
+cpp/src/excel.cpp	CHANGELOG.md cpp/CMakeLists.txt cpp/src/detail/loader_utils.cpp docs/MUTATION_BENCH.yaml rust/excel/src/lib.rs
+cpp/src/ffi_backend.cpp	cpp/.clang-tidy cpp/CMakeLists.txt cpp/include/aletheia/limits.hpp cpp/src/detail/ffi_logic.hpp cpp/src/detail/rts_init.hpp cpp/tests/integration_tests.cpp docs/MUTATION_BENCH.yaml go/aletheia/ffi.go
+cpp/src/json_parse.cpp	CHANGELOG.md cpp/CMakeLists.txt cpp/src/detail/json.hpp cpp/tests/integration_tests.cpp cpp/tests/unit_tests_json.cpp docs/MUTATION_BENCH.yaml docs/WIRE_CODES.yaml
+cpp/src/json_serialize.cpp	CHANGELOG.md cpp/CMakeLists.txt cpp/src/cli/cli.cpp cpp/src/detail/json.hpp cpp/src/json_parse.cpp cpp/tests/dbc_corpus_parity_tests.cpp docs/MUTATION_BENCH.yaml tools/check_limits_parity.py
+cpp/src/mock_backend.cpp	cpp/CMakeLists.txt docs/MUTATION_BENCH.yaml docs/operations/MUTATION.md
+cpp/src/rational_renderer.cpp	CHANGELOG.md cpp/CMakeLists.txt cpp/src/detail/rts_init.hpp cpp/src/enrich.cpp cpp/src/ffi_backend.cpp cpp/tests/rts_init_renderer_uninitialized_tests.cpp cpp/tests/rts_setup_listener.cpp docs/operations/MUTATION.md
+cpp/src/types.cpp	CHANGELOG.md cpp/CMakeLists.txt docs/MUTATION_BENCH.yaml docs/operations/MUTATION.md
+cpp/src/yaml.cpp	CHANGELOG.md cpp/CMakeLists.txt docs/MUTATION_BENCH.yaml
+cpp/tests/cli_tests.cpp	cpp/CMakeLists.txt
+cpp/tests/dbc_corpus_parity_tests.cpp	cpp/CMakeLists.txt docs/development/EXTENDED_MUX_DESIGN.md go/aletheia/dbc_corpus_parity_test.go python/tests/fixtures/dbc_corpus/README.md python/tests/test_dbc_corpus_parity.py
+cpp/tests/doc_example_tests.cpp	AGENTS/cpp.md AGENTS/python.md cpp/CMakeLists.txt cpp/README.md docs/FEATURE_MATRIX.yaml
+cpp/tests/excel_tests.cpp	cpp/CMakeLists.txt
 cpp/tests/fuzz/fuzz_decode_binary_frame.cpp	
 cpp/tests/fuzz/fuzz_parse_dbc_json.cpp	
 cpp/tests/fuzz/fuzz_parse_rational_number.cpp	
-cpp/tests/fuzz/fuzz_parse_response.cpp	
+cpp/tests/fuzz/fuzz_parse_response.cpp	cpp/tests/fuzz/fuzz_decode_binary_frame.cpp cpp/tests/fuzz/fuzz_parse_dbc_json.cpp cpp/tests/fuzz/fuzz_parse_rational_number.cpp python/tests/fuzz/fuzz_parse_response.py
 cpp/tests/fuzz/seed/decode_binary_frame/empty.bin	
 cpp/tests/fuzz/seed/parse_dbc_json/minimal.json	
 cpp/tests/fuzz/seed/parse_rational_number/dict.txt	
@@ -63,29 +63,29 @@ cpp/tests/fuzz/seed/parse_rational_number/integer.txt
 cpp/tests/fuzz/seed/parse_response/ack.json	
 cpp/tests/fuzz/seed/parse_response/error.json	
 cpp/tests/fuzz/seed/parse_response/validation.json	
-cpp/tests/integration_tests.cpp	
-cpp/tests/rts_heap_cap_workload.cpp	
-cpp/tests/rts_init_renderer_uninitialized_tests.cpp	
-cpp/tests/rts_setup_listener.cpp	
-cpp/tests/static_tests.cpp	
-cpp/tests/test_cross_binding_integration.cpp	
-cpp/tests/test_feature_matrix_parity.cpp	docs/FEATURE_MATRIX.yaml 
-cpp/tests/test_helpers.hpp	
-cpp/tests/test_log_events_parity.cpp	docs/LOG_EVENTS.yaml 
-cpp/tests/test_rts_heap_cap.cpp	
-cpp/tests/test_rts_params_parity.cpp	
-cpp/tests/test_wire_codes_parity.cpp	docs/WIRE_CODES.yaml 
+cpp/tests/integration_tests.cpp	AGENTS/cpp.md AGENTS/go.md cpp/CMakeLists.txt docs/MUTATION_BENCH.yaml
+cpp/tests/rts_heap_cap_workload.cpp	cpp/CMakeLists.txt
+cpp/tests/rts_init_renderer_uninitialized_tests.cpp	CHANGELOG.md cpp/CMakeLists.txt
+cpp/tests/rts_setup_listener.cpp	CHANGELOG.md cpp/CMakeLists.txt cpp/tests/unit_tests_decimal.cpp
+cpp/tests/static_tests.cpp	cpp/CMakeLists.txt
+cpp/tests/test_cross_binding_integration.cpp	CHANGELOG.md cpp/CMakeLists.txt go/aletheia/cross_binding_integration_test.go python/tests/test_cross_binding_integration.py
+cpp/tests/test_feature_matrix_parity.cpp	AGENTS.md CHANGELOG.md cpp/CMakeLists.txt cpp/tests/doc_example_tests.cpp cpp/tests/test_log_events_parity.cpp cpp/tests/test_rts_params_parity.cpp cpp/tests/test_wire_codes_parity.cpp docs/FEATURE_MATRIX.yaml
+cpp/tests/test_helpers.hpp	cpp/CMakeLists.txt cpp/tests/unit_tests_client.cpp cpp/tests/unit_tests_dbc.cpp cpp/tests/unit_tests_json.cpp
+cpp/tests/test_log_events_parity.cpp	CHANGELOG.md cpp/CMakeLists.txt cpp/tests/test_wire_codes_parity.cpp docs/LOG_EVENTS.yaml docs/operations/RUNBOOK.md go/aletheia/log_events_test.go python/tests/test_log_events_parity.py rust/tests/log_events.rs
+cpp/tests/test_rts_heap_cap.cpp	cpp/CMakeLists.txt cpp/tests/rts_heap_cap_workload.cpp docs/development/RESOURCE_PARAMETERS.md
+cpp/tests/test_rts_params_parity.cpp	cpp/CMakeLists.txt cpp/src/detail/rts_params.hpp
+cpp/tests/test_wire_codes_parity.cpp	CHANGELOG.md cpp/CMakeLists.txt cpp/tests/test_rts_params_parity.cpp docs/WIRE_CODES.yaml go/aletheia/wire_codes_parity_test.go rust/tests/wire_codes.rs
 cpp/tests/testdata/doc_examples/checks.yaml	
-cpp/tests/unit_tests_cancel.cpp	
-cpp/tests/unit_tests_check.cpp	
-cpp/tests/unit_tests_client.cpp	
-cpp/tests/unit_tests_dbc.cpp	
-cpp/tests/unit_tests_decimal.cpp	
-cpp/tests/unit_tests_enrich.cpp	
-cpp/tests/unit_tests_ffi_logic.cpp	
-cpp/tests/unit_tests_input_bounds.cpp	
-cpp/tests/unit_tests_json.cpp	
-cpp/tests/unit_tests_log.cpp	
-cpp/tests/unit_tests_property.cpp	
-cpp/tests/unit_tests_validation.cpp	
-cpp/tests/yaml_tests.cpp	
+cpp/tests/unit_tests_cancel.cpp	cpp/CMakeLists.txt python/aletheia/asyncio/testing.py
+cpp/tests/unit_tests_check.cpp	cpp/CMakeLists.txt
+cpp/tests/unit_tests_client.cpp	cpp/CMakeLists.txt go/aletheia/error_test.go
+cpp/tests/unit_tests_dbc.cpp	cpp/CMakeLists.txt
+cpp/tests/unit_tests_decimal.cpp	cpp/CMakeLists.txt
+cpp/tests/unit_tests_enrich.cpp	cpp/CMakeLists.txt
+cpp/tests/unit_tests_ffi_logic.cpp	cpp/CMakeLists.txt
+cpp/tests/unit_tests_input_bounds.cpp	cpp/CMakeLists.txt cpp/include/aletheia/limits.hpp
+cpp/tests/unit_tests_json.cpp	CHANGELOG.md cpp/CMakeLists.txt
+cpp/tests/unit_tests_log.cpp	cpp/CMakeLists.txt cpp/tests/unit_tests_enrich.cpp
+cpp/tests/unit_tests_property.cpp	CHANGELOG.md cpp/CMakeLists.txt python/tests/test_property_hypothesis.py
+cpp/tests/unit_tests_validation.cpp	cpp/CMakeLists.txt python/tests/test_backend_protocol.py
+cpp/tests/yaml_tests.cpp	cpp/CMakeLists.txt

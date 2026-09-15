@@ -1,15 +1,46 @@
 # Task 111: the file-to-gate map has no saved generator
 
-- status: pending
+- status: completed
 - files: `lens/`, `base/file_gate_map.tsv`, `end/file_gate_map.tsv`
 - pass: write the generator, regenerate the base row from the base tree, make the two ends comparable
 - origin: The round-end record states that the base map's generator was not kept under `lens/`, so its total of 10 cannot be reproduced and the two maps are not comparable row by row. A lens whose method is not saved is not a lens: it produces a number once and nothing can diff it. Write the generator under `lens/`, run it against the base tree taken from the round base commit, replace `base/file_gate_map.tsv` with its output, and re-run it over the worktree so `end/file_gate_map.tsv` comes from the same method. State in the report what the base total actually is once measured, rather than the number the unsaved run produced.
 
 ## Report
 
-(to be written when the task is worked)
+The lens now has a method, and the method is the lens. Fix in refs/frev/111.
+
+Claims and guards. The round-end record claimed a file-to-gate map at both ends and a total at the base that no saved code produced. A number nothing can recompute is not a measurement, and the two maps had been built by different hands, so the rows were not comparable even where both files listed the same path. The claim now has a guard: a probe regenerates the base map from the base tree with the saved generator and diffs it against the recorded file, and it reads red when the record and the generator disagree.
+
+The method, stated in the generator and reproducible from it. For every tracked file under the directory, three spellings are searched as literal strings across every other tracked file: the repository-relative path always, the include spelling for a header under an include root because C++ names a header that way and never by its repository path, and the bare file name only when no other tracked file in the repository shares it. The review's own archive and the probe store are excluded, the first because it names every file it reviews and the second because the file-to-probe map already covers it. A referring file counts as a gate when it is a workflow, a build-orchestration file, a tool, a test or a benchmark, wherever it lives.
+
+Measured with that one method at both ends. The base tree carries 91 tracked files under the directory, 44 named by a gate and 12 named by nothing outside themselves. The worktree the round leaves carries 104, 43 named by a gate and 23 named by nothing. The thirteen new files are eleven fuzz seed inputs, which nothing names and nothing should, and the two shared test headers, both of which a gate names.
+
+The row-by-row diff is the part a total hides, and it produced the one finding worth carrying. Three rows lost their gate: the foreign-function backend source, the JSON parser source and the logging test. In every case the referring line was a comment in another test naming the file, and the round deleted those comments as stale. No coverage moved. That is the lens's own limit and the generator now says so in its own words: naming is not coverage, a comment mention counts the same as an exercise, so a row that falls is attributed before it is called a loss.
+
+One finding on the probe store itself, surfaced by running it. The em-dash probe scans every line the round added against the base tree and treats a line with no counterpart there as written by the round. A round's record also stores captured tool output verbatim, which the round did not write, and the linting capture under the end record quotes test sources that carry em-dashes of their own. The probe was reporting the tool's output as the round's prose. Fixed by scoping it: under a record's base and end directories only Markdown is prose and everything else is a capture. Teeth re-proved both ways, an em-dash injected into the end record's own summary is still caught, and the captures no longer fire.
+
+```
+REPORT 2026-09-15 tree refs/frev/111-open fix in refs/frev/111
+claims: 2 rows, 2 without a guard: the base map's reproducibility, now probed; the em-dash rule's scope, now stated and re-probed
+1 line per line: checked, the generator is new and read whole, and the em-dash probe was read whole before its scope was changed
+2 guidelines: n/a, no C++ in this task
+3 modernize: checked, the generator is Python and holds to the repository's tool style, no shebang, typed signatures, a module docstring that states the method
+4 catalogue: checked, the candidate of matching a header by its include spelling rather than its repository path was tested against the tree and raised the gated count from 16 to 43, so it is the difference between a lens and a formality
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked, the file-to-probe map keeps its own generator and this one excludes the probe store rather than restating it
+8 ground truth: finding, the recorded base total came from no saved method and is replaced by a measured one
+9 history: checked, the generator describes what it does and carries no account of what it replaced
+10 simpler: checked, three literal searches over the tracked set beat parsing includes, and the ambiguity rule is what keeps the bare name usable
+11 comments: 0 to 17, code 0 to 156 across the two new files; the em-dash probe 10 to 13 comment and 40 to 50 code, which the scope fix earns
+sweep: no mutation names these files
+probes: probes/lens_file_gate_map--base-row-reproduces.sh added, probes/review--no-line-the-round-wrote-carries-an-em-dash.sh repaired; store 63 run, 61 pass, the two failures the red-by-design pair this pass lands
+decision points: none
+```
 
 ---
+
+## Contract (carried whole)
 
 ## FREV: the file review contract
 
