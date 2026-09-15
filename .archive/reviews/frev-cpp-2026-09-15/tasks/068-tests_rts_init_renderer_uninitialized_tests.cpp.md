@@ -1,6 +1,6 @@
 # Task 068: file review of `cpp/tests/rts_init_renderer_uninitialized_tests.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/rts_init_renderer_uninitialized_tests.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/068 (signed later by the dribble).
+
+Claims and guards: the binary asserts that the renderer throws rather than self-initialising while the runtime is down, on both entry points, and that a runtime-down call answers on the runtime rather than on a malformed literal; all three are cases in this file and all three pass. It claims it must run in its own process because the runtime is process-global, which the build honours by giving it its own ctest entry, and that the listener bringing the runtime up for the other suites is not linked here, which the build file confirms: that listener is compiled into the unit, YAML and Excel binaries and not into this one. The library-locating helper mirrors the renderer's own search order and says so, and it skips rather than failing when no library is found.
+
+Findings fixed: the header opened on a plan label, the class of marker the repository bans in source, which task 048 pushed here after removing the same label from the renderer itself; it said the renderer "no longer" self-initialises, which dates the code; and it named the listener binary as unit_tests_rts_setup.cpp, a file that does not exist, the listener being rts_setup_listener.cpp. The header now states what is, and names the file the build compiles.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/068
+claims: 4 rows, 0 without a guard: three are the cases themselves, the fourth is the build's own wiring, read in cpp/CMakeLists.txt
+1 line per line: checked, all 108 lines read
+2 guidelines: checked, the helper returns by value and the cases share nothing
+3 modernize: n/a
+4 catalogue: checked, AGENTS/cpp.md category 13 (FFI lifecycle) and the repository's no-plan-labels rule
+5 value semantics: checked
+6 raii: checked, nothing is owned here; the runtime is deliberately never brought up
+7 dedup: checked, each case registers the path because each must run before any backend exists
+8 ground truth: finding, the listener file named in the header does not exist; checked true: the renderer's search order, the separate ctest entry and which binaries link the listener
+9 history: finding, one "no longer" and one plan label
+10 simpler: checked
+11 comments: 37 to 40, code 44 to 52, both measured against the round base and both including the ordering case task 048 added to this file, which is 8 code lines and 4 comment lines of the difference; this task's own edit removed one comment line and changed no code
+sweep: no mutation names this file (its own binary, outside the mutation build's unit_tests target); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: the renderer's search-order probe names the header this file exercises and is green; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 

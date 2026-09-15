@@ -1,22 +1,21 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// Point 2 ("whine if the runtime is uninitialised"): the rational renderer no
-// longer self-initialises the GHC RTS — an FfiBackend is the sole initialiser
-// (see cpp/src/detail/rts_init.hpp + rational_renderer.cpp). This test asserts
-// the renderer is *vocal* when no FfiBackend has brought the runtime up: a
-// pre-backend `format_rational_ffi` must throw, neither self-initialising (which
-// would latch a default -N and squander the FfiBackend's bus-count -N) nor
-// calling the kernel with the RTS down.
+// The rational renderer does not initialise the GHC RTS: an FfiBackend is the
+// sole initialiser (cpp/src/detail/rts_init.hpp and rational_renderer.cpp).
+// These cases assert the renderer is vocal when no FfiBackend has brought the
+// runtime up: a pre-backend call must throw, neither self-initialising, which
+// would latch a default core count and squander the FfiBackend's own, nor
+// calling the kernel with the runtime down.
 //
-// Must run in its own process (one ctest entry) because the GHC RTS is
-// process-global: any FfiBackend-first test in the same process would bring the
-// runtime up and defeat the assertion. The unit_tests listener that brings the
-// RTS up lives in a *different* binary (unit_tests_rts_setup.cpp), so it does not
-// interfere here.
+// Must run in its own process, one ctest entry, because the GHC RTS is
+// process-global: any FfiBackend-first case in the same process would bring the
+// runtime up and defeat the assertion. The listener that brings the runtime up
+// for the other suites, rts_setup_listener.cpp, is linked into those binaries
+// and not into this one.
 //
-// (The backend-first ordering — FfiBackend(cores=N) then renderer — is covered by
-// integration_tests; this binary is the renderer-first / runtime-down case.)
+// The backend-first ordering, an FfiBackend and then the renderer, is covered by
+// integration_tests; this binary is the renderer-first, runtime-down case.
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
