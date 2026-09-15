@@ -1,6 +1,6 @@
 # Task 011: file review of `cpp/include/aletheia/cli.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/cli.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/012 (signed later by the dribble; the tree carrying it is the next snapshot).
+
+Claims and guards: the exit-code contract (new probe: a good DBC validates to 0, a duplicate-id DBC to 1, no subcommand, an unknown subcommand and an unreadable path to 2, through the built binary); the five subcommands (the binary's usage text and cli_tests); the noexcept conversion of every failure to 2 (cli.cpp's outer handler catches std::exception only, so the promise is not yet true by construction; pushed to that file's task); run_cli's home (cli.cpp defines it, main.cpp calls it).
+
+Findings fixed: "1 violations / validation failed" named a code no current subcommand returns for violations (there is no check subcommand), so the sentence states validation only; "`check` is deferred" stated a plan and now states the present: no check subcommand, because the binding has no CAN-log reader.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/012
+claims: 4 rows, 1 without a guard: probe cpp_include_aletheia_cli.hpp--exit-codes.sh added; the catch-all row pushed to cli.cpp's task
+1 line per line: checked, all 21 lines read
+2 guidelines: checked, span of const strings, nodiscard, noexcept stated with its meaning
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md category 23 (exceptions never cross a noexcept boundary): the catch-all gap is the pushed finding
+5 value semantics: checked, a span view over the caller's argument strings
+6 raii: n/a
+7 dedup: checked, none
+8 ground truth: finding, the exit-code sentence overstated; the five subcommands and the definition site hold
+9 history: finding, "deferred" was a plan sentence
+10 simpler: checked
+11 comments: 11 to 12 (one more line, in the task that fixed the plan sentence), code 6 to 6
+sweep: no mutation names this file; the CLI binary rebuilt for the probe
+probes: 1 added; store 24 run, 23 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 

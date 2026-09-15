@@ -1,6 +1,6 @@
 # Task 013: file review of `cpp/include/aletheia/dbc.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/dbc.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass, worked out of order (after task 010, before 011 and 012; the snapshot carrying its fix is refs/frev/011).
+
+Claims and guards: DbcDefinition mirrors the Agda DBC record (new probe reads the record from Types.agda and compares member names and order; one named exception, the unresolved value descriptions member, whose renaming is an XREV item); the Agda names the comments cite (varTypeToℕ, formatCANId omitting the extended flag for standard ids, ATFloat carrying a rational, the UnknownValueDescriptionTarget check, global signal-name uniqueness via DuplicateSignalName, the formatter emitting the three Tier 1 arrays unconditionally: all found in the sources); the four ways to obtain a definition (load_dbc_from_excel exists in excel.hpp, to_canonical_json in json_serialize.cpp).
+
+Findings fixed: (a) two comments located Tier 1 and Tier 2 metadata by record field positions ("fields 3-5", "fields 6-8"), which hold today and drift with the next field; they name the fields; (b) "CHECK 23" cited the validator's check by number; the name stays; (c) the environment-variable comment explained the Rational choice by what cantools exposes, a dependency the project no longer has; (d) LazyIndex populates through const methods without synchronisation, which its header comment now states, as check.hpp's cache does. Pushed to XREV task 097: plain std::string beside NodeName for senders, receivers and node names, id-plus-flag pairs beside CanId in the comment and attribute targets, and the one member name that departs from the record.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/011
+claims: 7 rows, 1 without a guard: probe cpp_include_aletheia_dbc.hpp--definition-mirrors-agda-record.sh added
+1 line per line: checked, all 405 lines read; every struct asked which Agda constructor it mirrors and every comment which source backs it
+2 guidelines: checked, aggregates with designated initialisers, variants for the tagged unions, nodiscard on every lookup; the const-method cache stated
+3 modernize: checked, nothing to move; template <typename> throughout
+4 catalogue: checked, AGENTS/cpp.md categories 7 (strong types: the uneven coverage is the XREV item) and 19 (domain fidelity: the record parity is now probed)
+5 value semantics: checked, lookups return const pointers into the owning definition, documented as such; no owner passed by handle
+6 raii: n/a
+7 dedup: checked in file; the vocabulary inconsistencies span json_parse.cpp and json_serialize.cpp, XREV 097
+8 ground truth: finding, positions instead of names and a removed dependency cited; every Agda identifier the file names resolves
+9 history: finding, the cantools sentence
+10 simpler: checked
+11 comments: 116 to 117 (one more line, in the task that fixed the stale citation), code 233 to 233
+sweep: no mutation names this file; whole tree rebuilt clean, unit and DBC corpus parity tests green, tidy gate zero
+probes: 1 added; store 23 run, 22 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 

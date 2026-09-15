@@ -1,6 +1,6 @@
 # Task 012: file review of `cpp/include/aletheia/client.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/client.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/012 (signed later by the dribble).
+
+Claims and guards: every citation in the header's comments resolves (new probe: the Agda lemma streaming-warms-cache in its module, the PROTOCOL.md streaming-semantics section, the CANCELLATION.md partial-work section, the GLOSSARY entry, ErrorKind::TextRoundtrip and HandlerTextRoundtripFailed, the frame.processed and cache.full events, the aletheia_process export, wfTextIssues, the add_checks method, dlc_to_bytes); the thread-safety and copy contract (the two static_asserts); the once-per-process RTS init (detail/rts_init.hpp holds the lock and the one-shot); the streaming workflow and the payload-length rule (client.cpp's validate_payload, exercised by unit_tests_input_bounds); the send_frames and send_frames_lazy contracts (unit_tests_cancel and the integration tests).
+
+Findings fixed: (a) the constructor comment cited apply_checks twice; the method is add_checks; (b) two comments pointed at "CANCELLATION.md §3.3", a numbered subsection; they name the section; (c) "under clang-tidy's cognitive-complexity threshold (25)" cited the threshold by digit; the number lives in .clang-tidy; (d) "Replaces the former per-property extraction" was history and now states the present cost, one FFI call per tracked frame; (e) "hs_init is ref-counted and thread-safe" left out that the binding serialises the init itself, which the sentence now says.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/012
+claims: 8 rows, 1 without a guard: probe cpp_include_aletheia_client.hpp--comment-citations-resolve.sh added
+1 line per line: checked, all 314 lines read; every declaration asked what guards its stated contract and every comment what it cites
+2 guidelines: checked, C.21 complete (deleted copies, noexcept moves), nodiscard on every result-returning method, ranges-constrained lazy sender
+3 modernize: checked, nothing to move in the declarations
+4 catalogue: checked, AGENTS/cpp.md categories 10 (thread safety documented and asserted), 15 (surface) and 27 (span, generator, format)
+5 value semantics: checked, spans for payloads and property lists, checks moved in by value; the void* state is the XREV item
+6 raii: checked, the backend owned by unique_ptr; the state handle's ownership is the XREV item
+7 dedup: checked, none
+8 ground truth: finding, one stale method name and one imprecise RTS sentence; every other citation resolves
+9 history: finding, one sentence; two numbered references replaced by names
+10 simpler: checked
+11 comments: 154 to 157 (three more lines, in the task that fixed the stale citation), code 141 to 141
+sweep: no mutation names this file; whole tree rebuilt clean, 15 of 15 ctest, tidy gate zero
+probes: 1 added; store 25 run, 24 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 

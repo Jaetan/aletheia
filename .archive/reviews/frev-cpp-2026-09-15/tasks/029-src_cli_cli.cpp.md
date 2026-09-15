@@ -4,7 +4,7 @@
 - file: `cpp/src/cli/cli.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: the CLI prints a plan label in a user-facing error string (seen in the ctest log of the round base while building the dependency-bump measurement: the `check` refusal names a project phase and a planned replacement), which the docs rule on plan labels in source forbids; check the string against the current-state rule when the file is reviewed
+- pushed-in findings: run_cli is noexcept and cli.hpp promises that every failure, an unexpected exception included, becomes exit code 2, but its outer handler catches std::exception only, so anything else thrown terminates the process through the noexcept; a catch-all returning 2 makes the header's contract true by construction (from task 011); the CLI prints a plan label in a user-facing error string (seen in the ctest log of the round base while building the dependency-bump measurement: the `check` refusal names a project phase and a planned replacement), which the docs rule on plan labels in source forbids; check the string against the current-state rule when the file is reviewed
 
 ## Report
 

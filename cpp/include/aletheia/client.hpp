@@ -48,9 +48,10 @@ namespace aletheia {
 // instance from multiple threads concurrently. For concurrent multi-bus
 // monitoring, create separate client instances per thread.
 //
-// The GHC RTS is initialized once (hs_init is ref-counted and thread-safe).
-// Individual aletheia_process() calls go through independent StablePtrs, so
-// there is no contention between clients.
+// The GHC RTS is initialized once per process, under the binding's own lock
+// (detail/rts_init.hpp) and GHC's own once-only hs_init. Individual
+// aletheia_process() calls go through independent StablePtrs, so there is no
+// contention between clients.
 //
 // Cancellation: every operation method takes a [std::stop_token] as its first
 // parameter and honors cancellation cooperatively at FFI boundaries — see
@@ -82,9 +83,9 @@ public:
     /// \param logger   Optional structured logger; default-constructed is a
     ///                 no-op sink-less logger.
     /// \param default_checks  Pre-loaded YAML/Excel check results.  Same
-    ///                 shape as the per-call argument to `apply_checks`;
+    ///                 shape as the per-call argument to `add_checks`;
     ///                 useful when the client is constructed with a fixed
-    ///                 ruleset and `apply_checks` is called repeatedly.
+    ///                 ruleset and `add_checks` is called repeatedly.
     explicit AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger = {},
                             std::vector<CheckResult> default_checks = {});
     ~AletheiaClient();
@@ -169,7 +170,8 @@ public:
     // and does not stop the batch. Processing stops at the first transport or
     // validation error; earlier successful responses are returned via
     // BatchResult::responses alongside the error. Cancellation observed at
-    // frame boundaries (commit-prefix-and-report per CANCELLATION.md §3.3): if
+    // frame boundaries (commit-prefix-and-report, the partial-work semantics
+    // of docs/architecture/CANCELLATION.md): if
     // stop fires mid-batch, BatchResult::responses holds the committed prefix
     // and BatchResult::error carries ErrorKind::Cancellation.
     [[nodiscard]] auto send_frames(std::stop_token stop, std::span<const Frame> frames)
@@ -181,7 +183,8 @@ public:
     // large producer (a log reader, a socket); a contiguous batch already in
     // memory can be passed as a std::span or std::views::all view over it.
     //
-    // Contract (commit-prefix-and-report, per CANCELLATION.md §3.3): each value
+    // Contract (commit-prefix-and-report, the partial-work semantics of
+    // docs/architecture/CANCELLATION.md): each value
     // co_yielded with a value is a frame already committed to the stream state.
     // The first failing frame is co_yielded as an std::unexpected (matching
     // send_frames' shaping: cancellation forwarded as-is, otherwise the frame
@@ -239,9 +242,9 @@ private:
                           std::uint32_t id_value, bool is_extended);
     // Post-parse hook for streaming frame responses.
     // Iterates a PropertyBatch's results, enriches each fails entry, and
-    // emits the standard `frame.processed` log event.  Extracted from
-    // send_frame to keep that function under clang-tidy's cognitive-
-    // complexity threshold (25).
+    // emits the standard `frame.processed` log event.  Kept apart from
+    // send_frame so that function stays under clang-tidy's cognitive-
+    // complexity threshold.
     void finalize_frame_response(FrameResponse& fr, Timestamp ts, CanId id, Dlc dlc,
                                  std::span<const std::byte> data, std::uint32_t id_value,
                                  bool is_extended);
@@ -250,8 +253,8 @@ private:
     // diagnostics (OOB property indices warn and are excluded); pass 2
     // extracts each tracked last-frame at most once and merges the extracted
     // signals first-frame-wins; pass 3 distributes per-diagnostic value
-    // slices, always attaching the enrichment. Replaces the former
-    // per-property extraction (≤ properties × frames FFI calls → ≤ frames).
+    // slices, always attaching the enrichment, so the FFI is called at most
+    // once per tracked frame rather than once per property and frame.
     void enrich_end_stream_results(StreamResult& result);
     auto collect_enrichable_results(StreamResult& result)
         -> std::vector<std::pair<PropertyResult*, const PropertyDiagnostic*>>;
