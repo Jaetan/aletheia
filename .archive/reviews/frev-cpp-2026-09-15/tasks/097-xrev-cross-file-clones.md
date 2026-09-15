@@ -16,6 +16,8 @@
 
   - the repository root is discovered two ways in the test tree: eight files read `ALETHEIA_REPO_ROOT`, which ctest sets per target through `set_tests_properties`, and three (`integration_tests.cpp`, `test_cross_binding_integration.cpp`, `dbc_corpus_parity_tests.cpp`) walk up from `__FILE__`, which bakes the build machine's source path into the binary and breaks when the tree is copied. One way for the directory, which for the three means a ctest ENVIRONMENT property each, from task 052
 
+  - three test files now own a temp-path type each and a fourth removes by hand: `excel_tests.cpp` has `TempFile`, `cli_tests.cpp` a `TempDbc` that also writes the content, `doc_example_tests.cpp` a `ScratchDir` for a directory, and the fuzz and yaml suites write their own paths. One small owning type in a test header would serve all of them, and `test_helpers.hpp` is where the directory already puts shared test machinery, from tasks 051, 053 and 054
+
 
 ## Report
 

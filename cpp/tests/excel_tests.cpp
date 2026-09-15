@@ -19,7 +19,9 @@
 #include <fstream>
 #include <ios>
 #include <string>
+#include <string_view>
 #include <system_error>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -73,8 +75,8 @@ void write_header(OpenXLSX::XLWorksheet& ws, const std::vector<std::string>& hea
 /// Write a data row (2-indexed) under the float-principle all-text contract: a
 /// boolean fixture string ("TRUE"/"FALSE") becomes a native bool cell, and
 /// EVERYTHING ELSE — numbers (e.g. "220", "0.1") AND text (e.g. a hex id like
-/// "0x100") — is written as a TEXT cell. The loader now requires numeric fields
-/// to be text-formatted so the exact decimal is parsed by the kernel SSOT
+/// "0x100") — is written as a TEXT cell. The loader requires numeric fields to
+/// be text-formatted so the exact decimal is parsed by the kernel SSOT
 /// (Rational::from_decimal); a number stored natively is rejected. To author a
 /// number deliberately stored as a *native number* cell (the strict-rejection
 /// tests), write it directly with an int64/double value.
@@ -105,46 +107,77 @@ auto repo_root() -> std::filesystem::path {
     return std::filesystem::current_path();
 }
 
-/// Create a workbook with a Checks sheet containing header + data rows.
+/// Create a one-sheet workbook: the sheet renamed, its header row written and
+/// one data row per entry from row 2 down.
+void make_workbook(const std::filesystem::path& path, const std::string& sheet,
+                   const std::vector<std::string>& headers,
+                   const std::vector<std::vector<std::string>>& rows) {
+    OpenXLSX::XLDocument doc;
+    doc.create(path.string(), OpenXLSX::XLForceOverwrite);
+    doc.workbook().worksheet("Sheet1").setName(sheet);
+    auto ws = doc.workbook().worksheet(sheet);
+    write_header(ws, headers);
+    for (std::size_t r = 0; r < rows.size(); ++r)
+        write_row(ws, static_cast<int>(r + 2), rows[r]);
+    doc.save();
+    doc.close();
+}
+
 void make_checks_workbook(const std::filesystem::path& path,
                           const std::vector<std::vector<std::string>>& rows) {
-    OpenXLSX::XLDocument doc;
-    doc.create(path.string(), OpenXLSX::XLForceOverwrite);
-    doc.workbook().worksheet("Sheet1").setName("Checks");
-    auto ws = doc.workbook().worksheet("Checks");
-    write_header(ws, checks_hdr);
-    for (std::size_t r = 0; r < rows.size(); ++r)
-        write_row(ws, static_cast<int>(r + 2), rows[r]);
-    doc.save();
-    doc.close();
+    make_workbook(path, "Checks", checks_hdr, rows);
 }
 
-/// Create a workbook with a When-Then sheet.
 void make_wt_workbook(const std::filesystem::path& path,
                       const std::vector<std::vector<std::string>>& rows) {
-    OpenXLSX::XLDocument doc;
-    doc.create(path.string(), OpenXLSX::XLForceOverwrite);
-    doc.workbook().worksheet("Sheet1").setName("When-Then");
-    auto ws = doc.workbook().worksheet("When-Then");
-    write_header(ws, wt_hdr);
-    for (std::size_t r = 0; r < rows.size(); ++r)
-        write_row(ws, static_cast<int>(r + 2), rows[r]);
-    doc.save();
-    doc.close();
+    make_workbook(path, "When-Then", wt_hdr, rows);
 }
 
-/// Create a workbook with a DBC sheet.
 void make_dbc_workbook(const std::filesystem::path& path,
                        const std::vector<std::vector<std::string>>& rows) {
-    OpenXLSX::XLDocument doc;
-    doc.create(path.string(), OpenXLSX::XLForceOverwrite);
-    doc.workbook().worksheet("Sheet1").setName("DBC");
-    auto ws = doc.workbook().worksheet("DBC");
-    write_header(ws, dbc_hdr);
-    for (std::size_t r = 0; r < rows.size(); ++r)
-        write_row(ws, static_cast<int>(r + 2), rows[r]);
-    doc.save();
-    doc.close();
+    make_workbook(path, "DBC", dbc_hdr, rows);
+}
+
+/// The name of a predicate's alternative, so a case can pin which comparison
+/// the loader chose and not merely that a check came back.
+auto predicate_kind(const Predicate& pred) -> std::string_view {
+    return std::visit(
+        [](const auto& alternative) -> std::string_view {
+            using T = std::decay_t<decltype(alternative)>;
+            if constexpr (std::is_same_v<T, Equals>) {
+                return "equals";
+            } else if constexpr (std::is_same_v<T, LessThan>) {
+                return "less_than";
+            } else if constexpr (std::is_same_v<T, GreaterThan>) {
+                return "greater_than";
+            } else if constexpr (std::is_same_v<T, LessThanOrEqual>) {
+                return "less_than_or_equal";
+            } else if constexpr (std::is_same_v<T, GreaterThanOrEqual>) {
+                return "greater_than_or_equal";
+            } else if constexpr (std::is_same_v<T, Between>) {
+                return "between";
+            } else if constexpr (std::is_same_v<T, ChangedBy>) {
+                return "changed_by";
+            } else {
+                return "stable_within";
+            }
+        },
+        pred);
+}
+
+/// The trigger and the consequent of a when/then check, read off the formula
+/// its builder makes, so a case pins both halves of the dispatch.
+auto when_then_kinds(const CheckResult& check) -> std::string {
+    const auto& formula = check.formula();
+    REQUIRE(formula.has_value());
+    const auto& always = std::get<Always>(formula->value);
+    const auto& disjunction = std::get<Or>(always.formula->value);
+    const auto& negated = std::get<Not>(disjunction.left->value);
+    const auto& trigger = std::get<Atomic>(negated.formula->value);
+    const auto& metric = std::get<MetricEventually>(disjunction.right->value);
+    const auto& consequent = std::get<Atomic>(metric.formula->value);
+    return std::string{predicate_kind(trigger.predicate)} + "/" +
+           std::string{predicate_kind(consequent.predicate)};
 }
 
 /// Build a one-row DBC workbook whose Message ID cell is a native number cell,
@@ -197,8 +230,8 @@ TEST_CASE("excel: never_exceeds", "[excel][simple]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    auto formula = (*result)[0].to_formula();
-    REQUIRE(formula.has_value());
+    REQUIRE((*result)[0].to_formula().has_value());
+    CHECK((*result)[0].condition_desc() == "<= 220");
 }
 
 TEST_CASE("excel: never_below", "[excel][simple]") {
@@ -207,6 +240,7 @@ TEST_CASE("excel: never_below", "[excel][simple]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
+    CHECK((*result)[0].condition_desc() == ">= 11.5");
 }
 
 TEST_CASE("excel: stays_between", "[excel][simple]") {
@@ -215,6 +249,7 @@ TEST_CASE("excel: stays_between", "[excel][simple]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
+    CHECK((*result)[0].condition_desc() == "between 11.5 and 14.5");
 }
 
 TEST_CASE("excel: never_equals", "[excel][simple]") {
@@ -223,6 +258,7 @@ TEST_CASE("excel: never_equals", "[excel][simple]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
+    CHECK((*result)[0].condition_desc() == "!= 99");
 }
 
 TEST_CASE("excel: equals always", "[excel][simple]") {
@@ -231,6 +267,7 @@ TEST_CASE("excel: equals always", "[excel][simple]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
+    CHECK((*result)[0].condition_desc() == "= 0");
 }
 
 TEST_CASE("excel: settles_between", "[excel][simple]") {
@@ -239,6 +276,7 @@ TEST_CASE("excel: settles_between", "[excel][simple]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
+    CHECK((*result)[0].condition_desc() == "between 85 and 95 within 5000ms");
 }
 
 // ===========================================================================
@@ -255,6 +293,8 @@ TEST_CASE("excel: when exceeds then equals", "[excel][when-then]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
+    CHECK(when_then_kinds((*result)[0]) == "greater_than/equals");
+    CHECK((*result)[0].condition_desc() == "= 1 within 100ms");
 }
 
 TEST_CASE("excel: when equals then exceeds", "[excel][when-then]") {
@@ -264,6 +304,8 @@ TEST_CASE("excel: when equals then exceeds", "[excel][when-then]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
+    CHECK(when_then_kinds((*result)[0]) == "equals/greater_than");
+    CHECK((*result)[0].condition_desc() == "> 0 within 200ms");
 }
 
 TEST_CASE("excel: when drops_below then stays_between", "[excel][when-then]") {
@@ -273,6 +315,8 @@ TEST_CASE("excel: when drops_below then stays_between", "[excel][when-then]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
+    CHECK(when_then_kinds((*result)[0]) == "less_than/between");
+    CHECK((*result)[0].condition_desc() == "between 1 and 1 within 500ms");
 }
 
 // ===========================================================================
@@ -488,9 +532,9 @@ TEST_CASE("excel: template has 3 sheets", "[excel][template]") {
     auto names = doc.workbook().worksheetNames();
     doc.close();
 
-    CHECK(std::find(names.begin(), names.end(), "DBC") != names.end());
-    CHECK(std::find(names.begin(), names.end(), "Checks") != names.end());
-    CHECK(std::find(names.begin(), names.end(), "When-Then") != names.end());
+    CHECK(std::ranges::contains(names, "DBC"));
+    CHECK(std::ranges::contains(names, "Checks"));
+    CHECK(std::ranges::contains(names, "When-Then"));
 }
 
 TEST_CASE("excel: template DBC headers correct", "[excel][template]") {
@@ -807,18 +851,15 @@ TEST_CASE("excel: template roundtrip — load checks from empty template", "[exc
 TEST_CASE("excel: symlink rejected", "[excel][hardening]") {
     TempFile real_("excel_real_target.xlsx");
     make_checks_workbook(real_.path, {{"", "Speed", "never_exceeds", "220", "", "", "", ""}});
-    auto link = std::filesystem::temp_directory_path() / "excel_symlink.xlsx";
-    if (std::filesystem::exists(link))
-        std::filesystem::remove(link);
+    TempFile link_("excel_symlink.xlsx");
     std::error_code ec;
-    std::filesystem::create_symlink(real_.path, link, ec);
+    std::filesystem::create_symlink(real_.path, link_.path, ec);
     if (ec) {
         SUCCEED("Skipping symlink test — symlink creation not permitted on this filesystem");
         return;
     }
 
-    auto result = load_checks_from_excel(link);
-    std::filesystem::remove(link);
+    auto result = load_checks_from_excel(link_.path);
     REQUIRE(!result.has_value());
     CHECK(result.error().kind() == ErrorKind::Validation);
     CHECK_THAT(std::string(result.error().message()), ContainsSubstring("symbolic link"));
@@ -901,7 +942,7 @@ TEST_CASE("excel: create_template parent dir missing rejected", "[excel][hardeni
 }
 
 // ===========================================================================
-// Strict-coercion + cross-binding portability locks (R3c)
+// Strict coercion and cross-binding portability locks
 // ===========================================================================
 
 // The float principle INVERTS the coercion contract: a numeric field stored as a

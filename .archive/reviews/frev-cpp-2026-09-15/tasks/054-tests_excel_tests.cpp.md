@@ -1,6 +1,6 @@
 # Task 054: file review of `cpp/tests/excel_tests.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/excel_tests.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/054 (signed later by the dribble).
+
+Claims and guards: the loader reads a workbook authored under the all-text contract and refuses a numeric field stored as a native number cell (two strict cases, each asserting the "format it as TEXT" refusal, one of them also pinning that the echoed value is the shortest round-trip rendering); a factor authored as text becomes the exact rational (two cases on 1 and on 0.1 as 1/10); a message identifier is read from the raw stored text rather than a prefix parse (three cases over scientific notation, an empty stored value and a plain digit run); the hardening bounds hold (symlink, file-size cap and a forged central directory with a one-gibibyte claim, each asserting the kind and the bound); the template ships three sheets with bold headers and refuses to overwrite; the demo workbook loads as standard messages in every binding. The row that had no guard is the one the file is named for: which condition the loader dispatches to.
+
+Findings fixed: (a) nine cases asserted only that a result came back with one entry, so the loader could have dispatched any condition and every one would still have passed; each now pins the rendered condition, which the kernel produces and which carries the exact threshold, and the three when/then cases also pin both predicates read off the formula. The teeth were proven by swapping the loader's never_exceeds dispatch to never_below: one case fails with the change and none did before it. (b) Three workbook makers were the same five-step body differing in a sheet name and a header row, and are now one function with three one-line callers. (c) A section heading carried a round identifier, which the repository bans in source. (d) The symlink case created and removed its link by hand beside a helper that exists in the file to do exactly that. (e) Three finds over the sheet names are the ranges membership algorithm. (f) A sentence dated the loader's contract with "now". Recorded, not fixed here: this file's `TempFile`, the `TempDbc` added to the CLI suite and the `ScratchDir` added to the doc harness are three temp-path types in one directory, pushed to XREV task 097.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/054
+claims: 7 rows, 1 without a guard: the condition dispatch, now pinned in all nine condition cases, teeth proven by swapping one arm of the dispatch
+1 line per line: checked, all 1029 lines read; every fixture row asked what it authors and every assertion what it would catch
+2 guidelines: checked, the forged-archive byte arrays are the one place a cast crosses types and it is the write of a byte buffer
+3 modernize: finding, std::ranges::contains for the three membership tests; the new predicate reader is a std::visit over the variant rather than an index table, so a reordered variant cannot silently rename a kind
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the float principle, which is what the strict and factor cases exist for
+5 value semantics: checked, rows by const reference into the makers, paths by const reference, the check by const reference into the two readers
+6 raii: finding, the symlink is now held by the file's own temp-path type
+7 dedup: finding, three workbook makers are one; the three temp-path types across the directory are the XREV item
+8 ground truth: checked, every asserted message was read from the loader's own source, and the nine condition strings were read from the kernel's rendering rather than written from memory
+9 history: finding, one "now" dating the contract
+10 simpler: checked
+11 comments: 128 to 131, code 789 to 824, the rise allowed because the task fixed the unguarded dispatch and the hand-released link
+sweep: no mutation names this file (its own binary, outside the mutation build's unit_tests target); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15, and this binary alone runs 59 cases and 195 assertions, against 186 before the task
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
