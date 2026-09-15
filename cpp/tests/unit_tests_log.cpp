@@ -81,11 +81,14 @@ TEST_CASE("logger captures streaming events", "[client][log]") {
     CHECK(found_ended);
 }
 
-TEST_CASE("null logger has zero overhead", "[client][log]") {
+TEST_CASE("a client with no logger runs every emit site", "[client][log]") {
+    // The title claim is what this asserts: a default-constructed logger has no
+    // sink, so every emit site the call passes through short-circuits and the
+    // call succeeds. Whether that short-circuit costs anything is a question
+    // for the benchmarks, not for this case.
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(R"({"status": "success"})");
 
-    // Default-constructed logger — no callback
     AletheiaClient client(std::move(mock));
 
     auto formula = ltl::always(
@@ -93,7 +96,6 @@ TEST_CASE("null logger has zero overhead", "[client][log]") {
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    // Should not crash or produce output
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
 }
 

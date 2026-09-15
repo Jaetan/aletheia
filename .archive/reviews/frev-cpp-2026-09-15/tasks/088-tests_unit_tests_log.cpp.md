@@ -1,6 +1,6 @@
 # Task 088: file review of `cpp/tests/unit_tests_log.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/unit_tests_log.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/088 (signed later by the dribble).
+
+Claims and guards: the streaming lifecycle emits its four events at their stated levels, which the first case pins by name and level while tolerating the cache events that interleave; the core-count mismatch emits both fields under the names the Go and Python bindings use and as integers rather than strings, which the second case pins through the variant alternative itself, the parity claim the header makes; and the fast-path predicate agrees with the emitter at every level and minimum-level pair, which the last case proves exhaustively by driving both and comparing, sixteen combinations, rather than by reasoning about the comparison's direction.
+
+Finding fixed: a case was titled for a performance property, zero overhead, and asserted only that a call succeeds with no sink attached. Nothing here measures overhead and nothing should, that being the benchmarks' job, so the title now states what the case proves and the body says where the other question belongs.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/088
+claims: 4 rows, 1 overclaimed: the no-sink case, whose title now matches its assertion
+1 line per line: checked, all 202 lines read
+2 guidelines: checked, the capture structures copy the record's fields rather than holding views into it
+3 modernize: n/a
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the cross-binding log-field rules
+5 value semantics: checked, the captured value keeps the variant rather than a rendering of it, which is what makes the integer-type claim checkable
+6 raii: n/a
+7 dedup: checked, the exhaustive pair loop is what replaces sixteen written cases
+8 ground truth: checked, both field names and the integer alternative read from the record the client emits
+9 history: checked, none
+10 simpler: checked
+11 comments: 27 to 29, code 149 to 149
+sweep: this file is part of unit_tests, which the mutation build instruments, and no mutation names it; tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
