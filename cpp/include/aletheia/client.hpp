@@ -233,7 +233,11 @@ private:
         std::vector<std::int64_t> denominators;
         [[nodiscard]] auto injection() const -> SignalInjection;
     };
-    auto resolve_signals(CanId id, std::span<const SignalValue> signals) -> Result<ResolvedSignals>;
+    auto resolve_signals(std::string_view method, CanId id, std::span<const SignalValue> signals)
+        -> Result<ResolvedSignals>;
+    // Releases the backend state without letting an exception out; the
+    // destructor and the move assignment both use it.
+    void close_state() noexcept;
 
     // Takes a single PropertyResult (one entry from a
     // PropertyBatch.results) rather than a top-level Violation struct.

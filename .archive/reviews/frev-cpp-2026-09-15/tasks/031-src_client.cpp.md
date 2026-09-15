@@ -1,6 +1,6 @@
 # Task 031: file review of `cpp/src/client.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/client.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/031 (signed later by the dribble; the snapshot also carries task 030's probe).
+
+Claims and guards: the little-endian wire assumption (the file's static_assert); the extraction buffer layout (the fuzz harness fuzz_decode_binary_frame, unit_tests_json, the integration tests, Mull's mutants in this file); the UTF-8 validator (no oracle test named it; new probe compiles the translation unit and checks the validator against Python's strict decoder over 32 sequences covering overlongs, surrogates, out-of-range code points, truncations and stray continuation bytes); cancellation at every entry (unit_tests_cancel); the payload and timestamp rules (unit_tests_input_bounds, unit_tests_client); the two cross-binding parity comments (go/aletheia/ffi.go and python/aletheia/client/_ffi.py carry the event).
+
+Findings fixed: (a) comments cited source lines in Go and Python files and "lines 850-855 above", the last one stale; they name files and functions; (b) a threshold cited by digit and one history sentence ("Without this the 3-arg ctor defaulted ...") rewritten; (c) send_remote hand-wrote the variant visit that can_id_value exists to replace; (d) the two little-endian reader lambdas with five suppression comments are one bounds-checked template read_le over a subspan, and no suppression remains in the file; (e) the index-to-name-or-placeholder expression, written three times, is signal_name_at; (f) the non-negative timestamp check, three times, is validate_timestamp; (g) the "no DBC loaded" check, twice, moved into resolve_signals with the method name; (h) the close-and-swallow written in the destructor and the move assignment is close_state, which also nulls the handle; (i) the wire layout's sizes are named constants; (j) a log field copied e.what() into a std::string for a string_view. Mull after the edit: 67 mutants (two new, in the helpers), none surviving.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/031
+claims: 6 rows, 1 without a guard: probe cpp_src_client.cpp--utf8-validator-agrees-with-python.sh added
+1 line per line: checked, all 1101 lines read; every wire read asked what bounds it and every duplicate what owns it
+2 guidelines: finding, ES.5 and F.3 duplicates folded; the noexcept paths share one swallowing helper
+3 modernize: finding, one template reader over subspan instead of pointer arithmetic under suppressions; gate: 15 of 15 ctest, tidy gate zero, Mull 67 of 67 killed, UTF-8 probe green before and after
+4 catalogue: checked, AGENTS/cpp.md categories 12 (parsing robustness: the offset-table invariants and UTF-8 check kept and probed), 23 (exception discipline in the destructor and move assignment), 26 (the find-then-assign hot path untouched)
+5 value semantics: checked, spans and views in, values out; the state handle is the XREV item
+6 raii: finding, the state handle's release is one function; its ownership shape stays the XREV item
+7 dedup: finding, five clones folded (readers, name lookup, timestamp check, DBC-loaded check, close)
+8 ground truth: finding, one stale line reference; the parity events and the Agda layout comment resolve
+9 history: finding, one sentence and three line-number citations
+10 simpler: finding, can_id_value at the one site that visited by hand
+11 comments: 162 to 157, code 877 to 863 (client.hpp gains the two declarations: code 141 to 143, comments 157 to 159)
+sweep: client.cpp named 2 mutants at base, 4 after (the helpers), all KILLED in the 67-mutant run; tidy gate zero
+probes: 1 added; store 41 run, 40 pass, 1 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 

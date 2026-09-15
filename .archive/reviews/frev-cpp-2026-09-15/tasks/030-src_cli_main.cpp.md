@@ -1,6 +1,6 @@
 # Task 030: file review of `cpp/src/cli/main.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/cli/main.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,28 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. NO CHANGE to the file; one probe added (in refs/frev/031).
+
+Claims and guards: the wrapper hands argv minus the program name to run_cli and turns an exception from the argument copy into exit 2 (cli_tests exercise run_cli; the binary is exercised by the exit-code probe). Candidate examined: `raw.subspan(1)` on an empty span if a process were started with an empty argv is undefined; the probe execs the binary with an empty argv and finds the usage printed and exit 2, because the Linux kernel pads an empty argv with an empty string since 5.18 and Linux is the only supported platform, so argc is never zero and the code has no reachable defect. The probe stays as the record of that dismissal. Pushed to XREV 097: the exit-code constants are defined here and in cli.cpp while cli.hpp states them in prose.
+
+```
+REPORT 2026-09-15 tree b222b613 NO CHANGE
+claims: 1 row, 0 without a guard
+1 line per line: checked, all 32 lines read
+2 guidelines: checked, span over argv, exception boundary at main
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md category 24 (the empty-argv candidate, dismissed with the probe)
+5 value semantics: checked
+6 raii: n/a
+7 dedup: finding pushed to XREV 097 (exit-code constants in two files)
+8 ground truth: checked, the header comment matches cli.cpp
+9 history: checked, none
+10 simpler: checked
+11 comments: 3 to 3, code 21 to 21
+sweep: no mutation names this file; the binary rebuilt for the probe
+probes: 1 added (cpp_src_cli_main.cpp--empty-argv-exits-two.sh); store 40 run, 39 pass, 1 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 

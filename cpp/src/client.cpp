@@ -59,6 +59,38 @@ static auto make_cancellation_error(std::string_view method) -> AletheiaError {
                          std::format("{} cancelled by stop_token", method)};
 }
 
+static auto validate_timestamp(Timestamp ts) -> Result<void> {
+    if (ts.count() < 0)
+        return std::unexpected(
+            AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
+    return {};
+}
+
+// The signal name a wire index denotes, or a placeholder for an index the
+// DBC message does not have (a kernel/binding drift, surfaced rather than
+// dropped).
+static auto signal_name_at(const std::vector<std::string>& names, std::uint16_t idx) -> SignalName {
+    return idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
+}
+
+// Wire layout of the binary extraction buffer (src/Aletheia/Main/Binary.agda,
+// processExtractBin header comment): a header of three u16 counts and one u32
+// reason byte count, then one record per value, error, offset and absent
+// signal.
+constexpr std::size_t k_header_bytes = 10;
+constexpr std::size_t k_value_record_bytes = 18;
+constexpr std::size_t k_error_record_bytes = 3;
+constexpr std::size_t k_offset_bytes = 4;
+constexpr std::size_t k_absent_record_bytes = 2;
+
+// Reads one native-order integer at a byte offset the caller has bounds-checked.
+template<typename T>
+static auto read_le(std::span<const std::byte> buf, std::size_t off) -> T {
+    T v{};
+    std::memcpy(&v, buf.subspan(off, sizeof(T)).data(), sizeof(T));
+    return v;
+}
+
 AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
                                std::vector<CheckResult> default_checks)
     : backend_(std::move(backend))
@@ -70,8 +102,8 @@ AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
             AletheiaError{ErrorKind::Ffi, "backend init() returned null state"});
     if (!logger_)
         return;
-    // Parity with Go's `rts.cores_mismatch` (ffi.go:336) and Python's
-    // `rts.cores_mismatch` (client/_ffi.py:77-82), both of which carry
+    // Parity with the `rts.cores_mismatch` event of Go (go/aletheia/ffi.go) and
+    // Python (python/aletheia/client/_ffi.py), both of which carry
     // `active_cores` and `requested_cores` integer fields.
     if (auto rts = backend_->rts_mismatch_info(); rts) {
         const auto active = static_cast<std::int64_t>(rts->first);
@@ -81,18 +113,23 @@ AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
     }
 }
 
-AletheiaClient::~AletheiaClient() {
+// Releases the backend state without letting an exception out: the destructor
+// and the noexcept move assignment both call this, and a throw from either
+// would terminate the program. The FFI close() path allocates nothing, but a
+// backend implementation (a mock, say) may throw, and that is swallowed.
+void AletheiaClient::close_state() noexcept {
     if (backend_ != nullptr && state_ != nullptr) {
         try {
             backend_->close(state_);
         } catch (...) {
-            // Destructors must not propagate exceptions — doing so during stack
-            // unwinding terminates the program. The FFI close() path allocates
-            // nothing, but backend implementations (e.g. a mock) may throw; we
-            // intentionally swallow those to satisfy the noexcept contract.
             static_cast<void>(std::current_exception());
         }
     }
+    state_ = nullptr;
+}
+
+AletheiaClient::~AletheiaClient() {
+    close_state();
 }
 
 AletheiaClient::AletheiaClient(AletheiaClient&& other) noexcept
@@ -109,16 +146,7 @@ AletheiaClient::AletheiaClient(AletheiaClient&& other) noexcept
 
 AletheiaClient& AletheiaClient::operator=(AletheiaClient&& other) noexcept {
     if (this != &other) {
-        if (backend_ != nullptr && state_ != nullptr) {
-            try {
-                backend_->close(state_);
-            } catch (...) {
-                // noexcept move-assignment must not propagate exceptions. Same
-                // rationale as ~AletheiaClient: a throwing backend close is
-                // swallowed so the move can complete without std::terminate.
-                static_cast<void>(std::current_exception());
-            }
-        }
+        close_state();
         backend_ = std::move(other.backend_);
         state_ = std::exchange(other.state_, nullptr);
         logger_ = std::move(other.logger_);
@@ -242,8 +270,7 @@ auto AletheiaClient::format_dbc_text(std::stop_token stop, const DbcDefinition& 
 // under the clang-tidy readability-function-size threshold.
 static auto wire_signal_value(std::uint16_t idx, std::int64_t num, std::int64_t den,
                               const std::vector<std::string>& names) -> Result<SignalValue> {
-    auto name =
-        idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
+    auto name = signal_name_at(names, idx);
     if (den == 0)
         return std::unexpected(AletheiaError{
             ErrorKind::Protocol,
@@ -314,20 +341,10 @@ static auto wire_signal_errors(std::span<const std::byte> buf, std::size_t error
                                std::uint16_t nerrs, std::uint32_t reason_bytes,
                                const std::vector<std::string>& names)
     -> Result<std::vector<SignalError>> {
-    auto read_u16 = [&](std::size_t off) -> std::uint16_t {
-        std::uint16_t v = 0;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        std::memcpy(&v, buf.data() + off, sizeof(v));
-        return v;
-    };
-    auto read_u32 = [&](std::size_t off) -> std::uint32_t {
-        std::uint32_t v = 0;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        std::memcpy(&v, buf.data() + off, sizeof(v));
-        return v;
-    };
-    const std::size_t offsets_off = errors_off + (std::size_t{nerrs} * 3);
-    const std::size_t reasons_off = offsets_off + ((std::size_t{nerrs} + 1) * 4);
+    auto read_u16 = [&](std::size_t off) { return read_le<std::uint16_t>(buf, off); };
+    auto read_u32 = [&](std::size_t off) { return read_le<std::uint32_t>(buf, off); };
+    const std::size_t offsets_off = errors_off + (std::size_t{nerrs} * k_error_record_bytes);
+    const std::size_t reasons_off = offsets_off + ((std::size_t{nerrs} + 1) * k_offset_bytes);
 
     // Offset-table invariants — all three verified before any slicing:
     // off[0] == 0, monotone non-decreasing, off[nerrs] == reason_bytes.
@@ -337,26 +354,26 @@ static auto wire_signal_errors(std::span<const std::byte> buf, std::size_t error
             std::format("Malformed extraction reason offsets: first offset is {}, must be 0",
                         read_u32(offsets_off))});
     for (std::uint16_t i = 0; i < nerrs; ++i) {
-        if (read_u32(offsets_off + (std::size_t{i} * 4)) >
-            read_u32(offsets_off + ((std::size_t{i} + 1) * 4)))
+        if (read_u32(offsets_off + (std::size_t{i} * k_offset_bytes)) >
+            read_u32(offsets_off + ((std::size_t{i} + 1) * k_offset_bytes)))
             return std::unexpected(AletheiaError{
                 ErrorKind::Protocol,
                 std::format("Malformed extraction reason offsets: offset {} decreases", i + 1)});
     }
-    if (read_u32(offsets_off + (std::size_t{nerrs} * 4)) != reason_bytes)
+    if (read_u32(offsets_off + (std::size_t{nerrs} * k_offset_bytes)) != reason_bytes)
         return std::unexpected(AletheiaError{
             ErrorKind::Protocol,
             std::format("Malformed extraction reason offsets: last offset {} != reason bytes {}",
-                        read_u32(offsets_off + (std::size_t{nerrs} * 4)), reason_bytes)});
+                        read_u32(offsets_off + (std::size_t{nerrs} * k_offset_bytes)),
+                        reason_bytes)});
 
     std::vector<SignalError> errors;
     errors.reserve(nerrs);
     for (std::uint16_t i = 0; i < nerrs; ++i) {
-        auto idx = read_u16(errors_off + (std::size_t{i} * 3));
         auto name =
-            idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
-        const auto lo = read_u32(offsets_off + (std::size_t{i} * 4));
-        const auto hi = read_u32(offsets_off + ((std::size_t{i} + 1) * 4));
+            signal_name_at(names, read_u16(errors_off + (std::size_t{i} * k_error_record_bytes)));
+        const auto lo = read_u32(offsets_off + (std::size_t{i} * k_offset_bytes));
+        const auto hi = read_u32(offsets_off + ((std::size_t{i} + 1) * k_offset_bytes));
         const auto slice = buf.subspan(reasons_off + lo, hi - lo);
         if (!is_valid_utf8(slice))
             return std::unexpected(AletheiaError{
@@ -380,46 +397,32 @@ static auto wire_signal_errors(std::span<const std::byte> buf, std::size_t error
 static auto parse_extraction_bin(std::span<const std::byte> buf,
                                  const std::vector<std::string>& names)
     -> Result<ExtractionResult> {
-    auto read_u16 = [&](std::size_t off) -> std::uint16_t {
-        std::uint16_t v = 0;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        std::memcpy(&v, buf.data() + off, sizeof(v));
-        return v;
-    };
-    auto read_u32 = [&](std::size_t off) -> std::uint32_t {
-        std::uint32_t v = 0;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        std::memcpy(&v, buf.data() + off, sizeof(v));
-        return v;
-    };
-    auto read_i64 = [&](std::size_t off) -> std::int64_t {
-        std::int64_t v = 0;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        std::memcpy(&v, buf.data() + off, sizeof(v));
-        return v;
-    };
+    auto read_u16 = [&](std::size_t off) { return read_le<std::uint16_t>(buf, off); };
+    auto read_u32 = [&](std::size_t off) { return read_le<std::uint32_t>(buf, off); };
+    auto read_i64 = [&](std::size_t off) { return read_le<std::int64_t>(buf, off); };
 
-    if (buf.size() < 10)
+    if (buf.size() < k_header_bytes)
         return std::unexpected(AletheiaError{
             ErrorKind::Protocol,
-            std::format("Truncated extraction buffer: {} bytes, need >= 10 for the header",
-                        buf.size())});
+            std::format("Truncated extraction buffer: {} bytes, need >= {} for the header",
+                        buf.size(), k_header_bytes)});
     const auto nvals = read_u16(0);
     const auto nerrs = read_u16(2);
     const auto nabss = read_u16(4);
     const auto reason_bytes = read_u32(6);
     // Counts are u16 and reason_bytes is u32, so the max expected_size is
     // ~4 GiB — far below SIZE_MAX on any supported (64-bit) platform.
-    const auto expected_size = std::size_t{10} + (std::size_t{nvals} * 18) +
-                               (std::size_t{nerrs} * 3) + ((std::size_t{nerrs} + 1) * 4) +
-                               std::size_t{reason_bytes} + (std::size_t{nabss} * 2);
+    const auto expected_size =
+        k_header_bytes + (std::size_t{nvals} * k_value_record_bytes) +
+        (std::size_t{nerrs} * k_error_record_bytes) + ((std::size_t{nerrs} + 1) * k_offset_bytes) +
+        std::size_t{reason_bytes} + (std::size_t{nabss} * k_absent_record_bytes);
     // Exact-size check: too short is truncation, too long is trailing bytes.
     if (buf.size() != expected_size)
         return std::unexpected(AletheiaError{
             ErrorKind::Protocol,
             std::format("Extraction buffer size mismatch: {} bytes, expected exactly {}",
                         buf.size(), expected_size)});
-    std::size_t off = 10;
+    std::size_t off = k_header_bytes;
 
     ExtractionResult result;
     result.values.reserve(nvals);
@@ -427,13 +430,13 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
         // Per-read bounds check — redundant with the upfront expected_size
         // guard above, but keeps the loop locally defensive against future
         // changes to the record layout or header computation.
-        if (off + 18 > buf.size())
+        if (off + k_value_record_bytes > buf.size())
             return std::unexpected(AletheiaError{
                 ErrorKind::Protocol, "Truncated extraction buffer while reading signal values"});
         auto idx = read_u16(off);
         auto num = read_i64(off + 2);
         auto den = read_i64(off + 10);
-        off += 18;
+        off += k_value_record_bytes;
         auto sv = wire_signal_value(idx, num, den, names);
         if (!sv)
             return std::unexpected(sv.error());
@@ -446,17 +449,15 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
     if (!errors)
         return std::unexpected(errors.error());
     result.errors = std::move(*errors);
-    off += (std::size_t{nerrs} * 3) + ((std::size_t{nerrs} + 1) * 4) + std::size_t{reason_bytes};
+    off += (std::size_t{nerrs} * k_error_record_bytes) +
+           ((std::size_t{nerrs} + 1) * k_offset_bytes) + std::size_t{reason_bytes};
     result.absent.reserve(nabss);
     for (std::uint16_t i = 0; i < nabss; ++i) {
-        if (off + 2 > buf.size())
+        if (off + k_absent_record_bytes > buf.size())
             return std::unexpected(AletheiaError{
                 ErrorKind::Protocol, "Truncated extraction buffer while reading absent signals"});
-        auto idx = read_u16(off);
-        off += 2;
-        auto name =
-            idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
-        result.absent.push_back(std::move(name));
+        result.absent.push_back(signal_name_at(names, read_u16(off)));
+        off += k_absent_record_bytes;
     }
     return result;
 }
@@ -496,8 +497,12 @@ auto AletheiaClient::ResolvedSignals::injection() const -> SignalInjection {
             .denominators = denominators.data()};
 }
 
-auto AletheiaClient::resolve_signals(CanId id, std::span<const SignalValue> signals)
+auto AletheiaClient::resolve_signals(std::string_view method, CanId id,
+                                     std::span<const SignalValue> signals)
     -> Result<ResolvedSignals> {
+    if (signal_index_.empty())
+        return std::unexpected(AletheiaError{
+            ErrorKind::State, std::format("{}: no DBC loaded (call parse_dbc first)", method)});
     auto id_value = can_id_value(id);
     auto is_extended = can_id_is_extended(id);
 
@@ -537,11 +542,7 @@ auto AletheiaClient::build_frame(std::stop_token stop, CanId id, Dlc dlc,
                                  std::span<const SignalValue> signals) -> Result<FramePayload> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("build_frame"));
-    if (signal_index_.empty()) {
-        return std::unexpected(
-            AletheiaError{ErrorKind::State, "build_frame: no DBC loaded (call parse_dbc first)"});
-    }
-    auto resolved = resolve_signals(id, signals);
+    auto resolved = resolve_signals("build_frame", id, signals);
     if (!resolved) {
         return std::unexpected(resolved.error());
     }
@@ -557,11 +558,7 @@ auto AletheiaClient::update_frame(std::stop_token stop, CanId id, Dlc dlc,
     if (auto v = validate_payload(dlc, data); !v.has_value()) {
         return std::unexpected(v.error());
     }
-    if (signal_index_.empty()) {
-        return std::unexpected(
-            AletheiaError{ErrorKind::State, "update_frame: no DBC loaded (call parse_dbc first)"});
-    }
-    auto resolved = resolve_signals(id, signals);
+    auto resolved = resolve_signals("update_frame", id, signals);
     if (!resolved) {
         return std::unexpected(resolved.error());
     }
@@ -654,9 +651,8 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
                                 std::optional<bool> esi) -> Result<FrameResponse> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("send_frame"));
-    if (ts.count() < 0)
-        return std::unexpected(
-            AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
+    if (auto t = validate_timestamp(ts); !t.has_value())
+        return std::unexpected(t.error());
     if (auto v = validate_payload(dlc, data); !v.has_value())
         return std::unexpected(v.error());
     auto resp = backend_->send_frame_binary(state_, ts, id, dlc, data, brs, esi);
@@ -684,11 +680,10 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
                              .id = id, .dlc = dlc, .data = FramePayload(data.begin(), data.end())});
             }
         }
-        // PropertyBatch may carry mid-stream
-        // Satisfactions + a terminal Violation; enrich each fails entry
-        // and emit the standard frame.processed log event.  Extracted
-        // into a helper to keep send_frame under clang-tidy's
-        // cognitive-complexity threshold (25).
+        // PropertyBatch may carry mid-stream Satisfactions + a terminal
+        // Violation; enrich each fails entry and emit the standard
+        // frame.processed log event.  A helper, so send_frame stays under
+        // clang-tidy's cognitive-complexity threshold.
         finalize_frame_response(*result, ts, id, dlc, data, id_value, is_extended);
     }
     return result;
@@ -714,13 +709,9 @@ auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> fr
             if (e.kind() == ErrorKind::Cancellation) {
                 batch.error = e;
             } else {
-                // Forward `bound_info_` so a
-                // mid-batch `InputBoundExceededError` payload survives the
-                // per-frame context wrap.  Without this the 3-arg ctor
-                // defaulted `bound_info` to `std::nullopt`, dropping the
-                // structured `bound_kind/observed/limit` triple that the
-                // Python `InputBoundExceededError` and Go `*InputBoundExceededError`
-                // preserve across error paths.
+                // Forward `bound_info` so a mid-batch `InputBoundExceededError`
+                // payload survives the per-frame context wrap, as the Python
+                // and Go typed errors preserve it across their error paths.
                 batch.error = AletheiaError{e.kind(), std::format("frame {}: {}", i, e.message()),
                                             e.code(), e.bound_info()};
             }
@@ -734,9 +725,8 @@ auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> fr
 auto AletheiaClient::send_error(std::stop_token stop, Timestamp ts) -> Result<void> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("send_error"));
-    if (ts.count() < 0)
-        return std::unexpected(
-            AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
+    if (auto t = validate_timestamp(ts); !t.has_value())
+        return std::unexpected(t.error());
     auto resp = backend_->send_error_binary(state_, ts);
     auto r = detail::parse_event_ack(resp);
     if (r.has_value() && logger_.enabled(LogLevel::Debug)) {
@@ -749,19 +739,15 @@ auto AletheiaClient::send_error(std::stop_token stop, Timestamp ts) -> Result<vo
 auto AletheiaClient::send_remote(std::stop_token stop, Timestamp ts, CanId id) -> Result<void> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("send_remote"));
-    if (ts.count() < 0)
-        return std::unexpected(
-            AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
+    if (auto t = validate_timestamp(ts); !t.has_value())
+        return std::unexpected(t.error());
     auto resp = backend_->send_remote_binary(state_, ts, id);
     auto r = detail::parse_event_ack(resp);
     if (r.has_value() && logger_.enabled(LogLevel::Debug)) {
-        logger_.debug(
-            "remote_event.sent",
-            {{"ts", static_cast<std::int64_t>(ts.count())},
-             {"canId", static_cast<std::uint64_t>(std::visit(
-                           [](const auto& v) -> std::uint32_t { return v.value(); }, id))},
-             {"extended", can_id_is_extended(id)},
-             {"response", std::string_view{"ack"}}});
+        logger_.debug("remote_event.sent", {{"ts", static_cast<std::int64_t>(ts.count())},
+                                            {"canId", static_cast<std::uint64_t>(can_id_value(id))},
+                                            {"extended", can_id_is_extended(id)},
+                                            {"response", std::string_view{"ack"}}});
     }
     return r;
 }
@@ -1072,11 +1058,11 @@ auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const
 
     // Fallback: JSON path.
     //
-    // Matches the binary path's "log + return nullopt for any kind != BinaryUnsupported"
-    // convention at lines 850-855 above.  AletheiaException from the FFI backend is
-    // caught via its std::runtime_error base; the log warning carries the message but no
-    // kind field, to preserve cross-binding parity with Python / Go's
-    // `extraction.process_failed` event signature.
+    // Matches the binary path above: log and return nullopt for any failure
+    // other than BinaryUnsupported.  AletheiaException from the FFI backend is
+    // caught via its std::runtime_error base; the log warning carries the
+    // message but no kind field, to preserve cross-binding parity with Python
+    // and Go's `extraction.process_failed` event signature.
     std::string resp;
     try {
         resp = backend_->extract_signals_binary(state_, id, dlc, data);
@@ -1084,7 +1070,7 @@ auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const
         if (logger_)
             logger_.warn("extraction.process_failed",
                          {{"canId", static_cast<std::uint64_t>(id_value)},
-                          {"error", std::string{e.what()}}});
+                          {"error", std::string_view{e.what()}}});
         return std::nullopt;
     }
     auto result = detail::parse_extraction(resp);
