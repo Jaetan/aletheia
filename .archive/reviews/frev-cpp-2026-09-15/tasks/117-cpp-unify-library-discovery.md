@@ -1,13 +1,39 @@
 # Task 117: the library is discovered four times over and the four orders disagree (ruled)
 
-- status: pending
+- status: completed
 - files: the renderer, the command-line tool, the throughput benchmark and the stability benchmark, plus the probe store
 - pass: full, across the directory
 - origin: Ruled: unify on the renderer's order. That drops the system install directory from the command-line tool, which is user-visible, so the documentation naming that directory is corrected in the same task and the change owes a changelog entry. One property constrains the unification and is the reason the renderer consults the path the backend registered: the renderer and the backend must resolve to the same library, since a renderer that loaded a different build would format values through a different kernel than the one answering the queries. That property needs a guard that goes red if a caller bypasses the shared search. The probe that pins the four orders as differing until ruled is false by design once this lands: it is retired by the same commit with the reason in the message, never edited to pass, and replaced by one asserting the four callers share one order.
 
 ## Report
 
-(to be written when the task is worked)
+One search, published, and every caller uses it. Fix in refs/frev/117.
+
+Claims and guards. Four places looked for the library and agreed only on the environment variable, which all four treated an empty value as unset. After that they diverged in four directions, and the divergence was pinned by a probe as a measured state rather than a suspicion. The unification is on the renderer's order because of the one property that constrains any answer: the renderer that formats values and the backend that answers queries must resolve to the same library, or values would be formatted through a different kernel than the one that produced them, and consulting the path a backend registered is what keeps them together. A caller searching on its own could pick the other build.
+
+The search is published rather than hidden, because two of its four callers are the benchmarks and one is the command-line tool, none of which can reach into the library's internals. It is defined beside the registered path it consults, with a comment saying why it lives there rather than somewhere tidier.
+
+What each caller loses is worth stating. The command-line tool loses the system install directory, which is the user-visible half of this and is now stated in the command-line reference, alongside the fact that the Go tool still has it. The throughput benchmark loses its resolution relative to its own executable, which was the one search that could find a library the client under test would not. The stability benchmark loses a path it returned without checking, so a run from the wrong directory now fails at the search rather than at the load.
+
+The probe that pinned the four orders is false by design once this lands, so it is retired here with the reason rather than edited to pass. Its replacement asserts the opposite property: every caller calls the shared search, no caller names a library candidate of its own, the search still consults the registered path, and it is still published. Pointing the command-line tool at a path of its own makes the new probe red on both counts.
+
+```
+REPORT 2026-09-15 tree refs/frev/116 fix in refs/frev/117
+claims: 4 rows, 4 without a guard: the order each of the four callers used, now one order with one guard
+design and interfaces: finding, four searches become one function, published because three of its callers are outside the library
+value semantics: checked, the search returns a path by value as all four did
+raii: n/a
+consistency and compatibility: finding, and the incompatible half is named: the command-line tool no longer falls back to a system install directory, which the changelog and the command-line reference both carry
+ease of use at the call sites: checked, each call site is now one call and an empty-path check, where three of them carried a candidate list
+memory and sanitizers: checked, both sanitizer lanes run in the gate audit this pass re-takes
+coverage: checked, the suites cover the renderer's path; the two benchmarks are not under test and are covered by the probe rather than by a test
+ground truth: finding, the stability benchmark's search returned a path it never checked, which no comment admitted
+dryness: finding, this is the whole task: one candidate list where there were four
+probes: probes/cpp--the-four-library-searches-differ-on-purpose-until-ruled.sh retired, false by design once the orders agree; probes/cpp--every-caller-shares-one-library-search.sh added and red when a caller searches on its own; store 69 run, 68 pass, the remaining failure the installed-consumer link this pass lands later
+sweep: 62 mutants, 62 killed, no survivor at the previous task and unchanged by a call-site substitution
+11 comments: 409 to 421, code 1996 to 1988 over the five files; the added comment lines are the published search's contract and the property it exists to keep
+decision points: none
+```
 
 ---
 

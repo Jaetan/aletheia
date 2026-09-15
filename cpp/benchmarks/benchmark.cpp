@@ -43,28 +43,16 @@ namespace fs = std::filesystem;
 // Library discovery
 // ---------------------------------------------------------------------------
 
+// The binding's one search; a benchmark that found a different library than
+// the client under test would be measuring something else.
 static auto find_lib() -> fs::path {
-    // 1. Environment variable (an empty value counts as unset: dlopen("") would
-    //    open this very program and fail later at the first symbol lookup)
-    if (const char* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0')
-        return env;
-
-    // 2. Relative to executable: ../build/libaletheia-ffi.so
-    auto exe = fs::read_symlink("/proc/self/exe");
-    auto dir = exe.parent_path();
-
-    auto path1 = dir / ".." / "build" / "libaletheia-ffi.so";
-    if (fs::exists(path1))
-        return fs::canonical(path1);
-
-    // 3. Relative to executable: ../../build/libaletheia-ffi.so
-    auto path2 = dir / ".." / ".." / "build" / "libaletheia-ffi.so";
-    if (fs::exists(path2))
-        return fs::canonical(path2);
-
-    std::println(stderr, "ERROR: libaletheia-ffi.so not found.\n"
-                         "Set ALETHEIA_LIB or run 'cabal run shake -- build'.");
-    std::exit(1);
+    auto found = aletheia::find_ffi_library();
+    if (found.empty()) {
+        std::println(stderr, "ERROR: libaletheia-ffi.so not found.\n"
+                             "Set ALETHEIA_LIB or run 'cabal run shake -- build'.");
+        std::exit(1);
+    }
+    return found;
 }
 
 // ---------------------------------------------------------------------------

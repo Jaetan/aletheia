@@ -200,6 +200,21 @@ protected:
 // ALETHEIA_LIB is unset or empty; for an explicit path use the overload above.
 [[nodiscard]] auto make_ffi_backend_from_env(int rts_cores = 1) -> std::unique_ptr<IBackend>;
 
+// Where the binding looks for libaletheia-ffi.so, in one order that every
+// caller shares: the ALETHEIA_LIB variable, which an empty value leaves unset;
+// then the path a make_ffi_backend call registered; then three build
+// directories relative to the working directory, furthest first.
+//
+// The registered path is why this is one function rather than four. The
+// renderer that formats values and the backend that answers queries must load
+// the same library, because two builds could format the same rational
+// differently, and consulting the registered path is what keeps them together.
+// A caller that searched on its own could pick the other one.
+//
+// Returns an empty path when no candidate exists; the caller says what to do
+// about it.
+[[nodiscard]] auto find_ffi_library() -> std::filesystem::path;
+
 // Test: a fixed backend that answers every operation with the wire's
 // acknowledgement and every frame request with a zero-filled payload of the
 // size asked for. It queues nothing and records nothing, so a consumer holding

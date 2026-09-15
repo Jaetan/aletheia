@@ -38,6 +38,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (C++): the four places that looked for `libaletheia-ffi.so` are one
+  search, published as `aletheia::find_ffi_library()`.** They disagreed after
+  `$ALETHEIA_LIB`: the renderer consulted the path a `make_ffi_backend` call had
+  registered then three build directories furthest first, the command-line tool
+  tried the same three nearest first and was the only one that also looked in
+  `/usr/local/lib`, the throughput benchmark resolved relative to its own
+  executable, and the stability benchmark returned one path without checking it
+  exists. They now share the renderer's order, which is the one that consults
+  the registered path, so the renderer that formats values and the backend that
+  answers queries cannot load different builds. The visible change is that the
+  C++ command-line tool no longer falls back to `/usr/local/lib`; set
+  `$ALETHEIA_LIB` for a library installed there. The Go tool is unchanged.
 - **BREAKING (C++): `Rational::to_double()` is removed.** It was the one way to
   take a lossy value out of an exact rational, and nothing in the library used
   it: the sources mention it only to say the float principle bars it, and its

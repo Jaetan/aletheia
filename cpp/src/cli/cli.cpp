@@ -106,16 +106,10 @@ static auto emit_json(const Json& j) -> int {
 // --- client / DBC loading -------------------------------------------------
 
 static auto resolve_lib() -> std::optional<std::filesystem::path> {
-    if (const char* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0')
-        return std::filesystem::path{env};
-    for (const auto* cand :
-         {"build/libaletheia-ffi.so", "../build/libaletheia-ffi.so",
-          "../../build/libaletheia-ffi.so", "/usr/local/lib/libaletheia-ffi.so"}) {
-        std::error_code ec;
-        if (std::filesystem::exists(cand, ec))
-            return std::filesystem::path{cand};
-    }
-    return std::nullopt;
+    auto found = aletheia::find_ffi_library();
+    if (found.empty())
+        return std::nullopt;
+    return found;
 }
 
 static auto make_client() -> std::expected<AletheiaClient, std::string> {

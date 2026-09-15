@@ -14,6 +14,7 @@
 // `enrich.cpp`) is byte-identical to Python's and Go's output by
 // construction, not by a test corpus.
 
+#include <aletheia/backend.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/error.hpp>
 
@@ -75,14 +76,11 @@ static auto default_path_state() -> DefaultPathState& {
     return s;
 }
 
-// Locate libaletheia-ffi.so for the lazy-load.  Search order:
-//   (1) ALETHEIA_LIB env var (operator override)
-//   (2) Path registered via `register_default_lib_path` (the .so the
-//       user passed to `make_ffi_backend(lib_path, ...)`)
-//   (3) Relative-path heuristic (ctest from `cpp/build`)
-// Returns the empty path when no candidate exists; the caller surfaces
-// that as an `AletheiaException(Ffi)` so the operator knows to set
-// `ALETHEIA_LIB` or run `cabal run shake -- build`.
+// The one search, published as aletheia::find_ffi_library at the end of this
+// file and shared by every caller: the renderer below, the command-line tool
+// and both benchmarks. It lives here because the registered path it consults
+// is the state in this file, written by a make_ffi_backend call, and that
+// consultation is what keeps the renderer and the backend on the same library.
 static auto find_library_path() -> std::filesystem::path {
     namespace fs = std::filesystem;
     if (auto* env = std::getenv("ALETHEIA_LIB")) {
@@ -229,3 +227,13 @@ void register_default_lib_path(const std::filesystem::path& lib_path) {
 }
 
 } // namespace aletheia::detail
+
+namespace aletheia {
+
+// Published so the command-line tool and the benchmarks search the same way the
+// renderer does. Defined here because the search consults state this file owns.
+auto find_ffi_library() -> std::filesystem::path {
+    return detail::find_library_path();
+}
+
+} // namespace aletheia

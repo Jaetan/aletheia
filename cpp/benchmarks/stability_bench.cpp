@@ -239,12 +239,11 @@ static void run_cycle(const std::filesystem::path& lib, const aletheia::DbcDefin
     // the last reference.
 }
 
-// An empty ALETHEIA_LIB counts as unset: dlopen("") would open this program.
+// The binding's one search. This used to return a single relative path without
+// checking it exists, so a run from the wrong directory failed at the load
+// rather than at the search.
 static auto find_library() -> std::filesystem::path {
-    if (const char* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0') {
-        return std::filesystem::path{env};
-    }
-    return std::filesystem::path{"build/libaletheia-ffi.so"};
+    return aletheia::find_ffi_library();
 }
 
 // A count variable is unset (default applies) or a positive whole number;

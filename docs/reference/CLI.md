@@ -478,8 +478,11 @@ differences from the Python CLI above:
 - **`--dbc` reads `.dbc` text** (the verified Agda text parser);
   canonical-JSON and `.xlsx` DBC inputs remain Python-only for now.
 
-Both resolve `libaletheia-ffi.so` from `$ALETHEIA_LIB`, else a build/install
-default. Flags may appear before or after positionals.
+Both resolve `libaletheia-ffi.so` from `$ALETHEIA_LIB` first, treating an empty
+value as unset. The C++ tool then searches the build directories the rest of the
+C++ binding searches and nothing else, so that it and the value renderer always
+load the same library; the Go tool also falls back to `/usr/local/lib`. Flags
+may appear before or after positionals.
 
 **C++** — the `aletheia-cli` binary:
 
