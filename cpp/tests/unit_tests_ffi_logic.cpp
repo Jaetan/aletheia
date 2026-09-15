@@ -4,11 +4,12 @@
 // Unit tests for the FfiBackend pure decision helpers (src/detail/ffi_logic.*).
 //
 // These exercise every branch of the RTS-init and FFI-error logic without a
-// live dlopen'd libaletheia-ffi.so — the branches that, inline in FfiBackend,
-// fire only on process-global hs_init state or a non-zero Haskell return and so
-// were never observed by the test suite.  The FFI error helper is driven with a
-// record-only mock free-function: the err_str buffers are stack-allocated, so
-// the mock records *whether* it was called (and with what) and never frees.
+// live shared library. The branches fire on process-global runtime state or on
+// a non-zero return from the kernel, which is why they live in pure helpers
+// rather than inline in the backend: here they are reachable. The error helper
+// is driven with a record-only mock free function, the buffers being
+// stack-allocated, so the mock records whether it was called and with what and
+// never frees.
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -89,7 +90,7 @@ TEST_CASE("rts_cores_mismatch: matching cores yield no mismatch", "[ffi][logic][
 }
 
 TEST_CASE("rts_cores_mismatch: differing cores report {active, requested}", "[ffi][logic][rts]") {
-    // requested = 4, active = 1 (the renderer-first downgrade case).
+    // A second backend asks for four cores where one is already running.
     auto mismatch = detail::rts_cores_mismatch(4, 1);
     REQUIRE(mismatch.has_value());
     CHECK(mismatch->first == 1);  // active

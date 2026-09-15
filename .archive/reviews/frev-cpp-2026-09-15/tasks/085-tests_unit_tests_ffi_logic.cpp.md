@@ -1,6 +1,6 @@
 # Task 085: file review of `cpp/tests/unit_tests_ffi_logic.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/unit_tests_ffi_logic.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/085 (signed later by the dribble).
+
+Claims and guards: this file is written against the mutation sweep and says so in each case, naming the mutant its assertions kill. The sweep agrees: the helper's own translation unit carries three mutants, the two comparison mutants on the core-count test at the line the argument builder compares on and one arithmetic mutant, and all three read KILLED, as does the one mutant in this file. The cases cover the heap cap always being present, a single core adding no thread flag, multiple cores adding one, the override flags landing last so a caller's own cap wins, whitespace-only overrides adding nothing, the mismatch reporting the active and requested pair in that order, and the three error-status branches with the free call counted on each.
+
+Findings fixed: the header explained the helpers by what the suite could not observe before they existed, which is history; and a case called its scenario the renderer-first downgrade, a story the binding retired when the renderer stopped initialising the runtime, so the comment now describes what the case actually sets up, a second backend asking for more cores than are running.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/085
+claims: 9 rows, 0 without a guard: each is a case, and each case names the mutant it kills
+1 line per line: checked, all 133 lines read
+2 guidelines: checked; the file-scope mock state is what a C function pointer forces and the comment says so
+3 modernize: n/a
+4 catalogue: checked, AGENTS/cpp.md category 13 (FFI lifecycle) and the mutation rules
+5 value semantics: checked, the argument vectors are compared by value
+6 raii: n/a, the mock deliberately never frees and the buffers are automatic
+7 dedup: checked, the reset helper is the deduplication
+8 ground truth: finding, the renderer-first story; checked true: the three mutants in the helper's translation unit and the one here, all KILLED
+9 history: finding, the header's explanation
+10 simpler: checked
+11 comments: 31 to 32, code 81 to 81
+sweep: cxx_gt_to_ge and cxx_gt_to_le at 31 and cxx_sub_to_add at 41 of src/detail/ffi_logic.cpp KILLED, and cxx_pre_inc_to_pre_dec at 36 of this file KILLED; tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
