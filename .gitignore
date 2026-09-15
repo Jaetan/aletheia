@@ -3,6 +3,7 @@ build/
 build-tidy/
 build-asan/
 build-ubsan/
+build-tsan/
 build-fuzz/
 build-mutation/
 _build/
@@ -32,16 +33,14 @@ __pycache__/
 *$py.class
 *.so
 .Python
-# Single-venv convention: the project uses exactly one venv at python/.venv
-# (enforced by tools/check_venv_convention.py). No root or alternately-named
-# venvs — a stray one should surface in `git status`, not be silently ignored.
-.venv
+# Single-venv convention: the project uses exactly one venv, at python/.venv
+# (enforced by tools/check_venv_convention.py). Only that path is ignored, so a
+# venv anywhere else surfaces in `git status` rather than hiding.
+/python/.venv/
 pip-log.txt
 pip-delete-this-directory.txt
 .pytest_cache/
 *.egg-info/
-dist/
-build/
 
 # Shake
 .shake/
@@ -67,11 +66,9 @@ docs/presentation/
 *~
 .DS_Store
 
-# Examples output
-examples/*.log
+# Example output and logs
 examples/output/
 *.log
-c.log
 # ...but the shipped flagship demo trace is a tracked fixture: the documented
 # `aletheia check` example streams it, so it must exist in a fresh clone / CI.
 !examples/demo/drive.log
@@ -87,7 +84,6 @@ c.log
 # can track *_baseline.json while still ignoring volatile per-run *.json.
 go/benchmarks/benchmark
 go/benchmarks/benchmarks
-cpp/build/
 # benchmarks/stability/<short-sha>/ artifacts (stability bench).  Per-commit
 # RSS / FD / heap-profile dumps are volatile run state; the spec lives in
 # docs/STABILITY_BENCH.yaml and the harnesses live alongside the other
@@ -107,4 +103,5 @@ python/aletheia/_install_config.py
 
 # repo-wide single-Agda tool lock (tools/_common.py agda_tree_lock)
 .agda-tree.lock
+# Agda's own grammar, fetched on demand rather than vendored (tools/_agda_opens.py)
 .agda-reference/Parser.y
