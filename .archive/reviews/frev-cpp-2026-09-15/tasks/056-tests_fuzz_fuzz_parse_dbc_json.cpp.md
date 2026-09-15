@@ -1,6 +1,6 @@
 # Task 056: file review of `cpp/tests/fuzz/fuzz_parse_dbc_json.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/fuzz/fuzz_parse_dbc_json.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/056 (signed later by the dribble).
+
+Claims and guards: the harness says the DBC body parser must not read out of bounds, leak or let an exception escape on adversarial wire JSON, and the guard is the run itself. Unlike its sibling for the binary decoder, this one does drive its parsers: the round's base sweep records 1119819 inputs in 61 seconds with 49 new corpus units, and the re-run at this task gives 1158984 inputs at 18693 a second with 36 new units and no crash, the difference being the corpus the base run itself grew. Both parsers the harness calls exist in the detail header it includes, and both counterparts it names exist: FuzzParseDBCJSON in go/aletheia/fuzz_test.go and python/tests/fuzz/fuzz_dbc_to_json.py.
+
+Finding fixed: a category label that resolves nowhere in AGENTS.md or the documentation, the same label its three siblings carry.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/056
+claims: 1 row, 0 without a guard: the 61-second run is the guard and it is recorded at the round base
+1 line per line: checked, all 22 lines read; both parser calls, the span construction and the length the fuzzer controls
+2 guidelines: checked, the cast to a character pointer is the fuzzer's own byte-buffer boundary and the view does not outlive it
+3 modernize: n/a, there is no construct to modernize in a two-call harness
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests)
+5 value semantics: checked, a string view over the fuzzer's buffer, which is the only shape that avoids a copy per input
+6 raii: checked, the harness owns nothing
+7 dedup: checked, the two calls are two different parsers
+8 ground truth: checked, both parsers resolve in src/detail/json.hpp and both named counterparts exist
+9 history: checked, none
+10 simpler: checked
+11 comments: 9 to 9, code 10 to 10
+sweep: no mutation names this file (the fuzz targets are their own build); the target builds clean and runs 62 seconds without a crash
+probes: none name this file; the base sweep's fuzz record is the reference measurement
+decision points: none
+```
 
 ## Contract (carried whole)
 
