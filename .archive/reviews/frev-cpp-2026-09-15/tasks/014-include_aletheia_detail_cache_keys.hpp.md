@@ -1,6 +1,6 @@
 # Task 014: file review of `cpp/include/aletheia/detail/cache_keys.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/detail/cache_keys.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/014 (signed later by the dribble).
+
+Claims and guards: FrameKeyLess orders like FrameKey's defaulted three-way comparison for every mix of key and view operands, which std::map's heterogeneous lookup requires (no test stated it; new probe compares the comparator against `operator<` over 160000 ordered pairs of pseudo-random keys and checks the hashers on equal keys); the private-header status (the IWYU pragma on the facade, the install comment in CMakeLists.txt); FrameKey's lexicographic ordering (the defaulted operator<=> over a vector).
+
+Findings fixed: (a) the comparator hand-rolled the lexicographic compare through a tuple of four with a manual byte loop; it now compares the scalar prefix as a tuple and the payloads with std::ranges::lexicographical_compare, and the probe shows the ordering unchanged; (b) the hash-combine expression was written out three times; one hash_combine folds it; (c) std::min was used without <algorithm>, and the defaulted three-way comparison without <compare>; both included; (d) the pImpl rationale cited a throughput figure by digit that nothing re-derives; the sentence keeps the comparison and drops the number.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/014
+claims: 3 rows, 1 without a guard: probe cpp_include_aletheia_detail_cache_keys.hpp--comparator-agrees-with-key-ordering.sh added
+1 line per line: checked, all 138 lines read; the comparator asked what it must agree with and each hasher what it folds
+2 guidelines: checked, defaulted comparisons, transparent comparator with the STL protocol name, includes for what is used
+3 modernize: finding, ranges algorithm and tuple comparison replace the loop; gate: probe green before and after, whole tree rebuilt clean, unit, integration and cross-binding tests green, tidy gate zero
+4 catalogue: checked, AGENTS/cpp.md categories 3 (include hygiene) and 26 (the view avoids the per-lookup payload copy, unchanged)
+5 value semantics: checked, the view borrows the payload for lookup only, which is its stated purpose
+6 raii: n/a
+7 dedup: finding, three hash-combine expressions to one function
+8 ground truth: finding, one stale figure; checked true: the install and pragma story against CMakeLists.txt and client.hpp
+9 history: checked, none
+10 simpler: finding, see 3 and 7
+11 comments: 44 to 47 (three more lines, in the task that fixed the missing includes and the stale figure), code 79 to 67
+sweep: no mutation names this file (header-only; exercised by the cache paths of unit_tests_client and the integration tests, green)
+probes: 1 added; store 26 run, 25 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 

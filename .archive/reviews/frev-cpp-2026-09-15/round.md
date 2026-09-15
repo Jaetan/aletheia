@@ -22,5 +22,5 @@ Tasks are worked in id order. Follow-ups created during the run get the next fre
 - message files: `.git/frev/msg-<id>.txt`
 - probe store: `probes/` with `probes/run_all.sh`
 - lens: `lens/linecount.py` (comment/code per file), `base/linecount.tsv`, `base/file_gate_map.tsv`
-- current task: 014 (001 to 013 completed; 013 was worked before 011 and 012 by a numbering slip, its fix is in snapshot refs/frev/011; snapshots refs/frev/001 to 011)
+- current task: 015 (001 to 014 completed; 013 was worked before 011 and 012 by a numbering slip, its fix is in snapshot refs/frev/011; snapshots refs/frev/001 to 011)
 - follow-ups created: 092 (`docs/MUTATION_BENCH.yaml`, mutant count drift found by the base sweep), 093 (`.gitignore`, build-tsan/ not ignored, from task 003), 094 (`docs/reference/CPP_API.md`, streaming fence hides its parse failure, from task 004), 095 (installed consumers cannot link the loaders, from task 007, gated by a ruling), 096 (XREV: backend interface handles, from task 009), 097 (XREV: clones spanning files, from task 010)
