@@ -6,8 +6,8 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <optional>
-#include <ranges>
 #include <set>
 #include <variant>
 #include <vector>
@@ -15,9 +15,15 @@
 namespace aletheia {
 
 // The signals of a message that satisfy a predicate, copied out in order.
+// Written as a copy rather than as a `views::filter | ranges::to` pipe: the
+// pipe form of ranges::to only works from a libstdc++ point release newer
+// than the one the build's own CI pins, and the break shows up nowhere but
+// there, on a machine whose standard library is older than the developer's.
 static auto signals_where(const std::vector<DbcSignal>& signals, auto pred)
     -> std::vector<DbcSignal> {
-    return signals | std::views::filter(pred) | std::ranges::to<std::vector>();
+    std::vector<DbcSignal> out;
+    std::ranges::copy_if(signals, std::back_inserter(out), pred);
+    return out;
 }
 
 static auto is_always_present(const DbcSignal& s) -> bool {

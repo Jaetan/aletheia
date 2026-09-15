@@ -25,8 +25,8 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
-#include <functional>
 #include <memory>
+#include <numeric>
 #include <print>
 #include <ratio>
 #include <span>
@@ -427,7 +427,7 @@ static auto compute_stats(const std::vector<double>& data) -> Stats {
     if (data.empty())
         return {};
     auto n = static_cast<double>(data.size());
-    const double sum = std::ranges::fold_left(data, 0.0, std::plus{});
+    const double sum = std::reduce(data.begin(), data.end(), 0.0);
     const double mean = sum / n;
     double sq_sum = 0;
     for (auto v : data)
@@ -467,7 +467,7 @@ static auto compute_latency_stats(std::vector<double>& latencies_us) -> LatencyS
     if (latencies_us.empty())
         return {};
     std::ranges::sort(latencies_us);
-    const double sum = std::ranges::fold_left(latencies_us, 0.0, std::plus{});
+    const double sum = std::reduce(latencies_us.begin(), latencies_us.end(), 0.0);
     return {
         .count = latencies_us.size(),
         .mean_us = sum / static_cast<double>(latencies_us.size()),
