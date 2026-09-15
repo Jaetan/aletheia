@@ -1,6 +1,6 @@
 # Task 005: file review of `cpp/benchmarks/benchmark.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/benchmarks/benchmark.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/005 (signed later by the dribble).
+
+Claims and guards: the JSON payloads follow benchmarks/SCHEMA.yaml (check_bench_schema gate over the committed baselines; here the before and after payloads of all three modes were compared for identical shape, key order and result names); the Release-only guard (NDEBUG check, unchanged); the library discovery order (env, then two paths relative to the executable; the empty-env case now probed); count options refuse non-numbers (new probe, red before the fix: `--frames abc` ran with zero frames and exited 0); the DBC definitions match the example files (checked against examples/example.dbc and example_canfd.dbc: the signal layouts match, the senders and the files' other messages do not, so the comment now says exactly that); every setup step is checked before timing (no input path can inject a setup failure from the command line, so this row has no probe; the guard is the `require` helper that throws on any std::expected error, replacing six silent discards).
+
+Findings fixed: (a) six copies of the client-setup prologue are one helper each for plain and streaming clients, and set_properties and start_stream results are checked instead of cast to void, so a failing setup throws rather than being timed; (b) high_resolution_clock, an alias of the non-monotonic system_clock on libstdc++, is steady_clock at all twelve sites (same nanosecond source on Linux, so the measurement is unchanged in resolution); (c) std::atoi on --frames, --runs, --warmup and --ops accepted any text as zero; from_chars now refuses anything but a non-negative whole number with a message and exit 1; (d) an empty ALETHEIA_LIB was handed to dlopen and the process aborted at the first symbol lookup; empty now counts as unset and discovery proceeds; (e) the four id and dlc globals are constexpr (their factories are), removing the throwing static initialisers; (f) C-style file, time and string handling (fopen and fgets, gmtime_r and strftime, snprintf into a fixed buffer, a C array of counts) replaced by ifstream, chrono format, std::format and std::array; (g) every printf family call is std::print or std::println with the same widths and precisions. Gate for the output: each mode run before and after with small parameters, text compared with digits masked (identical except rows whose digit counts differ between runs, verified by equal unmasked widths), JSON compared structurally, usage text identical, format gate green after clang-format. tidy lens over the file: 304 unique diagnostics at base, 81 after.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/005
+claims: 6 rows, 2 without a guard: probes added for the count options and the empty env; the checked-setup row stays without a probe (no injectable failure), stated
+1 line per line: checked, all 1237 lines read; every function asked what it times and what it would time if setup failed
+2 guidelines: finding, ES.46-style narrowing avoided in parse_count, steady_clock for intervals, no C arrays, results never discarded (F.20-family nodiscard discipline)
+3 modernize: finding, print/format/from_chars/ifstream/chrono; gate: masked-output equality across all three modes plus structural JSON equality, build clean, format gate green
+4 catalogue: checked, AGENTS/cpp.md categories 26 (hot path untouched: the timed loops are byte-identical calls) and 27 (std::print, from_chars, std::format)
+5 value semantics: checked, properties now cross the helper as std::span<const LtlFormula>, frames and DBCs by const reference as before; nothing copied on the timed path
+6 raii: checked, the FILE* from fopen is gone with ifstream; no other resource is released by hand
+7 dedup: finding, six setup prologues to two helpers; the header and separator rules are two constants
+8 ground truth: finding, the DBC comment overstated the match with the example files (fixed); checked true: SCHEMA.yaml, scaling.py and go/benchmarks/main.go exist, NDEBUG comment, discovery paths
+9 history: checked, none
+10 simpler: finding, see 3 and 7
+11 comments: 109 to 120, code 984 to 966
+sweep: no mutation names this file (benchmarks are outside the mutation build); benchmark target builds clean, all three modes run to exit 0 after the edit
+probes: 2 added under probes/cpp_benchmarks_benchmark.cpp--*.sh, store 13 run 13 pass
+decision points: none
+```
 
 ## Contract (carried whole)
 

@@ -13,17 +13,26 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
-#include <ctime>
 #include <filesystem>
+#include <format>
+#include <fstream>
 #include <numeric>
+#include <print>
+#include <span>
+#include <stdexcept>
+#include <stop_token>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 using namespace aletheia;
@@ -35,8 +44,9 @@ namespace fs = std::filesystem;
 // ---------------------------------------------------------------------------
 
 static auto find_lib() -> fs::path {
-    // 1. Environment variable
-    if (auto* env = std::getenv("ALETHEIA_LIB"))
+    // 1. Environment variable (an empty value counts as unset: dlopen("") would
+    //    open this very program and fail later at the first symbol lookup)
+    if (const char* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0')
         return env;
 
     // 2. Relative to executable: ../build/libaletheia-ffi.so
@@ -52,8 +62,8 @@ static auto find_lib() -> fs::path {
     if (fs::exists(path2))
         return fs::canonical(path2);
 
-    std::fprintf(stderr, "ERROR: libaletheia-ffi.so not found.\n"
-                         "Set ALETHEIA_LIB or run 'cabal run shake -- build'.\n");
+    std::println(stderr, "ERROR: libaletheia-ffi.so not found.\n"
+                         "Set ALETHEIA_LIB or run 'cabal run shake -- build'.");
     std::exit(1);
 }
 
@@ -62,25 +72,13 @@ static auto find_lib() -> fs::path {
 // ---------------------------------------------------------------------------
 
 static auto get_cpu_model() -> std::string {
-    std::FILE* f = std::fopen("/proc/cpuinfo", "r");
-    if (f == nullptr)
-        return "unknown";
-    char line[256];
-    while (std::fgets(line, sizeof(line), f) != nullptr) {
-        if (std::strncmp(line, "model name", 10) == 0) {
-            auto* colon = std::strchr(line, ':');
-            if (colon != nullptr) {
-                // Skip ": " prefix and strip trailing newline
-                auto* start = colon + 2;
-                auto len = std::strlen(start);
-                if (len > 0 && start[len - 1] == '\n')
-                    start[len - 1] = '\0';
-                std::fclose(f);
-                return start;
-            }
+    std::ifstream cpuinfo("/proc/cpuinfo");
+    for (std::string line; std::getline(cpuinfo, line);) {
+        if (line.starts_with("model name")) {
+            if (auto colon = line.find(':'); colon != std::string::npos)
+                return line.substr(colon + 2); // skip ": "
         }
     }
-    std::fclose(f);
     return "unknown";
 }
 
@@ -96,11 +94,11 @@ constexpr auto k_build_type = "Debug";
 
 static void check_release_build() {
 #ifndef NDEBUG
-    std::fputs("ERROR: C++ benchmark built without NDEBUG (Debug build).\n"
+    std::print(stderr,
+               "ERROR: C++ benchmark built without NDEBUG (Debug build).\n"
                "       Reconfigure with -DCMAKE_BUILD_TYPE=Release:\n"
                "         rm -rf cpp/build && cmake -B cpp/build -DCMAKE_BUILD_TYPE=Release \\\n"
-               "           && cmake --build cpp/build\n",
-               stderr);
+               "           && cmake --build cpp/build\n");
     std::exit(1);
 #endif
 }
@@ -115,17 +113,15 @@ static auto get_system_info() -> json {
 }
 
 static auto iso_timestamp() -> std::string {
-    auto now = std::chrono::system_clock::now();
-    auto tt = std::chrono::system_clock::to_time_t(now);
-    std::tm utc{};
-    gmtime_r(&tt, &utc);
-    char buf[32];
-    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &utc);
-    return buf;
+    auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+    return std::format("{:%FT%TZ}", now);
 }
 
 // ---------------------------------------------------------------------------
-// DBC definitions (programmatic, matching example.dbc / example_canfd.dbc)
+// DBC definitions, built in code. The signal layouts are those of
+// examples/example.dbc (EngineStatus, BrakeStatus) and examples/example_canfd.dbc
+// (SensorFusion); senders and the files' other messages are not needed here, and
+// every binding's benchmark builds these same definitions.
 // ---------------------------------------------------------------------------
 
 static auto make_can20_dbc() -> DbcDefinition {
@@ -275,8 +271,8 @@ static const FramePayload can20_frame = {
     std::byte{0x40}, std::byte{0x1F}, std::byte{0x82}, std::byte{0x00},
     std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
 };
-static const auto can20_id = CanId{StandardId::create(0x100).value()};
-static const auto can20_dlc = Dlc::create(8).value();
+static constexpr auto can20_id = CanId{StandardId::create(0x100).value()};
+static constexpr auto can20_dlc = Dlc::create(8).value();
 
 static auto make_canfd_frame() -> FramePayload {
     FramePayload frame(64, std::byte{0x00});
@@ -313,8 +309,8 @@ static auto make_canfd_frame() -> FramePayload {
 }
 
 static const FramePayload canfd_frame = make_canfd_frame();
-static const auto canfd_id = CanId{StandardId::create(0x200).value()};
-static const auto canfd_dlc = Dlc::create(15).value();
+static constexpr auto canfd_id = CanId{StandardId::create(0x200).value()};
+static constexpr auto canfd_dlc = Dlc::create(15).value();
 
 // CAN 2.0B signal values for frame building
 static const std::vector<SignalValue> can20_signals = {
@@ -471,17 +467,45 @@ static auto compute_latency_stats(std::vector<double>& latencies_us) -> LatencyS
 // Output destination: stderr when --json is set, stdout otherwise.
 static std::FILE* out_file = stdout;
 
-static void print_header(const char* title) {
-    std::fprintf(out_file,
-                 "======================================================================\n");
-    std::fprintf(out_file, "%s\n", title);
-    std::fprintf(out_file,
-                 "======================================================================\n");
+static constexpr std::string_view k_rule_heavy =
+    "======================================================================";
+static constexpr std::string_view k_rule_light =
+    "----------------------------------------------------------------------";
+
+static void print_header(std::string_view title) {
+    std::println(out_file, "{}\n{}\n{}", k_rule_heavy, title, k_rule_heavy);
 }
 
 static void print_separator() {
-    std::fprintf(out_file,
-                 "----------------------------------------------------------------------\n");
+    std::println(out_file, "{}", k_rule_light);
+}
+
+// ---------------------------------------------------------------------------
+// Client setup shared by every benchmark
+// ---------------------------------------------------------------------------
+
+// A benchmark must never time a client whose setup failed, so every setup
+// step that returns std::expected is checked and its error thrown.
+template<typename T>
+static auto require(Result<T> result, std::string_view step) -> T {
+    if (!result)
+        throw std::runtime_error(std::format("{} failed: {}", step, result.error().message()));
+    if constexpr (!std::is_void_v<T>)
+        return std::move(*result);
+}
+
+static auto make_client(const fs::path& lib, const DbcDefinition& dbc) -> AletheiaClient {
+    AletheiaClient client(make_ffi_backend(lib));
+    require(client.parse_dbc(std::stop_token{}, dbc), "parse_dbc");
+    return client;
+}
+
+static auto make_streaming_client(const fs::path& lib, const DbcDefinition& dbc,
+                                  std::span<const LtlFormula> properties) -> AletheiaClient {
+    auto client = make_client(lib, dbc);
+    require(client.set_properties(std::stop_token{}, properties), "set_properties");
+    require(client.start_stream(std::stop_token{}), "start_stream");
+    return client;
 }
 
 // ---------------------------------------------------------------------------
@@ -499,19 +523,12 @@ struct ThroughputResult {
 static auto bench_streaming(const fs::path& lib, const DbcDefinition& dbc,
                             std::vector<LtlFormula> properties, CanId id, Dlc dlc,
                             const FramePayload& frame, int num_frames) -> double {
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
-    auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
-    if (!parse_result)
-        throw std::runtime_error("parse_dbc failed: " +
-                                 std::string(parse_result.error().message()));
-    (void)client.set_properties(std::stop_token{}, properties);
-    (void)client.start_stream(std::stop_token{});
+    auto client = make_streaming_client(lib, dbc, properties);
 
-    auto start = std::chrono::high_resolution_clock::now();
+    auto start = std::chrono::steady_clock::now();
     for (int i = 0; i < num_frames; ++i)
         (void)client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
-    auto end = std::chrono::high_resolution_clock::now();
+    auto end = std::chrono::steady_clock::now();
 
     (void)client.end_stream(std::stop_token{});
 
@@ -521,17 +538,12 @@ static auto bench_streaming(const fs::path& lib, const DbcDefinition& dbc,
 
 static auto bench_extraction(const fs::path& lib, const DbcDefinition& dbc, CanId id, Dlc dlc,
                              const FramePayload& frame, int num_frames) -> double {
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
-    auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
-    if (!parse_result)
-        throw std::runtime_error("parse_dbc failed: " +
-                                 std::string(parse_result.error().message()));
+    auto client = make_client(lib, dbc);
 
-    auto start = std::chrono::high_resolution_clock::now();
+    auto start = std::chrono::steady_clock::now();
     for (int i = 0; i < num_frames; ++i)
         (void)client.extract_signals(std::stop_token{}, id, dlc, frame);
-    auto end = std::chrono::high_resolution_clock::now();
+    auto end = std::chrono::steady_clock::now();
 
     auto elapsed = std::chrono::duration<double>(end - start).count();
     return static_cast<double>(num_frames) / elapsed;
@@ -539,23 +551,18 @@ static auto bench_extraction(const fs::path& lib, const DbcDefinition& dbc, CanI
 
 static auto bench_building(const fs::path& lib, const DbcDefinition& dbc, CanId id, Dlc dlc,
                            const std::vector<SignalValue>& signals, int num_frames) -> double {
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
-    auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
-    if (!parse_result)
-        throw std::runtime_error("parse_dbc failed: " +
-                                 std::string(parse_result.error().message()));
+    auto client = make_client(lib, dbc);
 
-    auto start = std::chrono::high_resolution_clock::now();
+    auto start = std::chrono::steady_clock::now();
     for (int i = 0; i < num_frames; ++i)
         (void)client.build_frame(std::stop_token{}, id, dlc, signals);
-    auto end = std::chrono::high_resolution_clock::now();
+    auto end = std::chrono::steady_clock::now();
 
     auto elapsed = std::chrono::duration<double>(end - start).count();
     return static_cast<double>(num_frames) / elapsed;
 }
 
-static auto run_throughput_bench(const char* name, auto bench_fn, int num_frames, int num_runs,
+static auto run_throughput_bench(std::string name, auto bench_fn, int num_frames, int num_runs,
                                  int warmup_runs) -> ThroughputResult {
     // Warmup
     for (int w = 0; w < warmup_runs; ++w)
@@ -571,13 +578,13 @@ static auto run_throughput_bench(const char* name, auto bench_fn, int num_frames
 
     auto stats = compute_stats(results);
 
-    std::fprintf(out_file, "\n%s:\n", name);
-    std::fprintf(out_file, "----------------------------------------\n");
+    std::println(out_file, "\n{}:", name);
+    std::println(out_file, "----------------------------------------");
     for (int r = 0; r < num_runs; ++r)
-        std::fprintf(out_file, "  Run %d/%d: %.0f ops/sec\n", r + 1, num_runs, results[r]);
+        std::println(out_file, "  Run {}/{}: {:.0f} ops/sec", r + 1, num_runs, results[r]);
 
     return ThroughputResult{
-        .name = name,
+        .name = std::move(name),
         .num_frames = num_frames,
         .num_runs = num_runs,
         .fps = stats,
@@ -588,9 +595,9 @@ static auto run_throughput_bench(const char* name, auto bench_fn, int num_frames
 static void run_throughput(const fs::path& lib, int num_frames, int num_runs, int warmup,
                            bool emit_json) {
     print_header("Aletheia Throughput Benchmark (C++)");
-    std::fprintf(out_file, "Frames per run: %d\n", num_frames);
-    std::fprintf(out_file, "Runs: %d\n", num_runs);
-    std::fprintf(out_file, "Warmup runs: %d\n", warmup);
+    std::println(out_file, "Frames per run: {}", num_frames);
+    std::println(out_file, "Runs: {}", num_runs);
+    std::println(out_file, "Warmup runs: {}", warmup);
 
     auto dbc_20 = make_can20_dbc();
     auto dbc_fd = make_canfd_dbc();
@@ -636,17 +643,16 @@ static void run_throughput(const fs::path& lib, int num_frames, int num_runs, in
         num_frames, num_runs, warmup));
 
     // Summary table
-    std::fprintf(out_file, "\n");
+    std::println(out_file, "");
     print_header("Summary");
-    std::fprintf(out_file, "%-35s %12s %10s %10s %10s\n", "Benchmark", "Mean", "Stdev", "Min",
-                 "Max");
+    std::println(out_file, "{:<35} {:>12} {:>10} {:>10} {:>10}", "Benchmark", "Mean", "Stdev",
+                 "Min", "Max");
     print_separator();
     for (const auto& r : results) {
-        std::fprintf(out_file, "%-35s %10.0f/s %9.0f %9.0f %9.0f\n", r.name.c_str(), r.fps.mean,
+        std::println(out_file, "{:<35} {:10.0f}/s {:9.0f} {:9.0f} {:9.0f}", r.name, r.fps.mean,
                      r.fps.stdev, r.fps.min_val, r.fps.max_val);
     }
-    std::fprintf(out_file,
-                 "======================================================================\n");
+    std::println(out_file, "{}", k_rule_heavy);
 
     if (emit_json) {
         json json_results = json::array();
@@ -668,7 +674,7 @@ static void run_throughput(const fs::path& lib, int num_frames, int num_runs, in
             {"timestamp", iso_timestamp()}, {"system", get_system_info()},
             {"results", json_results},
         };
-        std::printf("%s\n", output.dump(2).c_str());
+        std::println("{}", output.dump(2));
     }
 }
 
@@ -681,33 +687,26 @@ struct LatencyResult {
     LatencyStats stats;
 };
 
-static void print_latency(const char* name, const LatencyStats& s) {
-    std::fprintf(out_file, "\n%s:\n", name);
-    std::fprintf(out_file, "--------------------------------------------------\n");
-    std::fprintf(out_file, "  Count:    %zu operations\n", s.count);
-    std::fprintf(out_file, "  Mean:     %.1f us\n", s.mean_us);
-    std::fprintf(out_file, "  Min:      %.1f us\n", s.min_us);
-    std::fprintf(out_file, "  Max:      %.1f us\n", s.max_us);
-    std::fprintf(out_file, "  p50:      %.1f us\n", s.p50_us);
-    std::fprintf(out_file, "  p90:      %.1f us\n", s.p90_us);
-    std::fprintf(out_file, "  p99:      %.1f us\n", s.p99_us);
-    std::fprintf(out_file, "  p99.9:    %.1f us\n", s.p999_us);
+static void print_latency(std::string_view name, const LatencyStats& s) {
+    std::println(out_file, "\n{}:", name);
+    std::println(out_file, "--------------------------------------------------");
+    std::println(out_file, "  Count:    {} operations", s.count);
+    std::println(out_file, "  Mean:     {:.1f} us", s.mean_us);
+    std::println(out_file, "  Min:      {:.1f} us", s.min_us);
+    std::println(out_file, "  Max:      {:.1f} us", s.max_us);
+    std::println(out_file, "  p50:      {:.1f} us", s.p50_us);
+    std::println(out_file, "  p90:      {:.1f} us", s.p90_us);
+    std::println(out_file, "  p99:      {:.1f} us", s.p99_us);
+    std::println(out_file, "  p99.9:    {:.1f} us", s.p999_us);
     if (s.mean_us > 0)
-        std::fprintf(out_file, "  Implied:  %.0f ops/sec (from mean)\n", 1'000'000.0 / s.mean_us);
+        std::println(out_file, "  Implied:  {:.0f} ops/sec (from mean)", 1'000'000.0 / s.mean_us);
 }
 
 static auto bench_latency_streaming(const fs::path& lib, const DbcDefinition& dbc,
                                     std::vector<LtlFormula> properties, CanId id, Dlc dlc,
                                     const FramePayload& frame, int warmup, int ops)
     -> LatencyStats {
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
-    auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
-    if (!parse_result)
-        throw std::runtime_error("parse_dbc failed: " +
-                                 std::string(parse_result.error().message()));
-    (void)client.set_properties(std::stop_token{}, properties);
-    (void)client.start_stream(std::stop_token{});
+    auto client = make_streaming_client(lib, dbc, properties);
 
     // Warmup
     for (int i = 0; i < warmup; ++i)
@@ -717,9 +716,9 @@ static auto bench_latency_streaming(const fs::path& lib, const DbcDefinition& db
     std::vector<double> latencies;
     latencies.reserve(ops);
     for (int i = 0; i < ops; ++i) {
-        auto start = std::chrono::high_resolution_clock::now();
+        auto start = std::chrono::steady_clock::now();
         (void)client.send_frame(std::stop_token{}, Timestamp{warmup + i}, id, dlc, frame);
-        auto end = std::chrono::high_resolution_clock::now();
+        auto end = std::chrono::steady_clock::now();
         auto us = std::chrono::duration<double, std::micro>(end - start).count();
         latencies.push_back(us);
     }
@@ -731,12 +730,7 @@ static auto bench_latency_streaming(const fs::path& lib, const DbcDefinition& db
 static auto bench_latency_extraction(const fs::path& lib, const DbcDefinition& dbc, CanId id,
                                      Dlc dlc, const FramePayload& frame, int warmup, int ops)
     -> LatencyStats {
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
-    auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
-    if (!parse_result)
-        throw std::runtime_error("parse_dbc failed: " +
-                                 std::string(parse_result.error().message()));
+    auto client = make_client(lib, dbc);
 
     // Warmup
     for (int i = 0; i < warmup; ++i)
@@ -746,9 +740,9 @@ static auto bench_latency_extraction(const fs::path& lib, const DbcDefinition& d
     std::vector<double> latencies;
     latencies.reserve(ops);
     for (int i = 0; i < ops; ++i) {
-        auto start = std::chrono::high_resolution_clock::now();
+        auto start = std::chrono::steady_clock::now();
         (void)client.extract_signals(std::stop_token{}, id, dlc, frame);
-        auto end = std::chrono::high_resolution_clock::now();
+        auto end = std::chrono::steady_clock::now();
         latencies.push_back(std::chrono::duration<double, std::micro>(end - start).count());
     }
 
@@ -758,12 +752,7 @@ static auto bench_latency_extraction(const fs::path& lib, const DbcDefinition& d
 static auto bench_latency_building(const fs::path& lib, const DbcDefinition& dbc, CanId id, Dlc dlc,
                                    const std::vector<SignalValue>& signals, int warmup, int ops)
     -> LatencyStats {
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
-    auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
-    if (!parse_result)
-        throw std::runtime_error("parse_dbc failed: " +
-                                 std::string(parse_result.error().message()));
+    auto client = make_client(lib, dbc);
 
     // Warmup
     for (int i = 0; i < warmup; ++i)
@@ -773,9 +762,9 @@ static auto bench_latency_building(const fs::path& lib, const DbcDefinition& dbc
     std::vector<double> latencies;
     latencies.reserve(ops);
     for (int i = 0; i < ops; ++i) {
-        auto start = std::chrono::high_resolution_clock::now();
+        auto start = std::chrono::steady_clock::now();
         (void)client.build_frame(std::stop_token{}, id, dlc, signals);
-        auto end = std::chrono::high_resolution_clock::now();
+        auto end = std::chrono::steady_clock::now();
         latencies.push_back(std::chrono::duration<double, std::micro>(end - start).count());
     }
 
@@ -784,8 +773,8 @@ static auto bench_latency_building(const fs::path& lib, const DbcDefinition& dbc
 
 static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json) {
     print_header("Aletheia Latency Benchmark (C++)");
-    std::fprintf(out_file, "Operations: %d\n", ops);
-    std::fprintf(out_file, "Warmup: %d\n", warmup);
+    std::println(out_file, "Operations: {}", ops);
+    std::println(out_file, "Warmup: {}", warmup);
 
     auto dbc_20 = make_can20_dbc();
     auto dbc_fd = make_canfd_dbc();
@@ -795,24 +784,22 @@ static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json
     auto run_suite = [&](const char* label, const DbcDefinition& dbc,
                          std::vector<LtlFormula> properties, CanId id, Dlc dlc,
                          const FramePayload& frame, const std::vector<SignalValue>& signals) {
-        char name[128];
-
-        std::fprintf(out_file, "\nBenchmarking %s streaming...\n", label);
+        std::println(out_file, "\nBenchmarking {} streaming...", label);
         auto s1 =
             bench_latency_streaming(lib, dbc, std::move(properties), id, dlc, frame, warmup, ops);
-        std::snprintf(name, sizeof(name), "%s Streaming LTL", label);
+        auto name = std::format("{} Streaming LTL", label);
         print_latency(name, s1);
         results.push_back({name, s1});
 
-        std::fprintf(out_file, "\nBenchmarking %s signal extraction...\n", label);
+        std::println(out_file, "\nBenchmarking {} signal extraction...", label);
         auto s2 = bench_latency_extraction(lib, dbc, id, dlc, frame, warmup, ops);
-        std::snprintf(name, sizeof(name), "%s Signal Extraction", label);
+        name = std::format("{} Signal Extraction", label);
         print_latency(name, s2);
         results.push_back({name, s2});
 
-        std::fprintf(out_file, "\nBenchmarking %s frame building...\n", label);
+        std::println(out_file, "\nBenchmarking {} frame building...", label);
         auto s3 = bench_latency_building(lib, dbc, id, dlc, signals, warmup, ops);
-        std::snprintf(name, sizeof(name), "%s Frame Building", label);
+        name = std::format("{} Frame Building", label);
         print_latency(name, s3);
         results.push_back({name, s3});
     };
@@ -823,17 +810,16 @@ static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json
               canfd_signals);
 
     // Summary table
-    std::fprintf(out_file, "\n");
+    std::println(out_file, "");
     print_header("Summary (all times in microseconds)");
-    std::fprintf(out_file, "%-30s %10s %10s %10s %10s\n", "Operation", "Mean", "p50", "p99",
+    std::println(out_file, "{:<30} {:>10} {:>10} {:>10} {:>10}", "Operation", "Mean", "p50", "p99",
                  "p99.9");
     print_separator();
     for (const auto& r : results) {
-        std::fprintf(out_file, "%-30s %10.1f %10.1f %10.1f %10.1f\n", r.name.c_str(),
+        std::println(out_file, "{:<30} {:10.1f} {:10.1f} {:10.1f} {:10.1f}", r.name,
                      r.stats.mean_us, r.stats.p50_us, r.stats.p99_us, r.stats.p999_us);
     }
-    std::fprintf(out_file,
-                 "======================================================================\n");
+    std::println(out_file, "{}", k_rule_heavy);
 
     if (emit_json) {
         json json_results = json::array();
@@ -855,7 +841,7 @@ static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json
             {"timestamp", iso_timestamp()}, {"system", get_system_info()},
             {"results", json_results},
         };
-        std::printf("%s\n", output.dump(2).c_str());
+        std::println("{}", output.dump(2));
     }
 }
 
@@ -993,29 +979,29 @@ static auto complexity_levels() -> std::vector<std::pair<std::string, std::vecto
 
 static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit_json) {
     print_header("Aletheia Scaling Benchmark (C++)");
-    std::fprintf(out_file, "Runs: %d\n", num_runs);
-    std::fprintf(out_file, "Quick: %s\n", quick ? "true" : "false");
+    std::println(out_file, "Runs: {}", num_runs);
+    std::println(out_file, "Quick: {}", quick ? "true" : "false");
 
     auto dbc_20 = make_can20_dbc();
     auto dbc_fd = make_canfd_dbc();
     int num_frames = quick ? 5000 : 10000;
 
     // Warmup
-    std::fprintf(out_file, "\nWarming up...\n");
+    std::println(out_file, "\nWarming up...");
     {
         std::vector<LtlFormula> warm;
         warm.push_back(always_between("EngineSpeed", Rational{0, 1}, Rational{8000, 1}));
         (void)mean_fps(lib, dbc_20, can20_id, can20_dlc, can20_frame, warm, 1000, 1);
     }
-    std::fprintf(out_file, "Done.\n");
+    std::println(out_file, "Done.");
 
     // 1./2. Trace-size sweeps (CAN 2.0B, then CAN-FD).
     auto scan_trace = [&](const char* title, const DbcDefinition& dbc, CanId id, Dlc dlc,
                           const FramePayload& frame,
                           const std::vector<LtlFormula>& props) -> std::vector<TraceSizeRow> {
-        std::fprintf(out_file, "\n");
+        std::println(out_file, "");
         print_header(title);
-        std::fprintf(out_file, "%10s %12s %10s\n", "Frames", "Frames/sec", "Relative");
+        std::println(out_file, "{:>10} {:>12} {:>10}", "Frames", "Frames/sec", "Relative");
         print_separator();
         std::vector<TraceSizeRow> rows;
         double baseline = 0;
@@ -1024,7 +1010,7 @@ static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit
             if (baseline == 0)
                 baseline = fps;
             double relative = relative_of(fps, baseline);
-            std::fprintf(out_file, "%10d %12.0f %10.2fx\n", size, fps, relative);
+            std::println(out_file, "{:10} {:12.0f} {:10.2f}x", size, fps, relative);
             rows.push_back({size, fps, relative});
         }
         return rows;
@@ -1041,14 +1027,14 @@ static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit
                                   canfd_frame, trace_props_canfd);
 
     // 3. Property-count sweep (CAN 2.0B), 10 templates cycled by i mod 10.
-    std::fprintf(out_file, "\n");
+    std::println(out_file, "");
     print_header("Property Count Scaling");
-    std::fprintf(out_file, "%10s %12s %10s %10s\n", "Properties", "Frames/sec", "us/frame",
+    std::println(out_file, "{:>10} {:>12} {:>10} {:>10}", "Properties", "Frames/sec", "us/frame",
                  "Relative");
     print_separator();
     std::vector<PropCountRow> prop_count;
     {
-        constexpr int counts[] = {1, 2, 3, 5, 7, 10};
+        constexpr std::array counts{1, 2, 3, 5, 7, 10};
         double baseline = 0;
         for (int count : counts) {
             std::vector<LtlFormula> props;
@@ -1061,15 +1047,15 @@ static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit
                 baseline = fps;
             double relative = relative_of(fps, baseline);
             double us = us_per_frame_of(fps);
-            std::fprintf(out_file, "%10d %12.0f %10.1f %10.2fx\n", count, fps, us, relative);
+            std::println(out_file, "{:10} {:12.0f} {:10.1f} {:10.2f}x", count, fps, us, relative);
             prop_count.push_back({count, fps, us, relative});
         }
     }
 
     // 4. Property-complexity sweep (CAN 2.0B), five labelled bundles.
-    std::fprintf(out_file, "\n");
+    std::println(out_file, "");
     print_header("Property Complexity Scaling");
-    std::fprintf(out_file, "%-25s %12s %10s %10s\n", "Complexity", "Frames/sec", "us/frame",
+    std::println(out_file, "{:<25} {:>12} {:>10} {:>10}", "Complexity", "Frames/sec", "us/frame",
                  "Relative");
     print_separator();
     std::vector<ComplexityRow> complexity;
@@ -1082,14 +1068,12 @@ static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit
                 baseline = fps;
             double relative = relative_of(fps, baseline);
             double us = us_per_frame_of(fps);
-            std::fprintf(out_file, "%-25s %12.0f %10.1f %10.2fx\n", label.c_str(), fps, us,
-                         relative);
+            std::println(out_file, "{:<25} {:12.0f} {:10.1f} {:10.2f}x", label, fps, us, relative);
             complexity.push_back({label, fps, us, relative});
         }
     }
 
-    std::fprintf(out_file,
-                 "======================================================================\n");
+    std::println(out_file, "{}", k_rule_heavy);
 
     if (emit_json) {
         // ordered_json (NOT default json, which sorts object keys alphabetically):
@@ -1139,7 +1123,7 @@ static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit
         output["system"] = get_system_info();
         output["results"] = results;
 
-        std::printf("%s\n", output.dump(2).c_str());
+        std::println("{}", output.dump(2));
     }
 }
 
@@ -1158,17 +1142,31 @@ struct Args {
     bool json_output = false;
 };
 
-static void print_usage(const char* argv0) {
-    std::fprintf(stderr, "Usage: %s [throughput|latency|scaling] [OPTIONS]\n\n", argv0);
-    std::fprintf(stderr, "Options:\n");
-    std::fprintf(stderr, "  --frames N   Frames per run (default: 10000, throughput/scaling)\n");
-    std::fprintf(stderr, "  --runs N     Number of runs (default: 5, throughput/scaling)\n");
-    std::fprintf(
+static void print_usage(std::string_view argv0) {
+    std::print(
         stderr,
-        "  --warmup N   Warmup runs (default: 2, throughput) or ops (default: 500, latency)\n");
-    std::fprintf(stderr, "  --ops N      Operations to measure (default: 5000, latency)\n");
-    std::fprintf(stderr, "  --quick      Fewer iterations (scaling)\n");
-    std::fprintf(stderr, "  --json       Emit JSON to stdout\n");
+        "Usage: {} [throughput|latency|scaling] [OPTIONS]\n\n"
+        "Options:\n"
+        "  --frames N   Frames per run (default: 10000, throughput/scaling)\n"
+        "  --runs N     Number of runs (default: 5, throughput/scaling)\n"
+        "  --warmup N   Warmup runs (default: 2, throughput) or ops (default: 500, latency)\n"
+        "  --ops N      Operations to measure (default: 5000, latency)\n"
+        "  --quick      Fewer iterations (scaling)\n"
+        "  --json       Emit JSON to stdout\n",
+        argv0);
+}
+
+// A count option must be a whole decimal number of zero or more; anything else
+// (a word, a sign, trailing characters) is refused rather than read as zero and
+// silently benchmarked.
+static auto parse_count(std::string_view option, std::string_view text) -> int {
+    int value = 0;
+    auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (ec != std::errc{} || end != text.data() + text.size() || value < 0) {
+        std::println(stderr, "{} expects a non-negative whole number, got '{}'", option, text);
+        std::exit(1);
+    }
+    return value;
 }
 
 static auto parse_args(int argc, char* argv[]) -> Args {
@@ -1181,7 +1179,7 @@ static auto parse_args(int argc, char* argv[]) -> Args {
 
     args.mode = argv[1];
     if (args.mode != "throughput" && args.mode != "latency" && args.mode != "scaling") {
-        std::fprintf(stderr, "Unknown mode: %s\n", argv[1]);
+        std::println(stderr, "Unknown mode: {}", argv[1]);
         print_usage(argv[0]);
         std::exit(1);
     }
@@ -1193,17 +1191,17 @@ static auto parse_args(int argc, char* argv[]) -> Args {
         } else if (arg == "--quick") {
             args.quick = true;
         } else if (arg == "--frames" && i + 1 < argc) {
-            args.frames = std::atoi(argv[++i]);
+            args.frames = parse_count(arg, argv[++i]);
         } else if (arg == "--runs" && i + 1 < argc) {
-            args.runs = std::atoi(argv[++i]);
+            args.runs = parse_count(arg, argv[++i]);
         } else if (arg == "--warmup" && i + 1 < argc) {
-            int val = std::atoi(argv[++i]);
+            int val = parse_count(arg, argv[++i]);
             args.warmup = val;
             args.warmup_ops = val;
         } else if (arg == "--ops" && i + 1 < argc) {
-            args.ops = std::atoi(argv[++i]);
+            args.ops = parse_count(arg, argv[++i]);
         } else {
-            std::fprintf(stderr, "Unknown option: %s\n", argv[i]);
+            std::println(stderr, "Unknown option: {}", arg);
             print_usage(argv[0]);
             std::exit(1);
         }

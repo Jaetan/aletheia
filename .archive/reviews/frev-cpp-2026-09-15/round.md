@@ -22,5 +22,5 @@ Tasks are worked in id order. Follow-ups created during the run get the next fre
 - message files: `.git/frev/msg-<id>.txt`
 - probe store: `probes/` with `probes/run_all.sh`
 - lens: `lens/linecount.py` (comment/code per file), `base/linecount.tsv`, `base/file_gate_map.tsv`
-- current task: 005 (001 to 004 completed; snapshots refs/frev/001 to 004)
+- current task: 006 (001 to 005 completed; snapshots refs/frev/001 to 005)
 - follow-ups created: 092 (`docs/MUTATION_BENCH.yaml`, mutant count drift found by the base sweep), 093 (`.gitignore`, build-tsan/ not ignored, from task 003), 094 (`docs/reference/CPP_API.md`, streaming fence hides its parse failure, from task 004)

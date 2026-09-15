@@ -4,7 +4,7 @@
 - file: `cpp/src/ffi_backend.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: none
+- pushed-in findings: make_ffi_backend accepts an empty path, and dlopen("") opens the calling program, so the failure surfaces later as "dlsym failed for hs_init_with_rtsopts: ./build/benchmark: undefined symbol" and, from a constructor, as std::terminate (reproduced from task 005 with ALETHEIA_LIB set to the empty string and the benchmark falling through to it); reject an empty path at the entry with a typed error and cover the from_env path the same way
 
 ## Report
 
