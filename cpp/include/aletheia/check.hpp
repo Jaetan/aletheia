@@ -48,10 +48,6 @@ inline auto fmt_pv(PhysicalValue v) -> std::string {
     return format_rational_ffi(r.numerator(), r.denominator());
 }
 
-// Microseconds per millisecond — the ms→µs scale factor (matches enrich.cpp's
-// `us_per_millisecond`, Go's `usPerMillisecond`, Rust's `US_PER_MILLISECOND`).
-constexpr std::int64_t us_per_millisecond = 1'000;
-
 // Convert a millisecond bound into the Timestamp (microsecond) domain, rejecting
 // a negative bound and an ms→µs multiply that would overflow int64.  The overflow
 // is reachable from untrusted input (e.g. a YAML check with `within_ms:

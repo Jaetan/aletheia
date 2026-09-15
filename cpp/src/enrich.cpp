@@ -28,9 +28,6 @@ static auto format_value(const Rational& r) -> std::string {
     return detail::format_rational_ffi(r.numerator(), r.denominator());
 }
 
-constexpr std::int64_t us_per_second = 1'000'000;
-constexpr std::int64_t us_per_millisecond = 1'000;
-
 // Greek capital delta, the change-predicate prefix.
 constexpr std::string_view k_delta = "\u0394";
 

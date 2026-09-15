@@ -298,6 +298,11 @@ using CanId = std::variant<StandardId, ExtendedId>;
 
 using Timestamp = std::chrono::microseconds;
 
+// Scale into the Timestamp domain: the check builder's millisecond bound and
+// the renderer's time bound (Go `usPerMillisecond`, Rust `US_PER_MILLISECOND`).
+inline constexpr Timestamp::rep us_per_millisecond = 1'000;
+inline constexpr Timestamp::rep us_per_second = 1'000'000;
+
 // ---------------------------------------------------------------------------
 // DLC: 0-15 (CAN-FD), validated at construction
 // ---------------------------------------------------------------------------
