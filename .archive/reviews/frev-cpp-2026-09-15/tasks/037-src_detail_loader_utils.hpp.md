@@ -1,6 +1,6 @@
 # Task 037: file review of `cpp/src/detail/loader_utils.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/detail/loader_utils.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/037 (signed later by the dribble).
+
+Claims and guards: the header's promise that it "defines the keyword constants" (it did not; it does now, and both loaders' predicates and dispatchers use them); the Python mirrors it cites (python/aletheia/_loader_utils.py holds the lstat-then-reject pattern and the size bounds, cited by file rather than by function names the grep did not find); the dispatch contracts (yaml_tests and excel_tests).
+
+Findings fixed: (a) eight keyword strings repeated across the predicates and dispatchers are eight constants; (b) the dispatchers and predicates take string_view; (c) <stdexcept> was missing for the std::invalid_argument the header throws; (d) all five Result<void> checks and the dispatchers are [[nodiscard]], so a discarded check no longer silently skips a guard; (e) a history clause ("keep matching after the rewrite"), a line-count digit ("~80 LOC") and a plan sentence (the miniz swap) removed; the Python citation named the wrong file.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/037
+claims: 3 rows, 0 without a guard
+1 line per line: checked, all 155 lines read
+2 guidelines: finding, nodiscard on the checks; string_view parameters; the missing include
+3 modernize: finding, constants and views; gate: excel, yaml, unit and cli tests green, tidy gate zero
+4 catalogue: checked, AGENTS.md universal rule on adversarial-input bounds, cited by the header
+5 value semantics: finding, borrowed views for read-only strings
+6 raii: n/a
+7 dedup: finding, keyword strings to constants
+8 ground truth: finding, the constants sentence was false, the Python file was wrong
+9 history: finding, one clause and one plan sentence
+10 simpler: checked
+11 comments: 81 to 80, code 53 to 64 (the eight constants)
+sweep: no mutation names this file; its definitions' tests green
+probes: none added; store 43 run, 42 pass, 1 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 

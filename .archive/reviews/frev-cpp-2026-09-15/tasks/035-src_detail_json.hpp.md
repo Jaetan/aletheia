@@ -1,6 +1,6 @@
 # Task 035: file review of `cpp/src/detail/json.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/detail/json.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/037 (signed later by the dribble; shared snapshot with tasks 036 and 037).
+
+Claims and guards: every declaration's contract (unit_tests_json, the DBC corpus parity test, the fuzz harnesses over the parsers); the citations (handleTraceEvent in Protocol/StreamState.agda resolves; the decimal_parse_failed and decimal_overflow reasons are minted in haskell-shim/src/AletheiaFFI/Marshal.hs and matched in json_parse.cpp).
+
+Finding fixed: none of the seventeen serialisers, parsers and the decimal decoder was [[nodiscard]]; all are, and the tree builds with zero warnings.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/037
+claims: 2 rows, 0 without a guard
+1 line per line: checked, all 76 lines read
+2 guidelines: finding, nodiscard on every pure declaration
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md categories 11 and 12 (the parser set and the accepted statuses documented per parser)
+5 value semantics: checked, string_view in, values out
+6 raii: n/a
+7 dedup: checked, none
+8 ground truth: checked, every citation resolves
+9 history: checked, none
+10 simpler: checked
+11 comments: 38 to 38, code 29 to 29
+sweep: no mutation names this header; its definitions carry 23 mutants (json_parse.cpp 17, json_serialize.cpp 6), all killed at base; unit, corpus and integration tests green, tidy gate zero
+probes: none added
+decision points: none
+```
 
 ## Contract (carried whole)
 

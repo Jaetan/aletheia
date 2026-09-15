@@ -1,6 +1,6 @@
 # Task 036: file review of `cpp/src/detail/loader_utils.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/detail/loader_utils.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/037 (signed later by the dribble; shared snapshot with task 037).
+
+Claims and guards: the ZIP central-directory walker refuses a bomb, accepts a sane archive and refuses a non-ZIP (excel_tests has a forged-EOCD case; new probe builds a 70 MiB-of-zeros archive, a small one and a non-archive with Python's zipfile and checks the three verdicts and the summed size in bound_info); the stat-versus-absent discipline of validate_loader_path (excel and yaml tests; the comment documents the errno rule); the size bounds (unit_tests_input_bounds, the loaders' tests).
+
+Findings fixed: (a) the two little-endian readers took char pointers reached through a to_address idiom kept only to avoid a tidy check, with a comment about that idiom; they take a bounds-checked subspan at the field offset, and the char_at helper and its commentary are gone; (b) the archive bound built the InputBoundExceeded error a third time beside the shared builder; the builder takes a suffix so the tested "ZIP-bomb defence" message is unchanged; (c) <array>, <cstring> and <memory> no longer needed. Pushed to XREV 097: this file's readers and client.cpp's read_le are one reader in two files. Mull: all mutants killed after the edit (none names this file).
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/037
+claims: 3 rows, 1 without a guard: probe cpp_src_detail_loader_utils.cpp--zip-walker-classifies-archives.sh added
+1 line per line: checked, all 313 lines read; every offset asked what bounds it
+2 guidelines: checked, spans over buffers, saturating add, errno keyed
+3 modernize: finding, subspan readers; gate: excel, yaml, unit and cli tests green, tidy gate zero, Mull all killed, probe green before and after
+4 catalogue: checked, AGENTS/cpp.md categories 28 and 29 (bounds at the loader entry, binary stream state checked after every read)
+5 value semantics: checked
+6 raii: checked, ifstream owns the file
+7 dedup: finding, one input-bound builder; the reader duplicate with client.cpp pushed to XREV 097
+8 ground truth: checked, sv_end_ptr existed but is no longer cited; the APPNOTE offsets match the code
+9 history: checked, none
+10 simpler: finding, see 3
+11 comments: 80 to 76, code 201 to 188
+sweep: no mutation names this file; Mull all killed after the edit; tidy gate zero
+probes: 1 added
+decision points: none
+```
 
 ## Contract (carried whole)
 
