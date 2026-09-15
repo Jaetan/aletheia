@@ -824,8 +824,8 @@ static auto format_enriched_reason(const PropertyDiagnostic& diag,
                     if (!first)
                         parts += ", ";
                     // Render the observed value via the kernel formatℚ (same renderer
-                    // as the predicate threshold) — exact, not lossy %g/to_double(),
-                    // and byte-identical to the other bindings.
+                    // as the predicate threshold): exact, never a printf conversion or a
+                    // cast to double, and byte-identical to the other bindings.
                     parts +=
                         std::format("{} = {}", std::string_view{sig},
                                     detail::format_rational_ffi(it->second.get().numerator(),

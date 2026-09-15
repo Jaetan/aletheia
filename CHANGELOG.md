@@ -38,6 +38,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (C++): `Rational::to_double()` is removed.** It was the one way to
+  take a lossy value out of an exact rational, and nothing in the library used
+  it: the sources mention it only to say the float principle bars it, and its
+  only callers were assertions in the integration suite, which now compare exact
+  rationals. The header proves the float principle at its constructor boundary,
+  and an accessor undid it. A caller who needs a floating-point value can still
+  divide the numerator by the denominator and own that decision.
 - **BREAKING (C++): node-valued DBC fields and message targets carry their
   vocabulary types.** `DbcNode::name`, `DbcSignal::receivers`,
   `DbcMessage::senders` and the node field of every comment and attribute target

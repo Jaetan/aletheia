@@ -1,13 +1,44 @@
 # Task 116: the rational-to-double conversion is a float escape the library never uses (ruled)
 
-- status: pending
+- status: completed
 - files: `cpp/include/aletheia/types.hpp`, `cpp/tests/integration_tests.cpp`
 - pass: full
 - origin: Ruled: remove the conversion from the public API and rewrite the five assertions against exact rationals, taking the breaking removal. The ruling adds a question to answer with the sweep rather than by reading: evaluate whether those five assertions are needed at all. Run the mutation sweep with them removed and compare against the sweep with them present. If no mutant survives their removal that dies with them present, they duplicate coverage and the evaluation says so with the numbers rather than with an opinion. If some do, they are rewritten against exact rationals and kept. Record whichever outcome the measurement gives. Owes a changelog entry.
 
 ## Report
 
-(to be written when the task is worked)
+The float escape is gone, its assertions compare exact rationals, and the question the ruling attached is answered with a measurement rather than an opinion. Fix in refs/frev/116.
+
+Claims and guards. The header proves the float principle at its constructor boundary with static assertions, and the logging header states that no float crosses any surface. One accessor undid both by handing a caller a double for the asking. Nothing in the library took it: the sources mention it only to say the principle bars it. Its only callers were assertions in the integration suite, comparing extracted values through an approximate match.
+
+The evaluation the ruling asked for, run as a sweep rather than read off. With every one of those assertions deleted, the sweep reports 62 mutants, 62 killed, no survivor. With them present and rewritten, the same three numbers. No mutant dies because of them, so on the mutation surface they are duplicate coverage, and that is the honest answer to the question.
+
+They are kept anyway, rewritten, and the reason is not the sweep. They are the only place the extracted values are checked end to end against what the DBC says, through the real library rather than a double, and the repository's own rule is that a defence is not removed to improve a metric. Rewriting them changed what they check as well as how: an approximate match against a double accepted a value that was merely close, one of them explicitly within a tenth, where the exact comparison accepts one value. The extraction path is exact, so the looser assertion was never buying anything.
+
+A correction to the count in the record of the decision: the entry said five assertions, measured now there are ten, in five test cases.
+
+Three comments cited the removed member by name, two in the command-line renderer and one in the client's violation text, each as the lossy thing the float principle bars. An identifier a comment cites that resolves nowhere is a finding by the contract, and it would have been one the moment this landed, so all three now state the principle without naming a member that no longer exists.
+
+The guard is a probe with two arms: the header offers no conversion to a floating-point type, and a translation unit that calls one does not compile. Putting the accessor back makes it red.
+
+```
+REPORT 2026-09-15 tree refs/frev/115 fix in refs/frev/116
+claims: 2 rows, 2 without a guard: that no float leaves the rational, and that the extracted values are what the DBC says; the first is now probed, the second is the assertions made exact
+1 line per line: checked, the rational's whole definition read, and every call site of the removed accessor
+2 guidelines: checked, a type that refuses a lossy conversion is the guideline this header already followed everywhere else
+3 modernize: n/a
+4 catalogue: n/a
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked, the ten assertions were one pattern repeated and are rewritten as one pattern
+8 ground truth: finding, three comments cited the member after its removal would have made them false, and the record of the decision undercounted the assertions
+9 history: checked
+10 simpler: finding, an exact comparison is shorter than an approximate one with a margin, and says more
+11 comments: 730 to 731, code 3106 to 3103 over the four files
+sweep: 62 mutants, 62 killed, no survivor, and the same three numbers with the assertions deleted, which is the measurement the ruling asked for
+probes: probes/cpp_include_aletheia_types.hpp--no-float-escape-on-the-rational.sh added, red when the accessor is put back; store 69 run, 68 pass, the remaining failure the installed-consumer link this pass lands later
+decision points: none
+```
 
 ---
 

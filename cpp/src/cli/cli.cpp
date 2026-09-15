@@ -346,8 +346,9 @@ static auto cmd_validate(const Args& a) -> int {
 // JSON (`json_serialize.cpp::rational_to_json`).  The parsed value is identical
 // across bindings; the byte order is not (nlohmann's default object is a sorted
 // map, so keys emit alphabetically — `denominator` before `numerator` — whereas
-// Python emits insertion order).  The float principle bars a lossy `to_double()`
-// here (this is machine-readable output a consumer parses).  Extraction values
+// Python emits insertion order).  The float principle bars a lossy conversion to
+// double here (this is machine-readable output a consumer parses), and the type
+// no longer offers one.  Extraction values
 // are kernel-canonical (reduced, positive denominator), so no gcd / INT64_MIN
 // normalisation is needed (unlike `rational_to_json`, which guards arbitrary
 // caller-built rationals on the DBC-serialize path).
@@ -359,7 +360,7 @@ static auto extract_value_to_json(const aletheia::Rational& r) -> Json {
 
 // Exact rational -> human-readable string for CLI text output, via the verified
 // kernel renderer (Agda `formatℚ`): a terminating decimal (`1/4` -> "0.25") or an
-// exact fraction (`1/3` -> "1/3"), never a lossy `to_double()`.  Byte-identical
+// exact fraction (`1/3` -> "1/3"), never a lossy conversion to double.  Byte-identical
 // with Go's FormatRational and Python's format_rational (same kernel FFI).  The
 // CLI always has a live client here, so the RTS is up (format_rational_ffi throws
 // only when it is not).

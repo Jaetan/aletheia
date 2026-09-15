@@ -320,8 +320,8 @@ TEST_CASE("extract signals via real FFI", "[integration]") {
     auto result = client.extract_signals(std::stop_token{}, id, dlc, data);
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 2);
-    CHECK(result->get(SignalName{"Speed"}).get().to_double() == Catch::Approx(100.0));
-    CHECK(result->get(SignalName{"RPM"}).get().to_double() == Catch::Approx(3000.0));
+    CHECK(result->get(SignalName{"Speed"}).get() == Rational{100, 1});
+    CHECK(result->get(SignalName{"RPM"}).get() == Rational{3000, 1});
 }
 
 namespace {
@@ -693,8 +693,8 @@ TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
     auto extracted = client.extract_signals(std::stop_token{}, id, Dlc::create(8).value(), *built);
     REQUIRE(extracted.has_value());
     // Round-trip: values should match (within quantization)
-    CHECK(extracted->get(SignalName{"Speed"}).get().to_double() == Catch::Approx(42.5).margin(0.1));
-    CHECK(extracted->get(SignalName{"RPM"}).get().to_double() == Catch::Approx(1500.0));
+    CHECK(extracted->get(SignalName{"Speed"}).get() == Rational{85, 2});
+    CHECK(extracted->get(SignalName{"RPM"}).get() == Rational{1500, 1});
 }
 
 TEST_CASE("FFI payload guards accept exactly 64 bytes (CAN-FD boundary)",
@@ -1318,9 +1318,9 @@ TEST_CASE("nested mux full chain match extracts leaf via real FFI", "[integratio
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 3);
     CHECK(result->absent.empty());
-    CHECK(result->get(SignalName{"Mode"}).get().to_double() == Catch::Approx(3.0));
-    CHECK(result->get(SignalName{"SubMode"}).get().to_double() == Catch::Approx(7.0));
-    CHECK(result->get(SignalName{"Detail"}).get().to_double() == Catch::Approx(43981.0));
+    CHECK(result->get(SignalName{"Mode"}).get() == Rational{3, 1});
+    CHECK(result->get(SignalName{"SubMode"}).get() == Rational{7, 1});
+    CHECK(result->get(SignalName{"Detail"}).get() == Rational{43981, 1});
 }
 
 TEST_CASE("nested mux inner mismatch marks leaf absent via real FFI", "[integration][nested_mux]") {
@@ -1341,8 +1341,8 @@ TEST_CASE("nested mux inner mismatch marks leaf absent via real FFI", "[integrat
     CHECK(result->values.size() == 2); // Mode and SubMode extracted
     CHECK(result->absent.size() == 1);
     CHECK(contains_signal(result->absent, "Detail"));
-    CHECK(result->get(SignalName{"Mode"}).get().to_double() == Catch::Approx(3.0));
-    CHECK(result->get(SignalName{"SubMode"}).get().to_double() == Catch::Approx(5.0));
+    CHECK(result->get(SignalName{"Mode"}).get() == Rational{3, 1});
+    CHECK(result->get(SignalName{"SubMode"}).get() == Rational{5, 1});
 }
 
 TEST_CASE("nested mux outer mismatch marks inner and leaf absent via real FFI",
@@ -1365,7 +1365,7 @@ TEST_CASE("nested mux outer mismatch marks inner and leaf absent via real FFI",
     CHECK(result->absent.size() == 2);
     CHECK(contains_signal(result->absent, "SubMode"));
     CHECK(contains_signal(result->absent, "Detail"));
-    CHECK(result->get(SignalName{"Mode"}).get().to_double() == Catch::Approx(2.0));
+    CHECK(result->get(SignalName{"Mode"}).get() == Rational{2, 1});
 }
 
 TEST_CASE("mux cycle rejected by validator via real FFI", "[integration][nested_mux]") {

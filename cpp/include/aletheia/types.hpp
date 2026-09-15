@@ -118,10 +118,6 @@ public:
     [[nodiscard]] constexpr auto numerator() const -> std::int64_t { return num_; }
     [[nodiscard]] constexpr auto denominator() const -> std::int64_t { return den_; }
 
-    [[nodiscard]] constexpr auto to_double() const -> double {
-        return static_cast<double>(num_) / static_cast<double>(den_);
-    }
-
     // Cross-multiply comparison (avoids floating-point).
     // __int128 is a Clang/GCC extension (not standard C++); the project
     // builds Clang-only on Linux (latest stable Clang — see
