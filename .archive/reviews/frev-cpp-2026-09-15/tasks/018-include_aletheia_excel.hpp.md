@@ -1,6 +1,6 @@
 # Task 018: file review of `cpp/include/aletheia/excel.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/excel.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/019 (signed later by the dribble; shared snapshot with task 019).
+
+Claims and guards: the template writes three sheets with bold headers (excel_tests: create template, three sheets, DBC headers, headers bold); the template never overwrites (the source refuses an existing path; no test named it; new probe writes once, calls again, and checks the file's hash is unchanged); either or both check sheets may be absent (no test names a workbook missing one sheet; pushed to the excel test task); the loaders return Result (their signatures).
+
+Finding fixed: the three functions were not [[nodiscard]]; a discarded Result<void> from create_excel_template silently dropped its error. They are now, and the tree builds with zero warnings.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/019
+claims: 4 rows, 2 without a guard: probe cpp_include_aletheia_excel.hpp--template-never-overwrites.sh added; the optional-sheet row pushed to the excel test task
+1 line per line: checked, all 45 lines read
+2 guidelines: finding, nodiscard on the three Result-returning functions
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md category 29 (file I/O: the path parameter is a std::filesystem::path, the refusal typed)
+5 value semantics: checked, path by const reference, sheet names by string_view
+6 raii: n/a in the interface
+7 dedup: checked, none
+8 ground truth: checked, every sentence traces to excel.cpp or a test, except the optional-sheet sentence whose test is pushed
+9 history: checked, none
+10 simpler: checked
+11 comments: 22 to 22, code 16 to 16
+sweep: no mutation names this file; excel.cpp carries no Mull mutants at base; excel, unit and cli tests green after the edit, tidy gate zero
+probes: 1 added
+decision points: none
+```
 
 ## Contract (carried whole)
 

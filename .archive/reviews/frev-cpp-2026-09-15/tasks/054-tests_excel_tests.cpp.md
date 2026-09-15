@@ -4,7 +4,7 @@
 - file: `cpp/tests/excel_tests.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: clang-tidy lens over tests at round base reports 156 unique diagnostics in this file (the CI tidy gate excludes tests; details in base/clang_tidy_tests.txt); each is a candidate for points 2 and 3, checked against the file, never a verdict
+- pushed-in findings: clang-tidy lens over tests at round base reports 156 unique diagnostics in this file (the CI tidy gate excludes tests; details in base/clang_tidy_tests.txt); each is a candidate for points 2 and 3, checked against the file, never a verdict; excel.hpp promises that the Checks and When-Then sheets may each be absent ("either or both may be present") and that create_excel_template never overwrites an existing file; the suite has no case for a workbook missing one of the two sheets and none for the existing-path refusal (a probe covers the refusal since task 018; add both failing-first cases here)
 
 ## Report
 

@@ -1,6 +1,6 @@
 # Task 019: file review of `cpp/include/aletheia/limits.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/limits.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/019 (signed later by the dribble).
+
+Claims and guards: the header mirrors src/Aletheia/Limits.agda verbatim (nothing checked it: tools/check_limits_parity.py gates the Go and Python mirrors and states that C++ has none, and the unit tests compare the header against literal numbers; new probe reads the Agda module and the header and compares every bound and every wire string; it was red on four missing bounds and one missing kind); the bound kinds match boundKindCode (same probe); the binding's own pre-FFI enforcement sites (grep over cpp/src: four constants used in ffi_backend.cpp, client.cpp, the loaders, yaml.cpp and the two JSON units).
+
+Findings fixed: (a) four Agda bounds had no C++ constant (comments, nodes and value tables per file, rational component magnitude) and the ninth wire kind was missing; all added with the Agda values; (b) "the value-equality tests are the machine-checked parity gate against Aletheia.Limits" was false, the tests compare literals; the sentence names the probe; (c) the "direct production consumers" sentence named two constants where six are enforced before the FFI; it names the four bounds and their sites; (d) the header cited a to_aletheia_error() lowering that exists nowhere; the error travels as bound_info() inside AletheiaError, which the comment now says; (e) max_properties_per_stream had no comment line. Follow-up task 098: extend check_limits_parity.py to the C++ mirror and correct its docstring. Pushed to the input-bounds test task: max_properties_per_stream has no value case.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/019
+claims: 3 rows, 1 without a guard: probe cpp_include_aletheia_limits.hpp--mirrors-agda-limits-verbatim.sh added
+1 line per line: checked, all 106 lines read; every constant asked whether the Agda module defines it and every sentence what enforces it
+2 guidelines: checked, inline constexpr, string_view wire codes, a plain value type for the structured error
+3 modernize: checked
+4 catalogue: checked, AGENTS.md universal rule on adversarial-input bounds and AGENTS/cpp.md category 28
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked in file; the mirror versus the parity tool is task 098
+8 ground truth: finding, an incomplete mirror, a false gate sentence, a stale consumer list, a phantom function
+9 history: checked, none
+10 simpler: checked
+11 comments: 56 to 60 (four more lines, in the task that fixed the incomplete mirror), code 31 to 37
+sweep: no mutation names this file; whole tree rebuilt clean, unit and static tests green, tidy gate zero
+probes: 1 added; store 31 run, 30 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 

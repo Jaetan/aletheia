@@ -1,14 +1,14 @@
-# Task 086: file review of `cpp/tests/unit_tests_input_bounds.cpp`
+# Task 098: file review of `tools/check_limits_parity.py` (follow-up from task 019)
 
 - status: pending
-- file: `cpp/tests/unit_tests_input_bounds.cpp`
-- round base: 726198bb (2026-09-15)
-- pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: clang-tidy lens over tests at round base reports 21 unique diagnostics in this file (the CI tidy gate excludes tests; details in base/clang_tidy_tests.txt); each is a candidate for points 2 and 3, checked against the file, never a verdict; limits.hpp calls this file the machine-checked parity gate against Aletheia.Limits, yet max_properties_per_stream has no value-equality case here while every other constant has one (from task 019)
+- file: `tools/check_limits_parity.py`
+- round base: b222b613 (2026-09-15)
+- pass: full
+- origin: the tool's docstring says the C++ binding does not mirror the Agda limits and so gates only the Go and Python mirrors; cpp/include/aletheia/limits.hpp mirrors them verbatim by its own header, and at the round it was missing four bounds and one kind that nobody caught (task 019 added them and left a probe, probes/cpp_include_aletheia_limits.hpp--mirrors-agda-limits-verbatim.sh). Extend the gate to the C++ mirror so the three surfaces are held by one tool, and correct the docstring; the probe then either retires into the gate or stays as the review's instrument.
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+(filled when the task is worked)
 
 ## Contract (carried whole)
 

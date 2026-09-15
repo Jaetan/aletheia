@@ -17,13 +17,14 @@
 // (`aletheia.InputBoundExceededError`) and Go (`*aletheia.InputBoundExceededError`)
 // bindings expose the equivalent type; keep the three surfaces in sync.
 //
-// Direct production consumers: `max_json_bytes` (ffi_backend.cpp pre-check),
-// `bound_kind_nesting_depth` / `max_nesting_depth` (cross-binding integration
-// test wire-error verification).  The remaining constants are declarations —
-// the Agda kernel produces the wire string and the structured triple; this
+// The binding enforces four of these bounds itself before crossing the FFI:
+// `max_json_bytes` and `max_frame_byte_count` in ffi_backend.cpp,
+// `max_dbc_text_bytes` in the client and the loaders, `max_nesting_depth` in
+// the JSON translation units.  The remaining constants are declarations: the
+// Agda kernel produces the wire string and the structured triple, and this
 // header lets C++ callers identify and compare against them by name.  The
-// value-equality tests in `cpp/tests/unit_tests_input_bounds.cpp` are the
-// machine-checked parity gate against `Aletheia.Limits`.
+// mirror is held to the Agda module by a probe under probes/ that reads both
+// files and compares every bound and every wire string.
 #pragma once
 
 #include <cstdint>
@@ -45,6 +46,8 @@ inline constexpr std::string_view bound_kind_string_length = "string_length";
 inline constexpr std::string_view bound_kind_atom_count = "atom_count";
 inline constexpr std::string_view bound_kind_frame_byte_count = "frame_byte_count";
 inline constexpr std::string_view bound_kind_property_count = "property_count";
+inline constexpr std::string_view bound_kind_rational_component_magnitude =
+    "rational_component_magnitude";
 
 // ============================================================================
 // BOUND CONSTANTS
@@ -71,6 +74,11 @@ inline constexpr std::uint64_t max_attributes_per_file = 10'000;
 // Value-description entries per DBC file (VAL_ + VAL_TABLE_).
 inline constexpr std::uint64_t max_value_descriptions_per_file = 1'000'000;
 
+// Comments (CM_), nodes (BU_) and value tables (VAL_TABLE_) per DBC file.
+inline constexpr std::uint64_t max_comments_per_file = 10'000;
+inline constexpr std::uint64_t max_nodes_per_file = 10'000;
+inline constexpr std::uint64_t max_value_tables_per_file = 10'000;
+
 // DBC identifier (signal name, message name, etc.) length in characters.
 inline constexpr std::uint64_t max_identifier_length = 128;
 
@@ -79,10 +87,16 @@ inline constexpr std::uint64_t max_string_length_bytes = 64ULL * 1024;
 
 // LTL atoms per single property.
 inline constexpr std::uint64_t max_atom_count_per_property = 1024;
+
+// Properties per stream.
 inline constexpr std::uint64_t max_properties_per_stream = 1024;
 
 // CAN frame payload byte count (CAN-FD maximum).
 inline constexpr std::uint64_t max_frame_byte_count = 64;
+
+// Magnitude of a JSON number's numerator and denominator in reduced form: the
+// signed 64-bit wire range the binary FFI's rational slots carry.
+inline constexpr std::uint64_t max_rational_component_magnitude = 9'223'372'036'854'775'807;
 
 // ============================================================================
 // INPUT-BOUND-EXCEEDED ERROR TYPE
@@ -92,11 +106,10 @@ inline constexpr std::uint64_t max_frame_byte_count = 64;
 /// `aletheia.InputBoundExceededError` and Go `*aletheia.InputBoundExceededError`.
 ///
 /// Stored as a value type (not a derived class of `AletheiaError`) so it can
-/// flow uniformly through `Result<T> = std::expected<T, AletheiaError>` after
-/// `to_aletheia_error()` lowering, without slicing.  Callers who want the
-/// structured fields construct or inspect this struct directly at the
-/// rejection site; callers who only need the error path use the lowered
-/// `AletheiaError` form.
+/// travel inside an `AletheiaError` of kind `InputBoundExceeded` (its
+/// `bound_info()`), and so through `Result<T>`, without slicing.  Callers who
+/// want the structured fields inspect `bound_info()`; callers who only need
+/// the error path use the `AletheiaError` itself.
 struct InputBoundExceededError {
     std::string bound_kind; // wire code (one of `bound_kind_*` above)
     std::uint64_t observed; // input value that exceeded the limit
