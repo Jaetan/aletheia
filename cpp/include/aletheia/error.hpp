@@ -22,14 +22,14 @@ enum class ErrorKind {
     Ffi,                // Library load / RTS initialization failure
     BinaryUnsupported,  // Backend cannot service the binary-path call (use JSON
                         // fallback); mirrors Go's ErrBinaryPathUnsupported sentinel.
-    Cancellation,       // std::stop_token requested cancellation; cooperative-at-
-                        // FFI-boundaries per docs/architecture/CANCELLATION.md §1.1
-                        // — the next FFI call honors the request, an in-flight call
+    Cancellation,       // std::stop_token requested cancellation; cooperative at
+                        // FFI boundaries (Rule 1 of docs/architecture/CANCELLATION.md):
+                        // the next FFI call honors the request, an in-flight call
                         // runs to completion. Mirrors Go's wrapped context.Canceled.
     InputBoundExceeded, // Adversarial-input bound crossed at a parser surface;
                         // mirrors Python's `InputBoundExceededError` and Go's
                         // `*InputBoundExceededError` for cross-binding parity.
-                        // After consolidation, the wire code is the single
+                        // The wire code is the single
                         // `ErrorCode::InputBoundExceeded`; `bound_kind` from
                         // the structured payload discriminates which bound.
     TextRoundtrip       // FormatDBCText refused: the emitted .dbc text does not
@@ -88,10 +88,8 @@ enum class ErrorCode {
     FrameCanIdNotFound,
     FrameCanIdMismatch,
     FrameSignalValueOutOfBounds,
-    // Top-level adversarial-input bound (consolidated 2026-05-11 —
-    // replaces ParseInputBoundExceeded /
-    // FrameInputBoundExceeded / DBCTextInputBoundExceeded; discriminate
-    // by `bound_kind` from the structured payload).
+    // Top-level adversarial-input bound, one code for every parser surface;
+    // discriminate by `bound_kind` from the structured payload.
     InputBoundExceeded,
     // Route errors
     RouteMissingField,

@@ -1,6 +1,6 @@
 # Task 017: file review of `cpp/include/aletheia/error.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/error.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/017 (signed later by the dribble).
+
+Claims and guards: every ErrorCode but Unknown maps to a string the Agda errorCode emits (test_wire_codes_parity pins the bijection against docs/WIRE_CODES.yaml); the comments' citations resolve (new probe: Agda errorCode, the cancellation rule heading, Go's ErrBinaryPathUnsupported and InputBoundExceededError, Python's InputBoundExceededError, the Go and Rust round-trip errors); the error class carries the structured bound and issue payloads only for the kinds and codes stated (json_parse.cpp's envelope decoding, exercised by unit_tests_json and unit_tests_input_bounds).
+
+Findings fixed: (a) the Cancellation kind cited "CANCELLATION.md §1.1", a numbered subsection, and now names the rule; (b) "After consolidation, the wire code is the single ..." and the dated "consolidated 2026-05-11, replaces ..." comment were history; both state the present: one code for every parser surface, discriminated by bound_kind.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/017
+claims: 3 rows, 1 without a guard: probe cpp_include_aletheia_error.hpp--comment-citations-resolve.sh added
+1 line per line: checked, all 200 lines read; every enumerator asked which Agda constructor or binding counterpart it mirrors
+2 guidelines: checked, enum classes, value-type error with accessors, exception derived from runtime_error, nodiscard on every accessor and the parser
+3 modernize: checked, template <typename> alias for Result
+4 catalogue: checked, AGENTS/cpp.md category 23 (exceptions confined to constructors and the raw binary methods, stated) and the wire-codes SSOT gate
+5 value semantics: checked, the error is a value; message() returns a view into it, which is its documented lifetime
+6 raii: n/a
+7 dedup: checked, none
+8 ground truth: checked, every citation resolves; the families listed match the sections
+9 history: finding, two sentences and one date removed
+10 simpler: checked
+11 comments: 62 to 60, code 124 to 124
+sweep: no mutation names this file; whole tree rebuilt clean, unit, wire-code and integration tests green, tidy gate zero
+probes: 1 added; store 28 run, 27 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 
