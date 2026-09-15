@@ -1,6 +1,6 @@
 # Task 032: file review of `cpp/src/dbc.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/dbc.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/032 (signed later by the dribble).
+
+Claims and guards: the lazy indexes never trust a stale entry (unit_tests_dbc guards a stale index for signal_by_name and message_by_id; new probe shrinks, reorders and replaces the public vectors after a cached lookup for all three lookups); the multiplexing queries (unit_tests_dbc); the composite id key (its comment, exercised by the extended-id test).
+
+Findings fixed: (a) the presence filter loop was written three times (always-present, multiplexed, signals for a mux value); one signals_where over a ranges filter serves all three, with named predicates; (b) the validated-index check and its three-paragraph comment were written three times; one cached_element template carries the check and the one comment; (c) std::ranges::contains replaces a find-against-end. Mull after the edit: all mutants killed (none names this file).
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/032
+claims: 3 rows, 1 without a guard: probe cpp_src_dbc.cpp--lookups-survive-mutation-after-caching.sh added (the name lookup had no stale-index test)
+1 line per line: checked, all 156 lines read
+2 guidelines: checked, const queries, pointers into the owning container documented in the header
+3 modernize: finding, views::filter with ranges::to and ranges::contains; gate: 15 of 15 ctest, tidy gate zero, Mull all killed, probe green before and after
+4 catalogue: checked, AGENTS/cpp.md category 27 (ranges)
+5 value semantics: checked, the queries return copies of signals, which the header declares
+6 raii: n/a
+7 dedup: finding, two triplicated shapes to one helper each
+8 ground truth: checked, the comments describe the code that remains
+9 history: checked, none
+10 simpler: finding, see 7
+11 comments: 27 to 18, code 114 to 105
+sweep: no mutation names this file; the mutation tree rebuilt and Mull run after the edit, all killed
+probes: 1 added; store 42 run, 41 pass, 1 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
