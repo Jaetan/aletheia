@@ -1,6 +1,6 @@
 # Task 015: file review of `cpp/include/aletheia/detail/rational_renderer.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/include/aletheia/detail/rational_renderer.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/015 (signed later by the dribble).
+
+Claims and guards: the two exports the header names exist in AletheiaFFI.hs (aletheia_format_rational, aletheia_parse_decimal) and the decoder it names in json.hpp; the lazy load under std::call_once and the vocal refusal when the RTS is down (rts_init_renderer_uninitialized_tests); the library search order (no test stated it; new probe shows, with a backend up, that a variable naming an existing non-kernel file makes the renderer fail while a variable naming a missing file falls through to the registered kernel); the first-registration-wins rule (the source's empty-path guard under a mutex).
+
+Findings fixed: (a) the registration comment said "first-write-wins under std::call_once" and that only registrations after the load are ignored; the source ignores every registration after the first, under a mutex, and the renderer reads it once inside its call_once; (b) "ALETHEIA_LIB still wins over both" hid that a variable naming a missing file is skipped rather than honoured; the comment states the first-existing-candidate rule; (c) the two renderers are [[nodiscard]].
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/015
+claims: 5 rows, 1 without a guard: probe cpp_include_aletheia_detail_rational_renderer.hpp--library-search-order.sh added
+1 line per line: checked, all 54 lines read; each declaration's contract traced into rational_renderer.cpp
+2 guidelines: finding, nodiscard on the two value-returning functions
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md category 13 (FFI lifecycle: the renderer never initialises the RTS, stated and tested)
+5 value semantics: checked, integers and a string_view in, strings out
+6 raii: checked, none held by the interface; the source frees the kernel string through a unique_ptr deleter
+7 dedup: checked, none
+8 ground truth: finding, two sentences about registration and precedence were imprecise; every name resolves
+9 history: checked, none
+10 simpler: checked
+11 comments: 37 to 38 (one more line, in the task that fixed the precedence sentence), code 10 to 10
+sweep: no mutation names this file; rational_renderer.cpp carries seven mutants, all killed at base; whole tree rebuilt clean, five test suites green, tidy gate zero
+probes: 1 added; store 27 run, 26 pass, 1 red on record (task 007's loader consumer)
+decision points: none
+```
 
 ## Contract (carried whole)
 

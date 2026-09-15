@@ -27,7 +27,7 @@ namespace aletheia::detail {
 // Render `(num, denom)` via the Agda kernel.  Lazy-initialises the FFI
 // on first call.  Throws `AletheiaException(Ffi)` if the library is
 // not loadable.
-auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string;
+[[nodiscard]] auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string;
 
 // Parse a decimal literal into an exact rational via the Agda kernel's
 // `aletheia_parse_decimal`, returning the RAW JSON wire envelope (a bare
@@ -39,16 +39,17 @@ auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string;
 // The caller decodes the envelope via `detail::decode_decimal_response`
 // (in json.hpp) — this TU stays JSON-free.  Throws `AletheiaException(Ffi)` if
 // the library is not loadable or the runtime is uninitialised.
-auto parse_decimal_ffi(std::string_view input) -> std::string;
+[[nodiscard]] auto parse_decimal_ffi(std::string_view input) -> std::string;
 
 // Register a preferred `libaletheia-ffi.so` path for the lazy-load.
 // Called by `make_ffi_backend(lib_path, ...)` so the renderer (which
 // loads independently of the backend) consults the same .so the user
 // asked for, instead of falling back to its relative-path heuristic.
-// First-write-wins under `std::call_once`: subsequent registrations
-// after the renderer has loaded are no-ops (the renderer's state is
-// already pinned).  Pre-load registrations win over the heuristic;
-// `ALETHEIA_LIB` env var still wins over both.
+// The first registration wins and every later one is ignored; the
+// renderer reads it once, inside its `std::call_once`.  The load takes
+// the first candidate that exists, in the order `ALETHEIA_LIB`, the
+// registered path, the relative heuristic: a variable naming a missing
+// file is skipped, not an error (a probe under probes/ pins both halves).
 void register_default_lib_path(const std::filesystem::path& lib_path);
 
 } // namespace aletheia::detail

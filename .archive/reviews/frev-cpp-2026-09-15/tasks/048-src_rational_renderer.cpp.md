@@ -4,7 +4,7 @@
 - file: `cpp/src/rational_renderer.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: none
+- pushed-in findings: the file header says the renderer "throws (point 2) rather than self-initialising", a plan label the docs rule on plan labels in source forbids (from task 015)
 
 ## Report
 
