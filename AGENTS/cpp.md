@@ -89,29 +89,35 @@ Scope: ALL source files, headers, and test files in `cpp/`.
 ```bash
 cd cpp && cmake -B build && cmake --build build && ctest --test-dir build
 cd cpp && ctest --test-dir build --schedule-random --output-on-failure
-clang-format --dry-run -Werror include/aletheia/*.hpp src/*.cpp src/detail/*.hpp tests/*.cpp
-clang-tidy -p build src/*.cpp
+# The format gate lists tracked sources from the repository root, because two
+# live outside cpp/, and names the style because nothing above them carries one.
+git ls-files -z -- '*.cpp' '*.hpp' | xargs -0 -r clang-format-22 --style=file:cpp/.clang-format --dry-run --Werror
+# The lint gate runs FROM cpp/: clang-tidy finds .clang-tidy by walking up, so
+# the same command from the repository root enables no checks and looks clean.
+cd cpp && run-clang-tidy-22 -quiet -p build cpp/src/ cpp/tests/ cpp/benchmarks/
 # Cat 33 dynamic-analysis lanes:
 cd cpp && cmake -B build-asan -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" && cmake --build build-asan && ctest --test-dir build-asan
-cd cpp && cmake --build build --target fuzz_parse_response && ./build/tests/fuzz_parse_response -max_total_time=60 tests/fuzz/seed/parse_response/
+# The fuzz recipe is written once, in cpp/tests/fuzz/fuzz_parse_response.cpp,
+# which the other three harnesses point at; a probe holds it to that. Read it
+# there rather than copying it, because a second copy drifts from the flags.
+
 cd cpp && cmake --build build --target cross_binding_integration_tests && ctest --test-dir build -R cross_binding
 ```
 
 The `ctest` battery includes the doc-example harness
-(`doc_example_tests`) — every ```cpp fence across `README.md`,
-`docs/PITCH.md`, `docs/architecture/CANCELLATION.md`,
-`docs/reference/INTERFACES.md`, and `docs/development/DISTRIBUTION.md`
-is extracted, wrapped (3 shapes — full `int main()` / `#include` block
-+ decls / body fragment with `using namespace aletheia` and
-predeclared `client`/`backend`/`ts`/`can_id`/`dlc`/`data`/`frames`),
-compiled by `${CMAKE_CXX_COMPILER}` (linked against
-`$<TARGET_FILE:aletheia-cpp>` plus the static yaml-cpp / OpenXLSX
-archives), and executed end-to-end. The companion structural gates
-ban `<!-- cpp notest -->` annotations and enforce a `≥6` collective
-fence floor — non-runnable fences must use the `text` info string,
-mirroring the Python and Go ban. Adding a new user-facing markdown
-file means adding it to `kDocFiles` in
-`cpp/tests/doc_example_tests.cpp`. Skipped automatically when
+(`doc_example_tests`). It extracts every ```cpp fence from the documents
+`k_doc_files` lists, wraps each in one of three shapes (a full `int main()`,
+an `#include` block with declarations, or a body fragment under
+`using namespace aletheia` with `client`, `backend`, `ts`, `can_id`, `dlc`,
+`data` and `frames` predeclared), compiles it with `${CMAKE_CXX_COMPILER}`
+against `$<TARGET_FILE:aletheia-cpp>`, and runs it. That target is a shared
+library, so the link carries an `-Wl,-rpath` to the directory holding it and
+the fence can load it. The companion structural gates ban
+`<!-- cpp notest -->` annotations and hold a collective fence floor, so a
+non-runnable fence uses the `text` info string, mirroring the Python and Go
+ban. Adding a user-facing markdown file means adding it to `k_doc_files` in
+`cpp/tests/doc_example_tests.cpp`, which is the list this paragraph defers to
+rather than repeating. The harness skips itself when
 `libaletheia-ffi.so` is missing (run `cabal run shake -- build` first).
 
 ---
