@@ -75,17 +75,23 @@ struct FrameKeyView {
 struct FrameKeyLess {
     using is_transparent = void; // NOLINT(readability-identifier-naming) - STL protocol
 
-    static auto prefix(const FrameKey& k) -> std::tuple<std::uint32_t, bool, std::uint8_t> {
+    [[nodiscard]] static auto prefix(const FrameKey& k)
+        -> std::tuple<std::uint32_t, bool, std::uint8_t> {
         return {k.id_value, k.is_extended, k.dlc};
     }
-    static auto prefix(const FrameKeyView& k) -> std::tuple<std::uint32_t, bool, std::uint8_t> {
+    [[nodiscard]] static auto prefix(const FrameKeyView& k)
+        -> std::tuple<std::uint32_t, bool, std::uint8_t> {
         return {k.id_value, k.is_extended, k.dlc};
     }
-    static auto payload(const FrameKey& k) -> std::span<const std::byte> { return k.data; }
-    static auto payload(const FrameKeyView& k) -> std::span<const std::byte> { return k.data; }
+    [[nodiscard]] static auto payload(const FrameKey& k) -> std::span<const std::byte> {
+        return k.data;
+    }
+    [[nodiscard]] static auto payload(const FrameKeyView& k) -> std::span<const std::byte> {
+        return k.data;
+    }
 
     template<typename A, typename B>
-    auto operator()(const A& a, const B& b) const -> bool {
+    [[nodiscard]] auto operator()(const A& a, const B& b) const -> bool {
         const auto pa = prefix(a);
         const auto pb = prefix(b);
         if (pa != pb)
@@ -104,12 +110,12 @@ struct SignalKey {
 };
 
 // Folds one more hash into a seed (the usual golden-ratio mixing).
-inline auto hash_combine(std::size_t seed, std::size_t h) -> std::size_t {
+[[nodiscard]] inline auto hash_combine(std::size_t seed, std::size_t h) -> std::size_t {
     return seed ^ (h + 0x9e3779b9 + (seed << 6U) + (seed >> 2U));
 }
 
 struct SignalKeyHash {
-    auto operator()(const SignalKey& k) const -> std::size_t {
+    [[nodiscard]] auto operator()(const SignalKey& k) const -> std::size_t {
         auto h = std::hash<std::uint32_t>{}(k.id_value);
         h = hash_combine(h, std::hash<bool>{}(k.is_extended));
         return hash_combine(h, std::hash<std::string>{}(k.signal_name));
@@ -121,7 +127,7 @@ struct SignalKeyHash {
 using MessageKey = std::pair<std::uint32_t, bool>;
 
 struct MessageKeyHash {
-    auto operator()(const MessageKey& k) const -> std::size_t {
+    [[nodiscard]] auto operator()(const MessageKey& k) const -> std::size_t {
         return hash_combine(std::hash<std::uint32_t>{}(k.first), std::hash<bool>{}(k.second));
     }
 };

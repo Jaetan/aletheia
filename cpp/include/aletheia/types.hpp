@@ -45,7 +45,7 @@ public:
 
     template<typename... Args>
         requires std::constructible_from<T, Args...>
-    static constexpr auto of(Args&&... args) -> Strong {
+    [[nodiscard]] static constexpr auto of(Args&&... args) -> Strong {
         return Strong(T(std::forward<Args>(args)...));
     }
 
@@ -144,7 +144,7 @@ public:
     // Use for untrusted input; direct construction throws in every mode.
     template<std::integral N, std::integral D>
         requires(!std::same_as<N, bool> && !std::same_as<D, bool>)
-    static constexpr auto make(N num, D den) -> std::expected<Rational, std::string> {
+    [[nodiscard]] static constexpr auto make(N num, D den) -> std::expected<Rational, std::string> {
         // Validate representability before narrowing (see the ctor): a uint64_t
         // > INT64_MAX would otherwise wrap to a negative/wrong value before the
         // den > 0 check, yielding a misleading error or an incorrect Rational.
@@ -164,7 +164,7 @@ public:
     // must be live first (it is the sole GHC RTS initialiser), else this throws
     // `AletheiaException(Ffi)` rather than self-initialising. Throws
     // `AletheiaException(Validation)` on a malformed literal or int64 overflow.
-    static auto from_decimal(std::string_view s) -> Rational;
+    [[nodiscard]] static auto from_decimal(std::string_view s) -> Rational;
 
 private:
     std::int64_t num_ = 0;
@@ -252,7 +252,8 @@ class StandardId {
     static constexpr std::uint16_t max_id = (1U << 11U) - 1; // 11-bit CAN ID
 
 public:
-    static constexpr auto create(std::uint16_t v) -> std::expected<StandardId, std::string> {
+    [[nodiscard]] static constexpr auto create(std::uint16_t v)
+        -> std::expected<StandardId, std::string> {
         if (v > max_id)
             return std::unexpected("Standard CAN ID must be 0-2047");
         return StandardId{v};
@@ -268,7 +269,8 @@ class ExtendedId {
     static constexpr std::uint32_t max_id = (1U << 29U) - 1; // 29-bit CAN ID
 
 public:
-    static constexpr auto create(std::uint32_t v) -> std::expected<ExtendedId, std::string> {
+    [[nodiscard]] static constexpr auto create(std::uint32_t v)
+        -> std::expected<ExtendedId, std::string> {
         if (v > max_id)
             return std::unexpected("Extended CAN ID must be 0-536870911");
         return ExtendedId{v};
@@ -312,7 +314,7 @@ class Dlc {
     explicit constexpr Dlc(std::uint8_t v) : value_(v) {}
 
 public:
-    static constexpr auto create(std::uint8_t v) -> std::expected<Dlc, std::string> {
+    [[nodiscard]] static constexpr auto create(std::uint8_t v) -> std::expected<Dlc, std::string> {
         if (v > 15)
             return std::unexpected("DLC must be 0-15");
         return Dlc{v};

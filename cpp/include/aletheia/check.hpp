@@ -37,7 +37,7 @@ namespace aletheia::detail {
 // Render a PhysicalValue through the shared kernel renderer.  Invoked lazily
 // from the `CheckResult::condition_desc()` accessor, so the .so need NOT be
 // loadable at Check builder time, only at the first read.
-inline auto fmt_pv(PhysicalValue v) -> std::string {
+[[nodiscard]] inline auto fmt_pv(PhysicalValue v) -> std::string {
     return format_rational(v.get());
 }
 
@@ -133,7 +133,7 @@ public:
         , signal_name_(std::move(sig))
         , condition_desc_builder_(std::move(desc_builder)) {}
 
-    auto always() && -> CheckResult {
+    [[nodiscard]] auto always() && -> CheckResult {
         return {std::move(formula_), std::move(signal_name_), std::move(condition_desc_builder_)};
     }
 
@@ -313,11 +313,11 @@ private:
 
 namespace check {
 
-inline auto signal(std::string name) -> CheckSignal {
+[[nodiscard]] inline auto signal(std::string name) -> CheckSignal {
     return CheckSignal{std::move(name)};
 }
 
-inline auto when(std::string signal_name) -> WhenSignal {
+[[nodiscard]] inline auto when(std::string signal_name) -> WhenSignal {
     return WhenSignal{std::move(signal_name)};
 }
 
