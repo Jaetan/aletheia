@@ -19,18 +19,20 @@ namespace aletheia {
 
 // Cross-binding-identical Rational pretty-printer.  Every render flows
 // through the Agda kernel via `aletheia_format_rational`: the C++ binding
-// calls the same function as Python and
-// Go, so the same Rational value renders to byte-identical output
-// everywhere.  The library is dlopened on first use via the lazy-load
-// in `rational_renderer.cpp`; no local C++ fallback exists.  A missing
-// `libaletheia-ffi.so` throws `AletheiaException(Ffi)` rather than
-// silently diverging.
+// calls the same function as Python and Go, so the same Rational value
+// renders to byte-identical output everywhere.  The library is dlopened on
+// first use via the lazy-load in `rational_renderer.cpp`; no local C++
+// fallback exists.  A missing `libaletheia-ffi.so` throws
+// `AletheiaException(Ffi)` rather than silently diverging.
 static auto format_value(const Rational& r) -> std::string {
     return detail::format_rational_ffi(r.numerator(), r.denominator());
 }
 
 constexpr std::int64_t us_per_second = 1'000'000;
 constexpr std::int64_t us_per_millisecond = 1'000;
+
+// Greek capital delta, the change-predicate prefix.
+constexpr std::string_view k_delta = "\u0394";
 
 static auto format_timebound(Timestamp t) -> std::string {
     auto us = t.count();
@@ -41,42 +43,49 @@ static auto format_timebound(Timestamp t) -> std::string {
     return std::format("{}\u03bcs ", us);
 }
 
+// The token a value-comparison predicate renders between its signal and its
+// threshold.  The five such predicates differ in nothing else.
+template<typename T>
+static constexpr auto comparison_token() -> std::string_view {
+    if constexpr (std::is_same_v<T, Equals>)
+        return "=";
+    else if constexpr (std::is_same_v<T, LessThan>)
+        return "<";
+    else if constexpr (std::is_same_v<T, GreaterThan>)
+        return ">";
+    else if constexpr (std::is_same_v<T, LessThanOrEqual>)
+        return "<=";
+    else if constexpr (std::is_same_v<T, GreaterThanOrEqual>)
+        return ">=";
+    else
+        static_assert(sizeof(T) == 0, "not a value-comparison predicate");
+}
+
+// Every predicate is one of four shapes, named below by its members rather
+// than by its type; a predicate of a new shape fails the final static_assert.
 static auto format_predicate(const Predicate& p) -> std::string {
     return std::visit(
         [](const auto& v) -> std::string {
             using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, Equals>)
-                return std::format("{} = {}", std::string_view{v.signal},
+            if constexpr (requires { v.value; })
+                return std::format("{} {} {}", std::string_view{v.signal}, comparison_token<T>(),
                                    format_value(v.value.get()));
-            else if constexpr (std::is_same_v<T, LessThan>)
-                return std::format("{} < {}", std::string_view{v.signal},
-                                   format_value(v.value.get()));
-            else if constexpr (std::is_same_v<T, GreaterThan>)
-                return std::format("{} > {}", std::string_view{v.signal},
-                                   format_value(v.value.get()));
-            else if constexpr (std::is_same_v<T, LessThanOrEqual>)
-                return std::format("{} <= {}", std::string_view{v.signal},
-                                   format_value(v.value.get()));
-            else if constexpr (std::is_same_v<T, GreaterThanOrEqual>)
-                return std::format("{} >= {}", std::string_view{v.signal},
-                                   format_value(v.value.get()));
-            else if constexpr (std::is_same_v<T, Between>)
+            else if constexpr (requires {
+                                   v.min;
+                                   v.max;
+                               })
                 return std::format("{} <= {} <= {}", format_value(v.min.get()),
                                    std::string_view{v.signal}, format_value(v.max.get()));
-            else if constexpr (std::is_same_v<T, ChangedBy>)
-                // U+0394 Greek Capital Letter Delta (UTF-8: CE 94)
-                // Delta is now Rational; compare
-                // against Rational{0, 1} via the Rational `<=>` operator.
-                return v.delta.get() >= Rational{0, 1}
-                           ? std::format("{}{} >= {}", "\xce\x94", std::string_view{v.signal},
-                                         format_value(v.delta.get()))
-                           : std::format("{}{} <= {}", "\xce\x94", std::string_view{v.signal},
-                                         format_value(v.delta.get()));
-            else if constexpr (std::is_same_v<T, StableWithin>)
-                return std::format("|{}{}| <= {}", "\xce\x94", std::string_view{v.signal},
+            else if constexpr (requires { v.delta; })
+                // The sign of the delta says which direction the change bounds.
+                return std::format(
+                    "{}{} {} {}", k_delta, std::string_view{v.signal},
+                    v.delta.get() >= Rational{0, 1} ? ">=" : "<=", format_value(v.delta.get()));
+            else if constexpr (requires { v.tolerance; })
+                return std::format("|{}{}| <= {}", k_delta, std::string_view{v.signal},
                                    format_value(v.tolerance.get()));
             else
-                static_assert(sizeof(T) == 0, "Unhandled predicate type in format_predicate");
+                static_assert(sizeof(T) == 0, "Unhandled predicate shape in format_predicate");
         },
         p);
 }
@@ -85,25 +94,25 @@ static auto predicate_signal(const Predicate& p) -> SignalName {
     return std::visit([](const auto& v) -> SignalName { return v.signal; }, p);
 }
 
+// Walks the tree by shape (a predicate, two children, or one), so an
+// alternative of an existing shape needs no branch here.
 static void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals) {
     f.visit([&signals](const auto& v) {
         using T = std::decay_t<decltype(v)>;
-        if constexpr (std::is_same_v<T, Atomic>) {
+        if constexpr (requires { v.predicate; }) {
             auto name = predicate_signal(v.predicate);
-            if (std::ranges::find(signals, name) == signals.end())
+            if (!std::ranges::contains(signals, name))
                 signals.push_back(name);
-        } else if constexpr (std::is_same_v<T, Not> || std::is_same_v<T, Next> ||
-                             std::is_same_v<T, WeakNext> || std::is_same_v<T, Always> ||
-                             std::is_same_v<T, Eventually> || std::is_same_v<T, MetricAlways> ||
-                             std::is_same_v<T, MetricEventually>) {
-            collect_signals_into(*v.formula, signals);
-        } else if constexpr (std::is_same_v<T, And> || std::is_same_v<T, Or> ||
-                             std::is_same_v<T, Until> || std::is_same_v<T, Release> ||
-                             std::is_same_v<T, MetricUntil> || std::is_same_v<T, MetricRelease>) {
+        } else if constexpr (requires {
+                                 v.left;
+                                 v.right;
+                             }) {
             collect_signals_into(*v.left, signals);
             collect_signals_into(*v.right, signals);
+        } else if constexpr (requires { v.formula; }) {
+            collect_signals_into(*v.formula, signals);
         } else {
-            static_assert(sizeof(T) == 0, "Unhandled formula type in collect_signals_into");
+            static_assert(sizeof(T) == 0, "Unhandled formula shape in collect_signals_into");
         }
     });
 }
@@ -138,7 +147,9 @@ static auto try_format_never(const Always& v) -> std::string {
 }
 
 // Inner formatter: parenthesize_binary wraps binary operators in parens when
-// they appear as children of other binary operators, matching Go's behavior.
+// they appear as children of other binary operators.  The whole rendering is
+// byte-identical to the Python and Go formatters; a probe under probes/
+// compares this formatter against Python's over every alternative.
 static auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std::string {
     return f.visit([parenthesize_binary](const auto& v) -> std::string {
         using T = std::decay_t<decltype(v)>;

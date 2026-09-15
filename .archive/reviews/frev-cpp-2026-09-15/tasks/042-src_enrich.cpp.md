@@ -1,6 +1,6 @@
 # Task 042: file review of `cpp/src/enrich.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/enrich.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/042 (signed later by the dribble).
+
+Claims and guards: the renderer is cross-binding identical (the file's central claim; the suite checked three substrings of simple atomic predicates and nothing else, so fourteen formula alternatives, eight predicates, the parenthesisation rule, the never shorthand and the three time-bound units were unguarded. New probe builds one formula covering all of them in C++, renders it, serialises it to the wire JSON, has Python parse that JSON and render it with its own formatter, and requires the two strings to be equal: 321 characters, identical); the kernel-only rational rendering (rational_renderer's vocal contract, probed in task 015); the never shorthand and parenthesisation matching Go (read Go's render: same rule, same tokens; Python's token tables carry the same strings).
+
+Findings fixed: (a) a history sentence ("Delta is now Rational"); (b) the five value-comparison predicates repeated one format call with a different operator; they share one branch and a comparison_token function, so the arms hold only what differs; (c) format_predicate and collect_signals_into dispatched on type names, the latter listing all fourteen alternatives in two sets that must track the ADT; both dispatch by shape through requires-expressions, as ltl.hpp's clone does since task 021; (d) the delta prefix was written three times as a raw byte pair with a comment explaining the bytes; it is one named constant with a universal-character escape, like the micro sign the same file already used; (e) ranges::contains replaces a find-against-end.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/042
+claims: 3 rows, 1 without a guard: probe cpp_src_enrich.cpp--formula-rendering-matches-python.sh added
+1 line per line: checked, all 200 lines read; every arm asked what distinguishes it from its neighbours
+2 guidelines: checked, pure file-local functions, no allocation on the render path beyond the strings returned
+3 modernize: finding, requires-expressions and ranges::contains; gate: the parity probe identical before and after, 15 of 15 ctest, tidy gate zero, Mull all killed
+4 catalogue: checked, AGENTS/cpp.md category 30 (the rendering goes through the kernel, never a local fallback) and 27
+5 value semantics: checked, formulas by const reference, strings returned by value
+6 raii: n/a
+7 dedup: finding, five predicate arms to one; the constant and the renderer wrapper shared with check.hpp stay XREV 097
+8 ground truth: checked, the Go and Python formatters carry the same tokens and the same parenthesisation rule; the probe now pins it
+9 history: finding, one sentence
+10 simpler: finding, see 3 and 7
+11 comments: 17 to 23 (six more lines, in the task that fixed the type-name dispatch and the history sentence), code 164 to 167
+sweep: no mutation names this file; Mull all killed after the edit; tidy gate zero
+probes: 1 added; store 45 run, 44 pass, 1 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
