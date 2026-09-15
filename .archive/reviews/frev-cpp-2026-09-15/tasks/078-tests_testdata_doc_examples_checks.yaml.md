@@ -1,6 +1,6 @@
 # Task 078: file review of `cpp/tests/testdata/doc_examples/checks.yaml`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/testdata/doc_examples/checks.yaml`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Reviewed, no change.
+
+Claims and guards: the fixture claims to be a check document the loader accepts, and it is what the doc-example harness substitutes wherever a documentation fence names a checks file. Driven through the loader at this task it yields exactly the two checks it declares, the first refusing a speed above its threshold and the second holding a voltage between its bounds, with both thresholds rendered exactly through the kernel. Its guard is the harness: every fence that loads a checks file compiles and runs against this fixture, so a malformed document fails the doc-example binary rather than passing silently. No fence asserts a count over it, so the two entries are not load-bearing beyond being valid and of different shapes.
+
+Nothing needed changing. The document carries the licence header the repository requires of its fixtures, its two shapes exercise a single-value condition and a range condition, and covering the loader's other conditions belongs to the YAML suite rather than here.
+
+```
+REPORT 2026-09-15 tree b222b613 NO CHANGE
+claims: 2 rows, 0 without a guard: both measured by loading the document
+1 line per line: checked, all 10 lines read
+2 guidelines: n/a, not C++
+3 modernize: n/a
+4 catalogue: checked, the keys are the ones the loader reads and the document is in the loader's own schema
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked, the two entries are different shapes
+8 ground truth: checked, the document was loaded and its two checks read back with their exact thresholds
+9 history: n/a
+10 simpler: checked, two entries are the minimum that covers both shapes
+11 comments: 2 to 2, code 8 to 8
+sweep: no mutation names this file; the doc-example binary exercises it on every run and takes 34 seconds doing so
+probes: none name this file; the loader run is the measurement
+decision points: none
+```
 
 ## Contract (carried whole)
 
