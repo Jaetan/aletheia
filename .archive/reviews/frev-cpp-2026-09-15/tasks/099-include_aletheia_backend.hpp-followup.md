@@ -1,6 +1,6 @@
 # Task 099: file review of `cpp/include/aletheia/backend.hpp` (follow-up from task 047)
 
-- status: pending, unblocked 2026-09-15: the mock factory is ruled to answer with canned successes, so the declaration comment becomes true once task 113 lands and this task checks it word for word
+- status: completed
 - worked to the ruling: the second finding is fixed. The three factories carry `[[nodiscard]]` as part of the
   directory-wide discard rule, landed in refs/frev/097g with the guard demonstrated: discarding a marked call in
   the library sources makes the clang-tidy gate report it twice, and a scratch translation unit outside the tree
@@ -13,7 +13,35 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+The comment now describes the object. Fix in refs/frev/099.
+
+Claims and guards. The declaration said "Test: returns canned responses" beside a factory whose object refused its first call, and the header was the first of the three places that said so. The ruling made the object fixed, so the comment is true of it for the first time, and this task is the check that it is true word for word rather than approximately.
+
+What the comment says now is what the object does, each clause separately: it answers every operation with the wire's acknowledgement, it answers a frame request with a zero-filled payload of the size asked for, it queues nothing and records nothing, and a consumer holding only these headers can drive a client without reaching into the tree. The last clause is the one the old comment made false, because the method that filled the queue was never on this surface. The comment also says what is not here, which the old one left a reader to discover: the configurable double that records requests and refuses on exhaustion is test-internal.
+
+The guard is a probe that reads both sides. It greps the header for the clause and compiles a consumer against the installed headers that drives every endpoint the clause quantifies over, then requires the two to agree in both directions. Weakening the comment to describe a queue makes it red, and so does making one endpoint return nothing while the comment still claims an answer. It also checks that repeating a call gives the same answer, which is what fixed means and what a queue would not do.
+
+The other half of this task landed earlier in the round: the three factories in this header carry the discard marker, with the guard measured then.
+
+```
+REPORT 2026-09-15 tree refs/frev/113-recovery fix in refs/frev/099
+claims: 1 row, 1 without a guard: the factory's declared behaviour, now probed from both the comment's side and the object's
+1 line per line: lenses and diff pass over this header, plus the whole declaration block read against the object it declares
+2 guidelines: n/a
+3 modernize: n/a
+4 catalogue: n/a
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked, the comment states the contract once and names what is not on the surface rather than describing it
+8 ground truth: finding, the comment described a backend that refused every first call
+9 history: checked, it says what the factory does, not what it used to
+10 simpler: n/a
+11 comments: 75 to 80, code 98 to 98; the file is one this task fixed a defect in, which is what the five lines buy
+sweep: no mutation names this header
+probes: probes/cpp_include_aletheia_backend.hpp--the-factory-comment-matches-the-factory.sh added, red under a mutation of the comment and under a mutation of the object
+decision points: none
+```
+
 
 ## Contract (carried whole)
 

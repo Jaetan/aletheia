@@ -200,7 +200,12 @@ protected:
 // ALETHEIA_LIB is unset or empty; for an explicit path use the overload above.
 [[nodiscard]] auto make_ffi_backend_from_env(int rts_cores = 1) -> std::unique_ptr<IBackend>;
 
-// Test: returns canned responses
+// Test: a fixed backend that answers every operation with the wire's
+// acknowledgement and every frame request with a zero-filled payload of the
+// size asked for. It queues nothing and records nothing, so a consumer holding
+// only these headers can drive a client without reaching into the tree. The
+// configurable double, which records requests and refuses when its queue runs
+// out, is test-internal and is not on this surface.
 [[nodiscard]] auto make_mock_backend() -> std::unique_ptr<IBackend>;
 
 } // namespace aletheia
