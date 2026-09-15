@@ -1,6 +1,6 @@
 # Task 067: file review of `cpp/tests/rts_heap_cap_workload.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/rts_heap_cap_workload.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/067 (signed later by the dribble).
+
+Claims and guards: the file claims a clean parse exits zero after printing its sentinel, a parse error exits three, a backend failure exits two, and the heap abort terminates out of band; its driver, cpp/tests/test_rts_heap_cap.cpp, is the guard and reads exactly those codes, calling any other non-zero code containment. It claims its own main because the runtime is process-global and one-shot, which is why the driver forks. Both hold, and the driver's two cases pass.
+
+Finding fixed: the message count was read with a conversion whose result was discarded, so an argument that is not a number left the count at its default and the workload ran the small parse. Under the tight cap that is the one outcome the driver reads as a masked failure rather than containment, and measured before the change the workload answered a nonsense argument by printing its success sentinel and exiting zero. It now refuses a count that is not a positive number, on the backend-failure code so the driver's reading of any other code as containment stays sound, and the exit-code comment says so. The refusal was read before and after: zero and the sentinel before, two and a message naming the argument after, with both driver cases still passing.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/067
+claims: 4 rows, 0 without a guard: the driver reads every exit code, and the sentinel is printed on the only path that returns zero
+1 line per line: checked, all 57 lines read
+2 guidelines: finding, the discarded conversion result; the rest holds, the client owns its backend and the document is built in one pass
+3 modernize: checked, from_chars is already the right conversion; what was missing was reading what it returned
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the repository's rule that a gate which cannot fail has a bug
+5 value semantics: checked, the document is returned by value and moved into the parse
+6 raii: checked, the client owns the backend and the stream owns its buffer
+7 dedup: checked, none
+8 ground truth: checked, the sentinel, the three exit codes and the fork rationale all read against the driver
+9 history: checked, none
+10 simpler: checked
+11 comments: 13 to 18, code 38 to 46
+sweep: no mutation names this file (its own binary, outside the mutation build's unit_tests target); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; the before and after runs with a nonsense argument are the measurement
+decision points: none
+```
 
 ## Contract (carried whole)
 

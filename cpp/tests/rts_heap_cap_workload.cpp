@@ -9,8 +9,10 @@
 // process-global and one-shot, so the abort must happen in a fresh process.
 //
 // Exit codes: 0 = clean parse + sentinel; 3 = parse error (a valid DBC never
-// hits this); 2 = backend/exception.  The GHC heap abort terminates the process
-// out of band (exit 1), which is what the test asserts for the tight-cap case.
+// hits this); 2 = the workload could not run, either because the message count
+// argument is not a positive number or because the backend threw.  The GHC heap
+// abort terminates the process out of band, which is what the test asserts for
+// the tight-cap case: a non-zero code that is none of these.
 
 #include <aletheia/backend.hpp>
 #include <aletheia/client.hpp>
@@ -22,6 +24,7 @@
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 namespace {
 
@@ -40,8 +43,18 @@ auto build_dbc(int n) -> std::string {
 auto main(int argc, char** argv) -> int {
     int n = 3;
     if (argc > 1) {
+        // Refuse a count this cannot read rather than falling back to the
+        // default: a silent fallback runs the small workload under the tight
+        // cap, which is the one case the driver reads as containment.
         const std::string_view arg{argv[1]};
-        std::from_chars(arg.data(), arg.data() + arg.size(), n);
+        const auto [ptr, ec] = std::from_chars(arg.data(), arg.data() + arg.size(), n);
+        if (ec != std::errc{} || ptr != arg.data() + arg.size() || n <= 0) {
+            std::fprintf(stderr,
+                         "rts_heap_cap_workload: message count must be a positive "
+                         "number, got '%s'\n",
+                         argv[1]);
+            return 2;
+        }
     }
     try {
         aletheia::AletheiaClient client(aletheia::make_ffi_backend_from_env());
