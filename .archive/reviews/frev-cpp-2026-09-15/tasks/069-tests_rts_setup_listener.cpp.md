@@ -1,6 +1,6 @@
 # Task 069: file review of `cpp/tests/rts_setup_listener.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/rts_setup_listener.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/069 (signed later by the dribble).
+
+Claims and guards: the listener claims to bring the GHC runtime up once per process before any test runs, to hold the backend for the run so the runtime persists, to locate the library the way the renderer does, and to be linked only into binaries that do not create their own backend. The first three are the code, and the guard is every render-dependent suite: the check descriptions, the enrichment values and the log-event parity assertions all render through the kernel and would fail with the renderer's runtime-down message if the listener did not run, which is what its own comment says happens when no library is found. The fourth is the build file, read at this task.
+
+Findings fixed: the header opened on a plan label and said the renderer "no longer" self-initialises, the same two markers the renderer's own suite carried; and its enumeration of the binaries that link it named two, where the build file compiles it into four. The YAML and Excel suites were missing, and they are the two whose numeric fields go through the kernel decimal source of truth, so the omission hid the listener's main reason for existing in those binaries. The header now names all four and states what is rather than what changed. The locator's comment said the same thing twice, once in prose and once by naming the shape it copies, and is one statement now.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/069
+claims: 4 rows, 0 without a guard: three are exercised by every render-dependent suite, the fourth read in cpp/CMakeLists.txt
+1 line per line: checked, all 80 lines read
+2 guidelines: checked, the backend is held by a unique pointer for the listener's lifetime, which is the run
+3 modernize: n/a
+4 catalogue: checked, AGENTS/cpp.md category 13 (FFI lifecycle): one initialiser per process, never re-entered
+5 value semantics: checked, the path is returned by value
+6 raii: checked, this is the RAII: the backend member is what keeps the runtime alive for the run
+7 dedup: checked; the search order repeats the renderer's by design and says so, which the cross-file discovery item in XREV task 097 covers
+8 ground truth: finding, the list of linking binaries named two of four; checked true: the search order against the renderer, and the four targets against the build file
+9 history: finding, one "no longer" and one plan label
+10 simpler: checked
+11 comments: 28 to 29, code 42 to 42, the rise allowed because the task fixed the incomplete enumeration in the file
+sweep: no mutation names this file (it is compiled into four test binaries, none of them the mutation build's unit_tests sources); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
