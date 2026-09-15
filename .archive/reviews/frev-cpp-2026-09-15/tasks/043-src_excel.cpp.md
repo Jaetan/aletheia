@@ -1,6 +1,6 @@
 # Task 043: file review of `cpp/src/excel.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/excel.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/043 (signed later by the dribble).
+
+Claims and guards: the strict cell contract (a number cell refused for a numeric field, an Integer cell trusted only when its stored text is a digit run, a text cell required for get_str) and the sheet parsing (excel_tests, sixty cases including the forged-EOCD archive and the raw-stored-text cases); the loader-entry hardening (the three guards, probed in task 036); the template's three bold-headed sheets and its refusal to overwrite (excel_tests, probed in task 018); the Result contract, that no failure escapes as an exception and that a failure which is not a cell's own defect keeps its kind (nothing checked either: the two loaders caught std::runtime_error only, so every kernel or runtime failure was relabelled Validation and anything else escaped. New probe loads the demo workbook with no backend in the process, requires an Ffi-kinded error and a Validation error for a missing path; compiled against the pre-edit source it fails with kind Validation, so the probe has proven teeth).
+
+Findings fixed: (a) the two loaders now take an AletheiaException arm before a std::exception arm, so get_decimal's deliberate re-throw of a non-Validation kernel failure survives to the caller and no standard exception escapes the Result; (b) get_int repeated get_decimal's whole body to add one denominator check; it calls it; (c) the row context was rebuilt at twenty-two call sites and hoisted at one; every parser hoists it once; (d) three copies of the out-of-range check with its message are one checked_cast; (e) the two loaders repeated the three hardening calls, and three row-scan loops repeated the header read and the empty-row skip; one harden_excel_path and one collect_data_rows; (f) the DBC loader carried two parallel vectors indexed together (cells and row numbers); one vector of DataRow; (g) the two then-condition keywords are the loader_utils constants added in task 037; (h) the metadata pair (Check Name, Severity) applied in two parsers is one helper; (i) "Rename default sheet to DBC" sat above the style block, four statements from the rename; (j) ranges::contains in worksheet_exists. Pushed into the yaml.cpp task: the same catch shape and the same mis-kinding.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/043
+claims: 4 rows, 1 without a guard: probe cpp_src_excel.cpp--loader-keeps-the-runtime-error-kind.sh added, teeth proven against the pre-edit source
+1 line per line: checked, all 785 lines read; every cell read asked what it refuses and every helper what repeats it
+2 guidelines: finding, the exception boundary at the Result-returning entries (E.12 family); the strict coercion and the typed extractors already held
+3 modernize: finding, ranges::contains, one aggregate row type instead of parallel vectors, a format-based range message; gate: 15 of 15 ctest (excel_tests' sixty cases included), tidy gate zero, Mull all killed, the new probe green and red on the old source
+4 catalogue: checked, AGENTS/cpp.md categories 28 (bounds before OpenXLSX sees the path) and 29 (no locale-dependent parse; from_chars and the kernel decimal SSOT)
+5 value semantics: checked, cells by const reference, the row aggregate moved
+6 raii: checked, XLDocument closed on the success path and destroyed on the error path
+7 dedup: finding, eight repeated shapes folded
+8 ground truth: finding, one comment four statements from its subject; the strict-cell rationale and the Python-parity sentences hold
+9 history: checked, none left after the earlier tasks' sweep of this tree
+10 simpler: finding, see 3 and 7
+11 comments: 124 to 126 (two more lines, in the task that fixed the mis-kinded errors and the misplaced comment), code 570 to 542
+sweep: excel.cpp carries no Mull mutants; the whole sweep re-run after the edit, all killed; tidy gate zero
+probes: 1 added; store 46 run, 45 pass, 1 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 

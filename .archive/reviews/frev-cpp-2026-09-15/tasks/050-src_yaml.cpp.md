@@ -4,7 +4,7 @@
 - file: `cpp/src/yaml.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: none
+- pushed-in findings: the loader catches std::runtime_error only and converts everything to a Validation error, so an FFI or runtime failure (which get_decimal deliberately re-throws unflattened) reaches the caller mis-kinded, and a non-runtime_error escapes the Result contract; excel.cpp took an AletheiaException arm and a std::exception arm in task 043, with a probe that has proven teeth (from task 043)
 
 ## Report
 
