@@ -1,6 +1,6 @@
 # Task 055: file review of `cpp/tests/fuzz/fuzz_decode_binary_frame.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/fuzz/fuzz_decode_binary_frame.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/055 (signed later by the dribble).
+
+Claims and guards: the file made two claims and neither held. It said it exercises the binary extraction parser through the public extract_signals path with a mock backend returning canned bytes, and there was no mock, no client and no call; the fuzzer's bytes were wrapped in a span which the next line discarded with a cast to void, and its own closing comment admitted it covered "type construction + span aliasing". So the claim that the decoder refuses a truncated or malformed buffer without undefined behaviour had no guard at all, and the round's base sweep recorded the proof without anyone reading it: the target executed 162797322 inputs in 61 seconds at 2668808 a second and added zero new corpus units, the signature of a harness that does nothing.
+
+Finding fixed: the harness now reaches the decoder. `parse_extraction_bin` is static inside the client's translation unit, as the rational-number harness's own helper is, so it is reached transitively: a backend derived from the test mock returns the fuzzer's bytes from `extract_signals_bin`, and a two-signal DBC parsed through the same mock fills the signal-name lookup without which the client never takes the binary path. Both are built once and only the buffer varies. The evidence that the bytes now reach the decoder is twofold. Measured over 61 seconds on the same seed corpus, the target executes 47548798 inputs at 766916 a second, three and a half times slower per input because it now does work, and adds 32 new corpus units against the base's zero, with no crash. And the arrangement is self-checking: were the binary path not taken, the client would fall through to the JSON path, whose backend call finds the mock's response queue drained by the DBC parse and throws, which libFuzzer would report on the first input. Also fixed: a category label that resolves nowhere in AGENTS.md or the documentation.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/055
+claims: 1 row, 1 without a guard: the harness itself, which now drives the decoder, measured against the base sweep's own numbers
+1 line per line: checked, all 49 lines of the old harness read; the span built and discarded is what the pass found
+2 guidelines: checked, the derived mock overrides one method and the harness owns the client through a unique pointer
+3 modernize: n/a for the old body; the new one is the shape the sibling harnesses use
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the repository's rule that a gate which cannot fail has a bug, which is exactly what this file was
+5 value semantics: checked, the bytes are assigned into the mock's own vector rather than aliased, so the buffer does not outlive the call
+6 raii: checked, the client owns the backend and the corpus buffer is a member
+7 dedup: checked, the once-only setup is a function-local static rather than repeated per input
+8 ground truth: finding, both header claims were false and the closing comment contradicted the header
+9 history: checked, none
+10 simpler: checked, the transitive route is the only one available while the decoder is static, and that is what the sibling harness does
+11 comments: 26 to 24, code 19 to 81, the growth being the harness the file claimed to have
+sweep: no mutation names this file (the fuzz targets are their own build); the normal suite is unaffected, ctest 15 of 15, and the fuzz target builds and runs clean for 61 seconds
+probes: none name this file; the base sweep's fuzz record is the before measurement and the 61-second run is the after
+decision points: none
+```
 
 ## Contract (carried whole)
 
