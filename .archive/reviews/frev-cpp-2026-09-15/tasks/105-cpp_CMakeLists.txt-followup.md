@@ -1,6 +1,6 @@
 # Task 105: file review of `cpp/CMakeLists.txt` (follow-up from task 072)
 
-- status: pending
+- status: completed
 - file: `cpp/CMakeLists.txt`
 - round base: b222b613 (2026-09-15)
 - pass: lenses and diff, over the target below plus whatever the lenses fire on
@@ -8,7 +8,32 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Lenses and diff pass over the language standard. Fix in refs/frev/105 (signed later by the dribble).
+
+Claims and guards: the file claims the binding is C++23, and states it once, on the library, as a PUBLIC compile feature. Every target that links the library inherits it; three that link only yaml-cpp and Catch2 did not, and were compiled at the compiler's default. Nothing watched that, so the claim had no guard. The probe `probes/cpp_CMakeLists.txt--every-target-compiles-at-the-project-standard.sh` now reads the configured compile database and fails on any unit under src, tests or benchmarks compiled without the standard. It read red on the three targets before the fix and green after.
+
+Finding fixed: `feature_matrix_tests`, `rts_params_tests` and `rts_heap_cap_tests` each declare the standard for themselves. The effect was not hypothetical: the feature-matrix test held a three-line comment explaining that it used the two-iterator `std::find` because the ranges algorithm would not compile there. That comment is now false, so the call is `std::ranges::contains` and the comment is gone. Teeth: removing the one standard line from the feature-matrix target and rebuilding fails with `error: no member named 'ranges' in namespace 'std'` at the call site, and the line restored builds and links.
+
+The two other retargeted files use nothing the older standard refuses, so their binaries only change standard, not behaviour. All fifteen suites pass, tidy over `cpp/src` and over the touched test is silent, and the five probes naming the build file are green.
+
+```
+REPORT 2026-09-15 tree refs/frev/091 fix in refs/frev/105
+claims: 1 row, 1 without a guard: the directory-wide language standard, now guarded by the compile-database probe
+1 line per line: checked, the three target blocks and the standard block read whole; the rest of the file had its full pass
+2 guidelines: checked, the standard is declared per target rather than through a global variable, which is what the library already does
+3 modernize: checked, one call moves to the ranges algorithm now that the target can compile it
+4 catalogue: checked, per-target compile features over CMAKE_CXX_STANDARD is the modern CMake idiom and the file's own
+5 value semantics: n/a, a build file declares no interfaces
+6 raii: n/a
+7 dedup: checked, the three declarations are one line each and say the same thing the library's line says; a global variable would have caught the dependencies fetched outside the workaround block
+8 ground truth: finding, a comment stated the target compiles at the compiler's default standard; true when written, false after the fix, and removed with the workaround it justified
+9 history: checked, none
+10 simpler: checked
+11 comments: 296 to 293, code 491 to 494
+sweep: no mutation names either file; fresh configure done, full build and all fifteen suites green
+probes: the five naming cpp/CMakeLists.txt all pass, including the new one
+decision points: none
+```
 
 ## Contract (carried whole)
 

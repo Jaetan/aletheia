@@ -473,6 +473,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # ("<header>#<symbol>") resolves to an existing header containing the
     # symbol as a whole-word match. Parity source: docs/FEATURE_MATRIX.yaml.
     add_executable(feature_matrix_tests tests/test_feature_matrix_parity.cpp)
+    target_compile_features(feature_matrix_tests PRIVATE cxx_std_23)
     target_link_libraries(feature_matrix_tests
         PRIVATE yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
     add_test(NAME feature_matrix_tests COMMAND feature_matrix_tests)
@@ -521,6 +522,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # Catch2). Reads docs/RESOURCE_BUDGETS.yaml (the kernel-runtime RTS SSOT)
     # and asserts the C++ mirror constants match. Pure: no RTS, no FFI backend.
     add_executable(rts_params_tests tests/test_rts_params_parity.cpp)
+    target_compile_features(rts_params_tests PRIVATE cxx_std_23)
     target_include_directories(rts_params_tests PRIVATE src)
     target_link_libraries(rts_params_tests
         PRIVATE yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
@@ -538,6 +540,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     target_link_libraries(rts_heap_cap_workload PRIVATE aletheia-cpp)
 
     add_executable(rts_heap_cap_tests tests/test_rts_heap_cap.cpp)
+    target_compile_features(rts_heap_cap_tests PRIVATE cxx_std_23)
     target_link_libraries(rts_heap_cap_tests PRIVATE Catch2::Catch2WithMain)
     target_compile_definitions(rts_heap_cap_tests
         PRIVATE ALETHEIA_RTS_WORKLOAD_BIN="$<TARGET_FILE:rts_heap_cap_workload>")

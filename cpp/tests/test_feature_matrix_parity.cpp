@@ -149,10 +149,7 @@ auto symbol_present(const std::string& text, const std::string& symbol) -> bool 
 }
 
 auto is_valid_status(std::string_view status) -> bool {
-    // The two-iterator find rather than the ranges one: this target links
-    // neither aletheia-cpp nor anything else carrying the project's C++23
-    // requirement, so it compiles at the compiler's default standard.
-    return std::find(kValidStatuses.begin(), kValidStatuses.end(), status) != kValidStatuses.end();
+    return std::ranges::contains(kValidStatuses, status);
 }
 
 auto trim(std::string s) -> std::string {
