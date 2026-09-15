@@ -1,37 +1,14 @@
-# Task 072: file review of `cpp/tests/test_feature_matrix_parity.cpp`
+# Task 105: file review of `cpp/CMakeLists.txt` (follow-up from task 072)
 
-- status: completed
-- file: `cpp/tests/test_feature_matrix_parity.cpp`
-- round base: 726198bb (2026-09-15)
-- pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
-- pushed-in findings: clang-tidy lens over tests at round base reports 25 unique diagnostics in this file (the CI tidy gate excludes tests; details in base/clang_tidy_tests.txt); each is a candidate for points 2 and 3, checked against the file, never a verdict
+- status: pending
+- file: `cpp/CMakeLists.txt`
+- round base: b222b613 (2026-09-15)
+- pass: lenses and diff, over the target below plus whatever the lenses fire on
+- origin: `feature_matrix_tests` is compiled with no `-std` flag at all, so it builds at the compiler's default standard rather than the project's C++23. Measured at task 072 by reading cpp/build/compile_commands.json: every other test target carries `-std=gnu++23`, and this one carries none. The cause is that the standard reaches targets through `target_compile_features(aletheia-cpp PUBLIC cxx_std_23)`, and this target links only yaml-cpp and Catch2. The effect is real: a ranges algorithm written in that file fails to compile with "no member named 'ranges' in namespace 'std'", so the file is silently held to an older language than the rest of the binding. Give the target the project's standard, check whether any other target is in the same position, and re-read the compile database to prove every test target carries the flag.
 
 ## Report
 
-Full pass. Fix in refs/frev/072 (signed later by the dribble).
-
-Claims and guards: the file states four checks and performs all four, and its own two cases are the guard. Every feature row must carry an id, a name, a description and a binding entry per language with a valid status; every implemented binding must name an entry; every implemented C++ entry must resolve to a header under cpp/include that contains the symbol as a whole word; and every not-applicable binding must give a reason. The symbol check is stronger than it looks, because the header text is stripped of comments and literals first, so a comment mentioning a deleted symbol cannot satisfy it. Read against docs/FEATURE_MATRIX.yaml the schema holds: 45 feature rows, each carrying exactly the four binding keys the file iterates.
-
-Findings fixed, and one recorded: the header said each row carries bindings "for all three languages", where the file iterates four and the matrix carries four, Rust having joined the others. Recorded rather than fixed: this target is compiled with no standard flag at all, so it builds at the compiler's default rather than the project's C++23. Measured by reading the compile database, every other test target carries the C++23 flag and this one carries none, because the standard reaches targets through the library's compile features and this target links only yaml-cpp and Catch2. The effect was demonstrated at this task: a ranges algorithm written here fails with "no member named 'ranges' in namespace 'std'". Since the contract bars editing the build file to make a construct compile, the membership test keeps its two-iterator form with a comment saying why, and the build fix is follow-up task 105.
-
-```
-REPORT 2026-09-15 tree b222b613 fix in refs/frev/072
-claims: 5 rows, 0 without a guard: four are the file's own checks and the fifth, the language standard, is the finding
-1 line per line: checked, all 226 lines read; the lexical stripper's four branches each asked what they blank and whether offsets survive
-2 guidelines: checked; the stripper works in place on a copy taken by value, which is the shape that avoids a second buffer
-3 modernize: finding recorded, not applied: the ranges membership test does not compile in this target, which is the language-standard finding
-4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the matrix's own parity rules
-5 value semantics: checked, the text by value into the stripper, paths by const reference
-6 raii: checked, the streams own their handles
-7 dedup: checked, the two cases load the matrix separately because each is independently runnable
-8 ground truth: finding, the three-language enumeration; checked true: the four binding keys and 45 rows read from the matrix, and the standard read from the compile database
-9 history: checked, none
-10 simpler: checked
-11 comments: 27 to 31, code 175 to 175
-sweep: no mutation names this file (its own binary, outside the mutation build's unit_tests target); tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
-probes: none name this file; the compile database is the measurement for the standard finding
-decision points: none
-```
+(filled when the task is worked; shape in the contract below)
 
 ## Contract (carried whole)
 

@@ -4,8 +4,9 @@
 //
 // Reads docs/FEATURE_MATRIX.yaml and verifies:
 //
-//   1. Every feature row has a well-formed schema (id / name / description /
-//      bindings for all three languages, each with a valid status).
+//   1. Every feature row has a well-formed schema: an id, a name, a
+//      description, and a binding entry for each of Python, C++, Go and Rust
+//      carrying a valid status.
 //   2. Every binding with status=implemented carries an entry field.
 //   3. Every C++ implemented entry (format "<header>#<symbol>") resolves —
 //      the header exists under cpp/include/ and contains the symbol as a
@@ -148,6 +149,9 @@ auto symbol_present(const std::string& text, const std::string& symbol) -> bool 
 }
 
 auto is_valid_status(std::string_view status) -> bool {
+    // The two-iterator find rather than the ranges one: this target links
+    // neither aletheia-cpp nor anything else carrying the project's C++23
+    // requirement, so it compiles at the compiler's default standard.
     return std::find(kValidStatuses.begin(), kValidStatuses.end(), status) != kValidStatuses.end();
 }
 
