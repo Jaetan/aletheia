@@ -1,0 +1,4 @@
+configure done
+build done
+93% tests passed, 1 tests failed out of 15
+	 15 - doc_example_tests (Failed)

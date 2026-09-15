@@ -38,8 +38,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 #
 # CMake records the launcher only in the build rules, NOT in
 # compile_commands.json, so the `clang-tidy-22 -p build` gate still sees the bare
-# `clang++-22` and is unaffected by ccache (verified: cmake 4.1.2 — the exported
-# DB carries no launcher token, and clang-tidy-22 parses it cleanly).
+# `clang++-22` and is unaffected by ccache (cmake 4.1.2 exports no launcher
+# token, and clang-tidy-22 parses the DB cleanly).
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
     set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
@@ -65,7 +65,7 @@ if(ALETHEIA_CLANG_TIDY)
 endif()
 
 # ---------------------------------------------------------------------------
-# Sanitizer lanes (Cat 33a)
+# Sanitizer lanes
 # ---------------------------------------------------------------------------
 #
 # Architectural choice: ASan against C++ unit tests
@@ -85,6 +85,7 @@ endif()
 # safe to mix on the same archive.
 set(ALETHEIA_SANITIZER "" CACHE STRING
     "Sanitizer lane: address | undefined | thread (empty = off)")
+set_property(CACHE ALETHEIA_SANITIZER PROPERTY STRINGS "" address undefined thread)
 
 set(ALETHEIA_SANITIZER_FLAGS "")
 if(ALETHEIA_SANITIZER STREQUAL "address")
@@ -108,27 +109,14 @@ if(ALETHEIA_SANITIZER_FLAGS)
     # sanitizer-ignorelist.txt are exempt.  See cpp/sanitizer-ignorelist.txt
     # for the per-entry rationale.
     #
-    # -fsanitize-ignorelist= is a clang feature; g++ has no equivalent.
-    # When the sanitizer lane is configured under g++, third-party UB in
-    # OpenXLSX/zippy will surface — use clang for the canonical sanitizer
-    # build (matches the libFuzzer lane's clang requirement).
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-        set(ALETHEIA_SAN_IGNORE "${CMAKE_CURRENT_SOURCE_DIR}/sanitizer-ignorelist.txt")
-        list(APPEND ALETHEIA_SANITIZER_FLAGS
-            "-fsanitize-ignorelist=${ALETHEIA_SAN_IGNORE}")
-    else()
-        message(WARNING
-            "ALETHEIA_SANITIZER set under ${CMAKE_CXX_COMPILER_ID}; "
-            "third-party UB in OpenXLSX/zippy will surface (g++ lacks "
-            "-fsanitize-ignorelist=).  Use clang for clean sanitizer runs: "
-            "-DCMAKE_CXX_COMPILER=clang++")
-    endif()
+    list(APPEND ALETHEIA_SANITIZER_FLAGS
+        "-fsanitize-ignorelist=${CMAKE_CURRENT_SOURCE_DIR}/sanitizer-ignorelist.txt")
     add_compile_options(${ALETHEIA_SANITIZER_FLAGS})
     add_link_options(${ALETHEIA_SANITIZER_FLAGS})
 endif()
 
 # ---------------------------------------------------------------------------
-# Mutation testing (Cat 14(g))
+# Mutation testing
 # ---------------------------------------------------------------------------
 # Opt-in via -DALETHEIA_MUTATION=ON.  When enabled, the Mull IR-pass plugin
 # is attached to the aletheia-cpp library + unit_tests target ONLY (NOT to
@@ -156,12 +144,6 @@ endif()
 option(ALETHEIA_MUTATION "Build aletheia-cpp + unit_tests with Mull IR pass plugin" OFF)
 set(ALETHEIA_MUTATION_FLAGS "")
 if(ALETHEIA_MUTATION)
-    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-        message(FATAL_ERROR
-            "ALETHEIA_MUTATION requires clang-22 (got ${CMAKE_CXX_COMPILER_ID}); "
-            "use a separate build dir: -DCMAKE_C_COMPILER=clang-22 "
-            "-DCMAKE_CXX_COMPILER=clang++-22")
-    endif()
     set(MULL_PLUGIN "$ENV{HOME}/.local/bin/mull-ir-frontend-22")
     if(NOT EXISTS "${MULL_PLUGIN}")
         message(FATAL_ERROR
@@ -254,19 +236,18 @@ if(ALETHEIA_MUTATION)
     target_compile_options(aletheia-cpp PRIVATE ${ALETHEIA_MUTATION_FLAGS})
 endif()
 
-# UR-3.3 (Reproducible build verification): strip the build-host absolute path
-# from __FILE__ macros and any debug info embedded in the library, so binaries
-# produced from /home/$USER/aletheia on different hosts are byte-identical.
-# Defense-in-depth — Release builds don't currently emit DWARF that would carry
-# host paths, but the flag prevents future regression if anyone enables -g.
-# GCC and Clang both support -ffile-prefix-map (covers -fdebug-prefix-map +
-# -fmacro-prefix-map) since GCC 8 / Clang 10.
+# Reproducible build: strip the build-host absolute path from __FILE__ macros
+# and any debug info embedded in the library, so binaries produced from
+# different checkouts are byte-identical.  Release builds emit no DWARF that
+# would carry host paths; the flag keeps that true if anyone enables -g.
+# -ffile-prefix-map covers both -fdebug-prefix-map and -fmacro-prefix-map.
 #
-# NOT applied when ALETHEIA_MUTATION=ON: Mull-19's IR pass crashes (clang
-# exit 139) when -ffile-prefix-map is in the flag list.  The mutation lane
-# uses `cpp/build-mutation/` exclusively and is dev-only (never shipped),
-# so reproducibility doesn't apply there.
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT ALETHEIA_MUTATION)
+# NOT applied when ALETHEIA_MUTATION=ON: the Mull IR plugin resolves the mapped
+# source path relative to the compiler's working directory and crashes clang
+# (exit 139) when it does not exist there, as in any build directory (the probe
+# under probes/ pins this).  The mutation lane is dev-only, never shipped, so
+# reproducibility does not apply to it.
+if(NOT ALETHEIA_MUTATION)
     target_compile_options(aletheia-cpp PRIVATE
         "-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")
 endif()
@@ -334,7 +315,7 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/aletheia-cpp)
 
 # ---------------------------------------------------------------------------
-# CLI host binary (aletheia-cli) — Phase 6 cross-binding CLI parity
+# CLI host binary (aletheia-cli)
 # ---------------------------------------------------------------------------
 # aletheia::run_cli (src/cli/cli.cpp) holds the CLI logic — validate / extract
 # / signals / format-dbc / mux-query dispatching to AletheiaClient (`check` is
@@ -347,11 +328,9 @@ add_library(aletheia-cli-core STATIC src/cli/cli.cpp)
 target_link_libraries(aletheia-cli-core
     PUBLIC aletheia-cpp
     PRIVATE nlohmann_json::nlohmann_json)
-target_compile_features(aletheia-cli-core PUBLIC cxx_std_23)
 
 add_executable(aletheia-cli src/cli/main.cpp)
 target_link_libraries(aletheia-cli PRIVATE aletheia-cli-core)
-target_compile_features(aletheia-cli PRIVATE cxx_std_23)
 
 if(ALETHEIA_CLANG_TIDY)
     set_target_properties(aletheia-cli-core aletheia-cli PROPERTIES
@@ -370,7 +349,7 @@ option(BUILD_TESTING "Build test suite" ON)
 # Shakefile.hs), so also require it to be present: a bundle consumer who runs a
 # plain standalone `cmake bindings/cpp` then gets the library + CLI cleanly
 # instead of a configure error on the absent test sources.
-if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
+if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     FetchContent_Declare(Catch2
         URL https://github.com/catchorg/Catch2/archive/refs/tags/v3.7.1.tar.gz
@@ -379,10 +358,18 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
 
     enable_testing()
 
+    # Every real-FFI test finds the kernel and the repository through these two
+    # runtime env vars rather than compile-time defines, so the binaries stay
+    # byte-identical across checkouts (the reproducible-build invariant).
+    set(ALETHEIA_TEST_REPO_ROOT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
+    set(ALETHEIA_TEST_LIB "ALETHEIA_LIB=${CMAKE_CURRENT_SOURCE_DIR}/../build/libaletheia-ffi.so")
+
     # Compile-time tests (no framework — just needs to compile)
     add_executable(static_tests tests/static_tests.cpp)
     target_link_libraries(static_tests PRIVATE aletheia-cpp)
     add_test(NAME static_tests COMMAND static_tests)
+
+    find_package(Threads REQUIRED)
 
     # Unit tests (mock backend, Catch2). Split across multiple
     # translation units by concern (see tests/test_helpers.hpp for the shared
@@ -414,20 +401,17 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
     if(ALETHEIA_MUTATION)
         target_compile_options(unit_tests PRIVATE ${ALETHEIA_MUTATION_FLAGS})
         # Cover the real FfiBackend (dlopen glue) in the mutation surface: the
-        # Mock-only unit sources never execute ffi_backend.cpp, so its mutants
-        # are UNCOVERED (Mull-22 reports uncovered mutants; Mull-19 did not, hence
-        # the historical 0 baseline).  Fold the real-.so integration tests into
-        # the mutation binary so FfiBackend's FFI-boundary guards are exercised
-        # and killed.  (Mutation build only — the normal unit_tests stays
-        # Mock-only / .so-free for speed.)
-        find_package(Threads REQUIRED)
+        # Mock-only unit sources never execute ffi_backend.cpp, so Mull would
+        # report its mutants as uncovered.  Fold the real-.so integration tests
+        # into the mutation binary so FfiBackend's FFI-boundary guards are
+        # exercised and killed.  (Mutation build only — the normal unit_tests
+        # stays Mock-only / .so-free for speed.)
         target_sources(unit_tests PRIVATE tests/integration_tests.cpp)
         target_link_libraries(unit_tests PRIVATE Threads::Threads)
     endif()
     add_test(NAME unit_tests COMMAND unit_tests)
 
     # Integration tests (real .so, Catch2, threads for concurrent test)
-    find_package(Threads REQUIRED)
     add_executable(integration_tests tests/integration_tests.cpp)
     target_link_libraries(integration_tests
         PRIVATE aletheia-cpp Threads::Threads Catch2::Catch2WithMain)
@@ -446,18 +430,16 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
     add_test(NAME dbc_corpus_parity_tests COMMAND dbc_corpus_parity_tests)
 
     # YAML loader tests (yaml-cpp, Catch2). rts_setup_listener.cpp:
-    # numeric check fields are now parsed via the kernel decimal SSOT
+    # numeric check fields are parsed via the kernel decimal SSOT
     # (Rational::from_decimal), which is RTS-gated; the listener brings the GHC
     # RTS up once for the process (this binary creates no FfiBackend of its own,
-    # so there is no rts.cores_mismatch race). ALETHEIA_LIB pins the .so for the
-    # listener (a ctest runtime env var, not a compile-time define — the
-    # reproducible-build invariant does not apply).
+    # so there is no rts.cores_mismatch race).
     add_executable(yaml_tests tests/yaml_tests.cpp tests/rts_setup_listener.cpp)
     target_link_libraries(yaml_tests
         PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
     add_test(NAME yaml_tests COMMAND yaml_tests)
     set_tests_properties(yaml_tests PROPERTIES
-        ENVIRONMENT "ALETHEIA_LIB=${CMAKE_CURRENT_SOURCE_DIR}/../build/libaletheia-ffi.so")
+        ENVIRONMENT "${ALETHEIA_TEST_LIB}")
 
     # Excel loader tests (OpenXLSX, Catch2). rts_setup_listener.cpp for
     # the same reason as yaml_tests — numeric cells are parsed via the kernel
@@ -466,15 +448,14 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
     target_link_libraries(excel_tests
         PRIVATE aletheia-cpp OpenXLSX::OpenXLSX Catch2::Catch2WithMain)
     add_test(NAME excel_tests COMMAND excel_tests)
-    # Repo root via env var so the cross-binding portability test
-    # can load the shared examples/demo/demo_workbook.xlsx fixture; ALETHEIA_LIB
-    # pins the .so for the RTS listener.
+    # The cross-binding portability test loads examples/demo/demo_workbook.xlsx
+    # from the repository root.
     set_tests_properties(excel_tests PROPERTIES
-        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..;ALETHEIA_LIB=${CMAKE_CURRENT_SOURCE_DIR}/../build/libaletheia-ffi.so")
+        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT};${ALETHEIA_TEST_LIB}")
 
-    # Point 2 ("whine if uninitialised"): renderer-uninitialised vocal test. The
-    # renderer no longer self-initialises the GHC RTS (an FfiBackend is the sole
-    # initialiser), so a pre-backend `format_rational_ffi` must throw. Must run in
+    # Renderer-uninitialised vocal test. The renderer never self-initialises the
+    # GHC RTS (an FfiBackend is the sole initialiser), so a pre-backend
+    # `format_rational_ffi` must throw. Must run in
     # its own process because the GHC RTS is process-global: any FfiBackend-first
     # test sharing the process would bring the runtime up and defeat the assertion.
     add_executable(rts_init_renderer_uninitialized_tests
@@ -483,11 +464,8 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
         PRIVATE aletheia-cpp Catch2::Catch2WithMain)
     add_test(NAME rts_init_renderer_uninitialized_tests
         COMMAND rts_init_renderer_uninitialized_tests)
-    # Pass repo root via env var per the reproducible-build invariant (no
-    # compile-time CMAKE_CURRENT_SOURCE_DIR defines); the local-dev fallback when
-    # ALETHEIA_LIB is unset.
     set_tests_properties(rts_init_renderer_uninitialized_tests PROPERTIES
-        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
+        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
     # Feature matrix parity test (yaml-cpp, Catch2). Reads
     # docs/FEATURE_MATRIX.yaml and verifies every C++ implemented entry
@@ -497,39 +475,33 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
     target_link_libraries(feature_matrix_tests
         PRIVATE yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
     add_test(NAME feature_matrix_tests COMMAND feature_matrix_tests)
-    # Pass repo root via env var, not compile-time define,
-    # so the binary is bit-identical regardless of build location
-    # (reproducible-build invariant).
     set_tests_properties(feature_matrix_tests PROPERTIES
-        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
+        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
-    # Phase 6: functional tests for the CLI (aletheia::run_cli). Links the
+    # Functional tests for the CLI (aletheia::run_cli). Links the
     # shared aletheia-cli-core; needs the repo root (fixtures) and the .so
     # (run_cli's resolver reads $ALETHEIA_LIB) from the test environment.
     add_executable(cli_tests tests/cli_tests.cpp)
     target_link_libraries(cli_tests PRIVATE aletheia-cli-core nlohmann_json::nlohmann_json
                                             Catch2::Catch2WithMain)
-    target_compile_features(cli_tests PRIVATE cxx_std_23)
     add_test(NAME cli_tests COMMAND cli_tests)
     set_tests_properties(cli_tests PROPERTIES
-        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..;ALETHEIA_LIB=${CMAKE_CURRENT_SOURCE_DIR}/../build/libaletheia-ffi.so")
+        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT};${ALETHEIA_TEST_LIB}")
 
     # Cross-binding log-event parity test (yaml-cpp + aletheia-cpp,
     # Catch2). Reads docs/LOG_EVENTS.yaml, runs a comprehensive mock-backend
     # workflow capturing LogRecord events, and asserts each emitted event is
-    # a member of the canonical name set. The "missing mechanism" gate added
-    # alongside the surface fix for Go's rogue dbc.text_parsed event.
+    # a member of the canonical name set.
     # rts_setup_listener.cpp: set_properties renders the condition descriptions,
-    # which (point 2) needs the GHC RTS up; this mock-backend test creates no real
+    # which needs the GHC RTS up; this mock-backend test creates no real
     # FfiBackend, so the listener brings the runtime up for the process.
     add_executable(log_events_tests tests/test_log_events_parity.cpp tests/rts_setup_listener.cpp)
     target_include_directories(log_events_tests PRIVATE src)
     target_link_libraries(log_events_tests
         PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
     add_test(NAME log_events_tests COMMAND log_events_tests)
-    # See feature_matrix_tests above.
     set_tests_properties(log_events_tests PROPERTIES
-        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
+        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
     # Cross-binding wire-code parity test (yaml-cpp + aletheia-cpp, Catch2).
     # Reads docs/WIRE_CODES.yaml (the kernel-anchored wire-code SSOT) and
@@ -541,9 +513,8 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
     target_link_libraries(wire_codes_tests
         PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
     add_test(NAME wire_codes_tests COMMAND wire_codes_tests)
-    # See feature_matrix_tests above.
     set_tests_properties(wire_codes_tests PROPERTIES
-        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
+        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
     # Runtime RTS-parameter parity test (yaml-cpp + detail/rts_params.hpp,
     # Catch2). Reads docs/RESOURCE_BUDGETS.yaml (the kernel-runtime RTS SSOT)
@@ -553,9 +524,8 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
     target_link_libraries(rts_params_tests
         PRIVATE yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
     add_test(NAME rts_params_tests COMMAND rts_params_tests)
-    # See feature_matrix_tests above.
     set_tests_properties(rts_params_tests PROPERTIES
-        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..")
+        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
     # RTS heap-cap containment (behavioural). rts_heap_cap_workload is a
     # standalone helper (its own main, real FFI) that the rts_heap_cap_tests
@@ -565,7 +535,6 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
     # is passed as a compile def (a TARGET_FILE genexpr, like doc_example_tests).
     add_executable(rts_heap_cap_workload tests/rts_heap_cap_workload.cpp)
     target_link_libraries(rts_heap_cap_workload PRIVATE aletheia-cpp)
-    target_compile_features(rts_heap_cap_workload PRIVATE cxx_std_23)
 
     add_executable(rts_heap_cap_tests tests/test_rts_heap_cap.cpp)
     target_link_libraries(rts_heap_cap_tests PRIVATE Catch2::Catch2WithMain)
@@ -574,9 +543,9 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
     add_dependencies(rts_heap_cap_tests rts_heap_cap_workload)
     add_test(NAME rts_heap_cap_tests COMMAND rts_heap_cap_tests)
     set_tests_properties(rts_heap_cap_tests PROPERTIES
-        ENVIRONMENT "ALETHEIA_LIB=${CMAKE_CURRENT_SOURCE_DIR}/../build/libaletheia-ffi.so")
+        ENVIRONMENT "${ALETHEIA_TEST_LIB}")
 
-    # Cat 33d cross-binding integration. Counterpart of
+    # Cross-binding integration. Counterpart of
     # python/tests/test_cross_binding_integration.py and
     # go/aletheia/cross_binding_integration_test.go.  No shared corpus or
     # golden output — each binding asserts its own response against the
@@ -619,12 +588,10 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
     elseif(ALETHEIA_SANITIZER STREQUAL "thread")
         set(ALETHEIA_DOC_SANITIZER_FLAG_VALUE "-fsanitize=thread")
     endif()
-    # ALETHEIA_REPO_ROOT and ALETHEIA_DOC_INCLUDE moved
-    # to runtime env vars via set_tests_properties below; the remaining
-    # defines (CXX / LIB_FILE / YAML_LIB / OPENXLSX_LIB / SANITIZER_FLAG)
-    # come from CMake-resolved tool paths and TARGET_FILE generator
-    # expressions, not from CMAKE_CURRENT_SOURCE_DIR.  Reproducibility of
-    # those is a separate concern.
+    # ALETHEIA_REPO_ROOT and ALETHEIA_DOC_INCLUDE are runtime env vars (see
+    # set_tests_properties below); the defines here come from CMake-resolved
+    # tool paths and TARGET_FILE generator expressions, not from
+    # CMAKE_CURRENT_SOURCE_DIR.
     target_compile_definitions(doc_example_tests
         PRIVATE
             ALETHEIA_DOC_CXX="${CMAKE_CXX_COMPILER}"
@@ -635,12 +602,10 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
             ALETHEIA_DOC_SANITIZER_FLAG="${ALETHEIA_DOC_SANITIZER_FLAG_VALUE}")
     add_test(NAME doc_example_tests COMMAND doc_example_tests)
     set_tests_properties(doc_example_tests PROPERTIES
-        ENVIRONMENT "ALETHEIA_REPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}/..;ALETHEIA_DOC_INCLUDE=${CMAKE_CURRENT_SOURCE_DIR}/include")
+        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT};ALETHEIA_DOC_INCLUDE=${CMAKE_CURRENT_SOURCE_DIR}/include")
 
-    # Cat 33b libFuzzer harnesses.  Opt-in via
-    # -DALETHEIA_FUZZ=ON because the harnesses require clang with
-    # -fsanitize=fuzzer, which is incompatible with gcc-built artifacts in
-    # the same build dir.  Build in a separate directory:
+    # libFuzzer harnesses.  Opt-in via -DALETHEIA_FUZZ=ON; -fsanitize=fuzzer
+    # links its own runtime, so build in a separate directory:
     #   cmake -B build-fuzz -DALETHEIA_FUZZ=ON \
     #       -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
     #   cmake --build build-fuzz --target fuzz_parse_response
@@ -649,12 +614,6 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
     #       cpp/tests/fuzz/seed/parse_response/
     option(ALETHEIA_FUZZ "Build libFuzzer harnesses" OFF)
     if(ALETHEIA_FUZZ)
-        if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-            message(FATAL_ERROR
-                "ALETHEIA_FUZZ requires clang (got ${CMAKE_CXX_COMPILER_ID}); "
-                "use a separate build dir: -DCMAKE_C_COMPILER=clang "
-                "-DCMAKE_CXX_COMPILER=clang++")
-        endif()
         foreach(target_name parse_response decode_binary_frame parse_dbc_json
                             parse_rational_number)
             add_executable(fuzz_${target_name}
@@ -675,7 +634,7 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR
     add_executable(benchmark benchmarks/benchmark.cpp)
     target_link_libraries(benchmark PRIVATE aletheia-cpp nlohmann_json::nlohmann_json)
 
-    # Stability benchmark (C++ cat 26 long-run leak detection).
+    # Stability benchmark (long-run leak detection).
     # Same dlopen/.so requirement as `benchmark`.  Output is JSON to stdout.
     add_executable(stability_bench benchmarks/stability_bench.cpp)
     target_link_libraries(stability_bench PRIVATE aletheia-cpp)

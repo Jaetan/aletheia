@@ -1,6 +1,6 @@
 # Task 003: file review of `cpp/CMakeLists.txt`
 
-- status: pending
+- status: completed
 - file: `cpp/CMakeLists.txt`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,32 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/003 (signed later by the dribble).
+
+Claims and guards: Clang-only (the configure's own FATAL_ERROR); every cpp/src source listed (check_clang_tidy_coverage, 17 in the compile DB); reproducible library (check_reproducible_build gate, plus -ffile-prefix-map kept out of the mutation build for a reason now pinned by probes/cpp_CMakeLists.txt--mull-plugin-rejects-file-prefix-map.sh); the compile DB free of the ccache launcher (new probe); a subdirectory consumer gets aletheia::aletheia-cpp and no tests while the standalone tree registers 15 (new probe); the project version equal to the other bindings' stamps (new probe, the runbook lists the stamps but nothing ran); FetchContent tarballs pinned by hash (URL_HASH); sanitizer, mutation and fuzz lanes each configure (re-run after the edit). Rows without a guard before: four, all probed now.
+
+Findings fixed: (a) ten plan or category labels in comments and eight history sentences removed, one of them stale (the -ffile-prefix-map exclusion blamed Mull-19; the installed Mull-22 plugin crashes the same way, exit 139, because it resolves the mapped path relative to the compiler's working directory, which the probe reproduces from a scratch directory and which succeeds from the repository root); (b) three non-Clang branches (sanitizer warning, mutation and fuzz FATAL_ERRORs) and the GNU half of a compiler match were dead behind the Clang-only fatal error at the top and are gone; (c) find_package(Threads) was called twice, once inside the mutation branch; one call now precedes both users; (d) four target_compile_features(cxx_std_23) on targets that inherit it from aletheia-cpp's PUBLIC feature removed; (e) the repo-root and kernel paths repeated across nine test environments are two variables; (f) the standalone test uses PROJECT_IS_TOP_LEVEL; (g) ALETHEIA_SANITIZER declares its allowed values for cmake-gui. Gates for every behaviour-neutral edit: compile_commands.json byte-identical before and after; ctest --show-only=json-v1 identical in every test's command and properties (only backtrace line numbers move); full build, 15 of 15 ctest, mutation tree rebuilt and Mull 100 percent, UBSan and fuzz trees reconfigure, subdirectory probe green.
+
+Decision points: dependency pins (measured: newest tags build and pass 14 of 15, OpenXLSX 0.5.1 needs the doc harness link line extended) and a CMake lint gate (cmake-lint 315 to 278 findings, all style). The OpenXLSX comment is false today and its rewrite rides on the pin ruling. Follow-up task 093 for .gitignore (build-tsan/ not ignored). Pushed into task 029: a plan label inside a user-facing CLI error string.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/003
+claims: 14 rows, 4 without a guard: probes added for the compile DB launcher claim, the subdirectory consumer, the version stamps, and the prefix-map exclusion reason
+1 line per line: checked, all 686 lines read; every option, branch, target and comment asked what it does and whether the configure still needs it
+2 guidelines: n/a for C++ guidelines; the CMake catalogue rows of AGENTS/cpp.md (BUILD_INTERFACE/INSTALL_INTERFACE, link scope, pinned FetchContent, no global add_definitions) checked and hold
+3 modernize: finding, PROJECT_IS_TOP_LEVEL, STRINGS property, two variables for repeated environments, dead branches gone; gate: compile DB and ctest definitions identical, full build and tests green
+4 catalogue: checked, AGENTS/cpp.md categories 18 and 32 and the toolchain policy; cmake-lint run as a lens (decision point)
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: finding, Threads found once, nine environment strings from two variables, four inherited feature requests removed
+8 ground truth: finding, the Mull-19 sentence was stale (probe pins the current reason); the OpenXLSX release sentence is false (newer tags exist, decision point); checked true: ALETHEIA_CLANG_TIDY, CGO_NOTES.md and MUTATION.md exist, 17 sources in the compile DB, ccache absent from the compile DB, version stamps equal
+9 history: finding, eight history sentences and ten labels removed
+10 simpler: finding, the Clang-only fatal error makes every non-Clang branch dead; removed
+11 comments: 285 to 265, code 338 to 315
+sweep: no mutation names this file; the mutation lane it configures rebuilt and ran, 65 mutants none surviving; ctest 15 of 15 after the edit
+probes: 4 added under probes/cpp_CMakeLists.txt--*.sh, store 10 run 10 pass
+decision points: appended to the accumulator
+```
 
 ## Contract (carried whole)
 
