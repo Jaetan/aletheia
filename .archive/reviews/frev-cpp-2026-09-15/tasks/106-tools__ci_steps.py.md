@@ -1,43 +1,13 @@
-# Task 102: file review of `tools/check_spdx_headers.py` (follow-up from task 053)
+# Task 106: file review of `tools/_ci_steps.py` (follow-up from task 102)
 
-- status: completed
-- file: `tools/check_spdx_headers.py`
-- round base: b222b613 (2026-09-15)
-- pass: full
-- origin: cpp/tests/doc_example_tests.cpp carried two licence identifiers, BSD-2-Clause and Apache-2.0, the second of which matches no licence the repository grants (LICENSE.md is the BSD 2-Clause text alone). The gate reported "SPDX: all in-scope files carry the header" with that file in scope, so it checks presence and not agreement. A gate that cannot fail on the defect it exists to catch has a bug: make it reject a file whose licence identifier is not the repository's, and a file carrying more than one, and stage the new arm by breaking it.
+- status: pending
+- file: `tools/_ci_steps.py`
+- pass: lenses and diff, over the format step's exclusion list plus whatever the lenses fire on
+- origin: the clang-format step enumerates the build trees to prune by hand and the list is short by one. Measured while running the fast tier for task 102: with `cpp/build-fuzz` configured, the step walks it and reports the generated compiler-probe source as unformatted, so the gate fails on a tree nobody authored. The ignore file already names every build tree, the step's list repeats that knowledge and drifts from it, and the same hand-maintained-glob failure is what the neighbouring clang-tidy step's own comment says the compile database exists to prevent. Derive the file list from what the repository tracks, or from the ignore file, so a build tree cannot enter the gate; stage the change by configuring a pruned tree and showing the step no longer sees it.
 
 ## Report
 
-Full pass. Fix in refs/frev/102 (signed later by the dribble).
-
-Claims and guards: the gate claims every in-scope file carries the header, and its closing line said so. Presence was all it checked. A file could carry the compliant pair and, beside it, a licence identifier the repository does not grant, and the gate would report the tree clean. A gate that cannot fail on the defect it exists to catch has a bug, and this one could not.
-
-Finding fixed: a licence declaration on its own line, behind any of the tree's comment markers or a block-comment continuation, is now collected from the whole file. Exactly one is allowed and it names the repository's licence. The pattern is anchored end to end, so the header format written inside this file's own docstring and the identifier assigned to its own constant are text about a header rather than declarations, which is what lets the gate pass on itself.
-
-The new arm found a real offender on its first run: the C ABI header declares the licence twice, once in its SPDX pair and once inside the block comment below it. The second is removed. Staging the arm by breaking it, a file carrying both the repository's identifier and a foreign one draws both refusals and a non-zero exit; restored, the tree is clean.
-
-The probe `probes/tools_check_spdx_headers.py--a-foreign-or-repeated-licence-is-refused.sh` builds a throwaway repository under the build tree, with a copy of the package so the gate anchors its root there, and checks all three directions. Its teeth were proven by deleting the new arm: the repeated-declaration case is then accepted, and the foreign case is refused for the wrong reason, which the probe now catches because it reads the reason and not only the exit code. That last point is the probe's own finding: a file whose only declaration is foreign also lacks the compliant pair, so the presence arm alone would have kept the probe green.
-
-Two docstring enumerations were sized from the code and were short. The list of languages behind the double-slash marker named three and the allowlist holds four, Rust being the omission, and the generated-file exclusion named one marker where the code reads two.
-
-```
-REPORT 2026-09-15 tree refs/frev/101 fix in refs/frev/102
-claims: 3 rows, 1 without a guard: the licence the tree grants, which nothing checked; the new arm and its probe are the guard
-1 line per line: checked, the whole file read
-2 guidelines: n/a, not C++
-3 modernize: checked, the walrus in the comprehension keeps the match and its group in one pass, and the scan is lifted out of main so the reporting branches read as one sequence
-4 catalogue: checked, the declaration pattern follows the SPDX identifier grammar, letters, digits, dot, plus and hyphen
-5 value semantics: checked, the scan returns its three lists by value
-6 raii: n/a
-7 dedup: checked, the walk and the repair live in one function that both modes call
-8 ground truth: finding, two docstring enumerations were short against the allowlist and the generated-file check; both counted from the code and corrected
-9 history: checked, none
-10 simpler: checked
-11 comments: 113 to 115, code 227 to 263
-sweep: no mutation names this file; the eleven fast-tier steps pass, ruff and pylint are clean and the type checker reports nothing
-probes: the new agreement probe passes, and read red with the arm deleted
-decision points: none
-```
+(filled when the task is worked; shape in the contract below)
 
 ## Contract (carried whole)
 

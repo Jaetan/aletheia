@@ -5,8 +5,6 @@
  *
  * Formally verified CAN frame analysis via Linear Temporal Logic.
  * This header defines the C ABI exported by libaletheia-ffi.so.
- *
- * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #ifndef ALETHEIA_H
