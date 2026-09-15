@@ -1,6 +1,6 @@
 # Task 084: file review of `cpp/tests/unit_tests_enrich.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/unit_tests_enrich.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/084 (signed later by the dribble).
+
+Claims and guards: the enrichment pipeline's every stage is a case here. Signal collection and its deduplication, the diagnostic built from a formula, the diagnostics derived automatically when properties are set, the exact rendering of an observed value through the kernel's formatter, multi-signal enrichment, the extraction cache hitting once per frame and being cleared by a new stream, end-of-stream enrichment from last-frame tracking with its first-frame-wins merge and its early break once the wanted signals are covered, the warning emitted once per frame rather than per property, the uncached-atom warnings, and the two out-of-range property-index paths. The call cardinality the extract-once shape depends on is asserted in seven cases by counting the backend's own sentinels, which is the only way to see a redundant extraction.
+
+Findings fixed: the file grew a counting helper for those sentinels and used it in the later cases while four earlier cases kept the loop inline, which the helper's own comment acknowledged by calling itself the idiom of the loops above. The helper now sits with its sibling at the top of the file, both are the ranges algorithms rather than hand-written loops, and all seven call sites go through them. A comment dated the renderer by quoting what the old format specifier produced, and two section headings carried plan identifiers.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/084
+claims: 22 rows, 0 without a guard: each is a case
+1 line per line: checked, all 1091 lines read
+2 guidelines: checked, every mock is owned by its client and observed through a pointer taken before the move
+3 modernize: finding, the two counters are ranges algorithms
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the float principle, which the exact-rendering case is the binding's end of
+5 value semantics: checked
+6 raii: checked
+7 dedup: finding, four inline copies of a loop the file already had a helper for
+8 ground truth: checked, every expected reason fragment read from the enrichment the case produces
+9 history: finding, one comment quoting the previous rendering
+10 simpler: checked
+11 comments: 117 to 116, code 838 to 819
+sweep: this file is part of unit_tests, which the mutation build instruments, and no mutation names it; tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
