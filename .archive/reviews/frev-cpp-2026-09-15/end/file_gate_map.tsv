@@ -1,0 +1,104 @@
+cpp/.clang-format	 
+cpp/.clang-tidy	 
+cpp/CMakeLists.txt	.github/dependabot.yml .github/workflows/benchmark.yml .github/workflows/bundle-validation.yml .github/workflows/pr-full-ci.yml .github/workflows/release.yml CLAUDE.md Dockerfile.runtime Shakefile.hs cpp/include/aletheia/types.hpp cpp/tests/doc_example_tests.cpp cpp/tests/fuzz/fuzz_parse_response.cpp cpp/tests/repo_root.hpp docs/development/RELEASE.md python/tests/_sbom_fixtures.py python/tests/test_check_dist_staging.py python/tests/test_mutation_run_scope.py tools/sbom_generate.py 
+cpp/README.md	Shakefile.hs 
+cpp/benchmarks/benchmark.cpp	cpp/benchmarks/stability_bench.cpp docs/development/BENCHMARKS.md 
+cpp/benchmarks/stability_bench.cpp	docs/STABILITY_BENCH.yaml docs/operations/STABILITY.md 
+cpp/cmake/aletheia-cpp-config.cmake.in	 
+cpp/include/aletheia/aletheia.hpp	 
+cpp/include/aletheia/backend.hpp	go/aletheia/backend.go python/aletheia/client/_backend.py 
+cpp/include/aletheia/check.hpp	 
+cpp/include/aletheia/cli.hpp	 
+cpp/include/aletheia/client.hpp	python/tests/test_check_changelog.py 
+cpp/include/aletheia/dbc.hpp	 
+cpp/include/aletheia/detail/cache_keys.hpp	 
+cpp/include/aletheia/detail/rational_renderer.hpp	 
+cpp/include/aletheia/enrich.hpp	 
+cpp/include/aletheia/error.hpp	 
+cpp/include/aletheia/excel.hpp	 
+cpp/include/aletheia/limits.hpp	docs/development/EXTENDED_MUX_DESIGN.md tools/check_limits_parity.py 
+cpp/include/aletheia/log.hpp	python/tests/test_log_events_parity.py 
+cpp/include/aletheia/ltl.hpp	 
+cpp/include/aletheia/response.hpp	 
+cpp/include/aletheia/types.hpp	 
+cpp/include/aletheia/validation.hpp	docs/operations/RUNBOOK.md python/aletheia/codes/_issue.py 
+cpp/include/aletheia/validation_issue.hpp	 
+cpp/include/aletheia/yaml.hpp	 
+cpp/sanitizer-ignorelist.txt	Shakefile.hs cpp/CMakeLists.txt docs/architecture/CGO_NOTES.md tools/_ci_steps.py 
+cpp/src/backend.cpp	docs/MUTATION_BENCH.yaml python/tests/test_check_no_memory_citations.py 
+cpp/src/cli/cli.cpp	cpp/include/aletheia/cli.hpp cpp/src/cli/main.cpp docs/CLI_SCENARIOS.yaml 
+cpp/src/cli/main.cpp	 
+cpp/src/client.cpp	docs/LOG_EVENTS.yaml docs/MUTATION_BENCH.yaml docs/architecture/PROTOCOL.md python/aletheia/client/_client.py python/tests/test_mutation_run_scope.py src/Aletheia/Protocol/Adequacy/StreamingWarm.agda 
+cpp/src/dbc.cpp	docs/MUTATION_BENCH.yaml 
+cpp/src/detail/ffi_logic.cpp	 
+cpp/src/detail/ffi_logic.hpp	 
+cpp/src/detail/json.hpp	 
+cpp/src/detail/loader_utils.cpp	 
+cpp/src/detail/loader_utils.hpp	 
+cpp/src/detail/mock_backend.hpp	docs/FEATURE_MATRIX.yaml docs/development/DEFERRED_ITEMS.md python/aletheia/client/_backend.py 
+cpp/src/detail/rts_init.cpp	 
+cpp/src/detail/rts_init.hpp	cpp/tests/rts_init_renderer_uninitialized_tests.cpp 
+cpp/src/detail/rts_params.hpp	docs/RESOURCE_BUDGETS.yaml 
+cpp/src/enrich.cpp	docs/MUTATION_BENCH.yaml 
+cpp/src/excel.cpp	docs/MUTATION_BENCH.yaml 
+cpp/src/ffi_backend.cpp	docs/MUTATION_BENCH.yaml go/aletheia/ffi.go 
+cpp/src/json_parse.cpp	docs/MUTATION_BENCH.yaml 
+cpp/src/json_serialize.cpp	docs/MUTATION_BENCH.yaml 
+cpp/src/mock_backend.cpp	 
+cpp/src/rational_renderer.cpp	 
+cpp/src/types.cpp	 
+cpp/src/yaml.cpp	docs/MUTATION_BENCH.yaml 
+cpp/tests/cli_tests.cpp	 
+cpp/tests/dbc_corpus_parity_tests.cpp	docs/development/EXTENDED_MUX_DESIGN.md python/tests/fixtures/dbc_corpus/README.md python/tests/test_dbc_corpus_parity.py 
+cpp/tests/doc_example_tests.cpp	AGENTS/cpp.md AGENTS/python.md cpp/README.md docs/FEATURE_MATRIX.yaml 
+cpp/tests/excel_tests.cpp	 
+cpp/tests/fuzz/fuzz_decode_binary_frame.cpp	 
+cpp/tests/fuzz/fuzz_parse_dbc_json.cpp	 
+cpp/tests/fuzz/fuzz_parse_rational_number.cpp	 
+cpp/tests/fuzz/fuzz_parse_response.cpp	 
+cpp/tests/fuzz/seed/decode_binary_frame/empty.bin	 
+cpp/tests/fuzz/seed/decode_binary_frame/header_only.bin	 
+cpp/tests/fuzz/seed/decode_binary_frame/one_absent.bin	 
+cpp/tests/fuzz/seed/decode_binary_frame/one_value.bin	 
+cpp/tests/fuzz/seed/parse_dbc_json/minimal.json	 
+cpp/tests/fuzz/seed/parse_dbc_json/one_message.json	 
+cpp/tests/fuzz/seed/parse_rational_number/dict.txt	 
+cpp/tests/fuzz/seed/parse_rational_number/int64_overflow.txt	 
+cpp/tests/fuzz/seed/parse_rational_number/integer.txt	 
+cpp/tests/fuzz/seed/parse_rational_number/zero_denominator.txt	 
+cpp/tests/fuzz/seed/parse_response/ack.json	 
+cpp/tests/fuzz/seed/parse_response/error.json	 
+cpp/tests/fuzz/seed/parse_response/error_bound.json	 
+cpp/tests/fuzz/seed/parse_response/error_issues.json	 
+cpp/tests/fuzz/seed/parse_response/property_batch.json	 
+cpp/tests/fuzz/seed/parse_response/success.json	 
+cpp/tests/fuzz/seed/parse_response/validation.json	 
+cpp/tests/fuzz/seed/parse_response/validation_with_issue.json	 
+cpp/tests/integration_tests.cpp	 
+cpp/tests/repo_root.hpp	 
+cpp/tests/rts_heap_cap_workload.cpp	 
+cpp/tests/rts_init_renderer_uninitialized_tests.cpp	 
+cpp/tests/rts_setup_listener.cpp	 
+cpp/tests/static_tests.cpp	 
+cpp/tests/temp_path.hpp	 
+cpp/tests/test_cross_binding_integration.cpp	go/aletheia/cross_binding_integration_test.go python/tests/test_cross_binding_integration.py 
+cpp/tests/test_feature_matrix_parity.cpp	AGENTS.md cpp/tests/doc_example_tests.cpp docs/FEATURE_MATRIX.yaml 
+cpp/tests/test_helpers.hpp	 
+cpp/tests/test_log_events_parity.cpp	docs/LOG_EVENTS.yaml docs/operations/RUNBOOK.md go/aletheia/log_events_test.go python/tests/test_log_events_parity.py rust/tests/log_events.rs 
+cpp/tests/test_rts_heap_cap.cpp	docs/development/RESOURCE_PARAMETERS.md 
+cpp/tests/test_rts_params_parity.cpp	cpp/src/detail/rts_params.hpp 
+cpp/tests/test_wire_codes_parity.cpp	docs/WIRE_CODES.yaml go/aletheia/wire_codes_parity_test.go rust/tests/wire_codes.rs 
+cpp/tests/testdata/doc_examples/checks.yaml	 
+cpp/tests/unit_tests_cancel.cpp	python/aletheia/asyncio/testing.py 
+cpp/tests/unit_tests_check.cpp	 
+cpp/tests/unit_tests_client.cpp	go/aletheia/error_test.go 
+cpp/tests/unit_tests_dbc.cpp	 
+cpp/tests/unit_tests_decimal.cpp	 
+cpp/tests/unit_tests_enrich.cpp	 
+cpp/tests/unit_tests_ffi_logic.cpp	 
+cpp/tests/unit_tests_input_bounds.cpp	 
+cpp/tests/unit_tests_json.cpp	 
+cpp/tests/unit_tests_log.cpp	 
+cpp/tests/unit_tests_property.cpp	python/tests/test_property_hypothesis.py 
+cpp/tests/unit_tests_validation.cpp	python/tests/test_backend_protocol.py 
+cpp/tests/yaml_tests.cpp	 

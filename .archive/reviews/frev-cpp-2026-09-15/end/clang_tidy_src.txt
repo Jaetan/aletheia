@@ -1,0 +1,18 @@
+Running clang-tidy in 24 threads for 17 files out of 233 in compilation database ...
+[ 1/17][0.3s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/detail/rts_init.cpp
+[ 2/17][1.1s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/detail/ffi_logic.cpp
+[ 3/17][1.7s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/cli/main.cpp
+[ 4/17][2.3s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/backend.cpp
+[ 5/17][2.7s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/mock_backend.cpp
+[ 6/17][3.3s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/ffi_backend.cpp
+[ 7/17][3.3s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/rational_renderer.cpp
+[ 8/17][3.4s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/types.cpp
+[ 9/17][4.0s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/dbc.cpp
+[10/17][4.3s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/detail/loader_utils.cpp
+[11/17][7.1s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/yaml.cpp
+[12/17][7.6s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/enrich.cpp
+[13/17][9.6s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/cli/cli.cpp
+[14/17][9.7s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/json_serialize.cpp
+[15/17][10.3s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/json_parse.cpp
+[16/17][11.5s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/client.cpp
+[17/17][12.3s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/excel.cpp

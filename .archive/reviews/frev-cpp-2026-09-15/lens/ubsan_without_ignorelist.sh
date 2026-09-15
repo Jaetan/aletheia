@@ -8,7 +8,11 @@ rm -rf "$X"; mkdir -p "$X"
 for e in $(/bin/ls -A "$R"); do [ "$e" = cpp ] || ln -s "$R/$e" "$X/$e"; done
 mkdir -p "$X/cpp" && (cd "$R/cpp" && git ls-files . | grep -v '^build' | tar -cf - -T -) | (cd "$X/cpp" && tar -xf -)
 cd "$X/cpp" || exit 2
-sed -i -e '/-fsanitize-ignorelist=/d' -e 's/-fno-sanitize-recover=undefined/-fsanitize-recover=undefined/' CMakeLists.txt
+# Point the flag at an empty list rather than deleting its line: the flag can
+# sit on a continuation line, and deleting that leaves the call unbalanced.
+: > "$X/empty-ignorelist.txt"
+sed -i -e "s|-fsanitize-ignorelist=[^\"]*|-fsanitize-ignorelist=$X/empty-ignorelist.txt|" \
+    -e 's/-fno-sanitize-recover=undefined/-fsanitize-recover=undefined/' CMakeLists.txt
 cmake -B build -DALETHEIA_SANITIZER=undefined -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 \
     -DFETCHCONTENT_SOURCE_DIR_JSON="$R/cpp/build/_deps/json-src" -DFETCHCONTENT_SOURCE_DIR_YAML-CPP="$R/cpp/build/_deps/yaml-cpp-src" \
     -DFETCHCONTENT_SOURCE_DIR_OPENXLSX="$R/cpp/build/_deps/openxlsx-src" -DFETCHCONTENT_SOURCE_DIR_CATCH2="$R/cpp/build/_deps/catch2-src" > /dev/null
