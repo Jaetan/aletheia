@@ -1,6 +1,6 @@
 # Task 066: file review of `cpp/tests/integration_tests.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/tests/integration_tests.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/066 (signed later by the dribble).
+
+Claims and guards: this is the binding's largest suite and its claims are its assertions, each read against what it names. The ones that carried a citation were checked against the cited source: the timestamp-monotonicity refusal is proven in the Agda module the comment now names; the payload guard the boundary cases exercise is one shared function in the FFI backend, not four inline comparisons; the acknowledgement wire the event tests pin is what the protocol module states; the geometry refusals each name a wire code the kernel emits. The binary extraction cases are the strongest guards in the file, crafting wire buffers by hand and pinning truncation, trailing bytes, a nonzero first offset, non-monotone offsets, a final offset that disagrees with the reason length, invalid encoding in a reason slice and a non-positive denominator, each as a Protocol error rather than a silent decode.
+
+Findings fixed: (a) a helper that captures the process's error stream was dead, and the section comment above it described a test that captures the stream and reads the warning out of it, which no test does any more: the three tests read the recorded mismatch pair instead. The helper and the false description are gone, and with them four headers nothing else used. (b) Six citations pointed at line numbers in other files and every one had drifted: four claimed separate payload guards at four lines of the FFI backend, where one shared guard is called from four methods; one pointed into the JSON parser; one into the Go backend and one into the Python loader; and one into the protocol module. Each now names the thing rather than a number, which is the repository's own rule. (c) A comment cited an Agda file that does not state the property it cites; the property is in the Monotonic submodule. (d) Three comments dated the code: two section headings carrying a plan label and a date, one sentence saying what the verdicts collapsed to before that plan, and one calling a helper a wrapper that preserves an older signature. (e) One comment argued with itself in the source, reaching a conclusion, reversing it after the word "Wait" and ending on a verdict the test below it does not assert; it now states the reason the test's own verdict follows. (f) Three frames computed their raw value by dividing a physical value by the factor in double precision, in a binding whose whole contract is that no float appears on any surface; the raw values are written as the integers they are. (g) The library path from the environment was returned unchecked, so a stale value turned the skip this file's helper exists for into a mid-suite construction failure, the same defect the corpus parity suite carried.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/066
+claims: 9 rows, 0 without a guard: every row is asserted by a case, and the six that were cited wrongly now cite the thing rather than a line number
+1 line per line: checked, all 2236 lines read
+2 guidelines: checked; the delegating backend under test forwards every method deliberately, since the interface has no defaulted forwarding
+3 modernize: checked, the doubles are gone from the frame construction and no behaviour moved: the raw values written are the ones the divisions produced, and the suite passes before and after
+4 catalogue: checked, AGENTS/cpp.md category 14 (tests) and the float principle
+5 value semantics: checked, payloads by value into the frame builders, definitions by value into the client
+6 raii: checked, the only hand-managed resource in the file was the duplicated file descriptor in the dead helper, which is gone
+7 dedup: checked; the per-test backend construction repeats but each case needs its own client, and the root discovery shared with two other files is the XREV item
+8 ground truth: finding, six drifted line citations and one wrong module; checked true: the Agda property module, the payload guard's shape, the wire codes and the acknowledgement contract
+9 history: finding, four datings and a plan label removed
+10 simpler: checked
+11 comments: 356 to 342, code 1580 to 1552
+sweep: the mutation build folds this file into unit_tests, and it carries 4 mutants: cxx_lt_to_ge and cxx_lt_to_le at 400 and cxx_mul_to_div at 401 KILLED, and cxx_pre_inc_to_pre_dec at 400 a Timeout, which is how the sweep records a mutant that makes the byte-emitting loop run forever and is the status it carries in the base sweep too. Tidy over cpp/src 0 diagnostics, whole tree builds clean, ctest 15 of 15
+probes: none name this file; store 47 run, 45 pass, 2 red on record
+decision points: none new; the five approximate comparisons in this file are the callers the recorded to_double point names
+```
 
 ## Contract (carried whole)
 

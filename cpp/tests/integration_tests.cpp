@@ -9,15 +9,10 @@
 
 #include <aletheia/aletheia.hpp>
 
-#include <fcntl.h>
-#include <unistd.h>
-
 #include <algorithm>
-#include <array>
 #include <barrier>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
@@ -38,9 +33,14 @@ namespace fs = std::filesystem;
 // ---------------------------------------------------------------------------
 
 static auto find_lib() -> fs::path {
-    // Check environment variable first (CI / custom builds)
-    if (auto* env = std::getenv("ALETHEIA_LIB"))
-        return env;
+    // The environment first, for CI and custom builds, but only when it names
+    // a file that is there: an empty or stale value must not shadow a library
+    // that is, else a missing file becomes a construction failure rather than
+    // the skip this function exists for.
+    if (auto* env = std::getenv("ALETHEIA_LIB")) {
+        if (const fs::path p{env}; !p.empty() && fs::exists(p))
+            return p;
+    }
 
     // Default: project build directory
     auto project_root = fs::path{__FILE__}.parent_path().parent_path().parent_path();
@@ -258,9 +258,9 @@ TEST_CASE("env var with non-terminating rational is rejected") {
     AletheiaClient client(std::move(backend));
 
     // Fraction 1/3 has no 2^a·5^b denominator form, so fromℚ? returns
-    // nothing and the parser emits parse_non_terminating_rational.  This
-    // is the canonical "user built a Rational outside DBC's decimal
-    // grammar" failure mode the Commit 3 migration introduces.
+    // nothing and the parser emits parse_non_terminating_rational: the
+    // canonical "user built a Rational outside DBC's decimal grammar"
+    // failure.
     auto dbc = make_integration_dbc();
     dbc.environment_vars.push_back(DbcEnvironmentVar{
         .name = "Repeating",
@@ -276,8 +276,8 @@ TEST_CASE("env var with non-terminating rational is rejected") {
 }
 
 TEST_CASE("signal with non-terminating rational factor is rejected") {
-    // Parallel coverage for the SG_ fields (Commit 4/6): factor / offset /
-    // minimum / maximum go through the same `fromℚ? ∘ lookupRational` path
+    // Parallel coverage for the SG_ fields: factor, offset, minimum and
+    // maximum go through the same `fromℚ? ∘ lookupRational` path
     // as EV_, so a Rational{1,3} in any of those fields triggers
     // parse_non_terminating_rational.  This test pins the `factor` lane —
     // the remaining three lanes are exercised by the Python parametrised
@@ -688,22 +688,20 @@ TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
 
 TEST_CASE("FFI payload guards accept exactly 64 bytes (CAN-FD boundary)",
           "[integration][boundary]") {
-    // Each FfiBackend method that takes a payload re-checks `data.size() > 64`
-    // (the CAN-FD maximum) at the FFI boundary, behind the client's own
-    // `data.size() == dlc_to_bytes(dlc)` pre-check.  That makes the backend
-    // guard defense-in-depth: a >64-byte payload is intercepted by the client
-    // first, so the guard is only ever *reached* at exactly 64 — where it must
-    // pass.  Mutating `> 64` to `>= 64` or `<= 64` flips that boundary call
-    // from accept to reject; these exactly-64 calls — one per guarded method —
-    // are what kill those mutants.  Covered guards:
-    //   send_frame_binary       (ffi_backend.cpp:299) — streaming send
-    //   extract_signals_bin     (ffi_backend.cpp:410) — binary path, known id
-    //   extract_signals_binary  (ffi_backend.cpp:358) — JSON path, unknown id
-    //   update_frame_bin        (ffi_backend.cpp:389) — frame mutation
-    // Some guards report by throwing (send / JSON-extract), others by
-    // returning std::unexpected (binary-extract / update); the helper covers
-    // both.  Per the no-defense-removal rule, the guard stays — this is the
-    // test-the-defense complement that proves it accepts the legal maximum.
+    // Every FfiBackend method that takes a payload calls one guard,
+    // `payload_bound_error`, which refuses anything longer than the CAN-FD
+    // maximum, behind the client's own `data.size() == dlc_to_bytes(dlc)`
+    // pre-check.  That makes the guard defense in depth: a longer payload is
+    // intercepted by the client first, so the guard is only ever reached at
+    // exactly the maximum, where it must pass.  Mutating its comparison flips
+    // that boundary call from accept to reject, and these calls, one per
+    // method that reaches the guard, are what kill those mutants: the
+    // streaming send, the binary extraction for an identifier the DBC knows,
+    // the JSON extraction for one it does not, and the frame update.  Two of
+    // them report by throwing and two by returning an unexpected value; the
+    // helper below covers both.  Per the no-defense-removal rule the guard
+    // stays: this is the complement that proves it accepts the legal
+    // maximum.
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
@@ -760,9 +758,9 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
 
-    // Send frames with Speed = 100, 120, 150 (all < 200)
-    for (double speed : {100.0, 120.0, 150.0}) {
-        auto raw = static_cast<std::uint16_t>(speed / 0.1);
+    // Speed 100, 120 and 150 km/h at the DBC's factor of one tenth, all
+    // under the threshold.
+    for (std::uint16_t raw : {std::uint16_t{1000}, std::uint16_t{1200}, std::uint16_t{1500}}) {
         FramePayload data{static_cast<std::byte>(raw & 0xFF),
                           static_cast<std::byte>((raw >> 8) & 0xFF),
                           std::byte{0},
@@ -802,8 +800,9 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
     auto dlc = Dlc::create(8).value();
     bool got_violation = false;
 
-    for (double speed : {100.0, 110.0, 150.0}) {
-        auto raw = static_cast<std::uint16_t>(speed / 0.1);
+    // Speed 100, 110 and 150 km/h at the DBC's factor of one tenth; the last
+    // one breaks the threshold.
+    for (std::uint16_t raw : {std::uint16_t{1000}, std::uint16_t{1100}, std::uint16_t{1500}}) {
         FramePayload data{static_cast<std::byte>(raw & 0xFF),
                           static_cast<std::byte>((raw >> 8) & 0xFF),
                           std::byte{0},
@@ -830,7 +829,8 @@ TEST_CASE("non-monotonic timestamp rejected by Agda via real FFI", "[integration
     // Backward timestamps would make metric LTL operators silently produce
     // wrong verdicts (∸ clamps to 0 on negative differences). Agda's
     // handleDataFrame refuses them — this is the single source of truth
-    // across all bindings. See FrameProcessor/Properties.agda PROPERTY 28.
+    // across all bindings, proven in
+    // Aletheia.Protocol.FrameProcessor.Properties.Monotonic (PROPERTY 28).
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
@@ -1139,7 +1139,7 @@ TEST_CASE("concurrent clients have independent state via real FFI", "[integratio
             // Step 4: send frame with Speed = 150
             auto id = CanId{StandardId::create(0x100).value()};
             auto dlc = Dlc::create(8).value();
-            auto raw = static_cast<std::uint16_t>(150.0 / 0.1); // 1500
+            const std::uint16_t raw = 1500; // Speed 150 km/h at factor one tenth
             FramePayload data{static_cast<std::byte>(raw & 0xFF),
                               static_cast<std::byte>((raw >> 8) & 0xFF),
                               std::byte{0},
@@ -1420,7 +1420,7 @@ TEST_CASE("mux cycle rejected by validator via real FFI", "[integration][nested_
 }
 
 // ---------------------------------------------------------------------------
-// End-of-stream three-valued Kleene finalization (Path G, 2026-04-09)
+// End-of-stream three-valued Kleene finalization
 // ---------------------------------------------------------------------------
 //
 // These tests mirror python/tests/test_eos_finalization.py::TestMissingSignalFinalization
@@ -1428,8 +1428,7 @@ TEST_CASE("mux cycle rejected by validator via real FFI", "[integration][nested_
 // Agda coalgebra finalizes an Atomic whose signal was never observed to
 // FinalVerdict.Unsure; this propagates through And/Or via the Kleene truth
 // tables (Unsure ∧ Holds = Unsure, Unsure ∨ Fails = Unsure) and reaches the
-// binding as Verdict::Unresolved. Prior to Path G these cases collapsed to
-// Fails, so these tests also act as a regression guard.
+// binding as Verdict::Unresolved.
 //
 // make_two_message_dbc() gives two messages: Msg256 carries Speed, Msg512
 // carries Rpm. The LTL property references Speed; sending only Msg512 frames
@@ -1503,7 +1502,7 @@ static auto bytes_of(std::uint16_t raw) -> FramePayload {
 
 TEST_CASE("end_stream: Always on never-observed signal after 1 frame → Unresolved",
           "[integration][eos][unresolved]") {
-    // Path G: single Msg512 frame (no Speed) leaves the Always(Speed<100)
+    // A single Msg512 frame (no Speed) leaves the Always(Speed<100)
     // atomic unresolved. Under three-valued Kleene this propagates via
     // And (Atomic) (Always _) as Unsure ∧ Holds = Unsure.
     auto lib = find_lib();
@@ -1593,12 +1592,11 @@ TEST_CASE("end_stream: changed_by on one-frame trace → Unresolved",
     CHECK(end->results[0].verdict == Verdict::Unresolved);
 }
 
-TEST_CASE("end_stream: Eventually on never-observed signal → Unresolved (regression guard)",
+TEST_CASE("end_stream: Eventually on never-observed signal → Unresolved",
           "[integration][eos][unresolved]") {
-    // Pre-Path-G this collapsed to Fails via the Or φ (Eventually ψ) →
-    // Eventually ψ absorption. Path G guards that rewrite with
-    // finalizesFails φ = true, so bare Atomic (finalizeL = Unsure) no longer
-    // triggers it; the Or persists and finalizes via Unsure ∨ Fails = Unsure.
+    // The Or φ (Eventually ψ) → Eventually ψ absorption is guarded by
+    // finalizesFails φ = true, and a bare Atomic finalizes to Unsure, so the
+    // Or persists and finalizes via Unsure ∨ Fails = Unsure.
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
@@ -1754,21 +1752,10 @@ TEST_CASE("end_stream: K3 combination — Unresolved Or Fails = Unresolved",
     // Kleene truth table: Unsure ∨ Fails = Unsure. Left disjunct references
     // Speed (never observed → Unsure), right disjunct is an Eventually that
     // references Rpm but requires an unsatisfiable threshold (→ Fails under
-    // direct finalization since Eventually doesn't get K3 absorption when it
-    // appears inside Or's right branch and both operands finalize directly).
-    //
-    // Using Always(Rpm > 999999) which Holds vacuously on no matching frames
-    // is wrong (it would Hold, not Fail). Instead we use Eventually on a
-    // threshold Rpm never reaches, which does Fail on a non-empty trace
-    // because Eventually is a liveness operator — Path G keeps Fails on
-    // liveness when no progression satisfied it.
-    //
-    // Wait — on a non-empty trace with Rpm observed, Eventually(Rpm > big)
-    // progresses to Or (Atomic ...) (Eventually ...) and finalizes via
-    // Or's K3 rules. Since the left Atomic finalizes to Fails here (Rpm was
-    // observed and predicate was false each frame), and Eventually on the
-    // non-empty remainder also Fails by direct finalization, the Or becomes
-    // Fails ∨ Fails = Fails.
+    // direct finalization). The right disjunct is an Eventually on a
+    // threshold Rpm never reaches: a liveness operator that no progression
+    // satisfied finalizes to Fails on a non-empty trace. An Always would not
+    // do, since it holds vacuously when nothing matches.
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
@@ -1888,8 +1875,7 @@ auto make_single_signal_dbc(std::uint16_t start_bit, std::uint16_t bit_length, B
     };
 }
 
-// Convenience wrapper preserving the original `make_single_be_signal_dbc`
-// signature (used by the surrounding BE-specific test cases below).
+// The big-endian case, which most of the geometry tests want.
 auto make_single_be_signal_dbc(std::uint16_t start_bit, std::uint16_t bit_length,
                                std::uint8_t dlc_bytes) -> DbcDefinition {
     return make_single_signal_dbc(start_bit, bit_length, ByteOrder::BigEndian, dlc_bytes);
@@ -2066,55 +2052,19 @@ TEST_CASE("validate DBC: LittleEndian signal with length=0 rejected at parse",
     auto validation = client.validate_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(validation.has_value());
     CHECK(validation.error().code() == ErrorCode::ParseSignalBitLengthZero);
-    // Note: validate_dbc routes "status: error" responses through
-    // `parse_validation` (json_parse.cpp:738), which tags them
-    // `ErrorKind::Validation` (vs. `parse_dbc`'s `ErrorKind::Protocol` for
-    // the same wire code). The code itself is the same; the kind reflects
-    // the C++ API path, not the underlying failure.
+    // validate_dbc routes an error response through `parse_validation`, which
+    // tags it Validation, where `parse_dbc` tags the same wire code Protocol.
+    // The code is the same; the kind reflects the C++ entry point, not the
+    // underlying failure.
     CHECK(validation.error().kind() == ErrorKind::Validation);
 }
 
 // ---------------------------------------------------------------------------
-// RTS cores mismatch warning (2026-04-09)
+// RTS cores mismatch
 // ---------------------------------------------------------------------------
-// make_ffi_backend's second argument (rts_cores) only takes effect on the
-// first call in a process. Subsequent calls with a different rts_cores value
-// must log a warning to stderr via std::println(stderr, ...) in
-// ffi_backend.cpp's hs_init guard. This test captures the C stderr stream
-// using dup/dup2 and verifies the warning message contents.
-
-namespace {
-
-// Capture the C stderr stream for the duration of the callable's execution.
-// Returns the captured bytes as a std::string.
-template<typename F>
-auto capture_stderr(F&& fn) -> std::string {
-    std::fflush(stderr);
-    const int saved_stderr = ::dup(::fileno(stderr));
-    REQUIRE(saved_stderr >= 0);
-
-    std::array<char, 64> tmpl{};
-    const std::string_view name = "/tmp/aletheia_stderr_XXXXXX";
-    std::copy(name.begin(), name.end(), tmpl.begin());
-    const int fd = ::mkstemp(tmpl.data());
-    REQUIRE(fd >= 0);
-
-    REQUIRE(::dup2(fd, ::fileno(stderr)) >= 0);
-    fn();
-    std::fflush(stderr);
-    REQUIRE(::dup2(saved_stderr, ::fileno(stderr)) >= 0);
-    ::close(saved_stderr);
-
-    REQUIRE(::lseek(fd, 0, SEEK_SET) == 0);
-    std::array<char, 4096> buf{};
-    const auto n = ::read(fd, buf.data(), buf.size() - 1);
-    ::close(fd);
-    ::unlink(tmpl.data());
-
-    return std::string(buf.data(), n > 0 ? static_cast<std::size_t>(n) : 0);
-}
-
-} // namespace
+// make_ffi_backend's rts_cores argument only takes effect on the first call
+// in a process. A later call asking for a different count records the pair
+// through rts_mismatch_info, which is what these tests read.
 
 TEST_CASE("make_ffi_backend warns on mismatched rts_cores", "[integration][ffi_backend]") {
     auto lib = find_lib();
@@ -2170,10 +2120,10 @@ TEST_CASE("rts.cores_mismatch structured fields match Go/Python schema",
 
     const auto info = backend->rts_mismatch_info();
     REQUIRE(info.has_value());
-    // active_cores = what the RTS was already running with; requested_cores =
-    // what this call asked for. Both integer fields must be populated for
-    // parity with Go's slog `active_cores` / `requested_cores` (ffi.go:337-338)
-    // and Python's logging record (client/_ffi.py:79-82).
+    // The first is what the RTS was already running with and the second what
+    // this call asked for. Both must be populated, for parity with the
+    // `active_cores` and `requested_cores` fields Go logs and Python's own
+    // logging record.
     CHECK(info->first == 1);
     CHECK(info->second == 4);
 }
@@ -2191,8 +2141,8 @@ TEST_CASE("make_ffi_backend rejects rts_cores < 1", "[integration][ffi_backend]"
 // Event ack wire-contract tests.
 //
 // send_error and send_remote go through `parse_event_ack`, which is
-// authoritative for the `{"status":"ack"}` wire returned by the real FFI
-// (see Aletheia/Protocol/StreamState.agda:81-82). MockBackend's default
+// authoritative for the `{"status":"ack"}` wire the real FFI returns, as
+// Aletheia.Protocol.StreamState states. MockBackend's default
 // happens to return `"success"` — these tests exercise the real `"ack"`
 // path end-to-end, catching regressions where parse_success and
 // parse_event_ack drift or the Agda handler stops emitting `"ack"`.
