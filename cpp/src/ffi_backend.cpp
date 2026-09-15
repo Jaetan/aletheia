@@ -35,13 +35,16 @@ namespace aletheia {
 
 namespace {
 
-// CAN-FD's largest payload, sourced from the public limits header (SSOT).
-// This anonymous-namespace constant used to
-// duplicate `aletheia::max_frame_byte_count` (also 64); now it is a thin
-// alias so a future bound change at the public surface automatically
-// propagates here.
+// CAN-FD's largest payload, aliased from the public limits header so a bound
+// change at that surface reaches this one.
 constexpr std::size_t max_can_fd_payload_bytes =
     static_cast<std::size_t>(aletheia::max_frame_byte_count);
+
+// The (value, extended-flag) pair every FFI signature takes for a CAN id.
+struct WireCanId {
+    std::uint32_t value;
+    std::uint8_t extended;
+};
 
 using HsInitFn = void (*)(int*, char***);
 using AletheiaInitFn = void* (*)();
@@ -101,6 +104,22 @@ static auto as_byte(const std::uint8_t* p) -> const std::byte* {
     return reinterpret_cast<const std::byte*>(p);
 }
 
+static auto wire_can_id(const CanId& id) -> WireCanId {
+    return {.value = can_id_value(id),
+            .extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0)};
+}
+
+// CAN-FD's largest payload is 64 bytes; tighten the FFI bound so a malformed
+// caller cannot smuggle a 65 to 255 byte payload into the Haskell core before
+// it does its own length check.
+static auto payload_bound_error(std::span<const std::byte> data) -> std::optional<AletheiaError> {
+    if (data.size() <= max_can_fd_payload_bytes)
+        return std::nullopt;
+    return AletheiaError{ErrorKind::Validation, "data length exceeds " +
+                                                    std::to_string(max_can_fd_payload_bytes) +
+                                                    " bytes (CAN-FD max)"};
+}
+
 namespace {
 
 // Backend wrapping libaletheia-ffi.so via dlopen.  Lifecycle invariant:
@@ -152,12 +171,9 @@ class FfiBackend : public IBackend {
     // narrow definition of ErrorKind::Ffi in error.hpp ("Library load /
     // RTS initialization failure" — boundary itself failed before Agda
     // ran); a runtime null-return means the kernel was loaded but did
-    // not produce a response, which mirrors Python's ProtocolError at
-    // python/aletheia/client/_client.py:231/245.
-    // Replaces 8 hand-rolled copies of this
-    // pattern across process / send_frame_binary / send_error_binary /
-    // send_remote_binary / start_stream_binary / end_stream_binary /
-    // format_dbc_binary / extract_signals_binary.
+    // not produce a response, which mirrors the ProtocolError the Python
+    // client raises for the same condition.  Every string-returning
+    // endpoint below goes through it.
     [[nodiscard]] auto wrap_str_result(char* result, std::string_view error_msg) -> std::string {
         if (result == nullptr)
             throw AletheiaException(AletheiaError{ErrorKind::Protocol, std::string{error_msg}});
@@ -167,11 +183,19 @@ class FfiBackend : public IBackend {
     }
 
 public:
-    explicit FfiBackend(const std::filesystem::path& lib_path, int rts_cores)
-        : handle_(dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL)) {
+    // Both arguments are validated before the library is opened: a refused
+    // construction must load nothing (dlopen of an empty path opens the
+    // calling program, and a handle opened before a throw would leak, since
+    // the destructor deliberately never closes one).
+    explicit FfiBackend(const std::filesystem::path& lib_path, int rts_cores) {
         if (rts_cores < 1)
             throw AletheiaException(AletheiaError{
                 ErrorKind::Validation, "rts_cores must be >= 1, got " + std::to_string(rts_cores)});
+        if (lib_path.empty())
+            throw AletheiaException(
+                AletheiaError{ErrorKind::Validation,
+                              "library path is empty — pass the path of libaletheia-ffi.so"});
+        handle_ = dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (handle_ == nullptr)
             throw AletheiaException(
                 AletheiaError{ErrorKind::Ffi, std::string("dlopen failed: ") + dlerror()});
@@ -198,27 +222,21 @@ public:
                 load_sym<AletheiaExtractBinFn>(handle_, "aletheia_extract_signals_bin");
             free_buf_fn_ = load_sym<AletheiaFreeBufFn>(handle_, "aletheia_free_buf");
 
-            // Initialize GHC RTS (once per process, never finalized).
-            // Share the init state with the
-            // `rational_renderer.cpp` singleton via
-            // `detail::rts_init_state()` so a renderer-first hs_init is
-            // visible here.  Before this, each TU had a private
-            // `rts_state` and FfiBackend would silently re-attempt
-            // hs_init (idempotent, no-op) after the renderer had already
-            // initialized with cores=1, dropping the user's `rts_cores`
-            // argument without firing the `rts.cores_mismatch` warning.
+            // Initialize GHC RTS (once per process, never finalized).  The
+            // init state is shared with `rational_renderer.cpp` through
+            // `detail::rts_init_state()`, so the first backend's core count is
+            // visible to every later one and a different request surfaces as
+            // the `rts.cores_mismatch` warning instead of being dropped.
             auto& rts = detail::rts_init_state();
             const std::scoped_lock lock(rts.mu);
             if (!rts.initialized) {
-                // The argv ALWAYS carries the containment heap cap (rts_init_args
-                // is non-optional now).  hs_init_with_rtsopts MAY retain argv for
-                // the whole process lifetime, so the backing storage must outlive
-                // this call — a block-scoped array (the old code) would be freed
-                // on return while GHC still references the strings.  Function-
-                // local statics give process-lifetime storage without a raw
-                // owning `new`; this block runs exactly once (guarded by
-                // rts.initialized under rts.mu), so the runtime-valued
-                // initialisers evaluate once.
+                // The argv always carries the containment heap cap.
+                // hs_init_with_rtsopts may retain argv for the whole process
+                // lifetime, so the backing storage must outlive this call:
+                // function-local statics give process-lifetime storage without
+                // a raw owning `new`, and this block runs exactly once
+                // (guarded by rts.initialized under rts.mu), so their
+                // runtime-valued initialisers evaluate once.
                 const char* override_env =
                     std::getenv(std::string{detail::rts_override_env}.c_str());
                 static std::vector<std::string> rts_argv =
@@ -303,17 +321,10 @@ public:
                            std::span<const std::byte> data, std::optional<bool> brs,
                            std::optional<bool> esi) -> std::string override {
         const auto timestamp = static_cast<std::uint64_t>(ts.count());
-        const auto can_id = can_id_value(id);
-        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
+        const auto [can_id, extended] = wire_can_id(id);
         const auto dlc_val = dlc.value();
-        // CAN-FD's largest payload is 64 bytes; tighten the FFI bound so a
-        // malformed caller cannot smuggle 65–255 byte payloads into the
-        // Haskell core before it does its own length check.
-        if (data.size() > max_can_fd_payload_bytes)
-            throw AletheiaException(
-                AletheiaError{ErrorKind::Validation, "data length exceeds " +
-                                                         std::to_string(max_can_fd_payload_bytes) +
-                                                         " bytes (CAN-FD max)"});
+        if (auto err = payload_bound_error(data))
+            throw AletheiaException(*err);
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
         // Encode optional<bool> as (present, value) byte pairs — inverse
@@ -340,8 +351,7 @@ public:
 
     auto send_remote_binary(void* state, Timestamp ts, const CanId& id) -> std::string override {
         const auto timestamp = static_cast<std::uint64_t>(ts.count());
-        const auto can_id = can_id_value(id);
-        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
+        const auto [can_id, extended] = wire_can_id(id);
         return wrap_str_result(send_remote_fn_(state, timestamp, can_id, extended),
                                "aletheia_send_remote returned null");
     }
@@ -362,17 +372,10 @@ public:
 
     auto extract_signals_binary(void* state, const CanId& id, Dlc dlc,
                                 std::span<const std::byte> data) -> std::string override {
-        const auto can_id = can_id_value(id);
-        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
+        const auto [can_id, extended] = wire_can_id(id);
         const auto dlc_val = dlc.value();
-        // CAN-FD's largest payload is 64 bytes; tighten the FFI bound so a
-        // malformed caller cannot smuggle 65–255 byte payloads into the
-        // Haskell core before it does its own length check.
-        if (data.size() > max_can_fd_payload_bytes)
-            throw AletheiaException(
-                AletheiaError{ErrorKind::Validation, "data length exceeds " +
-                                                         std::to_string(max_can_fd_payload_bytes) +
-                                                         " bytes (CAN-FD max)"});
+        if (auto err = payload_bound_error(data))
+            throw AletheiaException(*err);
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
         return wrap_str_result(
@@ -383,8 +386,7 @@ public:
     auto build_frame_bin(void* state, const CanId& id, Dlc dlc, SignalInjection signals,
                          std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
-        const auto can_id = can_id_value(id);
-        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
+        const auto [can_id, extended] = wire_can_id(id);
 
         std::vector<std::byte> buf(expected_bytes);
         char* err_str = nullptr;
@@ -399,13 +401,9 @@ public:
     auto update_frame_bin(void* state, const CanId& id, Dlc dlc, std::span<const std::byte> data,
                           SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
-        if (data.size() > max_can_fd_payload_bytes)
-            return std::unexpected(
-                AletheiaError{ErrorKind::Validation, "data length exceeds " +
-                                                         std::to_string(max_can_fd_payload_bytes) +
-                                                         " bytes (CAN-FD max)"});
-        const auto can_id = can_id_value(id);
-        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
+        if (auto err = payload_bound_error(data))
+            return std::unexpected(*err);
+        const auto [can_id, extended] = wire_can_id(id);
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
         std::vector<std::byte> buf(expected_bytes);
@@ -420,13 +418,9 @@ public:
 
     auto extract_signals_bin(void* state, const CanId& id, Dlc dlc, std::span<const std::byte> data)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
-        if (data.size() > max_can_fd_payload_bytes)
-            return std::unexpected(
-                AletheiaError{ErrorKind::Validation, "data length exceeds " +
-                                                         std::to_string(max_can_fd_payload_bytes) +
-                                                         " bytes (CAN-FD max)"});
-        const auto can_id = can_id_value(id);
-        const auto extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0);
+        if (auto err = payload_bound_error(data))
+            return std::unexpected(*err);
+        const auto [can_id, extended] = wire_can_id(id);
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
         std::uint8_t* out_buf = nullptr;
@@ -457,13 +451,14 @@ public:
 
 auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores)
     -> std::unique_ptr<IBackend> {
-    // Register the user's lib_path so the lazy-loaded
-    // Rational renderer (`rational_renderer.cpp`) prefers the same .so
-    // instead of falling back to its relative-path heuristic:
-    // production users who pass an explicit lib_path
-    // to make_ffi_backend now have their choice honored by the renderer.
+    // The backend validates its arguments and opens the library; registering
+    // the path first would leave the renderer pointing at a path this call is
+    // about to refuse, so the backend is constructed before the registration.
+    auto backend = std::make_unique<FfiBackend>(lib_path, rts_cores);
+    // The lazy-loaded Rational renderer (`rational_renderer.cpp`) then prefers
+    // the same .so instead of its relative-path heuristic.
     detail::register_default_lib_path(lib_path);
-    return std::make_unique<FfiBackend>(lib_path, rts_cores);
+    return backend;
 }
 
 auto make_ffi_backend_from_env(int rts_cores) -> std::unique_ptr<IBackend> {

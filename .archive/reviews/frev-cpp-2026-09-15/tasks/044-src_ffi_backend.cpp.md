@@ -1,6 +1,6 @@
 # Task 044: file review of `cpp/src/ffi_backend.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/ffi_backend.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/044 (signed later by the dribble).
+
+Claims and guards: every FFI symbol is resolved at construction and a missing one is an Ffi error (integration_tests over the real library); the payload bound at the four binary entries (unit_tests_input_bounds, the fuzz harness); the RTS is initialised once per process with the heap cap and the mismatch is recorded (test_rts_heap_cap forks the workload under a tight cap, integration_tests covers the mismatch, unit_tests_ffi_logic the decision); the null-return-to-Protocol conversion (unit_tests_ffi_logic, integration_tests); that a refused construction loads nothing (nothing checked it, and both halves were broken: an empty path went to dlopen, which opens the calling program and failed later with an undefined-symbol message of kind Ffi, and a core count below one threw after the member initialiser had already dlopened the kernel, leaking the handle that this class deliberately never closes. New probe refuses both and reads /proc/self/maps: red before the fix on the kind and on the mapped kernel, green after).
+
+Findings fixed: (a) the two refusals now precede the dlopen, and the library handle is opened only once both arguments are accepted; (b) make_ffi_backend registered the path with the renderer before constructing, so a refused construction still pointed the renderer at that path; it registers after; (c) the CAN-FD payload check with its message was written four times, twice throwing and twice returning; one payload_bound_error serves both shapes; (d) the CAN id and its extended flag were unpacked at six call sites; one wire_can_id returns the pair; (e) four history comments (the constant that "used to duplicate", the wrapper that "replaces 8 hand-rolled copies", the TU-private rts_state story, "the old code") and a Python line-number citation removed; (f) the renderer-first sentence pushed in from task 040 rewritten.
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/044
+claims: 5 rows, 1 without a guard: probe cpp_src_ffi_backend.cpp--refused-construction-loads-nothing.sh added, red before the fix on both halves
+1 line per line: checked, all 481 lines read; every entry asked what it validates and every handle who releases it
+2 guidelines: finding, the arguments are checked before the resource is acquired (C.41 family)
+3 modernize: finding, structured bindings over the unpacked pair; gate: 15 of 15 ctest, tidy gate zero, Mull all killed, both backend probes green
+4 catalogue: checked, AGENTS/cpp.md categories 13 (FFI lifecycle: the no-hs_exit and no-dlclose invariant is stated and now unbroken on the refusal paths) and 28 (the payload bound at every entry)
+5 value semantics: checked, spans in, vectors out; the injection block is the XREV item
+6 raii: finding, the leaked handle on the invalid-core path; the string and buffer deleters already held
+7 dedup: finding, four bound checks and six id unpackings folded
+8 ground truth: finding, four history comments and a line-number citation
+9 history: finding, see 8
+10 simpler: finding, see 7
+11 comments: 117 to 107, code 318 to 320 (the two refusals and the two helpers)
+sweep: ffi_backend.cpp names 16 mutants at base, all KILLED in the run after the edit; tidy gate zero
+probes: 1 added; store 47 run, 46 pass, 1 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 
