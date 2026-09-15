@@ -1,6 +1,6 @@
 # Task 039: file review of `cpp/src/detail/rts_init.cpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/detail/rts_init.cpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,28 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. NO CHANGE (reviewed in the snapshot refs/frev/041 with its header).
+
+Claims and guards: one process-wide state behind a function-static accessor, read under its mutex (rts_init_renderer_uninitialized_tests, the heap-cap workload, the integration tests' cores-mismatch cases).
+
+```
+REPORT 2026-09-15 tree b222b613 NO CHANGE
+claims: 1 row, 0 without a guard
+1 line per line: checked, all 24 lines read
+2 guidelines: checked, scoped_lock, magic static
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md category 25 (the lock is taken for the read)
+5 value semantics: n/a
+6 raii: checked, the lock
+7 dedup: checked, none
+8 ground truth: checked
+9 history: checked, none
+10 simpler: checked
+11 comments: 5 to 5, code 13 to 13
+sweep: no mutation names this file
+probes: none added
+decision points: none
+```
 
 ## Contract (carried whole)
 

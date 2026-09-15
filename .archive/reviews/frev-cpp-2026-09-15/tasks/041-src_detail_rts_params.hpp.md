@@ -1,6 +1,6 @@
 # Task 041: file review of `cpp/src/detail/rts_params.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/detail/rts_params.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,28 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. NO CHANGE.
+
+Claims and guards: every constant mirrors docs/RESOURCE_BUDGETS.yaml (test_rts_params_parity and the check_rts_runtime gate); plain hs_init cannot carry the cap and the cap aborts the process rather than erroring (test_rts_heap_cap forks the workload under a tight cap and sees the abort); the override variable's precedence (unit_tests_ffi_logic). The working-set figure is a measurement the SSOT owns.
+
+```
+REPORT 2026-09-15 tree b222b613 NO CHANGE
+claims: 4 rows, 0 without a guard
+1 line per line: checked, all 42 lines read
+2 guidelines: checked, inline constexpr string_views
+3 modernize: checked
+4 catalogue: checked, the RTS SSOT gate
+5 value semantics: n/a
+6 raii: n/a
+7 dedup: checked, none
+8 ground truth: checked, the parity test and the gate hold the constants; the abort contract is tested
+9 history: checked, none
+10 simpler: checked
+11 comments: 26 to 26, code 8 to 8
+sweep: no mutation names this file
+probes: none added; store 44 run, 43 pass, 1 red on record
+decision points: none
+```
 
 ## Contract (carried whole)
 

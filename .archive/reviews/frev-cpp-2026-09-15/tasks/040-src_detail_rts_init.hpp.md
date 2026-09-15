@@ -1,6 +1,6 @@
 # Task 040: file review of `cpp/src/detail/rts_init.hpp`
 
-- status: pending
+- status: completed
 - file: `cpp/src/detail/rts_init.hpp`
 - round base: 726198bb (2026-09-15)
 - pass: full (no earlier round under this contract covers this directory, so there is no previous diff to read first)
@@ -8,7 +8,30 @@
 
 ## Report
 
-(filled when the task is worked; shape in the contract below)
+Full pass. Fix in refs/frev/041 (signed later by the dribble; shared snapshot with 039 and 041).
+
+Claims and guards: the renderer never initialises the runtime and throws when it is down (rts_init_renderer_uninitialized_tests); the first backend's count is recorded and a later different count warns (integration_tests' rts_mismatch_info cases, unit_tests_ffi_logic); the once-per-process lifecycle (rts_heap_cap_workload).
+
+Findings fixed: (a) the `cores` field's comment told a "renderer-first" story (the renderer recording one core) that the same header says cannot happen; it states the present rule, and the same phrase in ffi_logic.hpp is rewritten in this task since it is the same false sentence; its remaining copies in ffi_backend.cpp and a test comment are pushed to those files' tasks; (b) a plan label ("point 2") removed; (c) the two accessors are [[nodiscard]].
+
+```
+REPORT 2026-09-15 tree b222b613 fix in refs/frev/041
+claims: 3 rows, 0 without a guard
+1 line per line: checked, all 49 lines read
+2 guidelines: finding, nodiscard on the accessors; the lock discipline stated on the struct
+3 modernize: checked
+4 catalogue: checked, AGENTS/cpp.md categories 13 and 25
+5 value semantics: n/a
+6 raii: n/a in the interface
+7 dedup: checked, none
+8 ground truth: finding, the renderer-first sentence contradicted the header's own rule and the backend's code
+9 history: finding, one label and one stale story
+10 simpler: checked
+11 comments: 31 to 30, code 11 to 11
+sweep: no mutation names this file; rts tests, unit and integration tests green after the edit, tidy gate zero
+probes: none added
+decision points: none
+```
 
 ## Contract (carried whole)
 
