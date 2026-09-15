@@ -1,5 +1,5 @@
-15/15 Test #15: doc_example_tests .......................   Passed   38.54 sec
+15/15 Test #15: doc_example_tests .......................   Passed   36.98 sec
 
 100% tests passed, 0 tests failed out of 15
 
-Total Test time (real) =  39.37 sec
+Total Test time (real) =  37.77 sec

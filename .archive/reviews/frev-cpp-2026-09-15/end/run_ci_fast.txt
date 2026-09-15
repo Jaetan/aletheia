@@ -1,11 +1,11 @@
 ═══ Aletheia offline CI sweep ═══
-Started:  2026-09-15 11:45:22 UTC
+Started:  2026-09-15 12:15:32 UTC
 Branch:   review/frev-cpp
 Commit:   b222b613b492b1b0c5145e30def77c929e4c5b11
 Steps:    12
 Mode:     serial
 Opt-ins:  -repro -stability -mutation
-Log:      /home/nicolas/dev/agda/aletheia/tools/ci-output/ci-review_frev-cpp-2026-09-15T11-45-22Z.log
+Log:      /home/nicolas/dev/agda/aletheia/tools/ci-output/ci-review_frev-cpp-2026-09-15T12-15-32Z.log
   ⊘ check-reproducible-build skipped (set ALETHEIA_REPRO_CHECK=1 or pass --repro to enable)
   ⊘ stability bench skipped (set ALETHEIA_STABILITY_CHECK=1 or pass --stability to enable)
   ⊘ mutation testing skipped (set ALETHEIA_MUTATION_CHECK=1 or pass --mutation to enable)
@@ -28,7 +28,7 @@ Log:      /home/nicolas/dev/agda/aletheia/tools/ci-output/ci-review_frev-cpp-202
   ▶ check-dist-staging …
   ✓ check-dist-staging (0s)
   ▶ pylint …
-  ✓ pylint (7s)
+  ✓ pylint (8s)
   ▶ gofmt …
   ✓ gofmt (0s)
   ▶ cargo fmt …
@@ -36,5 +36,5 @@ Log:      /home/nicolas/dev/agda/aletheia/tools/ci-output/ci-review_frev-cpp-202
 ═══ CI summary ═══
 Result:   ALL 12 STEPS PASSED
 Duration: 11s (0m11s)
-Log:      /home/nicolas/dev/agda/aletheia/tools/ci-output/ci-review_frev-cpp-2026-09-15T11-45-22Z.log
+Log:      /home/nicolas/dev/agda/aletheia/tools/ci-output/ci-review_frev-cpp-2026-09-15T12-15-32Z.log
 Use this log as the falsifiable evidence behind any 'all gates' claim.

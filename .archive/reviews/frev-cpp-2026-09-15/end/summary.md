@@ -47,7 +47,9 @@ that measured it were rewritten against exact fractions; the four library search
 field and message target carries its vocabulary type; a member name follows the wire; the format
 configuration lists only the project's own decisions; CMake files have a style and a gate; and the test
 sources are inside the lint gate with a configuration of their own, and so are the benchmarks, which
-needed no configuration at all.
+needed no configuration at all. Closing the round, the two projects the spreadsheet library fetches for
+itself were pinned to release archives with measured hashes, so the pin claim covers what the build
+compiles and not only what it downloads directly.
 
 One probe that could flake was found and fixed at the close: the mutation baseline check inherited an
 environment variable that changes the sweep's own score.

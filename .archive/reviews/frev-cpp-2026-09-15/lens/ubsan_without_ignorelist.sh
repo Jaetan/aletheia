@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # Measurement, not a probe: builds the Excel tests under UBSan in a scratch copy
 # of cpp/ with the sanitizer ignorelist withheld and recovery enabled, and
 # lists every third-party site UBSan reports. Run from the repository root.
