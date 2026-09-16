@@ -77,6 +77,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   Go throughput/latency baselines are void rather than outdated: they came from a
   binary that could not decode the wire it was measuring, so its four surviving
   lanes are as untrustworthy as its two missing ones.
+- **The benchmark harness refuses a zero or non-numeric count, and a broken build
+  fails the run instead of skipping the lane.** `--frames 0` made every lane publish
+  a schema-conformant all-zero report and exit 0: a fabricated measurement set, the
+  class of defect the harness exists to prevent. Both `--frames` and `--runs` must
+  now be positive integers, checked before the mode check, every preflight and the
+  results clear, so a refused value touches nothing. A lane whose toolchain is on
+  PATH but whose build fails is reported as FAIL and fails the run; only an absent
+  toolchain is still a skip. A lane whose scratch file cannot be created fails
+  without leaving a file behind, the scratch names are ignored by git, and
+  `ALETHEIA_BENCH_RESULTS_DIR` redirects the results directory so the probes can
+  drive the harness without touching the last measurements.
 
 ### Changed
 

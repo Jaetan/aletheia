@@ -11,6 +11,10 @@
 # Usage:
 #     ./benchmarks/run_all.sh [--frames N] [--runs N] [--bench throughput|latency|scaling]
 #
+# Results go to benchmarks/results/ unless ALETHEIA_BENCH_RESULTS_DIR names
+# another directory.  The override exists so a probe can exercise this script
+# without clearing or rewriting the developer's last measurements.
+#
 # Prerequisites:
 #     - libaletheia-ffi.so built (cabal run shake -- build)
 #     - Python venv activated with aletheia installed
@@ -26,7 +30,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-RESULTS_DIR="$SCRIPT_DIR/results"
+RESULTS_DIR="${ALETHEIA_BENCH_RESULTS_DIR:-$SCRIPT_DIR/results}"
 
 # Defaults
 FRAMES=10000
@@ -42,6 +46,19 @@ while [[ $# -gt 0 ]]; do
         *)        echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
 done
+
+# FRAMES and RUNS must be positive integers: a zero count makes every lane emit a
+# schema-conformant all-zero report and exit 0, a fabricated measurement set,
+# which is the failure class this harness exists to prevent.  Checked before any
+# preflight or the clear below, so a refused value touches nothing.
+if ! [[ "$FRAMES" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: --frames must be a positive integer, got '$FRAMES'" >&2
+    exit 1
+fi
+if ! [[ "$RUNS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: --runs must be a positive integer, got '$RUNS'" >&2
+    exit 1
+fi
 
 # Validate the mode before anything derives a path from it.  BENCH feeds a
 # destructive glob below, and an unchecked value is a data-loss hazard, not just a
@@ -109,9 +126,18 @@ run_benchmark() {
     local cmd=("$@")
 
     local tmpfile errfile
-    tmpfile="$(mktemp "$RESULTS_DIR/.tmp.${lang}.XXXXXX")"
-    errfile="$(mktemp "$RESULTS_DIR/.err.${lang}.XXXXXX")"
-    trap "rm -f '$tmpfile' '$errfile'" RETURN
+    if ! tmpfile="$(mktemp "$RESULTS_DIR/.tmp.${lang}.XXXXXX")"; then
+        echo "    FAIL: $lang could not create a temp file in $RESULTS_DIR" >&2
+        return 1
+    fi
+    # Installed between the two mktemps: a failure of the second must not orphan
+    # the first file.
+    trap 'rm -f "$tmpfile"' RETURN
+    if ! errfile="$(mktemp "$RESULTS_DIR/.err.${lang}.XXXXXX")"; then
+        echo "    FAIL: $lang could not create a temp file in $RESULTS_DIR" >&2
+        return 1
+    fi
+    trap 'rm -f "$tmpfile" "$errfile"' RETURN
 
     echo ">>> Running $lang $BENCH benchmark..."
 
@@ -133,8 +159,14 @@ run_benchmark() {
 
     # Extract JSON: find first '{' through end of file, validate with python.
     # This strips any non-JSON preamble (RTS warnings, cgo messages).
+    # This function is always invoked as an `if` condition, which disables
+    # `set -e` for its whole body.  Every command that can lose or fabricate a
+    # result is therefore checked explicitly below; errexit does nothing here.
     local json_out
-    json_out="$(mktemp "$RESULTS_DIR/.json.${lang}.XXXXXX")"
+    if ! json_out="$(mktemp "$RESULTS_DIR/.json.${lang}.XXXXXX")"; then
+        echo "    FAIL: $lang could not create a temp file in $RESULTS_DIR" >&2
+        return 1
+    fi
 
     if ! sed -n '/^{/,$ p' "$tmpfile" | python3 -c "
 import sys, json
@@ -156,7 +188,11 @@ except (json.JSONDecodeError, ValueError) as e:
     fi
 
     # Atomic move to final location
-    mv "$json_out" "$outfile"
+    if ! mv "$json_out" "$outfile"; then
+        echo "    FAIL: $lang result could not be written to $outfile" >&2
+        rm -f "$tmpfile" "$json_out"
+        return 1
+    fi
     rm -f "$tmpfile"
     echo "    Saved: $(basename "$outfile")"
     return 0
@@ -196,7 +232,8 @@ cd "$PROJECT_DIR"
 # a pre-built binary can predate a kernel wire change and measure a format it
 # cannot decode.  `cmake --build` is incremental, so a warm tree is fast.  An
 # unconfigured tree is a graceful SKIP (configuring needs clang-22 + the
-# FetchContent deps), matching the other optional-binding lanes.
+# FetchContent deps), matching the other optional-binding lanes; a configured
+# tree that fails to build is a FAIL, because the toolchain is present.
 CPP_DIR="$PROJECT_DIR/cpp"
 CPP_BIN="$CPP_DIR/build/benchmark"
 if [[ -f "$CPP_CACHE" ]]; then
@@ -215,7 +252,10 @@ if [[ -f "$CPP_CACHE" ]]; then
             FAILED+=(C++)
         fi
     else
-        echo ">>> SKIP: C++ benchmark failed to build" >&2
+        # The tree is configured (CMakeCache exists), so a failed build is a real
+        # failure, not a missing toolchain.
+        echo ">>> FAIL: C++ benchmark failed to build" >&2
+        FAILED+=(C++)
         printf '%s\n' "$CPP_BUILD_LOG" >&2
     fi
 else
@@ -228,8 +268,9 @@ fi
 # hypothetical — a binary predating the detailed-extraction-reason wire format
 # failed every extraction call, and because the failures were silent the two
 # Signal Extraction lanes were simply absent from the results.  `go build` is
-# incremental, so a warm tree is near-instant.  A build failure — e.g. Go not
-# installed — is a graceful SKIP, matching the other optional-binding lanes.
+# incremental, so a warm tree is near-instant.  Go not installed is a graceful
+# SKIP, matching the other optional-binding lanes; Go installed and the build
+# broken is a FAIL, since a lane that cannot be measured is an error.
 GO_DIR="$PROJECT_DIR/go"
 GO_BIN="$GO_DIR/benchmarks/benchmark"
 if GO_BUILD_LOG="$(cd "$GO_DIR" && go build -o benchmarks/benchmark ./benchmarks/ 2>&1)"; then
@@ -247,16 +288,22 @@ if GO_BUILD_LOG="$(cd "$GO_DIR" && go build -o benchmarks/benchmark ./benchmarks
         FAILED+=(Go)
     fi
 else
-    echo ">>> SKIP: Go benchmark failed to build (is go installed?)" >&2
+    if command -v go >/dev/null 2>&1; then
+        # Toolchain present, build broken: a real failure, not an environment gap.
+        echo ">>> FAIL: Go benchmark failed to build" >&2
+        FAILED+=(Go)
+    else
+        echo ">>> SKIP: Go benchmark not built (go is not installed)" >&2
+    fi
     printf '%s\n' "$GO_BUILD_LOG" >&2
 fi
 
 # --- Rust ---
 # Built here like the C++ and Go lanes above (a release example target;
-# incremental, so a warm tree is near-instant). A build failure — e.g. cargo not
-# installed — is a graceful SKIP, matching the optional-binding behaviour of the
-# other lanes; the Rust source itself is gated by run_ci's cargo lanes, not this
-# script.
+# incremental, so a warm tree is near-instant). cargo not installed is a graceful
+# SKIP, matching the optional-binding behaviour of the other lanes; cargo present
+# and the build broken is a FAIL.  The Rust source itself is gated by run_ci's
+# cargo lanes, not this script.
 RUST_DIR="$PROJECT_DIR/rust"
 RUST_BIN="$RUST_DIR/target/release/examples/benchmark"
 if RUST_BUILD_LOG="$(cd "$RUST_DIR" && cargo build --release --example benchmark 2>&1)"; then
@@ -274,7 +321,12 @@ if RUST_BUILD_LOG="$(cd "$RUST_DIR" && cargo build --release --example benchmark
         FAILED+=(Rust)
     fi
 else
-    echo ">>> SKIP: Rust benchmark failed to build (is cargo installed?)" >&2
+    if command -v cargo >/dev/null 2>&1; then
+        echo ">>> FAIL: Rust benchmark failed to build" >&2
+        FAILED+=(Rust)
+    else
+        echo ">>> SKIP: Rust benchmark not built (cargo is not installed)" >&2
+    fi
     printf '%s\n' "$RUST_BUILD_LOG" >&2
 fi
 

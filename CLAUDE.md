@@ -109,9 +109,9 @@ cabal run shake -- gen-ffi-modules
 cabal run shake -- iwyu
 
 # Tests (each from the right cwd)
-cd python && python3 -m pytest tests/ -v
-cd python && basedpyright aletheia/ benchmarks/ tests/
-cd python && pylint aletheia/ tests/ benchmarks/
+cd python && .venv/bin/python -m pytest tests/ -v
+cd python && .venv/bin/basedpyright aletheia/ benchmarks/ tests/
+cd python && .venv/bin/pylint aletheia/ tests/ benchmarks/
 cd cpp && cmake -B build && cmake --build build && ctest --test-dir build
 cd go && go test ./aletheia/ -v -count=1 -race
 
@@ -166,10 +166,10 @@ MAlonzo mangles names (e.g., `processJSONLine` → `d_processJSONLine_4`). Build
 
 ### Haskell FFI Layer
 
-3 files (~470 LOC, no business logic):
-- **AletheiaFFI.hs** (~277 LOC): `foreign export ccall` wrappers around `processJSONLine` (JSON commands) and `processFrameDirect` (binary frames via `aletheia_send_frame`).
-- **AletheiaFFI/Marshal.hs** (~95 LOC): Agda type construction helpers.
-- **AletheiaFFI/BinaryOutput.hs** (~99 LOC): binary response encoding.
+Three files, no business logic:
+- **AletheiaFFI.hs**: `foreign export ccall` wrappers around `processJSONLine` (JSON commands) and `processFrameDirect` (binary frames via `aletheia_send_frame`).
+- **AletheiaFFI/Marshal.hs**: Agda type construction helpers.
+- **AletheiaFFI/BinaryOutput.hs**: binary response encoding.
 
 State managed via `StablePtr (IORef StreamState)`. All bindings load `.so` via ctypes/dlopen — no subprocess overhead.
 
@@ -222,7 +222,7 @@ Build-time issues are catalogued in [BUILDING.md § Troubleshooting](docs/develo
 
 ## Implementation Phases
 
-[PROJECT_STATUS.md](PROJECT_STATUS.md). Current state: Phase 5.1 complete (binary FFI 4.3× CAN 2.0B / 9.1× CAN-FD; CAN-FD; C++/Go bindings; cross-language benchmarks; four-tier check interface with full parity); the parity plan is complete (matrix gates / DBC text parser / cancellation / doc harness / VAL_ promotion). **No active phase**; Phase 6 (Extensions & New Protocols — CLI parity stretch + Rust/Haskell bindings (Haskell native; Rust via .so) + python-can replacement + GHC native bignum + SOME/IP) is the candidate next track, goal-set pinned 2026-05-07 but not started.
+[PROJECT_STATUS.md](PROJECT_STATUS.md). Current state: Phase 5.1 complete (binary FFI 4.3× CAN 2.0B / 9.1× CAN-FD; CAN-FD; C++/Go bindings; cross-language benchmarks; four-tier check interface with full parity); the parity plan is complete (matrix gates / DBC text parser / cancellation / doc harness / VAL_ promotion). **Phase 6 (Extensions & New Protocols) is the active track**: shipped so far are the installable distribution (v4.0.0, hardened by v5.0.0), C++/Go CLI parity and the Rust binding; open are the `aletheia template` CLI, the Go CAN-log reader, and the candidate tracks (native Haskell binding, python-can replacement, GHC native bignum, SOME/IP, which is designed but not scheduled).
 
 ---
 
@@ -306,9 +306,9 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 **Branch & PR hygiene ✅ ENFORCED** — `.github/workflows/pr-full-ci.yml` runs `tools/run_ci.py` (all gates) on every `pull_request` + `push:main`; the `main` ruleset now **requires** `tools/run_ci.py (all gates)` (2026-06-10) **and `mutation testing`** (2026-06-20, #72 — drift gate, merge-blocking).  C++ builds with **Clang 22** (the supported toolchain — see [BUILDING.md § Toolchain support policy](docs/development/BUILDING.md#toolchain-support-policy)), enforced in `cpp/CMakeLists.txt`.  Detail: `docs/development/BRANCH_PR_HYGIENE.md`, `memory/project_cpp_compilers.md`.
 
-**Pending work** lives in ONE place: `memory/TASKS.md`, the single local task list (agent store, outside this repo). Nothing in the tree records a task, and nothing in the tree may cite that file — `tools/check_no_memory_citations.py` refuses a memory citation in source or docs, so an in-source note states its constraint in its own words. A task is not only implementation: research and analysis, design, testing, validation and release work are tasks too, and the list carries a design task with its plan in full. 10 open: gate-claim freshness (`DO`); multi-value and nested mux, their design plan, and CAN-FD bus-bit predicates (consumer-gated); the rest accepted, blocked or demand-gated.
+**Pending work** lives in ONE place: `memory/TASKS.md`, the single local task list (agent store, outside this repo). Nothing in the tree records a task, and nothing in the tree may cite that file — `tools/check_no_memory_citations.py` refuses a memory citation in source or docs, so an in-source note states its constraint in its own words. A task is not only implementation: research and analysis, design, testing, validation and release work are tasks too, and the list carries a design task with its plan in full. Open at the time of writing: gate-claim freshness by artifact, the pre-commit IWYU advisory's misreport, and the C++ benchmark harness's discarded timed results (`DO`); multi-value and nested mux, their design plan, and CAN-FD bus-bit predicates (consumer-gated); the rest accepted, blocked or demand-gated. The list, not this sentence, is the count.
 
-**Phase 6 — CLI parity (C++/Go) ✅ done 2026-06-12** (the quick-wins track; see top). Remaining Phase 6 candidates (not started): Rust/Haskell bindings (Haskell native; Rust via `.so`), python-can replacement (`can_log_reader`), GHC native bignum, SOME/IP.
+**Phase 6 — CLI parity (C++/Go) ✅ done 2026-06-12** (the quick-wins track; see top). Remaining Phase 6 candidates (not started): native Haskell binding, python-can replacement (`can_log_reader`), GHC native bignum, SOME/IP (designed, `docs/development/SOMEIP_DESIGN.md`). The Rust binding shipped 2026-06-14.
 
 **Standard gates** (all run by `tools/run_ci.py`; the full ordered sequence is [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) — the canonical source): Agda `build` + the proof gates (`check-properties` and siblings), Python `pytest`, Go `go test -race`, C++ `ctest` (Clang 22), tree-wide lint (ruff / pylint / basedpyright), IWYU (`tools/iwyu.py`), GHA meta (actionlint / pin / permission checks), and SPDX headers.
 

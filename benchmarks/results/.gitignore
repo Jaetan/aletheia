@@ -1,2 +1,6 @@
 *.json
 !*_baseline.json
+# run_all.sh scratch files; a killed run can leave these behind.
+.tmp.*
+.err.*
+.json.*
