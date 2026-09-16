@@ -90,8 +90,7 @@ open import Aletheia.DBC.TextParser.Properties.CharClassDisjoint using
 -- validity by `Properties.WellFormedFromValidity.signalNameStop` (via the
 -- already-proven `isIdentStart→¬isHSpace` bridge in
 -- `Properties.CharClassDisjoint`); still taken as a precondition here because
--- the threading through `MessageWF` is not yet removed (see DEFERRED_ITEMS.md
--- E.1/E.2).  Identical in shape to
+-- the threading through `MessageWF` is not yet removed.  Identical in shape to
 -- `Format.SignalLine.Roundtrip.NameStop` modulo
 -- `RawSignal.name (expectedRaw _ sig _) ≡ DBCSignal.name sig` (record-η).
 SignalNameStop : DBCSignal → Set

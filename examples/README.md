@@ -92,9 +92,9 @@ Signal("Speed").between(0, 300)
 Signal("Speed").changed_by(10)
 
 # Temporal operators
-Signal("Speed").equals(0).always()      # □(Speed = 0)
+Signal("Speed").equals(0).always()  # □(Speed = 0)
 Signal("Speed").equals(0).eventually()  # ◇(Speed = 0)
-Signal("Speed").equals(0).never()       # □¬(Speed = 0)
+Signal("Speed").equals(0).never()  # □¬(Speed = 0)
 
 # Bounded temporal operators
 Signal("DoorClosed").equals(1).within(100)  # Within 100ms

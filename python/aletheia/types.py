@@ -121,7 +121,7 @@ def dump_json(value: object, *, indent: int | None = None) -> str:
     )
 
 
-type JSONValue = str | int | float | bool | None | list[JSONValue] | dict[str, JSONValue]
+type JSONValue = str | int | float | bool | list[JSONValue] | dict[str, JSONValue] | None
 """A JSON value: the leaf scalars plus JSON arrays/objects.
 
 The canonical type for JSON-/wire-derived data — what ``json.loads`` and the

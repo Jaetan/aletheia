@@ -80,6 +80,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The Python lint and test toolchain moves up a release.** `ruff` to the 0.16 line,
+  `pylint` to 4.0.7, `hypothesis` to 6.165.8 and the build's `setuptools` floor to 84.
+  Two of these have visible consequences rather than none. `ruff` 0.16 promotes
+  Markdown formatting out of preview, so Python code blocks inside `README.md` files
+  enter the format gate for the first time: four documents join it and two are
+  reformatted, which costs one example block its aligned trailing comments and gains
+  the doc examples the same formatting the rest of the tree is held to. `ruff` 0.16
+  also adds `RUF036`, which reads `None` in the middle of a union as a defect; the
+  `JSONValue` alias now ends with it, an ordering change and nothing else. `pylint`
+  4.0.7 and `hypothesis` 6.165.8 change no gate output, measured rather than assumed:
+  4.0.6 and 4.0.8 print the same messages and the same score, and the suite passes
+  unchanged. `mutmut` is excluded from automated bumps, because its baseline is a
+  measured mutant count that only a hand bump can re-measure.
+
 - **CI builds the C++ binding against libstdc++ 15.** ubuntu-24.04 ships 14, which
   is why a standard C++23 construct compiled on a developer machine and failed only
   on the runner. The toolchain policy tracks the latest stable release rather than
@@ -237,6 +251,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   in the install prefix.
 
 ### Removed
+
+- **`docs/development/DEFERRED_ITEMS.md`.** Pending work is tracked in one task
+  list rather than in a file in the tree, so the nine open items moved there whole
+  and the document went with them. Two consequences reach the tree. The in-source
+  notes that cited items by identifier now state their constraint in their own
+  words, which also retired three citations naming work that had already shipped;
+  and the memory-citation gate loses the exemption it carried for this document,
+  since the document it exempted no longer exists. The design plan for lossless
+  multiplexor emission left the tree in the same move: a plan for pending work is
+  pending work, so it is carried whole by the design task the two multiplexor
+  tasks execute against.
 
 - **The self-contained `Dockerfile`** (in-container from-source build). It was
   built by no CI, superseded by `Dockerfile.runtime` (the tested, signed,

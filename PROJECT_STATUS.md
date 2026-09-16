@@ -9,7 +9,6 @@ its delivery **phases** — the high-level goals set out for the project. Detail
 that changes continuously lives in dedicated surfaces, not here:
 
 - Live cross-binding feature parity — [`docs/FEATURE_MATRIX.yaml`](docs/FEATURE_MATRIX.yaml)
-- Open backlog — [`docs/development/DEFERRED_ITEMS.md`](docs/development/DEFERRED_ITEMS.md)
 - Performance — [`docs/development/BENCHMARKS.md`](docs/development/BENCHMARKS.md)
 
 ## Phases
@@ -116,6 +115,5 @@ deciders, so the surfaces cannot disagree. The heavier capability that remains
 deferred, off the critical path: emitting the currently-lossy constructs
 (e.g. multi-value multiplexing) without loss.
 
-Living detail and rationale for the above live in
-[`docs/development/DEFERRED_ITEMS.md`](docs/development/DEFERRED_ITEMS.md) and the
-project memory notes.
+Living detail and rationale for the above are tracked outside the tree, with
+the rest of the pending work.

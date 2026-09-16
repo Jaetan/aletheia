@@ -9,7 +9,7 @@
 # redundantly re-run the whole ~36-min base sweep already covered by
 # pr-full-ci.yml).
 #
-# Enforcement split (see docs/development/DEFERRED_ITEMS.md + BRANCH_PR_HYGIENE):
+# Enforcement split (see BRANCH_PR_HYGIENE):
 #   * reproducible-build — DETERMINISTIC (two clean builds, sha256 compare);
 #     intended to become a REQUIRED check.  Runs on every PR event so the
 #     required status always reflects the latest commit.
