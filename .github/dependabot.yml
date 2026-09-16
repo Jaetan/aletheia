@@ -31,6 +31,15 @@ updates:
     labels:
       - "dependencies"
       - "python"
+    ignore:
+      # mutmut is pinned to one exact version because the mutation lane's
+      # baseline is a measured mutant count: two releases in one major
+      # enumerate different mutant sets, so a bump is only correct when
+      # docs/MUTATION_BENCH.yaml is re-measured in the same change.  An
+      # automated bump cannot do that half, so it would land a manifest whose
+      # recorded baseline no longer describes the generator.  Bump it by hand,
+      # with the Python row re-measured.
+      - dependency-name: mutmut
 
   - package-ecosystem: gomod
     directory: /go
