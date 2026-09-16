@@ -94,7 +94,7 @@ dev = [
     # ``python/tests/conftest.py`` (CI ``max_examples=200``, dev ``=20``).
     "hypothesis>=6.165.8,<7",
     "pylint>=4.0.8,<5",
-    "basedpyright>=1.39.9,<2",
+    "basedpyright>=1.40.1,<2",
     # ruff drives the ruff(ALL) lint + format gate; minor-level pin, because
     # ruff is pre-1.0 and new rules land in minor bumps, so a minor bump is a
     # deliberate act that reads the new findings.  The floor also carries STABLE
