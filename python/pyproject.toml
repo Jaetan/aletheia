@@ -114,7 +114,7 @@ dev = [
     # select (often NOT the version apt installs).  Pinning the pip binary makes
     # the gate byte-identical on every contributor + CI; run_ci routes the gate
     # through ``python/.venv/bin/clang-format`` rather than a bare PATH lookup.
-    "clang-format>=22.1.8,<22.2",
+    "clang-format>=23.1.1,<23.2",
     # cmakelang provides cmake-lint, which drives the CMake gate.  Pinned and
     # taken from the venv for the same reason as clang-format above: a lint
     # tool's findings are version-specific, and the CI runners carry no
