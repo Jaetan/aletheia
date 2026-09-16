@@ -128,13 +128,12 @@ def test_user_facing_docs_are_gated() -> None:
         "CLAUDE.md",
         "AGENTS.md",
         "AGENTS/python.md",
-        "docs/development/DEFERRED_ITEMS.md",
         # review work record
         ".archive/reviews/r20/round.yaml",
     ],
 )
 def test_exempt_files_are_exempt(rel: str) -> None:
-    """Detectors/fixtures, AI-infra docs, the E2 backlog, and the archive are exempt."""
+    """Detectors/fixtures, AI-infra docs, and the archive are exempt."""
     assert is_exempt(rel)
 
 

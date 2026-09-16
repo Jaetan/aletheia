@@ -12,8 +12,8 @@
 --   meaning can never drift apart.  This replaces the convention of pairing
 --   a Bool fast path with a free-floating equivalence lemma.
 --
--- Construction discipline (empirically pinned; see DEFERRED_ITEMS §C.2
--- provenance): build `Dec₀` values from Bool PRIMITIVES (`_≡ᵇ_` / `_≤ᵇ_`
+-- Construction discipline (empirically pinned): build `Dec₀` values from
+-- Bool PRIMITIVES (`_≡ᵇ_` / `_≤ᵇ_`
 -- style) via `fromBridges` / `dec₀` — NEVER by wrapping a stock stdlib
 -- decider, which would allocate the full relevant `Dec` upstream and lose
 -- the zero-cost property.

@@ -512,7 +512,7 @@ proofModules =
     , "Aletheia/DBC/Formatter/WellFormedText.agda"
     , "Aletheia/DBC/Formatter/WellFormedText/ValueDescResolves.agda"
     -- E.2 bounded slice: derives the five per-section name-stop fields of
-    -- WellFormedTextDBCAgg from Identifier-validity (DEFERRED_ITEMS.md E.2).
+    -- WellFormedTextDBCAgg from Identifier-validity.
     -- Unimported — the FFI-boundary consumer is deferred along with the two
     -- heavy fields (MessageWF / WFAttribute) — so an explicit root keeps it
     -- from bit-rotting.
@@ -532,7 +532,7 @@ proofModules =
     -- imports them for the coherence theorems.
     , "Aletheia/DBC/TextParser/Properties/RoundTripCheck/Sound.agda"
     -- A.2 BO_TX_BU_ inverse-bridge: `attachSenders (collectSenders msgs) msgs
-    -- ≡ msgs` under msg-id uniqueness (DEFERRED_ITEMS.md A.2).  Unimported
+    -- ≡ msgs` under msg-id uniqueness.  Unimported
     -- until the formatter/parser integration lands the senders section on the
     -- text wire — explicit root keeps the base bridge from bit-rotting.
     , "Aletheia/DBC/TextParser/Properties/Aggregator/Refine/Senders.agda"

@@ -15,8 +15,8 @@ had accreted in product docs, precisely because no gate watched them).
 Every tracked, non-binary file is scanned EXCEPT:
 
 * the **AI-process-infra docs** whose PURPOSE includes cross-referencing the store
-  — ``CLAUDE.md``, ``AGENTS.md`` + ``AGENTS/``, ``docs/development/DEFERRED_ITEMS.md``
-  (``MEMORY.md`` and ``.session-state.md`` are the agent store / gitignored, so git
+  — ``CLAUDE.md``, ``AGENTS.md`` + ``AGENTS/``
+  (``MEMORY.md``, ``TASKS.md`` and ``.session-state.md`` are the agent store / gitignored, so git
   never tracks them here anyway). Note the user-facing logs are NOT exempt:
   ``CHANGELOG.md`` and ``PROJECT_STATUS.md`` are read by users, so a store pointer
   is as dead for their readers as for anyone's — they are gated, and being
@@ -130,7 +130,6 @@ _EXEMPT_FILES = {
     # AI-process-infra docs whose purpose includes citing the store
     "CLAUDE.md",
     "AGENTS.md",
-    "docs/development/DEFERRED_ITEMS.md",
 }
 _EXEMPT_PREFIXES = (
     ".archive/",  # review work record

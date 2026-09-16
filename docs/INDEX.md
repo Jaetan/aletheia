@@ -71,11 +71,10 @@ Build and contribute:
 4. **[Branch & PR Hygiene](development/BRANCH_PR_HYGIENE.md)** - The local-first + server-enforced gate model, required checks, and merge rules for `main`
 5. **[Release Guide](development/RELEASE.md)** - Tagging, signing (cosign), publishing, and supply-chain verification procedure
 6. **[Feature Matrix](FEATURE_MATRIX.yaml)** - Cross-binding feature parity matrix — the canonical record of which capability each binding (Python / C++ / Go / Rust / CLI) supports, and why any gap exists
-7. **[Deferred Items](development/DEFERRED_ITEMS.md)** - The in-source-deferral backlog and per-item re-examination
-8. **[SOME/IP Design Draft](development/SOMEIP_DESIGN.md)** - Proposed architecture for SOME/IP support (verified monitor over captured traffic; one shared library; parameterized LTL kernel) — draft, not scheduled
-9. **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
-10. **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
-11. **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
+7. **[SOME/IP Design Draft](development/SOMEIP_DESIGN.md)** - Proposed architecture for SOME/IP support (verified monitor over captured traffic; one shared library; parameterized LTL kernel) — draft, not scheduled
+8. **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
+9. **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
+10. **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
 12. **[CHANGELOG](../CHANGELOG.md)** - Public-API change log (per `[Added]` / `[Changed]` / `[Removed]` per AGENTS.md "Public API stability and CHANGELOG discipline")
 
 ---
@@ -156,8 +155,7 @@ aletheia/
 │   │   ├── DISTRIBUTION.md            # Packaging & native integration
 │   │   ├── CI_LOCAL.md                # Three-layer CI architecture
 │   │   ├── BRANCH_PR_HYGIENE.md       # Gate model + merge rules for main
-│   │   ├── RELEASE.md                 # Tag / sign / publish procedure
-│   │   └── DEFERRED_ITEMS.md          # In-source-deferral backlog
+│   │   └── RELEASE.md                 # Tag / sign / publish procedure
 │
 └── examples/
     ├── README.md                      # Curated index of demo scripts

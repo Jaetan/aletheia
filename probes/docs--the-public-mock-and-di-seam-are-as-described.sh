@@ -2,13 +2,13 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Probes docs/FEATURE_MATRIX.yaml and docs/development/DEFERRED_ITEMS.md.
-# Claim: both describe the installed C++ surface as shipping a fixed
+# Probes docs/FEATURE_MATRIX.yaml.
+# Claim: it describes the installed C++ surface as shipping a fixed
 # canned-acknowledgement factory plus the backend interface as a seam for a
-# consumer's own double. Each half is checked against the installed headers: the
-# factory answers, and a double written outside the tree compiles and runs
-# through a client.
-# Non-zero exit: one of the two halves does not hold.
+# consumer's own double, and the installed headers bear that out: the factory
+# answers, and a double written outside the tree compiles and runs through a
+# client.
+# Non-zero exit: the note or one of the two behaviours does not hold.
 # Exits 2 when the library archive is not built.
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -21,10 +21,6 @@ rpath="-Wl,-rpath,$(cd cpp/build && pwd)"
 fail=0
 grep -q 'a fixed canned-ack/success backend' docs/FEATURE_MATRIX.yaml || {
     echo "FAIL: the matrix note no longer describes a fixed canned-acknowledgement factory"
-    fail=1
-}
-grep -q 'factory (canned acks/successes)' docs/development/DEFERRED_ITEMS.md || {
-    echo "FAIL: the deferred item no longer describes a fixed canned-acknowledgement factory"
     fail=1
 }
 
@@ -85,7 +81,7 @@ protected:
 int main() {
     // The seam: a consumer's own double drives a client.
     aletheia::AletheiaClient own{std::make_unique<OwnDouble>()};
-    // The factory: the fixed double the documents describe.
+    // The factory: the fixed double the matrix describes.
     auto fixed = aletheia::make_mock_backend();
     if (!fixed)
         return 3;
@@ -105,4 +101,4 @@ clang++-22 -std=c++23 -Icpp/include "$scratch/t.cpp" "$lib" $rpath -ldl -lpthrea
 }
 
 [ "$fail" -eq 0 ] || exit 1
-echo "PASS: the fixed factory and the interface seam are both as the documents describe"
+echo "PASS: the fixed factory and the interface seam are both as the matrix describes"
