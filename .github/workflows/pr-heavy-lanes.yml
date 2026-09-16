@@ -248,7 +248,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang22-noble-v1
+          key: clang22-libstdcxx15-noble-v1
       # ubuntu-24.04 pre-installs only clang ≤19; install clang-22 (the supported
       # toolchain) from apt.llvm.org.  The cmake step below invokes clang-22
       # explicitly, so no update-alternatives is needed.
@@ -259,12 +259,19 @@ jobs:
             | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
           echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
             | sudo tee /etc/apt/sources.list.d/llvm22.list >/dev/null
+          # ubuntu-24.04 ships libstdc++ 14, whose std::ranges::to has no pipe
+          # form; the toolchain policy tracks the latest stable release rather
+          # than a floor, so take 15 from the toolchain PPA the same way clang
+          # comes from apt.llvm.org.  add-apt-repository is used here, rather
+          # than the hand-written deb line the runtime image needs, only
+          # because the runners already carry it and it fetches the key.
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           mkdir -p ~/llvm-cache
           if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
             sudo apt-get install -y --download-only \
               -o Dir::Cache::archives="${HOME}/llvm-cache" \
-              clang-22 clang-tidy-22 libstdc++-14-dev
+              clang-22 clang-tidy-22 libstdc++-15-dev
             sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
           fi
           sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
@@ -453,7 +460,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang22-llvm22dev-noble-v1
+          key: clang22-llvm22dev-libstdcxx15-noble-v1
       # ubuntu-24.04 pre-installs only clang ≤19; install clang-22 (the supported
       # toolchain) + the LLVM-22 dev libraries (needed to build Mull from source)
       # from apt.llvm.org.  mutation_run.py invokes clang-22 explicitly.
@@ -464,12 +471,19 @@ jobs:
             | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
           echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
             | sudo tee /etc/apt/sources.list.d/llvm22.list >/dev/null
+          # ubuntu-24.04 ships libstdc++ 14, whose std::ranges::to has no pipe
+          # form; the toolchain policy tracks the latest stable release rather
+          # than a floor, so take 15 from the toolchain PPA the same way clang
+          # comes from apt.llvm.org.  add-apt-repository is used here, rather
+          # than the hand-written deb line the runtime image needs, only
+          # because the runners already carry it and it fetches the key.
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           mkdir -p ~/llvm-cache
           if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
             sudo apt-get install -y --download-only \
               -o Dir::Cache::archives="${HOME}/llvm-cache" \
-              clang-22 libstdc++-14-dev llvm-22-dev libclang-22-dev
+              clang-22 libstdc++-15-dev llvm-22-dev libclang-22-dev
             sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
           fi
           sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
