@@ -39,7 +39,9 @@ done
 # documents.
 for line in 'cmake -B build-fuzz -DALETHEIA_FUZZ=ON' \
             'cmake --build build-fuzz --target fuzz_parse_response' \
-            './build-fuzz/fuzz_parse_response -max_total_time=60'; do
+            'mkdir -p build-fuzz/corpus/parse_response' \
+            './build-fuzz/fuzz_parse_response -max_total_time=60' \
+            'build-fuzz/corpus/parse_response tests/fuzz/seed/parse_response/'; do
     grep -qF "$line" "$owner" || {
         echo "the comment no longer gives: $line"
         status=1
@@ -58,8 +60,12 @@ cmake --build build-fuzz --target fuzz_parse_response > /dev/null 2>&1 || {
     echo "the build line the comment gives does not run"
     exit 1
 }
+mkdir -p build-fuzz/corpus/parse_response || {
+    echo "the mkdir line the comment gives does not run"
+    exit 1
+}
 ./build-fuzz/fuzz_parse_response -max_total_time=1 \
-    tests/fuzz/seed/parse_response/ > /dev/null 2>&1 || {
+    build-fuzz/corpus/parse_response tests/fuzz/seed/parse_response/ > /dev/null 2>&1 || {
     echo "the run line the comment gives does not run"
     exit 1
 }

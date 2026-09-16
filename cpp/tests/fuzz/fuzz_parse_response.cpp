@@ -10,10 +10,17 @@
 //   cmake -B build-fuzz -DALETHEIA_FUZZ=ON \
 //       -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 //   cmake --build build-fuzz --target fuzz_parse_response
+//   mkdir -p build-fuzz/corpus/parse_response
 //   ./build-fuzz/fuzz_parse_response -max_total_time=60 \
-//       tests/fuzz/seed/parse_response/
-// Every path is from cpp/, as in the build file's other lanes, and the three
-// lines were run from there to check them.
+//       build-fuzz/corpus/parse_response tests/fuzz/seed/parse_response/
+// libFuzzer writes every input it finds into the FIRST directory it is given
+// and only reads the rest, so the corpus directory comes first and the seed
+// directory second.  Given the seed directory alone it writes there, which
+// leaves hundreds of hash-named files among seeds that are named for the case
+// each one covers.  The corpus directory lives under build-fuzz/ because
+// .gitignore already ignores that tree, and libFuzzer refuses to start unless
+// it exists, hence the mkdir.  Every path is from cpp/, as in the build file's
+// other lanes, and the lines were run from there to check them.
 
 #include "../../src/detail/json.hpp"
 
