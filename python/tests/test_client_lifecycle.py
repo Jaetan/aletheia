@@ -31,11 +31,16 @@ if TYPE_CHECKING:
 
 
 class _RecordingBackend(MockBackend):
-    """MockBackend that records the state handed to each close() call."""
+    """MockBackend that records each init() and the state handed to close()."""
 
     def __init__(self) -> None:
         super().__init__()
         self.close_calls: list[int] = []
+        self.init_calls: int = 0
+
+    def init(self) -> int:
+        self.init_calls += 1
+        return super().init()
 
     def close(self, state: int) -> None:
         self.close_calls.append(state)
@@ -60,6 +65,28 @@ def test_reenter_injected_backend_succeeds() -> None:
         pass
     with client:  # injected backend is caller-owned → retained across close → no factory-missing
         pass
+
+
+def test_reenter_reinitializes_the_same_injected_backend() -> None:
+    """Re-entry initializes the INJECTED backend again, not a fresh one.
+
+    close() drops the backend reference only when the client built it; a
+    caller-owned backend is kept, so the second __enter__ must re-init the very
+    object that was passed in.  Asserting only that re-entry succeeds is too
+    weak: a client that wrongly treated the injected backend as its own would
+    clear the reference on close and construct a real FFIBackend here, which
+    also "succeeds" while silently abandoning the caller's double.
+    """
+    backend = _RecordingBackend()
+    client = AletheiaClient(backend=backend)
+    with client:
+        pass
+    assert backend.init_calls == 1
+    with client:
+        pass
+    assert backend.init_calls == 2, (
+        "re-entry built a new backend instead of reusing the injected one"
+    )
     assert client.is_closed is True
 
 

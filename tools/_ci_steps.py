@@ -330,8 +330,8 @@ def _run_binding_tests(runner: Runner) -> None:
         # Pin to clang-22 — the supported toolchain (latest stable), the SAME
         # compiler the sanitizer + mutation lanes use, so unit tests sanitize the
         # same compilation we ship. Bare `clang`/default cc resolves to the
-        # runner's clang-18 / g++ (clang < 19 mis-handles libstdc++-14's C++23
-        # <expected>); clang-22 is version-pinned + installed by the workflow via
+        # runner's clang-18 / g++ (clang < 19 mis-handles the C++23 <expected>
+        # libstdc++ ships); clang-22 is version-pinned + installed by the workflow via
         # apt.llvm.org (no update-alternatives roulette).
         "cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 "
         + f"> /dev/null && cmake --build build && ALETHEIA_LIB={cpp_lib} ctest --test-dir build",
@@ -472,9 +472,14 @@ def _run_lints(runner: Runner) -> None:
     # scanned: 0" and exits zero: a gate that cannot fail. And the file list
     # comes from `git ls-files`, so the gate reads the index, which is the
     # staged content this tier is defined over.
+    # The binary comes from the venv, where it is pinned, falling back to PATH
+    # only if the venv lacks it.  A bare PATH lookup exits 127 on a runner that
+    # carries no cmake-lint, which is a gate that fails for the wrong reason.
+    _cmake_lint = Path(runner.python).parent / "cmake-lint"
+    cmake_lint_bin = str(_cmake_lint) if _cmake_lint.exists() else "cmake-lint"
     cmake_lint_cmd = (
         "git ls-files -z -- 'CMakeLists.txt' '*/CMakeLists.txt' '*.cmake' '*.cmake.in' | "
-        "xargs -0 -r cmake-lint -c .cmake-format.yaml --"
+        f"xargs -0 -r {shlex.quote(cmake_lint_bin)} -c .cmake-format.yaml --"
     )
     runner.step("cmake-lint", cmake_lint_cmd)
 
@@ -649,7 +654,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
         # lanes).  UB can differ between compiler versions, so the sanitizer lane
         # MUST exercise the shipped compiler's codegen, not an older clang; bare
         # `clang++` also resolves to the runner's clang-18, which fails to compile
-        # libstdc++-14's <expected> (std::expected, C++23).
+        # the <expected> libstdc++ ships (std::expected, C++23).
         "cmake -B build-ubsan -DALETHEIA_SANITIZER=undefined "
         + "-DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 > /dev/null"
         + f" && cmake --build build-ubsan && ALETHEIA_LIB={cpp_lib} ctest --test-dir build-ubsan",

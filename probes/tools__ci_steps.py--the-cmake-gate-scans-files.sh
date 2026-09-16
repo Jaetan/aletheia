@@ -12,10 +12,11 @@
 set -eu
 root=$(git rev-parse --show-toplevel)
 cd "$root"
-command -v cmake-lint > /dev/null || exit 2
+lint=python/.venv/bin/cmake-lint
+[ -x "$lint" ] || lint=$(command -v cmake-lint) || exit 2
 
 cmd="git ls-files -z -- 'CMakeLists.txt' '*/CMakeLists.txt' '*.cmake' '*.cmake.in' | xargs -0 -r cmake-lint -c .cmake-format.yaml --"
-grep -q "xargs -0 -r cmake-lint -c .cmake-format.yaml --" tools/_ci_steps.py || {
+grep -qE "xargs -0 -r \{shlex.quote\(cmake_lint_bin\)\} -c .cmake-format.yaml --" tools/_ci_steps.py || {
     echo "FAIL: the gate's command is not the one this probe checks"
     exit 1
 }
@@ -35,7 +36,7 @@ scanned=$(printf '%s\n' "$out" | sed -n 's/^files scanned: //p')
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 printf 'cmake_minimum_required(VERSION 3.25)\nif(TRUE)\n  set(x 1)\nendif()\n' > "$scratch/CMakeLists.txt"
-if cmake-lint -c .cmake-format.yaml -- "$scratch/CMakeLists.txt" > /dev/null 2>&1; then
+if "$lint" -c .cmake-format.yaml -- "$scratch/CMakeLists.txt" > /dev/null 2>&1; then
     echo "FAIL: a file with the wrong indentation did not fail the gate"
     exit 1
 fi

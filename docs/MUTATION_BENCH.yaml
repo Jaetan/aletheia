@@ -34,9 +34,9 @@ bindings:
 
   python:
     tool: mutmut
-    version: ">=3.5,<4"
+    version: "==3.8.0"
     install: |
-      python/.venv/bin/pip install 'mutmut>=3.5,<4'
+      python/.venv/bin/pip install -e 'python/.[mutation]'
     hot_path:
       # AGENTS.md cat 14(g) Python list, mapped to actual on-disk paths.
       - python/aletheia/client/_client.py    # was AGENTS.md `client.py`; protocols split moved it
@@ -82,10 +82,27 @@ bindings:
       # NULL deref into an error response instead of a SIGSEGV — it was
       # 824 killed / 3 segfault / total 825 before that hardening.
       # The drift gate fails on survivor #2 — any NEW survivor is a finding.
+      #
+      # Re-measured 2026-09-16 under the now-exactly-pinned mutmut 3.8.0.  The
+      # mutant total moved 828 -> 924 because the generator moved, not because
+      # the package grew: a floating `>=3.6.0,<4` let a developer sit on 3.6.0
+      # while CI resolved to 3.8.0, and the two enumerate different mutants.
+      # That is why the pin above is exact now; bumping it re-measures this row.
+      #
+      # 3.8.0 also found a real gap 3.6.0 never generated: a mutant forcing the
+      # backend factory on for a caller-injected backend, which makes close()
+      # drop a caller-owned backend and the next __enter__ build a real
+      # FFIBackend in its place.  The re-entry test asserted only that re-entry
+      # succeeded, which it does either way; it now asserts the injected backend
+      # is the one re-initialised, and the mutant dies.
+      #
+      # The one survivor is unchanged and still the documented equivalent
+      # (dump_json's ensure_ascii=False -> None; None is falsy, so json.dumps
+      # behaves identically).  The drift gate fails on survivor #2.
       survivors: 1
-      total_mutants: 828
+      total_mutants: 924
       score_pct: 99
-      run_at: "2026-06-15"
+      run_at: "2026-09-16"
 
   go:
     # AGENTS.md cat 14(g) names `gomut` / `go-mutesting` / `mutate` as the Go

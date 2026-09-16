@@ -228,7 +228,8 @@ def _check_python_tools() -> tuple[Path, Path] | str:
     mutmut_bin = REPO_ROOT / "python" / ".venv" / "bin" / "mutmut"
     if not mutmut_bin.is_file():
         return (
-            "mutmut not installed in venv; run " + "`python/.venv/bin/pip install 'mutmut>=3.5,<4'`"
+            "mutmut not installed in venv; run "
+            + "`python/.venv/bin/pip install -e 'python/.[mutation]'`"
         )
     lib = REPO_ROOT / "build" / "libaletheia-ffi.so"
     if not lib.is_file():

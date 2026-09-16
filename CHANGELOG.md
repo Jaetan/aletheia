@@ -12,6 +12,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A caller-injected Python backend is provably the one re-used after `close()`.**
+  The re-entry test asserted only that re-entry succeeds, which it does either way:
+  a client that wrongly treated an injected backend as its own would drop it on
+  close and build a real `FFIBackend` on the next `__enter__`, silently swapping a
+  test double for the shared library. The test now asserts the injected object is
+  the one initialised again. Found by the mutation lane once its generator was
+  pinned; the Python row is re-measured at 924 mutants with the one documented
+  equivalent surviving.
+- **Two gates stop depending on whatever the machine happens to have.** `cmake-lint`
+  came from a distro package declared nowhere, so the CMake gate exited 127 on the
+  runner while passing locally; it is pinned as `cmakelang` and routed through the
+  venv, like `clang-format`. `cmakelang` and `mutmut` are each pinned to one exact
+  version, because a lint tool's findings and a mutation generator's mutant set are
+  the gate itself: `mutmut` was a range, so a developer could sit on the floor while
+  CI resolved to the newest, two releases in one major enumerate different mutant
+  sets, and the survivor CI reported could not be reproduced locally at all.
+
 - **The Rust binding passes clippy on the toolchain CI installs.** CI tracks the
   latest stable Rust, and `clippy::chunks_exact_to_as_chunks` is new in 1.98: it
   fired on four pre-existing sites in the binary response decoder that no local run
@@ -62,6 +79,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   lanes are as untrustworthy as its two missing ones.
 
 ### Changed
+
+- **CI builds the C++ binding against libstdc++ 15.** ubuntu-24.04 ships 14, which
+  is why a standard C++23 construct compiled on a developer machine and failed only
+  on the runner. The toolchain policy tracks the latest stable release rather than
+  promising a floor, so the runners now take libstdc++ 15 from the toolchain PPA the
+  same way they take clang-22 from apt.llvm.org: seven install sites across five
+  workflows, each with its .deb cache key bumped so a cache filled without the new
+  package cannot be reused. The release image's C++ verify stage moves with them, or
+  it would accept what the release lane rejects; it takes the PPA as a deb line with
+  the key fetched by fingerprint, because the tool that adds a PPA is absent from
+  that minimal image. Nothing published embeds the library, because the bundle ships
+  the C++ binding as source. A probe holds the move whole: it reads the version off
+  the workflows, then fails if an install block, a cache key, the release image or
+  the build document is left behind.
 
 - **Every dependency the C++ build fetches is pinned, transitively.** The bumped
   spreadsheet library stopped vendoring its zip and XML implementations and started
