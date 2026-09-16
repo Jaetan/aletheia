@@ -1,14 +1,14 @@
 # Aletheia Performance Benchmarks
 
-Benchmarks across the Python, C++, and Go bindings (the Rust binding is not yet
-wired into the cross-language runner). This document describes what the benchmarks
-measure, how to run them, and the canonical results.
+Benchmarks across the Python, C++, Go and Rust bindings. This document describes
+what the benchmarks measure, how to run them, and the canonical results.
 
 ## Canonical Results
 
 Per-binding throughput (frames/sec), best of two clean back-to-back batches on the
 current host (Intel Core Ultra 9 285K), re-measured 2026-06-11 under Clang 22
-(per-lane intra-batch stdev ≤ 2.6%, one Python lane 6.3%):
+(per-lane intra-batch stdev ≤ 2.6%, one Python lane 6.3%).  This is a curated
+C++/Go/Python snapshot; the Rust lane is not in it:
 
 | Benchmark | C++ (fps) | Go (fps) | Python (fps) |
 |---|---:|---:|---:|
@@ -34,7 +34,7 @@ C++-dominant.
 
 The primary entry point is [`benchmarks/run_all.sh`](../../benchmarks/run_all.sh). It
 **builds the C++, Go and Rust benchmark binaries itself** (incremental; a missing
-toolchain is a graceful per-lane skip), then produces one JSON file per binding in
+toolchain is a graceful per-lane skip), then produces one JSON file per binding that ran, in
 `benchmarks/results/`, followed by a side-by-side comparison printed by
 `benchmarks/compare.py`.
 
@@ -44,7 +44,12 @@ its numbers are void rather than merely old. What the runner needs from you is
 `libaletheia-ffi.so`, the Python package, and a *configured* `cpp/build` tree.
 
 The runner also clears the selected mode's results before running, so a lane that
-skips or fails contributes nothing rather than its previous numbers.
+skips or fails contributes nothing rather than its previous numbers. It refuses a
+zero or non-numeric `--frames` or `--runs` before touching anything, since a zero
+count makes every lane publish an all-zero report. A lane whose toolchain is
+missing is skipped; one whose toolchain is present but whose build fails is a
+failure. `ALETHEIA_BENCH_RESULTS_DIR` redirects the results directory, which is how
+the probes exercise the runner without touching the last measurements.
 
 ```bash
 # Prerequisites (one-time)
