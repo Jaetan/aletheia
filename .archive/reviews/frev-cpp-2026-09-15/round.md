@@ -3,9 +3,9 @@
 - opened: 2026-09-15
 - base commit: 726198bb
 - branch at opening: fix/benchmark-harness-staleness
-- scope: every tracked file under `cpp/` (91 files), one task each, in `tasks/`
+- scope: every tracked file under `cpp/` (91 files), one task each, worked to the end of the list; the tasks lived in the task store and are not kept here
 - contract: `contract.md` (also carried whole inside every task)
-- decision points: `decision-points.md`
+- decision points: eleven, all ruled 2026-09-15, each ruling carried by the commit of the task that measured it
 - round-start record (gate audit, mutation sweep over the directory, the whole probe store through its runner, every mechanical lens): to be written under `base/` before the first task is worked
 - round-end record: `end/`, diffed against `base/`
 - comment/code ratio table for the directory: at round start under `base/`, at round end under `end/`
