@@ -99,7 +99,7 @@ dev = [
     # ruff is pre-1.0 and new rules land in minor bumps, so a minor bump is a
     # deliberate act that reads the new findings.  The floor also carries STABLE
     # py314 lint-target support, which ruff has had since 0.15.
-    "ruff>=0.16.3,<0.17",
+    "ruff>=0.16.7,<0.17",
     # AGENTS.md Python cat 25 long-run sub-check — psutil drives
     # ``python/benchmarks/stability.py`` (RSS, num_fds).  Keep in [dev] so the
     # stability harness runs without an extra extras flag; the harness is
