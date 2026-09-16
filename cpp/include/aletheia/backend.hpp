@@ -22,18 +22,74 @@
 
 namespace aletheia {
 
+class IBackend;
+
+// ---------------------------------------------------------------------------
+// Backend state handle
+// ---------------------------------------------------------------------------
+
+// Owns the opaque state a backend hands out at init and releases it exactly
+// once, through the backend that created it. The handle holds the release
+// policy in one place: it closes on destruction, a moved-from handle closes
+// nothing, and a handle assigned over releases what it held first.
+//
+// A default-constructed or moved-from handle is empty; get() is then null and
+// the bool conversion is false.
+class BackendState {
+public:
+    BackendState() = default;
+    BackendState(IBackend& backend, void* state) : backend_(&backend), state_(state) {}
+    ~BackendState();
+
+    BackendState(const BackendState&) = delete;
+    auto operator=(const BackendState&) -> BackendState& = delete;
+    BackendState(BackendState&& other) noexcept;
+    auto operator=(BackendState&& other) noexcept -> BackendState&;
+
+    // The opaque handle the backend's own methods read. Null when empty.
+    [[nodiscard]] auto get() const -> void* { return state_; }
+    [[nodiscard]] explicit operator bool() const { return state_ != nullptr; }
+
+private:
+    // Closes what the handle holds, if anything, and leaves it empty. Swallows,
+    // because both callers run where a throw would terminate the program.
+    void release() noexcept;
+
+    IBackend* backend_ = nullptr;
+    void* state_ = nullptr;
+};
+
 // ---------------------------------------------------------------------------
 // Signal injection parameter block
 // ---------------------------------------------------------------------------
 
-// Bundles the parallel arrays describing signal values to inject into a frame.
-// Grouped into one struct to keep backend-method parameter counts reasonable and
-// to document that the three arrays must all have length `count`.
-struct SignalInjection {
-    std::uint32_t count;
-    const std::uint32_t* indices;
-    const std::int64_t* numerators;
-    const std::int64_t* denominators;
+// The signal values to inject into a frame, as the three arrays the FFI reads
+// in parallel. The type carries what a comment used to state: create refuses a
+// block whose three arrays differ in length, and one longer than the FFI's own
+// 32-bit count can carry, so no caller can hand the boundary a length it would
+// read past.
+class SignalInjection {
+public:
+    [[nodiscard]] static auto create(std::span<const std::uint32_t> indices,
+                                     std::span<const std::int64_t> numerators,
+                                     std::span<const std::int64_t> denominators)
+        -> std::expected<SignalInjection, std::string>;
+
+    [[nodiscard]] auto count() const -> std::uint32_t {
+        return static_cast<std::uint32_t>(indices_.size());
+    }
+    [[nodiscard]] auto indices() const -> std::span<const std::uint32_t> { return indices_; }
+    [[nodiscard]] auto numerators() const -> std::span<const std::int64_t> { return numerators_; }
+    [[nodiscard]] auto denominators() const -> std::span<const std::int64_t> {
+        return denominators_;
+    }
+
+private:
+    SignalInjection() = default;
+
+    std::span<const std::uint32_t> indices_;
+    std::span<const std::int64_t> numerators_;
+    std::span<const std::int64_t> denominators_;
 };
 
 // ---------------------------------------------------------------------------
@@ -55,9 +111,13 @@ public:
     // optional default-implementation overrides live in the [OPTIONAL]
     // section below so a new backend implementer can read off the surface.
     // ========================================================================
-    virtual auto init() -> void* = 0;
-    virtual auto process(void* state, std::string_view input) -> std::string = 0;
-    virtual auto close(void* state) -> void = 0;
+    // init hands out the backend's state as an owning handle, which closes
+    // through this backend when it goes out of scope. The release primitive
+    // itself is protected: the handle is the only caller of close, so no call
+    // site releases state by hand.
+    [[nodiscard]] virtual auto init() -> BackendState = 0;
+    [[nodiscard]] virtual auto process(const BackendState& state, std::string_view input)
+        -> std::string = 0;
 
     // Binary frame FFI — bypasses JSON serialization on the send path.
     // Returns the raw JSON response string from the backend.
@@ -65,65 +125,72 @@ public:
     // passed as std::optional<bool> — std::nullopt for CAN 2.0B frames
     // where the bits do not exist.  The Aletheia kernel does not consume
     // BRS / ESI; they are pass-through metadata for binding consumers.
-    [[nodiscard]] virtual auto send_frame_binary(void* state, Timestamp ts, const CanId& id,
-                                                 Dlc dlc, std::span<const std::byte> data,
+    [[nodiscard]] virtual auto send_frame_binary(const BackendState& state, Timestamp ts,
+                                                 const CanId& id, Dlc dlc,
+                                                 std::span<const std::byte> data,
                                                  std::optional<bool> brs, std::optional<bool> esi)
         -> std::string = 0;
 
     // Streaming / event endpoints — also pure-virtual.  There is no honest
     // generic default: only the binary FFI (FFIBackend) or a test double
     // (MockBackend, which records `<binary:OP>` sentinels) can service these,
-    // so every backend declares how it streams.  The former defaults routed
-    // through the JSON `process()` path, mirroring streaming commands the Agda
-    // core no longer accepts (and `send_error`/`send_remote` had no core JSON
-    // command at all) — they were removed.
-    [[nodiscard]] virtual auto send_error_binary(void* state, Timestamp ts) -> std::string = 0;
-    [[nodiscard]] virtual auto send_remote_binary(void* state, Timestamp ts, const CanId& id)
+    // so every backend declares how it streams.
+    [[nodiscard]] virtual auto send_error_binary(const BackendState& state, Timestamp ts)
         -> std::string = 0;
-    [[nodiscard]] virtual auto start_stream_binary(void* state) -> std::string = 0;
-    [[nodiscard]] virtual auto end_stream_binary(void* state) -> std::string = 0;
-    [[nodiscard]] virtual auto format_dbc_binary(void* state) -> std::string = 0;
-    [[nodiscard]] virtual auto extract_signals_binary(void* state, const CanId& id, Dlc dlc,
-                                                      std::span<const std::byte> data)
+    [[nodiscard]] virtual auto send_remote_binary(const BackendState& state, Timestamp ts,
+                                                  const CanId& id) -> std::string = 0;
+    [[nodiscard]] virtual auto start_stream_binary(const BackendState& state) -> std::string = 0;
+    [[nodiscard]] virtual auto end_stream_binary(const BackendState& state) -> std::string = 0;
+    [[nodiscard]] virtual auto format_dbc_binary(const BackendState& state) -> std::string = 0;
+    [[nodiscard]] virtual auto extract_signals_binary(const BackendState& state, const CanId& id,
+                                                      Dlc dlc, std::span<const std::byte> data)
         -> std::string = 0;
 
     // ========================================================================
     // [OPTIONAL] — base class provides a default implementation; specialized
     // backends (e.g. FFIBackend) override these to take the binary-FFI fast
     // path.  Non-FFI backends inherit a default that returns the
-    // `BinaryUnsupported` sentinel (so Client can fall through to JSON) or, for
-    // `rts_mismatch_info`, `std::nullopt`.
+    // `BinaryUnsupported` sentinel: on extract_signals_bin the Client then
+    // falls through to the JSON path, while build_frame_bin and
+    // update_frame_bin surface the error (the JSON path cannot carry signal
+    // indices).  rts_mismatch_info defaults to `std::nullopt`.
     // ========================================================================
 
     // Binary output endpoints — raw payload bytes on success, AletheiaError on failure.
-    [[nodiscard]] virtual auto build_frame_bin(void* state, const CanId& id, Dlc dlc,
+    [[nodiscard]] virtual auto build_frame_bin(const BackendState& state, const CanId& id, Dlc dlc,
                                                SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError>;
 
-    [[nodiscard]] virtual auto update_frame_bin(void* state, const CanId& id, Dlc dlc,
+    [[nodiscard]] virtual auto update_frame_bin(const BackendState& state, const CanId& id, Dlc dlc,
                                                 std::span<const std::byte> data,
                                                 SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError>;
 
     // Binary extraction (no JSON on input or output) — packed buffer on success.
-    [[nodiscard]] virtual auto extract_signals_bin(void* state, const CanId& id, Dlc dlc,
-                                                   std::span<const std::byte> data)
+    [[nodiscard]] virtual auto extract_signals_bin(const BackendState& state, const CanId& id,
+                                                   Dlc dlc, std::span<const std::byte> data)
         -> std::expected<std::vector<std::byte>, AletheiaError>;
 
     // Startup diagnostic for the GHC RTS cores-mismatch case — emitted by
-    // the Client as the `rts.cores_mismatch` log event. Returns
-    // `std::nullopt` when no mismatch occurred, keeping the structured log
-    // schema stable across bindings (Go + Python both emit `active_cores` /
-    // `requested_cores` fields). Out-of-line default in backend.cpp keeps
-    // the ABI stable across binding builds.
+    // the Client as the `rts.cores_mismatch` log event with the
+    // `active_cores` / `requested_cores` fields the other bindings emit.
+    // Returns `std::nullopt` when no mismatch occurred.  Defined out of line
+    // in backend.cpp with the other defaults, so the vtable is emitted there
+    // once.
     [[nodiscard]] virtual auto rts_mismatch_info() const -> std::optional<std::pair<int, int>>;
 
 protected:
     IBackend() = default;
+
+    // The release primitive, reached only through BackendState's destructor and
+    // its move assignment. Every backend implements it; nothing else calls it.
+    virtual auto close(void* state) -> void = 0;
+
+    friend class BackendState;
 };
 
 // Production: loads libaletheia-ffi.so via dlopen
-auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores = 1)
+[[nodiscard]] auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores = 1)
     -> std::unique_ptr<IBackend>;
 
 // Production, env-configured: loads the library named by the ALETHEIA_LIB
@@ -131,9 +198,29 @@ auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores = 1)
 // resolution — the zero-config entry point for a bundled install whose
 // install.sh exports ALETHEIA_LIB. Throws AletheiaException(Validation) if
 // ALETHEIA_LIB is unset or empty; for an explicit path use the overload above.
-auto make_ffi_backend_from_env(int rts_cores = 1) -> std::unique_ptr<IBackend>;
+[[nodiscard]] auto make_ffi_backend_from_env(int rts_cores = 1) -> std::unique_ptr<IBackend>;
 
-// Test: returns canned responses
-auto make_mock_backend() -> std::unique_ptr<IBackend>;
+// Where the binding looks for libaletheia-ffi.so, in one order that every
+// caller shares: the ALETHEIA_LIB variable, which an empty value leaves unset;
+// then the path a make_ffi_backend call registered; then three build
+// directories relative to the working directory, furthest first.
+//
+// The registered path is why this is one function rather than four. The
+// renderer that formats values and the backend that answers queries must load
+// the same library, because two builds could format the same rational
+// differently, and consulting the registered path is what keeps them together.
+// A caller that searched on its own could pick the other one.
+//
+// Returns an empty path when no candidate exists; the caller says what to do
+// about it.
+[[nodiscard]] auto find_ffi_library() -> std::filesystem::path;
+
+// Test: a fixed backend that answers every operation with the wire's
+// acknowledgement and every frame request with a zero-filled payload of the
+// size asked for. It queues nothing and records nothing, so a consumer holding
+// only these headers can drive a client without reaching into the tree. The
+// configurable double, which records requests and refuses when its queue runs
+// out, is test-internal and is not on this surface.
+[[nodiscard]] auto make_mock_backend() -> std::unique_ptr<IBackend>;
 
 } // namespace aletheia

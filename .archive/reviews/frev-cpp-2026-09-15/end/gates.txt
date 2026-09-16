@@ -1,0 +1,13 @@
+=== ctest, deterministic order
+15/15 Test #15: doc_example_tests .......................   Passed   36.59 sec
+
+100% tests passed, 0 tests failed out of 15
+
+Total Test time (real) =  37.28 sec
+
+=== ctest, randomised order
+15/15 Test  #6: excel_tests .............................   Passed    0.08 sec
+
+100% tests passed, 0 tests failed out of 15
+
+Total Test time (real) =  37.10 sec

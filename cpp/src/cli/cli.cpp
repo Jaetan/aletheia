@@ -8,14 +8,15 @@
 // format-dbc, mux-query — by dispatching to the real verified Agda core
 // through the dlopen client (no analysis logic is reimplemented here).
 //
-// The `check` subcommand (LTL over a CAN log file) is intentionally absent:
-// it needs a verified CAN-log reader the C++ binding does not yet provide
-// (Phase 6 item — the python-can replacement). DBC sources are `.dbc` text
-// files parsed by the verified text parser; canonical-JSON and `.xlsx`
-// inputs are not yet wired. Flags may appear before or after positionals.
+// There is no `check` subcommand (LTL over a CAN log file): it needs a
+// CAN-log reader the C++ binding does not provide. DBC sources are `.dbc`
+// text files parsed by the verified text parser; canonical-JSON and `.xlsx`
+// inputs are not accepted. Flags may appear before or after positionals.
 //
-// The library path is resolved from $ALETHEIA_LIB, else common build/install
-// locations. Exit codes: 0 ok, 1 violations / validation failed, 2 error.
+// Output goes through std::cout and std::cerr so a host that embeds run_cli
+// (the CLI tests do) can redirect it. The library path is resolved from
+// $ALETHEIA_LIB, else common build/install locations. Exit codes: 0 ok,
+// 1 validation failed, 2 error.
 
 #include <aletheia/backend.hpp>
 #include <aletheia/cli.hpp>
@@ -24,6 +25,8 @@
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/types.hpp>
 #include <aletheia/validation.hpp>
+
+#include "detail/loader_utils.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -55,15 +58,15 @@ namespace {
 
 using aletheia::AletheiaClient;
 using aletheia::CanId;
+using aletheia::cli_exit_error;
+using aletheia::cli_exit_ok;
+using aletheia::cli_exit_validation_failed;
 using aletheia::DbcDefinition;
 using aletheia::DbcMessage;
 using aletheia::ExtendedId;
 using aletheia::StandardId;
 using Json = nlohmann::json;
 
-constexpr int k_exit_ok = 0;
-constexpr int k_exit_violations = 1;
-constexpr int k_exit_error = 2;
 constexpr std::uint32_t k_std_id_max = 0x7FF; // 11-bit standard CAN ID ceiling
 constexpr int k_json_indent = 2;
 
@@ -90,27 +93,23 @@ struct DbcLoadError {
 
 static auto die(std::string_view msg) -> int {
     std::cerr << "Error: " << msg << '\n';
-    return k_exit_error;
+    return cli_exit_error;
 }
 
+// Reports a stream failure as an error exit, so a broken pipe is not masked
+// by a subcommand's own outcome.
 static auto emit_json(const Json& j) -> int {
     std::cout << j.dump(k_json_indent) << '\n';
-    return k_exit_ok;
+    return std::cout ? cli_exit_ok : cli_exit_error;
 }
 
 // --- client / DBC loading -------------------------------------------------
 
 static auto resolve_lib() -> std::optional<std::filesystem::path> {
-    if (const char* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0')
-        return std::filesystem::path{env};
-    for (const auto* cand :
-         {"build/libaletheia-ffi.so", "../build/libaletheia-ffi.so",
-          "../../build/libaletheia-ffi.so", "/usr/local/lib/libaletheia-ffi.so"}) {
-        std::error_code ec;
-        if (std::filesystem::exists(cand, ec))
-            return std::filesystem::path{cand};
-    }
-    return std::nullopt;
+    auto found = aletheia::find_ffi_library();
+    if (found.empty())
+        return std::nullopt;
+    return found;
 }
 
 static auto make_client() -> std::expected<AletheiaClient, std::string> {
@@ -130,15 +129,20 @@ static auto make_client() -> std::expected<AletheiaClient, std::string> {
 // epilogue IS full DBC validation, so the warnings are the complete
 // validation issue list for the parsed DBC (a parse carrying errors is
 // rejected by the kernel and surfaces as a DbcLoadError with core issues).
-// Canonical-JSON and `.xlsx` inputs are not yet wired.
+// Canonical-JSON and `.xlsx` inputs are not accepted. The file's size is
+// checked against the DBC text bound before it is read, as the loaders do.
 static auto load_dbc_text(AletheiaClient& client, const std::string& path)
     -> std::expected<aletheia::ParsedDBC, DbcLoadError> {
     if (path.empty())
         return std::unexpected(DbcLoadError{.message = "no DBC source (use --dbc <file>.dbc)"});
     if (path.ends_with(".json") || path.ends_with(".xlsx"))
-        return std::unexpected(
-            DbcLoadError{.message = path + ": only .dbc text input is supported by the C++ CLI yet "
-                                           "(JSON / .xlsx input not wired)"});
+        return std::unexpected(DbcLoadError{
+            .message = path + ": the C++ CLI accepts .dbc text input only (not JSON or .xlsx)"});
+    if (auto bound = aletheia::detail::check_file_size_bound(path); !bound)
+        return std::unexpected(DbcLoadError{
+            .message = "reading " + path + ": " + std::string{bound.error().message()},
+            .core = std::move(bound.error()),
+        });
     const std::ifstream in{path};
     if (!in)
         return std::unexpected(DbcLoadError{.message = "reading " + path});
@@ -275,27 +279,27 @@ static auto render_validation(bool has_errors, const std::vector<aletheia::Valid
                                     {"issues", arr}});
         // An emit failure is an operational error and must not be masked
         // by the validation outcome.
-        if (code != k_exit_ok)
+        if (code != cli_exit_ok)
             return code;
         // The exit code reflects the validation outcome in both output
         // modes — a pipeline running --json still needs exit 1 on failure.
-        return has_errors ? k_exit_violations : k_exit_ok;
+        return has_errors ? cli_exit_validation_failed : cli_exit_ok;
     }
     if (issues.empty()) {
         std::cout << "Validation passed: no issues found\n";
-        return k_exit_ok;
+        return cli_exit_ok;
     }
     std::cout << (has_errors ? "Validation FAILED" : "Validation passed with warnings") << " ("
               << issues.size() << " issues)\n\n";
     int n = 1;
     for (const auto& i : issues) {
         std::string sev{aletheia::to_string(i.severity)};
-        for (char& c : sev)
-            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        std::ranges::transform(sev, sev.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
         std::cout << "  " << n++ << ". [" << sev << "] " << aletheia::issue_code_label(i) << ": "
                   << i.detail << '\n';
     }
-    return has_errors ? k_exit_violations : k_exit_ok;
+    return has_errors ? cli_exit_validation_failed : cli_exit_ok;
 }
 
 // `has_errors` for a rejected parse is derived from the decoded issue
@@ -336,8 +340,9 @@ static auto cmd_validate(const Args& a) -> int {
 // JSON (`json_serialize.cpp::rational_to_json`).  The parsed value is identical
 // across bindings; the byte order is not (nlohmann's default object is a sorted
 // map, so keys emit alphabetically — `denominator` before `numerator` — whereas
-// Python emits insertion order).  The float principle bars a lossy `to_double()`
-// here (this is machine-readable output a consumer parses).  Extraction values
+// Python emits insertion order).  The float principle bars a lossy conversion to
+// double here (this is machine-readable output a consumer parses), and the type
+// no longer offers one.  Extraction values
 // are kernel-canonical (reduced, positive denominator), so no gcd / INT64_MIN
 // normalisation is needed (unlike `rational_to_json`, which guards arbitrary
 // caller-built rationals on the DBC-serialize path).
@@ -349,7 +354,7 @@ static auto extract_value_to_json(const aletheia::Rational& r) -> Json {
 
 // Exact rational -> human-readable string for CLI text output, via the verified
 // kernel renderer (Agda `formatℚ`): a terminating decimal (`1/4` -> "0.25") or an
-// exact fraction (`1/3` -> "1/3"), never a lossy `to_double()`.  Byte-identical
+// exact fraction (`1/3` -> "1/3"), never a lossy conversion to double.  Byte-identical
 // with Go's FormatRational and Python's format_rational (same kernel FFI).  The
 // CLI always has a live client here, so the RTS is up (format_rational_ffi throws
 // only when it is not).
@@ -407,7 +412,7 @@ static auto cmd_extract(const Args& a) -> int {
         std::cout << "  " << v.name.get() << " = " << render_rational(v.value.get()) << '\n';
     for (const auto& e : res->errors)
         std::cout << "  error " << e.name.get() << ": " << e.reason << '\n';
-    return k_exit_ok;
+    return cli_exit_ok;
 }
 
 static void print_signal_line(const aletheia::DbcSignal& sig) {
@@ -429,7 +434,7 @@ static auto cmd_signals(const Args& a) -> int {
         return die(def.error().message);
     if (a.flags.contains("json")) {
         std::cout << aletheia::to_canonical_json(def->dbc) << '\n';
-        return k_exit_ok;
+        return cli_exit_ok;
     }
     std::size_t total = 0;
     for (const auto& msg : def->dbc.messages) {
@@ -441,7 +446,7 @@ static auto cmd_signals(const Args& a) -> int {
         }
     }
     std::cout << '\n' << def->dbc.messages.size() << " messages, " << total << " signals\n";
-    return k_exit_ok;
+    return cli_exit_ok;
 }
 
 static auto cmd_format_dbc(const Args& a) -> int {
@@ -455,7 +460,7 @@ static auto cmd_format_dbc(const Args& a) -> int {
     if (!canonical)
         return die(std::string{canonical.error().message()});
     std::cout << aletheia::to_canonical_json(*canonical) << '\n';
-    return k_exit_ok;
+    return cli_exit_ok;
 }
 
 static auto resolve_mux_message(const DbcDefinition& def, const std::string& ident, bool extended)
@@ -487,7 +492,7 @@ static auto mux_selector(const DbcMessage& msg, const std::string& mux, std::uin
               << " signals\n";
     for (const auto& s : sigs)
         std::cout << "  " << s.name.get() << '\n';
-    return k_exit_ok;
+    return cli_exit_ok;
 }
 
 // mux-query summary mode: every multiplexor, its values, and their signals.
@@ -513,7 +518,7 @@ static auto mux_summary(const DbcMessage& msg, bool as_json) -> int {
               << msg.name.get() << '\n';
     if (!msg.is_multiplexed()) {
         std::cout << "  Not multiplexed — " << msg.signals.size() << " signals always present.\n";
-        return k_exit_ok;
+        return cli_exit_ok;
     }
     for (const auto& name : msg.multiplexor_names()) {
         std::cout << "  " << name.get() << ":\n";
@@ -522,7 +527,7 @@ static auto mux_summary(const DbcMessage& msg, bool as_json) -> int {
             std::cout << "    value " << v.get() << ": " << sigs.size() << " signals\n";
         }
     }
-    return k_exit_ok;
+    return cli_exit_ok;
 }
 
 static auto cmd_mux_query(const Args& a) -> int {
@@ -597,17 +602,16 @@ static auto dispatch(const std::string& cmd, std::span<const std::string> rest) 
         return cmd_mux_query(*parsed);
     }
     if (cmd == "check") {
-        std::cerr << "Error: 'check' is not available in the C++ CLI yet — it needs a verified "
-                     "CAN-log reader (Phase 6: python-can replacement). Use the Python CLI for "
-                     "log-file checking.\n";
-        return k_exit_error;
+        std::cerr << "Error: 'check' is not available in the C++ CLI: it needs a CAN-log reader "
+                     "the binding does not provide. Use the Python CLI for log-file checking.\n";
+        return cli_exit_error;
     }
     if (cmd == "-h" || cmd == "--help" || cmd == "help") {
         std::cout << k_usage << '\n';
-        return k_exit_ok;
+        return cli_exit_ok;
     }
     std::cerr << "Error: unknown command '" << cmd << "'\n\n" << k_usage << '\n';
-    return k_exit_error;
+    return cli_exit_error;
 }
 
 namespace aletheia {
@@ -616,11 +620,13 @@ auto run_cli(std::span<const std::string> args) noexcept -> int {
     try {
         if (args.empty()) {
             std::cerr << k_usage << '\n';
-            return k_exit_error;
+            return cli_exit_error;
         }
         return dispatch(args.front(), args.subspan(1));
     } catch (const std::exception& e) {
         return die(std::string{"unexpected error: "} + e.what());
+    } catch (...) {
+        return die("unexpected error");
     }
 }
 

@@ -125,22 +125,32 @@ RUN cargo build --release --locked && \
 
 # C++: CMake-configure + build the bundled binding standalone, FAITHFUL to
 # the enforced toolchain — clang-22 from apt.llvm.org (cpp/CMakeLists.txt
-# hard-rejects anything else) with noble's libstdc++-14 (C++23 <expected>),
-# mirroring the release workflow's toolchain step.  The bundle ships no
-# tests/, so a standalone configure builds the library + CLI only.
+# hard-rejects anything else) with libstdc++ 15 from the toolchain PPA,
+# mirroring the release workflow's toolchain step.  Faithful means the same
+# standard library, not merely a C++23 one: the workflow moved off noble's
+# libstdc++ 14 because its std::ranges::to has no pipe form, and a verify
+# stage one release behind would accept what the release lane rejects.  The
+# PPA is added as a deb line with the key fetched by fingerprint, because
+# add-apt-repository lives in software-properties-common, which this
+# --no-install-recommends image does not carry.  The bundle ships no tests/,
+# so a standalone configure builds the library + CLI only.
 # FetchContent (nlohmann/json, yaml-cpp, OpenXLSX) is URL+SHA-pinned in the
 # bundled CMakeLists and needs network on first configure.
 # Refresh: docker buildx imagetools inspect ubuntu:24.04
 FROM ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90 AS verify-cpp
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        ca-certificates wget cmake make libstdc++-14-dev && \
+        ca-certificates wget cmake make && \
     wget -qO /etc/apt/trusted.gpg.d/apt.llvm.org.asc \
         https://apt.llvm.org/llvm-snapshot.gpg.key && \
     echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
         > /etc/apt/sources.list.d/llvm22.list && \
+    wget -qO /etc/apt/trusted.gpg.d/ubuntu-toolchain-r.asc \
+        "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xC8EC952E2A0E1FBDC5090F6A2C277A0A352154E5" && \
+    echo "deb https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu noble main" \
+        > /etc/apt/sources.list.d/ubuntu-toolchain-r.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends clang-22 && \
+    apt-get install -y --no-install-recommends clang-22 libstdc++-15-dev && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=runtime /opt/aletheia /opt/aletheia
 RUN cmake -S /opt/aletheia/bindings/cpp -B /build \

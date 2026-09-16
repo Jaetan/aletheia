@@ -12,10 +12,12 @@
 #include <cstdint>
 #include <exception>
 #include <expected>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -26,8 +28,7 @@ namespace aletheia {
 namespace {
 
 // String → ErrorCode lookup table. Grouped by error family for readability;
-// the order within each group mirrors the Agda error ADTs. Linear scan is fine
-// for this table on a cold parse path.
+// the order within each group mirrors the Agda error ADTs.
 using ErrorCodeEntry = std::pair<std::string_view, ErrorCode>;
 constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     // Parse errors
@@ -103,11 +104,20 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
 
 } // namespace
 
+// The value of a table entry, or nullopt when the table has no such entry.
+// Every string-to-enum table in this file is an array scanned linearly, which
+// is fine on these cold paths.
+template<typename Table>
+static auto lookup(const Table& table, std::string_view wire)
+    -> std::optional<typename Table::value_type::second_type> {
+    for (const auto& [name, value] : table)
+        if (name == wire)
+            return value;
+    return std::nullopt;
+}
+
 auto error_code_from_string(std::string_view s) -> ErrorCode {
-    for (const auto& [name, code] : error_code_table)
-        if (name == s)
-            return code;
-    return ErrorCode::Unknown;
+    return lookup(error_code_table, s).value_or(ErrorCode::Unknown);
 }
 
 } // namespace aletheia
@@ -135,10 +145,30 @@ static auto make_error(ErrorKind kind, std::string msg, ErrorCode code = ErrorCo
 // negatives as well as floats (`is_number_unsigned` is false for both).  Both
 // preserve the caller's existing range check, which still runs on the returned
 // integer.
+//
+// Both also refuse a value the position cannot hold.  The JSON library keeps
+// a positive literal above the signed maximum as an unsigned one, and the
+// narrowing conversion wraps it: without this check an index one past the
+// signed 64-bit maximum reads as the most negative one and the caller's sign
+// test calls it negative, a CAN id of 2^32 reads as a valid zero, a frame
+// byte of 256 reads as zero.  The refusal names the position's own range, as
+// the kernel names the Int64 wire range it refuses at its own entry.
+template<typename T>
+static auto out_of_range(const Json& j, std::string_view context) -> std::runtime_error {
+    return std::runtime_error(std::string{context} + " is out of range (" +
+                              std::to_string(std::numeric_limits<T>::min()) + " to " +
+                              std::to_string(std::numeric_limits<T>::max()) +
+                              "), got: " + j.dump());
+}
+
 template<typename T>
 static auto require_int(const Json& j, std::string_view context) -> T {
     if (!j.is_number_integer())
         throw std::runtime_error(std::string{context} + " must be an integer, got: " + j.dump());
+    const bool fits = j.is_number_unsigned() ? std::in_range<T>(j.get<std::uint64_t>())
+                                             : std::in_range<T>(j.get<std::int64_t>());
+    if (!fits)
+        throw out_of_range<T>(j, context);
     return j.get<T>();
 }
 
@@ -147,6 +177,8 @@ static auto require_uint(const Json& j, std::string_view context) -> T {
     if (!j.is_number_unsigned())
         throw std::runtime_error(std::string{context} +
                                  " must be a non-negative integer, got: " + j.dump());
+    if (!std::in_range<T>(j.get<std::uint64_t>()))
+        throw out_of_range<T>(j, context);
     return j.get<T>();
 }
 
@@ -159,8 +191,8 @@ static auto require_uint(const Json& j, std::string_view context) -> T {
 //
 // Throws `std::runtime_error` (not typed `InputBoundExceeded`) by design:
 // `InputBoundExceeded` carries the kernel-side `bound_kind / observed / limit`
-// triple where `bound_kind` is one of the kernel's `BoundKind` ADT entries
-// (`MessageCount`, `AtomCount`, `IdentifierLength`, `PropertyCount`, etc.).
+// triple, whose `bound_kind` is one of the kernel's own `BoundKind`
+// constructors (see `src/Aletheia/Limits.agda`).
 // JSON nesting depth is a client-side guard against malformed *responses*
 // from the kernel — not an inbound kernel input bound — so it doesn't fit
 // any `BoundKind` and the typed shape would be misleading.  The existing
@@ -176,17 +208,6 @@ static auto parse_bounded(std::string_view input) -> Json {
         return true;
     };
     return Json::parse(input, callback);
-}
-
-// Routes the response through `ErrorKind::InputBoundExceeded`
-// regardless of the kind the caller guessed from the response section (Protocol /
-// Validation), so the typed bound-info shape is exposed uniformly across the JSON /
-// DBC-text / binary parser surfaces.  Mirrors Python's `InputBoundExceededError`
-// subclassing and Go's typed `*InputBoundExceededError` discriminator.  Originally
-// dispatched over three codes; a later consolidation collapsed Parse/Route/Handler
-// input-bound variants into a single top-level `ErrorCode::InputBoundExceeded`.
-static auto is_input_bound_exceeded_code(ErrorCode code) -> bool {
-    return code == ErrorCode::InputBoundExceeded;
 }
 
 // Defined with the issue-code table further down; needed by the
@@ -225,11 +246,8 @@ static auto lift_validation_issues(const Json& j) -> std::optional<std::vector<V
 ///
 /// Both ``code`` and ``message`` must be non-null strings — a missing or
 /// non-string value surfaces as a ``Protocol`` error rather than being
-/// papered over with a default. Matches Python's ``build_error_response``
-/// strict contract; a previous version shipped with a silent "unknown error code"
-/// regression in production logs because the old ``j.value("code", "")``
-/// / ``j.value("message", "Unknown error")`` defaults masked malformed
-/// responses.
+/// papered over with a default, which would turn a malformed response into a
+/// plausible-looking one. Matches Python's ``build_error_response``.
 static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
     if (!j.contains("code") || !j.at("code").is_string())
         return make_error(ErrorKind::Protocol, "Error response missing or non-string 'code' field");
@@ -237,7 +255,12 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
         return make_error(ErrorKind::Protocol,
                           "Error response missing or non-string 'message' field");
     auto code = error_code_from_string(j.at("code").get<std::string>());
-    auto effective_kind = is_input_bound_exceeded_code(code) ? ErrorKind::InputBoundExceeded : kind;
+    // The bound code carries its own kind whatever the caller guessed from the
+    // response section, so the typed bound-info shape is uniform across the
+    // JSON, DBC-text and binary parser surfaces, as in the Python and Go
+    // bindings' typed input-bound errors.
+    auto effective_kind =
+        code == ErrorCode::InputBoundExceeded ? ErrorKind::InputBoundExceeded : kind;
     // A round-trip refusal gets its own kind regardless of the caller's default,
     // so a caller discriminates it from a structural validation failure by kind().
     if (code == ErrorCode::HandlerTextRoundtripFailed)
@@ -264,6 +287,22 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
         issues = lift_validation_issues(j);
     return AletheiaError{effective_kind, j.at("message").get<std::string>(), code,
                          std::move(bound_info), std::move(issues)};
+}
+
+// Decode an optional array field: absent means empty, present means every
+// element goes through `parse_element`.  A required array keeps its own
+// `j.at(...)` loop so a missing one still throws.
+template<typename Parse>
+static auto parse_optional_array(const Json& j, const char* key, Parse parse_element)
+    -> std::vector<std::invoke_result_t<Parse, const Json&>> {
+    std::vector<std::invoke_result_t<Parse, const Json&>> out;
+    if (!j.contains(key))
+        return out;
+    const auto& arr = j.at(key);
+    out.reserve(arr.size());
+    for (const auto& elem : arr)
+        out.push_back(parse_element(elem));
+    return out;
 }
 
 // Decode a JSON {numerator, denominator} object into a (num, den) pair,
@@ -311,21 +350,20 @@ auto decode_decimal_response(std::string_view raw) -> Rational {
     return Rational{num, den};
 }
 
-// Agda emits signal values as int or {"numerator": n, "denominator": d}.
-// Returns Rational for exact precision (no double truncation).  A bare float is
-// rejected (falls through to the throw below): the wire carries exact rationals
-// only, so a float here is a wire-format violation rather than a value to
-// approximate.  Mirrors parse_rational / parse_rational_as_int, which have no
-// float branch, and the Go/Rust/Python decoders, which all reject a float here.
-// Throws on unrecognized formats; callers catch at the public API boundary.
-static auto parse_signal_value(const Json& j) -> Rational {
+// Agda emits an exact rational as an integer or as
+// {"numerator": n, "denominator": d}.  A bare float is rejected: the wire
+// carries exact rationals only, so a float is a wire-format violation rather
+// than a value to approximate, which is how the Go, Rust and Python decoders
+// treat it too.  Throws on any other shape; callers catch at the public API
+// boundary.
+static auto parse_rational(const Json& j) -> Rational {
     if (j.is_number_integer())
-        return Rational{j.get<std::int64_t>(), 1};
+        return Rational{require_int<std::int64_t>(j, "rational integer"), 1};
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
         auto [num, den] = parse_rational_dict(j);
         return Rational{num, den};
     }
-    throw std::runtime_error("Expected number or {numerator, denominator}, got: " + j.dump());
+    throw std::runtime_error("Expected integer or {numerator, denominator}, got: " + j.dump());
 }
 
 // String → IssueCode lookup table.  Same shape as `error_code_table` at the
@@ -363,10 +401,7 @@ constexpr auto issue_code_table = std::to_array<IssueCodeEntry>({
 });
 
 static auto parse_issue_code(std::string_view s) -> IssueCode {
-    for (const auto& [name, code] : issue_code_table)
-        if (name == s)
-            return code;
-    return IssueCode::Unknown;
+    return lookup(issue_code_table, s).value_or(IssueCode::Unknown);
 }
 
 // Parse one validation-issue entry ({severity, code, detail}); shared by the
@@ -391,30 +426,14 @@ static auto parse_issue_entry(const Json& issue) -> Result<ValidationIssue> {
     };
 }
 
-// Parse a JSON value as an exact Rational (for DBC signal parameters).
-// Accepts plain integers or {numerator, denominator} dicts.
-static auto parse_rational(const Json& j) -> Rational {
-    if (j.is_number_integer())
-        return Rational{j.get<std::int64_t>(), 1};
-    if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
-        auto [num, den] = parse_rational_dict(j);
-        return Rational{num, den};
-    }
-    throw std::runtime_error("Expected integer or {numerator, denominator}, got: " + j.dump());
-}
-
+// The same wire shapes in an integer position: the rational must reduce to a
+// whole number (parse_rational_dict has already refused a non-positive
+// denominator, so the division is safe).
 static auto parse_rational_as_int(const Json& j) -> std::int64_t {
-    if (j.is_number_integer())
-        return j.get<std::int64_t>();
-    if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
-        // parse_rational_dict validates den > 0 (rejects non-positive), so the
-        // num / den division below is safe.
-        auto [num, den] = parse_rational_dict(j);
-        if (num % den != 0)
-            throw std::runtime_error("Non-exact rational in integer field: " + j.dump());
-        return num / den;
-    }
-    throw std::runtime_error("Expected integer or {numerator, denominator}, got: " + j.dump());
+    const auto r = parse_rational(j);
+    if (r.numerator() % r.denominator() != 0)
+        throw std::runtime_error("Non-exact rational in integer field: " + j.dump());
+    return r.numerator() / r.denominator();
 }
 
 // ---------------------------------------------------------------------------
@@ -455,6 +474,15 @@ static auto parse_signal_presence(const Json& j) -> SignalPresence {
                        .multiplex_values = std::move(vals)};
 }
 
+// One {value, description} pair; the wire shape of an inline VAL_ entry and of
+// a VAL_TABLE_ row.  `context` names the field in a rejection message.
+static auto parse_value_entry(const Json& j, std::string_view context) -> DbcValueEntry {
+    return DbcValueEntry{
+        .value = require_int<std::int64_t>(j.at("value"), context),
+        .description = j.at("description").get<std::string>(),
+    };
+}
+
 static auto parse_signal_def(const Json& j) -> DbcSignal {
     auto bo_str = j.value("byteOrder", "little_endian");
     ByteOrder bo{};
@@ -467,24 +495,11 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
 
     auto presence = parse_signal_presence(j);
 
-    std::vector<std::string> receivers;
-    if (j.contains("receivers")) {
-        const auto& arr = j.at("receivers");
-        receivers.reserve(arr.size());
-        for (const auto& elem : arr)
-            receivers.emplace_back(elem.get<std::string>());
-    }
-
-    std::vector<DbcValueEntry> value_descriptions;
-    if (j.contains("valueDescriptions")) {
-        const auto& arr = j.at("valueDescriptions");
-        value_descriptions.reserve(arr.size());
-        for (const auto& elem : arr)
-            value_descriptions.push_back(DbcValueEntry{
-                .value = require_int<std::int64_t>(elem.at("value"), "valueDescriptions value"),
-                .description = elem.at("description").get<std::string>(),
-            });
-    }
+    auto receivers = parse_optional_array(
+        j, "receivers", [](const Json& elem) { return NodeName{elem.get<std::string>()}; });
+    auto value_descriptions = parse_optional_array(j, "valueDescriptions", [](const Json& elem) {
+        return parse_value_entry(elem, "valueDescriptions value");
+    });
 
     const auto start_bit_raw = require_uint<std::uint32_t>(j.at("startBit"), "startBit");
     if (start_bit_raw > 511)
@@ -547,13 +562,8 @@ static auto parse_message_def(const Json& j) -> DbcMessage {
     for (const auto& s : j.at("signals"))
         signals.push_back(parse_signal_def(s));
 
-    std::vector<std::string> senders;
-    if (j.contains("senders")) {
-        const auto& arr = j.at("senders");
-        senders.reserve(arr.size());
-        for (const auto& elem : arr)
-            senders.emplace_back(elem.get<std::string>());
-    }
+    auto senders = parse_optional_array(
+        j, "senders", [](const Json& elem) { return NodeName{elem.get<std::string>()}; });
 
     return DbcMessage{
         .id = id,
@@ -604,10 +614,7 @@ static auto parse_env_var(const Json& j) -> DbcEnvironmentVar {
 static auto parse_value_table(const Json& j) -> DbcValueTable {
     std::vector<DbcValueEntry> entries;
     for (const auto& e : j.at("entries"))
-        entries.push_back(DbcValueEntry{
-            .value = require_int<std::int64_t>(e.at("value"), "valueTable entry value"),
-            .description = e.at("description").get<std::string>(),
-        });
+        entries.push_back(parse_value_entry(e, "valueTable entry value"));
     return DbcValueTable{
         .name = j.at("name").get<std::string>(),
         .entries = std::move(entries),
@@ -621,12 +628,16 @@ static auto parse_value_table(const Json& j) -> DbcValueTable {
 // ---------------------------------------------------------------------------
 
 static auto parse_node(const Json& j) -> DbcNode {
-    return DbcNode{.name = j.at("name").get<std::string>()};
+    return DbcNode{.name = NodeName{j.at("name").get<std::string>()}};
 }
 
-static auto parse_can_id_fields(const Json& j, std::uint32_t& id, bool& extended) -> void {
-    id = require_uint<std::uint32_t>(j.at("id"), "CAN id");
-    extended = j.value("extended", false);
+// The validated identifier a message- or signal-scoped target names. The wire
+// carries a value and an optional flag; the target carries the type they
+// denote, so an identifier too wide for the width it claims is refused here
+// rather than stored and passed on.
+static auto parse_target_can_id(const Json& j) -> CanId {
+    return json_to_can_id(require_uint<std::uint32_t>(j.at("id"), "CAN id"),
+                          j.value("extended", false));
 }
 
 static auto parse_comment_target(const Json& j) -> DbcCommentTarget {
@@ -634,18 +645,12 @@ static auto parse_comment_target(const Json& j) -> DbcCommentTarget {
     if (kind == "network")
         return DbcCommentTargetNetwork{};
     if (kind == "node")
-        return DbcCommentTargetNode{.node = j.at("node").get<std::string>()};
-    if (kind == "message") {
-        DbcCommentTargetMessage v;
-        parse_can_id_fields(j, v.id, v.extended);
-        return v;
-    }
-    if (kind == "signal") {
-        DbcCommentTargetSignal v;
-        parse_can_id_fields(j, v.id, v.extended);
-        v.signal = j.at("signal").get<std::string>();
-        return v;
-    }
+        return DbcCommentTargetNode{.node = NodeName{j.at("node").get<std::string>()}};
+    if (kind == "message")
+        return DbcCommentTargetMessage{.id = parse_target_can_id(j)};
+    if (kind == "signal")
+        return DbcCommentTargetSignal{.id = parse_target_can_id(j),
+                                      .signal = j.at("signal").get<std::string>()};
     if (kind == "envVar")
         return DbcCommentTargetEnvVar{.env_var = j.at("envVar").get<std::string>()};
     throw std::runtime_error("Unknown comment target kind: " + kind);
@@ -672,9 +677,8 @@ constexpr auto attr_scope_table = std::to_array<AttrScopeEntry>({
 });
 
 static auto parse_attr_scope(std::string_view s) -> DbcAttrScope {
-    for (const auto& [name, scope] : attr_scope_table)
-        if (name == s)
-            return scope;
+    if (auto scope = lookup(attr_scope_table, s))
+        return *scope;
     throw std::runtime_error("Unknown attribute scope: " + std::string{s});
 }
 
@@ -723,33 +727,21 @@ static auto parse_attr_target(const Json& j) -> DbcAttrTarget {
     if (kind == "network")
         return DbcAttrTargetNetwork{};
     if (kind == "node")
-        return DbcAttrTargetNode{.node = j.at("node").get<std::string>()};
-    if (kind == "message") {
-        DbcAttrTargetMessage v;
-        parse_can_id_fields(j, v.id, v.extended);
-        return v;
-    }
-    if (kind == "signal") {
-        DbcAttrTargetSignal v;
-        parse_can_id_fields(j, v.id, v.extended);
-        v.signal = j.at("signal").get<std::string>();
-        return v;
-    }
+        return DbcAttrTargetNode{.node = NodeName{j.at("node").get<std::string>()}};
+    if (kind == "message")
+        return DbcAttrTargetMessage{.id = parse_target_can_id(j)};
+    if (kind == "signal")
+        return DbcAttrTargetSignal{.id = parse_target_can_id(j),
+                                   .signal = j.at("signal").get<std::string>()};
     if (kind == "envVar")
         return DbcAttrTargetEnvVar{.env_var = j.at("envVar").get<std::string>()};
-    if (kind == "nodeMsg") {
-        DbcAttrTargetNodeMsg v;
-        v.node = j.at("node").get<std::string>();
-        parse_can_id_fields(j, v.id, v.extended);
-        return v;
-    }
-    if (kind == "nodeSig") {
-        DbcAttrTargetNodeSig v;
-        v.node = j.at("node").get<std::string>();
-        parse_can_id_fields(j, v.id, v.extended);
-        v.signal = j.at("signal").get<std::string>();
-        return v;
-    }
+    if (kind == "nodeMsg")
+        return DbcAttrTargetNodeMsg{.node = NodeName{j.at("node").get<std::string>()},
+                                    .id = parse_target_can_id(j)};
+    if (kind == "nodeSig")
+        return DbcAttrTargetNodeSig{.node = NodeName{j.at("node").get<std::string>()},
+                                    .id = parse_target_can_id(j),
+                                    .signal = j.at("signal").get<std::string>()};
     throw std::runtime_error("Unknown attribute target kind: " + kind);
 }
 
@@ -786,10 +778,7 @@ static auto parse_raw_value_desc(const Json& j) -> DbcRawValueDesc {
     const CanId can_id = json_to_can_id(id_val, extended);
     std::vector<DbcValueEntry> entries;
     for (const auto& e : j.at("entries"))
-        entries.push_back(DbcValueEntry{
-            .value = require_int<std::int64_t>(e.at("value"), "value-description value"),
-            .description = e.at("description").get<std::string>(),
-        });
+        entries.push_back(parse_value_entry(e, "value-description value"));
     return DbcRawValueDesc{
         .can_id = can_id,
         .signal_name = j.at("signalName").get<std::string>(),
@@ -798,49 +787,22 @@ static auto parse_raw_value_desc(const Json& j) -> DbcRawValueDesc {
 }
 
 static auto parse_dbc_definition(const Json& j) -> DbcDefinition {
+    // `messages` is required; every metadata array is optional on the wire and
+    // absent reads the same as empty.
     std::vector<DbcMessage> messages;
     for (const auto& m : j.at("messages"))
         messages.push_back(parse_message_def(m));
-    // Tier 1/2 metadata fields are optional on the wire — absent or empty
-    // arrays both map to empty vectors here.
-    std::vector<DbcSignalGroup> signal_groups;
-    if (j.contains("signalGroups"))
-        for (const auto& g : j.at("signalGroups"))
-            signal_groups.push_back(parse_signal_group(g));
-    std::vector<DbcEnvironmentVar> environment_vars;
-    if (j.contains("environmentVars"))
-        for (const auto& ev : j.at("environmentVars"))
-            environment_vars.push_back(parse_env_var(ev));
-    std::vector<DbcValueTable> value_tables;
-    if (j.contains("valueTables"))
-        for (const auto& vt : j.at("valueTables"))
-            value_tables.push_back(parse_value_table(vt));
-    std::vector<DbcNode> nodes;
-    if (j.contains("nodes"))
-        for (const auto& n : j.at("nodes"))
-            nodes.push_back(parse_node(n));
-    std::vector<DbcComment> comments;
-    if (j.contains("comments"))
-        for (const auto& c : j.at("comments"))
-            comments.push_back(parse_comment(c));
-    std::vector<DbcAttribute> attributes;
-    if (j.contains("attributes"))
-        for (const auto& a : j.at("attributes"))
-            attributes.push_back(parse_attribute(a));
-    std::vector<DbcRawValueDesc> unresolved_value_descriptions;
-    if (j.contains("unresolvedValueDescs"))
-        for (const auto& rvd : j.at("unresolvedValueDescs"))
-            unresolved_value_descriptions.push_back(parse_raw_value_desc(rvd));
     return DbcDefinition{
         .version = j.value("version", ""),
         .messages = std::move(messages),
-        .signal_groups = std::move(signal_groups),
-        .environment_vars = std::move(environment_vars),
-        .value_tables = std::move(value_tables),
-        .nodes = std::move(nodes),
-        .comments = std::move(comments),
-        .attributes = std::move(attributes),
-        .unresolved_value_descriptions = std::move(unresolved_value_descriptions),
+        .signal_groups = parse_optional_array(j, "signalGroups", parse_signal_group),
+        .environment_vars = parse_optional_array(j, "environmentVars", parse_env_var),
+        .value_tables = parse_optional_array(j, "valueTables", parse_value_table),
+        .nodes = parse_optional_array(j, "nodes", parse_node),
+        .comments = parse_optional_array(j, "comments", parse_comment),
+        .attributes = parse_optional_array(j, "attributes", parse_attribute),
+        .unresolved_value_descs =
+            parse_optional_array(j, "unresolvedValueDescs", parse_raw_value_desc),
     };
 }
 
@@ -917,7 +879,7 @@ auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
         std::vector<SignalValue> values;
         for (const auto& v : j.value("values", Json::array()))
             values.push_back({.name = SignalName{v.at("name").get<std::string>()},
-                              .value = PhysicalValue{parse_signal_value(v.at("value"))}});
+                              .value = PhysicalValue{parse_rational(v.at("value"))}});
 
         std::vector<SignalError> errors;
         for (const auto& e : j.value("errors", Json::array()))
@@ -1016,11 +978,10 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
 
-        // Streaming PropertyResponse is now a
-        // batch envelope `{"type": "property_batch", "results": [...]}`.
-        // Each results entry is a PropertyResult (holds/fails/unresolved);
-        // violations close the batch in source-order per the Agda
-        // dispatchIterResult invariant.
+        // A streaming PropertyResponse is a batch envelope
+        // `{"type": "property_batch", "results": [...]}`.  Each results entry
+        // is a PropertyResult (holds/fails/unresolved); a violation closes the
+        // batch, in source order, per the Agda dispatchIterResult invariant.
         if (j.value("type", "") == "property_batch") {
             const auto& raw_results = j.at("results");
             if (!raw_results.is_array() || raw_results.empty())
@@ -1042,11 +1003,9 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
     }
 }
 
-// Parse one entry in the `warnings` array.  Extracted from
-// `parse_stream_result` so the outer function stays under clang-tidy's
-// readability-function-cognitive-complexity threshold (25).  Adding the
-// `contains("property_index")` guard bumped the outer
-// function above the threshold.
+// Parse one entry in the `warnings` array.  Kept apart from
+// `parse_stream_result` so that function stays under clang-tidy's
+// cognitive-complexity threshold.
 static auto parse_stream_warning_entry(const Json& w) -> StreamWarning {
     if (!w.contains("property_index"))
         throw std::runtime_error("Warning entry missing required 'property_index' field");

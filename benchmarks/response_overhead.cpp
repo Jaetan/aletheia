@@ -22,20 +22,24 @@
 // We'll time string operations and simulate the parse cost.
 
 static constexpr std::string_view ack_compact = R"({"status":"ack"})";
-static constexpr std::string_view ack_spaced  = R"({"status": "ack"})";
+static constexpr std::string_view ack_spaced = R"({"status": "ack"})";
 
 static constexpr std::string_view violation_json =
     R"({"type":"property","status":"fails","property_index":0,)"
     R"("timestamp":1234567890,"reason":"Signal EngineSpeed exceeded 220"})";
 
 struct Ack {};
-struct Violation { int property_index; uint64_t timestamp; std::string reason; };
+struct Violation {
+    int property_index;
+    uint64_t timestamp;
+    std::string reason;
+};
 using FrameResponse = std::variant<Ack, Violation>;
 
 static constexpr int ITERATIONS = 5'000'000;
-static constexpr int WARMUP     = 500'000;
+static constexpr int WARMUP = 500'000;
 
-template <typename F>
+template<typename F>
 auto bench(const char* name, F&& func, int iterations = ITERATIONS) -> double {
     // Warmup
     for (int i = 0; i < WARMUP; ++i)
@@ -53,7 +57,7 @@ auto bench(const char* name, F&& func, int iterations = ITERATIONS) -> double {
 }
 
 // Prevent optimizing away results
-template <typename T>
+template<typename T>
 void do_not_optimize(T const& val) {
     asm volatile("" : : "r,m"(val) : "memory");
 }
@@ -117,7 +121,7 @@ int main() {
     });
 
     std::puts("");
-    double budget = 1'000'000'000.0 / 48'000;  // ~20.8 us at 48k fps
+    double budget = 1'000'000'000.0 / 48'000; // ~20.8 us at 48k fps
     std::printf("  Fast path saves vs string+cmp:  %8.1f ns/frame\n", t_str - t_cmp);
     std::printf("  Binary saves vs fast path:      %8.1f ns/frame\n", t_fast - t_bin);
     std::printf("\n=== Context ===\n");
@@ -129,19 +133,25 @@ int main() {
     std::puts("\n=== Violation response (rare) ===");
 
     const char* c_viol = viol_str.c_str();
-    bench("std::string from c_str (violation)", [&] {
-        std::string s{c_viol};
-        do_not_optimize(s);
-    }, 2'000'000);
+    bench(
+        "std::string from c_str (violation)",
+        [&] {
+            std::string s{c_viol};
+            do_not_optimize(s);
+        },
+        2'000'000);
 
     // Manual field extraction (simulates what we'd do without nlohmann)
-    bench("find fields manually", [&] {
-        std::string s{c_viol};
-        auto idx = s.find("\"property_index\":");
-        auto ts = s.find("\"timestamp\":");
-        do_not_optimize(idx);
-        do_not_optimize(ts);
-    }, 2'000'000);
+    bench(
+        "find fields manually",
+        [&] {
+            std::string s{c_viol};
+            auto idx = s.find("\"property_index\":");
+            auto ts = s.find("\"timestamp\":");
+            do_not_optimize(idx);
+            do_not_optimize(ts);
+        },
+        2'000'000);
 
     return 0;
 }

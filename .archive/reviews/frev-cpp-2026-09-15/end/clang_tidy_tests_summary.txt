@@ -1,0 +1,10 @@
+# The split the ruling asked for: the tests counted apart from the benchmarks.
+# Both are now inside the gate, so both read zero; the counts they read before
+# are the measurement each ruling was taken on.
+
+cpp/tests, under the gate (28 sources, 4 headers): 0, from 571
+cpp/tests/fuzz, under the same gate run against the fuzz tree (4 sources): 0, from 13
+cpp/benchmarks, under the gate (2 sources): 0, from 94
+
+# At the base the tests and the benchmarks were counted together and gated
+# nowhere: 1434 diagnostics, 1120 at the pre-ruling close.

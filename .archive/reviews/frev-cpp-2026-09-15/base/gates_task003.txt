@@ -1,0 +1,8 @@
+[100%] Built target rts_params_tests
+100% tests passed, 0 tests failed out of 15
+== mutation configure+build+mull
+[100%] Built target unit_tests
+[info] Mutation score: 100%
+[info] All mutations have been killed
+== ubsan + fuzz configure
+configures done

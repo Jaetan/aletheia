@@ -33,19 +33,27 @@ C++-dominant.
 ## Cross-Language Runner
 
 The primary entry point is [`benchmarks/run_all.sh`](../../benchmarks/run_all.sh). It
-builds nothing on its own — `libaletheia-ffi.so`, the Python package, the C++
-binary, and the Go binary must already be built — and produces one JSON file
-per binding in `benchmarks/results/`, followed by a side-by-side comparison
-printed by `benchmarks/compare.py`.
+**builds the C++, Go and Rust benchmark binaries itself** (incremental; a missing
+toolchain is a graceful per-lane skip), then produces one JSON file per binding in
+`benchmarks/results/`, followed by a side-by-side comparison printed by
+`benchmarks/compare.py`.
+
+A benchmark binary is never taken as found on disk: one that predates a kernel wire
+change does not measure an older system, it fails to measure the current one — so
+its numbers are void rather than merely old. What the runner needs from you is
+`libaletheia-ffi.so`, the Python package, and a *configured* `cpp/build` tree.
+
+The runner also clears the selected mode's results before running, so a lane that
+skips or fails contributes nothing rather than its previous numbers.
 
 ```bash
 # Prerequisites (one-time)
 cabal run shake -- build                                                # libaletheia-ffi.so
 source python/.venv/bin/activate && (cd python && pip install -e '.[dev]')  # Python binding
-cmake -B cpp/build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 && cmake --build cpp/build  # C++ binary (Clang 22)
-(cd go && go build -o benchmarks/benchmark ./benchmarks/)                # Go binary
+cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22  # configure C++ (Clang 22)
+# `go` and `cargo` on PATH; the runner builds those benchmarks itself.
 
-# Run throughput across the Python, C++, and Go bindings, 10,000 frames × 5 runs
+# Run throughput across all four bindings, 10,000 frames × 5 runs
 ./benchmarks/run_all.sh
 
 # Other lanes / scales

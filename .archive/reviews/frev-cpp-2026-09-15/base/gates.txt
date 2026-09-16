@@ -1,0 +1,69 @@
+== build
+CMake Deprecation Warning at build/_deps/yaml-cpp-src/CMakeLists.txt:2 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+Doxygen build started
+[ 98%] Built target rts_params_tests
+[100%] Built target cross_binding_integration_tests
+[100%] Built target doc_example_tests
+== ctest
+
+100% tests passed, 0 tests failed out of 15
+
+Total Test time (real) =  37.46 sec
+== ctest random
+100% tests passed, 0 tests failed out of 15
+
+Total Test time (real) =  36.12 sec
+== clang-format
+format exit 
+== clang-tidy src
+tidy exit 1
+4424
+== clang-tidy tests (informational)
+tidy tests exit 1
+1468
+== tidy coverage
+check-clang-tidy-coverage: ok (17 cpp/src sources all in the compile DB)
+exit 0
+== ubsan
+CMake Deprecation Warning at build-ubsan/_deps/yaml-cpp-src/CMakeLists.txt:2 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+Doxygen build started
+[100%] Built target cross_binding_integration_tests
+100% tests passed, 0 tests failed out of 15
+
+Total Test time (real) =  38.57 sec
+== asan
+CMake Error at CMakeLists.txt:15 (message):
+  aletheia-cpp is Clang-only (got GNU 15.2.0); g++ is not supported.
+  Configure with: cmake -B build -DCMAKE_C_COMPILER=clang-22
+  -DCMAKE_CXX_COMPILER=clang++-22
+
+
+You have changed variables that require your cache to be deleted.
+Configure will be re-run and you may have to reset some variables.
+The following variables have changed:
+CMAKE_CXX_COMPILER= clang++-22
+
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    CMAKE_C_COMPILER
+
+
+CMake Generate step failed.  Build files cannot be regenerated correctly.
+== done

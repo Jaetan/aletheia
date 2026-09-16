@@ -8,12 +8,13 @@
 // `aletheia_format_rational` in libaletheia-ffi.so.  The renderer dlopens
 // the library on first use via `std::call_once` for the format/free symbols,
 // but does NOT initialise the GHC RTS — that is an FfiBackend's job.  If the
-// runtime is not up it throws (point 2) rather than self-initialising (which
-// would squander the FfiBackend's bus-count -N; the RTS is one-shot per
-// process).  No local C++ fallback exists; `format_value(const Rational&)`
-// (in `enrich.cpp`) is byte-identical to Python's and Go's output by
+// runtime is not up it throws rather than self-initialising, which would
+// squander the FfiBackend's bus-count -N (the RTS is one-shot per process).
+// No local C++ fallback exists; `format_value(const Rational&)` (in
+// `enrich.cpp`) is byte-identical to Python's and Go's output by
 // construction, not by a test corpus.
 
+#include <aletheia/backend.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/error.hpp>
 
@@ -75,14 +76,11 @@ static auto default_path_state() -> DefaultPathState& {
     return s;
 }
 
-// Locate libaletheia-ffi.so for the lazy-load.  Search order:
-//   (1) ALETHEIA_LIB env var (operator override)
-//   (2) Path registered via `register_default_lib_path` (the .so the
-//       user passed to `make_ffi_backend(lib_path, ...)`)
-//   (3) Relative-path heuristic (ctest from `cpp/build`)
-// Returns the empty path when no candidate exists; the caller surfaces
-// that as an `AletheiaException(Ffi)` so the operator knows to set
-// `ALETHEIA_LIB` or run `cabal run shake -- build`.
+// The one search, published as aletheia::find_ffi_library at the end of this
+// file and shared by every caller: the renderer below, the command-line tool
+// and both benchmarks. It lives here because the registered path it consults
+// is the state in this file, written by a make_ffi_backend call, and that
+// consultation is what keeps the renderer and the backend on the same library.
 static auto find_library_path() -> std::filesystem::path {
     namespace fs = std::filesystem;
     if (auto* env = std::getenv("ALETHEIA_LIB")) {
@@ -119,7 +117,7 @@ static auto find_library_path() -> std::filesystem::path {
 
 // dlopen + dlsym the library.  Records either the resolved function
 // pointers or a load-error string in the singleton state.  Does NOT
-// initialise the GHC RTS (point 2 — that is an FfiBackend's job).
+// initialise the GHC RTS (that is an FfiBackend's job).
 // Called exactly once per process via `std::call_once`.
 static void init_renderer() {
     auto& s = state();
@@ -152,7 +150,7 @@ static void init_renderer() {
     if (parse_decimal_sym == nullptr)
         return;
 
-    // The renderer does NOT initialise the GHC RTS (point 2): an FfiBackend is
+    // The renderer does NOT initialise the GHC RTS: an FfiBackend is
     // the sole initialiser, so it only resolves the format/free/parse symbols here.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     s.format_fn = reinterpret_cast<FormatRationalFn>(fmt_sym);
@@ -172,60 +170,53 @@ static void ensure_loaded() {
                           "Rational pretty-printer requires libaletheia-ffi.so: " + s.load_error});
 }
 
-auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string {
+// The shape both entry points share: load lazily, refuse while the RTS is
+// down (calling the kernel then is undefined behaviour), call one kernel
+// function, own the string it returns.  `whats_down` and `returned_null`
+// name the operation in those two refusals.  A null return is unreachable
+// for a well-formed call, so it throws rather than fabricating a value,
+// as Go and Rust do.
+template<typename Call>
+static auto kernel_string(Call call, std::string_view whats_down, std::string_view returned_null)
+    -> std::string {
     ensure_loaded();
-    // The renderer is a consumer of a runtime an FfiBackend must bring up: be
-    // vocal (throw) when it is down rather than self-initialising (which would
-    // squander the FfiBackend's bus-count -N) or calling the kernel with the RTS
-    // uninitialised (undefined behaviour). The caller must create a backend first.
     if (!rts_initialized())
-        throw AletheiaException(AletheiaError{
-            ErrorKind::Ffi, "GHC runtime not initialized: create a backend before rendering"});
-    auto& s = state();
-    char* raw = s.format_fn(num, denom);
-    if (raw == nullptr)
-        // Unreachable for a well-formed rational (the kernel never returns null);
-        // throw rather than fabricating "0" — a null means a kernel/ABI
-        // malfunction, and a silent "0" would hide the bug. Matches Rust/Go.
         throw AletheiaException(
-            AletheiaError{ErrorKind::Ffi, "aletheia_format_rational returned a null pointer"});
+            AletheiaError{ErrorKind::Ffi, "GHC runtime not initialized: create a backend before " +
+                                              std::string{whats_down}});
+    auto& s = state();
+    char* raw = call(s);
+    if (raw == nullptr)
+        throw AletheiaException(
+            AletheiaError{ErrorKind::Ffi, std::string{returned_null} + " returned a null pointer"});
     auto deleter = [&s](char* p) { s.free_fn(p); };
     const std::unique_ptr<char, decltype(deleter)> guard{raw, deleter};
     return std::string{raw};
 }
 
+auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string {
+    return kernel_string([&](RendererState& s) { return s.format_fn(num, denom); }, "rendering",
+                         "aletheia_format_rational");
+}
+
 auto parse_decimal_ffi(std::string_view input) -> std::string {
-    ensure_loaded();
-    // Same vocal contract as format_rational_ffi: parsing a decimal calls into the
-    // kernel, which requires a live GHC RTS that only an FfiBackend brings up. Be
-    // vocal (throw) when it is down rather than self-initialising (which would
-    // squander the FfiBackend's bus-count -N) or calling the kernel with the RTS
-    // uninitialised (undefined behaviour). The caller must create a backend first.
-    if (!rts_initialized())
-        throw AletheiaException(
-            AletheiaError{ErrorKind::Ffi,
-                          "GHC runtime not initialized: create a backend before parsing decimals"});
-    // Reject an interior NUL before marshaling: the kernel takes a NUL-terminated
-    // C string, so a NUL inside the input would silently truncate the literal
-    // (e.g. "1\0xyz" -> "1") and accept a value the caller did not intend. A NUL
-    // is not in the decimal grammar, so this is a user-input fault (Validation),
-    // mirroring Rust's CString::new rejection — cross-binding parity.
-    if (input.contains('\0'))
-        throw AletheiaException(
-            AletheiaError{ErrorKind::Validation, "decimal literal contains an interior NUL byte"});
-    auto& s = state();
-    // The kernel takes a NUL-terminated C string; materialise one from the view.
-    const std::string buf{input};
-    char* raw = s.parse_decimal_fn(buf.c_str());
-    if (raw == nullptr)
-        // Unreachable for a well-formed call (the kernel returns the error
-        // envelope as a string, never null); a null means a kernel/ABI
-        // malfunction, so throw rather than fabricating a value. Matches Rust/Go.
-        throw AletheiaException(
-            AletheiaError{ErrorKind::Ffi, "aletheia_parse_decimal returned a null pointer"});
-    auto deleter = [&s](char* p) { s.free_fn(p); };
-    const std::unique_ptr<char, decltype(deleter)> guard{raw, deleter};
-    return std::string{raw};
+    return kernel_string(
+        [&](RendererState& s) {
+            // Reject an interior NUL before marshaling: the kernel takes a
+            // NUL-terminated C string, so a NUL inside the input would silently
+            // truncate the literal ("1\0xyz" -> "1") and accept a value the
+            // caller did not intend. A NUL is not in the decimal grammar, so
+            // this is a user-input fault (Validation), mirroring Rust's
+            // CString::new rejection. It sits inside the call, after the
+            // runtime gate, because Rust refuses a runtime-down call before it
+            // looks at the literal and the two bindings answer alike.
+            if (input.contains('\0'))
+                throw AletheiaException(AletheiaError{
+                    ErrorKind::Validation, "decimal literal contains an interior NUL byte"});
+            const std::string buf{input};
+            return s.parse_decimal_fn(buf.c_str());
+        },
+        "parsing decimals", "aletheia_parse_decimal");
 }
 
 void register_default_lib_path(const std::filesystem::path& lib_path) {
@@ -236,3 +227,13 @@ void register_default_lib_path(const std::filesystem::path& lib_path) {
 }
 
 } // namespace aletheia::detail
+
+namespace aletheia {
+
+// Published so the command-line tool and the benchmarks search the same way the
+// renderer does. Defined here because the search consults state this file owns.
+auto find_ffi_library() -> std::filesystem::path {
+    return detail::find_library_path();
+}
+
+} // namespace aletheia

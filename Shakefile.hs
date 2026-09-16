@@ -1205,18 +1205,13 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         cmd_ pythonBin "-m" "tools.check_runbook_coverage"
 
     phony "check-limits-parity" $ do
-        -- Limits SSOT parity gate.  The Agda
-        -- `Aletheia.Limits` module is the single source of truth for every
-        -- adversarial-input bound (AGENTS.md universal rule).  The Go
-        -- binding mirrors a subset at `go/aletheia/limits.go` for
-        -- cgo-boundary pre-rejection — its header claims "mirrored here
-        -- verbatim", and this script enforces that promise.  Python and
-        -- C++ bindings consume bounds via the typed `InputBoundExceeded`
-        -- error returned from the kernel; they have no local mirror and
-        -- are out of scope for this gate.  Failing on: missing required
-        -- mirror, numeric value mismatch, BoundKind wire-string mismatch,
-        -- or any side having an entry the other side lacks (with explicit
-        -- categorisation in NAME_MAPPING).
+        -- Limits SSOT parity gate.  The Agda `Aletheia.Limits` module is the
+        -- single source of truth for every adversarial-input bound (AGENTS.md
+        -- universal rule).  The Go, Python and C++ bindings each mirror it,
+        -- and each header claims the values are mirrored verbatim; this
+        -- script enforces that promise on all three.  Failing on: a missing
+        -- required mirror, a numeric value mismatch, a BoundKind wire-string
+        -- mismatch, or either side holding an entry the other lacks.
         cmd_ pythonBin "-m" "tools.check_limits_parity"
 
     phony "check-stability-bench" $ do

@@ -10,8 +10,215 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **A caller-injected Python backend is provably the one re-used after `close()`.**
+  The re-entry test asserted only that re-entry succeeds, which it does either way:
+  a client that wrongly treated an injected backend as its own would drop it on
+  close and build a real `FFIBackend` on the next `__enter__`, silently swapping a
+  test double for the shared library. The test now asserts the injected object is
+  the one initialised again. Found by the mutation lane once its generator was
+  pinned; the Python row is re-measured at 924 mutants with the one documented
+  equivalent surviving.
+- **Two gates stop depending on whatever the machine happens to have.** `cmake-lint`
+  came from a distro package declared nowhere, so the CMake gate exited 127 on the
+  runner while passing locally; it is pinned as `cmakelang` and routed through the
+  venv, like `clang-format`. `cmakelang` and `mutmut` are each pinned to one exact
+  version, because a lint tool's findings and a mutation generator's mutant set are
+  the gate itself: `mutmut` was a range, so a developer could sit on the floor while
+  CI resolved to the newest, two releases in one major enumerate different mutant
+  sets, and the survivor CI reported could not be reproduced locally at all.
+
+- **The Rust binding passes clippy on the toolchain CI installs.** CI tracks the
+  latest stable Rust, and `clippy::chunks_exact_to_as_chunks` is new in 1.98: it
+  fired on four pre-existing sites in the binary response decoder that no local run
+  could see, because the development toolchain was still on 1.97. The four read
+  `as_chunks::<N>().0` now, which is the same traversal with the chunk width in the
+  type, and the local toolchain was moved to stable so the lint is reproducible.
+
+- **The C++ library builds again on the standard library CI pins.** A filter helper
+  written during the review used the `views::filter | std::ranges::to<std::vector>()`
+  pipe, which needs a libstdc++ point release newer than the one ubuntu-24.04 ships,
+  so the whole C++ build failed on the runner while passing locally on a newer one.
+  It copies with `std::ranges::copy_if` now, and the benchmark's two folds use
+  `std::reduce` rather than `std::ranges::fold_left` for the same reason. The pinned
+  standard library is the floor a consumer building the binding is held to, so the
+  code moved rather than the floor.
+
+- **The bill of materials reads every C++ pin again, and names the package rather
+  than the fetch.** The generator derived a version from a release tag shaped
+  `v1.2.3` or a bare `1.2.3`, so the yaml-cpp bump to a tag that repeats the project
+  name (`yaml-cpp-0.9.0`) made the pin unreadable and failed the whole bill. It reads
+  that shape now. The two dependencies pinned on the spreadsheet library's behalf are
+  declared under the content name its helper requires, which carries a `_fetch`
+  suffix; the bill strips it, so they appear as `miniz` and `pugixml` with the purls a
+  consumer would look up. Both shapes have a test that fails without the fix.
+
+- **The benchmark harness no longer measures stale binaries.**
+  `benchmarks/run_all.sh` ran the C++ and Go benchmark binaries if the file merely
+  existed, building only Rust. A Go binary predating the detailed-extraction-reason
+  wire format could not decode extraction responses, so both Signal Extraction
+  lanes failed — and were then silently dropped, leaving 4-lane Go baselines in
+  `benchmarks/results/`. The harness now **builds** the C++, Go and Rust benchmarks
+  itself (incremental; a missing toolchain stays a per-lane skip), captures
+  benchmark stderr instead of discarding it and replays it when a lane fails, and
+  clears the selected mode's results first so a skipped or failed lane contributes
+  nothing rather than its previous run's numbers. CI was never affected — the
+  benchmark workflow always built all four in-job.
+- **A benchmark lane that cannot be measured is now an error, not an omission.**
+  The Go harness dropped an all-failed throughput lane, omitted a failed latency
+  lane, and reported a fabricated `0` for a failed scaling point (which divides
+  through every `relative` in the sweep). Any failed run is now fatal — continuing
+  published a row whose `runs` field overstated the sample it was computed from —
+  and neither Go nor Rust can average an empty sample. Python already aborted on a
+  failed operation; the C++ harness does not check its per-operation results and is
+  tracked separately.
+- **All 12 local baselines re-measured** with freshly built binaries. The previous
+  Go throughput/latency baselines are void rather than outdated: they came from a
+  binary that could not decode the wire it was measuring, so its four surviving
+  lanes are as untrustworthy as its two missing ones.
+
 ### Changed
 
+- **CI builds the C++ binding against libstdc++ 15.** ubuntu-24.04 ships 14, which
+  is why a standard C++23 construct compiled on a developer machine and failed only
+  on the runner. The toolchain policy tracks the latest stable release rather than
+  promising a floor, so the runners now take libstdc++ 15 from the toolchain PPA the
+  same way they take clang-22 from apt.llvm.org: seven install sites across five
+  workflows, each with its .deb cache key bumped so a cache filled without the new
+  package cannot be reused. The release image's C++ verify stage moves with them, or
+  it would accept what the release lane rejects; it takes the PPA as a deb line with
+  the key fetched by fingerprint, because the tool that adds a PPA is absent from
+  that minimal image. Nothing published embeds the library, because the bundle ships
+  the C++ binding as source. A probe holds the move whole: it reads the version off
+  the workflows, then fails if an install block, a cache key, the release image or
+  the build document is left behind.
+
+- **Every dependency the C++ build fetches is pinned, transitively.** The bumped
+  spreadsheet library stopped vendoring its zip and XML implementations and started
+  fetching them itself, from a git tag and with no hash, so the pin claim covered the
+  four archives the build downloads and not the two further projects one of them pulled
+  in. Both are now declared in `cpp/CMakeLists.txt` ahead of it and pinned to a release
+  archive with a measured hash, at the versions it asked for. The probe that held the
+  claim was widened with the half that was missing: it reads what the configured tree
+  actually fetched and fails on anything the build file does not declare.
+
+- **The C++ benchmark sources are inside the lint gate too.** With the tests at zero the
+  two benchmark sources were the last C++ the repository compiles outside any gate, and
+  they reported 94 findings. All 94 are fixed and none is suppressed: no benchmark
+  configuration was needed, so `cpp/.clang-tidy` alone now covers both. The substantial
+  ones were the argument vector read as a raw pointer, four payload fixtures whose
+  constructors ran before `main` where a throw cannot be caught, eight helper structs
+  without internal linkage, three `using namespace` directives replaced by the
+  twenty-six declarations the harness actually uses, discarded results bound rather
+  than cast away, and three oversized functions split at their sweeps. One fix-it the
+  tool offered was rejected rather than applied: `boost-use-ranges` rewrote a fold to
+  `boost::accumulate` and added a Boost header to a source that then could not compile,
+  so that check and `llvm-use-ranges` are disabled for naming libraries the project does
+  not depend on, leaving `modernize-use-ranges` to ask for `std::ranges`. Measured A/B
+  against the pre-edit source on the same machine: the six throughput lanes move between
+  -2.8% and +5.3%, three up and three down, inside the platform's variance band.
+
+- **The C++ test sources are inside the lint gate.** `run-clang-tidy-22` ran over
+  `cpp/src/` only, so 28 test sources, four test headers and four fuzz harnesses
+  were never linted and
+  five checks disabled in `cpp/.clang-tidy` carried reasons that named test code
+  while producing zero findings over the library. Those five now live in a new
+  `cpp/tests/.clang-tidy` that inherits the root configuration: three of the five,
+  alongside six more the tests earn, nine check names in all, each carrying the count
+  it was measured at and the reason it is inherent to Catch2 or to the documentation
+  harness. The other two measured zero once the sources were fixed and are gone. Everything else the gate
+  found in the tests was fixed rather than suppressed and no suppression comment was
+  added: helper functions and variables moved out of their anonymous namespaces to
+  match the project's `static` convention, the whole-file reader four executables had
+  each written for themselves became one header, discarded `[[nodiscard]]` returns
+  became assertions, bitwise work on signed operands became unsigned, two
+  `reinterpret_cast`s and a raw `execl` went away, and four over-long functions were
+  split at their setup. The coverage guard widened with the gate, so an unwired test
+  source fails CI instead of going unlinted; the four fuzz targets, which compile
+  only in the fuzz configuration, stay with the fuzz lane.
+
+- **CMake files are linted.** `.cmake-format.yaml` states the style these files
+  already follow, four-space indentation and a hundred-column line, the same
+  numbers the C++ format configuration sets; without it the linter reports every
+  deliberate line against its own defaults. The gate joins the pre-commit fast
+  tier and covers the C++ build file and the package config template.
+- **The four C++ dependency pins move to their newest releases**: nlohmann/json
+  3.11.3 to 3.12.0, yaml-cpp 0.8.0 to 0.9.0, OpenXLSX from a 2025 master commit
+  to its v0.5.1 release tag, and Catch2 3.7.1 to 3.16.0. Each was bumped and
+  measured on its own. The spreadsheet library now has release tags, so the pin
+  is a tag rather than a commit, and the comment saying its newest release was
+  from 2021 goes with it. The YAML library's 0.9.0 carries the missing-include
+  fix its 0.8.0 needed a C++20 override to work around, so that override is
+  gone and the dependencies build at the project's own standard.
+- **BREAKING (C++): `aletheia-cpp` ships as a shared library.** It was a static
+  archive whose yaml-cpp and OpenXLSX dependencies were linked privately behind
+  a build-interface guard and neither installed nor exported, so an installed
+  consumer could link a client-only program but not one that called either
+  loader: the archive referenced symbols nothing supplied. The shared library
+  carries those dependencies inside it and publishes only this project's own
+  symbols, so `find_package(aletheia-cpp)` now gives a consumer the whole
+  surface the installed headers declare. A consumer that linked the archive by
+  path needs its directory on the run-time search path.
+- **BREAKING (C++): the four places that looked for `libaletheia-ffi.so` are one
+  search, published as `aletheia::find_ffi_library()`.** They disagreed after
+  `$ALETHEIA_LIB`: the renderer consulted the path a `make_ffi_backend` call had
+  registered then three build directories furthest first, the command-line tool
+  tried the same three nearest first and was the only one that also looked in
+  `/usr/local/lib`, the throughput benchmark resolved relative to its own
+  executable, and the stability benchmark returned one path without checking it
+  exists. They now share the renderer's order, which is the one that consults
+  the registered path, so the renderer that formats values and the backend that
+  answers queries cannot load different builds. The visible change is that the
+  C++ command-line tool no longer falls back to `/usr/local/lib`; set
+  `$ALETHEIA_LIB` for a library installed there. The Go tool is unchanged.
+- **BREAKING (C++): `Rational::to_double()` is removed.** It was the one way to
+  take a lossy value out of an exact rational, and nothing in the library used
+  it: the sources mention it only to say the float principle bars it, and its
+  only callers were assertions in the integration suite, which now compare exact
+  rationals. The header proves the float principle at its constructor boundary,
+  and an accessor undid it. A caller who needs a floating-point value can still
+  divide the numerator by the denominator and own that decision.
+- **BREAKING (C++): node-valued DBC fields and message targets carry their
+  vocabulary types.** `DbcNode::name`, `DbcSignal::receivers`,
+  `DbcMessage::senders` and the node field of every comment and attribute target
+  are `NodeName` instead of `std::string`; the message targets of comments and
+  attributes carry a `CanId` instead of a raw 32-bit value beside a `bool
+  extended`, which is the pair the validated identifier exists to replace. The
+  header opened by saying the definition embeds the vocabulary types, and half
+  of them did not. One behaviour follows from the type: a target naming an
+  identifier too wide for the width it claims is now refused at the parse
+  boundary instead of being stored and passed on. The wire is unchanged, keys
+  and values both.
+- **BREAKING (C++): `DbcDefinition::unresolved_value_descriptions` is renamed
+  `unresolved_value_descs`.** The kernel record's field, the wire key both the
+  parser and the serializer use, Python's field and Rust's field all carry the
+  record's abbreviation; the C++ member expanded it, which was the one exception
+  the record-parity probe had to name. The probe now maps every field
+  mechanically. The wire is unchanged: only the C++ member name moves.
+- **`make_mock_backend()` now answers instead of refusing.** The factory handed
+  out the configurable test double with an empty response queue, so the first
+  call on it threw, and the method that fills the queue lives in a test-internal
+  header an installed consumer cannot include. It was a backend such a consumer
+  could never call, while three places described it as a canned-ack backend. It
+  now hands out a fixed backend that answers every operation with the wire's
+  acknowledgement and every frame request with a zero-filled payload of the size
+  asked for. The configurable double is unchanged and still refuses on an empty
+  queue, because a test that silently received a fabricated answer would pass
+  for the wrong reason.
+- **BREAKING (C++): the backend interface takes typed shapes for the session
+  state and the signal-injection block.** `IBackend::init()` now returns an
+  owning `BackendState` instead of a `void*`, every other method takes
+  `const BackendState&`, and the release primitive `close()` moved to the
+  protected section with `BackendState` as its only caller, so no call site
+  releases kernel state by hand. `SignalInjection` is no longer an aggregate of
+  a count and three raw pointers: it holds three `std::span`s and is reachable
+  only through `SignalInjection::create`, which refuses arrays that differ in
+  length and a length the wire's 32-bit count cannot carry. Both were shapes
+  whose invariants lived in a comment. In-tree implementers are updated; an
+  out-of-tree implementer of the interface must follow the signatures, and a
+  caller that built an injection block by hand now goes through the factory.
+  The wire is unchanged.
 - **Toolchain adopted: GHC 9.6.7 → 9.8.4, Cabal 3.12.1.0 → 3.16.1.0,
   agda-stdlib v2.3 → v2.4.** The verified kernel, all proof gates, and every
   binding test pass unchanged on the new toolchain (agda-stdlib v2.4 lists no

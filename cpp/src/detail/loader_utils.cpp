@@ -14,17 +14,15 @@
 #include <aletheia/limits.hpp>
 
 #include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <expected>
 #include <filesystem>
 #include <fstream>
 #include <ios>
 #include <limits>
-#include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -35,30 +33,22 @@ namespace aletheia::detail {
 
 // ---------------------------------------------------------------------------
 // Little-endian primitive readers — ZIP fields are always LE per APPNOTE 4.4.
+// Buffers are `std::vector<char>` because `ifstream::read` takes `char*`; the
+// readers take a bounds-checked subspan at the field's offset.
 // ---------------------------------------------------------------------------
 
-static auto load_le16(const char* p) -> std::uint16_t {
-    std::array<std::uint8_t, 2> b{};
-    std::memcpy(b.data(), p, b.size());
-    return static_cast<std::uint16_t>(static_cast<std::uint16_t>(b[0]) |
-                                      static_cast<std::uint16_t>(b[1] << 8U));
+static auto byte_at(std::span<const char> s, std::size_t i) -> std::uint32_t {
+    return static_cast<std::uint8_t>(s[i]);
 }
 
-static auto load_le32(const char* p) -> std::uint32_t {
-    std::array<std::uint8_t, 4> b{};
-    std::memcpy(b.data(), p, b.size());
-    return static_cast<std::uint32_t>(b[0]) | (static_cast<std::uint32_t>(b[1]) << 8U) |
-           (static_cast<std::uint32_t>(b[2]) << 16U) | (static_cast<std::uint32_t>(b[3]) << 24U);
+static auto load_le16(std::span<const char> buf, std::size_t off) -> std::uint16_t {
+    const auto s = buf.subspan(off, 2);
+    return static_cast<std::uint16_t>(byte_at(s, 0) | (byte_at(s, 1) << 8U));
 }
 
-// `vec.data() + off` would trip cppcoreguidelines-pro-bounds-pointer-arithmetic;
-// `std::to_address(vec.begin() + off)` is the same address, arithmetic-free
-// (canonical idiom — see `cpp/src/excel.cpp:sv_end_ptr`).  Buffers are
-// `std::vector<char>` because `ifstream::read` takes `char*` and casting
-// `std::byte*` would force a `reinterpret_cast` (banned by
-// cppcoreguidelines-pro-type-reinterpret-cast).
-static auto char_at(const std::vector<char>& v, std::size_t off) -> const char* {
-    return std::to_address(v.begin() + static_cast<std::ptrdiff_t>(off));
+static auto load_le32(std::span<const char> buf, std::size_t off) -> std::uint32_t {
+    const auto s = buf.subspan(off, 4);
+    return byte_at(s, 0) | (byte_at(s, 1) << 8U) | (byte_at(s, 2) << 16U) | (byte_at(s, 3) << 24U);
 }
 
 // ---------------------------------------------------------------------------
@@ -113,14 +103,14 @@ static auto find_eocd(std::ifstream& f, std::uintmax_t file_size) -> std::option
 
     // Scan backward from the latest possible EOCD start — first match wins.
     for (std::size_t i = search_size - k_eocd_min_size + 1; i-- > 0;) {
-        if (load_le32(char_at(tail, i)) != k_eocd_sig)
+        if (load_le32(tail, i) != k_eocd_sig)
             continue;
-        const std::uint16_t disk_num = load_le16(char_at(tail, i + 4));
-        const std::uint16_t cd_disk = load_le16(char_at(tail, i + 6));
-        const std::uint16_t entries_this = load_le16(char_at(tail, i + 8));
-        const std::uint16_t entries_total = load_le16(char_at(tail, i + 10));
-        const std::uint32_t cd_size = load_le32(char_at(tail, i + 12));
-        const std::uint32_t cd_off = load_le32(char_at(tail, i + 16));
+        const std::uint16_t disk_num = load_le16(tail, i + 4);
+        const std::uint16_t cd_disk = load_le16(tail, i + 6);
+        const std::uint16_t entries_this = load_le16(tail, i + 8);
+        const std::uint16_t entries_total = load_le16(tail, i + 10);
+        const std::uint32_t cd_size = load_le32(tail, i + 12);
+        const std::uint32_t cd_off = load_le32(tail, i + 16);
         // Reject multi-disk / spanned archives — .xlsx is single-disk.
         if (disk_num != 0 || cd_disk != 0 || entries_this != entries_total)
             return std::nullopt;
@@ -162,12 +152,12 @@ static auto sum_uncompressed_sizes(std::ifstream& f, const EOCD& eocd)
     for (std::uint16_t i = 0; i < eocd.total_entries; ++i) {
         if (off + k_cd_entry_min > cd.size())
             return std::nullopt;
-        if (load_le32(char_at(cd, off)) != k_cd_entry_sig)
+        if (load_le32(cd, off) != k_cd_entry_sig)
             return std::nullopt;
-        const std::uint32_t uncompressed = load_le32(char_at(cd, off + 24));
-        const std::uint16_t name_len = load_le16(char_at(cd, off + 28));
-        const std::uint16_t extra_len = load_le16(char_at(cd, off + 30));
-        const std::uint16_t comment_len = load_le16(char_at(cd, off + 32));
+        const std::uint32_t uncompressed = load_le32(cd, off + 24);
+        const std::uint16_t name_len = load_le16(cd, off + 28);
+        const std::uint16_t extra_len = load_le16(cd, off + 30);
+        const std::uint16_t comment_len = load_le16(cd, off + 32);
         // Saturating add — refuse to silently wrap on a forged entry.
         if (uncompressed > std::numeric_limits<std::uint64_t>::max() - total)
             return std::nullopt;
@@ -221,18 +211,18 @@ auto validate_loader_path(const std::filesystem::path& path, std::string_view ki
     return {};
 }
 
-// Build the structured InputBoundExceeded error shared by the file- and
-// in-memory size checks.  `subject` ("File size" / "Input size") prefixes the
-// message; the cross-binding bound_info shape (kind/observed/limit) is identical
+// Build the structured InputBoundExceeded error shared by the file, in-memory
+// and archive size checks.  `subject` prefixes the message and `suffix` closes
+// it; the cross-binding bound_info shape (kind/observed/limit) is identical
 // regardless of the input source.
-static auto make_input_bound_error(std::uint64_t observed, std::string_view subject)
-    -> AletheiaError {
+static auto make_input_bound_error(std::uint64_t observed, std::string_view subject,
+                                   std::string_view suffix = "") -> AletheiaError {
     InputBoundExceededError info{.bound_kind = std::string{bound_kind_input_length_bytes},
                                  .observed = observed,
                                  .limit = max_dbc_text_bytes};
     return AletheiaError{ErrorKind::InputBoundExceeded,
                          std::string{subject} + " " + std::to_string(observed) + " exceeds limit " +
-                             std::to_string(max_dbc_text_bytes) + " bytes",
+                             std::to_string(max_dbc_text_bytes) + " bytes" + std::string{suffix},
                          ErrorCode::InputBoundExceeded, std::move(info)};
 }
 
@@ -286,16 +276,9 @@ auto check_xlsx_uncompressed_bound(const std::filesystem::path& path) -> Result<
             AletheiaError{ErrorKind::Validation,
                           "Malformed central directory in .xlsx archive: " + path.string()});
 
-    if (*total > max_dbc_text_bytes) {
-        InputBoundExceededError info{.bound_kind = std::string{bound_kind_input_length_bytes},
-                                     .observed = *total,
-                                     .limit = max_dbc_text_bytes};
+    if (*total > max_dbc_text_bytes)
         return std::unexpected(
-            AletheiaError{ErrorKind::InputBoundExceeded,
-                          ".xlsx uncompressed size " + std::to_string(*total) + " exceeds limit " +
-                              std::to_string(max_dbc_text_bytes) + " bytes (ZIP-bomb defence)",
-                          ErrorCode::InputBoundExceeded, std::move(info)});
-    }
+            make_input_bound_error(*total, ".xlsx uncompressed size", " (ZIP-bomb defence)"));
     return {};
 }
 

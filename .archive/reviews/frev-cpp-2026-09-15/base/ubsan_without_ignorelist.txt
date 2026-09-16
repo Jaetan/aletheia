@@ -1,0 +1,4 @@
+configure done
+build done
+      1 /home/nicolas/dev/agda/aletheia/cpp/build/_deps/openxlsx-src/OpenXLSX/external/zippy/zippy.hpp:5234:33: runtime error: load of misaligned address 0x7fff0944b25b for type 'const mz_uint32' (aka 'const unsigned int'), which requires 4 byte alignment
+run done

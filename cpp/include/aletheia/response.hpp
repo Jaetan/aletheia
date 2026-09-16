@@ -5,6 +5,7 @@
 #include <aletheia/error.hpp>
 #include <aletheia/types.hpp>
 
+#include <algorithm>
 #include <map>
 #include <optional>
 #include <string>
@@ -91,32 +92,25 @@ struct PropertyResult {
 
 struct Ack {};
 
-// Per-frame batch of property events emitted during streaming.  Each frame
-// formerly carried at most one Violation (or no
-// event = Ack); after the mid-stream-Satisfaction lift each frame can
-// also produce one-or-more Holds entries that completed at this frame,
-// in source-order, optionally terminated by a Fails entry.  The inner
-// PropertyResult shape mirrors EndStream's per-property verdict.
+// Per-frame batch of property events emitted during streaming: the Holds
+// entries that completed at this frame, in source order, then at most one
+// Fails entry, because the kernel halts at the first violation
+// (Aletheia.Protocol.StreamState; the ordering is stated in
+// Aletheia.Protocol.Message and ResponseFormat).  The inner PropertyResult
+// shape mirrors EndStream's per-property verdict.
 //
 // Empty `results` is unreachable — frames with no events return Ack.
 struct PropertyBatch {
     std::vector<PropertyResult> results;
 
-    /// First PropertyResult with Verdict == Fails, or nullptr if the
-    /// batch carries only mid-stream Satisfactions.  Per the Agda
-    /// invariant, a batch contains at most one violation and (if
-    /// present) it is the last entry.
-    [[nodiscard]] auto first_violation() -> PropertyResult* {
-        for (auto& r : results)
-            if (r.verdict == Verdict::Fails)
-                return &r;
-        return nullptr;
-    }
-    [[nodiscard]] auto first_violation() const -> const PropertyResult* {
-        for (const auto& r : results)
-            if (r.verdict == Verdict::Fails)
-                return &r;
-        return nullptr;
+    /// The Fails entry, or nullptr if the batch carries only mid-stream
+    /// Satisfactions; const or mutable to match the batch.
+    template<typename Self>
+    [[nodiscard]] auto first_violation(this Self& self) {
+        auto it = std::ranges::find_if(
+            self.results, [](const PropertyResult& r) { return r.verdict == Verdict::Fails; });
+        using Pointer = decltype(&*it);
+        return it == self.results.end() ? Pointer{} : &*it;
     }
 };
 

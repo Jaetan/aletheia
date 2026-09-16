@@ -1,7 +1,7 @@
 {
   "benchmark": "scaling",
   "language": "cpp",
-  "timestamp": "2026-07-25T02:25:55Z",
+  "timestamp": "2026-07-26T00:09:41Z",
   "system": {
     "build_type": "Release",
     "cores": 24,
@@ -12,125 +12,125 @@
     "trace_size_can20": [
       {
         "frames": 1000,
-        "fps": 418165.1,
+        "fps": 376300.5,
         "relative": 1.0
       },
       {
         "frames": 5000,
-        "fps": 435305.6,
-        "relative": 1.041
+        "fps": 429905.7,
+        "relative": 1.142
       },
       {
         "frames": 10000,
-        "fps": 438603.1,
-        "relative": 1.049
+        "fps": 428933.8,
+        "relative": 1.14
       },
       {
         "frames": 50000,
-        "fps": 445637.8,
-        "relative": 1.066
+        "fps": 428834.1,
+        "relative": 1.14
       },
       {
         "frames": 100000,
-        "fps": 432148.1,
-        "relative": 1.033
+        "fps": 425135.8,
+        "relative": 1.13
       }
     ],
     "trace_size_canfd": [
       {
         "frames": 1000,
-        "fps": 365964.0,
+        "fps": 366672.7,
         "relative": 1.0
       },
       {
         "frames": 5000,
-        "fps": 384387.1,
-        "relative": 1.05
+        "fps": 384287.0,
+        "relative": 1.048
       },
       {
         "frames": 10000,
-        "fps": 388133.1,
-        "relative": 1.061
+        "fps": 370880.3,
+        "relative": 1.011
       },
       {
         "frames": 50000,
-        "fps": 388862.7,
-        "relative": 1.063
+        "fps": 386227.4,
+        "relative": 1.053
       },
       {
         "frames": 100000,
-        "fps": 392905.1,
-        "relative": 1.074
+        "fps": 387791.8,
+        "relative": 1.058
       }
     ],
     "property_count": [
       {
         "properties": 1,
-        "fps": 435003.2,
+        "fps": 426467.3,
         "us_per_frame": 2.3,
         "relative": 1.0
       },
       {
         "properties": 2,
-        "fps": 304336.2,
-        "us_per_frame": 3.3,
-        "relative": 0.7
+        "fps": 293409.4,
+        "us_per_frame": 3.4,
+        "relative": 0.688
       },
       {
         "properties": 3,
-        "fps": 277569.5,
-        "us_per_frame": 3.6,
-        "relative": 0.638
+        "fps": 270412.9,
+        "us_per_frame": 3.7,
+        "relative": 0.634
       },
       {
         "properties": 5,
-        "fps": 169015.0,
-        "us_per_frame": 5.9,
-        "relative": 0.389
+        "fps": 163782.7,
+        "us_per_frame": 6.1,
+        "relative": 0.384
       },
       {
         "properties": 7,
-        "fps": 128136.3,
+        "fps": 128108.3,
         "us_per_frame": 7.8,
-        "relative": 0.295
+        "relative": 0.3
       },
       {
         "properties": 10,
-        "fps": 97435.3,
-        "us_per_frame": 10.3,
-        "relative": 0.224
+        "fps": 94486.9,
+        "us_per_frame": 10.6,
+        "relative": 0.222
       }
     ],
     "property_complexity": [
       {
         "complexity": "Simple predicate",
-        "fps": 415841.9,
+        "fps": 412765.0,
         "us_per_frame": 2.4,
         "relative": 1.0
       },
       {
         "complexity": "Range predicate",
-        "fps": 423763.9,
+        "fps": 418811.2,
         "us_per_frame": 2.4,
-        "relative": 1.019
+        "relative": 1.015
       },
       {
         "complexity": "Two predicates (AND)",
-        "fps": 300749.7,
-        "us_per_frame": 3.3,
-        "relative": 0.723
+        "fps": 296317.6,
+        "us_per_frame": 3.4,
+        "relative": 0.718
       },
       {
         "complexity": "Three predicates",
-        "fps": 275986.2,
+        "fps": 275851.9,
         "us_per_frame": 3.6,
-        "relative": 0.664
+        "relative": 0.668
       },
       {
         "complexity": "Implication",
-        "fps": 320283.4,
-        "us_per_frame": 3.1,
-        "relative": 0.77
+        "fps": 299020.0,
+        "us_per_frame": 3.3,
+        "relative": 0.724
       }
     ]
   }

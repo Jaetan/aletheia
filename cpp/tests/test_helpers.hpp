@@ -4,15 +4,15 @@
 
 // test_helpers.hpp — shared fixture builder for unit_tests_*.cpp split targets.
 //
-// This header is included by multiple translation units inside the unit_tests
-// executable. To avoid ODR / multiple-definition errors at link time the one
-// helper defined here is marked `inline` so the linker may fold identical
-// copies. The header deliberately does NOT pull in any `using namespace`
-// directives — each .cpp translation unit adds its own after its includes.
+// This header is included by several translation units inside the unit_tests
+// executable, so every helper it defines is marked `inline` and the linker
+// folds the identical copies rather than rejecting them. The header
+// deliberately pulls in no `using namespace` directive: each translation unit
+// adds its own after its includes.
 
 #include <aletheia/aletheia.hpp>
 
-#include "../src/detail/json.hpp"
+#include "detail/json.hpp"
 
 namespace aletheia::test {
 

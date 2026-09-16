@@ -752,9 +752,15 @@ fn run_throughput(frames: u64, runs: usize, warmup: usize, json: bool) -> Vec<Va
             );
             fps_list.push(fps);
         }
-        if fps_list.is_empty() {
-            continue;
-        }
+        // A lane with no measurement is a hard error, never an omitted row: an
+        // omitted lane makes the report silently non-conformant with
+        // benchmarks/SCHEMA.yaml and reads as "not measured yet" rather than
+        // "broken".  Measurement errors already abort (the bench fns panic), so
+        // this is reachable only for `--runs 0`.
+        assert!(
+            !fps_list.is_empty(),
+            "lane {name:?} produced no measurement (runs = {runs})"
+        );
         let m = mean(&fps_list);
         let us_per_frame = if m > 0.0 { 1_000_000.0 / m } else { 0.0 };
         results.push(json!({
@@ -858,6 +864,15 @@ fn measure_build_lat(
 }
 
 fn analyze_latencies(name: &str, raw: &[f64]) -> Value {
+    // Same rule as the throughput and scaling lanes: no sample is a fatal error,
+    // never a published row.  Without this, `--ops 0` emits a schema-CONFORMANT
+    // row of fabricated values (count 0, mean 0.0, min/max null) and exits 0 — a
+    // lane reported as measured that never ran, which the baseline schema gate
+    // cannot distinguish from a real one.
+    assert!(
+        !raw.is_empty(),
+        "latency lane {name:?} produced no measurement (ops = 0)"
+    );
     let mut sorted = raw.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).expect("latencies are finite"));
     json!({
@@ -959,6 +974,14 @@ fn mean_fps(
     for _ in 0..runs {
         fps_list.push(bench_streaming(dbc, id, dlc, frame, props, num_frames));
     }
+    // Never average an empty sample: `mean` would yield a fabricated 0.0 that is
+    // reported as a measurement and divides through every `relative` in the
+    // sweep.  Measurement errors already abort (the bench fns panic), so this is
+    // reachable only for `--runs 0`.
+    assert!(
+        !fps_list.is_empty(),
+        "scaling point ({num_frames} frames) has no measurement (runs = {runs})"
+    );
     mean(&fps_list)
 }
 

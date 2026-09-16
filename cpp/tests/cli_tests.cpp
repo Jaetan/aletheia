@@ -15,70 +15,63 @@
 
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
-namespace {
+#include "temp_path.hpp"
 
-auto repo_root() -> std::filesystem::path {
-    const char* env = std::getenv("ALETHEIA_REPO_ROOT");
-    if (env == nullptr || *env == '\0') {
-        throw std::runtime_error("ALETHEIA_REPO_ROOT env var not set (ctest sets it)");
-    }
-    return std::filesystem::path{env};
-}
+#include "repo_root.hpp"
+#include "text_file.hpp"
 
-auto lib_available() -> bool {
+using aletheia::test::repo_root;
+
+using aletheia::test::TempPath;
+
+using aletheia::test::read_text_file;
+
+static auto lib_available() -> bool {
     if (const char* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0') {
         return std::filesystem::exists(env);
     }
     return std::filesystem::exists(repo_root() / "build" / "libaletheia-ffi.so");
 }
 
-auto run(std::vector<std::string> args) -> int {
+static auto run(std::vector<std::string> args) -> int {
     return aletheia::run_cli(args);
 }
 
 // Run a subcommand capturing stdout, so a test can assert the emitted JSON
 // shape (not just the exit code).
-auto run_capture(std::vector<std::string> args) -> std::pair<int, std::string> {
+static auto run_capture(std::vector<std::string> args) -> std::pair<int, std::string> {
     std::ostringstream oss;
     auto* old = std::cout.rdbuf(oss.rdbuf());
     const int code = aletheia::run_cli(std::move(args));
     std::cout.rdbuf(old);
-    return {code, oss.str()};
+    return {code, std::move(oss).str()};
 }
 
-// Derive an invalid DBC from the minimal.dbc fixture by renaming EngineTemp
+// A DBC written into the temp directory for one test and removed by its own
+// destructor, so no test repeats the removal by hand or leaves a file behind.
+
+// An invalid DBC derived from the minimal.dbc fixture by renaming EngineTemp
 // to EngineSpeed — a duplicate signal name, which the verified parser rejects
 // with handler_validation_failed carrying the validation issues.
-auto write_duplicate_signal_dbc() -> std::filesystem::path {
+static auto duplicate_signal_dbc() -> std::string {
     const auto fixture =
         repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "minimal.dbc";
-    std::ifstream in{fixture};
-    if (!in) {
-        throw std::runtime_error("cannot read fixture " + fixture.string());
-    }
-    std::ostringstream buf;
-    buf << in.rdbuf();
-    std::string text = buf.str();
+    std::string text = read_text_file(fixture);
     const auto pos = text.find("EngineTemp");
     if (pos == std::string::npos) {
         throw std::runtime_error("minimal.dbc no longer contains EngineTemp");
     }
     text.replace(pos, std::string_view{"EngineTemp"}.size(), "EngineSpeed");
-    const auto path = std::filesystem::temp_directory_path() / "aletheia_duplicate_signal.dbc";
-    std::ofstream out{path};
-    out << text;
-    return path;
+    return text;
 }
-
-} // namespace
 
 TEST_CASE("CLI smoke over the real FFI core", "[cli]") {
     if (!lib_available()) {
@@ -98,7 +91,7 @@ TEST_CASE("CLI smoke over the real FFI core", "[cli]") {
             .string();
     CHECK(run({"mux-query", "--dbc", mux, "0x64"}) == 0);
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--json"}) == 0);
-    // Selector mode (--mux/--value) + its mismatch error — CoPilot PR #21 review.
+    // Selector mode (--mux/--value), and --mux without --value is a usage error.
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1"}) == 0);
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1", "--json"}) == 0);
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode"}) == 2); // --value missing
@@ -130,35 +123,28 @@ TEST_CASE("signals text renders a fine-resolution factor exactly via format_rati
     if (!lib_available()) {
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
     }
-    // factor 1/8192 = 0.0001220703125 exactly — more significant figures than the
-    // old to_double() ostream render kept (it printed "0.00012207").  example.dbc
-    // has no such fine factor, so write a dedicated temp DBC.
-    const auto dbc = std::filesystem::temp_directory_path() / "aletheia_fine_factor.dbc";
-    {
-        std::ofstream out{dbc};
-        out << "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_:\n\n"
-            << "BO_ 1024 FineMsg: 8 ECU4\n"
-            << " SG_ FineSignal : 0|16@1+ (0.0001220703125,0) [0|8] \"x\" Vector__XXX\n";
-    }
+    // factor 1/8192 = 0.0001220703125, which every digit of must survive the
+    // render: a float64 path drops the tail. example.dbc has no such fine
+    // factor, so the test writes its own.
+    const TempPath dbc{"aletheia_fine_factor.dbc",
+                       "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_:\n\n"
+                       "BO_ 1024 FineMsg: 8 ECU4\n"
+                       " SG_ FineSignal : 0|16@1+ (0.0001220703125,0) [0|8] \"x\" Vector__XXX\n"};
     auto [code, out] = run_capture({"signals", "--dbc", dbc.string()});
-    std::error_code ec;
-    std::filesystem::remove(dbc, ec);
     CHECK(code == 0);
-    CHECK(out.find("x0.0001220703125") != std::string::npos);
+    CHECK(out.contains("x0.0001220703125"));
 }
 
 TEST_CASE("validate renders the issue list and exits 1 when the parser rejects the DBC", "[cli]") {
     if (!lib_available()) {
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
     }
-    const auto dbc = write_duplicate_signal_dbc();
+    const TempPath dbc{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
     auto [code, out] = run_capture({"validate", "--dbc", dbc.string()});
-    std::error_code ec;
-    std::filesystem::remove(dbc, ec);
     CHECK(code == 1);
-    CHECK(out.find("Validation FAILED") != std::string::npos);
-    CHECK(out.find("[ERROR] duplicate_signal_name") != std::string::npos);
-    CHECK(out.find("  1. ") != std::string::npos); // the numbered issue list
+    CHECK(out.contains("Validation FAILED"));
+    CHECK(out.contains("[ERROR] duplicate_signal_name"));
+    CHECK(out.contains("  1. ")); // the numbered issue list
 }
 
 TEST_CASE("validate --json emits the has_errors fail shape when the parser rejects the DBC",
@@ -166,10 +152,8 @@ TEST_CASE("validate --json emits the has_errors fail shape when the parser rejec
     if (!lib_available()) {
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
     }
-    const auto dbc = write_duplicate_signal_dbc();
+    const TempPath dbc{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
     auto [code, out] = run_capture({"validate", "--dbc", dbc.string(), "--json"});
-    std::error_code ec;
-    std::filesystem::remove(dbc, ec);
     // The exit code reflects the validation outcome in both output modes:
     // --json on a has_errors result exits 1 like text mode.
     CHECK(code == 1);
@@ -196,30 +180,21 @@ TEST_CASE("validate reports warnings from the single parse pass", "[cli]") {
         (repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "minimal.dbc").string();
     auto [code, out] = run_capture({"validate", "--dbc", dbc});
     CHECK(code == 0);
-    CHECK(out.find("Validation passed with warnings") != std::string::npos);
-    CHECK(out.find("offset_scale_range") != std::string::npos);
+    CHECK(out.contains("Validation passed with warnings"));
+    CHECK(out.contains("offset_scale_range"));
 }
 
 TEST_CASE("rejected and unparseable DBCs stay fatal outside the validate report path", "[cli]") {
     if (!lib_available()) {
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
     }
-    // Non-validate subcommands keep dying with the stringified parse error.
-    const auto dup = write_duplicate_signal_dbc();
-    const int signals_code = run({"signals", "--dbc", dup.string()});
-    std::error_code ec;
-    std::filesystem::remove(dup, ec);
-    CHECK(signals_code == 2);
+    // Non-validate subcommands die with the stringified parse error.
+    const TempPath dup{"aletheia_duplicate_signal.dbc", duplicate_signal_dbc()};
+    CHECK(run({"signals", "--dbc", dup.string()}) == 2);
     // A syntactically unparseable DBC has no issues payload; validate keeps
     // the fatal-error path.
-    const auto garbage = std::filesystem::temp_directory_path() / "aletheia_garbage.dbc";
-    {
-        std::ofstream out{garbage};
-        out << "this is not a dbc file\n";
-    }
-    const int validate_code = run({"validate", "--dbc", garbage.string()});
-    std::filesystem::remove(garbage, ec);
-    CHECK(validate_code == 2);
+    const TempPath garbage{"aletheia_garbage.dbc", "this is not a dbc file\n"};
+    CHECK(run({"validate", "--dbc", garbage.string()}) == 2);
 }
 
 TEST_CASE("CLI rejects unknown command, deferred check, and empty args", "[cli]") {

@@ -1,0 +1,20 @@
+=== fuzz_parse_response
+#32768	pulse  cov: 21 ft: 22 corp: 1/1b lim: 325 exec/s: 16384 rss: 379Mb
+#65536	pulse  cov: 21 ft: 22 corp: 1/1b lim: 652 exec/s: 13107 rss: 481Mb
+#118152	DONE   cov: 21 ft: 22 corp: 1/1b lim: 1170 exec/s: 13128 rss: 483Mb
+Done 118152 runs in 9 second(s)
+=== fuzz_parse_dbc_json
+#65536	pulse  cov: 13 ft: 14 corp: 1/1b lim: 652 exec/s: 21845 rss: 266Mb
+#131072	pulse  cov: 13 ft: 14 corp: 1/1b lim: 1300 exec/s: 18724 rss: 478Mb
+#161397	DONE   cov: 13 ft: 14 corp: 1/1b lim: 1600 exec/s: 17933 rss: 479Mb
+Done 161397 runs in 9 second(s)
+=== fuzz_parse_rational_number
+"\033\001\000\000\000\000\000\000" # Uses: 2323
+"\377\377" # Uses: 2702
+###### End of recommended dictionary. ######
+Done 165289 runs in 9 second(s)
+=== fuzz_decode_binary_frame
+"\000\000\000\000" # Uses: 216942
+"\377\377t\261e\300\225<" # Uses: 71270
+###### End of recommended dictionary. ######
+Done 6539708 runs in 9 second(s)

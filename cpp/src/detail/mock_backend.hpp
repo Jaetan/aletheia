@@ -74,9 +74,9 @@ public:
             frame_responses_.pop();
     }
 
-    auto init() -> void* override { return &sentinel; }
+    auto init() -> BackendState override { return BackendState{*this, &sentinel}; }
 
-    auto process(void* /*state*/, std::string_view input) -> std::string override {
+    auto process(const BackendState& /*state*/, std::string_view input) -> std::string override {
         // Record the request BEFORE the exhaustion check so `captured()` stays
         // populated on the erroring call (cross-binding contract: the starved
         // call is still logged, matching Go / Rust / Python).
@@ -107,34 +107,35 @@ public:
     // made; argument values are verified end-to-end by the real-`.so` round-trip
     // tests (e.g. the BRS/ESI passthrough cross-binding test).  Mirrors the
     // Python and Go mock backends exactly (cross-binding mock uniformity).
-    auto send_frame_binary(void* state, Timestamp /*ts*/, const CanId& /*id*/, Dlc /*dlc*/,
-                           std::span<const std::byte> /*data*/, std::optional<bool> /*brs*/,
-                           std::optional<bool> /*esi*/) -> std::string override {
+    auto send_frame_binary(const BackendState& state, Timestamp /*ts*/, const CanId& /*id*/,
+                           Dlc /*dlc*/, std::span<const std::byte> /*data*/,
+                           std::optional<bool> /*brs*/, std::optional<bool> /*esi*/)
+        -> std::string override {
         return process(state, "<binary:sendFrame>");
     }
 
-    auto send_error_binary(void* state, Timestamp /*ts*/) -> std::string override {
+    auto send_error_binary(const BackendState& state, Timestamp /*ts*/) -> std::string override {
         return process(state, "<binary:sendError>");
     }
 
-    auto send_remote_binary(void* state, Timestamp /*ts*/, const CanId& /*id*/)
+    auto send_remote_binary(const BackendState& state, Timestamp /*ts*/, const CanId& /*id*/)
         -> std::string override {
         return process(state, "<binary:sendRemote>");
     }
 
-    auto start_stream_binary(void* state) -> std::string override {
+    auto start_stream_binary(const BackendState& state) -> std::string override {
         return process(state, "<binary:startStream>");
     }
 
-    auto end_stream_binary(void* state) -> std::string override {
+    auto end_stream_binary(const BackendState& state) -> std::string override {
         return process(state, "<binary:endStream>");
     }
 
-    auto format_dbc_binary(void* state) -> std::string override {
+    auto format_dbc_binary(const BackendState& state) -> std::string override {
         return process(state, "<binary:formatDBC>");
     }
 
-    auto extract_signals_binary(void* state, const CanId& /*id*/, Dlc /*dlc*/,
+    auto extract_signals_binary(const BackendState& state, const CanId& /*id*/, Dlc /*dlc*/,
                                 std::span<const std::byte> /*data*/) -> std::string override {
         return process(state, "<binary:extractAllSignals>");
     }
@@ -147,19 +148,23 @@ public:
     // empty queue), matching the Python / Go / Rust mocks (#108).  Argument
     // values are ignored here; the real FfiBackend verifies them end-to-end via
     // the real-`.so` round-trip tests.
-    [[nodiscard]] auto build_frame_bin(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
-                                       SignalInjection /*signals*/, std::size_t /*expected_bytes*/)
+    [[nodiscard]] auto build_frame_bin(const BackendState& /*state*/, const CanId& /*id*/,
+                                       Dlc /*dlc*/, SignalInjection /*signals*/,
+                                       std::size_t /*expected_bytes*/)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         return pop_frame("<binary:buildFrameBin>");
     }
 
-    [[nodiscard]] auto update_frame_bin(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
-                                        std::span<const std::byte> /*data*/,
+    [[nodiscard]] auto update_frame_bin(const BackendState& /*state*/, const CanId& /*id*/,
+                                        Dlc /*dlc*/, std::span<const std::byte> /*data*/,
                                         SignalInjection /*signals*/, std::size_t /*expected_bytes*/)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         return pop_frame("<binary:updateFrameBin>");
     }
 
+protected:
+    // Reached only through BackendState; the mock's state is a static sentinel,
+    // so there is nothing to release.
     void close(void* /*state*/) override {}
 };
 

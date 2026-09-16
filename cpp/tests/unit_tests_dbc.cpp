@@ -23,9 +23,7 @@ using aletheia::test::make_test_dbc;
 // Local helper: multiplexed DBC fixture used only by this translation unit.
 // ---------------------------------------------------------------------------
 
-namespace {
-
-auto make_mux_dbc() -> DbcDefinition {
+static auto make_mux_dbc() -> DbcDefinition {
     auto id = StandardId::create(0x200).value();
     auto dlc = Dlc::create(8).value();
 
@@ -84,8 +82,6 @@ auto make_mux_dbc() -> DbcDefinition {
                    .signals = std::move(sigs)};
     return DbcDefinition{.version = "1.0", .messages = {std::move(msg)}};
 }
-
-} // namespace
 
 TEST_CASE("DbcMessage::is_multiplexed", "[dbc][mux]") {
     auto dbc = make_mux_dbc();
@@ -165,12 +161,12 @@ TEST_CASE("DbcMessage::always_present_signals non-mux message", "[dbc][mux]") {
 
 TEST_CASE("DbcMessage::signal_by_name", "[dbc]") {
     auto dbc = make_mux_dbc();
-    auto* sig = dbc.messages[0].signal_by_name(SignalName{"Temperature"});
+    const auto* sig = dbc.messages[0].signal_by_name(SignalName{"Temperature"});
     REQUIRE(sig != nullptr);
     CHECK(sig->is_signed == true);
 
     // Always-present signal.
-    auto* mux_sel = dbc.messages[0].signal_by_name(SignalName{"MuxSelector"});
+    const auto* mux_sel = dbc.messages[0].signal_by_name(SignalName{"MuxSelector"});
     REQUIRE(mux_sel != nullptr);
     CHECK(std::holds_alternative<AlwaysPresent>(mux_sel->presence));
 
@@ -192,7 +188,7 @@ TEST_CASE("DbcMessage::signals_for_mux_value non-mux message", "[dbc][mux]") {
 TEST_CASE("DbcDefinition::message_by_id", "[dbc]") {
     auto dbc = make_mux_dbc();
     auto id = StandardId::create(0x200).value();
-    auto* msg = dbc.message_by_id(CanId{id});
+    const auto* msg = dbc.message_by_id(CanId{id});
     REQUIRE(msg != nullptr);
     CHECK(msg->name == MessageName{"MuxMessage"});
 
@@ -217,27 +213,27 @@ TEST_CASE("DbcDefinition::message_by_id with extended ID", "[dbc]") {
                        .dlc = Dlc::create(8).value(),
                        .sender = NodeName{"ECU"},
                        .signals = {}};
-    DbcDefinition dbc{.version = "1.0", .messages = {std_msg, ext_msg}};
+    const DbcDefinition dbc{.version = "1.0", .messages = {std_msg, ext_msg}};
 
-    auto* found_std = dbc.message_by_id(CanId{std_id});
+    const auto* found_std = dbc.message_by_id(CanId{std_id});
     REQUIRE(found_std != nullptr);
     CHECK(found_std->name == MessageName{"StdMsg"});
 
-    auto* found_ext = dbc.message_by_id(CanId{ext_id});
+    const auto* found_ext = dbc.message_by_id(CanId{ext_id});
     REQUIRE(found_ext != nullptr);
     CHECK(found_ext->name == MessageName{"ExtMsg"});
 }
 
 TEST_CASE("DbcDefinition::message_by_name", "[dbc]") {
     auto dbc = make_mux_dbc();
-    auto* msg = dbc.message_by_name(MessageName{"MuxMessage"});
+    const auto* msg = dbc.message_by_name(MessageName{"MuxMessage"});
     REQUIRE(msg != nullptr);
     CHECK(msg->signals.size() == 4);
 
     CHECK(dbc.message_by_name(MessageName{"NoSuch"}) == nullptr);
 
     // Empty DBC returns nullptr.
-    DbcDefinition empty{.version = "1.0", .messages = {}};
+    const DbcDefinition empty{.version = "1.0", .messages = {}};
     CHECK(empty.message_by_name(MessageName{"Anything"}) == nullptr);
 }
 
@@ -246,8 +242,9 @@ TEST_CASE("DbcDefinition::message_by_name", "[dbc]") {
 // indices on first lookup.  If the caller then shrinks the public signals /
 // messages vector, an unguarded cached index is an out-of-bounds read (UB).
 // The guard turns a stale index into a defined "no longer present" (nullptr).
-// Each test builds the cache, shrinks the vector, then re-queries the dropped
-// entry: pre-fix this returned a garbage non-null pointer (or worse).
+// Each case builds the cache, shrinks the vector, then re-queries the dropped
+// entry, which must come back as not-found rather than as a pointer into what
+// the vector no longer holds.
 // ===========================================================================
 
 TEST_CASE("DbcMessage::signal_by_name guards a stale cached index", "[dbc][safety]") {

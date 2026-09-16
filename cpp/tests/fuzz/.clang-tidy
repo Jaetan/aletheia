@@ -1,0 +1,22 @@
+---
+# Configuration for the libFuzzer entry points, inheriting cpp/tests/.clang-tidy
+# and through it cpp/.clang-tidy.
+#
+# Each check below is disabled for one reason: libFuzzer fixes the shape of the
+# entry point, and nothing in these four files can choose otherwise. Each entry
+# carries the count measured over cpp/tests/fuzz with the check enabled.
+#
+#   readability-identifier-naming (4)
+#       the runtime looks the entry point up by the name LLVMFuzzerTestOneInput
+#   cppcoreguidelines-pro-type-reinterpret-cast (5)
+#       the entry point is handed a const uint8_t*, and every harness reads it
+#       as the char or byte sequence the code under test takes
+#   cppcoreguidelines-pro-bounds-pointer-arithmetic (1)
+#       the input arrives as a pointer and a length, so the end of the range is
+#       reached by arithmetic before a view can be built over it
+InheritParentConfig: true
+
+Checks: >
+  -readability-identifier-naming,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic

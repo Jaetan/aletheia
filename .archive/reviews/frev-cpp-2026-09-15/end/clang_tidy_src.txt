@@ -1,0 +1,53 @@
+Running clang-tidy in 24 threads for 47 files out of 241 in compilation database ...
+[ 1/47][1.0s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/detail/ffi_logic.cpp
+[ 2/47][2.7s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/test_rts_heap_cap.cpp
+[ 3/47][1.8s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/cli/main.cpp
+[ 4/47][3.4s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/types.cpp
+[ 5/47][3.6s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/ffi_backend.cpp
+[ 6/47][4.4s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/dbc.cpp
+[ 7/47][4.5s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/yaml_tests.cpp
+[ 8/47][4.5s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/test_rts_params_parity.cpp
+[ 9/47][4.6s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/detail/loader_utils.cpp
+[10/47][4.9s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_decimal.cpp
+[11/47][5.1s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/rts_init_renderer_uninitialized_tests.cpp
+[12/47][0.3s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/detail/rts_init.cpp
+[13/47][5.5s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_cancel.cpp
+[14/47][5.6s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_validation.cpp
+[15/47][6.1s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_log.cpp
+[16/47][2.5s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/mock_backend.cpp
+[17/47][7.1s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/test_feature_matrix_parity.cpp
+[18/47][7.9s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_property.cpp
+[19/47][4.5s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_ffi_logic.cpp
+[20/47][4.1s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/test_wire_codes_parity.cpp
+[21/47][8.7s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/yaml.cpp
+[22/47][9.3s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_dbc.cpp
+[23/47][4.5s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/rts_heap_cap_workload.cpp
+[24/47][9.9s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/dbc_corpus_parity_tests.cpp
+[25/47][10.1s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/test_cross_binding_integration.cpp
+[26/47][7.7s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_input_bounds.cpp
+[27/47][2.7s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/rational_renderer.cpp
+[28/47][5.3s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/backend.cpp
+[29/47][6.6s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/test_log_events_parity.cpp
+[30/47][6.8s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/doc_example_tests.cpp
+[31/47][12.0s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/cli/cli.cpp
+[32/47][5.8s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_check.cpp
+[33/47][13.1s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/excel.cpp
+[34/47][10.6s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/excel_tests.cpp
+[35/47][10.4s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/benchmarks/stability_bench.cpp
+[36/47][13.8s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/json_parse.cpp
+[37/47][4.2s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/static_tests.cpp
+[38/47][8.8s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/cli_tests.cpp
+[39/47][9.3s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/enrich.cpp
+[40/47][9.3s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/rts_setup_listener.cpp
+[1/1] (1/4) Processing file /home/nicolas/dev/agda/aletheia/cpp/tests/rts_setup_listener.cpp.
+[1/1] (2/4) Processing file /home/nicolas/dev/agda/aletheia/cpp/tests/rts_setup_listener.cpp.
+[1/1] (3/4) Processing file /home/nicolas/dev/agda/aletheia/cpp/tests/rts_setup_listener.cpp.
+[1/1] (4/4) Processing file /home/nicolas/dev/agda/aletheia/cpp/tests/rts_setup_listener.cpp.
+
+[41/47][14.1s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/client.cpp
+[42/47][10.2s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/src/json_serialize.cpp
+[43/47][12.7s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_enrich.cpp
+[44/47][16.9s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_json.cpp
+[45/47][18.5s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_client.cpp
+[46/47][33.2s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/benchmarks/benchmark.cpp
+[47/47][35.8s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/integration_tests.cpp

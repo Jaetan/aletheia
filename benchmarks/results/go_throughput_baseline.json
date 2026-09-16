@@ -1,7 +1,7 @@
 {
   "benchmark": "throughput",
   "language": "go",
-  "timestamp": "2026-07-25T02:24:30Z",
+  "timestamp": "2026-07-26T00:08:15Z",
   "system": {
     "cpu": "amd64",
     "cores": 24,
@@ -13,41 +13,61 @@
       "name": "CAN 2.0B: Stream LTL (2 props)",
       "frames": 10000,
       "runs": 10,
-      "fps_mean": 270496.9,
-      "fps_stdev": 8665.6,
-      "fps_min": 256403.3,
-      "fps_max": 282747,
-      "us_per_frame": 3.7
+      "fps_mean": 265604.6,
+      "fps_stdev": 10873.9,
+      "fps_min": 249212,
+      "fps_max": 281100.9,
+      "us_per_frame": 3.8
+    },
+    {
+      "name": "CAN 2.0B: Signal Extraction",
+      "frames": 10000,
+      "runs": 10,
+      "fps_mean": 343640.4,
+      "fps_stdev": 7037.9,
+      "fps_min": 333238.9,
+      "fps_max": 352727,
+      "us_per_frame": 2.9
     },
     {
       "name": "CAN 2.0B: Frame Building",
       "frames": 10000,
       "runs": 10,
-      "fps_mean": 118983.5,
-      "fps_stdev": 1272.2,
-      "fps_min": 117634.9,
-      "fps_max": 121653.1,
+      "fps_mean": 119632.6,
+      "fps_stdev": 1408,
+      "fps_min": 116542.7,
+      "fps_max": 121487.4,
       "us_per_frame": 8.4
     },
     {
       "name": "CAN-FD:   Stream LTL (3 props)",
       "frames": 10000,
       "runs": 10,
-      "fps_mean": 159975.4,
-      "fps_stdev": 5256.7,
-      "fps_min": 149715.4,
-      "fps_max": 166614.4,
-      "us_per_frame": 6.3
+      "fps_mean": 156353.2,
+      "fps_stdev": 5754.8,
+      "fps_min": 144950.4,
+      "fps_max": 163043.7,
+      "us_per_frame": 6.4
+    },
+    {
+      "name": "CAN-FD:   Signal Extraction",
+      "frames": 10000,
+      "runs": 10,
+      "fps_mean": 27755.2,
+      "fps_stdev": 257.1,
+      "fps_min": 27450.2,
+      "fps_max": 28076.8,
+      "us_per_frame": 36
     },
     {
       "name": "CAN-FD:   Frame Building",
       "frames": 10000,
       "runs": 10,
-      "fps_mean": 30981.4,
-      "fps_stdev": 374.1,
-      "fps_min": 30362.3,
-      "fps_max": 31546.8,
-      "us_per_frame": 32.3
+      "fps_mean": 31334,
+      "fps_stdev": 184.6,
+      "fps_min": 31028.5,
+      "fps_max": 31577.1,
+      "us_per_frame": 31.9
     }
   ]
 }

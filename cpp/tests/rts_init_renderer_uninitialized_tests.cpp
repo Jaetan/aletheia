@@ -1,24 +1,24 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// Point 2 ("whine if the runtime is uninitialised"): the rational renderer no
-// longer self-initialises the GHC RTS — an FfiBackend is the sole initialiser
-// (see cpp/src/detail/rts_init.hpp + rational_renderer.cpp). This test asserts
-// the renderer is *vocal* when no FfiBackend has brought the runtime up: a
-// pre-backend `format_rational_ffi` must throw, neither self-initialising (which
-// would latch a default -N and squander the FfiBackend's bus-count -N) nor
-// calling the kernel with the RTS down.
+// The rational renderer does not initialise the GHC RTS: an FfiBackend is the
+// sole initialiser (cpp/src/detail/rts_init.hpp and rational_renderer.cpp).
+// These cases assert the renderer is vocal when no FfiBackend has brought the
+// runtime up: a pre-backend call must throw, neither self-initialising, which
+// would latch a default core count and squander the FfiBackend's own, nor
+// calling the kernel with the runtime down.
 //
-// Must run in its own process (one ctest entry) because the GHC RTS is
-// process-global: any FfiBackend-first test in the same process would bring the
-// runtime up and defeat the assertion. The unit_tests listener that brings the
-// RTS up lives in a *different* binary (unit_tests_rts_setup.cpp), so it does not
-// interfere here.
+// Must run in its own process, one ctest entry, because the GHC RTS is
+// process-global: any FfiBackend-first case in the same process would bring the
+// runtime up and defeat the assertion. The listener that brings the runtime up
+// for the other suites, rts_setup_listener.cpp, is linked into those binaries
+// and not into this one.
 //
-// (The backend-first ordering — FfiBackend(cores=N) then renderer — is covered by
-// integration_tests; this binary is the renderer-first / runtime-down case.)
+// The backend-first ordering, an FfiBackend and then the renderer, is covered by
+// integration_tests; this binary is the renderer-first, runtime-down case.
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <aletheia/aletheia.hpp>
@@ -30,9 +30,7 @@
 
 namespace fs = std::filesystem;
 
-namespace {
-
-auto find_lib() -> fs::path {
+static auto find_lib() -> fs::path {
     // Existence-check ALETHEIA_LIB and fall through if stale, mirroring the
     // renderer's find_library_path verbatim (getenv → string_view !empty →
     // fs::exists): a stale env value must not shadow a present .so, else the
@@ -58,8 +56,6 @@ auto find_lib() -> fs::path {
         "libaletheia-ffi.so not found — set ALETHEIA_LIB or build with 'cabal run shake -- build'");
     return {};
 }
-
-} // namespace
 
 TEST_CASE("renderer is vocal (throws) when the GHC runtime is uninitialised",
           "[rational_renderer][rts_init]") {
@@ -90,5 +86,19 @@ TEST_CASE("Rational::from_decimal is vocal (throws) when the GHC runtime is unin
     // rather than self-initialising the runtime or calling the kernel with it
     // down (the float principle's decimal SSOT shares the renderer's vocal gate).
     REQUIRE_THROWS_WITH(aletheia::Rational::from_decimal("3.14"),
+                        Catch::Matchers::ContainsSubstring("runtime not initialized"));
+}
+
+TEST_CASE("a runtime-down decimal parse answers on the runtime, not on the literal",
+          "[rational_renderer][rts_init][decimal]") {
+    const auto lib = find_lib(); // SKIPs if the .so cannot be located
+    aletheia::detail::register_default_lib_path(lib);
+
+    // An interior NUL is refused with a Validation error once the runtime is up,
+    // but the runtime gate comes first: Rust returns RtsNotInitialized before it
+    // looks at the literal, so a runtime-down call here must name the runtime too
+    // rather than the input. This pins the order the two bindings share.
+    using namespace std::string_view_literals;
+    REQUIRE_THROWS_WITH(aletheia::Rational::from_decimal("1\0xyz"sv),
                         Catch::Matchers::ContainsSubstring("runtime not initialized"));
 }

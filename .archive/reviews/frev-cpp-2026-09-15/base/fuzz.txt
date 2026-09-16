@@ -1,0 +1,34 @@
+[100%] Linking CXX executable fuzz_parse_rational_number
+[100%] Built target fuzz_parse_rational_number
+== parse_response (build-fuzz/fuzz_parse_response)
+Done 768394 runs in 61 second(s)
+stat::number_of_executed_units: 768394
+stat::average_exec_per_sec:     12596
+stat::new_units_added:          38
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              491
+exit 0
+== decode_binary_frame (build-fuzz/fuzz_decode_binary_frame)
+Done 162797322 runs in 61 second(s)
+stat::number_of_executed_units: 162797322
+stat::average_exec_per_sec:     2668808
+stat::new_units_added:          0
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              618
+exit 0
+== parse_dbc_json (build-fuzz/fuzz_parse_dbc_json)
+Done 1119819 runs in 61 second(s)
+stat::number_of_executed_units: 1119819
+stat::average_exec_per_sec:     18357
+stat::new_units_added:          49
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              486
+exit 0
+== parse_rational_number (build-fuzz/fuzz_parse_rational_number)
+Done 1182155 runs in 61 second(s)
+stat::number_of_executed_units: 1182155
+stat::average_exec_per_sec:     19379
+stat::new_units_added:          91
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              491
+exit 0

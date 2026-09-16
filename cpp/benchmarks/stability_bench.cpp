@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
-// Long-run resource-leakage stability harness (C++ cat 26).
+// Long-run resource-leakage stability harness.
 //
 // Exercises the FFI surface for cycles × frames (default 10 × 100_000 = 1M
 // total frames) and asserts no per-iteration drift on:
@@ -11,55 +11,57 @@
 //                                  — /proc/self/status Threads
 //   - malloc_info (soft threshold) — glibc malloc_info(0, FILE*) total bytes
 //
-// Per AGENTS.md C++ cat 26 "Long-run resource leakage sub-checks": drift on
-// any sub-check is a finding.  Hard-zero gates are exact equality (no noise
+// Per the long-run resource-leakage sub-checks in AGENTS/cpp.md, drift on any
+// sub-check is a finding.  Hard-zero gates are exact equality (no noise
 // tolerance allowed); soft-threshold gates carry an empirically-tuned cap
-// inline below — change the value, the diff is visible.
+// inline below, so changing the value makes the diff visible.  A probe under
+// probes/ compiles a variant that leaks one descriptor per cycle and checks
+// that the FD gate fails on it.
 //
 // Output: JSON to stdout (and optionally
 // benchmarks/stability/<commit>/cpp.json when invoked through
 // tools/stability_run.py).
-//
-// Forward-revert verified 2026-05-08: introducing an intentional non-Close
-// makes the harness fail with a precise FD-delta diagnostic; restoring
-// brings it back to 0 drift.
 //
 // Linux-specific (relies on /proc and glibc malloc_info).
 
 #include <aletheia/aletheia.hpp>
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
+#include <exception>
 #include <filesystem>
+#include <format>
 #include <fstream>
-#include <iostream>
 #include <malloc.h>
-#include <sstream>
+#include <memory>
+#include <print>
+#include <stdexcept>
 #include <stop_token>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace {
 
-// Soft-threshold caps (empirically established 2026-05-08, WSL2 quiet host;
-// revise inline if a future reviewer runs the harness on a host that
-// rejects these as too tight or too loose).
-constexpr std::int64_t kRssDeltaBytesCap = 50LL * 1024 * 1024;    // 50 MiB
-constexpr std::int64_t kMallocDeltaBytesCap = 50LL * 1024 * 1024; // 50 MiB
+// Soft-threshold caps, established empirically on a quiet WSL2 host; revise
+// inline if a host rejects them as too tight or too loose.
+constexpr std::int64_t k_rss_delta_bytes_cap = 50LL * 1024 * 1024;    // 50 MiB
+constexpr std::int64_t k_malloc_delta_bytes_cap = 50LL * 1024 * 1024; // 50 MiB
 
-// Warmup cycles before the measurement window opens.  The GHC RTS heap +
-// MAlonzo dictionaries + lazy Agda structures need a substantial workload
-// before they reach steady state — an empirical probe (2026-05-09) showed the
-// heap plateaus around cycle 7 of 100k frames; a 100-frame warmup (the
-// original default) left ~138 MiB of RTS warmup leaking into the measurement
-// window.  7 cycles of WARMUP gives
-// ≥ 30 MiB headroom over the 50 MiB threshold without inflating the bench
-// beyond ~3-4s wall.
-constexpr int kWarmupCycles = 7;
+// Warmup cycles before the measurement window opens.  The GHC RTS heap,
+// MAlonzo dictionaries and lazy Agda structures need a substantial workload
+// before they reach steady state: measured, the heap plateaus around the
+// seventh cycle of 100k frames, and a warmup of a few hundred frames leaves
+// on the order of 138 MiB of RTS growth inside the measurement window.  Seven
+// cycles give at least 30 MiB of headroom under the 50 MiB cap without pushing
+// the bench beyond a few seconds of wall time.
+constexpr int k_warmup_cycles = 7;
 
 struct Snapshot {
     std::int64_t rss_bytes;
@@ -78,27 +80,30 @@ struct SubCheck {
     bool passed;
 };
 
-// Parse a /proc/self/status field (e.g., "VmRSS:" or "Threads:") in kB.
-auto parse_status_field(const std::string& field) -> std::int64_t {
+} // namespace
+
+// Parse a /proc/self/status field (e.g., "VmRSS:" or "Threads:"): the number
+// that follows the label.
+static auto parse_status_field(std::string_view field) -> std::int64_t {
     std::ifstream status("/proc/self/status");
-    std::string line;
-    while (std::getline(status, line)) {
-        if (line.starts_with(field)) {
-            std::istringstream iss(line);
-            std::string label;
-            std::int64_t value{};
-            iss >> label >> value;
-            return value;
-        }
+    for (std::string line; std::getline(status, line);) {
+        if (!line.starts_with(field))
+            continue;
+        auto digits = std::string_view{line}.substr(field.size());
+        digits.remove_prefix(std::min(digits.find_first_not_of(" \t"), digits.size()));
+        std::int64_t value = 0;
+        [[maybe_unused]] const auto read =
+            std::from_chars(std::to_address(digits.begin()), std::to_address(digits.end()), value);
+        return value;
     }
     return 0;
 }
 
-auto vm_rss_bytes() -> std::int64_t {
+static auto vm_rss_bytes() -> std::int64_t {
     return parse_status_field("VmRSS:") * 1024; // VmRSS is in kB
 }
 
-auto threads_count() -> std::int64_t {
+static auto threads_count() -> std::int64_t {
     return parse_status_field("Threads:");
 }
 
@@ -107,7 +112,7 @@ auto threads_count() -> std::int64_t {
 // anon_inode targets (eventfd/eventpoll/timerfd/signalfd) which are runtime
 // I/O multiplexer machinery the GHC RTS / glibc allocate lazily based on
 // workload.  Counting them defeats hard-zero gating.
-auto fd_count() -> std::int64_t {
+static auto fd_count() -> std::int64_t {
     std::int64_t count = 0;
     std::error_code ec;
     for (const auto& entry : std::filesystem::directory_iterator("/proc/self/fd", ec)) {
@@ -128,53 +133,53 @@ auto fd_count() -> std::int64_t {
     return count;
 }
 
-// glibc malloc_info emits XML to a FILE*.  We summarize by extracting the
-// total <total ... size="N"/> value across all heaps.  Imperfect but stable
-// enough to gate fragmentation drift.
-auto malloc_info_bytes() -> std::int64_t {
-    char* buf = nullptr;
-    std::size_t buf_size = 0;
-    FILE* stream = open_memstream(&buf, &buf_size);
-    if (stream == nullptr) {
-        return 0;
+// glibc malloc_info emits XML to a FILE*: one <heap> element per arena, each
+// with its own <total type="fast"/> and <total type="rest"/>, followed by the
+// process-wide aggregate (<total> entries for fast, rest and mmap) after the
+// last </heap>.  Only the aggregate is summed; summing every <total> would
+// count the arena bytes twice.  Imperfect but stable enough to gate
+// fragmentation drift.
+static auto malloc_info_bytes() -> std::int64_t {
+    char* raw = nullptr;
+    std::size_t raw_size = 0;
+    const std::unique_ptr<char, decltype(&std::free)> buf_owner(nullptr, &std::free);
+    std::string xml;
+    {
+        const std::unique_ptr<FILE, decltype(&std::fclose)> stream(open_memstream(&raw, &raw_size),
+                                                                   &std::fclose);
+        if (stream == nullptr)
+            return 0;
+        if (malloc_info(0, stream.get()) != 0)
+            return 0;
+        // open_memstream publishes raw/raw_size only once the stream is closed,
+        // which the unique_ptr does at the end of this block.
     }
-    if (malloc_info(0, stream) != 0) {
-        std::fclose(stream);
-        std::free(buf);
-        return 0;
-    }
-    std::fclose(stream);
-    std::string xml(buf, buf_size);
-    std::free(buf);
+    const std::unique_ptr<char, decltype(&std::free)> raw_owner(raw, &std::free);
+    xml.assign(raw, raw_size);
 
-    // Sum every <total type="..." count="..." size="N"/> we find at the
-    // top level — glibc emits one per heap plus an outer aggregate.  We
-    // sum the per-heap "total" entries to avoid double-counting via the
-    // outer <heap>...</heap> wrapper's <total>.
+    const std::string_view view{xml};
+    const auto last_heap = view.rfind("</heap>");
     std::int64_t total_bytes = 0;
-    std::size_t pos = 0;
-    const std::string needle = "<total type=";
-    while ((pos = xml.find(needle, pos)) != std::string::npos) {
-        const std::size_t size_attr = xml.find("size=\"", pos);
-        if (size_attr == std::string::npos) {
+    for (auto pos = last_heap == std::string_view::npos ? 0 : last_heap;
+         (pos = view.find("<total type=", pos)) != std::string_view::npos;) {
+        const auto size_attr = view.find("size=\"", pos);
+        if (size_attr == std::string_view::npos)
             break;
-        }
-        const std::size_t value_start = size_attr + 6;
-        const std::size_t value_end = xml.find('"', value_start);
-        if (value_end == std::string::npos) {
+        const auto value_start = size_attr + 6;
+        const auto value_end = view.find('"', value_start);
+        if (value_end == std::string_view::npos)
             break;
-        }
-        try {
-            total_bytes += std::stoll(xml.substr(value_start, value_end - value_start));
-        } catch (...) {
-            // ignore unparseable entries
-        }
+        std::int64_t value = 0;
+        const auto digits = view.substr(value_start, value_end - value_start);
+        [[maybe_unused]] const auto read =
+            std::from_chars(std::to_address(digits.begin()), std::to_address(digits.end()), value);
+        total_bytes += value;
         pos = value_end;
     }
     return total_bytes;
 }
 
-auto take_snapshot() -> Snapshot {
+static auto take_snapshot() -> Snapshot {
     return Snapshot{
         .rss_bytes = vm_rss_bytes(),
         .fd_count = fd_count(),
@@ -187,8 +192,12 @@ auto take_snapshot() -> Snapshot {
 // start_stream to succeed.  Mirrors the can20_dbc helper in
 // cpp/benchmarks/benchmark.cpp but trimmed to one signal so the harness
 // measures resource accounting, not Stream LTL semantics.
-auto minimal_dbc() -> aletheia::DbcDefinition {
-    using namespace aletheia;
+static auto minimal_dbc() -> aletheia::DbcDefinition {
+    using aletheia::AlwaysPresent, aletheia::BitLength, aletheia::BitPosition, aletheia::ByteOrder,
+        aletheia::CanId, aletheia::DbcDefinition, aletheia::DbcMessage, aletheia::DbcSignal,
+        aletheia::Dlc, aletheia::MessageName, aletheia::NodeName, aletheia::Rational,
+        aletheia::RationalBound, aletheia::RationalFactor, aletheia::RationalOffset,
+        aletheia::SignalName, aletheia::StandardId, aletheia::Unit;
     DbcSignal engine_speed{
         .name = SignalName{"EngineSpeed"},
         .start_bit = BitPosition{0},
@@ -212,109 +221,80 @@ auto minimal_dbc() -> aletheia::DbcDefinition {
     return DbcDefinition{.version = "", .messages = {engine_msg}};
 }
 
-void run_cycle(const std::filesystem::path& lib, const aletheia::DbcDefinition& dbc,
-               int frames_per_cycle) {
-    using namespace aletheia;
-    auto backend = make_ffi_backend(lib);
-    AletheiaClient client(std::move(backend));
-    auto parse = client.parse_dbc(std::stop_token{}, dbc);
-    if (!parse) {
-        throw std::runtime_error("parse_dbc failed: " + std::string(parse.error().message()));
-    }
-    (void)client.start_stream(std::stop_token{});
+// A cycle that fails any step measures nothing, so every std::expected the
+// client returns is checked and its error thrown.
+template<typename T>
+static void require(const aletheia::Result<T>& result, std::string_view step) {
+    if (!result)
+        throw std::runtime_error(std::format("{} failed: {}", step, result.error().message()));
+}
 
-    const auto id = CanId{StandardId::create(0x100).value()};
-    const auto dlc = Dlc::create(8).value();
+static void run_cycle(const std::filesystem::path& lib, const aletheia::DbcDefinition& dbc,
+                      int frames_per_cycle) {
+    using aletheia::AletheiaClient, aletheia::CanId, aletheia::Dlc, aletheia::FramePayload,
+        aletheia::make_ffi_backend, aletheia::StandardId, aletheia::Timestamp;
+    AletheiaClient client(make_ffi_backend(lib));
+    require(client.parse_dbc(std::stop_token{}, dbc), "parse_dbc");
+    require(client.start_stream(std::stop_token{}), "start_stream");
+
+    constexpr auto id = CanId{StandardId::create(0x100).value()};
+    constexpr auto dlc = Dlc::create(8).value();
     const FramePayload frame{std::byte{0x40}, std::byte{0x1F}, std::byte{0x82}, std::byte{0x00},
                              std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}};
     for (int i = 0; i < frames_per_cycle; ++i) {
-        (void)client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
+        require(client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame), "send_frame");
     }
-    (void)client.end_stream(std::stop_token{});
+    require(client.end_stream(std::stop_token{}), "end_stream");
     // ~AletheiaClient runs here; backend dlcloses the .so handle if it was
     // the last reference.
 }
 
-auto find_library() -> std::filesystem::path {
-    if (const char* env = std::getenv("ALETHEIA_LIB")) {
-        return std::filesystem::path{env};
-    }
-    return std::filesystem::path{"build/libaletheia-ffi.so"};
+// The binding's one search. This used to return a single relative path without
+// checking it exists, so a run from the wrong directory failed at the load
+// rather than at the search.
+static auto find_library() -> std::filesystem::path {
+    return aletheia::find_ffi_library();
 }
 
-auto env_int(const char* name, int default_value) -> int {
-    if (const char* env = std::getenv(name); env != nullptr && env[0] != '\0') {
-        try {
-            int value = std::stoi(env);
-            if (value > 0) {
-                return value;
-            }
-        } catch (...) {
-            // fall through to default
-        }
-    }
-    return default_value;
+// A count variable is unset (default applies) or a positive whole number;
+// anything else is a setup error, never a silent fallback to the default.
+static auto env_count(const char* name, int default_value) -> int {
+    const char* env = std::getenv(name);
+    if (env == nullptr)
+        return default_value;
+    const std::string_view text{env};
+    int value = 0;
+    const auto* const last = std::to_address(text.end());
+    auto [end, ec] = std::from_chars(std::to_address(text.begin()), last, value);
+    if (ec != std::errc{} || end != last || value <= 0)
+        throw std::runtime_error(
+            std::format("{} must be a positive whole number, got '{}'", name, text));
+    return value;
 }
 
-void emit_sub_check_json(std::ostream& out, const SubCheck& c, bool first) {
-    if (!first)
-        out << ",\n";
-    out << "    {\n";
-    out << "      \"name\": \"" << c.name << "\",\n";
-    out << "      \"gate\": \"" << c.gate << "\",\n";
-    out << "      \"start\": " << c.start << ",\n";
-    out << "      \"end\": " << c.end << ",\n";
-    out << "      \"delta\": " << c.delta << ",\n";
-    out << "      \"threshold\": " << c.threshold << ",\n";
-    out << "      \"passed\": " << (c.passed ? "true" : "false") << "\n";
-    out << "    }";
+static void emit_sub_check_json(const SubCheck& c, bool first) {
+    std::print("{}    {{\n"
+               "      \"name\": \"{}\",\n"
+               "      \"gate\": \"{}\",\n"
+               "      \"start\": {},\n"
+               "      \"end\": {},\n"
+               "      \"delta\": {},\n"
+               "      \"threshold\": {},\n"
+               "      \"passed\": {}\n"
+               "    }}",
+               first ? "" : ",\n", c.name, c.gate, c.start, c.end, c.delta, c.threshold, c.passed);
 }
 
-} // namespace
-
-auto main() -> int {
-    const int cycles = env_int("ALETHEIA_STABILITY_CYCLES", 10);
-    const int frames = env_int("ALETHEIA_STABILITY_FRAMES", 100000);
-    const auto lib = find_library();
-    const auto dbc = minimal_dbc();
-
-    // Multi-cycle warmup to absorb the GHC RTS heap warmup + lazy MAlonzo /
-    // Agda structure realization.  See kWarmupCycles for empirical rationale.
-    try {
-        for (int i = 0; i < kWarmupCycles; ++i) {
-            run_cycle(lib, dbc, frames);
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "warm-up: " << e.what() << "\n";
-        return 2;
-    }
-
-    const auto start = take_snapshot();
-    const auto t0 = std::chrono::steady_clock::now();
-
-    for (int i = 0; i < cycles; ++i) {
-        try {
-            run_cycle(lib, dbc, frames);
-        } catch (const std::exception& e) {
-            std::cerr << "cycle " << i << ": " << e.what() << "\n";
-            return 2;
-        }
-    }
-
-    const auto end = take_snapshot();
-    const auto elapsed =
-        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-
-    auto abs64 = [](std::int64_t x) { return x < 0 ? -x : x; };
-
-    const std::vector<SubCheck> sub_checks = {
+// Each resource the harness watches, as the pair of snapshots it is judged on.
+static auto build_sub_checks(const Snapshot& start, const Snapshot& end) -> std::vector<SubCheck> {
+    return {
         {.name = "rss",
          .gate = "soft_threshold",
          .start = start.rss_bytes,
          .end = end.rss_bytes,
          .delta = end.rss_bytes - start.rss_bytes,
-         .threshold = kRssDeltaBytesCap,
-         .passed = abs64(end.rss_bytes - start.rss_bytes) <= kRssDeltaBytesCap},
+         .threshold = k_rss_delta_bytes_cap,
+         .passed = std::abs(end.rss_bytes - start.rss_bytes) <= k_rss_delta_bytes_cap},
         {.name = "fd_count",
          .gate = "hard_zero",
          .start = start.fd_count,
@@ -334,29 +314,80 @@ auto main() -> int {
          .start = start.malloc_info_bytes,
          .end = end.malloc_info_bytes,
          .delta = end.malloc_info_bytes - start.malloc_info_bytes,
-         .threshold = kMallocDeltaBytesCap,
-         .passed = abs64(end.malloc_info_bytes - start.malloc_info_bytes) <= kMallocDeltaBytesCap},
+         .threshold = k_malloc_delta_bytes_cap,
+         .passed =
+             std::abs(end.malloc_info_bytes - start.malloc_info_bytes) <= k_malloc_delta_bytes_cap},
     };
+}
 
-    bool all_passed = true;
-    for (const auto& c : sub_checks) {
-        if (!c.passed)
-            all_passed = false;
+static auto run() -> int {
+    int cycles = 0;
+    int frames = 0;
+    try {
+        cycles = env_count("ALETHEIA_STABILITY_CYCLES", 10);
+        frames = env_count("ALETHEIA_STABILITY_FRAMES", 100000);
+    } catch (const std::exception& e) {
+        std::println(stderr, "setup: {}", e.what());
+        return 2;
+    }
+    const auto lib = find_library();
+    const auto dbc = minimal_dbc();
+
+    // Multi-cycle warmup to absorb the GHC RTS heap warmup + lazy MAlonzo /
+    // Agda structure realization.  See k_warmup_cycles for empirical rationale.
+    try {
+        for (int i = 0; i < k_warmup_cycles; ++i) {
+            run_cycle(lib, dbc, frames);
+        }
+    } catch (const std::exception& e) {
+        std::println(stderr, "warm-up: {}", e.what());
+        return 2;
     }
 
-    std::cout << "{\n";
-    std::cout << "  \"binding\": \"cpp\",\n";
-    std::cout << "  \"cycles\": " << cycles << ",\n";
-    std::cout << "  \"frames_per_cycle\": " << frames << ",\n";
-    std::cout << "  \"total_frames\": " << (cycles * frames) << ",\n";
-    std::cout << "  \"elapsed_seconds\": " << elapsed << ",\n";
-    std::cout << "  \"sub_checks\": [\n";
+    const auto start = take_snapshot();
+    const auto t0 = std::chrono::steady_clock::now();
+
+    for (int i = 0; i < cycles; ++i) {
+        try {
+            run_cycle(lib, dbc, frames);
+        } catch (const std::exception& e) {
+            std::println(stderr, "cycle {}: {}", i, e.what());
+            return 2;
+        }
+    }
+
+    const auto end = take_snapshot();
+    const auto elapsed =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+
+    const auto sub_checks = build_sub_checks(start, end);
+    const bool all_passed = std::ranges::all_of(sub_checks, &SubCheck::passed);
+
+    std::print("{{\n"
+               "  \"binding\": \"cpp\",\n"
+               "  \"cycles\": {},\n"
+               "  \"frames_per_cycle\": {},\n"
+               "  \"total_frames\": {},\n"
+               "  \"elapsed_seconds\": {},\n"
+               "  \"sub_checks\": [\n",
+               cycles, frames, static_cast<std::int64_t>(cycles) * frames, elapsed);
     for (std::size_t i = 0; i < sub_checks.size(); ++i) {
-        emit_sub_check_json(std::cout, sub_checks[i], i == 0);
+        emit_sub_check_json(sub_checks[i], i == 0);
     }
-    std::cout << "\n  ],\n";
-    std::cout << "  \"passed\": " << (all_passed ? "true" : "false") << "\n";
-    std::cout << "}\n";
+    std::print("\n  ],\n"
+               "  \"passed\": {}\n"
+               "}}\n",
+               all_passed);
 
     return all_passed ? 0 : 1;
+}
+
+// Nothing leaves main: the lane that drives this binary reads its exit code,
+// and an escaping exception would arrive as a signal instead.
+auto main() -> int {
+    try {
+        return run();
+    } catch (...) {
+        return 2;
+    }
 }

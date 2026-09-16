@@ -20,13 +20,12 @@
 // same files. When all three match, the bindings have observed identical
 // DbcDefinition structure for every fixture.
 //
-// Canonical form: sorted JSON keys + 2-space indent + trailing newline + the
-// "emit int when denominator=1" rule (already shared by the binding's
-// internal serializer). nlohmann::json is std::map-backed by default and
-// dump(2) produces sorted keys naturally; one post-processing pass drops
-// "extended": false from message envelopes (Agda's wire format omits
-// "extended" for standard CAN frames; comment / attribute targets already
-// follow the same convention via attach_can_id).
+// Canonical form: sorted JSON keys, 2-space indent, trailing newline and the
+// "emit int when denominator=1" rule, all of which the binding's own
+// serializer already produces. nlohmann::json is std::map-backed, so dump(2)
+// sorts the keys, and json_serialize.cpp omits "extended" on standard frames
+// the way the Agda wire form does, so the snapshot is the dump with nothing
+// done to it afterwards.
 
 #include "detail/json.hpp"
 
@@ -36,22 +35,32 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
-#include <sstream>
+#include <stop_token>
 #include <string>
+#include <utility>
 #include <vector>
+
+#include "repo_root.hpp"
+#include "text_file.hpp"
+
+using aletheia::test::repo_root;
+
+using aletheia::test::read_text_file;
 
 using namespace aletheia;
 namespace fs = std::filesystem;
 
-namespace {
-
-auto find_lib() -> fs::path {
-    if (auto* env = std::getenv("ALETHEIA_LIB"))
-        return env;
-    auto project_root = fs::path{__FILE__}.parent_path().parent_path().parent_path();
+static auto find_lib() -> fs::path {
+    // An empty or stale ALETHEIA_LIB must not shadow a library that is present,
+    // else a missing file becomes a construction failure rather than the skip.
+    if (auto* env = std::getenv("ALETHEIA_LIB")) {
+        if (const fs::path p{env}; !p.empty() && fs::exists(p))
+            return p;
+    }
+    auto project_root = repo_root();
     auto lib = project_root / "build" / "libaletheia-ffi.so";
     if (fs::exists(lib))
         return lib;
@@ -62,19 +71,11 @@ auto find_lib() -> fs::path {
     return {};
 }
 
-auto corpus_dir() -> fs::path {
-    auto project_root = fs::path{__FILE__}.parent_path().parent_path().parent_path();
-    return project_root / "python" / "tests" / "fixtures" / "dbc_corpus";
+static auto corpus_dir() -> fs::path {
+    return repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus";
 }
 
-auto read_file(const fs::path& p) -> std::string {
-    std::ifstream f(p);
-    std::stringstream buf;
-    buf << f.rdbuf();
-    return buf.str();
-}
-
-auto canonical_dbc_json(const DbcDefinition& dbc) -> std::string {
+static auto canonical_dbc_json(const DbcDefinition& dbc) -> std::string {
     // Round-trip via the existing detail::serialize_parsed_dbc_response so
     // we don't duplicate the dbc_to_json walker; extract the "dbc" field
     // back out and dump(2). nlohmann::json is std::map-backed so dump
@@ -85,8 +86,6 @@ auto canonical_dbc_json(const DbcDefinition& dbc) -> std::string {
     auto parsed = nlohmann::json::parse(envelope);
     return parsed.at("dbc").dump(2) + "\n";
 }
-
-} // namespace
 
 TEST_CASE("DBC corpus parity — Agda parse_dbc_text matches Python oracle",
           "[integration][parity][dbc]") {
@@ -103,12 +102,12 @@ TEST_CASE("DBC corpus parity — Agda parse_dbc_text matches Python oracle",
     for (const auto& entry : fs::directory_iterator(dir))
         if (entry.path().extension() == ".dbc")
             dbc_files.push_back(entry.path());
-    std::sort(dbc_files.begin(), dbc_files.end());
+    std::ranges::sort(dbc_files);
     REQUIRE_FALSE(dbc_files.empty());
 
     for (const auto& dbc_path : dbc_files) {
         DYNAMIC_SECTION("corpus DBC: " << dbc_path.filename().string()) {
-            auto text = read_file(dbc_path);
+            auto text = read_text_file(dbc_path);
             auto result = client.parse_dbc_text(std::stop_token{}, text);
             REQUIRE(result.has_value());
 
@@ -116,7 +115,7 @@ TEST_CASE("DBC corpus parity — Agda parse_dbc_text matches Python oracle",
 
             auto snapshot_path = parity_dir / (dbc_path.stem().string() + ".json");
             REQUIRE(fs::exists(snapshot_path));
-            auto expected = read_file(snapshot_path);
+            auto expected = read_text_file(snapshot_path);
 
             CHECK(actual == expected);
         }

@@ -1,0 +1,1 @@
+{"status":"validation","has_errors":true,"issues":[{"severity":"error","code":"duplicate_signal_name","detail":"Speed defined twice"},{"severity":"warning","code":"offset_scale_range","detail":"outside range"}]}

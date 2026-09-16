@@ -14,10 +14,6 @@
 #include <string>
 #include <vector>
 
-namespace {
-constexpr int k_exit_error = 2;
-} // namespace
-
 auto main(int argc, char** argv) -> int {
     try {
         const std::span<char* const> raw{argv, static_cast<std::size_t>(argc)};
@@ -27,6 +23,6 @@ auto main(int argc, char** argv) -> int {
         return aletheia::run_cli(args);
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
-        return k_exit_error;
+        return aletheia::cli_exit_error;
     }
 }

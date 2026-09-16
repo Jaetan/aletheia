@@ -1,49 +1,120 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// libFuzzer harness for binary extraction parser (Cat 33b).
+// libFuzzer harness for the binary extraction decoder.
 // Counterpart of go FuzzDecodeBinaryFrame.
 //
-// The binary path is parse_extraction_bin in the Aletheia client; this
-// harness exercises it through the public extract_signals path with a
-// MockBackend that returns canned bytes.  We feed the raw fuzzer bytes as
-// the "extracted" payload (signal value table) — the parser must reject
-// truncated / malformed encodings without UB.
+// The decoder is `parse_extraction_bin`, a static helper inside the client's
+// translation unit, so the harness reaches it the way the rational-number
+// harness reaches its own static helper: transitively, through the public
+// surface. A backend derived from the test mock hands the fuzzer's bytes back
+// from `extract_signals_bin`, and a DBC parsed through the same mock fills the
+// signal-name lookup the client needs to take the binary path at all. The
+// decoder must refuse a truncated or malformed buffer without undefined
+// behaviour.
 //
 // Build/run: see fuzz_parse_response.cpp comment header.
 
+#include "../../src/detail/json.hpp"
+#include "../../src/detail/mock_backend.hpp"
+
 #include <aletheia/client.hpp>
 #include <aletheia/dbc.hpp>
+#include <aletheia/types.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <expected>
+#include <memory>
+#include <span>
+#include <stop_token>
+#include <string>
+#include <utility>
+#include <vector>
+
+using namespace aletheia;
+
+// The one override the decoder needs: the mock's base returns
+// BinaryUnsupported here, which would send the client down the JSON path and
+// past the decoder this harness exists for.
+namespace {
+class BinaryMock : public MockBackend {
+public:
+    std::vector<std::byte> bytes;
+
+    auto extract_signals_bin(const BackendState& /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
+                             std::span<const std::byte> /*data*/)
+        -> std::expected<std::vector<std::byte>, AletheiaError> override {
+        return bytes;
+    }
+};
+} // namespace
+
+static auto one_message_dbc() -> DbcDefinition {
+    auto signal = [](const char* name, std::uint16_t start_bit) {
+        return DbcSignal{
+            .name = SignalName{name},
+            .start_bit = BitPosition{start_bit},
+            .bit_length = BitLength{16},
+            .byte_order = ByteOrder::LittleEndian,
+            .is_signed = false,
+            .factor = RationalFactor{Rational{1, 1}},
+            .offset = RationalOffset{Rational{0, 1}},
+            .minimum = RationalBound{Rational{0, 1}},
+            .maximum = RationalBound{Rational{65535, 1}},
+            .unit = Unit{""},
+            .presence = AlwaysPresent{},
+            .receivers = {},
+        };
+    };
+    DbcMessage message{
+        .id = StandardId::create(0x100).value(),
+        .name = MessageName{"Frame"},
+        .dlc = Dlc::create(8).value(),
+        .sender = NodeName{"ECU"},
+        .senders = {},
+        .signals = {signal("First", 0), signal("Second", 16)},
+    };
+    return DbcDefinition{.version = "1.0", .messages = {std::move(message)}};
+}
+namespace {
+
+// Built once: the client, its DBC lookup and the eight payload bytes are the
+// same for every input, and only the decoder's buffer varies.
+struct Harness {
+    BinaryMock* mock;
+    std::unique_ptr<AletheiaClient> client;
+};
+} // namespace
+
+static auto harness() -> Harness& {
+    static Harness built = [] {
+        auto owned = std::make_unique<BinaryMock>();
+        auto* mock = owned.get();
+        const auto dbc = one_message_dbc();
+        mock->queue_response(detail::serialize_parsed_dbc_response(dbc));
+        auto client = std::make_unique<AletheiaClient>(std::move(owned));
+        [[maybe_unused]] auto parsed = client->parse_dbc(std::stop_token{}, dbc);
+        return Harness{.mock = mock, .client = std::move(client)};
+    }();
+    return built;
+}
 
 extern "C" auto LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) -> int {
-    using namespace aletheia;
-    if (size > 64) {
-        // The binary parser caps inputs at 64 bytes per frame
-        // (max_can_fd_payload_bytes); skip oversize fuzzer cases to keep
-        // the corpus focused on shape variation rather than length.
-        return 0;
-    }
-    // Build a minimal CanId + Dlc; extract_signals requires both to be valid
-    // newtypes.  Skip malformed-newtype cases at the type boundary — the
-    // newtype factory rejection is itself the cross-binding contract.
-    auto sid = StandardId::create(0x100);
-    if (!sid.has_value())
-        return 0;
-    auto dlc = Dlc::create(static_cast<uint8_t>(size <= 8 ? size : 8));
-    if (!dlc.has_value())
+    // The decoder reads a length-prefixed value table; a buffer longer than a
+    // CAN FD frame's own maximum only lengthens the corpus without reaching a
+    // new shape.
+    if (size > 64)
         return 0;
 
-    // Without a backend, extract_signals would dereference null state.  The
-    // fuzz target focuses on the parsing layer (the binary buffer→signal
-    // values pipeline); construct the minimal-state path that the public
-    // API rejects with a typed Result<>::error rather than crashing.
-    auto byte_span = std::span<const std::byte>{reinterpret_cast<const std::byte*>(data), size};
-    (void)byte_span;
-    // Just exercise the type construction + span aliasing — actual backend
-    // call requires libaletheia-ffi.so which is out of scope for the fuzz
-    // target.  Coverage is on the API surface layer (typed input handling).
+    auto& h = harness();
+    h.mock->bytes.assign(reinterpret_cast<const std::byte*>(data),
+                         reinterpret_cast<const std::byte*>(data) + size);
+
+    const auto id = CanId{StandardId::create(0x100).value()};
+    const auto dlc = Dlc::create(8).value();
+    const std::vector<std::byte> payload(8, std::byte{0});
+    [[maybe_unused]] auto result =
+        h.client->extract_signals(std::stop_token{}, id, dlc, std::span{payload});
     return 0;
 }

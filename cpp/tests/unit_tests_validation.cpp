@@ -13,8 +13,8 @@
 #include <aletheia/aletheia.hpp>
 
 #include <cstddef>
-#include <cstdint>
 #include <cstdlib>
+#include <exception>
 #include <memory>
 #include <optional>
 #include <string>
@@ -64,7 +64,8 @@ TEST_CASE("update_frame rejects payload length mismatch", "[client][validation]"
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
     FramePayload bad_data(5, std::byte{0});
-    std::vector<SignalValue> signals{{SignalName{"S"}, PhysicalValue{Rational{1, 1}}}};
+    std::vector<SignalValue> signals{
+        {.name = SignalName{"S"}, .value = PhysicalValue{Rational{1, 1}}}};
     auto result = client.update_frame(std::stop_token{}, id, dlc, bad_data, signals);
 
     CHECK_FALSE(result.has_value());
@@ -230,12 +231,10 @@ TEST_CASE("Rational operator<=> and operator==", "[types]") {
 // FFI error emission
 // ===========================================================================
 //
-// `ErrorKind::Ffi` is declared in error.hpp ("Library load / RTS initialization
-// failure") and mirrors Python `FFIError` (python/aletheia/client/_types.py:36)
-// and Go `ErrFFI` (go/aletheia/error.go:27).  It was previously never
-// constructed.  These tests assert the kind tag is emitted on the canonical
-// boundary-failure paths so a future regression (silent downgrade to
-// `std::runtime_error` or another kind) trips here.
+// `ErrorKind::Ffi` is declared in error.hpp for a library-load or runtime-init
+// failure, and mirrors Python's FFIError and Go's ErrFFI. These cases assert
+// the kind is emitted on the boundary-failure paths, so a silent downgrade to
+// a plain runtime error or to another kind trips here.
 
 TEST_CASE("make_ffi_backend with nonexistent library throws Ffi-kinded exception", "[ffi][error]") {
     // dlopen of a path that does not exist returns null + sets dlerror;
@@ -278,9 +277,9 @@ public:
             ::unsetenv("ALETHEIA_LIB");
     }
     ScopedAletheiaLib(const ScopedAletheiaLib&) = delete;
-    ScopedAletheiaLib& operator=(const ScopedAletheiaLib&) = delete;
     ScopedAletheiaLib(ScopedAletheiaLib&&) = delete;
-    ScopedAletheiaLib& operator=(ScopedAletheiaLib&&) = delete;
+    auto operator=(const ScopedAletheiaLib&) -> ScopedAletheiaLib& = delete;
+    auto operator=(ScopedAletheiaLib&&) -> ScopedAletheiaLib& = delete;
     ~ScopedAletheiaLib() {
         if (saved_)
             ::setenv("ALETHEIA_LIB", saved_->c_str(), /*overwrite=*/1);
@@ -324,9 +323,9 @@ TEST_CASE(
 }
 
 TEST_CASE("AletheiaException is catchable as std::exception", "[error]") {
-    // Existing catch (const std::exception&) blocks must keep working after
-    // the AletheiaException migration — they catch the new exception via
-    // its std::runtime_error base.
+    // A catch on the standard exception type catches this one, through the
+    // runtime-error base it derives from, so a caller that never learned the
+    // library's own exception type still sees the failure.
     try {
         throw AletheiaException(AletheiaError{ErrorKind::Ffi, "test message"});
     } catch (const std::exception& e) {

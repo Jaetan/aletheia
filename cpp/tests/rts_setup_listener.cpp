@@ -1,15 +1,17 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// Point 2 ("whine if the runtime is uninitialised"): the rational renderer no
-// longer self-initialises the GHC RTS (see rational_renderer.cpp), so any
-// render-dependent test that does NOT create a real FfiBackend itself needs the
-// runtime brought up out of band. Two test binaries link this listener:
-//   - unit_tests        — a Check's `condition_desc()` + enrichment's value render
-//   - log_events_tests  — `set_properties` renders the condition descriptions
-// (Real-backend binaries like integration_tests must NOT link it: they create
-// their own FfiBackend, possibly at `rts_cores > 1`, and the listener's default
-// `-N1` init would race them into a spurious `rts.cores_mismatch`.)
+// The rational renderer does not initialise the GHC RTS (see
+// rational_renderer.cpp), so any render-dependent test that does not create a
+// real FfiBackend itself needs the runtime brought up out of band. The test
+// binaries that link this listener are unit_tests, where a check's
+// condition description and enrichment's value render need it; yaml_tests and
+// excel_tests, whose numeric fields are parsed through the kernel decimal
+// source of truth; and log_events_tests, where set_properties renders the
+// condition descriptions. Real-backend binaries such as integration_tests must
+// not link it: they create their own FfiBackend, possibly asking for more than
+// one core, and the listener's single-core init would race them into a
+// spurious cores mismatch.
 //
 // This Catch2 listener brings the RTS up once for the whole process
 // (`testRunStarting`) via a throwaway FfiBackend whose constructor runs `hs_init`;
@@ -19,26 +21,26 @@
 // "runtime not initialized" error. (The dedicated renderer-uninitialised test runs
 // in its own ctest process without this listener, so it is not masked.)
 
+#include <catch2/catch_test_run_info.hpp>
+#include <catch2/interfaces/catch_interfaces_reporter.hpp>
 #include <catch2/reporters/catch_reporter_event_listener.hpp>
 #include <catch2/reporters/catch_reporter_registrars.hpp>
 
 #include <aletheia/backend.hpp>
 
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <string_view>
 
-namespace {
-
-// Locate libaletheia-ffi.so the same way the renderer's find_library_path does:
-// ALETHEIA_LIB (pinned by CI), else the build-tree relative paths ctest runs from.
-// Each candidate is existence-checked and falls through to the next if it does not
-// resolve (so a stale env value cannot shadow a present .so); the empty path is
-// returned only when EVERY candidate is exhausted, which leaves the runtime down
-// and the render-dependent tests fail vocally. Uses the same getenv → string_view
-// (!empty) → fs::exists shape as find_library_path verbatim.
-auto find_test_lib() -> std::filesystem::path {
+// Locate libaletheia-ffi.so the way the renderer's find_library_path does, in
+// the same order and with the same checks: ALETHEIA_LIB, which CI pins, then
+// the build-tree paths ctest runs from, each existence-checked so a stale
+// variable cannot shadow a library that is there. The empty path comes back
+// only when every candidate is exhausted, which leaves the runtime down and
+// the render-dependent tests failing vocally.
+static auto find_test_lib() -> std::filesystem::path {
     namespace fs = std::filesystem;
     if (auto* env = std::getenv("ALETHEIA_LIB")) {
         const std::string_view env_sv{env};
@@ -55,6 +57,7 @@ auto find_test_lib() -> std::filesystem::path {
     return {};
 }
 
+namespace {
 class RtsSetupListener : public Catch::EventListenerBase {
 public:
     using Catch::EventListenerBase::EventListenerBase;
@@ -74,7 +77,6 @@ public:
 private:
     std::unique_ptr<aletheia::IBackend> backend_;
 };
-
 } // namespace
 
 CATCH_REGISTER_LISTENER(RtsSetupListener)

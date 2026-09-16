@@ -34,9 +34,9 @@ bindings:
 
   python:
     tool: mutmut
-    version: ">=3.5,<4"
+    version: "==3.8.0"
     install: |
-      python/.venv/bin/pip install 'mutmut>=3.5,<4'
+      python/.venv/bin/pip install -e 'python/.[mutation]'
     hot_path:
       # AGENTS.md cat 14(g) Python list, mapped to actual on-disk paths.
       - python/aletheia/client/_client.py    # was AGENTS.md `client.py`; protocols split moved it
@@ -82,10 +82,27 @@ bindings:
       # NULL deref into an error response instead of a SIGSEGV — it was
       # 824 killed / 3 segfault / total 825 before that hardening.
       # The drift gate fails on survivor #2 — any NEW survivor is a finding.
+      #
+      # Re-measured 2026-09-16 under the now-exactly-pinned mutmut 3.8.0.  The
+      # mutant total moved 828 -> 924 because the generator moved, not because
+      # the package grew: a floating `>=3.6.0,<4` let a developer sit on 3.6.0
+      # while CI resolved to 3.8.0, and the two enumerate different mutants.
+      # That is why the pin above is exact now; bumping it re-measures this row.
+      #
+      # 3.8.0 also found a real gap 3.6.0 never generated: a mutant forcing the
+      # backend factory on for a caller-injected backend, which makes close()
+      # drop a caller-owned backend and the next __enter__ build a real
+      # FFIBackend in its place.  The re-entry test asserted only that re-entry
+      # succeeded, which it does either way; it now asserts the injected backend
+      # is the one re-initialised, and the mutant dies.
+      #
+      # The one survivor is unchanged and still the documented equivalent
+      # (dump_json's ensure_ascii=False -> None; None is falsy, so json.dumps
+      # behaves identically).  The drift gate fails on survivor #2.
       survivors: 1
-      total_mutants: 828
+      total_mutants: 924
       score_pct: 99
-      run_at: "2026-06-15"
+      run_at: "2026-09-16"
 
   go:
     # AGENTS.md cat 14(g) names `gomut` / `go-mutesting` / `mutate` as the Go
@@ -151,9 +168,13 @@ bindings:
       # clang plugin .so.  Full recipe + cache keys: pr-heavy-lanes.yml mutation
       # lane and docs/operations/MUTATION.md § C++.
     hot_path:
-      # AGENTS.md cat 14(g) C++ list: `cpp/src/*.cpp` — Mull mutates all of
-      # them via the `-fpass-plugin` clang option in the dedicated build tree.
-      # `mock_backend.cpp` and `types.cpp` excluded (test-only / type defs).
+      # AGENTS.md cat 14(g) C++ list, less `mock_backend.cpp` and `types.cpp`
+      # (test-only and type definitions).  This list is what the static gate
+      # requires to exist; it does not select what Mull mutates.  The IR
+      # plugin is attached to the library and the test binary, so Mull
+      # mutates whatever those compile, which reaches files not listed here
+      # and produces nothing for listed files whose operators it does not
+      # recognise.
       - cpp/src/backend.cpp
       - cpp/src/client.cpp
       - cpp/src/dbc.cpp
@@ -184,31 +205,20 @@ bindings:
       # the "Surviving mutants: N" / "Mutation score: P%" summary at the
       # tail.  Killed count derived from survived + score_pct.
     baseline:
-      # Re-recorded 2026-06-11 under clang-22 / Mull 0.34.0 (LLVM-22) — ZERO
-      # survivors, 60/60.  Re-baselined from the Mull-19 era (45 killed / 0):
-      # the compiler version changes the mutation surface — clang-22 + Mull-22
-      # generate 60 mutants where Mull-19 generated 45, concrete proof that
-      # "test the clang-19 mutants while shipping clang-22" was a real gap.
+      # Zero survivors is the floor: any survivor on a future commit fails the
+      # lane, matching the Go binding above.
       #
-      # Two-part close.  (1) The Mull-19 survivor-elimination pass still holds:
-      # json-lane value tests (negate / integer-division / timestamp boundary);
-      # the parse_rational_dict den==0-after-sign-branch reorder + message test;
-      # dropping no-observable-effect reserve() hints; and lifting the FfiBackend
-      # RTS-init / FFI-error branches into pure unit-tested helpers
-      # (src/detail/ffi_logic.cpp).  (2) NEW under clang-22: the Mock-only
-      # unit_tests never executed ffi_backend.cpp, so Mull-22 reported its
-      # mutants as UNCOVERED (Mull-19 silently omitted uncovered mutants, hence
-      # the old 45).  Fix: fold tests/integration_tests.cpp into the mutation
-      # binary (ALETHEIA_MUTATION-only) so the real FfiBackend runs.  That
-      # auto-killed the dlsym/result null guards and the <=64 payload mutants
-      # via normal ≤64-byte traffic; the four `>64`→`>=64`/`<=64` boundary
-      # mutants (send_frame / extract-bin / extract-JSON / update — guards
-      # behind the client's data.size()==dlc_to_bytes(dlc) pre-check, reachable
-      # only at exactly 64) needed an exactly-64-byte CAN-FD call each — see
-      # the "[boundary]" integration test.  This zero-survivor baseline is the
-      # strictest possible floor — any new survivor on a future commit fails
-      # the lane (matching the Go binding's standard above).
+      # Two decisions hold the floor.  The mutation binary folds in the
+      # real-FFI integration tests, because a mock-only binary never executes
+      # the dlopen glue and Mull reports its mutants as uncovered.  Four
+      # boundary mutants on the payload-size guards sit behind the client's
+      # own size pre-check and are reachable only at exactly sixty-four
+      # bytes, which the integration suite's boundary case supplies.
+      #
+      # The surface moves with the compiler, so the count below is a
+      # measurement of this toolchain and not a target.
       survivors: 0
-      total_mutants: 60
+      total_mutants: 62
+      timeouts: 0
       score_pct: 100
-      run_at: "2026-06-11"
+      run_at: "2026-09-15"

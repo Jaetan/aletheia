@@ -6,39 +6,60 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
+#include <optional>
 #include <set>
 #include <variant>
 #include <vector>
 
 namespace aletheia {
 
+// The signals of a message that satisfy a predicate, copied out in order.
+// Written as a copy rather than as a `views::filter | ranges::to` pipe: the
+// pipe form of ranges::to only works from a libstdc++ point release newer
+// than the one the build's own CI pins, and the break shows up nowhere but
+// there, on a machine whose standard library is older than the developer's.
+static auto signals_where(const std::vector<DbcSignal>& signals, auto pred)
+    -> std::vector<DbcSignal> {
+    std::vector<DbcSignal> out;
+    std::ranges::copy_if(signals, std::back_inserter(out), pred);
+    return out;
+}
+
+static auto is_always_present(const DbcSignal& s) -> bool {
+    return std::holds_alternative<AlwaysPresent>(s.presence);
+}
+
+static auto is_multiplexed_signal(const DbcSignal& s) -> bool {
+    return std::holds_alternative<Multiplexed>(s.presence);
+}
+
+// The element a lazily built index points at, trusted only if it still
+// matches the key. The public vectors may have been shrunk, reordered or
+// replaced in place since the index was built, so a stale index could be out
+// of bounds or name the wrong element; either failure reads as not found.
+template<typename Item, typename Matches>
+static auto cached_element(std::optional<std::size_t> idx, const std::vector<Item>& items,
+                           Matches matches) -> const Item* {
+    if (!idx || *idx >= items.size() || !matches(items[*idx]))
+        return nullptr;
+    return &items[*idx];
+}
+
 // ---------------------------------------------------------------------------
 // DbcMessage helpers
 // ---------------------------------------------------------------------------
 
 auto DbcMessage::is_multiplexed() const -> bool {
-    return std::ranges::any_of(
-        signals, [](const auto& s) { return std::holds_alternative<Multiplexed>(s.presence); });
+    return std::ranges::any_of(signals, is_multiplexed_signal);
 }
 
 auto DbcMessage::always_present_signals() const -> std::vector<DbcSignal> {
-    std::vector<DbcSignal> out;
-    for (const auto& s : signals) {
-        if (std::holds_alternative<AlwaysPresent>(s.presence)) {
-            out.push_back(s);
-        }
-    }
-    return out;
+    return signals_where(signals, is_always_present);
 }
 
 auto DbcMessage::multiplexed_signals() const -> std::vector<DbcSignal> {
-    std::vector<DbcSignal> out;
-    for (const auto& s : signals) {
-        if (std::holds_alternative<Multiplexed>(s.presence)) {
-            out.push_back(s);
-        }
-    }
-    return out;
+    return signals_where(signals, is_multiplexed_signal);
 }
 
 auto DbcMessage::multiplexor_names() const -> std::vector<SignalName> {
@@ -73,17 +94,11 @@ auto DbcMessage::multiplex_values(const SignalName& multiplexor) const
 
 auto DbcMessage::signals_for_mux_value(const SignalName& multiplexor, MultiplexValue value) const
     -> std::vector<DbcSignal> {
-    std::vector<DbcSignal> out;
-    for (const auto& s : signals) {
-        const bool is_always = std::holds_alternative<AlwaysPresent>(s.presence);
+    return signals_where(signals, [&](const DbcSignal& s) {
         const auto* m = std::get_if<Multiplexed>(&s.presence);
-        if (is_always ||
-            (m != nullptr && m->multiplexor == multiplexor &&
-             std::ranges::find(m->multiplex_values, value) != m->multiplex_values.end())) {
-            out.push_back(s);
-        }
-    }
-    return out;
+        return is_always_present(s) || (m != nullptr && m->multiplexor == multiplexor &&
+                                        std::ranges::contains(m->multiplex_values, value));
+    });
 }
 
 auto DbcMessage::signal_by_name(const SignalName& name) const -> const DbcSignal* {
@@ -92,16 +107,8 @@ auto DbcMessage::signal_by_name(const SignalName& name) const -> const DbcSignal
             map.emplace(signals[i].name.get(), i);
         }
     });
-    auto idx = signal_index_cache.find(name.get());
-    // A cached index is trusted only if the element there still matches the key.
-    // The public `signals` vector may have been mutated since the cache was built
-    // (shrunk, reordered, or replaced in place); a stale index could be OOB (UB)
-    // or point at the wrong signal.  The bounds term short-circuits before the
-    // name compare; either failure reads as not-found → nullptr.
-    if (!idx || *idx >= signals.size() || signals[*idx].name.get() != name.get()) {
-        return nullptr;
-    }
-    return &signals[*idx];
+    return cached_element(signal_index_cache.find(name.get()), signals,
+                          [&](const DbcSignal& s) { return s.name == name; });
 }
 
 // ---------------------------------------------------------------------------
@@ -124,16 +131,8 @@ auto DbcDefinition::message_by_id(const CanId& id) const -> const DbcMessage* {
         }
     });
     const std::uint64_t key = message_key(id);
-    auto idx = id_index_cache.find(key);
-    // A cached index is trusted only if the message there still has the requested
-    // id.  The public `messages` vector may have been mutated since the cache was
-    // built (shrunk, reordered, or replaced in place); a stale index could be OOB
-    // (UB) or point at the wrong message.  The bounds term short-circuits before
-    // the key compare; either failure reads as not-found → nullptr.
-    if (!idx || *idx >= messages.size() || message_key(messages[*idx].id) != key) {
-        return nullptr;
-    }
-    return &messages[*idx];
+    return cached_element(id_index_cache.find(key), messages,
+                          [&](const DbcMessage& m) { return message_key(m.id) == key; });
 }
 
 auto DbcDefinition::message_by_name(const MessageName& name) const -> const DbcMessage* {
@@ -142,15 +141,8 @@ auto DbcDefinition::message_by_name(const MessageName& name) const -> const DbcM
             map.emplace(messages[i].name.get(), i);
         }
     });
-    auto idx = name_index_cache.find(name.get());
-    // A cached index is trusted only if the message there still has the requested
-    // name (the public `messages` vector may have been shrunk/reordered/replaced
-    // since the cache was built).  The bounds term short-circuits before the name
-    // compare; either failure reads as not-found → nullptr.
-    if (!idx || *idx >= messages.size() || messages[*idx].name.get() != name.get()) {
-        return nullptr;
-    }
-    return &messages[*idx];
+    return cached_element(name_index_cache.find(name.get()), messages,
+                          [&](const DbcMessage& m) { return m.name == name; });
 }
 
 } // namespace aletheia

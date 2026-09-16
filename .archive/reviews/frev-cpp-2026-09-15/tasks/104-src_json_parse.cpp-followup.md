@@ -1,0 +1,125 @@
+# Task 104: file review of `cpp/src/json_parse.cpp` (follow-up from task 062)
+
+- status: completed
+- file: `cpp/src/json_parse.cpp`
+- round base: b222b613 (2026-09-15)
+- pass: lenses and diff, over the integer conversion below plus whatever the lenses fire on
+- origin: a wire integer one past the signed 64-bit maximum is refused, but for the wrong reason and with a message that misstates it. Measured at task 062 by driving the property-result path: 9223372036854775808 as a property index comes back "Negative property_index: -9223372036854775808", the value having wrapped in the conversion before the sign test saw it. The refusal is sound, so nothing unsafe is accepted, but a caller reading the message is told the document said a negative number when it said too large a one, and the same conversion feeds the timestamp. The kernel refuses out-of-range integers at entry on its own side, so the two ends should agree on what they call this. Check the JSON library's own out-of-range reporting for the number before converting, give the refusal its own message, and gate it with a failing-first case; the fuzz seed cpp/tests/fuzz/seed/parse_rational_number/int64_overflow.txt keeps the shape in the corpus.
+
+## Report
+
+Lenses and diff pass over the integer conversions. Fix in refs/frev/104 (signed later by the dribble).
+
+Claims and guards: the two integer helpers claim to refuse a wire number the position cannot take, and the comment above them says the caller's own range check still runs on what they return. Both claims held only for floats. The narrowing conversion itself was unguarded, and the JSON library keeps a positive literal above the signed maximum as an unsigned one, so the conversion wrapped. Nothing in the suite covered a value outside a position's range, so the claim had no guard.
+
+Findings fixed, one class at three widths. A property index one past the signed 64-bit maximum wrapped to the most negative value and the sign test below it answered "Negative property_index", telling the caller the document said a negative number when it said too large a one. The same wrap reached the narrower positions, which the sweep for it found: a CAN id of 2^32 became a valid standard id of zero and the message decoded under an id the document never stated, and a frame data byte of 256 became zero and the payload decoded a byte the document never stated. Both of those were silent acceptances rather than wrong messages, so they are the worse half of the finding. Bare integers reaching the rational parser took the same unguarded conversion and now go through the helper too.
+
+Each is now compared against its own position's range before it is narrowed, with the standard in-range predicate, and the refusal names that range and dumps the value. Three failing-first cases, one per width, were run against the previous tree: all three failed, the index case on the message and the other two on accepting the document. All three pass on the fix and the whole suite is green.
+
+Cross-binding: neither other decoder misreports this. The Rust response type holds the index in 32 bits, so its deserializer refuses anything larger before the value reaches the client, and Python's integers are arbitrary precision, so a large index stays large and positive. C++ was the only end that turned too large into negative.
+
+```
+REPORT 2026-09-15 tree refs/frev/105 fix in refs/frev/104
+claims: 2 rows, 2 without a guard: both integer helpers claimed a refusal they only performed for floats; three cases added, one per position width
+1 line per line: checked, the helpers, the rational parser and every call site of both helpers read whole
+2 guidelines: checked, the narrowing conversion is guarded rather than trusted
+3 modernize: checked, the range test is the standard in-range predicate rather than a hand-written pair of comparisons
+4 catalogue: checked, comparing before narrowing is what the library's own documentation tells a caller to do, since its accessor casts without checking
+5 value semantics: checked, the helpers take the node by reference and return by value
+6 raii: n/a, no resource
+7 dedup: checked, the refusal is built once in a helper the two share
+8 ground truth: finding, the comment claimed both helpers preserve the caller's range check; true for floats only, and now true as written
+9 history: checked, the added comment states the current refusal and the wrap it prevents, not what the file used to do
+10 simpler: checked
+11 comments: 345 to 361, code 2565 to 2619
+sweep: 19 mutations name the file, all KILLED, against 17 at the round base; the two new ones are on the exactness test in the rational-to-integer path
+probes: none name this file; the three failing-first cases are the guard, and the committed overflow seed drives the same path through the fuzz target without a crash
+decision points: none
+```
+
+## Contract (carried whole)
+
+## FREV: the file review contract
+
+### The unit of review is the claim
+
+Every guarantee the file states is a claim: a comment saying what a function refuses, holds or never does; a `[[nodiscard]]`; a `static_assert` and its message; an error enumerator; a documented row the file implements; an invariant a header spells. The task's required artifact is a table with one row per claim: the claim, and the guard that goes red without it (a test case, a mutation the repository's sweep names, a gate arm, a model-checker arm). A row whose guard column reads none is the finding, and the fix is the guard, a failing-first test and a sweep entry where the repository has one, never a sentence saying the claim is true.
+
+### The eleven points, each answered in the report
+
+1. Line per line: the whole file is read, whatever an earlier pass concluded, and each line is asked what it does and whether it needs to.
+2. C++ Core Guidelines, C++23 best practices, idioms and patterns.
+3. Modernize, idiom only: any change that could move behaviour needs a gate that goes red before it and green after. No `NOLINT` without a measured, single-site reason, no `#define`, no build-file edit to make a construct compile, `template <typename T>` and never `class`. A file that is not C++ (CMake, bash, YAML, Python, markdown) is brought to its own language's idiom under the same rule.
+4. Idioms from a catalogue where the repository keeps one pinned to its toolchain; otherwise the net, searched for the pattern and never with repo code, identifiers or paths in the query. Each is a candidate checked against the file, never a verdict.
+5. Value semantics unless performance is paramount, and paramount means measured: a reference, a pointer or a borrowed view earns its place with a number.
+6. RAII for every resource: descriptor, mapping, lock, table entry, registration, handle. Every release outside a destructor is either a class's own release path or a finding, and the question is asked of the whole file rather than only of what already looks like a resource.
+7. Dedup the code and the comments. A clone inside one file is that file's finding; one spanning files becomes an XREV task rather than widening this one.
+8. Every comment against ground truth. An identifier, path or test name a comment cites that resolves nowhere is a finding before the file is read; a claim about behaviour is checked against the code and the tests, never against another comment.
+9. No history: comments describe the current state, git holds the past.
+10. A simpler, more performant or more idiomatic implementation that exists is used.
+11. Precise, concise comments a reader with a short attention span can read, and the comment count is measured: see the next section.
+
+### Compression has a number
+
+The report states code lines and comment lines before and after. A task may not leave a file with more comment lines than it found unless the same task fixed a defect in that file. The round ends with the ratio table over the whole directory beside the table at its base.
+
+### A comment block edited in two of the last three rounds is frozen
+
+It is edited again only for falsity, with the source line that shows it false quoted in the commit; reading better is not a reason. The churn between rounds, each rewriting the last one's prose, is what this rule stops.
+
+### Per task: the sweep, not the anchor check
+
+After every edit that lands, run whatever the repository has that watches the file: the mutation sweep over every mutation naming the file, each of which must read KILLED; the model-checker gate where the file is one it compiles; a fresh configure where a member was renamed, a public header added or an include changed, because configure-time gates never run on an incremental build; and every probe in the store that names the file, since a probe is the one instrument that remembers what an earlier round proved. An anchor that still resolves is not a verdict: a reflowed line can leave the anchor resolving and the mutation equivalent, or the test no longer failing.
+
+### Everything is truth-grounded: the claim, the finding, the replacement, the report, the commit message
+
+Nothing enters or leaves a task on the strength of being plausible. A lens hit, a catalogue idiom, a guideline rule or a suspicion from reading is a candidate until a probe runs against the file: compile the block, run the test with the line mutated, run the sanitizer, read the standard or guideline the comment cites and print its clause, grep the tree for the identifier. A candidate the probe dismisses is recorded as dismissed with the probe, because the next round will suspect the same line. Measure every number in the report, code lines, comment lines, mutation identifiers and timings included, with the shell substituting the measurement rather than a number typed by hand.
+
+The replacement is under the same rule, which is the half that gets skipped: every changed line of a fix is its own claim and owes its own guard, a test that fails without it or a probe that reads red without it, and a guard that cannot go red is not one. Re-read the replacement whole against the source the finding came from, never through `cut` or a diff hunk, before the commit. A guideline cited in a finding is cited by its number, with the clause printed, never from memory.
+
+### Round start and round end
+
+At round start, before the first task: the repository's gate audit over the component, its mutation sweep over the directory, the whole probe store, and every mechanical lens it offers over the directory, kept beside the round's record so the end of the round is diffed against it. At round end the same, plus a check that every completed task's report is in the shape below.
+
+### The report shape
+
+Every task ends with a report in this shape, in the task's own description, so "reviewed, no change" is auditable point by point. Each numbered line reads `checked` with the evidence, `n/a` with the reason, or `finding` with the commit.
+
+```
+REPORT <date> tree <commit> <commit of the fix | NO CHANGE>
+claims: <rows> rows, <rows without a guard> without a guard: <what was added, or none>
+1 line per line: ...
+2 guidelines: ...
+3 modernize: ...
+4 catalogue: ...
+5 value semantics: ...
+6 raii: ...
+7 dedup: ...
+8 ground truth: ...
+9 history: ...
+10 simpler: ...
+11 comments: <comment lines before> to <after>, code <before> to <after>
+sweep: <mutation idents> KILLED | no mutation names this file
+probes: <paths added> | <paths re-run, all green> | none
+decision points: none | appended to the accumulator
+```
+
+### Repeat passes
+
+The first read of every task is the previous round's own added lines to the file, `git diff <previous base>..<previous end> -- <file>`, because that is where the last rounds' findings were. A file untouched since the previous round over its directory, under the same contract, gets a lenses-and-diff pass: the lenses run, the diff since that round's end is read, and the file is read whole only where a lens fires or a neighbour's rename reaches it. Every other file gets the full pass, and the task says which of the two it is.
+
+## Probes subsist, for all six
+
+A probe run once at the terminal and thrown away proves something to one session and nothing to the next. Every probe a task runs, to prove a finding, to dismiss a candidate, to measure a number in a report or to check a claim, is saved to the repository's probe store: a tracked directory the repository names (look for `probes/`, `scripts/probes/`, `tools/probes/` or their equivalents before acting), and `probes/` at the repository root where it names none. A repository without a store gets one, with its runner, at the opening of its first round.
+
+One probe is one file, runnable from the repository root with the repository's own toolchain, with no network, no path outside the tree and no dependence on the shell it was written in. It opens with a header stating the claim it checks, the file or document it probes, and what a non-zero exit means. It exits zero when the property holds and non-zero when the defect is present. A probe that measures asserts against the value recorded inside it, with the tolerance stated beside the value. It is named by the file it probes and the property, never by a round, a task id or a date. A probe that can flake is a finding on the probe, fixed before it enters the store.
+
+The store has one runner, which runs every probe, prints one line per probe with its path and pass or fail, and exits non-zero on any failure; the runner's output is the record and is kept beside the round's own. The runner runs: at the opening of every round, over every probe of every word, before the first task; at round end, diffed line by line against the opening run; after every edit that lands, over every probe naming the file; and on demand at any time, which is the point of keeping them.
+
+A probe that runs red after a change is a regression finding for the task that made the change, fixed before that task's commit. A probe red because the thing it probed was removed on purpose is retired by the same commit, with the reason in the commit message. A probe is never edited to pass.
+
+A probe and a test are not the same thing, and one does not retire the other. The test is the guard the suite runs on every build; the probe is the review's instrument, and it stays after a test carries its claim, so a test later weakened or deleted is caught at the next opening. The dismissed candidate is the case only the store covers: a probe that proved a suspected defect absent has no test, and it is exactly what the next round must re-run rather than re-suspect. The report cites each probe by path; a document under DREV never does.
+
+## Evidence, for all six
+
+Every finding is proven by a probe or a failing-first test, never reasoned, and the probe is in the store or it is not evidence; documents, comments and prior claims are not evidence; the review is adversarial, so a quality that cannot be demonstrated is treated as absent. A fix the suite cannot fail is not a fix: mutate it away and confirm a test dies. No repo code, identifier or path leaves the machine. Nothing written names a review round, a decision point by number, an alternative by letter, or an entry of the working task list; commit bodies name no assistant or vendor, and the attribution trailers the repository's commit workflow prescribes (a co-author line and a session link) are kept; no em-dash anywhere.

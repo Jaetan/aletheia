@@ -1,0 +1,5 @@
+Running clang-tidy in 24 threads for 4 files out of 245 in compilation database ...
+[1/4][2.3s] clang-tidy-22 -p=build-fuzz -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/fuzz/fuzz_parse_rational_number.cpp
+[2/4][2.4s] clang-tidy-22 -p=build-fuzz -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/fuzz/fuzz_parse_dbc_json.cpp
+[3/4][2.5s] clang-tidy-22 -p=build-fuzz -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/fuzz/fuzz_parse_response.cpp
+[4/4][3.2s] clang-tidy-22 -p=build-fuzz -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/fuzz/fuzz_decode_binary_frame.cpp

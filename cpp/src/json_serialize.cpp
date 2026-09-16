@@ -18,6 +18,7 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
+#include <vector>
 
 using Json = nlohmann::json;
 
@@ -41,12 +42,10 @@ static auto rational_to_json(const Rational& r) -> Json {
     }
     auto num = r.numerator();
     auto den = r.denominator();
-    // The den < 0 normalization here was unreachable dead code: `r` is a
-    // Rational, whose ctor enforces den > 0 (throws otherwise), so
-    // r.denominator() is always positive.  Removed — it harbored untestable
-    // surviving mutants under Mull (json_serialize.cpp cxx_lt_to_le /
-    // cxx_minus_to_noop).  The INT64_MIN guard above is the only reachable
-    // defensive branch (num can legitimately be INT64_MIN).
+    // No sign normalisation: a Rational's constructor enforces a positive
+    // denominator, so only the numerator can be negative.  The zero test below
+    // is defensive for the same reason the INT64_MIN test above is: a
+    // format-only path must surface an upstream defect rather than fault on it.
     if (den == 0) {
         // Mirrored at the `Rational::make` invariant; emit raw to surface
         // the bug rather than masking it.
@@ -60,11 +59,19 @@ static auto rational_to_json(const Rational& r) -> Json {
     return {{"numerator", num}, {"denominator", den}};
 }
 
+// A JSON array of the elements of `items`, each through `to_json`.
+template<typename Range, typename ToJson>
+static auto json_array(const Range& items, ToJson to_json) -> Json {
+    Json arr = Json::array();
+    for (const auto& item : items)
+        arr.push_back(to_json(item));
+    return arr;
+}
+
 static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
-    // Mirror the Agda wire form: emit "presence": "always" / "multiplexed"
-    // explicitly. Both variants now carry the
-    // explicit discriminator (cross-binding parity with Agda Formatter and
-    // Python TypedDict / Go serializeDBC).
+    // Mirror the Agda wire form: every variant carries an explicit
+    // "presence" discriminator ("always" / "multiplexed"), as the Agda
+    // formatter and the Python and Go serializers do.
     std::visit(
         [&sig](auto&& v) {
             using T = std::decay_t<decltype(v)>;
@@ -73,10 +80,8 @@ static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
             } else if constexpr (std::is_same_v<T, Multiplexed>) {
                 sig["presence"] = "multiplexed";
                 sig["multiplexor"] = v.multiplexor.get();
-                auto arr = Json::array();
-                for (const auto& mv : v.multiplex_values)
-                    arr.push_back(mv.get());
-                sig["multiplex_values"] = std::move(arr);
+                sig["multiplex_values"] = json_array(
+                    v.multiplex_values, [](const MultiplexValue& mv) { return mv.get(); });
             } else {
                 static_assert(sizeof(T) == 0, "Unhandled SignalPresence type");
             }
@@ -84,10 +89,22 @@ static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
         p);
 }
 
+// The wire form of one {value, description} pair, shared by a signal's inline
+// entries and a value table's rows.
+static auto value_entry_to_json(const DbcValueEntry& e) -> Json {
+    return {{"value", e.value}, {"description", e.description}};
+}
+
+// A node-valued field crosses the wire as the plain string it always was; the
+// type it carries in the definition says which strings are meant.
+static auto node_names_to_json(const std::vector<NodeName>& names) -> Json {
+    Json out = Json::array();
+    for (const auto& n : names)
+        out.push_back(n.get());
+    return out;
+}
+
 static auto signal_def_to_json(const DbcSignal& s) -> Json {
-    Json vds = Json::array();
-    for (const auto& e : s.value_descriptions)
-        vds.push_back(Json{{"value", e.value}, {"description", e.description}});
     Json sig = {
         {"name", s.name.get()},
         {"startBit", s.start_bit.get()},
@@ -99,20 +116,21 @@ static auto signal_def_to_json(const DbcSignal& s) -> Json {
         {"minimum", rational_to_json(s.minimum.get())},
         {"maximum", rational_to_json(s.maximum.get())},
         {"unit", s.unit.get()},
-        {"receivers", s.receivers},
-        {"valueDescriptions", std::move(vds)},
+        {"receivers", node_names_to_json(s.receivers)},
+        {"valueDescriptions", json_array(s.value_descriptions, value_entry_to_json)},
     };
     presence_to_json(s.presence, sig);
     return sig;
 }
 
 static auto message_to_json(const DbcMessage& m) -> Json {
-    Json sigs = Json::array();
-    for (const auto& s : m.signals)
-        sigs.push_back(signal_def_to_json(s));
     Json msg = {
-        {"id", can_id_value(m.id)}, {"name", m.name.get()}, {"dlc", dlc_to_bytes(m.dlc)},
-        {"sender", m.sender.get()}, {"senders", m.senders}, {"signals", std::move(sigs)},
+        {"id", can_id_value(m.id)},
+        {"name", m.name.get()},
+        {"dlc", dlc_to_bytes(m.dlc)},
+        {"sender", m.sender.get()},
+        {"senders", node_names_to_json(m.senders)},
+        {"signals", json_array(m.signals, signal_def_to_json)},
     };
     // Mirror the Agda wire form: emit "extended" only when the CAN ID is
     // extended (29-bit). Agda omits the field for standard 11-bit frames;
@@ -125,10 +143,8 @@ static auto message_to_json(const DbcMessage& m) -> Json {
 }
 
 static auto signal_group_to_json(const DbcSignalGroup& g) -> Json {
-    Json sigs = Json::array();
-    for (const auto& sn : g.signals)
-        sigs.push_back(sn.get());
-    return {{"name", g.name}, {"signals", std::move(sigs)}};
+    return {{"name", g.name},
+            {"signals", json_array(g.signals, [](const SignalName& sn) { return sn.get(); })}};
 }
 
 static auto env_var_to_json(const DbcEnvironmentVar& ev) -> Json {
@@ -142,10 +158,7 @@ static auto env_var_to_json(const DbcEnvironmentVar& ev) -> Json {
 }
 
 static auto value_table_to_json(const DbcValueTable& t) -> Json {
-    Json entries = Json::array();
-    for (const auto& e : t.entries)
-        entries.push_back(Json{{"value", e.value}, {"description", e.description}});
-    return {{"name", t.name}, {"entries", std::move(entries)}};
+    return {{"name", t.name}, {"entries", json_array(t.entries, value_entry_to_json)}};
 }
 
 // ---------------------------------------------------------------------------
@@ -156,39 +169,61 @@ static auto value_table_to_json(const DbcValueTable& t) -> Json {
 // ---------------------------------------------------------------------------
 
 static auto node_to_json(const DbcNode& n) -> Json {
-    return {{"name", n.name}};
+    return {{"name", n.name.get()}};
 }
 
-static auto attach_can_id(Json& obj, std::uint32_t id, bool extended) -> void {
-    obj["id"] = id;
-    if (extended)
+static auto attach_can_id(Json& obj, const CanId& id) -> void {
+    obj["id"] = can_id_value(id);
+    if (can_id_is_extended(id))
         obj["extended"] = true;
 }
 
+// Comment targets and attribute targets are two variants over the same seven
+// shapes, and each shape has one wire form, so one serializer dispatches on
+// the members an alternative carries rather than on its type.  A new shape
+// fails the final static_assert.
+static auto target_to_json(const auto& v) -> Json {
+    using T = std::decay_t<decltype(v)>;
+    if constexpr (requires {
+                      v.node;
+                      v.id;
+                      v.signal;
+                  }) {
+        Json out = {{"kind", "nodeSig"}, {"node", v.node.get()}};
+        attach_can_id(out, v.id);
+        out["signal"] = v.signal;
+        return out;
+    } else if constexpr (requires {
+                             v.node;
+                             v.id;
+                         }) {
+        Json out = {{"kind", "nodeMsg"}, {"node", v.node.get()}};
+        attach_can_id(out, v.id);
+        return out;
+    } else if constexpr (requires {
+                             v.id;
+                             v.signal;
+                         }) {
+        Json out = {{"kind", "signal"}};
+        attach_can_id(out, v.id);
+        out["signal"] = v.signal;
+        return out;
+    } else if constexpr (requires { v.id; }) {
+        Json out = {{"kind", "message"}};
+        attach_can_id(out, v.id);
+        return out;
+    } else if constexpr (requires { v.node; }) {
+        return {{"kind", "node"}, {"node", v.node.get()}};
+    } else if constexpr (requires { v.env_var; }) {
+        return {{"kind", "envVar"}, {"envVar", v.env_var}};
+    } else {
+        static_assert(std::is_empty_v<T>, "Unhandled target shape in target_to_json");
+        return {{"kind", "network"}};
+    }
+}
+
 static auto comment_target_to_json(const DbcCommentTarget& t) -> Json {
-    return std::visit(
-        [](auto&& v) -> Json {
-            using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, DbcCommentTargetNetwork>) {
-                return {{"kind", "network"}};
-            } else if constexpr (std::is_same_v<T, DbcCommentTargetNode>) {
-                return {{"kind", "node"}, {"node", v.node}};
-            } else if constexpr (std::is_same_v<T, DbcCommentTargetMessage>) {
-                Json out = {{"kind", "message"}};
-                attach_can_id(out, v.id, v.extended);
-                return out;
-            } else if constexpr (std::is_same_v<T, DbcCommentTargetSignal>) {
-                Json out = {{"kind", "signal"}};
-                attach_can_id(out, v.id, v.extended);
-                out["signal"] = v.signal;
-                return out;
-            } else if constexpr (std::is_same_v<T, DbcCommentTargetEnvVar>) {
-                return {{"kind", "envVar"}, {"envVar", v.env_var}};
-            } else {
-                static_assert(sizeof(T) == 0, "Unhandled DbcCommentTarget variant");
-            }
-        },
-        t);
+    return std::visit([](const auto& v) { return target_to_json(v); }, t);
 }
 
 static auto comment_to_json(const DbcComment& c) -> Json {
@@ -228,10 +263,8 @@ static auto attr_type_to_json(const DbcAttrType& t) -> Json {
             } else if constexpr (std::is_same_v<T, DbcAttrTypeString>) {
                 return {{"kind", "string"}};
             } else if constexpr (std::is_same_v<T, DbcAttrTypeEnum>) {
-                Json values = Json::array();
-                for (const auto& s : v.values)
-                    values.push_back(s);
-                return {{"kind", "enum"}, {"values", std::move(values)}};
+                return {{"kind", "enum"},
+                        {"values", json_array(v.values, [](const std::string& e) { return e; })}};
             } else if constexpr (std::is_same_v<T, DbcAttrTypeHex>) {
                 return {{"kind", "hex"}, {"min", v.min}, {"max", v.max}};
             } else {
@@ -262,38 +295,7 @@ static auto attr_value_to_json(const DbcAttrValue& v) -> Json {
 }
 
 static auto attr_target_to_json(const DbcAttrTarget& t) -> Json {
-    return std::visit(
-        [](auto&& v) -> Json {
-            using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, DbcAttrTargetNetwork>) {
-                return {{"kind", "network"}};
-            } else if constexpr (std::is_same_v<T, DbcAttrTargetNode>) {
-                return {{"kind", "node"}, {"node", v.node}};
-            } else if constexpr (std::is_same_v<T, DbcAttrTargetMessage>) {
-                Json out = {{"kind", "message"}};
-                attach_can_id(out, v.id, v.extended);
-                return out;
-            } else if constexpr (std::is_same_v<T, DbcAttrTargetSignal>) {
-                Json out = {{"kind", "signal"}};
-                attach_can_id(out, v.id, v.extended);
-                out["signal"] = v.signal;
-                return out;
-            } else if constexpr (std::is_same_v<T, DbcAttrTargetEnvVar>) {
-                return {{"kind", "envVar"}, {"envVar", v.env_var}};
-            } else if constexpr (std::is_same_v<T, DbcAttrTargetNodeMsg>) {
-                Json out = {{"kind", "nodeMsg"}, {"node", v.node}};
-                attach_can_id(out, v.id, v.extended);
-                return out;
-            } else if constexpr (std::is_same_v<T, DbcAttrTargetNodeSig>) {
-                Json out = {{"kind", "nodeSig"}, {"node", v.node}};
-                attach_can_id(out, v.id, v.extended);
-                out["signal"] = v.signal;
-                return out;
-            } else {
-                static_assert(sizeof(T) == 0, "Unhandled DbcAttrTarget variant");
-            }
-        },
-        t);
+    return std::visit([](const auto& v) { return target_to_json(v); }, t);
 }
 
 static auto attribute_to_json(const DbcAttribute& a) -> Json {
@@ -322,164 +324,146 @@ static auto attribute_to_json(const DbcAttribute& a) -> Json {
 // JSON wire form for one unresolved RawValueDesc.
 // Mirrors message_to_json's leading {id, extended} pair via attach_can_id.
 static auto raw_value_desc_to_json(const DbcRawValueDesc& rvd) -> Json {
-    Json entries = Json::array();
-    for (const auto& e : rvd.entries)
-        entries.push_back({{"value", e.value}, {"description", e.description}});
     Json out = {{"id", can_id_value(rvd.can_id)},
                 {"signalName", rvd.signal_name},
-                {"entries", std::move(entries)}};
+                {"entries", json_array(rvd.entries, value_entry_to_json)}};
     if (can_id_is_extended(rvd.can_id))
         out["extended"] = true;
     return out;
 }
 
 static auto dbc_to_json(const DbcDefinition& dbc) -> Json {
-    Json msgs = Json::array();
-    for (const auto& m : dbc.messages)
-        msgs.push_back(message_to_json(m));
-    Json groups = Json::array();
-    for (const auto& g : dbc.signal_groups)
-        groups.push_back(signal_group_to_json(g));
-    Json env_vars = Json::array();
-    for (const auto& ev : dbc.environment_vars)
-        env_vars.push_back(env_var_to_json(ev));
-    Json value_tables = Json::array();
-    for (const auto& vt : dbc.value_tables)
-        value_tables.push_back(value_table_to_json(vt));
-    Json nodes = Json::array();
-    for (const auto& n : dbc.nodes)
-        nodes.push_back(node_to_json(n));
-    Json comments = Json::array();
-    for (const auto& c : dbc.comments)
-        comments.push_back(comment_to_json(c));
-    Json attributes = Json::array();
-    for (const auto& a : dbc.attributes)
-        attributes.push_back(attribute_to_json(a));
-    Json unresolved = Json::array();
-    for (const auto& rvd : dbc.unresolved_value_descriptions)
-        unresolved.push_back(raw_value_desc_to_json(rvd));
     return {
         {"version", dbc.version},
-        {"messages", std::move(msgs)},
-        {"signalGroups", std::move(groups)},
-        {"environmentVars", std::move(env_vars)},
-        {"valueTables", std::move(value_tables)},
-        {"nodes", std::move(nodes)},
-        {"comments", std::move(comments)},
-        {"attributes", std::move(attributes)},
-        {"unresolvedValueDescs", std::move(unresolved)},
+        {"messages", json_array(dbc.messages, message_to_json)},
+        {"signalGroups", json_array(dbc.signal_groups, signal_group_to_json)},
+        {"environmentVars", json_array(dbc.environment_vars, env_var_to_json)},
+        {"valueTables", json_array(dbc.value_tables, value_table_to_json)},
+        {"nodes", json_array(dbc.nodes, node_to_json)},
+        {"comments", json_array(dbc.comments, comment_to_json)},
+        {"attributes", json_array(dbc.attributes, attribute_to_json)},
+        {"unresolvedValueDescs", json_array(dbc.unresolved_value_descs, raw_value_desc_to_json)},
     };
 }
 
+// The wire tag of each predicate alternative.
+template<typename T>
+static constexpr auto predicate_tag() -> std::string_view {
+    if constexpr (std::is_same_v<T, Equals>)
+        return "equals";
+    else if constexpr (std::is_same_v<T, LessThan>)
+        return "lessThan";
+    else if constexpr (std::is_same_v<T, GreaterThan>)
+        return "greaterThan";
+    else if constexpr (std::is_same_v<T, LessThanOrEqual>)
+        return "lessThanOrEqual";
+    else if constexpr (std::is_same_v<T, GreaterThanOrEqual>)
+        return "greaterThanOrEqual";
+    else if constexpr (std::is_same_v<T, Between>)
+        return "between";
+    else if constexpr (std::is_same_v<T, ChangedBy>)
+        return "changedBy";
+    else if constexpr (std::is_same_v<T, StableWithin>)
+        return "stableWithin";
+    else
+        static_assert(sizeof(T) == 0, "Unhandled predicate type in predicate_tag");
+}
+
 // Map each predicate variant to its JSON representation for the Agda core.
+// The five value comparisons differ only in their tag, so the bodies below
+// are the four member shapes rather than the eight types.
 static auto predicate_to_json(const Predicate& p) -> Json {
     return std::visit(
-        [](auto&& v) -> Json {
+        [](const auto& v) -> Json {
             using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, Equals>)
-                return {{"predicate", "equals"},
-                        {"signal", v.signal.get()},
-                        {"value", rational_to_json(v.value.get())}};
-            else if constexpr (std::is_same_v<T, LessThan>)
-                return {{"predicate", "lessThan"},
-                        {"signal", v.signal.get()},
-                        {"value", rational_to_json(v.value.get())}};
-            else if constexpr (std::is_same_v<T, GreaterThan>)
-                return {{"predicate", "greaterThan"},
-                        {"signal", v.signal.get()},
-                        {"value", rational_to_json(v.value.get())}};
-            else if constexpr (std::is_same_v<T, LessThanOrEqual>)
-                return {{"predicate", "lessThanOrEqual"},
-                        {"signal", v.signal.get()},
-                        {"value", rational_to_json(v.value.get())}};
-            else if constexpr (std::is_same_v<T, GreaterThanOrEqual>)
-                return {{"predicate", "greaterThanOrEqual"},
-                        {"signal", v.signal.get()},
-                        {"value", rational_to_json(v.value.get())}};
-            else if constexpr (std::is_same_v<T, Between>)
-                return {{"predicate", "between"},
-                        {"signal", v.signal.get()},
-                        {"min", rational_to_json(v.min.get())},
-                        {"max", rational_to_json(v.max.get())}};
-            else if constexpr (std::is_same_v<T, ChangedBy>)
-                return {{"predicate", "changedBy"},
-                        {"signal", v.signal.get()},
-                        {"delta", rational_to_json(v.delta.get())}};
-            else if constexpr (std::is_same_v<T, StableWithin>)
-                return {{"predicate", "stableWithin"},
-                        {"signal", v.signal.get()},
-                        {"tolerance", rational_to_json(v.tolerance.get())}};
-            else
-                static_assert(sizeof(T) == 0, "Unhandled predicate type in predicate_to_json");
+            Json out = {{"predicate", predicate_tag<T>()}, {"signal", v.signal.get()}};
+            if constexpr (requires { v.value; }) {
+                out["value"] = rational_to_json(v.value.get());
+            } else if constexpr (requires {
+                                     v.min;
+                                     v.max;
+                                 }) {
+                out["min"] = rational_to_json(v.min.get());
+                out["max"] = rational_to_json(v.max.get());
+            } else if constexpr (requires { v.delta; }) {
+                out["delta"] = rational_to_json(v.delta.get());
+            } else if constexpr (requires { v.tolerance; }) {
+                out["tolerance"] = rational_to_json(v.tolerance.get());
+            } else {
+                static_assert(sizeof(T) == 0, "Unhandled predicate shape in predicate_to_json");
+            }
+            return out;
         },
         p);
 }
 
-// Recursively serialize an LTL formula tree to JSON for the Agda core.
-// Depth cap mirrors the kernel SSOT (`Aletheia.Limits.max-nesting-depth`,
-// exposed as `aletheia::max_nesting_depth` in `<aletheia/limits.hpp>`):
-// a deeper formula would pass this local check, serialize to JSON, then
-// get rejected on the wire as `bound_kind_nesting_depth`.  Mirroring the
-// kernel cap surfaces the rejection immediately as `std::runtime_error`
-// instead of as a wire round-trip error — a cross-binding SSOT fix.
+// The wire tag of each formula alternative.
+template<typename T>
+static constexpr auto formula_tag() -> std::string_view {
+    if constexpr (std::is_same_v<T, Atomic>)
+        return "atomic";
+    else if constexpr (std::is_same_v<T, Not>)
+        return "not";
+    else if constexpr (std::is_same_v<T, And>)
+        return "and";
+    else if constexpr (std::is_same_v<T, Or>)
+        return "or";
+    else if constexpr (std::is_same_v<T, Next>)
+        return "next";
+    else if constexpr (std::is_same_v<T, WeakNext>)
+        return "weakNext";
+    else if constexpr (std::is_same_v<T, Always>)
+        return "always";
+    else if constexpr (std::is_same_v<T, Eventually>)
+        return "eventually";
+    else if constexpr (std::is_same_v<T, Until>)
+        return "until";
+    else if constexpr (std::is_same_v<T, Release>)
+        return "release";
+    else if constexpr (std::is_same_v<T, MetricAlways>)
+        return "metricAlways";
+    else if constexpr (std::is_same_v<T, MetricEventually>)
+        return "metricEventually";
+    else if constexpr (std::is_same_v<T, MetricUntil>)
+        return "metricUntil";
+    else if constexpr (std::is_same_v<T, MetricRelease>)
+        return "metricRelease";
+    else
+        static_assert(sizeof(T) == 0, "Unhandled formula type in formula_tag");
+}
+
+// Recursively serialize an LTL formula tree to JSON for the Agda core.  Each
+// alternative contributes its tag and one of four member shapes.  The depth
+// cap mirrors the kernel's own (`Aletheia.Limits.max-nesting-depth`, exposed
+// as `aletheia::max_nesting_depth`), so a deeper formula is refused here
+// rather than serialized and then rejected on the wire.
 static auto formula_to_json(const LtlFormula& f, int depth = 0) -> Json {
     if (std::cmp_greater(depth, max_nesting_depth))
         throw std::runtime_error("Formula nesting depth exceeds " +
                                  std::to_string(max_nesting_depth));
     return std::visit(
-        [depth](auto&& v) -> Json {
+        [depth](const auto& v) -> Json {
             using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, Atomic>)
-                return {{"operator", "atomic"}, {"predicate", predicate_to_json(v.predicate)}};
-            else if constexpr (std::is_same_v<T, Not>)
-                return {{"operator", "not"}, {"formula", formula_to_json(*v.formula, depth + 1)}};
-            else if constexpr (std::is_same_v<T, And>)
-                return {{"operator", "and"},
-                        {"left", formula_to_json(*v.left, depth + 1)},
-                        {"right", formula_to_json(*v.right, depth + 1)}};
-            else if constexpr (std::is_same_v<T, Or>)
-                return {{"operator", "or"},
-                        {"left", formula_to_json(*v.left, depth + 1)},
-                        {"right", formula_to_json(*v.right, depth + 1)}};
-            else if constexpr (std::is_same_v<T, Next>)
-                return {{"operator", "next"}, {"formula", formula_to_json(*v.formula, depth + 1)}};
-            else if constexpr (std::is_same_v<T, WeakNext>)
-                return {{"operator", "weakNext"},
-                        {"formula", formula_to_json(*v.formula, depth + 1)}};
-            else if constexpr (std::is_same_v<T, Always>)
-                return {{"operator", "always"},
-                        {"formula", formula_to_json(*v.formula, depth + 1)}};
-            else if constexpr (std::is_same_v<T, Eventually>)
-                return {{"operator", "eventually"},
-                        {"formula", formula_to_json(*v.formula, depth + 1)}};
-            else if constexpr (std::is_same_v<T, Until>)
-                return {{"operator", "until"},
-                        {"left", formula_to_json(*v.left, depth + 1)},
-                        {"right", formula_to_json(*v.right, depth + 1)}};
-            else if constexpr (std::is_same_v<T, Release>)
-                return {{"operator", "release"},
-                        {"left", formula_to_json(*v.left, depth + 1)},
-                        {"right", formula_to_json(*v.right, depth + 1)}};
-            else if constexpr (std::is_same_v<T, MetricAlways>)
-                return {{"operator", "metricAlways"},
-                        {"timebound", v.bound.count()},
-                        {"formula", formula_to_json(*v.formula, depth + 1)}};
-            else if constexpr (std::is_same_v<T, MetricEventually>)
-                return {{"operator", "metricEventually"},
-                        {"timebound", v.bound.count()},
-                        {"formula", formula_to_json(*v.formula, depth + 1)}};
-            else if constexpr (std::is_same_v<T, MetricUntil>)
-                return {{"operator", "metricUntil"},
-                        {"timebound", v.bound.count()},
-                        {"left", formula_to_json(*v.left, depth + 1)},
-                        {"right", formula_to_json(*v.right, depth + 1)}};
-            else if constexpr (std::is_same_v<T, MetricRelease>)
-                return {{"operator", "metricRelease"},
-                        {"timebound", v.bound.count()},
-                        {"left", formula_to_json(*v.left, depth + 1)},
-                        {"right", formula_to_json(*v.right, depth + 1)}};
-            else
-                static_assert(sizeof(T) == 0, "Unhandled formula type in formula_to_json");
+            Json out = {{"operator", formula_tag<T>()}};
+            if constexpr (requires { v.predicate; }) {
+                out["predicate"] = predicate_to_json(v.predicate);
+            } else {
+                if constexpr (requires { v.bound; }) {
+                    out["timebound"] = v.bound.count();
+                }
+                if constexpr (requires { v.formula; }) {
+                    out["formula"] = formula_to_json(*v.formula, depth + 1);
+                } else if constexpr (requires {
+                                         v.left;
+                                         v.right;
+                                     }) {
+                    out["left"] = formula_to_json(*v.left, depth + 1);
+                    out["right"] = formula_to_json(*v.right, depth + 1);
+                } else {
+                    static_assert(sizeof(T) == 0, "Unhandled formula shape in formula_to_json");
+                }
+            }
+            return out;
         },
         f.value);
 }
@@ -488,8 +472,13 @@ static auto formula_to_json(const LtlFormula& f, int depth = 0) -> Json {
 // Public serialization functions
 // ---------------------------------------------------------------------------
 
+// Every DBC-carrying command has the same envelope.
+static auto dbc_command(std::string_view command, const DbcDefinition& dbc) -> std::string {
+    return Json{{"type", "command"}, {"command", command}, {"dbc", dbc_to_json(dbc)}}.dump();
+}
+
 auto serialize_parse_dbc(const DbcDefinition& dbc) -> std::string {
-    return Json{{"type", "command"}, {"command", "parseDBC"}, {"dbc", dbc_to_json(dbc)}}.dump();
+    return dbc_command("parseDBC", dbc);
 }
 
 auto serialize_parse_dbc_text(std::string_view text) -> std::string {
@@ -502,19 +491,18 @@ auto serialize_parsed_dbc_response(const DbcDefinition& dbc) -> std::string {
 }
 
 auto serialize_validate_dbc(const DbcDefinition& dbc) -> std::string {
-    return Json{{"type", "command"}, {"command", "validateDBC"}, {"dbc", dbc_to_json(dbc)}}.dump();
+    return dbc_command("validateDBC", dbc);
 }
 
 auto serialize_format_dbc_text(const DbcDefinition& dbc) -> std::string {
-    return Json{{"type", "command"}, {"command", "formatDBCText"}, {"dbc", dbc_to_json(dbc)}}
-        .dump();
+    return dbc_command("formatDBCText", dbc);
 }
 
 auto serialize_set_properties(std::span<const LtlFormula> props) -> std::string {
-    Json arr = Json::array();
-    for (const auto& f : props)
-        arr.push_back(formula_to_json(f));
-    return Json{{"type", "command"}, {"command", "setProperties"}, {"properties", std::move(arr)}}
+    return Json{
+        {"type", "command"},
+        {"command", "setProperties"},
+        {"properties", json_array(props, [](const LtlFormula& f) { return formula_to_json(f); })}}
         .dump();
 }
 

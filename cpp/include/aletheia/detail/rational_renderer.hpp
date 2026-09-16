@@ -5,17 +5,18 @@
 // Internal interface for the cross-binding-identical Rational
 // pretty-printer.
 //
-// `format_value(const Rational&)` (in `enrich.cpp`) calls
-// `format_rational_ffi` on every render.  The implementation
+// Every render in the binding goes through `format_rational` below, which
 // dlopens `libaletheia-ffi.so` lazily on first use via `std::call_once`
 // — no local C++ fallback exists, so output is byte-identical to
 // Python's and Go's by construction rather than via a test corpus.
 //
 // Throws `AletheiaException` (kind `Ffi`) when the library cannot be
-// located or symbols cannot be resolved.  Callers may rely on
-// `format_value(const Rational&)` propagating that exception; setting
-// the `ALETHEIA_LIB` environment variable is the standard remedy when
-// the search heuristic does not find the .so (e.g. out-of-tree builds).
+// located or symbols cannot be resolved.  Callers may rely on that
+// exception propagating; setting the `ALETHEIA_LIB` environment variable
+// is the standard remedy when the search heuristic does not find the .so
+// (e.g. out-of-tree builds).
+
+#include <aletheia/types.hpp>
 
 #include <cstdint>
 #include <filesystem>
@@ -27,7 +28,13 @@ namespace aletheia::detail {
 // Render `(num, denom)` via the Agda kernel.  Lazy-initialises the FFI
 // on first call.  Throws `AletheiaException(Ffi)` if the library is
 // not loadable.
-auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string;
+[[nodiscard]] auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string;
+
+// The one place the binding turns a Rational into text, so the check
+// builder's thresholds and the enrichment renderer's values cannot drift.
+[[nodiscard]] inline auto format_rational(const Rational& r) -> std::string {
+    return format_rational_ffi(r.numerator(), r.denominator());
+}
 
 // Parse a decimal literal into an exact rational via the Agda kernel's
 // `aletheia_parse_decimal`, returning the RAW JSON wire envelope (a bare
@@ -39,16 +46,17 @@ auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string;
 // The caller decodes the envelope via `detail::decode_decimal_response`
 // (in json.hpp) — this TU stays JSON-free.  Throws `AletheiaException(Ffi)` if
 // the library is not loadable or the runtime is uninitialised.
-auto parse_decimal_ffi(std::string_view input) -> std::string;
+[[nodiscard]] auto parse_decimal_ffi(std::string_view input) -> std::string;
 
 // Register a preferred `libaletheia-ffi.so` path for the lazy-load.
 // Called by `make_ffi_backend(lib_path, ...)` so the renderer (which
 // loads independently of the backend) consults the same .so the user
 // asked for, instead of falling back to its relative-path heuristic.
-// First-write-wins under `std::call_once`: subsequent registrations
-// after the renderer has loaded are no-ops (the renderer's state is
-// already pinned).  Pre-load registrations win over the heuristic;
-// `ALETHEIA_LIB` env var still wins over both.
+// The first registration wins and every later one is ignored; the
+// renderer reads it once, inside its `std::call_once`.  The load takes
+// the first candidate that exists, in the order `ALETHEIA_LIB`, the
+// registered path, the relative heuristic: a variable naming a missing
+// file is skipped, not an error (a probe under probes/ pins both halves).
 void register_default_lib_path(const std::filesystem::path& lib_path);
 
 } // namespace aletheia::detail

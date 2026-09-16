@@ -11,11 +11,10 @@
 //      future binding-side emit-call that drifts from the cross-binding
 //      canonical set.
 //
-// This is the "missing mechanism" half of the log-events parity gate: a
-// structural gate mirroring python/tests/test_log_events_parity.py and
-// go/aletheia/log_events_test.go.  It was added alongside the surface fix
-// of Go's rogue 16th `dbc.text_parsed` event so the same class of drift
-// cannot recur silently in any binding.
+// This is the mechanism half of the log-events parity gate, mirroring
+// python/tests/test_log_events_parity.py and go/aletheia/log_events_test.go:
+// a binding that grows an emit call outside the canonical set fails here
+// rather than drifting silently.
 //
 // The workflow exercises:
 //   - parse_dbc          (JSON-shape DBC path → dbc.parsed)
@@ -31,50 +30,45 @@
 // (real FFI mismatch only), cache.full (cache capacity bound), error_event.sent
 // and remote_event.sent (event-injection paths).
 #include <catch2/catch_test_macros.hpp>
+#include <cstddef>
 #include <yaml-cpp/yaml.h>
 
 #include "detail/mock_backend.hpp"
 #include <aletheia/aletheia.hpp>
+#include <catch2/catch_message.hpp>
 
 #include <algorithm>
 #include <array>
-#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <set>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include "repo_root.hpp"
+
+using aletheia::test::repo_root;
+
 using namespace aletheia;
 
-namespace {
+constexpr std::array<std::string_view, 3> k_valid_levels = {"debug", "info", "warn"};
 
-constexpr std::array<std::string_view, 3> kValidLevels = {"debug", "info", "warn"};
-
-// Repo root via env var, see test_feature_matrix_parity.cpp.
-auto repo_root() -> std::filesystem::path {
-    if (const char* env = std::getenv("ALETHEIA_REPO_ROOT"); env != nullptr && *env != '\0') {
-        return std::filesystem::path{env};
-    }
-    throw std::runtime_error("ALETHEIA_REPO_ROOT env var not set; expected to be passed by ctest "
-                             "via set_tests_properties(ENVIRONMENT ...) in cpp/CMakeLists.txt");
-}
-
-auto yaml_path() -> std::filesystem::path {
+static auto yaml_path() -> std::filesystem::path {
     return repo_root() / "docs" / "LOG_EVENTS.yaml";
 }
 
+namespace {
 struct LogEventRow {
     std::string name;
     std::string level;
     std::string description;
 };
+} // namespace
 
-auto load_log_events() -> std::vector<LogEventRow> {
+static auto load_log_events() -> std::vector<LogEventRow> {
     const auto path = yaml_path();
     REQUIRE(std::filesystem::exists(path));
     auto root = YAML::LoadFile(path.string());
@@ -93,15 +87,13 @@ auto load_log_events() -> std::vector<LogEventRow> {
     return out;
 }
 
-auto canonical_event_set() -> std::set<std::string> {
+static auto canonical_event_set() -> std::set<std::string> {
     auto rows = load_log_events();
     std::set<std::string> set;
     for (auto& row : rows)
         set.insert(std::move(row.name));
     return set;
 }
-
-} // namespace
 
 // ----- 1. YAML schema sanity -----
 
@@ -115,12 +107,10 @@ TEST_CASE("LOG_EVENTS.yaml is well-formed", "[parity][log][yaml]") {
         INFO("events[" << i << "] name=" << row.name);
 
         CHECK_FALSE(row.name.empty());
-        CHECK(row.name.find('.') != std::string::npos);
+        CHECK(row.name.contains('.'));
         CHECK(seen.insert(row.name).second);
 
-        const bool level_valid =
-            std::find(kValidLevels.begin(), kValidLevels.end(), row.level) != kValidLevels.end();
-        CHECK(level_valid);
+        CHECK(std::ranges::contains(k_valid_levels, row.level));
 
         CHECK_FALSE(row.description.empty());
     }
@@ -128,9 +118,7 @@ TEST_CASE("LOG_EVENTS.yaml is well-formed", "[parity][log][yaml]") {
 
 // ----- 2. comprehensive workflow ⊆ canonical set -----
 
-namespace {
-
-constexpr std::string_view kDbcSourceText = R"DBC(VERSION ""
+constexpr std::string_view k_dbc_source_text = R"DBC(VERSION ""
 NS_ :
 BS_:
 BU_: ECU
@@ -141,7 +129,7 @@ BO_ 256 EngineData: 8 ECU
 
 // Mock JSON for parse_dbc / parse_dbc_text — minimal shape that matches
 // the wire contract enforced by detail::parse_parsed_dbc.
-constexpr std::string_view kParseDbcResponse = R"JSON({
+constexpr std::string_view k_parse_dbc_response = R"JSON({
     "status": "success",
     "dbc": {
         "version": "1.0",
@@ -163,19 +151,18 @@ constexpr std::string_view kParseDbcResponse = R"JSON({
     }
 })JSON";
 
-} // namespace
-
-TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflow]") {
-    auto known = canonical_event_set();
-
+// Drive one full client workflow against a queued mock and return the set of
+// log events it emitted, so the checks below read as claims about that set
+// rather than as a script.
+static auto events_of_one_workflow() -> std::set<std::string> {
     auto mock = std::make_unique<MockBackend>();
     auto* mock_ptr = mock.get();
 
     // Queue: parse_dbc, parse_dbc_text, set_properties, start_stream,
     //        send_frame (ack), send_frame (violation),
     //        enrichment extraction (success), end_stream, EOS extraction.
-    mock_ptr->queue_response(std::string{kParseDbcResponse});
-    mock_ptr->queue_response(std::string{kParseDbcResponse});
+    mock_ptr->queue_response(std::string{k_parse_dbc_response});
+    mock_ptr->queue_response(std::string{k_parse_dbc_response});
     mock_ptr->queue_response(R"({"status": "success"})");
     mock_ptr->queue_response(R"({"status": "success"})");
     mock_ptr->queue_response(R"({"status": "ack"})");
@@ -192,16 +179,16 @@ TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflo
         R"({"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]})");
 
     std::vector<std::string> captured;
-    Logger logger([&](const LogRecord& r) { captured.emplace_back(r.event); });
+    const Logger logger([&](const LogRecord& r) { captured.emplace_back(r.event); });
 
     AletheiaClient client(std::move(mock), logger);
 
     // 1. parse_dbc (JSON path)
-    DbcDefinition dbc{.version = "1.0"};
+    const DbcDefinition dbc{.version = "1.0"};
     REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
 
-    // 2. parse_dbc_text (DBC-text path — was the divergent path in Go)
-    REQUIRE(client.parse_dbc_text(std::stop_token{}, kDbcSourceText).has_value());
+    // 2. parse_dbc_text (the DBC-text path, which emits dbc.parsed too)
+    REQUIRE(client.parse_dbc_text(std::stop_token{}, k_dbc_source_text).has_value());
 
     // 3. set_properties
     auto formula = ltl::always(
@@ -232,20 +219,28 @@ TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflo
 
     REQUIRE_FALSE(captured.empty());
 
-    // Core assertion: every captured event is in the canonical YAML set.
-    // A future emit-site drift fails this check loudly with the offending name.
     std::set<std::string> unique_emitted;
     for (const auto& e : captured)
         unique_emitted.insert(e);
+    return unique_emitted;
+}
 
+TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflow]") {
+    auto known = canonical_event_set();
+
+    const auto unique_emitted = events_of_one_workflow();
+
+    // Core assertion: every emitted event is in the canonical YAML set.
+    // A future emit-site drift fails this check loudly with the offending name.
     for (const auto& event : unique_emitted) {
         INFO("emitted event: " << event);
         const bool in_canonical = known.contains(event);
         CHECK(in_canonical);
     }
 
-    // Sanity floor: dbc.parsed MUST be exercised — that's the path that
-    // drifted; without this the gate is silently weakened.
+    // Sanity floor: dbc.parsed must be exercised. Without it a workflow that
+    // stopped reaching the parse paths would leave the gate asserting nothing
+    // about them.
     CHECK(unique_emitted.contains("dbc.parsed"));
 
     // Sanity floor: the EndStream Complete carries an uncached_atom warning,
@@ -254,11 +249,10 @@ TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflo
     CHECK(unique_emitted.contains("endstream.uncached_atom"));
 }
 
-// Unit test of the gate's rejection logic: confirms the canonical set
-// does NOT contain the rogue dbc.text_parsed event.  This is independent
-// of any binding workflow, so we know the membership check would have
-// caught the original drift even if a future workflow change ever
-// stopped exercising parse_dbc_text.
+// The gate's rejection logic on its own, independent of any workflow: the
+// canonical set must not contain dbc.text_parsed, because the text path emits
+// dbc.parsed like the JSON path and a separate name for it would be an event
+// one binding has and the others do not.
 TEST_CASE("LOG_EVENTS.yaml rejects the known drift event", "[parity][log][regression]") {
     auto known = canonical_event_set();
     CHECK_FALSE(known.contains("dbc.text_parsed"));

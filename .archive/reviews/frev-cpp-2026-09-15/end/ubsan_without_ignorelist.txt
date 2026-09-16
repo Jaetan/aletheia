@@ -1,0 +1,15 @@
+CMake Deprecation Warning at build/_deps/miniz_fetch-src/CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+Doxygen build started
+/home/nicolas/dev/agda/aletheia/cpp/build/probe-scratch/ubsan-noignore/cpp/build/_deps/miniz_fetch-src/miniz_zip.c:165:9: warning: Using fopen, ftello, fseeko, stat() etc. path for file I/O - this path may not support large files. [-W#pragma-messages]
+  165 | #pragma message("Using fopen, ftello, fseeko, stat() etc. path for file I/O - this path may not support large files.")
+      |         ^
+1 warning generated.
+      2 _deps/openxlsx-src/OpenXLSX/sources/XLStyles.cpp:  load of value 

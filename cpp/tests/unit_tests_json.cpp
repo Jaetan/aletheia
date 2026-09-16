@@ -8,7 +8,6 @@
 // formula into a human-readable string.
 #include "test_helpers.hpp"
 
-#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -18,6 +17,7 @@
 #include <aletheia/aletheia.hpp>
 #include <aletheia/enrich.hpp>
 
+#include <cstdint>
 #include <nlohmann/json.hpp>
 
 #include <cstddef>
@@ -28,7 +28,7 @@
 #include <vector>
 
 using namespace aletheia;
-using json = nlohmann::json;
+using Json = nlohmann::json;
 using aletheia::test::make_test_dbc;
 using Catch::Matchers::ContainsSubstring;
 
@@ -39,7 +39,7 @@ using Catch::Matchers::ContainsSubstring;
 TEST_CASE("serialize_parse_dbc produces valid JSON", "[json][serialize]") {
     auto dbc = make_test_dbc();
     auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
 
     CHECK(j["type"] == "command");
     CHECK(j["command"] == "parseDBC");
@@ -76,7 +76,7 @@ TEST_CASE("serialize_set_properties produces correct JSON", "[json][serialize]")
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     auto str = detail::serialize_set_properties(props);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
 
     CHECK(j["command"] == "setProperties");
     CHECK(j["properties"].size() == 1);
@@ -84,7 +84,10 @@ TEST_CASE("serialize_set_properties produces correct JSON", "[json][serialize]")
     CHECK(j["properties"][0]["formula"]["operator"] == "atomic");
     CHECK(j["properties"][0]["formula"]["predicate"]["predicate"] == "lessThan");
     CHECK(j["properties"][0]["formula"]["predicate"]["signal"] == "Speed");
-    CHECK(j["properties"][0]["formula"]["predicate"]["value"] == Catch::Approx(220.0));
+    // The wire carries a whole threshold as an integer, and the float principle
+    // means it is compared as one: an approximate comparison would read it
+    // through a double.
+    CHECK(j["properties"][0]["formula"]["predicate"]["value"] == 220);
 }
 
 TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
@@ -102,10 +105,11 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
         .minimum = RationalBound{Rational{-40, 1}},
         .maximum = RationalBound{Rational{215, 1}},
         .unit = Unit{"C"},
-        .presence = Multiplexed{SignalName{"MuxSelector"}, {MultiplexValue{3}}},
+        .presence = Multiplexed{.multiplexor = SignalName{"MuxSelector"},
+                                .multiplex_values = {MultiplexValue{3}}},
     };
 
-    DbcDefinition dbc{
+    const DbcDefinition dbc{
         .version = "",
         .messages = {DbcMessage{
             .id = CanId{id},
@@ -117,13 +121,13 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
     };
 
     auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
     auto& jsig = j["dbc"]["messages"][0]["signals"][0];
 
     CHECK(jsig["byteOrder"] == "big_endian");
     CHECK(jsig["signed"] == true);
     CHECK(jsig["multiplexor"] == "MuxSelector");
-    CHECK(jsig["multiplex_values"] == json::array({3}));
+    CHECK(jsig["multiplex_values"] == Json::array({3}));
     // Multiplexed signals carry an explicit ``"presence": "multiplexed"``
     // discriminator (cross-binding parity with Agda Formatter, Go
     // ``serializeDBC``, and Python).
@@ -134,7 +138,7 @@ TEST_CASE("serialize extended CAN ID in DBC", "[json][serialize]") {
     auto id = ExtendedId::create(0x18FEF100).value();
     auto dlc = Dlc::create(8).value();
 
-    DbcDefinition dbc{
+    const DbcDefinition dbc{
         .version = "",
         .messages = {DbcMessage{
             .id = CanId{id},
@@ -146,7 +150,7 @@ TEST_CASE("serialize extended CAN ID in DBC", "[json][serialize]") {
     };
 
     auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
     auto& msg = j["dbc"]["messages"][0];
 
     CHECK(msg["id"] == 0x18FEF100);
@@ -159,7 +163,7 @@ TEST_CASE("serialize metric temporal operators", "[json][serialize]") {
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     auto str = detail::serialize_set_properties(props);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
 
     CHECK(j["properties"][0]["operator"] == "metricAlways");
     CHECK(j["properties"][0]["timebound"] == 2'000'000);
@@ -171,7 +175,7 @@ TEST_CASE("serialize all predicate types", "[json][serialize]") {
         std::vector<LtlFormula> props;
         props.push_back(std::move(formula));
         auto str = detail::serialize_set_properties(props);
-        auto j = json::parse(str);
+        auto j = Json::parse(str);
         CHECK(j["properties"][0]["predicate"]["predicate"] == expected);
     };
 
@@ -289,10 +293,10 @@ TEST_CASE("parse_extraction with rational values", "[json][parse]") {
     CHECK(result->values[0].value == PhysicalValue{Rational{1, 3}});
 }
 
-// ── Mutation-kill tests for the binding-layer Rational JSON parsing ──────────
-// The Agda core is proven; the C++ wire-parsing is only tested.  These close
-// real Mull-19 survivors in json_parse.cpp's parse_rational_dict /
-// parse_rational_as_int (each test names the mutant it kills).
+// ── Mutation-kill cases for the binding's rational JSON parsing ─────────────
+// The kernel is proven and the wire parsing here is only tested, so the
+// mutation sweep is what holds these two parsers, parse_rational_dict and
+// parse_rational_as_int, and each case below names the mutant it kills.
 
 TEST_CASE("parse_extraction rejects a negative-denominator rational", "[json][parse][error]") {
     // {1,-3} must be REJECTED, not silently sign-normalized: the kernel emits a
@@ -318,9 +322,10 @@ TEST_CASE("parse_extraction rejects a negative-denominator rational", "[json][pa
 // Go, Rust, and Python already reject floats here.
 
 TEST_CASE("parse_extraction rejects a float signal value", "[json][parse][validation]") {
-    // Region 1: parse_signal_value no longer has a float branch — a bare float
-    // is a wire-format violation, not a value to approximate. Exact rationals
-    // travel as {numerator, denominator}; decimals are parsed by the kernel SSOT.
+    // Region 1, parse_signal_value: a bare float is a wire-format violation,
+    // not a value to approximate. Exact rationals travel as a numerator and a
+    // denominator; decimals are parsed by the kernel's own decimal source of
+    // truth.
     auto result = detail::parse_extraction(R"({
         "status": "success",
         "values": [{"name": "Speed", "value": 120.5}],
@@ -427,8 +432,9 @@ TEST_CASE("parse_frame_data rejects a float data byte", "[json][parse][validatio
 
 TEST_CASE("parse_frame_response integer property_index uses exact division",
           "[json][parse][mutation]") {
-    // property_index {6,3} -> 2 (integer field: num / den).  Kills cxx_div_to_mul
-    // at json_parse.cpp:289 (return num / den): the * mutant yields 18.
+    // property_index {6,3} -> 2 (an integer field divides). Kills the
+    // division-to-multiplication mutant on the return in parse_rational_as_int,
+    // whose product would be 18.
     auto result = detail::parse_frame_response(R"({
         "type": "property_batch",
         "results": [{"type": "property", "status": "fails",
@@ -443,8 +449,9 @@ TEST_CASE("parse_frame_response integer property_index uses exact division",
 }
 
 TEST_CASE("parse_frame_response accepts a zero timestamp", "[json][parse][mutation]") {
-    // timestamp 0 is the legal lower boundary (>= 0).  Kills cxx_lt_to_le at
-    // json_parse.cpp:830 (if ts_val < 0 throw): the <= mutant wrongly rejects 0.
+    // A timestamp of zero is the legal lower boundary. Kills the
+    // less-than-to-less-or-equal mutant on the negative-timestamp refusal in
+    // the property-result parser, which would reject zero.
     auto result = detail::parse_frame_response(R"({
         "type": "property_batch",
         "results": [{"type": "property", "status": "fails",
@@ -804,7 +811,7 @@ TEST_CASE("serialize_parse_dbc emits Tier 1 metadata arrays", "[json][serialize]
     });
 
     auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
 
     REQUIRE(j["dbc"]["signalGroups"].is_array());
     REQUIRE(j["dbc"]["signalGroups"].size() == 1);
@@ -828,7 +835,7 @@ TEST_CASE("serialize_parse_dbc emits Tier 1 metadata arrays", "[json][serialize]
 TEST_CASE("serialize_parse_dbc emits empty arrays when metadata absent", "[json][serialize][dbc]") {
     auto dbc = make_test_dbc();
     auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
     REQUIRE(j["dbc"]["signalGroups"].is_array());
     CHECK(j["dbc"]["signalGroups"].empty());
     REQUIRE(j["dbc"]["environmentVars"].is_array());
@@ -944,91 +951,112 @@ TEST_CASE("parse_dbc_response env var preserves exact rationals", "[json][parse]
 // Tier 2 DBC metadata round-trip — nodes, comments, attributes
 // ===========================================================================
 
-TEST_CASE("Tier 2 DBC metadata round-trips through serialize + parse",
-          "[json][serialize][parse][dbc][tier2]") {
+// The targets carry a validated identifier now, so the tests name one the same
+// way the parser does: by value and by width.
+static auto std_can_id(std::uint32_t v) -> CanId {
+    return CanId{StandardId::create(static_cast<std::uint16_t>(v)).value()};
+}
+static auto ext_can_id(std::uint32_t v) -> CanId {
+    return CanId{ExtendedId::create(v).value()};
+}
+
+// A DBC carrying one of every Tier 2 shape: nodes, each comment target,
+// each attribute definition kind, a default and an assignment.
+// Every attribute shape the wire carries: a definition per scope and per
+// type, one default and one assignment.
+static void add_tier2_attributes(DbcDefinition& dbc) {
+    dbc.attributes.emplace_back(DbcAttrDef{
+        .name = "GenMsgCycleTime",
+        .scope = DbcAttrScope::Message,
+        .attr_type = DbcAttrTypeInt{.min = 0, .max = 10000},
+    });
+    dbc.attributes.emplace_back(DbcAttrDef{
+        .name = "SignalGain",
+        .scope = DbcAttrScope::Signal,
+        .attr_type = DbcAttrTypeFloat{.min = Rational{-1, 2}, .max = Rational{22, 7}},
+    });
+    dbc.attributes.emplace_back(DbcAttrDef{
+        .name = "BusName",
+        .scope = DbcAttrScope::Network,
+        .attr_type = DbcAttrTypeString{},
+    });
+    dbc.attributes.emplace_back(DbcAttrDef{
+        .name = "ModuleType",
+        .scope = DbcAttrScope::Node,
+        .attr_type = DbcAttrTypeEnum{.values = {"ECU", "Gateway", "Sensor"}},
+    });
+    dbc.attributes.emplace_back(DbcAttrDef{
+        .name = "AddressMask",
+        .scope = DbcAttrScope::Message,
+        .attr_type = DbcAttrTypeHex{.min = 0, .max = 65535},
+    });
+    dbc.attributes.emplace_back(DbcAttrDefault{
+        .name = "GenMsgCycleTime",
+        .value = DbcAttrValueInt{.value = 100},
+    });
+    dbc.attributes.emplace_back(DbcAttrAssign{
+        .name = "GenMsgCycleTime",
+        .target = DbcAttrTargetMessage{.id = std_can_id(256)},
+        .value = DbcAttrValueInt{.value = 20},
+    });
+    dbc.attributes.emplace_back(DbcAttrAssign{
+        .name = "SignalGain",
+        .target = DbcAttrTargetSignal{.id = ext_can_id(512), .signal = "Torque"},
+        .value = DbcAttrValueFloat{.value = Rational{3, 4}},
+    });
+    dbc.attributes.emplace_back(DbcAttrAssign{
+        .name = "ModuleType",
+        .target = DbcAttrTargetNode{.node = NodeName{"ECU1"}},
+        .value = DbcAttrValueEnum{.value = 0},
+    });
+    dbc.attributes.emplace_back(DbcAttrAssign{
+        .name = "SenderRole",
+        .target = DbcAttrTargetNodeMsg{.node = NodeName{"ECU1"}, .id = std_can_id(256)},
+        .value = DbcAttrValueString{.value = "producer"},
+    });
+    dbc.attributes.emplace_back(DbcAttrAssign{
+        .name = "SignalAccess",
+        .target = DbcAttrTargetNodeSig{.node = NodeName{"ECU1"},
+                                       .id = ext_can_id(512),
+                                       .signal = "Torque"},
+        .value = DbcAttrValueHex{.value = 255},
+    });
+}
+
+static auto make_tier2_dbc() -> DbcDefinition {
     auto dbc = make_test_dbc();
-    dbc.nodes.push_back(DbcNode{.name = "ECU1"});
-    dbc.nodes.push_back(DbcNode{.name = "Gateway"});
+    dbc.nodes.push_back(DbcNode{.name = NodeName{"ECU1"}});
+    dbc.nodes.push_back(DbcNode{.name = NodeName{"Gateway"}});
 
     dbc.comments.push_back(DbcComment{
         .target = DbcCommentTargetNetwork{},
         .text = "Vehicle network",
     });
     dbc.comments.push_back(DbcComment{
-        .target = DbcCommentTargetNode{.node = "ECU1"},
+        .target = DbcCommentTargetNode{.node = NodeName{"ECU1"}},
         .text = "Engine control unit",
     });
     dbc.comments.push_back(DbcComment{
-        .target = DbcCommentTargetMessage{.id = 256, .extended = false},
+        .target = DbcCommentTargetMessage{.id = std_can_id(256)},
         .text = "Engine status message",
     });
     dbc.comments.push_back(DbcComment{
-        .target = DbcCommentTargetSignal{.id = 512, .extended = true, .signal = "Torque"},
+        .target = DbcCommentTargetSignal{.id = ext_can_id(512), .signal = "Torque"},
         .text = "Requested torque",
     });
     dbc.comments.push_back(DbcComment{
         .target = DbcCommentTargetEnvVar{.env_var = "AmbientTemp"},
         .text = "Ambient temperature sensor",
     });
+    add_tier2_attributes(dbc);
+    return dbc;
+}
 
-    dbc.attributes.push_back(DbcAttrDef{
-        .name = "GenMsgCycleTime",
-        .scope = DbcAttrScope::Message,
-        .attr_type = DbcAttrTypeInt{.min = 0, .max = 10000},
-    });
-    dbc.attributes.push_back(DbcAttrDef{
-        .name = "SignalGain",
-        .scope = DbcAttrScope::Signal,
-        .attr_type = DbcAttrTypeFloat{.min = Rational{-1, 2}, .max = Rational{22, 7}},
-    });
-    dbc.attributes.push_back(DbcAttrDef{
-        .name = "BusName",
-        .scope = DbcAttrScope::Network,
-        .attr_type = DbcAttrTypeString{},
-    });
-    dbc.attributes.push_back(DbcAttrDef{
-        .name = "ModuleType",
-        .scope = DbcAttrScope::Node,
-        .attr_type = DbcAttrTypeEnum{.values = {"ECU", "Gateway", "Sensor"}},
-    });
-    dbc.attributes.push_back(DbcAttrDef{
-        .name = "AddressMask",
-        .scope = DbcAttrScope::Message,
-        .attr_type = DbcAttrTypeHex{.min = 0, .max = 65535},
-    });
-    dbc.attributes.push_back(DbcAttrDefault{
-        .name = "GenMsgCycleTime",
-        .value = DbcAttrValueInt{.value = 100},
-    });
-    dbc.attributes.push_back(DbcAttrAssign{
-        .name = "GenMsgCycleTime",
-        .target = DbcAttrTargetMessage{.id = 256, .extended = false},
-        .value = DbcAttrValueInt{.value = 20},
-    });
-    dbc.attributes.push_back(DbcAttrAssign{
-        .name = "SignalGain",
-        .target = DbcAttrTargetSignal{.id = 512, .extended = true, .signal = "Torque"},
-        .value = DbcAttrValueFloat{.value = Rational{3, 4}},
-    });
-    dbc.attributes.push_back(DbcAttrAssign{
-        .name = "ModuleType",
-        .target = DbcAttrTargetNode{.node = "ECU1"},
-        .value = DbcAttrValueEnum{.value = 0},
-    });
-    dbc.attributes.push_back(DbcAttrAssign{
-        .name = "SenderRole",
-        .target = DbcAttrTargetNodeMsg{.node = "ECU1", .id = 256, .extended = false},
-        .value = DbcAttrValueString{.value = "producer"},
-    });
-    dbc.attributes.push_back(DbcAttrAssign{
-        .name = "SignalAccess",
-        .target =
-            DbcAttrTargetNodeSig{.node = "ECU1", .id = 512, .extended = true, .signal = "Torque"},
-        .value = DbcAttrValueHex{.value = 255},
-    });
-
-    auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+TEST_CASE("Tier 2 DBC metadata serializes to the documented wire shape",
+          "[json][serialize][parse][dbc][tier2]") {
+    const auto dbc = make_tier2_dbc();
+    const auto str = detail::serialize_parse_dbc(dbc);
+    const auto j = Json::parse(str);
 
     // Confirm wire shape: every tagged union carries "kind" first.
     REQUIRE(j["dbc"]["nodes"].is_array());
@@ -1047,26 +1075,33 @@ TEST_CASE("Tier 2 DBC metadata round-trips through serialize + parse",
     // — matches Python's Fraction, drifts under double.
     CHECK(j["dbc"]["attributes"][1]["attrType"]["min"]["numerator"] == -1);
     CHECK(j["dbc"]["attributes"][1]["attrType"]["min"]["denominator"] == 2);
+}
+
+TEST_CASE("Tier 2 DBC metadata survives the parse leg of the round-trip",
+          "[json][serialize][parse][dbc][tier2]") {
+    const auto dbc = make_tier2_dbc();
+    const auto str = detail::serialize_parse_dbc(dbc);
+    const auto j = Json::parse(str);
 
     // Route the serialized JSON through parse_dbc_response (wrap as success
     // envelope) to exercise the parser leg of the round-trip.
-    json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
+    const Json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
     auto result = detail::parse_dbc_response(envelope.dump());
     REQUIRE(result.has_value());
 
     REQUIRE(result->nodes.size() == 2);
-    CHECK(result->nodes[0].name == "ECU1");
-    CHECK(result->nodes[1].name == "Gateway");
+    CHECK(result->nodes[0].name.get() == "ECU1");
+    CHECK(result->nodes[1].name.get() == "Gateway");
 
     REQUIRE(result->comments.size() == 5);
     CHECK(std::holds_alternative<DbcCommentTargetNetwork>(result->comments[0].target));
-    CHECK(std::get<DbcCommentTargetNode>(result->comments[1].target).node == "ECU1");
+    CHECK(std::get<DbcCommentTargetNode>(result->comments[1].target).node.get() == "ECU1");
     const auto& msg_ct = std::get<DbcCommentTargetMessage>(result->comments[2].target);
-    CHECK(msg_ct.id == 256);
-    CHECK_FALSE(msg_ct.extended);
+    CHECK(can_id_value(msg_ct.id) == 256);
+    CHECK_FALSE(can_id_is_extended(msg_ct.id));
     const auto& sig_ct = std::get<DbcCommentTargetSignal>(result->comments[3].target);
-    CHECK(sig_ct.id == 512);
-    CHECK(sig_ct.extended);
+    CHECK(can_id_value(sig_ct.id) == 512);
+    CHECK(can_id_is_extended(sig_ct.id));
     CHECK(sig_ct.signal == "Torque");
     CHECK(std::get<DbcCommentTargetEnvVar>(result->comments[4].target).env_var == "AmbientTemp");
 
@@ -1093,23 +1128,47 @@ TEST_CASE("Tier 2 DBC metadata round-trips through serialize + parse",
     // Assignments (target + value parity)
     const auto& assign_sig = std::get<DbcAttrAssign>(result->attributes[7]);
     const auto& sig_tgt = std::get<DbcAttrTargetSignal>(assign_sig.target);
-    CHECK(sig_tgt.id == 512);
-    CHECK(sig_tgt.extended);
+    CHECK(can_id_value(sig_tgt.id) == 512);
+    CHECK(can_id_is_extended(sig_tgt.id));
     CHECK(sig_tgt.signal == "Torque");
     CHECK(std::get<DbcAttrValueFloat>(assign_sig.value).value == Rational{3, 4});
 
     const auto& assign_nm = std::get<DbcAttrAssign>(result->attributes[9]);
     const auto& nm_tgt = std::get<DbcAttrTargetNodeMsg>(assign_nm.target);
-    CHECK(nm_tgt.node == "ECU1");
-    CHECK(nm_tgt.id == 256);
-    CHECK_FALSE(nm_tgt.extended);
+    CHECK(nm_tgt.node.get() == "ECU1");
+    CHECK(can_id_value(nm_tgt.id) == 256);
+    CHECK_FALSE(can_id_is_extended(nm_tgt.id));
 
     const auto& assign_ns = std::get<DbcAttrAssign>(result->attributes[10]);
     const auto& ns_tgt = std::get<DbcAttrTargetNodeSig>(assign_ns.target);
-    CHECK(ns_tgt.node == "ECU1");
+    CHECK(ns_tgt.node.get() == "ECU1");
     CHECK(ns_tgt.signal == "Torque");
-    CHECK(ns_tgt.extended);
+    CHECK(can_id_is_extended(ns_tgt.id));
     CHECK(std::get<DbcAttrValueHex>(assign_ns.value).value == 255);
+}
+
+TEST_CASE("a target naming an identifier too wide for its width is refused",
+          "[json][parse][dbc][tier2]") {
+    // The target carries the same validated identifier a message does, so a
+    // value outside the width it claims is refused at the parse boundary rather
+    // than stored and handed on. 0x800 needs twelve bits; the target says the
+    // identifier is standard, which is eleven.
+    auto make = [](const char* target) {
+        return std::string{R"({"status":"success","dbc":{"version":"1.0","messages":[],)"} +
+               R"("comments":[{"target":)" + target + R"(,"text":"x"}]}})";
+    };
+    auto too_wide = detail::parse_dbc_response(make(R"({"kind":"message","id":2048})"));
+    REQUIRE_FALSE(too_wide.has_value());
+    CHECK(std::string{too_wide.error().message()}.contains("2048"));
+
+    // The same value is fine when the target says the identifier is extended.
+    auto as_extended =
+        detail::parse_dbc_response(make(R"({"kind":"message","id":2048,"extended":true})"));
+    REQUIRE(as_extended.has_value());
+    REQUIRE(as_extended->comments.size() == 1);
+    const auto& t = std::get<DbcCommentTargetMessage>(as_extended->comments[0].target);
+    CHECK(can_id_value(t.id) == 2048);
+    CHECK(can_id_is_extended(t.id));
 }
 
 TEST_CASE("DbcSignal.receivers round-trips through serialize + parse",
@@ -1117,25 +1176,25 @@ TEST_CASE("DbcSignal.receivers round-trips through serialize + parse",
     auto dbc = make_test_dbc();
     REQUIRE(dbc.messages.size() == 1);
     REQUIRE(dbc.messages[0].signals.size() == 1);
-    dbc.messages[0].signals[0].receivers = {"ECU_A", "ECU_B"};
+    dbc.messages[0].signals[0].receivers = {NodeName{"ECU_A"}, NodeName{"ECU_B"}};
 
     auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
 
     REQUIRE(j["dbc"]["messages"][0]["signals"][0]["receivers"].is_array());
     CHECK(j["dbc"]["messages"][0]["signals"][0]["receivers"].size() == 2);
     CHECK(j["dbc"]["messages"][0]["signals"][0]["receivers"][0] == "ECU_A");
     CHECK(j["dbc"]["messages"][0]["signals"][0]["receivers"][1] == "ECU_B");
 
-    json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
+    const Json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
     auto result = detail::parse_dbc_response(envelope.dump());
     REQUIRE(result.has_value());
     REQUIRE(result->messages.size() == 1);
     REQUIRE(result->messages[0].signals.size() == 1);
     const auto& parsed = result->messages[0].signals[0].receivers;
     REQUIRE(parsed.size() == 2);
-    CHECK(parsed[0] == "ECU_A");
-    CHECK(parsed[1] == "ECU_B");
+    CHECK(parsed[0].get() == "ECU_A");
+    CHECK(parsed[1].get() == "ECU_B");
 }
 
 TEST_CASE("parse_dbc_response accepts missing receivers field", "[json][parse][dbc][tier2]") {
@@ -1169,24 +1228,24 @@ TEST_CASE("DbcMessage.senders round-trips through serialize + parse",
     // text differs.
     auto dbc = make_test_dbc();
     REQUIRE(dbc.messages.size() == 1);
-    dbc.messages[0].senders = {"ECU_B", "ECU_C"};
+    dbc.messages[0].senders = {NodeName{"ECU_B"}, NodeName{"ECU_C"}};
 
     auto str = detail::serialize_parse_dbc(dbc);
-    auto j = json::parse(str);
+    auto j = Json::parse(str);
 
     REQUIRE(j["dbc"]["messages"][0]["senders"].is_array());
     CHECK(j["dbc"]["messages"][0]["senders"].size() == 2);
     CHECK(j["dbc"]["messages"][0]["senders"][0] == "ECU_B");
     CHECK(j["dbc"]["messages"][0]["senders"][1] == "ECU_C");
 
-    json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
+    const Json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
     auto result = detail::parse_dbc_response(envelope.dump());
     REQUIRE(result.has_value());
     REQUIRE(result->messages.size() == 1);
     const auto& parsed = result->messages[0].senders;
     REQUIRE(parsed.size() == 2);
-    CHECK(parsed[0] == "ECU_B");
-    CHECK(parsed[1] == "ECU_C");
+    CHECK(parsed[0].get() == "ECU_B");
+    CHECK(parsed[1].get() == "ECU_C");
 }
 
 TEST_CASE("parse_dbc_response accepts missing senders field", "[json][parse][dbc][tier2]") {
@@ -1230,9 +1289,9 @@ TEST_CASE("parse_dbc_response rejects unknown comment target kind",
 // ===========================================================================
 // `unresolvedValueDescs` parse / roundtrip
 //
-// The serializer was already emitting `unresolvedValueDescs` while the parse
-// arm was missing (emit ✓ / parse ✗). These tests pin the missing parse-arm
-// so a future regression cannot silently re-drop the field.
+// The field travels in both directions: the serializer emits it and the parser
+// decodes it. These cases pin the parse arm, which is the half a refactor can
+// drop without the serializer noticing.
 // ===========================================================================
 
 TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc]") {
@@ -1256,9 +1315,9 @@ TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc]
         }
     })");
     REQUIRE(result.has_value());
-    REQUIRE(result->unresolved_value_descriptions.size() == 2);
+    REQUIRE(result->unresolved_value_descs.size() == 2);
 
-    const auto& rvd0 = result->unresolved_value_descriptions[0];
+    const auto& rvd0 = result->unresolved_value_descs[0];
     CHECK(std::holds_alternative<StandardId>(rvd0.can_id));
     CHECK(std::get<StandardId>(rvd0.can_id).value() == 256);
     CHECK(rvd0.signal_name == "PhantomSignal");
@@ -1268,7 +1327,7 @@ TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc]
     CHECK(rvd0.entries[1].value == 1);
     CHECK(rvd0.entries[1].description == "On");
 
-    const auto& rvd1 = result->unresolved_value_descriptions[1];
+    const auto& rvd1 = result->unresolved_value_descs[1];
     CHECK(std::holds_alternative<ExtendedId>(rvd1.can_id));
     CHECK(std::get<ExtendedId>(rvd1.can_id).value() == 1234567);
     CHECK(rvd1.signal_name == "GhostSignal");
@@ -1284,7 +1343,7 @@ TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
     // dropped `unresolvedValueDescs` silently; this test pins the field through
     // the full serialize-then-parse cycle.
     auto dbc = make_test_dbc();
-    dbc.unresolved_value_descriptions.push_back(DbcRawValueDesc{
+    dbc.unresolved_value_descs.push_back(DbcRawValueDesc{
         .can_id = CanId{*StandardId::create(0x100)},
         .signal_name = "Phantom",
         .entries = {DbcValueEntry{.value = 0, .description = "Off"},
@@ -1295,17 +1354,17 @@ TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
     // identical to the "dbc" body shape in a parse_dbc RESPONSE, so the
     // wire shape under test is the same one the FFI emits and consumes.
     auto cmd_str = detail::serialize_parse_dbc(dbc);
-    auto cmd_j = json::parse(cmd_str);
+    auto cmd_j = Json::parse(cmd_str);
     REQUIRE(cmd_j.contains("dbc"));
     REQUIRE(cmd_j["dbc"]["unresolvedValueDescs"].is_array());
     REQUIRE(cmd_j["dbc"]["unresolvedValueDescs"].size() == 1);
 
     // Re-wrap the dbc body as a success response and parse it back.
-    json response = {{"status", "success"}, {"dbc", cmd_j["dbc"]}};
+    const Json response = {{"status", "success"}, {"dbc", cmd_j["dbc"]}};
     auto parsed = detail::parse_dbc_response(response.dump());
     REQUIRE(parsed.has_value());
-    REQUIRE(parsed->unresolved_value_descriptions.size() == 1);
-    const auto& rvd = parsed->unresolved_value_descriptions[0];
+    REQUIRE(parsed->unresolved_value_descs.size() == 1);
+    const auto& rvd = parsed->unresolved_value_descs[0];
     CHECK(std::holds_alternative<StandardId>(rvd.can_id));
     CHECK(std::get<StandardId>(rvd.can_id).value() == 0x100);
     CHECK(rvd.signal_name == "Phantom");
@@ -1322,7 +1381,7 @@ TEST_CASE("parse_dbc_response accepts missing unresolvedValueDescs", "[json][par
         "dbc": {"version": "1.0", "messages": []}
     })");
     REQUIRE(result.has_value());
-    CHECK(result->unresolved_value_descriptions.empty());
+    CHECK(result->unresolved_value_descs.empty());
 }
 
 TEST_CASE("parse_extraction rejects zero denominator in rational", "[json][parse][error]") {
@@ -1382,6 +1441,57 @@ TEST_CASE("parse_frame_response rejects negative property_index", "[json][parse]
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Negative property_index"));
 }
 
+TEST_CASE("parse_frame_response rejects a property_index above the signed 64-bit range",
+          "[json][parse][error]") {
+    // One past the signed maximum arrives as an unsigned number.  Narrowed
+    // without a range check it wraps to the most negative value, and the sign
+    // test below it then reports a negative index the document never carried.
+    auto result = detail::parse_frame_response(R"({
+        "type": "property_batch",
+        "results": [{
+            "type": "property",
+            "status": "fails",
+            "property_index": 9223372036854775808,
+            "timestamp": 100
+        }]
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("out of range"));
+    CHECK_THAT(std::string{result.error().message()},
+               !ContainsSubstring("Negative property_index"));
+}
+
+TEST_CASE("parse_frame_data rejects a data byte above a byte", "[json][parse][validation]") {
+    // 256 narrows to zero without a range check, so the payload would decode
+    // one byte the document did not state.
+    auto bad = detail::parse_frame_data(R"({"status": "success", "data": [1, 256, 3]})");
+    CHECK_FALSE(bad.has_value());
+    CHECK_THAT(std::string{bad.error().message()}, ContainsSubstring("out of range"));
+    auto ok = detail::parse_frame_data(R"({"status": "success", "data": [1, 255, 3]})");
+    REQUIRE(ok.has_value());
+    CHECK(ok->size() == 3);
+}
+
+TEST_CASE("parse_dbc_response rejects a CAN id above the 32-bit position",
+          "[json][parse][validation]") {
+    // The id position narrows to 32 bits.  2^32 wraps to zero, which is a
+    // valid standard id, so the message would decode under an id the document
+    // never stated.
+    auto make = [](const std::string& id) {
+        return std::string{R"({"status":"success","dbc":{"version":"","messages":[{)"} +
+               R"("id":)" + id +
+               R"(,"name":"M","dlc":8,"sender":"","extended":true,"signals":[]}]}})";
+    };
+    auto bad = detail::parse_dbc_response(make("4294967296"));
+    CHECK_FALSE(bad.has_value());
+    CHECK_THAT(std::string{bad.error().message()}, ContainsSubstring("out of range"));
+    auto ok = detail::parse_dbc_response(make("536870911"));
+    REQUIRE(ok.has_value());
+    REQUIRE(ok->messages.size() == 1);
+    CHECK(std::get<ExtendedId>(ok->messages[0].id).value() == 536870911);
+}
+
 TEST_CASE("parse_stream_result rejects negative property_index", "[json][parse][error]") {
     auto result = detail::parse_stream_result(R"({
         "status": "complete",
@@ -1392,12 +1502,10 @@ TEST_CASE("parse_stream_result rejects negative property_index", "[json][parse][
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Negative property_index"));
 }
 
-// A missing `timestamp` on a single-violation frame was previously rejected;
-// after the batch-shape migration `timestamp` is optional at the parse layer
-// (the EndStream Holds entries don't have
-// one).  The Agda kernel still always emits `timestamp` on a streaming
-// Fails entry — that contract is enforced upstream, not at the parser.
-// The negative-timestamp / non-integer-timestamp validations remain.
+// `timestamp` is optional at the parse layer, because an end-of-stream entry
+// that holds carries none. The kernel always emits one on a streaming failure,
+// and that contract is enforced upstream rather than here. The negative and
+// non-integer refusals do apply.
 TEST_CASE("parse_frame_response accepts fails with missing timestamp", "[json][parse]") {
     auto result = detail::parse_frame_response(R"({
         "type": "property_batch",
@@ -1455,11 +1563,10 @@ TEST_CASE("parse_rational_as_int rejects non-exact rational", "[json][parse][err
 }
 
 TEST_CASE("parse_frame_response rejects unrecognised top-level type", "[json][parse][error]") {
-    // A top-level `status: "fails"` + `type: "property"` was formerly the
-    // single-violation shape; that shape is now unrecognised at the top level
-    // (violations live inside
-    // `property_batch.results`).  Any top-level shape that isn't ack /
-    // error / property_batch is a protocol violation.
+    // Violations live inside a property batch's results, so a top-level
+    // failure status is not a shape the parser knows. Any top-level shape
+    // other than an acknowledgement, an error or a property batch is a
+    // protocol violation.
     auto result = detail::parse_frame_response(R"({
         "status": "fails",
         "property_index": 0,
@@ -1536,11 +1643,11 @@ TEST_CASE("parse_dbc_response rejects truncating standard CAN ID (70000)", "[jso
 }
 
 TEST_CASE("ExtractionResult::get helper", "[response]") {
-    ExtractionResult result{
+    const ExtractionResult result{
         .values =
             {
-                {SignalName{"Speed"}, PhysicalValue{Rational{120, 1}}},
-                {SignalName{"RPM"}, PhysicalValue{Rational{3000, 1}}},
+                {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{120, 1}}},
+                {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{3000, 1}}},
             },
         .errors = {},
         .absent = {},
@@ -1695,19 +1802,17 @@ TEST_CASE("format_formula metric release", "[enrich]") {
 // decodes; each rejection mutates exactly one field.
 // ===========================================================================
 
-namespace {
-auto base_dbc_response() -> json {
-    auto cmd = json::parse(detail::serialize_parse_dbc(make_test_dbc()));
-    json resp;
+static auto base_dbc_response() -> Json {
+    auto cmd = Json::parse(detail::serialize_parse_dbc(make_test_dbc()));
+    Json resp;
     resp["status"] = "success";
     resp["dbc"] = cmd.at("dbc");
     return resp;
 }
 
-auto first_signal(json& resp) -> json& {
+static auto first_signal(Json& resp) -> Json& {
     return resp.at("dbc").at("messages").at(0).at("signals").at(0);
 }
-} // namespace
 
 TEST_CASE("parse_dbc_response accepts well-formed metadata", "[json][parse][dbc][validation]") {
     CHECK(detail::parse_dbc_response(base_dbc_response().dump()).has_value());
@@ -1761,7 +1866,7 @@ TEST_CASE("parse_dbc_response rejects an unknown or missing presence",
 // multiplexed presence requires non-empty multiplexor + values
 TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
           "[json][parse][dbc][validation]") {
-    auto make_mux = [](const char* mux, json values) {
+    auto make_mux = [](const char* mux, Json values) {
         auto j = base_dbc_response();
         auto& sig = first_signal(j);
         sig["presence"] = "multiplexed";
@@ -1770,9 +1875,9 @@ TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
         return j;
     };
     // empty values
-    CHECK_FALSE(detail::parse_dbc_response(make_mux("Mode", json::array()).dump()).has_value());
+    CHECK_FALSE(detail::parse_dbc_response(make_mux("Mode", Json::array()).dump()).has_value());
     // empty multiplexor
-    CHECK_FALSE(detail::parse_dbc_response(make_mux("", json::array({0})).dump()).has_value());
+    CHECK_FALSE(detail::parse_dbc_response(make_mux("", Json::array({0})).dump()).has_value());
     // missing values
     {
         auto j = base_dbc_response();
@@ -1783,20 +1888,19 @@ TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
         CHECK_FALSE(detail::parse_dbc_response(j.dump()).has_value());
     }
     // multiplex value above the u32 range
-    CHECK_FALSE(detail::parse_dbc_response(make_mux("Mode", json::array({5000000000LL})).dump())
+    CHECK_FALSE(detail::parse_dbc_response(make_mux("Mode", Json::array({5000000000LL})).dump())
                     .has_value());
     // well-formed multiplexed — accepted
-    CHECK(detail::parse_dbc_response(make_mux("Mode", json::array({0, 1})).dump()).has_value());
+    CHECK(detail::parse_dbc_response(make_mux("Mode", Json::array({0, 1})).dump()).has_value());
 }
 
 // ===========================================================================
-// Wire-decoder reject-branch coverage (cross-binding parity with Go #86 / Rust
-// PR-B). Each drives a detail::parse_* / decode_* decoder with a malformed or
-// unexpected wire response the verified core never emits, so only a direct test
-// reaches these rejects. Tool-measured with llvm-cov (-DALETHEIA_COVERAGE=ON):
-// each case flips a previously-uncovered json_parse.cpp branch. Each asserts the
-// specific error kind + message fragment so the test targets its branch, not
-// merely that *some* decode step failed.
+// Wire-decoder reject branches, in parity with the Go and Rust suites. Each
+// case drives a decoder with a malformed or unexpected wire response the
+// verified core never emits, so only a direct case reaches these refusals, and
+// each asserts the error kind and a message fragment so it targets its own
+// branch rather than merely some failure. The coverage build
+// (-DALETHEIA_COVERAGE=ON) is what shows which branches they reach.
 // ===========================================================================
 
 TEST_CASE("make_json_error rejects a missing code field", "[json][parse][error]") {

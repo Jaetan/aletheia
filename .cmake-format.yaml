@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# The style this repository's CMake files already follow, so the linter checks
+# the project's decisions rather than its own defaults.
+#
+# Both values match the C++ style the rest of the tree uses, and are the same
+# numbers cpp/.clang-format sets: four-space indentation and a hundred-column
+# line. Against the tool's defaults of two and eighty, every indented line and
+# every long line in a deliberately formatted file is reported, which is noise
+# rather than a gate.
+format:
+  tab_size: 4
+  line_width: 100

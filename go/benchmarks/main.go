@@ -6,9 +6,10 @@
 // Measures throughput, latency, and scaling for CAN 2.0B and CAN-FD frames
 // through the Aletheia FFI pipeline (Go -> cgo -> Haskell/MAlonzo/Agda).
 //
-// Usage:
+// Usage (from the go/ module directory — the repo root has no go.mod):
 //
-//	go run go/benchmarks/main.go [throughput|latency|scaling] [--frames N] [--runs N] [--json]
+//	cd go && go run ./benchmarks [throughput|latency|scaling] \
+//	    [--frames N] [--runs N] [--ops N] [--warmup N] [--quick] [--json]
 package main
 
 import (
@@ -413,27 +414,41 @@ func runThroughput(backend *aletheia.FFIBackend, out *os.File, numFrames, numRun
 		fmt.Fprintf(out, "\n%s:\n", b.name)
 		fmt.Fprintf(out, "%s\n", strings.Repeat("-", 40))
 
-		// Warmup.
+		// Warmup — reported but deliberately not fatal: it produces no number that
+		// reaches the report, and a warmup failure that matters recurs in the
+		// measured runs below, where it IS fatal.
 		for w := 0; w < warmupRuns; w++ {
 			if _, err := b.fn(numFrames / 10); err != nil {
 				fmt.Fprintf(out, "  Warmup error: %v\n", err)
 			}
 		}
 
-		// Actual runs.
+		// Actual runs.  ANY failed MEASURED run is fatal, matching Python and Rust,
+		// whose measured runs abort too.  (C++ does NOT: it discards each
+		// operation's Result, so it cannot notice a failed run at all — tracked
+		// separately.)  Continuing past one would
+		// publish a row whose `runs` field overstates the sample it was computed
+		// from, and a lane silently measured over fewer runs is indistinguishable
+		// from a healthy one.
 		var fpsList []float64
 		for r := 0; r < numRuns; r++ {
 			fps, err := b.fn(numFrames)
 			if err != nil {
-				fmt.Fprintf(out, "  Run %d/%d: ERROR %v\n", r+1, numRuns, err)
-				continue
+				fmt.Fprintf(os.Stderr, "benchmark: lane %q run %d/%d failed: %v\n",
+					b.name, r+1, numRuns, err)
+				os.Exit(1)
 			}
 			fpsList = append(fpsList, fps)
 			fmt.Fprintf(out, "  Run %d/%d: %.0f ops/sec\n", r+1, numRuns, fps)
 		}
 
+		// Reachable only for --runs 0: a lane with no measurement is an error,
+		// never an omitted row (an omitted row is silently non-conformant with
+		// benchmarks/SCHEMA.yaml and reads as "not measured yet", not "broken").
 		if len(fpsList) == 0 {
-			continue
+			fmt.Fprintf(os.Stderr, "benchmark: lane %q produced no measurement (runs = %d)\n",
+				b.name, numRuns)
+			os.Exit(1)
 		}
 		m := mean(fpsList)
 		usPerFrame := 0.0
@@ -611,41 +626,45 @@ func printLatencyStats(out *os.File, s latencyStats) {
 	}
 }
 
+// latencyLaneOrDie turns one measured lane into its stats row; a measurement
+// error is fatal, never an omitted lane.  An omitted lane makes the report
+// silently non-conformant with benchmarks/SCHEMA.yaml and reads as "not
+// measured yet" rather than "broken".
+func latencyLaneOrDie(out *os.File, name string, lat []float64, err error) latencyStats {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "benchmark: latency lane %q failed: %v\n", name, err)
+		os.Exit(1)
+	}
+	// Same rule as the throughput and scaling lanes: no sample is a fatal error,
+	// never a published row.  Reachable only for --ops 0; without it
+	// analyzeLatencies indexes an empty slice and dies with a raw runtime panic
+	// instead of naming the lane.
+	if len(lat) == 0 {
+		fmt.Fprintf(os.Stderr, "benchmark: latency lane %q produced no measurement (ops = 0)\n", name)
+		os.Exit(1)
+	}
+	s := analyzeLatencies(name, lat)
+	printLatencyStats(out, s)
+	return s
+}
+
 func runLatencySuite(backend *aletheia.FFIBackend, out *os.File, label string, dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, signals []aletheia.SignalValue, props []aletheia.Formula, numOps, warmup int) []latencyStats {
 	var allStats []latencyStats
 
 	// Streaming.
 	fmt.Fprintf(out, "\nBenchmarking %s streaming...\n", label)
 	lat, err := measureStreamLatencies(backend, dbc, id, dlc, frame, props, numOps, warmup)
-	if err != nil {
-		fmt.Fprintf(out, "  ERROR: %v\n", err)
-	} else {
-		s := analyzeLatencies(label+" Streaming LTL", lat)
-		printLatencyStats(out, s)
-		allStats = append(allStats, s)
-	}
+	allStats = append(allStats, latencyLaneOrDie(out, label+" Streaming LTL", lat, err))
 
 	// Extraction.
 	fmt.Fprintf(out, "\nBenchmarking %s signal extraction...\n", label)
 	lat, err = measureExtractionLatencies(backend, dbc, id, dlc, frame, numOps, warmup)
-	if err != nil {
-		fmt.Fprintf(out, "  ERROR: %v\n", err)
-	} else {
-		s := analyzeLatencies(label+" Signal Extraction", lat)
-		printLatencyStats(out, s)
-		allStats = append(allStats, s)
-	}
+	allStats = append(allStats, latencyLaneOrDie(out, label+" Signal Extraction", lat, err))
 
 	// Frame building.
 	fmt.Fprintf(out, "\nBenchmarking %s frame building...\n", label)
 	lat, err = measureBuildLatencies(backend, dbc, id, signals, dlc, numOps, warmup)
-	if err != nil {
-		fmt.Fprintf(out, "  ERROR: %v\n", err)
-	} else {
-		s := analyzeLatencies(label+" Frame Building", lat)
-		printLatencyStats(out, s)
-		allStats = append(allStats, s)
-	}
+	allStats = append(allStats, latencyLaneOrDie(out, label+" Frame Building", lat, err))
 
 	return allStats
 }
@@ -729,17 +748,24 @@ func makeProperties(count int) []aletheia.Formula {
 // identical across all four bindings — noise on an un-averaged baseline would
 // multiply into every `relative` in the sweep).
 func meanFPS(backend *aletheia.FFIBackend, out *os.File, dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, props []aletheia.Formula, numFrames, numRuns int) float64 {
+	// ANY failed run is fatal: averaging over the survivors would silently
+	// report a point measured from a smaller sample than the sweep claims.
 	var fpsList []float64
 	for r := 0; r < numRuns; r++ {
 		fps, err := benchmarkStreaming(backend, dbc, id, dlc, frame, props, numFrames)
 		if err != nil {
-			fmt.Fprintf(out, "  Error: %v\n", err)
-			continue
+			fmt.Fprintf(os.Stderr, "benchmark: scaling point (%d frames) run %d/%d failed: %v\n",
+				numFrames, r+1, numRuns, err)
+			os.Exit(1)
 		}
 		fpsList = append(fpsList, fps)
 	}
+	// Reachable only for --runs 0.  Never return a fabricated 0: it would be
+	// reported as a measurement and divide through every `relative` in the sweep.
 	if len(fpsList) == 0 {
-		return 0
+		fmt.Fprintf(os.Stderr, "benchmark: scaling point (%d frames) has no measurement (runs = %d)\n",
+			numFrames, numRuns)
+		os.Exit(1)
 	}
 	return mean(fpsList)
 }

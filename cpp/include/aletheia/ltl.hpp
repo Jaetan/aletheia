@@ -60,13 +60,12 @@ using Predicate = std::variant<Equals, LessThan, GreaterThan, LessThanOrEqual, G
 // LTL formula: recursive variant via composition
 // ---------------------------------------------------------------------------
 //
-// Previously inherited from std::variant via `using variant::variant`.
-// Inheriting from std::variant is permitted by the standard but has hit
-// libstdc++ implementation quirks across versions (special-member-function
-// constraints, in_place_index_t deduction in derived ctors) — composition
-// removes the hazard at the cost of one `.value` indirection.
+// Composition rather than inheriting from std::variant: inheriting is
+// permitted by the standard but hits libstdc++ implementation quirks across
+// versions (special-member-function constraints, in_place_index_t deduction
+// in derived ctors); composition costs one `.value` indirection.
 //
-// The 14-alternative list is owned by `LtlFormulaVariant` (one source of
+// The alternative list is owned by `LtlFormulaVariant` (one source of
 // truth); the wrapper provides a constrained converting constructor + a
 // `visit` member so consumers don't reach into the variant by name.
 //
@@ -136,8 +135,6 @@ struct LtlFormula {
     // Default constructor intentionally omitted — none of the alternative
     // structs is default-constructible (`Strong<Tag, T>` blocks default-init
     // by design), so the variant has no default state to initialize to.
-    // Match the pre-refactor `using variant::variant` behaviour, which also
-    // exposed no working default constructor.
 
     template<typename T>
         requires(!std::same_as<std::decay_t<T>, LtlFormula>) &&
@@ -167,20 +164,20 @@ namespace ltl {
 
 // --- Formula constructors ---
 
-inline auto atomic(Predicate p) -> LtlFormula {
+[[nodiscard]] inline auto atomic(Predicate p) -> LtlFormula {
     return Atomic{std::move(p)};
 }
 
-inline auto negate(LtlFormula f) -> LtlFormula {
+[[nodiscard]] inline auto negate(LtlFormula f) -> LtlFormula {
     return Not{std::make_unique<LtlFormula>(std::move(f))};
 }
 
-inline auto both(LtlFormula left, LtlFormula right) -> LtlFormula {
+[[nodiscard]] inline auto both(LtlFormula left, LtlFormula right) -> LtlFormula {
     return And{.left = std::make_unique<LtlFormula>(std::move(left)),
                .right = std::make_unique<LtlFormula>(std::move(right))};
 }
 
-inline auto either(LtlFormula left, LtlFormula right) -> LtlFormula {
+[[nodiscard]] inline auto either(LtlFormula left, LtlFormula right) -> LtlFormula {
     return Or{.left = std::make_unique<LtlFormula>(std::move(left)),
               .right = std::make_unique<LtlFormula>(std::move(right))};
 }
@@ -188,119 +185,115 @@ inline auto either(LtlFormula left, LtlFormula right) -> LtlFormula {
 // antecedent -> consequent, the standard LTL encoding !antecedent || consequent.
 // A convenience combinator (implication is not a distinct LtlFormula node);
 // mirrors Go's Implies, Rust's Formula::implies, and Python's .implies().
-inline auto implies(LtlFormula antecedent, LtlFormula consequent) -> LtlFormula {
+[[nodiscard]] inline auto implies(LtlFormula antecedent, LtlFormula consequent) -> LtlFormula {
     return either(negate(std::move(antecedent)), std::move(consequent));
 }
 
-inline auto next(LtlFormula f) -> LtlFormula {
+[[nodiscard]] inline auto next(LtlFormula f) -> LtlFormula {
     return Next{std::make_unique<LtlFormula>(std::move(f))};
 }
 
-inline auto weak_next(LtlFormula f) -> LtlFormula {
+[[nodiscard]] inline auto weak_next(LtlFormula f) -> LtlFormula {
     return WeakNext{std::make_unique<LtlFormula>(std::move(f))};
 }
 
-inline auto always(LtlFormula f) -> LtlFormula {
+[[nodiscard]] inline auto always(LtlFormula f) -> LtlFormula {
     return Always{std::make_unique<LtlFormula>(std::move(f))};
 }
 
-inline auto eventually(LtlFormula f) -> LtlFormula {
+[[nodiscard]] inline auto eventually(LtlFormula f) -> LtlFormula {
     return Eventually{std::make_unique<LtlFormula>(std::move(f))};
 }
 
-inline auto never(Predicate p) -> LtlFormula {
+[[nodiscard]] inline auto never(Predicate p) -> LtlFormula {
     return always(negate(atomic(std::move(p))));
 }
 
-inline auto until(LtlFormula left, LtlFormula right) -> LtlFormula {
+[[nodiscard]] inline auto until(LtlFormula left, LtlFormula right) -> LtlFormula {
     return Until{.left = std::make_unique<LtlFormula>(std::move(left)),
                  .right = std::make_unique<LtlFormula>(std::move(right))};
 }
 
-inline auto release(LtlFormula left, LtlFormula right) -> LtlFormula {
+[[nodiscard]] inline auto release(LtlFormula left, LtlFormula right) -> LtlFormula {
     return Release{.left = std::make_unique<LtlFormula>(std::move(left)),
                    .right = std::make_unique<LtlFormula>(std::move(right))};
 }
 
-inline auto within(Timestamp t, LtlFormula f) -> LtlFormula {
+[[nodiscard]] inline auto within(Timestamp t, LtlFormula f) -> LtlFormula {
     return MetricEventually{.bound = t, .formula = std::make_unique<LtlFormula>(std::move(f))};
 }
 
-inline auto always_within(Timestamp t, LtlFormula f) -> LtlFormula {
+[[nodiscard]] inline auto always_within(Timestamp t, LtlFormula f) -> LtlFormula {
     return MetricAlways{.bound = t, .formula = std::make_unique<LtlFormula>(std::move(f))};
 }
 
 // --- Predicate builders ---
 
-inline auto equals(SignalName name, PhysicalValue value) -> Predicate {
+[[nodiscard]] inline auto equals(SignalName name, PhysicalValue value) -> Predicate {
     return Equals{.signal = std::move(name), .value = value};
 }
 
-inline auto less_than(SignalName name, PhysicalValue value) -> Predicate {
+[[nodiscard]] inline auto less_than(SignalName name, PhysicalValue value) -> Predicate {
     return LessThan{.signal = std::move(name), .value = value};
 }
 
-inline auto greater_than(SignalName name, PhysicalValue value) -> Predicate {
+[[nodiscard]] inline auto greater_than(SignalName name, PhysicalValue value) -> Predicate {
     return GreaterThan{.signal = std::move(name), .value = value};
 }
 
-inline auto less_than_or_equal(SignalName name, PhysicalValue value) -> Predicate {
+[[nodiscard]] inline auto less_than_or_equal(SignalName name, PhysicalValue value) -> Predicate {
     return LessThanOrEqual{.signal = std::move(name), .value = value};
 }
 
-inline auto greater_than_or_equal(SignalName name, PhysicalValue value) -> Predicate {
+[[nodiscard]] inline auto greater_than_or_equal(SignalName name, PhysicalValue value) -> Predicate {
     return GreaterThanOrEqual{.signal = std::move(name), .value = value};
 }
 
-inline auto between(SignalName name, PhysicalValue min, PhysicalValue max) -> Predicate {
+[[nodiscard]] inline auto between(SignalName name, PhysicalValue min, PhysicalValue max)
+    -> Predicate {
     return Between{.signal = std::move(name), .min = min, .max = max};
 }
 
-inline auto changed_by(SignalName name, Delta delta) -> Predicate {
+[[nodiscard]] inline auto changed_by(SignalName name, Delta delta) -> Predicate {
     return ChangedBy{.signal = std::move(name), .delta = delta};
 }
 
-inline auto stable_within(SignalName name, Tolerance tol) -> Predicate {
+[[nodiscard]] inline auto stable_within(SignalName name, Tolerance tol) -> Predicate {
     return StableWithin{.signal = std::move(name), .tolerance = tol};
 }
 
-// Deep-copy a formula tree (LtlFormula contains unique_ptr children).
-inline auto clone(const LtlFormula& f) -> LtlFormula {
+// Deep-copy a formula tree (LtlFormula contains unique_ptr children). Every
+// alternative is one of five aggregate shapes, which the branches below name
+// by their members rather than by type; an alternative of a new shape fails
+// the final static_assert.
+[[nodiscard]] inline auto clone(const LtlFormula& f) -> LtlFormula {
     auto cp = [](const std::unique_ptr<LtlFormula>& p) -> std::unique_ptr<LtlFormula> {
         return p ? std::make_unique<LtlFormula>(clone(*p)) : nullptr;
     };
     return f.visit([&cp](const auto& v) -> LtlFormula {
         using T = std::decay_t<decltype(v)>;
-        if constexpr (std::is_same_v<T, Atomic>)
-            return Atomic{v.predicate};
-        else if constexpr (std::is_same_v<T, Not>)
-            return Not{cp(v.formula)};
-        else if constexpr (std::is_same_v<T, And>)
-            return And{cp(v.left), cp(v.right)};
-        else if constexpr (std::is_same_v<T, Or>)
-            return Or{cp(v.left), cp(v.right)};
-        else if constexpr (std::is_same_v<T, Next>)
-            return Next{cp(v.formula)};
-        else if constexpr (std::is_same_v<T, WeakNext>)
-            return WeakNext{cp(v.formula)};
-        else if constexpr (std::is_same_v<T, Always>)
-            return Always{cp(v.formula)};
-        else if constexpr (std::is_same_v<T, Eventually>)
-            return Eventually{cp(v.formula)};
-        else if constexpr (std::is_same_v<T, Until>)
-            return Until{cp(v.left), cp(v.right)};
-        else if constexpr (std::is_same_v<T, Release>)
-            return Release{cp(v.left), cp(v.right)};
-        else if constexpr (std::is_same_v<T, MetricAlways>)
-            return MetricAlways{v.bound, cp(v.formula)};
-        else if constexpr (std::is_same_v<T, MetricEventually>)
-            return MetricEventually{v.bound, cp(v.formula)};
-        else if constexpr (std::is_same_v<T, MetricUntil>)
-            return MetricUntil{v.bound, cp(v.left), cp(v.right)};
-        else if constexpr (std::is_same_v<T, MetricRelease>)
-            return MetricRelease{v.bound, cp(v.left), cp(v.right)};
+        if constexpr (requires { v.predicate; })
+            return T{v.predicate};
+        else if constexpr (requires {
+                               v.bound;
+                               v.left;
+                               v.right;
+                           })
+            return T{v.bound, cp(v.left), cp(v.right)};
+        else if constexpr (requires {
+                               v.bound;
+                               v.formula;
+                           })
+            return T{v.bound, cp(v.formula)};
+        else if constexpr (requires {
+                               v.left;
+                               v.right;
+                           })
+            return T{cp(v.left), cp(v.right)};
+        else if constexpr (requires { v.formula; })
+            return T{cp(v.formula)};
         else
-            static_assert(sizeof(T) == 0, "Unhandled formula type in clone");
+            static_assert(sizeof(T) == 0, "Unhandled formula shape in clone");
     });
 }
 

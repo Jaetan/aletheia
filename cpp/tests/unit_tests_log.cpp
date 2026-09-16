@@ -38,7 +38,8 @@ TEST_CASE("logger captures streaming events", "[client][log]") {
 
     // Collect log events
     std::vector<std::pair<LogLevel, std::string>> events;
-    Logger logger([&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
+    const Logger logger(
+        [&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
 
     AletheiaClient client(std::move(mock), logger);
 
@@ -81,11 +82,14 @@ TEST_CASE("logger captures streaming events", "[client][log]") {
     CHECK(found_ended);
 }
 
-TEST_CASE("null logger has zero overhead", "[client][log]") {
+TEST_CASE("a client with no logger runs every emit site", "[client][log]") {
+    // The title claim is what this asserts: a default-constructed logger has no
+    // sink, so every emit site the call passes through short-circuits and the
+    // call succeeds. Whether that short-circuit costs anything is a question
+    // for the benchmarks, not for this case.
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(R"({"status": "success"})");
 
-    // Default-constructed logger — no callback
     AletheiaClient client(std::move(mock));
 
     auto formula = ltl::always(
@@ -93,7 +97,6 @@ TEST_CASE("null logger has zero overhead", "[client][log]") {
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    // Should not crash or produce output
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
 }
 
@@ -124,15 +127,15 @@ TEST_CASE("rts.cores_mismatch logs active/requested core integer fields", "[clie
     };
     std::vector<CapturedEvent> events;
 
-    Logger logger([&](const LogRecord& r) {
-        CapturedEvent evt{r.level, std::string{r.event}, {}};
+    const Logger logger([&](const LogRecord& r) {
+        CapturedEvent evt{.level = r.level, .event = std::string{r.event}, .fields = {}};
         for (const auto& [k, v] : r.fields)
-            evt.fields.push_back(CapturedField{std::string{k}, v});
+            evt.fields.push_back(CapturedField{.key = std::string{k}, .value = v});
         events.push_back(std::move(evt));
     });
 
     auto mock = std::make_unique<MockBackendWithRtsMismatch>();
-    AletheiaClient client(std::move(mock), logger);
+    const AletheiaClient client(std::move(mock), logger);
 
     REQUIRE_FALSE(events.empty());
     CHECK(events[0].level == LogLevel::Warn);
@@ -154,27 +157,27 @@ TEST_CASE("rts.cores_mismatch logs active/requested core integer fields", "[clie
 // "debug-never-fires" / "debug-always-fires" failures.
 TEST_CASE("Logger::enabled() reflects sink + min-level state", "[log][enabled]") {
     SECTION("no sinks → false at every level") {
-        Logger logger;
+        const Logger logger;
         CHECK_FALSE(logger.enabled(LogLevel::Debug));
         CHECK_FALSE(logger.enabled(LogLevel::Info));
         CHECK_FALSE(logger.enabled(LogLevel::Warn));
         CHECK_FALSE(logger.enabled(LogLevel::Error));
     }
     SECTION("sink registered, level below min → false") {
-        Logger logger([](const LogRecord&) {}, LogLevel::Warn);
+        const Logger logger([](const LogRecord&) {}, LogLevel::Warn);
         CHECK_FALSE(logger.enabled(LogLevel::Debug));
         CHECK_FALSE(logger.enabled(LogLevel::Info));
     }
     SECTION("sink registered, level == min → true (boundary)") {
-        Logger logger([](const LogRecord&) {}, LogLevel::Warn);
+        const Logger logger([](const LogRecord&) {}, LogLevel::Warn);
         CHECK(logger.enabled(LogLevel::Warn));
     }
     SECTION("sink registered, level above min → true") {
-        Logger logger([](const LogRecord&) {}, LogLevel::Warn);
+        const Logger logger([](const LogRecord&) {}, LogLevel::Warn);
         CHECK(logger.enabled(LogLevel::Error));
     }
     SECTION("default min_level (Debug) accepts all levels with sink") {
-        Logger logger([](const LogRecord&) {});
+        const Logger logger([](const LogRecord&) {});
         CHECK(logger.enabled(LogLevel::Debug));
         CHECK(logger.enabled(LogLevel::Info));
         CHECK(logger.enabled(LogLevel::Warn));
@@ -191,7 +194,7 @@ TEST_CASE("Logger::enabled() mirrors log()'s short-circuit exactly", "[log][enab
 
     for (auto min_level : {LogLevel::Debug, LogLevel::Info, LogLevel::Warn, LogLevel::Error}) {
         for (auto call_level : {LogLevel::Debug, LogLevel::Info, LogLevel::Warn, LogLevel::Error}) {
-            Logger logger(bump, min_level);
+            const Logger logger(bump, min_level);
             callback_count = 0;
             const bool en = logger.enabled(call_level);
             logger.log(call_level, "test", {});

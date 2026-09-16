@@ -1,7 +1,7 @@
 {
   "benchmark": "scaling",
   "language": "python",
-  "timestamp": "2026-07-25T02:25:33.072616+00:00",
+  "timestamp": "2026-07-26T00:09:18.242331+00:00",
   "system": {
     "cpu": "x86_64",
     "cores": 24,
@@ -12,125 +12,125 @@
     "trace_size_can20": [
       {
         "frames": 1000,
-        "fps": 189874.1,
+        "fps": 187929.1,
         "relative": 1.0
       },
       {
         "frames": 5000,
-        "fps": 201779.7,
-        "relative": 1.063
-      },
-      {
-        "frames": 10000,
-        "fps": 193922.9,
-        "relative": 1.021
-      },
-      {
-        "frames": 50000,
-        "fps": 195136.5,
+        "fps": 193170.9,
         "relative": 1.028
       },
       {
+        "frames": 10000,
+        "fps": 191513.9,
+        "relative": 1.019
+      },
+      {
+        "frames": 50000,
+        "fps": 190813.2,
+        "relative": 1.015
+      },
+      {
         "frames": 100000,
-        "fps": 196778.2,
-        "relative": 1.036
+        "fps": 190399.9,
+        "relative": 1.013
       }
     ],
     "trace_size_canfd": [
       {
         "frames": 1000,
-        "fps": 169097.3,
+        "fps": 163701.2,
         "relative": 1.0
       },
       {
         "frames": 5000,
-        "fps": 175911.0,
-        "relative": 1.04
+        "fps": 174188.4,
+        "relative": 1.064
       },
       {
         "frames": 10000,
-        "fps": 184671.7,
-        "relative": 1.092
+        "fps": 181578.6,
+        "relative": 1.109
       },
       {
         "frames": 50000,
-        "fps": 186458.2,
-        "relative": 1.103
+        "fps": 180240.0,
+        "relative": 1.101
       },
       {
         "frames": 100000,
-        "fps": 183417.7,
-        "relative": 1.085
+        "fps": 181491.9,
+        "relative": 1.109
       }
     ],
     "property_count": [
       {
         "properties": 1,
-        "fps": 187377.4,
+        "fps": 188728.8,
         "us_per_frame": 5.3,
         "relative": 1.0
       },
       {
         "properties": 2,
-        "fps": 155280.5,
-        "us_per_frame": 6.4,
-        "relative": 0.829
+        "fps": 152894.9,
+        "us_per_frame": 6.5,
+        "relative": 0.81
       },
       {
         "properties": 3,
-        "fps": 149954.8,
-        "us_per_frame": 6.7,
-        "relative": 0.8
+        "fps": 145270.4,
+        "us_per_frame": 6.9,
+        "relative": 0.77
       },
       {
         "properties": 5,
-        "fps": 106205.5,
-        "us_per_frame": 9.4,
-        "relative": 0.567
+        "fps": 105576.5,
+        "us_per_frame": 9.5,
+        "relative": 0.559
       },
       {
         "properties": 7,
-        "fps": 89345.2,
-        "us_per_frame": 11.2,
-        "relative": 0.477
+        "fps": 88563.6,
+        "us_per_frame": 11.3,
+        "relative": 0.469
       },
       {
         "properties": 10,
-        "fps": 71728.3,
-        "us_per_frame": 13.9,
-        "relative": 0.383
+        "fps": 70160.4,
+        "us_per_frame": 14.3,
+        "relative": 0.372
       }
     ],
     "property_complexity": [
       {
         "complexity": "Simple predicate",
-        "fps": 193138.7,
-        "us_per_frame": 5.2,
+        "fps": 186737.3,
+        "us_per_frame": 5.4,
         "relative": 1.0
       },
       {
         "complexity": "Range predicate",
-        "fps": 192646.7,
-        "us_per_frame": 5.2,
-        "relative": 0.997
+        "fps": 184766.7,
+        "us_per_frame": 5.4,
+        "relative": 0.989
       },
       {
         "complexity": "Two predicates (AND)",
-        "fps": 156064.7,
-        "us_per_frame": 6.4,
-        "relative": 0.808
+        "fps": 152810.9,
+        "us_per_frame": 6.5,
+        "relative": 0.818
       },
       {
         "complexity": "Three predicates",
-        "fps": 148428.7,
+        "fps": 148157.3,
         "us_per_frame": 6.7,
-        "relative": 0.769
+        "relative": 0.793
       },
       {
         "complexity": "Implication",
-        "fps": 159453.2,
+        "fps": 158529.7,
         "us_per_frame": 6.3,
-        "relative": 0.826
+        "relative": 0.849
       }
     ]
   }

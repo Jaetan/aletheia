@@ -615,6 +615,17 @@ def _rust_direct_components(
 # so a bundle consumer can never fetch it — test-only, excluded from the bill.
 _CPP_TEST_ONLY_FETCHES: frozenset[str] = frozenset({"Catch2"})
 
+# A dependency that fetches its own dependencies is pinned here first, under
+# the content name that dependency's helper expects, which appends `_fetch`.
+# The bill names the package, not the mechanism that fetches it.
+_CPP_FETCH_NAME_SUFFIX = "_fetch"
+
+
+def _cpp_component_name(declare_name: str) -> str:
+    """Return the package name behind a FetchContent content name."""
+    return declare_name.removesuffix(_CPP_FETCH_NAME_SUFFIX)
+
+
 # The one FetchContent shape the C++ binding uses: URL + URL_HASH SHA256=.
 _FETCH_DECLARE_RE = re.compile(
     r"FetchContent_Declare\(\s*([A-Za-z0-9_-]+)"
@@ -624,11 +635,15 @@ _FETCH_DECLARE_RE = re.compile(
 _FETCH_COUNT_RE = re.compile(r"FetchContent_Declare\s*\(")
 
 # Pinned-version shapes a fetch URL can carry: a release-asset tag, an
-# archive tag (optionally v-prefixed), or a pinned commit archive.
+# archive tag (optionally v-prefixed), an archive tag that repeats the
+# project name before the version (yaml-cpp tags its releases
+# `yaml-cpp-0.9.0`), or a pinned commit archive.  The name-prefixed pattern
+# comes last so a plain `v1.15` still reads as `1.15`.
 _CPP_URL_VERSION_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"/releases/download/v([0-9][\w.]*)/"),
     re.compile(r"/archive/refs/tags/v?([0-9][\w.]*)\.tar"),
     re.compile(r"/archive/([0-9a-f]{7,40})\.tar"),
+    re.compile(r"/archive/refs/tags/[A-Za-z][\w.+-]*?-v?([0-9][\w.]*)\.tar"),
 )
 
 
@@ -669,13 +684,14 @@ def _cpp_components(bindings_dir: Path) -> list[Component]:
         if name in _CPP_TEST_ONLY_FETCHES:
             continue
         version = _cpp_pin_version(url, str(path))
+        package = _cpp_component_name(name)
         components.append(
             {
                 "type": "library",
-                "name": name,
+                "name": package,
                 "version": version,
                 "scope": "required",
-                "purl": f"pkg:generic/{name}@{version}",
+                "purl": f"pkg:generic/{package}@{version}",
                 "properties": [
                     {"name": "aletheia:binding", "value": "cpp"},
                     {"name": "aletheia:source-url", "value": url},

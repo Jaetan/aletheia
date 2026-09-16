@@ -19,10 +19,12 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -32,30 +34,42 @@ using namespace aletheia;
 
 // Shared base for the cancellation-test doubles. The binary streaming/event
 // endpoints are never exercised by these tests (they drive process() /
-// set_properties / send_frame), so the base satisfies the now-mandatory
-// IBackend streaming surface by routing every endpoint through process().
+// set_properties / send_frame), so the base satisfies the mandatory IBackend
+// streaming surface by routing every endpoint through process().
 // Subclasses implement init/close/process with the behaviour under test.
 class StubStreamingBackend : public IBackend {
 public:
-    auto send_frame_binary(void* state, Timestamp /*ts*/, const CanId& /*id*/, Dlc /*dlc*/,
-                           std::span<const std::byte> /*data*/, std::optional<bool> /*brs*/,
-                           std::optional<bool> /*esi*/) -> std::string override {
-        return process(state, "");
-    }
-    auto send_error_binary(void* state, Timestamp /*ts*/) -> std::string override {
-        return process(state, "");
-    }
-    auto send_remote_binary(void* state, Timestamp /*ts*/, const CanId& /*id*/)
+    auto send_frame_binary(const BackendState& state, Timestamp /*ts*/, const CanId& /*id*/,
+                           Dlc /*dlc*/, std::span<const std::byte> /*data*/,
+                           std::optional<bool> /*brs*/, std::optional<bool> /*esi*/)
         -> std::string override {
         return process(state, "");
     }
-    auto start_stream_binary(void* state) -> std::string override { return process(state, ""); }
-    auto end_stream_binary(void* state) -> std::string override { return process(state, ""); }
-    auto format_dbc_binary(void* state) -> std::string override { return process(state, ""); }
-    auto extract_signals_binary(void* state, const CanId& /*id*/, Dlc /*dlc*/,
+    auto send_error_binary(const BackendState& state, Timestamp /*ts*/) -> std::string override {
+        return process(state, "");
+    }
+    auto send_remote_binary(const BackendState& state, Timestamp /*ts*/, const CanId& /*id*/)
+        -> std::string override {
+        return process(state, "");
+    }
+    auto start_stream_binary(const BackendState& state) -> std::string override {
+        return process(state, "");
+    }
+    auto end_stream_binary(const BackendState& state) -> std::string override {
+        return process(state, "");
+    }
+    auto format_dbc_binary(const BackendState& state) -> std::string override {
+        return process(state, "");
+    }
+    auto extract_signals_binary(const BackendState& state, const CanId& /*id*/, Dlc /*dlc*/,
                                 std::span<const std::byte> /*data*/) -> std::string override {
         return process(state, "");
     }
+
+protected:
+    // Every stub below hands out a static sentinel, so there is nothing to
+    // release and one definition serves them all.
+    void close(void* /*state*/) override {}
 };
 
 // CancelTriggerBackend deterministically fires the supplied stop_source
@@ -75,10 +89,10 @@ public:
 
     [[nodiscard]] auto call_count() const -> std::size_t { return calls_; }
 
-    auto init() -> void* override { return &sentinel; }
-    void close(void* /*state*/) override {}
+    auto init() -> BackendState override { return BackendState{*this, &sentinel}; }
 
-    auto process(void* /*state*/, std::string_view /*input*/) -> std::string override {
+    auto process(const BackendState& /*state*/, std::string_view /*input*/)
+        -> std::string override {
         ++calls_;
         if (calls_ == cancel_after_ && source_ != nullptr)
             source_->request_stop();
@@ -105,8 +119,7 @@ class HoldingBackend : public StubStreamingBackend {
 public:
     [[nodiscard]] auto call_count() const -> std::size_t { return calls_; }
 
-    auto init() -> void* override { return &sentinel; }
-    void close(void* /*state*/) override {}
+    auto init() -> BackendState override { return BackendState{*this, &sentinel}; }
 
     // Blocks until process() has entered the FFI (deterministic rendezvous).
     void wait_until_entered() { entered_.wait(false, std::memory_order_acquire); }
@@ -116,7 +129,8 @@ public:
         proceed_.notify_one();
     }
 
-    auto process(void* /*state*/, std::string_view /*input*/) -> std::string override {
+    auto process(const BackendState& /*state*/, std::string_view /*input*/)
+        -> std::string override {
         ++calls_;
         entered_.test_and_set(std::memory_order_release);
         entered_.notify_one();
@@ -127,22 +141,19 @@ public:
 
 } // namespace
 
-#include <thread>
-
 TEST_CASE("Client cancellation: pre-FFI guard rejects already-cancelled stop_token",
           "[cancellation]") {
     auto backend_owned = std::make_unique<CancelTriggerBackend>(0, nullptr);
     auto* backend = backend_owned.get();
     AletheiaClient client(std::move(backend_owned));
 
-    std::stop_source source;
+    const std::stop_source source;
     source.request_stop(); // cancel BEFORE the call
 
     auto result = client.set_properties(source.get_token(), std::span<const LtlFormula>{});
     REQUIRE_FALSE(result.has_value());
     REQUIRE(result.error().kind() == ErrorKind::Cancellation);
-    REQUIRE(std::string_view{result.error().message()}.find("set_properties") !=
-            std::string_view::npos);
+    REQUIRE(std::string_view{result.error().message()}.contains("set_properties"));
     REQUIRE(backend->call_count() == 0); // FFI never reached
 }
 
@@ -181,7 +192,7 @@ TEST_CASE("Client cancellation: in-flight FFI runs to completion", "[cancellatio
     auto* backend = backend_owned.get();
     AletheiaClient client(std::move(backend_owned));
 
-    std::stop_source cancel_source;
+    const std::stop_source cancel_source;
     auto cancel_token = cancel_source.get_token();
 
     // Run set_properties on a worker thread; HoldingBackend blocks inside
@@ -202,27 +213,27 @@ TEST_CASE("Client cancellation: in-flight FFI runs to completion", "[cancellatio
     // unwind. This guard releases the backend (so process() returns) and joins the
     // worker before that destructor runs, turning an assertion failure into a fast,
     // clean failure instead of a terminate. A shared_ptr<void> holding a null
-    // pointer with a deleter is a dependency-free scope guard — the deleter runs
-    // on scope exit, including an exception unwind. Declared after `worker` so it
-    // destructs first; on the happy path the explicit release()/join() below run
-    // first, leaving this a no-op (release() is idempotent; join() is skipped once
-    // the worker is no longer joinable).
+    // pointer with a deleter is a dependency-free scope guard whose deleter runs
+    // on scope exit, an exception unwind included. Declared after `worker` so it
+    // destructs first; on the happy path the explicit release and join below run
+    // first and leave it a no-op, release being idempotent and join skipped once
+    // the worker has been joined.
     const auto worker_guard = std::shared_ptr<void>(nullptr, [backend, &worker](void*) {
         backend->release();
         if (worker.joinable())
             worker.join();
     });
 
-    // Deterministically wait until process() has entered the FFI (replaces the
-    // 2s steady_clock deadline poll). The entered_ semaphore release/acquire
-    // establishes happens-before, so reading call_count() here is race-free.
+    // Deterministically wait until process() has entered the FFI. The entered_
+    // flag's release and acquire establish happens-before, so reading
+    // call_count() here is race-free.
     backend->wait_until_entered();
     REQUIRE(backend->call_count() == 1);
 
-    // Fire cancellation while the FFI is in flight, then release the FFI.
-    // Releasing via the proceed_ semaphore (replaces the sleep_for(20ms)) is
-    // sufficient: the cancel cannot have aborted an already-entered call, and
-    // the worker_ok assertion after join proves the call returned success.
+    // Fire cancellation while the FFI is in flight, then release it. Releasing
+    // through the proceed_ flag is sufficient: the cancel cannot have aborted
+    // an already-entered call, and the assertion after the join proves the
+    // call returned success.
     cancel_source.request_stop();
     backend->release();
     worker.join();

@@ -4,8 +4,9 @@
 //
 // Reads docs/FEATURE_MATRIX.yaml and verifies:
 //
-//   1. Every feature row has a well-formed schema (id / name / description /
-//      bindings for all three languages, each with a valid status).
+//   1. Every feature row has a well-formed schema: an id, a name, a
+//      description, and a binding entry for each of Python, C++, Go and Rust
+//      carrying a valid status.
 //   2. Every binding with status=implemented carries an entry field.
 //   3. Every C++ implemented entry (format "<header>#<symbol>") resolves —
 //      the header exists under cpp/include/ and contains the symbol as a
@@ -26,40 +27,31 @@
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 
-namespace {
+#include "repo_root.hpp"
+#include "text_file.hpp"
+#include <catch2/catch_message.hpp>
 
-constexpr std::array<std::string_view, 3> kValidStatuses = {"implemented", "not_applicable",
-                                                            "planned"};
+using aletheia::test::repo_root;
 
-constexpr std::array<std::string_view, 4> kBindings = {"python", "cpp", "go", "rust"};
+using aletheia::test::read_text_file;
 
-// Repo root is passed via the ALETHEIA_REPO_ROOT env var by ctest's
-// set_tests_properties(ENVIRONMENT ...) rather than baked into a compile-time
-// define.  Keeps the test binary bit-identical regardless of build location —
-// required for reproducible builds.
-auto repo_root() -> std::filesystem::path {
-    if (const char* env = std::getenv("ALETHEIA_REPO_ROOT"); env != nullptr && *env != '\0') {
-        return std::filesystem::path{env};
-    }
-    throw std::runtime_error("ALETHEIA_REPO_ROOT env var not set; expected to be passed by ctest "
-                             "via set_tests_properties(ENVIRONMENT ...) in cpp/CMakeLists.txt");
-}
+constexpr std::array<std::string_view, 3> k_valid_statuses = {"implemented", "not_applicable",
+                                                              "planned"};
 
-auto matrix_path() -> std::filesystem::path {
+constexpr std::array<std::string_view, 4> k_bindings = {"python", "cpp", "go", "rust"};
+
+static auto matrix_path() -> std::filesystem::path {
     return repo_root() / "docs" / "FEATURE_MATRIX.yaml";
 }
 
-auto cpp_include_root() -> std::filesystem::path {
+static auto cpp_include_root() -> std::filesystem::path {
     return repo_root() / "cpp" / "include";
 }
 
-auto load_matrix() -> YAML::Node {
+static auto load_matrix() -> YAML::Node {
     const auto path = matrix_path();
     REQUIRE(std::filesystem::exists(path));
     auto root = YAML::LoadFile(path.string());
@@ -69,22 +61,33 @@ auto load_matrix() -> YAML::Node {
     return root;
 }
 
-auto read_file(const std::filesystem::path& path) -> std::string {
-    std::ifstream in{path};
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    return ss.str();
+static auto is_ident_char(char c) -> bool {
+    return (std::isalnum(static_cast<unsigned char>(c)) != 0) || c == '_';
 }
 
-auto is_ident_char(char c) -> bool {
-    return (std::isalnum(static_cast<unsigned char>(c)) != 0) || c == '_';
+// True when the apostrophe at `pos` is a digit separator (1'000, 0xFF'FF)
+// rather than the start or end of a character literal.  Both neighbours are
+// identifier characters and the run to the left begins with a digit, which is
+// what tells a separator from an encoding prefix: u8'a' also has a digit
+// immediately left of the quote.  Reading a separator as a quote opens a
+// literal that runs to the next apostrophe, and every symbol in that span is
+// blanked out of the search.
+static auto is_digit_separator(const std::string& text, std::size_t pos) -> bool {
+    if (pos == 0 || pos + 1 >= text.size())
+        return false;
+    if (!is_ident_char(text[pos - 1]) || !is_ident_char(text[pos + 1]))
+        return false;
+    std::size_t start = pos;
+    while (start > 0 && is_ident_char(text[start - 1]))
+        --start;
+    return std::isdigit(static_cast<unsigned char>(text[start])) != 0;
 }
 
 // Overwrite C/C++ comments, string literals, and character literals with
 // spaces (newlines preserved so offsets and line numbers still line up).
 // Prevents a stale "// removed AletheiaClient" comment from satisfying a
 // whole-word symbol check after the class has actually been deleted.
-auto strip_lexical_noise(std::string text) -> std::string {
+static auto strip_lexical_noise(std::string text) -> std::string {
     const auto n = text.size();
     for (std::size_t i = 0; i < n;) {
         const char c = text[i];
@@ -95,7 +98,7 @@ auto strip_lexical_noise(std::string text) -> std::string {
         } else if (c == '/' && i + 1 < n && text[i + 1] == '*') {
             text[i] = text[i + 1] = ' ';
             i += 2;
-            while (i + 1 < n && !(text[i] == '*' && text[i + 1] == '/')) {
+            while (i + 1 < n && (text[i] != '*' || text[i + 1] != '/')) {
                 if (text[i] != '\n') {
                     text[i] = ' ';
                 }
@@ -105,7 +108,7 @@ auto strip_lexical_noise(std::string text) -> std::string {
                 text[i] = text[i + 1] = ' ';
                 i += 2;
             }
-        } else if (c == '"' || c == '\'') {
+        } else if (c == '"' || (c == '\'' && !is_digit_separator(text, i))) {
             const char quote = c;
             text[i++] = ' ';
             while (i < n && text[i] != quote) {
@@ -130,7 +133,7 @@ auto strip_lexical_noise(std::string text) -> std::string {
     return text;
 }
 
-auto symbol_present(const std::string& text, const std::string& symbol) -> bool {
+static auto symbol_present(const std::string& text, const std::string& symbol) -> bool {
     if (symbol.empty()) {
         return false;
     }
@@ -147,18 +150,16 @@ auto symbol_present(const std::string& text, const std::string& symbol) -> bool 
     return false;
 }
 
-auto is_valid_status(std::string_view status) -> bool {
-    return std::find(kValidStatuses.begin(), kValidStatuses.end(), status) != kValidStatuses.end();
+static auto is_valid_status(std::string_view status) -> bool {
+    return std::ranges::contains(k_valid_statuses, status);
 }
 
-auto trim(std::string s) -> std::string {
+static auto trim(std::string s) -> std::string {
     const auto not_ws = [](unsigned char c) { return std::isspace(c) == 0; };
-    s.erase(s.begin(), std::find_if(s.begin(), s.end(), not_ws));
-    s.erase(std::find_if(s.rbegin(), s.rend(), not_ws).base(), s.end());
+    s.erase(s.begin(), std::ranges::find_if(s, not_ws));
+    s.erase(std::ranges::find_if(s.rbegin(), s.rend(), not_ws).base(), s.end());
     return s;
 }
-
-} // namespace
 
 TEST_CASE("FEATURE_MATRIX schema", "[parity]") {
     const auto root = load_matrix();
@@ -173,7 +174,7 @@ TEST_CASE("FEATURE_MATRIX schema", "[parity]") {
             REQUIRE(bindings);
             REQUIRE(bindings.IsMap());
 
-            for (const auto binding_name : kBindings) {
+            for (const auto binding_name : k_bindings) {
                 const auto binding = bindings[std::string(binding_name)];
                 CAPTURE(binding_name);
                 REQUIRE(binding);
@@ -219,8 +220,22 @@ TEST_CASE("FEATURE_MATRIX C++ entries resolve", "[parity]") {
             CAPTURE(header_path.string());
             REQUIRE(std::filesystem::exists(header_path));
 
-            const auto text = strip_lexical_noise(read_file(header_path));
+            const auto text = strip_lexical_noise(read_text_file(header_path));
             CHECK(symbol_present(text, symbol));
         }
     }
+}
+
+TEST_CASE("the stripper keeps a digit separator and still blanks a character literal", "[parity]") {
+    // A separator must not open a literal: whatever follows it stays visible
+    // to the whole-word search that the entries above rely on.
+    CHECK(symbol_present(strip_lexical_noise("constexpr int k = 1'000;\nstruct Dlc {};\n"), "Dlc"));
+    CHECK(
+        symbol_present(strip_lexical_noise("constexpr int k = 0xFF'FF;\nstruct Dlc {};\n"), "Dlc"));
+    // A character literal is still blanked, including an encoding-prefixed one
+    // whose prefix ends in a digit, and so is a comment.
+    CHECK_FALSE(symbol_present(strip_lexical_noise("char c = 'D'; struct Dlc {};"), "D"));
+    CHECK_FALSE(symbol_present(strip_lexical_noise("auto c = u8'x'; struct Dlc {};"), "x"));
+    CHECK(symbol_present(strip_lexical_noise("auto c = u8'x'; struct Dlc {};"), "Dlc"));
+    CHECK_FALSE(symbol_present(strip_lexical_noise("// Dlc was removed\n"), "Dlc"));
 }

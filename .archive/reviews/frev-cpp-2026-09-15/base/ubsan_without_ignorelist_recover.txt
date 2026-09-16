@@ -1,0 +1,7 @@
+build done
+     62 _deps/openxlsx-src/OpenXLSX/external/zippy/zippy.hpp:  load of misaligned address 
+      3 _deps/openxlsx-src/OpenXLSX/external/zippy/zippy.hpp:  store to misaligned address 
+      1 _deps/openxlsx-src/OpenXLSX/sources/XLStyles.cpp:  load of value 
+      1 _deps/openxlsx-src/OpenXLSX/external/zippy/zippy.hpp:  null pointer passed as argument 
+All tests passed (180 assertions in 59 test cases)
+run done

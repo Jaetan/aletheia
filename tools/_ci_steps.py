@@ -99,6 +99,7 @@ FAST_STEPS: frozenset[str] = frozenset(
         "check-venv-convention",
         "check-dist-staging",
         "clang-format",
+        "cmake-lint",
         "gofmt",
         "cargo fmt",
         "cargo fmt (excel crate)",
@@ -329,8 +330,8 @@ def _run_binding_tests(runner: Runner) -> None:
         # Pin to clang-22 — the supported toolchain (latest stable), the SAME
         # compiler the sanitizer + mutation lanes use, so unit tests sanitize the
         # same compilation we ship. Bare `clang`/default cc resolves to the
-        # runner's clang-18 / g++ (clang < 19 mis-handles libstdc++-14's C++23
-        # <expected>); clang-22 is version-pinned + installed by the workflow via
+        # runner's clang-18 / g++ (clang < 19 mis-handles the C++23 <expected>
+        # libstdc++ ships); clang-22 is version-pinned + installed by the workflow via
         # apt.llvm.org (no update-alternatives roulette).
         "cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 "
         + f"> /dev/null && cmake --build build && ALETHEIA_LIB={cpp_lib} ctest --test-dir build",
@@ -434,8 +435,10 @@ def _run_lints(runner: Runner) -> None:
     runner.step("gofmt", gofmt_cmd, cwd=runner.repo_root / "go")
     runner.step("go vet", "go vet ./... && (cd excel && go vet ./...)", cwd=runner.repo_root / "go")
 
-    # clang-format: exclude generated / third-party trees + sanitizer/mutation
-    # build trees.
+    # clang-format over what the repository tracks, for the reason the
+    # clang-tidy step below reads the compile database: a hand-maintained list
+    # of trees to skip drifts from the trees that exist, and the one it misses
+    # walks a generated source into the gate.  git also covers a staged file.
     #
     # Route through the venv-pinned clang-format (the ``clang-format`` pip pkg in
     # [dev]) instead of a bare PATH lookup.  clang-format output is
@@ -447,25 +450,51 @@ def _run_lints(runner: Runner) -> None:
     # if the venv lacks it (e.g. a non-[dev] environment).
     _clang_format = Path(runner.python).parent / "clang-format"
     clang_format_bin = str(_clang_format) if _clang_format.exists() else "clang-format"
+    # Run from the repository root so the listing is every tracked C++ source,
+    # not only the binding's: two live elsewhere and were outside this gate for
+    # as long as it ran from cpp/. The style is named explicitly because
+    # clang-format finds a configuration by walking up from each file, and there
+    # is none above those two; naming it also keeps one style for the tree.
     clang_format_cmd = (
-        "find . \\( -path ./build -o -path ./build-tidy "
-        "-o -path ./build-asan -o -path ./build-ubsan "
-        "-o -path ./build-mutation "
-        "-o -path ./_deps -o -path './*/_deps' \\) -prune -o "
-        "\\( -name '*.cpp' -o -name '*.hpp' \\) -print | "
-        f"xargs {shlex.quote(clang_format_bin)} --dry-run --Werror"
+        "git ls-files -z -- '*.cpp' '*.hpp' | "
+        f"xargs -0 -r {shlex.quote(clang_format_bin)} "
+        "--style=file:cpp/.clang-format --dry-run --Werror"
     )
-    runner.step("clang-format", clang_format_cmd, cwd=runner.repo_root / "cpp")
+    runner.step("clang-format", clang_format_cmd)
 
-    # clang-tidy (AGENTS.md § lint gates, mandatory): lint every C++ TU under
-    # cpp/src via run-clang-tidy driven by compile_commands.json.  The compile
-    # database is the single source of truth for coverage, so no subdirectory
-    # (e.g. src/detail/) can be silently dropped the way the old hand-maintained
-    # `src/*.cpp` glob dropped it.  The `cpp/src/` path regex scopes the run to
-    # our sources — third-party `_deps`, tests, and benchmarks are excluded.
+    # cmake-lint over the CMake files, against the style stated in
+    # .cmake-format.yaml rather than the tool's defaults, which differ from this
+    # tree's indentation and line width and would report every deliberate line.
+    #
+    # Two things about the invocation are load-bearing. The config option takes
+    # one or more values, so without the `--` separator it swallows the file
+    # paths as configuration files and the tool scans nothing, prints "files
+    # scanned: 0" and exits zero: a gate that cannot fail. And the file list
+    # comes from `git ls-files`, so the gate reads the index, which is the
+    # staged content this tier is defined over.
+    # The binary comes from the venv, where it is pinned, falling back to PATH
+    # only if the venv lacks it.  A bare PATH lookup exits 127 on a runner that
+    # carries no cmake-lint, which is a gate that fails for the wrong reason.
+    _cmake_lint = Path(runner.python).parent / "cmake-lint"
+    cmake_lint_bin = str(_cmake_lint) if _cmake_lint.exists() else "cmake-lint"
+    cmake_lint_cmd = (
+        "git ls-files -z -- 'CMakeLists.txt' '*/CMakeLists.txt' '*.cmake' '*.cmake.in' | "
+        f"xargs -0 -r {shlex.quote(cmake_lint_bin)} -c .cmake-format.yaml --"
+    )
+    runner.step("cmake-lint", cmake_lint_cmd)
+
+    # clang-tidy (AGENTS.md § lint gates, mandatory): lint every C++ TU the
+    # binding compiles, via run-clang-tidy driven by compile_commands.json.
+    # The compile database is the single source of truth for coverage, so no
+    # subdirectory (e.g. src/detail/) can be silently dropped the way the old
+    # hand-maintained `src/*.cpp` glob dropped it.  The three path regexes
+    # scope the run to our own sources, leaving out third-party `_deps`; the
+    # tests carry their own configuration, which inherits cpp/.clang-tidy and
+    # disables only what Catch2's macros generate, and the benchmarks pass the
+    # root configuration with nothing disabled on their account.
     runner.step(
         "clang-tidy",
-        "run-clang-tidy-22 -quiet -p build cpp/src/",
+        "run-clang-tidy-22 -quiet -p build cpp/src/ cpp/tests/ cpp/benchmarks/",
         cwd=runner.repo_root / "cpp",
     )
     # Coverage guard: every cpp/src/**/*.cpp must appear in the compile DB, so a
@@ -625,7 +654,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
         # lanes).  UB can differ between compiler versions, so the sanitizer lane
         # MUST exercise the shipped compiler's codegen, not an older clang; bare
         # `clang++` also resolves to the runner's clang-18, which fails to compile
-        # libstdc++-14's <expected> (std::expected, C++23).
+        # the <expected> libstdc++ ships (std::expected, C++23).
         "cmake -B build-ubsan -DALETHEIA_SANITIZER=undefined "
         + "-DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 > /dev/null"
         + f" && cmake --build build-ubsan && ALETHEIA_LIB={cpp_lib} ctest --test-dir build-ubsan",

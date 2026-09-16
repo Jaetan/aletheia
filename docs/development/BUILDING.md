@@ -47,7 +47,10 @@ minimum-version floor. g++ is not supported for the C++ binding (the sanitizer
 lanes need clang's `-fsanitize-ignorelist`, and UB can differ between compiler
 versions, so the shipped compiler is pinned). Two caveats are hard requirements,
 not "may work": Python 3.14 (PEP 758 syntax is used) and a C++23 standard library
-for the C++ binding (`<expected>` / `<format>`).
+for the C++ binding (`<expected>` / `<format>`). CI builds the C++ binding against
+libstdc++ 15, taken from the toolchain PPA because ubuntu-24.04 ships 14; that is
+the same "latest stable" rule the compilers follow, and it is what the C++23
+library surface is tested against.
 
 ## Prerequisites
 

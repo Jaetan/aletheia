@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #pragma once
 
+#include <aletheia/dbc.hpp>
 #include <aletheia/validation_issue.hpp> // IWYU pragma: export
 
+#include <string>
 #include <vector>
 
 namespace aletheia {
@@ -12,12 +14,6 @@ struct ValidationResult {
     bool has_errors;
     std::vector<ValidationIssue> issues;
 };
-
-} // namespace aletheia
-
-#include <aletheia/dbc.hpp>
-
-namespace aletheia {
 
 // ParsedDBC bundles the parsed body and any non-error issues (warnings)
 // returned by parse_dbc / parse_dbc_text.  Errors short-circuit to the
@@ -29,11 +25,10 @@ struct ParsedDBC {
 };
 
 // DbcText bundles the .dbc text image produced by format_dbc_text with its
-// wfTextIssues diagnostics (warning-severity, advisory).  format_dbc_text is
-// always strict — it yields this struct only when the emitted text provably
-// re-parses to the input DBC, so `issues` may be non-empty even on a proven
-// round-trip.  A DBC whose text does not round-trip short-circuits to the
-// Result<>::error() path as an AletheiaError of kind ErrorKind::TextRoundtrip.
+// wfTextIssues diagnostics, which are warning-severity and advisory, so
+// `issues` may be non-empty on a proven round-trip.  When this struct is
+// produced at all, and what is returned when it is not, is the contract
+// stated on format_dbc_text in client.hpp.
 struct DbcText {
     std::string text;
     std::vector<ValidationIssue> issues;

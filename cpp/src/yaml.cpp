@@ -36,9 +36,10 @@ static auto get_str(const YAML::Node& node, const std::string& key, const std::s
 // (`Rational::from_decimal`) — the float principle: no float ever materialises.
 // YAML preserves the original scalar text, so the literal "11.5" is handed to
 // the kernel verbatim (→ 23/2) instead of round-tripping through a double.
-// RTS-gated: an FfiBackend must be live first (see Rational::from_decimal); the
-// loader's outer `catch (const std::runtime_error&)` converts both the
-// runtime-down and the malformed-literal throws into a Validation Result.
+// RTS-gated: an FfiBackend must be live first. A kernel refusal of the literal
+// is the document's own defect, re-thrown with the check's context prefixed
+// because the kernel knows the literal and not the position; a refusal that is
+// not about the literal keeps its own kind all the way out of the loader.
 static auto get_decimal(const YAML::Node& node, const std::string& key, const std::string& ctx)
     -> Rational {
     auto child = node[key];
@@ -50,7 +51,13 @@ static auto get_decimal(const YAML::Node& node, const std::string& key, const st
     if (raw == "true" || raw == "false" || raw == "TRUE" || raw == "FALSE" || raw == "True" ||
         raw == "False")
         throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected number)");
-    return Rational::from_decimal(raw);
+    try {
+        return Rational::from_decimal(raw);
+    } catch (const AletheiaException& ex) {
+        if (ex.kind() != ErrorKind::Validation)
+            throw; // runtime-down / ABI faults are not properties of the document
+        throw std::runtime_error(ctx + ": invalid '" + key + "': " + ex.what());
+    }
 }
 
 static auto get_int(const YAML::Node& node, const std::string& key, const std::string& ctx)
@@ -168,13 +175,11 @@ static auto parse_when_then_check(const YAML::Node& entry, const std::string& na
     auto then_signal = get_str(then, "signal", ctx(name));
     auto then_builder = when_result.then(then_signal);
 
-    if (then_cond == "equals") {
+    if (then_cond == "equals" || then_cond == "exceeds") {
         auto val = PhysicalValue{get_decimal(then, "value", ctx(name))};
-        return then_builder.equals(val).within(within_ms);
-    }
-    if (then_cond == "exceeds") {
-        auto val = PhysicalValue{get_decimal(then, "value", ctx(name))};
-        return then_builder.exceeds(val).within(within_ms);
+        const ThenCondition cond =
+            then_cond == "equals" ? then_builder.equals(val) : then_builder.exceeds(val);
+        return cond.within(within_ms);
     }
     // stays_between
     if (!then["min"] || !then["max"])
@@ -232,6 +237,10 @@ static auto parse_yaml_checks(const YAML::Node& root) -> Result<std::vector<Chec
                 AletheiaError{ErrorKind::Validation, "Each check must be a YAML mapping"});
         try {
             results.push_back(parse_check(entry));
+        } catch (const AletheiaException& ex) {
+            // A kernel or runtime failure keeps its kind; only the document's
+            // own defect is a Validation error.
+            return std::unexpected(ex.error());
         } catch (const std::runtime_error& ex) {
             return std::unexpected(AletheiaError{ErrorKind::Validation, ex.what()});
         }
@@ -244,9 +253,9 @@ static auto parse_yaml_checks(const YAML::Node& root) -> Result<std::vector<Chec
 // ---------------------------------------------------------------------------
 
 auto load_checks_from_yaml(const std::filesystem::path& path) -> Result<std::vector<CheckResult>> {
-    // Reject symlinks + raw-size
-    // cap before handing the path to yaml-cpp.  YAML has no compressed
-    // container so the .xlsx ZIP-uncompressed walk doesn't apply.
+    // Reject symlinks and cap the raw size before handing the path to yaml-cpp.
+    // YAML has no compressed container, so the uncompressed-size walk the .xlsx
+    // loader does over its ZIP entries has no counterpart here.
     if (auto v = detail::validate_loader_path(path, "YAML"); !v)
         return std::unexpected(v.error());
     if (auto v = detail::check_file_size_bound(path); !v)

@@ -16,6 +16,7 @@
 #include <aletheia/aletheia.hpp>
 #include <aletheia/enrich.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -26,6 +27,20 @@
 
 using namespace aletheia;
 using Catch::Matchers::ContainsSubstring;
+
+// One sentinel per logical full-frame extraction: the call cardinality the
+// extract-once shape pins.
+static auto count_extraction_sentinels(const MockBackend& mock) -> std::size_t {
+    return static_cast<std::size_t>(
+        std::ranges::count(mock.captured(), "<binary:extractAllSignals>"));
+}
+
+// Occurrences of a named log event in a captured level-and-event sequence.
+static auto count_log_event(const std::vector<std::pair<LogLevel, std::string>>& events,
+                            std::string_view name) -> std::size_t {
+    return static_cast<std::size_t>(
+        std::ranges::count_if(events, [name](const auto& e) { return e.second == name; }));
+}
 
 // ===========================================================================
 // Signal collection tests
@@ -120,9 +135,9 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
 
 TEST_CASE("send_frame enrichment renders the observed value exactly (kernel formatℚ)",
           "[client][enrich]") {
-    // The observed value renders via the kernel formatℚ (the renderer the
-    // predicate threshold already uses), not lossy %g/to_double(). 740/3 is
-    // non-terminating: old `{:g}` gave "246.667"; formatℚ gives the exact "740/3".
+    // The observed value renders through the kernel's own formatter, the one
+    // the predicate threshold already uses, so a non-terminating value such as
+    // 740/3 reaches the reader exactly rather than as a rounded decimal.
     auto mock = std::make_unique<MockBackend>();
     auto* mock_ptr = mock.get();
     mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
@@ -253,11 +268,7 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
     CHECK(std::get<PropertyBatch>(*r2).first_violation()->enrichment.has_value());
 
     // Count extractAllSignals commands (should be exactly 1)
-    std::size_t extract_count = 0;
-    for (const auto& captured : mock_ptr->captured()) {
-        if (captured == "<binary:extractAllSignals>")
-            ++extract_count;
-    }
+    const auto extract_count = count_extraction_sentinels(*mock_ptr);
     CHECK(extract_count == 1);
 }
 
@@ -413,11 +424,7 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     CHECK(std::get<PropertyBatch>(*r2).first_violation()->enrichment.has_value());
 
     // Should have 2 extractAllSignals calls (cache was cleared)
-    std::size_t extract_count = 0;
-    for (const auto& captured : mock_ptr->captured()) {
-        if (captured == "<binary:extractAllSignals>")
-            ++extract_count;
-    }
+    const auto extract_count = count_extraction_sentinels(*mock_ptr);
     CHECK(extract_count == 2);
 }
 
@@ -667,11 +674,7 @@ TEST_CASE("end_stream extracts each tracked frame once across properties", "[cli
     REQUIRE(end_result->results.size() == 2);
 
     // One extraction per tracked frame (1), not per property × frame (2).
-    std::size_t extract_count = 0;
-    for (const auto& captured : mock_ptr->captured()) {
-        if (captured == "<binary:extractAllSignals>")
-            ++extract_count;
-    }
+    const auto extract_count = count_extraction_sentinels(*mock_ptr);
     CHECK(extract_count == 1);
 
     // Distribution filters the merged map down to each property's own signals.
@@ -725,11 +728,7 @@ TEST_CASE("end_stream with no tracked frames attaches fallback enrichment withou
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->results.size() == 1);
 
-    std::size_t extract_count = 0;
-    for (const auto& captured : mock_ptr->captured()) {
-        if (captured == "<binary:extractAllSignals>")
-            ++extract_count;
-    }
+    const auto extract_count = count_extraction_sentinels(*mock_ptr);
     CHECK(extract_count == 0);
 
     REQUIRE(end_result->results[0].enrichment.has_value());
@@ -742,35 +741,12 @@ TEST_CASE("end_stream with no tracked frames attaches fallback enrichment withou
 }
 
 // ===========================================================================
-// Extract-once EOS enrichment: adversarial-review pins (frame-loop shape)
+// Extract-once end-of-stream enrichment: the frame-loop's shape
 // ===========================================================================
-
-namespace {
-
-// One sentinel per logical full-frame extraction — the FFI-call cardinality
-// the extract-once shape pins (idiom of the counting loops above).
-auto count_extraction_sentinels(const MockBackend& mock) -> std::size_t {
-    std::size_t count = 0;
-    for (const auto& captured : mock.captured())
-        if (captured == "<binary:extractAllSignals>")
-            ++count;
-    return count;
-}
-
-// Occurrences of a named log event in a (level, event) capture — the Logger
-// callback idiom from unit_tests_log.cpp.
-auto count_log_event(const std::vector<std::pair<LogLevel, std::string>>& events,
-                     std::string_view name) -> std::size_t {
-    std::size_t count = 0;
-    for (const auto& [level, event] : events)
-        if (event == name)
-            ++count;
-    return count;
-}
 
 // Two properties over distinct signals, so the EOS wanted-signal union is
 // {SigA, SigB} (mirrors the Python/Go extract-once suites).
-auto two_signal_properties() -> std::vector<LtlFormula> {
+static auto two_signal_properties() -> std::vector<LtlFormula> {
     std::vector<LtlFormula> props;
     props.push_back(ltl::eventually(
         ltl::atomic(ltl::greater_than(SignalName{"SigA"}, PhysicalValue{Rational{10, 1}}))));
@@ -778,8 +754,6 @@ auto two_signal_properties() -> std::vector<LtlFormula> {
         ltl::atomic(ltl::greater_than(SignalName{"SigB"}, PhysicalValue{Rational{10, 1}}))));
     return props;
 }
-
-} // namespace
 
 TEST_CASE("end_stream with all properties holding makes zero extraction calls",
           "[client][enrich]") {
@@ -963,7 +937,8 @@ TEST_CASE("end_stream failed extraction warns once per frame, not per property",
     mock_ptr->queue_response(R"({"status": "error", "code": "decode_error", "message": "boom"})");
 
     std::vector<std::pair<LogLevel, std::string>> events;
-    Logger logger([&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
+    const Logger logger(
+        [&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
     AletheiaClient client(std::move(mock), logger);
 
     REQUIRE(client.set_properties(std::stop_token{}, two_signal_properties()).has_value());
@@ -1017,7 +992,8 @@ TEST_CASE("end_stream OOB property_index is excluded while the valid entry is st
     })");
 
     std::vector<std::pair<LogLevel, std::string>> events;
-    Logger logger([&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
+    const Logger logger(
+        [&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
     AletheiaClient client(std::move(mock), logger);
 
     // Only ONE property registered — index 7 is out of bounds.
@@ -1046,7 +1022,7 @@ TEST_CASE("end_stream OOB property_index is excluded while the valid entry is st
 }
 
 // ===========================================================================
-// Property index OOB test (C3): violation with out-of-bounds property_index
+// A violation whose property index is out of the caller's range
 // ===========================================================================
 
 TEST_CASE("violation with OOB property_index skips enrichment", "[client][enrich]") {

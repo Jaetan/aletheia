@@ -1,4 +1,4 @@
-# Sanitizer ignorelist for the C++ binding (Cat 33a).
+# Sanitizer ignorelist for the C++ binding.
 #
 # Format: one entry per line, see
 # https://clang.llvm.org/docs/SanitizerSpecialCaseList.html.  This file is
@@ -7,16 +7,15 @@
 # instrumented; only specific third-party vendored sources fall under the
 # ignorelist.
 #
-# Each entry below names the suppression and the upstream issue it covers.
+# Each entry below states what it suppresses and why.
 
-# OpenXLSX vendors a fork of miniz called "zippy".  zippy.hpp performs
-# unaligned loads on byte buffers (mz_uint32 reads at non-4-byte boundaries),
-# which is the well-known miniz pattern; safe on x86_64 where the CPU
-# permits it but technically UB per the C++ standard.  Aletheia uses
-# OpenXLSX read-only via the optional excel loader; we cannot patch the
-# vendored zippy without forking OpenXLSX.  XLStyles.cpp also performs
-# bool loads from spreadsheet bytes that contain non-{0,1} values (UBSan
-# strictly forbids), and other XL*.cpp files exhibit similar third-party
-# UB on adversarial spreadsheet content.  Suppress all OpenXLSX vendored
-# code; aletheia-cpp's own source remains fully instrumented.
+# XLStyles.cpp loads a bool from spreadsheet bytes that can hold values
+# other than 0 and 1, which is UB per the C++ standard.  Measured by building
+# the Excel tests under UBSan with this list withheld and recovery enabled
+# (the measurement script lives with the review record): two reports, both
+# from that file, and none from anywhere else in the fetched tree.  Aletheia
+# uses OpenXLSX read-only through the optional excel loader and cannot patch
+# it without forking, so its sources are suppressed as a whole; aletheia-cpp's
+# own code remains fully instrumented.  The zip and XML implementations
+# OpenXLSX fetches for itself are outside this pattern and report nothing.
 src:*OpenXLSX/*

@@ -8,15 +8,16 @@ Every source/build file must carry a two-line SPDX header::
     <comment> SPDX-License-Identifier: BSD-2-Clause
 
 where ``<comment>`` is the file's native line-comment marker (``#`` for
-Python/TOML/YAML/shell/CMake, ``//`` for C/C++/Go, ``--`` for Agda/Haskell/
-Cabal).  The pair must be adjacent and in that order.
+Python/TOML/YAML/shell/CMake, ``//`` for C/C++/Go/Rust, ``--`` for Agda/
+Haskell/Cabal).  The pair must be adjacent and in that order.
 
 Scope is an *allowlist* of source/build/config extensions (see ``_EXT_COMMENT``
 and ``_BASENAME_COMMENT``).  Everything else is excluded by construction:
 documentation (``*.md``), archived review-finding data (``.archive/``),
 files with no comment syntax (``*.json``), binaries (``*.xlsx``, ``*.bin``),
 and generated artefacts (``go.sum``, ``*.snapshot``, Go ``*_string.go``,
-anything carrying a ``DO NOT EDIT`` marker).
+anything whose first lines carry a ``DO NOT EDIT`` or ``Code generated``
+marker).
 
 Placement respects each language's leading-line rules:
 
@@ -32,8 +33,15 @@ Usage::
     python -m tools.check_spdx_headers            # report-only (CI gate)
     python -m tools.check_spdx_headers --apply     # insert/repair headers
 
+Presence is not agreement.  A file may declare the licence exactly once, and
+the identifier it declares must be the repository's: a second declaration, or
+one naming a licence the repository does not grant, is a failure wherever it
+sits in the file, header region or not.
+
 The ``--check`` definition of *compliant* is the single source of truth;
-``--apply`` does exactly enough to satisfy it and is idempotent.
+``--apply`` does exactly enough to satisfy it for a missing or half-written
+header, and is idempotent.  It never rewrites a licence identifier, because
+which licence a file carries is not a thing a gate may decide.
 """
 
 from __future__ import annotations
@@ -119,6 +127,26 @@ def _is_compliant(lines: list[str], style: str) -> bool:
     copyright_line, license_line = _header_pair(style)
     head = lines[:_HEADER_SCAN_LINES]
     return any(prev == copyright_line and cur == license_line for prev, cur in pairwise(head))
+
+
+# A licence declaration on its own line, behind any of the tree's comment
+# markers or a block-comment continuation.  Anchored end to end so the format
+# written inside a docstring or assigned to a variable is text about the
+# header rather than a declaration.
+_LICENSE_LINE = re.compile(r"^\s*(?:#|//|--|\*)\s*SPDX-License-Identifier:\s*([A-Za-z0-9.+-]+)\s*$")
+
+
+def _license_problems(lines: list[str]) -> list[str]:
+    """Return one message per licence declaration the file may not carry."""
+    declared = [m.group(1) for line in lines if (m := _LICENSE_LINE.match(line))]
+    problems = [
+        f"declares {ident}, which the repository does not grant"
+        for ident in declared
+        if ident != LICENSE_ID
+    ]
+    if len(declared) > 1:
+        problems.append(f"declares a licence {len(declared)} times, once is the rule")
+    return problems
 
 
 def _go_header_index(lines: list[str]) -> int:
@@ -212,6 +240,36 @@ def _license_year_error(repo_root: Path) -> str | None:
     return None
 
 
+def _scan(
+    repo_root: Path, *, apply_mode: bool
+) -> tuple[list[Path], list[tuple[Path, str]], list[Path]]:
+    """Walk the in-scope tree, repairing a missing header when ``apply_mode``.
+
+    Returns the files still missing the header, the licence declarations the
+    repository does not allow, and the files repaired.
+    """
+    offenders: list[Path] = []
+    mismatched: list[tuple[Path, str]] = []
+    fixed: list[Path] = []
+    for path, style in _candidates(repo_root):
+        # A tracked path whose file is gone is a deletion not yet staged; the
+        # gate reports on what is there rather than crashing on what is not.
+        if not path.is_file():
+            continue
+        lines = path.read_text(encoding="utf-8").split("\n")
+        if _is_generated(path, lines):
+            continue
+        mismatched.extend((path, problem) for problem in _license_problems(lines))
+        if _is_compliant(lines, style):
+            continue
+        if apply_mode:
+            path.write_text("\n".join(_apply_header(lines, style, path.suffix)), encoding="utf-8")
+            fixed.append(path)
+        else:
+            offenders.append(path)
+    return offenders, mismatched, fixed
+
+
 def main() -> int:
     """Check (or, with ``--apply``, repair) SPDX headers across the source tree."""
     parser = argparse.ArgumentParser(description="SPDX license-header gate.")
@@ -228,20 +286,14 @@ def main() -> int:
         emit(f"SPDX: {year_error}")
         return 1
 
-    offenders: list[Path] = []
-    fixed: list[Path] = []
-    for path, style in _candidates(repo_root):
-        lines = path.read_text(encoding="utf-8").split("\n")
-        if _is_generated(path, lines):
-            continue
-        if _is_compliant(lines, style):
-            continue
-        if args.apply:
-            path.write_text("\n".join(_apply_header(lines, style, path.suffix)), encoding="utf-8")
-            fixed.append(path)
-        else:
-            offenders.append(path)
+    offenders, mismatched, fixed = _scan(repo_root, apply_mode=args.apply)
 
+    if mismatched:
+        emit(f"SPDX: {len(mismatched)} licence declaration(s) the repository does not allow:")
+        for path, problem in mismatched:
+            emit(f"  {path.relative_to(repo_root)}: {problem}")
+        emit("Resolve by hand: --apply writes a missing header, never a licence identifier.")
+        return 1
     if args.apply:
         emit(f"SPDX: applied headers to {len(fixed)} file(s).")
         return 0
@@ -251,7 +303,7 @@ def main() -> int:
             emit(f"  {path.relative_to(repo_root)}")
         emit("Run: python -m tools.check_spdx_headers --apply")
         return 1
-    emit("SPDX: all in-scope files carry the header.")
+    emit(f"SPDX: all in-scope files carry the header and declare {LICENSE_ID} once.")
     return 0
 
 

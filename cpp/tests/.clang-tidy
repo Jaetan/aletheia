@@ -1,0 +1,54 @@
+---
+# Configuration for the test sources, inheriting cpp/.clang-tidy.
+#
+# Every check disabled here produces zero findings over cpp/src and fires only
+# on test code, because Catch2's macros generate the construct or because the
+# harness itself needs it. Each entry carries the count measured over
+# cpp/tests with the check enabled, so a disable that stops earning its place
+# becomes visible; probes hold both halves of that claim. Nothing else is
+# disabled: the rest of the parent's checks are fixed in the sources.
+#
+# Catch2 macro artifacts:
+#   cppcoreguidelines-avoid-do-while (2005)
+#       every assertion macro expands to do { ... } while(false)
+#   bugprone-unchecked-optional-access (102)
+#       REQUIRE(x.has_value()) leaves the test case by throwing, which the
+#       check's flow analysis does not model, so the guarded access that
+#       follows reads as unguarded
+#   readability-function-cognitive-complexity (92)
+#       the metric counts the branches SECTION and the assertion macros expand
+#       to, which the author did not write; a test case of plain assertions and
+#       no control flow of its own already scores past the threshold
+#   google-build-using-namespace (23)
+#       a test file opens with using namespace aletheia so the assertions read
+#       as the API does
+#   bugprone-throwing-static-initialization, cert-err58-cpp (1)
+#       CATCH_REGISTER_LISTENER declares a registrar of static storage duration
+#       whose constructor the macro writes
+#
+# Third-party header:
+#   clang-analyzer-optin.core.EnumCastOutOfRange (20)
+#       raised inside the vendored Catch2 header on its own flag enum; the
+#       analyzer reports the whole path from the test file, so the parent's
+#       header filter does not reach it
+#
+# Harness:
+#   bugprone-command-processor, cert-env33-c (1)
+#       the documentation harness compiles each fence and runs the result
+#       through a shell pipeline, which is what it exists to test
+InheritParentConfig: true
+
+Checks: >
+  -cppcoreguidelines-avoid-do-while,
+  -bugprone-unchecked-optional-access,
+  -readability-function-cognitive-complexity,
+  -google-build-using-namespace,
+  -bugprone-throwing-static-initialization,
+  -cert-err58-cpp,
+  -clang-analyzer-optin.core.EnumCastOutOfRange,
+  -bugprone-command-processor,
+  -cert-env33-c
+
+# The parent filters headers to the public and detail trees; the test tree has
+# its own headers, which the gate must reach.
+HeaderFilterRegex: 'include/aletheia/.*\.hpp$|src/detail/.*\.hpp$|cpp/tests/.*\.hpp$'

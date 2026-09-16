@@ -1,0 +1,7 @@
+=== clang-format --dry-run -Werror over the tracked sources
+exit 0
+
+=== run-clang-tidy-22 -quiet -p build cpp/src/ cpp/tests/ cpp/benchmarks/ from cpp/
+[46/47][35.3s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/tests/integration_tests.cpp
+[47/47][31.0s] clang-tidy-22 -p=build -quiet /home/nicolas/dev/agda/aletheia/cpp/benchmarks/benchmark.cpp
+exit 0

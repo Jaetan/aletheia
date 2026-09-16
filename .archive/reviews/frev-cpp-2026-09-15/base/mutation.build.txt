@@ -1,0 +1,1408 @@
+[  0%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/contrib/graphbuilder.cpp.o
+[  0%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/benchmark/catch_chronometer.cpp.o
+[  1%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/contrib/graphbuilderadapter.cpp.o
+[  2%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLCell.cpp.o
+[  2%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/benchmark/detail/catch_analyse.cpp.o
+[  4%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/benchmark/detail/catch_benchmark_function.cpp.o
+[  4%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/binary.cpp.o
+[  4%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/convert.cpp.o
+[  4%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/benchmark/detail/catch_run_for_at_least.cpp.o
+[  4%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/benchmark/detail/catch_stats.cpp.o
+[  5%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/depthguard.cpp.o
+[  5%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLCellIterator.cpp.o
+[  5%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/directives.cpp.o
+[  5%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/emit.cpp.o
+[  6%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/generators/catch_generator_exception.cpp.o
+[  6%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/generators/catch_generators.cpp.o
+[  8%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/emitfromevents.cpp.o
+[  8%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/generators/catch_generators_random.cpp.o
+[  8%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/emitter.cpp.o
+[  9%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_automake.cpp.o
+[  9%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/emitterstate.cpp.o
+[ 11%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLCellRange.cpp.o
+[ 11%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_common_base.cpp.o
+[ 12%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/emitterutils.cpp.o
+[ 12%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/exceptions.cpp.o
+[ 13%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_compact.cpp.o
+[ 15%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/exp.cpp.o
+[ 15%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLCellReference.cpp.o
+[ 15%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_console.cpp.o
+[ 15%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/memory.cpp.o
+[ 15%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLCellValue.cpp.o
+[ 15%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/node.cpp.o
+[ 15%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_cumulative_base.cpp.o
+[ 18%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLColor.cpp.o
+[ 18%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/node_data.cpp.o
+[ 18%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLColumn.cpp.o
+[ 19%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_event_listener.cpp.o
+[ 19%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_helpers.cpp.o
+[ 19%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLComments.cpp.o
+[ 19%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/nodebuilder.cpp.o
+[ 20%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLContentTypes.cpp.o
+[ 20%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_json.cpp.o
+[ 20%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/nodeevents.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLContentTypes.cpp:52:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:56:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy constructor of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy constructor
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:61: note: replace 'default' with 'delete'
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |                                                             ^~~~~~~
+      |                                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:28: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                            ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy assignment operator of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy assignment operator
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:72: note: replace 'default' with 'delete'
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                                                                        ^~~~~~~
+      |                                                                        delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  290 |         XLShape(const XLShape& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:348:34: note: copy constructor of 'XLShape' is implicitly deleted because field 'm_shapeNode' has a deleted copy constructor
+  348 |         std::unique_ptr<XMLNode> m_shapeNode;        /**< An XMLNode object with the v:shape item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:41: note: replace 'default' with 'delete'
+  290 |         XLShape(const XLShape& other) = default;
+      |                                         ^~~~~~~
+      |                                         delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLContentTypes.cpp:52:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+   88 |         XLComment(const XLComment& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy constructor of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy constructor
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:45: note: replace 'default' with 'delete'
+   88 |         XLComment(const XLComment& other) = default;
+      |                                             ^~~~~~~
+      |                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:20: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                    ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy assignment operator of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy assignment operator
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:56: note: replace 'default' with 'delete'
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                                                        ^~~~~~~
+      |                                                        delete
+5 warnings generated.
+[ 20%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLDateTime.cpp.o
+[ 22%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/null.cpp.o
+[ 23%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_junit.cpp.o
+[ 23%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLDocument.cpp.o
+[ 23%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/ostream_wrapper.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLComments.cpp:51:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:56:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy constructor of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy constructor
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:61: note: replace 'default' with 'delete'
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |                                                             ^~~~~~~
+      |                                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:28: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                            ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy assignment operator of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy assignment operator
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:72: note: replace 'default' with 'delete'
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                                                                        ^~~~~~~
+      |                                                                        delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  290 |         XLShape(const XLShape& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:348:34: note: copy constructor of 'XLShape' is implicitly deleted because field 'm_shapeNode' has a deleted copy constructor
+  348 |         std::unique_ptr<XMLNode> m_shapeNode;        /**< An XMLNode object with the v:shape item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:41: note: replace 'default' with 'delete'
+  290 |         XLShape(const XLShape& other) = default;
+      |                                         ^~~~~~~
+      |                                         delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLComments.cpp:51:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+   88 |         XLComment(const XLComment& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy constructor of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy constructor
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:45: note: replace 'default' with 'delete'
+   88 |         XLComment(const XLComment& other) = default;
+      |                                             ^~~~~~~
+      |                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:20: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                    ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy assignment operator of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy assignment operator
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:56: note: replace 'default' with 'delete'
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                                                        ^~~~~~~
+      |                                                        delete
+5 warnings generated.
+[ 25%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLDrawing.cpp.o
+[ 25%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/parse.cpp.o
+[ 25%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_multi.cpp.o
+[ 25%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_registrars.cpp.o
+[ 26%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/parser.cpp.o
+[ 27%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_sonarqube.cpp.o
+[ 27%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_streaming_base.cpp.o
+[ 27%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/regex_yaml.cpp.o
+[ 29%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_tap.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLDocument.cpp:60:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:56:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy constructor of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy constructor
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:61: note: replace 'default' with 'delete'
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |                                                             ^~~~~~~
+      |                                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:28: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                            ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy assignment operator of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy assignment operator
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:72: note: replace 'default' with 'delete'
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                                                                        ^~~~~~~
+      |                                                                        delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  290 |         XLShape(const XLShape& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:348:34: note: copy constructor of 'XLShape' is implicitly deleted because field 'm_shapeNode' has a deleted copy constructor
+  348 |         std::unique_ptr<XMLNode> m_shapeNode;        /**< An XMLNode object with the v:shape item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:41: note: replace 'default' with 'delete'
+  290 |         XLShape(const XLShape& other) = default;
+      |                                         ^~~~~~~
+      |                                         delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLDocument.cpp:60:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+   88 |         XLComment(const XLComment& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy constructor of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy constructor
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:45: note: replace 'default' with 'delete'
+   88 |         XLComment(const XLComment& other) = default;
+      |                                             ^~~~~~~
+      |                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:20: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                    ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy assignment operator of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy assignment operator
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:56: note: replace 'default' with 'delete'
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                                                        ^~~~~~~
+      |                                                        delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLDocument.cpp:61:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLSheet.hpp:815:31: warning: explicitly defaulted move assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  815 |         XLConditionalFormats& operator=(XLConditionalFormats&& other) noexcept = default;
+      |                               ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLSheet.hpp:858:48: note: move assignment operator of 'XLConditionalFormats' is implicitly deleted because field 'm_nodeOrder' is of reference type 'const std::vector<std::string_view> &' (aka 'const std::vector<basic_string_view<char>> &')
+  858 |         const std::vector< std::string_view >& m_nodeOrder = XLWorksheetNodeOrder;  // worksheet XML root node required child sequence
+      |                                                ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLSheet.hpp:815:82: note: replace 'default' with 'delete'
+  815 |         XLConditionalFormats& operator=(XLConditionalFormats&& other) noexcept = default;
+      |                                                                                  ^~~~~~~
+      |                                                                                  delete
+6 warnings generated.
+[ 29%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLFormula.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLDrawing.cpp:53:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:56:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy constructor of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy constructor
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:61: note: replace 'default' with 'delete'
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |                                                             ^~~~~~~
+      |                                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:28: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                            ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy assignment operator of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy assignment operator
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:72: note: replace 'default' with 'delete'
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                                                                        ^~~~~~~
+      |                                                                        delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  290 |         XLShape(const XLShape& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:348:34: note: copy constructor of 'XLShape' is implicitly deleted because field 'm_shapeNode' has a deleted copy constructor
+  348 |         std::unique_ptr<XMLNode> m_shapeNode;        /**< An XMLNode object with the v:shape item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:41: note: replace 'default' with 'delete'
+  290 |         XLShape(const XLShape& other) = default;
+      |                                         ^~~~~~~
+      |                                         delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLDrawing.cpp:53:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+   88 |         XLComment(const XLComment& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy constructor of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy constructor
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:45: note: replace 'default' with 'delete'
+   88 |         XLComment(const XLComment& other) = default;
+      |                                             ^~~~~~~
+      |                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:20: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                    ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy assignment operator of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy assignment operator
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:56: note: replace 'default' with 'delete'
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                                                        ^~~~~~~
+      |                                                        delete
+5 warnings generated.
+[ 31%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLMergeCells.cpp.o
+[ 31%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/scanner.cpp.o
+[ 31%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_teamcity.cpp.o
+[ 31%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLProperties.cpp.o
+[ 31%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/reporters/catch_reporter_xml.cpp.o
+[ 31%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/scanscalar.cpp.o
+[ 33%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/interfaces/catch_interfaces_capture.cpp.o
+[ 33%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLRelationships.cpp.o
+[ 33%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/interfaces/catch_interfaces_config.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLProperties.cpp:52:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:56:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy constructor of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy constructor
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:61: note: replace 'default' with 'delete'
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |                                                             ^~~~~~~
+      |                                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:28: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                            ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy assignment operator of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy assignment operator
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:72: note: replace 'default' with 'delete'
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                                                                        ^~~~~~~
+      |                                                                        delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  290 |         XLShape(const XLShape& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:348:34: note: copy constructor of 'XLShape' is implicitly deleted because field 'm_shapeNode' has a deleted copy constructor
+  348 |         std::unique_ptr<XMLNode> m_shapeNode;        /**< An XMLNode object with the v:shape item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:41: note: replace 'default' with 'delete'
+  290 |         XLShape(const XLShape& other) = default;
+      |                                         ^~~~~~~
+      |                                         delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLProperties.cpp:52:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+   88 |         XLComment(const XLComment& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy constructor of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy constructor
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:45: note: replace 'default' with 'delete'
+   88 |         XLComment(const XLComment& other) = default;
+      |                                             ^~~~~~~
+      |                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:20: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                    ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy assignment operator of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy assignment operator
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:56: note: replace 'default' with 'delete'
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                                                        ^~~~~~~
+      |                                                        delete
+5 warnings generated.
+[ 33%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/scantag.cpp.o
+[ 34%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLRow.cpp.o
+[ 34%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/interfaces/catch_interfaces_exception.cpp.o
+[ 36%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/interfaces/catch_interfaces_generatortracker.cpp.o
+[ 36%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/interfaces/catch_interfaces_registry_hub.cpp.o
+[ 37%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/scantoken.cpp.o
+[ 37%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/interfaces/catch_interfaces_reporter.cpp.o
+[ 38%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/interfaces/catch_interfaces_reporter_factory.cpp.o
+[ 38%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLRowData.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLRelationships.cpp:57:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:56:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy constructor of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy constructor
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:61: note: replace 'default' with 'delete'
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |                                                             ^~~~~~~
+      |                                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:28: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                            ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy assignment operator of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy assignment operator
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:72: note: replace 'default' with 'delete'
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                                                                        ^~~~~~~
+      |                                                                        delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  290 |         XLShape(const XLShape& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:348:34: note: copy constructor of 'XLShape' is implicitly deleted because field 'm_shapeNode' has a deleted copy constructor
+  348 |         std::unique_ptr<XMLNode> m_shapeNode;        /**< An XMLNode object with the v:shape item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:41: note: replace 'default' with 'delete'
+  290 |         XLShape(const XLShape& other) = default;
+      |                                         ^~~~~~~
+      |                                         delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLRelationships.cpp:57:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+   88 |         XLComment(const XLComment& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy constructor of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy constructor
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:45: note: replace 'default' with 'delete'
+   88 |         XLComment(const XLComment& other) = default;
+      |                                             ^~~~~~~
+      |                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:20: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                    ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy assignment operator of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy assignment operator
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:56: note: replace 'default' with 'delete'
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                                                        ^~~~~~~
+      |                                                        delete
+5 warnings generated.
+[ 38%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLSharedStrings.cpp.o
+[ 38%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/interfaces/catch_interfaces_testcase.cpp.o
+[ 38%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/simplekey.cpp.o
+[ 40%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/catch_approx.cpp.o
+[ 40%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/catch_assertion_result.cpp.o
+[ 40%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/singledocparser.cpp.o
+[ 40%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/catch_config.cpp.o
+[ 41%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/stream.cpp.o
+[ 43%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/catch_get_random_seed.cpp.o
+[ 44%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLSheet.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLSharedStrings.cpp:51:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:56:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy constructor of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy constructor
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:61: note: replace 'default' with 'delete'
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |                                                             ^~~~~~~
+      |                                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:28: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                            ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy assignment operator of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy assignment operator
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:72: note: replace 'default' with 'delete'
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                                                                        ^~~~~~~
+      |                                                                        delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  290 |         XLShape(const XLShape& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:348:34: note: copy constructor of 'XLShape' is implicitly deleted because field 'm_shapeNode' has a deleted copy constructor
+  348 |         std::unique_ptr<XMLNode> m_shapeNode;        /**< An XMLNode object with the v:shape item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:41: note: replace 'default' with 'delete'
+  290 |         XLShape(const XLShape& other) = default;
+      |                                         ^~~~~~~
+      |                                         delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLSharedStrings.cpp:51:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+   88 |         XLComment(const XLComment& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy constructor of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy constructor
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:45: note: replace 'default' with 'delete'
+   88 |         XLComment(const XLComment& other) = default;
+      |                                             ^~~~~~~
+      |                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:20: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                    ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy assignment operator of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy assignment operator
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:56: note: replace 'default' with 'delete'
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                                                        ^~~~~~~
+      |                                                        delete
+5 warnings generated.
+[ 44%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLStyles.cpp.o
+[ 44%] Building CXX object _deps/yaml-cpp-build/CMakeFiles/yaml-cpp.dir/src/tag.cpp.o
+[ 44%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/catch_message.cpp.o
+[ 44%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/catch_registry_hub.cpp.o
+[ 44%] Linking CXX static library libyaml-cpp.a
+[ 44%] Built target yaml-cpp
+[ 44%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLTables.cpp.o
+[ 45%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/catch_session.cpp.o
+[ 47%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLWorkbook.cpp.o
+[ 47%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/catch_tag_alias_autoregistrar.cpp.o
+[ 47%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/catch_test_case_info.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLSheet.cpp:55:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:56:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy constructor of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy constructor
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:61: note: replace 'default' with 'delete'
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |                                                             ^~~~~~~
+      |                                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:28: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                            ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy assignment operator of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy assignment operator
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:72: note: replace 'default' with 'delete'
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                                                                        ^~~~~~~
+      |                                                                        delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  290 |         XLShape(const XLShape& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:348:34: note: copy constructor of 'XLShape' is implicitly deleted because field 'm_shapeNode' has a deleted copy constructor
+  348 |         std::unique_ptr<XMLNode> m_shapeNode;        /**< An XMLNode object with the v:shape item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:41: note: replace 'default' with 'delete'
+  290 |         XLShape(const XLShape& other) = default;
+      |                                         ^~~~~~~
+      |                                         delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLSheet.cpp:55:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+   88 |         XLComment(const XLComment& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy constructor of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy constructor
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:45: note: replace 'default' with 'delete'
+   88 |         XLComment(const XLComment& other) = default;
+      |                                             ^~~~~~~
+      |                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:20: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                    ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy assignment operator of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy assignment operator
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:56: note: replace 'default' with 'delete'
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                                                        ^~~~~~~
+      |                                                        delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLSheet.cpp:57:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLSheet.hpp:815:31: warning: explicitly defaulted move assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  815 |         XLConditionalFormats& operator=(XLConditionalFormats&& other) noexcept = default;
+      |                               ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLSheet.hpp:858:48: note: move assignment operator of 'XLConditionalFormats' is implicitly deleted because field 'm_nodeOrder' is of reference type 'const std::vector<std::string_view> &' (aka 'const std::vector<basic_string_view<char>> &')
+  858 |         const std::vector< std::string_view >& m_nodeOrder = XLWorksheetNodeOrder;  // worksheet XML root node required child sequence
+      |                                                ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLSheet.hpp:815:82: note: replace 'default' with 'delete'
+  815 |         XLConditionalFormats& operator=(XLConditionalFormats&& other) noexcept = default;
+      |                                                                                  ^~~~~~~
+      |                                                                                  delete
+6 warnings generated.
+[ 47%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLXmlData.cpp.o
+[ 48%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/catch_test_spec.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLWorkbook.cpp:53:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:56:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy constructor of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy constructor
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:61: note: replace 'default' with 'delete'
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |                                                             ^~~~~~~
+      |                                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:28: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                            ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy assignment operator of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy assignment operator
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:72: note: replace 'default' with 'delete'
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                                                                        ^~~~~~~
+      |                                                                        delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  290 |         XLShape(const XLShape& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:348:34: note: copy constructor of 'XLShape' is implicitly deleted because field 'm_shapeNode' has a deleted copy constructor
+  348 |         std::unique_ptr<XMLNode> m_shapeNode;        /**< An XMLNode object with the v:shape item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:41: note: replace 'default' with 'delete'
+  290 |         XLShape(const XLShape& other) = default;
+      |                                         ^~~~~~~
+      |                                         delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLWorkbook.cpp:53:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+   88 |         XLComment(const XLComment& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy constructor of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy constructor
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:45: note: replace 'default' with 'delete'
+   88 |         XLComment(const XLComment& other) = default;
+      |                                             ^~~~~~~
+      |                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:20: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                    ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy assignment operator of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy assignment operator
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:56: note: replace 'default' with 'delete'
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                                                        ^~~~~~~
+      |                                                        delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLWorkbook.cpp:54:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLSheet.hpp:815:31: warning: explicitly defaulted move assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  815 |         XLConditionalFormats& operator=(XLConditionalFormats&& other) noexcept = default;
+      |                               ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLSheet.hpp:858:48: note: move assignment operator of 'XLConditionalFormats' is implicitly deleted because field 'm_nodeOrder' is of reference type 'const std::vector<std::string_view> &' (aka 'const std::vector<basic_string_view<char>> &')
+  858 |         const std::vector< std::string_view >& m_nodeOrder = XLWorksheetNodeOrder;  // worksheet XML root node required child sequence
+      |                                                ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLSheet.hpp:815:82: note: replace 'default' with 'delete'
+  815 |         XLConditionalFormats& operator=(XLConditionalFormats&& other) noexcept = default;
+      |                                                                                  ^~~~~~~
+      |                                                                                  delete
+6 warnings generated.
+[ 50%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLXmlFile.cpp.o
+[ 50%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/catch_timer.cpp.o
+[ 51%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/catch_tostring.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLXmlData.cpp:51:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:56:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy constructor of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy constructor
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:61: note: replace 'default' with 'delete'
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |                                                             ^~~~~~~
+      |                                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:28: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                            ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy assignment operator of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy assignment operator
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:72: note: replace 'default' with 'delete'
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                                                                        ^~~~~~~
+      |                                                                        delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  290 |         XLShape(const XLShape& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:348:34: note: copy constructor of 'XLShape' is implicitly deleted because field 'm_shapeNode' has a deleted copy constructor
+  348 |         std::unique_ptr<XMLNode> m_shapeNode;        /**< An XMLNode object with the v:shape item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:41: note: replace 'default' with 'delete'
+  290 |         XLShape(const XLShape& other) = default;
+      |                                         ^~~~~~~
+      |                                         delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLXmlData.cpp:51:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+   88 |         XLComment(const XLComment& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy constructor of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy constructor
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:45: note: replace 'default' with 'delete'
+   88 |         XLComment(const XLComment& other) = default;
+      |                                             ^~~~~~~
+      |                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:20: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                    ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy assignment operator of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy assignment operator
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:56: note: replace 'default' with 'delete'
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                                                        ^~~~~~~
+      |                                                        delete
+5 warnings generated.
+[ 51%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLXmlParser.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLStyles.cpp:57:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:56:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy constructor of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy constructor
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:61: note: replace 'default' with 'delete'
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |                                                             ^~~~~~~
+      |                                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:28: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                            ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy assignment operator of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy assignment operator
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:72: note: replace 'default' with 'delete'
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                                                                        ^~~~~~~
+      |                                                                        delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  290 |         XLShape(const XLShape& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:348:34: note: copy constructor of 'XLShape' is implicitly deleted because field 'm_shapeNode' has a deleted copy constructor
+  348 |         std::unique_ptr<XMLNode> m_shapeNode;        /**< An XMLNode object with the v:shape item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:41: note: replace 'default' with 'delete'
+  290 |         XLShape(const XLShape& other) = default;
+      |                                         ^~~~~~~
+      |                                         delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLStyles.cpp:57:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+   88 |         XLComment(const XLComment& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy constructor of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy constructor
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:45: note: replace 'default' with 'delete'
+   88 |         XLComment(const XLComment& other) = default;
+      |                                             ^~~~~~~
+      |                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:20: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                    ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy assignment operator of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy assignment operator
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:56: note: replace 'default' with 'delete'
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                                                        ^~~~~~~
+      |                                                        delete
+5 warnings generated.
+[ 51%] Building CXX object _deps/openxlsx-build/OpenXLSX/CMakeFiles/OpenXLSX.dir/sources/XLZipArchive.cpp.o
+[ 51%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/catch_totals.cpp.o
+[ 51%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/catch_translate_exception.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLXmlFile.cpp:50:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:56:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy constructor of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy constructor
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:61: note: replace 'default' with 'delete'
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |                                                             ^~~~~~~
+      |                                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:28: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                            ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy assignment operator of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy assignment operator
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:72: note: replace 'default' with 'delete'
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                                                                        ^~~~~~~
+      |                                                                        delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  290 |         XLShape(const XLShape& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:348:34: note: copy constructor of 'XLShape' is implicitly deleted because field 'm_shapeNode' has a deleted copy constructor
+  348 |         std::unique_ptr<XMLNode> m_shapeNode;        /**< An XMLNode object with the v:shape item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:41: note: replace 'default' with 'delete'
+  290 |         XLShape(const XLShape& other) = default;
+      |                                         ^~~~~~~
+      |                                         delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/sources/XLXmlFile.cpp:50:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+   88 |         XLComment(const XLComment& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy constructor of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy constructor
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:45: note: replace 'default' with 'delete'
+   88 |         XLComment(const XLComment& other) = default;
+      |                                             ^~~~~~~
+      |                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:20: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                    ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy assignment operator of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy assignment operator
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:56: note: replace 'default' with 'delete'
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                                                        ^~~~~~~
+      |                                                        delete
+5 warnings generated.
+[ 52%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/catch_version.cpp.o
+[ 52%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_assertion_handler.cpp.o
+[ 52%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_case_insensitive_comparisons.cpp.o
+[ 54%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_clara.cpp.o
+[ 54%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_commandline.cpp.o
+[ 54%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_console_colour.cpp.o
+[ 55%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_context.cpp.o
+[ 55%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_debug_console.cpp.o
+[ 56%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_debugger.cpp.o
+[ 56%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_decomposer.cpp.o
+[ 56%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_enforce.cpp.o
+[ 58%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_enum_values_registry.cpp.o
+[ 58%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_errno_guard.cpp.o
+[ 58%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_exception_translator_registry.cpp.o
+[ 59%] Linking CXX static library ../../../output/libOpenXLSX.a
+[ 59%] Built target OpenXLSX
+[ 59%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/backend.cpp.o
+[ 61%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_fatal_condition_handler.cpp.o
+[ 61%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_floating_point_helpers.cpp.o
+[ 61%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_getenv.cpp.o
+[ 62%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_istream.cpp.o
+[ 62%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_jsonwriter.cpp.o
+[ 63%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_lazy_expr.cpp.o
+[ 63%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_leak_detector.cpp.o
+[ 63%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_list.cpp.o
+[ 65%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_message_info.cpp.o
+[ 65%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_output_redirect.cpp.o
+[ 65%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_parse_numbers.cpp.o
+[ 66%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_polyfills.cpp.o
+[ 66%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_random_number_generator.cpp.o
+[ 66%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_random_seed_generation.cpp.o
+[ 68%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_reporter_registry.cpp.o
+[ 68%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_reporter_spec_parser.cpp.o
+[ 69%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_reusable_string_stream.cpp.o
+/home/nicolas/dev/agda/aletheia/cpp/src/backend.cpp:7:10: fatal error: 'aletheia/backend.hpp' file not found
+    7 | #include <aletheia/backend.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/src/backend.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/src/backend.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 70%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/client.cpp.o
+[ 70%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_run_context.cpp.o
+[ 70%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_section.cpp.o
+[ 72%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_singletons.cpp.o
+[ 72%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_source_line_info.cpp.o
+[ 72%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_startup_exception_registry.cpp.o
+[ 73%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_stdstreams.cpp.o
+[ 73%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_string_manip.cpp.o
+[ 73%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_stringref.cpp.o
+[ 75%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_tag_alias_registry.cpp.o
+[ 75%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_test_case_info_hasher.cpp.o
+[ 76%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_test_case_registry_impl.cpp.o
+[ 76%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_test_case_tracker.cpp.o
+[ 76%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_test_failure_exception.cpp.o
+[ 77%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_test_registry.cpp.o
+[ 77%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_test_spec_parser.cpp.o
+[ 77%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_textflow.cpp.o
+[ 79%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_uncaught_exceptions.cpp.o
+[ 79%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_wildcard_pattern.cpp.o
+[ 79%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/internal/catch_xmlwriter.cpp.o
+[ 80%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/matchers/catch_matchers.cpp.o
+[ 80%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/matchers/catch_matchers_container_properties.cpp.o
+[ 81%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/matchers/catch_matchers_exception.cpp.o
+[ 81%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/matchers/catch_matchers_floating_point.cpp.o
+[ 81%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/matchers/catch_matchers_predicate.cpp.o
+[ 83%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/matchers/catch_matchers_quantifiers.cpp.o
+[ 83%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/matchers/catch_matchers_string.cpp.o
+[ 83%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/matchers/catch_matchers_templated.cpp.o
+[ 84%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2.dir/catch2/matchers/internal/catch_matchers_impl.cpp.o
+[ 84%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/dbc.cpp.o
+[ 84%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/detail/ffi_logic.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/src/detail/ffi_logic.cpp:7:
+/home/nicolas/dev/agda/aletheia/cpp/src/detail/ffi_logic.hpp:17:10: fatal error: 'aletheia/error.hpp' file not found
+   17 | #include <aletheia/error.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/src/detail/ffi_logic.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/src/detail/ffi_logic.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 86%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/detail/loader_utils.cpp.o
+[ 86%] Linking CXX static library libCatch2.a
+[ 86%] Built target Catch2
+[ 86%] Building CXX object _deps/catch2-build/src/CMakeFiles/Catch2WithMain.dir/catch2/internal/catch_main.cpp.o
+[ 87%] Linking CXX static library libCatch2Main.a
+[ 87%] Built target Catch2WithMain
+[ 87%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/detail/rts_init.cpp.o
+/home/nicolas/dev/agda/aletheia/cpp/src/dbc.cpp:4:10: fatal error: 'aletheia/dbc.hpp' file not found
+    4 | #include <aletheia/dbc.hpp>
+      |          ^~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/src/dbc.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/src/dbc.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 87%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/enrich.cpp.o
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+/home/nicolas/dev/agda/aletheia/cpp/src/client.cpp:4:10: fatal error: 'aletheia/client.hpp' file not found
+    4 | #include <aletheia/client.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/src/client.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/src/client.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 87%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/ffi_backend.cpp.o
+[ 88%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/excel.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/src/detail/loader_utils.cpp:11:
+/home/nicolas/dev/agda/aletheia/cpp/src/detail/loader_utils.hpp:14:10: fatal error: 'aletheia/check.hpp' file not found
+   14 | #include <aletheia/check.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/src/detail/loader_utils.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/src/detail/loader_utils.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 88%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/mock_backend.cpp.o
+/home/nicolas/dev/agda/aletheia/cpp/src/ffi_backend.cpp:10:10: fatal error: 'aletheia/backend.hpp' file not found
+   10 | #include <aletheia/backend.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/src/ffi_backend.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/src/ffi_backend.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 90%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/json_serialize.cpp.o
+/home/nicolas/dev/agda/aletheia/cpp/src/mock_backend.cpp:4:10: fatal error: 'aletheia/backend.hpp' file not found
+    4 | #include <aletheia/backend.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/src/mock_backend.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/src/mock_backend.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 90%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/json_parse.cpp.o
+/home/nicolas/dev/agda/aletheia/cpp/src/enrich.cpp:4:10: fatal error: 'aletheia/enrich.hpp' file not found
+    4 | #include <aletheia/enrich.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/src/enrich.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/src/enrich.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 91%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/rational_renderer.cpp.o
+/home/nicolas/dev/agda/aletheia/cpp/src/rational_renderer.cpp:17:10: fatal error: 'aletheia/detail/rational_renderer.hpp' file not found
+   17 | #include <aletheia/detail/rational_renderer.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/src/rational_renderer.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/src/rational_renderer.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 91%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/types.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/src/excel.cpp:10:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/OpenXLSX.hpp:55:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:56:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy constructor of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy constructor
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:113:61: note: replace 'default' with 'delete'
+  113 |         XLShapeClientData(const XLShapeClientData& other) = default;
+      |                                                             ^~~~~~~
+      |                                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:28: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                            ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:173:34: note: copy assignment operator of 'XLShapeClientData' is implicitly deleted because field 'm_clientDataNode' has a deleted copy assignment operator
+  173 |         std::unique_ptr<XMLNode> m_clientDataNode;   /**< An XMLNode object with the x:ClientData item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:131:72: note: replace 'default' with 'delete'
+  131 |         XLShapeClientData& operator=(const XLShapeClientData& other) = default;
+      |                                                                        ^~~~~~~
+      |                                                                        delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+  290 |         XLShape(const XLShape& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:348:34: note: copy constructor of 'XLShape' is implicitly deleted because field 'm_shapeNode' has a deleted copy constructor
+  348 |         std::unique_ptr<XMLNode> m_shapeNode;        /**< An XMLNode object with the v:shape item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDrawing.hpp:290:41: note: replace 'default' with 'delete'
+  290 |         XLShape(const XLShape& other) = default;
+      |                                         ^~~~~~~
+      |                                         delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/src/excel.cpp:10:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/OpenXLSX.hpp:55:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLDocument.hpp:64:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:9: warning: explicitly defaulted copy constructor is implicitly deleted [-Wdefaulted-function-deleted]
+   88 |         XLComment(const XLComment& other) = default;
+      |         ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy constructor of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy constructor
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:524:7: note: 'unique_ptr' has been explicitly marked deleted here
+  524 |       unique_ptr(const unique_ptr&) = delete;
+      |       ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:88:45: note: replace 'default' with 'delete'
+   88 |         XLComment(const XLComment& other) = default;
+      |                                             ^~~~~~~
+      |                                             delete
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:20: warning: explicitly defaulted copy assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                    ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:141:34: note: copy assignment operator of 'XLComment' is implicitly deleted because field 'm_commentNode' has a deleted copy assignment operator
+  141 |         std::unique_ptr<XMLNode> m_commentNode;      /**< An XMLNode object with the comment item */
+      |                                  ^
+/usr/lib/gcc/x86_64-linux-gnu/15/../../../../include/c++/15/bits/unique_ptr.h:525:19: note: 'operator=' has been explicitly marked deleted here
+  525 |       unique_ptr& operator=(const unique_ptr&) = delete;
+      |                   ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLComments.hpp:106:56: note: replace 'default' with 'delete'
+  106 |         XLComment& operator=(const XLComment& other) = default;
+      |                                                        ^~~~~~~
+      |                                                        delete
+In file included from /home/nicolas/dev/agda/aletheia/cpp/src/excel.cpp:10:
+In file included from /home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/OpenXLSX.hpp:59:
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLSheet.hpp:815:31: warning: explicitly defaulted move assignment operator is implicitly deleted [-Wdefaulted-function-deleted]
+  815 |         XLConditionalFormats& operator=(XLConditionalFormats&& other) noexcept = default;
+      |                               ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLSheet.hpp:858:48: note: move assignment operator of 'XLConditionalFormats' is implicitly deleted because field 'm_nodeOrder' is of reference type 'const std::vector<std::string_view> &' (aka 'const std::vector<basic_string_view<char>> &')
+  858 |         const std::vector< std::string_view >& m_nodeOrder = XLWorksheetNodeOrder;  // worksheet XML root node required child sequence
+      |                                                ^
+/home/nicolas/dev/agda/aletheia/cpp/build-mutation/_deps/openxlsx-src/OpenXLSX/headers/XLSheet.hpp:815:82: note: replace 'default' with 'delete'
+  815 |         XLConditionalFormats& operator=(XLConditionalFormats&& other) noexcept = default;
+      |                                                                                  ^~~~~~~
+      |                                                                                  delete
+/home/nicolas/dev/agda/aletheia/cpp/src/excel.cpp:6:10: fatal error: 'aletheia/excel.hpp' file not found
+    6 | #include <aletheia/excel.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~
+6 warnings generated.
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/src/excel.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/src/excel.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 91%] Building CXX object CMakeFiles/aletheia-cpp.dir/src/yaml.cpp.o
+/home/nicolas/dev/agda/aletheia/cpp/src/types.cpp:8:10: fatal error: 'aletheia/types.hpp' file not found
+    8 | #include <aletheia/types.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/src/types.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/src/types.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+In file included from /home/nicolas/dev/agda/aletheia/cpp/src/json_serialize.cpp:4:
+/home/nicolas/dev/agda/aletheia/cpp/src/detail/json.hpp:11:10: fatal error: 'aletheia/dbc.hpp' file not found
+   11 | #include <aletheia/dbc.hpp>        // IWYU pragma: export
+      |          ^~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/src/json_serialize.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/src/json_serialize.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+In file included from /home/nicolas/dev/agda/aletheia/cpp/src/json_parse.cpp:4:
+/home/nicolas/dev/agda/aletheia/cpp/src/detail/json.hpp:11:10: fatal error: 'aletheia/dbc.hpp' file not found
+   11 | #include <aletheia/dbc.hpp>        // IWYU pragma: export
+      |          ^~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/src/json_parse.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/src/json_parse.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+/home/nicolas/dev/agda/aletheia/cpp/src/yaml.cpp:6:10: fatal error: 'aletheia/yaml.hpp' file not found
+    6 | #include <aletheia/yaml.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/src/yaml.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/src/yaml.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 93%] Linking CXX static library libaletheia-cpp.a
+[ 93%] Built target aletheia-cpp
+[ 93%] Building CXX object CMakeFiles/unit_tests.dir/tests/unit_tests_json.cpp.o
+[ 93%] Building CXX object CMakeFiles/unit_tests.dir/tests/unit_tests_validation.cpp.o
+[ 93%] Building CXX object CMakeFiles/unit_tests.dir/tests/unit_tests_client.cpp.o
+[ 94%] Building CXX object CMakeFiles/unit_tests.dir/tests/unit_tests_enrich.cpp.o
+/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_validation.cpp:8:10: fatal error: 'catch2/catch_test_macros.hpp' file not found
+    8 | #include <catch2/catch_test_macros.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_validation.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_validation.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 94%] Building CXX object CMakeFiles/unit_tests.dir/tests/unit_tests_check.cpp.o
+/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_enrich.cpp:11:10: fatal error: 'catch2/catch_test_macros.hpp' file not found
+   11 | #include <catch2/catch_test_macros.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_enrich.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_enrich.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 95%] Building CXX object CMakeFiles/unit_tests.dir/tests/unit_tests_dbc.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_dbc.cpp:9:
+/home/nicolas/dev/agda/aletheia/cpp/tests/test_helpers.hpp:13:10: fatal error: 'aletheia/aletheia.hpp' file not found
+   13 | #include <aletheia/aletheia.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_dbc.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_dbc.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 95%] Building CXX object CMakeFiles/unit_tests.dir/tests/unit_tests_log.cpp.o
+/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_check.cpp:8:10: fatal error: 'catch2/catch_test_macros.hpp' file not found
+    8 | #include <catch2/catch_test_macros.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_check.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_check.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 97%] Building CXX object CMakeFiles/unit_tests.dir/tests/unit_tests_cancel.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_json.cpp:9:
+/home/nicolas/dev/agda/aletheia/cpp/tests/test_helpers.hpp:13:10: fatal error: 'aletheia/aletheia.hpp' file not found
+   13 | #include <aletheia/aletheia.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_json.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_json.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 97%] Building CXX object CMakeFiles/unit_tests.dir/tests/unit_tests_input_bounds.cpp.o
+/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_log.cpp:8:10: fatal error: 'catch2/catch_test_macros.hpp' file not found
+    8 | #include <catch2/catch_test_macros.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_log.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_log.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 97%] Building CXX object CMakeFiles/unit_tests.dir/tests/unit_tests_property.cpp.o
+/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_cancel.cpp:13:10: fatal error: 'aletheia/aletheia.hpp' file not found
+   13 | #include <aletheia/aletheia.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_cancel.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_cancel.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 98%] Building CXX object CMakeFiles/unit_tests.dir/tests/unit_tests_ffi_logic.cpp.o
+In file included from /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_client.cpp:9:
+/home/nicolas/dev/agda/aletheia/cpp/tests/test_helpers.hpp:13:10: fatal error: 'aletheia/aletheia.hpp' file not found
+   13 | #include <aletheia/aletheia.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_client.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_client.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 98%] Building CXX object CMakeFiles/unit_tests.dir/tests/unit_tests_decimal.cpp.o
+/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_input_bounds.cpp:16:10: fatal error: 'aletheia/backend.hpp' file not found
+   16 | #include <aletheia/backend.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_input_bounds.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_input_bounds.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[ 98%] Building CXX object CMakeFiles/unit_tests.dir/tests/rts_setup_listener.cpp.o
+/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_ffi_logic.cpp:13:10: fatal error: 'catch2/catch_test_macros.hpp' file not found
+   13 | #include <catch2/catch_test_macros.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_ffi_logic.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_ffi_logic.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[100%] Building CXX object CMakeFiles/unit_tests.dir/tests/integration_tests.cpp.o
+/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_property.cpp:13:10: fatal error: 'catch2/catch_test_macros.hpp' file not found
+   13 | #include <catch2/catch_test_macros.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_property.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_property.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_decimal.cpp:15:10: fatal error: 'catch2/catch_test_macros.hpp' file not found
+   15 | #include <catch2/catch_test_macros.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_decimal.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/tests/unit_tests_decimal.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+/home/nicolas/dev/agda/aletheia/cpp/tests/rts_setup_listener.cpp:22:10: fatal error: 'catch2/reporters/catch_reporter_event_listener.hpp' file not found
+   22 | #include <catch2/reporters/catch_reporter_event_listener.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/tests/rts_setup_listener.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/tests/rts_setup_listener.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+/home/nicolas/dev/agda/aletheia/cpp/tests/integration_tests.cpp:6:10: fatal error: 'catch2/catch_approx.hpp' file not found
+    6 | #include <catch2/catch_approx.hpp>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~
+[warning] Mull cannot find config (mull.yml). Using some defaults.
+[warning] Mull cannot find compiler flags. Recompile with `-grecord-command-line` flag.
+[warning] Cannot parse file: '/home/nicolas/dev/agda/aletheia/cpp/tests/integration_tests.cpp':
+mull /home/nicolas/dev/agda/aletheia/cpp/tests/integration_tests.cpp 
+Make sure that the flags provided to Mull are the same flags that are used for normal compilation.
+[100%] Linking CXX executable unit_tests
+[100%] Built target unit_tests

@@ -34,23 +34,12 @@
 
 namespace aletheia::detail {
 
-// Render a PhysicalValue via the Agda kernel renderer (cross-binding-identical
-// output).  Invoked lazily from `CheckResult::condition_desc()` accessor
-// so the .so need NOT be loadable at Check builder
-// time — only at the first `condition_desc()` read.  The human-readable check
-// description matches the predicate-side `format_value`
-// (`enrich.cpp:format_value(const Rational&)`) byte-for-byte AND matches
-// Python's `_format_rational` + Go's `formatRationalFFI` by construction.
-// No local fallback: a missing `libaletheia-ffi.so` throws
-// `AletheiaException(Ffi)` per the rational_renderer.hpp contract.
-inline auto fmt_pv(PhysicalValue v) -> std::string {
-    const auto& r = v.get();
-    return format_rational_ffi(r.numerator(), r.denominator());
+// Render a PhysicalValue through the shared kernel renderer.  Invoked lazily
+// from the `CheckResult::condition_desc()` accessor, so the .so need NOT be
+// loadable at Check builder time, only at the first read.
+[[nodiscard]] inline auto fmt_pv(PhysicalValue v) -> std::string {
+    return format_rational(v.get());
 }
-
-// Microseconds per millisecond — the ms→µs scale factor (matches enrich.cpp's
-// `us_per_millisecond`, Go's `usPerMillisecond`, Rust's `US_PER_MILLISECOND`).
-constexpr std::int64_t us_per_millisecond = 1'000;
 
 // Convert a millisecond bound into the Timestamp (microsecond) domain, rejecting
 // a negative bound and an ms→µs multiply that would overflow int64.  The overflow
@@ -113,6 +102,9 @@ public:
     [[nodiscard]] auto name() const -> const std::string& { return name_; }
     [[nodiscard]] auto check_severity() const -> const std::string& { return check_severity_; }
     [[nodiscard]] auto signal_name() const -> const std::string& { return signal_name_; }
+    // The first read renders the description through the kernel and caches it;
+    // the cache is per instance and not synchronised, so concurrent first reads
+    // of one CheckResult from several threads are not supported.
     [[nodiscard]] auto condition_desc() const -> const std::string& {
         if (condition_desc_builder_) {
             condition_desc_ = condition_desc_builder_();
@@ -141,7 +133,7 @@ public:
         , signal_name_(std::move(sig))
         , condition_desc_builder_(std::move(desc_builder)) {}
 
-    auto always() && -> CheckResult {
+    [[nodiscard]] auto always() && -> CheckResult {
         return {std::move(formula_), std::move(signal_name_), std::move(condition_desc_builder_)};
     }
 
@@ -162,11 +154,10 @@ public:
         auto us = detail::checked_ms_to_us(ms);
         auto f =
             ltl::always_within(us, ltl::atomic(ltl::between(SignalName{signal_name_}, lo_, hi_)));
-        return {std::move(f), signal_name_,
-                std::function<std::string()>{[lo = lo_, hi = hi_, ms]() {
+        return {std::move(f), signal_name_, [lo = lo_, hi = hi_, ms]() {
                     return std::format("between {} and {} within {}ms", detail::fmt_pv(lo),
                                        detail::fmt_pv(hi), ms.count());
-                }}};
+                }};
     }
 
 private:
@@ -184,35 +175,31 @@ public:
     // never_below's >=; "never exceeds 220" lets 220 pass).
     [[nodiscard]] auto never_exceeds(PhysicalValue value) const -> CheckResult {
         auto f = ltl::always(ltl::atomic(ltl::less_than_or_equal(SignalName{name_}, value)));
-        return {std::move(f), name_,
-                std::function<std::string()>{[value]() { return "<= " + detail::fmt_pv(value); }}};
+        return {std::move(f), name_, [value]() { return "<= " + detail::fmt_pv(value); }};
     }
 
     [[nodiscard]] auto never_below(PhysicalValue value) const -> CheckResult {
         auto f = ltl::always(ltl::atomic(ltl::greater_than_or_equal(SignalName{name_}, value)));
-        return {std::move(f), name_,
-                std::function<std::string()>{[value]() { return ">= " + detail::fmt_pv(value); }}};
+        return {std::move(f), name_, [value]() { return ">= " + detail::fmt_pv(value); }};
     }
 
     [[nodiscard]] auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> CheckResult {
         if (lo.get() > hi.get())
             throw std::invalid_argument("stays_between: lo must be <= hi");
         auto f = ltl::always(ltl::atomic(ltl::between(SignalName{name_}, lo, hi)));
-        return {std::move(f), name_, std::function<std::string()>{[lo, hi]() {
+        return {std::move(f), name_, [lo, hi]() {
                     return std::format("between {} and {}", detail::fmt_pv(lo), detail::fmt_pv(hi));
-                }}};
+                }};
     }
 
     [[nodiscard]] auto never_equals(PhysicalValue value) const -> CheckResult {
         auto f = ltl::never(ltl::equals(SignalName{name_}, value));
-        return {std::move(f), name_,
-                std::function<std::string()>{[value]() { return "!= " + detail::fmt_pv(value); }}};
+        return {std::move(f), name_, [value]() { return "!= " + detail::fmt_pv(value); }};
     }
 
     [[nodiscard]] auto equals(PhysicalValue value) const -> CheckSignalPredicate {
         auto f = ltl::always(ltl::atomic(ltl::equals(SignalName{name_}, value)));
-        return {std::move(f), name_,
-                std::function<std::string()>{[value]() { return "= " + detail::fmt_pv(value); }}};
+        return {std::move(f), name_, [value]() { return "= " + detail::fmt_pv(value); }};
     }
 
     [[nodiscard]] auto settles_between(PhysicalValue lo, PhysicalValue hi) const -> SettlesBuilder {
@@ -242,15 +229,14 @@ public:
         auto us = detail::checked_ms_to_us(ms);
         auto f = ltl::always(ltl::either(ltl::negate(ltl::atomic(trigger_)),
                                          ltl::within(us, ltl::atomic(then_pred_))));
-        return {std::move(f), then_signal_,
-                std::function<std::string()>{[builder = then_desc_builder_, ms]() {
+        return {std::move(f), then_signal_, [builder = then_desc_builder_, ms]() {
                     if (!builder)
                         return std::string{};
                     auto inner = builder();
                     if (inner.empty())
                         return std::string{};
                     return inner + std::format(" within {}ms", ms.count());
-                }}};
+                }};
     }
 
 private:
@@ -268,21 +254,20 @@ public:
 
     [[nodiscard]] auto equals(PhysicalValue value) const -> ThenCondition {
         return {trigger_, ltl::equals(SignalName{then_name_}, value), then_name_,
-                std::function<std::string()>{[value]() { return "= " + detail::fmt_pv(value); }}};
+                [value]() { return "= " + detail::fmt_pv(value); }};
     }
 
     [[nodiscard]] auto exceeds(PhysicalValue value) const -> ThenCondition {
         return {trigger_, ltl::greater_than(SignalName{then_name_}, value), then_name_,
-                std::function<std::string()>{[value]() { return "> " + detail::fmt_pv(value); }}};
+                [value]() { return "> " + detail::fmt_pv(value); }};
     }
 
     [[nodiscard]] auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> ThenCondition {
         if (lo.get() > hi.get())
             throw std::invalid_argument("stays_between: lo must be <= hi");
-        return {trigger_, ltl::between(SignalName{then_name_}, lo, hi), then_name_,
-                std::function<std::string()>{[lo, hi]() {
+        return {trigger_, ltl::between(SignalName{then_name_}, lo, hi), then_name_, [lo, hi]() {
                     return std::format("between {} and {}", detail::fmt_pv(lo), detail::fmt_pv(hi));
-                }}};
+                }};
     }
 
 private:
@@ -328,11 +313,11 @@ private:
 
 namespace check {
 
-inline auto signal(std::string name) -> CheckSignal {
+[[nodiscard]] inline auto signal(std::string name) -> CheckSignal {
     return CheckSignal{std::move(name)};
 }
 
-inline auto when(std::string signal_name) -> WhenSignal {
+[[nodiscard]] inline auto when(std::string signal_name) -> WhenSignal {
     return WhenSignal{std::move(signal_name)};
 }
 

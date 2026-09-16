@@ -4,11 +4,12 @@
 // Unit tests for the FfiBackend pure decision helpers (src/detail/ffi_logic.*).
 //
 // These exercise every branch of the RTS-init and FFI-error logic without a
-// live dlopen'd libaletheia-ffi.so — the branches that, inline in FfiBackend,
-// fire only on process-global hs_init state or a non-zero Haskell return and so
-// were never observed by the test suite.  The FFI error helper is driven with a
-// record-only mock free-function: the err_str buffers are stack-allocated, so
-// the mock records *whether* it was called (and with what) and never frees.
+// live shared library. The branches fire on process-global runtime state or on
+// a non-zero return from the kernel, which is why they live in pure helpers
+// rather than inline in the backend: here they are reachable. The error helper
+// is driven with a record-only mock free function, the buffers being
+// stack-allocated, so the mock records whether it was called and with what and
+// never frees.
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -17,31 +18,33 @@
 
 #include <aletheia/error.hpp>
 
-#include <cstdint>
 #include <string>
 #include <vector>
 
 using namespace aletheia;
 
-namespace {
-
 // AletheiaFreeStrFn is a C function pointer (void(*)(char*)); a capturing lambda
 // cannot bind to it, so the mock is a free function over file-scope state.  It
 // records the call but NEVER frees (the buffers below live on the stack).
-int g_free_calls = 0;
-char* g_last_freed = nullptr;
-
-void mock_free(char* p) {
-    ++g_free_calls;
-    g_last_freed = p;
+static auto free_calls() -> int& {
+    static int calls = 0;
+    return calls;
 }
 
-void reset_free() {
-    g_free_calls = 0;
-    g_last_freed = nullptr;
+static auto last_freed() -> char*& {
+    static char* freed = nullptr;
+    return freed;
 }
 
-} // namespace
+static void mock_free(char* p) {
+    ++free_calls();
+    last_freed() = p;
+}
+
+static void reset_free() {
+    free_calls() = 0;
+    last_freed() = nullptr;
+}
 
 // --- rts_init_args ---------------------------------------------------------
 
@@ -89,7 +92,7 @@ TEST_CASE("rts_cores_mismatch: matching cores yield no mismatch", "[ffi][logic][
 }
 
 TEST_CASE("rts_cores_mismatch: differing cores report {active, requested}", "[ffi][logic][rts]") {
-    // requested = 4, active = 1 (the renderer-first downgrade case).
+    // A second backend asks for four cores where one is already running.
     auto mismatch = detail::rts_cores_mismatch(4, 1);
     REQUIRE(mismatch.has_value());
     CHECK(mismatch->first == 1);  // active
@@ -103,22 +106,22 @@ TEST_CASE("ffi_error_from_status: status 0 is success, frees nothing", "[ffi][lo
     reset_free();
     auto err = detail::ffi_error_from_status(0, nullptr, mock_free);
     CHECK_FALSE(err.has_value());
-    CHECK(g_free_calls == 0);
+    CHECK(free_calls() == 0);
 }
 
 TEST_CASE("ffi_error_from_status: non-zero status with message uses it and frees",
           "[ffi][logic][error]") {
     reset_free();
-    char buf[] = "boom"; // mutable: binds to char* (a string literal would not)
-    auto err = detail::ffi_error_from_status(1, buf, mock_free);
+    std::string buf = "boom"; // mutable: buf.data() binds to char*
+    auto err = detail::ffi_error_from_status(1, buf.data(), mock_free);
     REQUIRE(err.has_value());
     CHECK(err->kind() == ErrorKind::Protocol);
     // Kills the ternary `err_str != nullptr ? err_str : "Unknown error"` → `==`:
     // an == mutant would pick "Unknown error" even with a real message.
     CHECK(std::string{err->message()} == "boom");
     // Kills the free guard `err_str != nullptr` → `==`: an == mutant skips the free.
-    CHECK(g_free_calls == 1);
-    CHECK(g_last_freed == buf);
+    CHECK(free_calls() == 1);
+    CHECK(last_freed() == buf.data());
 }
 
 TEST_CASE("ffi_error_from_status: non-zero status without message falls back, frees nothing",
@@ -129,5 +132,5 @@ TEST_CASE("ffi_error_from_status: non-zero status without message falls back, fr
     CHECK(err->kind() == ErrorKind::Protocol);
     CHECK(std::string{err->message()} == "Unknown error");
     // Kills the free guard `err_str != nullptr` → `==`: an == mutant frees the null pointer.
-    CHECK(g_free_calls == 0);
+    CHECK(free_calls() == 0);
 }

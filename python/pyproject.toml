@@ -114,6 +114,13 @@ dev = [
     # the gate byte-identical on every contributor + CI; run_ci routes the gate
     # through ``python/.venv/bin/clang-format`` rather than a bare PATH lookup.
     "clang-format>=22.1.8,<22.2",
+    # cmakelang provides cmake-lint, which drives the CMake gate.  Pinned and
+    # taken from the venv for the same reason as clang-format above: a lint
+    # tool's findings are version-specific, and the CI runners carry no
+    # cmake-lint at all, so a bare PATH lookup exits 127 there while passing on
+    # a machine that happens to have the distro package.  run_ci routes the gate
+    # through ``python/.venv/bin/cmake-lint``.
+    "cmakelang==0.6.13",
 ]
 # AGENTS.md Python cat 34(c) opt-in fuzz extras.  Atheris is a
 # 35 MB native binary, so it lives in its own group rather than ``[dev]``;
@@ -121,12 +128,20 @@ dev = [
 # property tests run in every standard pytest invocation.
 fuzz = ["atheris>=3.1.0,<4"]
 # AGENTS.md Python cat 14(g) opt-in mutation-testing extras.  mutmut
-# is the AGENTS.md-named first-choice tool; pinned to 3.x where the cli +
-# pyproject ``[tool.mutmut]`` config still works.  Lives in its own group
-# rather than ``[dev]`` because the lane is opt-in only (per AGENTS.md "once
-# per PR is sufficient; per-commit is overkill") and pulls a sizeable mutation
+# is the AGENTS.md-named first-choice tool.  Lives in its own group rather
+# than ``[dev]`` because the lane is opt-in only (per AGENTS.md "once per PR
+# is sufficient; per-commit is overkill") and pulls a sizeable mutation
 # trampoline machinery + tooling deps.
-mutation = ["mutmut>=3.6.0,<4"]
+#
+# Pinned EXACTLY, not to a range, for the same reason clang-format is pinned
+# tighter than its major: the tool's output *is* the gate.  A range let a
+# contributor sit on the floor (3.6.0) while CI resolved to the newest in
+# range (3.8.0), and two releases in one major enumerate different mutant
+# sets, so the survivor CI reported could not be reproduced locally at all.
+# A mutation lane whose baseline is a measured count cannot float its
+# generator.  Bumping this pin is a deliberate act that re-measures the
+# baseline in docs/MUTATION_BENCH.yaml.
+mutation = ["mutmut==3.8.0"]
 
 [tool.basedpyright]
 # Strict type checking for code we control

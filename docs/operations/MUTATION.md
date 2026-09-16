@@ -79,12 +79,17 @@ default `[dev]` extras.  Install once:
 ```bash
 cd python
 .venv/bin/pip install -e '.[mutation]'
-.venv/bin/mutmut --version    # expect: mutmut, version 3.5.0 (or later 3.x)
+.venv/bin/mutmut --version    # expect the version pyproject.toml pins
 ```
 
-The `[mutation]` extras section in `pyproject.toml` pins `mutmut>=3.5,<4`
-— major-version pin is intentional because mutmut 3.x added the trampoline
-machinery; the 2.x → 3.x transition broke `[tool.mutmut]` semantics.
+The `[mutation]` extras section in `pyproject.toml` pins mutmut to one exact
+version, and that pin is the only place the version is written.  A range is
+wrong here for a reason a range is right elsewhere: two mutmut releases in the
+same major enumerate different mutant sets, so a contributor resolving to the
+floor and CI resolving to the ceiling measure different populations, and the
+survivor CI reports cannot be reproduced locally at all.  A baseline that is a
+measured count cannot float its generator.  Bumping the pin is deliberate and
+re-measures the Python row of `docs/MUTATION_BENCH.yaml`.
 
 ### Go — `gremlins`
 

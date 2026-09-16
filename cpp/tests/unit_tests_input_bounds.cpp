@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// Adversarial-input bounds regression tests (UR-2 cross-binding parity).
+// Adversarial-input bounds, and their cross-binding parity.
 //
 // `aletheia::InputBoundExceededError` exists, carries kind/observed/limit
 // fields, and the FFI-entry process() short-circuits oversize JSON inputs
@@ -51,9 +51,14 @@ TEST_CASE("Numeric limit constants mirror Aletheia.Limits values", "[input_bound
     CHECK(aletheia::max_signals_per_message == 1024);
     CHECK(aletheia::max_attributes_per_file == 10'000);
     CHECK(aletheia::max_value_descriptions_per_file == 1'000'000);
+    CHECK(aletheia::max_comments_per_file == 10'000);
+    CHECK(aletheia::max_nodes_per_file == 10'000);
+    CHECK(aletheia::max_value_tables_per_file == 10'000);
     CHECK(aletheia::max_identifier_length == 128);
     CHECK(aletheia::max_string_length_bytes == 64ULL * 1024);
     CHECK(aletheia::max_atom_count_per_property == 1024);
+    CHECK(aletheia::max_properties_per_stream == 1024);
+    CHECK(aletheia::max_rational_component_magnitude == 9'223'372'036'854'775'807);
 }
 
 TEST_CASE("BoundKind wire codes mirror boundKindCode in Aletheia.Limits", "[input_bounds]") {
@@ -64,6 +69,8 @@ TEST_CASE("BoundKind wire codes mirror boundKindCode in Aletheia.Limits", "[inpu
     CHECK(aletheia::bound_kind_string_length == "string_length");
     CHECK(aletheia::bound_kind_atom_count == "atom_count");
     CHECK(aletheia::bound_kind_frame_byte_count == "frame_byte_count");
+    CHECK(aletheia::bound_kind_property_count == "property_count");
+    CHECK(aletheia::bound_kind_rational_component_magnitude == "rational_component_magnitude");
 }
 
 TEST_CASE("New ErrorCode entries map from string", "[input_bounds]") {
@@ -83,10 +90,10 @@ TEST_CASE("New ErrorCode entries map from string", "[input_bounds]") {
 }
 
 TEST_CASE("parse_non_integer_multiplex_value maps from string", "[parse_error]") {
-    // Typed sub-ctor split out from `parse_invalid_presence` so the wire
-    // code distinguishes "presence string not 'always'" from "non-natural
-    // element in multiplex_values array".  Asserts the C++ binding decodes
-    // the new wire code into the matching enum constant.
+    // A wire code of its own, distinct from `parse_invalid_presence`: that one
+    // is a presence string other than "always", this one a non-natural element
+    // in the multiplex-values array. The binding must decode it to the
+    // matching enumerator.
     CHECK(aletheia::error_code_from_string("parse_non_integer_multiplex_value") ==
           aletheia::ErrorCode::ParseNonIntegerMultiplexValue);
 }
@@ -97,9 +104,9 @@ TEST_CASE("parse_non_integer_multiplex_value maps from string", "[parse_error]")
 // first for oversize inputs; a 1 MiB response with 10⁵ nesting still depth-
 // bombs the recursive-descent parser via stack overflow without this guard).
 //
-// Tests pick parse_success as a representative entry point; parse_bounded is
-// shared across all 10 detail::parse_* callsites so depth-bound coverage is
-// uniform.
+// The cases pick parse_success as a representative entry point; every
+// detail::parse_* entry point goes through parse_bounded, so the depth bound
+// covers them uniformly.
 
 TEST_CASE("parse_bounded rejects JSON exceeding nesting depth", "[input_bounds]") {
     // Build a JSON with (max_nesting_depth + 1) levels of array nesting.
@@ -156,7 +163,7 @@ TEST_CASE("parse_dbc_text rejects oversize DBC text", "[input_bounds]") {
     aletheia::AletheiaClient client{std::move(mock)};
 
     const std::string big_text(aletheia::max_dbc_text_bytes + 1, 'x');
-    std::stop_source stop_source;
+    const std::stop_source stop_source;
     auto result = client.parse_dbc_text(stop_source.get_token(), big_text);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
