@@ -127,6 +127,7 @@ PASS probes/go_cmd_aletheia_main.go--the-subcommands-are-the-python-ones.sh
 PASS probes/go_excel_excel.go--every-column-the-loaders-read-is-one-the-template-writes.sh
 PASS probes/go_excel_excel_test.go--the-library-search-matches-the-binding-s.sh
 PASS probes/go_excel_go.mod--the-core-requirement-is-one-the-module-path-can-carry.sh
+PASS probes/go_go.mod--both-modules-are-named-where-the-repository-is.sh
 PASS probes/go_go.work--the-excel-module-builds-from-the-workspace-with-no-network.sh
 PASS probes/go_module_checksums--every-entry-names-a-module-the-workspace-uses.sh
 PASS probes/go_module_directives--the-two-modules-and-the-workspace-agree.sh
@@ -151,4 +152,4 @@ PASS probes/tools__ci_steps.py--the-cmake-gate-scans-files.sh
 PASS probes/tools__ci_steps.py--the-format-gate-sees-only-tracked-sources.sh
 PASS probes/tools_mutation_run.py--a-sweep-that-timed-out-is-refused.sh
 PASS probes/tree--no-tracked-file-ends-in-a-tool-call-tag.sh
-probes: 153 run, exit 0
+probes: 154 run, exit 0

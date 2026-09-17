@@ -180,8 +180,15 @@ Tag the **squashed `main` commit** from step 6 (not the pre-merge branch tip),
 signed; tag creation is admin-only (an admin bypass line on push is expected):
 ```bash
 git tag -s vX.Y.Z -m "Aletheia vX.Y.Z"
-git push origin vX.Y.Z
+git tag -s go/vX.Y.Z -m "Aletheia Go module vX.Y.Z"
+git push origin vX.Y.Z go/vX.Y.Z
 ```
+The second tag is what makes the Go module fetchable at that version: the
+module lives in `go/`, and Go looks for a tag carrying that directory's prefix,
+so a consumer requiring `github.com/Jaetan/aletheia/go/v5 vX.Y.Z` resolves
+`go/vX.Y.Z` and nothing else. The first tag alone leaves the requirement
+unresolvable. `release.yml` runs on the first.
+
 The tag push runs `release.yml`, which keyless-signs the tarball + `.deb` +
 `.rpm`, self-verifies every signed artifact against the workflow OIDC identity,
 validates the bundle across bindings, install-smokes the `.deb`, builds the

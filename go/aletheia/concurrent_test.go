@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
 // Workers issue AddChecks against one client while another goroutine closes

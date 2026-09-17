@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
 // die reports a condition that makes the report untrue and exits. Every

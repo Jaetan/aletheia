@@ -20,7 +20,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
 // validateLoaderPath requires the path to name an existing regular file that is

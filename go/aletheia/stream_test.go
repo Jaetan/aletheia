@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
 func TestStreamingLTL_NoViolation(t *testing.T) {

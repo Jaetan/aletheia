@@ -555,7 +555,7 @@ package main
 import (
     "context"
 
-    "github.com/aletheia-automotive/aletheia-go/v5/aletheia"
+    "github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
 func main() {

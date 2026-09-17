@@ -148,7 +148,7 @@ For language-specific entry points, see:
 
 - **Python**: [`docs/reference/PYTHON_API.md`](PYTHON_API.md) for the full DSL reference and `AletheiaClient` usage.
 - **C++**: header-level docs in `cpp/include/aletheia/*.hpp`, especially `check.hpp`, `client.hpp`, `ltl.hpp`, `yaml.hpp`, `excel.hpp`. The integration snippets in [`docs/development/DISTRIBUTION.md`](../development/DISTRIBUTION.md) show how to wire `make_ffi_backend` into a project.
-- **Go**: run `go doc github.com/aletheia-automotive/aletheia-go/v5/aletheia` for the package overview and per-type docs; the constructor is `NewFFIBackend` from `go/aletheia/ffi.go`.
+- **Go**: run `go doc github.com/Jaetan/aletheia/go/v5/aletheia` for the package overview and per-type docs; the constructor is `NewFFIBackend` from `go/aletheia/ffi.go`.
 
 ---
 

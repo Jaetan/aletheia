@@ -24,4 +24,4 @@ use (
 	./excel
 )
 
-replace github.com/aletheia-automotive/aletheia-go/v5 v5.0.0 => ./
+replace github.com/Jaetan/aletheia/go/v5 v5.0.0 => ./

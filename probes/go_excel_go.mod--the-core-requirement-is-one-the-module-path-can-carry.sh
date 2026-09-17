@@ -18,10 +18,12 @@ cd "$(dirname "$0")/.." || exit 2
 command -v go > /dev/null || { echo "go not installed, claim untestable"; exit 0; }
 status=0
 
-required=$(sed -n 's|^\trequire github.com/aletheia-automotive/aletheia-go/v5 \(v[0-9][^ ]*\)$|\1|p;s|^\tgithub.com/aletheia-automotive/aletheia-go/v5 \(v[0-9][^ ]*\)$|\1|p' go/excel/go.mod | head -1)
-[ -n "$required" ] || { echo "go/excel/go.mod no longer requires the core module by that path"; exit 2; }
+# The core module's path is read from its own file, never spelled here: a
+# probe that spells a path is the thing that goes stale when the path moves.
 core=$(sed -n 's|^module \(.*\)$|\1|p' go/go.mod)
 [ -n "$core" ] || { echo "go/go.mod declares no module path"; exit 2; }
+required=$(grep -F "$core " go/excel/go.mod | sed -n 's|.*[[:space:]]\(v[0-9][^ ]*\)$|\1|p' | head -1)
+[ -n "$required" ] || { echo "go/excel/go.mod no longer requires $core"; exit 2; }
 
 major=${required#v}
 major=${major%%.*}
@@ -34,7 +36,7 @@ if [ "$major" -ge 2 ]; then
 	esac
 fi
 
-replaced=$(sed -n 's|^replace github.com/aletheia-automotive/aletheia-go/v5 \(v[0-9][^ ]*\) =>.*$|\1|p' go/go.work | head -1)
+replaced=$(grep -F "replace $core " go/go.work | sed -n 's|.*[[:space:]]\(v[0-9][^ ]*\)[[:space:]]*=>.*$|\1|p' | head -1)
 if [ -n "$replaced" ] && [ "$replaced" != "$required" ]; then
 	echo "the workspace replaces $replaced where the module requires $required, so the requirement"
 	echo "  no longer resolves to the tree and Go goes to the network for it"

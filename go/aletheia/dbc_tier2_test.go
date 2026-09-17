@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
 // tier2DBC carries every tier 2 variant: the five comment targets, the five

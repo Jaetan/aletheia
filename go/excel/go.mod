@@ -8,14 +8,14 @@
 // matching major-version suffix, without which Go refuses any major above the
 // first: a release named here is a release the path can carry. This file
 // carries no replace of its own: it would travel with the module.
-module github.com/aletheia-automotive/aletheia-go/excel
+module github.com/Jaetan/aletheia/go/excel
 
 go 1.24.0
 
 toolchain go1.24.6
 
 require (
-	github.com/aletheia-automotive/aletheia-go/v5 v5.0.0
+	github.com/Jaetan/aletheia/go/v5 v5.0.0
 	github.com/xuri/excelize/v2 v2.10.1
 )
 

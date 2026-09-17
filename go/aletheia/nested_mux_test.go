@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
 // Multiplexing nested three deep, against the library rather than a mock: what

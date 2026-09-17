@@ -33,7 +33,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
 // docFiles is every user-facing Markdown file with Go fences, relative to
@@ -219,8 +219,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
-	"github.com/aletheia-automotive/aletheia-go/excel"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
+	"github.com/Jaetan/aletheia/go/excel"
 )
 
 // the fence may leave any of these imports unused
@@ -400,13 +400,13 @@ go 1.24.0
 toolchain go1.24.6
 
 require (
-	github.com/aletheia-automotive/aletheia-go/v5 v5.0.0
-	github.com/aletheia-automotive/aletheia-go/excel v0.0.0
+	github.com/Jaetan/aletheia/go/v5 v5.0.0
+	github.com/Jaetan/aletheia/go/excel v0.0.0
 )
 
-replace github.com/aletheia-automotive/aletheia-go/v5 => %s
+replace github.com/Jaetan/aletheia/go/v5 => %s
 
-replace github.com/aletheia-automotive/aletheia-go/excel => %s
+replace github.com/Jaetan/aletheia/go/excel => %s
 `, goDir, filepath.Join(goDir, "excel"))
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
 // What the client logs, and that it runs the same way with no logger at all.

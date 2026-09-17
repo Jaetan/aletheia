@@ -33,7 +33,7 @@ go_names=$(grep -oP '^\tMax[A-Za-z]+(?= =)' go/aletheia/limits.go | tr -d '\t')
 	echo 'import ('
 	echo '	"fmt"'
 	echo
-	echo '	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"'
+	echo '	"github.com/Jaetan/aletheia/go/v5/aletheia"'
 	echo ')'
 	echo
 	echo 'func main() {'

@@ -26,9 +26,9 @@ module readme_fence
 
 go 1.24.0
 
-require github.com/aletheia-automotive/aletheia-go/v5 v5.0.0
+require github.com/Jaetan/aletheia/go/v5 v5.0.0
 
-replace github.com/aletheia-automotive/aletheia-go/v5 => $PWD/go
+replace github.com/Jaetan/aletheia/go/v5 => $PWD/go
 EOF
 # The scratch module sits under go/, inside the workspace, so workspace mode is
 # switched off and the replace directive above is what resolves the binding.

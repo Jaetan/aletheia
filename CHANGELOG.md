@@ -136,15 +136,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   parent or a descriptor limit says the stat failed. Python already distinguished
   them, having no such check of its own.
 
-- **BREAKING (Go): the module path carries its major version.** The module is
-  `github.com/aletheia-automotive/aletheia-go/v5`, and every import moves with it
-  (`.../v5/aletheia`, `.../v5/cmd/aletheia`). Go accepts a major of two or more only
-  when the path ends in the matching suffix, so before this the module could not
-  name any release after the first major: the spreadsheet loader required it at a
-  placeholder version that only the development workspace resolved, and now requires
-  it at the version of the last release. The spreadsheet loader keeps its own path,
-  being a module of its own. A consumer of the distribution bundle follows the same
-  printed recipe as before, with the new path in it.
+- **BREAKING (Go): both modules are named where the repository is, and the core
+  module's path carries its major version.** The core module is
+  `github.com/Jaetan/aletheia/go/v5` and the spreadsheet loader is
+  `github.com/Jaetan/aletheia/go/excel`; every import moves with them. The previous
+  path named a location this repository does not publish from, so a consumer typing
+  it reached whatever is served there rather than this code. Go accepts a major of
+  two or more only when the path ends in the matching suffix, so before this the
+  core module could not name any release after the first major: the spreadsheet
+  loader required it at a placeholder version that only the development workspace
+  resolved, and now requires it at the version of the last release. A consumer of
+  the distribution bundle follows the same printed recipe as before, with the new
+  path in it. A release now also tags `go/vX.Y.Z`, which is the tag Go looks for
+  when a module lives in a subdirectory: without it the requirement resolves to
+  nothing.
 
 - **The Go and Rust predicate builders carry every predicate the kernel defines.**
   Both carried the five comparisons, where the kernel has eight: `Signal(name)` in Go

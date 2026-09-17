@@ -8,7 +8,7 @@
 > **Other bindings**: This guide documents the Python binding. C++ and Go ship
 > the same verified core with equivalent APIs — see `cpp/include/aletheia/*.hpp`
 > for C++ (especially `check.hpp`, `client.hpp`, `ltl.hpp`) and
-> `go doc github.com/aletheia-automotive/aletheia-go/v5/aletheia` for Go. The
+> `go doc github.com/Jaetan/aletheia/go/v5/aletheia` for Go. The
 > [Interface Guide § Binding parity](INTERFACES.md#binding-parity) summarizes
 > feature availability per binding.
 

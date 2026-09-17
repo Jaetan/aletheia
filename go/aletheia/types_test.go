@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
 // The validated types: what each constructor takes, what it refuses, and how
