@@ -177,8 +177,6 @@ Outside (or inside) streaming, decode and synthesize frames directly. `dlc` must
 - `build_frame(stop, id, dlc, signals)` → `FramePayload` (encode signal values).
 - `update_frame(stop, id, dlc, data, signals)` → `FramePayload` (patch a frame).
 
-See [INTERFACES.md](INTERFACES.md) for a worked extract/build round-trip.
-
 ---
 
 ## Error Handling
