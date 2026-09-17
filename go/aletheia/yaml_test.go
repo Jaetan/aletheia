@@ -9,701 +9,346 @@ import (
 	"testing"
 )
 
-// ===========================================================================
-// Simple checks -- each condition type
-// ===========================================================================
+// The YAML check loader: what it builds from each written form, what it
+// refuses, and what it does with a path.
 
-func TestLoadYAMLNeverExceeds(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - signal: Speed
-    condition: never_exceeds
-    value: 220
-`)
+// loadOne loads a document that must carry exactly one check, and answers it.
+func loadOne(t *testing.T, document string) CheckResult {
+	t.Helper()
+	checks, err := LoadChecksFromYAML(document)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("the document was refused: %v", err)
 	}
 	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
+		t.Fatalf("the document carried %d checks, want one", len(checks))
 	}
-	want := FormatFormula(CheckSignal("Speed").NeverExceeds(IntRational(220)).Formula())
-	got := FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
+	return checks[0]
+}
+
+// requireSameFormula holds that a loaded check is the check the builder makes.
+func requireSameFormula(t *testing.T, got, want CheckResult) {
+	t.Helper()
+	if gotText, wantText := FormatFormula(got.Formula()), FormatFormula(want.Formula()); gotText != wantText {
+		t.Errorf("the loaded check is %q, want %q", gotText, wantText)
 	}
 }
 
-func TestLoadYAMLNeverBelow(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - signal: Voltage
-    condition: never_below
-    value: 11.5
-`)
+// mustCheck is a builder call that can refuse, in a fixture where it does not:
+// a refusal here is a mistake in the fixture, and the panic says where.
+func mustCheck(r CheckResult, err error) CheckResult {
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		panic(err)
 	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
+	return r
+}
+
+// halves is a rational over two, for the decimal bounds below.
+func halves(n int64) Rational { return Rational{Numerator: n, Denominator: 2} }
+
+// Each written condition builds the check the builder of the same name builds,
+// with the decimals parsed exactly rather than rounded.
+func TestLoadYAML_SimpleConditions(t *testing.T) {
+	cases := map[string]struct {
+		document string
+		want     func(*testing.T) CheckResult
+	}{
+		"never exceeds": {
+			"checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 220\n",
+			func(*testing.T) CheckResult { return CheckSignal("Speed").NeverExceeds(IntRational(220)) },
+		},
+		"never below, a decimal": {
+			"checks:\n  - signal: Voltage\n    condition: never_below\n    value: 11.5\n",
+			func(*testing.T) CheckResult { return CheckSignal("Voltage").NeverBelow(halves(23)) },
+		},
+		"never equals": {
+			"checks:\n  - signal: ErrorCode\n    condition: never_equals\n    value: 255\n",
+			func(*testing.T) CheckResult { return CheckSignal("ErrorCode").NeverEquals(IntRational(255)) },
+		},
+		"equals": {
+			"checks:\n  - signal: Gear\n    condition: equals\n    value: 0\n",
+			func(*testing.T) CheckResult { return CheckSignal("Gear").Equals(IntRational(0)).Always() },
+		},
+		"stays between, two decimals": {
+			"checks:\n  - signal: Voltage\n    condition: stays_between\n    min: 11.5\n    max: 14.5\n",
+			func(*testing.T) CheckResult {
+				return mustCheck(CheckSignal("Voltage").StaysBetween(halves(23), halves(29)))
+			},
+		},
+		"settles between": {
+			"checks:\n  - signal: CoolantTemp\n    condition: settles_between\n    min: 80\n    max: 100\n    within_ms: 5000\n",
+			func(*testing.T) CheckResult {
+				return mustCheck(CheckSignal("CoolantTemp").SettlesBetween(IntRational(80), IntRational(100)).Within(5000))
+			},
+		},
 	}
-	want := FormatFormula(CheckSignal("Voltage").NeverBelow(Rational{Numerator: 23, Denominator: 2}).Formula())
-	got := FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			requireSameFormula(t, loadOne(t, tc.document), tc.want(t))
+		})
 	}
 }
 
-func TestLoadYAMLStaysBetween(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - signal: Voltage
-    condition: stays_between
-    min: 11.5
-    max: 14.5
-`)
+// A document with several checks carries them in the order they are written.
+func TestLoadYAML_SeveralChecks(t *testing.T) {
+	checks, err := LoadChecksFromYAML(
+		"checks:\n" +
+			"  - signal: Speed\n    condition: never_exceeds\n    value: 220\n" +
+			"  - signal: Voltage\n    condition: stays_between\n    min: 11.5\n    max: 14.5\n")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
-	}
-	reference, err := CheckSignal("Voltage").StaysBetween(Rational{Numerator: 23, Denominator: 2}, Rational{Numerator: 29, Denominator: 2})
-	if err != nil {
-		t.Fatalf("StaysBetween: %v", err)
-	}
-	want := FormatFormula(reference.Formula())
-	got := FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
-}
-
-func TestLoadYAMLNeverEquals(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - signal: ErrorCode
-    condition: never_equals
-    value: 255
-`)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
-	}
-	want := FormatFormula(CheckSignal("ErrorCode").NeverEquals(IntRational(255)).Formula())
-	got := FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
-}
-
-func TestLoadYAMLEquals(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - signal: Gear
-    condition: equals
-    value: 0
-`)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
-	}
-	want := FormatFormula(CheckSignal("Gear").Equals(IntRational(0)).Always().Formula())
-	got := FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
-}
-
-func TestLoadYAMLSettlesBetween(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - signal: CoolantTemp
-    condition: settles_between
-    min: 80
-    max: 100
-    within_ms: 5000
-`)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
-	}
-	expected, _ := CheckSignal("CoolantTemp").SettlesBetween(IntRational(80), IntRational(100)).Within(5000)
-	want := FormatFormula(expected.Formula())
-	got := FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
-}
-
-func TestLoadYAMLMultipleChecks(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - signal: Speed
-    condition: never_exceeds
-    value: 220
-  - signal: Voltage
-    condition: stays_between
-    min: 11.5
-    max: 14.5
-`)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("the document was refused: %v", err)
 	}
 	if len(checks) != 2 {
-		t.Fatalf("expected 2 checks, got %d", len(checks))
+		t.Fatalf("the document carried %d checks, want two", len(checks))
 	}
-	want0 := FormatFormula(CheckSignal("Speed").NeverExceeds(IntRational(220)).Formula())
-	got0 := FormatFormula(checks[0].Formula())
-	if got0 != want0 {
-		t.Errorf("check[0] formula mismatch: got %q, want %q", got0, want0)
-	}
-	reference1, err := CheckSignal("Voltage").StaysBetween(Rational{Numerator: 23, Denominator: 2}, Rational{Numerator: 29, Denominator: 2})
-	if err != nil {
-		t.Fatalf("StaysBetween: %v", err)
-	}
-	want1 := FormatFormula(reference1.Formula())
-	got1 := FormatFormula(checks[1].Formula())
-	if got1 != want1 {
-		t.Errorf("check[1] formula mismatch: got %q, want %q", got1, want1)
-	}
+	requireSameFormula(t, checks[0], CheckSignal("Speed").NeverExceeds(IntRational(220)))
+	requireSameFormula(t, checks[1], mustCheck(CheckSignal("Voltage").StaysBetween(halves(23), halves(29))))
 }
 
-// ===========================================================================
-// When/Then checks
-// ===========================================================================
-
-func TestLoadYAMLWhenExceedsThenEquals(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - name: "Brake response"
-    when:
-      signal: BrakePedal
-      condition: exceeds
-      value: 50
-    then:
-      signal: BrakeLight
-      condition: equals
-      value: 1
-    within_ms: 100
-`)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
-	}
-	expected, _ := CheckWhen("BrakePedal").Exceeds(IntRational(50)).Then("BrakeLight").Equals(IntRational(1)).Within(100)
-	want := FormatFormula(expected.Formula())
-	got := FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
-}
-
-func TestLoadYAMLWhenEqualsThenExceeds(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - when:
-      signal: Ignition
-      condition: equals
-      value: 1
-    then:
-      signal: RPM
-      condition: exceeds
-      value: 500
-    within_ms: 2000
-`)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
-	}
-	expected, _ := CheckWhen("Ignition").Equals(IntRational(1)).Then("RPM").Exceeds(IntRational(500)).Within(2000)
-	want := FormatFormula(expected.Formula())
-	got := FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
-}
-
-func TestLoadYAMLWhenDropsBelowThenStaysBetween(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - when:
-      signal: FuelLevel
-      condition: drops_below
-      value: 10
-    then:
-      signal: FuelWarning
-      condition: stays_between
-      min: 1
-      max: 1
-    within_ms: 50
-`)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
-	}
-	expected, _ := CheckWhen("FuelLevel").DropsBelow(IntRational(10)).Then("FuelWarning").StaysBetween(IntRational(1), IntRational(1)).Within(50)
-	want := FormatFormula(expected.Formula())
-	got := FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
-}
-
-// ===========================================================================
-// Metadata
-// ===========================================================================
-
-func TestLoadYAMLNameSet(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - name: "Speed limit"
-    signal: Speed
-    condition: never_exceeds
-    value: 220
-`)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if checks[0].Name() != "Speed limit" {
-		t.Errorf("Name: got %q, want %q", checks[0].Name(), "Speed limit")
-	}
-}
-
-func TestLoadYAMLSeveritySet(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - signal: Speed
-    condition: never_exceeds
-    value: 220
-    severity: critical
-`)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if checks[0].CheckSeverity() != "critical" {
-		t.Errorf("Severity: got %q, want %q", checks[0].CheckSeverity(), "critical")
-	}
-}
-
-func TestLoadYAMLNameAndSeverity(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - name: "Speed limit"
-    signal: Speed
-    condition: never_exceeds
-    value: 220
-    severity: warning
-`)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if checks[0].Name() != "Speed limit" {
-		t.Errorf("Name: got %q, want %q", checks[0].Name(), "Speed limit")
-	}
-	if checks[0].CheckSeverity() != "warning" {
-		t.Errorf("Severity: got %q, want %q", checks[0].CheckSeverity(), "warning")
-	}
-}
-
-func TestLoadYAMLDefaultsEmpty(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - signal: Speed
-    condition: never_exceeds
-    value: 220
-`)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if checks[0].Name() != "" {
-		t.Errorf("Name: got %q, want empty", checks[0].Name())
-	}
-	if checks[0].CheckSeverity() != "" {
-		t.Errorf("Severity: got %q, want empty", checks[0].CheckSeverity())
-	}
-}
-
-func TestLoadYAMLWhenThenMetadata(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - name: "Brake response"
-    when:
-      signal: BrakePedal
-      condition: exceeds
-      value: 50
-    then:
-      signal: BrakeLight
-      condition: equals
-      value: 1
-    within_ms: 100
-    severity: safety
-`)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if checks[0].Name() != "Brake response" {
-		t.Errorf("Name: got %q, want %q", checks[0].Name(), "Brake response")
-	}
-	if checks[0].CheckSeverity() != "safety" {
-		t.Errorf("Severity: got %q, want %q", checks[0].CheckSeverity(), "safety")
-	}
-}
-
-// ===========================================================================
-// File I/O
-// ===========================================================================
-
-func TestLoadYAMLFromFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "checks.yaml")
-	content := `checks:
-  - signal: Speed
-    condition: never_exceeds
-    value: 220
-`
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	checks, err := LoadChecksFromYAML(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
-	}
-	want := FormatFormula(CheckSignal("Speed").NeverExceeds(IntRational(220)).Formula())
-	got := FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
-}
-
-func TestLoadYAMLFileNotFound(t *testing.T) {
-	// When the file doesn't exist, LoadChecksFromYAML treats it as inline YAML,
-	// which fails during parsing. Use LoadChecksFromYAMLFile for explicit file errors.
-	_, err := LoadChecksFromYAML("/nonexistent/path/checks.yaml")
-	if err == nil {
-		t.Fatal("expected error for non-existent path treated as inline YAML")
-	}
-}
-
-func TestLoadYAMLFromFileFunc(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "checks.yaml")
-	content := `checks:
-  - signal: Voltage
-    condition: stays_between
-    min: 11.5
-    max: 14.5
-`
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	checks, err := LoadChecksFromYAMLFile(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
-	}
-	reference, err := CheckSignal("Voltage").StaysBetween(Rational{Numerator: 23, Denominator: 2}, Rational{Numerator: 29, Denominator: 2})
-	if err != nil {
-		t.Fatalf("StaysBetween: %v", err)
-	}
-	want := FormatFormula(reference.Formula())
-	got := FormatFormula(checks[0].Formula())
-	if got != want {
-		t.Errorf("formula mismatch: got %q, want %q", got, want)
-	}
-}
-
-func TestLoadYAMLFileNotFoundFunc(t *testing.T) {
-	_, err := LoadChecksFromYAMLFile("/nonexistent/path/checks.yaml")
-	requireErrorContains(t, err, "YAML file not found")
-}
-
-// ===========================================================================
-// Error handling
-// ===========================================================================
-
-func TestLoadYAMLMissingChecksKey(t *testing.T) {
-	_, err := LoadChecksFromYAML("signals:\n  - foo\n")
-	requireErrorContains(t, err, "YAML document must contain a 'checks' list")
-}
-
-func TestLoadYAMLChecksNotList(t *testing.T) {
-	_, err := LoadChecksFromYAML("checks: not_a_list\n")
-	requireErrorContains(t, err, "YAML 'checks' field must be a list")
-}
-
-func TestLoadYAMLNoSignalOrWhen(t *testing.T) {
-	_, err := LoadChecksFromYAML(`
-checks:
-  - name: "Bad check"
-    condition: never_exceeds
-    value: 100
-`)
-	requireErrorContains(t, err, "must have 'signal' or 'when'/'then'")
-}
-
-func TestLoadYAMLUnknownCondition(t *testing.T) {
-	_, err := LoadChecksFromYAML(`
-checks:
-  - signal: Speed
-    condition: bogus
-    value: 100
-`)
-	requireErrorContains(t, err, "unknown condition 'bogus'")
-}
-
-func TestLoadYAMLMissingValue(t *testing.T) {
-	_, err := LoadChecksFromYAML(`
-checks:
-  - signal: Speed
-    condition: never_exceeds
-`)
-	requireErrorContains(t, err, "requires 'value'")
-}
-
-// TestLoadYAMLRejectsNonFiniteValue is the regression test for the silent-clamp
-// bug: a non-decimal (`.nan` / `.inf`) or int64-overflowing value in a check
-// file must make the loader FAIL (matching the Python / C++ / Rust loaders), not
-// silently clamp to 0/1. Under the decimal SSOT the literal text is parsed by the
-// kernel FromDecimal, so `.nan` / `.inf` are rejected as invalid decimal
-// literals and a too-large value as an Int64-wire overflow. Covers the simple,
-// settles, and when/then dispatch paths.
-func TestLoadYAMLRejectsNonFiniteValue(t *testing.T) {
-	cases := []struct {
-		name, yaml, want string
+// A trigger and an obligation build the check the builders of the same names
+// build, for every pairing the vocabulary allows.
+func TestLoadYAML_WhenThen(t *testing.T) {
+	cases := map[string]struct {
+		document string
+		want     func(*testing.T) CheckResult
 	}{
-		{
-			name: "simple NaN",
-			yaml: "checks:\n  - signal: S\n    condition: never_exceeds\n    value: .nan\n",
-			want: "not a valid decimal literal",
+		"exceeds, then equals": {
+			"checks:\n  - name: \"Brake response\"\n    when:\n      signal: BrakePedal\n      condition: exceeds\n      value: 50\n" +
+				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_ms: 100\n",
+			func(*testing.T) CheckResult {
+				return mustCheck(CheckWhen("BrakePedal").Exceeds(IntRational(50)).Then("BrakeLight").Equals(IntRational(1)).Within(100))
+			},
 		},
-		{
-			name: "simple overflow",
-			yaml: "checks:\n  - signal: S\n    condition: never_exceeds\n    value: 99999999999999999999.5\n",
-			want: "Int64 wire range",
+		"equals, then exceeds": {
+			"checks:\n  - when:\n      signal: Ignition\n      condition: equals\n      value: 1\n" +
+				"    then:\n      signal: RPM\n      condition: exceeds\n      value: 500\n    within_ms: 2000\n",
+			func(*testing.T) CheckResult {
+				return mustCheck(CheckWhen("Ignition").Equals(IntRational(1)).Then("RPM").Exceeds(IntRational(500)).Within(2000))
+			},
 		},
-		{
-			name: "settles Inf bound",
-			yaml: "checks:\n  - signal: S\n    condition: settles_between\n    min: 0\n    max: .inf\n    within_ms: 100\n",
-			want: "not a valid decimal literal",
-		},
-		{
-			name: "when-clause NaN",
-			yaml: "checks:\n  - when:\n      signal: A\n      condition: exceeds\n      value: .nan\n    then:\n      signal: B\n      condition: equals\n      value: 1\n    within_ms: 100\n",
-			want: "not a valid decimal literal",
+		"drops below, then stays between": {
+			"checks:\n  - when:\n      signal: FuelLevel\n      condition: drops_below\n      value: 10\n" +
+				"    then:\n      signal: FuelWarning\n      condition: stays_between\n      min: 1\n      max: 1\n    within_ms: 50\n",
+			func(*testing.T) CheckResult {
+				return mustCheck(CheckWhen("FuelLevel").DropsBelow(IntRational(10)).Then("FuelWarning").
+					StaysBetween(IntRational(1), IntRational(1)).Within(50))
+			},
 		},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := LoadChecksFromYAML(tc.yaml)
-			requireErrorContains(t, err, tc.want)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			requireSameFormula(t, loadOne(t, tc.document), tc.want(t))
 		})
 	}
 }
 
-func TestLoadYAMLStaysBetweenMissingRange(t *testing.T) {
-	_, err := LoadChecksFromYAML(`
-checks:
-  - signal: Voltage
-    condition: stays_between
-    max: 14.5
-`)
-	requireErrorContains(t, err, "requires 'min' and 'max'")
+// The optional name and severity reach the check, in both written forms, and
+// are empty when the document does not give them.
+func TestLoadYAML_Metadata(t *testing.T) {
+	cases := map[string]struct {
+		document       string
+		name, severity string
+	}{
+		"a name": {
+			"checks:\n  - name: \"Speed limit\"\n    signal: Speed\n    condition: never_exceeds\n    value: 220\n",
+			"Speed limit", "",
+		},
+		"a severity": {
+			"checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 220\n    severity: critical\n",
+			"", "critical",
+		},
+		"both": {
+			"checks:\n  - name: \"Speed limit\"\n    signal: Speed\n    condition: never_exceeds\n    value: 220\n    severity: warning\n",
+			"Speed limit", "warning",
+		},
+		"neither": {
+			"checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 220\n",
+			"", "",
+		},
+		"both, on a trigger and an obligation": {
+			"checks:\n  - name: \"Brake response\"\n    when:\n      signal: BrakePedal\n      condition: exceeds\n      value: 50\n" +
+				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_ms: 100\n    severity: safety\n",
+			"Brake response", "safety",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			check := loadOne(t, tc.document)
+			if check.Name() != tc.name {
+				t.Errorf("the name is %q, want %q", check.Name(), tc.name)
+			}
+			if check.CheckSeverity() != tc.severity {
+				t.Errorf("the severity is %q, want %q", check.CheckSeverity(), tc.severity)
+			}
+		})
+	}
 }
 
-func TestLoadYAMLSettlesMissingWithin(t *testing.T) {
-	_, err := LoadChecksFromYAML(`
-checks:
-  - signal: Temp
-    condition: settles_between
-    min: 80
-    max: 100
-`)
-	requireErrorContains(t, err, "requires 'within_ms'")
-}
-
-func TestLoadYAMLSettlesMissingRange(t *testing.T) {
-	_, err := LoadChecksFromYAML(`
-checks:
-  - signal: Temp
-    condition: settles_between
-    within_ms: 5000
-`)
-	requireErrorContains(t, err, "requires 'min' and 'max'")
-}
-
-func TestLoadYAMLEqualsMissingValue(t *testing.T) {
-	_, err := LoadChecksFromYAML(`
-checks:
-  - signal: Gear
-    condition: equals
-`)
-	requireErrorContains(t, err, "requires 'value'")
-}
-
-func TestLoadYAMLUnknownWhenCondition(t *testing.T) {
-	_, err := LoadChecksFromYAML(`
-checks:
-  - when:
-      signal: Brake
-      condition: bogus
-      value: 50
-    then:
-      signal: BrakeLight
-      condition: equals
-      value: 1
-    within_ms: 100
-`)
-	requireErrorContains(t, err, "unknown when condition 'bogus'")
-}
-
-func TestLoadYAMLUnknownThenCondition(t *testing.T) {
-	_, err := LoadChecksFromYAML(`
-checks:
-  - when:
-      signal: Brake
-      condition: exceeds
-      value: 50
-    then:
-      signal: BrakeLight
-      condition: bogus
-      value: 1
-    within_ms: 100
-`)
-	requireErrorContains(t, err, "unknown then condition 'bogus'")
-}
-
-func TestLoadYAMLNamedCheckInError(t *testing.T) {
-	_, err := LoadChecksFromYAML(`
-checks:
-  - name: "My Check"
-    signal: Speed
-    condition: bogus
-    value: 100
-`)
-	requireErrorContains(t, err, "check 'My Check'")
-}
-
-func TestLoadYAMLUnnamedCheckInError(t *testing.T) {
-	_, err := LoadChecksFromYAML(`
-checks:
-  - signal: Speed
-    condition: bogus
-    value: 100
-`)
-	requireErrorContains(t, err, "check '<unnamed>'")
-}
-
-func TestLoadYAMLWhenThenMissingThen(t *testing.T) {
-	_, err := LoadChecksFromYAML(`
-checks:
-  - name: "Incomplete"
-    when:
-      signal: Brake
-      condition: exceeds
-      value: 50
-    within_ms: 100
-`)
-	requireErrorContains(t, err, "must have 'signal' or 'when'/'then'")
-}
-
-func TestLoadYAMLWhenThenMissingWithinMs(t *testing.T) {
-	_, err := LoadChecksFromYAML(`
-checks:
-  - when:
-      signal: Brake
-      condition: exceeds
-      value: 50
-    then:
-      signal: BrakeLight
-      condition: equals
-      value: 1
-`)
-	requireErrorContains(t, err, "require 'within_ms'")
-}
-
-// ===========================================================================
-// Adversarial-input hardening (cross-binding mirror)
-// ===========================================================================
-
-func TestLoadChecksFromYAMLFile_RejectsSymlink(t *testing.T) {
-	tmp := t.TempDir()
-	real_ := filepath.Join(tmp, "real.yaml")
-	if err := os.WriteFile(real_, []byte("checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 200\n"), 0o644); err != nil {
+// A path is read as a file by both entry points, and a path that names nothing
+// is an error from the one that takes only files, where the one that also
+// takes text tries to read the path as a document and fails there.
+func TestLoadYAML_FromAPath(t *testing.T) {
+	document := "checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 220\n"
+	path := filepath.Join(t.TempDir(), "checks.yaml")
+	if err := os.WriteFile(path, []byte(document), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	link := filepath.Join(tmp, "link.yaml")
-	if err := os.Symlink(real_, link); err != nil {
-		t.Skip("symlink creation not permitted on this filesystem")
+	loaders := map[string]func(string) ([]CheckResult, error){
+		"the loader that also takes text": LoadChecksFromYAML,
+		"the loader that takes a file":    LoadChecksFromYAMLFile,
 	}
-	_, err := LoadChecksFromYAMLFile(link)
-	requireErrorContains(t, err, "symbolic link")
+	for name, load := range loaders {
+		t.Run(name, func(t *testing.T) {
+			checks, err := load(path)
+			if err != nil {
+				t.Fatalf("the file was refused: %v", err)
+			}
+			if len(checks) != 1 {
+				t.Fatalf("the file carried %d checks, want one", len(checks))
+			}
+			requireSameFormula(t, checks[0], CheckSignal("Speed").NeverExceeds(IntRational(220)))
+		})
+	}
+
+	if _, err := LoadChecksFromYAMLFile("/nonexistent/path/checks.yaml"); err == nil {
+		t.Error("a path naming nothing was accepted as a file")
+	} else {
+		requireErrorContains(t, err, "YAML file not found")
+	}
+	if _, err := LoadChecksFromYAML("/nonexistent/path/checks.yaml"); err == nil {
+		t.Error("a path naming nothing was accepted as a document")
+	}
 }
 
-func TestLoadChecksFromYAML_AutoDetectRejectsSymlink(t *testing.T) {
-	tmp := t.TempDir()
-	real_ := filepath.Join(tmp, "real_auto.yaml")
-	if err := os.WriteFile(real_, []byte("checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 200\n"), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
+// Every document the loader refuses is refused with what is wrong with it.
+func TestLoadYAML_Refusals(t *testing.T) {
+	cases := map[string]struct {
+		document string
+		says     string
+	}{
+		"no checks key":             {"signals:\n  - foo\n", "must contain a 'checks' list"},
+		"the checks are not a list": {"checks: not_a_list\n", "'checks' field must be a list"},
+		"neither a signal nor a trigger": {
+			"checks:\n  - name: \"Bad check\"\n    condition: never_exceeds\n    value: 100\n",
+			"must have 'signal' or 'when'/'then'",
+		},
+		"a condition the vocabulary lacks": {
+			"checks:\n  - signal: Speed\n    condition: bogus\n    value: 100\n", "unknown condition 'bogus'",
+		},
+		"no value where one is needed": {
+			"checks:\n  - signal: Speed\n    condition: never_exceeds\n", "requires 'value'",
+		},
+		"no value for an equality": {
+			"checks:\n  - signal: Gear\n    condition: equals\n", "requires 'value'",
+		},
+		"half a range": {
+			"checks:\n  - signal: Voltage\n    condition: stays_between\n    max: 14.5\n", "requires 'min' and 'max'",
+		},
+		"a settling with no range": {
+			"checks:\n  - signal: Temp\n    condition: settles_between\n    within_ms: 5000\n", "requires 'min' and 'max'",
+		},
+		"a settling with no time": {
+			"checks:\n  - signal: Temp\n    condition: settles_between\n    min: 80\n    max: 100\n", "requires 'within_ms'",
+		},
+		"a trigger the vocabulary lacks": {
+			"checks:\n  - when:\n      signal: Brake\n      condition: bogus\n      value: 50\n" +
+				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n    within_ms: 100\n",
+			"unknown when condition 'bogus'",
+		},
+		"an obligation the vocabulary lacks": {
+			"checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n" +
+				"    then:\n      signal: BrakeLight\n      condition: bogus\n      value: 1\n    within_ms: 100\n",
+			"unknown then condition 'bogus'",
+		},
+		"a trigger with no obligation": {
+			"checks:\n  - name: \"Incomplete\"\n    when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n    within_ms: 100\n",
+			"must have 'signal' or 'when'/'then'",
+		},
+		"a trigger and an obligation with no time": {
+			"checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n" +
+				"    then:\n      signal: BrakeLight\n      condition: equals\n      value: 1\n",
+			"require 'within_ms'",
+		},
+		"a value that is not a number": {
+			"checks:\n  - signal: S\n    condition: never_exceeds\n    value: .nan\n", "not a valid decimal literal",
+		},
+		"a value past the wire range": {
+			"checks:\n  - signal: S\n    condition: never_exceeds\n    value: 99999999999999999999.5\n", "Int64 wire range",
+		},
+		"a bound that is not a number": {
+			"checks:\n  - signal: S\n    condition: settles_between\n    min: 0\n    max: .inf\n    within_ms: 100\n",
+			"not a valid decimal literal",
+		},
+		"a trigger value that is not a number": {
+			"checks:\n  - when:\n      signal: A\n      condition: exceeds\n      value: .nan\n" +
+				"    then:\n      signal: B\n      condition: equals\n      value: 1\n    within_ms: 100\n",
+			"not a valid decimal literal",
+		},
+		"a list where a value belongs": {
+			"checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: [1, 2]\n", "expected a numeric scalar value",
+		},
+		"a mapping where a value belongs": {
+			"checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: {a: 1}\n", "expected a numeric scalar value",
+		},
+		"a list where a bound belongs": {
+			"checks:\n  - signal: Speed\n    condition: stays_between\n    min: [1]\n    max: 2\n", "expected a numeric scalar value",
+		},
 	}
-	link := filepath.Join(tmp, "link_auto.yaml")
-	if err := os.Symlink(real_, link); err != nil {
-		t.Skip("symlink creation not permitted on this filesystem")
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := LoadChecksFromYAML(tc.document)
+			requireErrorContains(t, err, tc.says)
+		})
 	}
-	// LoadChecksFromYAML auto-detects: when source resolves to an existing
-	// path, it goes through the file branch (which now rejects symlinks).
-	_, err := LoadChecksFromYAML(link)
-	requireErrorContains(t, err, "symbolic link")
 }
 
-func TestLoadChecksFromYAML_InlineStringUnaffected(t *testing.T) {
-	checks, err := LoadChecksFromYAML(`
-checks:
-  - signal: Speed
-    condition: never_exceeds
-    value: 200
-`)
+// A refusal names the check it is about, by its name or by a placeholder.
+func TestLoadYAML_RefusalsNameTheCheck(t *testing.T) {
+	cases := map[string]struct{ document, says string }{
+		"a named check": {
+			"checks:\n  - name: \"My Check\"\n    signal: Speed\n    condition: bogus\n    value: 100\n", "check 'My Check'",
+		},
+		"an unnamed one": {
+			"checks:\n  - signal: Speed\n    condition: bogus\n    value: 100\n", "check '<unnamed>'",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := LoadChecksFromYAML(tc.document)
+			requireErrorContains(t, err, tc.says)
+		})
+	}
+}
+
+// A symbolic link is refused rather than followed, by whichever entry point is
+// given it, so that what is read is the path that was passed. Text handed in
+// place of a path is unaffected.
+func TestLoadYAML_RefusesASymbolicLink(t *testing.T) {
+	loaders := map[string]func(string) ([]CheckResult, error){
+		"the loader that takes a file":    LoadChecksFromYAMLFile,
+		"the loader that also takes text": LoadChecksFromYAML,
+	}
+	for name, load := range loaders {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			real := filepath.Join(dir, "real.yaml")
+			document := "checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 200\n"
+			if err := os.WriteFile(real, []byte(document), 0o644); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			link := filepath.Join(dir, "link.yaml")
+			if err := os.Symlink(real, link); err != nil {
+				t.Skip("this filesystem does not allow a symbolic link")
+			}
+			_, err := load(link)
+			requireErrorContains(t, err, "symbolic link")
+		})
+	}
+
+	checks, err := LoadChecksFromYAML("checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 200\n")
 	if err != nil {
-		t.Fatalf("inline YAML rejected: %v", err)
+		t.Fatalf("a document handed as text was refused: %v", err)
 	}
 	if len(checks) != 1 {
-		t.Errorf("checks: got %d, want 1", len(checks))
-	}
-}
-
-// A number written as a list or a mapping is refused where a number belongs,
-// before the kernel is asked to read it as one.
-func TestLoadChecksFromYAML_RefusesANonScalarNumber(t *testing.T) {
-	documents := map[string]string{
-		"a list where a value belongs": "checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: [1, 2]\n",
-		"a mapping where one belongs":  "checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: {a: 1}\n",
-		"a list where a bound belongs": "checks:\n  - signal: Speed\n    condition: stays_between\n    min: [1]\n    max: 2\n",
-	}
-	for name, doc := range documents {
-		t.Run(name, func(t *testing.T) {
-			_, err := LoadChecksFromYAML(doc)
-			if err == nil {
-				t.Fatal("a number that is not a number was accepted")
-			}
-			// The refusal names the shape, rather than reporting whatever the
-			// kernel makes of the empty text a list decodes to.
-			requireErrorContains(t, err, "expected a numeric scalar value")
-		})
+		t.Errorf("the text carried %d checks, want one", len(checks))
 	}
 }
