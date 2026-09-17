@@ -912,6 +912,29 @@ func TestLoadExcelSettlesBetweenMissingTime(t *testing.T) {
 	requireErrorContains(t, err, "requires 'Time (ms)'")
 }
 
+// TestLoadExcelWholeNumberFieldsRefuseAFraction: a field the loader reads as a
+// whole number takes the numerator of whatever it parses, so without the
+// denominator check a time of 100.5 milliseconds becomes 201 and a start bit of
+// 1.5 becomes 3. Both are read from text cells, which is the only form these
+// fields take.
+func TestLoadExcelWholeNumberFieldsRefuseAFraction(t *testing.T) {
+	t.Run("a settling time", func(t *testing.T) {
+		path := makeChecksWorkbook(t, [][]any{
+			{nil, "Temp", "settles_between", nil, 80, 100, "100.5", nil},
+		})
+		_, err := LoadChecks(path)
+		requireErrorContains(t, err, "'Time (ms)' must be a whole number")
+	})
+
+	t.Run("a start bit", func(t *testing.T) {
+		path := makeDBCWorkbook(t, [][]any{
+			{"0x100", "Engine", false, 8, "Speed", "1.5", 16, "little_endian", false, 1, 0, 0, 100, "rpm", nil, nil},
+		})
+		_, err := LoadDbc(path)
+		requireErrorContains(t, err, "'Start Bit' must be a whole number")
+	})
+}
+
 func TestLoadExcelUnknownWhenCondition(t *testing.T) {
 	path := makeWhenThenWorkbook(t, [][]any{
 		{nil, "Brake", "bogus", 50, "BrakeLight", "equals", 1, nil, nil, 100, nil},
