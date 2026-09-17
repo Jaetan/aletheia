@@ -30,6 +30,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
 
 // docFiles is every user-facing Markdown file with Go fences, relative to
@@ -478,5 +480,28 @@ func TestDocExamples(t *testing.T) {
 					w.fence.name(), w.dir, wrapper, out, err)
 			}
 		})
+	}
+}
+
+// The checks fixture the fences load is loaded here too, and read. Those
+// fences discard what they loaded, as a caller's first line would, so without
+// this nothing would notice a fixture that stopped parsing or that named a
+// condition the loader does not know.
+func TestDocExamplesFixture_ChecksYAMLLoads(t *testing.T) {
+	path, err := filepath.Abs("testdata/doc_examples/checks.yaml")
+	if err != nil {
+		t.Fatalf("abs: %v", err)
+	}
+	checks, err := aletheia.LoadChecksFromYAMLFile(path)
+	if err != nil {
+		t.Fatalf("the fixture the documentation loads does not load: %v", err)
+	}
+	if len(checks) != 2 {
+		t.Fatalf("the fixture carries %d checks, want the two the documentation describes", len(checks))
+	}
+	for _, c := range checks {
+		if c.Formula() == nil {
+			t.Errorf("a check of the fixture carries no formula: %+v", c)
+		}
 	}
 }
