@@ -1,28 +1,25 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Command stability is the Go long-run resource-leakage harness (Go cat 27).
+// Command stability is the Go long-run resource-leakage harness.
 //
-// Exercises the FFI surface for cycles × frames (default 10 × 100_000 = 1M
-// total frames) and asserts no per-iteration drift on:
+// Each cycle opens a client, streams frames through the FFI surface and closes
+// it. Four measurements are compared, before the cycles and after:
 //
-//   - RSS (soft threshold)        — runtime/metrics /memory/classes/heap/objects:bytes
-//   - FD count (hard zero)        — len(os.ReadDir("/proc/self/fd"))
-//   - Goroutines (hard zero)      — runtime.NumGoroutine after final Close
-//   - StablePtr count (hard zero) — aletheia.StablePtrCount() must be 0
+//   - rss, a soft threshold, read from runtime/metrics
+//   - fd_count, exact, the entries of /proc/self/fd that name a real resource
+//   - goroutines, exact, runtime.NumGoroutine after the last Close
+//   - stableptr, exact, the handles the binding still holds on the Haskell side
 //
-// Per AGENTS.md Go cat 27 "Long-run resource leakage sub-checks": drift on
-// any sub-check is a finding.  Hard-zero gates are exact equality (no noise
-// tolerance allowed); soft-threshold gates carry an empirically-tuned cap
-// inline below — change the value, the diff is visible.
+// Drift on any of them is a finding, and the exact gates carry no tolerance.
 //
-// Output: JSON to stdout (and optionally
-// benchmarks/stability/<commit>/go.json when invoked through
-// tools/stability_run.py).
+// The cycle and frame counts come from ALETHEIA_STABILITY_CYCLES and
+// ALETHEIA_STABILITY_FRAMES. The report is JSON on stdout, and
+// tools/stability_run.py archives it per commit.
 //
-// Forward-revert verified 2026-05-08: introducing an intentional non-Close
-// makes the harness fail with a precise StablePtr-delta diagnostic;
-// restoring brings it back to 0 drift.
+// Exit codes are that runner's contract: zero when every gate passed, one when
+// a gate failed and the verdict is in the report, and anything else for a
+// failure that produced no verdict at all.
 package main
 
 import (
@@ -33,6 +30,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/metrics"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -40,10 +38,15 @@ import (
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
 
-// Soft-threshold cap (empirically established 2026-05-08, WSL2 quiet host;
-// revise inline if a future reviewer runs the harness on a host that rejects
-// this as too tight or too loose).
-const rssDeltaBytesCap int64 = 50 * 1024 * 1024 // 50 MiB across 1M frames
+// The soft cap, measured on a quiet host, changed here where a diff shows it.
+const rssDeltaBytesCap int64 = 50 * 1024 * 1024
+
+// die reports a failure that produced no verdict and exits with the code the
+// runner reads as an environment failure rather than as drift.
+func die(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "stability: "+format+"\n", args...)
+	os.Exit(2)
+}
 
 type snapshot struct {
 	RSS            int64 `json:"rss"`
@@ -91,20 +94,15 @@ func readHeapBytes() int64 {
 	return int64(v)
 }
 
-// fdCount counts /proc/self/fd entries that point to real resources
-// (files, pipes, sockets) — the things a forgotten Close can leak.
+// fdCount counts the entries of /proc/self/fd that name a real resource, a
+// file, a pipe or a socket, which is what a forgotten Close leaks.
 //
-// Excludes anon_inode targets (eventfd, eventpoll, timerfd, signalfd) which
-// are runtime-infrastructure FDs the Go scheduler / GHC RTS netpoller
-// allocate lazily based on workload.  These are not leaks — they are
-// scheduler / I/O-multiplexer machinery — and counting them defeats
-// hard-zero gating because the Go cgo runtime grows them across the
-// measurement window even when every Client is properly Closed.
+// An anon_inode target is not one: the Go scheduler and the GHC RTS netpoller
+// allocate eventfd, eventpoll, timerfd and signalfd descriptors lazily as the
+// workload grows, so counting them would make an exact gate fire on a run where
+// every client was closed.
 //
-// Per AGENTS.md cat 27 the FD sub-check is meant to catch "a forgotten
-// Close somewhere on the FFI/file-loader path"; that means real resources.
-//
-// Linux-specific.
+// Linux only, /proc/self/fd being where this is readable.
 func fdCount() (int64, error) {
 	entries, err := os.ReadDir("/proc/self/fd")
 	if err != nil {
@@ -114,8 +112,8 @@ func fdCount() (int64, error) {
 	for _, e := range entries {
 		target, err := os.Readlink("/proc/self/fd/" + e.Name())
 		if err != nil {
-			// FD vanished between readdir and readlink — common for the
-			// transient FD readdir itself opens.  Skip.
+			// The descriptor went away between the listing and the read, which
+			// is what the listing's own descriptor does.
 			continue
 		}
 		if strings.HasPrefix(target, "anon_inode:") {
@@ -139,35 +137,58 @@ func takeSnapshot() (snapshot, error) {
 	}, nil
 }
 
-// findLibrary mirrors the resolution order in go/benchmarks/main.go.
+// findLibrary answers the path the kernel is loaded from: what ALETHEIA_LIB
+// names, else the build tree as seen from the executable or from the working
+// directory. Every candidate is checked; the last is returned unchecked, so a
+// harness that cannot load names a path rather than nothing.
 func findLibrary() string {
-	if p := os.Getenv("ALETHEIA_LIB"); p != "" {
-		return p
+	if path := os.Getenv("ALETHEIA_LIB"); path != "" {
+		return path
 	}
-	exe, err := os.Executable()
-	if err == nil {
-		rel := filepath.Join(filepath.Dir(exe), "..", "..", "build", "libaletheia-ffi.so")
-		if _, err := os.Stat(rel); err == nil {
-			return rel
+	const soName = "libaletheia-ffi.so"
+	// The working directories this is run from: the repo root, go/ where
+	// tools/stability_run.py runs it, and its own, three levels under the root.
+	candidates := []string{
+		filepath.Join("build", soName),
+		filepath.Join("..", "build", soName),
+		filepath.Join("..", "..", "..", "build", soName),
+	}
+	// A built binary sits in that last directory.
+	if exe, err := os.Executable(); err == nil {
+		fromExe := filepath.Join(filepath.Dir(exe), "..", "..", "..", "build", soName)
+		candidates = append([]string{fromExe}, candidates...)
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
 		}
 	}
-	if _, err := os.Stat("build/libaletheia-ffi.so"); err == nil {
-		return "build/libaletheia-ffi.so"
-	}
-	return "../../build/libaletheia-ffi.so"
+	return candidates[len(candidates)-1]
 }
 
-// minimalDBC builds a tiny single-message DBC sufficient for ParseDBC +
-// StartStream to succeed.  Mirrors the pattern in go/benchmarks/main.go
-// can20DBC but trimmed to one signal so the harness measures resource
-// accounting, not Stream LTL semantics.
+// The one message the harness sends, built once. The constructors validate, so
+// a failure here is a mistake in this file rather than anything a run produces.
+func mustFrame() (aletheia.CANID, aletheia.DLC, aletheia.FramePayload) {
+	id, err := aletheia.NewStandardID(0x100)
+	if err != nil {
+		panic(err)
+	}
+	dlc, err := aletheia.NewDLC(8)
+	if err != nil {
+		panic(err)
+	}
+	return id, dlc, aletheia.FramePayload([]byte{0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00})
+}
+
+var frameID, frameDLC, framePayload = mustFrame()
+
+// minimalDBC describes the one message, with one signal, so that the harness
+// measures what it accounts for rather than the cost of checking a formula.
 func minimalDBC() aletheia.DBCDefinition {
-	id, _ := aletheia.NewStandardID(0x100)
-	dlc, _ := aletheia.NewDLC(8)
 	rat := func(n, d int64) aletheia.Rational {
 		return aletheia.Rational{Numerator: n, Denominator: d}
 	}
-	msg := aletheia.NewDBCMessage(id, "EngineStatus", dlc, "ECU1", nil, []aletheia.DBCSignal{
+	msg := aletheia.NewDBCMessage(frameID, "EngineStatus", frameDLC, "ECU1", nil, []aletheia.DBCSignal{
 		{
 			Name: "EngineSpeed", StartBit: 0, BitLength: 16,
 			ByteOrder: aletheia.LittleEndian, IsSigned: false,
@@ -179,9 +200,8 @@ func minimalDBC() aletheia.DBCDefinition {
 	return *aletheia.NewDBCDefinition("", []aletheia.DBCMessage{msg})
 }
 
-// runCycle opens a Client, parses a DBC, runs a stream of framesPerCycle
-// frames, and closes the Client.  StablePtr accounting (one per Init) is
-// verified at the end of the run via aletheia.StablePtrCount().
+// runCycle opens a client, streams framesPerCycle frames through it and closes
+// it. What the cycle leaves behind is what the gates measure.
 func runCycle(ctx context.Context, backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, framesPerCycle int) error {
 	client, err := aletheia.NewClient(backend)
 	if err != nil {
@@ -195,19 +215,9 @@ func runCycle(ctx context.Context, backend *aletheia.FFIBackend, dbc aletheia.DB
 	if err := client.StartStream(ctx); err != nil {
 		return fmt.Errorf("StartStream: %w", err)
 	}
-
-	id, err := aletheia.NewStandardID(0x100)
-	if err != nil {
-		return fmt.Errorf("NewStandardID: %w", err)
-	}
-	dlc, err := aletheia.NewDLC(8)
-	if err != nil {
-		return fmt.Errorf("NewDLC: %w", err)
-	}
-	payload := aletheia.FramePayload([]byte{0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00})
 	for i := 0; i < framesPerCycle; i++ {
 		ts := aletheia.Timestamp{Microseconds: int64(i) * 1000}
-		if _, err := client.SendFrame(ctx, ts, id, dlc, payload, nil, nil); err != nil {
+		if _, err := client.SendFrame(ctx, ts, frameID, frameDLC, framePayload, nil, nil); err != nil {
 			return fmt.Errorf("SendFrame %d: %w", i, err)
 		}
 	}
@@ -217,105 +227,77 @@ func runCycle(ctx context.Context, backend *aletheia.FFIBackend, dbc aletheia.DB
 	return nil
 }
 
-func envInt(name string, defaultValue int) int {
-	if v, ok := os.LookupEnv(name); ok {
-		n, err := strconv.Atoi(v)
-		if err == nil && n > 0 {
-			return n
-		}
+// envCount reads a positive whole number from the environment, answering the
+// default when the variable is unset. Anything else is refused: a run that
+// quietly measured the default would report it as the answer to what was asked.
+func envCount(name string, defaultValue int) int {
+	raw, ok := os.LookupEnv(name)
+	if !ok {
+		return defaultValue
 	}
-	return defaultValue
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		die("%s must be a positive whole number, got %q", name, raw)
+	}
+	return n
 }
 
 func main() {
-	cycles := envInt("ALETHEIA_STABILITY_CYCLES", 10)
-	frames := envInt("ALETHEIA_STABILITY_FRAMES", 100000)
+	cycles := envCount("ALETHEIA_STABILITY_CYCLES", 10)
+	frames := envCount("ALETHEIA_STABILITY_FRAMES", 100000)
 	ctx := context.Background()
 
-	backend, err := aletheia.NewFFIBackend(findLibrary())
+	libPath := findLibrary()
+	backend, err := aletheia.NewFFIBackend(libPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "NewFFIBackend:", err)
-		os.Exit(2)
+		die("loading %s failed: %v", libPath, err)
 	}
 	dbc := minimalDBC()
 
-	// One warm-up cycle to absorb first-init RSS spike before the
-	// measurement window opens.  Runtime-infrastructure FDs (anon_inode
-	// eventfd / eventpoll / timerfd) are excluded by fdCount() so we don't
-	// need a long warm-up to flush their lazy allocation.
+	// One cycle before the window opens, so the first initialisation's own
+	// memory is inside neither snapshot.
 	if err := runCycle(ctx, backend, dbc, 100); err != nil {
-		fmt.Fprintln(os.Stderr, "warm-up:", err)
-		os.Exit(2)
+		die("the warm-up cycle failed: %v", err)
 	}
 	runtime.GC()
 
 	start, err := takeSnapshot()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "snapshot:", err)
-		os.Exit(2)
+		die("the opening snapshot failed: %v", err)
 	}
 	t0 := time.Now()
 
 	for i := 0; i < cycles; i++ {
 		if err := runCycle(ctx, backend, dbc, frames); err != nil {
-			fmt.Fprintln(os.Stderr, "cycle:", err)
-			os.Exit(2)
+			die("cycle %d of %d failed: %v", i+1, cycles, err)
 		}
 		runtime.GC()
 	}
 
 	end, err := takeSnapshot()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "snapshot:", err)
-		os.Exit(2)
+		die("the closing snapshot failed: %v", err)
 	}
 	elapsed := time.Since(t0).Seconds()
 
+	// An exact gate passes only when the two snapshots agree, so it carries no
+	// threshold. The names and gate words are docs/STABILITY_BENCH.yaml's.
+	exact := func(name string, from, to int64) subCheck {
+		return subCheck{Name: name, Gate: "hard_zero", Start: from, End: to, Delta: to - from, Passed: to == from}
+	}
 	subChecks := []subCheck{
 		{
-			Name:      "rss",
-			Gate:      "soft_threshold",
-			Start:     start.RSS,
-			End:       end.RSS,
-			Delta:     end.RSS - start.RSS,
+			Name: "rss", Gate: "soft_threshold",
+			Start: start.RSS, End: end.RSS, Delta: end.RSS - start.RSS,
 			Threshold: rssDeltaBytesCap,
 			Passed:    abs(end.RSS-start.RSS) <= rssDeltaBytesCap,
 		},
-		{
-			Name:      "fd_count",
-			Gate:      "hard_zero",
-			Start:     start.NumFDs,
-			End:       end.NumFDs,
-			Delta:     end.NumFDs - start.NumFDs,
-			Threshold: 0,
-			Passed:    end.NumFDs == start.NumFDs,
-		},
-		{
-			Name:      "goroutines",
-			Gate:      "hard_zero",
-			Start:     start.Goroutines,
-			End:       end.Goroutines,
-			Delta:     end.Goroutines - start.Goroutines,
-			Threshold: 0,
-			Passed:    end.Goroutines == start.Goroutines,
-		},
-		{
-			Name:      "stableptr",
-			Gate:      "hard_zero",
-			Start:     start.StablePtrCount,
-			End:       end.StablePtrCount,
-			Delta:     end.StablePtrCount - start.StablePtrCount,
-			Threshold: 0,
-			Passed:    end.StablePtrCount == start.StablePtrCount,
-		},
+		exact("fd_count", start.NumFDs, end.NumFDs),
+		exact("goroutines", start.Goroutines, end.Goroutines),
+		exact("stableptr", start.StablePtrCount, end.StablePtrCount),
 	}
 
-	allPassed := true
-	for _, c := range subChecks {
-		if !c.Passed {
-			allPassed = false
-		}
-	}
+	allPassed := !slices.ContainsFunc(subChecks, func(c subCheck) bool { return !c.Passed })
 
 	r := report{
 		Binding:        "go",
@@ -330,8 +312,7 @@ func main() {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(r); err != nil {
-		fmt.Fprintln(os.Stderr, "encode:", err)
-		os.Exit(2)
+		die("writing the report failed: %v", err)
 	}
 	if !allPassed {
 		os.Exit(1)

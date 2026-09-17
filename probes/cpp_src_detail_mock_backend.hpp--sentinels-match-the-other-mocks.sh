@@ -3,13 +3,17 @@
 # SPDX-License-Identifier: BSD-2-Clause
 #
 # Probes cpp/src/detail/mock_backend.hpp.
-# Claim: the <binary:OP> sentinels the C++ mock records are exactly the set
-# the Python, Go and Rust mock backends record, so a mock-driven test reads
+# Claim: the sentinels the C++ mock records on the binary path are exactly the
+# set the Python, Go and Rust mock backends record, so a mock-driven test reads
 # the same request log in every binding. Non-zero exit: a sentinel exists in
 # one binding's mock and not another's.
+#
+# OP is not one of them: it is the metavariable all four use when their prose
+# describes the shape of a sentinel, and no binding records it. Counting it made
+# a comment reworded in one binding read as a parity break.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-tokens() { grep -rhoE '<binary:[A-Za-z]+>' "$@" | sort -u; }
+tokens() { grep -rhoE '<binary:[A-Za-z]+>' "$@" | grep -v '<binary:OP>' | sort -u; }
 cpp=$(tokens cpp/src/detail/mock_backend.hpp)
 py=$(tokens $(grep -rl --include='*.py' '<binary:' python/aletheia | grep -v test))
 go=$(tokens $(grep -rl --include='*.go' '<binary:' go/aletheia | grep -v _test))
