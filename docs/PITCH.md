@@ -349,7 +349,7 @@ A: A one-time build-time Haskell/Agda toolchain plus `libgmp-dev`; the runtime i
 
 ## Current Status
 
-Phases 1 through 5.1 are complete and Phase 6 is planned, several of its binding items already delivered. All four binding stacks stand at functional parity on the verified core, covering signal extraction, LTL checking, DBC handling and the four-tier check interface, and v5.0.0 ships a signed, self-contained bundle carrying all four bindings over one prebuilt library, with native `.deb` and `.rpm` packages and a published container image. Host-surface features, the CLI and log-file reading, remain Python-led, as the per-binding notes below say. [PROJECT_STATUS.md](../PROJECT_STATUS.md) is the authoritative status, and this list is what you can use today:
+Phases 1 through 5.1 are complete and Phase 6 is in progress. All four binding stacks stand at functional parity on the verified core, covering signal extraction, LTL checking, DBC handling and the four-tier check interface, and v5.0.0 ships a signed, self-contained bundle carrying all four bindings over one prebuilt library, with native `.deb` and `.rpm` packages and a published container image. Host-surface features, the CLI and log-file reading, remain Python-led, as the per-binding notes below say. [PROJECT_STATUS.md](../PROJECT_STATUS.md) is the authoritative status, and this list is what you can use today:
 
 - Core infrastructure (parser, CAN encoding/decoding, DBC parser in the verified Agda kernel)
 - LTL verification with streaming architecture

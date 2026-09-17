@@ -14,7 +14,8 @@ that changes continuously lives in dedicated surfaces, not here:
 ## Phases
 
 Phases 1 through 5.1 are ✅ complete; all provable correctness properties are
-proven. Phase 6 is planned (a few of its binding items already delivered).
+proven. Phase 6 is in progress: one of its three adoption prerequisites has
+shipped, across two releases, and two are open.
 
 | Phase | Title | Status | Key deliverables |
 |---|---|---|---|
@@ -25,9 +26,9 @@ proven. Phase 6 is planned (a few of its binding items already delivered).
 | 4   | Production Hardening           | ✅ | Cross-binding parity; mock backends; error taxonomy; structured logging. |
 | 5   | Optional Extensions            | ✅ | CAN-FD; C++, Go, and Rust bindings; cross-language benchmarks; verified DBC text parser. |
 | 5.1 | Proof Gaps & Spec Observations | ✅ | Closes Phase 4/5 review carryover; the proof obligations are discharged. |
-| 6   | Extensions & New Protocols     | Planned | See below. |
+| 6   | Extensions & New Protocols     | In progress | See below. |
 
-## Phase 6 — Extensions & New Protocols (planned)
+## Phase 6: Extensions and New Protocols, in progress
 
 **Adoption prerequisites — do first.** These gate the rest of Phase 6: the tool
 cannot honestly advertise capabilities it does not yet have.
