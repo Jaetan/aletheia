@@ -36,14 +36,11 @@ type DBCSignal struct {
 	Maximum   Rational
 	Unit      Unit
 	Presence  SignalPresence
-	// Receivers is the trailing node list from the SG_ line. The
-	// Vector__XXX DBC placeholder is stripped on parse; an empty
-	// slice round-trips back to Vector__XXX on re-emission.
+	// Receivers is the SG_ line's trailing node list; the Vector__XXX
+	// placeholder is stripped on parse and written back for an empty list.
 	Receivers []string
-	// ValueDescriptions carries the inline VAL_ entries attached to this
-	// signal. Empty when no VAL_ line names the signal. Same
-	// (value, description) shape as DBCValueTable.Entries — the wire emits
-	// both as ordered arrays.
+	// ValueDescriptions holds the VAL_ entries naming this signal, in the
+	// (value, description) shape of DBCValueTable.Entries.
 	ValueDescriptions []DBCValueEntry
 }
 
@@ -53,22 +50,18 @@ type DBCMessage struct {
 	Name   MessageName
 	DLC    DLC
 	Sender NodeName
-	// Senders carries the additional transmitters declared on BO_TX_BU_
-	// lines. The BO_ primary stays in Sender; these extras feed the Agda
-	// validator's UnknownMessageSender check with the "additional sender"
-	// disambiguation so primary-vs-extra diagnostics stay distinguishable.
+	// Senders holds the additional transmitters of BO_TX_BU_ lines; the BO_
+	// primary stays in Sender, so the validator can tell the two apart in
+	// its unknown-sender diagnostics.
 	Senders     []string
 	Signals     []DBCSignal
 	signalIndex map[string]int // maps signal name -> index into Signals
 }
 
-// NewDBCMessage creates a [DBCMessage] with its signal-name lookup index
-// populated. External loaders must use this constructor — directly populating
-// the struct leaves signalIndex nil and forces [DBCMessage.SignalByName] onto
-// its linear fallback path.
-//
-// senders carries the BO_TX_BU_ additional-transmitter list; pass nil or an
-// empty slice when the DBC source has no BO_TX_BU_ line for this message.
+// NewDBCMessage creates a [DBCMessage] with its signal-name index built; a
+// message populated by hand has no index and [DBCMessage.SignalByName]
+// scans instead. senders is the BO_TX_BU_ list, nil when the source has
+// none.
 func NewDBCMessage(id CANID, name MessageName, dlc DLC, sender NodeName, senders []string, signals []DBCSignal) DBCMessage {
 	m := DBCMessage{
 		ID:      id,
@@ -90,42 +83,28 @@ func (m *DBCMessage) buildSignalIndex() {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Multiplexing query helpers
-// ---------------------------------------------------------------------------
+func isAlwaysPresent(s DBCSignal) bool { _, ok := s.Presence.(AlwaysPresent); return ok }
+func isMultiplexed(s DBCSignal) bool   { _, ok := s.Presence.(Multiplexed); return ok }
 
-// IsMultiplexed reports whether this message contains any multiplexed signals.
-func (m DBCMessage) IsMultiplexed() bool {
-	for _, s := range m.Signals {
-		if _, ok := s.Presence.(Multiplexed); ok {
-			return true
-		}
-	}
-	return false
-}
-
-// AlwaysPresentSignals returns signals that are present in every frame.
-func (m DBCMessage) AlwaysPresentSignals() []DBCSignal {
+// signalsWhere returns the signals satisfying keep, in message order; nil when none.
+func (m DBCMessage) signalsWhere(keep func(DBCSignal) bool) []DBCSignal {
 	var out []DBCSignal
 	for _, s := range m.Signals {
-		if _, ok := s.Presence.(AlwaysPresent); ok {
+		if keep(s) {
 			out = append(out, s)
 		}
 	}
 	return out
 }
 
-// MultiplexedSignals returns signals that are conditionally present
-// (present only when their multiplexor has a specific value).
-func (m DBCMessage) MultiplexedSignals() []DBCSignal {
-	var out []DBCSignal
-	for _, s := range m.Signals {
-		if _, ok := s.Presence.(Multiplexed); ok {
-			out = append(out, s)
-		}
-	}
-	return out
-}
+// IsMultiplexed reports whether any signal of the message is multiplexed.
+func (m DBCMessage) IsMultiplexed() bool { return slices.ContainsFunc(m.Signals, isMultiplexed) }
+
+// AlwaysPresentSignals returns the signals present in every frame.
+func (m DBCMessage) AlwaysPresentSignals() []DBCSignal { return m.signalsWhere(isAlwaysPresent) }
+
+// MultiplexedSignals returns the signals present only for some multiplexor values.
+func (m DBCMessage) MultiplexedSignals() []DBCSignal { return m.signalsWhere(isMultiplexed) }
 
 // MultiplexorNames returns the distinct multiplexor signal names referenced by
 // multiplexed signals in this message, in order of first occurrence.
@@ -162,111 +141,88 @@ func (m DBCMessage) MultiplexValues(multiplexor SignalName) []MultiplexValue {
 	return out
 }
 
-// SignalsForMuxValue returns signals present when the given multiplexor has the
-// given value. This includes all always-present signals plus multiplexed signals
-// matching the multiplexor and value.
+// SignalsForMuxValue returns the signals present when the multiplexor has the
+// value: every always-present signal, and the multiplexed signals selected by
+// that multiplexor and value.
 func (m DBCMessage) SignalsForMuxValue(multiplexor SignalName, value MultiplexValue) []DBCSignal {
-	var out []DBCSignal
-	for _, s := range m.Signals {
+	return m.signalsWhere(func(s DBCSignal) bool {
 		switch p := s.Presence.(type) {
 		case AlwaysPresent:
-			out = append(out, s)
-		case Multiplexed:
-			if p.Multiplexor == multiplexor && ContainsMuxValue(p.MultiplexValues, value) {
-				out = append(out, s)
-			}
-		}
-	}
-	return out
-}
-
-// ContainsMuxValue reports whether vals contains v. Exposed for external loader
-// subpackages (e.g. the separate excel module) that inspect Multiplexed presence.
-func ContainsMuxValue(vals []MultiplexValue, v MultiplexValue) bool {
-	for _, mv := range vals {
-		if mv == v {
 			return true
+		case Multiplexed:
+			return p.Multiplexor == multiplexor && ContainsMuxValue(p.MultiplexValues, value)
 		}
-	}
-	return false
+		return false
+	})
 }
 
-// SignalByName returns a copy of the signal with the given name, or
-// nil if not found.  Duplicate signal names are a validation issue
-// (IssueDuplicateSignalName); if a hand-built definition contains
-// duplicates anyway, which one is returned is unspecified.
-// The copy is shallow: slice fields (`Receivers`,
-// `ValueDescriptions`, and a `Multiplexed` presence's `MultiplexValues`)
-// on the returned signal still alias the originals; mutating the
-// returned signal's slices mutates the parent message's signals.
-func (m DBCMessage) SignalByName(name SignalName) *DBCSignal {
-	if m.signalIndex != nil {
-		// A cached index is trusted only if the signal there still has the
-		// requested name. The public Signals slice may have been mutated since
-		// the index was built (shrunk, reordered, or replaced in place); a stale
-		// index could be out of bounds (panic) or name the wrong signal. The
-		// `idx < len` bound short-circuits before the name compare; either
-		// failure reads as not-found → nil.
-		if idx, ok := m.signalIndex[string(name)]; ok && idx < len(m.Signals) &&
-			m.Signals[idx].Name == name {
-			out := m.Signals[idx]
-			return &out
+// ContainsMuxValue reports whether vals contains v; the separate excel module
+// inspects Multiplexed presence through it.
+func ContainsMuxValue(vals []MultiplexValue, v MultiplexValue) bool { return slices.Contains(vals, v) }
+
+// lookup finds the element at key: through the index when the message or
+// definition has one, else by scanning the n elements. A cached position is
+// trusted only while it is in range and matches still holds there, since the
+// public slice may have been shrunk, reordered or overwritten since the
+// index was built; a stale position reads as not found. Returns -1 for
+// not found.
+func lookup[K comparable](index map[K]int, key K, n int, matches func(int) bool) int {
+	if index != nil {
+		if idx, ok := index[key]; ok && idx < n && matches(idx) {
+			return idx
 		}
+		return -1
+	}
+	for i := range n {
+		if matches(i) {
+			return i
+		}
+	}
+	return -1
+}
+
+// SignalByName returns a copy of the signal with the given name, or nil.
+// Duplicate signal names are a validation issue; which duplicate a
+// hand-built message returns is unspecified. The copy is shallow: its
+// Receivers, ValueDescriptions and MultiplexValues slices alias the
+// message's.
+func (m DBCMessage) SignalByName(name SignalName) *DBCSignal {
+	i := lookup(m.signalIndex, string(name), len(m.Signals), func(i int) bool { return m.Signals[i].Name == name })
+	if i < 0 {
 		return nil
 	}
-	// Fallback for manually-constructed messages without index.
-	for i := range m.Signals {
-		if m.Signals[i].Name == name {
-			out := m.Signals[i]
-			return &out
-		}
-	}
-	return nil
+	out := m.Signals[i]
+	return &out
 }
 
-// ---------------------------------------------------------------------------
-// DBC signal group (SIG_GROUP_ keyword)
-//
-// The DBC spec carries a parent-message id and a repetition count on the
-// wire; the Agda core (`Aletheia.DBC.Types.DBCSignalGroup`) only models the
-// flattened {name, signals} view because signal-name uniqueness is enforced
-// globally by the validator, so reconstructing message context on
-// format_dbc is unnecessary.
-// ---------------------------------------------------------------------------
-
-// DBCSignalGroup is a DBC signal group (SIG_GROUP_ keyword).
+// DBCSignalGroup is a DBC signal group (SIG_GROUP_ keyword). The DBC text
+// carries a parent message id and a repetition count too; the core's
+// SignalGroup keeps only the name and the signals, since the validator
+// enforces signal-name uniqueness globally.
 type DBCSignalGroup struct {
 	Name    string
 	Signals []SignalName
 }
 
-// ---------------------------------------------------------------------------
-// DBC environment variable (EV_ keyword)
-//
-// The DBC spec encodes int/float/string as 0/1/2 respectively on the wire;
-// the Agda core preserves that vocabulary directly (varTypeToℕ).
-// ---------------------------------------------------------------------------
-
-// DBCVarType is the integer tag of a DBC environment variable's declared
-// type. Values other than the three listed are rejected by parseDBCDefinition
-// as a protocol error.
+// DBCVarType is the integer tag of an environment variable's declared type,
+// the DBC text's own 0, 1 and 2 for int, float and string, which the core
+// keeps (varTypeToℕ). Any other value is a protocol error in
+// parseDBCDefinition.
 type DBCVarType int
 
 //go:generate stringer -type=DBCVarType -linecomment -output=dbcvartype_string.go
 
-// DBC var type constants (wire tag values).
 const (
-	// DBCVarTypeInt — integer-valued environment variable (DBC `0`).
+	// DBCVarTypeInt is an integer-valued environment variable.
 	DBCVarTypeInt DBCVarType = 0 // int
-	// DBCVarTypeFloat — float-valued environment variable (DBC `1`).
+	// DBCVarTypeFloat is a float-valued environment variable.
 	DBCVarTypeFloat DBCVarType = 1 // float
-	// DBCVarTypeString — string-valued environment variable (DBC `2`).
+	// DBCVarTypeString is a string-valued environment variable.
 	DBCVarTypeString DBCVarType = 2 // string
 )
 
-// DBCEnvironmentVar is a DBC environment variable (EV_ keyword).
-// Numeric fields use [Rational] to preserve exact decimal intent through
-// the wire round-trip, matching the Agda core's ℚ representation.
+// DBCEnvironmentVar is a DBC environment variable (EV_ keyword); its
+// numeric fields are [Rational], as the core holds them.
 type DBCEnvironmentVar struct {
 	Name    string
 	VarType DBCVarType
@@ -274,10 +230,6 @@ type DBCEnvironmentVar struct {
 	Minimum Rational
 	Maximum Rational
 }
-
-// ---------------------------------------------------------------------------
-// DBC value table (VAL_TABLE_ keyword)
-// ---------------------------------------------------------------------------
 
 // DBCValueEntry is one (value, description) pair in a [DBCValueTable].
 type DBCValueEntry struct {
@@ -291,34 +243,23 @@ type DBCValueTable struct {
 	Entries []DBCValueEntry
 }
 
-// DBCRawValueDesc is one unresolved VAL_ line from the DBC text-parse path.
-// Carries the owning message's CAN ID, the signal
-// name, and the value-label entries.  Populated only when the text-parse
-// path encounters a VAL_ line whose (canId, signalName) pair did not match
-// any signal in the parsed messages; the entries are preserved verbatim so
-// the validator's CHECK 23 UnknownValueDescriptionTarget can warn at
-// validation time.
+// DBCRawValueDesc is a VAL_ line of the text-parse path whose CAN ID and
+// signal name matched no parsed signal, kept whole so the validator's
+// UnknownValueDescriptionTarget check can warn about it.
 type DBCRawValueDesc struct {
 	ID         CANID
 	SignalName string
 	Entries    []DBCValueEntry
 }
 
-// ---------------------------------------------------------------------------
-// Tier 2 DBC metadata: nodes (BU_), comments (CM_), attributes (BA_*)
-//
-// Every tagged wire object uses "kind" as the first-field discriminator;
-// Go has no sum types so each family is modelled as a sealed interface
-// with one concrete struct per variant (matching the SignalPresence
-// pattern already in use for always-vs-multiplexed signals).
-// ---------------------------------------------------------------------------
+// The tier 2 metadata (nodes, comments, attributes) arrives as tagged wire
+// objects with "kind" as the first field; each family is a sealed
+// interface with one struct per variant, as SignalPresence is.
 
 // DBCNode is a DBC network node (BU_ keyword).
 type DBCNode struct {
 	Name string
 }
-
-// --- Comment targets (CM_ family) ---
 
 // DBCCommentTarget is the sealed sum of the 5 comment-target kinds.
 type DBCCommentTarget interface {
@@ -337,9 +278,8 @@ type DBCCommentTargetNode struct {
 
 func (DBCCommentTargetNode) commentTarget() {}
 
-// DBCCommentTargetMessage is a message comment. Extended is emitted on
-// the wire only when true, matching Agda's formatCANId which omits the
-// field for 11-bit standard IDs.
+// DBCCommentTargetMessage is a message comment; Extended is written only
+// when true, as the core's formatCANId omits it for a standard ID.
 type DBCCommentTargetMessage struct {
 	ID       uint32
 	Extended bool
@@ -369,34 +309,29 @@ type DBCComment struct {
 	Text   string
 }
 
-// --- Attribute scope (BA_DEF_ keyword class) ---
-
 // DBCAttrScope names the scope of a BA_DEF_ attribute declaration.
 type DBCAttrScope int
 
 //go:generate stringer -type=DBCAttrScope -linecomment -output=dbcattrscope_string.go
 
-// Attribute scope constants matching Agda AttrScope. The nodeMsg /
-// nodeSig entries are the relational scopes introduced by BA_DEF_REL_
-// (BU_BO_REL_ / BU_SG_REL_ in DBC text).
+// The scopes are the core's AttrScope; the line comment on each is its
+// spelling in BA_DEF_ (or BA_DEF_REL_ for the two relational scopes).
 const (
-	// DBCAttrScopeNetwork — attribute applies to the network as a whole (`""` in BA_DEF_).
+	// DBCAttrScopeNetwork scopes an attribute to the whole network.
 	DBCAttrScopeNetwork DBCAttrScope = iota //
-	// DBCAttrScopeNode — attribute scoped to a node (`BU_` in BA_DEF_).
+	// DBCAttrScopeNode scopes an attribute to a node.
 	DBCAttrScopeNode // BU_
-	// DBCAttrScopeMessage — attribute scoped to a message (`BO_` in BA_DEF_).
+	// DBCAttrScopeMessage scopes an attribute to a message.
 	DBCAttrScopeMessage // BO_
-	// DBCAttrScopeSignal — attribute scoped to a signal (`SG_` in BA_DEF_).
+	// DBCAttrScopeSignal scopes an attribute to a signal.
 	DBCAttrScopeSignal // SG_
-	// DBCAttrScopeEnvVar — attribute scoped to an environment variable (`EV_` in BA_DEF_).
+	// DBCAttrScopeEnvVar scopes an attribute to an environment variable.
 	DBCAttrScopeEnvVar // EV_
-	// DBCAttrScopeNodeMsg — relational scope: (node, message) pair (`BU_BO_REL_` in BA_DEF_REL_).
+	// DBCAttrScopeNodeMsg scopes an attribute to a (node, message) pair.
 	DBCAttrScopeNodeMsg // BU_BO_REL_
-	// DBCAttrScopeNodeSig — relational scope: (node, signal) pair (`BU_SG_REL_` in BA_DEF_REL_).
+	// DBCAttrScopeNodeSig scopes an attribute to a (node, signal) pair.
 	DBCAttrScopeNodeSig // BU_SG_REL_
 )
-
-// --- Attribute types (RHS of BA_DEF_) ---
 
 // DBCAttrType is the sealed sum of the 5 attribute-definition kinds.
 type DBCAttrType interface {
@@ -411,10 +346,9 @@ type DBCAttrTypeInt struct {
 
 func (DBCAttrTypeInt) attrType() {}
 
-// DBCAttrTypeFloat is a float attribute definition. Bounds use Rational
-// to mirror Python's Fraction and preserve ℚ precision end-to-end —
-// float64 would drift when a DBC text input carries a non-terminating
-// binary fraction.
+// DBCAttrTypeFloat is a float attribute definition. The bounds are
+// Rational, as Python's are Fraction: a float64 would drift on a DBC text
+// value with no finite binary expansion.
 type DBCAttrTypeFloat struct {
 	Min Rational
 	Max Rational
@@ -442,8 +376,6 @@ type DBCAttrTypeHex struct {
 
 func (DBCAttrTypeHex) attrType() {}
 
-// --- Attribute values (BA_, BA_REL_, BA_DEF_DEF_) ---
-
 // DBCAttrValue is the sealed sum of the 5 attribute-value kinds.
 type DBCAttrValue interface {
 	attrValue() // sealed
@@ -456,8 +388,8 @@ type DBCAttrValueInt struct {
 
 func (DBCAttrValueInt) attrValue() {}
 
-// DBCAttrValueFloat is a float attribute value. Same Rational-over-double
-// rationale as DBCAttrTypeFloat above.
+// DBCAttrValueFloat is a float attribute value, Rational for the reason
+// DBCAttrTypeFloat gives.
 type DBCAttrValueFloat struct {
 	Value Rational
 }
@@ -471,8 +403,8 @@ type DBCAttrValueString struct {
 
 func (DBCAttrValueString) attrValue() {}
 
-// DBCAttrValueEnum is an enum attribute value carrying the ℕ index of
-// the chosen label in the corresponding DBCAttrTypeEnum.Values list.
+// DBCAttrValueEnum is an enum attribute value: the index of the chosen
+// label in the definition's Values.
 type DBCAttrValueEnum struct {
 	Value int64
 }
@@ -485,8 +417,6 @@ type DBCAttrValueHex struct {
 }
 
 func (DBCAttrValueHex) attrValue() {}
-
-// --- Attribute assignment targets (LHS of BA_ / BA_REL_) ---
 
 // DBCAttrTarget is the sealed sum of the 7 attribute-target kinds.
 type DBCAttrTarget interface {
@@ -548,11 +478,8 @@ type DBCAttrTargetNodeSig struct {
 
 func (DBCAttrTargetNodeSig) attrTarget() {}
 
-// --- Attribute ADT (3 variants: BA_DEF_ / BA_DEF_DEF_ / BA_) ---
-
-// DBCAttribute is the sealed sum of the 3 BA_* entry kinds. Wire
-// ordering (definition → default → assignment) is preserved because all
-// three variants live in a single flat list.
+// DBCAttribute is the sealed sum of the 3 BA_* entry kinds; one flat list
+// keeps the wire order of definitions, defaults and assignments.
 type DBCAttribute interface {
 	attribute() // sealed
 }
@@ -583,17 +510,11 @@ type DBCAttrAssign struct {
 
 func (DBCAttrAssign) attribute() {}
 
-// ---------------------------------------------------------------------------
-// DBC definition and lookup helpers
-// ---------------------------------------------------------------------------
-
-// DBCDefinition is a complete DBC database.
-//
-// Tier 1 metadata slices (SignalGroups / EnvironmentVars / ValueTables)
-// mirror the Agda DBC record fields 3-5; Tier 2 slices (Nodes / Comments
-// / Attributes) mirror fields 6-8. All six are written on every
-// format_dbc response even when empty, matching the C++ and Python
-// bindings.
+// DBCDefinition is a complete DBC database. SignalGroups, EnvironmentVars
+// and ValueTables are the core record's signalGroups, environmentVars and
+// valueTables; Nodes, Comments and Attributes its nodes, comments and
+// attributes. Every format_dbc response writes all six, empty or not, as
+// the C++ and Python bindings do.
 type DBCDefinition struct {
 	Version         string
 	Messages        []DBCMessage
@@ -603,18 +524,16 @@ type DBCDefinition struct {
 	Nodes           []DBCNode
 	Comments        []DBCComment
 	Attributes      []DBCAttribute
-	// VAL_ entries from the text-parse path that did
-	// not resolve to any signal in Messages. Empty on the JSON-parse path.
+	// UnresolvedValueDescriptions are the text-parse path's VAL_ lines that
+	// matched no signal; empty on the JSON path.
 	UnresolvedValueDescriptions []DBCRawValueDesc
 	nameIndex                   map[string]int // maps message name -> index
 	idIndex                     map[uint64]int // maps composite CAN ID key -> index
 }
 
-// NewDBCDefinition creates a [DBCDefinition] with its message-name and
-// CAN-ID lookup indexes populated. External loaders must use this
-// constructor — directly populating the struct leaves the indexes nil and
-// forces [DBCDefinition.MessageByID] and [DBCDefinition.MessageByName] onto
-// their linear fallback paths.
+// NewDBCDefinition creates a [DBCDefinition] with its name and CAN-ID
+// indexes built; a definition populated by hand has none and
+// [DBCDefinition.MessageByID] and [DBCDefinition.MessageByName] scan instead.
 func NewDBCDefinition(version string, messages []DBCMessage) *DBCDefinition {
 	d := &DBCDefinition{Version: version, Messages: messages}
 	d.buildIndexes()
@@ -634,8 +553,8 @@ func (d *DBCDefinition) buildIndexes() {
 
 const extendedIDFlag = 1 << 32 // bit 32 distinguishes extended from standard IDs in map keys
 
-// canIDKey returns a uint64 key that encodes both the CAN ID value and its type
-// (standard vs extended) for use as a map key.
+// canIDKey packs a CAN ID's value and its standard-or-extended kind into one
+// map key.
 func canIDKey(id CANID) uint64 {
 	k := uint64(id.Value())
 	if id.IsExtended() {
@@ -644,72 +563,36 @@ func canIDKey(id CANID) uint64 {
 	return k
 }
 
-// MessageByID returns the message with the given CAN ID, or nil if not found.
-// Duplicate CAN IDs are a validation issue (IssueDuplicateMessageID); if a
-// hand-built definition contains duplicates anyway, which one is returned is
-// unspecified.  The returned pointer is a deep copy; mutating it does not
-// affect the DBCDefinition.
+// MessageByID returns a deep copy of the message with the given CAN ID, or
+// nil. Duplicate IDs are a validation issue; which duplicate a hand-built
+// definition returns is unspecified.
 func (d *DBCDefinition) MessageByID(id CANID) *DBCMessage {
-	if d.idIndex != nil {
-		// A cached index is trusted only if the message there still has the
-		// requested id. The public Messages slice may have been mutated since the
-		// index was built (shrunk, reordered, or replaced in place); a stale index
-		// could be out of bounds (panic) or name the wrong message. The `idx < len`
-		// bound short-circuits before the key compare; either failure reads as
-		// not-found → nil.
-		key := canIDKey(id)
-		if idx, ok := d.idIndex[key]; ok && idx < len(d.Messages) &&
-			canIDKey(d.Messages[idx].ID) == key {
-			return copyMessage(&d.Messages[idx])
-		}
-		return nil
-	}
-	// Fallback for manually-constructed definitions without index.
-	for i := range d.Messages {
-		if d.Messages[i].ID.Value() == id.Value() && d.Messages[i].ID.IsExtended() == id.IsExtended() {
-			return copyMessage(&d.Messages[i])
-		}
-	}
-	return nil
+	key := canIDKey(id)
+	return d.messageAt(lookup(d.idIndex, key, len(d.Messages), func(i int) bool { return canIDKey(d.Messages[i].ID) == key }))
 }
 
-// MessageByName returns the message with the given name, or nil if not found.
-// Duplicate message names are a validation issue (IssueDuplicateMessageName);
-// if a hand-built definition contains duplicates anyway, which one is
-// returned is unspecified.  The returned pointer is a deep copy; mutating it
-// does not affect the DBCDefinition.
+// MessageByName returns a deep copy of the message with the given name, or
+// nil. Duplicate names are a validation issue; which duplicate a hand-built
+// definition returns is unspecified.
 func (d *DBCDefinition) MessageByName(name MessageName) *DBCMessage {
-	if d.nameIndex != nil {
-		// A cached index is trusted only if the message there still has the
-		// requested name (the public Messages slice may have been shrunk/reordered/
-		// replaced since the index was built). The `idx < len` bound short-circuits
-		// before the name compare; either failure reads as not-found → nil.
-		if idx, ok := d.nameIndex[string(name)]; ok && idx < len(d.Messages) &&
-			d.Messages[idx].Name == name {
-			return copyMessage(&d.Messages[idx])
-		}
-		return nil
-	}
-	// Fallback for manually-constructed definitions without index.
-	for i := range d.Messages {
-		if d.Messages[i].Name == name {
-			return copyMessage(&d.Messages[i])
-		}
-	}
-	return nil
+	return d.messageAt(lookup(d.nameIndex, string(name), len(d.Messages), func(i int) bool { return d.Messages[i].Name == name }))
 }
 
-// copyMessage returns a deep copy of a DBCMessage so a caller can freely mutate
-// the result without aliasing the DBC's stored definition. Every externally
-// reachable reference field is cloned: the Senders and Signals slices, and within
-// each signal the Receivers and ValueDescriptions slices plus a Multiplexed
-// (or *Multiplexed) presence's MultiplexValues. (All scalar/value fields — including Rational,
-// which is a plain Numerator/Denominator pair — are copied by the struct
-// assignment.) The unexported signalIndex is intentionally shared: it is a
-// read-only name→index cache built once by buildSignalIndex and never mutated in
-// place, and it stays valid for the cloned (same-order) Signals; SignalByName's
-// idx<len + name-match guard tolerates staleness identically whether it is shared
-// or cloned, so cloning it would buy nothing observable.
+// messageAt is a deep copy of the message at i, or nil for a not-found -1.
+func (d *DBCDefinition) messageAt(i int) *DBCMessage {
+	if i < 0 {
+		return nil
+	}
+	return copyMessage(&d.Messages[i])
+}
+
+// copyMessage returns a deep copy the caller may mutate without reaching the
+// stored definition: the Senders and Signals slices, and in each signal the
+// Receivers, ValueDescriptions and MultiplexValues slices (whether the
+// presence is held by value or by pointer) are cloned; value fields copy
+// with the struct. The signalIndex is shared on purpose: it is read-only
+// once built, valid for the same-order clone, and SignalByName tolerates a
+// stale entry the same way whether shared or cloned.
 func copyMessage(m *DBCMessage) *DBCMessage {
 	out := *m
 	out.Senders = slices.Clone(m.Senders)
@@ -717,9 +600,7 @@ func copyMessage(m *DBCMessage) *DBCMessage {
 	for i := range out.Signals {
 		out.Signals[i].Receivers = slices.Clone(m.Signals[i].Receivers)
 		out.Signals[i].ValueDescriptions = slices.Clone(m.Signals[i].ValueDescriptions)
-		// SignalPresence is sealed by a value-receiver method, so both Multiplexed
-		// and *Multiplexed satisfy it; clone MultiplexValues in either form (the
-		// pointer form needs a fresh struct so the new pointer does not alias).
+		// the pointer form needs a fresh struct so the copy does not alias it
 		switch p := out.Signals[i].Presence.(type) {
 		case Multiplexed:
 			p.MultiplexValues = slices.Clone(p.MultiplexValues)
