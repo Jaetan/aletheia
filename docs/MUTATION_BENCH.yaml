@@ -1,34 +1,23 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-# Mutation Testing — per-binding SSOT.
+# The mutation lane, per binding: which tool, what it is pointed at, and what a
+# run of it produced.
 #
-# Single source of truth for the mutation lane.  AGENTS.md cat 14(g) gives the
-# tooling and the canonical hot-path module list per binding; this file pins
-# the actual on-disk paths (which drift from AGENTS.md prose when modules are
-# split — e.g. Python `client.py` lives at `aletheia/client/_client.py` after
-# the protocols split, `dbc_loader.py` was subsumed by `dbc/_converter.py` and
-# `yaml_loader.py`).
+# AGENTS.md cat 14(g) names the tool and the hot-path modules for each binding.
+# This file carries the paths those modules are actually at, which differ where
+# a module has been split or renamed: the Python client is under a package of
+# its own after its protocols were split out, and its DBC loader is now a
+# converter and a YAML loader.
 #
-# Static gate (`tools/check_mutation_setup.py`) verifies, for every binding,
-# that the listed hot-path source files exist on disk.  Dynamic runner
-# (`tools/mutation_run.py`) drives the per-binding tool against this list and
-# archives the per-binding survivor count to `benchmarks/mutation/<short-sha>/`.
-# Drift gate compares observed survivor count to the per-binding `baseline`
-# below; new survivors above baseline = lane fails.
+# tools/check_mutation_setup.py reads the hot-path lists and refuses a path that
+# names nothing. tools/mutation_run.py runs each binding's tool, archives the
+# report under benchmarks/mutation/ by commit, and compares the survivors it
+# counts with the baseline recorded here: more survivors than the baseline fails
+# the lane. A survivor is a test gap, unless the baseline's own comment says why
+# that one cannot be killed.
 #
-# Threshold model (advisor 2026-05-09): per-binding survivor BASELINE recorded
-# here.  AGENTS.md cat 14(g) says "an unjustified survivor is a test gap";
-# survivors above baseline are NEW findings, not initial-setup deliverables.  The
-# initial population of this file is "infrastructure complete + baseline run".
-# Eliminating the baseline survivors is a separate follow-up backlog (scope here
-# is infrastructure, not survivor elimination).
-#
-# Forward-revert verification protocol:
-#   1. Static gate: rename a hot-path file in this YAML to a non-existent
-#      path → `tools/check_mutation_setup.py` fires with precise diagnostic.
-#   2. Drift gate: introduce a redundant assertion that mutmut/Mull can
-#      invert without breaking tests → next dynamic run records survivor
-#      count > baseline → lane fails.
+# A baseline is a measurement of a tool and a toolchain, not a target. Changing
+# either re-measures the row, which is why each tool is pinned exactly.
 
 bindings:
 
@@ -38,130 +27,115 @@ bindings:
     install: |
       python/.venv/bin/pip install -e 'python/.[mutation]'
     hot_path:
-      # AGENTS.md cat 14(g) Python list, mapped to actual on-disk paths.
-      - python/aletheia/client/_client.py    # was AGENTS.md `client.py`; protocols split moved it
+      # The cat 14(g) Python list, at the paths those modules are at.
+      - python/aletheia/client/_client.py
       - python/aletheia/dbc/_converter.py
-      - python/aletheia/yaml_loader.py       # AGENTS.md `dbc_loader.py` was renamed/split
-      - python/aletheia/codes/_issue.py      # CHECK 23 IssueCode mirror
+      - python/aletheia/yaml_loader.py
+      - python/aletheia/codes/_issue.py
       - python/aletheia/types.py
     config:
-      # mutmut 3.x reads `[tool.mutmut]` from pyproject.toml in the cwd.
-      # See python/pyproject.toml for the actual config (`source_paths`,
-      # `pytest_add_cli_args_test_selection`, etc. — the mutmut 3.6 names;
-      # the older `paths_to_mutate`/`tests_dir` are deprecated and warn).
+      # mutmut reads `[tool.mutmut]` from the pyproject.toml of the directory
+      # it runs in, so the settings are in python/pyproject.toml: `source_paths`,
+      # `pytest_add_cli_args_test_selection` and their neighbours. The older
+      # `paths_to_mutate` and `tests_dir` are deprecated and warn.
       pyproject_section: "tool.mutmut"
     invocation: |
       cd python && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so .venv/bin/mutmut run
     report: |
       cd python && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so .venv/bin/mutmut results
     baseline:
-      # Re-recorded 2026-06-10 after the survivor-elimination campaign drove the
-      # Python lane from 215 survivors to ONE.  The earlier 215 (666 killed /
-      # 22 no-tests, 76%) were real test gaps in the under-tested error/edge
-      # branches of _client.py (format_dbc / format_dbc_text / validate_dbc /
-      # _send_command guards), yaml_loader.py (every check-validation branch),
-      # dbc/_converter.py (file wrappers), and types.py — all now killed by
-      # behavioural tests (test_client_protocol_errors / test_client_lifecycle /
-      # test_yaml_loader_errors / test_converter_paths / test_types_serialization).
-      # Genuine equivalents are excluded via `# pragma: no mutate` (typing.cast
-      # type-args, codec-name case on open/read_text/write_text, unreachable
-      # defensive guards) or simplified away (redundant int / extended defaults).
+      # One survivor, and it is a genuine equivalent: dump_json's
+      # ensure_ascii=False becomes None, which json.dumps treats identically,
+      # None being falsy. It is documented here rather than excluded at the
+      # source, because mutmut attributes a mutation of any argument of a
+      # multi-line call to the line the call opens, so a pragma there would
+      # also exclude the killable mutants of the value, cls and indent
+      # arguments. The gate fails on a second survivor.
       #
-      # The single remaining survivor is a documented genuine equivalent that
-      # mutmut cannot pragma-isolate: `dump_json`'s `ensure_ascii=False`→`None`
-      # (None is falsy → json.dumps treats it identically to False).  mutmut
-      # attributes a multi-line call-arg mutation to the call-open line, so a
-      # per-arg pragma there would collaterally exclude the KILLABLE value /
-      # cls / indent arg mutants — so it is documented here instead, keeping
-      # those args mutation-tested (see aletheia/types.py:dump_json).  mutmut
-      # mutmut 3.6: 827 killed / 1 survived, total 828 (score = killed /
-      # (killed+survived) = 827/828 ≈ 99%).  The 3 previously-SEGFAULT mutants
-      # (NULL state / payload reaching the FFI from _client._send_command and
-      # format_dbc) are now CLEAN kills since the FFI-boundary NULL guards
-      # (haskell-shim/src/AletheiaFFI.hs: isNullState / peekArrayChecked) turn a
-      # NULL deref into an error response instead of a SIGSEGV — it was
-      # 824 killed / 3 segfault / total 825 before that hardening.
-      # The drift gate fails on survivor #2 — any NEW survivor is a finding.
-      #
-      # Re-measured 2026-09-16 under the now-exactly-pinned mutmut 3.8.0.  The
-      # mutant total moved 828 -> 924 because the generator moved, not because
-      # the package grew: a floating `>=3.6.0,<4` let a developer sit on 3.6.0
-      # while CI resolved to 3.8.0, and the two enumerate different mutants.
-      # That is why the pin above is exact now; bumping it re-measures this row.
-      #
-      # 3.8.0 also found a real gap 3.6.0 never generated: a mutant forcing the
-      # backend factory on for a caller-injected backend, which makes close()
-      # drop a caller-owned backend and the next __enter__ build a real
-      # FFIBackend in its place.  The re-entry test asserted only that re-entry
-      # succeeded, which it does either way; it now asserts the injected backend
-      # is the one re-initialised, and the mutant dies.
-      #
-      # The one survivor is unchanged and still the documented equivalent
-      # (dump_json's ensure_ascii=False -> None; None is falsy, so json.dumps
-      # behaves identically).  The drift gate fails on survivor #2.
+      # Everything else a mutation of these modules produces is killed by a
+      # test that asserts behaviour. Two kinds are excluded at the source
+      # instead, with a pragma: a type argument of a cast, which no runtime
+      # reads, and the case of a codec name, which the standard library
+      # normalises.
       survivors: 1
       total_mutants: 924
       score_pct: 99
       run_at: "2026-09-16"
 
   go:
-    # AGENTS.md cat 14(g) names `gomut` / `go-mutesting` / `mutate` as the Go
-    # mutation tools.  zimmski/go-mutesting's last commit was 2021 and panics
-    # on Go 1.26's go/types internals; avito-tech's fork doesn't resolve
-    # multi-file packages cleanly.  `gremlins` (go-gremlins/gremlins) is the
-    # actively-maintained successor; it covers the same mutation operators
-    # and works on Go 1.26.  Documented as a substitution from AGENTS.md
-    # cat 14(g) — same intent (per-binding mutation lane on Go hot-path).
+    # AGENTS.md cat 14(g) names gomut, go-mutesting and mutate. This lane uses
+    # gremlins instead: go-mutesting panics on the type internals of a current
+    # Go, and the fork of it does not resolve a package of several files.
+    # gremlins carries the same mutation operators and runs on a current Go,
+    # which is what cat 14(g) asks the lane to do.
     tool: gremlins
     install: |
       go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
     hot_path:
-      # AGENTS.md cat 14(g) Go list, with substitutions for renamed/split files:
-      # AGENTS.md `protocol.go` → actual `json.go` (request/response protocol marshaling)
-      # AGENTS.md `frame.go`    → actual `enrich.go` (per-frame violation enrichment)
+      # The cat 14(g) Go list, at the paths those modules are at: the protocol
+      # marshalling is json.go and the per-frame enrichment is enrich.go.
       - go/aletheia/client.go
       - go/aletheia/dbc.go
-      - go/aletheia/json.go      # substitute for AGENTS.md `protocol.go`
-      - go/aletheia/ffi.go       # matches AGENTS.md `ffi_*.go`
-      - go/aletheia/ffi_nocgo.go # matches AGENTS.md `ffi_*.go`
-      - go/aletheia/enrich.go    # substitute for AGENTS.md `frame.go`
+      - go/aletheia/json.go
+      - go/aletheia/ffi.go
+      - go/aletheia/ffi_nocgo.go
+      - go/aletheia/enrich.go
     config: {}
     invocation: |
       cd go && gremlins unleash ./aletheia
     report: |
-      # gremlins writes mutation summary to stdout: total runnable mutants,
-      # killed, lived (survived), not-covered.  Runner parses tail summary.
+      # gremlins writes its summary to stdout, counting the mutants it killed,
+      # those that lived, those on a line no test reaches, and those that timed
+      # out. The runner reads the killed and lived counts from it, and a mutant
+      # on an uncovered line is neither: the total below is killed plus lived.
     baseline:
-      # Established 2026-05-09.
-      # Zero survivors — every runnable mutant is killed by the existing
-      # test suite.  120 "Not covered" mutants are on lines without test
-      # coverage (gremlins counts them separately from runnable; see
-      # AGENTS.md cat 14(g) "an unjustified survivor is a test gap").
-      # The ZERO-survivor baseline is the strictest possible; any new
-      # survivor on a future commit fails the lane.
+      # Zero survivors is the floor: any survivor on a future commit fails the
+      # lane, matching the C++ binding below.
+      #
+      # gremlins puts every mutant it generates in exactly one bucket, so the
+      # counts below add up: generated is the whole set, a property of the
+      # source; not_covered is the part on a line no test reaches, a coverage
+      # gap rather than a survivor; total_mutants is killed plus lived, which
+      # is what the runner records and what score_pct is taken from.
+      #
+      # The split between killed and timed out moves with the machine, and it
+      # moves a long way. This tree gave 650 killed and 11 timed out on a quiet
+      # host, and 39 killed with 622 timed out in a sweep that had a second
+      # sweep running beside it. A mutant that times out counts as neither
+      # killed nor lived, so that second run reported no survivors and full
+      # efficacy having actually tested one mutant in twenty. A third sweep
+      # generated the same total and left none alive, which is what is compared
+      # below.
+      #
+      # So the two numbers to compare a later run against are survivors and
+      # generated, which were the same in all three; the rest is what the run
+      # recorded here produced.
       survivors: 0
-      total_mutants: 662
+      generated: 763
+      not_covered: 102
+      timeouts: 11
+      total_mutants: 650
       score_pct: 100
-      run_at: "2026-05-09"
+      run_at: "2026-09-16"
 
   cpp:
     tool: mull
     version: "0.34.0 LLVM-22"
     install: |
       # No prebuilt Mull deb ships for LLVM 22 (release debs stop at LLVM-15),
-      # and we support only the latest stable Clang (22) — testing clang-19
+      # and only the latest stable Clang is supported: testing clang-19
       # mutants while shipping clang-22 is a real gap, not cosmetic, since UB
       # can change between compiler versions.  So Mull is built FROM SOURCE
       # against the system LLVM-22, cached in CI.  Grounded recipe:
       #   sudo apt install clang-22 llvm-22-dev      # system LLVM-22
       #   git clone --branch 0.34.0 https://github.com/mull-project/mull /tmp/mull
       #   cd /tmp/mull
-      #   # Mull's MODULE.bazel OS map caps ubuntu:24.04 at LLVM-20 — add "22":
+      #   # Mull's MODULE.bazel OS map caps ubuntu:24.04 at LLVM-20, so add "22":
       #   sed -i 's/\("ubuntu:24.04": \[\)/\1"22", /' MODULE.bazel
       #   bazel build //rust/mull-tools:mull-runner-22 \
       #               //rust/mull-tools:mull-reporter-22 //:mull-ir-frontend-22
       #   # bazelisk reads .bazelversion (8.6.0); system LLVM via
-      #   # new_local_repository(/usr/lib/llvm-22) — no LLVM download.
+      #   # new_local_repository(/usr/lib/llvm-22), so no LLVM is downloaded.
       #   cp bazel-bin/.../mull-{runner,reporter}-22 ~/.local/bin/
       #   cp bazel-bin/mull-ir-frontend-22           ~/.local/bin/
       # mull-runner / mull-reporter are Rust binaries; ir-frontend is a C++
@@ -193,7 +167,7 @@ bindings:
     invocation: |
       # The ALETHEIA_MUTATION build folds tests/integration_tests.cpp into the
       # unit_tests binary so the real FfiBackend (dlopen glue) is on the
-      # mutation surface — those tests dlopen build/libaletheia-ffi.so, so
+      # mutation surface. Those tests dlopen build/libaletheia-ffi.so, so
       # `cabal run shake -- build` must have produced it first.
       cd cpp && cmake -B build-mutation -DALETHEIA_MUTATION=ON \
         -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 \
