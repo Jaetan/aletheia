@@ -40,8 +40,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # compile_commands.json, so the `clang-tidy-23 -p build` gate still sees the bare
 # `clang++-23` and is unaffected by ccache (cmake 4.1.2 exports no launcher
 # token, and clang-tidy-23 parses the DB cleanly).
+#
+# Never under ALETHEIA_MUTATION: the Mull plugin's output depends on the plugin
+# binary and on cpp/mull.yml, neither of which ccache hashes, so a cached object
+# replays the mutants (and the plugin's own stderr) of an earlier configuration.
 find_program(CCACHE_PROGRAM ccache)
-if(CCACHE_PROGRAM)
+if(CCACHE_PROGRAM AND NOT ALETHEIA_MUTATION)
     set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
 endif()
 
@@ -151,7 +155,13 @@ if(ALETHEIA_MUTATION)
             "run tools/build_mull.sh (docs/operations/MUTATION.md § Installation)")
     endif()
     message(STATUS "Mutation lane: -fpass-plugin=${MULL_PLUGIN} (aletheia-cpp + unit_tests only)")
-    set(ALETHEIA_MUTATION_FLAGS -fpass-plugin=${MULL_PLUGIN} -g -O0)
+    # -grecord-command-line: the plugin re-parses each translation unit with
+    # the flags recorded here to tell a real mutant from junk (a macro
+    # expansion, a system header, an expression the source never wrote).
+    # Without the record it re-parses with no flags at all, the first project
+    # include fails, and it drops every mutant of that unit, so the surface was
+    # whichever units happened to parse without their include paths.
+    set(ALETHEIA_MUTATION_FLAGS -fpass-plugin=${MULL_PLUGIN} -g -O0 -grecord-command-line)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -416,16 +426,17 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         tests/unit_tests_property.cpp
         tests/unit_tests_ffi_logic.cpp
         tests/unit_tests_decimal.cpp
+        tests/unit_tests_loader_utils.cpp
         tests/rts_setup_listener.cpp)
     target_include_directories(unit_tests PRIVATE src)
     target_link_libraries(unit_tests
         PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
-    # Mutation lane: instrument unit_tests sources too (the test logic
-    # itself is part of the operational surface — a test that asserts "x
-    # > 0" but is mutated to "x >= 0" should still pass against any
-    # surviving production mutant).  Catch2 stays uninstrumented because
-    # of compiler crashes on its templates; aletheia-cpp + this target
-    # are the actual mutation surface.
+    # Mutation lane: the test sources compile with the plugin too, not for
+    # their own mutants (cpp/mull.yml holds cpp/tests out: a mutant in a test
+    # measures the harness, and one in a fixture's write loop filled the temp
+    # filesystem) but for the library headers they instantiate, which keep
+    # their mutants under the mutant's own path.  Catch2 stays uninstrumented
+    # because of compiler crashes on its templates.
     if(ALETHEIA_MUTATION)
         target_compile_options(unit_tests PRIVATE ${ALETHEIA_MUTATION_FLAGS})
         # Cover the real FfiBackend (dlopen glue) in the mutation surface: the
@@ -436,6 +447,12 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         # stays Mock-only / .so-free for speed.)
         target_sources(unit_tests PRIVATE tests/integration_tests.cpp)
         target_link_libraries(unit_tests PRIVATE Threads::Threads)
+        # The two loaders reach the binary only through their own suites: the
+        # library links statically here, so an object no test references is
+        # dropped at link and its sources have no mutant.  Fold the loader
+        # suites in for the same reason as the integration tests.
+        target_sources(unit_tests PRIVATE tests/yaml_tests.cpp tests/excel_tests.cpp)
+        target_link_libraries(unit_tests PRIVATE yaml-cpp::yaml-cpp OpenXLSX::OpenXLSX)
     endif()
     add_test(NAME unit_tests COMMAND unit_tests)
 

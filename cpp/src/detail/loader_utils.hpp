@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -142,20 +143,33 @@ inline constexpr std::string_view k_drops_below = "drops_below";
     throw std::runtime_error("Unknown when condition: " + std::string{condition});
 }
 
+/// The values a loader read for an obligation, keyed by the slot each fills:
+/// `value` for the one-value obligations, `lo` and `hi` for the range.
+using ThenSlotValues = std::map<std::string_view, PhysicalValue>;
+
 /// Build the obligation a word names, from the slots the table says it reads.
-/// The unread slots are whatever the loader passed and are ignored, as they are
-/// in the Go binding's dispatcher of the same name. A word outside the table
-/// is refused here rather than built as whichever branch came last, which is
-/// what both loaders used to do.
+/// The loader hands over the slots its obligation reads and no others, so
+/// there is no filler for a slot nobody looks at: a slot this reads and the
+/// loader did not pass is refused by name rather than read as zero. A word
+/// outside the table is refused here rather than built as whichever branch
+/// came last, which is what both loaders used to do.
 [[nodiscard]] inline auto dispatch_then(const ThenSignal& builder, std::string_view condition,
-                                        PhysicalValue value, PhysicalValue lo, PhysicalValue hi,
+                                        const ThenSlotValues& slots,
                                         std::chrono::milliseconds within) -> CheckResult {
+    auto const slot = [&](std::string_view name) -> PhysicalValue {
+        auto const found = slots.find(name);
+        if (found == slots.end())
+            throw std::runtime_error("then condition '" + std::string{condition} +
+                                     "' reads slot '" + std::string{name} +
+                                     "', which the loader did not pass");
+        return found->second;
+    };
     if (condition == k_equals)
-        return builder.equals(value).within(within);
+        return builder.equals(slot("value")).within(within);
     if (condition == k_exceeds)
-        return builder.exceeds(value).within(within);
+        return builder.exceeds(slot("value")).within(within);
     if (condition == k_stays_between)
-        return builder.stays_between(lo, hi).within(within);
+        return builder.stays_between(slot("lo"), slot("hi")).within(within);
     throw std::runtime_error("Unknown then condition: " + std::string{condition});
 }
 

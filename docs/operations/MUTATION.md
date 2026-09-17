@@ -58,7 +58,7 @@ independently.
 |---|---|---|
 | Python | `mutmut` 3.x | `aletheia/client/_client.py`, `aletheia/dbc/_converter.py`, `aletheia/yaml_loader.py`, `aletheia/codes/_issue.py`, `aletheia/types.py` |
 | Go | `gremlins` | `aletheia/client.go`, `dbc.go`, `json.go`¹, `ffi.go`, `ffi_nocgo.go`, `enrich.go`² |
-| C++ | `Mull` 0.34.1 (LLVM 23, from source) | `cpp/src/*.cpp` less `mock_backend.cpp` / `types.cpp` (test-only / type-defs) and `rational_renderer.cpp`, with the exact mutated set enumerated in `docs/MUTATION_BENCH.yaml` |
+| C++ | `Mull` 0.34.1 (LLVM 23, from source) | `cpp/src/*.cpp` less `mock_backend.cpp` / `types.cpp` (test-only / type-defs) and `rational_renderer.cpp`, with the exact mutated set enumerated in `docs/MUTATION_BENCH.yaml`; the mutator set (`cxx_default` plus `cxx_calls`) and the held-out paths (vendored, system, and `cpp/tests`) are `cpp/mull.yml`; the build records each unit's command line so that Mull's junk detector can re-parse it, without which it drops every mutant of a unit it cannot parse |
 
 AGENTS.md cat 14(g) names `gomut` / `go-mutesting` / `mutate` for Go.  We use
 **`gremlins`** (`github.com/go-gremlins/gremlins`) instead because both
@@ -116,7 +116,10 @@ between compiler versions, so the mutation lane MUST test clang-23 codegen.
 No prebuilt Mull deb ships past LLVM 15, and Mull 0.34.1 itself stops at LLVM
 22, so `tools/build_mull.sh` **builds Mull from source** against the system
 LLVM-23 with the patch that lets it see LLVM 23: its supported-version list,
-and the one call in libirm that LLVM 23 removed.  The binaries land in
+the one call in libirm that LLVM 23 removed, and libirm taken at the commit
+that truncates a call replacement's constant to the call's width, without which
+`cxx_replace_scalar_call` aborts clang on the first `bool`-returning call it
+meets.  The binaries land in
 `~/.local/bin/` (no sudo for the copy), which the project assumes is on
 `$PATH` (see CLAUDE.md § Development Environment).
 

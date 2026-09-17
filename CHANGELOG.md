@@ -12,6 +12,31 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The C++ mutation lane measures what it claims to.** Four defects held its
+  surface to a fraction of the library. Mull's junk detector re-parses each
+  translation unit to tell a mutant from junk, and the build recorded no command
+  line, so it re-parsed with no flags, failed at the first project include, and
+  dropped every mutant of most units; the mutation build now records the command
+  line. The two loaders reached the binary through their own suites only, and the
+  static link dropped their objects, so `yaml.cpp` and `excel.cpp` had no mutant
+  though the baseline lists them; the loader suites are folded into the mutation
+  binary as the integration tests were. ccache replayed cached objects, and their
+  stderr, into a mutation build whose plugin and `cpp/mull.yml` it does not hash;
+  the mutation build takes no launcher. And the suites wrote fixtures under fixed
+  names in the system temp directory, so Mull's parallel runs failed each other's
+  file-size-cap cases and counted the failures as kills; every fixture now lives
+  under a per-process directory, and the per-mutant cap is pinned in the config
+  rather than left to Mull's ten-times-the-baseline default, under which the
+  same binary read ten times as many timeouts. With that, the shared then-dispatcher of the
+  loaders is on the surface: it takes a map of the slots the loader read and
+  refuses a slot it reads and was not given, by name, as the Python one does,
+  instead of positional values with a filler no test could observe; `cpp/mull.yml`
+  adds Mull's call mutators, which are the only ones that reach code written as
+  calls, and holds the test sources out, since a mutant in a test measures the
+  harness; the recorded C++ baseline is the measured survivor count of that
+  surface, with any survivor above it failing the lane; and `tools/build_mull.sh` takes libirm at the commit that truncates a
+  replaced call's constant to the call's width, because the scalar-call mutator
+  aborted clang on the first `bool`-returning call it met.
 - **The proof gate waits for a slow module and runs Agda on one capability.** The
   warm Agda process gave up on a module after 300 seconds without output, described
   as a hang detector; Agda sends nothing while it checks a module and everything once

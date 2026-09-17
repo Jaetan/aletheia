@@ -10,10 +10,14 @@
 # joins Mull's supported-version list, and its ubuntu:24.04 and debian:13 maps
 # name that version alone, because Mull reads every LLVM directory its map
 # names and a leftover /usr/lib/llvm-<n> holding no lib/ aborts the build;
-# libirm gets the one include and the one call LLVM 23 changed (Constant::
-# isZeroValue is gone, and a ConstantFP's own isZero together with Constant::
-# isNullValue says the same); and a Debian release without a VERSION_ID in
-# /etc/os-release (testing, sid) is read as the debian:13 row.
+# libirm is taken at the commit that truncates a call replacement's constant to
+# the call's return width, because at the commit Mull pins the scalar-call
+# mutator builds a 42 for a bool-returning call and LLVM's APInt asserts on it,
+# which aborts clang on every source with such a call; libirm also gets the one
+# include and the one call LLVM 23 changed (Constant::isZeroValue is gone, and
+# a ConstantFP's own isZero together with Constant::isNullValue says the same);
+# and a Debian release without a VERSION_ID in /etc/os-release (testing, sid)
+# is read as the debian:13 row.
 #
 # Needs clang-<version>, /usr/lib/llvm-<version> (the llvm-<version>-dev and
 # libclang-<version>-dev packages), git and curl.  bazelisk is fetched into the
@@ -96,12 +100,18 @@ index 004ef56..15137ef 100644
  def os_dist_extension(repository_ctx):
      if is_macos(repository_ctx):
 diff --git a/mull_deps.bzl b/mull_deps.bzl
-index 650bc28..1c9aeba 100644
 --- a/mull_deps.bzl
 +++ b/mull_deps.bzl
-@@ -157,6 +157,10 @@ def _mull_deps_extension(module_ctx):
-                     urls = ["https://github.com/mull-project/libirm/archive/08eab0634575aeb721d07f05daf4a0aad8feba36.zip"],
-                     strip_prefix = "libirm-08eab0634575aeb721d07f05daf4a0aad8feba36",
+@@ -153,10 +153,14 @@ def _mull_deps_extension(module_ctx):
+                 )
+                 http_archive(
+                     name = irm_repo_name,
+-                    integrity = "sha256-8pmIPDJX0cgDlNljcIcWd73Wb2WB8cgK/086RxOyqrE=",
+-                    urls = ["https://github.com/mull-project/libirm/archive/08eab0634575aeb721d07f05daf4a0aad8feba36.zip"],
+-                    strip_prefix = "libirm-08eab0634575aeb721d07f05daf4a0aad8feba36",
++                    integrity = "sha256-CvDe8vg+9snrInk7JWLfzXdGHyIs/NzvjXCEpamOI2g=",
++                    urls = ["https://github.com/mull-project/libirm/archive/b1888b732f1c2d166ec88f83912ac296ca32beea.zip"],
++                    strip_prefix = "libirm-b1888b732f1c2d166ec88f83912ac296ca32beea",
                      build_file_content = IRM_BUILD_FILE.format(LLVM_VERSION = version),
 +                    patch_cmds = [
 +                        "sed -i '1i #include <llvm/IR/Constants.h>' lib/ConstantReplacement.cpp",
