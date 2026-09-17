@@ -12,10 +12,13 @@
 package aletheia
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
+	"unsafe"
 )
 
 // binVal is one Values-segment entry: (idx:u16, num:i64, den:i64).
@@ -226,4 +229,56 @@ func TestParseExtractionBin_OffsetsEndMismatch(t *testing.T) {
 func TestParseExtractionBin_InvalidUTF8Reason(t *testing.T) {
 	buf := buildExtractionBin(nil, []binErr{{idx: 0, code: 0}}, []uint32{0, 2}, []byte{0xFF, 0xFE}, nil)
 	requireExtractionProtocolError(t, buf, []string{"Sig"}, "not valid UTF-8")
+}
+
+// corruptBinBackend answers the binary extraction with what the test sets:
+// a buffer that does not parse, or an error other than the fallback sentinel.
+type corruptBinBackend struct {
+	routingBackend
+	buf []byte
+	err error
+}
+
+func (b *corruptBinBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
+	return b.buf, b.err
+}
+
+// A binary extraction that returns a buffer that does not parse, or fails with
+// anything but the fallback sentinel, yields no result and one warning naming
+// the failure; the JSON path is not tried.
+func TestExtractSignalsLocked_CorruptBinaryIsLoggedAndSkipped(t *testing.T) {
+	cases := map[string]struct {
+		buf   []byte
+		err   error
+		event string
+	}{
+		"a buffer that does not parse":     {[]byte{1}, nil, "extraction.parse_failed"},
+		"an error other than the sentinel": {nil, errors.New("boom"), "extraction.process_failed"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var logged bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug}))
+			b := &corruptBinBackend{buf: tc.buf, err: tc.err}
+			b.hook = func(int) (string, error) { return `{"status":"success"}`, nil }
+			c, err := NewClient(b, WithLogger(logger))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = c.Close() })
+			sid, _ := NewStandardID(0x100)
+			dlc, _ := NewDLC(8)
+			c.signalNames = map[uint64][]string{canIDKey(sid): {"S"}}
+
+			if got := c.extractSignalsLocked(ctx, sid, dlc, FramePayload{0, 0, 0, 0, 0, 0, 0, 0}); got != nil {
+				t.Errorf("expected no result, got %+v", got)
+			}
+			if !strings.Contains(logged.String(), tc.event) {
+				t.Errorf("expected %s in the log, got %q", tc.event, logged.String())
+			}
+			if b.callCount() != 0 {
+				t.Errorf("the JSON path was tried %d times after a binary failure", b.callCount())
+			}
+		})
+	}
 }

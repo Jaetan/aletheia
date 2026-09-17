@@ -1273,3 +1273,29 @@ func TestFormatDBC_EmptyMessageName(t *testing.T) {
 		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
 	}
 }
+
+// BuildFrame and UpdateFrame resolve signal names through the DBC the client
+// has loaded; before any ParseDBC both are refused with a state error that
+// says so, without reaching the backend.
+func TestBuildFrame_BeforeParseDBC(t *testing.T) {
+	mock := aletheia.NewMockBackend()
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	sid, _ := aletheia.NewStandardID(0x100)
+	signals := []aletheia.SignalValue{{Name: "Speed", Value: aletheia.IntRational(1)}}
+
+	_, err = c.BuildFrame(ctx, sid, dlc8(), signals)
+	requireErrorContains(t, err, "no DBC loaded")
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) || aErr.Kind != aletheia.ErrState {
+		t.Errorf("expected a state error, got %v", err)
+	}
+	_, err = c.UpdateFrame(ctx, sid, dlc8(), aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}, signals)
+	requireErrorContains(t, err, "no DBC loaded")
+	if n := len(mock.Inputs()); n != 0 {
+		t.Errorf("the backend was reached %d times before a DBC was loaded", n)
+	}
+}
