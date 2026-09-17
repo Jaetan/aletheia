@@ -25,7 +25,7 @@ using aletheia::test::make_test_dbc;
 
 static auto make_mux_dbc() -> DbcDefinition {
     auto id = StandardId::create(0x200).value();
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
 
     std::vector<DbcSignal> sigs;
     sigs.push_back(DbcSignal{.name = SignalName{"MuxSelector"},
@@ -121,7 +121,7 @@ TEST_CASE("DbcMessage::multiplex_values", "[dbc][mux]") {
     CHECK(mv[0] == MultiplexValue{0});
     CHECK(mv[1] == MultiplexValue{1});
 
-    auto empty = dbc.messages[0].multiplex_values(SignalName{"NonExistent"});
+    auto const empty = dbc.messages[0].multiplex_values(SignalName{"NonExistent"});
     CHECK(empty.empty());
 }
 
@@ -138,7 +138,8 @@ TEST_CASE("DbcMessage::signals_for_mux_value", "[dbc][mux]") {
     REQUIRE(s1.size() == 3); // MuxSelector + Pressure + Voltage
     CHECK(s1[1].name == SignalName{"Pressure"});
 
-    auto s99 = dbc.messages[0].signals_for_mux_value(SignalName{"MuxSelector"}, MultiplexValue{99});
+    auto const s99 =
+        dbc.messages[0].signals_for_mux_value(SignalName{"MuxSelector"}, MultiplexValue{99});
     CHECK(s99.size() == 2); // only always-present
 
     // Unknown multiplexor name — only always-present signals returned.
@@ -155,18 +156,18 @@ TEST_CASE("DbcMessage::multiplexor_names non-mux message", "[dbc][mux]") {
 
 TEST_CASE("DbcMessage::always_present_signals non-mux message", "[dbc][mux]") {
     auto plain = make_test_dbc();
-    auto ap = plain.messages[0].always_present_signals();
+    auto const ap = plain.messages[0].always_present_signals();
     CHECK(ap.size() == plain.messages[0].signals.size());
 }
 
 TEST_CASE("DbcMessage::signal_by_name", "[dbc]") {
     auto dbc = make_mux_dbc();
-    const auto* sig = dbc.messages[0].signal_by_name(SignalName{"Temperature"});
+    auto const* sig = dbc.messages[0].signal_by_name(SignalName{"Temperature"});
     REQUIRE(sig != nullptr);
     CHECK(sig->is_signed == true);
 
     // Always-present signal.
-    const auto* mux_sel = dbc.messages[0].signal_by_name(SignalName{"MuxSelector"});
+    auto const* mux_sel = dbc.messages[0].signal_by_name(SignalName{"MuxSelector"});
     REQUIRE(mux_sel != nullptr);
     CHECK(std::holds_alternative<AlwaysPresent>(mux_sel->presence));
 
@@ -181,14 +182,15 @@ TEST_CASE("DbcMessage::multiplex_values non-mux message", "[dbc][mux]") {
 TEST_CASE("DbcMessage::signals_for_mux_value non-mux message", "[dbc][mux]") {
     auto plain = make_test_dbc();
     // Unknown multiplexor on a non-mux message returns all signals (all always-present).
-    auto sigs = plain.messages[0].signals_for_mux_value(SignalName{"Anything"}, MultiplexValue{0});
+    auto const sigs =
+        plain.messages[0].signals_for_mux_value(SignalName{"Anything"}, MultiplexValue{0});
     CHECK(sigs.size() == plain.messages[0].signals.size());
 }
 
 TEST_CASE("DbcDefinition::message_by_id", "[dbc]") {
-    auto dbc = make_mux_dbc();
+    auto const dbc = make_mux_dbc();
     auto id = StandardId::create(0x200).value();
-    const auto* msg = dbc.message_by_id(CanId{id});
+    auto const* msg = dbc.message_by_id(CanId{id});
     REQUIRE(msg != nullptr);
     CHECK(msg->name == MessageName{"MuxMessage"});
 
@@ -215,18 +217,18 @@ TEST_CASE("DbcDefinition::message_by_id with extended ID", "[dbc]") {
                        .signals = {}};
     const DbcDefinition dbc{.version = "1.0", .messages = {std_msg, ext_msg}};
 
-    const auto* found_std = dbc.message_by_id(CanId{std_id});
+    auto const* found_std = dbc.message_by_id(CanId{std_id});
     REQUIRE(found_std != nullptr);
     CHECK(found_std->name == MessageName{"StdMsg"});
 
-    const auto* found_ext = dbc.message_by_id(CanId{ext_id});
+    auto const* found_ext = dbc.message_by_id(CanId{ext_id});
     REQUIRE(found_ext != nullptr);
     CHECK(found_ext->name == MessageName{"ExtMsg"});
 }
 
 TEST_CASE("DbcDefinition::message_by_name", "[dbc]") {
-    auto dbc = make_mux_dbc();
-    const auto* msg = dbc.message_by_name(MessageName{"MuxMessage"});
+    auto const dbc = make_mux_dbc();
+    auto const* msg = dbc.message_by_name(MessageName{"MuxMessage"});
     REQUIRE(msg != nullptr);
     CHECK(msg->signals.size() == 4);
 

@@ -37,8 +37,8 @@ using Catch::Matchers::ContainsSubstring;
 // ===========================================================================
 
 TEST_CASE("serialize_parse_dbc produces valid JSON", "[json][serialize]") {
-    auto dbc = make_test_dbc();
-    auto str = detail::serialize_parse_dbc(dbc);
+    auto const dbc = make_test_dbc();
+    auto const str = detail::serialize_parse_dbc(dbc);
     auto j = Json::parse(str);
 
     CHECK(j["type"] == "command");
@@ -75,7 +75,7 @@ TEST_CASE("serialize_set_properties produces correct JSON", "[json][serialize]")
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
-    auto str = detail::serialize_set_properties(props);
+    auto const str = detail::serialize_set_properties(props);
     auto j = Json::parse(str);
 
     CHECK(j["command"] == "setProperties");
@@ -92,7 +92,7 @@ TEST_CASE("serialize_set_properties produces correct JSON", "[json][serialize]")
 
 TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
     auto id = StandardId::create(0x200).value();
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
 
     DbcSignal sig{
         .name = SignalName{"MuxedTemp"},
@@ -120,7 +120,7 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
         }},
     };
 
-    auto str = detail::serialize_parse_dbc(dbc);
+    auto const str = detail::serialize_parse_dbc(dbc);
     auto j = Json::parse(str);
     auto& jsig = j["dbc"]["messages"][0]["signals"][0];
 
@@ -136,7 +136,7 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
 
 TEST_CASE("serialize extended CAN ID in DBC", "[json][serialize]") {
     auto id = ExtendedId::create(0x18FEF100).value();
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
 
     const DbcDefinition dbc{
         .version = "",
@@ -149,7 +149,7 @@ TEST_CASE("serialize extended CAN ID in DBC", "[json][serialize]") {
         }},
     };
 
-    auto str = detail::serialize_parse_dbc(dbc);
+    auto const str = detail::serialize_parse_dbc(dbc);
     auto j = Json::parse(str);
     auto& msg = j["dbc"]["messages"][0];
 
@@ -162,7 +162,7 @@ TEST_CASE("serialize metric temporal operators", "[json][serialize]") {
     auto formula = ltl::always_within(Timestamp{2'000'000}, std::move(inner));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
-    auto str = detail::serialize_set_properties(props);
+    auto const str = detail::serialize_set_properties(props);
     auto j = Json::parse(str);
 
     CHECK(j["properties"][0]["operator"] == "metricAlways");
@@ -170,11 +170,11 @@ TEST_CASE("serialize metric temporal operators", "[json][serialize]") {
 }
 
 TEST_CASE("serialize all predicate types", "[json][serialize]") {
-    auto check = [](Predicate p, const std::string& expected) {
+    auto const check = [](Predicate p, const std::string& expected) {
         auto formula = ltl::atomic(std::move(p));
         std::vector<LtlFormula> props;
         props.push_back(std::move(formula));
-        auto str = detail::serialize_set_properties(props);
+        auto const str = detail::serialize_set_properties(props);
         auto j = Json::parse(str);
         CHECK(j["properties"][0]["predicate"]["predicate"] == expected);
     };
@@ -196,7 +196,7 @@ TEST_CASE("serialize all predicate types", "[json][serialize]") {
 // ===========================================================================
 
 TEST_CASE("parse_success on success response", "[json][parse]") {
-    auto result = detail::parse_success(R"({"status": "success"})");
+    auto const result = detail::parse_success(R"({"status": "success"})");
     CHECK(result.has_value());
 }
 
@@ -217,7 +217,7 @@ TEST_CASE("parse_success rejects \"ack\" status", "[json][parse]") {
 }
 
 TEST_CASE("parse_event_ack on ack response", "[json][parse]") {
-    auto result = detail::parse_event_ack(R"({"status": "ack"})");
+    auto const result = detail::parse_event_ack(R"({"status": "ack"})");
     CHECK(result.has_value());
 }
 
@@ -303,7 +303,7 @@ TEST_CASE("parse_extraction rejects a negative-denominator rational", "[json][pa
     // positive denominator (ℕ⁺ invariant), so a negative one is a wire-format
     // violation.  Mirrors Python / Go / Rust, which all reject den <= 0 at the
     // wire rather than rewriting it.
-    auto result = detail::parse_extraction(R"({
+    auto const result = detail::parse_extraction(R"({
         "status": "success",
         "values": [{"name": "Ratio", "value": {"numerator": 1, "denominator": -3}}],
         "errors": [],
@@ -326,7 +326,7 @@ TEST_CASE("parse_extraction rejects a float signal value", "[json][parse][valida
     // not a value to approximate. Exact rationals travel as a numerator and a
     // denominator; decimals are parsed by the kernel's own decimal source of
     // truth.
-    auto result = detail::parse_extraction(R"({
+    auto const result = detail::parse_extraction(R"({
         "status": "success",
         "values": [{"name": "Speed", "value": 120.5}],
         "errors": [],
@@ -357,7 +357,7 @@ TEST_CASE("parse_extraction still accepts integer and rational signal values",
 TEST_CASE("parse_extraction rejects a float rational component", "[json][parse][validation]") {
     // Region 2: parse_rational_dict guards numerator/denominator.  Without the
     // guard {"numerator": 1.5, ...} truncates to 1, fabricating the value 1/2.
-    auto result = detail::parse_extraction(R"({
+    auto const result = detail::parse_extraction(R"({
         "status": "success",
         "values": [{"name": "Ratio", "value": {"numerator": 1.5, "denominator": 2}}],
         "errors": [],
@@ -370,7 +370,7 @@ TEST_CASE("parse_dbc_response rejects a float in a signed integer position",
           "[json][parse][validation]") {
     // valueDescriptions[].value is a signed integer position (require_int): a
     // float must be rejected rather than truncated.
-    auto result = detail::parse_dbc_response(R"({
+    auto const result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {"version": "", "messages": [{
             "id": 256, "name": "M", "dlc": 8, "sender": "", "extended": false,
@@ -392,7 +392,7 @@ TEST_CASE("parse_dbc_response rejects a float startBit instead of truncating",
     // boundary: the float is rejected, and integer 5 at the same position still
     // decodes to start_bit == 5.  (Removing the require_uint guard flips the
     // first CHECK_FALSE green->red.)
-    auto make = [](const std::string& start_bit) {
+    auto const make = [](const std::string& start_bit) {
         return std::string{R"({"status":"success","dbc":{"version":"","messages":[{)"} +
                R"("id":256,"name":"M","dlc":8,"sender":"","extended":false,"signals":[{)" +
                R"("name":"S","startBit":)" + start_bit +
@@ -411,7 +411,7 @@ TEST_CASE("parse_dbc_response rejects a float in unsigned id and dlc positions",
           "[json][parse][validation]") {
     // CAN id and dlc are unsigned positions (require_uint).  A float in either
     // truncates to an in-range integer without the guard.
-    auto make = [](const std::string& id, const std::string& dlc) {
+    auto const make = [](const std::string& id, const std::string& dlc) {
         return std::string{R"({"status":"success","dbc":{"version":"","messages":[{)"} +
                R"("id":)" + id + R"(,"name":"M","dlc":)" + dlc +
                R"(,"sender":"","extended":false,"signals":[]}]}})";
@@ -423,7 +423,7 @@ TEST_CASE("parse_dbc_response rejects a float in unsigned id and dlc positions",
 TEST_CASE("parse_frame_data rejects a float data byte", "[json][parse][validation]") {
     // Frame data bytes are an unsigned position (require_uint): a float byte
     // must be rejected, not truncated.
-    auto bad = detail::parse_frame_data(R"({"status": "success", "data": [1, 2.5, 3]})");
+    auto const bad = detail::parse_frame_data(R"({"status": "success", "data": [1, 2.5, 3]})");
     CHECK_FALSE(bad.has_value());
     auto ok = detail::parse_frame_data(R"({"status": "success", "data": [1, 2, 3]})");
     REQUIRE(ok.has_value());
@@ -810,7 +810,7 @@ TEST_CASE("serialize_parse_dbc emits Tier 1 metadata arrays", "[json][serialize]
                     DbcValueEntry{.value = 1, .description = "Drive"}},
     });
 
-    auto str = detail::serialize_parse_dbc(dbc);
+    auto const str = detail::serialize_parse_dbc(dbc);
     auto j = Json::parse(str);
 
     REQUIRE(j["dbc"]["signalGroups"].is_array());
@@ -833,8 +833,8 @@ TEST_CASE("serialize_parse_dbc emits Tier 1 metadata arrays", "[json][serialize]
 }
 
 TEST_CASE("serialize_parse_dbc emits empty arrays when metadata absent", "[json][serialize][dbc]") {
-    auto dbc = make_test_dbc();
-    auto str = detail::serialize_parse_dbc(dbc);
+    auto const dbc = make_test_dbc();
+    auto const str = detail::serialize_parse_dbc(dbc);
     auto j = Json::parse(str);
     REQUIRE(j["dbc"]["signalGroups"].is_array());
     CHECK(j["dbc"]["signalGroups"].empty());
@@ -941,7 +941,7 @@ TEST_CASE("parse_dbc_response env var preserves exact rationals", "[json][parse]
     })");
     REQUIRE(result.has_value());
     REQUIRE(result->environment_vars.size() == 1);
-    const auto& ev = result->environment_vars[0];
+    auto const& ev = result->environment_vars[0];
     CHECK(ev.initial == Rational{1, 10});
     CHECK(ev.minimum == Rational{-1, 3});
     CHECK(ev.maximum == Rational{22, 7});
@@ -1054,9 +1054,9 @@ static auto make_tier2_dbc() -> DbcDefinition {
 
 TEST_CASE("Tier 2 DBC metadata serializes to the documented wire shape",
           "[json][serialize][parse][dbc][tier2]") {
-    const auto dbc = make_tier2_dbc();
-    const auto str = detail::serialize_parse_dbc(dbc);
-    const auto j = Json::parse(str);
+    auto const dbc = make_tier2_dbc();
+    auto const str = detail::serialize_parse_dbc(dbc);
+    auto const j = Json::parse(str);
 
     // Confirm wire shape: every tagged union carries "kind" first.
     REQUIRE(j["dbc"]["nodes"].is_array());
@@ -1079,9 +1079,9 @@ TEST_CASE("Tier 2 DBC metadata serializes to the documented wire shape",
 
 TEST_CASE("Tier 2 DBC metadata survives the parse leg of the round-trip",
           "[json][serialize][parse][dbc][tier2]") {
-    const auto dbc = make_tier2_dbc();
-    const auto str = detail::serialize_parse_dbc(dbc);
-    const auto j = Json::parse(str);
+    auto const dbc = make_tier2_dbc();
+    auto const str = detail::serialize_parse_dbc(dbc);
+    auto const j = Json::parse(str);
 
     // Route the serialized JSON through parse_dbc_response (wrap as success
     // envelope) to exercise the parser leg of the round-trip.
@@ -1096,10 +1096,10 @@ TEST_CASE("Tier 2 DBC metadata survives the parse leg of the round-trip",
     REQUIRE(result->comments.size() == 5);
     CHECK(std::holds_alternative<DbcCommentTargetNetwork>(result->comments[0].target));
     CHECK(std::get<DbcCommentTargetNode>(result->comments[1].target).node.get() == "ECU1");
-    const auto& msg_ct = std::get<DbcCommentTargetMessage>(result->comments[2].target);
+    auto const& msg_ct = std::get<DbcCommentTargetMessage>(result->comments[2].target);
     CHECK(can_id_value(msg_ct.id) == 256);
     CHECK_FALSE(can_id_is_extended(msg_ct.id));
-    const auto& sig_ct = std::get<DbcCommentTargetSignal>(result->comments[3].target);
+    auto const& sig_ct = std::get<DbcCommentTargetSignal>(result->comments[3].target);
     CHECK(can_id_value(sig_ct.id) == 512);
     CHECK(can_id_is_extended(sig_ct.id));
     CHECK(sig_ct.signal == "Torque");
@@ -1107,40 +1107,40 @@ TEST_CASE("Tier 2 DBC metadata survives the parse leg of the round-trip",
 
     REQUIRE(result->attributes.size() == 11);
     // Definitions
-    const auto& def_int = std::get<DbcAttrDef>(result->attributes[0]);
+    auto const& def_int = std::get<DbcAttrDef>(result->attributes[0]);
     CHECK(def_int.name == "GenMsgCycleTime");
     CHECK(def_int.scope == DbcAttrScope::Message);
     CHECK(std::get<DbcAttrTypeInt>(def_int.attr_type).max == 10000);
-    const auto& def_float = std::get<DbcAttrDef>(result->attributes[1]);
-    const auto& float_bounds = std::get<DbcAttrTypeFloat>(def_float.attr_type);
+    auto const& def_float = std::get<DbcAttrDef>(result->attributes[1]);
+    auto const& float_bounds = std::get<DbcAttrTypeFloat>(def_float.attr_type);
     CHECK(float_bounds.min == Rational{-1, 2});
     CHECK(float_bounds.max == Rational{22, 7});
-    const auto& def_enum = std::get<DbcAttrDef>(result->attributes[3]);
-    const auto& enum_labels = std::get<DbcAttrTypeEnum>(def_enum.attr_type);
+    auto const& def_enum = std::get<DbcAttrDef>(result->attributes[3]);
+    auto const& enum_labels = std::get<DbcAttrTypeEnum>(def_enum.attr_type);
     REQUIRE(enum_labels.values.size() == 3);
     CHECK(enum_labels.values[1] == "Gateway");
 
     // Default
-    const auto& dflt = std::get<DbcAttrDefault>(result->attributes[5]);
+    auto const& dflt = std::get<DbcAttrDefault>(result->attributes[5]);
     CHECK(dflt.name == "GenMsgCycleTime");
     CHECK(std::get<DbcAttrValueInt>(dflt.value).value == 100);
 
     // Assignments (target + value parity)
-    const auto& assign_sig = std::get<DbcAttrAssign>(result->attributes[7]);
-    const auto& sig_tgt = std::get<DbcAttrTargetSignal>(assign_sig.target);
+    auto const& assign_sig = std::get<DbcAttrAssign>(result->attributes[7]);
+    auto const& sig_tgt = std::get<DbcAttrTargetSignal>(assign_sig.target);
     CHECK(can_id_value(sig_tgt.id) == 512);
     CHECK(can_id_is_extended(sig_tgt.id));
     CHECK(sig_tgt.signal == "Torque");
     CHECK(std::get<DbcAttrValueFloat>(assign_sig.value).value == Rational{3, 4});
 
-    const auto& assign_nm = std::get<DbcAttrAssign>(result->attributes[9]);
-    const auto& nm_tgt = std::get<DbcAttrTargetNodeMsg>(assign_nm.target);
+    auto const& assign_nm = std::get<DbcAttrAssign>(result->attributes[9]);
+    auto const& nm_tgt = std::get<DbcAttrTargetNodeMsg>(assign_nm.target);
     CHECK(nm_tgt.node.get() == "ECU1");
     CHECK(can_id_value(nm_tgt.id) == 256);
     CHECK_FALSE(can_id_is_extended(nm_tgt.id));
 
-    const auto& assign_ns = std::get<DbcAttrAssign>(result->attributes[10]);
-    const auto& ns_tgt = std::get<DbcAttrTargetNodeSig>(assign_ns.target);
+    auto const& assign_ns = std::get<DbcAttrAssign>(result->attributes[10]);
+    auto const& ns_tgt = std::get<DbcAttrTargetNodeSig>(assign_ns.target);
     CHECK(ns_tgt.node.get() == "ECU1");
     CHECK(ns_tgt.signal == "Torque");
     CHECK(can_id_is_extended(ns_tgt.id));
@@ -1153,7 +1153,7 @@ TEST_CASE("a target naming an identifier too wide for its width is refused",
     // value outside the width it claims is refused at the parse boundary rather
     // than stored and handed on. 0x800 needs twelve bits; the target says the
     // identifier is standard, which is eleven.
-    auto make = [](const char* target) {
+    auto const make = [](const char* target) {
         return std::string{R"({"status":"success","dbc":{"version":"1.0","messages":[],)"} +
                R"("comments":[{"target":)" + target + R"(,"text":"x"}]}})";
     };
@@ -1166,7 +1166,7 @@ TEST_CASE("a target naming an identifier too wide for its width is refused",
         detail::parse_dbc_response(make(R"({"kind":"message","id":2048,"extended":true})"));
     REQUIRE(as_extended.has_value());
     REQUIRE(as_extended->comments.size() == 1);
-    const auto& t = std::get<DbcCommentTargetMessage>(as_extended->comments[0].target);
+    auto const& t = std::get<DbcCommentTargetMessage>(as_extended->comments[0].target);
     CHECK(can_id_value(t.id) == 2048);
     CHECK(can_id_is_extended(t.id));
 }
@@ -1178,7 +1178,7 @@ TEST_CASE("DbcSignal.receivers round-trips through serialize + parse",
     REQUIRE(dbc.messages[0].signals.size() == 1);
     dbc.messages[0].signals[0].receivers = {NodeName{"ECU_A"}, NodeName{"ECU_B"}};
 
-    auto str = detail::serialize_parse_dbc(dbc);
+    auto const str = detail::serialize_parse_dbc(dbc);
     auto j = Json::parse(str);
 
     REQUIRE(j["dbc"]["messages"][0]["signals"][0]["receivers"].is_array());
@@ -1191,7 +1191,7 @@ TEST_CASE("DbcSignal.receivers round-trips through serialize + parse",
     REQUIRE(result.has_value());
     REQUIRE(result->messages.size() == 1);
     REQUIRE(result->messages[0].signals.size() == 1);
-    const auto& parsed = result->messages[0].signals[0].receivers;
+    auto const& parsed = result->messages[0].signals[0].receivers;
     REQUIRE(parsed.size() == 2);
     CHECK(parsed[0].get() == "ECU_A");
     CHECK(parsed[1].get() == "ECU_B");
@@ -1230,7 +1230,7 @@ TEST_CASE("DbcMessage.senders round-trips through serialize + parse",
     REQUIRE(dbc.messages.size() == 1);
     dbc.messages[0].senders = {NodeName{"ECU_B"}, NodeName{"ECU_C"}};
 
-    auto str = detail::serialize_parse_dbc(dbc);
+    auto const str = detail::serialize_parse_dbc(dbc);
     auto j = Json::parse(str);
 
     REQUIRE(j["dbc"]["messages"][0]["senders"].is_array());
@@ -1242,7 +1242,7 @@ TEST_CASE("DbcMessage.senders round-trips through serialize + parse",
     auto result = detail::parse_dbc_response(envelope.dump());
     REQUIRE(result.has_value());
     REQUIRE(result->messages.size() == 1);
-    const auto& parsed = result->messages[0].senders;
+    auto const& parsed = result->messages[0].senders;
     REQUIRE(parsed.size() == 2);
     CHECK(parsed[0].get() == "ECU_B");
     CHECK(parsed[1].get() == "ECU_C");
@@ -1317,7 +1317,7 @@ TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc]
     REQUIRE(result.has_value());
     REQUIRE(result->unresolved_value_descs.size() == 2);
 
-    const auto& rvd0 = result->unresolved_value_descs[0];
+    auto const& rvd0 = result->unresolved_value_descs[0];
     CHECK(std::holds_alternative<StandardId>(rvd0.can_id));
     CHECK(std::get<StandardId>(rvd0.can_id).value() == 256);
     CHECK(rvd0.signal_name == "PhantomSignal");
@@ -1327,7 +1327,7 @@ TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc]
     CHECK(rvd0.entries[1].value == 1);
     CHECK(rvd0.entries[1].description == "On");
 
-    const auto& rvd1 = result->unresolved_value_descs[1];
+    auto const& rvd1 = result->unresolved_value_descs[1];
     CHECK(std::holds_alternative<ExtendedId>(rvd1.can_id));
     CHECK(std::get<ExtendedId>(rvd1.can_id).value() == 1234567);
     CHECK(rvd1.signal_name == "GhostSignal");
@@ -1353,7 +1353,7 @@ TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
     // Serialize via the parse_dbc COMMAND form — the "dbc" body shape is
     // identical to the "dbc" body shape in a parse_dbc RESPONSE, so the
     // wire shape under test is the same one the FFI emits and consumes.
-    auto cmd_str = detail::serialize_parse_dbc(dbc);
+    auto const cmd_str = detail::serialize_parse_dbc(dbc);
     auto cmd_j = Json::parse(cmd_str);
     REQUIRE(cmd_j.contains("dbc"));
     REQUIRE(cmd_j["dbc"]["unresolvedValueDescs"].is_array());
@@ -1364,7 +1364,7 @@ TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
     auto parsed = detail::parse_dbc_response(response.dump());
     REQUIRE(parsed.has_value());
     REQUIRE(parsed->unresolved_value_descs.size() == 1);
-    const auto& rvd = parsed->unresolved_value_descs[0];
+    auto const& rvd = parsed->unresolved_value_descs[0];
     CHECK(std::holds_alternative<StandardId>(rvd.can_id));
     CHECK(std::get<StandardId>(rvd.can_id).value() == 0x100);
     CHECK(rvd.signal_name == "Phantom");
@@ -1478,7 +1478,7 @@ TEST_CASE("parse_dbc_response rejects a CAN id above the 32-bit position",
     // The id position narrows to 32 bits.  2^32 wraps to zero, which is a
     // valid standard id, so the message would decode under an id the document
     // never stated.
-    auto make = [](const std::string& id) {
+    auto const make = [](const std::string& id) {
         return std::string{R"({"status":"success","dbc":{"version":"","messages":[{)"} +
                R"("id":)" + id +
                R"(,"name":"M","dlc":8,"sender":"","extended":true,"signals":[]}]}})";
@@ -1666,74 +1666,76 @@ TEST_CASE("ExtractionResult::get helper", "[response]") {
 // ===========================================================================
 
 TEST_CASE("format_formula always less than", "[enrich]") {
-    auto f = ltl::always(
+    auto const f = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     CHECK(format_formula(f) == "always(Speed < 220)");
 }
 
 TEST_CASE("format_formula never pattern", "[enrich]") {
-    auto f = ltl::never(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}));
+    auto const f =
+        ltl::never(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}));
     CHECK(format_formula(f) == "never Speed > 100");
 }
 
 TEST_CASE("format_formula eventually", "[enrich]") {
-    auto f = ltl::eventually(
+    auto const f = ltl::eventually(
         ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{Rational{1, 1}})));
     CHECK(format_formula(f) == "eventually(Mode = 1)");
 }
 
 TEST_CASE("format_formula metric always", "[enrich]") {
-    auto f = ltl::always_within(
+    auto const f = ltl::always_within(
         Timestamp{5'000'000},
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     CHECK(format_formula(f) == "always within 5s (Speed < 220)");
 }
 
 TEST_CASE("format_formula metric eventually", "[enrich]") {
-    auto f =
+    auto const f =
         ltl::within(Timestamp{2'000'000},
                     ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{Rational{1, 1}})));
     CHECK(format_formula(f) == "eventually within 2s (Mode = 1)");
 }
 
 TEST_CASE("format_formula next", "[enrich]") {
-    auto f = ltl::next(
+    auto const f = ltl::next(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     CHECK(format_formula(f) == "next(Speed < 220)");
 }
 
 TEST_CASE("format_formula and", "[enrich]") {
-    auto f = ltl::both(
+    auto const f = ltl::both(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})),
         ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}})));
     CHECK(format_formula(f) == "Speed < 220 and RPM > 500");
 }
 
 TEST_CASE("format_formula or", "[enrich]") {
-    auto f = ltl::either(
+    auto const f = ltl::either(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})),
         ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}})));
     CHECK(format_formula(f) == "Speed < 220 or RPM > 500");
 }
 
 TEST_CASE("format_formula until", "[enrich]") {
-    auto f =
+    auto const f =
         ltl::until(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{50, 1}})),
                    ltl::atomic(ltl::equals(SignalName{"Brake"}, PhysicalValue{Rational{1, 1}})));
     CHECK(format_formula(f) == "Speed < 50 until Brake = 1");
 }
 
 TEST_CASE("format_formula release", "[enrich]") {
-    auto f = ltl::release(ltl::atomic(ltl::equals(SignalName{"A"}, PhysicalValue{Rational{1, 1}})),
-                          ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{Rational{}})));
+    auto const f =
+        ltl::release(ltl::atomic(ltl::equals(SignalName{"A"}, PhysicalValue{Rational{1, 1}})),
+                     ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{Rational{}})));
     CHECK(format_formula(f) == "A = 1 release B = 0");
 }
 
 TEST_CASE("implies desugars to or(not(antecedent), consequent)", "[enrich]") {
-    auto ante = [] {
+    auto const ante = [] {
         return ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{50, 1}}));
     };
-    auto cons = [] {
+    auto const cons = [] {
         return ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}}));
     };
     // implies(a, c) is the standard LTL encoding !a || c — identical to
@@ -1744,49 +1746,51 @@ TEST_CASE("implies desugars to or(not(antecedent), consequent)", "[enrich]") {
 }
 
 TEST_CASE("format_formula all predicate types", "[enrich]") {
-    auto eq = ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{42, 1}}));
+    auto const eq = ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{42, 1}}));
     CHECK(format_formula(eq) == "S = 42");
 
-    auto lt = ltl::atomic(ltl::less_than(SignalName{"S"}, PhysicalValue{Rational{10, 1}}));
+    auto const lt = ltl::atomic(ltl::less_than(SignalName{"S"}, PhysicalValue{Rational{10, 1}}));
     CHECK(format_formula(lt) == "S < 10");
 
-    auto gt = ltl::atomic(ltl::greater_than(SignalName{"S"}, PhysicalValue{Rational{5, 1}}));
+    auto const gt = ltl::atomic(ltl::greater_than(SignalName{"S"}, PhysicalValue{Rational{5, 1}}));
     CHECK(format_formula(gt) == "S > 5");
 
-    auto le =
+    auto const le =
         ltl::atomic(ltl::less_than_or_equal(SignalName{"S"}, PhysicalValue{Rational{100, 1}}));
     CHECK(format_formula(le) == "S <= 100");
 
-    auto ge = ltl::atomic(ltl::greater_than_or_equal(SignalName{"S"}, PhysicalValue{Rational{}}));
+    auto const ge =
+        ltl::atomic(ltl::greater_than_or_equal(SignalName{"S"}, PhysicalValue{Rational{}}));
     CHECK(format_formula(ge) == "S >= 0");
 
-    auto bw = ltl::atomic(ltl::between(SignalName{"S"}, PhysicalValue{Rational{10, 1}},
-                                       PhysicalValue{Rational{29, 2}}));
+    auto const bw = ltl::atomic(ltl::between(SignalName{"S"}, PhysicalValue{Rational{10, 1}},
+                                             PhysicalValue{Rational{29, 2}}));
     CHECK(format_formula(bw) == "10 <= S <= 14.5");
 
-    auto cb = ltl::atomic(ltl::changed_by(SignalName{"S"}, Delta{Rational{5, 1}}));
+    auto const cb = ltl::atomic(ltl::changed_by(SignalName{"S"}, Delta{Rational{5, 1}}));
     CHECK(format_formula(cb) == "\xce\x94S >= 5");
 
-    auto cb_neg = ltl::atomic(ltl::changed_by(SignalName{"S"}, Delta{Rational{-3, 1}}));
+    auto const cb_neg = ltl::atomic(ltl::changed_by(SignalName{"S"}, Delta{Rational{-3, 1}}));
     CHECK(format_formula(cb_neg) == "\xce\x94S <= -3");
 
-    auto sw = ltl::atomic(ltl::stable_within(SignalName{"S"}, Tolerance{Rational{2, 1}}));
+    auto const sw = ltl::atomic(ltl::stable_within(SignalName{"S"}, Tolerance{Rational{2, 1}}));
     CHECK(format_formula(sw) == "|\xce\x94S| <= 2");
 }
 
 TEST_CASE("format_formula metric until", "[enrich]") {
     using namespace std::chrono_literals;
-    auto f = LtlFormula{MetricUntil{.bound = Timestamp{3'000'000},
-                                    .left = std::make_unique<LtlFormula>(ltl::atomic(ltl::less_than(
-                                        SignalName{"Speed"}, PhysicalValue{Rational{50, 1}}))),
-                                    .right = std::make_unique<LtlFormula>(ltl::atomic(ltl::equals(
-                                        SignalName{"Brake"}, PhysicalValue{Rational{1, 1}})))}};
+    auto const f = LtlFormula{MetricUntil{
+        .bound = Timestamp{3'000'000},
+        .left = std::make_unique<LtlFormula>(
+            ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{50, 1}}))),
+        .right = std::make_unique<LtlFormula>(
+            ltl::atomic(ltl::equals(SignalName{"Brake"}, PhysicalValue{Rational{1, 1}})))}};
     CHECK(format_formula(f) == "Speed < 50 until within 3s Brake = 1");
 }
 
 TEST_CASE("format_formula metric release", "[enrich]") {
     using namespace std::chrono_literals;
-    auto f = LtlFormula{
+    auto const f = LtlFormula{
         MetricRelease{.bound = Timestamp{500'000},
                       .left = std::make_unique<LtlFormula>(
                           ltl::atomic(ltl::equals(SignalName{"A"}, PhysicalValue{Rational{1, 1}}))),
@@ -1830,12 +1834,12 @@ TEST_CASE("parse_dbc_response rejects a non-boolean extended flag",
 // decoder's)
 TEST_CASE("parse_dbc_response rejects out-of-range startBit/length",
           "[json][parse][dbc][validation]") {
-    auto reject = [](const char* field, int value) {
+    auto const reject = [](const char* field, int value) {
         auto j = base_dbc_response();
         first_signal(j)[field] = value;
         return !detail::parse_dbc_response(j.dump()).has_value();
     };
-    auto accept = [](const char* field, int value) {
+    auto const accept = [](const char* field, int value) {
         auto j = base_dbc_response();
         first_signal(j)[field] = value;
         return detail::parse_dbc_response(j.dump()).has_value();
@@ -1866,7 +1870,7 @@ TEST_CASE("parse_dbc_response rejects an unknown or missing presence",
 // multiplexed presence requires non-empty multiplexor + values
 TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
           "[json][parse][dbc][validation]") {
-    auto make_mux = [](const char* mux, Json values) {
+    auto const make_mux = [](const char* mux, Json values) {
         auto j = base_dbc_response();
         auto& sig = first_signal(j);
         sig["presence"] = "multiplexed";
@@ -1987,7 +1991,7 @@ TEST_CASE("handler_validation_failed envelope lifts issues into the typed error"
     // The legacy message text is untouched by the lift.
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("duplicate signal name 'S'"));
     REQUIRE(r.error().issues().has_value());
-    const auto& issues = *r.error().issues();
+    auto const& issues = *r.error().issues();
     REQUIRE(issues.size() == 2);
     CHECK(issues[0].severity == IssueSeverity::Error);
     CHECK(issues[0].code == IssueCode::DuplicateSignalName);
@@ -2011,7 +2015,7 @@ TEST_CASE("handler_validation_failed without structured fields degrades to nullo
 
 TEST_CASE("handler_validation_failed with a malformed issues payload degrades to nullopt",
           "[json][parse][error]") {
-    const auto* const envelope = GENERATE(
+    auto const* const envelope = GENERATE(
         // has_errors missing
         R"({"status":"error","code":"handler_validation_failed","message":"m",)"
         R"("issues":[]})",

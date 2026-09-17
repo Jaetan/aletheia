@@ -131,7 +131,7 @@ inline constexpr std::string_view k_drops_below = "drops_below";
 }
 
 /// Apply a when-condition to a WhenSignal builder.
-[[nodiscard]] inline auto dispatch_when(WhenSignal& builder, std::string_view condition,
+[[nodiscard]] inline auto dispatch_when(WhenSignal const& builder, std::string_view condition,
                                         PhysicalValue value) -> WhenCondition {
     if (condition == k_exceeds)
         return builder.exceeds(value);
@@ -200,7 +200,7 @@ inline constexpr std::array<std::pair<std::string_view, ThenSlots>, 3> k_then_sl
 }};
 
 [[nodiscard]] constexpr auto then_slots(std::string_view c) -> std::optional<ThenSlots> {
-    for (const auto& [word, slots] : k_then_slots)
+    for (auto const& [word, slots] : k_then_slots)
         if (c == word)
             return slots;
     return std::nullopt;

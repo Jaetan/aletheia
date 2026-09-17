@@ -83,7 +83,7 @@ static auto default_path_state() -> DefaultPathState& {
 // consultation is what keeps the renderer and the backend on the same library.
 static auto find_library_path() -> std::filesystem::path {
     namespace fs = std::filesystem;
-    if (auto* env = std::getenv("ALETHEIA_LIB")) {
+    if (auto const* env = std::getenv("ALETHEIA_LIB")) {
         const std::string_view env_sv{env};
         if (!env_sv.empty()) {
             const fs::path p{env_sv};
@@ -103,7 +103,7 @@ static auto find_library_path() -> std::filesystem::path {
     }
     // Heuristic: ctest runs from `cpp/build`; integration / parity
     // tests already navigate to `<repo>/build/libaletheia-ffi.so`.
-    for (const auto* candidate : {
+    for (auto const* candidate : {
              "../../build/libaletheia-ffi.so",
              "../build/libaletheia-ffi.so",
              "build/libaletheia-ffi.so",
@@ -121,7 +121,7 @@ static auto find_library_path() -> std::filesystem::path {
 // Called exactly once per process via `std::call_once`.
 static void init_renderer() {
     auto& s = state();
-    auto lib_path = find_library_path();
+    auto const lib_path = find_library_path();
     if (lib_path.empty()) {
         s.load_error = "libaletheia-ffi.so not found; build with: cabal run shake -- build";
         return;
@@ -131,7 +131,7 @@ static void init_renderer() {
         s.load_error = std::string{"renderer dlopen failed: "} + dlerror();
         return;
     }
-    auto load_sym = [&](const char* name) -> void* {
+    auto const load_sym = [&](const char* name) -> void* {
         dlerror(); // clear previous errors
         void* sym = dlsym(handle, name);
         if (const char* err = dlerror(); err != nullptr) {
@@ -189,7 +189,7 @@ static auto kernel_string(Call call, std::string_view whats_down, std::string_vi
     if (raw == nullptr)
         throw AletheiaException(
             AletheiaError{ErrorKind::Ffi, std::string{returned_null} + " returned a null pointer"});
-    auto deleter = [&s](char* p) { s.free_fn(p); };
+    auto const deleter = [&s](char* p) { s.free_fn(p); };
     const std::unique_ptr<char, decltype(deleter)> guard{raw, deleter};
     return std::string{raw};
 }

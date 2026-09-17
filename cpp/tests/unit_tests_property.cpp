@@ -28,11 +28,12 @@ TEST_CASE("Rational round-trips through serialize+parse for any int64 numerator"
     // Pick a small, bounded set per Catch2 GENERATE semantics; the
     // libFuzzer harness covers the wide-range case.  These values exercise
     // the boundary classes (zero, positive, negative, max/min int64-ish).
-    auto numerator = GENERATE(std::int64_t{0}, std::int64_t{1}, std::int64_t{-1}, std::int64_t{42},
-                              std::int64_t{-42}, std::int64_t{1'000'000}, std::int64_t{-1'000'000},
-                              static_cast<std::int64_t>(std::uint64_t{1} << 32U),
-                              -static_cast<std::int64_t>(std::uint64_t{1} << 32U));
-    auto denominator =
+    auto const numerator =
+        GENERATE(std::int64_t{0}, std::int64_t{1}, std::int64_t{-1}, std::int64_t{42},
+                 std::int64_t{-42}, std::int64_t{1'000'000}, std::int64_t{-1'000'000},
+                 static_cast<std::int64_t>(std::uint64_t{1} << 32U),
+                 -static_cast<std::int64_t>(std::uint64_t{1} << 32U));
+    auto const denominator =
         GENERATE(std::int64_t{1}, std::int64_t{2}, std::int64_t{7}, std::int64_t{1000});
     const Rational original{numerator, denominator};
     // Serialize a wire-form DBC carrying the Rational as a signal factor;
@@ -65,12 +66,12 @@ TEST_CASE("Rational round-trips through serialize+parse for any int64 numerator"
             .signals = {sig},
         }},
     };
-    auto wire = detail::serialize_parsed_dbc_response(dbc);
+    auto const wire = detail::serialize_parsed_dbc_response(dbc);
     auto parsed = detail::parse_parsed_dbc(wire);
     REQUIRE(parsed.has_value());
     REQUIRE(parsed.value().dbc.messages.size() == 1);
     REQUIRE(parsed.value().dbc.messages[0].signals.size() == 1);
-    auto round_trip = parsed.value().dbc.messages[0].signals[0].factor.get();
+    auto const round_trip = parsed.value().dbc.messages[0].signals[0].factor.get();
     // Cross-multiplication value equality.
     CHECK(original.numerator() * round_trip.denominator() ==
           round_trip.numerator() * original.denominator());
@@ -80,31 +81,32 @@ TEST_CASE("Standard CAN ID factory accepts every value in [0, 2048)", "[property
     // Exhaustive over the whole standard range rather than a sample, since the
     // range is small enough to sweep: any hole in the factory's accept set is
     // a failure here, not a sampling miss.
-    auto value = GENERATE(range(0, 2048));
-    auto sid = StandardId::create(static_cast<std::uint32_t>(value));
+    auto const value = GENERATE(range(0, 2048));
+    auto const sid = StandardId::create(static_cast<std::uint32_t>(value));
     CHECK(sid.has_value());
 }
 
 TEST_CASE("Standard CAN ID factory rejects values from 2048 up", "[property]") {
     // The rejected side spans the whole 32-bit range, so this one samples: the
     // first illegal value, its successor, and two far above it.
-    auto value = GENERATE(std::uint32_t{0x800}, // 2048, first illegal
-                          std::uint32_t{0x801}, std::uint32_t{0xFFFF}, std::uint32_t{0xFFFFFFFF});
-    auto sid = StandardId::create(value);
+    auto const value =
+        GENERATE(std::uint32_t{0x800}, // 2048, first illegal
+                 std::uint32_t{0x801}, std::uint32_t{0xFFFF}, std::uint32_t{0xFFFFFFFF});
+    auto const sid = StandardId::create(value);
     CHECK_FALSE(sid.has_value());
 }
 
 TEST_CASE("DLC factory accepts every value in [0, 15]", "[property]") {
     // The code's whole legal range, swept.
-    auto value = GENERATE(range(0, 16));
-    auto dlc = Dlc::create(static_cast<std::uint8_t>(value));
+    auto const value = GENERATE(range(0, 16));
+    auto const dlc = Dlc::create(static_cast<std::uint8_t>(value));
     CHECK(dlc.has_value());
 }
 
 TEST_CASE("DLC factory rejects every value > 15", "[property]") {
     // The argument is a byte, so the rejected side is swept too: every value
     // from the first illegal one to the largest the type holds.
-    auto value = GENERATE(range(16, 256));
-    auto dlc = Dlc::create(static_cast<std::uint8_t>(value));
+    auto const value = GENERATE(range(16, 256));
+    auto const dlc = Dlc::create(static_cast<std::uint8_t>(value));
     CHECK_FALSE(dlc.has_value());
 }

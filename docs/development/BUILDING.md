@@ -40,9 +40,9 @@ This document provides step-by-step instructions for building Aletheia from sour
 policy; other docs link here rather than restating it.**
 
 Aletheia is built and tested against the **latest stable** compilers — currently
-**Clang 22**, **Python 3.14**, and **Go 1.26**. Older releases may work, but they
+**Clang 23**, **Python 3.14**, and **Go 1.26**. Older releases may work, but they
 are not supported: the project tracks the latest stable toolchain and moves
-forward (e.g. to Clang 23) when it ships, rather than promising a
+forward to the next release when it ships, rather than promising a
 minimum-version floor. g++ is not supported for the C++ binding (the sanitizer
 lanes need clang's `-fsanitize-ignorelist`, and UB can differ between compiler
 versions, so the shipped compiler is pinned). Two caveats are hard requirements,
@@ -328,7 +328,7 @@ cd python && pip install -e ".[dev]"
 python3 -m pytest tests/ -v
 
 # C++ tests
-cd ../cpp && cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 && cmake --build build && ctest --test-dir build
+cd ../cpp && cmake -B build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 && cmake --build build && ctest --test-dir build
 
 # Go tests (requires cgo + libaletheia-ffi.so on LD_LIBRARY_PATH)
 cd ../go && go test ./aletheia/ -v -count=1 -race
@@ -574,11 +574,11 @@ After install, run `cabal run shake -- clean && cabal run shake -- build`.
 
 **Error**: `std::expected` / `std::format` / spaceship operator not found when building `cpp/`, or `error: no member named 'byte' in namespace 'std'`.
 
-**Solution**: The C++ binding supports the **latest stable Clang only** (currently 22) — g++ is not supported (the sanitizer lanes need clang's `-fsanitize-ignorelist`). It also needs a libstdc++/libc++ that provides C++23 (`<expected>`); older Clang may work but is unsupported. Check with:
+**Solution**: The C++ binding supports the **latest stable Clang only** (currently 23), and g++ is not supported (the sanitizer lanes need clang's `-fsanitize-ignorelist`). It also needs a libstdc++/libc++ that provides C++23 (`<expected>`); older Clang may work but is unsupported. Check with:
 
 ```bash
-clang++-22 --version   # expect 22.x (latest stable)
-cmake -B cpp/build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22
+clang++-23 --version   # expect 23.x (latest stable)
+cmake -B cpp/build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 ```
 
 ### Python Venv Version Drift (`ImportError` on Known-Good Code)
@@ -726,12 +726,12 @@ agda +RTS -M16G -RTS Aletheia/Protocol/Message.agda  # Check just Message module
 
 **Solution**: These are fetched automatically via CMake FetchContent. Ensure CMake 3.25+ and an internet connection on first build:
 ```bash
-cd cpp && cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 && cmake --build build
+cd cpp && cmake -B build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 && cmake --build build
 ```
 
 **Error**: `error: use of undeclared identifier 'std::format'`
 
-**Solution**: C++23 is required. Use the latest stable Clang (currently 22) with a libstdc++/libc++ that supports C++23.
+**Solution**: C++23 is required. Use the latest stable Clang (currently 23) with a libstdc++/libc++ that supports C++23.
 
 ### Go Build/Test Fails
 

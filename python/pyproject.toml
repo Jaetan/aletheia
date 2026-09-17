@@ -107,14 +107,14 @@ dev = [
     # surfaces in dev environments.
     "psutil>=7.2.2,<8",
     # clang-format drives the C++ ``clang-format --dry-run --Werror`` gate.
-    # Pinned TIGHTER than the major-level bounds above (>=22.1.8,<22.2, not <23):
+    # Pinned TIGHTER than the major-level bounds above (>=23.1.1,<23.2, not <24):
     # clang-format output is version-specific — trailing-return signatures
     # (``auto f(params) -> T``) wrap differently across versions, and the *system*
     # clang-format on CI runners is whatever update-alternatives happens to
     # select (often NOT the version apt installs).  Pinning the pip binary makes
     # the gate byte-identical on every contributor + CI; run_ci routes the gate
     # through ``python/.venv/bin/clang-format`` rather than a bare PATH lookup.
-    "clang-format>=22.1.8,<22.2",
+    "clang-format>=23.1.1,<23.2",
     # cmakelang provides cmake-lint, which drives the CMake gate.  Pinned and
     # taken from the venv for the same reason as clang-format above: a lint
     # tool's findings are version-specific, and the CI runners carry no

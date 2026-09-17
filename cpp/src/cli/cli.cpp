@@ -174,7 +174,7 @@ static auto parse_can_id(std::string_view s) -> std::optional<std::uint32_t> {
     // Cold path.
     const std::string str{s};
     std::uint32_t value = 0;
-    const auto* const end = std::to_address(str.end());
+    auto const* const end = std::to_address(str.end());
     auto [ptr, ec] = std::from_chars(str.data(), end, value, base);
     if (ec != std::errc{} || ptr != end)
         return std::nullopt;
@@ -209,7 +209,7 @@ static auto parse_hex_data(std::string_view s) -> std::optional<std::vector<std:
     for (std::size_t i = 0; i < view.size(); i += 2) {
         const std::string octet{view.substr(i, 2)};
         std::uint8_t byte = 0;
-        const auto* const end = std::to_address(octet.end());
+        auto const* const end = std::to_address(octet.end());
         auto [ptr, ec] = std::from_chars(octet.data(), end, byte, 16);
         if (ec != std::errc{} || ptr != end)
             return std::nullopt;
@@ -235,7 +235,7 @@ static auto parse_args(std::span<const std::string> args, const std::set<std::st
         }
         std::string name = a.substr(2);
         std::optional<std::string> inline_val;
-        if (auto eq = name.find('='); eq != std::string::npos) {
+        if (auto const eq = name.find('='); eq != std::string::npos) {
             inline_val = name.substr(eq + 1);
             name = name.substr(0, eq);
         }
@@ -256,7 +256,7 @@ static auto parse_args(std::span<const std::string> args, const std::set<std::st
 }
 
 static auto opt_or(const Args& a, const std::string& key) -> std::string {
-    auto it = a.opts.find(key);
+    auto const it = a.opts.find(key);
     return it == a.opts.end() ? std::string{} : it->second;
 }
 
@@ -270,7 +270,7 @@ static auto render_validation(bool has_errors, const std::vector<aletheia::Valid
                               bool as_json) -> int {
     if (as_json) {
         Json arr = Json::array();
-        for (const auto& i : issues)
+        for (auto const& i : issues)
             arr.push_back({{"severity", std::string{aletheia::to_string(i.severity)}},
                            {"code", std::string{aletheia::issue_code_label(i)}},
                            {"detail", i.detail}});
@@ -293,7 +293,7 @@ static auto render_validation(bool has_errors, const std::vector<aletheia::Valid
     std::cout << (has_errors ? "Validation FAILED" : "Validation passed with warnings") << " ("
               << issues.size() << " issues)\n\n";
     int n = 1;
-    for (const auto& i : issues) {
+    for (auto const& i : issues) {
         std::string sev{aletheia::to_string(i.severity)};
         std::ranges::transform(sev, sev.begin(),
                                [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
@@ -320,9 +320,9 @@ static auto cmd_validate(const Args& a) -> int {
     if (!def) {
         // A parse rejected with validation issues renders as a normal
         // validation report; any other load failure stays fatal.
-        const auto& core = def.error().core;
+        auto const& core = def.error().core;
         if (core.has_value()) {
-            const auto& issues = core->issues();
+            auto const& issues = core->issues();
             if (issues.has_value())
                 return render_validation(has_error_issue(*issues), *issues,
                                          a.flags.contains("json"));
@@ -387,17 +387,17 @@ static auto cmd_extract(const Args& a) -> int {
         return die("CAN ID not found in DBC");
     auto res = client->extract_signals(std::stop_token{}, *id, msg->dlc, *data);
     if (!res)
-        return die(std::string{res.error().message()});
+        return die(res.error().message());
 
     if (a.flags.contains("json")) {
         Json values = Json::object();
-        for (const auto& v : res->values)
+        for (auto const& v : res->values)
             values[v.name.get()] = extract_value_to_json(v.value.get());
         Json errors = Json::object();
-        for (const auto& e : res->errors)
+        for (auto const& e : res->errors)
             errors[e.name.get()] = e.reason;
         Json absent = Json::array();
-        for (const auto& s : res->absent)
+        for (auto const& s : res->absent)
             absent.push_back(s.get());
         return emit_json({{"can_id", *can_id},
                           {"extended", extended},
@@ -409,9 +409,9 @@ static auto cmd_extract(const Args& a) -> int {
               << "):\n\n";
     if (res->values.empty())
         std::cout << "  (no signals)\n";
-    for (const auto& v : res->values)
+    for (auto const& v : res->values)
         std::cout << "  " << v.name.get() << " = " << render_rational(v.value.get()) << '\n';
-    for (const auto& e : res->errors)
+    for (auto const& e : res->errors)
         std::cout << "  error " << e.name.get() << ": " << e.reason << '\n';
     return cli_exit_ok;
 }
@@ -438,10 +438,10 @@ static auto cmd_signals(const Args& a) -> int {
         return cli_exit_ok;
     }
     std::size_t total = 0;
-    for (const auto& msg : def->dbc.messages) {
+    for (auto const& msg : def->dbc.messages) {
         std::cout << "Message 0x" << std::hex << aletheia::can_id_value(msg.id) << std::dec << " "
                   << msg.name.get() << '\n';
-        for (const auto& sig : msg.signals) {
+        for (auto const& sig : msg.signals) {
             ++total;
             print_signal_line(sig);
         }
@@ -459,7 +459,7 @@ static auto cmd_format_dbc(const Args& a) -> int {
         return die(def.error().message);
     auto canonical = client->format_dbc(std::stop_token{});
     if (!canonical)
-        return die(std::string{canonical.error().message()});
+        return die(canonical.error().message());
     std::cout << aletheia::to_canonical_json(*canonical) << '\n';
     return cli_exit_ok;
 }
@@ -484,7 +484,7 @@ static void print_message_header(const DbcMessage& msg) {
 // interfaces print them.
 static auto join_signal_names(std::span<const DbcSignal> sigs) -> std::string {
     std::string out;
-    for (const auto& s : sigs) {
+    for (auto const& s : sigs) {
         if (!out.empty())
             out += ", ";
         out += s.name.get();
@@ -495,11 +495,11 @@ static auto join_signal_names(std::span<const DbcSignal> sigs) -> std::string {
 // mux-query selector mode: the signals present for one (multiplexor, value).
 static auto mux_selector(const DbcMessage& msg, const std::string& mux, std::uint32_t value,
                          bool as_json) -> int {
-    const auto sigs =
+    auto const sigs =
         msg.signals_for_mux_value(aletheia::SignalName{mux}, aletheia::MultiplexValue{value});
     if (as_json) {
         Json names = Json::array();
-        for (const auto& s : sigs)
+        for (auto const& s : sigs)
             names.push_back(s.name.get());
         return emit_json({{"message_id", aletheia::can_id_value(msg.id)},
                           {"message_name", msg.name.get()},
@@ -510,7 +510,7 @@ static auto mux_selector(const DbcMessage& msg, const std::string& mux, std::uin
     print_message_header(msg);
     std::cout << "Multiplexor " << mux << " = " << value << ": " << sigs.size()
               << " signals present\n";
-    for (const auto& s : sigs)
+    for (auto const& s : sigs)
         std::cout << "  " << s.name.get() << '\n';
     return cli_exit_ok;
 }
@@ -519,11 +519,11 @@ static auto mux_selector(const DbcMessage& msg, const std::string& mux, std::uin
 static auto mux_summary(const DbcMessage& msg, bool as_json) -> int {
     if (as_json) {
         Json muxes = Json::array();
-        for (const auto& name : msg.multiplexor_names()) {
+        for (auto const& name : msg.multiplexor_names()) {
             Json vals = Json::array();
-            for (auto v : msg.multiplex_values(name)) {
+            for (auto const v : msg.multiplex_values(name)) {
                 Json sigs = Json::array();
-                for (const auto& s : msg.signals_for_mux_value(name, v))
+                for (auto const& s : msg.signals_for_mux_value(name, v))
                     sigs.push_back(s.name.get());
                 vals.push_back({{"value", v.get()}, {"signals", sigs}});
             }
@@ -540,9 +540,9 @@ static auto mux_summary(const DbcMessage& msg, bool as_json) -> int {
                   << " signals are always present.\n";
         return cli_exit_ok;
     }
-    for (const auto& name : msg.multiplexor_names()) {
+    for (auto const& name : msg.multiplexor_names()) {
         std::cout << "  " << name.get() << ":\n";
-        for (auto v : msg.multiplex_values(name)) {
+        for (auto const v : msg.multiplex_values(name)) {
             auto sigs = msg.signals_for_mux_value(name, v);
             std::cout << "    value " << v.get() << ": " << sigs.size() << " signals ("
                       << join_signal_names(sigs) << ")\n";
@@ -576,7 +576,7 @@ static auto cmd_mux_query(const Args& a) -> int {
 
     const std::string& vstr = a.opts.at("value");
     std::uint32_t value = 0;
-    const auto* const vend = std::to_address(vstr.end());
+    auto const* const vend = std::to_address(vstr.end());
     if (auto [ptr, ec] = std::from_chars(vstr.data(), vend, value);
         ec != std::errc{} || ptr != vend) {
         return die("invalid --value: " + vstr);

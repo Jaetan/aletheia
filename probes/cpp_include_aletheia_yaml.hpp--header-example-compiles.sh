@@ -18,4 +18,4 @@ example=$(sed -n '/^\/\/   auto checks = load_checks_from_yaml(/,/^\/\/   )");$/
     printf '%s\n' "$example" | sed 's/^auto checks = /auto checks_a = /; t; s/^auto checks = /auto checks_b = /' | awk 'BEGIN{n=0} /^auto checks_a = /{n++; if (n==2) sub(/^auto checks_a = /, "auto checks_b = ")} {print}'
     printf '    return 0;\n}\n'
 } > "$scratch/t.cpp"
-clang++-22 -std=c++23 -fsyntax-only -Icpp/include "$scratch/t.cpp" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }
+clang++-23 -std=c++23 -fsyntax-only -Icpp/include "$scratch/t.cpp" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }

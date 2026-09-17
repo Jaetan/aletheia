@@ -295,7 +295,7 @@ def _resolve_lib(bundle: Path, shell: str) -> Path:
 _TOOL_REQUIREMENTS: dict[str, tuple[tuple[str, str], ...]] = {
     "cpp": (
         ("cmake", "cmake not in PATH; install CMake 3.25+"),
-        ("clang++-22", "clang++-22 not in PATH; the bundled C++ binding is Clang-only"),
+        ("clang++-23", "clang++-23 not in PATH; the bundled C++ binding is Clang-only"),
     ),
     "go": (("go", "go not in PATH; install the Go toolchain"),),
     "rust": (("cargo", "cargo not in PATH; install the Rust toolchain"),),
@@ -340,7 +340,7 @@ def run_cpp_consumer(work: Path, recipe: list[str], lib: Path, cfg: Config) -> N
         "-B",
         str(build),
         "-DCMAKE_BUILD_TYPE=Release",
-        "-DCMAKE_CXX_COMPILER=clang++-22",
+        "-DCMAKE_CXX_COMPILER=clang++-23",
         f"-DALETHEIA_RECIPE_CMAKE={recipe_file}",
     ]
     if cfg.fetchcontent_cache is not None:

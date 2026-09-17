@@ -19,7 +19,7 @@ int h() {
 }
 CPP
 run() {
-    clang-tidy-22 --quiet -checks='-*,cppcoreguidelines-init-variables' \
+    clang-tidy-23 --quiet -checks='-*,cppcoreguidelines-init-variables' \
         -config="{CheckOptions: {cppcoreguidelines-init-variables.IncludeStyle: $1}}" \
         "$scratch/t.cpp" -- -std=c++23 2>/dev/null | grep 'warning:'
 }

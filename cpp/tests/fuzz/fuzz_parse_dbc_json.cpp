@@ -13,10 +13,10 @@
 #include <string_view>
 
 extern "C" auto LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) -> int {
-    auto input = std::string_view{reinterpret_cast<const char*>(data), size};
+    auto const input = std::string_view{reinterpret_cast<const char*>(data), size};
     // The DBC body parser receives wire JSON; assert no UB / no leak / no
     // exception escape on adversarial input.
-    [[maybe_unused]] auto r = aletheia::detail::parse_dbc_response(input);
-    [[maybe_unused]] auto p = aletheia::detail::parse_parsed_dbc(input);
+    [[maybe_unused]] auto const r = aletheia::detail::parse_dbc_response(input);
+    [[maybe_unused]] auto const p = aletheia::detail::parse_parsed_dbc(input);
     return 0;
 }

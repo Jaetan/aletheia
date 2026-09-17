@@ -50,7 +50,7 @@ static auto find_lib() -> fs::path {
     }
 
     // Default: project build directory
-    auto project_root = repo_root();
+    auto const project_root = repo_root();
     auto lib = project_root / "build" / "libaletheia-ffi.so";
     if (fs::exists(lib))
         return lib;
@@ -70,7 +70,7 @@ static auto find_lib() -> fs::path {
 
 static auto make_integration_dbc() -> DbcDefinition {
     auto speed_id = StandardId::create(0x100).value();
-    auto speed_dlc = Dlc::create(8).value();
+    auto const speed_dlc = Dlc::create(8).value();
 
     DbcSignal speed_sig{
         .name = SignalName{"Speed"},
@@ -117,7 +117,7 @@ static auto make_integration_dbc() -> DbcDefinition {
 // text does not reproduce the input DBC — format_dbc_text refuses it.
 static auto make_multi_value_mux_dbc() -> DbcDefinition {
     auto id = StandardId::create(0x123).value();
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
 
     DbcSignal selector{
         .name = SignalName{"Selector"},
@@ -164,10 +164,10 @@ static auto make_multi_value_mux_dbc() -> DbcDefinition {
 // text would rebind every slave to one master; the JSON side admits the shape.
 static auto make_split_master_mux_dbc() -> DbcDefinition {
     auto id = StandardId::create(0x124).value();
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
 
-    auto make_sig = [](std::string_view name, std::uint16_t start_bit,
-                       SignalPresence presence) -> DbcSignal {
+    auto const make_sig = [](std::string_view name, std::uint16_t start_bit,
+                             SignalPresence presence) -> DbcSignal {
         return DbcSignal{
             .name = SignalName{std::string{name}},
             .start_bit = BitPosition{start_bit},
@@ -209,11 +209,11 @@ static auto make_split_master_mux_dbc() -> DbcDefinition {
 // ---------------------------------------------------------------------------
 
 TEST_CASE("parse DBC via real FFI", "[integration]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    auto result = client.parse_dbc(std::stop_token{}, make_integration_dbc());
+    auto const result = client.parse_dbc(std::stop_token{}, make_integration_dbc());
     CHECK(result.has_value());
 }
 
@@ -221,7 +221,7 @@ TEST_CASE("Tier 1 DBC metadata round-trips through real FFI", "[integration][dbc
     // Mirrors python/tests/test_dbc_metadata_tier1.py::test_full_roundtrip.
     // Proves the Agda core preserves signalGroups, environmentVars, and
     // valueTables across parse_dbc → format_dbc.
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -263,7 +263,7 @@ TEST_CASE("Tier 1 DBC metadata round-trips through real FFI", "[integration][dbc
 }
 
 TEST_CASE("env var with non-terminating rational is rejected") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     if (lib.empty())
         return;
     auto backend = make_ffi_backend(lib);
@@ -294,7 +294,7 @@ TEST_CASE("signal with non-terminating rational factor is rejected") {
     // parse_non_terminating_rational.  This test pins the `factor` lane —
     // the remaining three lanes are exercised by the Python parametrised
     // test (`test_signal_non_terminating_rational_rejected`).
-    auto lib = find_lib();
+    auto const lib = find_lib();
     if (lib.empty())
         return;
     auto backend = make_ffi_backend(lib);
@@ -310,17 +310,17 @@ TEST_CASE("signal with non-terminating rational factor is rejected") {
 }
 
 TEST_CASE("extract signals via real FFI", "[integration]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    auto dbc = make_integration_dbc();
+    auto const dbc = make_integration_dbc();
     REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
 
     // Speed = 1000 raw * 0.1 factor = 100.0 km/h
     // RPM   = 3000 raw * 1.0 factor = 3000 rpm
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0xE8}, std::byte{0x03}, // 1000 LE
                       std::byte{0xB8}, std::byte{0x0B}, // 3000 LE
                       std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
@@ -441,8 +441,8 @@ static auto extract_with_crafted_buf(std::vector<std::byte> buf) -> Result<Extra
     AletheiaClient client(std::move(backend));
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload data(8, std::byte{0});
     return client.extract_signals(std::stop_token{}, id, dlc, data);
 }
@@ -539,7 +539,7 @@ TEST_CASE("binary extraction rejects a nonzero first reason offset", "[integrati
     w.u32(1); // off[0] must be 0
     w.u32(4);
     w.str("abcd");
-    auto err = expect_protocol_error(std::move(w.bytes));
+    auto const err = expect_protocol_error(std::move(w.bytes));
     CHECK(std::string_view{err.message()}.contains("offsets"));
 }
 
@@ -554,7 +554,7 @@ TEST_CASE("binary extraction rejects non-monotone reason offsets", "[integration
     w.u32(5); // decreases into off[2] = 4
     w.u32(4);
     w.str("abcd");
-    auto err = expect_protocol_error(std::move(w.bytes));
+    auto const err = expect_protocol_error(std::move(w.bytes));
     CHECK(std::string_view{err.message()}.contains("offsets"));
 }
 
@@ -566,7 +566,7 @@ TEST_CASE("binary extraction rejects a final offset that mismatches reasonBytes"
     w.u32(0);
     w.u32(3); // off[nErrors] must equal reasonBytes (4)
     w.str("abcd");
-    auto err = expect_protocol_error(std::move(w.bytes));
+    auto const err = expect_protocol_error(std::move(w.bytes));
     CHECK(std::string_view{err.message()}.contains("offsets"));
 }
 
@@ -579,14 +579,14 @@ TEST_CASE("binary extraction rejects invalid UTF-8 in a reason slice", "[integra
     w.u32(2);
     w.u8(0xFF); // 0xFF is never valid in UTF-8
     w.u8(0xFE);
-    auto err = expect_protocol_error(std::move(w.bytes));
+    auto const err = expect_protocol_error(std::move(w.bytes));
     CHECK(std::string_view{err.message()}.contains("UTF-8"));
 }
 
 TEST_CASE("binary extraction rejects a non-positive denominator", "[integration]") {
     // den == 0 hits the zero-denominator guard; den < 0 is rejected by the
     // Rational newtype (denominators are strictly positive on the wire).
-    const auto den = GENERATE(std::int64_t{0}, std::int64_t{-3});
+    auto const den = GENERATE(std::int64_t{0}, std::int64_t{-3});
     WireBuf w;
     w.header(/*nvals=*/1, /*nerrs=*/0, /*nabss=*/0, /*reason_bytes=*/0);
     w.u16(0);
@@ -604,9 +604,9 @@ TEST_CASE("binary and JSON extraction agree byte-for-byte on error reasons",
     // reason strings — reason parity is machine-checked kernel-side
     // (Aletheia.CAN.Batch.Properties.ReasonParity); this pins the C++
     // binding's end of it.
-    auto lib = find_lib();
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const lib = find_lib();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     // Speed raw 0xFFFF → 6553.5 km/h, above the DBC maximum of 655.35.
     FramePayload data{std::byte{0xFF}, std::byte{0xFF}, std::byte{0}, std::byte{0},
                       std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
@@ -638,13 +638,13 @@ TEST_CASE("binary and JSON extraction agree byte-for-byte on error reasons",
 }
 
 TEST_CASE("build frame via real FFI", "[integration]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
-    auto id = CanId{StandardId::create(0x100).value()};
+    auto const id = CanId{StandardId::create(0x100).value()};
     std::vector<SignalValue> signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}}, // raw = 1000
         {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{3000, 1}}},  // raw = 3000
@@ -661,7 +661,7 @@ TEST_CASE("build frame via real FFI", "[integration]") {
 }
 
 TEST_CASE("build frame for a CAN ID with no DBC message errors distinctly", "[integration]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -670,7 +670,7 @@ TEST_CASE("build frame for a CAN ID with no DBC message errors distinctly", "[in
     // 0x200 has no message in the DBC (only 0x100 does). The error must name the
     // missing message ("no DBC message for CAN ID"), distinct from the per-signal
     // "signal not found", matching Go (resolveSignalIndices) and Python.
-    auto id = CanId{StandardId::create(0x200).value()};
+    auto const id = CanId{StandardId::create(0x200).value()};
     std::vector<SignalValue> signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}},
     };
@@ -681,13 +681,13 @@ TEST_CASE("build frame for a CAN ID with no DBC message errors distinctly", "[in
 }
 
 TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
-    auto id = CanId{StandardId::create(0x100).value()};
+    auto const id = CanId{StandardId::create(0x100).value()};
     std::vector<SignalValue> signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{85, 2}}},
         {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{1500, 1}}},
@@ -719,26 +719,26 @@ TEST_CASE("FFI payload guards accept exactly 64 bytes (CAN-FD boundary)",
     // helper below covers both.  Per the no-defense-removal rule the guard
     // stays: this is the complement that proves it accepts the legal
     // maximum.
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
     REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     const std::vector<std::byte> data64(64, std::byte{0});
-    const auto dlc = Dlc::create(15).value();                      // CAN-FD DLC 15 = 64 bytes
-    const auto known = CanId{StandardId::create(0x100).value()};   // in the DBC → binary path
-    const auto unknown = CanId{StandardId::create(0x7FF).value()}; // not in DBC → JSON fallback
+    auto const dlc = Dlc::create(15).value();                      // CAN-FD DLC 15 = 64 bytes
+    auto const known = CanId{StandardId::create(0x100).value()};   // in the DBC → binary path
+    auto const unknown = CanId{StandardId::create(0x7FF).value()}; // not in DBC → JSON fallback
     const std::vector<SignalValue> signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}}};
 
-    const auto mentions_exceeds = [](std::string_view msg) {
+    auto const mentions_exceeds = [](std::string_view msg) {
         return msg.contains("data length exceeds");
     };
     // A 64-byte call must NOT produce the >64 guard error, whether the guard
     // reports by throwing or by returning std::unexpected.  The original
     // passes the guard (any non-exceeds outcome is fine); both mutants reject
     // with "data length exceeds …", failing the check.
-    const auto accepts_64 = [&](auto&& call) {
+    auto const accepts_64 = [&](auto&& call) {
         try {
             auto result = call();
             if (!result.has_value())
@@ -758,7 +758,7 @@ TEST_CASE("FFI payload guards accept exactly 64 bytes (CAN-FD boundary)",
 }
 
 TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -773,8 +773,8 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
 
     // Speed 100, 120 and 150 km/h at the DBC's factor of one tenth, all
     // under the threshold.
@@ -799,7 +799,7 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
 }
 
 TEST_CASE("streaming LTL check via real FFI — property violated", "[integration]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -814,8 +814,8 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     bool got_violation = false;
 
     // Speed 100, 110 and 150 km/h at the DBC's factor of one tenth; the last
@@ -849,7 +849,7 @@ TEST_CASE("non-monotonic timestamp rejected by Agda via real FFI", "[integration
     // handleDataFrame refuses them — this is the single source of truth
     // across all bindings, proven in
     // Aletheia.Protocol.FrameProcessor.Properties.Monotonic (PROPERTY 28).
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -863,8 +863,8 @@ TEST_CASE("non-monotonic timestamp rejected by Agda via real FFI", "[integration
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload payload{std::byte{10}, std::byte{0}, std::byte{0}, std::byte{0},
                          std::byte{0},  std::byte{0}, std::byte{0}, std::byte{0}};
 
@@ -888,12 +888,12 @@ TEST_CASE("non-monotonic timestamp rejected by Agda via real FFI", "[integration
     REQUIRE(fwd.has_value());
     CHECK(std::holds_alternative<Ack>(*fwd));
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
 }
 
 TEST_CASE("validate DBC via real FFI", "[integration]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -905,7 +905,7 @@ TEST_CASE("validate DBC via real FFI", "[integration]") {
 
 TEST_CASE("VAL_ value descriptions round-trip via real FFI",
           "[integration][dbc][value_descriptions]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -927,7 +927,7 @@ VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;
     REQUIRE(parsed.has_value());
     REQUIRE(parsed->dbc.messages.size() == 1);
     REQUIRE(parsed->dbc.messages[0].signals.size() == 1);
-    const auto& sig = parsed->dbc.messages[0].signals[0];
+    auto const& sig = parsed->dbc.messages[0].signals[0];
     REQUIRE(sig.value_descriptions.size() == 4);
     CHECK(sig.value_descriptions[0].value == 0);
     CHECK(sig.value_descriptions[0].description == "Off");
@@ -950,7 +950,7 @@ VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;
 
 TEST_CASE("format_dbc_text refuses a multi-value mux via real FFI",
           "[integration][dbc][format][roundtrip]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -959,7 +959,7 @@ TEST_CASE("format_dbc_text refuses a multi-value mux via real FFI",
     // than emitting lossy text.
     auto result = client.format_dbc_text(std::stop_token{}, make_multi_value_mux_dbc());
     REQUIRE_FALSE(result.has_value());
-    const auto& err = result.error();
+    auto const& err = result.error();
     CHECK(err.kind() == ErrorKind::TextRoundtrip);
     CHECK(err.code() == ErrorCode::HandlerTextRoundtripFailed);
     REQUIRE(err.issues().has_value());
@@ -968,7 +968,7 @@ TEST_CASE("format_dbc_text refuses a multi-value mux via real FFI",
     // prepends, plus the multi_value_mux_selector diagnostic.
     bool has_divergence = false;
     bool has_mux = false;
-    for (const auto& issue : *err.issues()) {
+    for (auto const& issue : *err.issues()) {
         if (issue.code == IssueCode::TextRoundtripDivergence)
             has_divergence = true;
         if (issue.code == IssueCode::MultiValueMuxSelector)
@@ -980,7 +980,7 @@ TEST_CASE("format_dbc_text refuses a multi-value mux via real FFI",
 
 TEST_CASE("CHECK 23 unknown_value_description_target warning via real FFI",
           "[integration][dbc][value_descriptions][validator]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1014,7 +1014,7 @@ static auto has_warning(const std::vector<ValidationIssue>& issues, IssueCode co
 
 TEST_CASE("CHECK 24 multi_value_mux_selector warning via real FFI",
           "[integration][dbc][validator][mux]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1033,7 +1033,7 @@ TEST_CASE("CHECK 24 multi_value_mux_selector warning via real FFI",
 
 TEST_CASE("CHECK 25 mux_master_incoherent warning via real FFI",
           "[integration][dbc][validator][mux]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1052,7 +1052,7 @@ TEST_CASE("CHECK 25 mux_master_incoherent warning via real FFI",
 
 TEST_CASE("rejected DBC text parse carries typed validation issues via real FFI",
           "[integration][dbc][validation]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1124,8 +1124,8 @@ static void run_concurrent_client(const fs::path& lib, std::barrier<>& sync,
         AletheiaClient client(std::move(backend));
 
         // Step 1: parse DBC
-        auto dbc = make_integration_dbc();
-        auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
+        auto const dbc = make_integration_dbc();
+        auto const parse_result = client.parse_dbc(std::stop_token{}, dbc);
         if (!parse_result.has_value()) {
             out.error = "parse_dbc failed";
             sync.arrive_and_drop();
@@ -1153,8 +1153,8 @@ static void run_concurrent_client(const fs::path& lib, std::barrier<>& sync,
         sync.arrive_and_wait();
 
         // Step 4: send frame with Speed = 150
-        auto id = CanId{StandardId::create(0x100).value()};
-        auto dlc = Dlc::create(8).value();
+        auto const id = CanId{StandardId::create(0x100).value()};
+        auto const dlc = Dlc::create(8).value();
         const std::uint16_t raw = 1500; // Speed 150 km/h at factor one tenth
         FramePayload data{static_cast<std::byte>(raw & 0xFFU),
                           static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
@@ -1191,7 +1191,7 @@ static void run_concurrent_client(const fs::path& lib, std::barrier<>& sync,
 }
 
 TEST_CASE("concurrent clients have independent state via real FFI", "[integration][concurrent]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
 
     // Barrier with 2 participants — blocks until both threads arrive.
     std::barrier sync(2);
@@ -1232,13 +1232,13 @@ TEST_CASE("concurrent clients have independent state via real FFI", "[integratio
 
 static auto make_nested_mux_dbc() -> DbcDefinition {
     auto sid = StandardId::create(0x300).value();
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
 
-    auto unit_factor = RationalFactor{Rational{1, 1}};
-    auto zero_offset = RationalOffset{Rational{0, 1}};
-    auto zero_min = RationalBound{Rational{0, 1}};
-    auto byte_max = RationalBound{Rational{255, 1}};
-    auto u16_max = RationalBound{Rational{65535, 1}};
+    auto const unit_factor = RationalFactor{Rational{1, 1}};
+    auto const zero_offset = RationalOffset{Rational{0, 1}};
+    auto const zero_min = RationalBound{Rational{0, 1}};
+    auto const byte_max = RationalBound{Rational{255, 1}};
+    auto const u16_max = RationalBound{Rational{65535, 1}};
 
     DbcSignal mode_sig{
         .name = SignalName{"Mode"},
@@ -1297,11 +1297,11 @@ static auto make_nested_mux_dbc() -> DbcDefinition {
 }
 
 static auto contains_signal(const std::vector<SignalName>& names, std::string_view want) -> bool {
-    return std::ranges::any_of(names, [&](const auto& n) { return n.get() == want; });
+    return std::ranges::any_of(names, [&](auto const& n) { return n.get() == want; });
 }
 
 TEST_CASE("nested mux DBC validates without errors via real FFI", "[integration][nested_mux]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1316,15 +1316,15 @@ TEST_CASE("nested mux DBC validates without errors via real FFI", "[integration]
 }
 
 TEST_CASE("nested mux full chain match extracts leaf via real FFI", "[integration][nested_mux]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_nested_mux_dbc()).has_value());
 
     // Mode=3, SubMode=7, Detail=0xABCD (43981)
-    auto id = CanId{StandardId::create(0x300).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x300).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0x03}, std::byte{0x07}, std::byte{0xCD}, std::byte{0xAB},
                       std::byte{0},    std::byte{0},    std::byte{0},    std::byte{0}};
 
@@ -1338,15 +1338,15 @@ TEST_CASE("nested mux full chain match extracts leaf via real FFI", "[integratio
 }
 
 TEST_CASE("nested mux inner mismatch marks leaf absent via real FFI", "[integration][nested_mux]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_nested_mux_dbc()).has_value());
 
     // Mode=3 (matches), SubMode=5 (≠7) — Detail should be reported absent.
-    auto id = CanId{StandardId::create(0x300).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x300).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0x03}, std::byte{0x05}, std::byte{0xCD}, std::byte{0xAB},
                       std::byte{0},    std::byte{0},    std::byte{0},    std::byte{0}};
 
@@ -1361,15 +1361,15 @@ TEST_CASE("nested mux inner mismatch marks leaf absent via real FFI", "[integrat
 
 TEST_CASE("nested mux outer mismatch marks inner and leaf absent via real FFI",
           "[integration][nested_mux]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
     REQUIRE(client.parse_dbc(std::stop_token{}, make_nested_mux_dbc()).has_value());
 
     // Mode=2 (≠3) — both SubMode and Detail should be reported absent.
-    auto id = CanId{StandardId::create(0x300).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x300).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0x02}, std::byte{0x07}, std::byte{0xCD}, std::byte{0xAB},
                       std::byte{0},    std::byte{0},    std::byte{0},    std::byte{0}};
 
@@ -1383,18 +1383,18 @@ TEST_CASE("nested mux outer mismatch marks inner and leaf absent via real FFI",
 }
 
 TEST_CASE("mux cycle rejected by validator via real FFI", "[integration][nested_mux]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
     // Two signals A and B that mutually multiplex on each other → cycle.
     auto sid = StandardId::create(0x301).value();
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
 
-    auto unit_factor = RationalFactor{Rational{1, 1}};
-    auto zero_offset = RationalOffset{Rational{0, 1}};
-    auto zero_min = RationalBound{Rational{0, 1}};
-    auto byte_max = RationalBound{Rational{255, 1}};
+    auto const unit_factor = RationalFactor{Rational{1, 1}};
+    auto const zero_offset = RationalOffset{Rational{0, 1}};
+    auto const zero_min = RationalBound{Rational{0, 1}};
+    auto const byte_max = RationalBound{Rational{255, 1}};
 
     DbcSignal sig_a{
         .name = SignalName{"A"},
@@ -1440,7 +1440,7 @@ TEST_CASE("mux cycle rejected by validator via real FFI", "[integration][nested_
     auto result = client.validate_dbc(std::stop_token{}, cycle_dbc);
     REQUIRE(result.has_value());
     REQUIRE(result->has_errors);
-    const bool found_cycle = std::ranges::any_of(result->issues, [](const auto& issue) {
+    const bool found_cycle = std::ranges::any_of(result->issues, [](auto const& issue) {
         return issue.code == IssueCode::MultiplexorCycle;
     });
     CHECK(found_cycle);
@@ -1464,7 +1464,7 @@ TEST_CASE("mux cycle rejected by validator via real FFI", "[integration][nested_
 static auto make_two_message_dbc() -> DbcDefinition {
     auto speed_id = StandardId::create(0x100).value();
     auto rpm_id = StandardId::create(0x200).value();
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
 
     DbcSignal speed_sig{
         .name = SignalName{"Speed"},
@@ -1532,7 +1532,7 @@ TEST_CASE("end_stream: Always on never-observed signal after 1 frame → Unresol
     // A single Msg512 frame (no Speed) leaves the Always(Speed<100)
     // atomic unresolved. Under three-valued Kleene this propagates via
     // And (Atomic) (Always _) as Unsure ∧ Holds = Unsure.
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1545,8 +1545,8 @@ TEST_CASE("end_stream: Always on never-observed signal after 1 frame → Unresol
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto rpm_id = CanId{StandardId::create(0x200).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const rpm_id = CanId{StandardId::create(0x200).value()};
+    auto const dlc = Dlc::create(8).value();
     auto ack = client.send_frame(std::stop_token{}, Timestamp{0}, rpm_id, dlc, bytes_of(5));
     REQUIRE(ack.has_value());
     CHECK(std::holds_alternative<Ack>(*ack));
@@ -1562,7 +1562,7 @@ TEST_CASE("end_stream: Always on never-observed signal after 5 frames → Unreso
     // Multiple frames without the referenced signal should still finalize to
     // Unresolved — the Kleene fixed point persists regardless of progression
     // count.
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1575,10 +1575,10 @@ TEST_CASE("end_stream: Always on never-observed signal after 5 frames → Unreso
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto rpm_id = CanId{StandardId::create(0x200).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const rpm_id = CanId{StandardId::create(0x200).value()};
+    auto const dlc = Dlc::create(8).value();
     for (std::uint64_t i = 0; i < 5; ++i) {
-        auto ack =
+        auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
     }
@@ -1595,7 +1595,7 @@ TEST_CASE("end_stream: changed_by on one-frame trace → Unresolved",
     // against, so it finalizes to Unsure. The negation stays Unsure (Kleene
     // fixed point) and Always on a non-empty trace leaves behind And (Not
     // Atomic) (Always ...) which reduces to Unsure ∧ Holds = Unsure.
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1608,9 +1608,10 @@ TEST_CASE("end_stream: changed_by on one-frame trace → Unresolved",
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto speed_id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
-    auto ack = client.send_frame(std::stop_token{}, Timestamp{0}, speed_id, dlc, bytes_of(10));
+    auto const speed_id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    auto const ack =
+        client.send_frame(std::stop_token{}, Timestamp{0}, speed_id, dlc, bytes_of(10));
     REQUIRE(ack.has_value());
 
     auto end = client.end_stream(std::stop_token{});
@@ -1624,7 +1625,7 @@ TEST_CASE("end_stream: Eventually on never-observed signal → Unresolved",
     // The Or φ (Eventually ψ) → Eventually ψ absorption is guarded by
     // finalizesFails φ = true, and a bare Atomic finalizes to Unsure, so the
     // Or persists and finalizes via Unsure ∨ Fails = Unsure.
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1637,10 +1638,10 @@ TEST_CASE("end_stream: Eventually on never-observed signal → Unresolved",
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto rpm_id = CanId{StandardId::create(0x200).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const rpm_id = CanId{StandardId::create(0x200).value()};
+    auto const dlc = Dlc::create(8).value();
     for (std::uint64_t i = 0; i < 5; ++i) {
-        auto ack =
+        auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
     }
@@ -1656,7 +1657,7 @@ TEST_CASE("end_stream: Eventually on 0 frames still finalizes to Fails",
     // Contrast with the N ≥ 1 case above. With no progression, finalizeL is
     // applied directly to Eventually _ which returns Fails (liveness
     // operators do not get three-valued absorption on the empty trace).
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1681,7 +1682,7 @@ TEST_CASE("end_stream: 0 frames + Always(missing) → Holds (vacuous)",
     // of whether φ's signal is observable. This differentiates the
     // empty-trace path (direct finalizeL on Always) from the non-empty path
     // (finalizeL after progression leaves an And behind).
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1705,7 +1706,7 @@ TEST_CASE("end_stream: signal recovers after missing → Holds", "[integration][
     // And (Atomic) (Always ...) absorption collapses back to Always (Atomic)
     // via combineAnd Satisfied l. Confirms the Unresolved path only bites
     // when the signal is missing for the entire stream.
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1718,20 +1719,22 @@ TEST_CASE("end_stream: signal recovers after missing → Holds", "[integration][
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto speed_id = CanId{StandardId::create(0x100).value()};
-    auto rpm_id = CanId{StandardId::create(0x200).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const speed_id = CanId{StandardId::create(0x100).value()};
+    auto const rpm_id = CanId{StandardId::create(0x200).value()};
+    auto const dlc = Dlc::create(8).value();
 
     // Three frames of Msg512 (Speed absent).
     for (std::uint64_t i = 0; i < 3; ++i) {
-        auto ack =
+        auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
     }
     // Two frames of Msg256 with Speed = 10 (< 100).
-    auto ack1 = client.send_frame(std::stop_token{}, Timestamp{3000}, speed_id, dlc, bytes_of(10));
+    auto const ack1 =
+        client.send_frame(std::stop_token{}, Timestamp{3000}, speed_id, dlc, bytes_of(10));
     REQUIRE(ack1.has_value());
-    auto ack2 = client.send_frame(std::stop_token{}, Timestamp{4000}, speed_id, dlc, bytes_of(10));
+    auto const ack2 =
+        client.send_frame(std::stop_token{}, Timestamp{4000}, speed_id, dlc, bytes_of(10));
     REQUIRE(ack2.has_value());
 
     auto end = client.end_stream(std::stop_token{});
@@ -1745,7 +1748,7 @@ TEST_CASE("end_stream: K3 combination — Unresolved And Holds = Unresolved",
     // Kleene truth table: Unsure ∧ Holds = Unsure. Left conjunct references
     // Speed (never observed → Unsure), right conjunct references Rpm
     // (observed < 100 → Holds). End result must be Unresolved.
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1760,10 +1763,10 @@ TEST_CASE("end_stream: K3 combination — Unresolved And Holds = Unresolved",
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto rpm_id = CanId{StandardId::create(0x200).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const rpm_id = CanId{StandardId::create(0x200).value()};
+    auto const dlc = Dlc::create(8).value();
     for (std::uint64_t i = 0; i < 3; ++i) {
-        auto ack =
+        auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
     }
@@ -1783,7 +1786,7 @@ TEST_CASE("end_stream: K3 combination — Unresolved Or Fails = Unresolved",
     // threshold Rpm never reaches: a liveness operator that no progression
     // satisfied finalizes to Fails on a non-empty trace. An Always would not
     // do, since it holds vacuously when nothing matches.
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1798,10 +1801,10 @@ TEST_CASE("end_stream: K3 combination — Unresolved Or Fails = Unresolved",
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto rpm_id = CanId{StandardId::create(0x200).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const rpm_id = CanId{StandardId::create(0x200).value()};
+    auto const dlc = Dlc::create(8).value();
     for (std::uint64_t i = 0; i < 3; ++i) {
-        auto ack =
+        auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
     }
@@ -1818,7 +1821,7 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
     // both Fails and Unresolved verdicts. Verify the enrichment pipeline runs
     // on the Unresolved branch by checking that reason and enrichment are
     // populated.
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1831,10 +1834,10 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto rpm_id = CanId{StandardId::create(0x200).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const rpm_id = CanId{StandardId::create(0x200).value()};
+    auto const dlc = Dlc::create(8).value();
     for (std::uint64_t i = 0; i < 3; ++i) {
-        auto ack =
+        auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
     }
@@ -1842,7 +1845,7 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
     auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
-    const auto& pr = end->results[0];
+    auto const& pr = end->results[0];
     CHECK(pr.verdict == Verdict::Unresolved);
     // The Agda core emits a human-readable reason for Unresolved verdicts.
     CHECK_FALSE(pr.reason.empty());
@@ -1887,7 +1890,7 @@ static auto make_single_signal_dbc(std::uint16_t start_bit, std::uint16_t bit_le
     // dlc_bytes is a PAYLOAD byte count; Dlc::create takes the DLC CODE, so a
     // CAN-FD size like 64 must go through the bytes→code mapping (they only
     // coincide for classic-CAN sizes up to code 8).
-    auto dlc = bytes_to_dlc(dlc_bytes).value();
+    auto const dlc = bytes_to_dlc(dlc_bytes).value();
     return DbcDefinition{
         .version = "1.0",
         .messages = {DbcMessage{
@@ -1908,13 +1911,13 @@ static auto make_single_be_signal_dbc(std::uint16_t start_bit, std::uint16_t bit
 
 TEST_CASE("parse DBC: BigEndian signal with length=0 → parse_signal_bit_length_zero",
           "[integration][parse_error]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
     // BE signal, length=0 → the shared geometry gate's positive-length
     // condition fails → SignalBitLengthZero.
-    auto dbc = make_single_be_signal_dbc(/*start_bit=*/7, /*bit_length=*/0, /*dlc_bytes=*/1);
+    auto const dbc = make_single_be_signal_dbc(/*start_bit=*/7, /*bit_length=*/0, /*dlc_bytes=*/1);
 
     auto result = client.parse_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(result.has_value());
@@ -1924,14 +1927,15 @@ TEST_CASE("parse DBC: BigEndian signal with length=0 → parse_signal_bit_length
 
 TEST_CASE("parse DBC: LittleEndian signal with length=0 → parse_signal_bit_length_zero",
           "[integration][parse_error]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
     // LE signal, length=0 → the shared geometry gate's positive-length
     // condition fails → SignalBitLengthZero (identical for both byte orders).
-    auto dbc = make_single_signal_dbc(/*start_bit=*/0, /*bit_length=*/0, ByteOrder::LittleEndian,
-                                      /*dlc_bytes=*/1);
+    auto const dbc =
+        make_single_signal_dbc(/*start_bit=*/0, /*bit_length=*/0, ByteOrder::LittleEndian,
+                               /*dlc_bytes=*/1);
 
     auto result = client.parse_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(result.has_value());
@@ -1942,7 +1946,7 @@ TEST_CASE("parse DBC: LittleEndian signal with length=0 → parse_signal_bit_len
 TEST_CASE(
     "parse DBC: BigEndian signal wider than the frame → parse_signal_bit_length_exceeds_frame",
     "[integration][parse_error]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1950,7 +1954,7 @@ TEST_CASE(
     // frame.  The entry gate refuses the SUBMITTED length against the frame
     // capacity (33 ≤ 32 fails), before any start-bit conversion.
     // Mirrors python/tests/test_dbc_validator.py::test_big_endian_signal_exceeds_dlc.
-    auto dbc = make_single_be_signal_dbc(/*start_bit=*/7, /*bit_length=*/33, /*dlc_bytes=*/4);
+    auto const dbc = make_single_be_signal_dbc(/*start_bit=*/7, /*bit_length=*/33, /*dlc_bytes=*/4);
 
     auto result = client.parse_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(result.has_value());
@@ -1960,7 +1964,7 @@ TEST_CASE(
 
 TEST_CASE("parse DBC: BigEndian run past the frame end → parse_signal_big_endian_overflow",
           "[integration][parse_error]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -1970,7 +1974,7 @@ TEST_CASE("parse DBC: BigEndian run past the frame end → parse_signal_big_endi
     // no-wrap condition (bl − 1 ≤ physicalBitPos) fails and the gate
     // refuses (the former post-conversion check would have silently
     // relocated the run via the monus floor).
-    auto dbc = make_single_be_signal_dbc(/*start_bit=*/0, /*bit_length=*/2, /*dlc_bytes=*/1);
+    auto const dbc = make_single_be_signal_dbc(/*start_bit=*/0, /*bit_length=*/2, /*dlc_bytes=*/1);
 
     auto result = client.parse_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(result.has_value());
@@ -1980,13 +1984,14 @@ TEST_CASE("parse DBC: BigEndian run past the frame end → parse_signal_big_endi
 
 TEST_CASE("parse DBC: out-of-frame start bit → parse_signal_start_bit_exceeds_frame",
           "[integration][parse_error]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
     // LE signal whose start bit is the first position past the 1-byte frame.
-    auto dbc = make_single_signal_dbc(/*start_bit=*/8, /*bit_length=*/8, ByteOrder::LittleEndian,
-                                      /*dlc_bytes=*/1);
+    auto const dbc =
+        make_single_signal_dbc(/*start_bit=*/8, /*bit_length=*/8, ByteOrder::LittleEndian,
+                               /*dlc_bytes=*/1);
 
     auto result = client.parse_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(result.has_value());
@@ -1999,7 +2004,7 @@ TEST_CASE("parse DBC: text-loaded Motorola full-frame signal is accepted back by
     // Kernel closure under its own emission: the textbook Motorola layout
     // (MSB at bit 7, descending through the whole DLC-2 frame) loads on the
     // text route, and the SAME document is accepted back by parse_dbc.
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -2008,11 +2013,11 @@ TEST_CASE("parse DBC: text-loaded Motorola full-frame signal is accepted back by
                              " SG_ Sig : 7|16@0+ (1,0) [0|0] \"\" Engine\n";
     auto loaded = client.parse_dbc_text(std::stop_token{}, text);
     REQUIRE(loaded.has_value());
-    const auto& sig = loaded->dbc.messages.at(0).signals.at(0);
+    auto const& sig = loaded->dbc.messages.at(0).signals.at(0);
     CHECK(sig.start_bit.get() == 7);
     CHECK(sig.bit_length.get() == 16);
 
-    auto echoed = client.parse_dbc(std::stop_token{}, loaded->dbc);
+    auto const echoed = client.parse_dbc(std::stop_token{}, loaded->dbc);
     CHECK(echoed.has_value());
 }
 
@@ -2022,17 +2027,18 @@ TEST_CASE("parse DBC: full-frame CAN-FD signal decodes back through format_dbc",
     // gate checks per-frame fit), so the binding's response decoder must
     // accept the echo rather than re-rejecting it with a stale classic-CAN
     // bit-length cap — the decode guard is only the type-level ceiling.
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    auto dbc = make_single_signal_dbc(/*start_bit=*/0, /*bit_length=*/512, ByteOrder::LittleEndian,
-                                      /*dlc_bytes=*/64);
+    auto const dbc =
+        make_single_signal_dbc(/*start_bit=*/0, /*bit_length=*/512, ByteOrder::LittleEndian,
+                               /*dlc_bytes=*/64);
     REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
 
     auto echoed = client.format_dbc(std::stop_token{});
     REQUIRE(echoed.has_value());
-    const auto& sig = echoed->messages.at(0).signals.at(0);
+    auto const& sig = echoed->messages.at(0).signals.at(0);
     CHECK(sig.start_bit.get() == 0);
     CHECK(sig.bit_length.get() == 512);
 }
@@ -2044,7 +2050,7 @@ TEST_CASE("validate DBC: LittleEndian signal with length=0 rejected at parse",
     // validate_dbc.  The validator's IssueCode::BitLengthZero arm remains
     // as defense-in-depth but is proven unreachable from the public parse
     // routes (Aletheia.DBC.Properties.GeometryGateDeadness).
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -2090,7 +2096,7 @@ TEST_CASE("validate DBC: LittleEndian signal with length=0 rejected at parse",
 // through rts_mismatch_info, which is what these tests read.
 
 TEST_CASE("make_ffi_backend warns on mismatched rts_cores", "[integration][ffi_backend]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
 
     // Establish deterministic RTS state: first call initializes to 1 if the
     // RTS has not yet been touched this process, else a no-op if a prior
@@ -2112,7 +2118,7 @@ TEST_CASE("make_ffi_backend warns on mismatched rts_cores", "[integration][ffi_b
 }
 
 TEST_CASE("make_ffi_backend is silent on matching rts_cores", "[integration][ffi_backend]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
 
     // Ensure the RTS is already initialized (1 core) from prior tests or
     // this test's first call.
@@ -2130,7 +2136,7 @@ TEST_CASE("make_ffi_backend is silent on matching rts_cores", "[integration][ffi
 
 TEST_CASE("rts.cores_mismatch structured fields match Go/Python schema",
           "[integration][ffi_backend]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
 
     // First init fixes the core count to 1 (deterministic prior state).
     {
@@ -2141,7 +2147,7 @@ TEST_CASE("rts.cores_mismatch structured fields match Go/Python schema",
     auto backend = make_ffi_backend(lib, /*rts_cores=*/4);
     REQUIRE(backend != nullptr);
 
-    const auto info = backend->rts_mismatch_info();
+    auto const info = backend->rts_mismatch_info();
     REQUIRE(info.has_value());
     // The first is what the RTS was already running with and the second what
     // this call asked for. Both must be populated, for parity with the
@@ -2152,7 +2158,7 @@ TEST_CASE("rts.cores_mismatch structured fields match Go/Python schema",
 }
 
 TEST_CASE("make_ffi_backend rejects rts_cores < 1", "[integration][ffi_backend]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     // `rts_cores < 1` raises `AletheiaException(ErrorKind::Validation)` rather
     // than `std::invalid_argument` so callers can branch on `kind()` like
     // every other typed FFI error.
@@ -2172,7 +2178,7 @@ TEST_CASE("make_ffi_backend rejects rts_cores < 1", "[integration][ffi_backend]"
 // ---------------------------------------------------------------------------
 
 TEST_CASE("send_error returns ack via real FFI", "[integration][event_ack]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -2182,15 +2188,15 @@ TEST_CASE("send_error returns ack via real FFI", "[integration][event_ack]") {
 
     // send_error carries only a timestamp; the real FFI must return
     // {"status":"ack"} and the Client must accept it.
-    auto r = client.send_error(std::stop_token{}, Timestamp{1'000});
+    auto const r = client.send_error(std::stop_token{}, Timestamp{1'000});
     REQUIRE(r.has_value());
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
 }
 
 TEST_CASE("send_remote returns ack via real FFI", "[integration][event_ack]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -2200,10 +2206,10 @@ TEST_CASE("send_remote returns ack via real FFI", "[integration][event_ack]") {
 
     // send_remote carries a timestamp + CAN id; the real FFI must return
     // {"status":"ack"} and the Client must accept it.
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto r = client.send_remote(std::stop_token{}, Timestamp{1'000}, id);
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const r = client.send_remote(std::stop_token{}, Timestamp{1'000}, id);
     REQUIRE(r.has_value());
 
-    auto end = client.end_stream(std::stop_token{});
+    auto const end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
 }

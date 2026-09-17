@@ -86,7 +86,7 @@ using AletheiaFreeBufFn = void (*)(std::uint8_t*);
 // std::byte>, while the Haskell FFI signatures expect const std::uint8_t* and
 // std::uint8_t*. The reinterpret_cast here is well-defined: [basic.types]
 // guarantees std::byte is layout-compatible with unsigned char, and std::
-// uint8_t is unsigned char on every platform we target (Clang 22 on Linux
+// uint8_t is unsigned char on every platform we target (Clang 23 on Linux
 // x86_64/ARM64). The NOLINTs below are centralised so the FFI call
 // sites stay free of noise; every byte-cast flows through these three fns.
 static auto as_u8(const std::byte* p) -> const std::uint8_t* {
@@ -177,7 +177,7 @@ class FfiBackend : public IBackend {
     [[nodiscard]] auto wrap_str_result(char* result, std::string_view error_msg) -> std::string {
         if (result == nullptr)
             throw AletheiaException(AletheiaError{ErrorKind::Protocol, std::string{error_msg}});
-        auto deleter = [this](char* p) { free_str_fn_(p); };
+        auto const deleter = [this](char* p) { free_str_fn_(p); };
         const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
         return std::string{result};
     }
@@ -320,22 +320,22 @@ public:
     auto send_frame_binary(const BackendState& state, Timestamp ts, const CanId& id, Dlc dlc,
                            std::span<const std::byte> data, std::optional<bool> brs,
                            std::optional<bool> esi) -> std::string override {
-        const auto timestamp = static_cast<std::uint64_t>(ts.count());
-        const auto [can_id, extended] = wire_can_id(id);
-        const auto dlc_val = dlc.value();
+        auto const timestamp = static_cast<std::uint64_t>(ts.count());
+        auto const [can_id, extended] = wire_can_id(id);
+        auto const dlc_val = dlc.value();
         if (auto err = payload_bound_error(data))
             throw AletheiaException(*err);
-        const auto data_len = static_cast<std::uint8_t>(data.size());
+        auto const data_len = static_cast<std::uint8_t>(data.size());
 
         // Encode optional<bool> as (present, value) byte pairs — inverse
         // of the Haskell shim's mkMaybeBool.
-        const auto encode = [](std::optional<bool> b) -> std::pair<std::uint8_t, std::uint8_t> {
+        auto const encode = [](std::optional<bool> b) -> std::pair<std::uint8_t, std::uint8_t> {
             if (!b.has_value())
                 return {0, 0};
             return {1, static_cast<std::uint8_t>(*b ? 1 : 0)};
         };
-        const auto [brs_p, brs_v] = encode(brs);
-        const auto [esi_p, esi_v] = encode(esi);
+        auto const [brs_p, brs_v] = encode(brs);
+        auto const [esi_p, esi_v] = encode(esi);
 
         return wrap_str_result(send_frame_fn_(state.get(), timestamp, can_id, extended, dlc_val,
                                               as_u8(data.data()), data_len, brs_p, brs_v, esi_p,
@@ -344,15 +344,15 @@ public:
     }
 
     auto send_error_binary(const BackendState& state, Timestamp ts) -> std::string override {
-        const auto timestamp = static_cast<std::uint64_t>(ts.count());
+        auto const timestamp = static_cast<std::uint64_t>(ts.count());
         return wrap_str_result(send_error_fn_(state.get(), timestamp),
                                "aletheia_send_error returned null");
     }
 
     auto send_remote_binary(const BackendState& state, Timestamp ts, const CanId& id)
         -> std::string override {
-        const auto timestamp = static_cast<std::uint64_t>(ts.count());
-        const auto [can_id, extended] = wire_can_id(id);
+        auto const timestamp = static_cast<std::uint64_t>(ts.count());
+        auto const [can_id, extended] = wire_can_id(id);
         return wrap_str_result(send_remote_fn_(state.get(), timestamp, can_id, extended),
                                "aletheia_send_remote returned null");
     }
@@ -372,11 +372,11 @@ public:
 
     auto extract_signals_binary(const BackendState& state, const CanId& id, Dlc dlc,
                                 std::span<const std::byte> data) -> std::string override {
-        const auto [can_id, extended] = wire_can_id(id);
-        const auto dlc_val = dlc.value();
+        auto const [can_id, extended] = wire_can_id(id);
+        auto const dlc_val = dlc.value();
         if (auto err = payload_bound_error(data))
             throw AletheiaException(*err);
-        const auto data_len = static_cast<std::uint8_t>(data.size());
+        auto const data_len = static_cast<std::uint8_t>(data.size());
 
         return wrap_str_result(extract_signals_fn_(state.get(), can_id, extended, dlc_val,
                                                    as_u8(data.data()), data_len),
@@ -386,11 +386,11 @@ public:
     auto build_frame_bin(const BackendState& state, const CanId& id, Dlc dlc,
                          SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
-        const auto [can_id, extended] = wire_can_id(id);
+        auto const [can_id, extended] = wire_can_id(id);
 
         std::vector<std::byte> buf(expected_bytes);
         char* err_str = nullptr;
-        const auto status =
+        auto const status =
             build_frame_bin_fn_(state.get(), can_id, extended, dlc.value(), signals.count(),
                                 signals.indices().data(), signals.numerators().data(),
                                 signals.denominators().data(), as_u8(buf.data()), &err_str);
@@ -405,12 +405,12 @@ public:
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         if (auto err = payload_bound_error(data))
             return std::unexpected(*err);
-        const auto [can_id, extended] = wire_can_id(id);
-        const auto data_len = static_cast<std::uint8_t>(data.size());
+        auto const [can_id, extended] = wire_can_id(id);
+        auto const data_len = static_cast<std::uint8_t>(data.size());
 
         std::vector<std::byte> buf(expected_bytes);
         char* err_str = nullptr;
-        const auto status = update_frame_bin_fn_(
+        auto const status = update_frame_bin_fn_(
             state.get(), can_id, extended, dlc.value(), as_u8(data.data()), data_len,
             signals.count(), signals.indices().data(), signals.numerators().data(),
             signals.denominators().data(), as_u8(buf.data()), &err_str);
@@ -424,13 +424,13 @@ public:
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         if (auto err = payload_bound_error(data))
             return std::unexpected(*err);
-        const auto [can_id, extended] = wire_can_id(id);
-        const auto data_len = static_cast<std::uint8_t>(data.size());
+        auto const [can_id, extended] = wire_can_id(id);
+        auto const data_len = static_cast<std::uint8_t>(data.size());
 
         std::uint8_t* out_buf = nullptr;
         std::uint32_t out_size = 0;
         char* err_str = nullptr;
-        const auto status =
+        auto const status =
             extract_signals_bin_fn_(state.get(), can_id, extended, dlc.value(), as_u8(data.data()),
                                     data_len, &out_buf, &out_size, &err_str);
         if (auto err = detail::ffi_error_from_status(status, err_str, free_str_fn_))

@@ -46,5 +46,5 @@ int main(int, char** argv) {
     return failures == 0 ? 0 : 1;
 }
 CPP
-clang++-22 -std=c++23 -Icpp/include -Icpp/src "$scratch/t.cpp" "$lib" $rpath -ldl -lpthread -o "$scratch/t" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }
+clang++-23 -std=c++23 -Icpp/include -Icpp/src "$scratch/t.cpp" "$lib" $rpath -ldl -lpthread -o "$scratch/t" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }
 "$scratch/t" "$scratch/bomb.zip" "$scratch/sane.zip" "$scratch/notzip.bin"

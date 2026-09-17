@@ -26,7 +26,7 @@ namespace aletheia {
 
 static auto get_str(const YAML::Node& node, const std::string& key, const std::string& ctx)
     -> std::string {
-    auto child = node[key];
+    auto const child = node[key];
     if (!child || !child.IsScalar())
         throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected string)");
     return child.as<std::string>();
@@ -42,12 +42,12 @@ static auto get_str(const YAML::Node& node, const std::string& key, const std::s
 // not about the literal keeps its own kind all the way out of the loader.
 static auto get_decimal(const YAML::Node& node, const std::string& key, const std::string& ctx)
     -> Rational {
-    auto child = node[key];
+    auto const child = node[key];
     if (!child || !child.IsScalar())
         throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected number)");
     // Reject booleans: yaml-cpp parses "true"/"false" as scalars too, and the
     // kernel grammar would otherwise reject them with a less specific message.
-    auto raw = child.as<std::string>();
+    auto const raw = child.as<std::string>();
     if (raw == "true" || raw == "false" || raw == "TRUE" || raw == "FALSE" || raw == "True" ||
         raw == "False")
         throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected number)");
@@ -62,7 +62,7 @@ static auto get_decimal(const YAML::Node& node, const std::string& key, const st
 
 static auto get_int(const YAML::Node& node, const std::string& key, const std::string& ctx)
     -> std::int64_t {
-    auto child = node[key];
+    auto const child = node[key];
     if (!child || !child.IsScalar())
         throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected integer)");
     try {
@@ -74,7 +74,7 @@ static auto get_int(const YAML::Node& node, const std::string& key, const std::s
 
 static auto get_map(const YAML::Node& node, const std::string& key, const std::string& ctx)
     -> YAML::Node {
-    auto child = node[key];
+    auto const child = node[key];
     if (!child || !child.IsMap())
         throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected mapping)");
     return child;
@@ -85,7 +85,7 @@ static auto get_map(const YAML::Node& node, const std::string& key, const std::s
 // ---------------------------------------------------------------------------
 
 static auto check_name(const YAML::Node& entry) -> std::string {
-    auto name_node = entry["name"];
+    auto const name_node = entry["name"];
     if (name_node && name_node.IsScalar())
         return name_node.as<std::string>();
     return "<unnamed>";
@@ -100,8 +100,8 @@ static auto ctx(const std::string& name) -> std::string {
 // ---------------------------------------------------------------------------
 
 static auto parse_simple_check(const YAML::Node& entry, const std::string& name) -> CheckResult {
-    auto condition = get_str(entry, "condition", ctx(name));
-    auto signal = get_str(entry, "signal", ctx(name));
+    auto const condition = get_str(entry, "condition", ctx(name));
+    auto const signal = get_str(entry, "signal", ctx(name));
 
     if (!detail::is_simple_condition(condition))
         throw std::runtime_error(ctx(name) + ": unknown condition '" + condition + "'");
@@ -110,7 +110,7 @@ static auto parse_simple_check(const YAML::Node& entry, const std::string& name)
         if (!entry["value"])
             throw std::runtime_error(ctx(name) + ": condition '" + condition +
                                      "' requires 'value'");
-        auto value = PhysicalValue{get_decimal(entry, "value", ctx(name))};
+        auto const value = PhysicalValue{get_decimal(entry, "value", ctx(name))};
         return detail::dispatch_simple(signal, condition, value);
     }
 
@@ -118,8 +118,8 @@ static auto parse_simple_check(const YAML::Node& entry, const std::string& name)
         if (!entry["min"] || !entry["max"])
             throw std::runtime_error(ctx(name) + ": condition '" + condition +
                                      "' requires 'min' and 'max'");
-        auto lo = PhysicalValue{get_decimal(entry, "min", ctx(name))};
-        auto hi = PhysicalValue{get_decimal(entry, "max", ctx(name))};
+        auto const lo = PhysicalValue{get_decimal(entry, "min", ctx(name))};
+        auto const hi = PhysicalValue{get_decimal(entry, "max", ctx(name))};
         return check::signal(signal).stays_between(lo, hi);
     }
 
@@ -130,16 +130,16 @@ static auto parse_simple_check(const YAML::Node& entry, const std::string& name)
         if (!entry["within_ms"])
             throw std::runtime_error(ctx(name) +
                                      ": condition 'settles_between' requires 'within_ms'");
-        auto lo = PhysicalValue{get_decimal(entry, "min", ctx(name))};
-        auto hi = PhysicalValue{get_decimal(entry, "max", ctx(name))};
-        auto ms = std::chrono::milliseconds{get_int(entry, "within_ms", ctx(name))};
+        auto const lo = PhysicalValue{get_decimal(entry, "min", ctx(name))};
+        auto const hi = PhysicalValue{get_decimal(entry, "max", ctx(name))};
+        auto const ms = std::chrono::milliseconds{get_int(entry, "within_ms", ctx(name))};
         return check::signal(signal).settles_between(lo, hi).within(ms);
     }
 
     // equals
     if (!entry["value"])
         throw std::runtime_error(ctx(name) + ": condition 'equals' requires 'value'");
-    auto value = PhysicalValue{get_decimal(entry, "value", ctx(name))};
+    auto const value = PhysicalValue{get_decimal(entry, "value", ctx(name))};
     return check::signal(signal).equals(value).always();
 }
 
@@ -153,30 +153,30 @@ static auto parse_when_then_check(const YAML::Node& entry, const std::string& na
     if (!entry["within_ms"])
         throw std::runtime_error(ctx(name) + ": when/then checks require 'within_ms'");
 
-    auto when = get_map(entry, "when", ctx(name));
+    auto const when = get_map(entry, "when", ctx(name));
     auto then = get_map(entry, "then", ctx(name));
-    auto within_ms = std::chrono::milliseconds{get_int(entry, "within_ms", ctx(name))};
+    auto const within_ms = std::chrono::milliseconds{get_int(entry, "within_ms", ctx(name))};
 
     // When clause
-    auto when_cond = get_str(when, "condition", ctx(name));
+    auto const when_cond = get_str(when, "condition", ctx(name));
     if (!detail::is_when_condition(when_cond))
         throw std::runtime_error(ctx(name) + ": unknown when condition '" + when_cond + "'");
 
-    auto when_signal = get_str(when, "signal", ctx(name));
-    auto when_value = PhysicalValue{get_decimal(when, "value", ctx(name))};
-    auto when_builder = check::when(when_signal);
-    auto when_result = detail::dispatch_when(when_builder, when_cond, when_value);
+    auto const when_signal = get_str(when, "signal", ctx(name));
+    auto const when_value = PhysicalValue{get_decimal(when, "value", ctx(name))};
+    auto const when_builder = check::when(when_signal);
+    auto const when_result = detail::dispatch_when(when_builder, when_cond, when_value);
 
     // Then clause
-    auto then_cond = get_str(then, "condition", ctx(name));
+    auto const then_cond = get_str(then, "condition", ctx(name));
     // The word is held to the vocabulary by taking its slots: one lookup
     // answers both whether the obligation is known and what it reads.
-    const auto slots = detail::then_slots(then_cond);
+    auto const slots = detail::then_slots(then_cond);
     if (!slots)
         throw std::runtime_error(ctx(name) + ": unknown then condition '" + then_cond + "'");
 
-    auto then_signal = get_str(then, "signal", ctx(name));
-    auto then_builder = when_result.then(then_signal);
+    auto const then_signal = get_str(then, "signal", ctx(name));
+    auto const then_builder = when_result.then(then_signal);
 
     // Which keys the obligation reads is the vocabulary's business, not this
     // loader's; which keys they are, and what to say when one is missing, is
@@ -217,10 +217,10 @@ static auto parse_check(const YAML::Node& entry) -> CheckResult {
     }();
 
     // Apply metadata
-    auto name_node = entry["name"];
+    auto const name_node = entry["name"];
     if (name_node && name_node.IsScalar())
         result.named(name_node.as<std::string>());
-    auto sev_node = entry["severity"];
+    auto const sev_node = entry["severity"];
     if (sev_node && sev_node.IsScalar())
         result.severity(sev_node.as<std::string>());
 
@@ -236,13 +236,13 @@ static auto parse_yaml_checks(const YAML::Node& root) -> Result<std::vector<Chec
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "YAML must contain a 'checks' list"});
 
-    auto checks_node = root["checks"];
+    auto const checks_node = root["checks"];
     if (!checks_node.IsSequence())
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "YAML must contain a 'checks' list"});
 
     std::vector<CheckResult> results;
-    for (const auto& entry : checks_node) {
+    for (auto const& entry : checks_node) {
         if (!entry.IsMap())
             return std::unexpected(
                 AletheiaError{ErrorKind::Validation, "Each check must be a YAML mapping"});
@@ -273,7 +273,7 @@ auto load_checks_from_yaml(const std::filesystem::path& path) -> Result<std::vec
         return std::unexpected(v.error());
 
     try {
-        auto root = YAML::LoadFile(path.string());
+        auto const root = YAML::LoadFile(path.string());
         return parse_yaml_checks(root);
     } catch (const YAML::Exception& ex) {
         return std::unexpected(AletheiaError{ErrorKind::Validation, std::string(ex.what())});
@@ -288,7 +288,7 @@ auto load_checks_from_yaml_string(std::string_view yaml) -> Result<std::vector<C
     if (auto v = detail::check_input_size_bound(yaml.size()); !v)
         return std::unexpected(v.error());
     try {
-        auto root = YAML::Load(std::string(yaml));
+        auto const root = YAML::Load(std::string(yaml));
         return parse_yaml_checks(root);
     } catch (const YAML::Exception& ex) {
         return std::unexpected(AletheiaError{ErrorKind::Validation, std::string(ex.what())});

@@ -383,18 +383,18 @@ def _check_cpp_tools() -> tuple[str, str] | str:
     cmake = shutil.which("cmake")
     if cmake is None:
         return "cmake not in PATH; install CMake 3.25+ to run the C++ mutation lane"
-    mull_runner = shutil.which("mull-runner-22")
+    mull_runner = shutil.which("mull-runner-23")
     if mull_runner is None:
         return (
-            "mull-runner-22 not in PATH; build Mull from source against LLVM-22 "
+            "mull-runner-23 not in PATH; build it with tools/build_mull.sh "
             "(see docs/operations/MUTATION.md § Installation)"
         )
-    if shutil.which("clang++-22") is None:
-        return "clang++-22 not in PATH; install clang-22 (apt.llvm.org, or Debian apt)"
-    plugin = Path.home() / ".local" / "bin" / "mull-ir-frontend-22"
+    if shutil.which("clang++-23") is None:
+        return "clang++-23 not in PATH; install clang-23 (apt.llvm.org, or Debian apt)"
+    plugin = Path.home() / ".local" / "bin" / "mull-ir-frontend-23"
     if not plugin.is_file():
         return (
-            f"mull-ir-frontend-22 plugin not found at {plugin}; "
+            f"mull-ir-frontend-23 plugin not found at {plugin}; "
             "see docs/operations/MUTATION.md § Installation"
         )
     return (cmake, mull_runner)
@@ -428,8 +428,8 @@ def _build_cpp_mutation_tree(
             "-B",
             str(build_dir),
             "-DALETHEIA_MUTATION=ON",
-            "-DCMAKE_C_COMPILER=clang-22",
-            "-DCMAKE_CXX_COMPILER=clang++-22",
+            "-DCMAKE_C_COMPILER=clang-23",
+            "-DCMAKE_CXX_COMPILER=clang++-23",
         ],
         cwd=cpp_root,
     )
@@ -464,7 +464,7 @@ def _build_cpp_mutation_tree(
 
 
 def run_cpp(artifact_dir: Path) -> MutationReport:
-    """Mull pass via dedicated build tree; runs unit_tests under mull-runner-22."""
+    """Mull pass via dedicated build tree; runs unit_tests under mull-runner-23."""
     checked = _check_cpp_tools()
     if isinstance(checked, str):
         return MutationReport("cpp", "mull", 0, 0, "", error=checked)
@@ -494,7 +494,7 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
         cwd=cpp_root,
         env=mull_env,
     )
-    raw += "=== mull-runner-22 ===\n" + runner_proc.stdout + runner_proc.stderr + "\n"
+    raw += "=== mull-runner-23 ===\n" + runner_proc.stdout + runner_proc.stderr + "\n"
     (artifact_dir / "cpp.raw.txt").write_text(raw)
 
     # Mull-19 tail summary lines (the actual format observed empirically):
@@ -523,7 +523,7 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
             0,
             raw,
             error=(
-                "could not parse mull-runner-22 summary "
+                "could not parse mull-runner-23 summary "
                 f"(see cpp.raw.txt; exit {runner_proc.returncode})"
             ),
         )

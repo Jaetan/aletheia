@@ -284,7 +284,7 @@ int main(void) {
 
 ### C++ (with the aletheia-cpp binding)
 
-The C++ binding (`cpp/` in the Aletheia repository) uses `dlopen` at runtime — pass the `.so` path to `make_ffi_backend()`. Requires CMake 3.25+ and Clang 22 (the supported toolchain; older may work, unsupported) with a libstdc++/libc++ that supports C++23 (`<expected>`); g++ is not supported.
+The C++ binding (`cpp/` in the Aletheia repository) uses `dlopen` at runtime: pass the `.so` path to `make_ffi_backend()`. Requires CMake 3.25+ and Clang 23 (the supported toolchain; older may work, unsupported) with a libstdc++/libc++ that supports C++23 (`<expected>`); g++ is not supported.
 
 #### CMake integration
 
@@ -428,7 +428,7 @@ docker run --rm ghcr.io/jaetan/aletheia:X.Y.Z python3 -c \
   "from aletheia import AletheiaClient; print('OK')"
 ```
 
-Every image build is gated by throwaway verify stages: the bundled Rust crate and C++ binding (clang-22, the enforced toolchain) must build — and a Go consumer must build **and run** a real LTL scenario — against the image's own `/opt/aletheia`, or the build fails. The stages ship nothing; the image stays slim.
+Every image build is gated by throwaway verify stages: the bundled Rust crate and C++ binding (clang-23, the enforced toolchain) must build, and a Go consumer must build **and run** a real LTL scenario, against the image's own `/opt/aletheia`, or the build fails. The stages ship nothing; the image stays slim.
 
 #### C++ / Go / Rust consumer images (`COPY --from`)
 

@@ -170,22 +170,22 @@ jobs:
           rustup default stable
           rustc --version && cargo --version
 
-      - name: Cache clang-22 .debs (Clang is a large download)
+      - name: Cache clang-23 .debs (Clang is a large download)
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang22-libstdcxx15-noble-v1
+          key: clang23-libstdcxx15-noble-v1
       # ubuntu-24.04 pre-installs only clang ≤19; the bundled C++ binding
-      # enforces Clang (cpp/CMakeLists.txt), so install clang-22 (the
+      # enforces Clang (cpp/CMakeLists.txt), so install clang-23 (the
       # supported toolchain) from apt.llvm.org.  Same package set + cache key
       # as pr-full-ci.yml so this workflow shares the deb cache seeded there.
-      - name: Install C++ toolchain (clang-22 from apt.llvm.org)
+      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
         run: |
           set -euo pipefail
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
             | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
-          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
-            | sudo tee /etc/apt/sources.list.d/llvm22.list >/dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm23.list >/dev/null
           # ubuntu-24.04 ships libstdc++ 14, whose std::ranges::to has no pipe
           # form; the toolchain policy tracks the latest stable release rather
           # than a floor, so take 15 from the toolchain PPA the same way clang
@@ -198,7 +198,7 @@ jobs:
           if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
             sudo apt-get install -y --download-only \
               -o Dir::Cache::archives="${HOME}/llvm-cache" \
-              clang-22 clang-tidy-22 libstdc++-15-dev
+              clang-23 clang-tidy-23 libstdc++-15-dev
             sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
           fi
           sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
@@ -265,19 +265,19 @@ jobs:
           rustup default stable
           rustc --version && cargo --version
 
-      - name: Cache clang-22 .debs (Clang is a large download)
+      - name: Cache clang-23 .debs (Clang is a large download)
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang22-libstdcxx15-noble-v1
+          key: clang23-libstdcxx15-noble-v1
 
-      - name: Install C++ toolchain (clang-22 from apt.llvm.org)
+      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
         run: |
           set -euo pipefail
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
             | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
-          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
-            | sudo tee /etc/apt/sources.list.d/llvm22.list >/dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm23.list >/dev/null
           # ubuntu-24.04 ships libstdc++ 14, whose std::ranges::to has no pipe
           # form; the toolchain policy tracks the latest stable release rather
           # than a floor, so take 15 from the toolchain PPA the same way clang
@@ -290,7 +290,7 @@ jobs:
           if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
             sudo apt-get install -y --download-only \
               -o Dir::Cache::archives="${HOME}/llvm-cache" \
-              clang-22 clang-tidy-22 libstdc++-15-dev
+              clang-23 clang-tidy-23 libstdc++-15-dev
             sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
           fi
           sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y

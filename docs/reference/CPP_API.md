@@ -183,7 +183,7 @@ Decoding a frame and encoding one are inverses, and a `SignalValue` is a name be
 using namespace aletheia;
 auto decoded = client.extract_signals(std::stop_token{}, can_id, dlc, data);
 if (decoded)
-    for (const auto& value : decoded->values)
+    for (auto const& value : decoded->values)
         std::cout << value.name.get() << " = " << value.value.get().numerator() << '\n';
 
 std::vector<SignalValue> injected{

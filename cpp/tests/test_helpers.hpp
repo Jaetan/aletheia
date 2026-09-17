@@ -30,7 +30,7 @@ inline auto parsed_dbc_response_for(const ::aletheia::DbcDefinition& dbc) -> std
 // unit in the split gets the same definition without a separate library.
 inline auto make_test_dbc() -> ::aletheia::DbcDefinition {
     auto id = ::aletheia::StandardId::create(0x100).value();
-    auto dlc = ::aletheia::Dlc::create(8).value();
+    auto const dlc = ::aletheia::Dlc::create(8).value();
 
     ::aletheia::DbcSignal sig{
         .name = ::aletheia::SignalName{"Speed"},

@@ -11,7 +11,7 @@
 # Exits 2 when the compiler is unavailable.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v clang++-22 > /dev/null || exit 2
+command -v clang++-23 > /dev/null || exit 2
 header=cpp/include/aletheia/types.hpp
 
 if grep -nE '(-> *(double|float))|operator +(double|float) *\(' "$header"; then
@@ -30,7 +30,7 @@ int main() {
     return static_cast<int>(r.to_double());
 }
 CPP
-if clang++-22 -std=c++23 -fsyntax-only -Icpp/include "$scratch/t.cpp" > "$scratch/compile.log" 2>&1
+if clang++-23 -std=c++23 -fsyntax-only -Icpp/include "$scratch/t.cpp" > "$scratch/compile.log" 2>&1
 then
     echo "FAIL: a call to a float conversion still compiles"
     exit 1

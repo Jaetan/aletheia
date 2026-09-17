@@ -12,7 +12,7 @@
 # configuration is found, passes the same output test as a real run.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v run-clang-tidy-22 > /dev/null || { echo "run-clang-tidy-22 not installed"; exit 0; }
+command -v run-clang-tidy-23 > /dev/null || { echo "run-clang-tidy-23 not installed"; exit 0; }
 [ -f cpp/build/compile_commands.json ] || { echo "no compile database; configure cpp/build"; exit 2; }
 python/.venv/bin/python - <<'PY'
 import subprocess
@@ -44,7 +44,7 @@ for source, marker, _ in INJECTIONS:
 
 def gate(cwd: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["run-clang-tidy-22", "-quiet", "-p", "build" if cwd == "cpp" else "cpp/build",
+        ["run-clang-tidy-23", "-quiet", "-p", "build" if cwd == "cpp" else "cpp/build",
          "cpp/src/", "cpp/tests/", "cpp/benchmarks/"],
         cwd=cwd,
         capture_output=True,

@@ -82,16 +82,16 @@ auto main(int argc, char** argv) -> int {
                                   std::span<const std::byte>{violating});
     if (!resp.has_value())
         return fail("send_frame (violating): " + std::string(resp.error().message()));
-    const auto* batch = std::get_if<PropertyBatch>(&resp.value());
+    auto const* batch = std::get_if<PropertyBatch>(&resp.value());
     if (batch == nullptr)
         return fail("the violating frame should produce a property batch");
     std::size_t violations = 0;
-    for (const auto& r : batch->results)
+    for (auto const& r : batch->results)
         if (r.verdict == Verdict::Fails)
             ++violations;
     if (violations != 1)
         return fail("expected exactly one violation from the violating frame");
-    const auto* violation = std::as_const(*batch).first_violation();
+    auto const* violation = std::as_const(*batch).first_violation();
     if (violation->property_index != PropertyIndex{0})
         return fail("the violation should name the single installed property");
     if (!violation->enrichment.has_value() ||

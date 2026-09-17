@@ -18,25 +18,30 @@
 set -eu
 root=$(git rev-parse --show-toplevel)
 cd "$root/cpp"
-command -v clang-format-22 > /dev/null || exit 2
+# The binary the gate runs: the venv-pinned clang-format, never the system one.
+cf="$root/python/.venv/bin/clang-format"
+[ -x "$cf" ] || exit 2
 py="$root/python/.venv/bin/python"
 [ -x "$py" ] || py=python3
 
-expected=a417ef3a8c2bc7c339c5b324a90da86fa6d117e789bbab860305c7b595574eb9
-actual=$(clang-format-22 --dump-config | sha256sum | cut -d' ' -f1)
+expected=f60007f6fbec9d4cf84ee06061de48fbf8b913fbf44841a21ecc5d7bbc3cced7
+actual=$("$cf" --dump-config | sha256sum | cut -d' ' -f1)
 if [ "$actual" != "$expected" ]; then
     echo "FAIL: the effective format configuration is not the recorded one"
     echo "  recorded $expected"
     echo "  measured $actual"
-    clang-format-22 --dump-config > /tmp/aletheia-clang-format-now.yaml
+    "$cf" --dump-config > /tmp/aletheia-clang-format-now.yaml
     echo "  the configuration now in force is in /tmp/aletheia-clang-format-now.yaml"
     exit 1
 fi
 
-"$py" - <<'PY'
+ALETHEIA_CLANG_FORMAT="$cf" "$py" - <<'PY'
+import os
 import re
 import subprocess
 import sys
+
+CF = os.environ["ALETHEIA_CLANG_FORMAT"]
 
 
 def blocks(args):
@@ -55,8 +60,8 @@ def blocks(args):
     return {k: "\n".join(v) for k, v in out.items()}
 
 
-mine = blocks(["clang-format-22", "--dump-config"])
-base = blocks(["clang-format-22", "--style=LLVM", "--dump-config"])
+mine = blocks([CF, "--dump-config"])
+base = blocks([CF, "--style=LLVM", "--dump-config"])
 own = [
     m.group(1)
     for m in (re.match(r"^([A-Za-z0-9_]+):", l) for l in open(".clang-format", encoding="utf-8"))

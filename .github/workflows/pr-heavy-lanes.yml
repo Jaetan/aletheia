@@ -244,21 +244,21 @@ jobs:
             go/go.sum
             go/excel/go.sum
 
-      - name: Cache clang-22 .debs (Clang is a large download)
+      - name: Cache clang-23 .debs (Clang is a large download)
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang22-libstdcxx15-noble-v1
-      # ubuntu-24.04 pre-installs only clang ≤19; install clang-22 (the supported
-      # toolchain) from apt.llvm.org.  The cmake step below invokes clang-22
+          key: clang23-libstdcxx15-noble-v1
+      # ubuntu-24.04 pre-installs only clang ≤19; install clang-23 (the supported
+      # toolchain) from apt.llvm.org.  The cmake step below invokes clang-23
       # explicitly, so no update-alternatives is needed.
-      - name: Install C++ toolchain (clang-22 from apt.llvm.org)
+      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
         run: |
           set -euo pipefail
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
             | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
-          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
-            | sudo tee /etc/apt/sources.list.d/llvm22.list >/dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm23.list >/dev/null
           # ubuntu-24.04 ships libstdc++ 14, whose std::ranges::to has no pipe
           # form; the toolchain policy tracks the latest stable release rather
           # than a floor, so take 15 from the toolchain PPA the same way clang
@@ -271,7 +271,7 @@ jobs:
           if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
             sudo apt-get install -y --download-only \
               -o Dir::Cache::archives="${HOME}/llvm-cache" \
-              clang-22 clang-tidy-22 libstdc++-15-dev
+              clang-23 clang-tidy-23 libstdc++-15-dev
             sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
           fi
           sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
@@ -286,7 +286,7 @@ jobs:
           # -S cpp: the CMakeLists.txt lives in cpp/, not the repo root (the
           # default source dir when only -B is given).  The first run failed
           # with "source directory does not contain CMakeLists.txt".
-          cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 > /dev/null
+          cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null
           cmake --build cpp/build --target stability_bench
 
       # Retry-once-on-failure (jitter watch, 2026-07-02): the drift gate flaked
@@ -456,21 +456,21 @@ jobs:
           go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
           echo "${HOME}/go/bin" >> "${GITHUB_PATH}"
 
-      - name: Cache clang-22 + LLVM-22-dev .debs (large download)
+      - name: Cache clang-23 + LLVM-23-dev .debs (large download)
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
-          key: clang22-llvm22dev-libstdcxx15-noble-v1
-      # ubuntu-24.04 pre-installs only clang ≤19; install clang-22 (the supported
-      # toolchain) + the LLVM-22 dev libraries (needed to build Mull from source)
-      # from apt.llvm.org.  mutation_run.py invokes clang-22 explicitly.
-      - name: Install C++ toolchain + LLVM-22 dev (apt.llvm.org)
+          key: clang23-llvm23dev-libstdcxx15-noble-v1
+      # ubuntu-24.04 pre-installs only clang ≤19; install clang-23 (the supported
+      # toolchain) + the LLVM-23 dev libraries (needed to build Mull from source)
+      # from apt.llvm.org.  mutation_run.py invokes clang-23 explicitly.
+      - name: Install C++ toolchain + LLVM-23 dev (apt.llvm.org)
         run: |
           set -euo pipefail
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
             | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
-          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
-            | sudo tee /etc/apt/sources.list.d/llvm22.list >/dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm23.list >/dev/null
           # ubuntu-24.04 ships libstdc++ 14, whose std::ranges::to has no pipe
           # form; the toolchain policy tracks the latest stable release rather
           # than a floor, so take 15 from the toolchain PPA the same way clang
@@ -483,52 +483,32 @@ jobs:
           if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
             sudo apt-get install -y --download-only \
               -o Dir::Cache::archives="${HOME}/llvm-cache" \
-              clang-22 libstdc++-15-dev llvm-22-dev libclang-22-dev
+              clang-23 libstdc++-15-dev llvm-23-dev libclang-23-dev
             sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
           fi
           sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
 
-      # No prebuilt Mull deb exists for LLVM 19-22 (the latest deb is LLVM-15),
-      # and the supported toolchain is clang-22 — UB can differ by compiler
-      # version, so the mutation lane MUST test clang-22 codegen.  Build Mull
-      # from source against the system LLVM-22 (Bazel; uses /usr/lib/llvm-22).
-      # Cached so it is a one-time cost per (Mull tag, LLVM version).  Validated
-      # locally 2026-06-11: the mutation lane runs green under clang-22 + Mull-22.
-      - name: Cache Mull-22 (built from source vs LLVM-22)
-        id: mull22
+      # No prebuilt Mull deb exists past LLVM 15, and the supported toolchain is
+      # clang-23: UB can differ by compiler version, so the mutation lane MUST
+      # test clang-23 codegen.  tools/build_mull.sh builds Mull from source
+      # against the system LLVM-23 (Bazel; /usr/lib/llvm-23), carrying the patch
+      # Mull 0.34.1 needs to see LLVM 23.  Cached so it is a one-time cost per
+      # (Mull tag, LLVM version).
+      - name: Cache Mull-23 (built from source vs LLVM-23)
+        id: mull23
         uses: actions/cache@v6
         with:
           path: ~/mull-bin
-          key: mull22-0.34.0-llvm22-noble-v1
-      - name: Build Mull-22 from source (cache miss)
-        if: steps.mull22.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          mkdir -p "${HOME}/.local/bin"
-          # bazelisk reads Mull's .bazelversion (8.6.0)
-          curl -fsSL --retry 5 --retry-all-errors -o "${HOME}/.local/bin/bazel" \
-            https://github.com/bazelbuild/bazelisk/releases/download/v1.27.0/bazelisk-linux-amd64
-          chmod +x "${HOME}/.local/bin/bazel"
-          git clone --depth 1 --branch 0.34.0 --recursive \
-            https://github.com/mull-project/mull /tmp/mull
-          # Mull's MODULE.bazel caps ubuntu:24.04 at LLVM-20; insert "22" into the
-          # ubuntu:24.04 list (we installed /usr/lib/llvm-22 above).
-          sed -i 's/        "ubuntu:24.04": \[/        "ubuntu:24.04": [\n            "22",/' \
-            /tmp/mull/MODULE.bazel
-          ( cd /tmp/mull && "${HOME}/.local/bin/bazel" build \
-              //rust/mull-tools:mull-runner-22 \
-              //rust/mull-tools:mull-reporter-22 \
-              //:mull-ir-frontend-22 )
-          mkdir -p "${HOME}/mull-bin"
-          cp -L /tmp/mull/bazel-bin/rust/mull-tools/mull-runner-22   "${HOME}/mull-bin/"
-          cp -L /tmp/mull/bazel-bin/rust/mull-tools/mull-reporter-22 "${HOME}/mull-bin/"
-          cp -L /tmp/mull/bazel-bin/mull-ir-frontend-22             "${HOME}/mull-bin/"
-      - name: Install Mull-22 to PATH
+          key: mull23-0.34.1-llvm23-noble-v2
+      - name: Build Mull-23 from source (cache miss)
+        if: steps.mull23.outputs.cache-hit != 'true'
+        run: tools/build_mull.sh "${HOME}/mull-bin"
+      - name: Install Mull-23 to PATH
         run: |
           set -euo pipefail
           mkdir -p "${HOME}/.local/bin"
           cp "${HOME}/mull-bin/"mull-* "${HOME}/.local/bin/"
-          chmod +x "${HOME}/.local/bin/mull-runner-22" "${HOME}/.local/bin/mull-reporter-22"
+          chmod +x "${HOME}/.local/bin/mull-runner-23" "${HOME}/.local/bin/mull-reporter-23"
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       # Restore the build tree (Agda .agdai + MAlonzo .hs + the copied .so, plus

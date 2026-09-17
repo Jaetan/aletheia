@@ -20,7 +20,7 @@
 #                  image's /opt/aletheia (dlopen of the packaged kernel).
 #   verify-rust  — throwaway: cargo-builds the bundled Rust crate.
 #   verify-cpp   — throwaway: CMake-builds the bundled C++ binding with
-#                  clang-22 (the enforced toolchain, from apt.llvm.org).
+#                  clang-23 (the enforced toolchain, from apt.llvm.org).
 #   final        — FROM runtime; force-depends on every verify stage via
 #                  ephemeral bind mounts, so a plain `docker build` FAILS
 #                  unless all three compiled bindings build/load against the
@@ -124,7 +124,7 @@ RUN cargo build --release --locked && \
     echo rust > /verified
 
 # C++: CMake-configure + build the bundled binding standalone, FAITHFUL to
-# the enforced toolchain — clang-22 from apt.llvm.org (cpp/CMakeLists.txt
+# the enforced toolchain, clang-23 from apt.llvm.org (cpp/CMakeLists.txt
 # hard-rejects anything else) with libstdc++ 15 from the toolchain PPA,
 # mirroring the release workflow's toolchain step.  Faithful means the same
 # standard library, not merely a C++23 one: the workflow moved off noble's
@@ -143,18 +143,18 @@ RUN apt-get update && \
         ca-certificates wget cmake make && \
     wget -qO /etc/apt/trusted.gpg.d/apt.llvm.org.asc \
         https://apt.llvm.org/llvm-snapshot.gpg.key && \
-    echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
-        > /etc/apt/sources.list.d/llvm22.list && \
+    echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
+        > /etc/apt/sources.list.d/llvm23.list && \
     wget -qO /etc/apt/trusted.gpg.d/ubuntu-toolchain-r.asc \
         "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xC8EC952E2A0E1FBDC5090F6A2C277A0A352154E5" && \
     echo "deb https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu noble main" \
         > /etc/apt/sources.list.d/ubuntu-toolchain-r.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends clang-22 libstdc++-15-dev && \
+    apt-get install -y --no-install-recommends clang-23 libstdc++-15-dev && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=runtime /opt/aletheia /opt/aletheia
 RUN cmake -S /opt/aletheia/bindings/cpp -B /build \
-        -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 \
+        -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 \
         -DCMAKE_BUILD_TYPE=Release && \
     cmake --build /build --parallel && \
     echo cpp > /verified

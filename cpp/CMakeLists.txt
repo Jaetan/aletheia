@@ -4,8 +4,8 @@ cmake_minimum_required(VERSION 3.25)
 project(aletheia-cpp VERSION 5.0.0 LANGUAGES CXX)
 
 # ── Compiler policy: Clang only; supported = latest stable Clang ────────────
-# Supported toolchain: the latest stable Clang (currently 22; moves to 23 when
-# it ships).  g++ is NOT supported — the sanitizer lanes need clang's
+# Supported toolchain: the latest stable Clang (currently 23; moves to the next
+# release when it ships).  g++ is NOT supported: the sanitizer lanes need clang's
 # -fsanitize-ignorelist (no g++ equivalent), and the codebase uses C++23
 # library features (std::expected / std::format).  CI builds + tests against
 # the latest stable only; older Clang may work but is unsupported (Clang < 19
@@ -15,8 +15,8 @@ if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     message(FATAL_ERROR
         "aletheia-cpp is Clang-only (got ${CMAKE_CXX_COMPILER_ID} "
         "${CMAKE_CXX_COMPILER_VERSION}); g++ is not supported.  Configure with: "
-        "cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22")
-elseif(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 22)
+        "cmake -B build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23")
+elseif(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 23)
     message(WARNING
         "aletheia-cpp is supported on the latest stable Clang (22); got Clang "
         "${CMAKE_CXX_COMPILER_VERSION}.  Older Clang may work but is unsupported "
@@ -37,9 +37,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # mutation lane each run, recompiling the same translation units.
 #
 # CMake records the launcher only in the build rules, NOT in
-# compile_commands.json, so the `clang-tidy-22 -p build` gate still sees the bare
-# `clang++-22` and is unaffected by ccache (cmake 4.1.2 exports no launcher
-# token, and clang-tidy-22 parses the DB cleanly).
+# compile_commands.json, so the `clang-tidy-23 -p build` gate still sees the bare
+# `clang++-23` and is unaffected by ccache (cmake 4.1.2 exports no launcher
+# token, and clang-tidy-23 parses the DB cleanly).
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
     set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
@@ -128,14 +128,14 @@ endif()
 # mixed with the standard build:
 #
 #   cmake -B build-mutation -DALETHEIA_MUTATION=ON \
-#         -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22
+#         -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 #   cmake --build build-mutation --target unit_tests
-#   mull-runner-22 ./build-mutation/unit_tests
+#   mull-runner-23 ./build-mutation/unit_tests
 #
-# Requires Mull-22 (LLVM 22) built from source (see docs/operations/MUTATION.md §
-# Installation) and clang-22.  Mull's IR pass uses LLVM version-specific APIs, so
-# the compiler version MUST match the Mull binary version (mull-ir-frontend-22 ↔
-# clang-22 — the supported toolchain; tracks the latest stable Clang).  -O0 -g is
+# Requires Mull-23 (LLVM 23), which tools/build_mull.sh builds from source (see
+# docs/operations/MUTATION.md § Installation), and clang-23.  Mull's IR pass uses
+# LLVM version-specific APIs, so the compiler version MUST match the Mull binary
+# version (mull-ir-frontend-23 with clang-23, the supported toolchain).  -O0 -g is
 # mandatory: optimisations elide AST nodes
 # Mull would otherwise mutate, debug info pins source locations in the
 # survivor report.  ALETHEIA_MUTATION_FLAGS is consumed by the per-target
@@ -144,11 +144,11 @@ endif()
 option(ALETHEIA_MUTATION "Build aletheia-cpp + unit_tests with Mull IR pass plugin" OFF)
 set(ALETHEIA_MUTATION_FLAGS "")
 if(ALETHEIA_MUTATION)
-    set(MULL_PLUGIN "$ENV{HOME}/.local/bin/mull-ir-frontend-22")
+    set(MULL_PLUGIN "$ENV{HOME}/.local/bin/mull-ir-frontend-23")
     if(NOT EXISTS "${MULL_PLUGIN}")
         message(FATAL_ERROR
             "Mull IR pass plugin not found at ${MULL_PLUGIN}; "
-            "install Mull-22 per docs/operations/MUTATION.md § Installation")
+            "run tools/build_mull.sh (docs/operations/MUTATION.md § Installation)")
     endif()
     message(STATUS "Mutation lane: -fpass-plugin=${MULL_PLUGIN} (aletheia-cpp + unit_tests only)")
     set(ALETHEIA_MUTATION_FLAGS -fpass-plugin=${MULL_PLUGIN} -g -O0)

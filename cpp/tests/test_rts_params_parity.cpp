@@ -25,10 +25,10 @@ using namespace aletheia::detail;
 namespace {} // namespace
 
 TEST_CASE("C++ RTS mirror matches docs/RESOURCE_BUDGETS.yaml", "[parity][rts]") {
-    const auto path = repo_root() / "docs" / "RESOURCE_BUDGETS.yaml";
+    auto const path = repo_root() / "docs" / "RESOURCE_BUDGETS.yaml";
     REQUIRE(std::filesystem::exists(path));
-    const auto root = YAML::LoadFile(path.string());
-    const auto runtime = root["runtime"];
+    auto const root = YAML::LoadFile(path.string());
+    auto const runtime = root["runtime"];
     REQUIRE(runtime);
 
     CHECK(runtime["heap_cap"]["flag"].as<std::string>() == std::string{rts_heap_cap_flag});

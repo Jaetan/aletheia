@@ -50,7 +50,7 @@ static constexpr auto comparison_token() -> std::string_view {
 // than by its type; a predicate of a new shape fails the final static_assert.
 static auto format_predicate(const Predicate& p) -> std::string {
     return std::visit(
-        [](const auto& v) -> std::string {
+        [](auto const& v) -> std::string {
             using T = std::decay_t<decltype(v)>;
             if constexpr (requires { v.value; })
                 return std::format("{} {} {}", std::string_view{v.signal}, comparison_token<T>(),
@@ -77,16 +77,16 @@ static auto format_predicate(const Predicate& p) -> std::string {
 }
 
 static auto predicate_signal(const Predicate& p) -> SignalName {
-    return std::visit([](const auto& v) -> SignalName { return v.signal; }, p);
+    return std::visit([](auto const& v) -> SignalName { return v.signal; }, p);
 }
 
 // Walks the tree by shape (a predicate, two children, or one), so an
 // alternative of an existing shape needs no branch here.
 static void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals) {
-    f.visit([&signals](const auto& v) {
+    f.visit([&signals](auto const& v) {
         using T = std::decay_t<decltype(v)>;
         if constexpr (requires { v.predicate; }) {
-            auto name = predicate_signal(v.predicate);
+            auto const name = predicate_signal(v.predicate);
             if (!std::ranges::contains(signals, name))
                 signals.push_back(name);
         } else if constexpr (requires {
@@ -127,7 +127,7 @@ static auto format_metric_binary(const Node& v, std::string_view op, bool parent
 // Detect Never pattern: Always{Not{Atomic{p}}} — returns empty string if not.
 static auto try_format_never(const Always& v) -> std::string {
     if (auto* n = std::get_if<Not>(&v.formula->value))
-        if (auto* a = std::get_if<Atomic>(&n->formula->value))
+        if (auto const* a = std::get_if<Atomic>(&n->formula->value))
             return "never " + format_predicate(a->predicate);
     return {};
 }
@@ -137,7 +137,7 @@ static auto try_format_never(const Always& v) -> std::string {
 // byte-identical to the Python and Go formatters; a probe under probes/
 // compares this formatter against Python's over every alternative.
 static auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std::string {
-    return f.visit([parenthesize_binary](const auto& v) -> std::string {
+    return f.visit([parenthesize_binary](auto const& v) -> std::string {
         using T = std::decay_t<decltype(v)>;
         if constexpr (std::is_same_v<T, Atomic>) {
             return format_predicate(v.predicate);
@@ -152,7 +152,7 @@ static auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) 
         } else if constexpr (std::is_same_v<T, WeakNext>) {
             return "weak_next(" + format_formula_inner(*v.formula, false) + ")";
         } else if constexpr (std::is_same_v<T, Always>) {
-            auto never = try_format_never(v);
+            auto const never = try_format_never(v);
             return never.empty() ? "always(" + format_formula_inner(*v.formula, false) + ")"
                                  : never;
         } else if constexpr (std::is_same_v<T, Eventually>) {

@@ -206,7 +206,7 @@ public:
         for (auto&& f : frames) {
             auto r = send_frame(stop, f);
             if (!r.has_value()) {
-                const auto& e = r.error();
+                auto const& e = r.error();
                 if (e.kind() == ErrorKind::Cancellation) {
                     co_yield std::unexpected(e);
                 } else {

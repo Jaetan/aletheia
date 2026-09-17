@@ -47,7 +47,7 @@ TEST_CASE("client parse_dbc sends correct JSON and handles success", "[client][m
     mock_ptr->queue_response(parsed_dbc_response_for(make_test_dbc()));
 
     AletheiaClient client(std::move(mock));
-    auto result = client.parse_dbc(std::stop_token{}, make_test_dbc());
+    auto const result = client.parse_dbc(std::stop_token{}, make_test_dbc());
 
     CHECK(result.has_value());
     REQUIRE(mock_ptr->captured().size() == 1);
@@ -80,8 +80,8 @@ TEST_CASE("client extract_signals round-trip", "[client][mock]") {
     })");
 
     AletheiaClient client(std::move(mock));
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
                       std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
     auto result = client.extract_signals(std::stop_token{}, id, dlc, data);
@@ -117,8 +117,8 @@ TEST_CASE("client extract_signals falls back to JSON after parse_dbc with MockBa
     // With the signal-name cache populated, Client tries the binary path
     // first; MockBackend's inherited default returns BinaryUnsupported, and
     // Client falls through to the JSON path.
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0x37}, std::byte{0}, std::byte{0}, std::byte{0},
                       std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
     auto result = client.extract_signals(std::stop_token{}, id, dlc, data);
@@ -131,7 +131,7 @@ TEST_CASE("client extract_signals falls back to JSON after parse_dbc with MockBa
 TEST_CASE("client build_frame requires loaded DBC", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
     AletheiaClient client(std::move(mock));
-    auto id = CanId{StandardId::create(0x100).value()};
+    auto const id = CanId{StandardId::create(0x100).value()};
     std::vector<SignalValue> signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}},
     };
@@ -167,8 +167,8 @@ TEST_CASE("client streaming workflow", "[client][mock]") {
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     CHECK(client.start_stream(std::stop_token{}).has_value());
 
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload data(8, std::byte{0});
     auto frame_result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(frame_result.has_value());
@@ -250,8 +250,8 @@ TEST_CASE("client send_frame violation with enrichment fields", "[client][mock]"
     })");
 
     AletheiaClient client(std::move(mock));
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload data(8, std::byte{0});
     auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
 
@@ -378,8 +378,8 @@ TEST_CASE("nested client scopes leave outer state intact", "[client][lifecycle]"
 TEST_CASE("client update_frame requires loaded DBC", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
     AletheiaClient client(std::move(mock));
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
                       std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
     std::vector<SignalValue> signals{
@@ -409,7 +409,7 @@ TEST_CASE("send_frames all ack", "[client][batch]") {
     REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
     FramePayload const data(8, std::byte{0});
     std::vector<Frame> frames{
@@ -437,7 +437,7 @@ TEST_CASE("send_frames stops on error with partial results", "[client][batch]") 
     REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
     FramePayload const good(8, std::byte{0});
     FramePayload const bad(3, std::byte{0}); // 3 bytes vs DLC 8
@@ -472,7 +472,7 @@ TEST_CASE("send_frames with violation continues", "[client][batch]") {
     REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
     FramePayload const data(8, std::byte{0});
     std::vector<Frame> frames{
@@ -501,7 +501,7 @@ TEST_CASE("send_frames negative timestamp", "[client][batch]") {
     REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
     FramePayload const data(8, std::byte{0});
     std::vector<Frame> frames{
@@ -528,9 +528,9 @@ TEST_CASE("send_frames payload validation mid-batch reports frame index", "[clie
     REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto sid = CanId{StandardId::create(0x100).value()};
-    auto dlc8 = Dlc::create(8).value();
-    auto dlc4 = Dlc::create(4).value();
+    auto const sid = CanId{StandardId::create(0x100).value()};
+    auto const dlc8 = Dlc::create(8).value();
+    auto const dlc4 = Dlc::create(4).value();
     std::array<std::byte, 8> good{};
     std::array<std::byte, 8> bad{}; // 8 bytes but DLC says 4
 
@@ -551,7 +551,7 @@ TEST_CASE("send_frames payload validation mid-batch reports frame index", "[clie
     auto result = client.send_frames(std::stop_token{}, frames);
     REQUIRE(result.has_error());
     CHECK(result.responses.size() == 1); // frame 0 succeeded
-    auto msg = std::string(result.error->message());
+    auto const msg = std::string(result.error->message());
     CHECK(msg.contains("frame 1"));
     CHECK(msg.contains("payload"));
 }
@@ -567,7 +567,7 @@ TEST_CASE("send_frames empty", "[client][batch]") {
     REQUIRE(client.set_properties(std::stop_token{}, std::span{&prop, 1}).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto result = client.send_frames(std::stop_token{}, {});
+    auto const result = client.send_frames(std::stop_token{}, {});
     REQUIRE_FALSE(result.has_error());
     CHECK(result.responses.empty());
 }
@@ -589,7 +589,7 @@ static auto streaming_client(std::initializer_list<const char*> frame_responses)
     auto backend = std::make_unique<MockBackend>();
     backend->queue_response(R"({"status":"success"})"); // set_properties
     backend->queue_response(R"({"status":"success"})"); // start_stream
-    for (const auto* r : frame_responses) {
+    for (auto const* r : frame_responses) {
         backend->queue_response(r);
     }
     auto* mock = backend.get();
@@ -602,7 +602,7 @@ static auto streaming_client(std::initializer_list<const char*> frame_responses)
 }
 
 static auto ack_frames(std::size_t count) -> std::vector<Frame> {
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
     const FramePayload data(8, std::byte{0});
     std::vector<Frame> frames;
@@ -633,7 +633,7 @@ TEST_CASE("send_frames_lazy yields one value per frame", "[client][batch][lazy]"
 
 TEST_CASE("send_frames_lazy stops after first error with frame index", "[client][batch][lazy]") {
     auto [client, mock] = streaming_client({R"({"status":"ack"})"}); // only frame 0 reaches backend
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
     FramePayload const good(8, std::byte{0});
     FramePayload const bad(3, std::byte{0}); // 3 bytes vs DLC 8
@@ -710,7 +710,7 @@ TEST_CASE("send_frames_lazy commits only the consumed prefix", "[client][batch][
 }
 
 TEST_CASE("send_frames_lazy matches send_frames", "[client][batch][lazy]") {
-    auto responses = {R"({"status":"ack"})", R"({"status":"ack"})", R"({"status":"ack"})"};
+    auto const responses = {R"({"status":"ack"})", R"({"status":"ack"})", R"({"status":"ack"})"};
 
     auto [eager_client, eager_mock] = streaming_client(responses);
     auto eager_frames = ack_frames(3);
@@ -782,7 +782,7 @@ TEST_CASE("move-assignment transfers client state", "[client]") {
     b = std::move(a);
 
     auto id = StandardId::create(0x100).value();
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
     std::array<std::byte, 8> data{};
     auto resp = b.send_frame(std::stop_token{}, Timestamp{1000}, CanId{id}, dlc, data);
     REQUIRE(resp.has_value());
@@ -814,8 +814,8 @@ TEST_CASE("extraction cache full still works on 257th frame", "[client][enrich][
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
 
     // Send 257 frames with distinct data payloads to fill and overflow the cache
     for (unsigned i = 0; i < 257; ++i) {
@@ -836,7 +836,7 @@ TEST_CASE("the public mock factory answers without anything queued", "[client][m
     // refused until its queue was filled would be one they could never call.
     auto backend = make_mock_backend();
     REQUIRE(backend);
-    auto state = backend->init();
+    auto const state = backend->init();
 
     SECTION("a control-plane command is acknowledged") {
         CHECK(backend->process(state, R"({"command":"startStream"})") == R"({"status":"ack"})");
@@ -850,9 +850,9 @@ TEST_CASE("the public mock factory answers without anything queued", "[client][m
     }
 
     SECTION("a frame request comes back as a payload of the size asked for") {
-        auto id = CanId{StandardId::create(0x100).value()};
-        auto dlc = Dlc::create(8).value();
-        auto signals = SignalInjection::create({}, {}, {}).value();
+        auto const id = CanId{StandardId::create(0x100).value()};
+        auto const dlc = Dlc::create(8).value();
+        auto const signals = SignalInjection::create({}, {}, {}).value();
         auto built = backend->build_frame_bin(state, id, dlc, signals, 8);
         REQUIRE(built.has_value());
         CHECK(built->size() == 8);
@@ -870,17 +870,17 @@ TEST_CASE("the two doubles differ on purpose", "[client][mock]") {
     // an answer. The test-internal one refuses, because a suite that silently
     // received a fabricated answer would pass for the wrong reason.
     MockBackend configurable;
-    auto strict_state = configurable.init();
+    auto const strict_state = configurable.init();
     CHECK_THROWS_AS(configurable.process(strict_state, "<binary:sendFrame>"), AletheiaException);
 
     auto fixed = make_mock_backend();
-    auto fixed_state = fixed->init();
+    auto const fixed_state = fixed->init();
     CHECK(fixed->process(fixed_state, "<binary:sendFrame>") == R"({"status":"ack"})");
 }
 
 TEST_CASE("MockBackend throws on queue exhaustion", "[client][mock]") {
     MockBackend mock;
-    auto state = mock.init();
+    auto const state = mock.init();
 
     // Empty queue → exhaustion is a harness misconfiguration: the mock throws
     // rather than fabricating a default, as every binding's mock does. The
@@ -1011,11 +1011,11 @@ TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaust
     // unified cross-binding message, it does NOT throw.  The op token is
     // still recorded on the starved call, matching Go / Python / Rust.
     MockBackend mock;
-    auto state = mock.init();
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const state = mock.init();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     // The mock ignores the injection contents; an empty block suffices.
-    auto signals = SignalInjection::create({}, {}, {}).value();
+    auto const signals = SignalInjection::create({}, {}, {}).value();
 
     {
         auto result = mock.build_frame_bin(state, id, dlc, signals, 8);

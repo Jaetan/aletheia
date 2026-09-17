@@ -25,13 +25,13 @@ extern "C" auto LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) -> int 
     // a nested value. A property result reaches that parser only inside a
     // batch envelope, which is what the frame-response parser dispatches on;
     // everything around the two numbers is constant.
-    auto numeric = std::string_view{reinterpret_cast<const char*>(data), size};
+    auto const numeric = std::string_view{reinterpret_cast<const char*>(data), size};
     std::string envelope = R"({"type":"property_batch","results":[{"status":"fails")"
                            R"(,"property_index":)";
     envelope.append(numeric);
     envelope.append(R"(,"timestamp":)");
     envelope.append(numeric);
     envelope.append("}]}");
-    [[maybe_unused]] auto r = aletheia::detail::parse_frame_response(envelope);
+    [[maybe_unused]] auto const r = aletheia::detail::parse_frame_response(envelope);
     return 0;
 }

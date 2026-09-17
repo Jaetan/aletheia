@@ -10,13 +10,13 @@
 # exit: a disabled check reports nothing and no longer earns its place.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v run-clang-tidy-22 > /dev/null || { echo "run-clang-tidy-22 not installed"; exit 0; }
+command -v run-clang-tidy-23 > /dev/null || { echo "run-clang-tidy-23 not installed"; exit 0; }
 [ -f cpp/build/compile_commands.json ] || { echo "no compile database; configure cpp/build"; exit 2; }
 checks=$(sed -n '/^Checks: >/,/^$/p' cpp/tests/.clang-tidy \
     | grep -oE '^\s*-[a-z][A-Za-z0-9*.-]*' | sed 's/^ *-//')
 [ -n "$checks" ] || { echo "the test configuration disables nothing"; exit 1; }
 joined=$(printf '%s\n' "$checks" | paste -sd, -)
-out=$(cd cpp && run-clang-tidy-22 -quiet -p build -checks="-*,$joined" cpp/tests/ 2>&1)
+out=$(cd cpp && run-clang-tidy-23 -quiet -p build -checks="-*,$joined" cpp/tests/ 2>&1)
 status=0
 for check in $checks; do
     if ! printf '%s\n' "$out" | grep -qE "\[[^]]*${check}[,]?[^]]*\]$"; then

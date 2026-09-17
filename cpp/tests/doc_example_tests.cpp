@@ -103,17 +103,16 @@ static auto doc_include_dir() -> std::string {
 
 // findFFILib mirrors the Go harness's findFFILibForDocs.
 static auto find_ffi_lib() -> std::string {
-    if (auto* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0') {
-        if (fs::exists(env))
-            return env;
-    }
+    if (auto* env = std::getenv("ALETHEIA_LIB"); env != nullptr && *env != '\0' && fs::exists(env))
+        return env;
+
     constexpr std::array<std::string_view, 3> candidates = {
         "build/libaletheia-ffi.so",
         "../build/libaletheia-ffi.so",
         "../../build/libaletheia-ffi.so",
     };
-    for (auto rel : candidates) {
-        auto p = repo_root() / rel;
+    for (auto const rel : candidates) {
+        auto const p = repo_root() / rel;
         if (fs::exists(p))
             return fs::weakly_canonical(p).string();
     }
@@ -149,11 +148,11 @@ static auto extract_cpp_fences(const fs::path& abs_path, std::string_view rel_pa
     std::string body;
     while (std::getline(in, line)) {
         ++lineno;
-        auto trim = strip_left(line);
+        auto const trim = strip_left(line);
         if (!in_fence) {
             // Opening fence: ```cpp possibly followed by space/info-string.
             if (trim.starts_with("```cpp")) {
-                auto rest = trim.substr(6);
+                auto const rest = trim.substr(6);
                 if (rest.empty() || rest.front() == ' ' || rest.front() == '\t') {
                     in_fence = true;
                     fence_start = lineno;
@@ -180,14 +179,14 @@ static auto extract_cpp_fences(const fs::path& abs_path, std::string_view rel_pa
 static auto substitute_paths(std::string body, const std::string& lib_path,
                              const std::string& yaml_fix, const std::string& excel_fix)
     -> std::string {
-    auto replace_all = [](std::string& s, std::string_view from, std::string_view to) {
+    auto const replace_all = [](std::string& s, std::string_view from, std::string_view to) {
         std::size_t pos = 0;
         while ((pos = s.find(from, pos)) != std::string::npos) {
             s.replace(pos, from.size(), to);
             pos += to.size();
         }
     };
-    auto quote = [](std::string_view s) { return std::string("\"") + std::string(s) + "\""; };
+    auto const quote = [](std::string_view s) { return std::string("\"") + std::string(s) + "\""; };
     replace_all(body, R"("/opt/aletheia/lib/libaletheia-ffi.so")", quote(lib_path));
     replace_all(body, R"("checks.yaml")", quote(yaml_fix));
     replace_all(body, R"("checks.xlsx")", quote(excel_fix));
@@ -377,7 +376,7 @@ static auto run_capture(const std::string& cmd) -> std::pair<int, std::string> {
     if (fp == nullptr)
         return {-1, "popen failed"};
     std::array<char, 4096> buf{};
-    while (auto n = std::fread(buf.data(), 1, buf.size(), fp)) {
+    while (auto const n = std::fread(buf.data(), 1, buf.size(), fp)) {
         captured.append(buf.data(), n);
     }
     const int rc = pclose(fp);
@@ -409,11 +408,11 @@ static auto sh_quote(std::string_view s) -> std::string {
 // across repeat entries (Catch2 SECTION re-enters the test case body for
 // each section, which would otherwise re-parse the markdown N times).
 static auto fence_cache() -> const std::vector<CppFence>& {
-    static const auto cached = []() {
+    static auto const cached = [] {
         std::vector<CppFence> out;
-        auto root = repo_root();
-        for (auto rel : k_doc_files) {
-            auto path = root / rel;
+        auto const root = repo_root();
+        for (auto const rel : k_doc_files) {
+            auto const path = root / rel;
             if (!fs::exists(path))
                 continue;
             auto fs_list = extract_cpp_fences(path, rel);
@@ -425,32 +424,33 @@ static auto fence_cache() -> const std::vector<CppFence>& {
 }
 
 TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-examples]") {
-    auto lib = find_ffi_lib();
+    auto const lib = find_ffi_lib();
     if (lib.empty()) {
         SKIP("libaletheia-ffi.so not found — run `cabal run shake -- build` first");
     }
 
-    auto root = repo_root();
-    auto yaml_fix = (root / "cpp" / "tests" / "testdata" / "doc_examples" / "checks.yaml").string();
+    auto const root = repo_root();
+    auto const yaml_fix =
+        (root / "cpp" / "tests" / "testdata" / "doc_examples" / "checks.yaml").string();
     REQUIRE(fs::exists(yaml_fix));
-    auto excel_fix = (root / "examples" / "demo" / "demo_workbook.xlsx").string();
+    auto const excel_fix = (root / "examples" / "demo" / "demo_workbook.xlsx").string();
     REQUIRE(fs::exists(excel_fix));
 
-    const auto& fences = fence_cache();
+    auto const& fences = fence_cache();
     REQUIRE_FALSE(fences.empty());
 
     const TempPath scratch{fs::temp_directory_path() /
                                ("aletheia_doc_harness_" + std::to_string(::getpid())),
                            AsDirectory{}};
-    const auto& workdir = scratch.path;
+    auto const& workdir = scratch.path;
 
     for (std::size_t i = 0; i < fences.size(); ++i) {
-        const auto& fence = fences[i];
+        auto const& fence = fences[i];
         DYNAMIC_SECTION("Fence " << fence.display()) {
             auto body = substitute_paths(fence.content, lib, yaml_fix, excel_fix);
-            auto src = wrap_fence(std::move(body));
-            auto src_path = workdir / ("fence" + std::to_string(i) + ".cpp");
-            auto out_path = workdir / ("fence" + std::to_string(i));
+            auto const src = wrap_fence(std::move(body));
+            auto const src_path = workdir / ("fence" + std::to_string(i) + ".cpp");
+            auto const out_path = workdir / ("fence" + std::to_string(i));
             write_file(src_path, src);
 
             // Compile.
@@ -465,14 +465,14 @@ TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-exa
             // binary's link to the library (which carries sanitizer-runtime
             // symbols) resolves cleanly.  Empty when no sanitizer is active
             // (the common case).
-            const auto lib_dir = std::filesystem::path{ALETHEIA_DOC_LIB_FILE}.parent_path();
+            auto const lib_dir = std::filesystem::path{ALETHEIA_DOC_LIB_FILE}.parent_path();
             std::ostringstream cmd;
             cmd << sh_quote(ALETHEIA_DOC_CXX) << " -std=c++" << ALETHEIA_DOC_CXX_STD << " -I"
                 << sh_quote(doc_include_dir()) << " -o " << sh_quote(out_path.string()) << " "
                 << sh_quote(src_path.string()) << " " << sh_quote(ALETHEIA_DOC_LIB_FILE)
                 << " -Wl,-rpath," << sh_quote(lib_dir.string()) << " -ldl -lpthread -lstdc++fs "
                 << ALETHEIA_DOC_SANITIZER_FLAG;
-            auto compile_cmd = cmd.str();
+            auto const compile_cmd = cmd.str();
 
             auto [compile_rc, compile_out] = run_capture(compile_cmd);
             INFO("Wrapper source: " << src_path);
@@ -500,15 +500,15 @@ TEST_CASE("doc-example structural gate: no `<!-- cpp notest -->` annotations",
     // the `text` info string. The HTML-comment escape hatch silently hides
     // a fence from the harness while still rendering as cpp in prose.
     static const std::regex notest_re(R"(<!--\s*cpp\b[^>]*\bnotest\b[^>]*-->)");
-    auto root = repo_root();
-    for (auto rel : k_doc_files) {
-        auto path = root / rel;
+    auto const root = repo_root();
+    for (auto const rel : k_doc_files) {
+        auto const path = root / rel;
         if (!fs::exists(path))
             continue;
         auto body = read_text_file(path);
         std::vector<int> offenders;
-        auto begin = std::sregex_iterator(body.begin(), body.end(), notest_re);
-        auto end = std::sregex_iterator{};
+        auto const begin = std::sregex_iterator(body.begin(), body.end(), notest_re);
+        auto const end = std::sregex_iterator{};
         for (auto it = begin; it != end; ++it) {
             const int line =
                 static_cast<int>(std::count(body.begin(), body.begin() + it->position(), '\n')) + 1;

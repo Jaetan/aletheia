@@ -79,7 +79,7 @@ The C++ binding (`cpp/`) wraps `libaletheia-ffi.so` via `dlopen`. It has no runt
 | OpenXLSX | master (commit `5723411`, 2025-07-14) | BSD-3-Clause | Excel template loader (statically linked into the C++ binding) |
 | Catch2 | 3.7.1 | BSL-1.0 | Unit testing (test-only, not shipped) |
 
-Requires CMake 3.25+ and **Clang 22** with a C++23 libstdc++/libc++ (`<expected>`, `<format>`); see [BUILDING.md § Toolchain support policy](docs/development/BUILDING.md#toolchain-support-policy) for the full compiler policy.
+Requires CMake 3.25+ and **Clang 23** with a C++23 libstdc++/libc++ (`<expected>`, `<format>`); see [BUILDING.md § Toolchain support policy](docs/development/BUILDING.md#toolchain-support-policy) for the full compiler policy.
 
 ---
 

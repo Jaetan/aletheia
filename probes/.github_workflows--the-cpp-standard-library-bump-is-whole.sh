@@ -27,7 +27,7 @@ esac
 [ "$status" -eq 0 ] || exit "$status"
 
 # Every toolchain .deb download block must name the library: a block taking
-# clang-22 alone silently keeps whatever standard library the image ships.
+# clang-23 alone silently keeps whatever standard library the image ships.
 # Blocks are counted by the cache-dir option each one carries, and the package
 # names are counted off comment-stripped lines so prose cannot inflate either.
 for wf in .github/workflows/*.yml; do
@@ -61,7 +61,7 @@ stray=$(grep -oE 'libstdc\+\+-[0-9]+-dev' Dockerfile.runtime \
 # with its own key, and this probe speaks only for the standard library.
 for wf in .github/workflows/*.yml; do
     grep -qE "libstdc\+\+-$version-dev" "$wf" || continue
-    grep -qE "key: clang22.*libstdcxx$version" "$wf" || {
+    grep -qE "key: clang23.*libstdcxx$version" "$wf" || {
         echo "$wf installs the new library under a cache key that does not name it"
         status=1
     }

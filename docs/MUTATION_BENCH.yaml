@@ -146,27 +146,19 @@ bindings:
 
   cpp:
     tool: mull
-    version: "0.34.0 LLVM-22"
+    version: "0.34.1 LLVM-23"
     install: |
-      # No prebuilt Mull deb ships for LLVM 22 (release debs stop at LLVM-15),
-      # and only the latest stable Clang is supported: testing clang-19
-      # mutants while shipping clang-22 is a real gap, not cosmetic, since UB
-      # can change between compiler versions.  So Mull is built FROM SOURCE
-      # against the system LLVM-22, cached in CI.  Grounded recipe:
-      #   sudo apt install clang-22 llvm-22-dev      # system LLVM-22
-      #   git clone --branch 0.34.0 https://github.com/mull-project/mull /tmp/mull
-      #   cd /tmp/mull
-      #   # Mull's MODULE.bazel OS map caps ubuntu:24.04 at LLVM-20, so add "22":
-      #   sed -i 's/\("ubuntu:24.04": \[\)/\1"22", /' MODULE.bazel
-      #   bazel build //rust/mull-tools:mull-runner-22 \
-      #               //rust/mull-tools:mull-reporter-22 //:mull-ir-frontend-22
-      #   # bazelisk reads .bazelversion (8.6.0); system LLVM via
-      #   # new_local_repository(/usr/lib/llvm-22), so no LLVM is downloaded.
-      #   cp bazel-bin/.../mull-{runner,reporter}-22 ~/.local/bin/
-      #   cp bazel-bin/mull-ir-frontend-22           ~/.local/bin/
+      # No prebuilt Mull deb ships past LLVM 15, and only the latest stable
+      # Clang is supported: testing an older compiler's mutants while shipping
+      # the supported one is a real gap, not cosmetic, since UB can change
+      # between compiler versions.  So Mull is built FROM SOURCE against the
+      # system LLVM-23 by tools/build_mull.sh, which carries the patch Mull
+      # 0.34.1 needs to see LLVM 23; CI caches the result.  Recipe:
+      #   sudo apt install clang-23 llvm-23-dev libclang-23-dev
+      #   tools/build_mull.sh                        # into ~/.local/bin
       # mull-runner / mull-reporter are Rust binaries; ir-frontend is a C++
-      # clang plugin .so.  Full recipe + cache keys: pr-heavy-lanes.yml mutation
-      # lane and docs/operations/MUTATION.md § C++.
+      # clang plugin .so.  Cache keys: pr-heavy-lanes.yml mutation lane; the
+      # procedure: docs/operations/MUTATION.md § C++.
     hot_path:
       # AGENTS.md cat 14(g) C++ list, less `mock_backend.cpp` and `types.cpp`
       # (test-only and type definitions).  This list is what the static gate
@@ -187,21 +179,21 @@ bindings:
     config:
       build_dir: cpp/build-mutation
       cmake_flag: ALETHEIA_MUTATION
-      compiler: clang-22
-      ir_plugin: ~/.local/bin/mull-ir-frontend-22
-      runner: mull-runner-22
+      compiler: clang-23
+      ir_plugin: ~/.local/bin/mull-ir-frontend-23
+      runner: mull-runner-23
     invocation: |
       # The ALETHEIA_MUTATION build folds tests/integration_tests.cpp into the
       # unit_tests binary so the real FfiBackend (dlopen glue) is on the
       # mutation surface. Those tests dlopen build/libaletheia-ffi.so, so
       # `cabal run shake -- build` must have produced it first.
       cd cpp && cmake -B build-mutation -DALETHEIA_MUTATION=ON \
-        -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 \
+        -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 \
         > /dev/null && \
         cmake --build build-mutation --target unit_tests && \
-        mull-runner-22 ./build-mutation/unit_tests
+        mull-runner-23 ./build-mutation/unit_tests
     report: |
-      # mull-runner-22 prints a per-mutant table to stdout; runner parses
+      # mull-runner-23 prints a per-mutant table to stdout; runner parses
       # the "Surviving mutants: N" / "Mutation score: P%" summary at the
       # tail.  Killed count derived from survived + score_pct.
     baseline:

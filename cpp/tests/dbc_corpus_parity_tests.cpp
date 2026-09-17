@@ -60,7 +60,7 @@ static auto find_lib() -> fs::path {
         if (const fs::path p{env}; !p.empty() && fs::exists(p))
             return p;
     }
-    auto project_root = repo_root();
+    auto const project_root = repo_root();
     auto lib = project_root / "build" / "libaletheia-ffi.so";
     if (fs::exists(lib))
         return lib;
@@ -82,38 +82,38 @@ static auto canonical_dbc_json(const DbcDefinition& dbc) -> std::string {
     // produces sorted keys naturally; json_serialize.cpp already mirrors
     // the Agda wire form for "extended" (omitted on standard frames) and
     // "presence" (explicit "always"), so no post-processing is needed.
-    auto envelope = detail::serialize_parsed_dbc_response(dbc);
+    auto const envelope = detail::serialize_parsed_dbc_response(dbc);
     auto parsed = nlohmann::json::parse(envelope);
     return parsed.at("dbc").dump(2) + "\n";
 }
 
 TEST_CASE("DBC corpus parity — Agda parse_dbc_text matches Python oracle",
           "[integration][parity][dbc]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    auto dir = corpus_dir();
-    auto parity_dir = dir / "parity_snapshots";
+    auto const dir = corpus_dir();
+    auto const parity_dir = dir / "parity_snapshots";
     REQUIRE(fs::exists(dir));
     REQUIRE(fs::exists(parity_dir));
 
     std::vector<fs::path> dbc_files;
-    for (const auto& entry : fs::directory_iterator(dir))
+    for (auto const& entry : fs::directory_iterator(dir))
         if (entry.path().extension() == ".dbc")
             dbc_files.push_back(entry.path());
     std::ranges::sort(dbc_files);
     REQUIRE_FALSE(dbc_files.empty());
 
-    for (const auto& dbc_path : dbc_files) {
+    for (auto const& dbc_path : dbc_files) {
         DYNAMIC_SECTION("corpus DBC: " << dbc_path.filename().string()) {
-            auto text = read_text_file(dbc_path);
+            auto const text = read_text_file(dbc_path);
             auto result = client.parse_dbc_text(std::stop_token{}, text);
             REQUIRE(result.has_value());
 
             auto actual = canonical_dbc_json(result->dbc);
 
-            auto snapshot_path = parity_dir / (dbc_path.stem().string() + ".json");
+            auto const snapshot_path = parity_dir / (dbc_path.stem().string() + ".json");
             REQUIRE(fs::exists(snapshot_path));
             auto expected = read_text_file(snapshot_path);
 

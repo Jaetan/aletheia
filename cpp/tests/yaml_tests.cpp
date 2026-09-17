@@ -264,7 +264,7 @@ checks:
 // ===========================================================================
 
 TEST_CASE("yaml: load from file", "[yaml][file]") {
-    auto tmp = std::filesystem::temp_directory_path() / "aletheia_yaml_test.yaml";
+    auto const tmp = std::filesystem::temp_directory_path() / "aletheia_yaml_test.yaml";
     {
         std::ofstream ofs(tmp);
         ofs << R"(
@@ -294,7 +294,7 @@ TEST_CASE("yaml: stat failure is distinguished from a missing file", "[yaml][har
     // failures under load (the pre-push flake that motivated this: EMFILE on a
     // present file was reported as "not found").  ENAMETOOLONG is deterministic
     // and root-safe, unlike an EACCES/chmod trigger.
-    const auto tmp = std::filesystem::temp_directory_path() / (std::string(5000, 'a') + ".yaml");
+    auto const tmp = std::filesystem::temp_directory_path() / (std::string(5000, 'a') + ".yaml");
     auto result = load_checks_from_yaml(tmp);
     REQUIRE(!result.has_value());
     CHECK(result.error().kind() == ErrorKind::Validation);
@@ -523,12 +523,12 @@ checks:
 // ===========================================================================
 
 TEST_CASE("yaml: symlink rejected", "[yaml][hardening]") {
-    auto real = std::filesystem::temp_directory_path() / "yaml_real_target.yaml";
+    auto const real = std::filesystem::temp_directory_path() / "yaml_real_target.yaml";
     {
         std::ofstream ofs(real);
         ofs << "checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 200\n";
     }
-    auto link = std::filesystem::temp_directory_path() / "yaml_symlink.yaml";
+    auto const link = std::filesystem::temp_directory_path() / "yaml_symlink.yaml";
     if (std::filesystem::exists(link))
         std::filesystem::remove(link);
     std::error_code ec;
@@ -548,7 +548,7 @@ TEST_CASE("yaml: symlink rejected", "[yaml][hardening]") {
 }
 
 TEST_CASE("yaml: file size cap rejected", "[yaml][hardening]") {
-    auto tmp = std::filesystem::temp_directory_path() / "yaml_oversize.yaml";
+    auto const tmp = std::filesystem::temp_directory_path() / "yaml_oversize.yaml";
     {
         std::ofstream ofs(tmp, std::ios::binary);
         std::vector<char> chunk(1024UL * 1024, 'a');
@@ -559,7 +559,7 @@ TEST_CASE("yaml: file size cap rejected", "[yaml][hardening]") {
     std::filesystem::remove(tmp);
     REQUIRE(!result.has_value());
     CHECK(result.error().kind() == ErrorKind::InputBoundExceeded);
-    const auto& bound_info = result.error().bound_info();
+    auto const& bound_info = result.error().bound_info();
     REQUIRE(bound_info.has_value());
     CHECK(bound_info->bound_kind == "input_length_bytes");
     CHECK(bound_info->limit == 64ULL * 1024 * 1024);
@@ -573,7 +573,7 @@ TEST_CASE("yaml: inline string size cap rejected", "[yaml][hardening]") {
     auto result = load_checks_from_yaml_string(oversize);
     REQUIRE(!result.has_value());
     CHECK(result.error().kind() == ErrorKind::InputBoundExceeded);
-    const auto& bound_info = result.error().bound_info();
+    auto const& bound_info = result.error().bound_info();
     REQUIRE(bound_info.has_value());
     CHECK(bound_info->bound_kind == "input_length_bytes");
     CHECK(bound_info->limit == 64ULL * 1024 * 1024);

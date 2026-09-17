@@ -52,7 +52,7 @@ static auto cpp_include_root() -> std::filesystem::path {
 }
 
 static auto load_matrix() -> YAML::Node {
-    const auto path = matrix_path();
+    auto const path = matrix_path();
     REQUIRE(std::filesystem::exists(path));
     auto root = YAML::LoadFile(path.string());
     REQUIRE(root["features"]);
@@ -88,7 +88,7 @@ static auto is_digit_separator(const std::string& text, std::size_t pos) -> bool
 // Prevents a stale "// removed AletheiaClient" comment from satisfying a
 // whole-word symbol check after the class has actually been deleted.
 static auto strip_lexical_noise(std::string text) -> std::string {
-    const auto n = text.size();
+    auto const n = text.size();
     for (std::size_t i = 0; i < n;) {
         const char c = text[i];
         if (c == '/' && i + 1 < n && text[i + 1] == '/') {
@@ -155,39 +155,39 @@ static auto is_valid_status(std::string_view status) -> bool {
 }
 
 static auto trim(std::string s) -> std::string {
-    const auto not_ws = [](unsigned char c) { return std::isspace(c) == 0; };
+    auto const not_ws = [](unsigned char c) { return std::isspace(c) == 0; };
     s.erase(s.begin(), std::ranges::find_if(s, not_ws));
     s.erase(std::ranges::find_if(s.rbegin(), s.rend(), not_ws).base(), s.end());
     return s;
 }
 
 TEST_CASE("FEATURE_MATRIX schema", "[parity]") {
-    const auto root = load_matrix();
-    for (const auto& feature : root["features"]) {
-        const auto id = feature["id"].as<std::string>("");
+    auto const root = load_matrix();
+    for (auto const& feature : root["features"]) {
+        auto const id = feature["id"].as<std::string>("");
         DYNAMIC_SECTION("feature " << id) {
             CHECK_FALSE(trim(id).empty());
             CHECK_FALSE(trim(feature["name"].as<std::string>("")).empty());
             CHECK_FALSE(trim(feature["description"].as<std::string>("")).empty());
 
-            const auto bindings = feature["bindings"];
+            auto const bindings = feature["bindings"];
             REQUIRE(bindings);
             REQUIRE(bindings.IsMap());
 
-            for (const auto binding_name : k_bindings) {
-                const auto binding = bindings[std::string(binding_name)];
+            for (auto const binding_name : k_bindings) {
+                auto const binding = bindings[std::string(binding_name)];
                 CAPTURE(binding_name);
                 REQUIRE(binding);
-                const auto status = binding["status"].as<std::string>("");
+                auto const status = binding["status"].as<std::string>("");
                 CAPTURE(status);
                 CHECK(is_valid_status(status));
 
                 if (status == "implemented") {
-                    const auto entry = trim(binding["entry"].as<std::string>(""));
+                    auto const entry = trim(binding["entry"].as<std::string>(""));
                     CHECK_FALSE(entry.empty());
                 }
                 if (status == "not_applicable") {
-                    const auto reason = trim(binding["reason"].as<std::string>(""));
+                    auto const reason = trim(binding["reason"].as<std::string>(""));
                     CHECK_FALSE(reason.empty());
                 }
             }
@@ -196,31 +196,31 @@ TEST_CASE("FEATURE_MATRIX schema", "[parity]") {
 }
 
 TEST_CASE("FEATURE_MATRIX C++ entries resolve", "[parity]") {
-    const auto root = load_matrix();
-    const auto include_root = cpp_include_root();
+    auto const root = load_matrix();
+    auto const include_root = cpp_include_root();
     REQUIRE(std::filesystem::exists(include_root));
 
-    for (const auto& feature : root["features"]) {
-        const auto id = feature["id"].as<std::string>("");
-        const auto cpp_binding = feature["bindings"]["cpp"];
+    for (auto const& feature : root["features"]) {
+        auto const id = feature["id"].as<std::string>("");
+        auto const cpp_binding = feature["bindings"]["cpp"];
         if (cpp_binding["status"].as<std::string>("") != "implemented") {
             continue;
         }
         DYNAMIC_SECTION("feature " << id) {
-            const auto entry = trim(cpp_binding["entry"].as<std::string>(""));
+            auto const entry = trim(cpp_binding["entry"].as<std::string>(""));
             CAPTURE(entry);
-            const auto hash_pos = entry.find('#');
+            auto const hash_pos = entry.find('#');
             REQUIRE(hash_pos != std::string::npos);
-            const auto header_rel = entry.substr(0, hash_pos);
-            const auto symbol = entry.substr(hash_pos + 1);
+            auto const header_rel = entry.substr(0, hash_pos);
+            auto const symbol = entry.substr(hash_pos + 1);
             CHECK_FALSE(header_rel.empty());
             CHECK_FALSE(symbol.empty());
 
-            const auto header_path = include_root / header_rel;
+            auto const header_path = include_root / header_rel;
             CAPTURE(header_path.string());
             REQUIRE(std::filesystem::exists(header_path));
 
-            const auto text = strip_lexical_noise(read_text_file(header_path));
+            auto const text = strip_lexical_noise(read_text_file(header_path));
             CHECK(symbol_present(text, symbol));
         }
     }

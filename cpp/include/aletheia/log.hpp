@@ -81,7 +81,7 @@ public:
                             .event = event,
                             .fields = std::span<const LogField>{fields.begin(), fields.end()},
                             .location = loc};
-        for (const auto& cb : sinks_)
+        for (auto const& cb : sinks_)
             cb(rec);
     }
 

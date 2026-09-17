@@ -51,8 +51,8 @@ TEST_CASE("logger captures streaming events", "[client][log]") {
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload data(8, std::byte{0});
     REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
     REQUIRE(client.end_stream(std::stop_token{}).has_value());
@@ -68,7 +68,7 @@ TEST_CASE("logger captures streaming events", "[client][log]") {
     // frame.processed may be preceded by cache.miss
     bool found_frame = false;
     bool found_ended = false;
-    for (const auto& [level, event] : events) {
+    for (auto const& [level, event] : events) {
         if (event == "frame.processed") {
             CHECK(level == LogLevel::Debug);
             found_frame = true;
@@ -129,7 +129,7 @@ TEST_CASE("rts.cores_mismatch logs active/requested core integer fields", "[clie
 
     const Logger logger([&](const LogRecord& r) {
         CapturedEvent evt{.level = r.level, .event = std::string{r.event}, .fields = {}};
-        for (const auto& [k, v] : r.fields)
+        for (auto const& [k, v] : r.fields)
             evt.fields.push_back(CapturedField{.key = std::string{k}, .value = v});
         events.push_back(std::move(evt));
     });
@@ -190,10 +190,12 @@ TEST_CASE("Logger::enabled() mirrors log()'s short-circuit exactly", "[log][enab
     // becomes wrong (either logs fire when they shouldn't, or vice versa).
     // Cross-check at every level / min_level combination.
     int callback_count = 0;
-    auto bump = [&](const LogRecord&) { ++callback_count; };
+    auto const bump = [&](const LogRecord&) { ++callback_count; };
 
-    for (auto min_level : {LogLevel::Debug, LogLevel::Info, LogLevel::Warn, LogLevel::Error}) {
-        for (auto call_level : {LogLevel::Debug, LogLevel::Info, LogLevel::Warn, LogLevel::Error}) {
+    for (auto const min_level :
+         {LogLevel::Debug, LogLevel::Info, LogLevel::Warn, LogLevel::Error}) {
+        for (auto const call_level :
+             {LogLevel::Debug, LogLevel::Info, LogLevel::Warn, LogLevel::Error}) {
             const Logger logger(bump, min_level);
             callback_count = 0;
             const bool en = logger.enabled(call_level);

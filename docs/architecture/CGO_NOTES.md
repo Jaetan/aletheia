@@ -106,7 +106,7 @@ The canonical sanitizer-lane invocation therefore uses clang:
 
 ```
 cmake -B build-ubsan -DALETHEIA_SANITIZER=undefined \
-    -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22
+    -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 cmake --build build-ubsan
 ctest --test-dir build-ubsan
 ```
@@ -114,9 +114,9 @@ ctest --test-dir build-ubsan
 `tools/run_ci.py` wires this exactly as an always-on step, not opt-in:
 an opt-in sanitizer lane can let UB — as in `Rational::from_double` —
 ship undetected.
-When clang-22 is unavailable, the always-on step fails loudly rather than
+When clang-23 is unavailable, the always-on step fails loudly rather than
 silently degrading.  The sanitizer build uses the same clang toolchain as the
-unit-test build (Clang 22 — see
+unit-test build (Clang 23, see
 [BUILDING.md § Toolchain support policy](../development/BUILDING.md#toolchain-support-policy))
 and must be present for `tools/run_ci.py` to return a green report.
 

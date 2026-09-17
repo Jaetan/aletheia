@@ -44,7 +44,7 @@ namespace fs = std::filesystem;
 // of the three is the cross-binding hazard the test is designed to catch.
 static auto canonical_dbc() -> DbcDefinition {
     auto sig_id = StandardId::create(256).value();
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
     DbcSignal test_sig{
         .name = SignalName{"TestSignal"},
         .start_bit = BitPosition{0},
@@ -78,7 +78,7 @@ static auto find_lib() -> fs::path {
         if (const fs::path p{env}; !p.empty() && fs::exists(p))
             return p;
     }
-    auto project_root = repo_root();
+    auto const project_root = repo_root();
     auto lib = project_root / "build" / "libaletheia-ffi.so";
     if (fs::exists(lib))
         return lib;
@@ -87,13 +87,13 @@ static auto find_lib() -> fs::path {
 }
 
 TEST_CASE("ParsedDBC response has documented shape", "[cross_binding]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
     auto result = client.parse_dbc(std::stop_token{}, canonical_dbc());
     REQUIRE(result.has_value());
-    const auto& parsed = result.value();
+    auto const& parsed = result.value();
 
     // ParsedDBC: { dbc: DbcDefinition, warnings: vector<ValidationIssue> }.
     // Round-trip identity invariant on canonical content.
@@ -107,13 +107,13 @@ TEST_CASE("ParsedDBC response has documented shape", "[cross_binding]") {
 }
 
 TEST_CASE("ValidationResult response has documented shape", "[cross_binding]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
     auto result = client.validate_dbc(std::stop_token{}, canonical_dbc());
     REQUIRE(result.has_value());
-    const auto& validation = result.value();
+    auto const& validation = result.value();
 
     // ValidationResult: { has_errors: bool, issues: vector<ValidationIssue> }.
     CHECK_FALSE(validation.has_errors);
@@ -121,7 +121,7 @@ TEST_CASE("ValidationResult response has documented shape", "[cross_binding]") {
 }
 
 TEST_CASE("send_frame ack response has documented shape", "[cross_binding]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -134,7 +134,7 @@ TEST_CASE("send_frame ack response has documented shape", "[cross_binding]") {
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto sid = StandardId::create(256).value();
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
     auto payload = std::array<std::byte, 8>{};
     auto resp = client.send_frame(std::stop_token{}, Timestamp{1000}, CanId{sid}, dlc,
                                   std::span<const std::byte>{payload});
@@ -144,7 +144,7 @@ TEST_CASE("send_frame ack response has documented shape", "[cross_binding]") {
 }
 
 TEST_CASE("send_frame violation response has documented shape", "[cross_binding]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -157,7 +157,7 @@ TEST_CASE("send_frame violation response has documented shape", "[cross_binding]
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto sid = StandardId::create(256).value();
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
     // Signal value 0xFFFF (65535) > 100 → violation.
     auto payload = std::array<std::byte, 8>{
         std::byte{0xFF}, std::byte{0xFF}, std::byte{0}, std::byte{0},
@@ -167,12 +167,12 @@ TEST_CASE("send_frame violation response has documented shape", "[cross_binding]
                                   std::span<const std::byte>{payload});
     REQUIRE(resp.has_value());
     REQUIRE(std::holds_alternative<PropertyBatch>(resp.value()));
-    const auto& b = std::get<PropertyBatch>(resp.value());
+    auto const& b = std::get<PropertyBatch>(resp.value());
     // Documented PropertyBatch.results entry members (PropertyResult):
     // property_index, verdict, optional<timestamp>, reason,
     // optional<enrichment>; assert the timestamp survived round-trip through
     // the batch envelope.
-    const auto* v = b.first_violation();
+    auto const* v = b.first_violation();
     REQUIRE(v != nullptr);
     REQUIRE(v->timestamp.has_value());
     CHECK(v->timestamp->count() > 0);
@@ -184,7 +184,7 @@ TEST_CASE("send_frame violation response has documented shape", "[cross_binding]
 // (completes on the first witness), index 1 is `always(TestSignal < 50)`
 // (violates at the same frame because 100 > 50).
 TEST_CASE("send_frame multi-event batch — satisfaction + violation", "[cross_binding]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -200,7 +200,7 @@ TEST_CASE("send_frame multi-event batch — satisfaction + violation", "[cross_b
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto sid = StandardId::create(256).value();
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
     // TestSignal = 100 fires BOTH:
     //  - property 0 (eventually(== 100)): Satisfied → complete(0)
     //  - property 1 (always(< 50)):       Violated  → halt(1)
@@ -212,7 +212,7 @@ TEST_CASE("send_frame multi-event batch — satisfaction + violation", "[cross_b
                                   std::span<const std::byte>{payload});
     REQUIRE(resp.has_value());
     REQUIRE(std::holds_alternative<PropertyBatch>(resp.value()));
-    const auto& b = std::get<PropertyBatch>(resp.value());
+    auto const& b = std::get<PropertyBatch>(resp.value());
     REQUIRE(b.results.size() == 2);
     // Source-order per dispatchIterResult invariant: satisfaction first, violation last.
     CHECK(b.results[0].verdict == Verdict::Holds);
@@ -229,7 +229,7 @@ TEST_CASE("send_frame with BRS / ESI passthrough", "[cross_binding][canfd]") {
     // otherwise-valid frame.  Mirror of Python's
     // test_canfd_brs_esi_passthrough + Go's
     // TestCrossBinding_SendFrameBrsEsiPassthrough.
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -237,7 +237,7 @@ TEST_CASE("send_frame with BRS / ESI passthrough", "[cross_binding][canfd]") {
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto sid = StandardId::create(256).value();
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
     auto payload = std::array<std::byte, 8>{};
 
     const std::array<std::optional<bool>, 3> options = {
@@ -246,8 +246,8 @@ TEST_CASE("send_frame with BRS / ESI passthrough", "[cross_binding][canfd]") {
         std::optional<bool>{false},
     };
     std::int64_t ts = 0;
-    for (const auto& brs : options) {
-        for (const auto& esi : options) {
+    for (auto const& brs : options) {
+        for (auto const& esi : options) {
             ts += 1000;
             auto resp = client.send_frame(std::stop_token{}, Timestamp{ts}, CanId{sid}, dlc,
                                           std::span<const std::byte>{payload}, brs, esi);
@@ -263,11 +263,11 @@ TEST_CASE("invalid CAN ID is rejected at type boundary", "[cross_binding]") {
     // Python raising on out-of-range and Go returning an Error variant — the
     // cross-binding invariant is "invalid CAN ID is rejected somewhere on
     // the path", satisfied here by the strong-typed factory.
-    auto sid = StandardId::create(0x800);
+    auto const sid = StandardId::create(0x800);
     CHECK_FALSE(sid.has_value());
 
     // Extended ID just over the 29-bit cap (2^29 = 0x20000000) is also rejected.
-    auto xid = ExtendedId::create(0x20000000);
+    auto const xid = ExtendedId::create(0x20000000);
     CHECK_FALSE(xid.has_value());
 }
 
@@ -280,7 +280,7 @@ TEST_CASE("invalid CAN ID is rejected at type boundary", "[cross_binding]") {
 // plumbing further down that monad.
 
 TEST_CASE("identifier at max length is accepted", "[cross_binding]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
@@ -293,13 +293,13 @@ TEST_CASE("identifier at max length is accepted", "[cross_binding]") {
 }
 
 TEST_CASE("identifier over max length is rejected", "[cross_binding]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
     const std::string name(aletheia::max_identifier_length + 1, 'A');
     const std::string dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
-    auto result = client.parse_dbc_text(std::stop_token{}, dbc_text);
+    auto const result = client.parse_dbc_text(std::stop_token{}, dbc_text);
     REQUIRE_FALSE(result.has_value());
 }
 
@@ -321,7 +321,7 @@ TEST_CASE("identifier over max length is rejected", "[cross_binding]") {
 // 1025-atom And-tree across the C++ FFI takes ~109s which is
 // unsuitable for a unit-test budget.
 TEST_CASE("nesting depth over limit lifts to InputBoundExceeded", "[cross_binding]") {
-    auto lib = find_lib();
+    auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 

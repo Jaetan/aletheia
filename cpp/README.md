@@ -9,14 +9,14 @@ See [../docs/development/BUILDING.md](../docs/development/BUILDING.md) and [../d
 Quick start (build the kernel, then configure, build and test the binding):
 ```bash
 cabal run shake -- build      # Build Agda + Haskell + libaletheia-ffi.so
-cd cpp && cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 && cmake --build build && ctest --test-dir build
+cd cpp && cmake -B build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 && cmake --build build && ctest --test-dir build
 ```
 
 ## Compilers
 
-C++23, built and tested with **Clang 22** — configure with
-`-DCMAKE_CXX_COMPILER=clang++-22`. The toolchain's libstdc++/libc++ must provide
-C++23 (`<expected>`, `<format>`). For the full support policy (why Clang 22, g++
+C++23, built and tested with **Clang 23**, configured with
+`-DCMAKE_CXX_COMPILER=clang++-23`. The toolchain's libstdc++/libc++ must provide
+C++23 (`<expected>`, `<format>`). For the full support policy (why Clang 23, g++
 dropped, older-Clang stance) see
 [BUILDING.md § Toolchain support policy](../docs/development/BUILDING.md#toolchain-support-policy).
 Build settings: `.clang-format`, `.clang-tidy`, `CMakeLists.txt`.
@@ -71,7 +71,7 @@ BO_ 256 Engine: 8 ECU
     frames.push_back(Frame{Timestamp{1000}, CanId{StandardId::create(0x100).value()},
                            Dlc::create(8).value(), FramePayload(8, std::byte{0}),
                            std::nullopt, std::nullopt});
-    for (const auto& f : frames) {
+    for (auto const& f : frames) {
         auto resp = client.send_frame(stop, f); // Result<FrameResponse>
         if (!resp)
             return 1;

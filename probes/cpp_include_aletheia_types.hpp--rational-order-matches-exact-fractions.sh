@@ -39,7 +39,7 @@ int main() {
     }
 }
 CPP
-clang++-22 -std=c++23 -Icpp/include "$scratch/t.cpp" -o "$scratch/t" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }
+clang++-23 -std=c++23 -Icpp/include "$scratch/t.cpp" -o "$scratch/t" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }
 "$scratch/t" < "$scratch/pairs.txt" > "$scratch/got.txt"
 python/.venv/bin/python - "$scratch/pairs.txt" "$scratch/got.txt" <<'PY'
 import sys

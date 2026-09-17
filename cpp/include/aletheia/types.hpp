@@ -128,8 +128,8 @@ public:
                                           "(Clang on Linux — see cpp/CMakeLists.txt).");
     constexpr auto operator<=>(const Rational& rhs) const {
         // a/b <=> c/d  iff  a*d <=> c*b  (denominators always positive)
-        auto lhs_prod = static_cast<__int128>(num_) * rhs.den_;
-        auto rhs_prod = static_cast<__int128>(rhs.num_) * den_;
+        auto const lhs_prod = static_cast<__int128>(num_) * rhs.den_;
+        auto const rhs_prod = static_cast<__int128>(rhs.num_) * den_;
         return lhs_prod <=> rhs_prod;
     }
     constexpr auto operator==(const Rational& rhs) const -> bool {
@@ -146,7 +146,7 @@ public:
         // den > 0 check, yielding a misleading error or an incorrect Rational.
         if (!std::in_range<std::int64_t>(num) || !std::in_range<std::int64_t>(den))
             return std::unexpected("Rational: numerator/denominator out of int64 range");
-        const auto den64 = static_cast<std::int64_t>(den);
+        auto const den64 = static_cast<std::int64_t>(den);
         if (den64 <= 0)
             return std::unexpected("Rational denominator must be positive");
         return Rational{static_cast<std::int64_t>(num), den64};
@@ -281,7 +281,7 @@ using CanId = std::variant<StandardId, ExtendedId>;
 /// of standard vs extended discrimination, so call sites need not visit
 /// the variant themselves.
 [[nodiscard]] constexpr auto can_id_value(const CanId& id) -> std::uint32_t {
-    return std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
+    return std::visit([](auto const& v) -> std::uint32_t { return v.value(); }, id);
 }
 
 /// Returns true when the CanId carries an `ExtendedId` (29-bit) variant,
@@ -331,7 +331,7 @@ public:
 // table, or an error for a byte count no DLC code denotes.
 [[nodiscard]] inline auto bytes_to_dlc(std::size_t byte_count) -> std::expected<Dlc, std::string> {
     for (std::uint8_t code = 0; code <= 15; ++code) {
-        const auto dlc = *Dlc::create(code);
+        auto const dlc = *Dlc::create(code);
         if (dlc_to_bytes(dlc) == byte_count)
             return dlc;
     }

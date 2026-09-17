@@ -51,7 +51,7 @@ static auto rational_to_json(const Rational& r) -> Json {
         // the bug rather than masking it.
         return {{"numerator", r.numerator()}, {"denominator", r.denominator()}};
     }
-    const auto g = std::gcd(std::abs(num), den);
+    auto const g = std::gcd(std::abs(num), den);
     num /= (g == 0 ? 1 : g);
     den /= (g == 0 ? 1 : g);
     if (den == 1)
@@ -63,7 +63,7 @@ static auto rational_to_json(const Rational& r) -> Json {
 template<typename Range, typename ToJson>
 static auto json_array(const Range& items, ToJson to_json) -> Json {
     Json arr = Json::array();
-    for (const auto& item : items)
+    for (auto const& item : items)
         arr.push_back(to_json(item));
     return arr;
 }
@@ -99,7 +99,7 @@ static auto value_entry_to_json(const DbcValueEntry& e) -> Json {
 // type it carries in the definition says which strings are meant.
 static auto node_names_to_json(const std::vector<NodeName>& names) -> Json {
     Json out = Json::array();
-    for (const auto& n : names)
+    for (auto const& n : names)
         out.push_back(n.get());
     return out;
 }
@@ -182,7 +182,7 @@ static auto attach_can_id(Json& obj, const CanId& id) -> void {
 // shapes, and each shape has one wire form, so one serializer dispatches on
 // the members an alternative carries rather than on its type.  A new shape
 // fails the final static_assert.
-static auto target_to_json(const auto& v) -> Json {
+static auto target_to_json(auto const& v) -> Json {
     using T = std::decay_t<decltype(v)>;
     if constexpr (requires {
                       v.node;
@@ -223,14 +223,14 @@ static auto target_to_json(const auto& v) -> Json {
 }
 
 static auto comment_target_to_json(const DbcCommentTarget& t) -> Json {
-    return std::visit([](const auto& v) { return target_to_json(v); }, t);
+    return std::visit([](auto const& v) { return target_to_json(v); }, t);
 }
 
 static auto comment_to_json(const DbcComment& c) -> Json {
     return {{"target", comment_target_to_json(c.target)}, {"text", c.text}};
 }
 
-static auto attr_scope_to_json(DbcAttrScope s) -> std::string {
+static auto attr_scope_to_json(DbcAttrScope s) -> std::string_view {
     switch (s) {
     case DbcAttrScope::Network:
         return "network";
@@ -295,7 +295,7 @@ static auto attr_value_to_json(const DbcAttrValue& v) -> Json {
 }
 
 static auto attr_target_to_json(const DbcAttrTarget& t) -> Json {
-    return std::visit([](const auto& v) { return target_to_json(v); }, t);
+    return std::visit([](auto const& v) { return target_to_json(v); }, t);
 }
 
 static auto attribute_to_json(const DbcAttribute& a) -> Json {
@@ -374,7 +374,7 @@ static constexpr auto predicate_tag() -> std::string_view {
 // are the four member shapes rather than the eight types.
 static auto predicate_to_json(const Predicate& p) -> Json {
     return std::visit(
-        [](const auto& v) -> Json {
+        [](auto const& v) -> Json {
             using T = std::decay_t<decltype(v)>;
             Json out = {{"predicate", predicate_tag<T>()}, {"signal", v.signal.get()}};
             if constexpr (requires { v.value; }) {
@@ -442,7 +442,7 @@ static auto formula_to_json(const LtlFormula& f, int depth = 0) -> Json {
         throw std::runtime_error("Formula nesting depth exceeds " +
                                  std::to_string(max_nesting_depth));
     return std::visit(
-        [depth](const auto& v) -> Json {
+        [depth](auto const& v) -> Json {
             using T = std::decay_t<decltype(v)>;
             Json out = {{"operator", formula_tag<T>()}};
             if constexpr (requires { v.predicate; }) {

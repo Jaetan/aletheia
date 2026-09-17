@@ -78,7 +78,7 @@ TEST_CASE("default cap boots and parses a workload", "[rts][heap_cap]") {
     // The correct path: hs_init_with_rtsopts and the default heap cap. The
     // workload prints its sentinel only after a clean parse, so reading it
     // back pins both the exit code and the path that produced it.
-    const auto [code, out] = run_workload("3", nullptr);
+    auto const [code, out] = run_workload("3", nullptr);
     CHECK(code == 0);
     CHECK(out.contains("ALETHEIA_RTS_OK"));
 }
@@ -88,7 +88,7 @@ TEST_CASE("a tight heap cap aborts the process", "[rts][heap_cap]") {
     // aborts the process.  A non-zero exit that is neither the parse-error path
     // (3) nor a backend exception (2) is the heap abort (containment), not a
     // masked failure.
-    const auto [code, out] = run_workload("1000", "-M12M");
+    auto const [code, out] = run_workload("1000", "-M12M");
     CHECK(code != 0);
     CHECK(code != 3);
     CHECK(code != 2);

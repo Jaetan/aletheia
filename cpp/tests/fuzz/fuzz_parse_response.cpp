@@ -8,7 +8,7 @@
 // which cpp/CMakeLists.txt adds to each of them behind the ALETHEIA_FUZZ
 // option, links its own runtime, so they need a directory of their own:
 //   cmake -B build-fuzz -DALETHEIA_FUZZ=ON \
-//       -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+//       -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 //   cmake --build build-fuzz --target fuzz_parse_response
 //   mkdir -p build-fuzz/corpus/parse_response
 //   ./build-fuzz/fuzz_parse_response -max_total_time=60 \
@@ -29,14 +29,14 @@
 #include <string_view>
 
 extern "C" auto LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) -> int {
-    auto input = std::string_view{reinterpret_cast<const char*>(data), size};
+    auto const input = std::string_view{reinterpret_cast<const char*>(data), size};
     // Each parser entry must not crash on adversarial input.  Errors are
     // expected; the contract is no UB / no exception escape past the API.
-    [[maybe_unused]] auto r1 = aletheia::detail::parse_success(input);
-    [[maybe_unused]] auto r2 = aletheia::detail::parse_validation(input);
-    [[maybe_unused]] auto r3 = aletheia::detail::parse_frame_response(input);
-    [[maybe_unused]] auto r4 = aletheia::detail::parse_dbc_response(input);
-    [[maybe_unused]] auto r5 = aletheia::detail::parse_parsed_dbc(input);
-    [[maybe_unused]] auto r6 = aletheia::detail::parse_event_ack(input);
+    [[maybe_unused]] auto const r1 = aletheia::detail::parse_success(input);
+    [[maybe_unused]] auto const r2 = aletheia::detail::parse_validation(input);
+    [[maybe_unused]] auto const r3 = aletheia::detail::parse_frame_response(input);
+    [[maybe_unused]] auto const r4 = aletheia::detail::parse_dbc_response(input);
+    [[maybe_unused]] auto const r5 = aletheia::detail::parse_parsed_dbc(input);
+    [[maybe_unused]] auto const r6 = aletheia::detail::parse_event_ack(input);
     return 0;
 }
