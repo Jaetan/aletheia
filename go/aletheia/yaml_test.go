@@ -686,3 +686,24 @@ checks:
 		t.Errorf("checks: got %d, want 1", len(checks))
 	}
 }
+
+// A number written as a list or a mapping is refused where a number belongs,
+// before the kernel is asked to read it as one.
+func TestLoadChecksFromYAML_RefusesANonScalarNumber(t *testing.T) {
+	documents := map[string]string{
+		"a list where a value belongs": "checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: [1, 2]\n",
+		"a mapping where one belongs":  "checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: {a: 1}\n",
+		"a list where a bound belongs": "checks:\n  - signal: Speed\n    condition: stays_between\n    min: [1]\n    max: 2\n",
+	}
+	for name, doc := range documents {
+		t.Run(name, func(t *testing.T) {
+			_, err := LoadChecksFromYAML(doc)
+			if err == nil {
+				t.Fatal("a number that is not a number was accepted")
+			}
+			// The refusal names the shape, rather than reporting whatever the
+			// kernel makes of the empty text a list decodes to.
+			requireErrorContains(t, err, "expected a numeric scalar value")
+		})
+	}
+}
