@@ -435,6 +435,21 @@ def _run_lints(runner: Runner) -> None:
     runner.step("gofmt", gofmt_cmd, cwd=runner.repo_root / "go")
     runner.step("go vet", "go vet ./... && (cd excel && go vet ./...)", cwd=runner.repo_root / "go")
 
+    # The binding keeps a second implementation for builds without cgo, which
+    # the binding's own verification list names and which nothing here compiled:
+    # a developer running that list caught a drift and this did not.  Building
+    # both modules with cgo off compiles the stub against every consumer in the
+    # tree, the commands and the two benchmark binaries included, so a symbol it
+    # stops declaring fails here.  It costs a compile of a small module: 2.6s
+    # cold and 0.1s warm on the reference host.  A signature that drifts while
+    # every in-tree caller still compiles is what the store's surface probe is
+    # for; it stays a probe.
+    runner.step(
+        "go build (no cgo)",
+        "CGO_ENABLED=0 go build ./... && (cd excel && CGO_ENABLED=0 go build ./...)",
+        cwd=runner.repo_root / "go",
+    )
+
     # clang-format over what the repository tracks, for the reason the
     # clang-tidy step below reads the compile database: a hand-maintained list
     # of trees to skip drifts from the trees that exist, and the one it misses

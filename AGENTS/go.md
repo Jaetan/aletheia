@@ -86,7 +86,7 @@ cd go && gofmt -l ./aletheia/
 cd go && go test ./aletheia/ -v -count=1 -race
 cd go && go test ./aletheia/ -shuffle=on -count=1 -race
 cd go && go vet ./...
-cd go && CGO_ENABLED=0 go build ./aletheia/
+cd go && CGO_ENABLED=0 go build ./... && (cd excel && CGO_ENABLED=0 go build ./...)
 # Cat 33 dynamic-analysis lanes (opt-in via build tags or extended runs):
 cd go && go test ./aletheia/ -fuzz=Fuzz -fuzztime=60s -run='^$'   # one target at a time; iterate
 cd go && go test ./aletheia/ -run CrossBinding -v                  # cross-binding integration
