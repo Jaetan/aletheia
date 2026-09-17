@@ -1,17 +1,12 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Structural gate: every ```go fence in the published docs must run.
-//
-// Mirror of python/tests/test_doc_examples_harness.py. The execution invariant
-// — that every runnable ```go fence actually compiles and runs end-to-end — is
-// enforced by TestDocExamples. THIS test enforces the *escape-hatch* invariant:
-// no `<!-- go notest -->` annotation may appear in the tracked doc surface.
-//
-// Pseudocode and design-sketch fences (function signatures, partial method
-// definitions, interface shapes) must use the `text` info string so they are
-// invisible to the harness. The Python rule is identical: `python notest` is
-// banned; non-runnable fences flip to `text`.
+// Two structural gates beside the doc-example harness: no listed file may
+// hide a Go fence from it with a notest annotation (a fence that cannot run
+// takes the text info string, as the Python rule has it), and the listed
+// files together must keep carrying live Go examples, so a mass rename of
+// info strings cannot silently empty the harness.
+
 package aletheia_test
 
 import (
@@ -22,52 +17,38 @@ import (
 	"testing"
 )
 
-// goNotestPattern matches `<!-- go notest -->` HTML-comment annotations,
-// the only mechanism that could hide a Go fence from TestDocExamples.
-// `\bnotest\b` ensures we don't false-positive on substrings.
+// goNotestPattern is the notest annotation on a Go fence; the word boundary
+// keeps a longer word containing "notest" from matching.
 var goNotestPattern = regexp.MustCompile(`<!--\s*go\b[^>]*\bnotest\b[^>]*-->`)
 
-// TestNoNotestGoFences rejects `<!-- go notest -->` annotations across every
-// tracked doc file. A genuinely non-runnable fence must change its info
-// string from `go` to `text`, mirroring the Python rule.
 func TestNoNotestGoFences(t *testing.T) {
 	for _, file := range docFiles {
-		file := file
 		t.Run(file, func(t *testing.T) {
 			data, err := os.ReadFile(file)
 			if err != nil {
 				t.Fatalf("read %s: %v", file, err)
 			}
-			matches := goNotestPattern.FindAllIndex(data, -1)
-			if len(matches) == 0 {
-				return
-			}
 			var offenders []string
-			for _, m := range matches {
-				line := bytes.Count(data[:m[0]], []byte{'\n'}) + 1
-				offenders = append(offenders, fmt.Sprintf("L%d", line))
+			for _, m := range goNotestPattern.FindAllIndex(data, -1) {
+				offenders = append(offenders, fmt.Sprintf("L%d", bytes.Count(data[:m[0]], []byte{'\n'})+1))
 			}
-			t.Errorf("%s has `<!-- go notest -->` annotations at %v — switch the "+
-				"fence info string from `go` to `text` (or drop the annotation so "+
-				"the harness runs the block).", file, offenders)
+			if len(offenders) > 0 {
+				t.Errorf("%s has notest annotations at %v: switch the fence to the text info string, or drop the annotation and let it run", file, offenders)
+			}
 		})
 	}
 }
 
-// TestEveryDocFileHasAtLeastOneGoFenceCollectively guards against a mass
-// rename (e.g. someone converting every `go` info string to `text` during
-// a refactor) that would silently remove the doc-example surface. We don't
-// require every individual file to carry a fence — some are prose-heavy —
-// but the collective set must have live examples.
+// minFences is the floor under the number of Go fences across the listed
+// files; a single file may carry none.
+const minFences = 8
+
 func TestEveryDocFileHasAtLeastOneGoFenceCollectively(t *testing.T) {
 	total := 0
 	for _, file := range docFiles {
-		fences := extractGoFences(t, file)
-		total += len(fences)
+		total += len(extractGoFences(t, file))
 	}
-	const minFences = 8
 	if total < minFences {
-		t.Fatalf("expected the doc-example harness to cover ≥%d ```go fences "+
-			"across the tracked docs, saw %d", minFences, total)
+		t.Fatalf("expected at least %d Go fences across the listed files, saw %d", minFences, total)
 	}
 }
