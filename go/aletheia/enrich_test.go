@@ -1,3 +1,5 @@
+//go:build cgo && linux
+
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
@@ -12,29 +14,12 @@ import (
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
 
-func lt(sig string, v int64) aletheia.Formula {
-	return aletheia.Atomic{Predicate: aletheia.LessThan{Signal: aletheia.SignalName(sig), Value: aletheia.IntRational(v)}}
-}
-
-func gt(sig string, v int64) aletheia.Formula {
-	return aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: aletheia.SignalName(sig), Value: aletheia.IntRational(v)}}
-}
-
 // speedBelow220 is the one property most enrichment tests install.
 var speedBelow220 = speedBelow(220)
 
 // violationAt is a frame response failing property 0 at the timestamp.
 func violationAt(ts int64, reason string) aletheia.MockResponse {
 	return aletheia.Respond(fmt.Sprintf(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":%d,"reason":%q}]}`, ts, reason))
-}
-
-// extractionOf is a successful extraction response carrying the named integer values.
-func extractionOf(values ...any) aletheia.MockResponse {
-	parts := make([]string, 0, len(values)/2)
-	for i := 0; i+1 < len(values); i += 2 {
-		parts = append(parts, fmt.Sprintf(`{"name":%q,"value":%d}`, values[i], values[i+1]))
-	}
-	return aletheia.Respond(`{"status":"success","values":[` + strings.Join(parts, ",") + `],"errors":[],"absent":[]}`)
 }
 
 // endStreamFailing is an end-of-stream response failing property 0.
@@ -213,12 +198,6 @@ func TestSendFrame_EnrichedViolation(t *testing.T) {
 	if v.Enrichment.CoreReason != "Atomic: predicate failed" {
 		t.Errorf("CoreReason = %q", v.Enrichment.CoreReason)
 	}
-}
-
-// sendFrame sends one frame on the identifier these tests enrich.
-func sendFrame(t *testing.T, c *aletheia.Client, ts int64, data ...byte) aletheia.FrameResponse {
-	t.Helper()
-	return sendOn(t, c, 0x123, ts, data...)
 }
 
 // The extraction for a frame is done once and served from the cache to a

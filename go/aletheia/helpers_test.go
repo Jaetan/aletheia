@@ -6,6 +6,7 @@ package aletheia_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -75,6 +76,78 @@ func testDBC() aletheia.DBCDefinition {
 			},
 		},
 	}
+}
+
+// These four build what a test hands the mock, and need no kernel, so they sit
+// here rather than in the files that do.
+func lt(sig string, v int64) aletheia.Formula {
+	return aletheia.Atomic{Predicate: aletheia.LessThan{Signal: aletheia.SignalName(sig), Value: aletheia.IntRational(v)}}
+}
+
+func gt(sig string, v int64) aletheia.Formula {
+	return aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: aletheia.SignalName(sig), Value: aletheia.IntRational(v)}}
+}
+
+// extractionOf is a successful extraction response carrying the named integer values.
+func extractionOf(values ...any) aletheia.MockResponse {
+	parts := make([]string, 0, len(values)/2)
+	for i := 0; i+1 < len(values); i += 2 {
+		parts = append(parts, fmt.Sprintf(`{"name":%q,"value":%d}`, values[i], values[i+1]))
+	}
+	return aletheia.Respond(`{"status":"success","values":[` + strings.Join(parts, ",") + `],"errors":[],"absent":[]}`)
+}
+
+// sendFrame sends one frame on the identifier these tests enrich.
+func sendFrame(t *testing.T, c *aletheia.Client, ts int64, data ...byte) aletheia.FrameResponse {
+	t.Helper()
+	return sendOn(t, c, 0x123, ts, data...)
+}
+
+// mockClient is a client over a mock holding the given responses, closed when
+// the test ends.
+func mockClient(t *testing.T, responses ...aletheia.MockResponse) (*aletheia.Client, *aletheia.MockBackend) {
+	t.Helper()
+	mock := aletheia.NewMockBackend(responses...)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	return c, mock
+}
+
+func standardID(t *testing.T, v uint16) aletheia.StandardID {
+	t.Helper()
+	sid, err := aletheia.NewStandardID(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sid
+}
+
+// requireKind asserts err is an *aletheia.Error of the kind.
+func requireKind(t *testing.T, err error, kind aletheia.ErrorKind) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
+		t.Fatalf("expected *aletheia.Error, got %T: %v", err, err)
+	}
+	if aErr.Kind != kind {
+		t.Errorf("kind: got %s, want %s: %v", aErr.Kind, kind, err)
+	}
+}
+
+// formatDBCResponse is a success response to FormatDBC carrying one message.
+func formatDBCResponse(message string) string {
+	return `{"status":"success","dbc":{"version":"","messages":[` + message + `]}}`
+}
+
+// oneSignalMessage is a standard-ID message carrying one signal.
+func oneSignalMessage(signal string) string {
+	return `{"id":100,"extended":false,"name":"Msg","dlc":8,"sender":"ECU","signals":[` + signal + `]}`
 }
 
 // standardFrame is a frame of the eight-byte length on a standard identifier,

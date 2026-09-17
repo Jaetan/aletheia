@@ -1,3 +1,5 @@
+//go:build cgo && linux
+
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
@@ -12,19 +14,6 @@ import (
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
 
-// mockClient is a client over a mock holding the given responses, closed when
-// the test ends.
-func mockClient(t *testing.T, responses ...aletheia.MockResponse) (*aletheia.Client, *aletheia.MockBackend) {
-	t.Helper()
-	mock := aletheia.NewMockBackend(responses...)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = c.Close() })
-	return c, mock
-}
-
 // parsedClient is a mock client that has loaded testDBC, so the signal index
 // is populated; the responses follow the parse.
 func parsedClient(t *testing.T, responses ...aletheia.MockResponse) (*aletheia.Client, *aletheia.MockBackend) {
@@ -36,31 +25,6 @@ func parsedClient(t *testing.T, responses ...aletheia.MockResponse) (*aletheia.C
 	return c, mock
 }
 
-// requireKind asserts err is an *aletheia.Error of the kind.
-func requireKind(t *testing.T, err error, kind aletheia.ErrorKind) {
-	t.Helper()
-	if err == nil {
-		t.Fatal("expected an error, got nil")
-	}
-	var aErr *aletheia.Error
-	if !errors.As(err, &aErr) {
-		t.Fatalf("expected *aletheia.Error, got %T: %v", err, err)
-	}
-	if aErr.Kind != kind {
-		t.Errorf("kind: got %s, want %s: %v", aErr.Kind, kind, err)
-	}
-}
-
-// formatDBCResponse is a success response to FormatDBC carrying one message.
-func formatDBCResponse(message string) string {
-	return `{"status":"success","dbc":{"version":"","messages":[` + message + `]}}`
-}
-
-// oneSignalMessage is a standard-ID message carrying one signal.
-func oneSignalMessage(signal string) string {
-	return `{"id":100,"extended":false,"name":"Msg","dlc":8,"sender":"ECU","signals":[` + signal + `]}`
-}
-
 const (
 	sid123        = 0x123
 	speedSignal   = `{"name":"Speed","startBit":0,"length":16,"byteOrder":"little_endian","signed":false,"factor":{"numerator":1,"denominator":10},"offset":0,"minimum":0,"maximum":300,"unit":"km/h","presence":"always"}`
@@ -68,15 +32,6 @@ const (
 	zeroPayload8  = "\x00\x00\x00\x00\x00\x00\x00\x00"
 	extractionRsp = `{"status":"success","values":[{"name":"Speed","value":{"numerator":241,"denominator":2}},{"name":"Ratio","value":{"numerator":1,"denominator":3}}],"errors":[{"name":"Broken","error":"bit extraction failed"}],"absent":["Temp"]}`
 )
-
-func standardID(t *testing.T, v uint16) aletheia.StandardID {
-	t.Helper()
-	sid, err := aletheia.NewStandardID(v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return sid
-}
 
 // ParseDBC serialises the definition the way the other bindings do: an
 // always-present signal carries "presence":"always", a multiplexed one its
