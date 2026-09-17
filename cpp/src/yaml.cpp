@@ -169,25 +169,36 @@ static auto parse_when_then_check(const YAML::Node& entry, const std::string& na
 
     // Then clause
     auto then_cond = get_str(then, "condition", ctx(name));
-    if (!detail::is_then_condition(then_cond))
+    // The word is held to the vocabulary by taking its slots: one lookup
+    // answers both whether the obligation is known and what it reads.
+    const auto slots = detail::then_slots(then_cond);
+    if (!slots)
         throw std::runtime_error(ctx(name) + ": unknown then condition '" + then_cond + "'");
 
     auto then_signal = get_str(then, "signal", ctx(name));
     auto then_builder = when_result.then(then_signal);
 
-    if (then_cond == "equals" || then_cond == "exceeds") {
-        auto val = PhysicalValue{get_decimal(then, "value", ctx(name))};
-        const ThenCondition cond =
-            then_cond == "equals" ? then_builder.equals(val) : then_builder.exceeds(val);
-        return cond.within(within_ms);
+    // Which keys the obligation reads is the vocabulary's business, not this
+    // loader's; which keys they are, and what to say when one is missing, is
+    // this loader's.
+    // The slots the obligation does not read stay at zero and the dispatcher
+    // ignores them.
+    PhysicalValue value{Rational{0, 1}};
+    PhysicalValue lo{Rational{0, 1}};
+    PhysicalValue hi{Rational{0, 1}};
+    switch (*slots) {
+    case detail::ThenSlots::Value:
+        value = PhysicalValue{get_decimal(then, "value", ctx(name))};
+        break;
+    case detail::ThenSlots::Range:
+        if (!then["min"] || !then["max"])
+            throw std::runtime_error(ctx(name) + ": then condition '" + then_cond +
+                                     "' requires 'min' and 'max'");
+        lo = PhysicalValue{get_decimal(then, "min", ctx(name))};
+        hi = PhysicalValue{get_decimal(then, "max", ctx(name))};
+        break;
     }
-    // stays_between
-    if (!then["min"] || !then["max"])
-        throw std::runtime_error(ctx(name) +
-                                 ": then condition 'stays_between' requires 'min' and 'max'");
-    auto lo = PhysicalValue{get_decimal(then, "min", ctx(name))};
-    auto hi = PhysicalValue{get_decimal(then, "max", ctx(name))};
-    return then_builder.stays_between(lo, hi).within(within_ms);
+    return detail::dispatch_then(then_builder, then_cond, value, lo, hi, within_ms);
 }
 
 // ---------------------------------------------------------------------------
