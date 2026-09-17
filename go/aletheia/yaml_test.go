@@ -261,6 +261,16 @@ func TestLoadYAML_Refusals(t *testing.T) {
 				"    then:\n      signal: BrakeLight\n      condition: bogus\n      value: 1\n    within_ms: 100\n",
 			"unknown then condition 'bogus'",
 		},
+		"an obligation with no value": {
+			"checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n" +
+				"    then:\n      signal: BrakeLight\n      condition: equals\n    within_ms: 100\n",
+			"then condition 'equals' requires 'value'",
+		},
+		"an obligation with half a range": {
+			"checks:\n  - when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n" +
+				"    then:\n      signal: Speed\n      condition: stays_between\n      max: 30\n    within_ms: 100\n",
+			"then condition 'stays_between' requires 'min' and 'max'",
+		},
 		"a trigger with no obligation": {
 			"checks:\n  - name: \"Incomplete\"\n    when:\n      signal: Brake\n      condition: exceeds\n      value: 50\n    within_ms: 100\n",
 			"must have 'signal' or 'when'/'then'",

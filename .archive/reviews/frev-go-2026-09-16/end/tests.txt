@@ -1,12 +1,12 @@
 ## ALETHEIA_LIB=build/libaletheia-ffi.so go test ./... -count=1 -race (go/)
-ok  	github.com/aletheia-automotive/aletheia-go/aletheia	8.518s
+ok  	github.com/aletheia-automotive/aletheia-go/aletheia	7.895s
 ?   	github.com/aletheia-automotive/aletheia-go/benchmarks	[no test files]
 ?   	github.com/aletheia-automotive/aletheia-go/benchmarks/stability	[no test files]
-ok  	github.com/aletheia-automotive/aletheia-go/cmd/aletheia	1.121s
+ok  	github.com/aletheia-automotive/aletheia-go/cmd/aletheia	1.078s
 ## go test ./... -count=1 -race (go/excel)
-ok  	github.com/aletheia-automotive/aletheia-go/excel	5.512s
+ok  	github.com/aletheia-automotive/aletheia-go/excel	4.930s
 ## CGO_ENABLED=0 go test ./... -count=1 (go/)
-ok  	github.com/aletheia-automotive/aletheia-go/aletheia	0.023s
+ok  	github.com/aletheia-automotive/aletheia-go/aletheia	0.013s
 ?   	github.com/aletheia-automotive/aletheia-go/benchmarks	[no test files]
 ?   	github.com/aletheia-automotive/aletheia-go/benchmarks/stability	[no test files]
 ok  	github.com/aletheia-automotive/aletheia-go/cmd/aletheia	0.003s
