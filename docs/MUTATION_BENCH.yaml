@@ -99,9 +99,9 @@ bindings:
       # is what the runner records and what score_pct is taken from.
       #
       # The split between killed and timed out moves with the machine, and it
-      # moves a long way. This tree gave 650 killed and 11 timed out on a quiet
-      # host, and 39 killed with 622 timed out in a sweep that had a second
-      # sweep running beside it. A mutant that times out counts as neither
+      # moves a long way. This tree gave 633 killed and 11 timed out on a quiet
+      # host, and an earlier one 39 killed with 622 timed out in a sweep that
+      # had a second sweep running beside it. A mutant that times out counts as neither
       # killed nor lived, so that second run reported no survivors and full
       # efficacy having actually tested one mutant in twenty. A third sweep
       # generated the same total and left none alive, which is what is compared
@@ -111,12 +111,12 @@ bindings:
       # generated, which were the same in all three; the rest is what the run
       # recorded here produced.
       survivors: 0
-      generated: 763
-      not_covered: 102
+      generated: 762
+      not_covered: 118
       timeouts: 11
-      total_mutants: 650
+      total_mutants: 633
       score_pct: 100
-      run_at: "2026-09-16"
+      run_at: "2026-09-17"
 
   cpp:
     tool: mull

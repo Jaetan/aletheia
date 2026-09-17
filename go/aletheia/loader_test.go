@@ -6,6 +6,7 @@
 package aletheia
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -17,26 +18,38 @@ func thenBuilder() ThenSignalBuilder {
 	return CheckWhen("Brake").Exceeds(IntRational(50)).Then("Speed")
 }
 
+// fixedValues answers every slot with what it holds, or refuses every slot
+// with one error. A loader's own refusals are that loader's business, so a
+// dispatcher test needs no more than this.
+type fixedValues struct {
+	value, lo, hi Rational
+	withinMs      int64
+	err           error
+}
+
+func (f fixedValues) Value() (Rational, error)           { return f.value, f.err }
+func (f fixedValues) Range() (Rational, Rational, error) { return f.lo, f.hi, f.err }
+func (f fixedValues) Within() (int64, error)             { return f.withinMs, f.err }
+
 // Each word the trailing half accepts builds what the same call written by
-// hand builds, with the value slots its own condition reads and the time bound
-// it was given.
+// hand builds, reading the slots its own condition reads.
 func TestDispatchThen_BuildsWhatTheBuilderBuilds(t *testing.T) {
 	cases := map[string]struct {
-		condition     string
-		value, lo, hi Rational
-		withinMs      int64
-		byHand        func() (CheckResult, error)
+		condition string
+		values    fixedValues
+		withinMs  int64
+		byHand    func() (CheckResult, error)
 	}{
 		"equals": {
-			condition: "equals", value: IntRational(1), withinMs: 100,
+			condition: "equals", values: fixedValues{value: IntRational(1)}, withinMs: 100,
 			byHand: func() (CheckResult, error) { return thenBuilder().Equals(IntRational(1)).Within(100) },
 		},
 		"exceeds": {
-			condition: "exceeds", value: IntRational(30), withinMs: 200,
+			condition: "exceeds", values: fixedValues{value: IntRational(30)}, withinMs: 200,
 			byHand: func() (CheckResult, error) { return thenBuilder().Exceeds(IntRational(30)).Within(200) },
 		},
 		"stays_between": {
-			condition: "stays_between", lo: IntRational(10), hi: IntRational(90), withinMs: 300,
+			condition: "stays_between", values: fixedValues{lo: IntRational(10), hi: IntRational(90)}, withinMs: 300,
 			byHand: func() (CheckResult, error) {
 				return thenBuilder().StaysBetween(IntRational(10), IntRational(90)).Within(300)
 			},
@@ -44,7 +57,7 @@ func TestDispatchThen_BuildsWhatTheBuilderBuilds(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got, err := DispatchThen(thenBuilder(), tc.condition, tc.value, tc.lo, tc.hi, tc.withinMs)
+			got, err := DispatchThen(thenBuilder(), tc.condition, tc.values, tc.withinMs)
 			if err != nil {
 				t.Fatalf("DispatchThen: %v", err)
 			}
@@ -54,6 +67,35 @@ func TestDispatchThen_BuildsWhatTheBuilderBuilds(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("got %+v, want %+v", got, want)
+			}
+		})
+	}
+	// Every word the table holds is exercised above, so an obligation added
+	// with no case here fails rather than going untested.
+	for word := range thenBuilders {
+		if _, ok := cases[word]; !ok {
+			t.Errorf("the trailing half accepts %q and this test has no case for it", word)
+		}
+	}
+}
+
+// A slot a loader cannot answer refuses the build, in that loader's own words
+// and unchanged: the dispatcher neither swallows the refusal nor rewrites it.
+func TestDispatchers_CarryTheLoadersRefusal(t *testing.T) {
+	refusal := errors.New("row 7: the column is empty")
+	for word := range thenBuilders {
+		t.Run("then/"+word, func(t *testing.T) {
+			_, err := DispatchThen(thenBuilder(), word, fixedValues{err: refusal}, 100)
+			if !errors.Is(err, refusal) {
+				t.Errorf("got %v, want the loader's own refusal", err)
+			}
+		})
+	}
+	for word := range simpleBuilders {
+		t.Run("simple/"+word, func(t *testing.T) {
+			_, err := DispatchSimple("Speed", word, fixedValues{err: refusal})
+			if !errors.Is(err, refusal) {
+				t.Errorf("got %v, want the loader's own refusal", err)
 			}
 		})
 	}
@@ -78,25 +120,67 @@ func TestDispatchWhen_BuildsWhatTheBuilderBuilds(t *testing.T) {
 			}
 		})
 	}
+	for word := range whenBuilders {
+		if _, ok := cases[word]; !ok {
+			t.Errorf("the leading half accepts %q and this test has no case for it", word)
+		}
+	}
 }
 
-// Each single-value word builds the check of the same name.
+// Each word a check may carry on its own builds the check of the same name.
 func TestDispatchSimple_BuildsWhatTheBuilderBuilds(t *testing.T) {
-	cases := map[string]func() CheckResult{
-		"never_exceeds": func() CheckResult { return CheckSignal("Speed").NeverExceeds(IntRational(220)) },
-		"never_below":   func() CheckResult { return CheckSignal("Speed").NeverBelow(IntRational(220)) },
-		"never_equals":  func() CheckResult { return CheckSignal("Speed").NeverEquals(IntRational(220)) },
+	cases := map[string]struct {
+		values fixedValues
+		byHand func() (CheckResult, error)
+	}{
+		"never_exceeds": {
+			values: fixedValues{value: IntRational(220)},
+			byHand: func() (CheckResult, error) { return CheckSignal("Speed").NeverExceeds(IntRational(220)), nil },
+		},
+		"never_below": {
+			values: fixedValues{value: IntRational(220)},
+			byHand: func() (CheckResult, error) { return CheckSignal("Speed").NeverBelow(IntRational(220)), nil },
+		},
+		"never_equals": {
+			values: fixedValues{value: IntRational(220)},
+			byHand: func() (CheckResult, error) { return CheckSignal("Speed").NeverEquals(IntRational(220)), nil },
+		},
+		"equals": {
+			values: fixedValues{value: IntRational(220)},
+			byHand: func() (CheckResult, error) { return CheckSignal("Speed").Equals(IntRational(220)).Always(), nil },
+		},
+		"stays_between": {
+			values: fixedValues{lo: IntRational(1), hi: IntRational(9)},
+			byHand: func() (CheckResult, error) {
+				return CheckSignal("Speed").StaysBetween(IntRational(1), IntRational(9))
+			},
+		},
+		"settles_between": {
+			values: fixedValues{lo: IntRational(1), hi: IntRational(9), withinMs: 500},
+			byHand: func() (CheckResult, error) {
+				return CheckSignal("Speed").SettlesBetween(IntRational(1), IntRational(9)).Within(500)
+			},
+		},
 	}
-	for condition, byHand := range cases {
+	for condition, tc := range cases {
 		t.Run(condition, func(t *testing.T) {
-			got, err := DispatchSimple("Speed", condition, IntRational(220))
+			got, err := DispatchSimple("Speed", condition, tc.values)
 			if err != nil {
 				t.Fatalf("DispatchSimple: %v", err)
 			}
-			if want := byHand(); !reflect.DeepEqual(got, want) {
+			want, err := tc.byHand()
+			if err != nil {
+				t.Fatalf("the same call by hand: %v", err)
+			}
+			if !reflect.DeepEqual(got, want) {
 				t.Errorf("got %+v, want %+v", got, want)
 			}
 		})
+	}
+	for word := range simpleBuilders {
+		if _, ok := cases[word]; !ok {
+			t.Errorf("a check may carry %q on its own and this test has no case for it", word)
+		}
 	}
 }
 
@@ -108,7 +192,7 @@ func TestDispatchers_RefuseWordsOutsideTheirLeg(t *testing.T) {
 		names    string
 	}{
 		"simple": {
-			dispatch: func() error { _, err := DispatchSimple("Speed", "flickers", IntRational(1)); return err },
+			dispatch: func() error { _, err := DispatchSimple("Speed", "flickers", fixedValues{}); return err },
 			names:    "unknown simple condition",
 		},
 		"when": {
@@ -117,7 +201,7 @@ func TestDispatchers_RefuseWordsOutsideTheirLeg(t *testing.T) {
 		},
 		"then": {
 			dispatch: func() error {
-				_, err := DispatchThen(thenBuilder(), "flickers", IntRational(1), Rational{}, Rational{}, 100)
+				_, err := DispatchThen(thenBuilder(), "flickers", fixedValues{}, 100)
 				return err
 			},
 			names: "unknown then condition",
@@ -136,11 +220,10 @@ func TestDispatchers_RefuseWordsOutsideTheirLeg(t *testing.T) {
 	}
 }
 
-// Every word the vocabulary accepts reaches a loader that builds it. The three
-// with no dispatcher are built by each loader from their own shape, so the
-// check is made through the YAML loader, which is the one inside this module.
+// Every word the vocabulary accepts reaches a loader that builds it, checked
+// through the YAML loader, which is the one inside this module.
 func TestVocabulary_EveryWordLoads(t *testing.T) {
-	documents := map[string]string{
+	simple := map[string]string{
 		"never_exceeds":   "checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 220\n",
 		"never_below":     "checks:\n  - signal: Speed\n    condition: never_below\n    value: 10\n",
 		"never_equals":    "checks:\n  - signal: Speed\n    condition: never_equals\n    value: 10\n",
@@ -148,41 +231,60 @@ func TestVocabulary_EveryWordLoads(t *testing.T) {
 		"stays_between":   "checks:\n  - signal: Speed\n    condition: stays_between\n    min: 1\n    max: 2\n",
 		"settles_between": "checks:\n  - signal: Speed\n    condition: settles_between\n    min: 1\n    max: 2\n    within_ms: 100\n",
 	}
-	// The roster comes from the vocabulary rather than from this file, so a
-	// word added to it with no way to load it fails here.
-	vocabulary := map[string]bool{}
-	for word := range simpleValueBuilders {
-		vocabulary[word] = true
+	trigger := "  - when:\n      signal: Brake\n      condition: exceeds\n      value: 10\n    within_ms: 100\n    then:\n      signal: Speed\n"
+	obligations := map[string]string{
+		"equals":        "checks:\n" + trigger + "      condition: equals\n      value: 5\n",
+		"exceeds":       "checks:\n" + trigger + "      condition: exceeds\n      value: 5\n",
+		"stays_between": "checks:\n" + trigger + "      condition: stays_between\n      min: 1\n      max: 9\n",
 	}
-	for _, set := range []map[string]bool{simpleRangeConditions, simpleSettlesConditions, simpleEqualsConditions} {
-		for word := range set {
-			vocabulary[word] = true
-		}
-	}
-	for word := range vocabulary {
-		if _, ok := documents[word]; !ok {
-			t.Errorf("the vocabulary has %q and this test has no document using it", word)
-		}
-	}
-	for word := range documents {
-		if !vocabulary[word] {
-			t.Errorf("this test uses %q, which the vocabulary does not have", word)
-		}
-	}
-	for word, doc := range documents {
-		t.Run(word, func(t *testing.T) {
-			checks, err := LoadChecksFromYAML(doc)
-			if err != nil {
-				t.Fatalf("the loader refused a word of its own vocabulary: %v", err)
+
+	// The rosters come from the vocabulary rather than from this file, so a
+	// word added to it with no way to load it fails here, in both directions.
+	for _, pair := range []struct {
+		leg       string
+		words     []string
+		documents map[string]string
+	}{
+		{"a check carries on its own", keysOf(simpleBuilders), simple},
+		{"an obligation closes with", keysOf(thenBuilders), obligations},
+	} {
+		known := map[string]bool{}
+		for _, word := range pair.words {
+			known[word] = true
+			if _, ok := pair.documents[word]; !ok {
+				t.Errorf("%s %q and this test has no document using it", pair.leg, word)
 			}
-			if len(checks) != 1 {
-				t.Fatalf("got %d checks, want 1", len(checks))
+		}
+		for word := range pair.documents {
+			if !known[word] {
+				t.Errorf("this test uses %q, which %s is not", word, pair.leg)
 			}
-		})
+		}
+		for word, doc := range pair.documents {
+			t.Run(word, func(t *testing.T) {
+				checks, err := LoadChecksFromYAML(doc)
+				if err != nil {
+					t.Fatalf("the loader refused a word of its own vocabulary: %v", err)
+				}
+				if len(checks) != 1 {
+					t.Fatalf("got %d checks, want 1", len(checks))
+				}
+			})
+		}
 	}
+
 	// The other direction: a word the vocabulary does not have is refused
 	// before any builder is reached.
 	if _, err := LoadChecksFromYAML("checks:\n  - signal: Speed\n    condition: flickers\n    value: 1\n"); err == nil {
 		t.Error("the loader took a word outside its vocabulary")
 	}
+}
+
+// keysOf is the words a builder table holds.
+func keysOf[V any](table map[string]V) []string {
+	words := make([]string, 0, len(table))
+	for word := range table {
+		words = append(words, word)
+	}
+	return words
 }

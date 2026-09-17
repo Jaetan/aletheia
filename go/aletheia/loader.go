@@ -7,24 +7,86 @@ import "fmt"
 
 // The condition vocabulary every loader shares, the YAML one, the Excel one
 // and anything outside this module that accepts the same words. Each keyword
-// is written once, beside what it builds, so a word a loader accepts and no
-// builder knows cannot exist: the set a loader asks about is the keys of the
-// table the dispatcher reads.
+// is written once beside what it builds, and the builder asks its loader for
+// the slots its own condition reads, so no loader decides that a second time.
+// A condition added to a table below reaches every loader untouched; one that
+// needs a slot no loader answers cannot be added until the interface grows a
+// method, which every loader must implement before it compiles again.
 
-// simpleValueBuilders are the conditions over one signal and one value.
-var simpleValueBuilders = map[string]func(signal string, value Rational) CheckResult{
-	"never_exceeds": func(signal string, value Rational) CheckResult {
-		return CheckSignal(signal).NeverExceeds(value)
+// SimpleValues is what a loader is asked for when a condition a check carries
+// on its own is built: the single value it compares against, the pair of
+// bounds it holds between, or the time bound. Each is answered from that
+// loader's own key or column, or refused in that loader's own words naming
+// what is missing, and a builder calls only what its condition reads.
+type SimpleValues interface {
+	Value() (Rational, error)
+	Range() (lo, hi Rational, err error)
+	// Within is read by the settling condition alone, which is why the time
+	// bound is a slot here and a parameter in the then half, where every
+	// obligation is bounded.
+	Within() (milliseconds int64, err error)
+}
+
+// ThenValues is the same for the obligation a when-then check closes with,
+// less the time bound, which DispatchThen takes directly.
+type ThenValues interface {
+	Value() (Rational, error)
+	Range() (lo, hi Rational, err error)
+}
+
+// simpleBuilders are the conditions a check carries on its own.
+var simpleBuilders = map[string]func(signal string, v SimpleValues) (CheckResult, error){
+	"never_exceeds": func(signal string, v SimpleValues) (CheckResult, error) {
+		value, err := v.Value()
+		if err != nil {
+			return CheckResult{}, err
+		}
+		return CheckSignal(signal).NeverExceeds(value), nil
 	},
-	"never_below": func(signal string, value Rational) CheckResult {
-		return CheckSignal(signal).NeverBelow(value)
+	"never_below": func(signal string, v SimpleValues) (CheckResult, error) {
+		value, err := v.Value()
+		if err != nil {
+			return CheckResult{}, err
+		}
+		return CheckSignal(signal).NeverBelow(value), nil
 	},
-	"never_equals": func(signal string, value Rational) CheckResult {
-		return CheckSignal(signal).NeverEquals(value)
+	"never_equals": func(signal string, v SimpleValues) (CheckResult, error) {
+		value, err := v.Value()
+		if err != nil {
+			return CheckResult{}, err
+		}
+		return CheckSignal(signal).NeverEquals(value), nil
+	},
+	"equals": func(signal string, v SimpleValues) (CheckResult, error) {
+		value, err := v.Value()
+		if err != nil {
+			return CheckResult{}, err
+		}
+		return CheckSignal(signal).Equals(value).Always(), nil
+	},
+	"stays_between": func(signal string, v SimpleValues) (CheckResult, error) {
+		lo, hi, err := v.Range()
+		if err != nil {
+			return CheckResult{}, err
+		}
+		return CheckSignal(signal).StaysBetween(lo, hi)
+	},
+	"settles_between": func(signal string, v SimpleValues) (CheckResult, error) {
+		lo, hi, err := v.Range()
+		if err != nil {
+			return CheckResult{}, err
+		}
+		ms, err := v.Within()
+		if err != nil {
+			return CheckResult{}, err
+		}
+		return CheckSignal(signal).SettlesBetween(lo, hi).Within(ms)
 	},
 }
 
 // whenBuilders are the conditions the leading half of a when-then check takes.
+// All three read one value, which is why the leading half has no slots
+// interface: the dispatcher takes the value directly.
 var whenBuilders = map[string]func(WhenSignalBuilder, Rational) WhenCondition{
 	"exceeds":     WhenSignalBuilder.Exceeds,
 	"equals":      WhenSignalBuilder.Equals,
@@ -32,49 +94,34 @@ var whenBuilders = map[string]func(WhenSignalBuilder, Rational) WhenCondition{
 }
 
 // thenBuilders are the obligations the trailing half takes, each bounded in
-// time. A builder reads the value slots its own condition uses and ignores the
-// rest: a range takes the two bounds, the others take the single value.
-var thenBuilders = map[string]func(b ThenSignalBuilder, value, lo, hi Rational, withinMs int64) (CheckResult, error){
-	"equals": func(b ThenSignalBuilder, value, _, _ Rational, withinMs int64) (CheckResult, error) {
+// time.
+var thenBuilders = map[string]func(b ThenSignalBuilder, v ThenValues, withinMs int64) (CheckResult, error){
+	"equals": func(b ThenSignalBuilder, v ThenValues, withinMs int64) (CheckResult, error) {
+		value, err := v.Value()
+		if err != nil {
+			return CheckResult{}, err
+		}
 		return b.Equals(value).Within(withinMs)
 	},
-	"exceeds": func(b ThenSignalBuilder, value, _, _ Rational, withinMs int64) (CheckResult, error) {
+	"exceeds": func(b ThenSignalBuilder, v ThenValues, withinMs int64) (CheckResult, error) {
+		value, err := v.Value()
+		if err != nil {
+			return CheckResult{}, err
+		}
 		return b.Exceeds(value).Within(withinMs)
 	},
-	"stays_between": func(b ThenSignalBuilder, _, lo, hi Rational, withinMs int64) (CheckResult, error) {
+	"stays_between": func(b ThenSignalBuilder, v ThenValues, withinMs int64) (CheckResult, error) {
+		lo, hi, err := v.Range()
+		if err != nil {
+			return CheckResult{}, err
+		}
 		return b.StaysBetween(lo, hi).Within(withinMs)
 	},
 }
 
-// The three conditions whose shapes each loader builds itself, having no
-// single builder call to dispatch to: a range, a settling range and an
-// equality. They are listed here so that every loader asks one vocabulary.
-var (
-	simpleRangeConditions   = map[string]bool{"stays_between": true}
-	simpleSettlesConditions = map[string]bool{"settles_between": true}
-	simpleEqualsConditions  = map[string]bool{"equals": true}
-)
-
-// IsSimpleValueCondition reports whether the word names a condition over one
-// value.
-func IsSimpleValueCondition(s string) bool { _, ok := simpleValueBuilders[s]; return ok }
-
-// IsSimpleRangeCondition reports whether the word names a range condition.
-func IsSimpleRangeCondition(s string) bool { return simpleRangeConditions[s] }
-
-// IsSimpleSettlesCondition reports whether the word names a settling
-// condition.
-func IsSimpleSettlesCondition(s string) bool { return simpleSettlesConditions[s] }
-
-// IsSimpleEqualsCondition reports whether the word names an equality.
-func IsSimpleEqualsCondition(s string) bool { return simpleEqualsConditions[s] }
-
-// IsSimpleCondition reports whether the word names any condition a check may
+// IsSimpleCondition reports whether the word names a condition a check may
 // carry on its own.
-func IsSimpleCondition(s string) bool {
-	return IsSimpleValueCondition(s) || simpleRangeConditions[s] ||
-		simpleSettlesConditions[s] || simpleEqualsConditions[s]
-}
+func IsSimpleCondition(s string) bool { _, ok := simpleBuilders[s]; return ok }
 
 // IsWhenCondition reports whether the word may lead a when-then check.
 func IsWhenCondition(s string) bool { _, ok := whenBuilders[s]; return ok }
@@ -82,14 +129,14 @@ func IsWhenCondition(s string) bool { _, ok := whenBuilders[s]; return ok }
 // IsThenCondition reports whether the word may close one.
 func IsThenCondition(s string) bool { _, ok := thenBuilders[s]; return ok }
 
-// DispatchSimple builds the check a single-value condition names. The other
-// simple conditions have shapes of their own and each loader builds them.
-func DispatchSimple(signal, condition string, value Rational) (CheckResult, error) {
-	build, ok := simpleValueBuilders[condition]
+// DispatchSimple builds the check a condition names, asking the loader for the
+// slots that condition reads.
+func DispatchSimple(signal, condition string, values SimpleValues) (CheckResult, error) {
+	build, ok := simpleBuilders[condition]
 	if !ok {
 		return CheckResult{}, validationError(fmt.Sprintf("unknown simple condition: %q", condition))
 	}
-	return build(signal, value), nil
+	return build(signal, values)
 }
 
 // DispatchWhen builds the leading half of a when-then check.
@@ -101,13 +148,14 @@ func DispatchWhen(builder WhenSignalBuilder, condition string, value Rational) (
 	return build(builder, value), nil
 }
 
-// DispatchThen builds the trailing half, bounded in time.
-func DispatchThen(builder ThenSignalBuilder, condition string, value, lo, hi Rational, withinMs int64) (CheckResult, error) {
+// DispatchThen builds the trailing half, bounded in time, asking the loader
+// for the slots the obligation reads.
+func DispatchThen(builder ThenSignalBuilder, condition string, values ThenValues, withinMs int64) (CheckResult, error) {
 	build, ok := thenBuilders[condition]
 	if !ok {
 		return CheckResult{}, validationError(fmt.Sprintf("unknown then condition: %q", condition))
 	}
-	return build(builder, value, lo, hi, withinMs)
+	return build(builder, values, withinMs)
 }
 
 // applyMetadata puts the optional name and severity on a check.

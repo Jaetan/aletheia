@@ -203,71 +203,87 @@ func parseYAMLCheck(entry yamlCheck) (CheckResult, error) {
 	return result, nil
 }
 
-// parseYAMLSimple builds a check written as one signal and one condition.
+// yamlSimpleValues answers for the keys a check written as one signal and one
+// condition is spelled with, refusing in this loader's own words.
+type yamlSimpleValues struct {
+	name  string
+	entry yamlCheck
+}
+
+func (v yamlSimpleValues) requires(what string) error {
+	return validationError(fmt.Sprintf("check '%s': condition '%s' requires %s", v.name, v.entry.Condition, what))
+}
+
+func (v yamlSimpleValues) Value() (Rational, error) {
+	if v.entry.Value == nil {
+		return Rational{}, v.requires("'value'")
+	}
+	return nodeRational(v.entry.Value)
+}
+
+func (v yamlSimpleValues) Range() (Rational, Rational, error) {
+	if v.entry.Min == nil || v.entry.Max == nil {
+		return Rational{}, Rational{}, v.requires("'min' and 'max'")
+	}
+	lo, err := nodeRational(v.entry.Min)
+	if err != nil {
+		return Rational{}, Rational{}, err
+	}
+	hi, err := nodeRational(v.entry.Max)
+	if err != nil {
+		return Rational{}, Rational{}, err
+	}
+	return lo, hi, nil
+}
+
+func (v yamlSimpleValues) Within() (int64, error) {
+	if v.entry.WithinMs == nil {
+		return 0, v.requires("'within_ms'")
+	}
+	return *v.entry.WithinMs, nil
+}
+
+// parseYAMLSimple builds a check written as one signal and one condition. The
+// word is held to the vocabulary here, before the dispatcher holds it again,
+// so that the refusal names the check.
 func parseYAMLSimple(entry yamlCheck) (CheckResult, error) {
 	name := checkName(entry.Name)
-	condition := entry.Condition
-
-	if !IsSimpleCondition(condition) {
-		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown condition '%s'", name, condition))
+	if !IsSimpleCondition(entry.Condition) {
+		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown condition '%s'", name, entry.Condition))
 	}
+	return DispatchSimple(entry.Signal, entry.Condition, yamlSimpleValues{name: name, entry: entry})
+}
 
-	if IsSimpleValueCondition(condition) {
-		if entry.Value == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition '%s' requires 'value'", name, condition))
-		}
-		v, err := nodeRational(entry.Value)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		return DispatchSimple(entry.Signal, condition, v)
+// yamlThenValues answers for the keys an obligation is spelled with.
+type yamlThenValues struct {
+	name   string
+	clause *yamlClause
+}
+
+func (v yamlThenValues) requires(what string) error {
+	return validationError(fmt.Sprintf("check '%s': then condition '%s' requires %s", v.name, v.clause.Condition, what))
+}
+
+func (v yamlThenValues) Value() (Rational, error) {
+	if v.clause.Value == nil {
+		return Rational{}, v.requires("'value'")
 	}
+	return nodeRational(v.clause.Value)
+}
 
-	if IsSimpleRangeCondition(condition) {
-		if entry.Min == nil || entry.Max == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition '%s' requires 'min' and 'max'", name, condition))
-		}
-		lo, err := nodeRational(entry.Min)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		hi, err := nodeRational(entry.Max)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		return CheckSignal(entry.Signal).StaysBetween(lo, hi)
+func (v yamlThenValues) Range() (Rational, Rational, error) {
+	if v.clause.Min == nil || v.clause.Max == nil {
+		return Rational{}, Rational{}, v.requires("'min' and 'max'")
 	}
-
-	if IsSimpleSettlesCondition(condition) {
-		if entry.Min == nil || entry.Max == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition 'settles_between' requires 'min' and 'max'", name))
-		}
-		if entry.WithinMs == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition 'settles_between' requires 'within_ms'", name))
-		}
-		lo, err := nodeRational(entry.Min)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		hi, err := nodeRational(entry.Max)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		return CheckSignal(entry.Signal).SettlesBetween(lo, hi).Within(*entry.WithinMs)
+	lo, err := nodeRational(v.clause.Min)
+	if err != nil {
+		return Rational{}, Rational{}, err
 	}
-
-	if IsSimpleEqualsCondition(condition) {
-		if entry.Value == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition 'equals' requires 'value'", name))
-		}
-		v, err := nodeRational(entry.Value)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		return CheckSignal(entry.Signal).Equals(v).Always(), nil
+	hi, err := nodeRational(v.clause.Max)
+	if err != nil {
+		return Rational{}, Rational{}, err
 	}
-
-	return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown condition '%s'", name, condition))
+	return lo, hi, nil
 }
 
 // parseYAMLWhenThen builds a check written as a trigger and an obligation,
@@ -285,7 +301,7 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 	when := entry.When
 	then := entry.Then
 
-	// The trigger.
+	// The trigger, whose three conditions all read one value.
 	if !IsWhenCondition(when.Condition) {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown when condition '%s'", name, when.Condition))
 	}
@@ -302,39 +318,10 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 		return CheckResult{}, err
 	}
 
-	// The obligation.
+	// The obligation, its word held here for the same reason as above.
 	if !IsThenCondition(then.Condition) {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown then condition '%s'", name, then.Condition))
 	}
-
-	thenBuilder := whenResult.Then(then.Signal)
-
-	// Which fields an obligation needs, and what to say when one is missing,
-	// is this loader's business; the building itself is shared.
-	var thenValue, thenLo, thenHi Rational
-	switch then.Condition {
-	case "equals", "exceeds":
-		if then.Value == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': then condition '%s' requires 'value'", name, then.Condition))
-		}
-		v, err := nodeRational(then.Value)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		thenValue = v
-	case "stays_between":
-		if then.Min == nil || then.Max == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': then condition 'stays_between' requires 'min' and 'max'", name))
-		}
-		lo, err := nodeRational(then.Min)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		hi, err := nodeRational(then.Max)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		thenLo, thenHi = lo, hi
-	}
-	return DispatchThen(thenBuilder, then.Condition, thenValue, thenLo, thenHi, *entry.WithinMs)
+	return DispatchThen(whenResult.Then(then.Signal), then.Condition,
+		yamlThenValues{name: name, clause: then}, *entry.WithinMs)
 }

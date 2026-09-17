@@ -333,6 +333,43 @@ func requireColumns(d map[string]xlsxCell, rowNum int, what, condition string, c
 	return nil
 }
 
+// xlsxSimpleValues answers for the columns a simple check is written in,
+// refusing in this loader's own words, which name the row.
+type xlsxSimpleValues struct {
+	d      map[string]xlsxCell
+	rowNum int
+	cond   string
+}
+
+func (v xlsxSimpleValues) Value() (aletheia.Rational, error) {
+	return xlsxRational(v.d, "Value", v.rowNum)
+}
+
+func (v xlsxSimpleValues) Range() (aletheia.Rational, aletheia.Rational, error) {
+	if err := requireColumns(v.d, v.rowNum, "condition", v.cond, "Min", "Max"); err != nil {
+		return aletheia.Rational{}, aletheia.Rational{}, err
+	}
+	lo, err := xlsxRational(v.d, "Min", v.rowNum)
+	if err != nil {
+		return aletheia.Rational{}, aletheia.Rational{}, err
+	}
+	hi, err := xlsxRational(v.d, "Max", v.rowNum)
+	if err != nil {
+		return aletheia.Rational{}, aletheia.Rational{}, err
+	}
+	return lo, hi, nil
+}
+
+func (v xlsxSimpleValues) Within() (int64, error) {
+	if err := requireColumns(v.d, v.rowNum, "condition", v.cond, "Time (ms)"); err != nil {
+		return 0, err
+	}
+	return xlsxInt(v.d, "Time (ms)", v.rowNum)
+}
+
+// parseSimpleRow builds a check written as one signal and one condition. The
+// word is held to the vocabulary here, before the dispatcher holds it again,
+// so that the refusal names the row.
 func parseSimpleRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, error) {
 	signal, err := xlsxStr(d, "Signal", rowNum)
 	if err != nil {
@@ -342,77 +379,46 @@ func parseSimpleRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, er
 	if err != nil {
 		return aletheia.CheckResult{}, err
 	}
-
-	var result aletheia.CheckResult
-
-	switch {
-	case aletheia.IsSimpleValueCondition(condition):
-		v, err := xlsxRational(d, "Value", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		result, err = aletheia.DispatchSimple(signal, condition, v)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-
-	case aletheia.IsSimpleRangeCondition(condition):
-		if err := requireColumns(d, rowNum, "condition", condition, "Min", "Max"); err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		lo, err := xlsxRational(d, "Min", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		hi, err := xlsxRational(d, "Max", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		result, err = aletheia.CheckSignal(signal).StaysBetween(lo, hi)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-
-	case aletheia.IsSimpleSettlesCondition(condition):
-		if err := requireColumns(d, rowNum, "condition", condition, "Min", "Max"); err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		if err := requireColumns(d, rowNum, "condition", condition, "Time (ms)"); err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		lo, err := xlsxRational(d, "Min", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		hi, err := xlsxRational(d, "Max", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		ms, err := xlsxInt(d, "Time (ms)", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		result, err = aletheia.CheckSignal(signal).SettlesBetween(lo, hi).Within(ms)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-
-	case aletheia.IsSimpleEqualsCondition(condition):
-		v, err := xlsxRational(d, "Value", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		result = aletheia.CheckSignal(signal).Equals(v).Always()
-
-	default:
+	if !aletheia.IsSimpleCondition(condition) {
 		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown condition '%s'", rowNum, condition))
 	}
 
+	result, err := aletheia.DispatchSimple(signal, condition,
+		xlsxSimpleValues{d: d, rowNum: rowNum, cond: condition})
+	if err != nil {
+		return aletheia.CheckResult{}, err
+	}
 	return applyMetadata(result, d), nil
 }
 
+// xlsxThenValues answers for the columns an obligation is written in.
+type xlsxThenValues struct {
+	d      map[string]xlsxCell
+	rowNum int
+	cond   string
+}
+
+func (v xlsxThenValues) Value() (aletheia.Rational, error) {
+	return xlsxRational(v.d, "Then Value", v.rowNum)
+}
+
+func (v xlsxThenValues) Range() (aletheia.Rational, aletheia.Rational, error) {
+	if err := requireColumns(v.d, v.rowNum, "then condition", v.cond, "Then Min", "Then Max"); err != nil {
+		return aletheia.Rational{}, aletheia.Rational{}, err
+	}
+	lo, err := xlsxRational(v.d, "Then Min", v.rowNum)
+	if err != nil {
+		return aletheia.Rational{}, aletheia.Rational{}, err
+	}
+	hi, err := xlsxRational(v.d, "Then Max", v.rowNum)
+	if err != nil {
+		return aletheia.Rational{}, aletheia.Rational{}, err
+	}
+	return lo, hi, nil
+}
+
 func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, error) {
-	// When clause.
+	// When clause, whose three conditions all read one value.
 	whenSignal, err := xlsxStr(d, "When Signal", rowNum)
 	if err != nil {
 		return aletheia.CheckResult{}, err
@@ -421,13 +427,12 @@ func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, 
 	if err != nil {
 		return aletheia.CheckResult{}, err
 	}
+	if !aletheia.IsWhenCondition(whenCond) {
+		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown when condition '%s'", rowNum, whenCond))
+	}
 	whenValue, err := xlsxRational(d, "When Value", rowNum)
 	if err != nil {
 		return aletheia.CheckResult{}, err
-	}
-
-	if !aletheia.IsWhenCondition(whenCond) {
-		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown when condition '%s'", rowNum, whenCond))
 	}
 
 	whenResult, err := aletheia.DispatchWhen(aletheia.CheckWhen(whenSignal), whenCond, whenValue)
@@ -444,7 +449,6 @@ func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, 
 	if err != nil {
 		return aletheia.CheckResult{}, err
 	}
-
 	if !aletheia.IsThenCondition(thenCond) {
 		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown then condition '%s'", rowNum, thenCond))
 	}
@@ -454,33 +458,8 @@ func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, 
 		return aletheia.CheckResult{}, err
 	}
 
-	thenBuilder := whenResult.Then(thenSignal)
-
-	// Presence checks + value extraction stay loader-specific (column names and
-	// error text differ per loader); the builder dispatch itself is shared.
-	var thenValue, thenLo, thenHi aletheia.Rational
-	switch thenCond {
-	case "equals", "exceeds":
-		v, err := xlsxRational(d, "Then Value", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		thenValue = v
-	case "stays_between":
-		if err := requireColumns(d, rowNum, "then condition", thenCond, "Then Min", "Then Max"); err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		lo, err := xlsxRational(d, "Then Min", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		hi, err := xlsxRational(d, "Then Max", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		thenLo, thenHi = lo, hi
-	}
-	result, err := aletheia.DispatchThen(thenBuilder, thenCond, thenValue, thenLo, thenHi, withinMs)
+	result, err := aletheia.DispatchThen(whenResult.Then(thenSignal), thenCond,
+		xlsxThenValues{d: d, rowNum: rowNum, cond: thenCond}, withinMs)
 	if err != nil {
 		return aletheia.CheckResult{}, err
 	}
