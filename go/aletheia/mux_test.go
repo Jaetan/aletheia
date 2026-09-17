@@ -402,14 +402,14 @@ func richCopyDBC() aletheia.DBCDefinition {
 		Messages: []aletheia.DBCMessage{
 			{
 				ID: mustStdID(0x310), Name: "Rich", DLC: mustDLC(8), Sender: "ECU",
-				Senders: []string{"GW", "BCM"},
+				Senders: []aletheia.NodeName{"GW", "BCM"},
 				Signals: []aletheia.DBCSignal{
 					{
 						Name: "Mode", StartBit: 0, BitLength: 8,
 						ByteOrder: aletheia.LittleEndian,
 						Factor:    ratOf(1, 1), Offset: ratOf(0, 1), Minimum: ratOf(0, 1), Maximum: ratOf(3, 1),
 						Presence:  aletheia.AlwaysPresent{},
-						Receivers: []string{"NodeA", "NodeB"},
+						Receivers: []aletheia.NodeName{"NodeA", "NodeB"},
 						ValueDescriptions: []aletheia.DBCValueEntry{
 							{Value: 0, Description: "off"},
 							{Value: 1, Description: "on"},
@@ -423,7 +423,7 @@ func richCopyDBC() aletheia.DBCDefinition {
 							Multiplexor:     "Mode",
 							MultiplexValues: []aletheia.MultiplexValue{0, 1},
 						},
-						Receivers: []string{"NodeC"},
+						Receivers: []aletheia.NodeName{"NodeC"},
 					},
 				},
 			},

@@ -4,6 +4,7 @@
 package aletheia_test
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -23,8 +24,8 @@ func tier2DBC(t *testing.T) aletheia.DBCDefinition {
 		Comments: []aletheia.DBCComment{
 			{Target: aletheia.DBCCommentTargetNetwork{}, Text: "network scope"},
 			{Target: aletheia.DBCCommentTargetNode{Node: "ECU"}, Text: "node scope"},
-			{Target: aletheia.DBCCommentTargetMessage{ID: 256}, Text: "msg scope"},
-			{Target: aletheia.DBCCommentTargetSignal{ID: 256, Signal: "RPM"}, Text: "sig scope"},
+			{Target: aletheia.DBCCommentTargetMessage{ID: standardID(t, 256)}, Text: "msg scope"},
+			{Target: aletheia.DBCCommentTargetSignal{ID: standardID(t, 256), Signal: "RPM"}, Text: "sig scope"},
 			{Target: aletheia.DBCCommentTargetEnvVar{EnvVar: "AmbientTemp"}, Text: "env scope"},
 		},
 		Attributes: []aletheia.DBCAttribute{
@@ -68,12 +69,12 @@ func TestSignalReceiversAndMessageSenders_RoundtripThroughMock(t *testing.T) {
 	speed := aletheia.DBCSignal{
 		Name: "Speed", StartBit: 0, BitLength: 16, ByteOrder: aletheia.LittleEndian,
 		Factor: aletheia.IntRational(1), Offset: aletheia.IntRational(0), Minimum: aletheia.IntRational(0), Maximum: aletheia.IntRational(255),
-		Unit: "km/h", Presence: aletheia.AlwaysPresent{}, Receivers: []string{"ECU_A", "ECU_B"},
+		Unit: "km/h", Presence: aletheia.AlwaysPresent{}, Receivers: []aletheia.NodeName{"ECU_A", "ECU_B"},
 	}
 	withReceivers := aletheia.DBCDefinition{Version: "1.0", Messages: []aletheia.DBCMessage{
 		aletheia.NewDBCMessage(standardID(t, 256), "VehicleSpeed", dlc, "ECU", nil, []aletheia.DBCSignal{speed})}}
 	withSenders := aletheia.DBCDefinition{Version: "1.0", Messages: []aletheia.DBCMessage{
-		aletheia.NewDBCMessage(standardID(t, 256), "VehicleSpeed", dlc, "ECU_A", []string{"ECU_B", "ECU_C"}, nil)}}
+		aletheia.NewDBCMessage(standardID(t, 256), "VehicleSpeed", dlc, "ECU_A", []aletheia.NodeName{"ECU_B", "ECU_C"}, nil)}}
 
 	t.Run("receivers", func(t *testing.T) {
 		msgs, _ := serialisedDBC(t, withReceivers)["messages"].([]any)
@@ -94,7 +95,7 @@ func TestSignalReceiversAndMessageSenders_RoundtripThroughMock(t *testing.T) {
 			t.Errorf("wire senders: got %v", wire)
 		}
 		got := roundTripThroughMock(t, withSenders).Messages[0].Senders
-		if !reflect.DeepEqual(got, []string{"ECU_B", "ECU_C"}) {
+		if !reflect.DeepEqual(got, []aletheia.NodeName{"ECU_B", "ECU_C"}) {
 			t.Errorf("decoded senders: got %v", got)
 		}
 	})
@@ -140,5 +141,37 @@ func TestSerializeDBC_EmitsEmptyTier2ArraysWhenMetadataAbsent(t *testing.T) {
 		if len(arr) != 0 {
 			t.Errorf("%s: expected empty array, got %d items", key, len(arr))
 		}
+	}
+}
+
+// TestCommentTargetRefusesAnIdentifierNoFrameCouldCarry: a comment target
+// carries the identifier as the package's own type, so the parse refuses a
+// value out of range for its width rather than keeping it. Before the type
+// went on the field the pair was a raw number and a flag, and a comment could
+// name a message no frame could carry.
+func TestCommentTargetRefusesAnIdentifierNoFrameCouldCarry(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		target map[string]any
+	}{
+		{"a standard identifier above eleven bits", map[string]any{"kind": "message", "id": 0x800}},
+		{"an extended identifier above twenty-nine bits", map[string]any{
+			"kind": "signal", "id": 0x2000_0000, "extended": true, "signal": "Speed"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wire := map[string]any{
+				"version":  "1.0",
+				"messages": []any{},
+				"comments": []any{map[string]any{"target": tc.target, "text": "out of range"}},
+			}
+			resp, err := json.Marshal(map[string]any{"status": "success", "dbc": wire})
+			if err != nil {
+				t.Fatal(err)
+			}
+			c, _ := mockClient(t, aletheia.Respond(string(resp)))
+			if _, err := c.FormatDBC(ctx); err == nil {
+				t.Fatal("a comment named an identifier no frame could carry and the parse took it")
+			}
+		})
 	}
 }

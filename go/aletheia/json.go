@@ -111,7 +111,7 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 		for _, sig := range msg.Signals {
 			receivers := sig.Receivers
 			if receivers == nil {
-				receivers = []string{}
+				receivers = []NodeName{}
 			}
 			valueDescs := make([]map[string]any, 0, len(sig.ValueDescriptions))
 			for _, e := range sig.ValueDescriptions {
@@ -157,7 +157,7 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 		}
 		senders := msg.Senders
 		if senders == nil {
-			senders = []string{}
+			senders = []NodeName{}
 		}
 		// The extended flag is written only when it is true, which is the shape
 		// the kernel writes and every binding reads.
@@ -298,6 +298,12 @@ func attachCANID(m map[string]any, id uint32, extended bool) {
 	}
 }
 
+// attachCANIDValue is attachCANID for a target that carries the identifier as
+// the package's own type rather than as a number beside a flag.
+func attachCANIDValue(m map[string]any, id CANID) {
+	attachCANID(m, id.Value(), id.IsExtended())
+}
+
 func serializeCommentTarget(t DBCCommentTarget) (map[string]any, error) {
 	switch v := t.(type) {
 	case DBCCommentTargetNetwork:
@@ -306,11 +312,11 @@ func serializeCommentTarget(t DBCCommentTarget) (map[string]any, error) {
 		return map[string]any{"kind": "node", "node": v.Node}, nil
 	case DBCCommentTargetMessage:
 		out := map[string]any{"kind": "message"}
-		attachCANID(out, v.ID, v.Extended)
+		attachCANIDValue(out, v.ID)
 		return out, nil
 	case DBCCommentTargetSignal:
 		out := map[string]any{"kind": "signal"}
-		attachCANID(out, v.ID, v.Extended)
+		attachCANIDValue(out, v.ID)
 		out["signal"] = v.Signal
 		return out, nil
 	case DBCCommentTargetEnvVar:
@@ -1606,7 +1612,7 @@ func parseUnresolvedValueDescs(j map[string]any) ([]DBCRawValueDesc, error) {
 		}
 		return DBCRawValueDesc{
 			ID:         canID,
-			SignalName: getString(rvdRaw, "signalName"),
+			SignalName: SignalName(getString(rvdRaw, "signalName")),
 			Entries:    entries,
 		}, nil
 	})
@@ -1690,7 +1696,7 @@ func parseValueTables(j map[string]any) ([]DBCValueTable, error) {
 // parseNodes decodes the optional "nodes" array.
 func parseNodes(j map[string]any) ([]DBCNode, error) {
 	return parseObjects(j, "nodes", func(nRaw map[string]any) (DBCNode, error) {
-		return DBCNode{Name: getString(nRaw, "name")}, nil
+		return DBCNode{Name: NodeName(getString(nRaw, "name"))}, nil
 	})
 }
 
@@ -1708,6 +1714,32 @@ func parseCanIDFields(m map[string]any) (uint32, bool, error) {
 	return uint32(idVal), getBool(m, "extended"), nil
 }
 
+// parseCanIDValue is parseCanIDFields for a target that carries the identifier
+// as the package's own type. The constructor refuses a value out of range for
+// its width, so a comment naming a message no frame could carry is refused at
+// the parse rather than kept.
+func parseCanIDValue(m map[string]any) (CANID, error) {
+	raw, extended, err := parseCanIDFields(m)
+	if err != nil {
+		return nil, err
+	}
+	if extended {
+		id, err := NewExtendedID(raw)
+		if err != nil {
+			return nil, wrapProtocolError("invalid extended id", err)
+		}
+		return id, nil
+	}
+	if raw > math.MaxUint16 {
+		return nil, protocolError(fmt.Sprintf("standard id out of range: %d", raw))
+	}
+	id, err := NewStandardID(uint16(raw))
+	if err != nil {
+		return nil, wrapProtocolError("invalid standard id", err)
+	}
+	return id, nil
+}
+
 // parseCommentTarget decodes what a comment is attached to, refusing a kind
 // the format does not have, as the kernel's own parser does.
 func parseCommentTarget(m map[string]any) (DBCCommentTarget, error) {
@@ -1716,19 +1748,19 @@ func parseCommentTarget(m map[string]any) (DBCCommentTarget, error) {
 	case "network":
 		return DBCCommentTargetNetwork{}, nil
 	case "node":
-		return DBCCommentTargetNode{Node: getString(m, "node")}, nil
+		return DBCCommentTargetNode{Node: NodeName(getString(m, "node"))}, nil
 	case "message":
-		id, ext, err := parseCanIDFields(m)
+		id, err := parseCanIDValue(m)
 		if err != nil {
 			return nil, err
 		}
-		return DBCCommentTargetMessage{ID: id, Extended: ext}, nil
+		return DBCCommentTargetMessage{ID: id}, nil
 	case "signal":
-		id, ext, err := parseCanIDFields(m)
+		id, err := parseCanIDValue(m)
 		if err != nil {
 			return nil, err
 		}
-		return DBCCommentTargetSignal{ID: id, Extended: ext, Signal: getString(m, "signal")}, nil
+		return DBCCommentTargetSignal{ID: id, Signal: SignalName(getString(m, "signal"))}, nil
 	case "envVar":
 		return DBCCommentTargetEnvVar{EnvVar: getString(m, "envVar")}, nil
 	default:
@@ -1863,7 +1895,7 @@ func parseAttrTarget(m map[string]any) (DBCAttrTarget, error) {
 	case "network":
 		return DBCAttrTargetNetwork{}, nil
 	case "node":
-		return DBCAttrTargetNode{Node: getString(m, "node")}, nil
+		return DBCAttrTargetNode{Node: NodeName(getString(m, "node"))}, nil
 	case "message":
 		id, ext, err := parseCanIDFields(m)
 		if err != nil {
@@ -1875,7 +1907,7 @@ func parseAttrTarget(m map[string]any) (DBCAttrTarget, error) {
 		if err != nil {
 			return nil, err
 		}
-		return DBCAttrTargetSignal{ID: id, Extended: ext, Signal: getString(m, "signal")}, nil
+		return DBCAttrTargetSignal{ID: id, Extended: ext, Signal: SignalName(getString(m, "signal"))}, nil
 	case "envVar":
 		return DBCAttrTargetEnvVar{EnvVar: getString(m, "envVar")}, nil
 	case "nodeMsg":
@@ -1883,17 +1915,17 @@ func parseAttrTarget(m map[string]any) (DBCAttrTarget, error) {
 		if err != nil {
 			return nil, err
 		}
-		return DBCAttrTargetNodeMsg{Node: getString(m, "node"), ID: id, Extended: ext}, nil
+		return DBCAttrTargetNodeMsg{Node: NodeName(getString(m, "node")), ID: id, Extended: ext}, nil
 	case "nodeSig":
 		id, ext, err := parseCanIDFields(m)
 		if err != nil {
 			return nil, err
 		}
 		return DBCAttrTargetNodeSig{
-			Node:     getString(m, "node"),
+			Node:     NodeName(getString(m, "node")),
 			ID:       id,
 			Extended: ext,
-			Signal:   getString(m, "signal"),
+			Signal:   SignalName(getString(m, "signal")),
 		}, nil
 	default:
 		return nil, protocolError(fmt.Sprintf("unknown attr target kind: %q", kind))
@@ -2019,15 +2051,15 @@ func parseDBCMessage(j map[string]any) (*DBCMessage, error) {
 		return nil, protocolError("message missing required field: name")
 	}
 
-	var senders []string
+	var senders []NodeName
 	if raw, ok := j["senders"].([]any); ok {
-		senders = make([]string, 0, len(raw))
+		senders = make([]NodeName, 0, len(raw))
 		for _, s := range raw {
 			ss, sOk := s.(string)
 			if !sOk {
 				return nil, protocolError("senders entry is not a string")
 			}
-			senders = append(senders, ss)
+			senders = append(senders, NodeName(ss))
 		}
 	}
 
@@ -2105,15 +2137,15 @@ func parseDBCSignal(j map[string]any) (DBCSignal, error) {
 		isSigned = b
 	}
 
-	var receivers []string
+	var receivers []NodeName
 	if raw, ok := j["receivers"].([]any); ok {
-		receivers = make([]string, 0, len(raw))
+		receivers = make([]NodeName, 0, len(raw))
 		for _, r := range raw {
 			rs, rOk := r.(string)
 			if !rOk {
 				return zero, protocolError("receivers entry is not a string")
 			}
-			receivers = append(receivers, rs)
+			receivers = append(receivers, NodeName(rs))
 		}
 	}
 

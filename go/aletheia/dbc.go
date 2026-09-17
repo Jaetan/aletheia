@@ -38,7 +38,7 @@ type DBCSignal struct {
 	Presence  SignalPresence
 	// Receivers is the SG_ line's trailing node list; the Vector__XXX
 	// placeholder is stripped on parse and written back for an empty list.
-	Receivers []string
+	Receivers []NodeName
 	// ValueDescriptions holds the VAL_ entries naming this signal, in the
 	// (value, description) shape of DBCValueTable.Entries.
 	ValueDescriptions []DBCValueEntry
@@ -53,7 +53,7 @@ type DBCMessage struct {
 	// Senders holds the additional transmitters of BO_TX_BU_ lines; the BO_
 	// primary stays in Sender, so the validator can tell the two apart in
 	// its unknown-sender diagnostics.
-	Senders     []string
+	Senders     []NodeName
 	Signals     []DBCSignal
 	signalIndex map[string]int // maps signal name -> index into Signals
 }
@@ -62,7 +62,7 @@ type DBCMessage struct {
 // message populated by hand has no index and [DBCMessage.SignalByName]
 // scans instead. senders is the BO_TX_BU_ list, nil when the source has
 // none.
-func NewDBCMessage(id CANID, name MessageName, dlc DLC, sender NodeName, senders []string, signals []DBCSignal) DBCMessage {
+func NewDBCMessage(id CANID, name MessageName, dlc DLC, sender NodeName, senders []NodeName, signals []DBCSignal) DBCMessage {
 	m := DBCMessage{
 		ID:      id,
 		Name:    name,
@@ -248,7 +248,7 @@ type DBCValueTable struct {
 // UnknownValueDescriptionTarget check can warn about it.
 type DBCRawValueDesc struct {
 	ID         CANID
-	SignalName string
+	SignalName SignalName
 	Entries    []DBCValueEntry
 }
 
@@ -258,7 +258,7 @@ type DBCRawValueDesc struct {
 
 // DBCNode is a DBC network node (BU_ keyword).
 type DBCNode struct {
-	Name string
+	Name NodeName
 }
 
 // DBCCommentTarget is the sealed sum of the 5 comment-target kinds.
@@ -273,25 +273,26 @@ func (DBCCommentTargetNetwork) commentTarget() {}
 
 // DBCCommentTargetNode is a node comment.
 type DBCCommentTargetNode struct {
-	Node string
+	Node NodeName
 }
 
 func (DBCCommentTargetNode) commentTarget() {}
 
-// DBCCommentTargetMessage is a message comment; Extended is written only
-// when true, as the core's formatCANId omits it for a standard ID.
+// DBCCommentTargetMessage is a message comment. The identifier is the type
+// the rest of the package uses, which refuses an out-of-range value at
+// construction, so a comment cannot name a message no frame could carry. The
+// wire writes the extended flag only when true, as the core's formatCANId
+// omits it for a standard ID.
 type DBCCommentTargetMessage struct {
-	ID       uint32
-	Extended bool
+	ID CANID
 }
 
 func (DBCCommentTargetMessage) commentTarget() {}
 
 // DBCCommentTargetSignal is a signal comment.
 type DBCCommentTargetSignal struct {
-	ID       uint32
-	Extended bool
-	Signal   string
+	ID     CANID
+	Signal SignalName
 }
 
 func (DBCCommentTargetSignal) commentTarget() {}
@@ -430,7 +431,7 @@ func (DBCAttrTargetNetwork) attrTarget() {}
 
 // DBCAttrTargetNode is a node-scope assignment.
 type DBCAttrTargetNode struct {
-	Node string
+	Node NodeName
 }
 
 func (DBCAttrTargetNode) attrTarget() {}
@@ -447,7 +448,7 @@ func (DBCAttrTargetMessage) attrTarget() {}
 type DBCAttrTargetSignal struct {
 	ID       uint32
 	Extended bool
-	Signal   string
+	Signal   SignalName
 }
 
 func (DBCAttrTargetSignal) attrTarget() {}
@@ -461,7 +462,7 @@ func (DBCAttrTargetEnvVar) attrTarget() {}
 
 // DBCAttrTargetNodeMsg is a node-message relational assignment.
 type DBCAttrTargetNodeMsg struct {
-	Node     string
+	Node     NodeName
 	ID       uint32
 	Extended bool
 }
@@ -470,10 +471,10 @@ func (DBCAttrTargetNodeMsg) attrTarget() {}
 
 // DBCAttrTargetNodeSig is a node-signal relational assignment.
 type DBCAttrTargetNodeSig struct {
-	Node     string
+	Node     NodeName
 	ID       uint32
 	Extended bool
-	Signal   string
+	Signal   SignalName
 }
 
 func (DBCAttrTargetNodeSig) attrTarget() {}
