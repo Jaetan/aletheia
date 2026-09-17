@@ -13,7 +13,7 @@ ffi.go	85.8	26
 issueseverity_string.go	37.5	2
 json.go	86.5	75
 loader.go	100.0	8
-ltl.go	31.2	32
+ltl.go	37.1	35
 mock.go	87.3	22
 renderer.go	78.2	7
 result.go	45.8	6
@@ -21,4 +21,4 @@ rts.go	100.0	2
 types.go	90.0	20
 verdict_string.go	37.5	2
 yaml.go	96.1	18
-total	87.0	1
+total	87.1	1

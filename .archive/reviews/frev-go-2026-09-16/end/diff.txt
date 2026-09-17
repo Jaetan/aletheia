@@ -4,8 +4,9 @@ a total is not read on its own, a total that falls being able to hide a new row.
 ## The runs
 
 probes      base: probes: 84 run, exit 1
-            end: probes: 151 run, exit 0
-            67 probes added over the round, none retired and none edited to pass.
+            end: probes: 153 run, exit 0
+            69 probes added over the round and one retired, a general rule
+            having subsumed what it held; none was edited to pass.
             The one red at the opening was the round's own staging probe, which
             read the snapshot list as incomplete before the round had filled it;
             it is green at the close, as is every other.
@@ -15,14 +16,15 @@ tests       both: the binding, the host interface and the spreadsheet module gre
             under -race, and the no-cgo subset green without it
 staticcheck both: no output
 shape       opening: reports by contract: {'frev': 0, 'drev': 0, 'xrev': 0, 'not completed': 86}; out of shape: 0
-            closing: 120 reports, none out of shape, and no entry left incomplete,
-            two having carried a status that still named a ruling as pending
+            closing: 122 reports, none out of shape. One entry is not
+            completed and says so: it is blocked on a question the ruling it
+            carries turned out to need answered first.
 
 ## Coverage
 
-Statement coverage of the binding package, 79.9% at the opening to 87.3% at the
+Statement coverage of the binding package, 79.9% at the opening to 87.1% at the
 close. The closing record states its condition, which the opening one does not:
-with ALETHEIA_LIB naming the built kernel it reads 87.3%, and without it 87.8%,
+with ALETHEIA_LIB naming the built kernel it reads 87.1%, and without it 87.8%,
 the library-finding fallback running only when nothing names a library.
 
 Per file, over the functions the profile names:
@@ -35,8 +37,9 @@ Per file, over the functions the profile names:
   ffi.go                         56.5 to   85.8
   json.go                        84.0 to   86.5
   loader.go                      96.9 to  100.0
+  ltl.go                         31.2 to   37.1
   renderer.go                    77.3 to   78.2
-  total                          79.9 to   87.0
+  total                          79.9 to   87.1
   types.go                       80.0 to   90.0
   yaml.go                        90.3 to   96.1
 
@@ -45,7 +48,7 @@ Per file, over the functions the profile names:
 opening 20463	4840	2375	0.24	TOTAL
 closing 17388	3969	1933	0.23	TOTAL
 code, comment, blank, comment over code. The directory carries three more tracked
-files, 3075 fewer code lines and 871 fewer comment lines than it did, and the
+files, 3062 fewer code lines and 864 fewer comment lines than it did, and the
 comment-to-code ratio is a point lower rather than higher, which is what the
 contract asks a round to leave behind.
 

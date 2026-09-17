@@ -1,9 +1,9 @@
 PASS probes/AGENTS_go.md--the-fuzz-targets-it-names-are-the-ones-that-exist.sh
 PASS probes/benchmarks_results_.gitignore--scratch-files-are-ignored-and-baselines-are-not.sh
 PASS probes/benchmarks_run_all.sh--a-broken-build-with-the-toolchain-present-fails-the-run.sh
+PASS probes/benchmarks_run_all.sh--a-flag-the-mode-does-not-read-is-refused.sh
 PASS probes/benchmarks_run_all.sh--a-missing-toolchain-skips-its-lane.sh
 PASS probes/benchmarks_run_all.sh--a-temp-file-failure-fails-the-lane-and-leaves-nothing-behind.sh
-PASS probes/benchmarks_run_all.sh--a-warmup-for-a-mode-that-cannot-use-it-is-refused.sh
 PASS probes/benchmarks_run_all.sh--every-latency-lane-is-told-how-much-to-warm.sh
 PASS probes/benchmarks_run_all.sh--non-positive-counts-are-refused-before-anything-is-touched.sh
 PASS probes/cli--the-three-interfaces-print-one-wording.sh
@@ -126,6 +126,7 @@ PASS probes/go_cmd_aletheia_main.go--a-report-that-cannot-be-written-is-not-a-su
 PASS probes/go_cmd_aletheia_main.go--the-subcommands-are-the-python-ones.sh
 PASS probes/go_excel_excel.go--every-column-the-loaders-read-is-one-the-template-writes.sh
 PASS probes/go_excel_excel_test.go--the-library-search-matches-the-binding-s.sh
+PASS probes/go_excel_go.mod--the-core-requirement-is-one-the-module-path-can-carry.sh
 PASS probes/go_go.work--the-excel-module-builds-from-the-workspace-with-no-network.sh
 PASS probes/go_module_checksums--every-entry-names-a-module-the-workspace-uses.sh
 PASS probes/go_module_directives--the-two-modules-and-the-workspace-agree.sh
@@ -136,6 +137,7 @@ PASS probes/lens_file_gate_map--base-row-reproduces.sh
 PASS probes/lens_file_probe_map--recorded-row-reproduces.sh
 PASS probes/loaders--a-directory-that-cannot-be-read-is-not-reported-as-absent.sh
 PASS probes/loaders--an-obligation-builds-the-check-its-word-names.sh
+PASS probes/ltl--every-kernel-predicate-has-a-builder-in-every-binding.sh
 PASS probes/PROJECT_STATUS.md--the-phase-word-is-one-word.sh
 PASS probes/python_aletheia_client__backend.py--the-header-names-what-each-binding-passes.sh
 PASS probes/README.md--the-opening-it-shares-with-the-pitch-is-one-text.sh
@@ -149,4 +151,4 @@ PASS probes/tools__ci_steps.py--the-cmake-gate-scans-files.sh
 PASS probes/tools__ci_steps.py--the-format-gate-sees-only-tracked-sources.sh
 PASS probes/tools_mutation_run.py--a-sweep-that-timed-out-is-refused.sh
 PASS probes/tree--no-tracked-file-ends-in-a-tool-call-tag.sh
-probes: 151 run, exit 0
+probes: 153 run, exit 0

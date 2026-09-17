@@ -24,7 +24,7 @@ code	comment	blank	ratio	file
 1	73	1	73.00	go/aletheia/doc.go
 137	332	40	2.42	go/aletheia/doc_examples_test.go
 36	12	8	0.33	go/aletheia/doc_no_notest_test.go
-40	7	6	0.17	go/aletheia/dsl_test.go
+44	7	6	0.16	go/aletheia/dsl_test.go
 279	59	27	0.21	go/aletheia/enrich.go
 278	30	19	0.11	go/aletheia/enrich_test.go
 196	46	26	0.23	go/aletheia/eos_extract_once_test.go
@@ -50,7 +50,7 @@ code	comment	blank	ratio	file
 126	37	16	0.29	go/aletheia/loader.go
 250	25	15	0.10	go/aletheia/loader_test.go
 214	41	29	0.19	go/aletheia/log_events_test.go
-117	62	40	0.53	go/aletheia/ltl.go
+126	69	43	0.55	go/aletheia/ltl.go
 85	24	7	0.28	go/aletheia/main_test.go
 131	55	29	0.42	go/aletheia/mock.go
 121	27	11	0.22	go/aletheia/mux_mirror_warnings_test.go
@@ -88,4 +88,4 @@ code	comment	blank	ratio	file
 4	0	0	0.00	go/go.sum
 7	15	3	2.14	go/go.work
 10	0	0	0.00	go/go.work.sum
-17388	3969	1933	0.23	TOTAL
+17401	3976	1936	0.23	TOTAL

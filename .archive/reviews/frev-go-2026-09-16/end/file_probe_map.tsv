@@ -49,7 +49,7 @@ go/aletheia/limits.go	probes/go_aletheia_limits.go--every-kernel-limit-is-mirror
 go/aletheia/loader.go	probes/go_aletheia_loader.go--a-new-slot-stops-every-loader-compiling.sh 
 go/aletheia/loader_test.go	 
 go/aletheia/log_events_test.go	 
-go/aletheia/ltl.go	 
+go/aletheia/ltl.go	probes/ltl--every-kernel-predicate-has-a-builder-in-every-binding.sh 
 go/aletheia/main_test.go	 
 go/aletheia/mock.go	probes/go_aletheia_backend.go--comment-citations-resolve.sh probes/go_aletheia_mock.go--the-sentinels-match-the-python-mock.sh 
 go/aletheia/mux_mirror_warnings_test.go	 
@@ -80,11 +80,11 @@ go/cmd/aletheia/main.go	probes/cli--the-three-interfaces-print-one-wording.sh pr
 go/cmd/aletheia/main_test.go	 
 go/excel/excel.go	probes/go_aletheia_loader.go--a-new-slot-stops-every-loader-compiling.sh probes/go_excel_excel.go--every-column-the-loaders-read-is-one-the-template-writes.sh 
 go/excel/excel_test.go	probes/go_excel_excel_test.go--the-library-search-matches-the-binding-s.sh 
-go/excel/go.mod	probes/go_README.md--the-cited-section-and-identifiers-resolve.sh probes/go_module_directives--the-two-modules-and-the-workspace-agree.sh 
+go/excel/go.mod	probes/go_README.md--the-cited-section-and-identifiers-resolve.sh probes/go_excel_go.mod--the-core-requirement-is-one-the-module-path-can-carry.sh probes/go_module_directives--the-two-modules-and-the-workspace-agree.sh 
 go/excel/go.sum	probes/go_module_checksums--every-entry-names-a-module-the-workspace-uses.sh 
 go/excel/hardening.go	probes/loaders--a-directory-that-cannot-be-read-is-not-reported-as-absent.sh 
-go/go.mod	probes/go_module_directives--the-two-modules-and-the-workspace-agree.sh 
+go/go.mod	probes/go_excel_go.mod--the-core-requirement-is-one-the-module-path-can-carry.sh probes/go_module_directives--the-two-modules-and-the-workspace-agree.sh 
 go/go.sum	probes/go_module_checksums--every-entry-names-a-module-the-workspace-uses.sh 
-go/go.work	probes/go_go.work--the-excel-module-builds-from-the-workspace-with-no-network.sh probes/go_module_checksums--every-entry-names-a-module-the-workspace-uses.sh probes/go_module_directives--the-two-modules-and-the-workspace-agree.sh 
+go/go.work	probes/go_excel_go.mod--the-core-requirement-is-one-the-module-path-can-carry.sh probes/go_go.work--the-excel-module-builds-from-the-workspace-with-no-network.sh probes/go_module_checksums--every-entry-names-a-module-the-workspace-uses.sh probes/go_module_directives--the-two-modules-and-the-workspace-agree.sh 
 go/go.work.sum	probes/go_module_checksums--every-entry-names-a-module-the-workspace-uses.sh 
-# 89 tracked files under go/, 41 named by a probe
+# 89 tracked files under go/, 42 named by a probe
