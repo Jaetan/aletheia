@@ -95,9 +95,8 @@ cd go && CGO_CFLAGS="-fsanitize=address" CGO_LDFLAGS="-fsanitize=address" go tes
 ```
 
 The `go test ./aletheia/` battery includes the doc-example
-harness (`TestDocExamples`) — every ```go fence across `README.md`,
-`docs/PITCH.md`, `docs/architecture/CANCELLATION.md`,
-`docs/reference/INTERFACES.md`, and `docs/development/DISTRIBUTION.md`
+harness (`TestDocExamples`): every ```go fence in the files `docFiles`
+lists in `go/aletheia/doc_examples_test.go` (the Go README among them)
 is wrapped as `package main` in a per-fence tempdir (with a
 `replace`-directive go.mod pointing at the local repo) and executed via
 `go run`. The companion structural gate `TestNoNotestGoFences` rejects

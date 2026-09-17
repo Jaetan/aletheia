@@ -54,6 +54,7 @@ import (
 // python/tests/test_doc_examples_harness.py and the Go verification block
 // in AGENTS.md § Go Verification.
 var docFiles = []string{
+	"../README.md",
 	"../../README.md",
 	"../../docs/PITCH.md",
 	"../../docs/architecture/CANCELLATION.md",
@@ -70,8 +71,12 @@ type goFence struct {
 }
 
 func (f goFence) name() string {
-	// Strip the `../../` prefix used by docFiles for nicer subtest names.
+	// Subtest names are repository-relative: docFiles reaches the repository
+	// root through `../../` and the binding's own directory through `../`.
 	name := strings.TrimPrefix(f.file, "../../")
+	if strings.HasPrefix(name, "../") {
+		name = "go/" + strings.TrimPrefix(name, "../")
+	}
 	return fmt.Sprintf("%s:L%d", name, f.line)
 }
 
