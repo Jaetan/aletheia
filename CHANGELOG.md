@@ -20,6 +20,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   above any module, a load that hits it reports how long Agda was silent, and Agda
   runs at `-N1`: its checker is single-threaded, and the parallel-GC threads `-N` adds
   only cost. The sweep log is uploaded as an artifact, per-module times included.
+- **The bundle validator's Go consumer imports the module the bundle ships.** The
+  consumer fixture named this tree's module path, so validating a published release
+  failed the moment the path moved, as it did when the module took its major version:
+  the v5.0.0 bundle declares the old path and the validator asked `go get` for the
+  new one. The validator now reads the `module` directive from the bundle's own
+  `bindings/go/go.mod`, retargets the fixture's import to it, and refuses a bundle
+  whose installer prints a `go get` for any other module, naming both paths.
 - **A caller-injected Python backend is provably the one re-used after `close()`.**
   The re-entry test asserted only that re-entry succeeds, which it does either way:
   a client that wrongly treated an injected backend as its own would drop it on

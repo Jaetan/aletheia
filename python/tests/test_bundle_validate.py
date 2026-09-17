@@ -26,9 +26,12 @@ from tools.bundle_validate import (
     corrupt_missing_so,
     corrupt_rust_lib,
     extract_recipes,
+    go_recipe_module_problem,
     parity_problems,
     parse_args,
+    read_go_module,
     recipe_shape_errors,
+    retarget_go_consumer,
     self_test,
 )
 
@@ -280,3 +283,62 @@ class TestSelfTestCorruptions:
 
         monkeypatch.setattr("tools.bundle_validate.missing_tool", _all_absent)
         assert self_test(cfg) == 2
+
+
+class TestGoModuleFromTheBundle:
+    """The consumer imports whatever module path the bundle's own go.mod names."""
+
+    def test_reads_the_module_directive(self, tmp_path: Path) -> None:
+        """A single module line is the path, whitespace trimmed."""
+        bundle = _make_bundle_tree(tmp_path)
+        _ = (bundle / "bindings" / "go" / "go.mod").write_text(
+            "module github.com/example/aletheia-go/v5 \n\ngo 1.24.0\n"
+        )
+        assert read_go_module(bundle) == "github.com/example/aletheia-go/v5"
+
+    def test_missing_module_file_is_named(self, tmp_path: Path) -> None:
+        """A bundle without the file fails before any go command runs."""
+        bundle = _make_bundle_tree(tmp_path)
+        corrupt_go_mod(bundle)
+        with pytest.raises(BundleValidationError, match=r"carries no bindings/go/go\.mod"):
+            _ = read_go_module(bundle)
+
+    def test_two_module_lines_are_refused(self, tmp_path: Path) -> None:
+        """Ambiguity is a defect, not a first-wins guess."""
+        bundle = _make_bundle_tree(tmp_path)
+        _ = (bundle / "bindings" / "go" / "go.mod").write_text("module a\nmodule b\n")
+        with pytest.raises(BundleValidationError, match="declares 2 module paths"):
+            _ = read_go_module(bundle)
+
+    def test_retargets_the_one_import(self) -> None:
+        """The fixture's import moves to the bundle's module; nothing else changes."""
+        source = 'import (\n\t"fmt"\n\n\t"github.com/old/path/v5/aletheia"\n)\nvar _ = fmt.Sprint\n'
+        out = retarget_go_consumer(source, "github.com/new/path/v6")
+        assert '"github.com/new/path/v6/aletheia"' in out
+        assert "old/path" not in out
+        assert out.count('"fmt"') == 1
+
+    def test_fixture_without_the_import_is_refused(self) -> None:
+        """A fixture that imports no bundled package cannot be retargeted."""
+        with pytest.raises(BundleValidationError, match="exactly one"):
+            _ = retarget_go_consumer('import "fmt"\n', "github.com/x/y")
+
+    def test_tracked_fixture_imports_the_tree_module(self) -> None:
+        """The committed fixture names the tree's module, as the runtime image builds it."""
+        repo = Path(__file__).parents[2]
+        fixture = (repo / "tools" / "bundle_validation" / "consumer_go" / "main.go").read_text()
+        module = (repo / "go" / "go.mod").read_text().split("\n")[0].removeprefix("module ").strip()
+        assert retarget_go_consumer(fixture, module) == fixture
+
+    def test_installer_agreeing_with_go_mod_is_no_problem(self) -> None:
+        """The printed go get names the bundle's module: nothing to report."""
+        recipe = ['go mod edit -replace "m=/x"', "go get github.com/a/b/v5/aletheia"]
+        assert go_recipe_module_problem(recipe, "github.com/a/b/v5") is None
+
+    def test_installer_naming_another_module_is_reported(self) -> None:
+        """A bundle whose installer and go.mod disagree is named as such, both paths shown."""
+        recipe = ['go mod edit -replace "m=/x"', "go get github.com/a/b/v5/aletheia"]
+        problem = go_recipe_module_problem(recipe, "github.com/c/d/v6")
+        assert problem is not None
+        assert "github.com/a/b/v5/aletheia" in problem
+        assert "github.com/c/d/v6" in problem

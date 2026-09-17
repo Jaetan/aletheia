@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -355,11 +356,58 @@ def run_cpp_consumer(work: Path, recipe: list[str], lib: Path, cfg: Config) -> N
     assert_consumer_ok("cpp", scenario.stdout)
 
 
+# The `module` directive of a go.mod: the one word after the keyword, on its
+# own line.  The module path a bundle ships is a fact of that bundle, not of
+# this tree: a release's Go binding keeps the path its go.mod declared, so the
+# consumer imports whatever the bundle under test names.
+_GO_MODULE_LINE = re.compile(r"^module\s+(\S+)\s*$", re.MULTILINE)
+
+# The fixture's import of the bundled package: the module path is the part
+# before the package name, and that is the part the bundle decides.
+_GO_CONSUMER_IMPORT = re.compile(r'"(?P<module>[^"\s]+)/aletheia"')
+
+
+def read_go_module(bundle: Path) -> str:
+    """Return the module path the bundle's own Go module file declares."""
+    go_mod = bundle / "bindings" / "go" / "go.mod"
+    if not go_mod.is_file():
+        message = f"go: the bundle carries no {go_mod.relative_to(bundle)}"
+        raise BundleValidationError(message)
+    found = _GO_MODULE_LINE.findall(go_mod.read_text())
+    if len(found) != 1:
+        message = f"go: {go_mod.relative_to(bundle)} declares {len(found)} module paths, not one"
+        raise BundleValidationError(message)
+    return found[0]
+
+
+def retarget_go_consumer(source: str, module: str) -> str:
+    """Point the consumer fixture's package import at ``module``."""
+    if len(_GO_CONSUMER_IMPORT.findall(source)) != 1:
+        message = "go: the consumer fixture must import exactly one <module>/aletheia package"
+        raise BundleValidationError(message)
+    return _GO_CONSUMER_IMPORT.sub(f'"{module}/aletheia"', source)
+
+
+def go_recipe_module_problem(recipe: list[str], module: str) -> str | None:
+    """Why the installer's go lines disagree with the bundle's module path, if they do."""
+    package = f"{module}/aletheia"
+    gets = [shlex.split(line)[-1] for line in recipe if line.startswith("go get ")]
+    if gets != [package]:
+        return f"the installer runs `go get` for {gets}, the bundle's go.mod names {module}"
+    return None
+
+
 def run_go_consumer(work: Path, recipe: list[str], lib: Path, cfg: Config) -> None:
     """Build + run the Go consumer via the printed go recipe lines, verbatim."""
+    module = read_go_module(work / BUNDLE_DIR_NAME)
+    problem = go_recipe_module_problem(recipe, module)
+    if problem is not None:
+        message = f"go: {problem}"
+        raise BundleValidationError(message)
     src = work / "consumer_go"
     src.mkdir()
-    _ = shutil.copy(FIXTURE_DIR / "consumer_go" / "main.go", src / "main.go")
+    fixture = (FIXTURE_DIR / "consumer_go" / "main.go").read_text()
+    _ = (src / "main.go").write_text(retarget_go_consumer(fixture, module))
     go = find_executable("go")
     env = _consumer_env(lib)
     env["CGO_ENABLED"] = "1"
@@ -483,7 +531,7 @@ def corrupt_missing_so(bundle: Path) -> None:
 
 
 def corrupt_go_mod(bundle: Path) -> None:
-    """Drop the Go module file — the printed go recipe must stop resolving."""
+    """Drop the Go module file: the validator must refuse the bundle before any go command runs."""
     (bundle / "bindings" / "go" / "go.mod").unlink()
 
 
