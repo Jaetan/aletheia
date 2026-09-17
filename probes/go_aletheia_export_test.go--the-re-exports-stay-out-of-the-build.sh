@@ -13,7 +13,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 2
 f=go/aletheia/export_test.go
 status=0
-names=$(grep -oE '^(func|var) [A-Z][A-Za-z]*' "$f" | awk '{print $2}' | sort -u)
+names=$(grep -oE '^(func|var) [A-Z][A-Za-z0-9_]*' "$f" | awk '{print $2}' | sort -u)
 [ -n "$names" ] || { echo "no re-exported name found in $f"; exit 1; }
 for n in $names; do
     for src in go/aletheia/*.go; do

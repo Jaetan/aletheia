@@ -1,13 +1,13 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Crafted-byte-vector tests for parseExtractionBin, the decoder of the packed
-// binary extraction wire (canonical wire doc: the processExtractBin header
-// comment in src/Aletheia/Main/Binary.agda). Pure decoder tests — no FFI/RTS.
-// Each reject vector pins one of the decoder's protocol invariants: the exact
-// total-size check, the three offsets-table invariants, and per-reason UTF-8
-// validation. The happy-path vector proves reasons are surfaced from the wire
-// and that offsets are byte counts, not character counts.
+// Crafted byte vectors for parseExtractionBin, which decodes the packed
+// binary extraction wire that the processExtractBin header comment in
+// src/Aletheia/Main/Binary.agda documents. Nothing here calls the library:
+// the decoder is pure. The vectors that decode show that a reason comes off
+// the wire whole and that the offsets are byte counts; the vectors that are
+// refused pin the exact total size, the three offsets invariants the wire
+// doc tells decoders to verify, and UTF-8 on every reason.
 
 package aletheia
 
@@ -67,10 +67,10 @@ func buildExtractionBin(vals []binVal, errs []binErr, offsets []uint32, blob []b
 	return buf
 }
 
-// binExtractionErrors builds an errors-only buffer carrying the given wire
-// reasons (error i gets idx i and code i). offsets == nil derives the correct
-// cumulative offsets table; a non-nil offsets is written verbatim to craft
-// invariant-violating buffers. Also seeds FuzzDecodeBinaryFrame.
+// binExtractionErrors builds an errors-only buffer carrying the reasons,
+// error i taking index i and code i. A nil offsets derives the cumulative
+// table; a given one is written as it is, which is how a buffer that breaks
+// an invariant is crafted. FuzzDecodeBinaryFrame seeds from it too.
 func binExtractionErrors(reasons []string, offsets []uint32) []byte {
 	errs := make([]binErr, len(reasons))
 	var blob []byte
@@ -104,13 +104,11 @@ func requireExtractionProtocolError(t *testing.T, buf []byte, names []string, su
 	}
 }
 
-// TestParseExtractionBin_HappyPathWireReasons decodes a buffer with one
-// value, two errors with distinct wire reasons, and one absent signal. The
-// FIRST reason contains a multi-byte UTF-8 character, so the second reason
-// slices correctly only if the offsets table is interpreted as byte counts
-// (a character-count reading would misalign every following slice). The
-// reasons must surface byte-identically — they are the kernel-minted detailed
-// strings, not any binding-local rendering of the u8 code.
+// A buffer with one value, two errors and one absent signal decodes whole.
+// The first reason carries a character two bytes wide, so the second slices
+// correctly only if the offsets are read as byte counts; a character count
+// would misalign every slice after it. The reasons arrive byte for byte,
+// since they are the kernel's own strings and not a rendering of the code.
 func TestParseExtractionBin_HappyPathWireReasons(t *testing.T) {
 	names := []string{"Speed", "RPM", "Temp", "Mode"}
 	r1 := "signal 'Tempé' not found in message"            // é is 2 bytes in UTF-8
@@ -144,11 +142,9 @@ func TestParseExtractionBin_HappyPathWireReasons(t *testing.T) {
 	}
 }
 
-// TestParseExtractionBin_UnknownCodeTransported pins the "unknown codes are
-// not rejected" contract: the u8 code is transported for machine consumption
-// and the wire reason is authoritative, so a code outside the table pinned by
-// the Agda SSOT (extractionErrorCodeToℕ in Aletheia.CAN.BatchExtraction) must
-// decode to the wire reason, not a protocol error.
+// A code outside the kernel's table (extractionErrorCodeToℕ in
+// Aletheia.CAN.BatchExtraction) is carried, not refused: the code is there
+// for a machine to read and the reason beside it is what the caller sees.
 func TestParseExtractionBin_UnknownCodeTransported(t *testing.T) {
 	reason := "some future error class"
 	buf := buildExtractionBin(nil,
@@ -166,9 +162,8 @@ func TestParseExtractionBin_UnknownCodeTransported(t *testing.T) {
 	}
 }
 
-// TestParseExtractionBin_ZeroErrorsSingleOffsetEntry pins the nErrors == 0
-// shape: the offsets table is still present as the single entry 0 with
-// reasonBytes 0, and the buffer decodes to an empty errors partition.
+// With no errors the offsets table is still there, the single entry zero,
+// and the buffer decodes to no errors.
 func TestParseExtractionBin_ZeroErrorsSingleOffsetEntry(t *testing.T) {
 	buf := buildExtractionBin([]binVal{{idx: 0, num: 7, den: 1}}, nil, []uint32{0}, nil, nil)
 	res, err := parseExtractionBin(buf, []string{"Sig"})
@@ -183,52 +178,40 @@ func TestParseExtractionBin_ZeroErrorsSingleOffsetEntry(t *testing.T) {
 	}
 }
 
-// TestParseExtractionBin_TruncatedHeader rejects buffers shorter than the
-// 10-byte header.
-func TestParseExtractionBin_TruncatedHeader(t *testing.T) {
-	for _, n := range []int{0, 6, 9} {
-		requireExtractionProtocolError(t, make([]byte, n), nil, "too short")
-	}
-}
-
-// TestParseExtractionBin_TotalSizeMismatch pins the exact total-size check:
-// both a trailing extra byte and a missing byte are protocol errors.
-func TestParseExtractionBin_TotalSizeMismatch(t *testing.T) {
+// Every buffer the decoder cannot trust is refused with a protocol error
+// naming the reason: a header shorter than its ten bytes, a total size that
+// is off by a byte either way, an offsets table that starts past zero,
+// decreases, or ends anywhere but at the reason bytes the header declares,
+// and a reason slice that is not UTF-8, which every binding refuses.
+func TestParseExtractionBin_RefusesMalformedBuffers(t *testing.T) {
 	good := buildExtractionBin([]binVal{{idx: 0, num: 1, den: 2}}, nil, []uint32{0}, nil, nil)
 	if _, err := parseExtractionBin(good, []string{"Sig"}); err != nil {
-		t.Fatalf("control buffer must decode: %v", err)
+		t.Fatalf("the control buffer must decode: %v", err)
 	}
-	requireExtractionProtocolError(t, append(append([]byte{}, good...), 0x00), []string{"Sig"}, "size mismatch")
-	requireExtractionProtocolError(t, good[:len(good)-1], []string{"Sig"}, "size mismatch")
-}
-
-// TestParseExtractionBin_OffsetsFirstNonZero rejects an offsets table whose
-// first entry is not 0.
-func TestParseExtractionBin_OffsetsFirstNonZero(t *testing.T) {
-	buf := buildExtractionBin(nil, []binErr{{idx: 0, code: 0}}, []uint32{1, 4}, []byte("abcd"), nil)
-	requireExtractionProtocolError(t, buf, []string{"Sig"}, "start at 0")
-}
-
-// TestParseExtractionBin_OffsetsNonMonotone rejects a decreasing offsets
-// table. The end entry equals reasonBytes so only the monotonicity invariant
-// is violated.
-func TestParseExtractionBin_OffsetsNonMonotone(t *testing.T) {
-	buf := buildExtractionBin(nil, []binErr{{idx: 0, code: 0}, {idx: 1, code: 0}}, []uint32{0, 3, 2}, []byte("ab"), nil)
-	requireExtractionProtocolError(t, buf, []string{"A", "B"}, "not monotone")
-}
-
-// TestParseExtractionBin_OffsetsEndMismatch rejects an offsets table whose
-// last entry differs from the header's reasonBytes.
-func TestParseExtractionBin_OffsetsEndMismatch(t *testing.T) {
-	buf := buildExtractionBin(nil, []binErr{{idx: 0, code: 0}}, []uint32{0, 2}, []byte("boom"), nil)
-	requireExtractionProtocolError(t, buf, []string{"Sig"}, "offsets end at")
-}
-
-// TestParseExtractionBin_InvalidUTF8Reason rejects a reason slice that is not
-// valid UTF-8 — all four bindings reject invalid reason bytes symmetrically.
-func TestParseExtractionBin_InvalidUTF8Reason(t *testing.T) {
-	buf := buildExtractionBin(nil, []binErr{{idx: 0, code: 0}}, []uint32{0, 2}, []byte{0xFF, 0xFE}, nil)
-	requireExtractionProtocolError(t, buf, []string{"Sig"}, "not valid UTF-8")
+	oneError := func(offsets []uint32, blob []byte) []byte {
+		return buildExtractionBin(nil, []binErr{{idx: 0, code: 0}}, offsets, blob, nil)
+	}
+	cases := map[string]struct {
+		buf    []byte
+		names  []string
+		substr string
+	}{
+		"empty":                {nil, nil, "too short"},
+		"header cut short":     {make([]byte, 6), nil, "too short"},
+		"header one byte shy":  {make([]byte, 9), nil, "too short"},
+		"a byte too many":      {append(append([]byte{}, good...), 0x00), []string{"Sig"}, "size mismatch"},
+		"a byte too few":       {good[:len(good)-1], []string{"Sig"}, "size mismatch"},
+		"offsets start past 0": {oneError([]uint32{1, 4}, []byte("abcd")), []string{"Sig"}, "start at 0"},
+		"offsets decrease": {buildExtractionBin(nil, []binErr{{idx: 0, code: 0}, {idx: 1, code: 0}},
+			[]uint32{0, 3, 2}, []byte("ab"), nil), []string{"A", "B"}, "not monotone"},
+		"offsets end elsewhere": {oneError([]uint32{0, 2}, []byte("boom")), []string{"Sig"}, "offsets end at"},
+		"reason is not UTF-8":   {oneError([]uint32{0, 2}, []byte{0xFF, 0xFE}), []string{"Sig"}, "not valid UTF-8"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			requireExtractionProtocolError(t, tc.buf, tc.names, tc.substr)
+		})
+	}
 }
 
 // corruptBinBackend answers the binary extraction with what the test sets:
