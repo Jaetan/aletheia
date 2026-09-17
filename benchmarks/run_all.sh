@@ -42,6 +42,7 @@ BENCH=throughput
 # lanes four ways and the committed baselines were not comparable. 500 is the
 # larger of the two, which is what the Python and C++ baselines were taken at.
 WARMUP=500
+WARMUP_GIVEN=0
 
 # Parse args
 while [[ $# -gt 0 ]]; do
@@ -49,7 +50,7 @@ while [[ $# -gt 0 ]]; do
         --frames) FRAMES="$2"; shift 2 ;;
         --runs)   RUNS="$2";   shift 2 ;;
         --bench)  BENCH="$2";  shift 2 ;;
-        --warmup) WARMUP="$2"; shift 2 ;;
+        --warmup) WARMUP="$2"; WARMUP_GIVEN=1; shift 2 ;;
         *)        echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
 done
@@ -80,6 +81,17 @@ case "$BENCH" in
     throughput|latency|scaling) ;;
     *) echo "ERROR: unknown --bench '$BENCH' (expected throughput, latency or scaling)" >&2; exit 1 ;;
 esac
+
+# --warmup belongs to the latency mode.  For latency the harnesses count
+# operations discarded before timing; for throughput they count whole warmup
+# RUNS, each a full frame set, so one number cannot serve both and only the
+# latency arms below pass it.  A value given for another mode would be accepted
+# and reach nothing, which is the one thing this harness refuses to do with an
+# argument: it is refused here rather than silently discarded.
+if [[ "$WARMUP_GIVEN" == 1 && "$BENCH" != latency ]]; then
+    echo "ERROR: --warmup is the latency mode's; --bench is '$BENCH'" >&2
+    exit 1
+fi
 
 mkdir -p "$RESULTS_DIR"
 
@@ -119,8 +131,13 @@ rm -f "$RESULTS_DIR"/*_"${BENCH}".json
 
 echo "=== Aletheia Cross-Language Benchmark ==="
 echo "Benchmark: $BENCH"
-echo "Frames:    $FRAMES"
-echo "Runs:      $RUNS"
+# Each mode reads a different pair, and the arms below are what decides it: the
+# banner names what this run was given rather than every count the runner holds.
+case $BENCH in
+    throughput) echo "Frames:    $FRAMES"; echo "Runs:      $RUNS" ;;
+    latency)    echo "Ops:       $FRAMES"; echo "Warmup:    $WARMUP" ;;
+    scaling)    echo "Runs:      $RUNS" ;;
+esac
 echo "Library:   $ALETHEIA_LIB"
 echo ""
 

@@ -1,6 +1,6 @@
 # Aletheia Performance Benchmarks
 
-Benchmarks across the Python, C++, Go and Rust bindings.
+Benchmarks across the Python, C++, Go and Rust bindings. This document describes what the benchmarks measure, how to run them, and the canonical results.
 
 ## Canonical Results
 
@@ -27,7 +27,7 @@ Per-frame C++ latency on CAN 2.0B streaming has a median of 3.2 µs and a mean o
 
 A benchmark binary is never taken as found on disk: one that predates a kernel wire change does not measure an older system, it fails to measure the current one, so its numbers are void rather than merely old.
 
-The runner also clears the selected mode's results before running, so a lane that skips or fails contributes nothing rather than its previous numbers. It refuses a zero or non-numeric `--frames` or `--runs`, a negative `--warmup` and a mode it does not have, all before touching anything: a zero count makes every lane publish an all-zero report, and an unknown mode would reach a glob that deletes the committed baselines. A lane is skipped when what it needs is absent, which for Go and Rust is the toolchain and for C++ is a configured `cpp/build`; a lane whose build breaks with everything present is a failure. `ALETHEIA_BENCH_RESULTS_DIR` redirects the results directory, which is how the probes exercise the runner without touching the last measurements.
+The runner also clears the selected mode's results before running, so a lane that skips or fails contributes nothing rather than its previous numbers. It refuses a zero or non-numeric `--frames` or `--runs`, a negative `--warmup`, a `--warmup` outside the latency mode, and a mode it does not have, all before touching anything: a zero count makes every lane publish an all-zero report, an unknown mode would reach a glob that deletes the committed baselines, and only the latency lanes are given a warmup, the others warming in whole runs. A lane is skipped when what it needs is absent, which for Go and Rust is the toolchain and for C++ is a configured `cpp/build`; a lane whose build breaks with everything present is a failure. `ALETHEIA_BENCH_RESULTS_DIR` redirects the results directory.
 
 ```bash
 # Prerequisites (one-time)
