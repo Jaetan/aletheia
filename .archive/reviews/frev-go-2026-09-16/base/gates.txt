@@ -1,0 +1,23 @@
+## go build ./... (go/) and (go/excel)
+exit 0
+## gofmt -l . (go/)
+
+files needing format: 0
+## go vet ./... && (cd excel && go vet ./...)
+exit 0
+## CGO_ENABLED=0 go build ./aletheia/
+exit 0
+## go mod verify (go/) (go/excel)
+all modules verified
+all modules verified
+## go mod tidy -diff (go/)
+exit 0
+## go mod tidy -diff (go/excel)
+go: downloading github.com/aletheia-automotive/aletheia-go v0.0.0
+go: github.com/aletheia-automotive/aletheia-go/excel: reading github.com/aletheia-automotive/aletheia-go/go.mod at revision v0.0.0: git ls-remote -q --end-of-options origin in /home/nicolas/go/pkg/mod/cache/vcs/57ba199c0e7c24ed0c3384365ce28462ae0850d724c28a344160376d84ab5267: exit status 128:
+	remote: Repository not found.
+	fatal: repository 'https://github.com/aletheia-automotive/aletheia-go/' not found
+exit 1
+## go version / go env GOTOOLCHAIN
+go version go1.26.3 linux/amd64
+auto

@@ -1,0 +1,38 @@
+## ALETHEIA_LIB=build/libaletheia-ffi.so go test ./... -count=1 -race (go/)
+ok  	github.com/aletheia-automotive/aletheia-go/aletheia	7.564s
+?   	github.com/aletheia-automotive/aletheia-go/benchmarks	[no test files]
+?   	github.com/aletheia-automotive/aletheia-go/benchmarks/stability	[no test files]
+ok  	github.com/aletheia-automotive/aletheia-go/cmd/aletheia	1.063s
+
+real	0m8.016s
+user	0m9.463s
+sys	0m5.340s
+exit 0
+## ALETHEIA_LIB=... go test ./... -count=1 -race (go/excel)
+ok  	github.com/aletheia-automotive/aletheia-go/excel	4.955s
+
+real	0m5.513s
+user	0m4.349s
+sys	0m0.523s
+## ALETHEIA_LIB=... go test ./aletheia/ -shuffle=on -count=1 -race
+ok  	github.com/aletheia-automotive/aletheia-go/aletheia	7.322s
+
+real	0m7.702s
+user	0m9.301s
+sys	0m4.949s
+## ALETHEIA_LIB=... go test ./aletheia/ -tags=cross_binding -count=1 -run CrossBinding -v
+--- PASS: TestCrossBinding_IdentifierAtMaxLengthAccepted (0.00s)
+=== RUN   TestCrossBinding_IdentifierOverMaxRejected
+--- PASS: TestCrossBinding_IdentifierOverMaxRejected (0.00s)
+=== RUN   TestCrossBinding_GeometryGateRefusesOutOfFrameStartBit
+--- PASS: TestCrossBinding_GeometryGateRefusesOutOfFrameStartBit (0.00s)
+=== RUN   TestCrossBinding_MotorolaFullFrameClosure
+--- PASS: TestCrossBinding_MotorolaFullFrameClosure (0.00s)
+=== RUN   TestCrossBinding_ErrorTypeShape
+--- PASS: TestCrossBinding_ErrorTypeShape (0.00s)
+=== RUN   TestCrossBinding_NestingDepthLiftsToInputBoundExceeded
+--- PASS: TestCrossBinding_NestingDepthLiftsToInputBoundExceeded (0.03s)
+=== RUN   TestCrossBinding_BinaryExtractionReasonParity
+--- PASS: TestCrossBinding_BinaryExtractionReasonParity (0.00s)
+PASS
+ok  	github.com/aletheia-automotive/aletheia-go/aletheia	0.051s
