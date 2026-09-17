@@ -1,77 +1,12 @@
 ## ALETHEIA_LIB=build/libaletheia-ffi.so go test ./... -count=1 -race (go/)
-ok  	github.com/aletheia-automotive/aletheia-go/aletheia	7.991s
+ok  	github.com/aletheia-automotive/aletheia-go/aletheia	8.518s
 ?   	github.com/aletheia-automotive/aletheia-go/benchmarks	[no test files]
 ?   	github.com/aletheia-automotive/aletheia-go/benchmarks/stability	[no test files]
-ok  	github.com/aletheia-automotive/aletheia-go/cmd/aletheia	1.071s
+ok  	github.com/aletheia-automotive/aletheia-go/cmd/aletheia	1.121s
 ## go test ./... -count=1 -race (go/excel)
-ok  	github.com/aletheia-automotive/aletheia-go/excel	5.697s
+ok  	github.com/aletheia-automotive/aletheia-go/excel	5.512s
 ## CGO_ENABLED=0 go test ./... -count=1 (go/)
-ok  	github.com/aletheia-automotive/aletheia-go/aletheia	0.014s
+ok  	github.com/aletheia-automotive/aletheia-go/aletheia	0.023s
 ?   	github.com/aletheia-automotive/aletheia-go/benchmarks	[no test files]
 ?   	github.com/aletheia-automotive/aletheia-go/benchmarks/stability	[no test files]
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
---- FAIL: TestCLISignalsRendersFactorExactly (0.00s)
-    main_test.go:96: signals exit = 2, want 0
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
---- FAIL: TestCLISmoke (0.00s)
-    main_test.go:123: run([validate --dbc ../../../examples/example.dbc]) = 2, want 0
-    main_test.go:123: run([validate --dbc ../../../examples/example.dbc --json]) = 2, want 0
-    main_test.go:123: run([signals --dbc ../../../examples/example.dbc]) = 2, want 0
-    main_test.go:123: run([signals --dbc ../../../examples/example.dbc --json]) = 2, want 0
-    main_test.go:123: run([format-dbc --dbc ../../../examples/example.dbc]) = 2, want 0
-    main_test.go:123: run([extract --dbc ../../../examples/example.dbc 0x100 102700000A000000]) = 2, want 0
-    main_test.go:123: run([extract --dbc ../../../examples/example.dbc 0x100 102700000A000000 --json]) = 2, want 0
-    main_test.go:123: run([mux-query --dbc ../../../python/tests/fixtures/dbc_corpus/multiplexing.dbc 0x64]) = 2, want 0
-    main_test.go:123: run([mux-query --dbc ../../../python/tests/fixtures/dbc_corpus/multiplexing.dbc 0x64 --mux Mode --value 1]) = 2, want 0
-    main_test.go:123: run([mux-query --dbc ../../../python/tests/fixtures/dbc_corpus/multiplexing.dbc 0x64 --mux Mode --value 1 --json]) = 2, want 0
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
---- FAIL: TestCLIValidateInvalidDBC (0.00s)
-    --- FAIL: TestCLIValidateInvalidDBC/text_lists_issues_and_exits_1 (0.00s)
-        main_test.go:154: validate exit = 2, want 1
-        main_test.go:158: output missing the FAILED header; got:
-        main_test.go:161: output missing the numbered duplicate_signal_name issue; got:
-    --- FAIL: TestCLIValidateInvalidDBC/json_emits_the_has_errors_fail_shape (0.00s)
-        main_test.go:173: validate --json exit = 2, want 1
-        main_test.go:182: output is not valid JSON: unexpected end of JSON input
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
---- FAIL: TestCLIValidateWarningsFromSingleParse (0.00s)
-    main_test.go:230: validate exit = 2, want 0
-    main_test.go:234: output missing the passed-with-warnings header; got:
-    main_test.go:237: output missing the offset_scale_range warning carried from the parse; got:
-Error: 'check' is not available in the Go CLI: it needs a CAN-log reader the binding does not provide. Use the Python CLI for log-file checking.
-Error: unknown command "bogus"
-
-aletheia: formally verified CAN signal analysis (Go CLI)
-
-Usage: aletheia <command> [flags] [args]
-
-Commands:
-  validate    validate a DBC definition for structural issues
-  extract     decode signals from a single CAN frame
-  signals     list signals defined in a DBC file
-  format-dbc  re-export a DBC as canonical JSON via the Agda core
-  mux-query   inspect multiplexor structure of a DBC message
-
-DBC source: --dbc <file>.dbc (verified text parser). Flags may go before or after positionals.
-Library path: $ALETHEIA_LIB or a build/install default.
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-Error: loading /home/nicolas/dev/agda/aletheia/build/libaletheia-ffi.so: aletheia ffi error: ffi backend requires cgo on linux; build with CGO_ENABLED=1
-FAIL
-FAIL	github.com/aletheia-automotive/aletheia-go/cmd/aletheia	0.002s
-FAIL
+ok  	github.com/aletheia-automotive/aletheia-go/cmd/aletheia	0.003s

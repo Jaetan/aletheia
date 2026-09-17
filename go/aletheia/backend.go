@@ -30,6 +30,20 @@ func WithFFILogger(l *slog.Logger) FFIBackendOption {
 	return func(c *ffiConfig) { c.logger = l }
 }
 
+// SignalInjection is one signal's position in its message and the exact value
+// to place there, as the numerator and denominator the wire carries. One slice
+// of these crosses the interface where a count and three slices of that length
+// used to, so the three lengths agree by construction and no boundary check
+// stands in for a type. The Rust binding's backend carries the same name for
+// the same thing.
+type SignalInjection struct {
+	// Index is the signal's position in its message's signal list.
+	Index uint32
+	// Numerator and Denominator are the exact value to place there.
+	Numerator   int64
+	Denominator int64
+}
+
 // Backend is the FFI boundary to the Agda core: [FFIBackend] in production,
 // [MockBackend] in tests. It is sealed, so only this package implements it.
 //
@@ -92,9 +106,9 @@ type Backend interface {
 	// Group 3: raw bytes both ways.
 
 	// BuildFrameBin builds a CAN frame from signal values and returns its payload.
-	BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error)
+	BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, signals []SignalInjection) ([]byte, error)
 	// UpdateFrameBin rewrites signals in an existing payload and returns the new payload.
-	UpdateFrameBin(state unsafe.Pointer, id CANID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error)
+	UpdateFrameBin(state unsafe.Pointer, id CANID, dlc DLC, data []byte, signals []SignalInjection) ([]byte, error)
 	// ExtractSignalsBin extracts signals as the packed binary the caller parses.
 	ExtractSignalsBin(state unsafe.Pointer, id CANID, dlc DLC, data []byte) ([]byte, error)
 }

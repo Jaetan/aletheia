@@ -64,11 +64,11 @@ func (b *routingBackend) FormatDBCBinary(_ unsafe.Pointer) (string, error) { ret
 func (b *routingBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
 	return b.Process(nil, "")
 }
-func (b *routingBackend) BuildFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (b *routingBackend) BuildFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []SignalInjection) ([]byte, error) {
 	_, err := b.Process(nil, "")
 	return nil, err
 }
-func (b *routingBackend) UpdateFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (b *routingBackend) UpdateFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ []SignalInjection) ([]byte, error) {
 	_, err := b.Process(nil, "")
 	return nil, err
 }

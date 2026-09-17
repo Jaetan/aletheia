@@ -73,12 +73,12 @@ func (*FFIBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CANID, _ DLC, _ []by
 }
 
 // BuildFrameBin refuses.
-func (*FFIBackend) BuildFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (*FFIBackend) BuildFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []SignalInjection) ([]byte, error) {
 	return nil, errNoCgo()
 }
 
 // UpdateFrameBin refuses.
-func (*FFIBackend) UpdateFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (*FFIBackend) UpdateFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ []SignalInjection) ([]byte, error) {
 	return nil, errNoCgo()
 }
 

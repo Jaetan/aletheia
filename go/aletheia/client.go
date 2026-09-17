@@ -177,36 +177,36 @@ func validatePayload(dlc DLC, data FramePayload) error {
 	return nil
 }
 
-// resolveSignalIndices looks up signal names in the cached index and converts values to rationals.
+// resolveInjections looks up each signal's position in the cached index and pairs it with the exact value to place there.
 // Returns parallel arrays of (indices, numerators, denominators).
-func (c *Client) resolveSignalIndices(signals []SignalValue, id CANID, cmdName string) ([]uint32, []int64, []int64, error) {
+func (c *Client) resolveInjections(signals []SignalValue, id CANID, cmdName string) ([]SignalInjection, error) {
 	if c.signalIndex == nil {
-		return nil, nil, nil, stateError(cmdName + ": no DBC loaded (call ParseDBC first)")
+		return nil, stateError(cmdName + ": no DBC loaded (call ParseDBC first)")
 	}
 	key := canIDKey(id)
 	indexMap, ok := c.signalIndex[key]
 	if !ok {
-		return nil, nil, nil, validationError(fmt.Sprintf("%s: no DBC message for CAN ID %d (extended=%v)", cmdName, id.Value(), id.IsExtended()))
+		return nil, validationError(fmt.Sprintf("%s: no DBC message for CAN ID %d (extended=%v)", cmdName, id.Value(), id.IsExtended()))
 	}
-	indices := make([]uint32, 0, len(signals))
-	nums := make([]int64, 0, len(signals))
-	dens := make([]int64, 0, len(signals))
+	injections := make([]SignalInjection, 0, len(signals))
 	for _, sv := range signals {
 		idx, found := indexMap[string(sv.Name)]
 		if !found {
-			return nil, nil, nil, validationError(fmt.Sprintf("%s: unknown signal %q for CAN ID %d", cmdName, sv.Name, id.Value()))
+			return nil, validationError(fmt.Sprintf("%s: unknown signal %q for CAN ID %d", cmdName, sv.Name, id.Value()))
 		}
 		// SignalValue.Value is an exact Rational (build via IntRational or the
 		// kernel FromDecimal). Validate the denominator the wire requires; a
 		// Rational has no NaN/Inf, so only the denominator needs checking.
 		if err := validateRational(fmt.Sprintf("%s: signal %q", cmdName, sv.Name), sv.Value); err != nil {
-			return nil, nil, nil, err
+			return nil, err
 		}
-		indices = append(indices, uint32(idx))
-		nums = append(nums, sv.Value.Numerator)
-		dens = append(dens, sv.Value.Denominator)
+		injections = append(injections, SignalInjection{
+			Index:       uint32(idx),
+			Numerator:   sv.Value.Numerator,
+			Denominator: sv.Value.Denominator,
+		})
 	}
-	return indices, nums, dens, nil
+	return injections, nil
 }
 
 // --- DBC operations ---
@@ -461,11 +461,11 @@ func (c *Client) BuildFrame(ctx context.Context, id CANID, dlc DLC, signals []Si
 		return nil, err
 	}
 	defer release()
-	indices, nums, dens, err := c.resolveSignalIndices(signals, id, "BuildFrame")
+	injections, err := c.resolveInjections(signals, id, "BuildFrame")
 	if err != nil {
 		return nil, err
 	}
-	payload, err := c.backend.BuildFrameBin(c.state, id, dlc, uint32(len(signals)), indices, nums, dens)
+	payload, err := c.backend.BuildFrameBin(c.state, id, dlc, injections)
 	if err != nil {
 		return nil, err
 	}
@@ -485,11 +485,11 @@ func (c *Client) UpdateFrame(ctx context.Context, id CANID, dlc DLC, data FrameP
 		return nil, err
 	}
 	defer release()
-	indices, nums, dens, err := c.resolveSignalIndices(signals, id, "UpdateFrame")
+	injections, err := c.resolveInjections(signals, id, "UpdateFrame")
 	if err != nil {
 		return nil, err
 	}
-	payload, err := c.backend.UpdateFrameBin(c.state, id, dlc, []byte(data), uint32(len(signals)), indices, nums, dens)
+	payload, err := c.backend.UpdateFrameBin(c.state, id, dlc, []byte(data), injections)
 	if err != nil {
 		return nil, err
 	}

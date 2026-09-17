@@ -387,22 +387,31 @@ func framePayloadPtr(data []byte) (*C.uint8_t, error) {
 	return (*C.uint8_t)(unsafe.Pointer(&data[0])), nil
 }
 
-// signalArrayPtrs checks that the three parallel arrays hold the signals
-// claimed and returns the pointers the call takes, all nil for none. The
-// caller keeps the slices alive across the call.
-func signalArrayPtrs(numSignals uint32, indices []uint32, nums, dens []int64) (*C.uint32_t, *C.int64_t, *C.int64_t, error) {
-	if numSignals == 0 {
-		return nil, nil, nil, nil
+// signalArrays splits one slice of injections into the three parallel arrays
+// the C entry point takes. That shape exists here and nowhere else: the
+// interface above carries one slice, and this is the file that talks to C.
+func signalArrays(signals []SignalInjection) (indices []uint32, nums, dens []int64) {
+	indices = make([]uint32, len(signals))
+	nums = make([]int64, len(signals))
+	dens = make([]int64, len(signals))
+	for i, s := range signals {
+		indices[i] = s.Index
+		nums[i] = s.Numerator
+		dens[i] = s.Denominator
 	}
-	n := int(numSignals)
-	if len(indices) < n || len(nums) < n || len(dens) < n {
-		return nil, nil, nil, validationError(fmt.Sprintf(
-			"parallel arrays too short for numSignals=%d: indices=%d nums=%d dens=%d", n, len(indices), len(nums), len(dens)))
+	return indices, nums, dens
+}
+
+// signalArrayPtrs is the head of each array, or three nulls for an empty
+// injection list. The three are built together by signalArrays above, so they
+// are the same length by construction and there is nothing here to check.
+func signalArrayPtrs(indices []uint32, nums, dens []int64) (*C.uint32_t, *C.int64_t, *C.int64_t) {
+	if len(indices) == 0 {
+		return nil, nil, nil
 	}
 	return (*C.uint32_t)(unsafe.Pointer(&indices[0])),
 		(*C.int64_t)(unsafe.Pointer(&nums[0])),
-		(*C.int64_t)(unsafe.Pointer(&dens[0])),
-		nil
+		(*C.int64_t)(unsafe.Pointer(&dens[0]))
 }
 
 // stringResult copies a response the kernel allocated and frees it. A null
@@ -588,14 +597,12 @@ func (b *FFIBackend) ExtractSignalsBinary(state unsafe.Pointer, id CANID, dlc DL
 
 // BuildFrameBin builds a frame from signal values, answering raw payload
 // bytes with no JSON on either side.
-func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error) {
+func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, signals []SignalInjection) ([]byte, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	indicesPtr, numsPtr, densPtr, err := signalArrayPtrs(numSignals, indices, nums, dens)
-	if err != nil {
-		return nil, err
-	}
+	indices, nums, dens := signalArrays(signals)
+	indicesPtr, numsPtr, densPtr := signalArrayPtrs(indices, nums, dens)
 	outBuf := make([]byte, dlc.ToBytes())
 	var outBufPtr *C.uint8_t
 	if len(outBuf) > 0 {
@@ -608,7 +615,7 @@ func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, numS
 		C.uint32_t(id.Value()),
 		extFlag(id),
 		C.uint8_t(dlc.Value()),
-		C.uint32_t(numSignals),
+		C.uint32_t(len(signals)),
 		indicesPtr,
 		numsPtr,
 		densPtr,
@@ -630,7 +637,7 @@ func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, numS
 
 // UpdateFrameBin rewrites signals in an existing payload, answering raw
 // payload bytes with no JSON on either side.
-func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CANID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error) {
+func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CANID, dlc DLC, data []byte, signals []SignalInjection) ([]byte, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -638,10 +645,8 @@ func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CANID, dlc DLC, dat
 	if err != nil {
 		return nil, err
 	}
-	indicesPtr, numsPtr, densPtr, err := signalArrayPtrs(numSignals, indices, nums, dens)
-	if err != nil {
-		return nil, err
-	}
+	indices, nums, dens := signalArrays(signals)
+	indicesPtr, numsPtr, densPtr := signalArrayPtrs(indices, nums, dens)
 	outBuf := make([]byte, dlc.ToBytes())
 	var outBufPtr *C.uint8_t
 	if len(outBuf) > 0 {
@@ -656,7 +661,7 @@ func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CANID, dlc DLC, dat
 		C.uint8_t(dlc.Value()),
 		dataPtr,
 		C.uint8_t(len(data)),
-		C.uint32_t(numSignals),
+		C.uint32_t(len(signals)),
 		indicesPtr,
 		numsPtr,
 		densPtr,

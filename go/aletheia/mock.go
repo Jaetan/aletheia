@@ -181,7 +181,7 @@ func (m *MockBackend) ExtractSignalsBinary(state unsafe.Pointer, _ CANID, _ DLC,
 
 // BuildFrameBin records a frame build and reads the payload out of the queued
 // response, which is how a test says what the kernel would have built.
-func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ []SignalInjection) ([]byte, error) {
 	resp, err := m.Process(state, "<binary:buildFrameBin>")
 	if err != nil {
 		return nil, err
@@ -190,7 +190,7 @@ func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ uint
 }
 
 // UpdateFrameBin records a frame update and reads its payload the same way.
-func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ []SignalInjection) ([]byte, error) {
 	resp, err := m.Process(state, "<binary:updateFrameBin>")
 	if err != nil {
 		return nil, err
