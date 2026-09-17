@@ -94,23 +94,22 @@ def dispatch_when(
 def dispatch_then(
     builder: ThenSignal,
     condition: str,
-    value: int | Fraction,
-    lo: int | Fraction,
-    hi: int | Fraction,
+    slots: Mapping[str, int | Fraction],
 ) -> ThenCondition:
     """Build the obligation a word names, from the slots THEN_SLOTS says it reads.
 
-    The slots the obligation does not read are whatever the loader passed and
-    are ignored, as in the Go and C++ bindings' dispatchers of the same name.  A
-    word outside the table is refused here rather than built as whichever branch
-    came last, which is what both loaders used to do.
+    The loader hands over the slots its obligation reads and no others, so
+    there is no filler for a slot nobody looks at: a value under a key this
+    reads for another condition would raise rather than sit unobserved.  A word
+    outside the table is refused here rather than built as whichever branch came
+    last, which is what both loaders used to do.
     """
     if condition == "equals":
-        return builder.equals(value)
+        return builder.equals(slots["value"])
     if condition == "exceeds":
-        return builder.exceeds(value)
+        return builder.exceeds(slots["value"])
     if condition == "stays_between":
-        return builder.stays_between(lo, hi)
+        return builder.stays_between(slots["lo"], slots["hi"])
     msg = f"Unknown then condition: {condition!r}"
     raise ValidationError(msg)
 

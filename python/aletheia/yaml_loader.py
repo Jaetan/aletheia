@@ -390,19 +390,22 @@ def _then_values(
     then: Mapping[str, JSONValue],
     then_cond: str,
     name: str,
-) -> tuple[int | Fraction, int | Fraction, int | Fraction]:
+) -> dict[str, int | Fraction]:
     """Read the value slots the obligation takes, under this loader's own keys.
 
     Which slots those are is THEN_SLOTS' business; which keys hold them, and
-    what to say when one is missing, is this loader's.  The slots the
-    obligation does not read come back as zero and the dispatcher ignores them.
+    what to say when one is missing, is this loader's.  Only the slots the
+    obligation reads are returned, so nothing carries a filler.
     """
     if THEN_SLOTS[then_cond] == "value":
-        return get_number(then, "value", _ctx(name)), 0, 0
+        return {"value": get_number(then, "value", _ctx(name))}
     if "min" not in then or "max" not in then:
         msg = f"Check '{name}': then condition '{then_cond}' requires 'min' and 'max'"
         raise ValidationError(msg)
-    return 0, get_number(then, "min", _ctx(name)), get_number(then, "max", _ctx(name))
+    return {
+        "lo": get_number(then, "min", _ctx(name)),
+        "hi": get_number(then, "max", _ctx(name)),
+    }
 
 
 def _parse_when_then_check(entry: Mapping[str, JSONValue]) -> CheckResult:
@@ -440,7 +443,7 @@ def _parse_when_then_check(entry: Mapping[str, JSONValue]) -> CheckResult:
     then_signal = get_str(then, "signal", _ctx(name))
     then_builder = when_result.then(then_signal)
 
-    return dispatch_then(then_builder, then_cond, *_then_values(then, then_cond, name)).within(
+    return dispatch_then(then_builder, then_cond, _then_values(then, then_cond, name)).within(
         within_ms
     )
 

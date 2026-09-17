@@ -58,9 +58,9 @@ bindings:
       # reads, and the case of a codec name, which the standard library
       # normalises.
       survivors: 1
-      total_mutants: 924
+      total_mutants: 921
       score_pct: 99
-      run_at: "2026-09-16"
+      run_at: "2026-09-17"
 
   go:
     # AGENTS.md cat 14(g) names gomut, go-mutesting and mutate. This lane uses
