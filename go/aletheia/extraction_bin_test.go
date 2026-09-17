@@ -265,3 +265,35 @@ func TestExtractSignalsLocked_CorruptBinaryIsLoggedAndSkipped(t *testing.T) {
 		})
 	}
 }
+
+// binExtractionValue builds a buffer holding one value and nothing else: the
+// header, the value as its index and its numerator and denominator, and the
+// single offsets entry zero.
+func binExtractionValue(num, den int64) []byte {
+	buf := make([]byte, 10+18+4)
+	binary.LittleEndian.PutUint16(buf[0:2], 1) // one value
+	// The error and absent counts, the reason bytes and the single offsets
+	// entry are all zero already.
+	binary.LittleEndian.PutUint16(buf[10:12], 0) // the value's signal index
+	binary.LittleEndian.PutUint64(buf[12:20], uint64(num))
+	binary.LittleEndian.PutUint64(buf[20:28], uint64(den))
+	return buf
+}
+
+// A denominator of zero or less is a corrupt buffer, not a value: the binary
+// path refuses it as the JSON path does, rather than building a rational the
+// kernel renderer would be handed.
+func TestParseExtractionBin_RejectsNonPositiveDenominator(t *testing.T) {
+	for _, den := range []int64{0, -3} {
+		if _, err := parseExtractionBin(binExtractionValue(1, den), []string{"Sig"}); err == nil {
+			t.Errorf("den=%d: expected an error for a non-positive denominator, got nil", den)
+		}
+	}
+	res, err := parseExtractionBin(binExtractionValue(1, 3), []string{"Sig"})
+	if err != nil {
+		t.Fatalf("den=3: unexpected error: %v", err)
+	}
+	if want := (Rational{Numerator: 1, Denominator: 3}); res.Values[0].Value != want {
+		t.Errorf("got %v, want %v", res.Values[0].Value, want)
+	}
+}
