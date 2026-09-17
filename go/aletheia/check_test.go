@@ -4,15 +4,16 @@
 package aletheia
 
 import (
+	"encoding/json"
 	"errors"
 	"math"
 	"strings"
 	"testing"
 )
 
-// mustDesc renders a CheckResult's condition description, failing the test on a
-// renderer error. ConditionDesc renders thresholds via the kernel formatℚ, so it
-// needs the GHC runtime up — TestMain (main_test.go) brings it up package-wide.
+// mustDesc renders a check's condition description, failing the test on a
+// renderer error. The thresholds go through the kernel renderer, so the GHC
+// runtime must be up; TestMain in main_test.go brings it up for the package.
 func mustDesc(t *testing.T, r CheckResult) string {
 	t.Helper()
 	s, err := r.ConditionDesc()
@@ -22,360 +23,165 @@ func mustDesc(t *testing.T, r CheckResult) string {
 	return s
 }
 
-// ===========================================================================
-// One-shot methods
-// ===========================================================================
+func half(n int64) Rational { return Rational{Numerator: n, Denominator: 2} }
 
-func TestCheckSignalNeverExceeds(t *testing.T) {
-	r := CheckSignal("Speed").NeverExceeds(IntRational(220))
-	got := FormatFormula(r.Formula())
-	want := "always(Speed <= 220)"
-	if got != want {
-		t.Errorf("NeverExceeds: got %q, want %q", got, want)
+// built wraps an infallible builder result as the fallible shape the tables use.
+func built(r CheckResult) func() (CheckResult, error) {
+	return func() (CheckResult, error) { return r, nil }
+}
+
+// Every builder produces the formula its name promises, read through the
+// formula printer; where a manual construction of the same formula exists,
+// it prints the same, so the builder is a shorthand and not a variant.
+func TestCheckFormulas(t *testing.T) {
+	cases := []struct {
+		name   string
+		build  func() (CheckResult, error)
+		want   string
+		manual Formula
+	}{
+		{
+			"never exceeds",
+			built(CheckSignal("Speed").NeverExceeds(IntRational(220))),
+			"always(Speed <= 220)",
+			Always{Inner: Atomic{Predicate: LessThanOrEqual{Signal: "Speed", Value: IntRational(220)}}},
+		},
+		{
+			"never below",
+			built(CheckSignal("Voltage").NeverBelow(half(23))),
+			"always(Voltage >= 11.5)",
+			nil,
+		},
+		{
+			"stays between",
+			func() (CheckResult, error) { return CheckSignal("Voltage").StaysBetween(half(23), half(29)) },
+			"always(11.5 <= Voltage <= 14.5)",
+			Always{Inner: Atomic{Predicate: Between{Signal: "Voltage", Min: half(23), Max: half(29)}}},
+		},
+		{
+			"never equals",
+			built(CheckSignal("ErrorCode").NeverEquals(IntRational(255))),
+			"never ErrorCode = 255",
+			Never(Equals{Signal: "ErrorCode", Value: IntRational(255)}),
+		},
+		{
+			"equals always",
+			built(CheckSignal("Gear").Equals(IntRational(0)).Always()),
+			"always(Gear = 0)",
+			nil,
+		},
+		{
+			"settles between within",
+			func() (CheckResult, error) {
+				return CheckSignal("Temp").SettlesBetween(IntRational(60), IntRational(80)).Within(500)
+			},
+			"always within 500ms (60 <= Temp <= 80)",
+			AlwaysWithin(TimeBound{Microseconds: 500_000},
+				Atomic{Predicate: Between{Signal: "Temp", Min: IntRational(60), Max: IntRational(80)}}),
+		},
+		{
+			"when exceeds then equals within",
+			func() (CheckResult, error) {
+				return CheckWhen("Brake").Exceeds(IntRational(50)).Then("BrakeLight").Equals(IntRational(1)).Within(100)
+			},
+			"always(not(Brake > 50) or eventually within 100ms (BrakeLight = 1))",
+			nil,
+		},
+		{
+			"when drops below then equals within",
+			func() (CheckResult, error) {
+				return CheckWhen("Voltage").DropsBelow(IntRational(11)).Then("Warning").Equals(IntRational(1)).Within(50)
+			},
+			"always(not(Voltage < 11) or eventually within 50ms (Warning = 1))",
+			nil,
+		},
+		{
+			"when equals then exceeds within",
+			func() (CheckResult, error) {
+				return CheckWhen("Ignition").Equals(IntRational(1)).Then("FuelPump").Exceeds(IntRational(0)).Within(50)
+			},
+			"always(not(Ignition = 1) or eventually within 50ms (FuelPump > 0))",
+			nil,
+		},
+		{
+			"when exceeds then stays between within",
+			func() (CheckResult, error) {
+				return CheckWhen("Brake").Exceeds(IntRational(50)).Then("Speed").StaysBetween(IntRational(0), IntRational(10)).Within(200)
+			},
+			"always(not(Brake > 50) or eventually within 200ms (0 <= Speed <= 10))",
+			nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := tc.build()
+			if err != nil {
+				t.Fatalf("build: %v", err)
+			}
+			if got := FormatFormula(r.Formula()); got != tc.want {
+				t.Errorf("formula: got %q, want %q", got, tc.want)
+			}
+			if tc.manual != nil {
+				if got := FormatFormula(tc.manual); got != tc.want {
+					t.Errorf("manual construction prints %q, want %q", got, tc.want)
+				}
+			}
+		})
 	}
 }
 
-func TestCheckSignalNeverBelow(t *testing.T) {
-	r := CheckSignal("Voltage").NeverBelow(Rational{Numerator: 23, Denominator: 2})
-	got := FormatFormula(r.Formula())
-	want := "always(Voltage >= 11.5)"
-	if got != want {
-		t.Errorf("NeverBelow: got %q, want %q", got, want)
+// An inverted range is refused where it is given, or surfaced by Within when
+// the chain defers it, and the message names the two bounds.
+func TestCheckInvertedRanges(t *testing.T) {
+	cases := map[string]func() error{
+		"stays between": func() error {
+			_, err := CheckSignal("Voltage").StaysBetween(half(29), half(23))
+			return err
+		},
+		"settles between within": func() error {
+			_, err := CheckSignal("Temp").SettlesBetween(IntRational(80), IntRational(60)).Within(500)
+			return err
+		},
+		"when then stays between within": func() error {
+			_, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("Speed").StaysBetween(IntRational(10), IntRational(0)).Within(200)
+			return err
+		},
+	}
+	for name, build := range cases {
+		err := build()
+		if err == nil {
+			t.Errorf("%s: an inverted range was accepted", name)
+			continue
+		}
+		if !strings.Contains(err.Error(), "must be <= hi") {
+			t.Errorf("%s: the message does not name the bounds: %v", name, err)
+		}
 	}
 }
 
-func TestCheckSignalStaysBetween(t *testing.T) {
-	r, err := CheckSignal("Voltage").StaysBetween(Rational{Numerator: 23, Denominator: 2}, Rational{Numerator: 29, Denominator: 2})
-	if err != nil {
-		t.Fatalf("StaysBetween: %v", err)
-	}
-	got := FormatFormula(r.Formula())
-	want := "always(11.5 <= Voltage <= 14.5)"
-	if got != want {
-		t.Errorf("StaysBetween: got %q, want %q", got, want)
-	}
-}
-
-func TestCheckSignalStaysBetweenInverted(t *testing.T) {
-	_, err := CheckSignal("Voltage").StaysBetween(Rational{Numerator: 29, Denominator: 2}, Rational{Numerator: 23, Denominator: 2})
-	if err == nil {
-		t.Fatal("expected error for inverted range")
-	}
-}
-
-func TestCheckSignalSettlesBetweenInverted(t *testing.T) {
-	_, err := CheckSignal("Temp").SettlesBetween(IntRational(80), IntRational(60)).Within(500)
-	if err == nil {
-		t.Fatal("expected error for inverted range")
-	}
-}
-
-func TestCheckWhenThenStaysBetweenInverted(t *testing.T) {
-	_, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("Speed").StaysBetween(IntRational(10), IntRational(0)).Within(200)
-	if err == nil {
-		t.Fatal("expected error for inverted range")
-	}
-}
-
-func TestCheckSignalNeverEquals(t *testing.T) {
-	r := CheckSignal("ErrorCode").NeverEquals(IntRational(255))
-	got := FormatFormula(r.Formula())
-	want := "never ErrorCode = 255"
-	if got != want {
-		t.Errorf("NeverEquals: got %q, want %q", got, want)
-	}
-}
-
-// ===========================================================================
-// Two-step methods
-// ===========================================================================
-
-func TestCheckSignalEqualsAlways(t *testing.T) {
-	r := CheckSignal("Gear").Equals(IntRational(0)).Always()
-	got := FormatFormula(r.Formula())
-	want := "always(Gear = 0)"
-	if got != want {
-		t.Errorf("Equals.Always: got %q, want %q", got, want)
-	}
-}
-
-func TestCheckSignalSettlesBetweenWithin(t *testing.T) {
-	r, err := CheckSignal("Temp").SettlesBetween(IntRational(60), IntRational(80)).Within(500)
-	if err != nil {
-		t.Fatalf("Within: %v", err)
-	}
-	got := FormatFormula(r.Formula())
-	want := "always within 500ms (60 <= Temp <= 80)"
-	if got != want {
-		t.Errorf("SettlesBetween.Within: got %q, want %q", got, want)
-	}
-}
-
-// ===========================================================================
-// Causal chains (when/then)
-// ===========================================================================
-
-func TestCheckWhenThenEqualsWithin(t *testing.T) {
-	r, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("BrakeLight").Equals(IntRational(1)).Within(100)
-	if err != nil {
-		t.Fatalf("Within: %v", err)
-	}
-	got := FormatFormula(r.Formula())
-	want := "always(not(Brake > 50) or eventually within 100ms (BrakeLight = 1))"
-	if got != want {
-		t.Errorf("When.Then.Equals.Within: got %q, want %q", got, want)
-	}
-}
-
-func TestCheckWhenDropsBelowThenWithin(t *testing.T) {
-	r, err := CheckWhen("Voltage").DropsBelow(IntRational(11)).Then("Warning").Equals(IntRational(1)).Within(50)
-	if err != nil {
-		t.Fatalf("Within: %v", err)
-	}
-	got := FormatFormula(r.Formula())
-	want := "always(not(Voltage < 11) or eventually within 50ms (Warning = 1))"
-	if got != want {
-		t.Errorf("DropsBelow.Then.Equals.Within: got %q, want %q", got, want)
-	}
-}
-
-func TestCheckWhenEqualsThenExceedsWithin(t *testing.T) {
-	r, err := CheckWhen("Ignition").Equals(IntRational(1)).Then("FuelPump").Exceeds(IntRational(0)).Within(50)
-	if err != nil {
-		t.Fatalf("Within: %v", err)
-	}
-	got := FormatFormula(r.Formula())
-	want := "always(not(Ignition = 1) or eventually within 50ms (FuelPump > 0))"
-	if got != want {
-		t.Errorf("When.Equals.Then.Exceeds.Within: got %q, want %q", got, want)
-	}
-}
-
-func TestCheckWhenThenStaysBetweenWithin(t *testing.T) {
-	r, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("Speed").StaysBetween(IntRational(0), IntRational(10)).Within(200)
-	if err != nil {
-		t.Fatalf("Within: %v", err)
-	}
-	got := FormatFormula(r.Formula())
-	want := "always(not(Brake > 50) or eventually within 200ms (0 <= Speed <= 10))"
-	if got != want {
-		t.Errorf("Then.StaysBetween.Within: got %q, want %q", got, want)
-	}
-}
-
-// ===========================================================================
-// Metadata
-// ===========================================================================
-
-func TestCheckMetadataNamedSeverity(t *testing.T) {
-	r := CheckSignal("Speed").NeverExceeds(IntRational(220)).Named("SpeedLimit").Severity("critical")
-	if r.Name() != "SpeedLimit" {
-		t.Errorf("Name: got %q, want %q", r.Name(), "SpeedLimit")
-	}
-	if r.CheckSeverity() != "critical" {
-		t.Errorf("Severity: got %q, want %q", r.CheckSeverity(), "critical")
-	}
-	if r.SignalName() != "Speed" {
-		t.Errorf("SignalName: got %q, want %q", r.SignalName(), "Speed")
-	}
-	if got := mustDesc(t, r); got != "<= 220" {
-		t.Errorf("ConditionDesc: got %q, want %q", got, "<= 220")
-	}
-}
-
-func TestCheckSignalNameAndConditionDesc(t *testing.T) {
-	r1 := CheckSignal("V").NeverBelow(Rational{Numerator: 23, Denominator: 2})
-	if r1.SignalName() != "V" {
-		t.Errorf("r1 SignalName: got %q", r1.SignalName())
-	}
-	if got := mustDesc(t, r1); got != ">= 11.5" {
-		t.Errorf("r1 ConditionDesc: got %q", got)
-	}
-
-	r2 := CheckSignal("E").NeverEquals(IntRational(0))
-	if r2.SignalName() != "E" {
-		t.Errorf("r2 SignalName: got %q", r2.SignalName())
-	}
-	if got := mustDesc(t, r2); got != "!= 0" {
-		t.Errorf("r2 ConditionDesc: got %q", got)
-	}
-}
-
-func TestCheckWhenThenMetadata(t *testing.T) {
-	r, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("Light").Equals(IntRational(1)).Within(100)
-	if err != nil {
-		t.Fatalf("Within: %v", err)
-	}
-	if r.SignalName() != "Light" {
-		t.Errorf("SignalName: got %q, want %q", r.SignalName(), "Light")
-	}
-	if got := mustDesc(t, r); got != "= 1 within 100ms" {
-		t.Errorf("ConditionDesc: got %q, want %q", got, "= 1 within 100ms")
-	}
-}
-
-// TestCheckConditionDescKernelCanonical pins that ConditionDesc renders
-// thresholds through the kernel formatℚ, not Go's %g.  1e6 is the discriminator:
-// %g renders it "1e+06" (scientific), the kernel renders the canonical
-// "1000000" — so this both proves the delegation and matches the other bindings.
-func TestCheckConditionDescKernelCanonical(t *testing.T) {
-	r := CheckSignal("X").NeverExceeds(IntRational(1000000))
-	if got := mustDesc(t, r); got != "<= 1000000" {
-		t.Errorf("ConditionDesc: got %q, want %q (kernel-canonical, not %%g's 1e+06)", got, "<= 1000000")
-	}
-}
-
-// ===========================================================================
-// Error cases
-// ===========================================================================
-
-func TestCheckSettlesBetweenNegativeTime(t *testing.T) {
-	_, err := CheckSignal("T").SettlesBetween(IntRational(0), IntRational(100)).Within(-1)
-	if err == nil {
-		t.Error("expected error for negative time")
-	}
-}
-
-func TestCheckWhenThenNegativeTime(t *testing.T) {
-	_, err := CheckWhen("A").Exceeds(IntRational(0)).Then("B").Equals(IntRational(1)).Within(-1)
-	if err == nil {
-		t.Error("expected error for negative time")
-	}
-}
-
-// ===========================================================================
-// Equivalence with manual construction
-// ===========================================================================
-
-func TestCheckNeverExceedsMatchesManual(t *testing.T) {
-	checkF := CheckSignal("Speed").NeverExceeds(IntRational(220)).Formula()
-	manualF := Always{Inner: Atomic{Predicate: LessThanOrEqual{Signal: "Speed", Value: IntRational(220)}}}
-	if FormatFormula(checkF) != FormatFormula(manualF) {
-		t.Errorf("mismatch: check=%q manual=%q",
-			FormatFormula(checkF), FormatFormula(manualF))
-	}
-}
-
-func TestCheckStaysBetweenMatchesManual(t *testing.T) {
-	checkR, err := CheckSignal("V").StaysBetween(Rational{Numerator: 23, Denominator: 2}, Rational{Numerator: 29, Denominator: 2})
-	if err != nil {
-		t.Fatalf("StaysBetween: %v", err)
-	}
-	manualF := Always{Inner: Atomic{Predicate: Between{Signal: "V", Min: Rational{Numerator: 23, Denominator: 2}, Max: Rational{Numerator: 29, Denominator: 2}}}}
-	if FormatFormula(checkR.Formula()) != FormatFormula(manualF) {
-		t.Errorf("mismatch: check=%q manual=%q",
-			FormatFormula(checkR.Formula()), FormatFormula(manualF))
-	}
-}
-
-func TestCheckNeverEqualsMatchesManual(t *testing.T) {
-	checkF := CheckSignal("Err").NeverEquals(IntRational(255)).Formula()
-	manualF := Never(Equals{Signal: "Err", Value: IntRational(255)})
-	if FormatFormula(checkF) != FormatFormula(manualF) {
-		t.Errorf("mismatch: check=%q manual=%q",
-			FormatFormula(checkF), FormatFormula(manualF))
-	}
-}
-
-func TestCheckSettlesMatchesManual(t *testing.T) {
-	checkR, err := CheckSignal("T").SettlesBetween(IntRational(60), IntRational(80)).Within(500)
-	if err != nil {
-		t.Fatalf("Within: %v", err)
-	}
-	manualF := AlwaysWithin(
-		TimeBound{Microseconds: 500_000},
-		Atomic{Predicate: Between{Signal: "T", Min: IntRational(60), Max: IntRational(80)}},
-	)
-	if FormatFormula(checkR.Formula()) != FormatFormula(manualF) {
-		t.Errorf("mismatch: check=%q manual=%q",
-			FormatFormula(checkR.Formula()), FormatFormula(manualF))
-	}
-}
-
-// ===========================================================================
-// Client integration
-// ===========================================================================
-
-func TestAddChecks(t *testing.T) {
-	mock := NewMockBackend(Respond(`{"status": "success"}`))
-	client, err := NewClient(mock)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	defer client.Close()
-
-	staysBetween, err := CheckSignal("Voltage").StaysBetween(Rational{Numerator: 23, Denominator: 2}, Rational{Numerator: 29, Denominator: 2})
-	if err != nil {
-		t.Fatalf("StaysBetween: %v", err)
-	}
-	checks := []CheckResult{
-		CheckSignal("Speed").NeverExceeds(IntRational(220)),
-		staysBetween,
-	}
-	if err := client.AddChecks(ctx, checks); err != nil {
-		t.Errorf("AddChecks: %v", err)
-	}
-}
-
-func TestAddChecksWithDefaults(t *testing.T) {
-	mock := NewMockBackend(Respond(`{"status": "success"}`))
-	defaultCheck, err := CheckSignal("Voltage").StaysBetween(Rational{Numerator: 23, Denominator: 2}, Rational{Numerator: 29, Denominator: 2})
-	if err != nil {
-		t.Fatalf("StaysBetween: %v", err)
-	}
-	client, err := NewClient(mock, WithDefaultChecks(defaultCheck))
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	defer client.Close()
-
-	// AddChecks should prepend the default check
-	sessionChecks := []CheckResult{
-		CheckSignal("Speed").NeverExceeds(IntRational(220)),
-	}
-	if err := client.AddChecks(ctx, sessionChecks); err != nil {
-		t.Errorf("AddChecks with defaults: %v", err)
-	}
-}
-
-func TestSerializeFormulaDepthLimit(t *testing.T) {
-	// Build a formula nested 101 levels deep (exceeds maxFormulaDepth=100).
-	var f Formula = Atomic{Predicate: Equals{Signal: "S", Value: IntRational(1)}}
-	for i := 0; i < 101; i++ {
-		f = Not{Inner: f}
-	}
-	_, err := serializeFormula(f)
-	if err == nil {
-		t.Fatal("expected error for deeply nested formula, got nil")
-	}
-	var aleErr *Error
-	if !errors.As(err, &aleErr) {
-		t.Fatalf("expected *Error, got %T", err)
-	}
-	if aleErr.Kind != ErrValidation {
-		t.Errorf("kind = %v, want ErrValidation", aleErr.Kind)
-	}
-}
-
-// The millisecond bound is refused when its microsecond conversion would
-// overflow int64, and the largest representable bound is accepted, on both
-// Within chains.
-func TestCheckWithinMicrosecondOverflow(t *testing.T) {
+// The millisecond bound is refused when negative and when its microsecond
+// conversion would overflow int64; the largest representable bound is
+// accepted. Both Within chains behave the same.
+func TestCheckWithinBounds(t *testing.T) {
 	const largest = math.MaxInt64 / usPerMillisecond
-	settle := func(ms int64) error {
-		_, err := CheckSignal("T").SettlesBetween(IntRational(0), IntRational(1)).Within(ms)
-		return err
+	chains := map[string]func(int64) error{
+		"settles": func(ms int64) error {
+			_, err := CheckSignal("T").SettlesBetween(IntRational(0), IntRational(1)).Within(ms)
+			return err
+		},
+		"causal": func(ms int64) error {
+			_, err := CheckWhen("A").Exceeds(IntRational(0)).Then("B").Equals(IntRational(1)).Within(ms)
+			return err
+		},
 	}
-	causal := func(ms int64) error {
-		_, err := CheckWhen("A").Exceeds(IntRational(0)).Then("B").Equals(IntRational(1)).Within(ms)
-		return err
-	}
-	for name, within := range map[string]func(int64) error{"settles": settle, "causal": causal} {
+	for name, within := range chains {
+		if err := within(-1); err == nil || !strings.Contains(err.Error(), "non-negative") {
+			t.Errorf("%s: expected a refusal of a negative bound, got %v", name, err)
+		}
 		if err := within(largest); err != nil {
 			t.Errorf("%s: the largest bound was refused: %v", name, err)
 		}
-		err := within(largest + 1)
-		if err == nil || !strings.Contains(err.Error(), "overflows") {
+		if err := within(largest + 1); err == nil || !strings.Contains(err.Error(), "overflows") {
 			t.Errorf("%s: expected an overflow refusal one past the largest bound, got %v", name, err)
 		}
 	}
@@ -391,5 +197,139 @@ func TestCheckStaysBetweenLargeOperands(t *testing.T) {
 	}
 	if _, err := CheckSignal("S").StaysBetween(hi, lo); err == nil {
 		t.Error("an inverted range with large operands was accepted")
+	}
+}
+
+// Each check names its primary signal and describes its condition with the
+// thresholds rendered by the kernel: 1000000 stays 1000000, where Go's %g
+// would print 1e+06, which is what pins the delegation.
+func TestCheckSignalNameAndConditionDesc(t *testing.T) {
+	causal, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("Light").Equals(IntRational(1)).Within(100)
+	if err != nil {
+		t.Fatalf("Within: %v", err)
+	}
+	cases := []struct {
+		check  CheckResult
+		signal SignalName
+		desc   string
+	}{
+		{CheckSignal("Speed").NeverExceeds(IntRational(220)), "Speed", "<= 220"},
+		{CheckSignal("V").NeverBelow(half(23)), "V", ">= 11.5"},
+		{CheckSignal("E").NeverEquals(IntRational(0)), "E", "!= 0"},
+		{CheckSignal("X").NeverExceeds(IntRational(1000000)), "X", "<= 1000000"},
+		{causal, "Light", "= 1 within 100ms"},
+	}
+	for _, tc := range cases {
+		if got := tc.check.SignalName(); got != tc.signal {
+			t.Errorf("SignalName: got %q, want %q", got, tc.signal)
+		}
+		if got := mustDesc(t, tc.check); got != tc.desc {
+			t.Errorf("ConditionDesc: got %q, want %q", got, tc.desc)
+		}
+	}
+}
+
+func TestCheckMetadataNamedSeverity(t *testing.T) {
+	r := CheckSignal("Speed").NeverExceeds(IntRational(220)).Named("SpeedLimit").Severity("critical")
+	if r.Name() != "SpeedLimit" {
+		t.Errorf("Name: got %q, want %q", r.Name(), "SpeedLimit")
+	}
+	if r.CheckSeverity() != "critical" {
+		t.Errorf("Severity: got %q, want %q", r.CheckSeverity(), "critical")
+	}
+}
+
+// AddChecks sends the client's default checks first, then the session's, as
+// one setProperties command; the mock's recorded input is read back and
+// compared property by property with the serializer's own output.
+func TestAddChecks(t *testing.T) {
+	speed := CheckSignal("Speed").NeverExceeds(IntRational(220))
+	voltage, err := CheckSignal("Voltage").StaysBetween(half(23), half(29))
+	if err != nil {
+		t.Fatalf("StaysBetween: %v", err)
+	}
+	cases := map[string]struct {
+		defaults []CheckResult
+		session  []CheckResult
+		want     []Formula
+	}{
+		"session only":         {nil, []CheckResult{speed, voltage}, []Formula{speed.Formula(), voltage.Formula()}},
+		"default then session": {[]CheckResult{voltage}, []CheckResult{speed}, []Formula{voltage.Formula(), speed.Formula()}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			mock := NewMockBackend(Respond(`{"status": "success"}`))
+			client, err := NewClient(mock, WithDefaultChecks(tc.defaults...))
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			t.Cleanup(func() { _ = client.Close() })
+			if err := client.AddChecks(ctx, tc.session); err != nil {
+				t.Fatalf("AddChecks: %v", err)
+			}
+			inputs := mock.Inputs()
+			if len(inputs) != 1 {
+				t.Fatalf("expected one command, got %d", len(inputs))
+			}
+			var sent struct {
+				Command    string            `json:"command"`
+				Properties []json.RawMessage `json:"properties"`
+			}
+			if err := json.Unmarshal([]byte(inputs[0]), &sent); err != nil {
+				t.Fatalf("the command is not JSON: %v", err)
+			}
+			if sent.Command != "setProperties" {
+				t.Errorf("command: got %q, want setProperties", sent.Command)
+			}
+			if len(sent.Properties) != len(tc.want) {
+				t.Fatalf("properties: got %d, want %d", len(sent.Properties), len(tc.want))
+			}
+			for i, f := range tc.want {
+				m, err := serializeFormula(f)
+				if err != nil {
+					t.Fatalf("serializeFormula: %v", err)
+				}
+				if got, want := canonicalJSON(t, sent.Properties[i]), canonicalJSON(t, m); got != want {
+					t.Errorf("property %d: got %s, want %s", i, got, want)
+				}
+			}
+		})
+	}
+}
+
+// canonicalJSON re-encodes a JSON value with sorted keys so two encodings of
+// the same property compare as strings.
+func canonicalJSON(t *testing.T, v any) string {
+	t.Helper()
+	if raw, ok := v.(json.RawMessage); ok {
+		var decoded any
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		v = decoded
+	}
+	out, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	return string(out)
+}
+
+func TestSerializeFormulaDepthLimit(t *testing.T) {
+	// nested one level past the serializer's limit
+	var f Formula = Atomic{Predicate: Equals{Signal: "S", Value: IntRational(1)}}
+	for range maxFormulaDepth + 1 {
+		f = Not{Inner: f}
+	}
+	_, err := serializeFormula(f)
+	if err == nil {
+		t.Fatal("expected error for deeply nested formula, got nil")
+	}
+	var aleErr *Error
+	if !errors.As(err, &aleErr) {
+		t.Fatalf("expected *Error, got %T", err)
+	}
+	if aleErr.Kind != ErrValidation {
+		t.Errorf("kind = %v, want ErrValidation", aleErr.Kind)
 	}
 }
