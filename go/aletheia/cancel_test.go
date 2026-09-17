@@ -3,9 +3,8 @@
 
 package aletheia
 
-// Cancellation tests live in the internal package so they can implement the
-// sealed [Backend] interface for fine-grained control over FFI timing.
-// External-package callers cannot do this — the seal is intentional.
+// The cancellation tests live in the package itself so they can implement
+// the sealed [Backend] interface and control FFI timing call by call.
 
 import (
 	"context"
@@ -14,48 +13,104 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 	"unsafe"
 )
 
-// gateBackend is a minimal Backend used to drive cancellation tests. Each
-// method that the tests exercise blocks on a release channel before returning
-// a canned response, allowing the test to hold the client lock for as long as
-// needed. The struct also records how many times Process was hit so the test
-// can assert "the cancelled goroutine never reached the FFI."
+// routingBackend implements [Backend] by counting every call and handing it
+// to one hook with its ordinal. The two doubles below embed it and differ
+// only in the hook. Synchronisation is by channels and the scheduler, never
+// by wall-clock time: a hang shows as the test binary's timeout.
+type routingBackend struct {
+	mu    sync.Mutex
+	calls int
+	hook  func(n int) (string, error)
+}
+
+func (*routingBackend) backend() {}
+
+func (b *routingBackend) Init() (unsafe.Pointer, error) {
+	var sentinel byte
+	return unsafe.Pointer(&sentinel), nil
+}
+
+func (b *routingBackend) Process(_ unsafe.Pointer, _ string) (string, error) {
+	b.mu.Lock()
+	b.calls++
+	n := b.calls
+	b.mu.Unlock()
+	return b.hook(n)
+}
+
+func (b *routingBackend) callCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.calls
+}
+
+func (b *routingBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
+	return b.Process(nil, "")
+}
+func (b *routingBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
+	return b.Process(nil, "")
+}
+func (b *routingBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
+	return b.Process(nil, "")
+}
+func (b *routingBackend) StartStreamBinary(_ unsafe.Pointer) (string, error) {
+	return b.Process(nil, "")
+}
+func (b *routingBackend) EndStreamBinary(_ unsafe.Pointer) (string, error) { return b.Process(nil, "") }
+func (b *routingBackend) FormatDBCBinary(_ unsafe.Pointer) (string, error) { return b.Process(nil, "") }
+func (b *routingBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
+	return b.Process(nil, "")
+}
+func (b *routingBackend) BuildFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+	_, err := b.Process(nil, "")
+	return nil, err
+}
+func (b *routingBackend) UpdateFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+	_, err := b.Process(nil, "")
+	return nil, err
+}
+func (b *routingBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
+	return nil, ErrBinaryPathUnsupported
+}
+func (b *routingBackend) Close(_ unsafe.Pointer) {}
+
+// gateBackend parks every call on a release channel before answering, so a
+// test can hold the client lock inside an FFI call for as long as it needs.
+// entered closes on the first call, which lets a test wait for the FFI to be
+// entered without polling.
 type gateBackend struct {
-	mu          sync.Mutex
-	calls       int
+	routingBackend
 	release     chan struct{}
-	resp        string
-	entered     chan struct{} // closed on first Process entry; lets tests synchronize without polling
+	entered     chan struct{}
 	enteredOnce sync.Once
-	releaseOnce sync.Once // guards close(release) so mid-test and teardown releases can't double-close
+	releaseOnce sync.Once // the test and the teardown may both release
+	resp        string
 }
 
 func newGateBackend(resp string) *gateBackend {
-	return &gateBackend{
-		release: make(chan struct{}),
-		entered: make(chan struct{}),
-		resp:    resp,
+	b := &gateBackend{release: make(chan struct{}), entered: make(chan struct{}), resp: resp}
+	b.hook = func(int) (string, error) {
+		b.enteredOnce.Do(func() { close(b.entered) })
+		<-b.release
+		return b.resp, nil
 	}
+	return b
 }
 
-// releaseWorker unblocks any Process call parked on `release`. Guarded by a
-// sync.Once so the test's intentional mid-test release and the teardown
-// safety-net release (see newGatedClient) cannot double-close the channel.
+// releaseWorker unblocks every call parked on release; safe to call twice.
 func (b *gateBackend) releaseWorker() {
 	b.releaseOnce.Do(func() { close(b.release) })
 }
 
-// newGatedClient builds a Client over a fresh gateBackend and registers a
-// teardown that releases the worker BEFORE closing the client, on ANY test exit —
-// including a failing assertion's runtime.Goexit. This is the Go analogue of the
-// Python gated_backend helper's `finally: proceed.set()`: a Process call parked
-// on `release` holds the client lock, so closing the client first would deadlock
-// on lock acquisition. A bare t.Cleanup release would not suffice — a test's own
-// `defer c.Close()` runs during Goexit BEFORE t.Cleanup — so this helper owns
-// Close (tests must not add their own `defer c.Close()`).
+// newGatedClient builds a Client over a gateBackend and owns its teardown:
+// release the worker, then close the client, on any test exit including a
+// failing assertion's runtime.Goexit. The order matters, since a call parked
+// on release holds the client lock and Close would wait for it. The Python
+// gated_backend helper does the same in its finally clause. Tests must not
+// add a Close of their own.
 func newGatedClient(t *testing.T, resp string) (*Client, *gateBackend) {
 	t.Helper()
 	backend := newGateBackend(resp)
@@ -65,78 +120,37 @@ func newGatedClient(t *testing.T, resp string) (*Client, *gateBackend) {
 	}
 	t.Cleanup(func() {
 		backend.releaseWorker()
-		c.Close()
+		_ = c.Close()
 	})
 	return c, backend
 }
 
-func (*gateBackend) backend() {}
-
-func (b *gateBackend) Init() (unsafe.Pointer, error) {
-	var sentinel byte
-	return unsafe.Pointer(&sentinel), nil
+// cancelTriggerBackend cancels the test's context from inside its
+// cancelAfter-th call, so a mid-batch cancellation lands deterministically:
+// that call runs to completion (CANCELLATION.md section 1.1) and the client's
+// per-frame check sees the cancelled context on the next iteration.
+type cancelTriggerBackend struct {
+	routingBackend
 }
 
-func (b *gateBackend) Process(_ unsafe.Pointer, _ string) (string, error) {
-	b.mu.Lock()
-	b.calls++
-	b.mu.Unlock()
-	b.enteredOnce.Do(func() { close(b.entered) })
-	<-b.release
-	return b.resp, nil
+func newCancelTriggerBackend(cancelAfter int, cancel context.CancelFunc, resp string) *cancelTriggerBackend {
+	b := &cancelTriggerBackend{}
+	b.hook = func(n int) (string, error) {
+		if n == cancelAfter {
+			cancel()
+		}
+		return resp, nil
+	}
+	return b
 }
 
-func (b *gateBackend) callCount() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.calls
-}
-
-// All other Backend methods route to Process so the gate-and-count semantics
-// apply uniformly. Tests only need a couple of these — the rest exist to
-// satisfy the interface.
-func (b *gateBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
-	return b.Process(nil, "")
-}
-func (b *gateBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
-	return b.Process(nil, "")
-}
-func (b *gateBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
-	return b.Process(nil, "")
-}
-func (b *gateBackend) StartStreamBinary(_ unsafe.Pointer) (string, error) {
-	return b.Process(nil, "")
-}
-func (b *gateBackend) EndStreamBinary(_ unsafe.Pointer) (string, error) {
-	return b.Process(nil, "")
-}
-func (b *gateBackend) FormatDBCBinary(_ unsafe.Pointer) (string, error) {
-	return b.Process(nil, "")
-}
-func (b *gateBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
-	return b.Process(nil, "")
-}
-func (b *gateBackend) BuildFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
-	_, _ = b.Process(nil, "")
-	return nil, nil
-}
-func (b *gateBackend) UpdateFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
-	_, _ = b.Process(nil, "")
-	return nil, nil
-}
-func (b *gateBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
-	return nil, ErrBinaryPathUnsupported
-}
-func (b *gateBackend) Close(_ unsafe.Pointer) {}
-
-// TestClient_CancelAtEntry verifies the pre-FFI guard: a method called with
-// an already-cancelled context returns the wrapped ctx.Err() without making
-// the FFI call. This is CANCELLATION.md §1.1 at its most direct.
+// A method called with an already-cancelled context returns the wrapped
+// ctx.Err() without reaching the FFI (CANCELLATION.md section 1.1).
 func TestClient_CancelAtEntry(t *testing.T) {
 	c, backend := newGatedClient(t, `{"status":"success"}`)
 
 	cctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel BEFORE the call
+	cancel()
 
 	err := c.SetProperties(cctx, nil)
 	if err == nil {
@@ -149,166 +163,60 @@ func TestClient_CancelAtEntry(t *testing.T) {
 		t.Errorf("expected method-prefixed error, got %q", err.Error())
 	}
 	if backend.callCount() != 0 {
-		t.Errorf("FFI was called %d times — pre-FFI guard did not honor cancellation", backend.callCount())
+		t.Errorf("FFI was called %d times; the pre-FFI guard did not honor cancellation", backend.callCount())
 	}
 }
 
-// TestClient_CancelWhileWaitingOnLock verifies the load-bearing behavior of
-// the channel-based semaphore (the reason it replaced sync.Mutex): a goroutine
-// waiting for the client lock can be cancelled by its context.Context without
-// ever acquiring the lock or hitting the FFI.
-//
-// sync.Mutex.Lock has no native ctx-aware variant — a Mutex-based design would
-// force the waiter to acquire the lock first, and only then notice cancellation
-// at a post-lock check. This test specifically guards against regressing to
-// that behavior.
+// A goroutine waiting for the client lock is cancelled by its context
+// without ever acquiring the lock or reaching the FFI. This is why the lock
+// is a channel and not a sync.Mutex, whose Lock cannot wait under a context;
+// the test guards against a Mutex that would notice cancellation only after
+// acquiring.
 func TestClient_CancelWhileWaitingOnLock(t *testing.T) {
 	c, backend := newGatedClient(t, `{"status":"success"}`)
 
-	// Goroutine A: holds the lock by sitting inside backend.Process, which
-	// blocks on `release` until the test fires it. SetProperties takes the
-	// client lock and stays inside the FFI call until release.  We learn A
-	// has entered Process via backend.entered (closed on first Process
-	// entry), so the test does not poll on time.Sleep.
+	// A takes the lock and parks inside the FFI call until release.
 	aDone := make(chan error, 1)
 	go func() {
 		aDone <- c.SetProperties(context.Background(), nil)
 	}()
 	<-backend.entered
-	// At this point A holds the client lock and is blocked inside Process.
 
-	// Goroutine B: tries to acquire the lock under a cancellable ctx.
-	// The lock is held, so B will queue on lockCh's send branch.
+	// B queues on the lock under a cancellable context.
 	bctx, cancelB := context.WithCancel(context.Background())
 	bDone := make(chan error, 1)
 	go func() {
 		bDone <- c.SetProperties(bctx, nil)
 	}()
 
-	// Wait for B to be parked inside [Client.lock]'s select.  The
-	// `lockWaiters` counter is incremented on entry and decremented on
-	// return; observing it >= 1 here means B has reached the select (A is
-	// already past, holding the lockCh).  runtime.Gosched yields to the
-	// scheduler without consuming wall-clock time, so this is a
-	// synchronization primitive, not a sleep.
+	// lockWaiters counts goroutines inside the lock's select; A is past it,
+	// so a count of one means B is parked. Gosched yields without sleeping.
 	for c.lockWaiters.Load() < 1 {
 		runtime.Gosched()
 	}
 
-	// Cancel B's context while it's still waiting on the lock.
 	cancelB()
 
-	// B must return promptly with the wrapped ctx error.
-	select {
-	case err := <-bDone:
-		if !errors.Is(err, context.Canceled) {
-			t.Errorf("B: expected context.Canceled, got %v", err)
-		}
-		if !strings.HasPrefix(err.Error(), "SetProperties: ") {
-			t.Errorf("B: expected method-prefixed error, got %q", err.Error())
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("B: did not return after ctx cancellation — lock acquisition is not ctx-aware")
+	err := <-bDone
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("B: expected context.Canceled, got %v", err)
 	}
-
-	// B must NEVER have hit the FFI (callCount stays at 1 — A's call only).
+	if !strings.HasPrefix(err.Error(), "SetProperties: ") {
+		t.Errorf("B: expected method-prefixed error, got %q", err.Error())
+	}
 	if got := backend.callCount(); got != 1 {
 		t.Errorf("B reached the FFI: callCount=%d (want 1, only A)", got)
 	}
 
-	// Release A and let it complete.
 	backend.releaseWorker()
-	select {
-	case err := <-aDone:
-		if err != nil {
-			t.Errorf("A: unexpected error %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("A: never returned after release")
+	if err := <-aDone; err != nil {
+		t.Errorf("A: unexpected error %v", err)
 	}
 }
 
-// cancelTriggerBackend fires ctx cancellation from inside Process at the
-// configured call number, so tests can deterministically force a mid-batch
-// cancellation. The cancellation hits while the FFI call is "in flight" —
-// per §1.1 the call still runs to completion, and the per-iteration ctx.Err()
-// guard catches the cancellation on the NEXT iteration.
-type cancelTriggerBackend struct {
-	mu          sync.Mutex
-	calls       int
-	cancelAfter int
-	cancel      context.CancelFunc
-	resp        string
-}
-
-func (*cancelTriggerBackend) backend() {}
-
-func (b *cancelTriggerBackend) Init() (unsafe.Pointer, error) {
-	var sentinel byte
-	return unsafe.Pointer(&sentinel), nil
-}
-
-func (b *cancelTriggerBackend) Process(_ unsafe.Pointer, _ string) (string, error) {
-	b.mu.Lock()
-	b.calls++
-	n := b.calls
-	b.mu.Unlock()
-	if n == b.cancelAfter {
-		b.cancel()
-	}
-	return b.resp, nil
-}
-
-func (b *cancelTriggerBackend) callCount() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.calls
-}
-
-func (b *cancelTriggerBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
-	return b.Process(nil, "")
-}
-func (b *cancelTriggerBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
-	return b.Process(nil, "")
-}
-func (b *cancelTriggerBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
-	return b.Process(nil, "")
-}
-func (b *cancelTriggerBackend) StartStreamBinary(_ unsafe.Pointer) (string, error) {
-	return b.Process(nil, "")
-}
-func (b *cancelTriggerBackend) EndStreamBinary(_ unsafe.Pointer) (string, error) {
-	return b.Process(nil, "")
-}
-func (b *cancelTriggerBackend) FormatDBCBinary(_ unsafe.Pointer) (string, error) {
-	return b.Process(nil, "")
-}
-func (b *cancelTriggerBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
-	return b.Process(nil, "")
-}
-func (b *cancelTriggerBackend) BuildFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
-	_, _ = b.Process(nil, "")
-	return nil, nil
-}
-func (b *cancelTriggerBackend) UpdateFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
-	_, _ = b.Process(nil, "")
-	return nil, nil
-}
-func (b *cancelTriggerBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
-	return nil, ErrBinaryPathUnsupported
-}
-func (b *cancelTriggerBackend) Close(_ unsafe.Pointer) {}
-
-// TestClient_CancelDuringBatch verifies CANCELLATION.md §3.2 commit-prefix-
-// and-report: when ctx fires mid-batch, the returned slice contains the
-// committed prefix and the wrapped ctx.Err() is the returned error. The
-// remaining frames after the cancellation point are not sent to the FFI.
-//
-// Determinism comes from a backend that fires ctx cancellation from INSIDE
-// the cancelAfter-th Process call. By contract, that in-flight call runs to
-// completion (§1.1); the per-iteration guard catches the cancelled ctx at
-// the start of the NEXT iteration, returning a `cancelAfter`-frame committed
-// prefix.
+// When the context fires mid-batch, SendFrames returns the committed prefix
+// and the wrapped ctx.Err(), and sends no frame after the cancellation point
+// (CANCELLATION.md section 3.2).
 func TestClient_CancelDuringBatch(t *testing.T) {
 	const total = 10
 	const cancelAfter = 3
@@ -316,16 +224,12 @@ func TestClient_CancelDuringBatch(t *testing.T) {
 	bctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	backend := &cancelTriggerBackend{
-		cancelAfter: cancelAfter,
-		cancel:      cancel,
-		resp:        `{"status":"ack"}`,
-	}
+	backend := newCancelTriggerBackend(cancelAfter, cancel, `{"status":"ack"}`)
 	c, err := NewClient(backend)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	defer c.Close()
+	t.Cleanup(func() { _ = c.Close() })
 
 	sid, _ := NewStandardID(0x123)
 	dlc, _ := NewDLC(8)
@@ -350,61 +254,44 @@ func TestClient_CancelDuringBatch(t *testing.T) {
 		t.Errorf("commit-prefix length: got %d, want %d (frames before cancellation)", len(results), cancelAfter)
 	}
 	if got := backend.callCount(); got != cancelAfter {
-		t.Errorf("backend hit %d times (want %d — no FFI past cancellation)", got, cancelAfter)
+		t.Errorf("backend hit %d times (want %d, no FFI past cancellation)", got, cancelAfter)
 	}
 }
 
-// TestClient_NoCancelOnInFlightFFI verifies CANCELLATION.md §1.1 second
-// clause: an FFI call already in progress runs to completion when ctx fires
-// mid-call. The next call sees the cancellation.
+// An FFI call already in progress runs to completion when the context fires
+// mid-call, and the next call sees the cancellation (CANCELLATION.md
+// section 1.1, second clause).
 func TestClient_NoCancelOnInFlightFFI(t *testing.T) {
 	c, backend := newGatedClient(t, `{"status":"success"}`)
 
 	cctx, cancel := context.WithCancel(context.Background())
 
-	// Start the call; backend.Process blocks on `release`.
 	done := make(chan error, 1)
 	go func() {
 		done <- c.SetProperties(cctx, nil)
 	}()
-
-	// Wait for the FFI to be entered (channel signal, not time-based poll).
 	<-backend.entered
 
-	// Fire cancellation mid-FFI. The call must NOT abort.
 	cancel()
 
-	// Yield a few times so any erroneously-cancellable goroutine can make
-	// progress (no time.Sleep — runtime.Gosched is a scheduler hint, not a
-	// duration).  If a spurious return is going to happen, the goroutine
-	// will get the chance to write `done` before we check.
+	// Yield so a goroutine that wrongly returned on cancellation gets the
+	// chance to write done before the non-blocking check below.
 	for range 8 {
 		runtime.Gosched()
 	}
-
 	select {
 	case err := <-done:
-		t.Fatalf("call returned before release — cooperative-at-FFI-boundaries violated: err=%v", err)
+		t.Fatalf("call returned before release; cancellation is not cooperative at the FFI boundary: err=%v", err)
 	default:
-		// Good — call still running.
 	}
 
-	// Release. The call returns its real result with nil error (no propagation
-	// of the cancellation; the in-flight call ran to completion).
 	backend.releaseWorker()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Errorf("expected nil error from completed in-flight call, got %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("call never returned after release")
+	if err := <-done; err != nil {
+		t.Errorf("expected nil error from the completed in-flight call, got %v", err)
 	}
 
-	// Subsequent call honors the cancellation (cancelled ctx is sticky).
 	err := c.SetProperties(cctx, nil)
 	if !errors.Is(err, context.Canceled) {
-		t.Errorf("expected context.Canceled on next call, got %v", err)
+		t.Errorf("expected context.Canceled on the next call, got %v", err)
 	}
 }
