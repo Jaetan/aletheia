@@ -9,11 +9,12 @@ import (
 	"testing"
 )
 
-// TestFormatDBCText_SuccessCarriesTextAndIssues pins the decode of a
-// formatDBCText success response into a *DBCText carrying the .dbc text image
-// plus its wfTextIssues diagnostics (warning-severity, advisory).  The response
-// is emitted only for a DBC that provably round-trips, so Issues is surfaced to
-// the caller but may be empty; here a warning-severity issue exercises the shape.
+// The decoder of a formatDBCText response, over crafted wire text. The command
+// is always strict: the kernel answers text only for a DBC it has proved
+// re-parses, and refuses the rest with a typed error, so the two shapes below
+// are the whole surface.
+
+// A success carries the text image and whatever advisory issues came with it.
 func TestFormatDBCText_SuccessCarriesTextAndIssues(t *testing.T) {
 	raw := `{"status":"success","text":"VERSION \"\"\n",` +
 		`"issues":[{"severity":"warning","code":"unknown_value_description_target",` +
@@ -34,8 +35,8 @@ func TestFormatDBCText_SuccessCarriesTextAndIssues(t *testing.T) {
 	}
 }
 
-// TestFormatDBCText_AbsentIssuesDefaultsEmpty confirms a success response with no
-// issues field decodes to an empty Issues slice.
+// A success without the field carries no issues, rather than a nil the caller
+// has to test for.
 func TestFormatDBCText_AbsentIssuesDefaultsEmpty(t *testing.T) {
 	out, err := parseDBCTextResponse(`{"status":"success","text":"x"}`)
 	if err != nil {
@@ -46,26 +47,49 @@ func TestFormatDBCText_AbsentIssuesDefaultsEmpty(t *testing.T) {
 	}
 }
 
-// TestFormatDBCText_NonArrayIssuesRejected confirms a present-but-non-array issues
-// field is a protocol error, not silently dropped to empty (parity with
-// Python/Rust; getArray alone would treat the wrong-type field as missing).
-func TestFormatDBCText_NonArrayIssuesRejected(t *testing.T) {
-	_, err := parseDBCTextResponse(`{"status":"success","text":"x","issues":{}}`)
-	if err == nil {
-		t.Fatal("expected a protocol error for a non-array issues field, got nil")
+// Every response the decoder cannot trust is refused with a protocol error
+// naming what is wrong: a status that is neither success nor an error
+// envelope, a text field missing or of the wrong type, and an issues field
+// that is present but not an array of objects each carrying a severity the
+// vocabulary has. The Python and Rust decoders refuse the wrong-typed issues
+// field too, where reading it through a helper that treats a wrong type as
+// absent would have dropped it.
+func TestFormatDBCText_RefusesMalformedResponses(t *testing.T) {
+	cases := map[string]struct {
+		raw    string
+		substr string
+	}{
+		"status is neither":    {`{"status":"pending","text":"x"}`, "expected success response"},
+		"no text":              {`{"status":"success"}`, "missing or non-string 'text'"},
+		"text is not a string": {`{"status":"success","text":3}`, "missing or non-string 'text'"},
+		"issues is not a list": {`{"status":"success","text":"x","issues":{}}`, "'issues' must be an array"},
+		"an issue is not an object": {
+			`{"status":"success","text":"x","issues":["divergence"]}`, "expected object in issues array"},
+		"an issue has no severity": {
+			`{"status":"success","text":"x","issues":[{"code":"text_roundtrip_divergence"}]}`,
+			"unknown validation severity"},
 	}
-	if !strings.Contains(err.Error(), "'issues' must be an array") {
-		t.Errorf("Error() = %q, want it to mention 'issues' must be an array", err.Error())
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			out, err := parseDBCTextResponse(tc.raw)
+			if out != nil {
+				t.Errorf("expected no text on a refusal, got %+v", out)
+			}
+			if err == nil {
+				t.Fatal("expected a protocol error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.substr) {
+				t.Errorf("Error() = %q, want it to mention %q", err.Error(), tc.substr)
+			}
+		})
 	}
 }
 
-// TestFormatDBCText_RoundTripRefusalLifts pins the lift of a
-// handler_text_roundtrip_failed envelope into a typed *TextRoundTripFailedError.
-// FormatDBCText is always strict, so a DBC whose text does not round-trip (e.g. a
-// multi-value mux) surfaces this typed refusal — led by the error-severity
-// text_roundtrip_divergence issue, plus the multi_value_mux_selector diagnostic —
-// rather than lossy text.  Error() stays byte-identical to the generic coded
-// error the lift replaces.
+// A DBC whose text does not re-parse, a multi-value mux selector among the
+// reasons, is refused as a typed error carrying the issues that led to it.
+// The rendered message stays what the generic coded error would have printed,
+// so lifting the type changes what a caller can match on and not what it
+// reads.
 func TestFormatDBCText_RoundTripRefusalLifts(t *testing.T) {
 	const msg = "FormatDBCText: text round-trip failed: " +
 		"re-parsing the emitted text does not reproduce the input DBC"
@@ -84,7 +108,7 @@ func TestFormatDBCText_RoundTripRefusalLifts(t *testing.T) {
 		t.Fatalf("expected *TextRoundTripFailedError, got %T: %v", err, err)
 	}
 	if !trte.HasErrors {
-		t.Error("HasErrors = false, want true (decoded from the wire)")
+		t.Error("HasErrors = false, want true from the wire")
 	}
 	if trte.Code != CodeHandlerTextRoundtripFailed {
 		t.Errorf("Code = %q, want %q", trte.Code, CodeHandlerTextRoundtripFailed)
@@ -100,6 +124,6 @@ func TestFormatDBCText_RoundTripRefusalLifts(t *testing.T) {
 		t.Errorf("Issues[1].Code = %q, want multi_value_mux_selector", trte.Issues[1].Code)
 	}
 	if want := "aletheia protocol error: " + msg; err.Error() != want {
-		t.Errorf("Error() = %q, want byte-identical generic render %q", err.Error(), want)
+		t.Errorf("Error() = %q, want the generic render %q", err.Error(), want)
 	}
 }
