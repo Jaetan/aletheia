@@ -70,3 +70,34 @@ func testDBC() aletheia.DBCDefinition {
 		},
 	}
 }
+
+// startedClientOpts returns a client over a mock that has already answered
+// SetProperties and StartStream and holds the given responses for what
+// follows, with the properties installed and the options applied. The client
+// is closed when the test ends.
+func startedClientOpts(t *testing.T, properties []aletheia.Formula, responses []aletheia.MockResponse, opts ...aletheia.ClientOption) (*aletheia.Client, *aletheia.MockBackend) {
+	t.Helper()
+	queue := append([]aletheia.MockResponse{
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+	}, responses...)
+	mock := aletheia.NewMockBackend(queue...)
+	c, err := aletheia.NewClient(mock, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	if err := c.SetProperties(ctx, properties); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.StartStream(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return c, mock
+}
+
+// startedClientWith is startedClientOpts with no client option.
+func startedClientWith(t *testing.T, properties []aletheia.Formula, responses ...aletheia.MockResponse) (*aletheia.Client, *aletheia.MockBackend) {
+	t.Helper()
+	return startedClientOpts(t, properties, responses)
+}
