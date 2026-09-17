@@ -75,7 +75,7 @@ func run(argv []string) int {
 	}
 }
 
-const usage = `aletheia — formally verified CAN signal analysis (Go CLI)
+const usage = `aletheia: formally verified CAN signal analysis (Go CLI)
 
 Usage: aletheia <command> [flags] [args]
 
@@ -560,8 +560,11 @@ func cmdMuxQuery(argv []string) int {
 				"signals":      names,
 			})
 		}
-		fmt.Printf("Message 0x%X %s — %s = %d: %d signals (%s)\n",
-			msg.ID.Value(), msg.Name, *muxName, *value, len(names), strings.Join(names, ", "))
+		printMessageHeader(msg)
+		fmt.Printf("Multiplexor %s = %d: %d signals present\n", *muxName, *value, len(names))
+		for _, n := range names {
+			fmt.Printf("  %s\n", n)
+		}
 		return exitOK
 	}
 	if *asJSON {
@@ -583,9 +586,9 @@ func cmdMuxQuery(argv []string) int {
 			"multiplexors":   muxes,
 		})
 	}
-	fmt.Printf("Message 0x%X %s (DLC %d)\n", msg.ID.Value(), msg.Name, msg.DLC.ToBytes())
+	printMessageHeader(msg)
 	if !msg.IsMultiplexed() {
-		fmt.Printf("  Not multiplexed — %d signals always present.\n", len(msg.Signals))
+		fmt.Printf("  Not multiplexed: all %d signals are always present.\n", len(msg.Signals))
 		return exitOK
 	}
 	for _, name := range msg.MultiplexorNames() {
@@ -596,6 +599,13 @@ func cmdMuxQuery(argv []string) int {
 		}
 	}
 	return exitOK
+}
+
+// printMessageHeader is the line both mux-query modes open with, and the one
+// the C++ and Python interfaces print: the identifier, the name and the
+// payload length.
+func printMessageHeader(msg *aletheia.DBCMessage) {
+	fmt.Printf("Message 0x%X %s (DLC %d)\n", msg.ID.Value(), msg.Name, msg.DLC.ToBytes())
 }
 
 func resolveMuxMessage(def aletheia.DBCDefinition, ident string, extended bool) *aletheia.DBCMessage {

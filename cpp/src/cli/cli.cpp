@@ -63,6 +63,7 @@ using aletheia::cli_exit_ok;
 using aletheia::cli_exit_validation_failed;
 using aletheia::DbcDefinition;
 using aletheia::DbcMessage;
+using aletheia::DbcSignal;
 using aletheia::ExtendedId;
 using aletheia::StandardId;
 using Json = nlohmann::json;
@@ -472,6 +473,25 @@ static auto resolve_mux_message(const DbcDefinition& def, const std::string& ide
     return def.message_by_name(aletheia::MessageName{ident});
 }
 
+// The line both mux-query modes open with, and the one the Go and Python
+// interfaces print: the identifier, the name and the payload length.
+static void print_message_header(const DbcMessage& msg) {
+    std::cout << "Message 0x" << std::hex << aletheia::can_id_value(msg.id) << std::dec << " "
+              << msg.name.get() << " (DLC " << aletheia::dlc_to_bytes(msg.dlc) << ")\n";
+}
+
+// The signal names of one mux value, comma-separated, as the other two
+// interfaces print them.
+static auto join_signal_names(std::span<const DbcSignal> sigs) -> std::string {
+    std::string out;
+    for (const auto& s : sigs) {
+        if (!out.empty())
+            out += ", ";
+        out += s.name.get();
+    }
+    return out;
+}
+
 // mux-query selector mode: the signals present for one (multiplexor, value).
 static auto mux_selector(const DbcMessage& msg, const std::string& mux, std::uint32_t value,
                          bool as_json) -> int {
@@ -487,9 +507,9 @@ static auto mux_selector(const DbcMessage& msg, const std::string& mux, std::uin
                           {"value", value},
                           {"signals", names}});
     }
-    std::cout << "Message 0x" << std::hex << aletheia::can_id_value(msg.id) << std::dec << " "
-              << msg.name.get() << " — " << mux << " = " << value << ": " << sigs.size()
-              << " signals\n";
+    print_message_header(msg);
+    std::cout << "Multiplexor " << mux << " = " << value << ": " << sigs.size()
+              << " signals present\n";
     for (const auto& s : sigs)
         std::cout << "  " << s.name.get() << '\n';
     return cli_exit_ok;
@@ -514,17 +534,18 @@ static auto mux_summary(const DbcMessage& msg, bool as_json) -> int {
                           {"is_multiplexed", msg.is_multiplexed()},
                           {"multiplexors", muxes}});
     }
-    std::cout << "Message 0x" << std::hex << aletheia::can_id_value(msg.id) << std::dec << " "
-              << msg.name.get() << '\n';
+    print_message_header(msg);
     if (!msg.is_multiplexed()) {
-        std::cout << "  Not multiplexed — " << msg.signals.size() << " signals always present.\n";
+        std::cout << "  Not multiplexed: all " << msg.signals.size()
+                  << " signals are always present.\n";
         return cli_exit_ok;
     }
     for (const auto& name : msg.multiplexor_names()) {
         std::cout << "  " << name.get() << ":\n";
         for (auto v : msg.multiplex_values(name)) {
             auto sigs = msg.signals_for_mux_value(name, v);
-            std::cout << "    value " << v.get() << ": " << sigs.size() << " signals\n";
+            std::cout << "    value " << v.get() << ": " << sigs.size() << " signals ("
+                      << join_signal_names(sigs) << ")\n";
         }
     }
     return cli_exit_ok;
@@ -564,7 +585,7 @@ static auto cmd_mux_query(const Args& a) -> int {
 }
 
 constexpr std::string_view k_usage =
-    "aletheia — formally verified CAN signal analysis (C++ CLI)\n\n"
+    "aletheia: formally verified CAN signal analysis (C++ CLI)\n\n"
     "Usage: aletheia-cli <command> [flags] [args]\n\n"
     "Commands:\n"
     "  validate    validate a DBC definition for structural issues\n"
@@ -572,7 +593,8 @@ constexpr std::string_view k_usage =
     "  signals     list signals defined in a DBC file\n"
     "  format-dbc  re-export a DBC as canonical JSON via the Agda core\n"
     "  mux-query   inspect multiplexor structure of a DBC message\n\n"
-    "DBC source: --dbc <file>.dbc (verified text parser).\n"
+    "DBC source: --dbc <file>.dbc (verified text parser). Flags may go before or after "
+    "positionals.\n"
     "Library path: $ALETHEIA_LIB or a build/install default.";
 
 // Dispatch the parsed command; separated from main() so main() stays
