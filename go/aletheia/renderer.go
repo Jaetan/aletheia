@@ -102,33 +102,49 @@ func findFFILibrary() string {
 
 // loadRendererFFI opens the library and resolves the two symbols this file
 // calls, and nothing else: starting the runtime is a backend's to do.
-func loadRendererFFI() error {
+// loadStandaloneSymbols opens the library and resolves the symbols named,
+// pinning the thread while it does, because dlerror is per thread and a
+// goroutine that migrated between the failure and the message would report the
+// wrong one, or none. It serves the two consumers that reach the kernel outside
+// a session, this file and the decimal parser, and it starts no runtime, which
+// is the rule both turn on. what names the caller in the message a failure to
+// open carries.
+//
+// Only strings and untyped pointers cross, so the caller's own file can hold
+// the trampolines it calls them through; a cgo preamble is visible to one file.
+func loadStandaloneSymbols(what string, names ...string) ([]unsafe.Pointer, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	libPath := findFFILibrary()
 	if libPath == "" {
-		return ffiError("libaletheia-ffi.so not found; build with: cabal run shake -- build")
+		return nil, ffiError("libaletheia-ffi.so not found; build with: cabal run shake -- build")
 	}
 
 	cPath := C.CString(libPath)
 	defer C.free(unsafe.Pointer(cPath))
 	handle := C.dlopen(cPath, C.RTLD_NOW|C.RTLD_LOCAL)
 	if handle == nil {
-		return ffiError("renderer dlopen failed: " + C.GoString(C.dlerror()))
+		return nil, ffiError(what + " dlopen failed: " + C.GoString(C.dlerror()))
 	}
 
-	fmtFn, err := rendererDlsym(handle, "aletheia_format_rational")
+	resolved := make([]unsafe.Pointer, 0, len(names))
+	for _, name := range names {
+		sym, err := rendererDlsym(handle, name)
+		if err != nil {
+			return nil, err
+		}
+		resolved = append(resolved, sym)
+	}
+	return resolved, nil
+}
+
+func loadRendererFFI() error {
+	syms, err := loadStandaloneSymbols("renderer", "aletheia_format_rational", "aletheia_free_str")
 	if err != nil {
 		return err
 	}
-	freeFn, err := rendererDlsym(handle, "aletheia_free_str")
-	if err != nil {
-		return err
-	}
-
-	rendererFormatFn = fmtFn
-	rendererFreeFn = freeFn
+	rendererFormatFn, rendererFreeFn = syms[0], syms[1]
 	return nil
 }
 

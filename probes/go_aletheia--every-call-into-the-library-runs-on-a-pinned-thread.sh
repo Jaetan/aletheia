@@ -2,11 +2,13 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Probes go/aletheia/ffi.go.
-# Claim: every call to a C trampoline (a `C.call_*` function, the only way the
-# backend reaches the loaded library) happens on a goroutine pinned to an OS
-# thread, because the GHC runtime keeps state per capability and dlerror is
-# thread-local. A function satisfies this by calling runtime.LockOSThread
+# Probes go/aletheia/ffi.go, go/aletheia/renderer.go and go/aletheia/decimal.go.
+# Claim: every call into the loaded library, from any of the three files that
+# make one, happens on a goroutine pinned to an OS thread, because the GHC
+# runtime keeps state per capability and dlerror is thread-local. A call is
+# either through a C trampoline, which is how a session reaches the library, or
+# through the dynamic loader itself, which is how the two consumers outside a
+# session find their symbols. A function satisfies this by calling runtime.LockOSThread
 # itself, or by being called only from functions that satisfy it, which is how
 # a shared helper is covered. A helper with no caller in the file satisfies
 # nothing. The check is syntactic, over the file own AST and its call graph, so
@@ -32,6 +34,22 @@ import (
 	"strings"
 )
 
+// reachesLibrary reports whether a C name is a call into the loaded library:
+// a trampoline, which every file names for itself, or the dynamic loader,
+// whose error is the thread-local one the pin is for.
+func reachesLibrary(name string) bool {
+	for _, prefix := range []string{"call_", "renderer_call_", "decimal_call_"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	switch name {
+	case "dlopen", "dlsym", "dlerror", "dlclose":
+		return true
+	}
+	return false
+}
+
 type fnInfo struct {
 	line    int
 	pins    bool
@@ -41,9 +59,10 @@ type fnInfo struct {
 
 func main() {
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, os.Getenv("PROBED_FILE"), nil, 0)
+	path := os.Getenv("PROBED_FILE")
+	file, err := parser.ParseFile(fset, path, nil, 0)
 	if err != nil {
-		fmt.Println("ffi.go does not parse:", err)
+		fmt.Println(path, "does not parse:", err)
 		os.Exit(2)
 	}
 
@@ -77,7 +96,7 @@ func main() {
 				if !ok {
 					return true
 				}
-				if pkg.Name == "C" && strings.HasPrefix(node.Sel.Name, "call_") {
+				if pkg.Name == "C" && reachesLibrary(node.Sel.Name) {
 					self.direct = true
 				}
 				if pkg.Name == "runtime" && node.Sel.Name == "LockOSThread" {
@@ -156,16 +175,25 @@ func main() {
 		if len(callers) > 0 {
 			where = "called from " + strings.Join(callers, ", ")
 		}
-		fmt.Printf("%s reaches a trampoline unpinned (line %d, %s)\n", name, fns[name].line, where)
+		fmt.Printf("%s reaches the library unpinned (line %d, %s)\n", name, fns[name].line, where)
 	}
 	if seen == 0 {
-		fmt.Println("no function calls a trampoline; the claim is untestable")
+		fmt.Println(path, "reaches the library nowhere; the claim is untestable there")
 		os.Exit(1)
 	}
 	if bad > 0 {
 		os.Exit(1)
 	}
-	fmt.Printf("PASS: all %d trampoline-calling functions run pinned\n", seen)
+	shape := fmt.Sprintf("all %d functions that reach the library run pinned", seen)
+	if seen == 1 {
+		shape = "the one function that reaches the library runs pinned"
+	}
+	fmt.Printf("%s: %s\n", path, shape)
 }
 GO
-PROBED_FILE="$PWD/go/aletheia/ffi.go" GOWORK=off go run "$scratch/main.go"
+status=0
+for f in ffi.go renderer.go decimal.go; do
+	PROBED_FILE="$PWD/go/aletheia/$f" GOWORK=off go run "$scratch/main.go" || status=1
+done
+[ "$status" -eq 0 ] || exit 1
+echo "PASS: every call into the library, in all three files, runs pinned"

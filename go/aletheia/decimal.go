@@ -22,6 +22,9 @@ package aletheia
 static char* decimal_call_parse(void *fn, const char *s) {
     return ((char* (*)(const char*))fn)(s);
 }
+// The renderer's file carries the same three lines: a cgo preamble is visible
+// to its own file alone, so the two consumers of the shared free function each
+// declare their way of calling it.
 static void decimal_call_free_str(void *fn, char *ptr) {
     ((void (*)(char*))fn)(ptr);
 }
@@ -41,35 +44,14 @@ var (
 	decimalFreeFn   unsafe.Pointer
 )
 
-// loadDecimalFFI opens the library found by the renderer's search and
-// resolves the parse and free symbols; it does not initialise the runtime.
+// loadDecimalFFI resolves the parse and free symbols through the loader the
+// renderer's file carries; it does not initialise the runtime.
 func loadDecimalFFI() error {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	libPath := findFFILibrary()
-	if libPath == "" {
-		return ffiError("libaletheia-ffi.so not found; build with: cabal run shake -- build")
-	}
-
-	cPath := C.CString(libPath)
-	defer C.free(unsafe.Pointer(cPath))
-	handle := C.dlopen(cPath, C.RTLD_NOW|C.RTLD_LOCAL)
-	if handle == nil {
-		return ffiError("decimal dlopen failed: " + C.GoString(C.dlerror()))
-	}
-
-	parseFn, err := rendererDlsym(handle, "aletheia_parse_decimal")
+	syms, err := loadStandaloneSymbols("decimal", "aletheia_parse_decimal", "aletheia_free_str")
 	if err != nil {
 		return err
 	}
-	freeFn, err := rendererDlsym(handle, "aletheia_free_str")
-	if err != nil {
-		return err
-	}
-
-	decimalParseFn = parseFn
-	decimalFreeFn = freeFn
+	decimalParseFn, decimalFreeFn = syms[0], syms[1]
 	return nil
 }
 
