@@ -99,9 +99,12 @@ bindings:
       # is what the runner records and what score_pct is taken from.
       #
       # The split between killed and timed out moves with the machine, and it
-      # moves a long way. This tree gave 633 killed and 11 timed out on a quiet
-      # host, and an earlier one 39 killed with 622 timed out in a sweep that
-      # had a second sweep running beside it. A mutant that times out counts as neither
+      # moves a long way. This tree gave 649 killed and 11 timed out on a quiet
+      # host with nothing editing it, and an earlier one 39 killed with 622
+      # timed out in a sweep that had a second sweep running beside it. A sweep
+      # whose sources are edited while it runs reports neither: it gathers
+      # coverage once at the start and then mutates positions that have moved,
+      # so lines a test covers come back as not covered. A mutant that times out counts as neither
       # killed nor lived, so that second run reported no survivors and full
       # efficacy having actually tested one mutant in twenty. A third sweep
       # generated the same total and left none alive, which is what is compared
@@ -112,11 +115,19 @@ bindings:
       # recorded here produced.
       survivors: 0
       generated: 762
-      not_covered: 118
+      not_covered: 102
       timeouts: 11
-      total_mutants: 633
+      total_mutants: 649
       score_pct: 100
       run_at: "2026-09-17"
+      # The lane refuses a sweep with more than this many timed out, because a
+      # mutant that times out is neither killed nor lived and a sweep that
+      # timed out on nearly all of them reports no survivors and full efficacy.
+      # A quiet host gives 11, all in the file carrying the cgo trampolines,
+      # whose mutants each reload the library; a sweep with a second sweep
+      # beside it gave 622. This sits far enough above the first not to flake
+      # and far enough below the second to fail hard.
+      timeout_ceiling: 50
 
   cpp:
     tool: mull

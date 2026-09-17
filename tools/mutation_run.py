@@ -93,6 +93,7 @@ class Baseline(TypedDict):
     """The per-binding baseline block in ``docs/MUTATION_BENCH.yaml``."""
 
     survivors: NotRequired[int]
+    timeout_ceiling: NotRequired[int]
     total_mutants: NotRequired[int]
     score_pct: NotRequired[int]
     run_at: NotRequired[str]
@@ -119,6 +120,8 @@ class DriftEntry(TypedDict):
     observed_survivors: NotRequired[int]
     baseline_survivors: NotRequired[int]
     delta: NotRequired[int]
+    observed_timeouts: NotRequired[int]
+    timeout_ceiling: NotRequired[int]
 
 
 @dataclass
@@ -131,6 +134,11 @@ class MutationReport:
     survived: int
     raw_log: str
     error: str | None = None
+    # Mutants the tool started and could not finish, where it reports them.
+    # They are neither killed nor survived, so a run that timed out on nearly
+    # everything reports no survivors and full efficacy; the drift gate reads
+    # this to refuse such a run.  ``None`` where the tool has no such bucket.
+    timeouts: int | None = None
 
     @property
     def total_mutants(self) -> int:
@@ -151,6 +159,7 @@ class MutationReport:
             "total_mutants": self.total_mutants,
             "killed": self.killed,
             "survived": self.survived,
+            "timeouts": self.timeouts,
             "score_pct": self.score_pct,
             "raw_log_tail": self.raw_log[-RAW_LOG_TAIL_CHARS:],
             "error": self.error,
@@ -331,13 +340,23 @@ def run_go(artifact_dir: Path) -> MutationReport:
     raw = proc.stdout + "\n=== STDERR ===\n" + proc.stderr
     (artifact_dir / "go.raw.txt").write_text(raw)
 
-    # gremlins tail summary lines (observed empirically):
-    #   Killed: N, Lived: N, Not covered: N
-    #   Timed out: N, Not viable: N, Skipped: N
-    #   Test efficacy: P.PP%
-    #   Mutator coverage: P.PP%
+    return parse_gremlins_summary(raw, f"exit {proc.returncode}")
+
+
+def parse_gremlins_summary(raw: str, where: str) -> MutationReport:
+    """Read a gremlins run's tail summary into a report.
+
+    Separate from the run so the drift gate can be shown to refuse a recorded
+    loaded-machine sweep without one having to be reproduced.  The tail is::
+
+        Killed: N, Lived: N, Not covered: N
+        Timed out: N, Not viable: N, Skipped: N
+        Test efficacy: P.PP%
+        Mutator coverage: P.PP%
+    """
     killed_m = re.search(r"Killed:\s*(\d+)", raw)
     survived_m = re.search(r"Lived:\s*(\d+)", raw)
+    timeout_m = re.search(r"Timed out:\s*(\d+)", raw)
     if not (killed_m and survived_m):
         return MutationReport(
             "go",
@@ -345,13 +364,18 @@ def run_go(artifact_dir: Path) -> MutationReport:
             0,
             0,
             raw,
-            error=(f"could not parse gremlins summary (see go.raw.txt; exit {proc.returncode})"),
+            error=(f"could not parse gremlins summary (see go.raw.txt; {where})"),
         )
-    # Note: gremlins' "Not covered" mutants are on lines without test
-    # coverage; they don't contribute to the killed/lived split per
-    # gremlins semantics, so total_mutants = killed + survived in the
-    # MutationReport.
-    return MutationReport("go", "gremlins", int(killed_m.group(1)), int(survived_m.group(1)), raw)
+    # gremlins' "Not covered" mutants are on lines no test reaches; they do not
+    # contribute to the killed/lived split, so total_mutants = killed + survived.
+    return MutationReport(
+        "go",
+        "gremlins",
+        int(killed_m.group(1)),
+        int(survived_m.group(1)),
+        raw,
+        timeouts=int(timeout_m.group(1)) if timeout_m else None,
+    )
 
 
 def _check_cpp_tools() -> tuple[str, str] | str:
@@ -625,7 +649,20 @@ def _drift_for(rep: MutationReport, bindings: dict[str, BindingSpec]) -> DriftEn
     """Compute one binding's drift verdict against its YAML baseline."""
     if rep.error:
         return {"status": "error", "error": rep.error}
-    baseline = bindings.get(rep.binding, {}).get("baseline", {}).get("survivors")
+    spec_baseline = bindings.get(rep.binding, {}).get("baseline", {})
+    # A mutant that timed out is neither killed nor survived, so a sweep that
+    # timed out on nearly all of them reports no survivors and full efficacy.
+    # That is what a loaded machine produces, and it is indistinguishable from a
+    # clean run by the survivor count alone, so the ceiling is checked first.
+    ceiling = spec_baseline.get("timeout_ceiling")
+    if ceiling is not None and rep.timeouts is not None and rep.timeouts > ceiling:
+        return {
+            "status": "regression",
+            "observed_survivors": rep.survived,
+            "observed_timeouts": rep.timeouts,
+            "timeout_ceiling": ceiling,
+        }
+    baseline = spec_baseline.get("survivors")
     if baseline is None:
         return {"status": "first_run", "observed_survivors": rep.survived}
     if rep.survived > baseline:

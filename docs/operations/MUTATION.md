@@ -36,6 +36,12 @@ Two-tier per advisor 2026-05-09:
   the baseline recorded in `docs/MUTATION_BENCH.yaml`.  Any new survivor is
   a finding, surfaced via the runner's exit code = 1 with a JSON report
   pointing at the file/line.
+- **Timeout ceiling**: a mutant the tool could not finish testing is
+  neither killed nor survived, so a sweep that timed out on nearly all of
+  them reports no survivors at full efficacy.  Where a binding's baseline
+  records `timeout_ceiling`, a run past it fails the lane whatever its
+  survivor count.  The Go lane records one; the other two tools report no
+  such bucket.
 - **First run (no gate)** — when the YAML baseline is `null`, the runner
   records the observed survivor count as informational and exits 0.  The
   next commit is expected to either match this count or improve on it; the
