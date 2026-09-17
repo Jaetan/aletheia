@@ -8,56 +8,42 @@ import (
 	"strings"
 )
 
-// formatRational renders a Rational as a string identical across all
-// bindings.  Every render flows through the Agda kernel via
-// `aletheia_format_rational`: the Go binding
-// calls the same function as Python and C++, so the same Rational
-// value renders to byte-identical output everywhere.
-//
-// The renderer dlopens the library on first use (renderer.go) but does NOT
-// initialise the GHC RTS; an FFIBackend must have brought it up.  If the
-// runtime is not initialised the render returns an error rather than
-// self-initialising — no local Go fallback exists.
+// formatRational is [FormatRational] for the package's own use.
 func formatRational(r Rational) (string, error) {
 	return formatRationalFFI(r.Numerator, r.Denominator)
 }
 
-// FormatRational renders a Rational as the exact cross-binding display string —
-// a terminating decimal ("0.25") or an exact fraction ("1/3"), never a lossy
-// float — by delegating to the verified kernel renderer (the same
-// aletheia_format_rational FFI used internally and by the C++/Python bindings).
-// It is the public entry point for external consumers such as the cmd/aletheia
-// CLI; like the internal renderer it requires a live FFIBackend and returns an
-// error if the GHC RTS is not up.
+// FormatRational renders a Rational as the display string every binding
+// shares, a terminating decimal ("0.25") or a reduced fraction ("1/3"),
+// through the kernel's renderer (aletheia_format_rational). The renderer
+// loads the library on first use (renderer.go) and never starts the GHC
+// runtime, so the call fails with an error until an FFIBackend has.
 func FormatRational(r Rational) (string, error) {
 	return formatRational(r)
 }
 
-// PropertyDiagnostic holds metadata auto-derived from a formula for violation enrichment.
+// PropertyDiagnostic is what a formula yields for enriching its violations:
+// the signals it names and its printed form.
 type PropertyDiagnostic struct {
-	Signals     []SignalName // all signals referenced in the formula
-	FormulaDesc string       // human-readable formula representation
+	Signals     []SignalName
+	FormulaDesc string
 }
 
-// ViolationEnrichment carries human-readable context added to violations.
-// EnrichedReason is computed by the Go enrichment layer from signal values and
-// formula structure; it differs from Violation.Reason and PropertyResult.Reason,
-// which are raw strings from the Agda core.
+// ViolationEnrichment is the context the binding adds to a violation: the
+// signal values it extracted (nil when extraction failed), the printed
+// formula, the reason it composed from them, and the core's own reason,
+// which may be empty.
 type ViolationEnrichment struct {
-	Signals        map[SignalName]Rational // exact actual values from frame (nil if extraction failed)
+	Signals        map[SignalName]Rational
 	FormulaDesc    string
 	EnrichedReason string
-	CoreReason     string // raw reason from the Agda core (e.g., "MetricEventually: window expired"); may be empty
+	CoreReason     string
 }
 
-// buildDiagnostic creates a PropertyDiagnostic from a formula.  Internal:
-// the public surface is the PropertyDiagnostic type (mirrors Rust
-// `build_diagnostic` / Python `_enrichment`); tests reach it via
-// export_test.go.
-//
-// Returns an error if the kernel rational renderer is unavailable — the GHC
-// runtime is not initialised (create an FFIBackend first), since the formula
-// description renders predicate thresholds through it.
+// buildDiagnostic derives a formula's diagnostic; it fails when the kernel
+// renderer the printed form needs is unavailable (see [FormatRational]).
+// Tests reach it through export_test.go, as the Rust build_diagnostic and
+// the Python _enrichment module are reached in their bindings.
 func buildDiagnostic(f Formula) (PropertyDiagnostic, error) {
 	desc, err := formatFormula(f)
 	if err != nil {
@@ -69,26 +55,20 @@ func buildDiagnostic(f Formula) (PropertyDiagnostic, error) {
 	}, nil
 }
 
-// formatFormula returns a human-readable representation of an LTL formula.
-// Internal — exposed to tests via export_test.go.
-//
-// Returns an error if the kernel rational renderer is unavailable (see
-// buildDiagnostic): predicate thresholds render through it.
+// formatFormula prints a formula; it fails as buildDiagnostic does.
 func formatFormula(f Formula) (string, error) {
 	p := &formulaPrinter{}
 	s := p.render(f, false)
 	return s, p.err
 }
 
-// formulaPrinter renders a formula with a sticky error: render / predicate /
-// rat short-circuit once the kernel renderer has failed, so the per-node logic
-// stays free of explicit error threading and the single error is read once by
-// formatFormula.
+// formulaPrinter prints with a sticky error: once the kernel renderer has
+// failed every node prints empty and formatFormula reads the one error.
 type formulaPrinter struct {
 	err error
 }
 
-// rat renders one Rational via the kernel, stickying any error.
+// rat renders one threshold through the kernel.
 func (p *formulaPrinter) rat(r Rational) string {
 	if p.err != nil {
 		return ""
@@ -101,8 +81,19 @@ func (p *formulaPrinter) rat(r Rational) string {
 	return s
 }
 
-// render formats a formula. When parenthesizeBinary is true, binary
-// operators (and, or, until, release) are wrapped in parentheses to avoid ambiguity.
+// binary prints an infix operator between its two operands, each
+// parenthesised when it is binary itself, and the whole in parentheses
+// when it is an operand of a binary operator.
+func (p *formulaPrinter) binary(left Formula, op string, right Formula, parenthesize bool) string {
+	s := p.render(left, true) + " " + op + " " + p.render(right, true)
+	if parenthesize {
+		return "(" + s + ")"
+	}
+	return s
+}
+
+// render prints a formula; parenthesizeBinary is true when the formula is an
+// operand of a binary operator, so a binary formula prints in parentheses.
 func (p *formulaPrinter) render(f Formula, parenthesizeBinary bool) string {
 	if p.err != nil {
 		return ""
@@ -113,23 +104,15 @@ func (p *formulaPrinter) render(f Formula, parenthesizeBinary bool) string {
 	case Not:
 		return "not(" + p.render(v.Inner, false) + ")"
 	case And:
-		s := p.render(v.Left, true) + " and " + p.render(v.Right, true)
-		if parenthesizeBinary {
-			return "(" + s + ")"
-		}
-		return s
+		return p.binary(v.Left, "and", v.Right, parenthesizeBinary)
 	case Or:
-		s := p.render(v.Left, true) + " or " + p.render(v.Right, true)
-		if parenthesizeBinary {
-			return "(" + s + ")"
-		}
-		return s
+		return p.binary(v.Left, "or", v.Right, parenthesizeBinary)
 	case Next:
 		return "next(" + p.render(v.Inner, false) + ")"
 	case WeakNext:
 		return "weak_next(" + p.render(v.Inner, false) + ")"
 	case Always:
-		// Detect Never pattern: Always{Not{Atomic{p}}}
+		// always(not(p)) prints as never p
 		if n, ok := v.Inner.(Not); ok {
 			if a, ok := n.Inner.(Atomic); ok {
 				return "never " + p.predicate(a.Predicate)
@@ -139,42 +122,23 @@ func (p *formulaPrinter) render(f Formula, parenthesizeBinary bool) string {
 	case Eventually:
 		return "eventually(" + p.render(v.Inner, false) + ")"
 	case Until:
-		s := p.render(v.Left, true) + " until " + p.render(v.Right, true)
-		if parenthesizeBinary {
-			return "(" + s + ")"
-		}
-		return s
+		return p.binary(v.Left, "until", v.Right, parenthesizeBinary)
 	case Release:
-		s := p.render(v.Left, true) + " release " + p.render(v.Right, true)
-		if parenthesizeBinary {
-			return "(" + s + ")"
-		}
-		return s
+		return p.binary(v.Left, "release", v.Right, parenthesizeBinary)
 	case MetricAlways:
 		return "always within " + formatTimebound(v.Bound) + " (" + p.render(v.Inner, false) + ")"
 	case MetricEventually:
 		return "eventually within " + formatTimebound(v.Bound) + " (" + p.render(v.Inner, false) + ")"
 	case MetricUntil:
-		s := p.render(v.Left, true) + " until within " + formatTimebound(v.Bound) + " " + p.render(v.Right, true)
-		if parenthesizeBinary {
-			return "(" + s + ")"
-		}
-		return s
+		return p.binary(v.Left, "until within "+formatTimebound(v.Bound), v.Right, parenthesizeBinary)
 	case MetricRelease:
-		s := p.render(v.Left, true) + " release within " + formatTimebound(v.Bound) + " " + p.render(v.Right, true)
-		if parenthesizeBinary {
-			return "(" + s + ")"
-		}
-		return s
+		return p.binary(v.Left, "release within "+formatTimebound(v.Bound), v.Right, parenthesizeBinary)
 	default:
 		return fmt.Sprintf("<unknown formula: %T>", f)
 	}
 }
 
-// predicate renders a predicate, stickying any kernel-renderer error.
-// Display path only — Rational values flow through the kernel (formatRational),
-// which renders terminating fractions as decimals and non-terminating ones as
-// reduced N/D (e.g. Rational{1, 3} → "1/3").
+// predicate prints a predicate with its thresholds rendered by the kernel.
 func (p *formulaPrinter) predicate(pred Predicate) string {
 	if p.err != nil {
 		return ""
@@ -209,7 +173,7 @@ const (
 	usPerMillisecond = 1_000
 )
 
-// formatTimebound formats a TimeBound as a human-readable time bound.
+// formatTimebound prints a bound in the largest unit that divides it.
 func formatTimebound(t TimeBound) string {
 	us := t.Microseconds
 	if us%usPerSecond == 0 {
@@ -221,66 +185,66 @@ func formatTimebound(t TimeBound) string {
 	return fmt.Sprintf("%dμs", us)
 }
 
-// collectSignals returns all signal names referenced in a formula, deduplicated, in order.
-// Internal (mirrors the peers); exposed to tests via export_test.go.
+// collectSignals is every signal a formula names, once each, in order of
+// first appearance. Tests reach it through export_test.go.
 func collectSignals(f Formula) []SignalName {
 	var signals []SignalName
 	seen := make(map[SignalName]bool)
-	collectSignalsInto(f, &signals, seen)
+	var walk func(Formula)
+	walk = func(f Formula) {
+		if a, ok := f.(Atomic); ok {
+			if name := predicateSignal(a.Predicate); !seen[name] {
+				seen[name] = true
+				signals = append(signals, name)
+			}
+			return
+		}
+		for _, sub := range subformulas(f) {
+			walk(sub)
+		}
+	}
+	walk(f)
 	return signals
 }
 
-// collectSignalsInto appends signal names from f into *signals, skipping duplicates tracked in seen.
-func collectSignalsInto(f Formula, signals *[]SignalName, seen map[SignalName]bool) {
+// subformulas is the immediate operands of a formula: one for the unary
+// operators, two for the binary ones, none for an atomic or for a value
+// outside the sealed set (nil, a pointer to a formula, an embedding type).
+func subformulas(f Formula) []Formula {
 	switch v := f.(type) {
-	case Atomic:
-		name := predicateSignal(v.Predicate)
-		if !seen[name] {
-			seen[name] = true
-			*signals = append(*signals, name)
-		}
 	case Not:
-		collectSignalsInto(v.Inner, signals, seen)
-	case And:
-		collectSignalsInto(v.Left, signals, seen)
-		collectSignalsInto(v.Right, signals, seen)
-	case Or:
-		collectSignalsInto(v.Left, signals, seen)
-		collectSignalsInto(v.Right, signals, seen)
+		return []Formula{v.Inner}
 	case Next:
-		collectSignalsInto(v.Inner, signals, seen)
+		return []Formula{v.Inner}
 	case WeakNext:
-		collectSignalsInto(v.Inner, signals, seen)
+		return []Formula{v.Inner}
 	case Always:
-		collectSignalsInto(v.Inner, signals, seen)
+		return []Formula{v.Inner}
 	case Eventually:
-		collectSignalsInto(v.Inner, signals, seen)
-	case Until:
-		collectSignalsInto(v.Left, signals, seen)
-		collectSignalsInto(v.Right, signals, seen)
-	case Release:
-		collectSignalsInto(v.Left, signals, seen)
-		collectSignalsInto(v.Right, signals, seen)
+		return []Formula{v.Inner}
 	case MetricAlways:
-		collectSignalsInto(v.Inner, signals, seen)
+		return []Formula{v.Inner}
 	case MetricEventually:
-		collectSignalsInto(v.Inner, signals, seen)
+		return []Formula{v.Inner}
+	case And:
+		return []Formula{v.Left, v.Right}
+	case Or:
+		return []Formula{v.Left, v.Right}
+	case Until:
+		return []Formula{v.Left, v.Right}
+	case Release:
+		return []Formula{v.Left, v.Right}
 	case MetricUntil:
-		collectSignalsInto(v.Left, signals, seen)
-		collectSignalsInto(v.Right, signals, seen)
+		return []Formula{v.Left, v.Right}
 	case MetricRelease:
-		collectSignalsInto(v.Left, signals, seen)
-		collectSignalsInto(v.Right, signals, seen)
+		return []Formula{v.Left, v.Right}
 	default:
-		// Formula is sealed (the unexported formula() marker method), so
-		// the concrete formula types above are exhaustive; this arm is
-		// reached only by degenerate values (nil, a *T pointer to a
-		// concrete formula type, or an embedding type), which are treated
-		// as contributing no signals.
+		return nil
 	}
 }
 
-// predicateSignal returns the signal name from a predicate.
+// predicateSignal is the signal a predicate names, empty for a value outside
+// the sealed set.
 func predicateSignal(p Predicate) SignalName {
 	switch v := p.(type) {
 	case Equals:
@@ -300,16 +264,12 @@ func predicateSignal(p Predicate) SignalName {
 	case StableWithin:
 		return v.Signal
 	default:
-		// Predicate is sealed (the unexported predicate() marker method),
-		// so the concrete predicate types above are exhaustive; degenerate
-		// values (nil, a pointer, or an embedding type) fall through here.
-		// The return also satisfies Go's missing-return rule.
 		return ""
 	}
 }
 
-// formatEnrichedReason builds the enriched reason string from a diagnostic, signal values,
-// and the raw core reason. When coreReason is non-empty it is appended as context.
+// formatEnrichedReason is the observed values, then the core's reason when
+// it has one.
 func formatEnrichedReason(diag PropertyDiagnostic, values map[SignalName]Rational, coreReason string) string {
 	base := formatObservedBase(diag, values)
 	if coreReason != "" {
@@ -318,16 +278,12 @@ func formatEnrichedReason(diag PropertyDiagnostic, values map[SignalName]Rationa
 	return base
 }
 
-// formatObservedBase renders the observed-values portion of an enriched reason.
-// Each observed value renders via the kernel formatℚ (formatRational) — exact,
-// not lossy %g, and byte-identical to the other bindings.
-//
-// Eval-path degrade (parity with Python format_enriched_reason and C++
-// client.cpp): this renders an ALREADY-PROCESSED frame's observed values, so the
-// GHC runtime is necessarily up (a frame was just processed) and a render
-// failure can only be a catastrophic null kernel return — degrade the whole
-// reason to the formula description rather than propagating, so an enriched
-// reason never sinks a processed frame.
+// formatObservedBase prints the observed values of the signals the
+// diagnostic names, each through the kernel renderer, then the formula;
+// with no value to print it falls back to the formula alone. A render
+// failure falls back the same way rather than failing the frame, as the
+// Python and C++ enrichment do: the frame was just processed, so the
+// runtime is up and such a failure is a kernel malfunction.
 func formatObservedBase(diag PropertyDiagnostic, values map[SignalName]Rational) string {
 	if len(values) == 0 {
 		return "violated: " + diag.FormulaDesc
@@ -350,41 +306,31 @@ func formatObservedBase(diag PropertyDiagnostic, values map[SignalName]Rational)
 	return strings.Join(parts, ", ") + " (formula: " + diag.FormulaDesc + ")"
 }
 
-// --- Extraction cache ---
-
-// maxExtractCache bounds the extraction cache capacity. The cache is a plain
-// bounded map (entries are rejected when the map is full — no eviction).
-// 256 entries covers most production DBCs (typically 20–60 CAN IDs × 1–3
-// DLC variants) with headroom for bursty traffic patterns, while keeping
-// the per-Client memory footprint under ~100 KB for the map overhead.
+// maxExtractCache bounds the extraction cache; a full cache refuses new
+// entries rather than evicting. It covers a DBC of several dozen CAN IDs
+// with a few DLC variants each and keeps the map overhead small.
 const maxExtractCache = 256
 
-// frameMeta is the payload-free part of a frame's cache identity; the
-// payload bytes form the inner map key (see extractCache.entries).
+// frameMeta is a frame's cache identity without its payload, which keys the
+// inner map.
 type frameMeta struct {
 	idValue    uint32
 	isExtended bool
 	dlc        uint8
 }
 
-// extractCache is a bounded, frame-keyed cache of extraction results.
-// Keyed in two levels — frameMeta, then payload bytes — so the hit-path
-// lookup `entries[meta][string(data)]` compiles to Go's allocation-free
-// []byte→string map-index form. (A flat struct key with a string field
-// forces a heap copy of the payload on every lookup, including hits,
-// because the key value also flows into put on the miss branch.)
-// It is not thread-safe; all access must be synchronized by the caller
-// (the Client's channel-token lock, lockCh).
+// extractCache is a bounded cache of extraction results keyed in two
+// levels, frameMeta then payload bytes, so the hit path's map index on
+// string(data) compiles without allocating (a struct key holding the
+// payload would copy it on every lookup). The Client's lock serialises
+// every access.
 type extractCache struct {
 	entries map[frameMeta]map[string]*ExtractionResult
-	// count is the total number of stored results across the inner maps,
-	// keeping the maxExtractCache bound exact without a per-put sum.
+	// count is the number of stored results across the inner maps
 	count int
 }
 
-// newExtractCache returns an empty extract cache. Use it once per
-// Client; the cache is not safe for concurrent use and the Client holds
-// its channel-token lock (lockCh) whenever it reads or writes entries.
+// newExtractCache is an empty cache.
 func newExtractCache() *extractCache {
 	return &extractCache{entries: make(map[frameMeta]map[string]*ExtractionResult)}
 }
@@ -394,9 +340,8 @@ func (c *extractCache) get(meta frameMeta, data []byte) (*ExtractionResult, bool
 	return r, ok
 }
 
-// put stores a result if the cache is not full. Returns false when the cache
-// is at capacity and the entry was not stored. The payload is materialized
-// as an owned string key only here, on the store path.
+// put stores a result and reports whether it did; a full cache refuses. The
+// payload is copied into an owned key only here.
 func (c *extractCache) put(meta frameMeta, data []byte, result *ExtractionResult) bool {
 	if c.count >= maxExtractCache {
 		return false

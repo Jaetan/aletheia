@@ -7,92 +7,95 @@ package aletheia
 
 import "unsafe"
 
-// FFIBackend requires cgo. This stub exists so the package compiles with
-// CGO_ENABLED=0 (e.g. for MockBackend-only testing on non-Linux platforms).
+// The FFIBackend of a build without cgo, or off Linux. It carries the whole
+// surface its cgo twin does, so the package and the code calling it compile
+// either way and MockBackend stays usable, and every endpoint refuses, since
+// reaching the kernel needs dlopen. The build tag is the negation of the one
+// on ffi.go, so exactly one of the two is compiled.
 type FFIBackend struct{}
 
 func (*FFIBackend) backend() {}
 
-// NewFFIBackend returns an error because cgo/linux is not available in this build.
+// errNoCgo is the refusal the whole surface answers with.
+func errNoCgo() error {
+	return ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
+}
+
+// NewFFIBackend refuses: there is no way to open the library.
 func NewFFIBackend(_ string, _ ...FFIBackendOption) (*FFIBackend, error) {
-	return nil, ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
+	return nil, errNoCgo()
 }
 
-// Init is unavailable without cgo.
-func (b *FFIBackend) Init() (unsafe.Pointer, error) {
-	return nil, ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
+// NewFFIBackendFromEnv refuses for the same reason, whatever ALETHEIA_LIB names.
+func NewFFIBackendFromEnv(_ ...FFIBackendOption) (*FFIBackend, error) {
+	return nil, errNoCgo()
 }
 
-// Process is unavailable without cgo.
-func (b *FFIBackend) Process(_ unsafe.Pointer, _ string) (string, error) {
-	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
+// StablePtrCount is zero: no session can be opened without cgo.
+func StablePtrCount() int64 { return 0 }
+
+// Every endpoint below refuses. The signatures are the interface's, which the
+// assertion at the end of the file holds them to.
+
+// Init refuses.
+func (*FFIBackend) Init() (unsafe.Pointer, error) { return nil, errNoCgo() }
+
+// Process refuses.
+func (*FFIBackend) Process(_ unsafe.Pointer, _ string) (string, error) { return "", errNoCgo() }
+
+// SendFrameBinary refuses.
+func (*FFIBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
+	return "", errNoCgo()
 }
 
-// SendFrameBinary is unavailable without cgo.
-func (b *FFIBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
-	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
+// SendErrorBinary refuses.
+func (*FFIBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
+	return "", errNoCgo()
 }
 
-// Compile-time assertion that *FFIBackend satisfies the Backend interface
-// under the !cgo || !linux build tag, mirroring the cgo branch in ffi.go.
-// This catches Backend-interface signature drift at `go build` time rather
-// than at the first downstream caller — the gap that once let a signature
-// change (brs/esi *bool args) miss this stub for the !cgo build.
-var _ Backend = (*FFIBackend)(nil)
-
-// SendErrorBinary is unavailable without cgo.
-func (b *FFIBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
-	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
+// SendRemoteBinary refuses.
+func (*FFIBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
+	return "", errNoCgo()
 }
 
-// SendRemoteBinary is unavailable without cgo.
-func (b *FFIBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
-	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
+// StartStreamBinary refuses.
+func (*FFIBackend) StartStreamBinary(_ unsafe.Pointer) (string, error) { return "", errNoCgo() }
+
+// EndStreamBinary refuses.
+func (*FFIBackend) EndStreamBinary(_ unsafe.Pointer) (string, error) { return "", errNoCgo() }
+
+// FormatDBCBinary refuses.
+func (*FFIBackend) FormatDBCBinary(_ unsafe.Pointer) (string, error) { return "", errNoCgo() }
+
+// ExtractSignalsBinary refuses.
+func (*FFIBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
+	return "", errNoCgo()
 }
 
-// StartStreamBinary is unavailable without cgo.
-func (b *FFIBackend) StartStreamBinary(_ unsafe.Pointer) (string, error) {
-	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
+// BuildFrameBin refuses.
+func (*FFIBackend) BuildFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []SignalInjection) ([]byte, error) {
+	return nil, errNoCgo()
 }
 
-// EndStreamBinary is unavailable without cgo.
-func (b *FFIBackend) EndStreamBinary(_ unsafe.Pointer) (string, error) {
-	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
+// UpdateFrameBin refuses.
+func (*FFIBackend) UpdateFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ []SignalInjection) ([]byte, error) {
+	return nil, errNoCgo()
 }
 
-// FormatDBCBinary is unavailable without cgo.
-func (b *FFIBackend) FormatDBCBinary(_ unsafe.Pointer) (string, error) {
-	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
+// ExtractSignalsBin refuses.
+func (*FFIBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
+	return nil, errNoCgo()
 }
 
-// ExtractSignalsBinary is unavailable without cgo.
-func (b *FFIBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
-	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
-}
+// Close has nothing to close.
+func (*FFIBackend) Close(_ unsafe.Pointer) {}
 
-// BuildFrameBin is unavailable without cgo.
-func (b *FFIBackend) BuildFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
-	return nil, ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
-}
-
-// UpdateFrameBin is unavailable without cgo.
-func (b *FFIBackend) UpdateFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
-	return nil, ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
-}
-
-// ExtractSignalsBin is unavailable without cgo.
-func (b *FFIBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
-	return nil, ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
-}
-
-// Close is a no-op without cgo.
-func (b *FFIBackend) Close(_ unsafe.Pointer) {}
-
-// formatRationalFFI is a no-FFI stub.  Returns an error on call: the
-// cross-binding Rational pretty-printer requires the Agda kernel, which is
-// unreachable without cgo.  Mirrors the error stance of the other FFI methods
-// on this stub.  Use MockBackend for non-cgo unit tests; the `formatRational`
-// display path is not supported in !cgo builds.
+// formatRationalFFI refuses: the rational printer every binding shares is the
+// kernel's, and FromDecimal in decimal_nocgo.go refuses for the same reason.
 func formatRationalFFI(_ int64, _ int64) (string, error) {
 	return "", ffiError("formatRational requires cgo on linux; build with CGO_ENABLED=1")
 }
+
+// The interface is satisfied here as it is in the cgo file, so a drift in its
+// signatures fails this build rather than the first caller's.
+var _ Backend = (*FFIBackend)(nil)

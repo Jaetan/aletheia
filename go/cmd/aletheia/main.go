@@ -2,19 +2,18 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 // Command aletheia is the Go host CLI for the Aletheia CAN signal
-// verification core. It mirrors the Python `python -m aletheia` subcommand
-// surface — validate, extract, signals, format-dbc, mux-query — by
-// dispatching to the real verified Agda core through the cgo/dlopen client
-// (no analysis logic is reimplemented here; the CLI is plumbing only).
+// verification core. It carries the subcommands `python -m aletheia` carries,
+// validate, extract, signals, format-dbc and mux-query, and dispatches each to
+// the verified Agda core through the cgo client. No analysis is reimplemented
+// here; the CLI is plumbing.
 //
-// The `check` subcommand (LTL evaluation over a CAN log file) is
-// intentionally absent: it requires a verified CAN-log reader the Go
-// binding does not yet provide, tracked as a Phase 6 item (the python-can
-// replacement). DBC sources are `.dbc` text files parsed by the verified
-// text parser; canonical-JSON and `.xlsx` inputs are not yet wired.
+// There is no `check` subcommand, which evaluates a formula over a CAN log
+// file: it needs a CAN-log reader the Go binding does not provide. A DBC source
+// is a `.dbc` text file read by the verified text parser; canonical JSON and
+// `.xlsx` are not accepted.
 //
-// Flags may appear before or after positionals (reorderArgs normalizes the
-// order before stdlib flag parsing, matching the Python argparse UX), e.g.:
+// Flags may appear before or after positionals, reorderArgs putting them in the
+// order the standard flag package wants, as the Python CLI does:
 //
 //	aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
 //	aletheia mux-query --dbc vehicle.dbc 0x100 --mux Mode --value 5
@@ -33,7 +32,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
 const (
@@ -64,9 +63,8 @@ func run(argv []string) int {
 	case "mux-query":
 		return cmdMuxQuery(rest)
 	case "check":
-		fmt.Fprintln(os.Stderr, "Error: 'check' is not available in the Go CLI yet — "+
-			"it needs a verified CAN-log reader (Phase 6: python-can replacement). "+
-			"Use the Python CLI for log-file checking.")
+		fmt.Fprintln(os.Stderr, "Error: 'check' is not available in the Go CLI: it needs a CAN-log reader "+
+			"the binding does not provide. Use the Python CLI for log-file checking.")
 		return exitError
 	case "-h", "--help", "help":
 		fmt.Println(usage)
@@ -77,7 +75,7 @@ func run(argv []string) int {
 	}
 }
 
-const usage = `aletheia — formally verified CAN signal analysis (Go CLI)
+const usage = `aletheia: formally verified CAN signal analysis (Go CLI)
 
 Usage: aletheia <command> [flags] [args]
 
@@ -98,17 +96,16 @@ func die(msg string) int {
 	return exitError
 }
 
-// newFlagSet builds a per-subcommand flag set that reports parse errors to
-// the caller (ContinueOnError) instead of calling os.Exit, so run() owns
-// the process exit code.
+// newFlagSet builds a flag set that hands a parse error back rather than
+// exiting, so run owns the process exit code.
 func newFlagSet(name string) *flag.FlagSet {
 	return flag.NewFlagSet(name, flag.ContinueOnError)
 }
 
-// reorderArgs moves flag tokens (and their values) ahead of positional
-// arguments so flags may appear after positionals — matching the Python
-// CLI's argparse behavior. Go's flag package otherwise stops at the first
-// non-flag token. boolFlags names the flags that take no value.
+// reorderArgs moves each flag, and the value that follows it, ahead of the
+// positionals, so a flag may be written after one. The standard flag package
+// otherwise stops at the first token that is not a flag. boolFlags names the
+// flags that take no value.
 func reorderArgs(argv []string, boolFlags map[string]bool) []string {
 	flags := make([]string, 0, len(argv))
 	pos := make([]string, 0, len(argv))
@@ -124,8 +121,8 @@ func reorderArgs(argv []string, boolFlags map[string]bool) []string {
 		}
 		flags = append(flags, a)
 		name := strings.TrimLeft(a, "-")
-		// "--flag value" form: pull the value too, unless it's a bool flag
-		// or already "--flag=value".
+		// The value of a flag written apart from it, unless the flag takes
+		// none or already carries it.
 		if !strings.ContainsRune(name, '=') && !boolFlags[name] && i+1 < len(argv) {
 			flags = append(flags, argv[i+1])
 			i++
@@ -153,6 +150,22 @@ func resolveLib() string {
 	return ""
 }
 
+// openDBC opens a client on the verified core and reads a DBC through the text
+// parser. A failure closes the client, so a caller defers the close on the one
+// path that has something to close.
+func openDBC(path string) (*aletheia.Client, aletheia.DBCDefinition, []aletheia.ValidationIssue, error) {
+	client, err := newClient()
+	if err != nil {
+		return nil, aletheia.DBCDefinition{}, nil, err
+	}
+	def, warnings, err := loadDBCText(client, path)
+	if err != nil {
+		client.Close()
+		return nil, aletheia.DBCDefinition{}, nil, err
+	}
+	return client, def, warnings, nil
+}
+
 // newClient builds a client over the real FFI backend.
 func newClient() (*aletheia.Client, error) {
 	lib := resolveLib()
@@ -166,12 +179,11 @@ func newClient() (*aletheia.Client, error) {
 	return aletheia.NewClient(backend)
 }
 
-// loadDBCText reads a .dbc text file and parses it through the verified
-// Agda text parser. The kernel's parse epilogue IS full DBC validation, so
-// the returned warnings are the complete validation issue list for the
-// parsed DBC (a parse that would carry errors is rejected by the kernel
-// instead — it surfaces here as a ValidationFailedError). Canonical-JSON
-// and .xlsx inputs are not yet wired.
+// loadDBCText reads a .dbc text file through the verified text parser. The
+// parse epilogue is the whole of DBC validation, so the warnings it returns are
+// the entire issue list: a DBC carrying errors is refused by the kernel, and
+// arrives here as a ValidationFailedError instead. Canonical JSON and .xlsx are
+// not accepted.
 func loadDBCText(client *aletheia.Client, path string) (aletheia.DBCDefinition, []aletheia.ValidationIssue, error) {
 	if path == "" {
 		return aletheia.DBCDefinition{}, nil, fmt.Errorf("no DBC source (use --dbc <file>.dbc)")
@@ -203,14 +215,12 @@ func parseCANID(s string) (uint32, error) {
 
 func makeCANID(n uint32, extended bool) (aletheia.CANID, error) {
 	if extended {
-		id, err := aletheia.NewExtendedID(n)
-		return id, err
+		return aletheia.NewExtendedID(n)
 	}
 	if n > 0x7FF {
 		return nil, fmt.Errorf("standard CAN ID 0x%X exceeds 11 bits (use --extended)", n)
 	}
-	id, err := aletheia.NewStandardID(uint16(n))
-	return id, err
+	return aletheia.NewStandardID(uint16(n))
 }
 
 func parseHexData(s string) ([]byte, error) {
@@ -230,12 +240,17 @@ func parseHexData(s string) ([]byte, error) {
 	return out, nil
 }
 
+// emitJSON writes one report and answers the exit code for having written it.
+// A write that fails is fatal: a caller reading this stream would otherwise
+// take a truncated report from a process that reported success.
 func emitJSON(v any) int {
 	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return die(fmt.Sprintf("encoding JSON: %v", err))
 	}
-	fmt.Println(string(b))
+	if _, err := fmt.Println(string(b)); err != nil {
+		return die(fmt.Sprintf("writing the report: %v", err))
+	}
 	return exitOK
 }
 
@@ -248,32 +263,26 @@ func cmdValidate(argv []string) int {
 	if err := fs.Parse(argv); err != nil {
 		return exitError
 	}
-	client, err := newClient()
+	client, _, warnings, err := openDBC(*dbc)
 	if err != nil {
-		return die(err.Error())
-	}
-	_, warnings, err := loadDBCText(client, *dbc)
-	if err != nil {
-		// A DBC that parses syntactically but fails structural validation
-		// carries a has_errors/issues payload — render it as a validation
-		// report (issue list, exit 1) instead of dying with the bare
-		// message. A syntactically-unparseable DBC has no issues payload
-		// and still dies below.
+		// A DBC that parses and then fails validation carries the issues with
+		// it, and those are the report. One that does not parse carries none,
+		// and falls through to the message below.
 		var vfe *aletheia.ValidationFailedError
 		if errors.As(err, &vfe) {
 			return renderValidation(vfe.HasErrors, vfe.Issues, *asJSON)
 		}
 		return die(err.Error())
 	}
-	// The kernel's parse epilogue IS full DBC validation: on parse success
-	// has_errors is structurally false and the parse warnings are the
-	// complete issue list — no second kernel round-trip needed.
+	defer client.Close()
+	// The parse epilogue is the whole of DBC validation, so on a parse that
+	// succeeded there are no errors and the warnings are the entire issue list.
 	return renderValidation(false, warnings, *asJSON)
 }
 
-// renderValidation emits the validate subcommand's result — JSON or text —
-// from the has_errors/issues pair shared by the parse-success warnings and
-// a parse-time ValidationFailedError.
+// renderValidation writes the result of validate, as JSON or as text, from the
+// pair that a parse carries either way: whether there were errors, and the
+// issues.
 func renderValidation(hasErrors bool, resIssues []aletheia.ValidationIssue, asJSON bool) int {
 	if asJSON {
 		issues := make([]map[string]any, 0, len(resIssues))
@@ -294,13 +303,12 @@ func renderValidation(hasErrors bool, resIssues []aletheia.ValidationIssue, asJS
 			"total_issues": len(resIssues),
 			"issues":       issues,
 		})
-		// An emit failure is an operational error and must not be masked
-		// by the validation outcome.
+		// A failure to write is this run's outcome, not the DBC's.
 		if code != exitOK {
 			return code
 		}
-		// The exit code reflects the validation outcome in both output
-		// modes — a pipeline running --json still needs exit 1 on failure.
+		// The exit code carries the outcome in both output modes, a pipeline
+		// reading the JSON needing it as much as a person reading the text.
 		if hasErrors {
 			return exitViolations
 		}
@@ -345,14 +353,11 @@ func cmdExtract(argv []string) int {
 	if err != nil {
 		return die(err.Error())
 	}
-	client, err := newClient()
+	client, def, _, err := openDBC(*dbc)
 	if err != nil {
 		return die(err.Error())
 	}
-	def, _, err := loadDBCText(client, *dbc)
-	if err != nil {
-		return die(err.Error())
-	}
+	defer client.Close()
 	id, err := makeCANID(canID, *extended)
 	if err != nil {
 		return die(err.Error())
@@ -450,14 +455,11 @@ func cmdSignals(argv []string) int {
 	if err := fs.Parse(argv); err != nil {
 		return exitError
 	}
-	client, err := newClient()
+	client, def, _, err := openDBC(*dbc)
 	if err != nil {
 		return die(err.Error())
 	}
-	def, _, err := loadDBCText(client, *dbc)
-	if err != nil {
-		return die(err.Error())
-	}
+	defer client.Close()
 	if *asJSON {
 		return emitJSON(def) // canonical via DBCDefinition.MarshalJSON
 	}
@@ -504,13 +506,11 @@ func cmdFormatDBC(argv []string) int {
 	if err := fs.Parse(argv); err != nil {
 		return exitError
 	}
-	client, err := newClient()
+	client, _, _, err := openDBC(*dbc)
 	if err != nil {
 		return die(err.Error())
 	}
-	if _, _, err := loadDBCText(client, *dbc); err != nil {
-		return die(err.Error())
-	}
+	defer client.Close()
 	canonical, err := client.FormatDBC(context.Background())
 	if err != nil {
 		return die(err.Error())
@@ -533,19 +533,19 @@ func cmdMuxQuery(argv []string) int {
 	if fs.NArg() != 1 {
 		return die("mux-query requires a <message> positional argument (CAN ID or name)")
 	}
-	client, err := newClient()
+	client, def, _, err := openDBC(*dbc)
 	if err != nil {
 		return die(err.Error())
 	}
-	def, _, err := loadDBCText(client, *dbc)
-	if err != nil {
-		return die(err.Error())
-	}
+	defer client.Close()
 	msg := resolveMuxMessage(def, fs.Arg(0), *extended)
 	if msg == nil {
 		return die(fmt.Sprintf("message not found by id or name: %q", fs.Arg(0)))
 	}
-	if (*muxName == "") != (*value < 0) {
+	if *value < -1 || (*muxName == "") != (*value < 0) {
+		if *value < -1 {
+			return die(fmt.Sprintf("--value must not be negative, got %d", *value))
+		}
 		return die("--mux and --value must be provided together")
 	}
 	if *muxName != "" {
@@ -560,8 +560,11 @@ func cmdMuxQuery(argv []string) int {
 				"signals":      names,
 			})
 		}
-		fmt.Printf("Message 0x%X %s — %s = %d: %d signals (%s)\n",
-			msg.ID.Value(), msg.Name, *muxName, *value, len(names), strings.Join(names, ", "))
+		printMessageHeader(msg)
+		fmt.Printf("Multiplexor %s = %d: %d signals present\n", *muxName, *value, len(names))
+		for _, n := range names {
+			fmt.Printf("  %s\n", n)
+		}
 		return exitOK
 	}
 	if *asJSON {
@@ -583,9 +586,9 @@ func cmdMuxQuery(argv []string) int {
 			"multiplexors":   muxes,
 		})
 	}
-	fmt.Printf("Message 0x%X %s (DLC %d)\n", msg.ID.Value(), msg.Name, msg.DLC.ToBytes())
+	printMessageHeader(msg)
 	if !msg.IsMultiplexed() {
-		fmt.Printf("  Not multiplexed — %d signals always present.\n", len(msg.Signals))
+		fmt.Printf("  Not multiplexed: all %d signals are always present.\n", len(msg.Signals))
 		return exitOK
 	}
 	for _, name := range msg.MultiplexorNames() {
@@ -596,6 +599,13 @@ func cmdMuxQuery(argv []string) int {
 		}
 	}
 	return exitOK
+}
+
+// printMessageHeader is the line both mux-query modes open with, and the one
+// the C++ and Python interfaces print: the identifier, the name and the
+// payload length.
+func printMessageHeader(msg *aletheia.DBCMessage) {
+	fmt.Printf("Message 0x%X %s (DLC %d)\n", msg.ID.Value(), msg.Name, msg.DLC.ToBytes())
 }
 
 func resolveMuxMessage(def aletheia.DBCDefinition, ident string, extended bool) *aletheia.DBCMessage {

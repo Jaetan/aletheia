@@ -15,11 +15,15 @@
 #include <aletheia/error.hpp>
 #include <aletheia/types.hpp>
 
+#include <array>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace aletheia::detail {
 
@@ -119,8 +123,11 @@ inline constexpr std::string_view k_drops_below = "drops_below";
         return check::signal(std::string{signal}).never_below(value);
     if (condition == k_never_equals)
         return check::signal(std::string{signal}).never_equals(value);
-    // Caller must validate condition before calling; unreachable in correct usage.
-    throw std::invalid_argument("Unknown simple condition: " + std::string{condition});
+    // The caller holds the word to the vocabulary first, so this is the path a
+    // word added to the vocabulary and to no builder takes. It is a runtime_error
+    // because that is what both loaders catch and turn into a typed refusal; a
+    // logic_error would escape them and end the process.
+    throw std::runtime_error("Unknown simple condition: " + std::string{condition});
 }
 
 /// Apply a when-condition to a WhenSignal builder.
@@ -132,7 +139,24 @@ inline constexpr std::string_view k_drops_below = "drops_below";
         return builder.equals(value);
     if (condition == k_drops_below)
         return builder.drops_below(value);
-    throw std::invalid_argument("Unknown when condition: " + std::string{condition});
+    throw std::runtime_error("Unknown when condition: " + std::string{condition});
+}
+
+/// Build the obligation a word names, from the slots the table says it reads.
+/// The unread slots are whatever the loader passed and are ignored, as they are
+/// in the Go binding's dispatcher of the same name. A word outside the table
+/// is refused here rather than built as whichever branch came last, which is
+/// what both loaders used to do.
+[[nodiscard]] inline auto dispatch_then(const ThenSignal& builder, std::string_view condition,
+                                        PhysicalValue value, PhysicalValue lo, PhysicalValue hi,
+                                        std::chrono::milliseconds within) -> CheckResult {
+    if (condition == k_equals)
+        return builder.equals(value).within(within);
+    if (condition == k_exceeds)
+        return builder.exceeds(value).within(within);
+    if (condition == k_stays_between)
+        return builder.stays_between(lo, hi).within(within);
+    throw std::runtime_error("Unknown then condition: " + std::string{condition});
 }
 
 // ---------------------------------------------------------------------------
@@ -160,8 +184,26 @@ inline constexpr std::string_view k_drops_below = "drops_below";
     return c == k_exceeds || c == k_equals || c == k_drops_below;
 }
 
-[[nodiscard]] inline auto is_then_condition(std::string_view c) -> bool {
-    return c == k_equals || c == k_exceeds || c == k_stays_between;
+/// The value slots an obligation reads: one value, or a pair of bounds.
+enum class ThenSlots : std::uint8_t { Value, Range };
+
+/// Which slots each obligation reads, written once. A loader asks this rather
+/// than deciding again, because a loader that decides does so with a trailing
+/// branch: a word this table gained and that branch did not was built as
+/// whatever the branch happened to be, which was the range obligation in both
+/// loaders of both bindings. The set a loader accepts is this table's keys, so
+/// an obligation cannot be accepted and unclassified.
+inline constexpr std::array<std::pair<std::string_view, ThenSlots>, 3> k_then_slots{{
+    {k_equals, ThenSlots::Value},
+    {k_exceeds, ThenSlots::Value},
+    {k_stays_between, ThenSlots::Range},
+}};
+
+[[nodiscard]] constexpr auto then_slots(std::string_view c) -> std::optional<ThenSlots> {
+    for (const auto& [word, slots] : k_then_slots)
+        if (c == word)
+            return slots;
+    return std::nullopt;
 }
 
 } // namespace aletheia::detail

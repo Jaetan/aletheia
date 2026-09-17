@@ -1,24 +1,21 @@
-// Aletheia Excel loader — separate module so the heavy excelize dependency
-// (and its transitive crypto / net / text chain) is fully optional. Users who
-// want YAML- or code-driven checks can depend on aletheia-go alone; those
-// who want the Excel template workflow add this module on top.
+// The Aletheia Excel loader, a module of its own so that excelize, and the
+// cryptography, network and text packages it brings with it, are optional: a
+// consumer driving checks from YAML or from code depends on the core module
+// alone, and one wanting the workbook loaders adds this on top.
 //
-// Local development resolves the `github.com/aletheia-automotive/aletheia-go
-// v0.0.0` placeholder below via an explicit `replace` directive in
-// ../go.work. go.work is monorepo-local (never shipped), so this file can
-// ship as-is — a published release rewrites v0.0.0 to a real tagged version
-// and drops the now-unused workspace replace. Replaces in this go.mod are
-// deliberately absent: they would leak a relative path into published
-// modules, breaking `go get github.com/aletheia-automotive/aletheia-go/excel`
-// for downstream consumers.
-module github.com/aletheia-automotive/aletheia-go/excel
+// The core module is required below at the version of the last release, which
+// ../go.work resolves to this tree during development. Its path carries the
+// matching major-version suffix, without which Go refuses any major above the
+// first: a release named here is a release the path can carry. This file
+// carries no replace of its own: it would travel with the module.
+module github.com/Jaetan/aletheia/go/excel
 
 go 1.24.0
 
 toolchain go1.24.6
 
 require (
-	github.com/aletheia-automotive/aletheia-go v0.0.0
+	github.com/Jaetan/aletheia/go/v5 v5.0.0
 	github.com/xuri/excelize/v2 v2.10.1
 )
 

@@ -6,7 +6,7 @@
 // Measures throughput, latency, and scaling for CAN 2.0B and CAN-FD frames
 // through the Aletheia FFI pipeline (Go -> cgo -> Haskell/MAlonzo/Agda).
 //
-// Usage (from the go/ module directory — the repo root has no go.mod):
+// Usage, from the go/ module directory, the repo root having no go.mod:
 //
 //	cd go && go run ./benchmarks [throughput|latency|scaling] \
 //	    [--frames N] [--runs N] [--ops N] [--warmup N] [--quick] [--json]
@@ -21,43 +21,54 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
+
+// die reports a condition that makes the report untrue and exits. Every
+// measured failure is fatal: a lane left out, or a row computed from fewer
+// runs than it claims, is indistinguishable from a healthy one in
+// benchmarks/SCHEMA.yaml and reads as "not measured yet" rather than "broken".
+func die(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "benchmark: "+format+"\n", args...)
+	os.Exit(1)
+}
 
 // ctx is the benchmark default context. Benchmarks measure unconditional
 // throughput; cancellation is exercised in the test suite, not here.
 var ctx = context.Background()
 
-// ---------------------------------------------------------------------------
-// Library discovery
-// ---------------------------------------------------------------------------
-
+// findLibrary answers the path the kernel is loaded from: what ALETHEIA_LIB
+// names, else the build tree as seen from the executable or from the working
+// directory. Every candidate is checked; the last is returned unchecked, so a
+// benchmark that cannot load names a path rather than nothing.
 func findLibrary() string {
-	if p := os.Getenv("ALETHEIA_LIB"); p != "" {
-		return p
+	if path := os.Getenv("ALETHEIA_LIB"); path != "" {
+		return path
 	}
-	// Relative to the go/ directory (two levels up from go/benchmarks/).
-	exe, err := os.Executable()
-	if err == nil {
-		rel := filepath.Join(filepath.Dir(exe), "..", "..", "build", "libaletheia-ffi.so")
-		if _, err := os.Stat(rel); err == nil {
-			return rel
+	const soName = "libaletheia-ffi.so"
+	// The repo root, go/ and go/benchmarks/: the working directories the usage
+	// above and benchmarks/run_all.sh run this from.
+	candidates := []string{
+		filepath.Join("build", soName),
+		filepath.Join("..", "build", soName),
+		filepath.Join("..", "..", "build", soName),
+	}
+	// A built binary sits in go/benchmarks/, two levels under the repo root.
+	if exe, err := os.Executable(); err == nil {
+		fromExe := filepath.Join(filepath.Dir(exe), "..", "..", "build", soName)
+		candidates = append([]string{fromExe}, candidates...)
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
 		}
 	}
-	// Relative to the go/ directory when run with `go run` from the repo root.
-	if _, err := os.Stat("build/libaletheia-ffi.so"); err == nil {
-		return "build/libaletheia-ffi.so"
-	}
-	return "../../build/libaletheia-ffi.so"
+	return candidates[len(candidates)-1]
 }
-
-// ---------------------------------------------------------------------------
-// DBC definitions (programmatic, matching examples/*.dbc)
-// ---------------------------------------------------------------------------
 
 func mustStdID(v uint16) aletheia.CANID {
 	id, err := aletheia.NewStandardID(v)
@@ -81,11 +92,9 @@ func rat(num, den int64) aletheia.Rational {
 }
 
 func can20DBC() aletheia.DBCDefinition {
-	// Use NewDBCMessage / NewDBCDefinition so the generated indices exercise
-	// the map-backed lookup path real users get. Directly populating the
-	// structs leaves the signalIndex / nameIndex / idIndex fields nil and
-	// drops SignalByName, MessageByID, and MessageByName onto their linear-
-	// scan fallback — a benchmark-correctness defect.
+	// The constructors fill the lookup indices. A struct literal leaves them
+	// nil, which drops SignalByName, MessageByID and MessageByName onto a
+	// linear scan and measures a path no user takes.
 	msgs := []aletheia.DBCMessage{
 		aletheia.NewDBCMessage(mustStdID(0x100), "EngineStatus", mustDLC(8), "ECU1", nil, []aletheia.DBCSignal{
 			{Name: "EngineSpeed", StartBit: 0, BitLength: 16, ByteOrder: aletheia.LittleEndian, IsSigned: false,
@@ -106,8 +115,6 @@ func can20DBC() aletheia.DBCDefinition {
 func canfdDBC() aletheia.DBCDefinition {
 	ap := aletheia.AlwaysPresent{}
 	le := aletheia.LittleEndian
-	// See comment on can20DBC — constructors populate the map-backed indices
-	// so the benchmark measures the lookup path real users exercise.
 	msgs := []aletheia.DBCMessage{
 		aletheia.NewDBCMessage(mustStdID(0x200), "SensorFusion", mustDLC(15), "SensorGateway",
 			nil,
@@ -142,10 +149,6 @@ func canfdDBC() aletheia.DBCDefinition {
 	return *aletheia.NewDBCDefinition("", msgs)
 }
 
-// ---------------------------------------------------------------------------
-// Frame payloads
-// ---------------------------------------------------------------------------
-
 var can20Frame = aletheia.FramePayload([]byte{0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00})
 
 var canfdFrame = func() aletheia.FramePayload {
@@ -170,19 +173,15 @@ var canfdFrame = func() aletheia.FramePayload {
 	return aletheia.FramePayload(base)
 }()
 
-// ---------------------------------------------------------------------------
-// LTL properties
-// ---------------------------------------------------------------------------
-
 var can20Properties = []aletheia.Formula{
-	aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineSpeed", Min: aletheia.IntRational(0), Max: aletheia.IntRational(8000)}}},
-	aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineTemp", Min: aletheia.IntRational(-40), Max: aletheia.IntRational(215)}}},
+	alwaysBetween("EngineSpeed", 0, 8000),
+	alwaysBetween("EngineTemp", -40, 215),
 }
 
 var canfdProperties = []aletheia.Formula{
-	aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "GPSSpeed", Min: aletheia.IntRational(0), Max: aletheia.IntRational(655)}}},
-	aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "YawRate", Min: aletheia.IntRational(-327), Max: aletheia.IntRational(327)}}},
-	aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "WheelSpeedFL", Min: aletheia.IntRational(0), Max: aletheia.IntRational(655)}}},
+	alwaysBetween("GPSSpeed", 0, 655),
+	alwaysBetween("YawRate", -327, 327),
+	alwaysBetween("WheelSpeedFL", 0, 655),
 }
 
 // CAN 2.0B signal values for frame building.
@@ -199,10 +198,6 @@ var canfdSignals = []aletheia.SignalValue{
 	{Name: "WheelSpeedFR", Value: aletheia.IntRational(10)},
 }
 
-// ---------------------------------------------------------------------------
-// CAN IDs and DLCs (pre-created)
-// ---------------------------------------------------------------------------
-
 var (
 	can20ID  = mustStdID(0x100)
 	can20DLC = mustDLC(8)
@@ -210,9 +205,63 @@ var (
 	canfdDLC = mustDLC(15)
 )
 
-// ---------------------------------------------------------------------------
-// Statistics helpers
-// ---------------------------------------------------------------------------
+// frameFamily is one CAN family the benchmarks measure: the DBC describing it,
+// the frame they send, the properties they check and the signals they build.
+type frameFamily struct {
+	name    string
+	dbc     aletheia.DBCDefinition
+	id      aletheia.CANID
+	dlc     aletheia.DLC
+	frame   aletheia.FramePayload
+	props   []aletheia.Formula
+	signals []aletheia.SignalValue
+}
+
+// families are the two, in the order every mode reports them.
+func families() []frameFamily {
+	return []frameFamily{
+		{name: "CAN 2.0B", dbc: can20DBC(), id: can20ID, dlc: can20DLC, frame: can20Frame, props: can20Properties, signals: can20Signals},
+		{name: "CAN-FD", dbc: canfdDBC(), id: canfdID, dlc: canfdDLC, frame: canfdFrame, props: canfdProperties, signals: canfdSignals},
+	}
+}
+
+// lane spells a throughput lane name. The padding is the summary table's column
+// alignment, and the spelling is pinned across the four bindings by
+// benchmarks/SCHEMA.yaml.
+func (f frameFamily) lane(what string) string {
+	return fmt.Sprintf("%-10s%s", f.name+":", what)
+}
+
+// clientFor opens a client on the family's DBC. streamingClientFor adds the
+// properties and starts the stream. A setup failure closes the client, so no
+// measurement runs against a half-built one.
+func clientFor(backend *aletheia.FFIBackend, f frameFamily) (*aletheia.Client, error) {
+	client, err := aletheia.NewClient(backend)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := client.ParseDBC(ctx, f.dbc); err != nil {
+		client.Close()
+		return nil, err
+	}
+	return client, nil
+}
+
+func streamingClientFor(backend *aletheia.FFIBackend, f frameFamily, props []aletheia.Formula) (*aletheia.Client, error) {
+	client, err := clientFor(backend, f)
+	if err != nil {
+		return nil, err
+	}
+	if err := client.SetProperties(ctx, props); err != nil {
+		client.Close()
+		return nil, err
+	}
+	if err := client.StartStream(ctx); err != nil {
+		client.Close()
+		return nil, err
+	}
+	return client, nil
+}
 
 func mean(xs []float64) float64 {
 	if len(xs) == 0 {
@@ -238,24 +287,25 @@ func stdev(xs []float64) float64 {
 	return math.Sqrt(ss / float64(len(xs)-1))
 }
 
-func minSlice(xs []float64) float64 {
-	m := xs[0]
-	for _, x := range xs[1:] {
-		if x < m {
-			m = x
-		}
+// round1 and round3 are the rounding the cross-binding schema pins: one
+// decimal for a rate or a duration, three for a ratio.
+func round1(x float64) float64 { return math.Round(x*10) / 10 }
+func round3(x float64) float64 { return math.Round(x*1000) / 1000 }
+
+// usPerFrameOf inverts a rate, relativeOf compares one to a sweep's baseline.
+// Neither invents a number from a non-positive one.
+func usPerFrameOf(fps float64) float64 {
+	if fps <= 0 {
+		return 0
 	}
-	return m
+	return 1_000_000 / fps
 }
 
-func maxSlice(xs []float64) float64 {
-	m := xs[0]
-	for _, x := range xs[1:] {
-		if x > m {
-			m = x
-		}
+func relativeOf(fps, baseline float64) float64 {
+	if baseline <= 0 {
+		return 0
 	}
-	return m
+	return fps / baseline
 }
 
 func percentile(sorted []float64, p float64) float64 {
@@ -270,10 +320,6 @@ func percentile(sorted []float64, p float64) float64 {
 	}
 	return sorted[f] + (k-float64(f))*(sorted[c]-sorted[f])
 }
-
-// ---------------------------------------------------------------------------
-// System info
-// ---------------------------------------------------------------------------
 
 type systemInfo struct {
 	CPU      string `json:"cpu"`
@@ -291,30 +337,16 @@ func getSystemInfo() systemInfo {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Benchmark: Throughput
-// ---------------------------------------------------------------------------
-
-func benchmarkStreaming(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, props []aletheia.Formula, numFrames int) (float64, error) {
-	client, err := aletheia.NewClient(backend)
+func benchmarkStreaming(backend *aletheia.FFIBackend, f frameFamily, props []aletheia.Formula, numFrames int) (float64, error) {
+	client, err := streamingClientFor(backend, f, props)
 	if err != nil {
 		return 0, err
 	}
 	defer client.Close()
 
-	if _, err := client.ParseDBC(ctx, dbc); err != nil {
-		return 0, err
-	}
-	if err := client.SetProperties(ctx, props); err != nil {
-		return 0, err
-	}
-	if err := client.StartStream(ctx); err != nil {
-		return 0, err
-	}
-
 	start := time.Now()
 	for i := 0; i < numFrames; i++ {
-		if _, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(i)}, id, dlc, frame, nil, nil); err != nil {
+		if _, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(i)}, f.id, f.dlc, f.frame, nil, nil); err != nil {
 			return 0, err
 		}
 	}
@@ -326,20 +358,16 @@ func benchmarkStreaming(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition
 	return float64(numFrames) / elapsed.Seconds(), nil
 }
 
-func benchmarkExtraction(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, numFrames int) (float64, error) {
-	client, err := aletheia.NewClient(backend)
+func benchmarkExtraction(backend *aletheia.FFIBackend, f frameFamily, numFrames int) (float64, error) {
+	client, err := clientFor(backend, f)
 	if err != nil {
 		return 0, err
 	}
 	defer client.Close()
 
-	if _, err := client.ParseDBC(ctx, dbc); err != nil {
-		return 0, err
-	}
-
 	start := time.Now()
 	for i := 0; i < numFrames; i++ {
-		if _, err := client.ExtractSignals(ctx, id, dlc, frame); err != nil {
+		if _, err := client.ExtractSignals(ctx, f.id, f.dlc, f.frame); err != nil {
 			return 0, err
 		}
 	}
@@ -347,20 +375,16 @@ func benchmarkExtraction(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinitio
 	return float64(numFrames) / elapsed.Seconds(), nil
 }
 
-func benchmarkBuilding(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, id aletheia.CANID, signals []aletheia.SignalValue, dlc aletheia.DLC, numFrames int) (float64, error) {
-	client, err := aletheia.NewClient(backend)
+func benchmarkBuilding(backend *aletheia.FFIBackend, f frameFamily, numFrames int) (float64, error) {
+	client, err := clientFor(backend, f)
 	if err != nil {
 		return 0, err
 	}
 	defer client.Close()
 
-	if _, err := client.ParseDBC(ctx, dbc); err != nil {
-		return 0, err
-	}
-
 	start := time.Now()
 	for i := 0; i < numFrames; i++ {
-		if _, err := client.BuildFrame(ctx, id, dlc, signals); err != nil {
+		if _, err := client.BuildFrame(ctx, f.id, f.dlc, f.signals); err != nil {
 			return 0, err
 		}
 	}
@@ -380,94 +404,63 @@ type throughputResult struct {
 }
 
 func runThroughput(backend *aletheia.FFIBackend, out *os.File, numFrames, numRuns, warmupRuns int) []throughputResult {
-	type benchDef struct {
+	type lane struct {
 		name string
-		fn   func(int) (float64, error)
+		run  func(int) (float64, error)
 	}
-
-	dbc20 := can20DBC()
-	dbcFD := canfdDBC()
-
-	benchmarks := []benchDef{
-		{"CAN 2.0B: Stream LTL (2 props)", func(n int) (float64, error) {
-			return benchmarkStreaming(backend, dbc20, can20ID, can20DLC, can20Frame, can20Properties, n)
-		}},
-		{"CAN 2.0B: Signal Extraction", func(n int) (float64, error) {
-			return benchmarkExtraction(backend, dbc20, can20ID, can20DLC, can20Frame, n)
-		}},
-		{"CAN 2.0B: Frame Building", func(n int) (float64, error) {
-			return benchmarkBuilding(backend, dbc20, can20ID, can20Signals, can20DLC, n)
-		}},
-		{"CAN-FD:   Stream LTL (3 props)", func(n int) (float64, error) {
-			return benchmarkStreaming(backend, dbcFD, canfdID, canfdDLC, canfdFrame, canfdProperties, n)
-		}},
-		{"CAN-FD:   Signal Extraction", func(n int) (float64, error) {
-			return benchmarkExtraction(backend, dbcFD, canfdID, canfdDLC, canfdFrame, n)
-		}},
-		{"CAN-FD:   Frame Building", func(n int) (float64, error) {
-			return benchmarkBuilding(backend, dbcFD, canfdID, canfdSignals, canfdDLC, n)
-		}},
+	var lanes []lane
+	for _, f := range families() {
+		lanes = append(lanes,
+			lane{f.lane(fmt.Sprintf("Stream LTL (%d props)", len(f.props))), func(n int) (float64, error) {
+				return benchmarkStreaming(backend, f, f.props, n)
+			}},
+			lane{f.lane("Signal Extraction"), func(n int) (float64, error) {
+				return benchmarkExtraction(backend, f, n)
+			}},
+			lane{f.lane("Frame Building"), func(n int) (float64, error) {
+				return benchmarkBuilding(backend, f, n)
+			}},
+		)
 	}
 
 	var results []throughputResult
-	for _, b := range benchmarks {
-		fmt.Fprintf(out, "\n%s:\n", b.name)
+	for _, l := range lanes {
+		fmt.Fprintf(out, "\n%s:\n", l.name)
 		fmt.Fprintf(out, "%s\n", strings.Repeat("-", 40))
 
-		// Warmup — reported but deliberately not fatal: it produces no number that
-		// reaches the report, and a warmup failure that matters recurs in the
-		// measured runs below, where it IS fatal.
+		// A warmup failure is reported and not fatal: it produces no number that
+		// reaches the report, and one that matters recurs in the measured runs.
 		for w := 0; w < warmupRuns; w++ {
-			if _, err := b.fn(numFrames / 10); err != nil {
+			if _, err := l.run(numFrames / 10); err != nil {
 				fmt.Fprintf(out, "  Warmup error: %v\n", err)
 			}
 		}
 
-		// Actual runs.  ANY failed MEASURED run is fatal, matching Python and Rust,
-		// whose measured runs abort too.  (C++ does NOT: it discards each
-		// operation's Result, so it cannot notice a failed run at all — tracked
-		// separately.)  Continuing past one would
-		// publish a row whose `runs` field overstates the sample it was computed
-		// from, and a lane silently measured over fewer runs is indistinguishable
-		// from a healthy one.
-		var fpsList []float64
+		// A failed measured run is fatal, as it is for Python and Rust. The C++
+		// harness discards each operation's result and cannot notice one.
+		fpsList := make([]float64, 0, numRuns)
 		for r := 0; r < numRuns; r++ {
-			fps, err := b.fn(numFrames)
+			fps, err := l.run(numFrames)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "benchmark: lane %q run %d/%d failed: %v\n",
-					b.name, r+1, numRuns, err)
-				os.Exit(1)
+				die("lane %q run %d/%d failed: %v", l.name, r+1, numRuns, err)
 			}
 			fpsList = append(fpsList, fps)
 			fmt.Fprintf(out, "  Run %d/%d: %.0f ops/sec\n", r+1, numRuns, fps)
 		}
 
-		// Reachable only for --runs 0: a lane with no measurement is an error,
-		// never an omitted row (an omitted row is silently non-conformant with
-		// benchmarks/SCHEMA.yaml and reads as "not measured yet", not "broken").
-		if len(fpsList) == 0 {
-			fmt.Fprintf(os.Stderr, "benchmark: lane %q produced no measurement (runs = %d)\n",
-				b.name, numRuns)
-			os.Exit(1)
-		}
 		m := mean(fpsList)
-		usPerFrame := 0.0
-		if m > 0 {
-			usPerFrame = 1_000_000 / m
-		}
 		results = append(results, throughputResult{
-			Name:       b.name,
+			Name:       l.name,
 			Frames:     numFrames,
 			Runs:       numRuns,
-			FPSMean:    math.Round(m*10) / 10,
-			FPSStdev:   math.Round(stdev(fpsList)*10) / 10,
-			FPSMin:     math.Round(minSlice(fpsList)*10) / 10,
-			FPSMax:     math.Round(maxSlice(fpsList)*10) / 10,
-			USPerFrame: math.Round(usPerFrame*10) / 10,
+			FPSMean:    round1(m),
+			FPSStdev:   round1(stdev(fpsList)),
+			FPSMin:     round1(slices.Min(fpsList)),
+			FPSMax:     round1(slices.Max(fpsList)),
+			USPerFrame: round1(usPerFrameOf(m)),
 		})
 	}
 
-	// Summary.
 	fmt.Fprintf(out, "\n%s\n", strings.Repeat("=", 70))
 	fmt.Fprintf(out, "Summary\n")
 	fmt.Fprintf(out, "%s\n", strings.Repeat("=", 70))
@@ -481,10 +474,6 @@ func runThroughput(backend *aletheia.FFIBackend, out *os.File, numFrames, numRun
 	return results
 }
 
-// ---------------------------------------------------------------------------
-// Benchmark: Latency
-// ---------------------------------------------------------------------------
-
 type latencyStats struct {
 	Name   string  `json:"name"`
 	Count  int     `json:"count"`
@@ -497,38 +486,42 @@ type latencyStats struct {
 	P999US float64 `json:"p999_us"`
 }
 
-func measureStreamLatencies(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, props []aletheia.Formula, numOps, warmup int) ([]float64, error) {
-	client, err := aletheia.NewClient(backend)
+// measureLatencies times one operation numOps times, after warmup passes that
+// are not timed. The durations are microseconds.
+func measureLatencies(op func() error, numOps, warmup int) ([]float64, error) {
+	for i := 0; i < warmup; i++ {
+		if err := op(); err != nil {
+			return nil, err
+		}
+	}
+	latencies := make([]float64, 0, numOps)
+	for i := 0; i < numOps; i++ {
+		start := time.Now()
+		if err := op(); err != nil {
+			return nil, err
+		}
+		latencies = append(latencies, float64(time.Since(start).Nanoseconds())/1000.0)
+	}
+	return latencies, nil
+}
+
+func measureStreamLatencies(backend *aletheia.FFIBackend, f frameFamily, numOps, warmup int) ([]float64, error) {
+	client, err := streamingClientFor(backend, f, f.props)
 	if err != nil {
 		return nil, err
 	}
 	defer client.Close()
 
-	if _, err := client.ParseDBC(ctx, dbc); err != nil {
+	// The stream reads timestamps in order, so the warmup frames carry the first
+	// ones and the measured frames continue the count.
+	sent := 0
+	latencies, err := measureLatencies(func() error {
+		_, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(sent)}, f.id, f.dlc, f.frame, nil, nil)
+		sent++
+		return err
+	}, numOps, warmup)
+	if err != nil {
 		return nil, err
-	}
-	if err := client.SetProperties(ctx, props); err != nil {
-		return nil, err
-	}
-	if err := client.StartStream(ctx); err != nil {
-		return nil, err
-	}
-
-	// Warmup.
-	for i := 0; i < warmup; i++ {
-		if _, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(i)}, id, dlc, frame, nil, nil); err != nil {
-			return nil, err
-		}
-	}
-
-	// Measure.
-	latencies := make([]float64, 0, numOps)
-	for i := 0; i < numOps; i++ {
-		start := time.Now()
-		if _, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(warmup + i)}, id, dlc, frame, nil, nil); err != nil {
-			return nil, err
-		}
-		latencies = append(latencies, float64(time.Since(start).Nanoseconds())/1000.0) // microseconds
 	}
 
 	if _, err := client.EndStream(ctx); err != nil {
@@ -537,76 +530,44 @@ func measureStreamLatencies(backend *aletheia.FFIBackend, dbc aletheia.DBCDefini
 	return latencies, nil
 }
 
-func measureExtractionLatencies(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, numOps, warmup int) ([]float64, error) {
-	client, err := aletheia.NewClient(backend)
+func measureExtractionLatencies(backend *aletheia.FFIBackend, f frameFamily, numOps, warmup int) ([]float64, error) {
+	client, err := clientFor(backend, f)
 	if err != nil {
 		return nil, err
 	}
 	defer client.Close()
 
-	if _, err := client.ParseDBC(ctx, dbc); err != nil {
-		return nil, err
-	}
-
-	for i := 0; i < warmup; i++ {
-		if _, err := client.ExtractSignals(ctx, id, dlc, frame); err != nil {
-			return nil, err
-		}
-	}
-
-	latencies := make([]float64, 0, numOps)
-	for i := 0; i < numOps; i++ {
-		start := time.Now()
-		if _, err := client.ExtractSignals(ctx, id, dlc, frame); err != nil {
-			return nil, err
-		}
-		latencies = append(latencies, float64(time.Since(start).Nanoseconds())/1000.0)
-	}
-	return latencies, nil
+	return measureLatencies(func() error {
+		_, err := client.ExtractSignals(ctx, f.id, f.dlc, f.frame)
+		return err
+	}, numOps, warmup)
 }
 
-func measureBuildLatencies(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, id aletheia.CANID, signals []aletheia.SignalValue, dlc aletheia.DLC, numOps, warmup int) ([]float64, error) {
-	client, err := aletheia.NewClient(backend)
+func measureBuildLatencies(backend *aletheia.FFIBackend, f frameFamily, numOps, warmup int) ([]float64, error) {
+	client, err := clientFor(backend, f)
 	if err != nil {
 		return nil, err
 	}
 	defer client.Close()
 
-	if _, err := client.ParseDBC(ctx, dbc); err != nil {
-		return nil, err
-	}
-
-	for i := 0; i < warmup; i++ {
-		if _, err := client.BuildFrame(ctx, id, dlc, signals); err != nil {
-			return nil, err
-		}
-	}
-
-	latencies := make([]float64, 0, numOps)
-	for i := 0; i < numOps; i++ {
-		start := time.Now()
-		if _, err := client.BuildFrame(ctx, id, dlc, signals); err != nil {
-			return nil, err
-		}
-		latencies = append(latencies, float64(time.Since(start).Nanoseconds())/1000.0)
-	}
-	return latencies, nil
+	return measureLatencies(func() error {
+		_, err := client.BuildFrame(ctx, f.id, f.dlc, f.signals)
+		return err
+	}, numOps, warmup)
 }
 
 func analyzeLatencies(name string, raw []float64) latencyStats {
-	sorted := make([]float64, len(raw))
-	copy(sorted, raw)
-	sort.Float64s(sorted)
+	sorted := slices.Sorted(slices.Values(raw))
 	return latencyStats{
 		Name:   name,
 		Count:  len(raw),
-		MeanUS: math.Round(mean(raw)*10) / 10,
-		MinUS:  math.Round(minSlice(raw)*10) / 10,
-		MaxUS:  math.Round(maxSlice(raw)*10) / 10,
-		P50US:  math.Round(percentile(sorted, 50)*10) / 10,
-		P90US:  math.Round(percentile(sorted, 90)*10) / 10,
-		P99US:  math.Round(percentile(sorted, 99)*10) / 10,
-		P999US: math.Round(percentile(sorted, 99.9)*10) / 10,
+		MeanUS: round1(mean(raw)),
+		MinUS:  round1(slices.Min(raw)),
+		MaxUS:  round1(slices.Max(raw)),
+		P50US:  round1(percentile(sorted, 50)),
+		P90US:  round1(percentile(sorted, 90)),
+		P99US:  round1(percentile(sorted, 99)),
+		P999US: round1(percentile(sorted, 99.9)),
 	}
 }
 
@@ -626,57 +587,50 @@ func printLatencyStats(out *os.File, s latencyStats) {
 	}
 }
 
-// latencyLaneOrDie turns one measured lane into its stats row; a measurement
-// error is fatal, never an omitted lane.  An omitted lane makes the report
-// silently non-conformant with benchmarks/SCHEMA.yaml and reads as "not
-// measured yet" rather than "broken".
-func latencyLaneOrDie(out *os.File, name string, lat []float64, err error) latencyStats {
+// latencyLane turns one measured lane into its stats row and prints it.
+func latencyLane(out *os.File, name string, lat []float64, err error) latencyStats {
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "benchmark: latency lane %q failed: %v\n", name, err)
-		os.Exit(1)
-	}
-	// Same rule as the throughput and scaling lanes: no sample is a fatal error,
-	// never a published row.  Reachable only for --ops 0; without it
-	// analyzeLatencies indexes an empty slice and dies with a raw runtime panic
-	// instead of naming the lane.
-	if len(lat) == 0 {
-		fmt.Fprintf(os.Stderr, "benchmark: latency lane %q produced no measurement (ops = 0)\n", name)
-		os.Exit(1)
+		die("latency lane %q failed: %v", name, err)
 	}
 	s := analyzeLatencies(name, lat)
 	printLatencyStats(out, s)
 	return s
 }
 
-func runLatencySuite(backend *aletheia.FFIBackend, out *os.File, label string, dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, signals []aletheia.SignalValue, props []aletheia.Formula, numOps, warmup int) []latencyStats {
-	var allStats []latencyStats
+func runLatencySuite(backend *aletheia.FFIBackend, out *os.File, f frameFamily, numOps, warmup int) []latencyStats {
+	// The lane names are a different spelling from the throughput ones, and
+	// benchmarks/SCHEMA.yaml pins both across the four bindings.
+	lanes := []struct {
+		what    string
+		doing   string
+		measure func() ([]float64, error)
+	}{
+		{"Streaming LTL", "streaming", func() ([]float64, error) {
+			return measureStreamLatencies(backend, f, numOps, warmup)
+		}},
+		{"Signal Extraction", "signal extraction", func() ([]float64, error) {
+			return measureExtractionLatencies(backend, f, numOps, warmup)
+		}},
+		{"Frame Building", "frame building", func() ([]float64, error) {
+			return measureBuildLatencies(backend, f, numOps, warmup)
+		}},
+	}
 
-	// Streaming.
-	fmt.Fprintf(out, "\nBenchmarking %s streaming...\n", label)
-	lat, err := measureStreamLatencies(backend, dbc, id, dlc, frame, props, numOps, warmup)
-	allStats = append(allStats, latencyLaneOrDie(out, label+" Streaming LTL", lat, err))
-
-	// Extraction.
-	fmt.Fprintf(out, "\nBenchmarking %s signal extraction...\n", label)
-	lat, err = measureExtractionLatencies(backend, dbc, id, dlc, frame, numOps, warmup)
-	allStats = append(allStats, latencyLaneOrDie(out, label+" Signal Extraction", lat, err))
-
-	// Frame building.
-	fmt.Fprintf(out, "\nBenchmarking %s frame building...\n", label)
-	lat, err = measureBuildLatencies(backend, dbc, id, signals, dlc, numOps, warmup)
-	allStats = append(allStats, latencyLaneOrDie(out, label+" Frame Building", lat, err))
-
-	return allStats
+	stats := make([]latencyStats, 0, len(lanes))
+	for _, lane := range lanes {
+		fmt.Fprintf(out, "\nBenchmarking %s %s...\n", f.name, lane.doing)
+		lat, err := lane.measure()
+		stats = append(stats, latencyLane(out, f.name+" "+lane.what, lat, err))
+	}
+	return stats
 }
 
 func runLatency(backend *aletheia.FFIBackend, out *os.File, numOps, warmup int) []latencyStats {
-	dbc20 := can20DBC()
-	dbcFD := canfdDBC()
+	var stats []latencyStats
+	for _, f := range families() {
+		stats = append(stats, runLatencySuite(backend, out, f, numOps, warmup)...)
+	}
 
-	stats := runLatencySuite(backend, out, "CAN 2.0B", dbc20, can20ID, can20DLC, can20Frame, can20Signals, can20Properties, numOps, warmup)
-	stats = append(stats, runLatencySuite(backend, out, "CAN-FD", dbcFD, canfdID, canfdDLC, canfdFrame, canfdSignals, canfdProperties, numOps, warmup)...)
-
-	// Summary table.
 	fmt.Fprintf(out, "\n%s\n", strings.Repeat("=", 70))
 	fmt.Fprintf(out, "Summary (all times in microseconds)\n")
 	fmt.Fprintf(out, "%s\n", strings.Repeat("=", 70))
@@ -690,13 +644,8 @@ func runLatency(backend *aletheia.FFIBackend, out *os.File, numOps, warmup int) 
 	return stats
 }
 
-// ---------------------------------------------------------------------------
-// Benchmark: Scaling (property count)
-// ---------------------------------------------------------------------------
-
-// Scaling emits four sweeps under one dict-shaped payload; the struct field
-// order below IS the wire order the cross-binding schema (benchmarks/SCHEMA.yaml,
-// tools/check_bench_schema.py) pins across all four bindings.
+// Scaling reports four sweeps under one mapping. The field order below is the
+// wire order benchmarks/SCHEMA.yaml pins across the four bindings.
 type traceSizeRow struct {
 	Frames   int     `json:"frames"`
 	FPS      float64 `json:"fps"`
@@ -724,19 +673,40 @@ type scalingResults struct {
 	PropertyComplexity []complexityRow `json:"property_complexity"`
 }
 
-func makeProperties(count int) []aletheia.Formula {
-	templates := []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineSpeed", Min: aletheia.IntRational(0), Max: aletheia.IntRational(8000)}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineTemp", Min: aletheia.IntRational(-40), Max: aletheia.IntRational(215)}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "BrakePressure", Value: aletheia.Rational{Numerator: 13107, Denominator: 2}}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "EngineSpeed", Value: aletheia.IntRational(7000)}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "EngineTemp", Value: aletheia.IntRational(200)}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "BrakePressure", Value: aletheia.IntRational(5000)}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineSpeed", Min: aletheia.IntRational(500), Max: aletheia.IntRational(7500)}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "EngineTemp", Min: aletheia.IntRational(-20), Max: aletheia.IntRational(180)}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: "BrakePressure", Min: aletheia.IntRational(0), Max: aletheia.IntRational(4000)}}},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "EngineSpeed", Value: aletheia.IntRational(6000)}}},
+// alwaysBetween, alwaysLessThan and alwaysLessThanRat build the Always-wrapped
+// atomic predicates the scaling sweeps share. The signals and bounds are the
+// ones python/benchmarks/scaling.py sweeps, so the two harnesses measure the
+// same properties.
+func alwaysBetween(sig string, lo, hi int64) aletheia.Formula {
+	return aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: aletheia.SignalName(sig), Min: aletheia.IntRational(lo), Max: aletheia.IntRational(hi)}}}
+}
+
+func alwaysLessThan(sig string, v int64) aletheia.Formula {
+	return alwaysLessThanRat(sig, v, 1)
+}
+
+func alwaysLessThanRat(sig string, num, den int64) aletheia.Formula {
+	return aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: aletheia.SignalName(sig), Value: rat(num, den)}}}
+}
+
+// propertyTemplates are the ten the property-count sweep cycles through.
+func propertyTemplates() []aletheia.Formula {
+	return []aletheia.Formula{
+		alwaysBetween("EngineSpeed", 0, 8000),
+		alwaysBetween("EngineTemp", -40, 215),
+		alwaysLessThanRat("BrakePressure", 13107, 2),
+		alwaysLessThan("EngineSpeed", 7000),
+		alwaysLessThan("EngineTemp", 200),
+		alwaysLessThan("BrakePressure", 5000),
+		alwaysBetween("EngineSpeed", 500, 7500),
+		alwaysBetween("EngineTemp", -20, 180),
+		alwaysBetween("BrakePressure", 0, 4000),
+		alwaysLessThan("EngineSpeed", 6000),
 	}
+}
+
+func makeProperties(count int) []aletheia.Formula {
+	templates := propertyTemplates()
 	props := make([]aletheia.Formula, count)
 	for i := 0; i < count; i++ {
 		props[i] = templates[i%len(templates)]
@@ -744,47 +714,19 @@ func makeProperties(count int) []aletheia.Formula {
 	return props
 }
 
-// meanFPS averages streaming fps over numRuns passes (the robust methodology,
-// identical across all four bindings — noise on an un-averaged baseline would
-// multiply into every `relative` in the sweep).
-func meanFPS(backend *aletheia.FFIBackend, out *os.File, dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, props []aletheia.Formula, numFrames, numRuns int) float64 {
-	// ANY failed run is fatal: averaging over the survivors would silently
-	// report a point measured from a smaller sample than the sweep claims.
-	var fpsList []float64
+// meanFPS averages streaming fps over numRuns passes. Averaging is the
+// methodology all four bindings share: noise on an un-averaged baseline would
+// multiply into every relative value in the sweep.
+func meanFPS(backend *aletheia.FFIBackend, f frameFamily, props []aletheia.Formula, numFrames, numRuns int) float64 {
+	fpsList := make([]float64, 0, numRuns)
 	for r := 0; r < numRuns; r++ {
-		fps, err := benchmarkStreaming(backend, dbc, id, dlc, frame, props, numFrames)
+		fps, err := benchmarkStreaming(backend, f, props, numFrames)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "benchmark: scaling point (%d frames) run %d/%d failed: %v\n",
-				numFrames, r+1, numRuns, err)
-			os.Exit(1)
+			die("scaling point (%d frames) run %d/%d failed: %v", numFrames, r+1, numRuns, err)
 		}
 		fpsList = append(fpsList, fps)
 	}
-	// Reachable only for --runs 0.  Never return a fabricated 0: it would be
-	// reported as a measurement and divide through every `relative` in the sweep.
-	if len(fpsList) == 0 {
-		fmt.Fprintf(os.Stderr, "benchmark: scaling point (%d frames) has no measurement (runs = %d)\n",
-			numFrames, numRuns)
-		os.Exit(1)
-	}
 	return mean(fpsList)
-}
-
-func round1(x float64) float64 { return math.Round(x*10) / 10 }
-func round3(x float64) float64 { return math.Round(x*1000) / 1000 }
-
-func usPerFrameOf(fps float64) float64 {
-	if fps <= 0 {
-		return 0
-	}
-	return 1_000_000 / fps
-}
-
-func relativeOf(fps, baseline float64) float64 {
-	if baseline <= 0 {
-		return 0
-	}
-	return fps / baseline
 }
 
 func traceSizes(quick bool) []int {
@@ -794,40 +736,36 @@ func traceSizes(quick bool) []int {
 	return []int{1000, 5000, 10000, 50000, 100000}
 }
 
-// alwaysBetween / alwaysLessThan build the Always-wrapped atomic predicates the
-// scaling sweeps share; the exact signals/bounds mirror python/benchmarks/scaling.py.
-func alwaysBetween(sig string, lo, hi int64) aletheia.Formula {
-	return aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.Between{Signal: aletheia.SignalName(sig), Min: aletheia.IntRational(lo), Max: aletheia.IntRational(hi)}}}
-}
-
-func alwaysLessThan(sig string, v int64) aletheia.Formula {
-	return aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: aletheia.SignalName(sig), Value: aletheia.IntRational(v)}}}
-}
-
+// complexityLevels are the five labelled bundles the complexity sweep measures,
+// in the order benchmarks/SCHEMA.yaml spells them.
 func complexityLevels() []struct {
 	label string
 	props []aletheia.Formula
 } {
-	brakeHalf := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "BrakePressure", Value: aletheia.Rational{Numerator: 13107, Denominator: 2}}}}
+	// Implies is not a primitive: it lowers to Or(Not(antecedent), consequent),
+	// which is what makes this bundle a complexity step rather than a rename.
 	implication := aletheia.Always{Inner: aletheia.Implies(
 		aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "EngineSpeed", Value: aletheia.IntRational(1000)}},
 		aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "EngineTemp", Value: aletheia.IntRational(100)}},
 	)}
+	engineSpeed := alwaysBetween("EngineSpeed", 0, 8000)
+	engineTemp := alwaysBetween("EngineTemp", -40, 215)
+	brakeHalf := alwaysLessThanRat("BrakePressure", 13107, 2)
 	return []struct {
 		label string
 		props []aletheia.Formula
 	}{
 		{"Simple predicate", []aletheia.Formula{alwaysLessThan("EngineSpeed", 8000)}},
-		{"Range predicate", []aletheia.Formula{alwaysBetween("EngineSpeed", 0, 8000)}},
-		{"Two predicates (AND)", []aletheia.Formula{alwaysBetween("EngineSpeed", 0, 8000), alwaysBetween("EngineTemp", -40, 215)}},
-		{"Three predicates", []aletheia.Formula{alwaysBetween("EngineSpeed", 0, 8000), alwaysBetween("EngineTemp", -40, 215), brakeHalf}},
+		{"Range predicate", []aletheia.Formula{engineSpeed}},
+		{"Two predicates (AND)", []aletheia.Formula{engineSpeed, engineTemp}},
+		{"Three predicates", []aletheia.Formula{engineSpeed, engineTemp, brakeHalf}},
 		{"Implication", []aletheia.Formula{implication}},
 	}
 }
 
 func runScaling(backend *aletheia.FFIBackend, out *os.File, numRuns int, quick bool) scalingResults {
-	dbc20 := can20DBC()
-	dbcFD := canfdDBC()
+	fams := families()
+	can20, canfd := fams[0], fams[1]
 	numFrames := 10000
 	if quick {
 		numFrames = 5000
@@ -836,42 +774,54 @@ func runScaling(backend *aletheia.FFIBackend, out *os.File, numRuns int, quick b
 	fmt.Fprintf(out, "\n%s\nScaling (runs=%d, quick=%v)\n%s\n", strings.Repeat("=", 70), numRuns, quick, strings.Repeat("=", 70))
 
 	// Warmup.
-	_ = meanFPS(backend, out, dbc20, can20ID, can20DLC, can20Frame, makeProperties(1), 1000, 1)
+	_ = meanFPS(backend, can20, makeProperties(1), 1000, 1)
 
-	scanTrace := func(dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, props []aletheia.Formula) []traceSizeRow {
-		var rows []traceSizeRow
-		var baseline float64
-		for _, size := range traceSizes(quick) {
-			m := meanFPS(backend, out, dbc, id, dlc, frame, props, size, numRuns)
-			if baseline == 0 {
-				baseline = m
-			}
-			rows = append(rows, traceSizeRow{Frames: size, FPS: round1(m), Relative: round3(relativeOf(m, baseline))})
+	// Every sweep takes its baseline from its own first row.
+	sweep := func(points int, at func(int) float64) []float64 {
+		values := make([]float64, 0, points)
+		for i := 0; i < points; i++ {
+			values = append(values, at(i))
+		}
+		return values
+	}
+
+	scanTrace := func(f frameFamily, props []aletheia.Formula) []traceSizeRow {
+		sizes := traceSizes(quick)
+		values := sweep(len(sizes), func(i int) float64 {
+			return meanFPS(backend, f, props, sizes[i], numRuns)
+		})
+		rows := make([]traceSizeRow, 0, len(sizes))
+		for i, m := range values {
+			rows = append(rows, traceSizeRow{Frames: sizes[i], FPS: round1(m), Relative: round3(relativeOf(m, values[0]))})
 		}
 		return rows
 	}
 
-	traceCAN20 := scanTrace(dbc20, can20ID, can20DLC, can20Frame, []aletheia.Formula{alwaysBetween("EngineSpeed", 0, 8000)})
-	traceCANFD := scanTrace(dbcFD, canfdID, canfdDLC, canfdFrame, []aletheia.Formula{alwaysBetween("GPSSpeed", 0, 655)})
+	traceCAN20 := scanTrace(can20, []aletheia.Formula{alwaysBetween("EngineSpeed", 0, 8000)})
+	traceCANFD := scanTrace(canfd, []aletheia.Formula{alwaysBetween("GPSSpeed", 0, 655)})
 
-	var propCount []propCountRow
-	var pcBaseline float64
-	for _, count := range []int{1, 2, 3, 5, 7, 10} {
-		m := meanFPS(backend, out, dbc20, can20ID, can20DLC, can20Frame, makeProperties(count), numFrames, numRuns)
-		if pcBaseline == 0 {
-			pcBaseline = m
-		}
-		propCount = append(propCount, propCountRow{Properties: count, FPS: round1(m), USPerFrame: round1(usPerFrameOf(m)), Relative: round3(relativeOf(m, pcBaseline))})
+	counts := []int{1, 2, 3, 5, 7, 10}
+	countValues := sweep(len(counts), func(i int) float64 {
+		return meanFPS(backend, can20, makeProperties(counts[i]), numFrames, numRuns)
+	})
+	propCount := make([]propCountRow, 0, len(counts))
+	for i, m := range countValues {
+		propCount = append(propCount, propCountRow{
+			Properties: counts[i], FPS: round1(m), USPerFrame: round1(usPerFrameOf(m)),
+			Relative: round3(relativeOf(m, countValues[0])),
+		})
 	}
 
-	var complexity []complexityRow
-	var cxBaseline float64
-	for _, level := range complexityLevels() {
-		m := meanFPS(backend, out, dbc20, can20ID, can20DLC, can20Frame, level.props, numFrames, numRuns)
-		if cxBaseline == 0 {
-			cxBaseline = m
-		}
-		complexity = append(complexity, complexityRow{Complexity: level.label, FPS: round1(m), USPerFrame: round1(usPerFrameOf(m)), Relative: round3(relativeOf(m, cxBaseline))})
+	levels := complexityLevels()
+	levelValues := sweep(len(levels), func(i int) float64 {
+		return meanFPS(backend, can20, levels[i].props, numFrames, numRuns)
+	})
+	complexity := make([]complexityRow, 0, len(levels))
+	for i, m := range levelValues {
+		complexity = append(complexity, complexityRow{
+			Complexity: levels[i].label, FPS: round1(m), USPerFrame: round1(usPerFrameOf(m)),
+			Relative: round3(relativeOf(m, levelValues[0])),
+		})
 	}
 
 	fmt.Fprintf(out, "%s\n", strings.Repeat("=", 70))
@@ -882,10 +832,6 @@ func runScaling(backend *aletheia.FFIBackend, out *os.File, numRuns int, quick b
 		PropertyComplexity: complexity,
 	}
 }
-
-// ---------------------------------------------------------------------------
-// JSON output
-// ---------------------------------------------------------------------------
 
 type jsonOutput struct {
 	Benchmark string     `json:"benchmark"`
@@ -905,12 +851,10 @@ func emitJSON(benchmark string, results any) {
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	enc.Encode(out)
+	if err := enc.Encode(out); err != nil {
+		die("writing the %s report failed: %v", benchmark, err)
+	}
 }
-
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
 
 func main() {
 	fs := flag.NewFlagSet("bench", flag.ExitOnError)
@@ -930,6 +874,21 @@ func main() {
 	}
 	fs.Parse(args)
 
+	// A count of zero measures nothing, and a row computed from nothing reads as
+	// a rate of zero rather than as a failure. Each is checked whichever mode is
+	// running, so the refusal does not depend on which flag that mode reads.
+	for _, count := range []struct {
+		flag  string
+		value int
+	}{{"--frames", *frames}, {"--runs", *runs}, {"--ops", *ops}} {
+		if count.value < 1 {
+			die("%s must be at least 1, got %d", count.flag, count.value)
+		}
+	}
+	if *warmup < 0 {
+		die("--warmup must not be negative, got %d", *warmup)
+	}
+
 	out := os.Stdout
 	if *jsonFlag {
 		out = os.Stderr
@@ -944,8 +903,7 @@ func main() {
 
 	backend, err := aletheia.NewFFIBackend(libPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load FFI backend: %v\n", err)
-		os.Exit(1)
+		die("loading %s failed: %v", libPath, err)
 	}
 
 	switch mode {
@@ -975,7 +933,6 @@ func main() {
 		}
 
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown mode: %s (use throughput, latency, or scaling)\n", mode)
-		os.Exit(1)
+		die("unknown mode %q, expected throughput, latency or scaling", mode)
 	}
 }

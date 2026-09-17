@@ -444,8 +444,7 @@ $ aletheia mux-query --dbc vehicle.dbc 0x100 --mux Mode --value 5 --json
 $ aletheia mux-query --dbc vehicle.dbc 0x200
 Message 0x200 EngineStatus (DLC 8)
 
-  Not multiplexed — all signals are always present.
-  Signals: 4
+  Not multiplexed: all 4 signals are always present.
 ```
 
 ---

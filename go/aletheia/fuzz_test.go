@@ -1,36 +1,30 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Native Go fuzz harnesses.
+// The fuzz targets, one for each parser or serializer the binding owns:
+// serializeCommand, parseResponse, parseExtractionBin, parseRational and
+// parseDBCDefinition, under the five names the binding's standard pins. Each
+// seeds a small corpus with f.Add and asserts that no input panics, which is
+// what these exist for; the ordinary tests cover what the parsers accept and
+// refuse.
 //
-// One Fuzz target per binding-side parser.  All five names are pinned by
-// AGENTS.md cat 33b: FuzzParseResponse, FuzzMarshalCommand,
-// FuzzDecodeBinaryFrame, FuzzParseRationalNumber, FuzzParseDBCJSON.  Each
-// adds a small seed corpus via f.Add and asserts the panic-free invariant
-// — fuzzers are correctness gates against unexpected inputs, not happy-path
-// coverage.
+// The seeds are inline. The standard also expects a corpus under
+// testdata/fuzz per target, which the tree does not carry, so a crash found
+// and minimised is committed there beside the fix it guards.
 //
-// Run a single target:    go test -fuzz=FuzzParseResponse -fuzztime=60s ./aletheia/
-// Run all (corpus only):  go test ./aletheia/
-//
-// Seed corpora live inline (f.Add) per Go convention; explicit testdata/fuzz/
-// files are not required for the smoke lane.  Long-fuzz runs (the nightly
-// extended lane per AGENTS.md cat 33b) accumulate corpus under
-// testdata/fuzz/<TargetName>/ when run with -fuzz; check them in if a real
-// crash is found and minimised.
+//	go test -fuzz=FuzzParseResponse -fuzztime=60s ./aletheia/  // one target
+//	go test ./aletheia/                                        // every seed, no fuzzing
 
 package aletheia
 
 import (
-	"encoding/binary"
 	"encoding/json"
 	"testing"
 )
 
-// FuzzParseResponse covers the JSON envelope parser (json.go:754).  The
-// invariant is "no panic on any input" — parser must return either a parsed
-// map or a typed error.  Catches: invalid UTF-8, oversize numerics,
-// pathological nesting, NUL bytes, control characters.
+// The response envelope parser answers a map or a typed error, never a panic,
+// whatever the bytes: invalid UTF-8, oversized numbers, deep nesting, NUL
+// bytes, control characters.
 func FuzzParseResponse(f *testing.F) {
 	f.Add(`{"status":"ack"}`)
 	f.Add(`{"status":"error","code":"x","message":"y"}`)
@@ -41,15 +35,14 @@ func FuzzParseResponse(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, raw string) {
 		_, _ = parseResponse(raw)
-		// No panic = success.  Errors are expected on malformed input;
-		// the parser must categorise them as protocol errors, not crash.
 	})
 }
 
-// FuzzMarshalCommand covers the command serializer (json.go:29).  Property:
-// the output is valid JSON and round-trips through parseResponse.  Catches:
-// non-JSON-encodable values, duplicate keys (Go map semantics resolve them
-// silently — explicit assertion here surfaces unexpected silent drops).
+// What the command serializer emits, the response parser reads back, and the
+// command survives the trip. A serializer and a parser that disagree are a
+// binding that cannot talk to itself, and the command is the field the
+// kernel dispatches on, so a value altered in transit is a command sent
+// elsewhere.
 func FuzzMarshalCommand(f *testing.F) {
 	f.Add("parseDBC", "field1", "value1")
 	f.Add("setProperties", "properties", "[]")
@@ -57,14 +50,10 @@ func FuzzMarshalCommand(f *testing.F) {
 	f.Add("", "", "")
 
 	f.Fuzz(func(t *testing.T, command, key, value string) {
-		fields := map[string]any{key: value}
-		out, err := serializeCommand(command, fields)
+		out, err := serializeCommand(command, map[string]any{key: value})
 		if err != nil {
-			return // expected on weird inputs
+			return // a refusal is an answer; the property is about what it emits
 		}
-		// Property: the output must round-trip through the JSON parser.
-		// If serializeCommand emits anything that parseResponse rejects,
-		// the binding has a self-inconsistent encode/decode pair.
 		parsed, perr := parseResponse(out)
 		if perr != nil {
 			t.Errorf("serializeCommand produced unparseable output: %q (%v)", out, perr)
@@ -75,95 +64,52 @@ func FuzzMarshalCommand(f *testing.F) {
 	})
 }
 
-// FuzzDecodeBinaryFrame covers the binary extraction parser
-// (parseExtractionBin in json.go; wire doc: the processExtractBin header
-// comment in src/Aletheia/Main/Binary.agda).  The invariant is "no panic on
-// any byte sequence".  Catches: short reads, total-size mismatch (claimed N
-// entries but buffer truncated or padded), out-of-range indices into the
-// names array, malformed Rational denominators, offsets-table invariant
-// violations, invalid UTF-8 in reason slices.
+// The binary extraction decoder answers or refuses, never panics, whatever
+// the bytes: a short read, a size that does not match the header, an index
+// past the names, a denominator of zero, an offsets table that breaks one of
+// its invariants, a reason slice that is not UTF-8.
 func FuzzDecodeBinaryFrame(f *testing.F) {
 	f.Add([]byte{0, 0, 0, 0, 0, 0, 0, 0}, "Speed,RPM,Temp")
 	f.Add([]byte{}, "")
 	f.Add([]byte{0xFF, 0xFF, 0xFF, 0xFF}, "X")
 	f.Add(make([]byte, 256), "A,B,C,D,E,F,G,H")
-	f.Add(binExtractionValue(1, 3), "Sig")                          // valid: one value, empty offsets table
-	f.Add(binExtractionErrors([]string{"boom", "näh"}, nil), "Sig") // valid: two errors with reasons
-	f.Add(binExtractionErrors([]string{"x"}, []uint32{0, 2}), "S")  // offsets end != reasonBytes
+	f.Add(binExtractionValue(1, 3), "Sig")                          // one value, empty offsets table
+	f.Add(binExtractionErrors([]string{"boom", "näh"}, nil), "Sig") // two errors with reasons
+	f.Add(binExtractionErrors([]string{"x"}, []uint32{0, 2}), "S")  // offsets end past the reason bytes
 
 	f.Fuzz(func(t *testing.T, buf []byte, csvNames string) {
 		var names []string
 		if csvNames != "" {
-			names = []string{csvNames} // fuzz one signal name per run
+			names = []string{csvNames} // one signal name per run
 		}
 		_, _ = parseExtractionBin(buf, names)
-		// No panic = success.
 	})
 }
 
-// binExtractionValue builds a one-value binary extraction buffer (the layout
-// parseExtractionBin reads: nvals/nerrs/nabss u16 + reasonBytes u32 header,
-// one 18-byte value of idx:u16, num:u64, den:u64, then the single-entry
-// offsets table u32 0) for the given numerator/denominator.
-func binExtractionValue(num, den int64) []byte {
-	buf := make([]byte, 10+18+4)
-	binary.LittleEndian.PutUint16(buf[0:2], 1) // nvals = 1
-	// nerrs, nabss, reasonBytes stay 0; the offsets table is the single
-	// u32 0 in the trailing 4 bytes (already zero).
-	binary.LittleEndian.PutUint16(buf[10:12], 0) // value idx = 0
-	binary.LittleEndian.PutUint64(buf[12:20], uint64(num))
-	binary.LittleEndian.PutUint64(buf[20:28], uint64(den))
-	return buf
-}
-
-// TestParseExtractionBin_RejectsNonPositiveDenominator pins the binary path's
-// denominator validation in lockstep with the JSON path
-// (TestZeroDenominatorRational): a successful extraction value never has den <= 0,
-// so a zero or negative denominator is a corrupt buffer and must error rather
-// than producing an invalid Rational that would reach the kernel renderer.
-func TestParseExtractionBin_RejectsNonPositiveDenominator(t *testing.T) {
-	for _, den := range []int64{0, -3} {
-		if _, err := parseExtractionBin(binExtractionValue(1, den), []string{"Sig"}); err == nil {
-			t.Errorf("den=%d: expected error for non-positive denominator, got nil", den)
-		}
-	}
-	// Control: a positive denominator decodes to the exact rational.
-	res, err := parseExtractionBin(binExtractionValue(1, 3), []string{"Sig"})
-	if err != nil {
-		t.Fatalf("den=3: unexpected error: %v", err)
-	}
-	if want := (Rational{Numerator: 1, Denominator: 3}); res.Values[0].Value != want {
-		t.Errorf("got %v, want %v", res.Values[0].Value, want)
-	}
-}
-
-// FuzzParseRationalNumber covers the wire-format Rational parser
-// (json.go:613).  Property: the parser handles every JSON-representable
-// numeric without panic, and accepts both integer + {numerator,denominator}
-// shapes.  Catches: zero denominators, NaN/Inf rationals, malformed shapes.
+// The wire rational parser takes every JSON value without panicking, the
+// integer shape and the numerator-denominator object alike, a zero
+// denominator among them.
 func FuzzParseRationalNumber(f *testing.F) {
 	f.Add(`42`)
 	f.Add(`{"numerator":3,"denominator":7}`)
 	f.Add(`{"numerator":0,"denominator":1}`)
 	f.Add(`{"numerator":-100,"denominator":3}`)
 	f.Add(`null`)
-	f.Add(`{"numerator":1,"denominator":0}`) // adversarial: zero denom
+	f.Add(`{"numerator":1,"denominator":0}`)
 	f.Add(``)
 
 	f.Fuzz(func(t *testing.T, raw string) {
 		var v any
 		if err := json.Unmarshal([]byte(raw), &v); err != nil {
-			return // not valid JSON — out of parser's responsibility
+			return // not JSON, so not this parser's to answer for
 		}
 		_, _ = parseRational(v)
-		// No panic = success.
 	})
 }
 
-// FuzzParseDBCJSON covers the DBC JSON-shape parser (json.go:1314).  Catches:
-// missing required fields (empty messages array, signals with no name),
-// type mismatches (string where number expected), enum drift on byteOrder /
-// presence, oversize string lengths, malformed nested rationals.
+// The DBC shape parser takes every JSON object without panicking: a missing
+// field, a string where a number belongs, a byte order or presence outside
+// the enumeration, a nested rational that is malformed.
 func FuzzParseDBCJSON(f *testing.F) {
 	f.Add(`{"messages":[]}`)
 	f.Add(`{"messages":[{"id":256,"name":"M","dlc":8,"sender":"E","signals":[]}]}`)
@@ -175,9 +121,8 @@ func FuzzParseDBCJSON(f *testing.F) {
 	f.Fuzz(func(t *testing.T, raw string) {
 		var j map[string]any
 		if err := json.Unmarshal([]byte(raw), &j); err != nil {
-			return // not valid JSON — out of parser's responsibility
+			return // not JSON, so not this parser's to answer for
 		}
 		_, _ = parseDBCDefinition(j)
-		// No panic = success.
 	})
 }

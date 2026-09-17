@@ -1,40 +1,38 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Loader-entry hardening helpers (cross-binding parity).
+// What a loader checks before it opens what it was given: that the path is a
+// file and not a link to one, that the file is within the text bound, that an
+// archive does not expand past it, and that a file about to be written has a
+// directory to be written into.
 //
-// Mirrors the C++ aletheia::detail::validate_loader_path /
-// check_file_size_bound / check_xlsx_uncompressed_bound /
-// validate_output_parent_dir set in cpp/src/detail/loader_utils.{hpp,cpp},
-// and the Python aletheia._loader_utils.reject_symlink_loader_path +
-// excel_loader._check_xlsx_uncompressed_bound pair — keep these surfaces in
-// sync.  See AGENTS.md universal rule "Adversarial-input bounds at parser
-// surfaces".
+// The C++ binding checks the same four in cpp/src/detail/loader_utils.cpp and
+// the Python binding the first and the third, in aletheia._loader_utils and
+// aletheia.excel_loader. AGENTS.md states the rule they share, under
+// adversarial-input bounds at parser surfaces.
 package excel
 
 import (
 	"archive/zip"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
-// validateLoaderPath checks that path exists, is a regular file, and
-// is NOT a symbolic link.  Symlink rejection is strict — filepath.EvalSymlinks
-// would FOLLOW the link, defeating the check; callers passing legitimate
-// symlinks must resolve them up front.  TOCTOU residual: a small race
-// exists between Lstat and the eventual excelize.OpenFile / os.Open;
-// strict closure requires fd-based plumbing which excelize does not
-// expose.  Documented residual risk per the C++ side's matching note.
+// validateLoaderPath requires the path to name an existing regular file that is
+// not a symbolic link. The link check reads the path itself rather than what it
+// points at, a caller with a link to follow resolving it first. A path can
+// still change between this check and the open that follows, which is a race
+// the C++ side records too: closing it needs a descriptor the spreadsheet
+// library does not take.
 //
-// kind ("excel" / "yaml") is interpolated into error messages so
-// operators see which loader rejected the path.  Lowercase per Go's
-// standard error-message convention (the C++ / Python sides use
-// "Excel" / "YAML"; cross-binding parity is on behaviour + structure,
-// not exact error text).
+// kind names the loader in the refusal, so a reader knows which one refused.
+// It is lowercase as a Go error is; the other bindings capitalise theirs, the
+// parity being over what is refused rather than over the words.
 func validateLoaderPath(path, kind string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -57,35 +55,36 @@ func validateLoaderPath(path, kind string) error {
 	return nil
 }
 
-// checkFileSizeBound rejects files whose raw byte count exceeds
-// MaxDBCTextBytes.  Mirrors Python check_dbc_text_size_bound and
-// C++ aletheia::detail::check_file_size_bound — the typed
-// *InputBoundExceededError keeps cross-binding error-shape parity.
+// boundExceeded is the refusal all three bounds answer with, typed so that a
+// caller reads the limit and what was seen rather than parsing a sentence.
+func boundExceeded(observed uint64) error {
+	return &aletheia.InputBoundExceededError{
+		BoundKind: aletheia.BoundKindInputLengthBytes,
+		Observed:  observed,
+		Limit:     aletheia.MaxDBCTextBytes,
+	}
+}
+
+// checkFileSizeBound refuses a file larger than the text bound, as the Python
+// binding's check_dbc_text_size_bound and the C++ check_file_size_bound do.
 func checkFileSizeBound(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return aletheia.WrapValidationError("stat file", err)
 	}
 	if size := uint64(info.Size()); size > aletheia.MaxDBCTextBytes {
-		return &aletheia.InputBoundExceededError{
-			BoundKind: aletheia.BoundKindInputLengthBytes,
-			Observed:  size,
-			Limit:     aletheia.MaxDBCTextBytes,
-		}
+		return boundExceeded(size)
 	}
 	return nil
 }
 
-// checkXlsxUncompressedBound walks the .xlsx archive's central
-// directory and rejects when the sum of uncompressed entry sizes
-// exceeds MaxDBCTextBytes — defence against ZIP bombs where a small
-// archive (e.g. ~50 KiB) decompresses to multiple GiB of XML and
-// exhausts heap inside excelize.
-//
-// Mirrors C++ aletheia::detail::check_xlsx_uncompressed_bound and
-// Python excel_loader._check_xlsx_uncompressed_bound.  Go has it
-// easier: archive/zip is stdlib and exposes UncompressedSize64
-// directly without manual EOCD walking.
+// checkXlsxUncompressedBound refuses an archive whose entries claim, together,
+// more than the text bound once expanded. That is what a small archive of
+// several gigabytes of repeated bytes does to the spreadsheet library's memory,
+// and the sizes are read from the archive's own index rather than by expanding
+// anything. The C++ and Python bindings check the same; here the standard
+// library hands over each entry's expanded size, so there is no index to walk
+// by hand.
 func checkXlsxUncompressedBound(path string) error {
 	r, err := zip.OpenReader(path)
 	if err != nil {
@@ -95,29 +94,31 @@ func checkXlsxUncompressedBound(path string) error {
 
 	var total uint64
 	for _, f := range r.File {
-		// Saturating add — refuse to silently wrap on a forged entry.
+		// Written as a subtraction from the bound because the addition it
+		// stands for can overflow on an entry claiming a forged size. What is
+		// reported is the size the entries claim, held at the largest number
+		// that can be reported when even that sum wraps.
 		if f.UncompressedSize64 > aletheia.MaxDBCTextBytes-total {
-			return &aletheia.InputBoundExceededError{
-				BoundKind: aletheia.BoundKindInputLengthBytes,
-				Observed:  aletheia.MaxDBCTextBytes + 1, // any value above the bound — exact total has overflowed
-				Limit:     aletheia.MaxDBCTextBytes,
+			claimed := total + f.UncompressedSize64
+			if claimed < total {
+				claimed = math.MaxUint64
 			}
+			return boundExceeded(claimed)
 		}
 		total += f.UncompressedSize64
-		if total > aletheia.MaxDBCTextBytes {
-			return &aletheia.InputBoundExceededError{
-				BoundKind: aletheia.BoundKindInputLengthBytes,
-				Observed:  total,
-				Limit:     aletheia.MaxDBCTextBytes,
-			}
-		}
 	}
 	return nil
 }
 
-// validateOutputParentDir checks that path's parent directory exists.
-// Empty parent (cwd-relative) is allowed.  Mirrors C++
-// aletheia::detail::validate_output_parent_dir.
+// validateOutputParentDir requires the directory a file is about to be written
+// into to exist. A path naming no directory is the working one, which does. The
+// C++ binding checks the same.
+//
+// A failure to look at the directory is not the directory being absent, and is
+// not reported as one: a component too long to be a name, a directory that
+// cannot be searched, or a descriptor limit reached under load would send a
+// reader to create something that is already there. This is the distinction
+// validateLoaderPath draws above, keyed the same way.
 func validateOutputParentDir(path string) error {
 	parent := filepath.Dir(path)
 	if parent == "" || parent == "." {
@@ -125,7 +126,10 @@ func validateOutputParentDir(path string) error {
 	}
 	info, err := os.Stat(parent)
 	if err != nil {
-		return aletheia.NewValidationError(fmt.Sprintf("parent directory does not exist: %s", parent))
+		if errors.Is(err, os.ErrNotExist) {
+			return aletheia.NewValidationError(fmt.Sprintf("parent directory does not exist: %s", parent))
+		}
+		return aletheia.WrapValidationError("stat parent directory", err)
 	}
 	if !info.IsDir() {
 		return aletheia.NewValidationError(fmt.Sprintf("parent path is not a directory: %s", parent))

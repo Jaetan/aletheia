@@ -1,0 +1,20 @@
+## go test ./aletheia/ -run=^$ -fuzz=^FuzzParseResponse$ -fuzztime=20s
+fuzz: elapsed: 22s, execs: 3238404 (0/sec), new interesting: 192 (total: 198)
+PASS
+ok  	github.com/aletheia-automotive/aletheia-go/aletheia	22.058s
+## go test ./aletheia/ -run=^$ -fuzz=^FuzzMarshalCommand$ -fuzztime=20s
+FAIL
+exit status 1
+FAIL	github.com/aletheia-automotive/aletheia-go/aletheia	0.131s
+## go test ./aletheia/ -run=^$ -fuzz=^FuzzDecodeBinaryFrame$ -fuzztime=20s
+fuzz: elapsed: 20s, execs: 15663485 (739271/sec), new interesting: 183 (total: 190)
+PASS
+ok  	github.com/aletheia-automotive/aletheia-go/aletheia	20.257s
+## go test ./aletheia/ -run=^$ -fuzz=^FuzzParseRationalNumber$ -fuzztime=20s
+fuzz: elapsed: 20s, execs: 15771969 (748945/sec), new interesting: 349 (total: 356)
+PASS
+ok  	github.com/aletheia-automotive/aletheia-go/aletheia	20.133s
+## go test ./aletheia/ -run=^$ -fuzz=^FuzzParseDBCJSON$ -fuzztime=20s
+fuzz: elapsed: 20s, execs: 15916174 (802059/sec), new interesting: 332 (total: 338)
+PASS
+ok  	github.com/aletheia-automotive/aletheia-go/aletheia	20.130s

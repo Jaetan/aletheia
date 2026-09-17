@@ -3,20 +3,15 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Runtime GHC RTS heap-cap containment — Go behavioural test.
+// The heap cap contains by ending the process, so both directions are proved
+// in a child: the runtime starts once per process and the abort ends it, so
+// neither can be reached twice in the parent. The child is this same binary
+// run again with a variable set, which makes the test body do the work and
+// exit rather than assert.
 //
-// CONTAINMENT-BY-ABORT: the heap cap is NOT a recoverable error.  When it fires
-// the process TERMINATES (a GHC HeapExhausted abort of the foreign-export
-// wrapper) so the HOST survives.  This test proves both directions out-of-
-// process (the abort is process-terminating and the GHC RTS is one-shot per
-// process, so it cannot be exercised in the parent):
-//
-//	positive — the correct path (hs_init_with_rtsopts + -M3G) boots and parses;
-//	negative — a tight ALETHEIA_RTS_OPTS=-M12M cap over a large DBC aborts.
-//
-// The child is this same test binary re-exec'd with a sentinel env var; when it
-// is set the test body runs the workload and exits instead of running the
-// assertions.
+// The cap the binding sets boots and parses a small definition; a cap tightened
+// through the environment, over a definition large enough to cross it, ends the
+// child with the runtime's own message rather than returning an error.
 
 package aletheia
 
@@ -36,11 +31,22 @@ const (
 	rtsCountEnv  = "ALETHEIA_RTS_WORKLOAD_N"
 	rtsSentinel  = "ALETHEIA_RTS_OK"
 	rtsChildTest = "^TestRTSHeapCapContainment$"
+
+	// rtsSetupFailed is the child's exit when the library or the client would
+	// not open, and rtsParseFailed when the definition was refused. Neither is
+	// the abort under test, so both are named rather than counted as one.
+	rtsSetupFailed = 2
+	rtsParseFailed = 3
+
+	// rtsAbortMessage is what the runtime prints as it ends the process on a
+	// heap it cannot grow. Without it a child that died for another reason
+	// would read as containment.
+	rtsAbortMessage = "Return code (4) not ok"
 )
 
-// rtsWorkloadDBC builds a VALID DBC of n messages; a large n yields a parse
-// tree well past a tight -M cap (so the cap fires mid-parse, aborting the
-// process), a small n fits any cap and parses cleanly.
+// rtsWorkloadDBC is a valid definition of n messages. A large n builds a parse
+// tree past a tight cap, so the cap fires while parsing; a small one fits under
+// any cap and parses.
 func rtsWorkloadDBC(n int) string {
 	var b strings.Builder
 	b.WriteString("VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n")
@@ -51,24 +57,24 @@ func rtsWorkloadDBC(n int) string {
 	return b.String()
 }
 
-// runRTSWorkloadChild runs in the re-exec'd child: boot the real FFI client and
-// parse the workload DBC, then print the sentinel.  Under a tight cap the parse
-// aborts the process before the sentinel is reached.  Never returns.
+// runRTSWorkloadChild is the child: open the library, parse the definition,
+// print the sentinel. Under a tight cap the parse never returns, so the
+// sentinel is never printed. It always exits.
 func runRTSWorkloadChild() {
 	backend, err := NewFFIBackend(os.Getenv("ALETHEIA_LIB"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "child backend:", err)
-		os.Exit(2)
+		os.Exit(rtsSetupFailed)
 	}
 	client, err := NewClient(backend)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "child client:", err)
-		os.Exit(2)
+		os.Exit(rtsSetupFailed)
 	}
 	n, _ := strconv.Atoi(os.Getenv(rtsCountEnv))
 	if _, err := client.ParseDBCText(context.Background(), rtsWorkloadDBC(n)); err != nil {
 		fmt.Fprintln(os.Stderr, "child parse:", err)
-		os.Exit(3)
+		os.Exit(rtsParseFailed)
 	}
 	fmt.Println(rtsSentinel)
 	os.Exit(0)
@@ -80,9 +86,9 @@ func TestRTSHeapCapContainment(t *testing.T) {
 		return // unreachable: runRTSWorkloadChild always exits
 	}
 
-	lib := findFFILibForParityTest()
+	lib := findFFILibrary()
 	if lib == "" {
-		t.Skip("libaletheia-ffi.so not found — run 'cabal run shake -- build' first")
+		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
 	}
 	absLib, err := filepath.Abs(lib)
 	if err != nil {
@@ -100,35 +106,39 @@ func TestRTSHeapCapContainment(t *testing.T) {
 		if rtsOpts != "" {
 			cmd.Env = append(cmd.Env, "ALETHEIA_RTS_OPTS="+rtsOpts)
 		} else {
-			// Ensure no ambient ALETHEIA_RTS_OPTS leaks into the positive path.
+			// The variable is emptied rather than left alone, so a shell that
+			// set it does not decide what the positive case runs under.
 			cmd.Env = append(cmd.Env, "ALETHEIA_RTS_OPTS=")
 		}
 		out, _ := cmd.CombinedOutput()
 		return string(out), cmd.ProcessState.ExitCode()
 	}
 
-	t.Run("default cap boots and processes", func(t *testing.T) {
+	t.Run("the cap the binding sets parses", func(t *testing.T) {
 		out, code := run(5, "")
 		if code != 0 {
-			t.Fatalf("expected clean exit, got %d; output:\n%s", code, out)
+			t.Fatalf("the child exited %d under the default cap:\n%s", code, out)
 		}
 		if !strings.Contains(out, rtsSentinel) {
-			t.Fatalf("missing success sentinel; output:\n%s", out)
+			t.Fatalf("the child did not reach the end of its work:\n%s", out)
 		}
 	})
 
-	t.Run("tight cap aborts the process", func(t *testing.T) {
+	t.Run("a cap too tight ends the child", func(t *testing.T) {
 		out, code := run(1000, "-M12M")
-		if code == 0 {
-			t.Fatalf("expected non-zero abort under -M12M, got 0; output:\n%s", out)
+		switch {
+		case code == 0:
+			t.Fatalf("the child survived a cap it should have crossed:\n%s", out)
+		case code == rtsSetupFailed:
+			t.Fatalf("the child never got as far as the work:\n%s", out)
+		case code == rtsParseFailed:
+			t.Fatalf("the definition was refused rather than the heap crossed:\n%s", out)
 		}
 		if strings.Contains(out, rtsSentinel) {
-			t.Fatalf("success sentinel printed under a tight cap; output:\n%s", out)
+			t.Fatalf("the child finished its work under a cap it should have crossed:\n%s", out)
 		}
-		// Exit 3 is the workload's own parse-error path; a valid DBC never takes
-		// it, so a non-zero, non-3 exit is the GHC heap abort (containment).
-		if code == 3 {
-			t.Fatalf("workload hit a parse error, not a heap abort; output:\n%s", out)
+		if !strings.Contains(out, rtsAbortMessage) {
+			t.Fatalf("the child died without the runtime's abort message, so this is not containment:\n%s", out)
 		}
 	})
 }

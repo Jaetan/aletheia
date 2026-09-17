@@ -3,17 +3,16 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Package-level lazy-load + FFI dispatch for the cross-binding-identical
-// Rational pretty-printer.
+// The rational printer every binding shares, which is the kernel's. Nothing
+// here formats a number: the library does, so the four bindings print the same
+// text because they call the same function.
 //
-// Single source of truth: every render flows through
-// `aletheia_format_rational` in libaletheia-ffi.so.  The renderer dlopens
-// the library and resolves its symbols on first use, but does NOT
-// initialise the GHC RTS — that is an FFIBackend's job.  If the runtime is
-// not yet up the renderer returns an error rather than self-initialising
-// (which would squander the backend's bus-count -N; the RTS is one-shot per
-// process).  No local Go fallback exists; `formatRational(r)` is
-// byte-identical to Python's and C++'s output by construction.
+// The library is opened and its two symbols resolved on first use. The GHC
+// runtime is not started here, and this is the rule the whole file turns on: a
+// backend starts it, choosing how many cores it gets, and the runtime starts
+// once per process. A renderer that started it would fix that choice at a
+// default before the backend could make it, so with the runtime down the
+// renderer refuses and says so.
 
 package aletheia
 
@@ -48,23 +47,17 @@ var (
 	rendererFormatFn unsafe.Pointer
 	rendererFreeFn   unsafe.Pointer
 
-	// Package-static preferred library path, registered
-	// by NewFFIBackend before any Check builder triggers
-	// formatRationalFFI.  First-write-wins (sync.Once around
-	// rendererInitOnce means subsequent registrations after the renderer
-	// has loaded are no-ops; the renderer's state is pinned).  Pre-load
-	// registrations win over the relative-path heuristic; ALETHEIA_LIB
-	// env var still wins over both.
+	// The path a backend registered, which the search below prefers over
+	// its own guesses and which the environment still overrides. The first
+	// registration wins, and one after the renderer has loaded changes
+	// nothing, the symbols being resolved once.
 	defaultLibPathMu sync.Mutex
 	defaultLibPath   string
 )
 
-// RegisterDefaultLibPath records a preferred libaletheia-ffi.so path
-// for the lazy-loaded renderer.  Called automatically by NewFFIBackend
-// so the renderer (which loads independently of the backend) consults
-// the same .so the user asked for, instead of falling back to its
-// relative-path heuristic.  First-write-wins: subsequent registrations
-// after the renderer has loaded are no-ops.
+// RegisterDefaultLibPath names the library the renderer should open. Opening
+// a backend calls it, so the renderer, which opens the library on its own,
+// opens the one the caller named rather than one it guessed at.
 func RegisterDefaultLibPath(libPath string) {
 	defaultLibPathMu.Lock()
 	defer defaultLibPathMu.Unlock()
@@ -73,15 +66,9 @@ func RegisterDefaultLibPath(libPath string) {
 	}
 }
 
-// findFFILibrary locates libaletheia-ffi.so for the renderer's
-// lazy-load path.  Search order:
-//
-//  1. ALETHEIA_LIB env var (operator override)
-//  2. Path registered via RegisterDefaultLibPath (the .so the user
-//     passed to NewFFIBackend)
-//  3. Relative-path heuristic (ctest from cpp/build, go from go/)
-//
-// Returns the empty string when no candidate exists.
+// findFFILibrary is the library to open: the one the environment names, then
+// the one a backend registered, then the places a build leaves it relative to
+// where the tests run. Empty when none of them has it.
 func findFFILibrary() string {
 	if env := os.Getenv("ALETHEIA_LIB"); env != "" {
 		if _, err := os.Stat(env); err == nil {
@@ -113,44 +100,56 @@ func findFFILibrary() string {
 	return ""
 }
 
-// loadRendererFFI dlopens libaletheia-ffi.so and resolves the format /
-// free symbols.  It does NOT initialise the GHC RTS: the renderer is a
-// consumer of a runtime that an FFIBackend must bring up (see
-// formatRationalFFI), so it only loads the symbols it calls.
-func loadRendererFFI() error {
+// loadRendererFFI opens the library and resolves the two symbols this file
+// calls, and nothing else: starting the runtime is a backend's to do.
+// loadStandaloneSymbols opens the library and resolves the symbols named,
+// pinning the thread while it does, because dlerror is per thread and a
+// goroutine that migrated between the failure and the message would report the
+// wrong one, or none. It serves the two consumers that reach the kernel outside
+// a session, this file and the decimal parser, and it starts no runtime, which
+// is the rule both turn on. what names the caller in the message a failure to
+// open carries.
+//
+// Only strings and untyped pointers cross, so the caller's own file can hold
+// the trampolines it calls them through; a cgo preamble is visible to one file.
+func loadStandaloneSymbols(what string, names ...string) ([]unsafe.Pointer, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	libPath := findFFILibrary()
 	if libPath == "" {
-		return ffiError("libaletheia-ffi.so not found; build with: cabal run shake -- build")
+		return nil, ffiError("libaletheia-ffi.so not found; build with: cabal run shake -- build")
 	}
 
 	cPath := C.CString(libPath)
 	defer C.free(unsafe.Pointer(cPath))
 	handle := C.dlopen(cPath, C.RTLD_NOW|C.RTLD_LOCAL)
 	if handle == nil {
-		return ffiError("renderer dlopen failed: " + C.GoString(C.dlerror()))
+		return nil, ffiError(what + " dlopen failed: " + C.GoString(C.dlerror()))
 	}
 
-	fmtFn, err := rendererDlsym(handle, "aletheia_format_rational")
+	resolved := make([]unsafe.Pointer, 0, len(names))
+	for _, name := range names {
+		sym, err := rendererDlsym(handle, name)
+		if err != nil {
+			return nil, err
+		}
+		resolved = append(resolved, sym)
+	}
+	return resolved, nil
+}
+
+func loadRendererFFI() error {
+	syms, err := loadStandaloneSymbols("renderer", "aletheia_format_rational", "aletheia_free_str")
 	if err != nil {
 		return err
 	}
-	freeFn, err := rendererDlsym(handle, "aletheia_free_str")
-	if err != nil {
-		return err
-	}
-
-	rendererFormatFn = fmtFn
-	rendererFreeFn = freeFn
+	rendererFormatFn, rendererFreeFn = syms[0], syms[1]
 	return nil
 }
 
-// rendererDlsym wraps dlsym + dlerror with a structured error.  Local
-// to this file rather than reusing `loadSym` from `ffi.go` because that
-// helper assumes the caller has already pinned the OS thread; here we
-// pin in `loadRendererFFI` so callers don't have to.
+// rendererDlsym resolves one symbol, reporting the loader's own message. The
+// caller has pinned the thread, dlerror being per thread.
 func rendererDlsym(handle unsafe.Pointer, name string) (unsafe.Pointer, error) {
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
@@ -169,13 +168,9 @@ func ensureRendererLoaded() error {
 	return rendererInitErr
 }
 
-// formatRationalFFI renders a Rational via the Agda kernel.  It resolves
-// the renderer symbols on first call but does NOT initialise the GHC RTS:
-// the renderer is a consumer of a runtime that an FFIBackend must bring up.
-// If the runtime is not initialised it returns an error ("be vocal") rather
-// than self-initialising — self-initialising would latch a default -N and
-// squander the FFIBackend's bus-count -N (the RTS is one-shot per process).
-// The caller must create a Client (FFIBackend) before any rendering.
+// formatRationalFFI renders a rational through the kernel, resolving the
+// symbols on the first call. With the runtime down it refuses, for the reason
+// at the top of this file: a client must exist before anything renders.
 func formatRationalFFI(num, denom int64) (string, error) {
 	if err := ensureRendererLoaded(); err != nil {
 		return "", err
@@ -188,10 +183,9 @@ func formatRationalFFI(num, denom int64) (string, error) {
 
 	raw := C.renderer_call_format_rational(rendererFormatFn, C.int64_t(num), C.int64_t(denom))
 	if raw == nil {
-		// Unreachable for a well-formed rational (the kernel never returns null);
-		// surface it as an error rather than a fabricated "0" — a null means a
-		// kernel/ABI malfunction, and a silent "0" would hide the bug and violate
-		// the "be vocal" contract. Matches the Rust binding's null handling (#101).
+		// A null is the kernel or the boundary malfunctioning, never an answer
+		// about the number: a zero in its place would read as a rendered value.
+		// The Rust binding refuses a null here too.
 		return "", ffiError("aletheia_format_rational returned a null pointer")
 	}
 	defer C.renderer_call_free_str(rendererFreeFn, raw)

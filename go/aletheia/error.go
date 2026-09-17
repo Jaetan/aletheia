@@ -8,11 +8,10 @@ import (
 	"fmt"
 )
 
-// ErrBinaryPathUnsupported is returned by a Backend whose concrete
-// implementation cannot service the binary extraction path (e.g.
-// MockBackend has no real FFI to call aletheia_extract_signals_bin).
-// Client.ExtractSignals falls through to the JSON path ONLY on this
-// sentinel — any other error from ExtractSignalsBin propagates.
+// ErrBinaryPathUnsupported is what a Backend answers when it cannot serve
+// the binary extraction path, as [MockBackend] cannot, having no library
+// to call. It is the only error that falls through to the JSON path; see
+// [Client.ExtractSignals].
 var ErrBinaryPathUnsupported = errors.New("binary path not supported by this backend")
 
 // ErrorKind classifies the source of an error.
@@ -32,9 +31,8 @@ const (
 	ErrFFI // ffi
 )
 
-// Error is the error type returned by all Aletheia operations.
-// Use [errors.As] to inspect the [ErrorKind], and [errors.Unwrap] to
-// retrieve the underlying cause (if any).
+// Error is what every operation of this package returns on failure. Use
+// [errors.As] to read its [ErrorKind] and [errors.Unwrap] for the cause.
 type Error struct {
 	// Kind is the high-level category (validation / state / protocol / FFI / ...).
 	Kind ErrorKind
@@ -48,7 +46,8 @@ type Error struct {
 	Cause error
 }
 
-// Error returns a human-readable string in the form "aletheia <kind> error: <message>".
+// Error renders as "aletheia <kind> error: <message>", with the cause
+// appended when there is one.
 func (e *Error) Error() string {
 	if e.Cause != nil {
 		return fmt.Sprintf("aletheia %s error: %s: %s", e.Kind, e.Message, e.Cause)
@@ -59,14 +58,11 @@ func (e *Error) Error() string {
 // Unwrap returns the underlying error, enabling [errors.Is] and [errors.As].
 func (e *Error) Unwrap() error { return e.Cause }
 
-// Machine-readable error codes matching the Agda Error ADT.
-// Each maps 1:1 to an Agda error constructor via errorCode.
-//
-// Constants below are organized into groups (Parse / DBC text / Frame /
-// input bound / Route / Handler / Dispatch / Extraction); the wire string
-// (snake_case suffix on each constant) is the canonical identifier used
-// by the structured-log + Error.Code surface.  See [Error.Code] and
-// [docs/architecture/PROTOCOL.md] for the full Agda ADT mapping.
+// The machine-readable error codes, one per error the kernel can raise,
+// grouped by the layer that raises them: parsing, DBC text, frames, input
+// bounds, routing, handlers, dispatch and extraction. The string each one
+// carries is the identifier on the wire and in [Error.Code], and
+// docs/WIRE_CODES.yaml pins the whole vocabulary across the bindings.
 const (
 	// CodeParseMissingField — required JSON field absent on the input object.
 	CodeParseMissingField = "parse_missing_field"
@@ -136,11 +132,8 @@ const (
 	// CodeFrameSignalValueOutOfBounds — physical value outside [min, max] bounds.
 	CodeFrameSignalValueOutOfBounds = "frame_signal_value_out_of_bounds"
 
-	// CodeInputBoundExceeded — adversarial-input bound exceeded at any
-	// parser surface.  Consolidated from the previously per-ADT codes
-	// `parse_input_bound_exceeded` / `frame_input_bound_exceeded` /
-	// `dbc_text_input_bound_exceeded`.  Discriminate which bound was
-	// crossed by the `bound_kind` field carried in the structured payload.
+	// CodeInputBoundExceeded is any input bound crossed at any parser
+	// surface; the payload's bound_kind field says which.
 	CodeInputBoundExceeded = "input_bound_exceeded"
 
 	// CodeRouteMissingField — required field absent on a routed request.
@@ -243,27 +236,21 @@ func wrapProtocolError(msg string, cause error) *Error { return wrapError(ErrPro
 // wrapValidationError is the wrap variant of validationError for nested parse failures.
 func wrapValidationError(msg string, cause error) *Error { return wrapError(ErrValidation, msg, cause) }
 
-// NewValidationError returns an [ErrValidation] error with the given message.
-// Exported so external loaders (the Excel subpackage, custom plug-ins) report
-// failures with the same kind/Code shape as the built-in YAML loader.
+// NewValidationError returns an [ErrValidation] error with the message. It
+// is exported so a loader outside this package, such as the Excel module,
+// reports failures in the shape the built-in loaders do.
 func NewValidationError(msg string) *Error { return validationError(msg) }
 
-// WrapValidationError wraps an underlying cause as an [ErrValidation] error
-// with the given message. Kept public for the same reason as
-// [NewValidationError] — external loaders should reuse this instead of
-// constructing *Error directly.
+// WrapValidationError is [NewValidationError] over an underlying cause.
 func WrapValidationError(msg string, cause error) *Error {
 	return wrapValidationError(msg, cause)
 }
 
-// InputBoundExceededError reports an adversarial-input bound violation.
-// Mirrors the Agda top-level Error.InputBoundExceeded constructor
-// (consolidated from the former per-ADT constructors on ParseError /
-// DBCTextParseError / FrameError), and the equivalent types in the
-// Python (aletheia.InputBoundExceededError), C++
-// (aletheia::InputBoundExceededError), and Rust
-// (aletheia::Error::InputBoundExceeded) bindings — keep these surfaces
-// in sync.
+// InputBoundExceededError reports an input bound the kernel refused, with
+// the bound, what was observed and the limit. It is the kernel's
+// InputBoundExceeded, and the peer bindings carry the same type: Python's
+// InputBoundExceededError, the C++ aletheia::InputBoundExceededError and
+// the Rust Error::InputBoundExceeded.
 //
 // Use [errors.As] to inspect:
 //
@@ -272,17 +259,14 @@ func WrapValidationError(msg string, cause error) *Error {
 //		log.Printf("rejected %s = %d (limit %d)", bex.BoundKind, bex.Observed, bex.Limit)
 //	}
 type InputBoundExceededError struct {
-	// BoundKind names which kind of bound was crossed (one of the
-	// BoundKind* constants in `limits.go`).
+	// BoundKind names the bound, one of the BoundKind constants in limits.go.
 	BoundKind string
 	// Observed is the input value that exceeded the limit.
 	Observed uint64
-	// Limit is the canonical bound from `limits.go` / Aletheia.Limits.
+	// Limit is the bound itself, which limits.go mirrors from the kernel.
 	Limit uint64
-	// Code is the Agda wire error code.  After consolidation this is
-	// always [CodeInputBoundExceeded] ("input_bound_exceeded") for
-	// adversarial-input bounds; the per-ADT codes
-	// (parse_input_bound_exceeded / frame_… / dbc_text_…) were merged.
+	// Code is the wire error code, always [CodeInputBoundExceeded]: the
+	// decoder lifts this type for no other.
 	Code string
 }
 
@@ -292,8 +276,8 @@ func (e *InputBoundExceededError) Error() string {
 		e.BoundKind, e.Observed, e.Limit)
 }
 
-// newInputBoundExceededError constructs an InputBoundExceededError for the
-// FFI-entry early-reject path (see ffi.go).
+// newInputBoundExceededError builds the typed error, for the lifter in
+// json.go and for the bounds the binding checks before the call.
 func newInputBoundExceededError(kind string, observed, limit uint64, code string) *InputBoundExceededError {
 	return &InputBoundExceededError{
 		BoundKind: kind,
@@ -303,12 +287,12 @@ func newInputBoundExceededError(kind string, observed, limit uint64, code string
 	}
 }
 
-// ValidationFailedError reports a DBC that parsed syntactically but was
-// rejected by structural validation with at least one error-severity
-// issue.  Lifted from the `handler_validation_failed` error envelope
-// emitted by parseDBC / parseDBCText, whose `issues` array uses the
-// exact element shape of the validation response — the equivalent typed
-// errors exist in the peer bindings; keep these surfaces in sync.
+// ValidationFailedError reports a DBC that parsed but failed structural
+// validation with at least one error-severity issue, as [Client.ParseDBC]
+// and [Client.ParseDBCText] refuse it. The issues have the element shape
+// of a validation response. Python raises DBCValidationFailedError and
+// Rust returns Error::ValidationFailed for the same refusal; C++ carries
+// it on its one error class, under ErrorCode::HandlerValidationFailed.
 //
 // Use [errors.As] to inspect:
 //
@@ -322,27 +306,24 @@ type ValidationFailedError struct {
 	// Issues are the structural validation findings in wire order,
 	// with the same element shape as [ValidationResult].Issues.
 	Issues []ValidationIssue
-	// HasErrors reports whether any issue has error severity.  Decoded
-	// from the wire, never assumed — the Agda core always sets it true
-	// on this envelope (errors short-circuit the parse).
+	// HasErrors reports whether any issue has error severity; it is read
+	// from the wire rather than assumed, though the kernel sets it here.
 	HasErrors bool
-	// Code is the Agda wire error code, always
-	// [CodeHandlerValidationFailed] ("handler_validation_failed").
+	// Code is the wire error code, always [CodeHandlerValidationFailed]:
+	// the decoder lifts this type for no other.
 	Code string
-	// Message is the envelope's legacy human-readable diagnostic,
-	// unchanged from the generic coded error this type lifts.
+	// Message is the envelope's human-readable diagnostic.
 	Message string
 }
 
-// Error implements the error interface.  The rendered string must stay
-// byte-identical to the generic coded *Error this type lifts from, so
-// callers that only print the message are unaffected by the lift.
+// Error renders exactly as a generic coded protocol error with the same
+// message, so a caller that only prints it sees one shape.
 func (e *ValidationFailedError) Error() string {
 	return fmt.Sprintf("aletheia %s error: %s", ErrProtocol, e.Message)
 }
 
-// newValidationFailedError constructs a ValidationFailedError from a decoded
-// handler_validation_failed envelope (see validationFailedFromResponse).
+// newValidationFailedError builds the typed error from a decoded envelope,
+// for validationFailedFromResponse in json.go.
 func newValidationFailedError(issues []ValidationIssue, hasErrors bool, code, msg string) *ValidationFailedError {
 	return &ValidationFailedError{
 		Issues:    issues,
@@ -352,16 +333,14 @@ func newValidationFailedError(issues []ValidationIssue, hasErrors bool, code, ms
 	}
 }
 
-// TextRoundTripFailedError reports that FormatDBCText refused: the emitted .dbc
-// text does not re-parse to the input DBC.  FormatDBCText is always strict — it
-// returns text only when it provably round-trips — so a divergent DBC yields
-// this typed error instead of lossy text.  Lifted from the
-// `handler_text_roundtrip_failed` envelope, whose `issues` array (led by the
-// error-severity `text_roundtrip_divergence` issue) uses the exact element shape
-// of the validation response.  Distinct from [ValidationFailedError] (a
-// validation failure, not a round-trip failure) though the wire shape matches;
-// the equivalent typed errors exist in the peer bindings — keep these surfaces
-// in sync.
+// TextRoundTripFailedError reports that [Client.FormatDBCText] refused: the
+// text it would emit does not re-parse to the DBC given, and it returns
+// text only when it provably does. The issues lead with the divergence
+// itself and have the element shape of a validation response, which is the
+// shape [ValidationFailedError] carries for a different refusal. Python
+// raises TextRoundTripFailedError and Rust returns
+// Error::TextRoundtripFailed; C++ carries it on its one error class, under
+// ErrorCode::HandlerTextRoundtripFailed.
 //
 // Use [errors.As] to inspect:
 //
@@ -373,27 +352,26 @@ func newValidationFailedError(issues []ValidationIssue, hasErrors bool, code, ms
 //	}
 type TextRoundTripFailedError struct {
 	// Issues are the round-trip diagnostics in wire order, led by the
-	// error-severity text_roundtrip_divergence issue the handler prepends.
+	// error-severity text_roundtrip_divergence issue.
 	Issues []ValidationIssue
-	// HasErrors reports whether any issue has error severity.  Decoded
-	// from the wire, never assumed (the Agda core always sets it true here).
+	// HasErrors reports whether any issue has error severity; it is read
+	// from the wire rather than assumed.
 	HasErrors bool
-	// Code is the Agda wire error code, always
-	// [CodeHandlerTextRoundtripFailed] ("handler_text_roundtrip_failed").
+	// Code is the wire error code, always [CodeHandlerTextRoundtripFailed]:
+	// the decoder lifts this type for no other.
 	Code string
-	// Message is the envelope's legacy human-readable diagnostic,
-	// unchanged from the generic coded error this type lifts.
+	// Message is the envelope's human-readable diagnostic.
 	Message string
 }
 
-// Error implements the error interface.  The rendered string stays byte-
-// identical to the generic coded *Error this type lifts from.
+// Error renders exactly as a generic coded protocol error with the same
+// message, as [ValidationFailedError.Error] does.
 func (e *TextRoundTripFailedError) Error() string {
 	return fmt.Sprintf("aletheia %s error: %s", ErrProtocol, e.Message)
 }
 
-// newTextRoundTripFailedError constructs a TextRoundTripFailedError from a
-// decoded handler_text_roundtrip_failed envelope (see textRoundtripFailedFromResponse).
+// newTextRoundTripFailedError builds the typed error from a decoded
+// envelope, for textRoundtripFailedFromResponse in json.go.
 func newTextRoundTripFailedError(issues []ValidationIssue, hasErrors bool, code, msg string) *TextRoundTripFailedError {
 	return &TextRoundTripFailedError{
 		Issues:    issues,

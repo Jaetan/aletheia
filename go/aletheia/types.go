@@ -20,12 +20,11 @@ type MessageName string
 // NodeName identifies a CAN bus node.
 type NodeName string
 
-// Unit is a physical unit string (e.g. "km/h", "degC").
+// Unit is a signal's physical unit, as the definition spells it.
 type Unit string
 
-// Rational represents an exact numerator/denominator value.
-// Used for DBC signal parameters (factor, offset, min, max) where
-// precision beyond float64 matters. Denominator is always positive.
+// Rational is an exact value, a numerator over a positive denominator. Every
+// signal parameter is one, because a scale of a tenth is not a float.
 type Rational struct {
 	Numerator   int64
 	Denominator int64 // always > 0
@@ -36,10 +35,9 @@ func (r Rational) Float64() float64 {
 	return float64(r.Numerator) / float64(r.Denominator)
 }
 
-// IntRational returns an exact [Rational] for an integer literal.
-// Useful for predicate construction: “Equals{Value: IntRational(220)}“.
-// For a decimal value, parse it exactly via [FromDecimal] (the kernel decimal
-// SSOT) — never construct one from a float64.
+// IntRational is a whole number as an exact rational, which is how a
+// predicate's threshold is written. For a decimal, use [FromDecimal], which
+// parses the text exactly; never build one from a float.
 func IntRational(n int64) Rational { return Rational{Numerator: n, Denominator: 1} }
 
 // Timestamp is a point in time, measured in microseconds since trace start.
@@ -78,16 +76,15 @@ type Frame struct {
 	ID CANID
 	// DLC is the data length code (0–8 for CAN 2.0B, 0–15 for CAN-FD).
 	DLC DLC
-	// Data is the payload — its length must equal DLC.ToBytes().
+	// Data is the payload, whose length is the one the length code gives.
 	Data FramePayload
-	// BRS is the CAN-FD Bit Rate Switch bit (ISO 11898-1:2015 §10.4.2):
-	// non-nil for CAN-FD frames carrying the bit, nil for CAN 2.0B
-	// frames where it does not exist on the wire.  The Aletheia kernel
-	// does not consume BRS — it is pass-through metadata for binding
-	// consumers and the JSON wire shape.
+	// BRS is the CAN-FD bit-rate-switch bit (ISO 11898-1:2015 section
+	// 10.4.2): set for a CAN-FD frame that carries it, absent for a frame
+	// of the older format, where the bit does not exist. The kernel does
+	// not read it; it crosses to the caller as it came.
 	BRS *bool
-	// ESI is the CAN-FD Error State Indicator bit (ISO 11898-1:2015
-	// §10.4.3); same semantics + pass-through status as BRS.
+	// ESI is the CAN-FD error-state-indicator bit (section 10.4.3), which
+	// crosses the same way.
 	ESI *bool
 }
 
@@ -103,13 +100,13 @@ const (
 	BigEndian // big_endian
 )
 
-// BitPosition is a start bit position within a CAN frame.
-// Valid domain is 0-511 (64 bytes × 8 bits). Use [NewBitPosition] to create one.
+// BitPosition is where a signal starts within a frame. Build one with
+// [NewBitPosition], which refuses a position past the last bit of the largest
+// frame.
 type BitPosition uint16
 
-// MaxBitPosition is the largest valid start-bit position within a CAN-FD frame
-// (64 bytes × 8 bits − 1). Consumers building signals from external data can
-// use it as the validation boundary before calling [NewBitPosition].
+// MaxBitPosition is the last bit of the largest frame, for a caller checking
+// its own data before building one.
 const MaxBitPosition = 511
 
 // NewBitPosition creates a validated BitPosition. Returns an error if v > 511.
@@ -120,14 +117,12 @@ func NewBitPosition(v uint16) (BitPosition, error) {
 	return BitPosition(v), nil
 }
 
-// BitLength is a signal length in bits (1-512). Use [NewBitLength] to create one.
+// BitLength is how many bits a signal occupies. Build one with [NewBitLength].
 type BitLength uint16
 
-// MaxBitLength is the largest valid signal length in bits for a CAN-FD frame
-// (64 bytes × 8 bits). Use it to validate external data before calling
-// [NewBitLength]. Whether a signal actually fits its containing message's
-// frame is the kernel's authoritative check at DBC entry; this constant is
-// only the type-level ceiling no frame could ever exceed.
+// MaxBitLength is every bit of the largest frame: the ceiling no signal can
+// exceed whatever message it sits in. Whether a signal fits the message it is
+// declared in is the kernel's decision when the definition is read.
 const MaxBitLength = 512
 
 // NewBitLength creates a validated BitLength. Returns an error if v < 1 or v > 512.
@@ -156,20 +151,13 @@ const MaxStandardID = 1<<11 - 1
 // validate external data before calling [NewExtendedID].
 const MaxExtendedID = 1<<29 - 1
 
-// StandardID is an 11-bit CAN identifier (0-2047).
+// StandardID is an eleven-bit identifier.
 //
-// The asymmetry between StandardID/ExtendedID exposing values via a
-// Value() uint32 method while primitive typedefs (BitPosition uint16,
-// BitLength uint16, etc.) use direct conversion (uint16(bp), uint16(bl))
-// is intentional and structural, not naming.
-// StandardID/ExtendedID wrap an unexported field (enforces NewStandardID
-// validation; raw construction is unrepresentable), so Value() is the only
-// accessor.  Primitive typedefs carry no validation invariant and don't hide
-// state — direct conversion is idiomatic Go (cf. time.Duration → int64).
-// Promoting typedefs to wrapper structs would force users to write
-// .Value() on every arithmetic site; demoting wrappers to typedefs would
-// lose the construction-validation safety.  Revisit only if Go conventions
-// shift to require accessor parity across typedef-vs-struct.
+// It hides its number behind a method where the plainer types above are read
+// by conversion, and the difference is the invariant: an identifier that
+// cannot be built without being checked has to hide the field the check
+// guards, while a position or a length carries no invariant and reads better
+// converted, as a duration does.
 type StandardID struct{ value uint16 }
 
 func (id StandardID) canID()           {}
@@ -201,15 +189,14 @@ func NewExtendedID(v uint32) (ExtendedID, error) {
 	return ExtendedID{value: v}, nil
 }
 
-// DLC is a CAN Data Length Code (0-15). DLC 0-8 map directly to byte counts;
-// DLC 9-15 map to 12, 16, 20, 24, 32, 48, 64 bytes (CAN-FD).
+// DLC is a frame's length code. The first nine codes are the byte counts
+// themselves; the rest name the larger payloads CAN-FD adds.
 type DLC struct{ value uint8 }
 
 // Value returns the raw DLC value.
 func (d DLC) Value() uint8 { return d.value }
 
-// ToBytes returns the payload byte count for this DLC.
-// DLC 0-8 map directly; 9→12, 10→16, 11→20, 12→24, 13→32, 14→48, 15→64.
+// ToBytes is the payload length this code stands for.
 func (d DLC) ToBytes() int {
 	return dlcTable[d.value]
 }
@@ -222,17 +209,22 @@ func NewDLC(v uint8) (DLC, error) {
 	return DLC{value: v}, nil
 }
 
-// dlcTable maps DLC values 0-15 to payload byte counts.
+// dlcTable is the payload length of each code, and the only place either
+// direction is written.
 var dlcTable = [16]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64}
 
-// bytesToDlcTable maps valid payload byte counts to DLC codes.
-var bytesToDlcTable = map[int]uint8{
-	0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
-	12: 9, 16: 10, 20: 11, 24: 12, 32: 13, 48: 14, 64: 15,
-}
+// bytesToDlcTable is that table read backwards, built from it rather than
+// written again, so the two directions cannot disagree. Each length appears
+// once, which is what makes the inversion a function.
+var bytesToDlcTable = func() map[int]uint8 {
+	m := make(map[int]uint8, len(dlcTable))
+	for code, length := range dlcTable {
+		m[length] = uint8(code)
+	}
+	return m
+}()
 
-// BytesToDLC converts a payload byte count to a DLC.
-// Returns an error if the byte count is not a valid CAN/CAN-FD payload size.
+// BytesToDLC is the code for a payload length, refusing a length no frame has.
 func BytesToDLC(byteCount int) (DLC, error) {
 	code, ok := bytesToDlcTable[byteCount]
 	if !ok {

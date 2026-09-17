@@ -1,0 +1,86 @@
+go/README.md	Shakefile.hs
+go/aletheia/backend.go	CHANGELOG.md python/aletheia/client/_backend.py
+go/aletheia/batch_test.go	
+go/aletheia/byteorder_string.go	go/aletheia/types.go
+go/aletheia/cancel_test.go	cpp/tests/unit_tests_cancel.cpp go/aletheia/client.go go/aletheia/concurrent_test.go
+go/aletheia/check.go	cpp/include/aletheia/check.hpp python/tests/test_mutation_run_scope.py
+go/aletheia/check_test.go	
+go/aletheia/client.go	AGENTS/go.md CHANGELOG.md docs/LOG_EVENTS.yaml docs/MUTATION_BENCH.yaml docs/architecture/PROTOCOL.md docs/operations/MUTATION.md go/aletheia/backend.go go/aletheia/log_events_test.go go/aletheia/stream_test.go python/aletheia/client/_backend.py python/aletheia/client/_signal_ops.py python/tests/test_check_changelog.py python/tests/test_check_dist_staging.py python/tests/test_check_no_memory_citations.py src/Aletheia/Protocol/Adequacy/StreamingWarm.agda
+go/aletheia/concurrent_test.go	python/tests/test_backend_protocol.py
+go/aletheia/cross_binding_integration_test.go	AGENTS/go.md CHANGELOG.md cpp/CMakeLists.txt cpp/tests/test_cross_binding_integration.cpp python/tests/test_cross_binding_integration.py
+go/aletheia/dbc.go	AGENTS/go.md CHANGELOG.md docs/MUTATION_BENCH.yaml docs/operations/MUTATION.md
+go/aletheia/dbc_corpus_parity_test.go	cpp/tests/dbc_corpus_parity_tests.cpp python/tests/fixtures/dbc_corpus/README.md python/tests/test_dbc_corpus_parity.py
+go/aletheia/dbc_stale_index_test.go	
+go/aletheia/dbc_test.go	
+go/aletheia/dbc_tier1_test.go	
+go/aletheia/dbc_tier2_test.go	
+go/aletheia/dbc_value_descriptions_test.go	go/aletheia/mux_mirror_warnings_test.go
+go/aletheia/dbcattrscope_string.go	go/aletheia/dbc.go
+go/aletheia/dbcvartype_string.go	go/aletheia/dbc.go
+go/aletheia/decimal.go	
+go/aletheia/decimal_nocgo.go	
+go/aletheia/decimal_test.go	
+go/aletheia/doc.go	CHANGELOG.md go/aletheia/concurrent_test.go python/tests/test_log_events_parity.py
+go/aletheia/doc_examples_test.go	AGENTS/go.md AGENTS/python.md cpp/CMakeLists.txt cpp/tests/doc_example_tests.cpp docs/FEATURE_MATRIX.yaml go/README.md
+go/aletheia/doc_no_notest_test.go	cpp/tests/doc_example_tests.cpp
+go/aletheia/dsl_test.go	
+go/aletheia/enrich.go	CHANGELOG.md docs/FEATURE_MATRIX.yaml docs/MUTATION_BENCH.yaml docs/operations/MUTATION.md docs/operations/RUNBOOK.md python/aletheia/_time_units.py python/tests/test_enrichment.py rust/src/enrich.rs
+go/aletheia/enrich_test.go	
+go/aletheia/eos_extract_once_test.go	
+go/aletheia/error.go	CHANGELOG.md docs/WIRE_CODES.yaml go/aletheia/wire_codes_parity_test.go
+go/aletheia/error_test.go	
+go/aletheia/errorkind_string.go	go/aletheia/error.go
+go/aletheia/export_test.go	CHANGELOG.md go/aletheia/enrich.go
+go/aletheia/extraction_bin_test.go	
+go/aletheia/feature_matrix_test.go	AGENTS.md CHANGELOG.md docs/FEATURE_MATRIX.yaml rust/tests/feature_matrix.rs
+go/aletheia/ffi.go	CHANGELOG.md cpp/src/client.cpp docs/LOG_EVENTS.yaml docs/MUTATION_BENCH.yaml docs/architecture/PROTOCOL.md docs/operations/MUTATION.md docs/reference/INTERFACES.md go/aletheia/error.go go/aletheia/ffi_nocgo.go go/aletheia/renderer.go
+go/aletheia/ffi_backend_test.go	go/aletheia/doc_examples_test.go
+go/aletheia/ffi_nocgo.go	AGENTS/go.md docs/MUTATION_BENCH.yaml docs/operations/MUTATION.md go/aletheia/decimal_nocgo.go go/aletheia/ffi.go
+go/aletheia/format_dbc_text_roundtrip_test.go	
+go/aletheia/fuzz_test.go	CHANGELOG.md go/aletheia/property_test.go
+go/aletheia/helpers_test.go	
+go/aletheia/input_bounds_test.go	
+go/aletheia/internal_test_helpers_test.go	
+go/aletheia/issueseverity_string.go	go/aletheia/result.go
+go/aletheia/json.go	CHANGELOG.md cpp/tests/unit_tests_json.cpp docs/MUTATION_BENCH.yaml docs/operations/MUTATION.md go/aletheia/fuzz_test.go go/aletheia/wire_codes_parity_test.go
+go/aletheia/json_error_decode_test.go	
+go/aletheia/json_precision_test.go	CHANGELOG.md go/aletheia/property_test.go
+go/aletheia/limits.go	CHANGELOG.md go/aletheia/error.go tools/check_limits_parity.py
+go/aletheia/loader.go	CHANGELOG.md python/tests/test_check_changelog.py
+go/aletheia/loader_test.go	CHANGELOG.md
+go/aletheia/log_events_test.go	CHANGELOG.md cpp/tests/test_log_events_parity.cpp docs/LOG_EVENTS.yaml docs/operations/RUNBOOK.md go/aletheia/wire_codes_parity_test.go python/tests/test_log_events_parity.py rust/tests/log_events.rs
+go/aletheia/ltl.go	
+go/aletheia/main_test.go	
+go/aletheia/mock.go	CHANGELOG.md python/aletheia/client/_backend.py python/tests/test_backend_protocol.py
+go/aletheia/mux_mirror_warnings_test.go	
+go/aletheia/mux_test.go	
+go/aletheia/nested_mux_test.go	
+go/aletheia/options_test.go	
+go/aletheia/property_test.go	CHANGELOG.md cpp/tests/unit_tests_property.cpp python/tests/test_property_hypothesis.py
+go/aletheia/renderer.go	CHANGELOG.md go/aletheia/decimal.go go/aletheia/enrich.go go/aletheia/ffi.go go/aletheia/main_test.go
+go/aletheia/result.go	CHANGELOG.md docs/WIRE_CODES.yaml docs/operations/RUNBOOK.md go/aletheia/wire_codes_parity_test.go python/aletheia/codes/_issue.py
+go/aletheia/rts.go	docs/RESOURCE_BUDGETS.yaml go/aletheia/ffi.go go/aletheia/rts_params_parity_test.go tools/check_rts_runtime.py
+go/aletheia/rts_heap_cap_test.go	docs/development/RESOURCE_PARAMETERS.md
+go/aletheia/rts_params_parity_test.go	go/aletheia/rts.go
+go/aletheia/seq_batch_test.go	
+go/aletheia/stream_test.go	
+go/aletheia/testdata/doc_examples/checks.yaml	CHANGELOG.md rust/tests/yaml_checks.rs
+go/aletheia/types.go	CHANGELOG.md
+go/aletheia/types_test.go	
+go/aletheia/verdict_string.go	go/aletheia/result.go
+go/aletheia/wire_codes_parity_test.go	CHANGELOG.md cpp/tests/test_wire_codes_parity.cpp docs/WIRE_CODES.yaml rust/tests/wire_codes.rs
+go/aletheia/yaml.go	
+go/aletheia/yaml_test.go	
+go/benchmarks/main.go	cpp/benchmarks/benchmark.cpp docs/development/BENCHMARKS.md go/aletheia/ffi_backend_test.go go/benchmarks/stability/main.go
+go/benchmarks/stability/main.go	CHANGELOG.md docs/STABILITY_BENCH.yaml docs/operations/STABILITY.md go/aletheia/ffi.go
+go/cmd/aletheia/main.go	CHANGELOG.md
+go/cmd/aletheia/main_test.go	cpp/tests/cli_tests.cpp
+go/excel/excel.go	
+go/excel/excel_test.go	
+go/excel/go.mod	
+go/excel/go.sum	.github/workflows/benchmark.yml .github/workflows/bundle-validation.yml .github/workflows/pr-full-ci.yml .github/workflows/pr-heavy-lanes.yml .github/workflows/release.yml
+go/excel/hardening.go	rust/excel/src/lib.rs
+go/go.mod	Shakefile.hs python/tests/_sbom_fixtures.py python/tests/test_check_dist_staging.py tools/sbom_generate.py
+go/go.sum	.github/workflows/benchmark.yml .github/workflows/bundle-validation.yml .github/workflows/pr-full-ci.yml .github/workflows/pr-heavy-lanes.yml .github/workflows/release.yml Shakefile.hs python/tests/_sbom_fixtures.py tools/sbom_generate.py
+go/go.work	CHANGELOG.md CLAUDE.md Shakefile.hs docs/development/DISTRIBUTION.md go/excel/go.mod python/tests/test_check_dist_staging.py tools/check_dist_staging.py
+go/go.work.sum	

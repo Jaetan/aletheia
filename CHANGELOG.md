@@ -91,6 +91,90 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (Go): the backend interface takes one slice of injections, not a count
+  and three arrays.** `BuildFrameBin` and `UpdateFrameBin` took a signal count beside
+  three slices of that length, so nothing carried the fact that the three agree and
+  the boundary checked it by hand. `SignalInjection` is a signal's position in its
+  message and the exact value to place there, and one slice of them carries the
+  property instead. The split into the three arrays the C entry point takes now lives
+  only in the file that talks to C. The interface is sealed, so the implementers are
+  the two build variants of the real backend, the mock and one test double. Measured
+  on the frame-building lanes, which gain one allocation set per call: about one point,
+  inside the noise floor.
+
+- **BREAKING (Go): the DBC records carry the vocabulary types the package defines.**
+  A signal's receivers, a message's additional senders, a node's own name, a value
+  description's signal name and the name on every comment and attribute target were
+  raw strings where `SignalName` and `NodeName` exist; fourteen fields across eleven
+  records carry their type now, and `NewDBCMessage` takes `[]NodeName`. The two
+  comment targets carry the identifier as `CANID` in place of a number beside a flag,
+  so the parse builds it through the constructor and refuses a value out of range for
+  its width: a comment can no longer name a message no frame could carry. Three names
+  stay strings because the package defines no type for them, and the four attribute
+  targets keep the number and the flag.
+
+- **BREAKING (Go): the shared check vocabulary carries the slots each obligation
+  reads.** `DispatchSimple` and `DispatchThen` take an interface the loader answers
+  for its own keys or columns, in place of eager rationals, and the four `IsSimple*`
+  predicates are one `IsSimpleCondition`. The two loaders decided a second time which
+  value slots an obligation reads, with a trailing branch that was the range
+  obligation, so a word the vocabulary gained and that branch did not was built as a
+  range check. The C++ and Python loaders had the same split and now read a slots
+  table of their own.
+
+- **BREAKING (Go and C++): the command-line interfaces print one wording.** The
+  `mux-query` header carries the payload length in all three interfaces, a message
+  that is not multiplexed reads the same sentence everywhere, and the selector opens
+  with the two lines the reference documents. The Go selector was one line and is
+  now a header and a name per line. The C++ summary prints the signal names its
+  siblings print.
+
+- **A parent directory that cannot be looked at is no longer reported as absent.**
+  Before a template is written, the Go and C++ bindings turned every failure to stat
+  the parent into the same sentence. Both key on the errno now, as their own
+  input-path checks already did: a component too long to be a name, an unsearchable
+  parent or a descriptor limit says the stat failed. Python already distinguished
+  them, having no such check of its own.
+
+- **BREAKING (Go): both modules are named where the repository is, and the core
+  module's path carries its major version.** The core module is
+  `github.com/Jaetan/aletheia/go/v5` and the spreadsheet loader is
+  `github.com/Jaetan/aletheia/go/excel`; every import moves with them. The previous
+  path named a location this repository does not publish from, so a consumer typing
+  it reached whatever is served there rather than this code. Go accepts a major of
+  two or more only when the path ends in the matching suffix, so before this the
+  core module could not name any release after the first major: the spreadsheet
+  loader required it at a placeholder version that only the development workspace
+  resolved, and now requires it at the version of the last release. A consumer of
+  the distribution bundle follows the same printed recipe as before, with the new
+  path in it. A release now also tags `go/vX.Y.Z`, which is the tag Go looks for
+  when a module lives in a subdirectory: without it the requirement resolves to
+  nothing.
+
+- **The Go and Rust predicate builders carry every predicate the kernel defines.**
+  Both carried the five comparisons, where the kernel has eight: `Signal(name)` in Go
+  gains `Between`, `ChangedBy` and `StableWithin`, and `Predicate` in Rust gains
+  `between`, `changed_by` and `stable_within`. Python and C++ already carried all
+  eight. A range whose minimum exceeds its maximum and a negative tolerance are
+  refused where the property is serialised, as before, that being the one place
+  every route to a predicate passes.
+
+- **The benchmark runner tells every binding how much to warm before timing latency.**
+  The four harnesses default to 500 operations in Python and C++ and 2 in Go and Rust,
+  and the runner passed nothing, so the four committed latency baselines had each been
+  taken a different way. `run_all.sh` takes `--warmup`, defaulting to 500, and passes it
+  to all four lanes, and the four baselines are re-taken under it. BREAKING for a
+  caller who passed a flag to a mode that does not read it: the runner refuses it
+  now rather than measuring its default. Throughput reads both counts, latency
+  reads `--frames` as its operation count and `--warmup`, and scaling reads
+  `--runs`. The printed invocations and the benchmark workflow pass what their
+  mode reads.
+
+- **The Go mutation lane refuses a sweep that timed out instead of testing.** A mutant
+  the tool could not finish is neither killed nor lived, so a sweep that timed out on
+  nearly everything reported no survivors at full efficacy and passed the drift gate.
+  The baseline records a timeout ceiling and the lane refuses a run past it.
+
 - **The Python lint and test toolchain moves up a release.** `ruff` to the 0.16 line,
   `pylint` to 4.0.7, `hypothesis` to 6.165.8 and the build's `setuptools` floor to 84.
   Two of these have visible consequences rather than none. `ruff` 0.16 promotes

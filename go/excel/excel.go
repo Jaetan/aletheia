@@ -9,13 +9,16 @@
 package excel
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -51,10 +54,6 @@ func WithDBCSheet(name string) Option {
 	return func(c *config) { c.dbcSheet = name }
 }
 
-// ---------------------------------------------------------------------------
-// Sheet headers
-// ---------------------------------------------------------------------------
-
 var (
 	dbcHeaders = []string{
 		"Message ID", "Message Name", "Extended", "DLC", "Signal", "Start Bit", "Length",
@@ -72,39 +71,45 @@ var (
 	}
 )
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-// LoadChecks loads signal checks from an Excel workbook.
-// Reads the Checks and When-Then sheets. Either or both may be present.
-func LoadChecks(path string, opts ...Option) ([]aletheia.CheckResult, error) {
-	path = filepath.Clean(path)
+// openWorkbook applies the options and opens the file, holding it to the
+// loaders' bounds first: a symbolic link is refused rather than followed, a
+// file past the size bound is not read, and an archive that expands past the
+// uncompressed bound is not opened. Every gate runs before excelize sees the
+// path.
+func openWorkbook(path string, opts []Option) (*excelize.File, config, error) {
 	cfg := defaultConfig()
 	for _, o := range opts {
 		o(&cfg)
 	}
-
-	// Symlink + size + ZIP-bomb gates before excelize open.
-	if err := validateLoaderPath(path, "excel"); err != nil {
-		return nil, err
+	path = filepath.Clean(path)
+	for _, gate := range []func() error{
+		func() error { return validateLoaderPath(path, "excel") },
+		func() error { return checkFileSizeBound(path) },
+		func() error { return checkXlsxUncompressedBound(path) },
+	} {
+		if err := gate(); err != nil {
+			return nil, cfg, err
+		}
 	}
-	if err := checkFileSizeBound(path); err != nil {
-		return nil, err
-	}
-	if err := checkXlsxUncompressedBound(path); err != nil {
-		return nil, err
-	}
-
 	f, err := excelize.OpenFile(path)
 	if err != nil {
-		return nil, aletheia.WrapValidationError("opening Excel file", err)
+		return nil, cfg, aletheia.WrapValidationError("opening Excel file", err)
+	}
+	return f, cfg, nil
+}
+
+// LoadChecks reads the checks a workbook carries, from its simple sheet, its
+// when-then sheet, or both. One of the two must be present.
+func LoadChecks(path string, opts ...Option) ([]aletheia.CheckResult, error) {
+	f, cfg, err := openWorkbook(path, opts)
+	if err != nil {
+		return nil, err
 	}
 	defer f.Close()
 
 	sheets := f.GetSheetList()
-	hasChecks := containsString(sheets, cfg.checksSheet)
-	hasWhenThen := containsString(sheets, cfg.whenThenSheet)
+	hasChecks := slices.Contains(sheets, cfg.checksSheet)
+	hasWhenThen := slices.Contains(sheets, cfg.whenThenSheet)
 
 	if !hasChecks && !hasWhenThen {
 		return nil, aletheia.NewValidationError(fmt.Sprintf("workbook has no '%s' or '%s' sheet", cfg.checksSheet, cfg.whenThenSheet))
@@ -113,7 +118,7 @@ func LoadChecks(path string, opts ...Option) ([]aletheia.CheckResult, error) {
 	var results []aletheia.CheckResult
 
 	if hasChecks {
-		simple, err := loadSimpleChecks(f, cfg.checksSheet)
+		simple, err := loadRows(f, cfg.checksSheet, parseSimpleRow)
 		if err != nil {
 			return nil, err
 		}
@@ -121,7 +126,7 @@ func LoadChecks(path string, opts ...Option) ([]aletheia.CheckResult, error) {
 	}
 
 	if hasWhenThen {
-		causal, err := loadWhenThenChecks(f, cfg.whenThenSheet)
+		causal, err := loadRows(f, cfg.whenThenSheet, parseWhenThenRow)
 		if err != nil {
 			return nil, err
 		}
@@ -133,31 +138,13 @@ func LoadChecks(path string, opts ...Option) ([]aletheia.CheckResult, error) {
 
 // LoadDbc loads a DBC definition from the DBC sheet of an Excel workbook.
 func LoadDbc(path string, opts ...Option) (*aletheia.DBCDefinition, error) {
-	path = filepath.Clean(path)
-	cfg := defaultConfig()
-	for _, o := range opts {
-		o(&cfg)
-	}
-
-	// Same hardening as LoadChecks.
-	if err := validateLoaderPath(path, "excel"); err != nil {
-		return nil, err
-	}
-	if err := checkFileSizeBound(path); err != nil {
-		return nil, err
-	}
-	if err := checkXlsxUncompressedBound(path); err != nil {
-		return nil, err
-	}
-
-	f, err := excelize.OpenFile(path)
+	f, cfg, err := openWorkbook(path, opts)
 	if err != nil {
-		return nil, aletheia.WrapValidationError("opening Excel file", err)
+		return nil, err
 	}
 	defer f.Close()
 
-	sheets := f.GetSheetList()
-	if !containsString(sheets, cfg.dbcSheet) {
+	if !slices.Contains(f.GetSheetList(), cfg.dbcSheet) {
 		return nil, aletheia.NewValidationError(fmt.Sprintf("workbook has no '%s' sheet", cfg.dbcSheet))
 	}
 
@@ -222,23 +209,18 @@ func CreateTemplate(path string) error {
 		return err
 	}
 
-	return f.SaveAs(path)
+	if err := f.SaveAs(path); err != nil {
+		return aletheia.WrapValidationError("writing the template", err)
+	}
+	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Internal: sheet readers
-// ---------------------------------------------------------------------------
-
-// xlsxCell is a cell's trimmed grid value (the DISPLAY rendering excelize's
-// GetRows returns — number-format applied, so a stored 256.7 can display as
-// "257"), its raw stored value (the literal the file carries, format-free),
-// and whether it is stored as text (a shared / inline string). Strict coercion
-// needs the text distinction: a number stored as text is rejected for a
-// numeric field. The type is read from the cell's `t` attribute — xlsx OMITS
-// the attribute for its default numeric type, so a saved native number reports
-// CellTypeUnset (CellTypeNumber would need an explicit t="n", which writers
-// rarely emit); booleans report CellTypeBool, and text reports
-// CellTypeSharedString / CellTypeInlineString.
+// xlsxCell is what one cell holds, three ways: its trimmed display value, the
+// value the file stores, and whether it is stored as text. The readers need the
+// distinction, a number written as text being the only form they accept for a
+// numeric field. The type comes from the cell's own attribute, which xlsx omits
+// for its default numeric type, so a stored number reports no type at all;
+// a boolean reports one, and text reports a shared or an inline string.
 type xlsxCell struct {
 	value  string
 	raw    string
@@ -313,31 +295,20 @@ func writeHeaderRow(f *excelize.File, sheet string, headers []string, style int)
 	return nil
 }
 
-func containsString(ss []string, target string) bool {
-	for _, s := range ss {
-		if s == target {
-			return true
-		}
-	}
-	return false
-}
-
-// ---------------------------------------------------------------------------
-// Internal: simple checks
-// ---------------------------------------------------------------------------
-
-func loadSimpleChecks(f *excelize.File, sheet string) ([]aletheia.CheckResult, error) {
+// loadRows builds one check per row a sheet carries, skipping the rows that
+// carry nothing. A row is numbered as the workbook numbers it, the header
+// being the first, so a refusal names a row the reader can go and look at.
+func loadRows(f *excelize.File, sheet string, parse func(map[string]xlsxCell, int) (aletheia.CheckResult, error)) ([]aletheia.CheckResult, error) {
 	rows, err := readTypedRows(f, sheet)
 	if err != nil {
 		return nil, err
 	}
 	var results []aletheia.CheckResult
-	for rowIdx, d := range rows {
-		rowNum := rowIdx + 2 // 1-indexed, skip header
-		if len(d) == 0 {
-			continue // skip empty rows
+	for i, row := range rows {
+		if len(row) == 0 {
+			continue
 		}
-		r, err := parseSimpleRow(d, rowNum)
+		r, err := parse(row, i+2)
 		if err != nil {
 			return nil, err
 		}
@@ -346,6 +317,59 @@ func loadSimpleChecks(f *excelize.File, sheet string) ([]aletheia.CheckResult, e
 	return results, nil
 }
 
+// requireColumns refuses a row lacking a column its condition needs, naming
+// every column that condition takes rather than the first one that is absent.
+func requireColumns(d map[string]xlsxCell, rowNum int, what, condition string, columns ...string) error {
+	quoted := make([]string, len(columns))
+	for i, c := range columns {
+		quoted[i] = "'" + c + "'"
+	}
+	for _, c := range columns {
+		if _, ok := d[c]; !ok {
+			return aletheia.NewValidationError(fmt.Sprintf("row %d: %s '%s' requires %s",
+				rowNum, what, condition, strings.Join(quoted, " and ")))
+		}
+	}
+	return nil
+}
+
+// xlsxSimpleValues answers for the columns a simple check is written in,
+// refusing in this loader's own words, which name the row.
+type xlsxSimpleValues struct {
+	d      map[string]xlsxCell
+	rowNum int
+	cond   string
+}
+
+func (v xlsxSimpleValues) Value() (aletheia.Rational, error) {
+	return xlsxRational(v.d, "Value", v.rowNum)
+}
+
+func (v xlsxSimpleValues) Range() (aletheia.Rational, aletheia.Rational, error) {
+	if err := requireColumns(v.d, v.rowNum, "condition", v.cond, "Min", "Max"); err != nil {
+		return aletheia.Rational{}, aletheia.Rational{}, err
+	}
+	lo, err := xlsxRational(v.d, "Min", v.rowNum)
+	if err != nil {
+		return aletheia.Rational{}, aletheia.Rational{}, err
+	}
+	hi, err := xlsxRational(v.d, "Max", v.rowNum)
+	if err != nil {
+		return aletheia.Rational{}, aletheia.Rational{}, err
+	}
+	return lo, hi, nil
+}
+
+func (v xlsxSimpleValues) Within() (int64, error) {
+	if err := requireColumns(v.d, v.rowNum, "condition", v.cond, "Time (ms)"); err != nil {
+		return 0, err
+	}
+	return xlsxInt(v.d, "Time (ms)", v.rowNum)
+}
+
+// parseSimpleRow builds a check written as one signal and one condition. The
+// word is held to the vocabulary here, before the dispatcher holds it again,
+// so that the refusal names the row.
 func parseSimpleRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, error) {
 	signal, err := xlsxStr(d, "Signal", rowNum)
 	if err != nil {
@@ -355,111 +379,46 @@ func parseSimpleRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, er
 	if err != nil {
 		return aletheia.CheckResult{}, err
 	}
-
 	if !aletheia.IsSimpleCondition(condition) {
 		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown condition '%s'", rowNum, condition))
 	}
 
-	var result aletheia.CheckResult
-
-	switch {
-	case aletheia.IsSimpleValueCondition(condition):
-		v, err := xlsxRational(d, "Value", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		result, err = aletheia.DispatchSimple(signal, condition, v)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-
-	case aletheia.IsSimpleRangeCondition(condition):
-		if _, ok := d["Min"]; !ok {
-			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: condition '%s' requires 'Min' and 'Max'", rowNum, condition))
-		}
-		if _, ok := d["Max"]; !ok {
-			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: condition '%s' requires 'Min' and 'Max'", rowNum, condition))
-		}
-		lo, err := xlsxRational(d, "Min", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		hi, err := xlsxRational(d, "Max", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		result, err = aletheia.CheckSignal(signal).StaysBetween(lo, hi)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-
-	case aletheia.IsSimpleSettlesCondition(condition):
-		if _, ok := d["Min"]; !ok {
-			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: condition 'settles_between' requires 'Min' and 'Max'", rowNum))
-		}
-		if _, ok := d["Max"]; !ok {
-			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: condition 'settles_between' requires 'Min' and 'Max'", rowNum))
-		}
-		if _, ok := d["Time (ms)"]; !ok {
-			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: condition 'settles_between' requires 'Time (ms)'", rowNum))
-		}
-		lo, err := xlsxRational(d, "Min", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		hi, err := xlsxRational(d, "Max", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		ms, err := xlsxInt(d, "Time (ms)", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		result, err = aletheia.CheckSignal(signal).SettlesBetween(lo, hi).Within(ms)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-
-	case aletheia.IsSimpleEqualsCondition(condition):
-		v, err := xlsxRational(d, "Value", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		result = aletheia.CheckSignal(signal).Equals(v).Always()
-
-	default:
-		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown condition '%s'", rowNum, condition))
+	result, err := aletheia.DispatchSimple(signal, condition,
+		xlsxSimpleValues{d: d, rowNum: rowNum, cond: condition})
+	if err != nil {
+		return aletheia.CheckResult{}, err
 	}
-
 	return applyMetadata(result, d), nil
 }
 
-// ---------------------------------------------------------------------------
-// Internal: when/then checks
-// ---------------------------------------------------------------------------
+// xlsxThenValues answers for the columns an obligation is written in.
+type xlsxThenValues struct {
+	d      map[string]xlsxCell
+	rowNum int
+	cond   string
+}
 
-func loadWhenThenChecks(f *excelize.File, sheet string) ([]aletheia.CheckResult, error) {
-	rows, err := readTypedRows(f, sheet)
+func (v xlsxThenValues) Value() (aletheia.Rational, error) {
+	return xlsxRational(v.d, "Then Value", v.rowNum)
+}
+
+func (v xlsxThenValues) Range() (aletheia.Rational, aletheia.Rational, error) {
+	if err := requireColumns(v.d, v.rowNum, "then condition", v.cond, "Then Min", "Then Max"); err != nil {
+		return aletheia.Rational{}, aletheia.Rational{}, err
+	}
+	lo, err := xlsxRational(v.d, "Then Min", v.rowNum)
 	if err != nil {
-		return nil, err
+		return aletheia.Rational{}, aletheia.Rational{}, err
 	}
-	var results []aletheia.CheckResult
-	for rowIdx, d := range rows {
-		rowNum := rowIdx + 2
-		if len(d) == 0 {
-			continue
-		}
-		r, err := parseWhenThenRow(d, rowNum)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, r)
+	hi, err := xlsxRational(v.d, "Then Max", v.rowNum)
+	if err != nil {
+		return aletheia.Rational{}, aletheia.Rational{}, err
 	}
-	return results, nil
+	return lo, hi, nil
 }
 
 func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, error) {
-	// When clause.
+	// When clause, whose three conditions all read one value.
 	whenSignal, err := xlsxStr(d, "When Signal", rowNum)
 	if err != nil {
 		return aletheia.CheckResult{}, err
@@ -468,13 +427,12 @@ func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, 
 	if err != nil {
 		return aletheia.CheckResult{}, err
 	}
+	if !aletheia.IsWhenCondition(whenCond) {
+		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown when condition '%s'", rowNum, whenCond))
+	}
 	whenValue, err := xlsxRational(d, "When Value", rowNum)
 	if err != nil {
 		return aletheia.CheckResult{}, err
-	}
-
-	if !aletheia.IsWhenCondition(whenCond) {
-		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown when condition '%s'", rowNum, whenCond))
 	}
 
 	whenResult, err := aletheia.DispatchWhen(aletheia.CheckWhen(whenSignal), whenCond, whenValue)
@@ -491,7 +449,6 @@ func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, 
 	if err != nil {
 		return aletheia.CheckResult{}, err
 	}
-
 	if !aletheia.IsThenCondition(thenCond) {
 		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown then condition '%s'", rowNum, thenCond))
 	}
@@ -501,46 +458,14 @@ func parseWhenThenRow(d map[string]xlsxCell, rowNum int) (aletheia.CheckResult, 
 		return aletheia.CheckResult{}, err
 	}
 
-	thenBuilder := whenResult.Then(thenSignal)
-
-	// Presence checks + value extraction stay loader-specific (column names and
-	// error text differ per loader); the builder dispatch itself is shared.
-	var thenValue, thenLo, thenHi aletheia.Rational
-	switch thenCond {
-	case "equals", "exceeds":
-		v, err := xlsxRational(d, "Then Value", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		thenValue = v
-	case "stays_between":
-		if _, ok := d["Then Min"]; !ok {
-			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: then condition 'stays_between' requires 'Then Min' and 'Then Max'", rowNum))
-		}
-		if _, ok := d["Then Max"]; !ok {
-			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: then condition 'stays_between' requires 'Then Min' and 'Then Max'", rowNum))
-		}
-		lo, err := xlsxRational(d, "Then Min", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		hi, err := xlsxRational(d, "Then Max", rowNum)
-		if err != nil {
-			return aletheia.CheckResult{}, err
-		}
-		thenLo, thenHi = lo, hi
-	}
-	result, err := aletheia.DispatchThen(thenBuilder, thenCond, thenValue, thenLo, thenHi, withinMs)
+	result, err := aletheia.DispatchThen(whenResult.Then(thenSignal), thenCond,
+		xlsxThenValues{d: d, rowNum: rowNum, cond: thenCond}, withinMs)
 	if err != nil {
 		return aletheia.CheckResult{}, err
 	}
 
 	return applyMetadata(result, d), nil
 }
-
-// ---------------------------------------------------------------------------
-// Internal: DBC parsing
-// ---------------------------------------------------------------------------
 
 type messageKey struct {
 	id       int64
@@ -573,8 +498,8 @@ func parseDBCRows(rows []map[string]xlsxCell) (*aletheia.DBCDefinition, error) {
 		if err != nil {
 			return nil, err
 		}
-		// 'Extended' is optional — an absent column (or empty cell) means a
-		// standard 11-bit message, matching Python and C++.
+		// An absent column, or an empty cell, is a standard message, as it is
+		// for the Python and the C++ loaders.
 		extended := false
 		if _, ok := row["Extended"]; ok {
 			extended, err = xlsxBool(row, "Extended", rowNum)
@@ -630,8 +555,10 @@ func parseDBCRows(rows []map[string]xlsxCell) (*aletheia.DBCDefinition, error) {
 			canID = sid
 		}
 
-		if key.dlc < 0 || key.dlc > 15 {
-			return nil, aletheia.NewValidationError(fmt.Sprintf("DLC %d out of range [0, 15]", key.dlc))
+		// Past a byte the conversion below would truncate, and the constructor
+		// would see a value the workbook never held; it refuses the rest.
+		if key.dlc < 0 || key.dlc > math.MaxUint8 {
+			return nil, aletheia.NewValidationError(fmt.Sprintf("DLC %d out of range", key.dlc))
 		}
 		dlcVal, err := aletheia.NewDLC(uint8(key.dlc))
 		if err != nil {
@@ -766,12 +693,11 @@ func xlsxDBCSignal(row map[string]xlsxCell, rowNum int) (aletheia.DBCSignal, err
 	}, nil
 }
 
-// parseMessageID accepts a text cell holding an integer or 0x-hex literal, or
-// a native number cell whose RAW stored value is exactly integral. The grid
-// value of a number cell is its DISPLAY rendering (number-format applied — a
-// stored 256.7 shown under the integer format "0" displays as "257"), so the
-// numeric form is parsed from the raw stored value only, and only when it is a
-// pure optional-sign digit run.
+// parseMessageID accepts a text cell holding a decimal or a hexadecimal
+// literal, or a number cell whose stored value is a whole number. A number
+// cell's grid value is its display, which a number format can round: a stored
+// 256.7 under an integer format displays as "257". So the stored value is what
+// is read.
 func parseMessageID(c xlsxCell, rowNum int) (int64, error) {
 	if c.isText {
 		stripped := strings.TrimSpace(c.value)
@@ -790,53 +716,39 @@ func parseMessageID(c xlsxCell, rowNum int) (int64, error) {
 		}
 		return n, nil
 	}
-	if !isSignedDigitRun(c.raw) {
-		return 0, aletheia.NewValidationError(fmt.Sprintf(
-			"row %d: invalid 'Message ID' -- number cell stores %q, which is not a whole number (a hex ID needs a text cell)",
-			rowNum, c.raw))
-	}
 	n, err := strconv.ParseInt(c.raw, 10, 64)
-	if err != nil {
+	switch {
+	case errors.Is(err, strconv.ErrRange):
 		return 0, aletheia.NewValidationError(fmt.Sprintf(
 			"row %d: invalid 'Message ID' -- number cell stores %q, which does not fit a 64-bit integer",
+			rowNum, c.raw))
+	case err != nil:
+		// Anything the decimal reader refuses is not a whole number as stored:
+		// a fraction, an exponent, or a hexadecimal literal, which needs a text
+		// cell to be read as one.
+		return 0, aletheia.NewValidationError(fmt.Sprintf(
+			"row %d: invalid 'Message ID' -- number cell stores %q, which is not a whole number (a hex ID needs a text cell)",
 			rowNum, c.raw))
 	}
 	return n, nil
 }
 
-// isSignedDigitRun reports whether s is a non-empty ASCII digit run with an
-// optional single leading sign — the only raw stored shape a native number
-// cell may carry into ParseInt (anything else, e.g. scientific notation, is
-// not exactly integral as stored).
-func isSignedDigitRun(s string) bool {
-	if s == "" {
-		return false
-	}
-	i := 0
-	if s[0] == '+' || s[0] == '-' {
-		i = 1
-	}
-	if i == len(s) {
-		return false
-	}
-	for ; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return false
-		}
-	}
-	return true
-}
-
-// ---------------------------------------------------------------------------
-// Internal: cell value helpers
-// ---------------------------------------------------------------------------
-
-// xlsxStr requires a text cell — strict, matching the Python reference: a
-// number or boolean cell is rejected rather than silently stringified.
-func xlsxStr(d map[string]xlsxCell, key string, rowNum int) (string, error) {
+// xlsxCellAt answers what a row holds under one header, refusing a row that
+// holds nothing there.
+func xlsxCellAt(d map[string]xlsxCell, key string, rowNum int) (xlsxCell, error) {
 	c, ok := d[key]
 	if !ok || c.value == "" {
-		return "", aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
+		return xlsxCell{}, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
+	}
+	return c, nil
+}
+
+// xlsxStr requires a text cell, as the Python loader does: a number or a
+// boolean is refused rather than quietly turned into its own spelling.
+func xlsxStr(d map[string]xlsxCell, key string, rowNum int) (string, error) {
+	c, err := xlsxCellAt(d, key, rowNum)
+	if err != nil {
+		return "", err
 	}
 	if !c.isText {
 		return "", aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be text, got a non-text value %q", rowNum, key, c.value))
@@ -844,70 +756,54 @@ func xlsxStr(d map[string]xlsxCell, key string, rowNum int) (string, error) {
 	return c.value, nil
 }
 
-// xlsxRational requires a TEXT-formatted numeric cell. A spreadsheet number
-// cell stores an IEEE-754 double — lossy for decimals — so under the all-text
-// contract a numeric value MUST be entered as text, and its exact literal is
-// parsed by the kernel [aletheia.FromDecimal] (the cross-binding decimal SSOT:
-// a decimal is an exact rational, never a float). A native number cell is
-// rejected. RTS-gated (decimal parsing runs the kernel), so loading a workbook
-// with numeric fields needs a live FFIBackend.
+// xlsxRational requires a number written as text, and the kernel parses the
+// literal it was written as. A spreadsheet number cell stores a binary float,
+// which cannot hold a decimal exactly, and every binding treats a decimal as an
+// exact rational. Parsing runs the kernel, so a workbook with numeric fields
+// needs a loaded library.
 func xlsxRational(d map[string]xlsxCell, key string, rowNum int) (aletheia.Rational, error) {
-	c, ok := d[key]
-	if !ok || c.value == "" {
-		return aletheia.Rational{}, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
+	c, err := xlsxCellAt(d, key, rowNum)
+	if err != nil {
+		return aletheia.Rational{}, err
 	}
 	if !c.isText {
-		// Echo the RAW stored value: the grid value is the display rendering,
-		// which a number format may have rounded away from what the file holds.
+		// The stored value, not the grid's: a number format may have rounded
+		// the display away from what the file holds.
 		return aletheia.Rational{}, aletheia.NewValidationError(fmt.Sprintf(
 			"row %d: '%s' is a number cell (got %q); format it as TEXT so the exact value is preserved (a number cell stores a lossy float)",
 			rowNum, key, c.raw))
 	}
 	r, err := aletheia.FromDecimal(strings.TrimSpace(c.value))
 	if err != nil {
-		// The kernel knows the literal, not the workbook position — prefix the
-		// refusal with this loader's own row/field context.
+		// The kernel knows the literal and not the workbook, so the row and the
+		// field are named here.
 		return aletheia.Rational{}, aletheia.WrapValidationError(fmt.Sprintf("row %d: invalid '%s'", rowNum, key), err)
 	}
 	return r, nil
 }
 
-// xlsxInt requires a TEXT-formatted whole-number cell: the kernel
-// [aletheia.FromDecimal] parses the literal exactly and a unit-denominator
-// check rejects a fractional value. A native number cell is rejected (the
-// all-text contract — see [xlsxRational]).
+// xlsxInt is a rational whose denominator is one: the same cell, read the same
+// way, with a fraction refused.
 func xlsxInt(d map[string]xlsxCell, key string, rowNum int) (int64, error) {
-	c, ok := d[key]
-	if !ok || c.value == "" {
-		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
-	}
-	if !c.isText {
-		// Raw echo for the same reason as xlsxRational.
-		return 0, aletheia.NewValidationError(fmt.Sprintf(
-			"row %d: '%s' is a number cell (got %q); format it as TEXT so the exact value is preserved (a number cell stores a lossy float)",
-			rowNum, key, c.raw))
-	}
-	r, err := aletheia.FromDecimal(strings.TrimSpace(c.value))
+	r, err := xlsxRational(d, key, rowNum)
 	if err != nil {
-		// Same row/field context prefix as xlsxRational.
-		return 0, aletheia.WrapValidationError(fmt.Sprintf("row %d: invalid '%s'", rowNum, key), err)
+		return 0, err
 	}
 	if r.Denominator != 1 {
-		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be a whole number, got %q", rowNum, key, c.value))
+		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be a whole number, got %q", rowNum, key, d[key].value))
 	}
 	return r.Numerator, nil
 }
 
-// xlsxBool accepts the multi-form boolean Python's get_bool accepts: a native
-// boolean, a number cell whose RAW stored value is exactly 1/0, or TRUE/FALSE
-// /1/0 text (case-insensitive). The numeric form is gated on the raw stored
-// value — the grid value is the display rendering, so a stored 1.4 can display
-// as "1" and must not coerce to TRUE. (A native boolean passes the same gate:
-// xlsx stores it as exactly 1 or 0.)
+// xlsxBool accepts what the Python loader accepts: a stored boolean, a number
+// cell storing exactly one or zero, or the words true and false or the digits,
+// in any case. The numeric form is read from the stored value, since a stored
+// 1.4 can display as "1" and is not a boolean. A stored boolean passes the same
+// test, xlsx holding it as exactly one or zero.
 func xlsxBool(d map[string]xlsxCell, key string, rowNum int) (bool, error) {
-	c, ok := d[key]
-	if !ok || c.value == "" {
-		return false, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
+	c, err := xlsxCellAt(d, key, rowNum)
+	if err != nil {
+		return false, err
 	}
 	if c.isText {
 		switch strings.ToLower(strings.TrimSpace(c.value)) {

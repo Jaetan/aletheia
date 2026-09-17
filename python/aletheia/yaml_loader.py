@@ -74,8 +74,10 @@ from aletheia._check_conditions import (
     SIMPLE_RANGE_CONDITIONS,
     SIMPLE_SETTLES_CONDITIONS,
     SIMPLE_VALUE_CONDITIONS,
+    THEN_SLOTS,
     WHEN_CONDITIONS,
     dispatch_simple,
+    dispatch_then,
     dispatch_when,
 )
 from aletheia._loader_utils import (
@@ -384,6 +386,28 @@ def _parse_simple_check(entry: Mapping[str, JSONValue]) -> CheckResult:
     # pragma: no mutate end
 
 
+def _then_values(
+    then: Mapping[str, JSONValue],
+    then_cond: str,
+    name: str,
+) -> dict[str, int | Fraction]:
+    """Read the value slots the obligation takes, under this loader's own keys.
+
+    Which slots those are is THEN_SLOTS' business; which keys hold them, and
+    what to say when one is missing, is this loader's.  Only the slots the
+    obligation reads are returned, so nothing carries a filler.
+    """
+    if THEN_SLOTS[then_cond] == "value":
+        return {"value": get_number(then, "value", _ctx(name))}
+    if "min" not in then or "max" not in then:
+        msg = f"Check '{name}': then condition '{then_cond}' requires 'min' and 'max'"
+        raise ValidationError(msg)
+    return {
+        "lo": get_number(then, "min", _ctx(name)),
+        "hi": get_number(then, "max", _ctx(name)),
+    }
+
+
 def _parse_when_then_check(entry: Mapping[str, JSONValue]) -> CheckResult:
     """Parse a when/then causal check."""
     name = _check_name(entry)
@@ -419,20 +443,9 @@ def _parse_when_then_check(entry: Mapping[str, JSONValue]) -> CheckResult:
     then_signal = get_str(then, "signal", _ctx(name))
     then_builder = when_result.then(then_signal)
 
-    if then_cond == "equals":
-        then_result = then_builder.equals(get_number(then, "value", _ctx(name)))
-    elif then_cond == "exceeds":
-        then_result = then_builder.exceeds(get_number(then, "value", _ctx(name)))
-    else:  # stays_between
-        if "min" not in then or "max" not in then:
-            msg = f"Check '{name}': then condition 'stays_between' requires 'min' and 'max'"
-            raise ValidationError(msg)
-        then_result = then_builder.stays_between(
-            get_number(then, "min", _ctx(name)),
-            get_number(then, "max", _ctx(name)),
-        )
-
-    return then_result.within(within_ms)
+    return dispatch_then(then_builder, then_cond, _then_values(then, then_cond, name)).within(
+        within_ms
+    )
 
 
 __all__ = ["load_checks"]

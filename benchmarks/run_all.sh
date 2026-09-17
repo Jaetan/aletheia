@@ -9,7 +9,10 @@
 # Results are saved as JSON in benchmarks/results/.
 #
 # Usage:
-#     ./benchmarks/run_all.sh [--frames N] [--runs N] [--bench throughput|latency|scaling]
+#     ./benchmarks/run_all.sh [--frames N] [--runs N] [--warmup N] [--bench throughput|latency|scaling]
+#
+# --warmup is the latency mode's and is refused for the others, where it
+# would reach nothing.
 #
 # Results go to benchmarks/results/ unless ALETHEIA_BENCH_RESULTS_DIR names
 # another directory.  The override exists so a probe can exercise this script
@@ -36,13 +39,24 @@ RESULTS_DIR="${ALETHEIA_BENCH_RESULTS_DIR:-$SCRIPT_DIR/results}"
 FRAMES=10000
 RUNS=5
 BENCH=throughput
+# Operations discarded before the latency mode starts timing. Passed to every
+# binding, because their own defaults do not agree: Python and C++ warm 500
+# where Go and Rust warm 2, so a run that passed no flag measured the four
+# lanes four ways and the committed baselines were not comparable. 500 is the
+# larger of the two, which is what the Python and C++ baselines were taken at.
+WARMUP=500
+
+# The flags actually given, whatever their value, so that a flag the selected
+# mode does not read can be told from a default it never chose.
+GIVEN=""
 
 # Parse args
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --frames) FRAMES="$2"; shift 2 ;;
-        --runs)   RUNS="$2";   shift 2 ;;
+        --frames) FRAMES="$2"; GIVEN="$GIVEN frames"; shift 2 ;;
+        --runs)   RUNS="$2";   GIVEN="$GIVEN runs";   shift 2 ;;
         --bench)  BENCH="$2";  shift 2 ;;
+        --warmup) WARMUP="$2"; GIVEN="$GIVEN warmup"; shift 2 ;;
         *)        echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
 done
@@ -59,6 +73,11 @@ if ! [[ "$RUNS" =~ ^[1-9][0-9]*$ ]]; then
     echo "ERROR: --runs must be a positive integer, got '$RUNS'" >&2
     exit 1
 fi
+# Zero is meaningful here, unlike the counts above: it says measure from cold.
+if ! [[ "$WARMUP" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: --warmup must be a non-negative integer, got '$WARMUP'" >&2
+    exit 1
+fi
 
 # Validate the mode before anything derives a path from it.  BENCH feeds a
 # destructive glob below, and an unchecked value is a data-loss hazard, not just a
@@ -68,6 +87,30 @@ case "$BENCH" in
     throughput|latency|scaling) ;;
     *) echo "ERROR: unknown --bench '$BENCH' (expected throughput, latency or scaling)" >&2; exit 1 ;;
 esac
+
+# What each mode reads, which is the same list the per-binding argument
+# builders below are written from: throughput takes both counts; latency takes
+# the frame count, as the number of operations it times, and the warmup, which
+# it counts in operations where the other modes would count whole runs of the
+# frame set; scaling picks its own trace sizes and takes the run count alone.
+#
+# A flag the selected mode does not read is refused here rather than accepted
+# and dropped, which is the one thing this harness will not do with an
+# argument: a caller who asks for ten runs of a latency measurement has asked
+# for something, and answering with the default while reporting success is
+# how a run comes to measure what nobody requested.
+case "$BENCH" in
+    throughput) READS="frames runs" ;;
+    latency)    READS="frames warmup" ;;
+    scaling)    READS="runs" ;;
+esac
+for flag in $GIVEN; do
+    case " $READS " in
+        *" $flag "*) ;;
+        *) echo "ERROR: --$flag is not read by the $BENCH mode, which reads ${READS// /, }" >&2
+           exit 1 ;;
+    esac
+done
 
 mkdir -p "$RESULTS_DIR"
 
@@ -107,8 +150,13 @@ rm -f "$RESULTS_DIR"/*_"${BENCH}".json
 
 echo "=== Aletheia Cross-Language Benchmark ==="
 echo "Benchmark: $BENCH"
-echo "Frames:    $FRAMES"
-echo "Runs:      $RUNS"
+# Each mode reads a different pair, and the arms below are what decides it: the
+# banner names what this run was given rather than every count the runner holds.
+case $BENCH in
+    throughput) echo "Frames:    $FRAMES"; echo "Runs:      $RUNS" ;;
+    latency)    echo "Ops:       $FRAMES"; echo "Warmup:    $WARMUP" ;;
+    scaling)    echo "Runs:      $RUNS" ;;
+esac
 echo "Library:   $ALETHEIA_LIB"
 echo ""
 
@@ -205,7 +253,7 @@ FAILED=()
 PYTHON_ARGS=(--json)
 case $BENCH in
     throughput) PYTHON_ARGS=(--frames "$FRAMES" --runs "$RUNS" "${PYTHON_ARGS[@]}") ;;
-    latency)    PYTHON_ARGS=(--ops "$FRAMES" "${PYTHON_ARGS[@]}") ;;
+    latency)    PYTHON_ARGS=(--ops "$FRAMES" --warmup "$WARMUP" "${PYTHON_ARGS[@]}") ;;
     scaling)    PYTHON_ARGS=(--runs "$RUNS" "${PYTHON_ARGS[@]}") ;;
 esac
 
@@ -241,7 +289,7 @@ if [[ -f "$CPP_CACHE" ]]; then
         CPP_ARGS=("$BENCH" --json)
         case $BENCH in
             throughput) CPP_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
-            latency)    CPP_ARGS+=(--ops "$FRAMES") ;;
+            latency)    CPP_ARGS+=(--ops "$FRAMES" --warmup "$WARMUP") ;;
             scaling)    CPP_ARGS+=(--runs "$RUNS") ;;
         esac
 
@@ -277,7 +325,7 @@ if GO_BUILD_LOG="$(cd "$GO_DIR" && go build -o benchmarks/benchmark ./benchmarks
     GO_ARGS=("$BENCH" --json)
     case $BENCH in
         throughput) GO_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
-        latency)    GO_ARGS+=(--ops "$FRAMES") ;;
+        latency)    GO_ARGS+=(--ops "$FRAMES" --warmup "$WARMUP") ;;
         scaling)    GO_ARGS+=(--runs "$RUNS") ;;
     esac
 
@@ -310,7 +358,7 @@ if RUST_BUILD_LOG="$(cd "$RUST_DIR" && cargo build --release --example benchmark
     RUST_ARGS=("$BENCH" --json)
     case $BENCH in
         throughput) RUST_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
-        latency)    RUST_ARGS+=(--ops "$FRAMES") ;;
+        latency)    RUST_ARGS+=(--ops "$FRAMES" --warmup "$WARMUP") ;;
         scaling)    RUST_ARGS+=(--runs "$RUNS") ;;
     esac
 

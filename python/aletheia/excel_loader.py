@@ -68,8 +68,10 @@ from aletheia._check_conditions import (
     SIMPLE_RANGE_CONDITIONS,
     SIMPLE_SETTLES_CONDITIONS,
     SIMPLE_VALUE_CONDITIONS,
+    THEN_SLOTS,
     WHEN_CONDITIONS,
     dispatch_simple,
+    dispatch_then,
     dispatch_when,
 )
 from aletheia._dbc_types import empty_dbc_tier2
@@ -94,6 +96,7 @@ from aletheia.types import (
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from fractions import Fraction
 
     from openpyxl.worksheet.worksheet import Worksheet
 
@@ -496,6 +499,28 @@ def _parse_simple_row(d: Mapping[str, CellValue], row_num: int) -> CheckResult:
     return _apply_metadata(result, d)
 
 
+def _then_values(
+    d: Mapping[str, CellValue],
+    then_cond: str,
+    row_num: int,
+) -> dict[str, int | Fraction]:
+    """Read the value slots the obligation takes, under this loader's own columns.
+
+    Which slots those are is THEN_SLOTS' business; which columns hold them, and
+    what to say when one is missing, is this loader's.  Only the slots the
+    obligation reads are returned, so nothing carries a filler.
+    """
+    if THEN_SLOTS[then_cond] == "value":
+        return {"value": get_excel_number(d, "Then Value", _row_ctx(row_num))}
+    if "Then Min" not in d or "Then Max" not in d:
+        msg = f"Row {row_num}: then condition '{then_cond}' requires 'Then Min' and 'Then Max'"
+        raise ValidationError(msg)
+    return {
+        "lo": get_excel_number(d, "Then Min", _row_ctx(row_num)),
+        "hi": get_excel_number(d, "Then Max", _row_ctx(row_num)),
+    }
+
+
 def _parse_when_then_row(d: Mapping[str, CellValue], row_num: int) -> CheckResult:
     """Parse a When-Then-sheet row into a CheckResult."""
     # When clause
@@ -519,21 +544,7 @@ def _parse_when_then_row(d: Mapping[str, CellValue], row_num: int) -> CheckResul
 
     then_builder = when_result.then(then_signal)
 
-    if then_cond == "equals":
-        then_result = then_builder.equals(get_excel_number(d, "Then Value", _row_ctx(row_num)))
-    elif then_cond == "exceeds":
-        then_result = then_builder.exceeds(get_excel_number(d, "Then Value", _row_ctx(row_num)))
-    else:  # stays_between
-        if "Then Min" not in d or "Then Max" not in d:
-            msg = (
-                f"Row {row_num}: then condition 'stays_between' requires 'Then Min' and 'Then Max'"
-            )
-            raise ValidationError(msg)
-        then_result = then_builder.stays_between(
-            get_excel_number(d, "Then Min", _row_ctx(row_num)),
-            get_excel_number(d, "Then Max", _row_ctx(row_num)),
-        )
-
+    then_result = dispatch_then(then_builder, then_cond, _then_values(d, then_cond, row_num))
     result = then_result.within(get_excel_int(d, "Within (ms)", _row_ctx(row_num)))
     return _apply_metadata(result, d)
 

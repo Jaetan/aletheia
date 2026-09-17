@@ -10,13 +10,14 @@ import (
 	"testing"
 )
 
-// ctx is the default context for internal-package tests that don't exercise
-// cancellation. Tests that DO exercise cancellation create their own
-// context.WithCancel or context.WithTimeout in-test.
+// The helpers the tests inside the package share; helpers_test.go carries the
+// same claims for the tests outside, which cannot reach an unexported name.
+
+// ctx is for the tests that do not cancel; one that does makes its own.
 var ctx = context.Background()
 
-// requireErrorContains asserts err is a non-nil *Error whose message
-// contains substr. Uses errors.As for proper unwrapping.
+// requireErrorContains holds that the failure is the package's error type,
+// through whatever wraps it, and that its message carries the substring.
 func requireErrorContains(t *testing.T, err error, substr string) {
 	t.Helper()
 	if err == nil {

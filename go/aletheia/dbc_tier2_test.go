@@ -5,589 +5,133 @@ package aletheia_test
 
 import (
 	"encoding/json"
-	"strings"
+	"reflect"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
-// buildTier2Fixture assembles a DBCDefinition exercising every Tier 2
-// variant (5 comment targets, 5 attr types, 5 attr values, 7 attr
-// targets, 3 attribute sub-records) so serialize/parse coverage is
-// exhaustive in a single round-trip.
-func buildTier2Fixture(t *testing.T) aletheia.DBCDefinition {
+// tier2DBC carries every tier 2 variant: the five comment targets, the five
+// attribute types, the five attribute values, the seven attribute targets
+// and the three attribute records, so one round trip covers them all. The
+// float bounds are rationals with no finite binary expansion.
+func tier2DBC(t *testing.T) aletheia.DBCDefinition {
 	t.Helper()
-	id, err := aletheia.NewStandardID(256)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dlc, err := aletheia.BytesToDLC(8)
-	if err != nil {
-		t.Fatal(err)
-	}
-	msg := aletheia.NewDBCMessage(id, "EngineData", dlc, "ECU", nil, nil)
-
 	return aletheia.DBCDefinition{
 		Version:  "1.0",
-		Messages: []aletheia.DBCMessage{msg},
-		Nodes: []aletheia.DBCNode{
-			{Name: "ECU"},
-			{Name: "Gateway"},
-		},
+		Messages: []aletheia.DBCMessage{minimalMessage(t, "EngineData")},
+		Nodes:    []aletheia.DBCNode{{Name: "ECU"}, {Name: "Gateway"}},
 		Comments: []aletheia.DBCComment{
 			{Target: aletheia.DBCCommentTargetNetwork{}, Text: "network scope"},
 			{Target: aletheia.DBCCommentTargetNode{Node: "ECU"}, Text: "node scope"},
-			{Target: aletheia.DBCCommentTargetMessage{ID: 256, Extended: false}, Text: "msg scope"},
-			{Target: aletheia.DBCCommentTargetSignal{ID: 256, Extended: false, Signal: "RPM"}, Text: "sig scope"},
+			{Target: aletheia.DBCCommentTargetMessage{ID: standardID(t, 256)}, Text: "msg scope"},
+			{Target: aletheia.DBCCommentTargetSignal{ID: standardID(t, 256), Signal: "RPM"}, Text: "sig scope"},
 			{Target: aletheia.DBCCommentTargetEnvVar{EnvVar: "AmbientTemp"}, Text: "env scope"},
 		},
 		Attributes: []aletheia.DBCAttribute{
-			// 5 definitions, one per attr type kind. Float uses Rational
-			// {-1,2} / {22,7} to prove ℚ precision survives the wire.
-			aletheia.DBCAttrDef{
-				Name: "IntAttr", Scope: aletheia.DBCAttrScopeNetwork,
-				AttrType: aletheia.DBCAttrTypeInt{Min: 0, Max: 100},
-			},
-			aletheia.DBCAttrDef{
-				Name: "FloatAttr", Scope: aletheia.DBCAttrScopeSignal,
-				AttrType: aletheia.DBCAttrTypeFloat{
-					Min: aletheia.Rational{Numerator: -1, Denominator: 2},
-					Max: aletheia.Rational{Numerator: 22, Denominator: 7},
-				},
-			},
-			aletheia.DBCAttrDef{
-				Name: "StrAttr", Scope: aletheia.DBCAttrScopeMessage,
-				AttrType: aletheia.DBCAttrTypeString{},
-			},
-			aletheia.DBCAttrDef{
-				Name: "EnumAttr", Scope: aletheia.DBCAttrScopeNode,
-				AttrType: aletheia.DBCAttrTypeEnum{Values: []string{"low", "high"}},
-			},
-			aletheia.DBCAttrDef{
-				Name: "HexAttr", Scope: aletheia.DBCAttrScopeEnvVar,
-				AttrType: aletheia.DBCAttrTypeHex{Min: 0, Max: 255},
-			},
-			// 1 default (int).
-			aletheia.DBCAttrDefault{
-				Name: "IntAttr", Value: aletheia.DBCAttrValueInt{Value: 42},
-			},
-			// 5 assignments — one per value kind AND one per less-covered
-			// target kind (Network / Node / Signal / NodeMsg / NodeSig).
-			aletheia.DBCAttrAssign{
-				Name:   "IntAttr",
-				Target: aletheia.DBCAttrTargetNetwork{},
-				Value:  aletheia.DBCAttrValueInt{Value: 7},
-			},
-			aletheia.DBCAttrAssign{
-				Name:   "FloatAttr",
-				Target: aletheia.DBCAttrTargetNode{Node: "ECU"},
-				Value: aletheia.DBCAttrValueFloat{
-					Value: aletheia.Rational{Numerator: 1, Denominator: 3},
-				},
-			},
-			aletheia.DBCAttrAssign{
-				Name:   "StrAttr",
-				Target: aletheia.DBCAttrTargetSignal{ID: 256, Extended: false, Signal: "RPM"},
-				Value:  aletheia.DBCAttrValueString{Value: "hello"},
-			},
-			aletheia.DBCAttrAssign{
-				Name:   "EnumAttr",
-				Target: aletheia.DBCAttrTargetNodeMsg{Node: "ECU", ID: 256, Extended: false},
-				Value:  aletheia.DBCAttrValueEnum{Value: 1},
-			},
-			aletheia.DBCAttrAssign{
-				Name:   "HexAttr",
-				Target: aletheia.DBCAttrTargetNodeSig{Node: "ECU", ID: 256, Extended: false, Signal: "RPM"},
-				Value:  aletheia.DBCAttrValueHex{Value: 255},
-			},
+			aletheia.DBCAttrDef{Name: "IntAttr", Scope: aletheia.DBCAttrScopeNetwork, AttrType: aletheia.DBCAttrTypeInt{Min: 0, Max: 100}},
+			aletheia.DBCAttrDef{Name: "FloatAttr", Scope: aletheia.DBCAttrScopeSignal, AttrType: aletheia.DBCAttrTypeFloat{
+				Min: aletheia.Rational{Numerator: -1, Denominator: 2}, Max: aletheia.Rational{Numerator: 22, Denominator: 7}}},
+			aletheia.DBCAttrDef{Name: "StrAttr", Scope: aletheia.DBCAttrScopeMessage, AttrType: aletheia.DBCAttrTypeString{}},
+			aletheia.DBCAttrDef{Name: "EnumAttr", Scope: aletheia.DBCAttrScopeNode, AttrType: aletheia.DBCAttrTypeEnum{Values: []string{"low", "high"}}},
+			aletheia.DBCAttrDef{Name: "HexAttr", Scope: aletheia.DBCAttrScopeEnvVar, AttrType: aletheia.DBCAttrTypeHex{Min: 0, Max: 255}},
+			aletheia.DBCAttrDefault{Name: "IntAttr", Value: aletheia.DBCAttrValueInt{Value: 42}},
+			aletheia.DBCAttrAssign{Name: "IntAttr", Target: aletheia.DBCAttrTargetNetwork{}, Value: aletheia.DBCAttrValueInt{Value: 7}},
+			aletheia.DBCAttrAssign{Name: "FloatAttr", Target: aletheia.DBCAttrTargetNode{Node: "ECU"},
+				Value: aletheia.DBCAttrValueFloat{Value: aletheia.Rational{Numerator: 1, Denominator: 3}}},
+			aletheia.DBCAttrAssign{Name: "StrAttr", Target: aletheia.DBCAttrTargetSignal{ID: 256, Signal: "RPM"}, Value: aletheia.DBCAttrValueString{Value: "hello"}},
+			aletheia.DBCAttrAssign{Name: "EnumAttr", Target: aletheia.DBCAttrTargetNodeMsg{Node: "ECU", ID: 256}, Value: aletheia.DBCAttrValueEnum{Value: 1}},
+			aletheia.DBCAttrAssign{Name: "HexAttr", Target: aletheia.DBCAttrTargetNodeSig{Node: "ECU", ID: 256, Signal: "RPM"}, Value: aletheia.DBCAttrValueHex{Value: 255}},
 		},
 	}
 }
 
+// Every tier 2 variant the serializer writes, the decoder reads back equal,
+// field for field.
 func TestSerializeDBC_Tier2RoundtripThroughMock(t *testing.T) {
-	// Build a DBC carrying every Tier 2 variant, serialize through a
-	// sendClient, re-wrap the captured envelope as a formatDBC response,
-	// and parse it back through a parseClient. Every variant must
-	// survive the round-trip unchanged.
-	fixture := buildTier2Fixture(t)
-
-	sendMock := aletheia.NewMockBackend(aletheia.RespondParseDBC(fixture))
-	sendClient, err := aletheia.NewClient(sendMock)
-	if err != nil {
-		t.Fatal(err)
+	fixture := tier2DBC(t)
+	decoded := roundTripThroughMock(t, fixture)
+	if !reflect.DeepEqual(decoded.Nodes, fixture.Nodes) {
+		t.Errorf("nodes: got %+v, want %+v", decoded.Nodes, fixture.Nodes)
 	}
-	defer sendClient.Close()
-	if _, err := sendClient.ParseDBC(ctx, fixture); err != nil {
-		t.Fatalf("ParseDBC: %v", err)
+	if !reflect.DeepEqual(decoded.Comments, fixture.Comments) {
+		t.Errorf("comments: got %+v, want %+v", decoded.Comments, fixture.Comments)
 	}
-
-	envBytes := sendMock.Inputs()[0]
-	var env map[string]any
-	if err := json.Unmarshal([]byte(envBytes), &env); err != nil {
-		t.Fatalf("envelope unmarshal: %v\n%s", err, envBytes)
-	}
-	respEnv := map[string]any{"status": "success", "dbc": env["dbc"]}
-	respBytes, err := json.Marshal(respEnv)
-	if err != nil {
-		t.Fatalf("response marshal: %v", err)
-	}
-
-	parseMock := aletheia.NewMockBackend(aletheia.Respond(string(respBytes)))
-	parseClient, err := aletheia.NewClient(parseMock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer parseClient.Close()
-
-	decoded, err := parseClient.FormatDBC(ctx)
-	if err != nil {
-		t.Fatalf("FormatDBC: %v", err)
-	}
-
-	// --- Nodes ---
-	if got, want := len(decoded.Nodes), 2; got != want {
-		t.Fatalf("Nodes: got %d, want %d", got, want)
-	}
-	if decoded.Nodes[0].Name != "ECU" || decoded.Nodes[1].Name != "Gateway" {
-		t.Errorf("Nodes: got %v", decoded.Nodes)
-	}
-
-	// --- Comments: 5 variants ---
-	if got, want := len(decoded.Comments), 5; got != want {
-		t.Fatalf("Comments: got %d, want %d", got, want)
-	}
-	if _, ok := decoded.Comments[0].Target.(aletheia.DBCCommentTargetNetwork); !ok {
-		t.Errorf("Comments[0]: want Network target, got %T", decoded.Comments[0].Target)
-	}
-	if node, ok := decoded.Comments[1].Target.(aletheia.DBCCommentTargetNode); !ok || node.Node != "ECU" {
-		t.Errorf("Comments[1]: want Node{ECU}, got %v", decoded.Comments[1].Target)
-	}
-	if m, ok := decoded.Comments[2].Target.(aletheia.DBCCommentTargetMessage); !ok || m.ID != 256 || m.Extended {
-		t.Errorf("Comments[2]: want Message{256,false}, got %v", decoded.Comments[2].Target)
-	}
-	if s, ok := decoded.Comments[3].Target.(aletheia.DBCCommentTargetSignal); !ok || s.Signal != "RPM" {
-		t.Errorf("Comments[3]: want Signal{_,_,RPM}, got %v", decoded.Comments[3].Target)
-	}
-	if ev, ok := decoded.Comments[4].Target.(aletheia.DBCCommentTargetEnvVar); !ok || ev.EnvVar != "AmbientTemp" {
-		t.Errorf("Comments[4]: want EnvVar{AmbientTemp}, got %v", decoded.Comments[4].Target)
-	}
-	if decoded.Comments[0].Text != "network scope" {
-		t.Errorf("Comments[0].Text: got %q", decoded.Comments[0].Text)
-	}
-
-	// --- Attributes: 5 defs + 1 default + 5 assignments ---
-	if got, want := len(decoded.Attributes), 11; got != want {
-		t.Fatalf("Attributes: got %d, want %d", got, want)
-	}
-
-	// Attrs 0..4: definitions, one per type kind.
-	intDef, ok := decoded.Attributes[0].(aletheia.DBCAttrDef)
-	if !ok {
-		t.Fatalf("Attributes[0]: want AttrDef, got %T", decoded.Attributes[0])
-	}
-	if intDef.Name != "IntAttr" || intDef.Scope != aletheia.DBCAttrScopeNetwork {
-		t.Errorf("IntAttr def: got (%s, scope=%d)", intDef.Name, intDef.Scope)
-	}
-	if it, ok := intDef.AttrType.(aletheia.DBCAttrTypeInt); !ok || it.Min != 0 || it.Max != 100 {
-		t.Errorf("IntAttr type: got %v", intDef.AttrType)
-	}
-
-	floatDef, _ := decoded.Attributes[1].(aletheia.DBCAttrDef)
-	ft, ok := floatDef.AttrType.(aletheia.DBCAttrTypeFloat)
-	if !ok {
-		t.Fatalf("FloatAttr type: want AttrTypeFloat, got %T", floatDef.AttrType)
-	}
-	if ft.Min.Numerator != -1 || ft.Min.Denominator != 2 {
-		t.Errorf("FloatAttr min: got %d/%d, want -1/2", ft.Min.Numerator, ft.Min.Denominator)
-	}
-	if ft.Max.Numerator != 22 || ft.Max.Denominator != 7 {
-		t.Errorf("FloatAttr max: got %d/%d, want 22/7", ft.Max.Numerator, ft.Max.Denominator)
-	}
-
-	strDef, _ := decoded.Attributes[2].(aletheia.DBCAttrDef)
-	if _, ok := strDef.AttrType.(aletheia.DBCAttrTypeString); !ok {
-		t.Errorf("StrAttr type: want AttrTypeString, got %T", strDef.AttrType)
-	}
-
-	enumDef, _ := decoded.Attributes[3].(aletheia.DBCAttrDef)
-	et, ok := enumDef.AttrType.(aletheia.DBCAttrTypeEnum)
-	if !ok || len(et.Values) != 2 || et.Values[0] != "low" || et.Values[1] != "high" {
-		t.Errorf("EnumAttr type: got %v", enumDef.AttrType)
-	}
-
-	hexDef, _ := decoded.Attributes[4].(aletheia.DBCAttrDef)
-	if ht, ok := hexDef.AttrType.(aletheia.DBCAttrTypeHex); !ok || ht.Min != 0 || ht.Max != 255 {
-		t.Errorf("HexAttr type: got %v", hexDef.AttrType)
-	}
-
-	// Attr 5: default (int).
-	def, ok := decoded.Attributes[5].(aletheia.DBCAttrDefault)
-	if !ok {
-		t.Fatalf("Attributes[5]: want AttrDefault, got %T", decoded.Attributes[5])
-	}
-	if iv, ok := def.Value.(aletheia.DBCAttrValueInt); !ok || iv.Value != 42 {
-		t.Errorf("IntAttr default: got %v", def.Value)
-	}
-
-	// Attrs 6..10: assignments, one per value kind + target kind mix.
-	assignNet, ok := decoded.Attributes[6].(aletheia.DBCAttrAssign)
-	if !ok {
-		t.Fatalf("Attributes[6]: want AttrAssign, got %T", decoded.Attributes[6])
-	}
-	if _, ok := assignNet.Target.(aletheia.DBCAttrTargetNetwork); !ok {
-		t.Errorf("assignNet target: want Network, got %T", assignNet.Target)
-	}
-
-	assignNode, _ := decoded.Attributes[7].(aletheia.DBCAttrAssign)
-	if fv, ok := assignNode.Value.(aletheia.DBCAttrValueFloat); !ok ||
-		fv.Value.Numerator != 1 || fv.Value.Denominator != 3 {
-		t.Errorf("FloatAttr value: got %v", assignNode.Value)
-	}
-	if tgt, ok := assignNode.Target.(aletheia.DBCAttrTargetNode); !ok || tgt.Node != "ECU" {
-		t.Errorf("assignNode target: got %v", assignNode.Target)
-	}
-
-	assignSig, _ := decoded.Attributes[8].(aletheia.DBCAttrAssign)
-	if sv, ok := assignSig.Value.(aletheia.DBCAttrValueString); !ok || sv.Value != "hello" {
-		t.Errorf("StrAttr value: got %v", assignSig.Value)
-	}
-	if sTgt, ok := assignSig.Target.(aletheia.DBCAttrTargetSignal); !ok || sTgt.Signal != "RPM" {
-		t.Errorf("assignSig target: got %v", assignSig.Target)
-	}
-
-	assignNM, _ := decoded.Attributes[9].(aletheia.DBCAttrAssign)
-	if ev, ok := assignNM.Value.(aletheia.DBCAttrValueEnum); !ok || ev.Value != 1 {
-		t.Errorf("EnumAttr value: got %v", assignNM.Value)
-	}
-	if nm, ok := assignNM.Target.(aletheia.DBCAttrTargetNodeMsg); !ok ||
-		nm.Node != "ECU" || nm.ID != 256 {
-		t.Errorf("assignNM target: got %v", assignNM.Target)
-	}
-
-	assignNS, _ := decoded.Attributes[10].(aletheia.DBCAttrAssign)
-	if hv, ok := assignNS.Value.(aletheia.DBCAttrValueHex); !ok || hv.Value != 255 {
-		t.Errorf("HexAttr value: got %v", assignNS.Value)
-	}
-	if ns, ok := assignNS.Target.(aletheia.DBCAttrTargetNodeSig); !ok ||
-		ns.Node != "ECU" || ns.Signal != "RPM" {
-		t.Errorf("assignNS target: got %v", assignNS.Target)
+	if !reflect.DeepEqual(decoded.Attributes, fixture.Attributes) {
+		t.Errorf("attributes: got %+v, want %+v", decoded.Attributes, fixture.Attributes)
 	}
 }
 
-func TestFormatDBC_AcceptsMissingTier2Keys(t *testing.T) {
-	mock := aletheia.NewMockBackend(aletheia.Respond(`{
-		"status":"success",
-		"dbc":{
-			"version":"0.1",
-			"messages":[]
-		}
-	}`))
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
+// A signal's receivers and a message's additional senders go onto the wire
+// under their keys and come back through the decoder.
+func TestSignalReceiversAndMessageSenders_RoundtripThroughMock(t *testing.T) {
+	dlc, _ := aletheia.BytesToDLC(8)
+	speed := aletheia.DBCSignal{
+		Name: "Speed", StartBit: 0, BitLength: 16, ByteOrder: aletheia.LittleEndian,
+		Factor: aletheia.IntRational(1), Offset: aletheia.IntRational(0), Minimum: aletheia.IntRational(0), Maximum: aletheia.IntRational(255),
+		Unit: "km/h", Presence: aletheia.AlwaysPresent{}, Receivers: []aletheia.NodeName{"ECU_A", "ECU_B"},
 	}
-	defer c.Close()
+	withReceivers := aletheia.DBCDefinition{Version: "1.0", Messages: []aletheia.DBCMessage{
+		aletheia.NewDBCMessage(standardID(t, 256), "VehicleSpeed", dlc, "ECU", nil, []aletheia.DBCSignal{speed})}}
+	withSenders := aletheia.DBCDefinition{Version: "1.0", Messages: []aletheia.DBCMessage{
+		aletheia.NewDBCMessage(standardID(t, 256), "VehicleSpeed", dlc, "ECU_A", []aletheia.NodeName{"ECU_B", "ECU_C"}, nil)}}
 
+	t.Run("receivers", func(t *testing.T) {
+		msgs, _ := serialisedDBC(t, withReceivers)["messages"].([]any)
+		sigs, _ := msgs[0].(map[string]any)["signals"].([]any)
+		wire, _ := sigs[0].(map[string]any)["receivers"].([]any)
+		if !reflect.DeepEqual(wire, []any{"ECU_A", "ECU_B"}) {
+			t.Errorf("wire receivers: got %v", wire)
+		}
+		got := roundTripThroughMock(t, withReceivers).Messages[0].Signals[0].Receivers
+		if !reflect.DeepEqual(got, speed.Receivers) {
+			t.Errorf("decoded receivers: got %v, want %v", got, speed.Receivers)
+		}
+	})
+	t.Run("senders", func(t *testing.T) {
+		msgs, _ := serialisedDBC(t, withSenders)["messages"].([]any)
+		wire, _ := msgs[0].(map[string]any)["senders"].([]any)
+		if !reflect.DeepEqual(wire, []any{"ECU_B", "ECU_C"}) {
+			t.Errorf("wire senders: got %v", wire)
+		}
+		got := roundTripThroughMock(t, withSenders).Messages[0].Senders
+		if !reflect.DeepEqual(got, []aletheia.NodeName{"ECU_B", "ECU_C"}) {
+			t.Errorf("decoded senders: got %v", got)
+		}
+	})
+}
+
+// Tier 2 keys, a signal's receivers and a message's senders absent from a
+// response decode to nil.
+func TestFormatDBC_AbsentTier2KeysDecodeToNil(t *testing.T) {
+	c, _ := mockClient(t, aletheia.Respond(formatDBCResponse(oneSignalMessage(
+		`{"name":"S","startBit":0,"length":8,"byteOrder":"little_endian","signed":false,"factor":1,"offset":0,"minimum":0,"maximum":255,"unit":"","presence":"always"}`))))
 	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
-	if dbc.Nodes != nil {
-		t.Errorf("Nodes: expected nil (absent key), got %v", dbc.Nodes)
+	if dbc.Nodes != nil || dbc.Comments != nil || dbc.Attributes != nil {
+		t.Errorf("expected nil tier 2 slices, got %v %v %v", dbc.Nodes, dbc.Comments, dbc.Attributes)
 	}
-	if dbc.Comments != nil {
-		t.Errorf("Comments: expected nil (absent key), got %v", dbc.Comments)
-	}
-	if dbc.Attributes != nil {
-		t.Errorf("Attributes: expected nil (absent key), got %v", dbc.Attributes)
-	}
-}
-
-func TestFormatDBC_RejectsUnknownCommentTargetKind(t *testing.T) {
-	mock := aletheia.NewMockBackend(aletheia.Respond(`{
-		"status":"success",
-		"dbc":{
-			"version":"0.1",
-			"messages":[],
-			"comments":[
-				{"target":{"kind":"bogus"},"text":"bad"}
-			]
-		}
-	}`))
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	_, err = c.FormatDBC(ctx)
-	if err == nil {
-		t.Fatal("expected error for unknown comment target kind, got nil")
-	}
-	if !strings.Contains(err.Error(), "comment target kind") {
-		t.Errorf("error should mention comment target kind, got: %v", err)
-	}
-}
-
-func TestDBCSignalReceivers_RoundtripThroughMock(t *testing.T) {
-	// Build a single-signal DBC with explicit Receivers, serialize it
-	// through parseDBC, rebuild the response envelope, parse it back
-	// through formatDBC, and confirm Receivers survived unchanged.
-	id, err := aletheia.NewStandardID(256)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dlc, err := aletheia.BytesToDLC(8)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sig := aletheia.DBCSignal{
-		Name:      "Speed",
-		StartBit:  0,
-		BitLength: 16,
-		ByteOrder: aletheia.LittleEndian,
-		Factor:    aletheia.Rational{Numerator: 1, Denominator: 1},
-		Offset:    aletheia.Rational{Numerator: 0, Denominator: 1},
-		Minimum:   aletheia.Rational{Numerator: 0, Denominator: 1},
-		Maximum:   aletheia.Rational{Numerator: 255, Denominator: 1},
-		Unit:      "km/h",
-		Presence:  aletheia.AlwaysPresent{},
-		Receivers: []string{"ECU_A", "ECU_B"},
-	}
-	msg := aletheia.NewDBCMessage(id, "VehicleSpeed", dlc, "ECU", nil, []aletheia.DBCSignal{sig})
-	fixture := aletheia.DBCDefinition{
-		Version:  "1.0",
-		Messages: []aletheia.DBCMessage{msg},
-	}
-
-	sendMock := aletheia.NewMockBackend(aletheia.RespondParseDBC(fixture))
-	sendClient, err := aletheia.NewClient(sendMock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sendClient.Close()
-	if _, err := sendClient.ParseDBC(ctx, fixture); err != nil {
-		t.Fatalf("ParseDBC: %v", err)
-	}
-
-	envBytes := sendMock.Inputs()[0]
-	var env map[string]any
-	if err := json.Unmarshal([]byte(envBytes), &env); err != nil {
-		t.Fatalf("envelope unmarshal: %v\n%s", err, envBytes)
-	}
-	// Confirm wire shape: receivers is present on the outgoing signal.
-	dbcObj, ok := env["dbc"].(map[string]any)
-	if !ok {
-		t.Fatalf("dbc object missing from envelope")
-	}
-	msgs, _ := dbcObj["messages"].([]any)
-	if len(msgs) != 1 {
-		t.Fatalf("messages: want 1, got %d", len(msgs))
-	}
-	sigs, _ := msgs[0].(map[string]any)["signals"].([]any)
-	if len(sigs) != 1 {
-		t.Fatalf("signals: want 1, got %d", len(sigs))
-	}
-	wireRecv, ok := sigs[0].(map[string]any)["receivers"].([]any)
-	if !ok {
-		t.Fatalf("receivers: missing or not an array")
-	}
-	if len(wireRecv) != 2 || wireRecv[0] != "ECU_A" || wireRecv[1] != "ECU_B" {
-		t.Errorf("wire receivers: got %v, want [ECU_A ECU_B]", wireRecv)
-	}
-
-	respEnv := map[string]any{"status": "success", "dbc": dbcObj}
-	respBytes, err := json.Marshal(respEnv)
-	if err != nil {
-		t.Fatalf("response marshal: %v", err)
-	}
-	parseMock := aletheia.NewMockBackend(aletheia.Respond(string(respBytes)))
-	parseClient, err := aletheia.NewClient(parseMock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer parseClient.Close()
-
-	decoded, err := parseClient.FormatDBC(ctx)
-	if err != nil {
-		t.Fatalf("FormatDBC: %v", err)
-	}
-	if len(decoded.Messages) != 1 || len(decoded.Messages[0].Signals) != 1 {
-		t.Fatalf("decoded shape: want 1 msg / 1 sig, got %d / %d",
-			len(decoded.Messages), len(decoded.Messages[0].Signals))
-	}
-	got := decoded.Messages[0].Signals[0].Receivers
-	if len(got) != 2 || got[0] != "ECU_A" || got[1] != "ECU_B" {
-		t.Errorf("decoded receivers: got %v, want [ECU_A ECU_B]", got)
-	}
-}
-
-func TestDBCSignalReceivers_EmptyWhenAbsent(t *testing.T) {
-	// A parseDBC response that omits "receivers" entirely must parse
-	// cleanly with Receivers == nil (not an error).
-	mock := aletheia.NewMockBackend(aletheia.Respond(`{
-		"status":"success",
-		"dbc":{
-			"version":"1.0",
-			"messages":[{
-				"id":256,"name":"M","dlc":8,"sender":"ECU","extended":false,
-				"signals":[{
-					"name":"S","startBit":0,"length":8,"byteOrder":"little_endian",
-					"signed":false,
-					"factor":{"numerator":1,"denominator":1},
-					"offset":{"numerator":0,"denominator":1},
-					"minimum":{"numerator":0,"denominator":1},
-					"maximum":{"numerator":255,"denominator":1},
-					"unit":"","presence":"always"
-				}]
-			}]
-		}
-	}`))
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-	dbc, err := c.FormatDBC(ctx)
-	if err != nil {
-		t.Fatalf("FormatDBC: %v", err)
-	}
-	if len(dbc.Messages) != 1 || len(dbc.Messages[0].Signals) != 1 {
-		t.Fatalf("unexpected shape: %+v", dbc)
+	if got := dbc.Messages[0].Senders; got != nil {
+		t.Errorf("absent senders: want nil, got %v", got)
 	}
 	if got := dbc.Messages[0].Signals[0].Receivers; got != nil {
 		t.Errorf("absent receivers: want nil, got %v", got)
 	}
 }
 
-func TestDBCMessageSenders_RoundtripThroughMock(t *testing.T) {
-	// BO_TX_BU_ additional senders: primary in Sender, extras in Senders.
-	// Mirrors TestDBCSignalReceivers_RoundtripThroughMock for the new
-	// message-level wire key.
-	id, err := aletheia.NewStandardID(256)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dlc, err := aletheia.BytesToDLC(8)
-	if err != nil {
-		t.Fatal(err)
-	}
-	msg := aletheia.NewDBCMessage(id, "VehicleSpeed", dlc, "ECU_A",
-		[]string{"ECU_B", "ECU_C"}, nil)
-	fixture := aletheia.DBCDefinition{
-		Version:  "1.0",
-		Messages: []aletheia.DBCMessage{msg},
-	}
-
-	sendMock := aletheia.NewMockBackend(aletheia.RespondParseDBC(fixture))
-	sendClient, err := aletheia.NewClient(sendMock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sendClient.Close()
-	if _, err := sendClient.ParseDBC(ctx, fixture); err != nil {
-		t.Fatalf("ParseDBC: %v", err)
-	}
-
-	envBytes := sendMock.Inputs()[0]
-	var env map[string]any
-	if err := json.Unmarshal([]byte(envBytes), &env); err != nil {
-		t.Fatalf("envelope unmarshal: %v\n%s", err, envBytes)
-	}
-	dbcObj, ok := env["dbc"].(map[string]any)
-	if !ok {
-		t.Fatalf("dbc object missing from envelope")
-	}
-	msgs, _ := dbcObj["messages"].([]any)
-	if len(msgs) != 1 {
-		t.Fatalf("messages: want 1, got %d", len(msgs))
-	}
-	wireSenders, ok := msgs[0].(map[string]any)["senders"].([]any)
-	if !ok {
-		t.Fatalf("senders: missing or not an array")
-	}
-	if len(wireSenders) != 2 || wireSenders[0] != "ECU_B" || wireSenders[1] != "ECU_C" {
-		t.Errorf("wire senders: got %v, want [ECU_B ECU_C]", wireSenders)
-	}
-
-	respEnv := map[string]any{"status": "success", "dbc": dbcObj}
-	respBytes, err := json.Marshal(respEnv)
-	if err != nil {
-		t.Fatalf("response marshal: %v", err)
-	}
-	parseMock := aletheia.NewMockBackend(aletheia.Respond(string(respBytes)))
-	parseClient, err := aletheia.NewClient(parseMock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer parseClient.Close()
-
-	decoded, err := parseClient.FormatDBC(ctx)
-	if err != nil {
-		t.Fatalf("FormatDBC: %v", err)
-	}
-	if len(decoded.Messages) != 1 {
-		t.Fatalf("decoded shape: want 1 msg, got %d", len(decoded.Messages))
-	}
-	got := decoded.Messages[0].Senders
-	if len(got) != 2 || got[0] != "ECU_B" || got[1] != "ECU_C" {
-		t.Errorf("decoded senders: got %v, want [ECU_B ECU_C]", got)
-	}
+// A comment target kind outside the five is a protocol error naming it.
+func TestFormatDBC_RejectsUnknownCommentTargetKind(t *testing.T) {
+	c, _ := mockClient(t, aletheia.Respond(`{"status":"success","dbc":{"version":"0.1","messages":[],"comments":[{"target":{"kind":"bogus"},"text":"bad"}]}}`))
+	_, err := c.FormatDBC(ctx)
+	requireKind(t, err, aletheia.ErrProtocol)
+	requireErrorContains(t, err, "comment target kind")
 }
 
-func TestDBCMessageSenders_EmptyWhenAbsent(t *testing.T) {
-	// Older DBC responses may omit "senders"; parser defaults to nil.
-	mock := aletheia.NewMockBackend(aletheia.Respond(`{
-		"status":"success",
-		"dbc":{
-			"version":"1.0",
-			"messages":[{
-				"id":256,"name":"M","dlc":8,"sender":"ECU","extended":false,
-				"signals":[]
-			}]
-		}
-	}`))
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-	dbc, err := c.FormatDBC(ctx)
-	if err != nil {
-		t.Fatalf("FormatDBC: %v", err)
-	}
-	if len(dbc.Messages) != 1 {
-		t.Fatalf("unexpected shape: %+v", dbc)
-	}
-	if got := dbc.Messages[0].Senders; got != nil {
-		t.Errorf("absent senders: want nil, got %v", got)
-	}
-}
-
+// Absent tier 2 metadata is written as three empty arrays.
 func TestSerializeDBC_EmitsEmptyTier2ArraysWhenMetadataAbsent(t *testing.T) {
-	id, _ := aletheia.NewStandardID(256)
-	dlc, _ := aletheia.BytesToDLC(8)
-	msg := aletheia.NewDBCMessage(id, "MinimalMsg", dlc, "ECU", nil, nil)
-	dbc := aletheia.DBCDefinition{
-		Version:  "1.0",
-		Messages: []aletheia.DBCMessage{msg},
-		// All Tier 1 & Tier 2 slices left nil — every key must still
-		// land on the wire as an empty array.
-	}
-	mock := aletheia.NewMockBackend(aletheia.RespondParseDBC(dbc))
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	if _, err := c.ParseDBC(ctx, dbc); err != nil {
-		t.Fatalf("ParseDBC: %v", err)
-	}
-
-	inputs := mock.Inputs()
-	dbcObj := extractDBCObject(t, inputs[0])
-
+	dbcObj := serialisedDBC(t, aletheia.DBCDefinition{Version: "1.0", Messages: []aletheia.DBCMessage{minimalMessage(t, "MinimalMsg")}})
 	for _, key := range []string{"nodes", "comments", "attributes"} {
 		arr, ok := dbcObj[key].([]any)
 		if !ok {
@@ -597,5 +141,37 @@ func TestSerializeDBC_EmitsEmptyTier2ArraysWhenMetadataAbsent(t *testing.T) {
 		if len(arr) != 0 {
 			t.Errorf("%s: expected empty array, got %d items", key, len(arr))
 		}
+	}
+}
+
+// TestCommentTargetRefusesAnIdentifierNoFrameCouldCarry: a comment target
+// carries the identifier as the package's own type, so the parse refuses a
+// value out of range for its width rather than keeping it. Before the type
+// went on the field the pair was a raw number and a flag, and a comment could
+// name a message no frame could carry.
+func TestCommentTargetRefusesAnIdentifierNoFrameCouldCarry(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		target map[string]any
+	}{
+		{"a standard identifier above eleven bits", map[string]any{"kind": "message", "id": 0x800}},
+		{"an extended identifier above twenty-nine bits", map[string]any{
+			"kind": "signal", "id": 0x2000_0000, "extended": true, "signal": "Speed"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wire := map[string]any{
+				"version":  "1.0",
+				"messages": []any{},
+				"comments": []any{map[string]any{"target": tc.target, "text": "out of range"}},
+			}
+			resp, err := json.Marshal(map[string]any{"status": "success", "dbc": wire})
+			if err != nil {
+				t.Fatal(err)
+			}
+			c, _ := mockClient(t, aletheia.Respond(string(resp)))
+			if _, err := c.FormatDBC(ctx); err == nil {
+				t.Fatal("a comment named an identifier no frame could carry and the parse took it")
+			}
+		})
 	}
 }

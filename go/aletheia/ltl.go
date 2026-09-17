@@ -3,17 +3,17 @@
 
 package aletheia
 
-// Predicate is a signal predicate for LTL atomic propositions.
-// Sealed: only types in this package may implement Predicate.
+// Predicate is a test on one signal's value, the leaf of a formula. Only the
+// types below implement it: the method it requires is unexported, so a value
+// of this interface is always one the kernel knows.
+//
+// Every value a predicate carries is an exact [Rational], never a float, which
+// is what lets the kernel decide the comparison rather than approximate it.
+// Build one with [IntRational] for a whole number, or with [FromDecimal] for
+// decimal text, which the kernel parses.
 type Predicate interface {
 	predicate() // sealed
 }
-
-// Predicate values carry exact [Rational] precision per the DecRat
-// universal principle — wire-symmetric with C++ ``rational_to_json`` and
-// Python's ``Fraction``.
-// Use [IntRational] for exact integer literals and [FromDecimal] for
-// decimal-literal text (parsed exactly by the kernel decimal SSOT).
 
 // Equals tests whether a signal's value equals a specific value.
 type Equals struct {
@@ -52,8 +52,8 @@ type Between struct {
 	Max    Rational
 }
 
-// ChangedBy tests whether a signal's value changed in a specific direction.
-// Positive delta: curr - prev >= delta; negative delta: curr - prev <= delta.
+// ChangedBy tests how far a signal moved since the previous frame. A positive
+// delta asks for a rise of at least that much, a negative one for a fall.
 type ChangedBy struct {
 	Signal SignalName
 	Delta  Rational
@@ -74,57 +74,70 @@ func (Between) predicate()            {}
 func (ChangedBy) predicate()          {}
 func (StableWithin) predicate()       {}
 
-// SignalBuilder begins a fluent, formula-level comparison-predicate chain.
-// Construct one with [Signal], then call a comparison method to obtain a
-// [Predicate] for use inside [Always], [Eventually], [Atomic], etc.
+// SignalBuilder names a signal and builds every predicate the kernel has over
+// it: the five comparisons, the range, and the two that read the previous
+// frame as well as this one.
 //
-// It mirrors Python's `aletheia.dsl.Signal` and C++'s `ltl::` comparison
-// helpers. It is distinct from [CheckSignal], the higher-level check-DSL that
-// produces named [CheckResult] checks.
+// This is the formula-level builder. [CheckSignal] is the other one, which
+// names and builds whole checks.
 type SignalBuilder struct {
 	name SignalName
 }
 
-// Signal begins a fluent comparison-predicate chain, e.g.
+// Signal names the signal a predicate is about:
 //
 //	aletheia.Signal("Speed").LessThanOrEqual(aletheia.IntRational(220))
 //
-// It mirrors Python's `aletheia.dsl.Signal`; the returned [Predicate] is
-// suitable for [Always], [Eventually], wrapping in [Atomic], etc. This is the
-// formula-level predicate DSL — distinct from [CheckSignal], the check-DSL.
+// The predicate it returns goes inside [Atomic], or straight into [Always],
+// [Eventually] and the rest through it.
 func Signal(name string) SignalBuilder { return SignalBuilder{name: SignalName(name)} }
 
-// Equals returns an [Equals] predicate testing whether the signal's value
-// equals v exactly. The value is already a [Rational], so no error is possible.
+// None of these can fail. A threshold is already an exact rational, and the
+// two that can be asked for something impossible, a range whose minimum is
+// above its maximum and a negative tolerance, are refused where the property
+// is serialised, which is the one place every route to a predicate passes
+// through: a caller may also write the value directly.
+
+// Equals holds when the signal's value is exactly v.
 func (s SignalBuilder) Equals(v Rational) Predicate { return Equals{Signal: s.name, Value: v} }
 
-// LessThan returns a [LessThan] predicate testing whether the signal's value is
-// strictly less than v. The value is already a [Rational], so no error is possible.
+// LessThan holds when the value is below v.
 func (s SignalBuilder) LessThan(v Rational) Predicate { return LessThan{Signal: s.name, Value: v} }
 
-// GreaterThan returns a [GreaterThan] predicate testing whether the signal's
-// value is strictly greater than v. The value is already a [Rational], so no
-// error is possible.
+// GreaterThan holds when the value is above v.
 func (s SignalBuilder) GreaterThan(v Rational) Predicate {
 	return GreaterThan{Signal: s.name, Value: v}
 }
 
-// LessThanOrEqual returns a [LessThanOrEqual] predicate testing whether the
-// signal's value is at most v. The value is already a [Rational], so no error
-// is possible.
+// LessThanOrEqual holds when the value is at most v.
 func (s SignalBuilder) LessThanOrEqual(v Rational) Predicate {
 	return LessThanOrEqual{Signal: s.name, Value: v}
 }
 
-// GreaterThanOrEqual returns a [GreaterThanOrEqual] predicate testing whether
-// the signal's value is at least v. The value is already a [Rational], so no
-// error is possible.
+// GreaterThanOrEqual holds when the value is at least v.
 func (s SignalBuilder) GreaterThanOrEqual(v Rational) Predicate {
 	return GreaterThanOrEqual{Signal: s.name, Value: v}
 }
 
-// Formula is an LTL formula over signal predicates.
-// Sealed: only types in this package may implement Formula.
+// Between holds when the value is at least lo and at most hi.
+func (s SignalBuilder) Between(lo, hi Rational) Predicate {
+	return Between{Signal: s.name, Min: lo, Max: hi}
+}
+
+// ChangedBy holds when the signal moved by at least delta since the previous
+// frame, a positive delta asking for a rise and a negative one for a fall.
+func (s SignalBuilder) ChangedBy(delta Rational) Predicate {
+	return ChangedBy{Signal: s.name, Delta: delta}
+}
+
+// StableWithin holds when the signal stayed within tolerance of its value in
+// the previous frame.
+func (s SignalBuilder) StableWithin(tolerance Rational) Predicate {
+	return StableWithin{Signal: s.name, Tolerance: tolerance}
+}
+
+// Formula is a property over a trace of frames, built from predicates. Only
+// the types below implement it, the method it requires being unexported.
 type Formula interface {
 	formula() // sealed
 }
@@ -201,24 +214,25 @@ func (MetricEventually) formula() {}
 func (MetricUntil) formula()      {}
 func (MetricRelease) formula()    {}
 
-// Convenience constructors for common patterns.
+// The shapes common enough to have a name of their own.
 
-// Never returns Always(Not(Atomic(p))).
+// Never holds when the predicate holds at no frame.
 func Never(p Predicate) Formula {
 	return Always{Inner: Not{Inner: Atomic{Predicate: p}}}
 }
 
-// AlwaysWithin returns MetricAlways with the given bound.
+// AlwaysWithin holds when the formula holds at every frame inside the bound.
 func AlwaysWithin(bound TimeBound, f Formula) Formula {
 	return MetricAlways{Bound: bound, Inner: f}
 }
 
-// EventuallyWithin returns MetricEventually with the given bound.
+// EventuallyWithin holds when the formula holds at some frame inside the bound.
 func EventuallyWithin(bound TimeBound, f Formula) Formula {
 	return MetricEventually{Bound: bound, Inner: f}
 }
 
-// Implies returns Or{Not{antecedent}, consequent}, the standard LTL encoding of implication.
+// Implies holds when the consequent holds at every frame the antecedent does,
+// which is the disjunction the logic has rather than a connective of its own.
 func Implies(antecedent, consequent Formula) Formula {
 	return Or{Left: Not{Inner: antecedent}, Right: consequent}
 }

@@ -6,6 +6,7 @@
 package aletheia
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,21 +14,19 @@ import (
 	"testing"
 )
 
-// skipRTSInitEnv, when "1", tells TestMain not to start the GHC runtime, so a
-// subprocess can exercise the renderer's uninitialised-runtime path.
+// skipRTSInitEnv, set to one, tells the entry below to leave the GHC runtime
+// down, which is how a subprocess reaches the paths that need it and have it
+// not.
 const skipRTSInitEnv = "ALETHEIA_TEST_SKIP_RTS_INIT"
 
-// TestMain brings the GHC runtime up once for the whole package. Point-2 made
-// the rational renderer a runtime consumer (it no longer self-initialises the
-// RTS — see renderer.go), so render-dependent tests — FormatFormula and
-// SetProperties (which builds per-property diagnostics) — need an FFIBackend to
-// have started the runtime. A throwaway backend's constructor runs hs_init; the
-// RTS persists process-wide (hs_exit is never called). Best-effort: if the .so
-// is absent, render-dependent tests fail with the renderer's "runtime not
-// initialized" error while pure-logic tests still run.
+// TestMain starts the GHC runtime once for the package. The rational renderer
+// and the decimal parser read it and do not start it, so the tests that render
+// need it already up; opening one backend does that, and the runtime stays up
+// for the process, there being no way to take it down. Without the library the
+// tests that render fail with the renderer's own refusal, and the rest run.
 func TestMain(m *testing.M) {
 	if os.Getenv(skipRTSInitEnv) != "1" {
-		if lib := findFFILibForParityTest(); lib != "" {
+		if lib := findFFILibrary(); lib != "" {
 			// The constructor runs hs_init, bringing the RTS up for the package.
 			if _, err := NewFFIBackend(lib); err != nil {
 				fmt.Fprintf(os.Stderr, "TestMain: could not start GHC runtime: %v\n", err)
@@ -37,23 +36,22 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// TestRenderWithoutRuntimeIsVocal verifies point-2's contract: with the GHC
-// runtime uninitialised, the rational renderer returns an error rather than
-// panicking or self-initialising. The RTS is process-global and one-shot, so
-// the uninitialised state is reproduced in a subprocess where TestMain skips
-// the runtime init (the parent process already brought it up).
+// With the runtime down, the two consumers that need it refuse rather than
+// panicking, and neither starts it behind the caller's back. The runtime is
+// process-wide and starts once, so the state under test only exists in a fresh
+// process: this one re-runs itself with the start suppressed.
 func TestRenderWithoutRuntimeIsVocal(t *testing.T) {
 	if os.Getenv(skipRTSInitEnv) == "1" {
 		runRenderWithoutRuntimeChild() // os.Exits; never returns
 	}
-	lib := findFFILibForParityTest()
+	lib := findFFILibrary()
 	if lib == "" {
-		t.Skip("libaletheia-ffi.so not found — run 'cabal run shake -- build' first")
+		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=^TestRenderWithoutRuntimeIsVocal$", "-test.v")
-	// Strip any inherited ALETHEIA_LIB / skip-flag before setting ours, so the
-	// child sees no duplicate keys (CI already exports ALETHEIA_LIB; a duplicate
-	// could be resolved to the inherited value by the child's getenv).
+	// The two variables are removed before they are set, so the child sees one
+	// of each: a build that exports the library path would otherwise leave two,
+	// and which one the child reads is the environment's business.
 	env := make([]string, 0, len(os.Environ())+2)
 	for _, e := range os.Environ() {
 		if strings.HasPrefix(e, "ALETHEIA_LIB=") || strings.HasPrefix(e, skipRTSInitEnv+"=") {
@@ -71,27 +69,47 @@ func TestRenderWithoutRuntimeIsVocal(t *testing.T) {
 	}
 }
 
-// runRenderWithoutRuntimeChild runs in the subprocess (runtime init skipped). It
-// asserts the renderer is vocal (returns an error), neither panics nor
-// self-initialises the runtime, then exits with a code the parent checks.
+// runRenderWithoutRuntimeChild is the body of the subprocess, where the
+// runtime was never started. Each consumer must refuse with a library error
+// and leave the runtime down; a panic, a success, another kind of error or a
+// runtime that came up behind the call each exit with a code of their own, so
+// the parent's output names which one failed.
 func runRenderWithoutRuntimeChild() {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("FAIL: renderer panicked instead of returning an error: %v\n", r)
+			fmt.Printf("FAIL: a consumer panicked instead of refusing: %v\n", r)
 			os.Exit(2)
 		}
 	}()
 	if hsInitialized() {
-		fmt.Println("FAIL: runtime unexpectedly initialised in subprocess")
+		fmt.Println("FAIL: the runtime is up in a process that was told not to start it")
 		os.Exit(3)
 	}
-	if _, err := formatRational(Rational{Numerator: 1, Denominator: 2}); err == nil {
-		fmt.Println("FAIL: expected an error when the runtime is uninitialised")
-		os.Exit(4)
+	consumers := []struct {
+		name string
+		call func() error
+		code int
+	}{
+		{"the rational renderer", func() error {
+			_, err := formatRational(Rational{Numerator: 1, Denominator: 2})
+			return err
+		}, 4},
+		{"the decimal parser", func() error {
+			_, err := FromDecimal("0.1")
+			return err
+		}, 6},
 	}
-	if hsInitialized() {
-		fmt.Println("FAIL: renderer self-initialised the runtime")
-		os.Exit(5)
+	for _, consumer := range consumers {
+		err := consumer.call()
+		var ffiErr *Error
+		if err == nil || !errors.As(err, &ffiErr) || ffiErr.Kind != ErrFFI {
+			fmt.Printf("FAIL: %s answered %v, want a library error\n", consumer.name, err)
+			os.Exit(consumer.code)
+		}
+		if hsInitialized() {
+			fmt.Printf("FAIL: %s started the runtime\n", consumer.name)
+			os.Exit(consumer.code + 1)
+		}
 	}
 	fmt.Println("RENDER_VOCAL_OK")
 	os.Exit(0)

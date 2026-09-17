@@ -696,9 +696,7 @@ def _print_mux_summary_text(msg: DBCMessage) -> None:
     _emit()
 
     if not is_multiplexed(msg):
-        _emit("  Not multiplexed — all signals are always present.")
-        total = len(msg["signals"])
-        _emit(f"  Signals: {total}")
+        _emit(f"  Not multiplexed: all {len(msg['signals'])} signals are always present.")
         return
 
     names = multiplexor_names(msg)

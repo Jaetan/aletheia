@@ -9,8 +9,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
 // repoPath joins the test's package dir (go/cmd/aletheia) up to the repo root.
@@ -18,17 +21,20 @@ func repoPath(parts ...string) string {
 	return filepath.Join(append([]string{"..", "..", ".."}, parts...)...)
 }
 
-// ensureLib points the CLI at the real libaletheia-ffi.so (via $ALETHEIA_LIB),
-// skipping the test when the library has not been built — mirroring the
-// binding's existing FFI tests, which exercise the real Agda core, never a stub.
+// ensureLib points the CLI at the built kernel and skips the test when there is
+// none, as the binding's other tests do: they run against the real core, never
+// a stub.
 func ensureLib(t *testing.T) {
 	t.Helper()
+	if !cgoEnabled {
+		t.Skip("built without cgo; the binding cannot load the library")
+	}
 	if os.Getenv("ALETHEIA_LIB") != "" {
 		return
 	}
 	so := repoPath("build", "libaletheia-ffi.so")
 	if _, err := os.Stat(so); err != nil {
-		t.Skip("libaletheia-ffi.so not found — run 'cabal run shake -- build'")
+		t.Skip("libaletheia-ffi.so not built; run 'cabal run shake -- build'")
 	}
 	t.Setenv("ALETHEIA_LIB", so)
 }
@@ -61,8 +67,7 @@ func captureStdout(t *testing.T, fn func()) string {
 	os.Stdout = w
 	defer func() { os.Stdout = old }() // restore even if fn panics
 
-	// Drain the pipe in a goroutine so a large write can't fill the buffer and
-	// deadlock before fn returns.
+	// Drained as it is written, so a large write cannot fill the pipe and wait.
 	done := make(chan string, 1)
 	go func() {
 		var buf bytes.Buffer
@@ -121,17 +126,16 @@ func TestCLISmoke(t *testing.T) {
 			t.Errorf("run(%v) = %d, want %d", args, code, exitOK)
 		}
 	}
-	// mux-query selector mismatch: --mux without --value must error (CoPilot PR #21).
+	// One of the pair without the other is an error, not a query of everything.
 	if code := run([]string{"mux-query", "--dbc", mux, "0x64", "--mux", "Mode"}); code != exitError {
 		t.Errorf("mux-query --mux without --value = %d, want %d", code, exitError)
 	}
 }
 
-// TestCLIValidateInvalidDBC: a DBC that parses syntactically but fails
-// structural validation must render the numbered issue list (the same
-// has_errors report shape as the success path) and exit 1 — not die with the
-// bare message and exit 2. Derives the invalid DBC from the valid minimal.dbc
-// fixture by duplicating a signal name in the text.
+// TestCLIValidateInvalidDBC: a DBC that parses and then fails validation is
+// reported as the numbered issue list, in the shape a passing one is reported
+// in, and exits one rather than dying with a bare message and exiting two. The
+// DBC is the minimal fixture with a signal name duplicated.
 func TestCLIValidateInvalidDBC(t *testing.T) {
 	ensureLib(t)
 	src, err := os.ReadFile(repoPath("python", "tests", "fixtures", "dbc_corpus", "minimal.dbc"))
@@ -216,11 +220,11 @@ func TestCLIValidateInvalidDBC(t *testing.T) {
 	})
 }
 
-// TestCLIValidateWarningsFromSingleParse: validate performs ONE kernel pass —
-// the parse epilogue IS full validation, so the parse response's warnings are
-// the complete issue list. minimal.dbc parses clean but carries one benign
-// offset_scale_range warning, which must survive into the success report
-// (no ValidateDBC round-trip to re-collect it).
+// TestCLIValidateWarningsFromSingleParse: validate asks the kernel once, the
+// parse epilogue being the whole of validation, so the warnings the parse
+// returns are the entire issue list. The minimal fixture parses clean and
+// carries one harmless warning, which reaches the passing report without a
+// second round trip.
 func TestCLIValidateWarningsFromSingleParse(t *testing.T) {
 	ensureLib(t)
 	dbc := repoPath("python", "tests", "fixtures", "dbc_corpus", "minimal.dbc")
@@ -238,8 +242,7 @@ func TestCLIValidateWarningsFromSingleParse(t *testing.T) {
 }
 
 func TestCLICheckDeferred(t *testing.T) {
-	// `check` is intentionally absent (needs a verified CAN-log reader,
-	// Phase 6 item) — it must report an error, not silently succeed.
+	// The interface does not carry check, and says so rather than succeeding.
 	if code := run([]string{"check"}); code != exitError {
 		t.Errorf("run([check]) = %d, want %d", code, exitError)
 	}
@@ -252,17 +255,135 @@ func TestCLIUnknownCommand(t *testing.T) {
 }
 
 func TestReorderArgs(t *testing.T) {
-	// Flags after positionals must be hoisted ahead of them; "--flag value"
-	// pulls its value, bool flags do not.
-	got := reorderArgs([]string{"0x100", "DATA", "--dbc", "f.dbc", "--json"},
-		map[string]bool{"json": true})
-	want := []string{"--dbc", "f.dbc", "--json", "0x100", "DATA"}
-	if len(got) != len(want) {
-		t.Fatalf("reorderArgs len = %d (%v), want %d (%v)", len(got), got, len(want), want)
+	for _, c := range []struct {
+		name      string
+		argv      []string
+		boolFlags map[string]bool
+		want      []string
+	}{
+		{
+			name:      "a flag written after the positionals moves ahead of them",
+			argv:      []string{"0x100", "DATA", "--dbc", "f.dbc", "--json"},
+			boolFlags: map[string]bool{"json": true},
+			want:      []string{"--dbc", "f.dbc", "--json", "0x100", "DATA"},
+		},
+		{
+			name: "a flag carrying its own value keeps it",
+			argv: []string{"0x100", "--dbc=f.dbc"},
+			want: []string{"--dbc=f.dbc", "0x100"},
+		},
+		{
+			name: "nothing after the escape is read as a flag",
+			argv: []string{"--", "--dbc", "0x100"},
+			want: []string{"--dbc", "0x100"},
+		},
+		{
+			name:      "a lone dash is a positional",
+			argv:      []string{"-", "--json"},
+			boolFlags: map[string]bool{"json": true},
+			want:      []string{"--json", "-"},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := reorderArgs(c.argv, c.boolFlags); !slices.Equal(got, c.want) {
+				t.Errorf("reorderArgs(%v) = %v, want %v", c.argv, got, c.want)
+			}
+		})
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("reorderArgs[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
+}
+
+// TestArgumentParsersRefuseWhatTheyCannotRead: the three readers between the
+// command line and the kernel, checked without one, since nothing else does.
+func TestArgumentParsersRefuseWhatTheyCannotRead(t *testing.T) {
+	t.Run("a CAN identifier is decimal or hexadecimal", func(t *testing.T) {
+		for _, c := range []struct {
+			in      string
+			want    uint32
+			refused bool
+		}{
+			{in: "0x100", want: 0x100},
+			{in: "0X100", want: 0x100},
+			{in: " 256 ", want: 256},
+			{in: "256", want: 256},
+			{in: "0x1FFFFFFF", want: 0x1FFFFFFF},
+			{in: "0x100000000", refused: true},
+			{in: "-1", refused: true},
+			{in: "", refused: true},
+			{in: "0xZZ", refused: true},
+		} {
+			got, err := parseCANID(c.in)
+			if c.refused {
+				if err == nil {
+					t.Errorf("parseCANID(%q) = %d, want a refusal", c.in, got)
+				}
+				continue
+			}
+			if err != nil || got != c.want {
+				t.Errorf("parseCANID(%q) = %d, %v, want %d", c.in, got, err, c.want)
+			}
+		}
+	})
+
+	t.Run("frame bytes are hexadecimal, however they are written", func(t *testing.T) {
+		for _, c := range []struct {
+			in      string
+			want    []byte
+			refused bool
+		}{
+			{in: "0A1B", want: []byte{0x0A, 0x1B}},
+			{in: "0x0a1b", want: []byte{0x0A, 0x1B}},
+			{in: "0A 1B", want: []byte{0x0A, 0x1B}},
+			{in: "0A:1B", want: []byte{0x0A, 0x1B}},
+			{in: "", want: []byte{}},
+			{in: "0A1", refused: true},
+			{in: "ZZ", refused: true},
+		} {
+			got, err := parseHexData(c.in)
+			if c.refused {
+				if err == nil {
+					t.Errorf("parseHexData(%q) = %v, want a refusal", c.in, got)
+				}
+				continue
+			}
+			if err != nil || !slices.Equal(got, c.want) {
+				t.Errorf("parseHexData(%q) = %v, %v, want %v", c.in, got, err, c.want)
+			}
+		}
+	})
+
+	t.Run("an identifier past eleven bits needs the extended flag", func(t *testing.T) {
+		if _, err := makeCANID(0x800, false); err == nil {
+			t.Error("makeCANID(0x800, standard) was accepted, want a refusal naming --extended")
+		} else if !strings.Contains(err.Error(), "--extended") {
+			t.Errorf("the refusal does not name the flag that accepts it: %v", err)
+		}
+		if _, err := makeCANID(0x800, true); err != nil {
+			t.Errorf("makeCANID(0x800, extended) = %v, want it accepted", err)
+		}
+		if _, err := makeCANID(0x20000000, true); err == nil {
+			t.Error("makeCANID past twenty-nine bits was accepted, want a refusal")
+		}
+	})
+}
+
+// TestCLIClosesEveryClientItOpens: a subcommand that returns without closing
+// its client leaves behind the handle the binding holds on the Haskell side,
+// which the count reports and a long-lived host would accumulate.
+func TestCLIClosesEveryClientItOpens(t *testing.T) {
+	ensureLib(t)
+	silenceStdout(t)
+	dbc := repoPath("python", "tests", "fixtures", "dbc_corpus", "minimal.dbc")
+	before := aletheia.StablePtrCount()
+	for _, argv := range [][]string{
+		{"validate", "--dbc", dbc},
+		{"signals", "--dbc", dbc},
+		{"format-dbc", "--dbc", dbc},
+		{"extract", "--dbc", dbc, "0x100", "0000000000000000"},
+		{"mux-query", "--dbc", dbc, "0x100"},
+	} {
+		run(argv)
+		if held := aletheia.StablePtrCount(); held != before {
+			t.Errorf("after %v the binding holds %d handles, want %d", argv, held, before)
 		}
 	}
 }

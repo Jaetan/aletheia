@@ -55,8 +55,8 @@ Aletheia is unpacked at:
      target_link_libraries(your_app PRIVATE aletheia::aletheia-cpp)
 
    Go  (in your module):
-     go mod edit -replace "github.com/aletheia-automotive/aletheia-go=${here}/bindings/go"
-     go get github.com/aletheia-automotive/aletheia-go/aletheia
+     go mod edit -replace "github.com/Jaetan/aletheia/go/v5=${here}/bindings/go"
+     go get github.com/Jaetan/aletheia/go/v5/aletheia
 
    Rust  (in your crate's Cargo.toml):
      [dependencies]

@@ -889,6 +889,26 @@ TEST_CASE("excel: create_template parent dir missing rejected", "[excel][hardeni
                ContainsSubstring("Parent directory does not exist"));
 }
 
+TEST_CASE("excel: create_template stat failure is distinguished from a missing parent",
+          "[excel][hardening]") {
+    // A parent whose component is longer than a name may be makes the stat
+    // itself fail with ENAMETOOLONG, which is not the directory being absent.
+    // Reporting it as absent sends a reader to create a directory that may
+    // well be there, and hides a machine out of descriptors under load. The
+    // input path is held to the same distinction by the yaml suite's "stat
+    // failure is distinguished from a missing file", and Go's
+    // TestCreateTemplate_StatFailureNotMislabeled holds this one.
+    // ENAMETOOLONG is deterministic and needs no permissions.
+    const auto bad =
+        std::filesystem::temp_directory_path() / std::string(5000, 'a') / "template.xlsx";
+    auto result = create_excel_template(bad);
+    REQUIRE(!result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("Could not stat"));
+    CHECK_THAT(std::string(result.error().message()),
+               !ContainsSubstring("Parent directory does not exist"));
+}
+
 // ===========================================================================
 // Strict coercion and cross-binding portability locks
 // ===========================================================================

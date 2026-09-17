@@ -1,37 +1,22 @@
+//go:build cgo && linux
+
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Package aletheia_test — doc-example harness.
-//
-// Mirror of Python's `pytest --markdown-docs`: every ```go fence in the
-// tracked user-facing markdown files is extracted, wrapped, compiled, and
-// executed end-to-end via `go run`. A failing fence (compile or runtime) is
-// a test failure with file:line precision. Coverage contract is parity with
-// the Python harness — what runs in Python's conftest.py runs here.
-//
-// Tracked-file list mirrors python/tests/test_doc_examples_harness.py for
-// the subset that ships ```go fences. Adding a user-facing markdown file
-// means adding it here.
-//
-// Path substitutions
-//
-//	"/opt/aletheia/lib/libaletheia-ffi.so" → resolved libaletheia-ffi.so
-//	"checks.yaml"                          → testdata/doc_examples/checks.yaml
-//	"checks.xlsx" / "tests.xlsx"           → examples/demo/demo_workbook.xlsx
-//
-// Wrapper shapes
-//
-//	A. Fence already declares `package main` → used verbatim (after path subst)
-//	B. Fence has `import (...)` block but no package decl → prepend `package main`,
-//	   append a stub `func main() {}` (Go allows unused top-level funcs)
-//	C. Body fragment → wrap inside a synthesized `package main`/`func main()`
-//	   with predeclared globals (ctx, client, dbc, ts, canID, dlc, data, frames,
-//	   libPath, slog imports) and auto-suppress unused-var errors via go/parser
-//	   walk over `:=` declarations.
-//
-// Companion structural gate: TestNoNotestGoFences rejects `<!-- go notest -->`
-// annotations — the only escape hatch is changing the info string to `text`,
-// matching the Python `python notest` ban.
+// The doc-example harness, the Go counterpart of the Python one under
+// pytest --markdown-docs: every Go fence in the listed Markdown files is
+// extracted, wrapped as a program, compiled and run through go run, and a
+// fence that fails to build or to run fails the test under its file and
+// line. Three literals are rewritten to fixtures first: the installed
+// library path to the built library, checks.yaml to the test fixture, and
+// checks.xlsx or tests.xlsx to the demo workbook. A fence is wrapped by its
+// shape: one declaring package main runs verbatim; one opening with an
+// import block gets package main and an empty main; a body fragment is
+// placed inside a synthesised main with predeclared ctx, client, dbc, ts,
+// canID, dlc, data, frames and libPath, and every name it declares with :=
+// is used once so an unused variable cannot fail it. The companion gate in
+// doc_no_notest_test.go refuses the notest annotation; a fence that cannot
+// run takes the text info string.
 package aletheia_test
 
 import (
@@ -47,22 +32,25 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
-// docFiles lists every user-facing markdown file whose ```go fences run
-// under the harness. Keep in sync with the Python equivalent in
-// python/tests/test_doc_examples_harness.py and the Go verification block
-// in AGENTS.md § Go Verification.
+// docFiles is every user-facing Markdown file with Go fences, relative to
+// this directory; a tracked file with a Go fence that is not listed is what
+// the probe over this file catches. CHANGELOG.md stays out on purpose.
 var docFiles = []string{
+	"../README.md",
 	"../../README.md",
 	"../../docs/PITCH.md",
 	"../../docs/architecture/CANCELLATION.md",
 	"../../docs/reference/INTERFACES.md",
 	"../../docs/reference/GO_API.md",
 	"../../docs/development/DISTRIBUTION.md",
+	"../../docs/guides/TUTORIAL.md",
 }
 
-// Fence is one ```go fenced block.
+// goFence is one Go fence of a listed file.
 type goFence struct {
 	file    string // repo-relative path
 	line    int    // 1-based line number of the opening ```go
@@ -70,12 +58,16 @@ type goFence struct {
 }
 
 func (f goFence) name() string {
-	// Strip the `../../` prefix used by docFiles for nicer subtest names.
+	// subtest names are repository-relative
 	name := strings.TrimPrefix(f.file, "../../")
+	if strings.HasPrefix(name, "../") {
+		name = "go/" + strings.TrimPrefix(name, "../")
+	}
 	return fmt.Sprintf("%s:L%d", name, f.line)
 }
 
-// extractGoFences parses one markdown file and returns every ```go fence.
+// extractGoFences returns every Go fence of one file: an opening line whose
+// info string is exactly go, closed by a line that is exactly the fence.
 func extractGoFences(t *testing.T, file string) []goFence {
 	t.Helper()
 	data, err := os.ReadFile(file)
@@ -96,7 +88,6 @@ func extractGoFences(t *testing.T, file string) []goFence {
 		line := scanner.Text()
 		trim := strings.TrimLeft(line, " \t")
 		if !inFence {
-			// Match opening fence: ```go (info string starts with go, not gosomething).
 			if strings.HasPrefix(trim, "```go") {
 				rest := strings.TrimPrefix(trim, "```go")
 				if rest == "" || rest[0] == ' ' || rest[0] == '\t' {
@@ -107,7 +98,6 @@ func extractGoFences(t *testing.T, file string) []goFence {
 			}
 			continue
 		}
-		// Inside fence — closing line is exactly ``` (possibly indented).
 		if strings.TrimSpace(line) == "```" {
 			fences = append(fences, goFence{
 				file:    file,
@@ -129,10 +119,9 @@ func extractGoFences(t *testing.T, file string) []goFence {
 	return fences
 }
 
-// findFFILibForDocs locates libaletheia-ffi.so. Mirrors findFFILib from
-// ffi_backend_test.go but lives in the *_test package; copied verbatim
-// rather than refactored to keep the doc-harness self-contained for
-// AGENTS.md cross-reference.
+// findFFILibForDocs is the binding's library search (ALETHEIA_LIB, then
+// the build tree relative to the package), repeated here because the
+// package's own search is unexported to this test package.
 func findFFILibForDocs() string {
 	if env := os.Getenv("ALETHEIA_LIB"); env != "" {
 		if _, err := os.Stat(env); err == nil {
@@ -155,9 +144,8 @@ func findFFILibForDocs() string {
 	return ""
 }
 
-// repoRootGoDir returns the absolute path to /repo/go (i.e. the parent of
-// /repo/go/aletheia, where the test runs). Used by the synthesized go.mod's
-// `replace` directive.
+// repoRootGoDir is the absolute path of the go module directory, the
+// target of the synthesised go.mod's replace directive.
 func repoRootGoDir(t *testing.T) string {
 	t.Helper()
 	abs, err := filepath.Abs("..")
@@ -167,17 +155,9 @@ func repoRootGoDir(t *testing.T) string {
 	return abs
 }
 
-// substitutePaths rewrites three classes of doc-string paths so the fence
-// resolves to fixtures present at test time:
-//   - The hardcoded `/opt/aletheia/lib/libaletheia-ffi.so` from
-//     DISTRIBUTION.md is rewritten to the resolved libaletheia-ffi.so path.
-//   - `checks.yaml` is rewritten to testdata/doc_examples/checks.yaml.
-//   - `checks.xlsx` and `tests.xlsx` are rewritten to the existing
-//     examples/demo/demo_workbook.xlsx.
-//
-// Mirrors the function-replacement strategy in python/tests/conftest.py
-// (`_harness_dbc_to_json` etc.) but at the source-string level since Go
-// doesn't allow runtime function reassignment.
+// substitutePaths rewrites the three fixture literals a fence may quote to
+// the paths present at test time, at the source level, since Go cannot
+// swap functions at run time the way the Python conftest does.
 func substitutePaths(body, libPath, yamlFix, excelFix string) string {
 	body = strings.ReplaceAll(body, `"/opt/aletheia/lib/libaletheia-ffi.so"`, strconv.Quote(libPath))
 	body = strings.ReplaceAll(body, `"checks.yaml"`, strconv.Quote(yamlFix))
@@ -186,13 +166,9 @@ func substitutePaths(body, libPath, yamlFix, excelFix string) string {
 	return body
 }
 
-// wrapFence picks one of three wrapper shapes based on the fence content.
-// Returns the synthesized Go source ready to be written as `main.go`.
-//
-// Shape A is detected by any line that starts with `package ` after leading
-// whitespace — `// comment` blocks may precede the `package` keyword (Go
-// allows this; only the first non-comment token must be `package`), so a
-// HasPrefix check on the whole trimmed body would miss DISTRIBUTION.md L225.
+// wrapFence returns the fence as a main.go, by its shape: a package clause
+// (which comments may precede) runs verbatim, an import block gets a
+// package and an empty main, anything else is a body fragment.
 func wrapFence(body string) string {
 	if hasPackageDecl(body) {
 		return body
@@ -223,16 +199,14 @@ func hasImportBlock(body string) bool {
 		if strings.HasPrefix(t, "import ") || t == "import (" {
 			return true
 		}
-		// A non-comment, non-import statement before any import → not Shape B.
 		return false
 	}
 	return false
 }
 
-// wrapBodyFragment synthesizes a full `package main` around a fence whose
-// content is just statements/expressions. Predeclared globals match the
-// Python harness's `_make_globals` dict; trailing `_ = name` suppressors are
-// auto-generated for every `:=` declaration in the fence body via go/parser.
+// wrapBodyFragment places a fragment inside a synthesised main whose
+// predeclared names are the Python harness's globals, and uses every name
+// the fragment declares with := so an unused variable cannot fail it.
 func wrapBodyFragment(body string) string {
 	suppressors := unusedSuppressors(body)
 	const tmpl = `package main
@@ -245,11 +219,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
-	"github.com/aletheia-automotive/aletheia-go/excel"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
+	"github.com/Jaetan/aletheia/go/excel"
 )
 
-// Force-use of imports the fence may not reference.
+// the fence may leave any of these imports unused
 var (
 	_ = context.Background
 	_ = errors.New
@@ -280,10 +254,8 @@ func buildDocDBC() aletheia.DBCDefinition {
 	}
 	sid, _ := aletheia.NewStandardID(0x100)
 	dlc, _ := aletheia.NewDLC(8)
-	// Two messages: 0x100 ("VehicleState") packs Speed/BrakePedal/EngineRPM
-	// for the streaming fences; 0x110 ("Voltages") carries Voltage and
-	// BatteryVoltage at start_bit 0 so each YAML check fence resolves
-	// against a real signal definition.
+	// 0x100 carries the streaming fences' signals, 0x110 the ones the YAML
+	// check fences name
 	sid2, _ := aletheia.NewStandardID(0x110)
 	return aletheia.DBCDefinition{
 		Version: "1.0",
@@ -345,18 +317,14 @@ func main() {
 	dbc := dbcDef
 	_, _, _, _, _, _ = ts, canID, dlc, data, frames, dbc
 
-	// Fence body runs in a nested block so fences that redeclare backend /
-	// client / ts / canID / dlc / data via short-decl shadow the outer
-	// scope's names cleanly. Without the block, a redeclaration in the
-	// fence body would fail with "no new variables on left side of :=".
+	// a nested block, so a fence that redeclares a predeclared name with
+	// := shadows it instead of failing
 	{
 		// ====== FENCE BODY START ======
 %s
 		// ====== FENCE BODY END ======
 %s
 	}
-	// Outer scope: silence the wrapper's predeclared FFI handles in case
-	// no fence reaches them.
 	_ = ctx
 	_ = backend
 	_ = client
@@ -365,15 +333,10 @@ func main() {
 	return fmt.Sprintf(tmpl, body, suppressors)
 }
 
-// unusedSuppressors walks `:=` declarations in the fence body and emits
-// `_ = name` lines so unused-variable compilation errors don't reject the
-// fence. A doc fence may declare `checks, err := ...` and never use either;
-// the Python harness ignores this naturally because Python tolerates unused
-// names. Go does not, so we add explicit suppressors.
-//
-// Falls back to "" on parse error — go run will surface the underlying
-// error with line:col precision, which is more useful than a synthesized
-// suppressor list anyway.
+// unusedSuppressors is one blank assignment per name the fragment declares
+// with := at its top level (a name declared inside a block is scoped there
+// and needs none). A fragment that does not parse gets none; go run then
+// reports the real error with its position.
 func unusedSuppressors(body string) string {
 	src := "package x\nfunc f() {\n" + body + "\n}\n"
 	fset := token.NewFileSet()
@@ -390,9 +353,6 @@ func unusedSuppressors(body string) string {
 	}
 	var names []string
 	seen := map[string]bool{}
-	// Only walk top-level statements: a `:=` inside an if / for / switch block
-	// scopes its names to that inner block, so a function-scope `_ = name`
-	// suppressor wouldn't reach them anyway.
 	for _, stmt := range fn.Body.List {
 		as, ok := stmt.(*ast.AssignStmt)
 		if !ok || as.Tok != token.DEFINE {
@@ -419,9 +379,8 @@ func unusedSuppressors(body string) string {
 	return sb.String()
 }
 
-// docHarnessSetup writes a shared go.mod into root with replace directives
-// pointing at the local repo's two Go modules. Returns the resolved
-// fixture paths so wrapFence can substitute them per fence.
+// docHarnessSetup writes the shared go.mod, whose replace directives point
+// at the repository's two Go modules, and returns the fixture paths.
 func docHarnessSetup(t *testing.T, root string) (yamlFix, excelFix string) {
 	t.Helper()
 	goDir := repoRootGoDir(t)
@@ -441,13 +400,13 @@ go 1.24.0
 toolchain go1.24.6
 
 require (
-	github.com/aletheia-automotive/aletheia-go v0.0.0
-	github.com/aletheia-automotive/aletheia-go/excel v0.0.0
+	github.com/Jaetan/aletheia/go/v5 v5.0.0
+	github.com/Jaetan/aletheia/go/excel v0.0.0
 )
 
-replace github.com/aletheia-automotive/aletheia-go => %s
+replace github.com/Jaetan/aletheia/go/v5 => %s
 
-replace github.com/aletheia-automotive/aletheia-go/excel => %s
+replace github.com/Jaetan/aletheia/go/excel => %s
 `, goDir, filepath.Join(goDir, "excel"))
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
@@ -455,12 +414,12 @@ replace github.com/aletheia-automotive/aletheia-go/excel => %s
 	return yamlFix, excelFix
 }
 
-// TestDocExamples is the doc-fence executor. Each fence becomes a t.Run
-// subtest reporting failure with file:line precision.
+// Every Go fence of every listed file builds and runs, each as its own
+// subtest named by file and line.
 func TestDocExamples(t *testing.T) {
 	lib := findFFILibForDocs()
 	if lib == "" {
-		t.Skip("libaletheia-ffi.so not found — run 'cabal run shake -- build' first")
+		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
 	}
 
 	root := t.TempDir()
@@ -471,12 +430,10 @@ func TestDocExamples(t *testing.T) {
 		fences = append(fences, extractGoFences(t, f)...)
 	}
 	if len(fences) == 0 {
-		t.Fatal("no ```go fences found across docFiles — likely a regression in extractGoFences or the file list")
+		t.Fatal("no Go fence found across docFiles: the extractor or the list has regressed")
 	}
 
-	// Materialize wrappers up-front so go.sum / module resolution happens once
-	// (the first `go run` populates the per-module cache; subsequent fences
-	// hit it). Each fence gets its own subdir / package main.
+	// every fence is written first, each in its own directory
 	type wrappedFence struct {
 		fence   goFence
 		dir     string
@@ -496,11 +453,8 @@ func TestDocExamples(t *testing.T) {
 		wrapped = append(wrapped, wrappedFence{fence: fence, dir: dir, pkgPath: "./f" + strconv.Itoa(i)})
 	}
 
-	// Prime the module cache with one upfront `go build` so subsequent
-	// per-fence runs share resolved deps and serialise the cgo lock once.
-	// Without this, ~10 parallel `go run` calls hit the module cache lock
-	// simultaneously and serialise anyway, plus the `go mod download`
-	// pieces fight each other.
+	// one build first resolves the modules and warms the cache, so the
+	// parallel runs below do not race for the module lock
 	primingCmd := exec.Command("go", "build", "-o", filepath.Join(root, "_prime"), wrapped[0].pkgPath)
 	primingCmd.Dir = root
 	primingCmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "ALETHEIA_LIB="+lib)
@@ -508,17 +462,11 @@ func TestDocExamples(t *testing.T) {
 		t.Fatalf("priming build failed:\n%s\nerr: %v", out, err)
 	}
 
-	// concurrencyCap bounds parallel fence runs so RTS init races are bounded.
-	// Empirically GHC RTS init can fail under heavy concurrent FFI loads;
-	// runtime.NumCPU() is a generous ceiling that's still well below 11×.
-	concurrencyCap := runtime.NumCPU()
-	if concurrencyCap < 2 {
-		concurrencyCap = 2
-	}
-	sem := make(chan struct{}, concurrencyCap)
+	// parallel runs are capped at the CPU count, since the GHC runtime's
+	// initialisation has failed under heavier concurrent loads
+	sem := make(chan struct{}, max(runtime.NumCPU(), 2))
 
 	for _, w := range wrapped {
-		w := w
 		t.Run(w.fence.name(), func(t *testing.T) {
 			t.Parallel()
 			sem <- struct{}{}
@@ -534,5 +482,28 @@ func TestDocExamples(t *testing.T) {
 					w.fence.name(), w.dir, wrapper, out, err)
 			}
 		})
+	}
+}
+
+// The checks fixture the fences load is loaded here too, and read. Those
+// fences discard what they loaded, as a caller's first line would, so without
+// this nothing would notice a fixture that stopped parsing or that named a
+// condition the loader does not know.
+func TestDocExamplesFixture_ChecksYAMLLoads(t *testing.T) {
+	path, err := filepath.Abs("testdata/doc_examples/checks.yaml")
+	if err != nil {
+		t.Fatalf("abs: %v", err)
+	}
+	checks, err := aletheia.LoadChecksFromYAMLFile(path)
+	if err != nil {
+		t.Fatalf("the fixture the documentation loads does not load: %v", err)
+	}
+	if len(checks) != 2 {
+		t.Fatalf("the fixture carries %d checks, want the two the documentation describes", len(checks))
+	}
+	for _, c := range checks {
+		if c.Formula() == nil {
+			t.Errorf("a check of the fixture carries no formula: %+v", c)
+		}
 	}
 }

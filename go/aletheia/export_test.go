@@ -1,21 +1,21 @@
+//go:build cgo && linux
+
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
 package aletheia
 
-// Test-only re-exports of the enrichment helper functions, which are private in
-// production (matching the Rust and Python bindings — the public surface is the
-// PropertyDiagnostic type, not these constructors). Go does not compile
-// `_test.go` files into the production build, so these do not re-expose the
-// functions publicly; they only let the external (aletheia_test) tests keep
-// calling them unchanged.
+// The enrichment helpers are private, as they are in the Rust binding
+// (build_diagnostic) and the Python one (the _enrichment module), whose
+// public surface is the diagnostic itself. These re-exports let the tests
+// outside the package call them, and since Go leaves a _test.go file out of
+// the production build, nothing here reaches a consumer.
 //
-// FormatFormula / BuildDiagnostic panic on a renderer error rather than return
-// it: the tests run with the GHC runtime up (see TestMain in main_test.go), so
-// the error never fires here; a panic would mean a broken test setup, surfaced
-// loudly.
+// The two that can fail panic rather than return the error: the tests run
+// with the GHC runtime up, which TestMain brings up, so a renderer error here
+// is a broken setup and should be loud.
 
-// FormatFormula re-exports the internal formatFormula for tests.
+// FormatFormula is formatFormula for the tests.
 func FormatFormula(f Formula) string {
 	s, err := formatFormula(f)
 	if err != nil {
@@ -24,7 +24,7 @@ func FormatFormula(f Formula) string {
 	return s
 }
 
-// BuildDiagnostic re-exports the internal buildDiagnostic for tests.
+// BuildDiagnostic is buildDiagnostic for the tests.
 func BuildDiagnostic(f Formula) PropertyDiagnostic {
 	d, err := buildDiagnostic(f)
 	if err != nil {
@@ -33,6 +33,14 @@ func BuildDiagnostic(f Formula) PropertyDiagnostic {
 	return d
 }
 
-// CollectSignals re-exports the internal collectSignals for tests (infallible —
-// no FFI — so a plain alias suffices).
+// CollectSignals is collectSignals for the tests; it cannot fail.
 var CollectSignals = collectSignals
+
+// FindFFILibrary is findFFILibrary for the tests, which looked for the library
+// their own way before this: the same environment variable and the same
+// candidates, minus the registered path, which is the one difference a copy
+// cannot help having.
+var FindFFILibrary = findFFILibrary
+
+// FormatEnrichedReason is formatEnrichedReason for the tests; it cannot fail.
+var FormatEnrichedReason = formatEnrichedReason

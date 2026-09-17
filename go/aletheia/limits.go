@@ -3,22 +3,15 @@
 
 package aletheia
 
-// Adversarial-input bounds — Go mirror of `Aletheia.Limits` (Agda).
-//
-// Single source of truth: src/Aletheia/Limits.agda; numeric values are
-// mirrored here verbatim.  Wire spec: docs/architecture/PROTOCOL.md § Limits.
-//
-// The Aletheia Agda kernel enforces these bounds at every parser entry; this
-// file additionally rejects oversize inputs at the cgo boundary so a
-// pathological 100 MiB JSON payload is not marshaled into a C buffer only
-// to be rejected on the other side.
-//
-// Per AGENTS.md universal rule "Adversarial-input bounds at parser surfaces",
-// rejection over a bound is a typed *InputBoundExceededError carrying the
-// offending kind, the observed value, and the limit it crossed.
+// The bounds an adversarial input is held to, mirroring src/Aletheia/Limits.agda,
+// which owns the numbers; the wire specification states them under Limits in
+// docs/architecture/PROTOCOL.md. The kernel enforces every one of them at its
+// parser entries. The binding refuses the oversize ones again at the boundary,
+// so a payload of a hundred mebibytes is not copied into a C buffer to be
+// refused on the far side. A refusal over any of them is a typed
+// [InputBoundExceededError] naming the bound, the size observed and the limit.
 
-// BoundKind* constants identify which bound was exceeded.  Wire codes mirror
-// boundKindCode in Aletheia.Limits (Agda).
+// The bound kinds, spelling the wire codes boundKindCode renders in the kernel.
 const (
 	BoundKindInputLengthBytes = "input_length_bytes"
 	BoundKindNestingDepth     = "nesting_depth"
@@ -29,53 +22,61 @@ const (
 	BoundKindFrameByteCount   = "frame_byte_count"
 	BoundKindPropertyCount    = "property_count"
 
-	// BoundKindRationalComponentMagnitude — a JSON number's rational
-	// component (|numerator| or denominator) exceeds the Int64 wire range.
+	// BoundKindRationalComponentMagnitude is a numerator or denominator past
+	// the signed 64-bit range the wire carries.
 	BoundKindRationalComponentMagnitude = "rational_component_magnitude"
 )
 
-// Numeric bound constants — mirror src/Aletheia/Limits.agda exactly.
+// The limits themselves, each the kernel's own value.
 const (
-	// MaxDBCTextBytes — total DBC-text input length in bytes (64 MiB).
+	// MaxDBCTextBytes bounds a DBC text input, at 64 mebibytes.
 	MaxDBCTextBytes = 64 * 1024 * 1024
 
-	// MaxJSONBytes — total JSON input length in bytes at the FFI boundary (64 MiB).
+	// MaxJSONBytes bounds a JSON payload at the boundary, at 64 mebibytes.
 	MaxJSONBytes = 64 * 1024 * 1024
 
-	// MaxNestingDepth — JSON object/array nesting depth.
+	// MaxNestingDepth bounds how deep JSON objects and arrays may nest.
 	MaxNestingDepth = 64
 
-	// MaxMessagesPerFile — DBC messages per file.
+	// MaxMessagesPerFile bounds the messages of one DBC file.
 	MaxMessagesPerFile = 10000
 
-	// MaxSignalsPerMessage — signals per single DBC message.
+	// MaxSignalsPerMessage bounds the signals of one message.
 	MaxSignalsPerMessage = 1024
 
-	// MaxAttributesPerFile — attribute definitions / assignments per DBC file.
+	// MaxAttributesPerFile bounds the attribute definitions and assignments of
+	// one file.
 	MaxAttributesPerFile = 10000
 
-	// MaxValueDescriptionsPerFile — VAL_/VAL_TABLE_ entries per DBC file.
+	// MaxCommentsPerFile bounds the comments of one file.
+	MaxCommentsPerFile = 10000
+
+	// MaxNodesPerFile bounds the nodes of one file.
+	MaxNodesPerFile = 10000
+
+	// MaxValueTablesPerFile bounds the value tables of one file.
+	MaxValueTablesPerFile = 10000
+
+	// MaxValueDescriptionsPerFile bounds the value descriptions of one file,
+	// whether they sit in a table or on a signal.
 	MaxValueDescriptionsPerFile = 1000000
 
-	// MaxIdentifierLength — DBC identifier length in characters.
+	// MaxIdentifierLength bounds a DBC identifier, in characters.
 	MaxIdentifierLength = 128
 
-	// MaxStringLengthBytes — quoted-string body length in bytes (64 KiB).
+	// MaxStringLengthBytes bounds the body of a quoted string, at 64 kibibytes.
 	MaxStringLengthBytes = 64 * 1024
 
-	// MaxAtomCountPerProperty — LTL atoms per single property.
+	// MaxAtomCountPerProperty bounds the atoms of one property.
 	MaxAtomCountPerProperty = 1024
 
-	// MaxPropertiesPerStream — LTL properties submittable in one
-	// setProperties call.  Mirrors src/Aletheia/Limits.agda.
+	// MaxPropertiesPerStream bounds the properties one call may install.
 	MaxPropertiesPerStream = 1024
 
-	// MaxFrameByteCount — CAN frame payload byte count (CAN-FD maximum).
+	// MaxFrameByteCount bounds a frame payload, at the CAN-FD maximum.
 	MaxFrameByteCount = 64
 
-	// MaxRationalComponentMagnitude — magnitude cap on a JSON number's
-	// rational components (|numerator| and denominator of the exact
-	// rational it denotes): the signed 64-bit wire range shared with the
-	// binary FFI's rational slots and the decimal SSOT.
+	// MaxRationalComponentMagnitude bounds a numerator or a denominator, at the
+	// signed 64-bit range the binary slots and the decimal parser share.
 	MaxRationalComponentMagnitude = 9223372036854775807
 )

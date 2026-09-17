@@ -3,16 +3,11 @@
 
 package aletheia
 
-// SignalValue is a single signal name-value pair.
-//
-// Value is an exact [Rational], shared by the frame-building INPUT
-// ([Client.BuildFrame] / [Client.UpdateFrame]) and the extraction OUTPUT
-// ([ExtractionResult.Values]).  On extraction it carries the exact value the
-// Agda kernel computes (the wire sends numerator/denominator), so no precision
-// is lost to a float round-trip — matching Python's Fraction and C++'s
-// Rational-backed value.  Build a Value with [IntRational] (integers) or the
-// kernel [FromDecimal] (a decimal string, exact — never a float64), e.g.
-// SignalValue{Name: "Speed", Value: IntRational(120)}.
+// SignalValue is one signal and its value, the same type going in to
+// [Client.BuildFrame] and coming out of an extraction. The value is exact: the
+// wire carries a numerator and a denominator, so a value the kernel computed
+// arrives as it was computed. Build one with [IntRational] for a whole number
+// or [FromDecimal] for decimal text.
 type SignalValue struct {
 	Name  SignalName
 	Value Rational
@@ -34,7 +29,7 @@ type ExtractionResult struct {
 	index  map[SignalName]Rational // built at construction by buildIndex
 }
 
-// buildIndex populates the lookup index from Values. Called once at construction.
+// buildIndex fills the lookup from the values. Called once at construction.
 func (r *ExtractionResult) buildIndex() {
 	r.index = make(map[SignalName]Rational, len(r.Values))
 	for _, sv := range r.Values {
@@ -42,10 +37,9 @@ func (r *ExtractionResult) buildIndex() {
 	}
 }
 
-// Get looks up a signal by name, returning its exact value and true if found.
-// Returns (Rational{}, false) if the signal is not present or the index was not
-// built.  The value is the exact rational the kernel computed (no float
-// round-trip); read Numerator/Denominator for exact arithmetic.
+// Get is the value of a signal and whether it was there. The value is the
+// exact rational the kernel computed; read its two components to do exact
+// arithmetic with it.
 func (r *ExtractionResult) Get(name SignalName) (Rational, bool) {
 	v, ok := r.index[name]
 	return v, ok
@@ -56,30 +50,24 @@ type FrameResponse interface {
 	frameResponse() // sealed
 }
 
-// Ack indicates the frame was processed with no property events at all
-// (no halt, no completion).
+// Ack is a frame that produced no property event at all.
 type Ack struct{}
 
 func (Ack) frameResponse() {}
 
-// PropertyBatch is the response to a frame that produced one or more
-// property events: mid-stream Satisfactions (properties that completed
-// at this frame) followed by an optional terminal Violation, in
-// source-order per the Agda dispatchIterResult invariant.  Previously
-// only single Violation frames were surfaced; the silent drop of
-// mid-stream Satisfactions has been lifted to the wire.
-//
-// Empty Results is unreachable — frames with no events return Ack.
+// PropertyBatch is a frame that produced at least one property event: the
+// properties that came true at this frame, in the order they were declared,
+// followed by a violation when one ended the stream. A frame with no events is
+// an Ack, so a batch is never empty.
 type PropertyBatch struct {
 	Results []PropertyResult
 }
 
 func (PropertyBatch) frameResponse() {}
 
-// FirstViolation returns the first PropertyResult with Verdict == Fails,
-// or nil if the batch carries only mid-stream Satisfactions.  Per the
-// Agda invariant, a batch contains at most one violation and (if
-// present) it is the last entry, so this is also "the violation".
+// FirstViolation is the violation of the batch, or nothing when the batch
+// carries only properties that came true. A batch holds at most one violation,
+// which the kernel puts last, so the first is the only.
 func (b PropertyBatch) FirstViolation() *PropertyResult {
 	for i := range b.Results {
 		if b.Results[i].Verdict == Fails {
@@ -89,8 +77,8 @@ func (b PropertyBatch) FirstViolation() *PropertyResult {
 	return nil
 }
 
-// Satisfactions returns the mid-stream Satisfaction entries (Verdict ==
-// Holds).  Empty when the batch is violation-only or unresolved-only.
+// Satisfactions are the properties that came true at this frame, none when
+// the batch carries only a violation.
 func (b PropertyBatch) Satisfactions() []PropertyResult {
 	var out []PropertyResult
 	for _, r := range b.Results {
@@ -101,17 +89,14 @@ func (b PropertyBatch) Satisfactions() []PropertyResult {
 	return out
 }
 
-// Verdict is the final determination for a property at end-of-stream.
+// Verdict is what became of a property by the end of the stream.
 //
-// Unresolved corresponds to the Agda coalgebra's three-valued Kleene
-// "Unsure" verdict: the property was neither proved to hold nor proved to
-// fail on the observed trace. The typical cause is an atomic predicate
-// whose signal was never observed (e.g. Always(p) where no frame carrying
-// p's signal arrived before end-of-stream). This is the user-observable
-// manifestation of a violated AllObserved invariant — see the package
-// doc § "Streaming adequacy" for the full contract. The denotational
-// semantics agrees this is Unknown, so it is reported as a distinct
-// verdict rather than collapsed to Fails.
+// Unresolved is the third value: the trace neither proved the property nor
+// broke it. The usual cause is a predicate over a signal no frame carried, so
+// nothing was ever decided about it. It is reported as its own verdict rather
+// than as a failure, because the semantics the kernel is proved against says
+// the same. The package documentation states the contract under streaming
+// adequacy.
 type Verdict int
 
 //go:generate stringer -type=Verdict -linecomment -output=verdict_string.go
@@ -134,26 +119,22 @@ type PropertyResult struct {
 	Enrichment    *ViolationEnrichment // nil when verdict is Holds or no diagnostic
 }
 
-// StreamWarning is one diagnostic surfaced by the kernel at EndStream.
+// StreamWarning is something the kernel noticed while deciding, reported at
+// the end of the stream.
 //
-// Kind == "uncached_atom" is emitted when a
-// property's atom references a signal that never appeared in trace.  The
-// Unresolved verdict on that property is sound (three-valued Kleene
-// Unknown) but indistinguishable from a genuine Kleene-undecidable
-// Unresolved without this warning.
-//
-// New kinds are additive on the wire (the kernel adds new WarningKind
-// constructors; bindings should accept unknown Kind values rather than
-// rejecting them).
+// The kind uncached_atom says a property asked about a signal no frame
+// carried. Its Unresolved verdict is right either way, and without the warning
+// a caller cannot tell that case from a property the trace genuinely left
+// open. A kind this binding does not know is carried rather than refused, so
+// that a kernel adding one does not break a caller.
 type StreamWarning struct {
 	Kind          string
 	PropertyIndex int
 	Detail        string
 }
 
-// StreamResult contains the end-of-stream verdicts for all properties
-// plus any cache-miss diagnostic warnings (empty when every atom's
-// signal was observed at least once).
+// StreamResult is a verdict per property, and the warnings the kernel raised
+// along the way, of which there are none when every predicate saw its signal.
 type StreamResult struct {
 	Results  []PropertyResult
 	Warnings []StreamWarning
@@ -175,63 +156,63 @@ const (
 type IssueCode string
 
 const (
-	// IssueDuplicateMessageID — two messages share the same CAN ID.
+	// IssueDuplicateMessageID is two messages share the same CAN ID.
 	IssueDuplicateMessageID IssueCode = "duplicate_message_id"
-	// IssueDuplicateMessageName — two messages share the same name.
+	// IssueDuplicateMessageName is two messages share the same name.
 	IssueDuplicateMessageName IssueCode = "duplicate_message_name"
-	// IssueDuplicateSignalName — two signals in the same message share a name.
+	// IssueDuplicateSignalName is two signals in the same message share a name.
 	IssueDuplicateSignalName IssueCode = "duplicate_signal_name"
-	// IssueFactorZero — signal scaling factor is zero (division by zero).
+	// IssueFactorZero is signal scaling factor is zero (division by zero).
 	IssueFactorZero IssueCode = "factor_zero"
-	// IssueMultiplexorNotFound — multiplexed signal references a missing multiplexor.
+	// IssueMultiplexorNotFound is multiplexed signal references a missing multiplexor.
 	IssueMultiplexorNotFound IssueCode = "multiplexor_not_found"
-	// IssueMultiplexorCycle — multiplexor chain references itself (cycle).
+	// IssueMultiplexorCycle is multiplexor chain references itself (cycle).
 	IssueMultiplexorCycle IssueCode = "multiplexor_cycle"
-	// IssueGlobalNameCollision — signal name is not unique across all messages.
+	// IssueGlobalNameCollision is signal name is not unique across all messages.
 	IssueGlobalNameCollision IssueCode = "global_name_collision"
-	// IssueMinExceedsMax — signal physical min exceeds max.
+	// IssueMinExceedsMax is signal physical min exceeds max.
 	IssueMinExceedsMax IssueCode = "min_exceeds_max"
-	// IssueSignalExceedsDLC — signal bit range extends beyond the message DLC.
+	// IssueSignalExceedsDLC is signal bit range extends beyond the message DLC.
 	IssueSignalExceedsDLC IssueCode = "signal_exceeds_dlc"
-	// IssueSignalOverlap — two signals occupy overlapping bit positions.
+	// IssueSignalOverlap is two signals occupy overlapping bit positions.
 	IssueSignalOverlap IssueCode = "signal_overlap"
-	// IssueBitLengthZero — signal has zero bit length.
+	// IssueBitLengthZero is signal has zero bit length.
 	IssueBitLengthZero IssueCode = "bit_length_zero"
-	// IssueOffsetScaleRange — offset/scale combination produces out-of-range values.
+	// IssueOffsetScaleRange is offset/scale combination produces out-of-range values.
 	IssueOffsetScaleRange IssueCode = "offset_scale_range"
-	// IssueEmptyMessage — message declares no signals.
+	// IssueEmptyMessage is message declares no signals.
 	IssueEmptyMessage IssueCode = "empty_message"
-	// IssueStartBitOutOfRange — signal start bit exceeds frame capacity.
+	// IssueStartBitOutOfRange is signal start bit exceeds frame capacity.
 	IssueStartBitOutOfRange IssueCode = "start_bit_out_of_range"
-	// IssueBitLengthExcessive — signal bit length exceeds the frame capacity.
+	// IssueBitLengthExcessive is signal bit length exceeds the frame capacity.
 	IssueBitLengthExcessive IssueCode = "bit_length_excessive"
-	// IssueMultiplexorNonUnitScaling — multiplexor signal has non-unit scaling (factor≠1 or offset≠0).
+	// IssueMultiplexorNonUnitScaling is multiplexor signal has non-unit scaling (factor≠1 or offset≠0).
 	IssueMultiplexorNonUnitScaling IssueCode = "multiplexor_non_unit_scaling"
-	// IssueDuplicateAttributeName — BA_DEF_ declares the same attribute name twice.
+	// IssueDuplicateAttributeName is BA_DEF_ declares the same attribute name twice.
 	IssueDuplicateAttributeName IssueCode = "duplicate_attribute_name"
-	// IssueUnknownCommentTarget — CM_ entry references a node/message/signal/env-var that is not declared.
+	// IssueUnknownCommentTarget is CM_ entry references a node/message/signal/env-var that is not declared.
 	IssueUnknownCommentTarget IssueCode = "unknown_comment_target"
-	// IssueUnknownMessageSender — message sender node is not listed in BU_.
+	// IssueUnknownMessageSender is message sender node is not listed in BU_.
 	IssueUnknownMessageSender IssueCode = "unknown_message_sender"
-	// IssueUnknownSignalReceiver — signal receiver node is not listed in BU_.
+	// IssueUnknownSignalReceiver is signal receiver node is not listed in BU_.
 	IssueUnknownSignalReceiver IssueCode = "unknown_signal_receiver"
-	// IssueUnknownValueDescriptionTarget — VAL_ line references (canID, signalName) with no matching signal in any message.
+	// IssueUnknownValueDescriptionTarget is VAL_ line references (canID, signalName) with no matching signal in any message.
 	IssueUnknownValueDescriptionTarget IssueCode = "unknown_value_description_target"
-	// IssueTextRoundtripDivergence — FormatDBCText: re-parsing the emitted text does not reproduce the input DBC.
+	// IssueTextRoundtripDivergence is FormatDBCText: re-parsing the emitted text does not reproduce the input DBC.
 	IssueTextRoundtripDivergence IssueCode = "text_roundtrip_divergence"
-	// IssueMultiValueMuxSelector — a mux signal is present for multiple selector values (not expressible in .dbc text).
+	// IssueMultiValueMuxSelector is a mux signal is present for multiple selector values (not expressible in .dbc text).
 	IssueMultiValueMuxSelector IssueCode = "multi_value_mux_selector"
-	// IssueMuxMasterIncoherent — the mux master signal's presence is inconsistent with its slaves.
+	// IssueMuxMasterIncoherent is the mux master signal's presence is inconsistent with its slaves.
 	IssueMuxMasterIncoherent IssueCode = "mux_master_incoherent"
-	// IssueUnknownAttributeName — a BA_ assignment/default references an attribute with no BA_DEF_ declaration.
+	// IssueUnknownAttributeName is a BA_ assignment/default references an attribute with no BA_DEF_ declaration.
 	IssueUnknownAttributeName IssueCode = "unknown_attribute_name"
-	// IssueAttributeValueTypeMismatch — an attribute value's type does not match its BA_DEF_ declaration.
+	// IssueAttributeValueTypeMismatch is an attribute value's type does not match its BA_DEF_ declaration.
 	IssueAttributeValueTypeMismatch IssueCode = "attribute_value_type_mismatch"
-	// IssueAttributeEnumEmpty — an enum attribute (BA_DEF_ ENUM) declares no values.
+	// IssueAttributeEnumEmpty is an enum attribute (BA_DEF_ ENUM) declares no values.
 	IssueAttributeEnumEmpty IssueCode = "attribute_enum_empty"
-	// IssueAttributeEnumDefaultUnstable — an enum attribute's default index does not resolve back to itself.
+	// IssueAttributeEnumDefaultUnstable is an enum attribute's default index does not resolve back to itself.
 	IssueAttributeEnumDefaultUnstable IssueCode = "attribute_enum_default_unstable"
-	// IssueUnknown — unrecognized issue code from the Agda core.
+	// IssueUnknown is unrecognized issue code from the Agda core.
 	IssueUnknown IssueCode = "unknown"
 )
 
@@ -248,25 +229,20 @@ type ValidationResult struct {
 	Issues    []ValidationIssue
 }
 
-// ParsedDBC is the success-path result of ParseDBC and ParseDBCText.
-//
-// Both paths run the structural validator alongside the parser; if the
-// parsed DBC has zero error-severity issues, the Agda core emits this
-// shape carrying the canonical body plus any non-error issues
-// (warnings).  Errors short-circuit to the (*ParsedDBC, error) tuple's
-// error half.
+// ParsedDBC is a definition that parsed and validated: both routes into the
+// kernel run the validator, and this is what comes back when it found nothing
+// of error severity. Whatever it found besides is here as warnings; an error
+// arrives as a refusal instead.
 type ParsedDBC struct {
 	DBC      DBCDefinition
 	Warnings []ValidationIssue
 }
 
-// DBCText is the success-path result of FormatDBCText: the .dbc text image plus
-// its wfTextIssues diagnostics (warning-severity, advisory).
-//
-// FormatDBCText is always strict — it returns this shape only when the emitted
-// text provably re-parses to the input DBC, so Issues may be non-empty even on
-// a proven round-trip.  A DBC whose text does not round-trip short-circuits to
-// the (*DBCText, error) tuple's error half as a [TextRoundTripFailedError].
+// DBCText is a definition written back out as .dbc text, with whatever the
+// kernel wants to say about it. The text is only ever returned when the kernel
+// has proved it re-parses to the definition it came from, so the issues here
+// are advisory; a definition whose text would not re-parse is refused as a
+// [TextRoundTripFailedError] instead.
 type DBCText struct {
 	Text   string
 	Issues []ValidationIssue

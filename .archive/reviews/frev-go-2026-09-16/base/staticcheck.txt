@@ -1,0 +1,5 @@
+## staticcheck ./... (go/), informational, not a run_ci gate
+exit 0
+## staticcheck ./... (go/excel)
+exit 0
+staticcheck 2026.1 (v0.7.0)

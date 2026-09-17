@@ -5,113 +5,75 @@ package aletheia_test
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
-func TestErrorResponse(t *testing.T) {
-	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`),
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	_, err = c.FormatDBC(ctx)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	var aErr *aletheia.Error
-	if !errors.As(err, &aErr) {
-		t.Fatalf("expected *aletheia.Error, got %T", err)
-	}
-	if aErr.Kind != aletheia.ErrProtocol {
-		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
-	}
+// errorEnvelope is an error response carrying the code and message.
+func errorEnvelope(code, msg string) aletheia.MockResponse {
+	return aletheia.Respond(fmt.Sprintf(`{"status":"error","code":%q,"message":%q}`, code, msg))
 }
 
-func TestBackendError(t *testing.T) {
-	mock := aletheia.NewMockBackend(
-		aletheia.RespondErr(aletheia.NewMockError("connection lost")),
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	_, err = c.ParseDBC(ctx, testDBC())
-	if err == nil {
-		t.Fatal("expected error from backend")
-	}
-}
-
-func TestMockBackendExhaustion(t *testing.T) {
-	mock := aletheia.NewMockBackend() // no responses
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	_, err = c.ParseDBC(ctx, testDBC())
-	if err == nil {
-		t.Fatal("expected error when mock exhausted")
-	}
-}
-
-func TestUseAfterClose(t *testing.T) {
-	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`),
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c.Close()
-
-	// Calling after Close should return a state error, not crash.
-	_, err = c.ParseDBC(ctx, testDBC())
-	if err == nil {
-		t.Fatal("expected error after Close")
-	}
-	var aErr *aletheia.Error
-	if !errors.As(err, &aErr) {
-		t.Fatalf("expected *aletheia.Error, got %T", err)
-	}
-	if aErr.Kind != aletheia.ErrState {
-		t.Errorf("expected ErrState, got %s", aErr.Kind)
-	}
-
-	// Double-close should be safe.
-	c.Close()
-}
-
-func TestErrorKindString(t *testing.T) {
-	tests := []struct {
-		kind aletheia.ErrorKind
-		want string
+// A coded error envelope reaches the caller as an *aletheia.Error of protocol
+// kind carrying the kernel's code, on the JSON route and on the binary one.
+// The four geometry codes are the refusals of the kernel's shared entry gate
+// (geometryRefusal in src/Aletheia/DBC/Decidable/SignalGeometry.agda), which
+// measures the submitted values against the frame: a bit length of zero, a
+// start bit outside the frame, a bit length past it, and, for a big-endian
+// signal, a descending run that wraps past the end. The gate itself is
+// exercised against the real library by the C++ and Python tests and by the
+// cross-binding test here; these rows are this binding's decode of what it
+// emits.
+func TestCodedErrorEnvelopesReachTheCaller(t *testing.T) {
+	parseDBC := func(c *aletheia.Client) error { _, err := c.ParseDBC(ctx, testDBC()); return err }
+	formatDBC := func(c *aletheia.Client) error { _, err := c.FormatDBC(ctx); return err }
+	cases := map[string]struct {
+		code string
+		msg  string
+		call func(*aletheia.Client) error
 	}{
-		{aletheia.ErrProtocol, "protocol"},
-		{aletheia.ErrValidation, "validation"},
-		{aletheia.ErrState, "state"},
-		{aletheia.ErrFFI, "ffi"},
-		{aletheia.ErrorKind(99), "ErrorKind(99)"},
+		"no DBC loaded":            {aletheia.CodeHandlerNoDBC, "no DBC loaded", formatDBC},
+		"bit length zero":          {aletheia.CodeParseSignalBitLengthZero, "signal bit length must be at least 1", parseDBC},
+		"start bit past the frame": {aletheia.CodeParseSignalStartBitExceedsFrame, "signal start bit 100 is outside the frame (8 bytes = 64 bits)", parseDBC},
+		"big-endian run wraps":     {aletheia.CodeParseSignalBigEndianOverflow, "big-endian signal at start bit 62 with length 8 runs past the end of the frame (8 bytes)", parseDBC},
+		"non-terminating rational": {aletheia.CodeParseNonTerminatingRational, "rational field 'initial' has no terminating decimal expansion", parseDBC},
+		"non-integer mux value":    {aletheia.CodeParseNonIntegerMultiplexValue, "non-integer value in 'multiplex_values' array", parseDBC},
 	}
-	for _, tt := range tests {
-		if got := tt.kind.String(); got != tt.want {
-			t.Errorf("ErrorKind(%d).String() = %q, want %q", tt.kind, got, tt.want)
-		}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c, _ := mockClient(t, errorEnvelope(tc.code, tc.msg))
+			err := tc.call(c)
+			requireKind(t, err, aletheia.ErrProtocol)
+			var aErr *aletheia.Error
+			if !errors.As(err, &aErr) {
+				t.Fatalf("expected *aletheia.Error, got %T", err)
+			}
+			if aErr.Code != tc.code {
+				t.Errorf("Code = %q, want %q", aErr.Code, tc.code)
+			}
+			if aErr.Message != tc.msg {
+				t.Errorf("Message = %q, want %q", aErr.Message, tc.msg)
+			}
+		})
 	}
 }
 
-func TestDoubleClose(t *testing.T) {
-	mock := aletheia.NewMockBackend()
-	c, err := aletheia.NewClient(mock)
+// An error the backend itself returns, which carries no envelope, reaches the
+// caller rather than being swallowed.
+func TestBackendError(t *testing.T) {
+	c, _ := mockClient(t, aletheia.RespondErr(aletheia.NewMockError("connection lost")))
+	if _, err := c.ParseDBC(ctx, testDBC()); err == nil {
+		t.Fatal("expected the backend's error to reach the caller")
+	}
+}
+
+// Close is idempotent and a call after it is a state error rather than a
+// crash.
+func TestClosedClient(t *testing.T) {
+	c, err := aletheia.NewClient(aletheia.NewMockBackend(aletheia.Respond(`{"status":"success"}`)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,226 +83,72 @@ func TestDoubleClose(t *testing.T) {
 	if err := c.Close(); err != nil {
 		t.Errorf("second close: %v", err)
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Parse error codes from the signal-geometry entry gate
-// ---------------------------------------------------------------------------
-// The kernel refuses out-of-capacity signal geometry at parse time via the
-// shared gate (DBC/Decidable/SignalGeometry.agda's geometryRefusal, applied
-// to the SUBMITTED values against dlcBytes * 8). Both byte orders share the
-// frame-capacity conditions; BigEndian additionally enforces the
-// pre-conversion no-wrap condition:
-//
-//   • bitLength ≥ 1                     → SignalBitLengthZero
-//   • startBit < frameBytes * 8         → SignalStartBitExceedsFrame
-//   • bitLength ≤ frameBytes * 8        → SignalBitLengthExceedsFrame
-//   • no wrap past the frame end        → SignalBigEndianOverflow (BE only)
-//
-// Go's surface for this layer is JSON error-code parsing — the gate itself
-// lives in Agda and is verified by the real-FFI C++/Python tests (both
-// byte orders covered). These tests exercise the Go binding's JSON
-// error-code extraction via MockBackend, ensuring the codes round-trip
-// through parseErrorResponse into aErr.Code with the expected
-// ErrProtocol kind.
-
-func TestParseError_SignalBitLengthZero(t *testing.T) {
-	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{
-			"status": "error",
-			"code": "parse_signal_bit_length_zero",
-			"message": "signal bit length must be at least 1"
-		}`),
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
 	_, err = c.ParseDBC(ctx, testDBC())
-	if err == nil {
-		t.Fatal("expected parse error")
-	}
-	var aErr *aletheia.Error
-	if !errors.As(err, &aErr) {
-		t.Fatalf("expected *aletheia.Error, got %T", err)
-	}
-	if aErr.Code != aletheia.CodeParseSignalBitLengthZero {
-		t.Errorf("expected code %q, got %q", aletheia.CodeParseSignalBitLengthZero, aErr.Code)
-	}
-	if aErr.Kind != aletheia.ErrProtocol {
-		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
-	}
+	requireKind(t, err, aletheia.ErrState)
 }
 
-func TestParseError_SignalStartBitExceedsFrame(t *testing.T) {
-	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{
-			"status": "error",
-			"code": "parse_signal_start_bit_exceeds_frame",
-			"message": "signal start bit 100 is outside the frame (8 bytes = 64 bits)"
-		}`),
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
+// Each error kind renders as its name, and one outside the set as its value.
+func TestErrorKindString(t *testing.T) {
+	cases := map[aletheia.ErrorKind]string{
+		aletheia.ErrProtocol:   "protocol",
+		aletheia.ErrValidation: "validation",
+		aletheia.ErrState:      "state",
+		aletheia.ErrFFI:        "ffi",
+		aletheia.ErrorKind(99): "ErrorKind(99)",
 	}
-	defer c.Close()
-
-	_, err = c.ParseDBC(ctx, testDBC())
-	if err == nil {
-		t.Fatal("expected parse error")
-	}
-	var aErr *aletheia.Error
-	if !errors.As(err, &aErr) {
-		t.Fatalf("expected *aletheia.Error, got %T", err)
-	}
-	if aErr.Code != aletheia.CodeParseSignalStartBitExceedsFrame {
-		t.Errorf("expected code %q, got %q", aletheia.CodeParseSignalStartBitExceedsFrame, aErr.Code)
-	}
-	if aErr.Kind != aletheia.ErrProtocol {
-		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
-	}
-}
-
-func TestParseError_SignalBigEndianOverflow(t *testing.T) {
-	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{
-			"status": "error",
-			"code": "parse_signal_big_endian_overflow",
-			"message": "big-endian signal at start bit 62 with length 8 runs past the end of the frame (8 bytes)"
-		}`),
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	_, err = c.ParseDBC(ctx, testDBC())
-	if err == nil {
-		t.Fatal("expected parse error")
-	}
-	var aErr *aletheia.Error
-	if !errors.As(err, &aErr) {
-		t.Fatalf("expected *aletheia.Error, got %T", err)
-	}
-	if aErr.Code != aletheia.CodeParseSignalBigEndianOverflow {
-		t.Errorf("expected code %q, got %q", aletheia.CodeParseSignalBigEndianOverflow, aErr.Code)
-	}
-	if aErr.Kind != aletheia.ErrProtocol {
-		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
-	}
-}
-
-func TestParseError_CodeConstantsExported(t *testing.T) {
-	// Regression guard: the parse error codes must remain exported as public
-	// constants with the exact string values that Agda emits. These are
-	// matched directly by application code that wants to react to specific
-	// parse errors (e.g. "signal bit length zero" → "try re-exporting with a
-	// wider bit length"), so a typo would silently break error-recovery
-	// logic in downstream tools.
-	tests := []struct {
-		name string
-		got  string
-		want string
-	}{
-		{"SignalBitLengthZero", aletheia.CodeParseSignalBitLengthZero, "parse_signal_bit_length_zero"},
-		{"SignalStartBitExceedsFrame", aletheia.CodeParseSignalStartBitExceedsFrame, "parse_signal_start_bit_exceeds_frame"},
-		{"SignalBitLengthExceedsFrame", aletheia.CodeParseSignalBitLengthExceedsFrame, "parse_signal_bit_length_exceeds_frame"},
-		{"SignalBigEndianOverflow", aletheia.CodeParseSignalBigEndianOverflow, "parse_signal_big_endian_overflow"},
-		{"NonNaturalField", aletheia.CodeParseNonNaturalField, "parse_non_natural_field"},
-		{"NonTerminatingRational", aletheia.CodeParseNonTerminatingRational, "parse_non_terminating_rational"},
-		{"NonIntegerMultiplexValue", aletheia.CodeParseNonIntegerMultiplexValue, "parse_non_integer_multiplex_value"},
-	}
-	for _, tt := range tests {
-		if tt.got != tt.want {
-			t.Errorf("%s = %q, want %q", tt.name, tt.got, tt.want)
+	for kind, want := range cases {
+		if got := kind.String(); got != want {
+			t.Errorf("ErrorKind(%d).String() = %q, want %q", kind, got, want)
 		}
 	}
 }
 
-func TestParseError_NonTerminatingRational(t *testing.T) {
-	// Commit 3/6 (EV_ ℚ→DecRat migration) introduces this failure mode:
-	// a Rational with a denominator that isn't 2^a·5^b has no terminating
-	// decimal expansion, so fromℚ? returns nothing and the parser emits
-	// parse_non_terminating_rational.  Mock exercises the Go binding's
-	// decode path for the new code; Python/C++ integration tests cover
-	// the actual FFI → Agda round-trip.
-	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{
-			"status": "error",
-			"code": "parse_non_terminating_rational",
-			"message": "rational field 'initial' has no terminating decimal expansion"
-		}`),
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
+// An error carrying a cause renders both parts and unwraps to it, so
+// errors.Is reaches the cause; one with no cause renders one part and
+// unwraps to nil.
+func TestError_CauseIsRenderedAndUnwrapped(t *testing.T) {
+	cause := errors.New("underlying")
+	wrapped := aletheia.WrapValidationError("could not load", cause)
+	if got, want := wrapped.Error(), "aletheia validation error: could not load: underlying"; got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
 	}
-	defer c.Close()
-
-	_, err = c.ParseDBC(ctx, testDBC())
-	if err == nil {
-		t.Fatal("expected parse error")
+	if !errors.Is(wrapped, cause) {
+		t.Error("errors.Is must reach the cause through Unwrap")
 	}
-	var aErr *aletheia.Error
-	if !errors.As(err, &aErr) {
-		t.Fatalf("expected *aletheia.Error, got %T", err)
+	bare := aletheia.NewValidationError("no cause")
+	if got, want := bare.Error(), "aletheia validation error: no cause"; got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
 	}
-	if aErr.Code != aletheia.CodeParseNonTerminatingRational {
-		t.Errorf("expected code %q, got %q", aletheia.CodeParseNonTerminatingRational, aErr.Code)
-	}
-	if aErr.Kind != aletheia.ErrProtocol {
-		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
+	if errors.Unwrap(bare) != nil {
+		t.Error("an error with no cause must unwrap to nil")
 	}
 }
 
-// TestMockBackend_ErrorsOnQueueExhaustion pins the queue-exhaustion contract
-// (#108 cross-binding unification): an empty MockBackend queue is a harness
-// misconfiguration, so Process returns a typed ErrState error rather than
-// fabricating a default response.  Mirrors the C++ sibling "MockBackend throws
-// on queue exhaustion" (cpp/tests/unit_tests_client.cpp) and the Python/Rust
-// siblings.  The starved request is recorded BEFORE the error, so Inputs()
-// stays populated on the erroring call.
+// An exhausted mock queue is a misconfigured test, so the mock answers a
+// state error naming the operation it starved on rather than inventing a
+// response; the starved call is recorded first, so the inputs still show it,
+// and a queued response still takes priority until the queue drains again.
+// The C++, Python and Rust mocks refuse the same way.
 func TestMockBackend_ErrorsOnQueueExhaustion(t *testing.T) {
-	// wantStateError asserts err is a non-nil *aletheia.Error of kind ErrState
-	// whose Message is exactly wantMsg.  The exported Message field carries the
-	// bare diagnostic; (*Error).Error() prefixes "aletheia state error: ", so
-	// pinning Message directly is the tightest available assertion.
 	wantStateError := func(t *testing.T, err error, wantMsg string) {
 		t.Helper()
-		if err == nil {
-			t.Fatal("expected error on exhausted queue, got nil")
-		}
+		requireKind(t, err, aletheia.ErrState)
 		var aErr *aletheia.Error
-		if !errors.As(err, &aErr) {
-			t.Fatalf("expected *aletheia.Error, got %T", err)
-		}
-		if aErr.Kind != aletheia.ErrState {
-			t.Errorf("expected ErrState, got %s", aErr.Kind)
-		}
-		if aErr.Message != wantMsg {
+		if errors.As(err, &aErr) && aErr.Message != wantMsg {
 			t.Errorf("Message = %q, want %q", aErr.Message, wantMsg)
 		}
 	}
 
-	// --- Empty queue: both the JSON control-plane and the binary shim starve. ---
-	empty := aletheia.NewMockBackend() // no responses
+	empty := aletheia.NewMockBackend()
 	state, err := empty.Init()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// (1) JSON path → op token "process".
 	jsonCmd := `{"command":"setProperties","formulas":[]}`
 	_, err = empty.Process(state, jsonCmd)
 	wantStateError(t, err, "mock backend: no queued response for process")
 
-	// (2) Binary path → op token "<binary:sendFrame>".  Args are zero-ish but
-	// validly constructed; SendFrameBinary ignores them beyond recording the
-	// sentinel input.
 	id, err := aletheia.NewStandardID(0)
 	if err != nil {
 		t.Fatal(err)
@@ -352,19 +160,14 @@ func TestMockBackend_ErrorsOnQueueExhaustion(t *testing.T) {
 	_, err = empty.SendFrameBinary(state, aletheia.Timestamp{}, id, dlc, nil, nil, nil)
 	wantStateError(t, err, "mock backend: no queued response for <binary:sendFrame>")
 
-	// (3) Record-before-error: the starved calls are still recorded, so Inputs()
-	// stays populated even though both Process calls returned an error.
 	inputs := empty.Inputs()
 	if !slices.Contains(inputs, jsonCmd) {
-		t.Errorf("Inputs() = %q, want it to contain the starved JSON input %q", inputs, jsonCmd)
+		t.Errorf("Inputs() = %q, want the starved JSON input %q", inputs, jsonCmd)
 	}
 	if !slices.Contains(inputs, "<binary:sendFrame>") {
-		t.Errorf("Inputs() = %q, want it to contain the starved binary sentinel", inputs)
+		t.Errorf("Inputs() = %q, want the starved binary sentinel", inputs)
 	}
 
-	// (4) A queued response takes priority over the error path; once drained,
-	// the next call re-drains and errors again (the error path is re-entrant,
-	// not one-shot).
 	primed := aletheia.NewMockBackend(aletheia.Respond(`{"custom":true}`))
 	pState, err := primed.Init()
 	if err != nil {
@@ -372,47 +175,11 @@ func TestMockBackend_ErrorsOnQueueExhaustion(t *testing.T) {
 	}
 	got, err := primed.Process(pState, jsonCmd)
 	if err != nil {
-		t.Fatalf("queued response should not error: %v", err)
+		t.Fatalf("a queued response must not error: %v", err)
 	}
 	if got != `{"custom":true}` {
-		t.Errorf("Process = %q, want the queued response %q", got, `{"custom":true}`)
+		t.Errorf("Process = %q, want the queued response", got)
 	}
 	_, err = primed.Process(pState, jsonCmd)
 	wantStateError(t, err, "mock backend: no queued response for process")
-}
-
-func TestParseError_NonIntegerMultiplexValue(t *testing.T) {
-	// Non-integer in `multiplex_values` JSON array.
-	// Previously, the Agda parser emitted `parse_invalid_presence` with
-	// the literal `"non-integer in multiplex_values"`, conflating two
-	// failure modes on a single wire code.  This regression guard
-	// asserts the typed `parse_non_integer_multiplex_value` code reaches
-	// the Go decode path intact.
-	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{
-			"status": "error",
-			"code": "parse_non_integer_multiplex_value",
-			"message": "non-integer value in 'multiplex_values' array (every element must be a JSON natural number)"
-		}`),
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	_, err = c.ParseDBC(ctx, testDBC())
-	if err == nil {
-		t.Fatal("expected parse error")
-	}
-	var aErr *aletheia.Error
-	if !errors.As(err, &aErr) {
-		t.Fatalf("expected *aletheia.Error, got %T", err)
-	}
-	if aErr.Code != aletheia.CodeParseNonIntegerMultiplexValue {
-		t.Errorf("expected code %q, got %q", aletheia.CodeParseNonIntegerMultiplexValue, aErr.Code)
-	}
-	if aErr.Kind != aletheia.ErrProtocol {
-		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
-	}
 }

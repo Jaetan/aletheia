@@ -287,9 +287,27 @@ auto validate_output_parent_dir(const std::filesystem::path& path) -> Result<voi
     if (parent.empty())
         return {};
     std::error_code ec;
-    if (!std::filesystem::is_directory(parent, ec) || ec)
+    // Keyed on the errno value, for the reason validate_loader_path above
+    // gives: a failure to look at the directory is not the directory being
+    // absent, and reporting the former as the latter sends a reader to create
+    // something that is already there.  ENOENT and ENOTDIR are absence; a
+    // component too long to be a name, an unsearchable parent or a descriptor
+    // limit are not.  Go's validateOutputParentDir keys the same way.
+    const auto status = std::filesystem::status(parent, ec);
+    if (ec) {
+        if (ec == std::errc::no_such_file_or_directory || ec == std::errc::not_a_directory)
+            return std::unexpected(AletheiaError{
+                ErrorKind::Validation, "Parent directory does not exist: " + parent.string()});
+        return std::unexpected(AletheiaError{ErrorKind::Validation,
+                                             "Could not stat parent directory: " + parent.string() +
+                                                 ": " + ec.message()});
+    }
+    if (!std::filesystem::exists(status))
         return std::unexpected(AletheiaError{
             ErrorKind::Validation, "Parent directory does not exist: " + parent.string()});
+    if (!std::filesystem::is_directory(status))
+        return std::unexpected(AletheiaError{ErrorKind::Validation,
+                                             "Parent path is not a directory: " + parent.string()});
     return {};
 }
 

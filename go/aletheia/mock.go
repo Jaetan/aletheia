@@ -18,14 +18,13 @@ type MockResponse struct {
 	Err  error
 }
 
-// MockBackend implements [Backend] with canned JSON responses for testing.
-// Each call to Process pops the next response from the queue. If the queue
-// is exhausted, Process returns an error.
+// MockBackend is the [Backend] a test drives: every call takes the next
+// response from a queue the test filled, and a call past the end is a refusal
+// naming the operation that starved.
 //
-// MockBackend is safe for concurrent use: Process, the Send*Binary shims,
-// and the stream/format/extract/frame helpers all serialize through the
-// internal mutex. The mutex is required because multiple Client methods
-// may run concurrently on a multi-bus deployment that shares one mock.
+// It is safe to use from several goroutines. Every entry point takes the same
+// lock, because a deployment watching several buses shares one client's
+// backend across the calls its methods make.
 type MockBackend struct {
 	mu        sync.Mutex
 	responses []MockResponse
@@ -60,12 +59,11 @@ func RespondErr(err error) MockResponse {
 	return MockResponse{Err: err}
 }
 
-// RespondParseDBC builds a successful ParseDBC / ParseDBCText response that
-// mirrors the Agda core's ParsedDBCResponse shape (status + dbc body +
-// warnings).  Tests use this when they want ParseDBC's signal-name lookup
-// populated from a known body without standing up the real FFI core.
-// Marshalling failures are surfaced as MockResponse.Err so the test fails
-// loudly rather than racing through a malformed canned reply.
+// RespondParseDBC is the answer the kernel gives to a definition it parsed:
+// the definition itself and any warnings. A test uses it to give the client a
+// known definition, which is what fills its signal lookup, without the
+// library. A definition that cannot be encoded comes back as the queued
+// error, so the test fails at that response rather than on a later one.
 func RespondParseDBC(dbc DBCDefinition, warnings ...ValidationIssue) MockResponse {
 	dbcJSON, err := serializeDBC(dbc)
 	if err != nil {
@@ -90,12 +88,12 @@ func RespondParseDBC(dbc DBCDefinition, warnings ...ValidationIssue) MockRespons
 	return MockResponse{JSON: string(raw)}
 }
 
-// mockSentinel provides a non-nil address for Init's return value. The Backend
-// contract requires Init to return non-nil on success, and Client.processLocked
-// checks c.closed rather than c.state for the use-after-close guard.
+// mockSentinel is an address to hand back from Init, which must answer
+// something that is not nil. The mock keeps no state behind it, and the client
+// knows it is closed by its own flag rather than by this pointer.
 var mockSentinel byte
 
-// Init returns a dummy non-nil pointer. The MockBackend does not use state.
+// Init answers the sentinel address.
 func (m *MockBackend) Init() (unsafe.Pointer, error) {
 	return unsafe.Pointer(&mockSentinel), nil
 }
@@ -110,12 +108,10 @@ func (m *MockBackend) Process(_ unsafe.Pointer, input string) (string, error) {
 	return m.processLocked(input)
 }
 
-// mockOpName names the starved operation for the exhaustion error.  Binary
-// shims record a "<binary:OP>" sentinel as their input, which already names
-// the operation, so it is reported verbatim (e.g. "<binary:sendFrame>").
-// Every JSON control-plane command funnels through Process, so the generic
-// "process" op names that path — matching the unified cross-binding message
-// shape (the Rust mock reports the same "process" op for its JSON path).
+// mockOpName is the operation to name when the queue runs out. A binary call
+// records a sentinel that already names it, so that is used as it stands;
+// every other command arrives through Process, which is what the refusal calls
+// it, as the Rust mock does.
 func mockOpName(input string) string {
 	if strings.HasPrefix(input, "<binary:") {
 		return input
@@ -137,18 +133,14 @@ func (m *MockBackend) processLocked(input string) (string, error) {
 	return resp.JSON, nil
 }
 
-// The binary-shim methods below record a `<binary:…>` sentinel rather than a
-// serialized JSON command.  The real FFI backend drives every streaming /
-// frame / extract operation through the binary FFI (`aletheia_send_frame`,
-// `aletheia_start_stream`, …) — there is no JSON wire for these in production,
-// so a JSON rendering here would be a fiction that no real path emits.  The
-// sentinel faithfully records *that* a binary call was made; argument values
-// are verified end-to-end by the real-`.so` round-trip tests (e.g.
-// TestCrossBinding_SendFrameBrsEsiPassthrough).  This mirrors the Python and
-// C++ mock backends exactly (cross-binding mock uniformity).
+// Each method below records a sentinel naming its operation rather than a
+// JSON command, because the library takes these calls as binary and there is
+// no JSON for a test to imitate. The sentinel records that the call was made;
+// what it carried is checked against the library itself, by the round-trip
+// tests such as TestCrossBinding_SendFrameBrsEsiPassthrough. The Python and
+// C++ mocks record the same names.
 
-// SendFrameBinary records a `<binary:sendFrame>` sentinel; returns the next
-// queued response (canned by the test) or errors if the queue is empty.
+// SendFrameBinary records a frame.
 func (m *MockBackend) SendFrameBinary(
 	state unsafe.Pointer, _ Timestamp,
 	_ CANID, _ DLC, _ []byte,
@@ -157,41 +149,39 @@ func (m *MockBackend) SendFrameBinary(
 	return m.Process(state, "<binary:sendFrame>")
 }
 
-// SendErrorBinary records a `<binary:sendError>` sentinel.
+// SendErrorBinary records an error event.
 func (m *MockBackend) SendErrorBinary(state unsafe.Pointer, _ Timestamp) (string, error) {
 	return m.Process(state, "<binary:sendError>")
 }
 
-// SendRemoteBinary records a `<binary:sendRemote>` sentinel.
+// SendRemoteBinary records a remote frame.
 func (m *MockBackend) SendRemoteBinary(state unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
 	return m.Process(state, "<binary:sendRemote>")
 }
 
-// StartStreamBinary records a `<binary:startStream>` sentinel.
+// StartStreamBinary records the start of a stream.
 func (m *MockBackend) StartStreamBinary(state unsafe.Pointer) (string, error) {
 	return m.Process(state, "<binary:startStream>")
 }
 
-// EndStreamBinary records a `<binary:endStream>` sentinel.
+// EndStreamBinary records the end of one.
 func (m *MockBackend) EndStreamBinary(state unsafe.Pointer) (string, error) {
 	return m.Process(state, "<binary:endStream>")
 }
 
-// FormatDBCBinary records a `<binary:formatDBC>` sentinel.
+// FormatDBCBinary records a request for the loaded definition.
 func (m *MockBackend) FormatDBCBinary(state unsafe.Pointer) (string, error) {
 	return m.Process(state, "<binary:formatDBC>")
 }
 
-// ExtractSignalsBinary records a `<binary:extractAllSignals>` sentinel.
+// ExtractSignalsBinary records an extraction.
 func (m *MockBackend) ExtractSignalsBinary(state unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
 	return m.Process(state, "<binary:extractAllSignals>")
 }
 
-// BuildFrameBin delegates to Process with a sentinel input string, then parses
-// the canned JSON response. The real FFI backend bypasses JSON on input via
-// aletheia_build_frame_bin; the mock keeps a Process call so tests can inject
-// canned {"status":"success","data":[...]} responses.
-func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+// BuildFrameBin records a frame build and reads the payload out of the queued
+// response, which is how a test says what the kernel would have built.
+func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ []SignalInjection) ([]byte, error) {
 	resp, err := m.Process(state, "<binary:buildFrameBin>")
 	if err != nil {
 		return nil, err
@@ -199,11 +189,8 @@ func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ uint
 	return parseFrameDataResponse(resp)
 }
 
-// UpdateFrameBin delegates to Process with a sentinel input string, then parses
-// the canned JSON response. The real FFI backend bypasses JSON on input via
-// aletheia_update_frame_bin; the mock keeps a Process call so tests can inject
-// canned {"status":"success","data":[...]} responses.
-func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+// UpdateFrameBin records a frame update and reads its payload the same way.
+func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ []SignalInjection) ([]byte, error) {
 	resp, err := m.Process(state, "<binary:updateFrameBin>")
 	if err != nil {
 		return nil, err
@@ -211,13 +198,11 @@ func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ []b
 	return parseFrameDataResponse(resp)
 }
 
-// ExtractSignalsBin is not supported by MockBackend — returns
-// [ErrBinaryPathUnsupported]. The binary extraction path needs the real
-// FFI shared library to call aletheia_extract_signals_bin; MockBackend
-// cannot provide this. Client.ExtractSignals recognises the sentinel
-// and falls through to the JSON path via ExtractSignalsBinary -> Process,
-// which the mock can service. Any other error (decode / truncation /
-// FFI failure) propagates instead of triggering silent JSON fallback.
+// ExtractSignalsBin refuses with [ErrBinaryPathUnsupported]: the packed
+// extraction is the library's, and a mock cannot produce it. The client knows
+// that one error and asks again through the JSON path, which the mock does
+// answer; any other error it passes on, so a real decode failure is never read
+// as a reason to try the other path.
 func (m *MockBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
 	return nil, ErrBinaryPathUnsupported
 }
@@ -225,6 +210,6 @@ func (m *MockBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []by
 // Close is a no-op for the mock backend.
 func (m *MockBackend) Close(_ unsafe.Pointer) {}
 
-// Compile-time assertion that *MockBackend satisfies the Backend interface.
-// Catches interface signature drift at `go build` time.
+// The interface is satisfied here, so a drift in its signatures fails the
+// build rather than the first test that uses the mock.
 var _ Backend = (*MockBackend)(nil)

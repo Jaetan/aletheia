@@ -1,36 +1,28 @@
+//go:build cgo && linux
+
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Property-based tests via testing/quick.
-//
-// Round-trip pairs for every wire-format encode/decode that the Go binding
-// owns plus mock-vs-real parity invariants for the IBackend / Backend
-// interface.  testing/quick is the stdlib randomized-input runner; one
-// quick.Check per property, one per file section.
-//
-// Property tests run alongside fuzz harnesses (fuzz_test.go).  Fuzzers find
-// crashes; properties find logical bugs that don't crash but violate an
-// expected invariant.  Both are required by AGENTS.md cat 33b/c — fuzzers
-// alone miss "wrong but doesn't panic" outputs; properties alone miss the
-// "crashes on adversarial input" failures.
+// Properties over generated inputs, one check each. They sit beside the fuzz
+// targets and answer a different question: a fuzzer finds the input that
+// crashes, a property finds the input that comes back wrong. The binding's
+// standard asks for both, and for a round trip over every wire shape the
+// binding encodes.
 
 package aletheia
 
 import (
 	"encoding/json"
-	"math"
+	"strconv"
 	"testing"
 	"testing/quick"
 )
 
-// Property: parseRational round-trips through serializeRational for every
-// non-zero-denominator Rational.  Catches: overflow on extreme numerators,
-// silent normalization differences, lost precision for negative numbers.
-//
-// The round-trip goes through the production decode path — serializeRational →
-// JSON → parseResponse (a UseNumber decoder, so numbers arrive as json.Number,
-// exact for the full int64 range) → parseRational. The >2^53 boundary is pinned
-// separately by TestParseResponse_ExactLargeRational.
+// A rational encoded and read back is the same value, for any numerator and
+// any denominator above zero. The trip goes through the decoder the library
+// uses, so what is under test is the wire and not a pair of helpers. The
+// values past what a float holds are pinned separately, by
+// TestParseResponse_ExactLargeRational.
 func TestProperty_RationalRoundTrip(t *testing.T) {
 	property := func(num int32, denomNonZero uint16) bool {
 		denom := int64(denomNonZero) + 1
@@ -50,9 +42,8 @@ func TestProperty_RationalRoundTrip(t *testing.T) {
 			t.Logf("parseRational(%v) failed: %v", m["value"], err)
 			return false
 		}
-		// Equality after normalisation: cross-multiply to avoid canonical-
-		// form reasoning.  parseRational MAY normalise; the round-trip
-		// invariant is value-equality, not bit-equality.
+		// The decoder may return another pair of the same value, so the two
+		// are compared by cross-multiplication rather than by their fields.
 		return original.Numerator*parsed.Denominator == parsed.Numerator*original.Denominator
 	}
 	if err := quick.Check(property, &quick.Config{MaxCount: 200}); err != nil {
@@ -60,30 +51,26 @@ func TestProperty_RationalRoundTrip(t *testing.T) {
 	}
 }
 
-// Property: parseResponse is total over valid JSON and rejects every
-// invalid byte sequence.  "Total" here means the function does not panic;
-// the returned (map, error) is well-formed in both arms.
+// The response parser answers for every input rather than panicking on one.
+// The bytes here are forced into the printable range, which is the shape a
+// wire error takes; the fuzz target covers arbitrary bytes.
 func TestProperty_ParseResponseTotal(t *testing.T) {
 	property := func(payload []byte) bool {
-		// Constrain to ASCII printable to keep the corpus interpretable.
-		// The fuzzer covers the binary-byte case; this property focuses on
-		// the structural totality invariant.
 		ascii := make([]byte, len(payload))
 		for i, b := range payload {
 			ascii[i] = (b & 0x7F) | 0x20 // printable range
 		}
-		// Should not panic regardless of input.
 		_, _ = parseResponse(string(ascii))
-		return true
+		return true // reaching here is the claim: the call returned
 	}
 	if err := quick.Check(property, &quick.Config{MaxCount: 200}); err != nil {
 		t.Errorf("ParseResponseTotal property failed: %v", err)
 	}
 }
 
-// Property: serializeCommand → parseResponse round-trips on the "command"
-// field for every {command, key, value} triple.  Catches: silent key-name
-// drops on duplicate-key coercion, JSON-special character mishandling.
+// A command encoded and read back names the same command, for any command
+// and any field name. An input the encoder refuses, such as one that is not
+// valid UTF-8, is not a counterexample: it never reached the wire.
 func TestProperty_CommandRoundTrip(t *testing.T) {
 	property := func(command, key string) bool {
 		fields := map[string]any{key: "v"}
@@ -107,63 +94,42 @@ func TestProperty_CommandRoundTrip(t *testing.T) {
 	}
 }
 
-// Property: parseRational is monotonic over JSON-numeric inputs — for two
-// integers a < b, parseRational(a).asDouble < parseRational(b).asDouble.
-// Catches: silent overflow at the int64 boundary, sign-handling drift.
-func TestProperty_RationalMonotonicity(t *testing.T) {
-	property := func(a, b int32) bool {
+// Reading two numbers off the wire keeps their order, strictly. The
+// comparison is exact: both come back over a denominator of one, so their
+// numerators are the values themselves, and putting them through a float
+// would lose the distinction this property exists to find.
+func TestProperty_RationalOrderIsPreserved(t *testing.T) {
+	property := func(a, b int64) bool {
 		if a == b {
 			return true
 		}
-		ra, errA := parseRational(json.Number(string(jsonNumber(int64(a)))))
-		rb, errB := parseRational(json.Number(string(jsonNumber(int64(b)))))
+		ra, errA := parseRational(json.Number(strconv.FormatInt(a, 10)))
+		rb, errB := parseRational(json.Number(strconv.FormatInt(b, 10)))
 		if errA != nil || errB != nil {
-			return true // adversarial input: not a counterexample
+			return true // a number the wire refuses is not a counterexample
 		}
-		da := float64(ra.Numerator) / float64(ra.Denominator)
-		db := float64(rb.Numerator) / float64(rb.Denominator)
-		if math.IsNaN(da) || math.IsNaN(db) {
-			return true
+		if ra.Denominator != 1 || rb.Denominator != 1 {
+			return false // an integer is the rational over one
 		}
 		if a < b {
-			return da <= db
+			return ra.Numerator < rb.Numerator
 		}
-		return da >= db
+		return ra.Numerator > rb.Numerator
 	}
 	if err := quick.Check(property, &quick.Config{MaxCount: 200}); err != nil {
-		t.Errorf("RationalMonotonicity property failed: %v", err)
+		t.Errorf("the order of two numbers was not preserved: %v", err)
 	}
 }
 
-// jsonNumber renders an int64 as a json.Number-compatible byte string.
-// Helper for the monotonicity property — testing/quick can't generate
-// json.Number directly.
-func jsonNumber(v int64) []byte {
-	b, _ := json.Marshal(v)
-	return b
-}
+// What the wire refuses, rather than what it carries, is held over the same
+// decoder by TestNumericReaders_AcceptAndRefuseTheSameShapes in
+// json_precision_test.go, which feeds each shape as the bytes a response
+// would carry.
 
-// parseRational's adversarial-wire rejections (fractional scalar / fractional
-// or out-of-range numerator+denominator / zero / negative denominator) are
-// pinned on the production decode path by TestParseRational_RejectsBadComponents
-// in json_precision_test.go — fed as JSON strings through parseResponse, which
-// is how the wire actually delivers them. (Native-Go-float64 inputs are not a
-// reachable surface: the sole decoder, parseResponse, emits only json.Number.)
-
-// Property: MockBackend and FFIBackend agree on the parsed JSON shape for
-// every Process(input) where the input is a parseable JSON command.  Mock
-// returns a canned response; this property checks that the typed-decode
-// path treats both backends' outputs identically (response shape parity).
-//
-// Note: this is NOT a full equivalence claim (the mock doesn't compute
-// LTL properties) — it asserts the binding's response-decoding paths
-// have the same structure regardless of which backend is in scope.
-func TestProperty_MockRealResponseShapeParity(t *testing.T) {
-	// Property: for canned mock responses, the binding's parseResponse and
-	// the response-narrowing helpers (parseValidationResponse,
-	// parseStreamResponse, etc.) accept the same wire shapes that the FFI
-	// backend produces.  We check this by feeding the mock's canned strings
-	// through parseResponse and asserting they decode to a non-nil map.
+// Every response shape a test can queue is one the parser reads and finds a
+// status in. A mock that could produce a shape the decoders refuse would make
+// every test on it a test of something the library never emits.
+func TestMockResponseShapes_Decode(t *testing.T) {
 	cannedResponses := []string{
 		`{"status":"ack"}`,
 		`{"status":"success"}`,
@@ -174,11 +140,82 @@ func TestProperty_MockRealResponseShapeParity(t *testing.T) {
 	for _, raw := range cannedResponses {
 		m, err := parseResponse(raw)
 		if err != nil {
-			t.Errorf("parseResponse(%q): unexpected error %v", raw, err)
+			t.Errorf("parseResponse(%q): %v", raw, err)
 			continue
 		}
 		if _, hasStatus := m["status"]; !hasStatus {
-			t.Errorf("parseResponse(%q): missing 'status' key", raw)
+			t.Errorf("parseResponse(%q) found no status", raw)
 		}
+	}
+}
+
+// A definition encoded, sent to the kernel and read back is the definition
+// that was sent, for any signal the format allows. This is the round trip the
+// binding's standard asks for over the shapes it encodes, and it goes through
+// the library rather than through a canned answer: a mock would return what
+// the test wrote and hold nothing.
+func TestProperty_DefinitionRoundTripsThroughTheKernel(t *testing.T) {
+	lib := findFFILibrary()
+	if lib == "" {
+		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
+	}
+	backend, err := NewFFIBackend(lib)
+	if err != nil {
+		t.Skipf("the library is present but would not open: %v", err)
+	}
+	c, err := NewClient(backend)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+
+	property := func(rawStart uint8, rawLength uint8, rawFactor uint16, rawOffset int16) bool {
+		// The generated numbers are brought into the ranges the format has,
+		// so that what is under test is the trip and not the validator.
+		length := BitLength(rawLength%16 + 1)
+		start := BitPosition(uint16(rawStart) % uint16(64-length+1))
+		factor := Rational{Numerator: int64(rawFactor%1000 + 1), Denominator: 1000}
+		offset := Rational{Numerator: int64(rawOffset), Denominator: 1}
+		sid, err := NewStandardID(0x123)
+		if err != nil {
+			return false
+		}
+		dlc, err := NewDLC(8)
+		if err != nil {
+			return false
+		}
+		sent := DBCDefinition{
+			Version: "1.0",
+			Messages: []DBCMessage{{
+				ID: sid, Name: "Msg", DLC: dlc, Sender: "ECU",
+				Signals: []DBCSignal{{
+					Name: "Sig", StartBit: start, BitLength: length,
+					ByteOrder: LittleEndian,
+					Factor:    factor, Offset: offset,
+					Minimum: Rational{Numerator: -100000, Denominator: 1},
+					Maximum: Rational{Numerator: 100000, Denominator: 1},
+					Unit:    "u", Presence: AlwaysPresent{},
+				}},
+			}},
+		}
+		if _, err := c.ParseDBC(ctx, sent); err != nil {
+			t.Logf("ParseDBC refused %d bits at %d, factor %v: %v", length, start, factor, err)
+			return false
+		}
+		got, err := c.FormatDBC(ctx)
+		if err != nil {
+			t.Logf("FormatDBC: %v", err)
+			return false
+		}
+		if len(got.Messages) != 1 || len(got.Messages[0].Signals) != 1 {
+			return false
+		}
+		back := got.Messages[0].Signals[0]
+		return back.Name == "Sig" && back.StartBit == start && back.BitLength == length &&
+			back.Factor.Numerator*factor.Denominator == factor.Numerator*back.Factor.Denominator &&
+			back.Offset.Numerator*offset.Denominator == offset.Numerator*back.Offset.Denominator
+	}
+	if err := quick.Check(property, &quick.Config{MaxCount: 25}); err != nil {
+		t.Errorf("a definition did not come back as it was sent: %v", err)
 	}
 }

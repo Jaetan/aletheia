@@ -3,24 +3,23 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Warning-class validator mirrors of the two round-trip-fatal-but-loads-fine
-// mux shapes: a multi-value mux selector (CHECK 24, multi_value_mux_selector)
-// and an incoherent mux master (CHECK 25, mux_master_incoherent).
+// Two mux shapes stream perfectly well and cannot be written back as .dbc
+// text: a signal multiplexed on more than one selector value, and slaves split
+// under two masters. The validator names both with a warning rather than an
+// error, under multi_value_mux_selector and mux_master_incoherent, which the
+// protocol document lists among the codes validateDBC and the loading routes
+// share with the text formatter.
 //
-// Real-FFI tests in the same vein as the CHECK 23 coverage in
-// dbc_value_descriptions_test.go — the mirrors are kernel semantics (the
-// validator reuses the text-round-trip deciders), so a MockBackend would only
-// verify the wire shape, not that validateDBC actually names the shapes.
-// Both shapes are constructible only through the JSON route (the text parser
-// yields singleton-selector, single-master assignments by construction), so
-// the DBCs are built as typed literals here.
+// These run against the library, not a mock: the decision is the kernel's, and
+// a mock would only show that a wire shape came back. Both shapes are built
+// here as values, the text parser being unable to express either.
 
 package aletheia
 
 import "testing"
 
-// mirrorSignal builds an 8-bit little-endian unsigned signal with unit
-// scaling, mirroring the defaults the Python validator tests use.
+// mirrorSignal is an eight-bit unsigned signal at unit scale, the shape the
+// Python validator tests use for the same checks.
 func mirrorSignal(name string, startBit uint8, presence SignalPresence) DBCSignal {
 	return DBCSignal{
 		Name: SignalName(name), StartBit: BitPosition(startBit), BitLength: 8,
@@ -51,9 +50,8 @@ func mirrorDBC(t *testing.T, signals ...DBCSignal) DBCDefinition {
 	}
 }
 
-// multiValueMuxDBC carries a signal multiplexed on TWO selector values —
-// streams fine, but .dbc text emits only the first value, so the shape
-// cannot round-trip.
+// multiValueMuxDBC multiplexes one signal on two selector values. The text
+// form carries only the first, so writing it out loses the second.
 func multiValueMuxDBC(t *testing.T) DBCDefinition {
 	t.Helper()
 	return mirrorDBC(t,
@@ -65,9 +63,9 @@ func multiValueMuxDBC(t *testing.T) DBCDefinition {
 	)
 }
 
-// splitMasterDBC carries slaves under TWO Always masters — each named master
-// exists (no error-class check trips), but .dbc text keeps a single M marker,
-// so re-parsing the emitted text would rebind every slave to one master.
+// splitMasterDBC puts its slaves under two masters. Both masters exist, so no
+// error-class check fires, but the text form marks one master per message, and
+// reading it back would bind every slave to that one.
 func splitMasterDBC(t *testing.T) DBCDefinition {
 	t.Helper()
 	return mirrorDBC(t,
@@ -84,8 +82,9 @@ func splitMasterDBC(t *testing.T) DBCDefinition {
 	)
 }
 
-// hasWarning reports whether issues contains a warning-severity entry with
-// the given code.
+// hasWarning reports whether the code is among the issues, at warning
+// severity: the severity is part of the claim, an error-class entry of the
+// same code being a different outcome.
 func hasWarning(issues []ValidationIssue, code IssueCode) bool {
 	for _, issue := range issues {
 		if issue.Code == code && issue.Severity == SeverityWarning {
@@ -95,70 +94,47 @@ func hasWarning(issues []ValidationIssue, code IssueCode) bool {
 	return false
 }
 
-// TestValidateDBC_MultiValueMuxSelectorWarning pins CHECK 24: validateDBC
-// names the multi-value-selector shape with a warning and has_errors stays
-// false.
-func TestValidateDBC_MultiValueMuxSelectorWarning(t *testing.T) {
-	client := newFFIClient(t)
-
-	result, err := client.ValidateDBC(ctx, multiValueMuxDBC(t))
-	if err != nil {
-		t.Fatalf("ValidateDBC: %v", err)
+// Each shape is named with its warning, and nothing is named on the shape
+// that is coherent. The errors flag stays down throughout: these shapes load.
+func TestValidateDBC_NamesTheMirrorShapes(t *testing.T) {
+	coherent := func(t *testing.T) DBCDefinition {
+		t.Helper()
+		return mirrorDBC(t,
+			mirrorSignal("Mux", 0, AlwaysPresent{}),
+			mirrorSignal("A", 16, Multiplexed{Multiplexor: "Mux", MultiplexValues: []MultiplexValue{0}}),
+			mirrorSignal("B", 24, Multiplexed{Multiplexor: "Mux", MultiplexValues: []MultiplexValue{1}}),
+		)
 	}
-	if result.HasErrors {
-		t.Errorf("has_errors = true, want false (warning-class only): %+v", result.Issues)
+	cases := map[string]struct {
+		dbc  func(*testing.T) DBCDefinition
+		want IssueCode
+	}{
+		"a selector with two values":  {multiValueMuxDBC, IssueMultiValueMuxSelector},
+		"slaves under two masters":    {splitMasterDBC, IssueMuxMasterIncoherent},
+		"one selector and one master": {coherent, ""},
 	}
-	if !hasWarning(result.Issues, IssueMultiValueMuxSelector) {
-		t.Errorf("expected a multi_value_mux_selector warning, got %+v", result.Issues)
-	}
-}
-
-// TestValidateDBC_MuxMasterIncoherentWarning pins CHECK 25: validateDBC names
-// the split-master shape with a warning and has_errors stays false.
-func TestValidateDBC_MuxMasterIncoherentWarning(t *testing.T) {
-	client := newFFIClient(t)
-
-	result, err := client.ValidateDBC(ctx, splitMasterDBC(t))
-	if err != nil {
-		t.Fatalf("ValidateDBC: %v", err)
-	}
-	if result.HasErrors {
-		t.Errorf("has_errors = true, want false (warning-class only): %+v", result.Issues)
-	}
-	if !hasWarning(result.Issues, IssueMuxMasterIncoherent) {
-		t.Errorf("expected a mux_master_incoherent warning, got %+v", result.Issues)
-	}
-}
-
-// TestValidateDBC_SingletonCoherentControls pins the negative direction: the
-// singleton-selector, single-master control draws neither mirror warning.
-func TestValidateDBC_SingletonCoherentControls(t *testing.T) {
-	client := newFFIClient(t)
-
-	control := mirrorDBC(t,
-		mirrorSignal("Mux", 0, AlwaysPresent{}),
-		mirrorSignal("A", 16, Multiplexed{
-			Multiplexor:     "Mux",
-			MultiplexValues: []MultiplexValue{0},
-		}),
-		mirrorSignal("B", 24, Multiplexed{
-			Multiplexor:     "Mux",
-			MultiplexValues: []MultiplexValue{1},
-		}),
-	)
-	result, err := client.ValidateDBC(ctx, control)
-	if err != nil {
-		t.Fatalf("ValidateDBC: %v", err)
-	}
-	if hasWarning(result.Issues, IssueMultiValueMuxSelector) ||
-		hasWarning(result.Issues, IssueMuxMasterIncoherent) {
-		t.Errorf("control DBC drew a mirror warning: %+v", result.Issues)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			client := newFFIClient(t)
+			result, err := client.ValidateDBC(ctx, tc.dbc(t))
+			if err != nil {
+				t.Fatalf("ValidateDBC: %v", err)
+			}
+			if result.HasErrors {
+				t.Errorf("the shape was refused as an error rather than named as a warning: %+v", result.Issues)
+			}
+			for _, code := range []IssueCode{IssueMultiValueMuxSelector, IssueMuxMasterIncoherent} {
+				got := hasWarning(result.Issues, code)
+				if want := code == tc.want; got != want {
+					t.Errorf("warning %s present = %v, want %v: %+v", code, got, want, result.Issues)
+				}
+			}
+		})
 	}
 }
 
-// TestParseDBC_MirrorWarningsDoNotBlockLoad pins the warning-class contract on
-// the load route: both shapes load successfully, each surfacing its mirror
-// warning on ParsedDBC.Warnings.
+// The loading route says the same thing: both shapes load, each carrying its
+// warning, so a caller sees the shape named without being refused.
 func TestParseDBC_MirrorWarningsDoNotBlockLoad(t *testing.T) {
 	cases := []struct {
 		name string

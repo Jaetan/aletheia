@@ -1,0 +1,2 @@
+reports by contract: {'frev': 0, 'drev': 0, 'xrev': 0, 'not completed': 86}
+out of shape: 0

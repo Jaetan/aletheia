@@ -118,9 +118,12 @@ cd go && go test ./aletheia/ -v -count=1 -race
 # Cross-language benchmarks — baseline methodology: 10000 frames × 10 runs,
 # identical for all four bindings (the committed benchmarks/results/*_baseline.json
 # are generated this way; run all three bench types when refreshing baselines).
+# Each mode takes what it reads and refuses what it does not: throughput both
+# counts, latency the frame count as its operation count plus the warmup, and
+# scaling the run count.
 bash benchmarks/run_all.sh --frames 10000 --runs 10 --bench throughput
-bash benchmarks/run_all.sh --frames 10000 --runs 10 --bench latency
-bash benchmarks/run_all.sh --frames 10000 --runs 10 --bench scaling
+bash benchmarks/run_all.sh --frames 10000 --warmup 500 --bench latency
+bash benchmarks/run_all.sh --runs 10 --bench scaling
 ```
 
 ## Architecture

@@ -10,11 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -55,11 +56,9 @@ func findFFILib() string {
 	return ""
 }
 
-// cellText renders a test-row value as the TEXT string the all-text contract
-// requires: under the decimal SSOT a numeric field MUST be a text cell (its
-// exact literal parsed by aletheia.FromDecimal), so the workbook builders write
-// every value as text. Floats use the 'f' format (no exponent) so the literal is
-// a valid decimal grammar token.
+// cellText writes a case's value the way the loaders read one, as text. A
+// fraction is written without an exponent, an exponent not being a decimal the
+// kernel reads.
 func cellText(v any) string {
 	switch x := v.(type) {
 	case string:
@@ -82,9 +81,7 @@ func cellText(v any) string {
 
 // assertSameFormula compares two LTL formulas structurally. The Excel loader
 // should produce the same formula as the reference check; this replaces a prior
-// comparison via aletheia.FormatFormula (now internal — the public surface is the
-// PropertyDiagnostic type) and is a stronger check than the old rendered-string
-// equality.
+// comparison, which is stronger than comparing two rendered strings.
 func assertSameFormula(t *testing.T, want, got aletheia.Formula) {
 	t.Helper()
 	if !reflect.DeepEqual(want, got) {
@@ -194,97 +191,131 @@ func makeDBCWorkbook(t *testing.T, rows [][]any) string {
 	return path
 }
 
-// ===========================================================================
-// Simple checks -- each condition type
-// ===========================================================================
-
-func TestLoadExcelNeverExceeds(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		{nil, "Speed", "never_exceeds", 220, nil, nil, nil, nil},
-	})
-	checks, err := LoadChecks(path)
+// loadOne loads a workbook of a single row and answers the one check it holds.
+func loadOne(t *testing.T, build func(*testing.T, [][]any) string, row []any) aletheia.CheckResult {
+	t.Helper()
+	checks, err := LoadChecks(build(t, [][]any{row}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	assertSameFormula(t, aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220)).Formula(), checks[0].Formula())
+	return checks[0]
 }
 
-func TestLoadExcelNeverBelow(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		{nil, "Voltage", "never_below", 11.5, nil, nil, nil, nil},
-	})
-	checks, err := LoadChecks(path)
+// mustCheck is a reference check built by the fluent builder, for comparing a
+// loaded one against. A builder that refuses here is a mistake in the case, so
+// it stops the run rather than failing one.
+func mustCheck(r aletheia.CheckResult, err error) aletheia.CheckResult {
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		panic(fmt.Sprintf("the reference check was refused: %v", err))
 	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
-	}
-	assertSameFormula(t, aletheia.CheckSignal("Voltage").NeverBelow(aletheia.Rational{Numerator: 23, Denominator: 2}).Formula(), checks[0].Formula())
+	return r
 }
 
-func TestLoadExcelStaysBetween(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		{nil, "Voltage", "stays_between", nil, 11.5, 14.5, nil, nil},
-	})
-	checks, err := LoadChecks(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+// TestLoadExcelSimpleConditions: a row of the simple sheet builds the check the
+// fluent builder of that condition builds. The columns are check name, signal,
+// condition, value, minimum, maximum, time and severity.
+func TestLoadExcelSimpleConditions(t *testing.T) {
+	for _, c := range []struct {
+		condition string
+		row       []any
+		want      func() aletheia.CheckResult
+	}{
+		{
+			condition: "never_exceeds",
+			row:       []any{nil, "Speed", "never_exceeds", 220, nil, nil, nil, nil},
+			want: func() aletheia.CheckResult {
+				return aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
+			},
+		},
+		{
+			condition: "never_below",
+			row:       []any{nil, "Voltage", "never_below", 11.5, nil, nil, nil, nil},
+			want: func() aletheia.CheckResult {
+				return aletheia.CheckSignal("Voltage").NeverBelow(aletheia.Rational{Numerator: 23, Denominator: 2})
+			},
+		},
+		{
+			condition: "never_equals",
+			row:       []any{nil, "ErrorCode", "never_equals", 255, nil, nil, nil, nil},
+			want: func() aletheia.CheckResult {
+				return aletheia.CheckSignal("ErrorCode").NeverEquals(aletheia.IntRational(255))
+			},
+		},
+		{
+			condition: "equals",
+			row:       []any{nil, "Gear", "equals", 0, nil, nil, nil, nil},
+			want: func() aletheia.CheckResult {
+				return aletheia.CheckSignal("Gear").Equals(aletheia.IntRational(0)).Always()
+			},
+		},
+		{
+			condition: "stays_between",
+			row:       []any{nil, "Voltage", "stays_between", nil, 11.5, 14.5, nil, nil},
+			want: func() aletheia.CheckResult {
+				return mustCheck(aletheia.CheckSignal("Voltage").StaysBetween(
+					aletheia.Rational{Numerator: 23, Denominator: 2},
+					aletheia.Rational{Numerator: 29, Denominator: 2}))
+			},
+		},
+		{
+			condition: "settles_between",
+			row:       []any{nil, "CoolantTemp", "settles_between", nil, 80, 100, 5000, nil},
+			want: func() aletheia.CheckResult {
+				return mustCheck(aletheia.CheckSignal("CoolantTemp").
+					SettlesBetween(aletheia.IntRational(80), aletheia.IntRational(100)).Within(5000))
+			},
+		},
+	} {
+		t.Run(c.condition, func(t *testing.T) {
+			got := loadOne(t, makeChecksWorkbook, c.row)
+			assertSameFormula(t, c.want().Formula(), got.Formula())
+		})
 	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
-	}
-	reference, err := aletheia.CheckSignal("Voltage").StaysBetween(aletheia.Rational{Numerator: 23, Denominator: 2}, aletheia.Rational{Numerator: 29, Denominator: 2})
-	if err != nil {
-		t.Fatalf("StaysBetween: %v", err)
-	}
-	assertSameFormula(t, reference.Formula(), checks[0].Formula())
 }
 
-func TestLoadExcelNeverEquals(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		{nil, "ErrorCode", "never_equals", 255, nil, nil, nil, nil},
-	})
-	checks, err := LoadChecks(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+// TestLoadExcelWhenThenChecks: a row of the when-then sheet builds the check the
+// fluent builder builds. The columns are check name, the when signal, condition
+// and value, the then signal, condition, value, minimum and maximum, the time
+// within which it must hold, and severity.
+func TestLoadExcelWhenThenChecks(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		row  []any
+		want func() aletheia.CheckResult
+	}{
+		{
+			name: "exceeds then equals",
+			row:  []any{"Brake response", "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, nil, nil, 100, nil},
+			want: func() aletheia.CheckResult {
+				return mustCheck(aletheia.CheckWhen("BrakePedal").Exceeds(aletheia.IntRational(50)).
+					Then("BrakeLight").Equals(aletheia.IntRational(1)).Within(100))
+			},
+		},
+		{
+			name: "equals then exceeds",
+			row:  []any{nil, "Ignition", "equals", 1, "RPM", "exceeds", 500, nil, nil, 2000, nil},
+			want: func() aletheia.CheckResult {
+				return mustCheck(aletheia.CheckWhen("Ignition").Equals(aletheia.IntRational(1)).
+					Then("RPM").Exceeds(aletheia.IntRational(500)).Within(2000))
+			},
+		},
+		{
+			name: "drops below then stays between",
+			row:  []any{nil, "FuelLevel", "drops_below", 10, "FuelWarning", "stays_between", nil, 1, 1, 50, nil},
+			want: func() aletheia.CheckResult {
+				return mustCheck(aletheia.CheckWhen("FuelLevel").DropsBelow(aletheia.IntRational(10)).
+					Then("FuelWarning").StaysBetween(aletheia.IntRational(1), aletheia.IntRational(1)).Within(50))
+			},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := loadOne(t, makeWhenThenWorkbook, c.row)
+			assertSameFormula(t, c.want().Formula(), got.Formula())
+		})
 	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
-	}
-	assertSameFormula(t, aletheia.CheckSignal("ErrorCode").NeverEquals(aletheia.IntRational(255)).Formula(), checks[0].Formula())
-}
-
-func TestLoadExcelEqualsAlways(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		{nil, "Gear", "equals", 0, nil, nil, nil, nil},
-	})
-	checks, err := LoadChecks(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
-	}
-	assertSameFormula(t, aletheia.CheckSignal("Gear").Equals(aletheia.IntRational(0)).Always().Formula(), checks[0].Formula())
-}
-
-func TestLoadExcelSettlesBetween(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		{nil, "CoolantTemp", "settles_between", nil, 80, 100, 5000, nil},
-	})
-	checks, err := LoadChecks(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
-	}
-	expected, _ := aletheia.CheckSignal("CoolantTemp").SettlesBetween(aletheia.IntRational(80), aletheia.IntRational(100)).Within(5000)
-	assertSameFormula(t, expected.Formula(), checks[0].Formula())
 }
 
 func TestLoadExcelMultipleChecks(t *testing.T) {
@@ -301,131 +332,59 @@ func TestLoadExcelMultipleChecks(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// When/Then checks
-// ===========================================================================
-
-func TestLoadExcelWhenExceedsThenEquals(t *testing.T) {
-	// name, when_sig, when_cond, when_val, then_sig, then_cond, then_val, then_min, then_max, within, sev
-	path := makeWhenThenWorkbook(t, [][]any{
-		{"Brake response", "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, nil, nil, 100, nil},
-	})
-	checks, err := LoadChecks(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(checks) != 1 {
-		t.Fatalf("expected 1 check, got %d", len(checks))
-	}
-	expected, _ := aletheia.CheckWhen("BrakePedal").Exceeds(aletheia.IntRational(50)).Then("BrakeLight").Equals(aletheia.IntRational(1)).Within(100)
-	assertSameFormula(t, expected.Formula(), checks[0].Formula())
-}
-
-func TestLoadExcelWhenEqualsThenExceeds(t *testing.T) {
-	path := makeWhenThenWorkbook(t, [][]any{
-		{nil, "Ignition", "equals", 1, "RPM", "exceeds", 500, nil, nil, 2000, nil},
-	})
-	checks, err := LoadChecks(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	expected, _ := aletheia.CheckWhen("Ignition").Equals(aletheia.IntRational(1)).Then("RPM").Exceeds(aletheia.IntRational(500)).Within(2000)
-	assertSameFormula(t, expected.Formula(), checks[0].Formula())
-}
-
-func TestLoadExcelWhenDropsBelowThenStaysBetween(t *testing.T) {
-	path := makeWhenThenWorkbook(t, [][]any{
-		{nil, "FuelLevel", "drops_below", 10, "FuelWarning", "stays_between", nil, 1, 1, 50, nil},
-	})
-	checks, err := LoadChecks(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	expected, _ := aletheia.CheckWhen("FuelLevel").DropsBelow(aletheia.IntRational(10)).Then("FuelWarning").StaysBetween(aletheia.IntRational(1), aletheia.IntRational(1)).Within(50)
-	assertSameFormula(t, expected.Formula(), checks[0].Formula())
-}
-
-// ===========================================================================
-// Metadata
-// ===========================================================================
-
-func TestLoadExcelNameSet(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		{"Speed limit", "Speed", "never_exceeds", 220, nil, nil, nil, nil},
-	})
-	checks, err := LoadChecks(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if checks[0].Name() != "Speed limit" {
-		t.Errorf("Name: got %q, want %q", checks[0].Name(), "Speed limit")
+// TestLoadExcelMetadata: the optional name and severity columns reach the check
+// and are empty when the row leaves them out, on either sheet.
+func TestLoadExcelMetadata(t *testing.T) {
+	for _, c := range []struct {
+		name         string
+		build        func(*testing.T, [][]any) string
+		row          []any
+		wantName     string
+		wantSeverity string
+	}{
+		{
+			name:     "a name alone",
+			build:    makeChecksWorkbook,
+			row:      []any{"Speed limit", "Speed", "never_exceeds", 220, nil, nil, nil, nil},
+			wantName: "Speed limit",
+		},
+		{
+			name:         "a severity alone",
+			build:        makeChecksWorkbook,
+			row:          []any{nil, "Speed", "never_exceeds", 220, nil, nil, nil, "critical"},
+			wantSeverity: "critical",
+		},
+		{
+			name:         "both",
+			build:        makeChecksWorkbook,
+			row:          []any{"Speed limit", "Speed", "never_exceeds", 220, nil, nil, nil, "warning"},
+			wantName:     "Speed limit",
+			wantSeverity: "warning",
+		},
+		{
+			name:  "neither",
+			build: makeChecksWorkbook,
+			row:   []any{nil, "Speed", "never_exceeds", 220, nil, nil, nil, nil},
+		},
+		{
+			name:         "both, on the when-then sheet",
+			build:        makeWhenThenWorkbook,
+			row:          []any{"Brake response", "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, nil, nil, 100, "safety"},
+			wantName:     "Brake response",
+			wantSeverity: "safety",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := loadOne(t, c.build, c.row)
+			if got.Name() != c.wantName {
+				t.Errorf("name: got %q, want %q", got.Name(), c.wantName)
+			}
+			if got.CheckSeverity() != c.wantSeverity {
+				t.Errorf("severity: got %q, want %q", got.CheckSeverity(), c.wantSeverity)
+			}
+		})
 	}
 }
-
-func TestLoadExcelSeveritySet(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		{nil, "Speed", "never_exceeds", 220, nil, nil, nil, "critical"},
-	})
-	checks, err := LoadChecks(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if checks[0].CheckSeverity() != "critical" {
-		t.Errorf("Severity: got %q, want %q", checks[0].CheckSeverity(), "critical")
-	}
-}
-
-func TestLoadExcelNameAndSeverity(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		{"Speed limit", "Speed", "never_exceeds", 220, nil, nil, nil, "warning"},
-	})
-	checks, err := LoadChecks(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if checks[0].Name() != "Speed limit" {
-		t.Errorf("Name: got %q", checks[0].Name())
-	}
-	if checks[0].CheckSeverity() != "warning" {
-		t.Errorf("Severity: got %q", checks[0].CheckSeverity())
-	}
-}
-
-func TestLoadExcelDefaultsEmpty(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		{nil, "Speed", "never_exceeds", 220, nil, nil, nil, nil},
-	})
-	checks, err := LoadChecks(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if checks[0].Name() != "" {
-		t.Errorf("Name: got %q, want empty", checks[0].Name())
-	}
-	if checks[0].CheckSeverity() != "" {
-		t.Errorf("Severity: got %q, want empty", checks[0].CheckSeverity())
-	}
-}
-
-func TestLoadExcelWhenThenMetadata(t *testing.T) {
-	path := makeWhenThenWorkbook(t, [][]any{
-		{"Brake response", "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, nil, nil, 100, "safety"},
-	})
-	checks, err := LoadChecks(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if checks[0].Name() != "Brake response" {
-		t.Errorf("Name: got %q", checks[0].Name())
-	}
-	if checks[0].CheckSeverity() != "safety" {
-		t.Errorf("Severity: got %q", checks[0].CheckSeverity())
-	}
-}
-
-// ===========================================================================
-// DBC parsing
-// ===========================================================================
 
 func TestLoadExcelDBCSingleSignal(t *testing.T) {
 	// id, name, extended, dlc, signal, startbit, length, byteorder, signed, factor, offset, min, max, unit
@@ -515,86 +474,79 @@ func TestLoadExcelDBCMessageGrouping(t *testing.T) {
 	}
 }
 
-func TestLoadExcelDBCHexID(t *testing.T) {
-	path := makeDBCWorkbook(t, [][]any{
-		{"0x100", "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
-	})
-	dbc, err := LoadDbc(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if dbc.Messages[0].ID.Value() != 0x100 {
-		t.Errorf("ID: got %d, want %d", dbc.Messages[0].ID.Value(), 0x100)
-	}
-}
-
-func TestLoadExcelDBCSignedTrue(t *testing.T) {
-	path := makeDBCWorkbook(t, [][]any{
-		{256, "EngineData", "FALSE", 8, "Temp", 0, 8, "little_endian", "TRUE", 1, -40, -40, 215, "C"},
-	})
-	dbc, err := LoadDbc(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !dbc.Messages[0].Signals[0].IsSigned {
-		t.Error("expected IsSigned=true")
-	}
-}
-
-func TestLoadExcelDBCSignedIntegerOne(t *testing.T) {
-	path := makeDBCWorkbook(t, [][]any{
-		{256, "Msg", "FALSE", 8, "Sig", 0, 8, "little_endian", 1, 1, 0, 0, 255, ""},
-	})
-	dbc, err := LoadDbc(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !dbc.Messages[0].Signals[0].IsSigned {
-		t.Error("expected IsSigned=true for integer 1")
-	}
-}
-
-func TestLoadExcelDBCSignedIntegerZero(t *testing.T) {
-	path := makeDBCWorkbook(t, [][]any{
-		{256, "Msg", "FALSE", 8, "Sig", 0, 8, "little_endian", 0, 1, 0, 0, 255, ""},
-	})
-	dbc, err := LoadDbc(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if dbc.Messages[0].Signals[0].IsSigned {
-		t.Error("expected IsSigned=false for integer 0")
-	}
-}
-
-func TestLoadExcelDBCMissingUnit(t *testing.T) {
-	path := makeDBCWorkbook(t, [][]any{
-		{256, "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, nil},
-	})
-	dbc, err := LoadDbc(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if string(dbc.Messages[0].Signals[0].Unit) != "" {
-		t.Errorf("Unit: got %q, want empty", dbc.Messages[0].Signals[0].Unit)
-	}
-}
-
-// ===========================================================================
-// Multiplexed signals
-// ===========================================================================
-
-func TestLoadExcelDBCAlwaysPresent(t *testing.T) {
-	path := makeDBCWorkbook(t, [][]any{
-		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", nil, nil},
-	})
-	dbc, err := LoadDbc(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	sig := dbc.Messages[0].Signals[0]
-	if _, ok := sig.Presence.(aletheia.AlwaysPresent); !ok {
-		t.Errorf("expected AlwaysPresent, got %T", sig.Presence)
+// TestLoadExcelDBCFields: one row of the DBC sheet, and what it sets on the
+// definition the loader builds. The columns are the message identifier, name,
+// whether it is extended and its length, then the signal's name, start bit,
+// length, byte order, signedness, factor, offset, minimum, maximum and unit,
+// and last the multiplexor and its value.
+func TestLoadExcelDBCFields(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		row   []any
+		check func(*testing.T, *aletheia.DBCDefinition)
+	}{
+		{
+			name: "a hexadecimal message identifier",
+			row:  []any{"0x100", "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
+			check: func(t *testing.T, d *aletheia.DBCDefinition) {
+				if got := d.Messages[0].ID.Value(); got != 0x100 {
+					t.Errorf("identifier: got %d, want %d", got, 0x100)
+				}
+			},
+		},
+		{
+			name: "the word TRUE is signed",
+			row:  []any{256, "EngineData", "FALSE", 8, "Temp", 0, 8, "little_endian", "TRUE", 1, -40, -40, 215, "C"},
+			check: func(t *testing.T, d *aletheia.DBCDefinition) {
+				if !d.Messages[0].Signals[0].IsSigned {
+					t.Error("the signal is unsigned, want signed")
+				}
+			},
+		},
+		{
+			name: "the digit one is signed",
+			row:  []any{256, "Msg", "FALSE", 8, "Sig", 0, 8, "little_endian", 1, 1, 0, 0, 255, ""},
+			check: func(t *testing.T, d *aletheia.DBCDefinition) {
+				if !d.Messages[0].Signals[0].IsSigned {
+					t.Error("the signal is unsigned, want signed")
+				}
+			},
+		},
+		{
+			name: "the digit zero is unsigned",
+			row:  []any{256, "Msg", "FALSE", 8, "Sig", 0, 8, "little_endian", 0, 1, 0, 0, 255, ""},
+			check: func(t *testing.T, d *aletheia.DBCDefinition) {
+				if d.Messages[0].Signals[0].IsSigned {
+					t.Error("the signal is signed, want unsigned")
+				}
+			},
+		},
+		{
+			name: "an absent unit is empty",
+			row:  []any{256, "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, nil},
+			check: func(t *testing.T, d *aletheia.DBCDefinition) {
+				if got := string(d.Messages[0].Signals[0].Unit); got != "" {
+					t.Errorf("unit: got %q, want empty", got)
+				}
+			},
+		},
+		{
+			name: "no multiplexor is always present",
+			row:  []any{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", nil, nil},
+			check: func(t *testing.T, d *aletheia.DBCDefinition) {
+				if _, ok := d.Messages[0].Signals[0].Presence.(aletheia.AlwaysPresent); !ok {
+					t.Errorf("presence is %T, want always present", d.Messages[0].Signals[0].Presence)
+				}
+			},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			def, err := LoadDbc(makeDBCWorkbook(t, [][]any{c.row}))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			c.check(t, def)
+		})
 	}
 }
 
@@ -644,26 +596,6 @@ func TestLoadExcelDBCMixedPresence(t *testing.T) {
 	}
 }
 
-func TestLoadExcelDBCPartialMuxError(t *testing.T) {
-	path := makeDBCWorkbook(t, [][]any{
-		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", "Selector", nil},
-	})
-	_, err := LoadDbc(path)
-	requireErrorContains(t, err, "must both be provided or both be empty")
-}
-
-func TestLoadExcelDBCPartialMuxValueOnlyError(t *testing.T) {
-	path := makeDBCWorkbook(t, [][]any{
-		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", nil, 3},
-	})
-	_, err := LoadDbc(path)
-	requireErrorContains(t, err, "must both be provided or both be empty")
-}
-
-// ===========================================================================
-// Template creation
-// ===========================================================================
-
 func TestCreateExcelTemplateCreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "template.xlsx")
@@ -695,35 +627,126 @@ func TestCreateExcelTemplateSheetNames(t *testing.T) {
 	}
 }
 
-func TestCreateExcelTemplateDBCHeaders(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "template.xlsx")
-	if err := CreateTemplate(path); err != nil {
-		t.Fatal(err)
+// TestLoadExcelRefusesARow: every row a loader refuses, and the sentence it
+// refuses it with. A refusal names the field or the condition it is about, so a
+// reader of the message knows which cell to go and fix.
+func TestLoadExcelRefusesARow(t *testing.T) {
+	checks := func(t *testing.T, row []any) error {
+		t.Helper()
+		_, err := LoadChecks(makeChecksWorkbook(t, [][]any{row}))
+		return err
 	}
-	f, err := excelize.OpenFile(path)
-	if err != nil {
-		t.Fatal(err)
+	whenThen := func(t *testing.T, row []any) error {
+		t.Helper()
+		_, err := LoadChecks(makeWhenThenWorkbook(t, [][]any{row}))
+		return err
 	}
-	defer f.Close()
-	rows, _ := f.GetRows("DBC")
-	if len(rows) < 1 {
-		t.Fatal("DBC sheet has no rows")
+	dbc := func(t *testing.T, row []any) error {
+		t.Helper()
+		_, err := LoadDbc(makeDBCWorkbook(t, [][]any{row}))
+		return err
 	}
-	for i, want := range dbcHeaders {
-		if i >= len(rows[0]) || rows[0][i] != want {
-			got := ""
-			if i < len(rows[0]) {
-				got = rows[0][i]
-			}
-			t.Errorf("DBC header[%d]: got %q, want %q", i, got, want)
-		}
+
+	for _, c := range []struct {
+		name string
+		load func(*testing.T, []any) error
+		row  []any
+		says string
+	}{
+		{
+			name: "a condition no check carries",
+			load: checks,
+			row:  []any{nil, "Speed", "bogus", 100, nil, nil, nil, nil},
+			says: "unknown condition 'bogus'",
+		},
+		{
+			name: "a comparison with no value",
+			load: checks,
+			row:  []any{nil, "Speed", "never_exceeds", nil, nil, nil, nil, nil},
+			says: "missing or invalid 'Value'",
+		},
+		{
+			// The value is a text cell carrying the literal, which no float
+			// could hold: the loader parses it exactly and refuses it for
+			// being past the wire's range, rather than clamping it.
+			name: "a value past the wire range",
+			load: checks,
+			row:  []any{nil, "Speed", "never_exceeds", "99999999999999999999.5", nil, nil, nil, nil},
+			says: "Int64 wire range",
+		},
+		{
+			name: "a range with no minimum",
+			load: checks,
+			row:  []any{nil, "Voltage", "stays_between", nil, nil, 14.5, nil, nil},
+			says: "requires 'Min' and 'Max'",
+		},
+		{
+			name: "a settling with no time",
+			load: checks,
+			row:  []any{nil, "Temp", "settles_between", nil, 80, 100, nil, nil},
+			says: "requires 'Time (ms)'",
+		},
+		{
+			// A whole-number field answers with the numerator of whatever it
+			// parses, so without the refusal 100.5 milliseconds becomes 201.
+			name: "a settling time written as a fraction",
+			load: checks,
+			row:  []any{nil, "Temp", "settles_between", nil, 80, 100, "100.5", nil},
+			says: "'Time (ms)' must be a whole number",
+		},
+		{
+			name: "a when condition no check leads with",
+			load: whenThen,
+			row:  []any{nil, "Brake", "bogus", 50, "BrakeLight", "equals", 1, nil, nil, 100, nil},
+			says: "unknown when condition 'bogus'",
+		},
+		{
+			name: "a then condition no check closes with",
+			load: whenThen,
+			row:  []any{nil, "Brake", "exceeds", 50, "BrakeLight", "bogus", 1, nil, nil, 100, nil},
+			says: "unknown then condition 'bogus'",
+		},
+		{
+			name: "a byte order that is neither",
+			load: dbc,
+			row:  []any{256, "Msg", "FALSE", 8, "Sig", 0, 16, "mixed_endian", "FALSE", 1, 0, 0, 100, ""},
+			says: "Byte Order",
+		},
+		{
+			name: "a message identifier that is not a number",
+			load: dbc,
+			row:  []any{"not_a_number", "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, ""},
+			says: "invalid 'Message ID'",
+		},
+		{
+			name: "a start bit written as a fraction",
+			load: dbc,
+			row:  []any{"0x100", "Engine", false, 8, "Speed", "1.5", 16, "little_endian", false, 1, 0, 0, 100, "rpm", nil, nil},
+			says: "'Start Bit' must be a whole number",
+		},
+		{
+			name: "a multiplexor with no value",
+			load: dbc,
+			row:  []any{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", "Selector", nil},
+			says: "must both be provided or both be empty",
+		},
+		{
+			name: "a multiplex value with no multiplexor",
+			load: dbc,
+			row:  []any{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", nil, 3},
+			says: "must both be provided or both be empty",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			requireErrorContains(t, c.load(t, c.row), c.says)
+		})
 	}
 }
 
-func TestCreateExcelTemplateChecksHeaders(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "template.xlsx")
+// TestCreateExcelTemplateHeaders: each sheet of the template opens with the
+// header row its loader reads columns by name from.
+func TestCreateExcelTemplateHeaders(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "template.xlsx")
 	if err := CreateTemplate(path); err != nil {
 		t.Fatal(err)
 	}
@@ -732,44 +755,27 @@ func TestCreateExcelTemplateChecksHeaders(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	rows, _ := f.GetRows("Checks")
-	if len(rows) < 1 {
-		t.Fatal("Checks sheet has no rows")
-	}
-	for i, want := range checksHeaders {
-		if i >= len(rows[0]) || rows[0][i] != want {
-			got := ""
-			if i < len(rows[0]) {
-				got = rows[0][i]
-			}
-			t.Errorf("Checks header[%d]: got %q, want %q", i, got, want)
-		}
-	}
-}
 
-func TestCreateExcelTemplateWhenThenHeaders(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "template.xlsx")
-	if err := CreateTemplate(path); err != nil {
-		t.Fatal(err)
-	}
-	f, err := excelize.OpenFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	rows, _ := f.GetRows("When-Then")
-	if len(rows) < 1 {
-		t.Fatal("When-Then sheet has no rows")
-	}
-	for i, want := range whenThenHeaders {
-		if i >= len(rows[0]) || rows[0][i] != want {
-			got := ""
-			if i < len(rows[0]) {
-				got = rows[0][i]
+	for _, c := range []struct {
+		sheet string
+		want  []string
+	}{
+		{"DBC", dbcHeaders},
+		{"Checks", checksHeaders},
+		{"When-Then", whenThenHeaders},
+	} {
+		t.Run(c.sheet, func(t *testing.T) {
+			rows, err := f.GetRows(c.sheet)
+			if err != nil {
+				t.Fatalf("reading %s: %v", c.sheet, err)
 			}
-			t.Errorf("When-Then header[%d]: got %q, want %q", i, got, want)
-		}
+			if len(rows) < 1 {
+				t.Fatalf("the %s sheet has no rows", c.sheet)
+			}
+			if !slices.Equal(rows[0], c.want) {
+				t.Errorf("the %s header row is %q, want %q", c.sheet, rows[0], c.want)
+			}
+		})
 	}
 }
 
@@ -813,10 +819,6 @@ func TestCreateExcelTemplateNoOverwrite(t *testing.T) {
 	requireErrorContains(t, err, "file already exists")
 }
 
-// ===========================================================================
-// Error handling
-// ===========================================================================
-
 func TestLoadExcelFileNotFound(t *testing.T) {
 	_, err := LoadChecks("/nonexistent/path/checks.xlsx")
 	requireErrorContains(t, err, "excel file not found")
@@ -827,13 +829,11 @@ func TestLoadExcelDBCFileNotFound(t *testing.T) {
 	requireErrorContains(t, err, "excel file not found")
 }
 
-// TestLoadExcelStatFailureNotMislabeled locks the ec-vs-not-found split:
-// a path whose component exceeds NAME_MAX makes Lstat fail with ENAMETOOLONG —
-// a stat *failure*, distinct from an absent file. validateLoaderPath must
-// surface it (as the wrapped stat error) rather than mislabel it "file not
-// found", which would mask resource/permission failures under load. Mirrors
-// the C++ validate_loader_path ec branch and Rust's `cannot stat`.
-// ENAMETOOLONG is deterministic and root-safe (unlike an EACCES/chmod trigger).
+// TestLoadExcelStatFailureNotMislabeled: a path whose component is longer than
+// a name may be makes the stat itself fail, which is not the same as the file
+// being absent. The refusal says the stat failed, as the C++ and Rust loaders
+// do, rather than reporting a file that is not there and hiding a machine under
+// load. A name too long is the trigger because it needs no permissions.
 func TestLoadExcelStatFailureNotMislabeled(t *testing.T) {
 	long := "/tmp/" + strings.Repeat("a", 5000) + ".xlsx"
 	_, err := LoadChecks(long)
@@ -867,83 +867,6 @@ func TestLoadExcelNoDBCSheet(t *testing.T) {
 	requireErrorContains(t, err, "no 'DBC' sheet")
 }
 
-func TestLoadExcelUnknownSimpleCondition(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		{nil, "Speed", "bogus", 100, nil, nil, nil, nil},
-	})
-	_, err := LoadChecks(path)
-	requireErrorContains(t, err, "unknown condition 'bogus'")
-}
-
-func TestLoadExcelMissingValueForNeverExceeds(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		{nil, "Speed", "never_exceeds", nil, nil, nil, nil, nil},
-	})
-	_, err := LoadChecks(path)
-	requireErrorContains(t, err, "missing or invalid 'Value'")
-}
-
-// TestLoadExcelRejectsOverflowValue is the Excel-side regression for the
-// silent-clamp bug: a value whose exact rational overflows the Int64 wire range
-// must make the loader FAIL (it dispatches through the kernel decimal SSOT, the
-// same FromDecimal path as the YAML loader), not silently clamp. The value is a
-// text cell carrying the literal verbatim — a float64 could not represent it.
-func TestLoadExcelRejectsOverflowValue(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		{nil, "Speed", "never_exceeds", "99999999999999999999.5", nil, nil, nil, nil},
-	})
-	_, err := LoadChecks(path)
-	requireErrorContains(t, err, "Int64 wire range")
-}
-
-func TestLoadExcelStaysBetweenMissingMin(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		{nil, "Voltage", "stays_between", nil, nil, 14.5, nil, nil},
-	})
-	_, err := LoadChecks(path)
-	requireErrorContains(t, err, "requires 'Min' and 'Max'")
-}
-
-func TestLoadExcelSettlesBetweenMissingTime(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]any{
-		{nil, "Temp", "settles_between", nil, 80, 100, nil, nil},
-	})
-	_, err := LoadChecks(path)
-	requireErrorContains(t, err, "requires 'Time (ms)'")
-}
-
-func TestLoadExcelUnknownWhenCondition(t *testing.T) {
-	path := makeWhenThenWorkbook(t, [][]any{
-		{nil, "Brake", "bogus", 50, "BrakeLight", "equals", 1, nil, nil, 100, nil},
-	})
-	_, err := LoadChecks(path)
-	requireErrorContains(t, err, "unknown when condition 'bogus'")
-}
-
-func TestLoadExcelUnknownThenCondition(t *testing.T) {
-	path := makeWhenThenWorkbook(t, [][]any{
-		{nil, "Brake", "exceeds", 50, "BrakeLight", "bogus", 1, nil, nil, 100, nil},
-	})
-	_, err := LoadChecks(path)
-	requireErrorContains(t, err, "unknown then condition 'bogus'")
-}
-
-func TestLoadExcelInvalidByteOrder(t *testing.T) {
-	path := makeDBCWorkbook(t, [][]any{
-		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "mixed_endian", "FALSE", 1, 0, 0, 100, ""},
-	})
-	_, err := LoadDbc(path)
-	requireErrorContains(t, err, "Byte Order")
-}
-
-func TestLoadExcelInvalidMessageID(t *testing.T) {
-	path := makeDBCWorkbook(t, [][]any{
-		{"not_a_number", "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, ""},
-	})
-	_, err := LoadDbc(path)
-	requireErrorContains(t, err, "invalid 'Message ID'")
-}
-
 func TestLoadExcelDBCEmptyData(t *testing.T) {
 	f := excelize.NewFile()
 	defer f.Close()
@@ -961,10 +884,6 @@ func TestLoadExcelDBCEmptyData(t *testing.T) {
 	// on how excelize reports the sheet rows.
 	requireErrorContains(t, err, "data row")
 }
-
-// ===========================================================================
-// Empty row skip
-// ===========================================================================
 
 func TestLoadExcelEmptyRowSkipped(t *testing.T) {
 	f := excelize.NewFile()
@@ -996,10 +915,6 @@ func TestLoadExcelEmptyRowSkipped(t *testing.T) {
 		t.Fatalf("expected 2 checks (empty row skipped), got %d", len(checks))
 	}
 }
-
-// ===========================================================================
-// Combined Checks + When-Then
-// ===========================================================================
 
 func TestLoadExcelCombinedSheets(t *testing.T) {
 	f := excelize.NewFile()
@@ -1046,10 +961,6 @@ func TestLoadExcelCombinedSheets(t *testing.T) {
 	assertSameFormula(t, expected1.Formula(), checks[1].Formula())
 }
 
-// ===========================================================================
-// Custom sheet names
-// ===========================================================================
-
 func TestLoadExcelCustomSheetNames(t *testing.T) {
 	f := excelize.NewFile()
 	defer f.Close()
@@ -1074,10 +985,6 @@ func TestLoadExcelCustomSheetNames(t *testing.T) {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
 }
-
-// ===========================================================================
-// Extended CAN ID
-// ===========================================================================
 
 func TestLoadExcelDBCExtendedID(t *testing.T) {
 	// Extended ID > 2047: must be marked Extended=TRUE.
@@ -1180,7 +1087,7 @@ func TestLoadChecks_RejectsSymlink(t *testing.T) {
 func TestLoadChecks_RejectsOversize(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "oversize.xlsx")
-	// 65 MiB plain bytes — fails the raw-size cap before any ZIP parsing.
+	// Past the size bound, so it is refused before the archive is read.
 	chunk := make([]byte, 1024*1024)
 	for i := range chunk {
 		chunk[i] = 0xAA
@@ -1210,10 +1117,9 @@ func TestLoadChecks_RejectsOversize(t *testing.T) {
 }
 
 func TestLoadChecks_RejectsZipBomb(t *testing.T) {
-	// Build a real ZIP with five entries totalling > MaxDBCTextBytes
-	// uncompressed.  Each entry is highly compressible (all zeros) so the
-	// archive on disk stays well under the raw cap; the central-directory
-	// walker is what flags it.
+	// A real archive whose entries expand past the bound while the file on disk
+	// stays far under it, so what refuses it is the index walk rather than the
+	// size check before it.
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "bomb.xlsx")
 	out, err := os.Create(path)
@@ -1221,8 +1127,11 @@ func TestLoadChecks_RejectsZipBomb(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	zw := zip.NewWriter(out)
-	zeros := make([]byte, 14*1024*1024) // 14 MiB
-	for i := 0; i < 5; i++ {            // 5 × 14 MiB = 70 MiB > 64 MiB cap
+	// Five parts, each a quarter of the bound and a little more, so together
+	// they pass it while every one of them compresses to almost nothing.
+	const parts = 5
+	zeros := make([]byte, aletheia.MaxDBCTextBytes/4)
+	for i := 0; i < parts; i++ {
 		w, err := zw.CreateHeader(&zip.FileHeader{
 			Name:   fmt.Sprintf("part-%d", i),
 			Method: zip.Deflate,
@@ -1249,6 +1158,13 @@ func TestLoadChecks_RejectsZipBomb(t *testing.T) {
 	if bound.BoundKind != aletheia.BoundKindInputLengthBytes {
 		t.Errorf("BoundKind: got %s, want input_length_bytes", bound.BoundKind)
 	}
+	// The refusal reports what the entries claim, not the bound plus one.
+	if want := uint64(parts) * uint64(len(zeros)); bound.Observed != want {
+		t.Errorf("observed: got %d, want %d, the size the entries claim", bound.Observed, want)
+	}
+	if bound.Limit != aletheia.MaxDBCTextBytes {
+		t.Errorf("limit: got %d, want %d", bound.Limit, aletheia.MaxDBCTextBytes)
+	}
 }
 
 func TestCreateTemplate_RejectsMissingParentDir(t *testing.T) {
@@ -1258,15 +1174,25 @@ func TestCreateTemplate_RejectsMissingParentDir(t *testing.T) {
 	requireErrorContains(t, err, "parent directory does not exist")
 }
 
-// --- Strict-coercion + cross-binding portability locks (R3c) ----------------
+// TestCreateTemplate_StatFailureNotMislabeled: a parent whose component is
+// longer than a name may be makes the stat itself fail, which is not the
+// directory being absent. Reporting it as absent would send a reader to create
+// a directory that may well be there. The input path is held to the same
+// distinction by TestLoadExcelStatFailureNotMislabeled, and the C++ binding to
+// both. A name too long is the trigger because it needs no permissions.
+func TestCreateTemplate_StatFailureNotMislabeled(t *testing.T) {
+	bad := filepath.Join("/tmp", strings.Repeat("a", 5000), "template.xlsx")
+	err := CreateTemplate(bad)
+	requireErrorContains(t, err, "stat parent directory")
+	if strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("stat failure mislabeled as an absent directory: %v", err)
+	}
+}
 
-// TestLoadExcelChecksRejectsNumberAsText locks the strict-coercion decision:
-// a numeric field stored as TEXT must be rejected, not silently parsed. (The
-// demo workbook can't exercise this — it stores numbers natively.)
-// TestLoadExcelChecksRejectsNumberCell locks the all-text contract: a numeric
-// field stored as a native NUMBER cell (a lossy float) is rejected — the exact
-// value must be entered as text and parsed by the kernel decimal SSOT. Built
-// inline because the workbook helpers stringify every value to text.
+// TestLoadExcelChecksRejectsNumberCell: a numeric field stored as a number
+// cell, which holds a float, is refused; the exact value is entered as text and
+// the kernel parses the literal. Built cell by cell here, the workbook helpers
+// writing every value as text.
 func TestLoadExcelChecksRejectsNumberCell(t *testing.T) {
 	f := excelize.NewFile()
 	defer f.Close()
@@ -1279,7 +1205,7 @@ func TestLoadExcelChecksRejectsNumberCell(t *testing.T) {
 	}
 	_ = f.SetCellValue("Checks", "B2", "Speed")
 	_ = f.SetCellValue("Checks", "C2", "never_exceeds")
-	_ = f.SetCellValue("Checks", "D2", 220) // native number cell → rejected
+	_ = f.SetCellValue("Checks", "D2", 220) // a number cell, which is refused
 	path := filepath.Join(t.TempDir(), "checks.xlsx")
 	if err := f.SaveAs(path); err != nil {
 		t.Fatal(err)
@@ -1318,12 +1244,9 @@ func TestLoadExcelDBCRejectsNumberCell(t *testing.T) {
 	requireErrorContains(t, err, "format it as TEXT")
 }
 
-// --- Raw-stored-value discipline (native number cells) ----------------------
-
-// makeRawDBCWorkbook builds a single-row DBC workbook whose cells are all text
-// EXCEPT the ones the caller overrides via mutate — used by the raw-stored-value
-// tests, which need genuine native number/boolean cells that the all-text
-// makeDBCWorkbook helper cannot author.
+// makeRawDBCWorkbook builds a single-row DBC workbook of text cells and hands
+// it to the caller to overwrite the ones it wants stored as a number or a
+// boolean, which the all-text helper cannot write.
 func makeRawDBCWorkbook(t *testing.T, mutate func(f *excelize.File)) string {
 	t.Helper()
 	f := excelize.NewFile()
@@ -1351,9 +1274,8 @@ func makeRawDBCWorkbook(t *testing.T, mutate func(f *excelize.File)) string {
 	return path
 }
 
-// numFmtInteger applies the built-in integer number format "0" to a cell so its
-// display rendering ROUNDS the stored value — the adversarial gap between what
-// excelize's GetRows shows and what the file stores.
+// numFmtInteger gives a cell the integer number format, so that its display
+// rounds what the file stores, which is the gap these tests are about.
 func numFmtInteger(t *testing.T, f *excelize.File, cell string) {
 	t.Helper()
 	style, err := f.NewStyle(&excelize.Style{NumFmt: 1}) // built-in format "0"
@@ -1365,12 +1287,11 @@ func numFmtInteger(t *testing.T, f *excelize.File, cell string) {
 	}
 }
 
-// TestLoadExcelDBCRejectsFractionalStoredMessageID locks the raw-stored-value
-// discipline for Message ID: excelize grid values are DISPLAY renderings, so a
-// number cell storing 256.7 under the integer number format "0" displays as
-// "257" — trusting the display would load a silently wrong Message ID. The
-// loader must consult the raw stored value, refuse the non-integral number, and
-// echo the stored value (never the display rendering).
+// TestLoadExcelDBCRejectsFractionalStoredMessageID: a grid value is a display,
+// so a cell storing 256.7 under the integer format displays as "257", and a
+// loader reading the display would take a message identifier the file does not
+// hold. The stored value is read, the fraction refused, and the message echoes
+// what is stored rather than what is shown.
 func TestLoadExcelDBCRejectsFractionalStoredMessageID(t *testing.T) {
 	path := makeRawDBCWorkbook(t, func(f *excelize.File) {
 		_ = f.SetCellValue("DBC", "A2", 256.7)
@@ -1384,10 +1305,9 @@ func TestLoadExcelDBCRejectsFractionalStoredMessageID(t *testing.T) {
 	}
 }
 
-// TestLoadExcelDBCRejectsNonIntegralBoolCell locks the same discipline for the
-// boolean multi-form: a number cell is a valid boolean ONLY when its raw stored
-// value is exactly 1 or 0. Stored 1.4 displays as "1" under the integer format
-// — trusting the display would silently coerce it to TRUE.
+// TestLoadExcelDBCRejectsNonIntegralBoolCell: the same, for a boolean. A number
+// cell is one only when it stores exactly one or zero, and a stored 1.4
+// displays as "1", which a loader reading the display would take for true.
 func TestLoadExcelDBCRejectsNonIntegralBoolCell(t *testing.T) {
 	path := makeRawDBCWorkbook(t, func(f *excelize.File) {
 		_ = f.SetCellValue("DBC", "I2", 1.4)

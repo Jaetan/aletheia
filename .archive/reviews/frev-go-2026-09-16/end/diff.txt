@@ -1,0 +1,93 @@
+The closing record against the opening one. Every row that moved is attributed here;
+a total is not read on its own, a total that falls being able to hide a new row.
+
+## The runs
+
+probes      base: probes: 84 run, exit 1
+            end: probes: 154 run, exit 0
+            70 probes added over the round and one retired, a general rule
+            having subsumed what it held; none was edited to pass.
+            The one red at the opening was the round's own staging probe, which
+            read the snapshot list as incomplete before the round had filled it;
+            it is green at the close, as is every other.
+
+gates       both: go build, CGO_ENABLED=0 go build, go vet and gofmt -l all silent
+tests       both: the binding, the host interface and the spreadsheet module green
+            under -race, and the no-cgo subset green without it
+staticcheck both: no output
+fast tier   opening: all steps passed. Closing: all 12 steps passed, but only
+            after two findings the per-file gates could not see, both from
+            edits this round made: two Python loaders were formatted by hand
+            where the formatter disagreed, and a probe named the interpreter
+            relative to the directory it runs in, which is right when it runs
+            and invisible to the gate that reads the text. Both fixed.
+fuzz        opening: the response parser fuzzed 20s, pass. Closing: the same,
+            2,984,414 executions, pass, and nothing new written to the tracked
+            corpus.
+shape       opening: reports by contract: {'frev': 0, 'drev': 0, 'xrev': 0, 'not completed': 86}; out of shape: 0
+            closing: 124 reports, none out of shape, and no entry left
+            incomplete.
+
+## Coverage
+
+Statement coverage of the binding package, 79.9% at the opening to 87.1% at the
+close. The closing record states its condition, which the opening one does not:
+with ALETHEIA_LIB naming the built kernel it reads 87.1%, and without it 87.8%,
+the library-finding fallback running only when nothing names a library.
+
+Per file, over the functions the profile names:
+  check.go                       99.1 to   99.7
+  client.go                      85.5 to   88.3
+  dbc.go                         34.9 to   41.2
+  decimal.go                     83.4 to   85.6
+  enrich.go                      85.4 to   87.1
+  error.go                       94.7 to  100.0
+  ffi.go                         56.5 to   85.8
+  json.go                        84.0 to   86.5
+  loader.go                      96.9 to  100.0
+  ltl.go                         31.2 to   37.1
+  renderer.go                    77.3 to   78.2
+  total                          79.9 to   87.1
+  types.go                       80.0 to   90.0
+  yaml.go                        90.3 to   96.1
+
+## Lines
+
+opening 20463	4840	2375	0.24	TOTAL
+closing 17401	3980	1936	0.23	TOTAL
+code, comment, blank, comment over code. The directory carries three more tracked
+files, 3062 fewer code lines and 860 fewer comment lines than it did, and the
+comment-to-code ratio is a point lower rather than higher, which is what the
+contract asks a round to leave behind.
+
+## What names each file
+
+opening # 86 tracked files under go/, 34 named by a gate, 34 named by nothing outside themselves
+closing # 89 tracked files under go/, 30 named by a gate, 36 named by nothing outside themselves
+
+Every row that lost a name was attributed, and none of them lost a test or a
+workflow that exercises it. Two causes account for all of them:
+
+  A sibling's comment naming the file was removed. The lens counts a comment
+  mention the same as an exercise, so a round that deletes stale cross-references
+  lowers the count while changing nothing about what fails. Every such row was
+  read back to the comment it lost: the client naming the cancellation test, the
+  backend naming the client's lock, the renderer naming the loader helper it does
+  not reuse, and nine more of the same shape.
+
+  The Go standards file replaced a hand-written list of hot-path sources with a
+  pointer to the file that records them, so the client and the DBC reader are
+  named by the record rather than by the prose, which is the rule that file now
+  keeps everywhere.
+
+Rows that gained a name are the files the round split or paired: the two test
+helper files name each other, the no-cgo decimal and FFI stubs name each other,
+and the doc-example test names the guard that holds it.
+
+## Mutation
+
+The opening record kept a sweep per task that moved a mutated file. The closing
+sweep, taken twice on a quiet host with a cold test cache and the kernel named,
+generates 759 mutants, kills 646, leaves none alive, finds 102 on lines no test
+reaches and times out on 11. The recorded baseline says the same, and the probe
+over it is green.

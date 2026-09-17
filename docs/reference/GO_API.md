@@ -1,16 +1,10 @@
 # Aletheia Go API Guide
 
-**Purpose**: Reference for Aletheia's Go binding — the `Client`, the Check API,
-and the LTL DSL. Version in [DISTRIBUTION.md](../development/DISTRIBUTION.md).
+**Purpose**: Reference for Aletheia's Go binding: the `Client`, the Check API and the LTL DSL. The version it documents is in [DISTRIBUTION.md](../development/DISTRIBUTION.md).
 
-> **Exhaustive per-symbol docs** live as godoc comments in `go/aletheia/` — run
-> `go doc github.com/aletheia-automotive/aletheia-go/aletheia` (or any symbol,
-> e.g. `go doc aletheia.Client.SendFrame`). This guide is the narrative
-> walkthrough; godoc is the contract.
-> **Other bindings**: see the [Python API Guide](PYTHON_API.md), the
-> [C++ API Guide](CPP_API.md), the [Rust API Guide](RUST_API.md), and the
-> [Interface Guide](INTERFACES.md) — the four bindings ship the same verified
-> core with line-by-line-equivalent APIs.
+> **Exhaustive per-symbol docs** live as godoc comments in `go/aletheia/`: run `go doc github.com/Jaetan/aletheia/go/v5/aletheia`, or any symbol, such as `go doc aletheia.Client.SendFrame`. This guide is the narrative walkthrough and godoc is the contract.
+>
+> **Other bindings**: the [Python API Guide](PYTHON_API.md), the [C++ API Guide](CPP_API.md), the [Rust API Guide](RUST_API.md) and the [Interface Guide](INTERFACES.md). The four bindings ship the same verified core with line-by-line equivalent APIs.
 
 ---
 
@@ -25,19 +19,17 @@ and the LTL DSL. Version in [DISTRIBUTION.md](../development/DISTRIBUTION.md).
 - [Error Handling](#error-handling)
 - [Cancellation](#cancellation)
 - [Command-line interface](#command-line-interface)
-- [See Also](#see-also)
 
 ---
 
 ## Setup
 
-The binding wraps `libaletheia-ffi.so` via cgo + `dlopen`. Build a backend from
-the library path, hand it to a `Client`, and `defer Close()`:
+The binding wraps `libaletheia-ffi.so` via cgo + `dlopen`. Build a backend from the library path, hand it to a `Client`, and `defer Close()`:
 
 ```go
 package main
 
-import "github.com/aletheia-automotive/aletheia-go/aletheia"
+import "github.com/Jaetan/aletheia/go/v5/aletheia"
 
 func main() {
     backend, err := aletheia.NewFFIBackend("/opt/aletheia/lib/libaletheia-ffi.so")
@@ -53,38 +45,35 @@ func main() {
 }
 ```
 
-`NewFFIBackend` accepts functional options (e.g. `aletheia.WithFFILogger`,
-`aletheia.WithRTSCores`); `NewClient` accepts `aletheia.WithLogger`. Packaging
-and the loader search order are covered in the
-[Distribution Guide](../development/DISTRIBUTION.md).
+`NewFFIBackend` takes functional options, among them `aletheia.WithFFILogger` and `aletheia.WithRTSCores`, and `NewClient` takes `aletheia.WithLogger`. The backend is given a path and looks for none; the command-line interface below is what looks. Packaging, and where an installation puts the library, are in the [Distribution Guide](../development/DISTRIBUTION.md).
 
 ---
 
 ## Check API
 
-`aletheia.CheckSignal(name)` builds a property from a fluent, plain-English
-condition — the recommended starting point (no LTL knowledge required). Numeric
-thresholds are exact `Rational`s (the float principle — no `float64`): build them
-with `aletheia.IntRational(n)` for whole numbers or `aletheia.FromDecimal("0.25")`
-for decimals. The single-value terminals (`NeverExceeds` / `NeverBelow` /
-`NeverEquals`) are infallible; the range terminals (`StaysBetween` /
-`SettlesBetween`) and the causal `.Within(ms)` return `(CheckResult, error)`,
-guarding against `lo > hi`. Register the `CheckResult` with `AddChecks`:
+`aletheia.CheckSignal(name)` builds a property from a condition in plain English, and needs no temporal logic. A threshold is an exact `Rational`, never a `float64`: `aletheia.IntRational(n)` for a whole number, `aletheia.FromDecimal("0.25")` for a decimal. `NeverExceeds`, `NeverBelow` and `NeverEquals` cannot fail; `StaysBetween`, `SettlesBetween` and `.Within(ms)` answer `(CheckResult, error)`, refusing a lower bound above its upper one. Register the result with `AddChecks`:
 
 ```go
 speedLimit := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
-coolant, _ := aletheia.CheckSignal("Coolant").StaysBetween(aletheia.IntRational(80), aletheia.IntRational(105))
 gear := aletheia.CheckSignal("Gear").NeverEquals(aletheia.IntRational(-1))
+// A range terminal refuses a lower bound above its upper one, so it answers an
+// error and the caller reads it.
+coolant, err := aletheia.CheckSignal("Coolant").StaysBetween(aletheia.IntRational(80), aletheia.IntRational(105))
+if err != nil {
+    panic(err)
+}
 _, _, _ = speedLimit, coolant, gear
 ```
 
-Response-time / causal checks use `CheckWhen(...).Then(...)` and close with a
-`.Within(ms)` deadline (returning `(CheckResult, error)`); a `CheckResult` can
-then be `.Named(...)` and given a `.Severity(...)`:
+A response-time check reads `CheckWhen(...).Then(...)` and closes with `.Within(ms)`. The result takes `.Named(...)` and `.Severity(...)`:
 
 ```go
-brakeResponse, _ := aletheia.CheckWhen("Brake").Exceeds(aletheia.IntRational(50)).
-    Then("Decel").Exceeds(aletheia.IntRational(2)).Within(500) // decel must follow within 500 ms
+// The deadline closes the check, and refuses one that is not positive.
+brakeResponse, err := aletheia.CheckWhen("Brake").Exceeds(aletheia.IntRational(50)).
+    Then("Decel").Exceeds(aletheia.IntRational(2)).Within(500)
+if err != nil {
+    panic(err)
+}
 brakeResponse = brakeResponse.Named("brake response").Severity("safety")
 _ = brakeResponse
 ```
@@ -93,13 +82,7 @@ _ = brakeResponse
 
 ## LTL DSL
 
-For full temporal control, build formulas directly from the LTL struct types.
-Atomic predicates (`LessThan` / `GreaterThan` / `Equals` / `LessThanOrEqual` /
-`GreaterThanOrEqual`) compose under the temporal operators (`Always` /
-`Eventually` / `Next` / `Until`); metric variants (`AlwaysWithin` /
-`EventuallyWithin`) and `Never` / `Implies` are free functions. The bare structs
-can also be built fluently with `aletheia.Signal(name)`, which mirrors Python's
-`aletheia.dsl.Signal`:
+For full temporal control, build a formula from the types directly. Eight predicates say something about a signal: `Equals`, `LessThan`, `GreaterThan`, `LessThanOrEqual`, `GreaterThanOrEqual`, `Between`, `ChangedBy` and `StableWithin`. `Atomic` makes a formula of one, and formulas compose under `Not`, `And`, `Or`, `Next`, `WeakNext`, `Always`, `Eventually`, `Until` and `Release`. Four of those carry a deadline as `MetricAlways`, `MetricEventually`, `MetricUntil` and `MetricRelease`, and `Never`, `Implies`, `AlwaysWithin` and `EventuallyWithin` are free functions that build them. `aletheia.Signal(name)` builds all eight fluently, as Python's `aletheia.dsl.Signal` does.
 
 ```go
 // always(Speed < 220)
@@ -114,36 +97,36 @@ sameAsAbove := aletheia.Always{Inner: aletheia.Atomic{
 _, _, _ = alwaysSafe, brakesApply, sameAsAbove
 ```
 
-Pass formulas to `client.SetProperties`, or `CheckResult`s to `client.AddChecks`
-(`CheckResult.Formula()` exposes the underlying formula).
+Pass formulas to `client.SetProperties`, or `CheckResult`s to `client.AddChecks` (`CheckResult.Formula()` exposes the underlying formula).
 
 ---
 
 ## Core Types
 
-Numeric fields are **exact rationals** (no floating-point drift). CAN IDs and
-DLC codes are validated newtypes constructed through factories that return an
-`error`:
+Numeric fields are **exact rationals** (no floating-point drift). CAN IDs and DLC codes are validated newtypes constructed through factories that return an `error`:
 
 ```go
-id, _ := aletheia.NewStandardID(0x100) // 11-bit standard ID (StandardID, error)
-dlc, _ := aletheia.NewDLC(8)           // 8-byte CAN 2.0B frame  (DLC, error)
-factor := aletheia.IntRational(220)    // exact rational 220/1
+// A factory refuses a value outside its type's range, so a caller that builds
+// one from input reads the error rather than discarding it.
+id, err := aletheia.NewStandardID(0x100) // an 11-bit identifier
+if err != nil {
+    panic(err)
+}
+dlc, err := aletheia.NewDLC(8) // an eight-byte frame
+if err != nil {
+    panic(err)
+}
+factor := aletheia.IntRational(220) // the exact rational 220/1
 _, _, _ = id, dlc, factor
 ```
 
-Use `aletheia.NewExtendedID` for 29-bit IDs, and `aletheia.IntRational` (a whole
-number) or `aletheia.FromDecimal("0.25")` (an exact decimal, via the verified
-kernel) to build a `Rational`.
+Use `aletheia.NewExtendedID` for 29-bit IDs, and `aletheia.IntRational` (a whole number) or `aletheia.FromDecimal("0.25")` (an exact decimal, via the verified kernel) to build a `Rational`.
 
 ---
 
 ## End-to-End: Parse, Check, Stream
 
-The streaming workflow is **parse a DBC → register checks → start the stream →
-send frames → end the stream**. Every operation takes a `context.Context` first
-and returns an `error`, so each step is guarded; a real application pulls frames
-from a CAN log instead of synthesizing them:
+The streaming workflow is **parse a DBC, register checks, start the stream, send frames, end the stream**. Every operation takes a `context.Context` first and answers an `error`. A real application reads its frames from a CAN log and reports a refusal; this one stops at the first, so a failing step is visible. A DBC text needs its version line and the `NS_`, `BS_` and `BU_` sections: the parser refuses a text missing any of them, naming the line it stopped at.
 
 ```go
 package main
@@ -151,7 +134,7 @@ package main
 import (
     "context"
 
-    "github.com/aletheia-automotive/aletheia-go/aletheia"
+    "github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
 func main() {
@@ -168,32 +151,46 @@ func main() {
     ctx := context.Background()
 
     const dbc = `VERSION ""
-BU_ ECU
+
+NS_ :
+
+BS_:
+
+BU_: ECU
+
 BO_ 256 Engine: 8 ECU
  SG_ Speed : 0|16@1+ (0.1,0) [0|6553.5] "km/h" ECU
 `
     if _, err := client.ParseDBCText(ctx, dbc); err != nil {
-        return
+        panic(err)
     }
 
     speedLimit := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
-    checks := []aletheia.CheckResult{speedLimit}
-    if err := client.AddChecks(ctx, checks); err != nil {
-        return
+    if err := client.AddChecks(ctx, []aletheia.CheckResult{speedLimit}); err != nil {
+        panic(err)
     }
     if err := client.StartStream(ctx); err != nil {
-        return
+        panic(err)
     }
 
-    id, _ := aletheia.NewStandardID(0x100)
-    dlc, _ := aletheia.NewDLC(8)
+    id, err := aletheia.NewStandardID(0x100)
+    if err != nil {
+        panic(err)
+    }
+    dlc, err := aletheia.NewDLC(8)
+    if err != nil {
+        panic(err)
+    }
     data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-    _, _ = client.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, id, dlc, data, nil, nil)
-
-    result, err := client.EndStream(ctx) // (*StreamResult, error)
-    if err == nil {
-        _ = result // result.Results carries one verdict per registered check
+    if _, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, id, dlc, data, nil, nil); err != nil {
+        panic(err)
     }
+
+    result, err := client.EndStream(ctx)
+    if err != nil {
+        panic(err)
+    }
+    _ = result.Results // one verdict per registered check
 }
 ```
 
@@ -201,29 +198,45 @@ BO_ 256 Engine: 8 ECU
 
 ## Signal Operations
 
-Outside (or inside) streaming, decode and synthesize frames directly. `dlc` must
-match the payload length; each method takes `ctx` first and returns an `error`:
+A frame can be decoded and built directly, inside a stream or outside one. The `dlc` must match the payload's length:
 
 - `ExtractSignals(ctx, id, dlc, data)` → `*ExtractionResult` (decode a frame).
 - `BuildFrame(ctx, id, dlc, signals)` → `FramePayload` (encode signal values).
 - `UpdateFrame(ctx, id, dlc, data, signals)` → `FramePayload` (patch a frame).
 
-See `go doc aletheia.Client` for exact signatures and [INTERFACES.md](INTERFACES.md)
-for a worked extract/build round-trip.
+Decoding a frame and encoding one are inverses, and a `SignalValue` is a name beside an exact value:
+
+```go
+decoded, err := client.ExtractSignals(ctx, canID, dlc, data)
+if err != nil {
+	panic(err)
+}
+for _, value := range decoded.Values {
+	fmt.Printf("%s = %s\n", value.Name, value.Value)
+}
+
+rebuilt, err := client.BuildFrame(ctx, canID, dlc, []aletheia.SignalValue{
+	{Name: "VehicleSpeed", Value: aletheia.IntRational(72)},
+})
+if err != nil {
+	panic(err)
+}
+fmt.Printf("encoded %d bytes\n", len(rebuilt))
+```
+
+See `go doc aletheia.Client` for the exact signatures.
 
 ---
 
 ## Error Handling
 
-Every fallible operation follows Go's `(value, error)` convention — there are no
-panics on the normal path. Inspect a returned error with `errors.As` to read the
-typed `*aletheia.Error` (`Kind`, `Code`, `Message`):
+Every fallible operation answers `(value, error)` and the package never panics. Read an error with `errors.As` to reach the typed `*aletheia.Error` and its `Kind`, `Code` and `Message`:
 
 ```go
 import (
     "errors"
 
-    "github.com/aletheia-automotive/aletheia-go/aletheia"
+    "github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
 func describe(err error) string {
@@ -235,46 +248,27 @@ func describe(err error) string {
 }
 ```
 
-`ErrorKind` distinguishes validation / protocol / binary-unsupported /
-cancellation; `Code` mirrors the kernel's `IssueCode` enum (see
-[PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
+`ErrorKind` says whether it was a validation, the protocol, an operation the binary wire lacks, or a cancellation. `Code` is the kernel's own, listed in [PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference).
 
 ---
 
 ## Cancellation
 
-Every `Client` operation takes a `context.Context` as its first parameter.
-Cancelling the context is observed at frame boundaries with the
-commit-prefix-and-report contract — already-processed frames stay committed, and
-the wrapped `ctx.Err()` is returned. The cross-binding semantics (Python
-`asyncio`, Go `context.Context`, C++ `std::stop_token`) are specified in the
-[Cancellation Contract](../architecture/CANCELLATION.md).
+A cancelled context is observed at a frame boundary: the frames already processed stay committed, and the call answers the wrapped `ctx.Err()`. What the four bindings promise, through `asyncio`, `context.Context` and `std::stop_token`, is in the [Cancellation Contract](../architecture/CANCELLATION.md).
 
 ---
 
 ## Command-line interface
 
-The `cmd/aletheia` package is a thin host CLI over `Client`, mirroring the
-Python `aletheia` subcommands — `validate`, `extract`, `signals`, `format-dbc`,
-`mux-query` (`check` is deferred; it needs a verified CAN-log reader). The
-dispatch logic lives in `run` (package `main`), exercised by
-`cmd/aletheia/main_test.go`.
+The `cmd/aletheia` package is a host interface over `Client`, carrying the subcommands `python -m aletheia` carries: `validate`, `extract`, `signals`, `format-dbc` and `mux-query`. It refuses `check` by name, which needs a CAN-log reader the binding does not provide. The dispatch is `run` in package `main`, exercised by `cmd/aletheia/main_test.go`.
 
 ```bash
-ALETHEIA_LIB=build/libaletheia-ffi.so go run ./cmd/aletheia signals --dbc vehicle.dbc
-# or build a standalone binary: (cd go && go build -o aletheia ./cmd/aletheia)
+# From the go/ directory, which is where the module is:
+go run ./cmd/aletheia signals --dbc ../examples/example.dbc
+# The interface finds the built library from there. To point it elsewhere:
+ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so go run ./cmd/aletheia signals --dbc vehicle.dbc
+# Or build the binary once: go build -o aletheia ./cmd/aletheia
 ```
 
-The `--dbc` / `--json` flags and `$ALETHEIA_LIB` library-path resolution are the
-shared host-CLI contract; the full subcommand reference lives in the
-[CLI Reference](CLI.md).
+The `--dbc` and `--json` flags, and `$ALETHEIA_LIB` ahead of the build tree, are what every binding's interface does. The subcommands are documented in the [CLI Reference](CLI.md), and godoc carries every symbol: `go doc github.com/Jaetan/aletheia/go/v5/aletheia`.
 
----
-
-## See Also
-
-- **[Interface Guide](INTERFACES.md)** — Check API, YAML, and Excel loaders (cross-binding)
-- **[Distribution Guide](../development/DISTRIBUTION.md)** — packaging + `NewFFIBackend` wiring
-- **[JSON Protocol](../architecture/PROTOCOL.md)** — wire-level command/response spec
-- **[Cancellation Contract](../architecture/CANCELLATION.md)** — `context.Context` semantics
-- godoc: `go doc github.com/aletheia-automotive/aletheia-go/aletheia` (the exhaustive per-symbol contract)

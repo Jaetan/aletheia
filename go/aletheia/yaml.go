@@ -11,9 +11,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// LoadChecksFromYAML loads checks from a YAML file path or inline YAML string.
-// If source names an existing file, it is read; otherwise it is treated as
-// inline YAML content.
+// LoadChecksFromYAML loads checks from a path or from YAML text. A source
+// naming a file is read; anything else is the document itself.
 func LoadChecksFromYAML(source string) ([]CheckResult, error) {
 	data, err := loadYAMLData(source)
 	if err != nil {
@@ -22,119 +21,92 @@ func LoadChecksFromYAML(source string) ([]CheckResult, error) {
 	return parseYAMLChecks(data)
 }
 
-// LoadChecksFromYAMLFile loads checks from a YAML file.
-//
-// Returns *InputBoundExceededError if the file is larger than
-// MaxDBCTextBytes (64 MiB).  YAML check definitions reference signal
-// names from a parsed DBC, so the same input-length cap applies; cf.
-// Python aletheia.yaml_loader._check_input_bound and AGENTS.md
-// universal rule "Adversarial-input bounds at parser surfaces".
-//
-// Also rejects symbolic links outright (cross-binding
-// parity with C++ aletheia::detail::validate_loader_path and Python
-// aletheia._loader_utils.reject_symlink_loader_path).  Callers passing
-// legitimate symlinks must resolve them first.
+// LoadChecksFromYAMLFile loads checks from a file, which must be a real file
+// under the size cap. A path is never resolved for the caller: a symbolic link
+// is refused, as the C++ and Python loaders refuse one, so that what is read is
+// the path that was given.
 func LoadChecksFromYAMLFile(path string) ([]CheckResult, error) {
-	path = filepath.Clean(path)
+	data, err := readYAMLFile(filepath.Clean(path), true)
+	if err != nil {
+		return nil, err
+	}
+	return parseYAMLChecks(data)
+}
+
+// symlinkRefusal is the refusal both entry points answer with, so that a
+// caller sees one message whichever way it arrived.
+func symlinkRefusal(path string) error {
+	return validationError(fmt.Sprintf(
+		"YAML file is a symbolic link; refusing to load: %s. Resolve the link and pass the real path.", path))
+}
+
+// readYAMLFile reads a path, holding it to being a real file no larger than
+// the text cap and refusing a symbolic link. With mustExist false, a path that
+// is not a file at all comes back as no data and no error, which is how the
+// caller that also takes inline text knows to treat the string as the
+// document.
+func readYAMLFile(path string, mustExist bool) ([]byte, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
+		if !mustExist {
+			return nil, nil
+		}
 		if os.IsNotExist(err) {
 			return nil, validationError(fmt.Sprintf("YAML file not found: %s", path))
 		}
 		return nil, wrapValidationError("stat YAML file", err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, validationError(fmt.Sprintf(
-			"YAML file is a symbolic link; refusing to load: %s.  Resolve the link and pass the real path.",
-			path,
-		))
+		return nil, symlinkRefusal(path)
 	}
 	if !info.Mode().IsRegular() {
+		if !mustExist {
+			return nil, nil
+		}
 		return nil, validationError(fmt.Sprintf("YAML path is not a regular file: %s", path))
 	}
 	if size := uint64(info.Size()); size > MaxDBCTextBytes {
-		return nil, &InputBoundExceededError{
-			BoundKind: BoundKindInputLengthBytes,
-			Observed:  size,
-			Limit:     MaxDBCTextBytes,
-		}
+		return nil, newInputBoundExceededError(BoundKindInputLengthBytes, size, MaxDBCTextBytes, CodeInputBoundExceeded)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, wrapValidationError("reading YAML file", err)
 	}
-	return parseYAMLChecks(data)
+	return data, nil
 }
 
-// loadYAMLData reads YAML data from either a file path or an inline string.
-// If source refers to an existing file, it is read; otherwise it is treated
-// as inline YAML content.
-//
-// Returns *InputBoundExceededError if either form exceeds MaxDBCTextBytes
-// (64 MiB).  Mirrors Python aletheia.yaml_loader._check_input_bound per
-// AGENTS.md universal rule "Adversarial-input bounds at parser surfaces".
-//
-// When the file branch is taken, also reject symbolic
-// links (cross-binding parity with C++/Python).  Inline-content
-// branch is unaffected.
+// loadYAMLData is the document a source names: the contents of the file, when
+// it is one, and otherwise the source itself. Both forms are held to the text
+// cap, and a symbolic link is refused rather than followed.
 func loadYAMLData(source string) ([]byte, error) {
 	source = filepath.Clean(source)
-	info, statErr := os.Lstat(source)
-	if statErr == nil && info.Mode().IsRegular() {
-		if size := uint64(info.Size()); size > MaxDBCTextBytes {
-			return nil, &InputBoundExceededError{
-				BoundKind: BoundKindInputLengthBytes,
-				Observed:  size,
-				Limit:     MaxDBCTextBytes,
-			}
-		}
-		data, err := os.ReadFile(source)
-		if err != nil {
-			return nil, wrapValidationError("reading YAML file", err)
-		}
+	data, err := readYAMLFile(source, false)
+	if err != nil {
+		return nil, err
+	}
+	if data != nil {
 		return data, nil
 	}
-	if statErr == nil && info.Mode()&os.ModeSymlink != 0 {
-		// Stat-succeeds + symlink — refuse rather than silently follow.
-		// Cross-binding parity with C++ aletheia::detail::validate_loader_path
-		// and Python aletheia._loader_utils.reject_symlink_loader_path.
-		return nil, validationError(fmt.Sprintf(
-			"YAML file is a symbolic link; refusing to load: %s.  Resolve the link and pass the real path.",
-			source,
-		))
-	}
-	// Stat-fails or non-regular non-symlink — treat as inline YAML.
-	// Not a file -- treat as inline YAML.
 	if size := uint64(len(source)); size > MaxDBCTextBytes {
-		return nil, &InputBoundExceededError{
-			BoundKind: BoundKindInputLengthBytes,
-			Observed:  size,
-			Limit:     MaxDBCTextBytes,
-		}
+		return nil, newInputBoundExceededError(BoundKindInputLengthBytes, size, MaxDBCTextBytes, CodeInputBoundExceeded)
 	}
 	return []byte(source), nil
 }
-
-// ---------------------------------------------------------------------------
-// YAML intermediate structs
-// ---------------------------------------------------------------------------
 
 type yamlFile struct {
 	Checks []yamlCheck `yaml:"checks"`
 }
 
-// yamlScalar captures a numeric field's raw literal TEXT (not a float64) so the
-// kernel [FromDecimal] parses it EXACTLY — the float principle: a decimal is an
-// exact rational, never a float64. A `*float64` field would round "0.1" before
-// we ever saw it. A nil pointer means the key was absent (UnmarshalYAML is only
-// invoked for a present value), preserving the existing required-field checks.
+// yamlScalar keeps a number as the text it was written as, so that the kernel
+// parses it exactly: a field of floating type would have rounded a tenth
+// before this code ever saw it. A nil one means the key was absent, the
+// decoder calling this only for a value that is there.
 type yamlScalar struct {
 	text string
 }
 
-// UnmarshalYAML records the scalar's literal text. It rejects a non-scalar
-// (a mapping/sequence where a number is expected) up front; the literal itself
-// is validated later by [FromDecimal].
+// UnmarshalYAML keeps the text as written, refusing a list or a mapping where
+// a number belongs. Whether the text is a number the kernel decides later.
 func (s *yamlScalar) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.ScalarNode {
 		return validationError("expected a numeric scalar value")
@@ -164,31 +136,21 @@ type yamlClause struct {
 	Max       *yamlScalar `yaml:"max"`
 }
 
-// nodeRational reads a captured YAML scalar as an exact [Rational] via the
-// kernel [FromDecimal] (the decimal SSOT). The literal text is parsed exactly;
-// no float64 ever materialises. RTS-gated like the rest of the SSOT, so loading
-// a YAML file with numeric fields needs a live FFIBackend. Returns the kernel's
-// validation error directly (matching the Rust binding), so an invalid decimal
-// or an overflowing rational surfaces the kernel's precise reason.
+// nodeRational is the exact value of a written number, parsed by the kernel.
+// Loading a document with numbers therefore needs the runtime up, and a number
+// the kernel refuses comes back with the kernel's own reason, as it does in the
+// Rust binding.
 func nodeRational(s *yamlScalar) (Rational, error) {
 	return FromDecimal(s.text)
 }
 
-// ---------------------------------------------------------------------------
-// Parse logic
-// ---------------------------------------------------------------------------
-
-// parseYAMLChecks decodes a YAML document into a list of CheckResults.
-// The two-pass decode (untyped map → typed struct) is intentional: yaml.v3's
-// typed-only path decodes "key missing", "key present but null" (a bare
-// "checks:"), and "key present but empty list" to the same zero-length
-// slice — an opaque "no checks" downstream — and reports other wrong-typed
-// "checks" values (string/map/number) only as a raw yaml.v3 decode error.
-// Cost is negligible on the loader path (microseconds per document);
-// benefit is actionable diagnostics.
+// parseYAMLChecks is the checks a document carries. It is decoded twice, once
+// loosely and once into the types: the typed decode alone reads a missing key,
+// a key with nothing under it and an empty list as the same empty answer, and
+// reports a key of the wrong type as the decoder's own message rather than as
+// what is wrong with the document.
 func parseYAMLChecks(data []byte) ([]CheckResult, error) {
-	// First pass: structural check on the top-level "checks" key so we can
-	// distinguish absent / wrong-type from a typed unmarshal failure.
+	// The loose pass, which tells an absent key from one of the wrong type.
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, wrapValidationError("invalid YAML", err)
@@ -202,7 +164,7 @@ func parseYAMLChecks(data []byte) ([]CheckResult, error) {
 		return nil, validationError("YAML 'checks' field must be a list")
 	}
 
-	// Second pass: typed unmarshal.
+	// The typed pass.
 	var file yamlFile
 	if err := yaml.Unmarshal(data, &file); err != nil {
 		return nil, wrapValidationError("invalid YAML", err)
@@ -219,9 +181,8 @@ func parseYAMLChecks(data []byte) ([]CheckResult, error) {
 	return results, nil
 }
 
-// parseYAMLCheck dispatches a single YAML check entry to the
-// simple-form or when/then parser, then applies shared metadata
-// (name, severity) before returning the CheckResult.
+// parseYAMLCheck builds one check, by the shape it was written in, and puts
+// the optional name and severity on it.
 func parseYAMLCheck(entry yamlCheck) (CheckResult, error) {
 	var result CheckResult
 	var err error
@@ -242,78 +203,91 @@ func parseYAMLCheck(entry yamlCheck) (CheckResult, error) {
 	return result, nil
 }
 
-// parseYAMLSimple handles the "simple" YAML shape (signal + condition
-// + value/min/max/within_ms fields); see INTERFACES.md for the full
-// condition vocabulary.
-func parseYAMLSimple(entry yamlCheck) (CheckResult, error) {
-	name := checkName(entry.Name)
-	condition := entry.Condition
-
-	if !IsSimpleCondition(condition) {
-		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown condition '%s'", name, condition))
-	}
-
-	if IsSimpleValueCondition(condition) {
-		if entry.Value == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition '%s' requires 'value'", name, condition))
-		}
-		v, err := nodeRational(entry.Value)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		return DispatchSimple(entry.Signal, condition, v)
-	}
-
-	if IsSimpleRangeCondition(condition) {
-		if entry.Min == nil || entry.Max == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition '%s' requires 'min' and 'max'", name, condition))
-		}
-		lo, err := nodeRational(entry.Min)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		hi, err := nodeRational(entry.Max)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		return CheckSignal(entry.Signal).StaysBetween(lo, hi)
-	}
-
-	if IsSimpleSettlesCondition(condition) {
-		if entry.Min == nil || entry.Max == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition 'settles_between' requires 'min' and 'max'", name))
-		}
-		if entry.WithinMs == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition 'settles_between' requires 'within_ms'", name))
-		}
-		lo, err := nodeRational(entry.Min)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		hi, err := nodeRational(entry.Max)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		return CheckSignal(entry.Signal).SettlesBetween(lo, hi).Within(*entry.WithinMs)
-	}
-
-	if IsSimpleEqualsCondition(condition) {
-		if entry.Value == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition 'equals' requires 'value'", name))
-		}
-		v, err := nodeRational(entry.Value)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		return CheckSignal(entry.Signal).Equals(v).Always(), nil
-	}
-
-	return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown condition '%s'", name, condition))
+// yamlSimpleValues answers for the keys a check written as one signal and one
+// condition is spelled with, refusing in this loader's own words.
+type yamlSimpleValues struct {
+	name  string
+	entry yamlCheck
 }
 
-// parseYAMLWhenThen handles the "when/then" YAML shape (trigger
-// predicate + obligation with a bounded response window); delegates to
-// the simple parsers for the two sub-conditions.
+func (v yamlSimpleValues) requires(what string) error {
+	return validationError(fmt.Sprintf("check '%s': condition '%s' requires %s", v.name, v.entry.Condition, what))
+}
+
+func (v yamlSimpleValues) Value() (Rational, error) {
+	if v.entry.Value == nil {
+		return Rational{}, v.requires("'value'")
+	}
+	return nodeRational(v.entry.Value)
+}
+
+func (v yamlSimpleValues) Range() (Rational, Rational, error) {
+	if v.entry.Min == nil || v.entry.Max == nil {
+		return Rational{}, Rational{}, v.requires("'min' and 'max'")
+	}
+	lo, err := nodeRational(v.entry.Min)
+	if err != nil {
+		return Rational{}, Rational{}, err
+	}
+	hi, err := nodeRational(v.entry.Max)
+	if err != nil {
+		return Rational{}, Rational{}, err
+	}
+	return lo, hi, nil
+}
+
+func (v yamlSimpleValues) Within() (int64, error) {
+	if v.entry.WithinMs == nil {
+		return 0, v.requires("'within_ms'")
+	}
+	return *v.entry.WithinMs, nil
+}
+
+// parseYAMLSimple builds a check written as one signal and one condition. The
+// word is held to the vocabulary here, before the dispatcher holds it again,
+// so that the refusal names the check.
+func parseYAMLSimple(entry yamlCheck) (CheckResult, error) {
+	name := checkName(entry.Name)
+	if !IsSimpleCondition(entry.Condition) {
+		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown condition '%s'", name, entry.Condition))
+	}
+	return DispatchSimple(entry.Signal, entry.Condition, yamlSimpleValues{name: name, entry: entry})
+}
+
+// yamlThenValues answers for the keys an obligation is spelled with.
+type yamlThenValues struct {
+	name   string
+	clause *yamlClause
+}
+
+func (v yamlThenValues) requires(what string) error {
+	return validationError(fmt.Sprintf("check '%s': then condition '%s' requires %s", v.name, v.clause.Condition, what))
+}
+
+func (v yamlThenValues) Value() (Rational, error) {
+	if v.clause.Value == nil {
+		return Rational{}, v.requires("'value'")
+	}
+	return nodeRational(v.clause.Value)
+}
+
+func (v yamlThenValues) Range() (Rational, Rational, error) {
+	if v.clause.Min == nil || v.clause.Max == nil {
+		return Rational{}, Rational{}, v.requires("'min' and 'max'")
+	}
+	lo, err := nodeRational(v.clause.Min)
+	if err != nil {
+		return Rational{}, Rational{}, err
+	}
+	hi, err := nodeRational(v.clause.Max)
+	if err != nil {
+		return Rational{}, Rational{}, err
+	}
+	return lo, hi, nil
+}
+
+// parseYAMLWhenThen builds a check written as a trigger and an obligation,
+// which must be met inside a stated time.
 func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 	name := checkName(entry.Name)
 
@@ -327,7 +301,7 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 	when := entry.When
 	then := entry.Then
 
-	// Validate when clause.
+	// The trigger, whose three conditions all read one value.
 	if !IsWhenCondition(when.Condition) {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown when condition '%s'", name, when.Condition))
 	}
@@ -344,39 +318,10 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 		return CheckResult{}, err
 	}
 
-	// Validate then clause.
+	// The obligation, its word held here for the same reason as above.
 	if !IsThenCondition(then.Condition) {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown then condition '%s'", name, then.Condition))
 	}
-
-	thenBuilder := whenResult.Then(then.Signal)
-
-	// Presence checks + value extraction stay loader-specific (field names and
-	// error text differ per loader); the builder dispatch itself is shared.
-	var thenValue, thenLo, thenHi Rational
-	switch then.Condition {
-	case "equals", "exceeds":
-		if then.Value == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': then condition '%s' requires 'value'", name, then.Condition))
-		}
-		v, err := nodeRational(then.Value)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		thenValue = v
-	case "stays_between":
-		if then.Min == nil || then.Max == nil {
-			return CheckResult{}, validationError(fmt.Sprintf("check '%s': then condition 'stays_between' requires 'min' and 'max'", name))
-		}
-		lo, err := nodeRational(then.Min)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		hi, err := nodeRational(then.Max)
-		if err != nil {
-			return CheckResult{}, err
-		}
-		thenLo, thenHi = lo, hi
-	}
-	return DispatchThen(thenBuilder, then.Condition, thenValue, thenLo, thenHi, *entry.WithinMs)
+	return DispatchThen(whenResult.Then(then.Signal), then.Condition,
+		yamlThenValues{name: name, clause: then}, *entry.WithinMs)
 }

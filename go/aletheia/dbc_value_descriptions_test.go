@@ -3,29 +3,28 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// VAL_ value descriptions on DBCSignal.ValueDescriptions and the
-// matching CHECK 23 (UnknownValueDescriptionTarget) emitted by parse_dbc_text
-// when a VAL_ line points at a (message-id, signal-name) pair not declared in
-// BO_ / SG_.
-//
-// These are real-FFI tests in the same vein as TestDBCCorpusParity — VAL_
-// promotion is end-to-end across the Agda parser + formatter + validator, so a
-// MockBackend would only verify the wire shape, not the round-trip semantics.
+// VAL_ value descriptions land on DBCSignal.ValueDescriptions, come back
+// out through the text formatter, and a VAL_ line aimed at a message and
+// signal the text never declares raises the validator's
+// UnknownValueDescriptionTarget warning. The promotion runs through the
+// kernel's parser, formatter and validator, so these tests use the real
+// library rather than a mock, which could only see the wire shape.
 
 package aletheia
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
 
-// newFFIClient wires up a real-FFI Client for tests that need round-trip
-// fidelity. Mirrors the setup in TestDBCCorpusParity.
+// newFFIClient is a client over the built library, closed when the test
+// ends; the test is skipped when the library is not built.
 func newFFIClient(t *testing.T) *Client {
 	t.Helper()
-	lib := findFFILibForParityTest()
+	lib := findFFILibrary()
 	if lib == "" {
-		t.Skip("libaletheia-ffi.so not found — run 'cabal run shake -- build' first")
+		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
 	}
 	backend, err := NewFFIBackend(lib)
 	if err != nil {
@@ -43,26 +42,17 @@ func newFFIClient(t *testing.T) *Client {
 	return client
 }
 
-// TestParseDBCText_ValueDescriptionsRoundTrip parses a fixture that carries a
-// non-empty VAL_ line, asserts the entries land on
-// DBCSignal.ValueDescriptions, then re-emits via FormatDBCText and confirms the
-// VAL_ block is part of the textual output.
+// valDBCText is a one-message DBC text whose VAL_ line is the argument.
+func valDBCText(message, valLine string) string {
+	return "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n" + message + "\n\n" + valLine + "\n"
+}
+
+// A VAL_ line's entries land on the signal in order, and the formatter writes
+// the line back.
 func TestParseDBCText_ValueDescriptionsRoundTrip(t *testing.T) {
 	client := newFFIClient(t)
-
-	const text = `VERSION ""
-
-NS_ :
-
-BS_:
-
-BU_: ECU
-
-BO_ 300 Transmission: 8 ECU
- SG_ EngineState : 8|2@1+ (1,0) [0|3] "" Vector__XXX
-
-VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;
-`
+	const valLine = `VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;`
+	text := valDBCText("BO_ 300 Transmission: 8 ECU\n SG_ EngineState : 8|2@1+ (1,0) [0|3] \"\" Vector__XXX", valLine)
 
 	parsed, err := client.ParseDBCText(ctx, text)
 	if err != nil {
@@ -71,70 +61,34 @@ VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;
 	if len(parsed.DBC.Messages) != 1 || len(parsed.DBC.Messages[0].Signals) != 1 {
 		t.Fatalf("unexpected DBC shape: %+v", parsed.DBC)
 	}
-	sig := parsed.DBC.Messages[0].Signals[0]
-	if len(sig.ValueDescriptions) != 4 {
-		t.Fatalf("expected 4 value descriptions, got %d: %+v",
-			len(sig.ValueDescriptions), sig.ValueDescriptions)
-	}
-	want := []DBCValueEntry{
-		{Value: 0, Description: "Off"},
-		{Value: 1, Description: "Cranking"},
-		{Value: 2, Description: "Running"},
-		{Value: 3, Description: "Stall"},
-	}
-	for i, w := range want {
-		if sig.ValueDescriptions[i] != w {
-			t.Errorf("entry %d: got %+v, want %+v", i, sig.ValueDescriptions[i], w)
-		}
+	want := []DBCValueEntry{{0, "Off"}, {1, "Cranking"}, {2, "Running"}, {3, "Stall"}}
+	if got := parsed.DBC.Messages[0].Signals[0].ValueDescriptions; !reflect.DeepEqual(got, want) {
+		t.Errorf("value descriptions: got %+v, want %+v", got, want)
 	}
 
 	out, err := client.FormatDBCText(ctx, parsed.DBC)
 	if err != nil {
 		t.Fatalf("FormatDBCText: %v", err)
 	}
-	const wantLine = `VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;`
-	if !strings.Contains(out.Text, wantLine) {
-		t.Errorf("expected VAL_ block in formatted output, got:\n%s", out.Text)
+	if !strings.Contains(out.Text, valLine) {
+		t.Errorf("expected the VAL_ line in the formatted output, got:\n%s", out.Text)
 	}
 }
 
-// TestParseDBCText_UnknownValueDescriptionTargetWarning checks that CHECK 23
-// fires when a VAL_ line refers to a (message-id, signal-name) pair not
-// declared in BO_ / SG_. The unresolved entry survives on
-// DBC.UnresolvedValueDescriptions; validateDBCFull walks that list and emits
-// `unknown_value_description_target` warnings, surfaced on
-// ParsedDBC.Warnings.
+// A VAL_ line naming a message and signal the text does not declare loads
+// with the UnknownValueDescriptionTarget warning among the parse warnings.
 func TestParseDBCText_UnknownValueDescriptionTargetWarning(t *testing.T) {
 	client := newFFIClient(t)
-
-	const text = `VERSION ""
-
-NS_ :
-
-BS_:
-
-BU_: ECU
-
-BO_ 256 Engine: 8 ECU
- SG_ Rpm : 0|16@1+ (1,0) [0|8000] "rpm" Vector__XXX
-
-VAL_ 999 GhostSignal 0 "Off" 1 "On" ;
-`
+	text := valDBCText("BO_ 256 Engine: 8 ECU\n SG_ Rpm : 0|16@1+ (1,0) [0|8000] \"rpm\" Vector__XXX", `VAL_ 999 GhostSignal 0 "Off" 1 "On" ;`)
 
 	parsed, err := client.ParseDBCText(ctx, text)
 	if err != nil {
 		t.Fatalf("ParseDBCText: %v", err)
 	}
-
-	var hit bool
 	for _, w := range parsed.Warnings {
 		if w.Code == IssueUnknownValueDescriptionTarget {
-			hit = true
-			break
+			return
 		}
 	}
-	if !hit {
-		t.Errorf("expected unknown_value_description_target warning, got %+v",
-			parsed.Warnings)
-	}
+	t.Errorf("expected an unknown_value_description_target warning, got %+v", parsed.Warnings)
 }

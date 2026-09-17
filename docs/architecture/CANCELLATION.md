@@ -226,7 +226,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/aletheia-automotive/aletheia-go/aletheia"
+    "github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
 func processBatch(ctx context.Context, client *aletheia.Client,

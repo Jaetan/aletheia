@@ -3,26 +3,15 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Cross-binding integration test.
-//
-// Counterpart of python/tests/test_cross_binding_integration.py and
-// cpp/tests/test_cross_binding_integration.cpp. All three tests construct
-// identical canonical inputs in code (no shared corpus, no golden output to
-// diff against) and assert the binding's response shape matches the
-// structural invariants documented in docs/architecture/PROTOCOL.md.
-//
-// The shared truth is PROTOCOL.md (text + JSON examples). Corpus-style
-// integration tests bit-rot fast and tie every binding to one binding's exact
-// emit format. By asserting structural invariants here (field presence, value
-// types, count relationships, error-code identity), each binding's drift from
-// the documented protocol surfaces locally without depending on the other
-// bindings being run.
-//
-// Cross-binding parity is enforced transitively: if Python's test asserts
-// "ParsedDBCResponse has exactly the keys {status, dbc, warnings}" and Go's
-// test asserts the same (translated to Go: ParsedDBC has DBC + Warnings),
-// any binding that drops or adds a field fails its own test. No pairwise
-// binding diff is computed.
+// The Go third of the cross-binding integration tests, with
+// python/tests/test_cross_binding_integration.py and
+// cpp/tests/test_cross_binding_integration.cpp. The three build identical
+// canonical inputs in code and assert the structural invariants
+// docs/architecture/PROTOCOL.md documents: field presence, value types,
+// counts, error-code identity. A binding's drift from the protocol shows in
+// its own suite and parity is transitive through the document; there is no
+// shared corpus and no pairwise diff, since a corpus would tie every binding
+// to one binding's emitted bytes.
 
 package aletheia
 
@@ -33,15 +22,11 @@ import (
 	"testing"
 )
 
-// canonicalDBC mirrors the inline DBC fixture in
-// python/tests/test_cross_binding_integration.py (`_CANONICAL_DBC`) and
-// cpp/tests/test_cross_binding_integration.cpp (`canonical_dbc`).
-//
-// The three definitions are content-equivalent; structural drift across
-// languages is the actual cross-binding hazard the test is designed to catch.
+// canonicalDBC is the fixture the Python and C++ tests define identically
+// (_CANONICAL_DBC and canonical_dbc); drift between the three copies is one
+// of the hazards these tests exist to catch.
 func canonicalDBC() DBCDefinition {
-	sid, _ := NewStandardID(256)
-	d, _ := NewDLC(8)
+	sid, d := canonicalFrameIDs()
 	return DBCDefinition{
 		Version: "1.0",
 		Messages: []DBCMessage{
@@ -70,33 +55,53 @@ func canonicalDBC() DBCDefinition {
 	}
 }
 
-func newCrossBindingClient(t *testing.T) *Client {
-	t.Helper()
-	lib := findFFILibForParityTest()
-	if lib == "" {
-		t.Skip("libaletheia-ffi.so not found — run 'cabal run shake -- build' first")
-	}
-	backend, err := NewFFIBackend(lib)
-	if err != nil {
-		t.Fatalf("NewFFIBackend: %v", err)
-	}
-	c, err := NewClient(backend)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := c.Close(); err != nil {
-			t.Errorf("Close: %v", err)
-		}
-	})
-	return c
+// canonicalFrameIDs is the canonical message's CAN ID and DLC.
+func canonicalFrameIDs() (StandardID, DLC) {
+	sid, _ := NewStandardID(256)
+	d, _ := NewDLC(8)
+	return sid, d
 }
 
-// TestCrossBinding_ParseDBCResponseShape asserts that ParseDBC populates
-// the documented response shape: ParsedDBC{DBC, Warnings} where DBC's
-// nested message + signal counts and IDs are preserved from the input.
+// streamingCrossBindingClient loads the canonical DBC, installs the given
+// properties, starts the stream, and ends it when the test ends.
+func streamingCrossBindingClient(t *testing.T, properties ...Formula) (*Client, context.Context) {
+	t.Helper()
+	c := newFFIClient(t)
+	ctx := context.Background()
+	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
+		t.Fatalf("ParseDBC: %v", err)
+	}
+	if len(properties) > 0 {
+		if err := c.SetProperties(ctx, properties); err != nil {
+			t.Fatalf("SetProperties: %v", err)
+		}
+	}
+	if err := c.StartStream(ctx); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := c.EndStream(ctx); err != nil {
+			t.Errorf("EndStream: %v", err)
+		}
+	})
+	return c, ctx
+}
+
+// sendCanonical sends one frame on the canonical message.
+func sendCanonical(t *testing.T, c *Client, ctx context.Context, ts int64, payload FramePayload, brs, esi *bool) FrameResponse {
+	t.Helper()
+	sid, d := canonicalFrameIDs()
+	resp, err := c.SendFrame(ctx, Timestamp{Microseconds: ts}, sid, d, payload, brs, esi)
+	if err != nil {
+		t.Fatalf("SendFrame: %v", err)
+	}
+	return resp
+}
+
+// ParseDBC answers with ParsedDBC{DBC, Warnings}: Warnings is never nil, since
+// Python emits [] and not None, and the message and signal names come back.
 func TestCrossBinding_ParseDBCResponseShape(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	parsed, err := c.ParseDBC(context.Background(), canonicalDBC())
 	if err != nil {
 		t.Fatalf("ParseDBC: %v", err)
@@ -104,31 +109,27 @@ func TestCrossBinding_ParseDBCResponseShape(t *testing.T) {
 	if parsed == nil {
 		t.Fatal("ParseDBC returned nil ParsedDBC")
 	}
-	// Warnings field is non-nil (may be empty); Go's nil-vs-empty distinction
-	// matters for cross-binding parity — Python emits [], not None.
 	if parsed.Warnings == nil {
 		t.Error("ParsedDBC.Warnings: want non-nil (possibly empty), got nil")
 	}
-	// Round-trip identity invariant on the canonical content.
 	if len(parsed.DBC.Messages) != 1 {
-		t.Errorf("ParsedDBC.DBC.Messages: want 1, got %d", len(parsed.DBC.Messages))
+		t.Fatalf("ParsedDBC.DBC.Messages: want 1, got %d", len(parsed.DBC.Messages))
 	}
 	if got := parsed.DBC.Messages[0].Name; got != "TestMessage" {
 		t.Errorf("Messages[0].Name: want TestMessage, got %q", got)
 	}
 	if len(parsed.DBC.Messages[0].Signals) != 1 {
-		t.Errorf("Messages[0].Signals: want 1, got %d", len(parsed.DBC.Messages[0].Signals))
+		t.Fatalf("Messages[0].Signals: want 1, got %d", len(parsed.DBC.Messages[0].Signals))
 	}
 	if got := parsed.DBC.Messages[0].Signals[0].Name; got != "TestSignal" {
 		t.Errorf("Signals[0].Name: want TestSignal, got %q", got)
 	}
 }
 
-// TestCrossBinding_ValidateDBCResponseShape asserts that ValidateDBC populates
-// the documented ValidationResult{HasErrors, Issues} shape; canonical DBC has
-// HasErrors=false.
+// ValidateDBC answers with ValidationResult{HasErrors, Issues}; the canonical
+// DBC has no errors and Issues is never nil.
 func TestCrossBinding_ValidateDBCResponseShape(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	result, err := c.ValidateDBC(context.Background(), canonicalDBC())
 	if err != nil {
 		t.Fatalf("ValidateDBC: %v", err)
@@ -144,63 +145,23 @@ func TestCrossBinding_ValidateDBCResponseShape(t *testing.T) {
 	}
 }
 
-// TestCrossBinding_SendFrameAck asserts the AckResponse path: sending a
-// non-violating frame returns Ack{}.
+// A frame that violates nothing answers Ack.
 func TestCrossBinding_SendFrameAck(t *testing.T) {
-	c := newCrossBindingClient(t)
-	ctx := context.Background()
-	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
-		t.Fatalf("ParseDBC: %v", err)
-	}
-	if err := c.SetProperties(ctx, []Formula{
-		Always{Inner: Atomic{Predicate: LessThan{Signal: "TestSignal", Value: IntRational(1000)}}},
-	}); err != nil {
-		t.Fatalf("SetProperties: %v", err)
-	}
-	if err := c.StartStream(ctx); err != nil {
-		t.Fatalf("StartStream: %v", err)
-	}
-	defer func() { _, _ = c.EndStream(ctx) }()
-
-	sid, _ := NewStandardID(256)
-	d, _ := NewDLC(8)
-	resp, err := c.SendFrame(ctx, Timestamp{Microseconds: 1000}, sid, d,
-		FramePayload{0, 0, 0, 0, 0, 0, 0, 0}, nil, nil)
-	if err != nil {
-		t.Fatalf("SendFrame: %v", err)
-	}
+	c, ctx := streamingCrossBindingClient(t,
+		Always{Inner: Atomic{Predicate: LessThan{Signal: "TestSignal", Value: IntRational(1000)}}})
+	resp := sendCanonical(t, c, ctx, 1000, FramePayload{0, 0, 0, 0, 0, 0, 0, 0}, nil, nil)
 	if _, ok := resp.(Ack); !ok {
 		t.Errorf("response: want Ack, got %T (%+v)", resp, resp)
 	}
 }
 
-// TestCrossBinding_SendFrameViolation asserts the PropertyBatchResponse
-// path: a violating frame returns PropertyBatch
-// carrying at least one PropertyResult with Verdict == Fails.
+// A violating frame answers a PropertyBatch whose violation carries a
+// timestamp.
 func TestCrossBinding_SendFrameViolation(t *testing.T) {
-	c := newCrossBindingClient(t)
-	ctx := context.Background()
-	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
-		t.Fatalf("ParseDBC: %v", err)
-	}
-	if err := c.SetProperties(ctx, []Formula{
-		Always{Inner: Atomic{Predicate: LessThan{Signal: "TestSignal", Value: IntRational(100)}}},
-	}); err != nil {
-		t.Fatalf("SetProperties: %v", err)
-	}
-	if err := c.StartStream(ctx); err != nil {
-		t.Fatalf("StartStream: %v", err)
-	}
-	defer func() { _, _ = c.EndStream(ctx) }()
-
-	sid, _ := NewStandardID(256)
-	d, _ := NewDLC(8)
-	// Signal value 0xFFFF (65535) > 100 → violation.
-	resp, err := c.SendFrame(ctx, Timestamp{Microseconds: 1000}, sid, d,
-		FramePayload{0xFF, 0xFF, 0, 0, 0, 0, 0, 0}, nil, nil)
-	if err != nil {
-		t.Fatalf("SendFrame: %v", err)
-	}
+	c, ctx := streamingCrossBindingClient(t,
+		Always{Inner: Atomic{Predicate: LessThan{Signal: "TestSignal", Value: IntRational(100)}}})
+	// 65535 > 100
+	resp := sendCanonical(t, c, ctx, 1000, FramePayload{0xFF, 0xFF, 0, 0, 0, 0, 0, 0}, nil, nil)
 	b, ok := resp.(PropertyBatch)
 	if !ok {
 		t.Fatalf("response: want PropertyBatch, got %T (%+v)", resp, resp)
@@ -214,39 +175,15 @@ func TestCrossBinding_SendFrameViolation(t *testing.T) {
 	}
 }
 
-// TestCrossBinding_SendFrameMultiEvent asserts the
-// multi-event batch: a single frame can produce both a mid-stream
-// Satisfaction AND a terminal Violation in source-order.  Setup: two
-// properties — index 0 is `eventually(TestSignal == 100)` (completes
-// on the first witness), index 1 is `always(TestSignal < 50)`
-// (violates at the same frame because 100 > 50).
+// One frame can complete one property and violate another; the batch lists
+// the satisfaction first and the violation last, in the kernel's
+// dispatchIterResult order.
 func TestCrossBinding_SendFrameMultiEvent(t *testing.T) {
-	c := newCrossBindingClient(t)
-	ctx := context.Background()
-	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
-		t.Fatalf("ParseDBC: %v", err)
-	}
-	if err := c.SetProperties(ctx, []Formula{
+	c, ctx := streamingCrossBindingClient(t,
 		Eventually{Inner: Atomic{Predicate: Equals{Signal: "TestSignal", Value: IntRational(100)}}},
-		Always{Inner: Atomic{Predicate: LessThan{Signal: "TestSignal", Value: IntRational(50)}}},
-	}); err != nil {
-		t.Fatalf("SetProperties: %v", err)
-	}
-	if err := c.StartStream(ctx); err != nil {
-		t.Fatalf("StartStream: %v", err)
-	}
-	defer func() { _, _ = c.EndStream(ctx) }()
-
-	sid, _ := NewStandardID(256)
-	d, _ := NewDLC(8)
-	// TestSignal = 100 fires BOTH:
-	//  - property 0 (eventually(== 100)): Satisfied → complete(0)
-	//  - property 1 (always(< 50)):       Violated  → halt(1)
-	resp, err := c.SendFrame(ctx, Timestamp{Microseconds: 1000}, sid, d,
-		FramePayload{100, 0, 0, 0, 0, 0, 0, 0}, nil, nil)
-	if err != nil {
-		t.Fatalf("SendFrame: %v", err)
-	}
+		Always{Inner: Atomic{Predicate: LessThan{Signal: "TestSignal", Value: IntRational(50)}}})
+	// TestSignal = 100 completes the first property and violates the second
+	resp := sendCanonical(t, c, ctx, 1000, FramePayload{100, 0, 0, 0, 0, 0, 0, 0}, nil, nil)
 	b, ok := resp.(PropertyBatch)
 	if !ok {
 		t.Fatalf("response: want PropertyBatch, got %T (%+v)", resp, resp)
@@ -254,108 +191,55 @@ func TestCrossBinding_SendFrameMultiEvent(t *testing.T) {
 	if len(b.Results) != 2 {
 		t.Fatalf("PropertyBatch.Results: want 2 entries, got %d (%+v)", len(b.Results), b.Results)
 	}
-	// Source-order per dispatchIterResult invariant: satisfaction first, violation last.
-	if b.Results[0].Verdict != Holds {
-		t.Errorf("Results[0].Verdict: want Holds, got %s", b.Results[0].Verdict)
+	if b.Results[0].Verdict != Holds || int(b.Results[0].PropertyIndex) != 0 {
+		t.Errorf("Results[0]: want Holds for property 0, got %s for property %d", b.Results[0].Verdict, b.Results[0].PropertyIndex)
 	}
-	if int(b.Results[0].PropertyIndex) != 0 {
-		t.Errorf("Results[0].PropertyIndex: want 0, got %d", b.Results[0].PropertyIndex)
-	}
-	if b.Results[1].Verdict != Fails {
-		t.Errorf("Results[1].Verdict: want Fails, got %s", b.Results[1].Verdict)
-	}
-	if int(b.Results[1].PropertyIndex) != 1 {
-		t.Errorf("Results[1].PropertyIndex: want 1, got %d", b.Results[1].PropertyIndex)
+	if b.Results[1].Verdict != Fails || int(b.Results[1].PropertyIndex) != 1 {
+		t.Errorf("Results[1]: want Fails for property 1, got %s for property %d", b.Results[1].Verdict, b.Results[1].PropertyIndex)
 	}
 }
 
-// TestCrossBinding_SendFrameError asserts the ErrorResponse path: an invalid
-// CAN ID surfaces as a Go error from SendFrame, with the code field set.
-func TestCrossBinding_SendFrameError(t *testing.T) {
-	c := newCrossBindingClient(t)
-	ctx := context.Background()
-	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
-		t.Fatalf("ParseDBC: %v", err)
-	}
-	if err := c.StartStream(ctx); err != nil {
-		t.Fatalf("StartStream: %v", err)
-	}
-	defer func() { _, _ = c.EndStream(ctx) }()
-
-	// 0x800 = 2048 is out of standard 11-bit range; NewStandardID rejects it
-	// before reaching the FFI, so the error path is exercised at the type
-	// constructor — the cross-binding invariant is "invalid CAN ID is rejected
-	// somewhere on the path", which is satisfied by the Go newtype
-	// constructor returning a typed error.
+// An out-of-range CAN ID is refused by the type constructors before anything
+// reaches the FFI, on the standard and the extended range; the Python and C++
+// tests assert the same at their own type boundaries.
+func TestCrossBinding_CANIDRefusedAtTheTypeBoundary(t *testing.T) {
 	if _, err := NewStandardID(0x800); err == nil {
 		t.Error("NewStandardID(0x800): want error on out-of-range standard CAN ID, got nil")
 	}
-	// And exercised end-to-end: an extended ID just over the 29-bit cap
-	// (0x20000000 = 2^29) should also reject. The newtype boundary check
-	// is the cross-binding-equivalent of Python raising on out-of-range
-	// CAN IDs and C++ returning an Error variant.
 	if _, err := NewExtendedID(0x20000000); err == nil {
 		t.Error("NewExtendedID(0x20000000): want error on out-of-range extended CAN ID, got nil")
 	}
 }
 
-// TestCrossBinding_SendFrameBrsEsiPassthrough mirrors Python's
-// test_canfd_brs_esi_passthrough: the Aletheia kernel does not consume
-// CAN-FD BRS / ESI metadata, but the binding must accept the bits as
-// *bool params and the FFI must accept the 4 trailing u8 args without
-// crashing.  Every combination of brs / esi ∈ {nil, &true, &false}
-// must return Ack for an otherwise-valid frame.
+// The kernel carries the CAN-FD BRS and ESI bits without evaluating them:
+// every combination of nil, true and false on an otherwise valid frame answers
+// Ack (Python's test_canfd_brs_esi_passthrough is the same case).
 func TestCrossBinding_SendFrameBrsEsiPassthrough(t *testing.T) {
-	c := newCrossBindingClient(t)
-	ctx := context.Background()
-	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
-		t.Fatalf("ParseDBC: %v", err)
-	}
-	if err := c.StartStream(ctx); err != nil {
-		t.Fatalf("StartStream: %v", err)
-	}
-	defer func() { _, _ = c.EndStream(ctx) }()
-
-	sid, _ := NewStandardID(256)
-	d, _ := NewDLC(8)
-	tval := true
-	fval := false
+	c, ctx := streamingCrossBindingClient(t)
+	tval, fval := true, false
 	options := []*bool{nil, &tval, &fval}
-
 	var ts int64
 	for _, brs := range options {
 		for _, esi := range options {
 			ts += 1000
-			resp, err := c.SendFrame(
-				ctx, Timestamp{Microseconds: ts}, sid, d,
-				FramePayload{0, 0, 0, 0, 0, 0, 0, 0},
-				brs, esi,
-			)
-			if err != nil {
-				t.Fatalf("SendFrame brs=%v esi=%v: %v", brs, esi, err)
-			}
+			resp := sendCanonical(t, c, ctx, ts, FramePayload{0, 0, 0, 0, 0, 0, 0, 0}, brs, esi)
 			if _, ok := resp.(Ack); !ok {
-				t.Errorf("SendFrame brs=%v esi=%v: want Ack, got %T (%+v)",
-					brs, esi, resp, resp)
+				t.Errorf("SendFrame brs=%v esi=%v: want Ack, got %T (%+v)", brs, esi, resp, resp)
 			}
 		}
 	}
 }
 
-// Identifier validity record enforces
-// MaxIdentifierLength. The Agda kernel's `validIdentifierᵇ` predicate
-// gained a third conjunct asserting `length name <ᵇ suc max-identifier-
-// length`. Identifiers at the limit (128 chars) still parse; anything
-// longer is rejected at `mkIdentFromChars` and surfaces as a parse
-// error on the wire (currently `dbc_text_trailing_input` due to parser
-// monad position semantics; refining to typed `InputBoundExceeded
-// IdentifierLength` is downstream parser-monad plumbing).
+// identifierDBCText is a DBC text whose one message carries the given name.
+func identifierDBCText(name string) string {
+	return "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n"
+}
 
+// An identifier of exactly MaxIdentifierLength parses and comes back whole.
 func TestCrossBinding_IdentifierAtMaxLengthAccepted(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	name := strings.Repeat("A", MaxIdentifierLength)
-	dbcText := "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n"
-	parsed, err := c.ParseDBCText(context.Background(), dbcText)
+	parsed, err := c.ParseDBCText(context.Background(), identifierDBCText(name))
 	if err != nil {
 		t.Fatalf("expected success, got error: %v", err)
 	}
@@ -364,22 +248,30 @@ func TestCrossBinding_IdentifierAtMaxLengthAccepted(t *testing.T) {
 	}
 }
 
+// An identifier one character past MaxIdentifierLength is refused by the
+// kernel's identifier check and surfaces as a parse error whose code is the
+// trailing-input one, because the parser stops where the identifier does.
 func TestCrossBinding_IdentifierOverMaxRejected(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	name := strings.Repeat("A", MaxIdentifierLength+1)
-	dbcText := "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n"
-	_, err := c.ParseDBCText(context.Background(), dbcText)
+	_, err := c.ParseDBCText(context.Background(), identifierDBCText(name))
 	if err == nil {
-		t.Fatal("expected parse error for 129-char identifier, got nil")
+		t.Fatal("expected a parse error for an identifier one past the limit, got nil")
+	}
+	var aErr *Error
+	if !errors.As(err, &aErr) {
+		t.Fatalf("expected *aletheia.Error, got %T: %v", err, err)
+	}
+	if aErr.Code != CodeDBCTextTrailingInput {
+		t.Errorf("Code = %q, want %q", aErr.Code, CodeDBCTextTrailingInput)
 	}
 }
 
-// TestCrossBinding_GeometryGateRefusesOutOfFrameStartBit asserts the shared
-// entry gate refuses out-of-capacity geometry on the JSON route with a typed
-// parse error naming the submitted value (mirrors Python's
-// TestGeometryGateParity and the C++ [parse_error] integration cases).
+// The shared entry gate refuses a signal whose start bit lies past the frame,
+// on the JSON route, with a typed parse error naming the submitted value
+// (Python's TestGeometryGateParity is the same case).
 func TestCrossBinding_GeometryGateRefusesOutOfFrameStartBit(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	sid, _ := NewStandardID(256)
 	d, _ := NewDLC(1)
 	dbc := DBCDefinition{
@@ -388,7 +280,7 @@ func TestCrossBinding_GeometryGateRefusesOutOfFrameStartBit(t *testing.T) {
 			ID: sid, Name: "Tiny", DLC: d, Sender: "ECU",
 			Signals: []DBCSignal{{
 				Name:      "OutOfFrame",
-				StartBit:  8, // first bit past the 1-byte frame
+				StartBit:  8, // the first bit past a 1-byte frame
 				BitLength: 8,
 				ByteOrder: LittleEndian,
 				Factor:    Rational{Numerator: 1, Denominator: 1},
@@ -415,12 +307,11 @@ func TestCrossBinding_GeometryGateRefusesOutOfFrameStartBit(t *testing.T) {
 	}
 }
 
-// TestCrossBinding_MotorolaFullFrameClosure pins kernel closure under its own
-// emission for the textbook Motorola layout: a full-frame big-endian signal
-// (MSB at bit 7, descending through the whole DLC-2 frame) loads on the text
-// route and the SAME document is accepted back by the JSON route.
+// A full-frame Motorola signal (MSB at bit 7, descending through a DLC-2
+// frame) loads on the text route, and the same document is accepted back on
+// the JSON route with the same geometry.
 func TestCrossBinding_MotorolaFullFrameClosure(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	ctx := context.Background()
 	text := "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: Engine\n\n" +
 		"BO_ 100 Msg: 2 Engine\n" +
@@ -445,63 +336,29 @@ func TestCrossBinding_MotorolaFullFrameClosure(t *testing.T) {
 	}
 }
 
-// TestCrossBinding_ErrorTypeShape asserts that *aletheia.Error has the
-// documented field set when surfaced (mirrors Python's
-// test_error_response_keys_when_observed_directly).
-func TestCrossBinding_ErrorTypeShape(t *testing.T) {
-	// Synthesize an Error and verify its public shape.
-	e := &Error{
-		Code:    "frame_invalid_can_id",
-		Message: "CAN ID out of range",
-	}
-	if e.Code == "" {
-		t.Error("Error.Code: want non-empty")
-	}
-	if e.Message == "" {
-		t.Error("Error.Message: want non-empty")
-	}
-	if e.Error() == "" {
-		t.Error("Error.Error(): want non-empty")
-	}
-	// Cross-binding parity: errors.As pattern must work for downstream
-	// consumers; Python uses isinstance(exc, AletheiaError) the same way.
-	var target *Error
-	if !errors.As(e, &target) {
-		t.Error("errors.As(*Error): want true")
-	}
-}
-
-// Typed NestingDepth wire-error refinement.
-// A deeply-nested LTL formula triggers the kernel-side `jsonDepth`
-// check at `handleParsedJSON`, which emits
-// `ParseErr (InputBoundExceeded NestingDepth …)` instead of the
-// former `DispatchErr InvalidJSON`.  The wire response now carries
-// `bound_kind / observed / limit`, lifted into `*InputBoundExceededError`
-// by `checkErrorStatus`.  Mirrors Python's
-// `TestNestingDepthBound::test_nested_at_depth_63_rejected`.
-//
-// AtomCount note: `inputBoundExceededFromResponse` is BoundKind-
-// generic — it dispatches on `bound_kind` string, not on `code`.  This
-// NestingDepth test exercises the same lifter that handles AtomCount
-// (>1024 atom-per-property) and IdentifierLength.  AtomCount over-bound
-// rejection is verified at the kernel + Python boundary by
-// `python/tests/test_input_bounds.py::TestAtomCountBound`; building a
-// 1025-atom And-tree across the Go FFI takes ~109s which is unsuitable
-// for a unit-test budget.
+// A formula nested past MaxNestingDepth is refused by the kernel's depth
+// check with an InputBoundExceeded error carrying bound kind, observed depth
+// and limit, lifted to *InputBoundExceededError (Python's
+// TestNestingDepthBound is the same case). The same lifter serves the
+// AtomCount and IdentifierLength kinds; the AtomCount bound is exercised at
+// the kernel and Python boundary (python/tests/test_input_bounds.py,
+// TestAtomCountBound), a tree of that many atoms being too slow to build
+// across the Go FFI for a unit test.
 func TestCrossBinding_NestingDepthLiftsToInputBoundExceeded(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	ctx := context.Background()
 	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
-	// 63 always-wrappers + atomic + predicate = JSON depth 65 (> 64).
+	// the atomic and its predicate are two levels; MaxNestingDepth-1 wrappers
+	// put the formula one level past the limit
 	inner := Formula(Atomic{Predicate: Equals{Signal: "TestSignal", Value: IntRational(0)}})
-	for range 63 {
+	for range MaxNestingDepth - 1 {
 		inner = Always{Inner: inner}
 	}
 	err := c.SetProperties(ctx, []Formula{inner})
 	if err == nil {
-		t.Fatal("expected InputBoundExceededError for 65-deep formula, got nil")
+		t.Fatal("expected InputBoundExceededError for a formula one past the depth limit, got nil")
 	}
 	var bex *InputBoundExceededError
 	if !errors.As(err, &bex) {
@@ -521,17 +378,13 @@ func TestCrossBinding_NestingDepthLiftsToInputBoundExceeded(t *testing.T) {
 	}
 }
 
-// TestCrossBinding_BinaryExtractionReasonParity asserts binary/JSON reason
-// parity end-to-end against the real kernel: the error reason on the packed
-// binary extraction wire is the kernel-minted detailed string, byte-identical
-// to what the JSON path surfaces for the same error (shared kernel formatter;
-// reason parity machine-checked kernel-side). An out-of-bounds frame is
-// decoded through both paths and the reasons compared for EXACT equality.
+// The error reason on the packed binary extraction wire is the kernel's
+// detailed string, byte-identical to the JSON path's for the same frame: one
+// shared kernel formatter, checked here end to end on an out-of-bounds value.
 func TestCrossBinding_BinaryExtractionReasonParity(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	ctx := context.Background()
-	sid, _ := NewStandardID(256)
-	d, _ := NewDLC(8)
+	sid, d := canonicalFrameIDs()
 	dbc := DBCDefinition{
 		Version: "1.0",
 		Messages: []DBCMessage{{
@@ -556,11 +409,10 @@ func TestCrossBinding_BinaryExtractionReasonParity(t *testing.T) {
 	if _, err := c.ParseDBC(ctx, dbc); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
-	// Raw 65535 scales to 16383.75, above the 8000 maximum → one extraction error.
+	// raw 65535 scales to 16383.75, above the 8000 maximum: one extraction error
 	payload := FramePayload{0xFF, 0xFF, 0, 0, 0, 0, 0, 0}
 
-	// Binary path: ParseDBC populated the signal-name cache, so the public
-	// ExtractSignals commits to the packed-binary wire.
+	// the public ExtractSignals commits to the binary wire once the DBC is loaded
 	binRes, err := c.ExtractSignals(ctx, sid, d, payload)
 	if err != nil {
 		t.Fatalf("ExtractSignals (binary path): %v", err)
@@ -568,8 +420,7 @@ func TestCrossBinding_BinaryExtractionReasonParity(t *testing.T) {
 	if len(binRes.Errors) != 1 {
 		t.Fatalf("binary path: len(Errors) = %d, want 1 (out-of-bounds)", len(binRes.Errors))
 	}
-
-	// JSON path: the same frame through the backend's JSON extraction endpoint.
+	// the same frame through the backend's JSON extraction
 	resp, err := c.backend.ExtractSignalsBinary(c.state, sid, d, []byte(payload))
 	if err != nil {
 		t.Fatalf("ExtractSignalsBinary (JSON path): %v", err)
@@ -581,7 +432,6 @@ func TestCrossBinding_BinaryExtractionReasonParity(t *testing.T) {
 	if len(jsonRes.Errors) != 1 {
 		t.Fatalf("JSON path: len(Errors) = %d, want 1 (out-of-bounds)", len(jsonRes.Errors))
 	}
-
 	if binRes.Errors[0].Name != jsonRes.Errors[0].Name {
 		t.Errorf("error name: binary %q != JSON %q", binRes.Errors[0].Name, jsonRes.Errors[0].Name)
 	}

@@ -292,14 +292,31 @@ jobs:
           # mode, which never runs a possibly-stale on-disk compiled binary.
           python3 -m tools.check_bench_schema --built
 
+      - name: Select the arguments the chosen mode reads
+        run: |
+          set -euo pipefail
+          # run_all.sh refuses a flag the selected mode does not read, rather
+          # than accepting it and measuring its default: throughput reads both
+          # counts, latency reads the frame count as its operation count, and
+          # scaling picks its own trace sizes and reads the run count. The
+          # dispatch inputs are numbers and mode names, so the string splits
+          # back into arguments safely where it is used.
+          case "${BENCH}" in
+            throughput) args="--frames ${FRAMES} --runs ${RUNS}" ;;
+            latency)    args="--frames ${FRAMES}" ;;
+            scaling)    args="--runs ${RUNS}" ;;
+            *) echo "unknown bench '${BENCH}'" >&2; exit 1 ;;
+          esac
+          echo "BENCH_ARGS=${args}" >> "${GITHUB_ENV}"
+
       - name: Run the cross-language benchmark
         run: |
           set -euo pipefail
           # Activate the venv so run_all.sh's `python3 -m benchmarks.<bench>`
           # resolves to the venv interpreter (which has aletheia installed).
           source python/.venv/bin/activate
-          bash benchmarks/run_all.sh \
-            --frames "${FRAMES}" --runs "${RUNS}" --bench "${BENCH}"
+          read -ra args <<< "${BENCH_ARGS}"
+          bash benchmarks/run_all.sh "${args[@]}" --bench "${BENCH}"
 
       # PR gate: fail the check on a noticeable regression vs the committed GHA
       # baseline. PR-only (exploratory workflow_dispatch runs are not gated). On
@@ -340,8 +357,8 @@ jobs:
             || echo "::warning title=FLAKE-RETRY::could not preserve attempt-1 benchmark results (none written before the failure?)"
           rm -f benchmarks/results/*.json
           source python/.venv/bin/activate
-          bash benchmarks/run_all.sh \
-            --frames "${FRAMES}" --runs "${RUNS}" --bench "${BENCH}"
+          read -ra args <<< "${BENCH_ARGS}"
+          bash benchmarks/run_all.sh "${args[@]}" --bench "${BENCH}"
           python/.venv/bin/python3 -m tools.benchmark_gate --bench "${BENCH}" --threshold-pct 30
 
       # Print + upload AFTER the gate so a retried run's artifact holds the

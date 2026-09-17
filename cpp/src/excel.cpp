@@ -426,26 +426,37 @@ static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResul
     auto then_signal = get_str(cells, "Then Signal", ctx_str);
     auto then_cond = get_str(cells, "Then Condition", ctx_str);
 
-    if (!detail::is_then_condition(then_cond))
+    // The word is held to the vocabulary by taking its slots: one lookup
+    // answers both whether the obligation is known and what it reads.
+    const auto slots = detail::then_slots(then_cond);
+    if (!slots)
         throw std::runtime_error(ctx_str + ": unknown then condition '" + then_cond + "'");
 
     auto then_builder = when_result.then(then_signal);
     auto within_ms = std::chrono::milliseconds{get_int(cells, "Within (ms)", ctx_str)};
 
+    // Which columns the obligation reads is the vocabulary's business, not
+    // this loader's; which columns they are, and what to say when one is
+    // missing, is this loader's.
     CheckResult result = [&]() -> CheckResult {
-        if (then_cond == detail::k_equals)
-            return then_builder.equals(PhysicalValue{get_decimal(cells, "Then Value", ctx_str)})
-                .within(within_ms);
-        if (then_cond == detail::k_exceeds)
-            return then_builder.exceeds(PhysicalValue{get_decimal(cells, "Then Value", ctx_str)})
-                .within(within_ms);
-        // the only remaining then-condition is a range
-        if (!has_key(cells, "Then Min") || !has_key(cells, "Then Max"))
-            throw std::runtime_error(
-                ctx_str + ": then condition 'stays_between' requires 'Then Min' and 'Then Max'");
-        auto lo = PhysicalValue{get_decimal(cells, "Then Min", ctx_str)};
-        auto hi = PhysicalValue{get_decimal(cells, "Then Max", ctx_str)};
-        return then_builder.stays_between(lo, hi).within(within_ms);
+        // The slots the obligation does not read stay at zero and the
+        // dispatcher ignores them.
+        PhysicalValue value{Rational{0, 1}};
+        PhysicalValue lo{Rational{0, 1}};
+        PhysicalValue hi{Rational{0, 1}};
+        switch (*slots) {
+        case detail::ThenSlots::Value:
+            value = PhysicalValue{get_decimal(cells, "Then Value", ctx_str)};
+            break;
+        case detail::ThenSlots::Range:
+            if (!has_key(cells, "Then Min") || !has_key(cells, "Then Max"))
+                throw std::runtime_error(ctx_str + ": then condition '" + then_cond +
+                                         "' requires 'Then Min' and 'Then Max'");
+            lo = PhysicalValue{get_decimal(cells, "Then Min", ctx_str)};
+            hi = PhysicalValue{get_decimal(cells, "Then Max", ctx_str)};
+            break;
+        }
+        return detail::dispatch_then(then_builder, then_cond, value, lo, hi, within_ms);
     }();
 
     apply_row_metadata(result, cells, ctx_str);

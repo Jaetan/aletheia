@@ -1,0 +1,7 @@
+## go test ./aletheia/ -run=^$ -fuzz=^FuzzParseResponse$ -fuzztime=20s
+fuzz: elapsed: 15s, execs: 2984414 (0/sec), new interesting: 221 (total: 227)
+fuzz: elapsed: 18s, execs: 2984414 (0/sec), new interesting: 221 (total: 227)
+fuzz: elapsed: 21s, execs: 2984414 (0/sec), new interesting: 221 (total: 227)
+fuzz: elapsed: 22s, execs: 2984414 (0/sec), new interesting: 221 (total: 227)
+PASS
+ok  	github.com/aletheia-automotive/aletheia-go/v5/aletheia	22.063s

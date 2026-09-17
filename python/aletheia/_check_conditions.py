@@ -9,15 +9,16 @@ and dispatch helpers so that the two loaders stay in sync.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final, Literal
 
 from aletheia import checks
 from aletheia.client._types import ValidationError
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from fractions import Fraction
 
-    from aletheia.checks import CheckResult, WhenCondition, WhenSignal
+    from aletheia.checks import CheckResult, ThenCondition, ThenSignal, WhenCondition, WhenSignal
 
 # ============================================================================
 # Condition keyword sets
@@ -53,9 +54,20 @@ ALL_SIMPLE_CONDITIONS = (
 )
 
 WHEN_CONDITIONS = frozenset({"exceeds", "equals", "drops_below"})
-_THEN_VALUE_CONDITIONS = frozenset({"equals", "exceeds"})
-_THEN_RANGE_CONDITIONS = frozenset({"stays_between"})
-ALL_THEN_CONDITIONS = _THEN_VALUE_CONDITIONS | _THEN_RANGE_CONDITIONS
+
+ThenSlots = Literal["value", "range"]
+#: Which value slots each obligation reads, written once.  A loader asks this
+#: rather than deciding again, because a loader that decides does so with a
+#: trailing branch: a word this table gained and that branch did not was built
+#: as whatever the branch happened to be, which was the range obligation in both
+#: loaders.  The set a loader accepts is this table's keys, so an obligation
+#: cannot be accepted and unclassified.
+THEN_SLOTS: Final[Mapping[str, ThenSlots]] = {
+    "equals": "value",
+    "exceeds": "value",
+    "stays_between": "range",
+}
+ALL_THEN_CONDITIONS = frozenset(THEN_SLOTS)
 
 
 # ============================================================================
@@ -76,6 +88,29 @@ def dispatch_when(
     if condition == "drops_below":
         return builder.drops_below(value)
     msg = f"Unknown when condition: {condition!r}"
+    raise ValidationError(msg)
+
+
+def dispatch_then(
+    builder: ThenSignal,
+    condition: str,
+    slots: Mapping[str, int | Fraction],
+) -> ThenCondition:
+    """Build the obligation a word names, from the slots THEN_SLOTS says it reads.
+
+    The loader hands over the slots its obligation reads and no others, so
+    there is no filler for a slot nobody looks at: a value under a key this
+    reads for another condition would raise rather than sit unobserved.  A word
+    outside the table is refused here rather than built as whichever branch came
+    last, which is what both loaders used to do.
+    """
+    if condition == "equals":
+        return builder.equals(slots["value"])
+    if condition == "exceeds":
+        return builder.exceeds(slots["value"])
+    if condition == "stays_between":
+        return builder.stays_between(slots["lo"], slots["hi"])
+    msg = f"Unknown then condition: {condition!r}"
     raise ValidationError(msg)
 
 
