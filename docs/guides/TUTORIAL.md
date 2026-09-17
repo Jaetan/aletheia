@@ -602,6 +602,8 @@ func main() {
     defer client.Close()
 
     ctx := context.Background()
+    _ = ctx // the steps below use it
+}
 ```
 
 `NewFFIBackend` accepts functional options (`aletheia.WithRTSCores`,
