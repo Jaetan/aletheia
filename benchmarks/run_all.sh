@@ -45,15 +45,18 @@ BENCH=throughput
 # lanes four ways and the committed baselines were not comparable. 500 is the
 # larger of the two, which is what the Python and C++ baselines were taken at.
 WARMUP=500
-WARMUP_GIVEN=0
+
+# The flags actually given, whatever their value, so that a flag the selected
+# mode does not read can be told from a default it never chose.
+GIVEN=""
 
 # Parse args
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --frames) FRAMES="$2"; shift 2 ;;
-        --runs)   RUNS="$2";   shift 2 ;;
+        --frames) FRAMES="$2"; GIVEN="$GIVEN frames"; shift 2 ;;
+        --runs)   RUNS="$2";   GIVEN="$GIVEN runs";   shift 2 ;;
         --bench)  BENCH="$2";  shift 2 ;;
-        --warmup) WARMUP="$2"; WARMUP_GIVEN=1; shift 2 ;;
+        --warmup) WARMUP="$2"; GIVEN="$GIVEN warmup"; shift 2 ;;
         *)        echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
 done
@@ -85,16 +88,29 @@ case "$BENCH" in
     *) echo "ERROR: unknown --bench '$BENCH' (expected throughput, latency or scaling)" >&2; exit 1 ;;
 esac
 
-# --warmup belongs to the latency mode.  For latency the harnesses count
-# operations discarded before timing; for throughput they count whole warmup
-# RUNS, each a full frame set, so one number cannot serve both and only the
-# latency arms below pass it.  A value given for another mode would be accepted
-# and reach nothing, which is the one thing this harness refuses to do with an
-# argument: it is refused here rather than silently discarded.
-if [[ "$WARMUP_GIVEN" == 1 && "$BENCH" != latency ]]; then
-    echo "ERROR: --warmup is the latency mode's; --bench is '$BENCH'" >&2
-    exit 1
-fi
+# What each mode reads, which is the same list the per-binding argument
+# builders below are written from: throughput takes both counts; latency takes
+# the frame count, as the number of operations it times, and the warmup, which
+# it counts in operations where the other modes would count whole runs of the
+# frame set; scaling picks its own trace sizes and takes the run count alone.
+#
+# A flag the selected mode does not read is refused here rather than accepted
+# and dropped, which is the one thing this harness will not do with an
+# argument: a caller who asks for ten runs of a latency measurement has asked
+# for something, and answering with the default while reporting success is
+# how a run comes to measure what nobody requested.
+case "$BENCH" in
+    throughput) READS="frames runs" ;;
+    latency)    READS="frames warmup" ;;
+    scaling)    READS="runs" ;;
+esac
+for flag in $GIVEN; do
+    case " $READS " in
+        *" $flag "*) ;;
+        *) echo "ERROR: --$flag is not read by the $BENCH mode, which reads ${READS// /, }" >&2
+           exit 1 ;;
+    esac
+done
 
 mkdir -p "$RESULTS_DIR"
 
