@@ -1,4 +1,2 @@
-090 go/aletheia (directory): the Backend interface shape [xrev] missing: ['design and interfaces:', 'consistency and compatibility:', 'ease of use at the call sites:', 'memory and sanitizers:', 'coverage:', 'dryness:']
-094 go/aletheia (directory): vocabulary types on the DBC metadata [xrev] missing: ['design and interfaces:', 'consistency and compatibility:', 'ease of use at the call sites:', 'memory and sanitizers:', 'coverage:', 'dryness:']
-reports by contract: {'frev': 95, 'drev': 13, 'xrev': 10, 'not completed': 0}
-out of shape: 2
+reports by contract: {'frev': 96, 'drev': 13, 'xrev': 10, 'not completed': 0}
+out of shape: 0

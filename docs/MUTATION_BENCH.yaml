@@ -99,34 +99,49 @@ bindings:
       # is what the runner records and what score_pct is taken from.
       #
       # The split between killed and timed out moves with the machine, and it
-      # moves a long way. This tree gave 649 killed and 11 timed out on a quiet
-      # host with nothing editing it, and an earlier one 39 killed with 622
-      # timed out in a sweep that had a second sweep running beside it. A sweep
-      # whose sources are edited while it runs reports neither: it gathers
-      # coverage once at the start and then mutates positions that have moved,
-      # so lines a test covers come back as not covered. A mutant that times out counts as neither
-      # killed nor lived, so that second run reported no survivors and full
-      # efficacy having actually tested one mutant in twenty. A third sweep
-      # generated the same total and left none alive, which is what is compared
-      # below.
+      # moves a long way. This tree gave 646 killed and 11 timed out in under
+      # two minutes on a quiet host with nothing editing it. Three conditions make a
+      # sweep report numbers nobody should record, each measured here:
       #
-      # So the two numbers to compare a later run against are survivors and
-      # generated, which were the same in all three; the rest is what the run
-      # recorded here produced.
+      # A second sweep running beside it: 39 killed, 622 timed out. A sweep run
+      # straight after another: 25 killed, 632 timed out, because gremlins
+      # times a run of the suite to derive its per-mutant timeout and a warm
+      # `go test` cache answers in milliseconds. Clear it with
+      # `go clean -testcache` before a sweep whose counts are recorded. A
+      # mutant that times out is neither killed nor lived, so both of those
+      # runs report no survivors and full efficacy having tested one mutant in
+      # twenty.
+      #
+      # Sources edited while the sweep runs: coverage is gathered once at the
+      # start and the mutants land at positions that have moved, so lines a
+      # test covers come back as not covered.
+      #
+      # The sweep is run with ALETHEIA_LIB naming the built kernel, which is
+      # what the lane and the probe over this file both do. Without it the
+      # library-finding fallback runs, where with it set the search returns on
+      # its first branch, so the same tree reports 98 not covered and 657
+      # killed: the seven blocks that differ are all in that one function, and
+      # recording those counts would hold the lane to a run it does not make.
+      #
+      # So the three numbers a later run is compared against are survivors,
+      # generated and not_covered, each a property of the source, its tests and
+      # the kernel being present; the killed and timeout counts are what the
+      # recorded run produced.
       survivors: 0
-      generated: 762
+      generated: 759
       not_covered: 102
       timeouts: 11
-      total_mutants: 649
+      total_mutants: 646
       score_pct: 100
       run_at: "2026-09-17"
       # The lane refuses a sweep with more than this many timed out, because a
       # mutant that times out is neither killed nor lived and a sweep that
       # timed out on nearly all of them reports no survivors and full efficacy.
-      # A quiet host gives 11, all in the file carrying the cgo trampolines,
-      # whose mutants each reload the library; a sweep with a second sweep
-      # beside it gave 622. This sits far enough above the first not to flake
-      # and far enough below the second to fail hard.
+      # A quiet host on a cold test cache gives 11, in the file carrying the
+      # cgo trampolines, whose mutants each reload the library; a sweep with a
+      # second sweep beside it gave 622, and a sweep run straight after another
+      # gave 632. This sits far enough above the first not to flake and far
+      # enough below the others to fail hard.
       timeout_ceiling: 50
 
   cpp:

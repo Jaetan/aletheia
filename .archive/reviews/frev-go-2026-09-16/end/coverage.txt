@@ -1,6 +1,4 @@
 ## go test ./aletheia/ -count=1 -coverprofile (no -race; the coverage lens, not a gate)
-ok  	github.com/aletheia-automotive/aletheia-go/aletheia	2.136s	coverage: 87.1% of statements
-## go tool cover -func, per function
-github.com/aletheia-automotive/aletheia-go/aletheia/yaml.go:274:		Range				66.7%
-github.com/aletheia-automotive/aletheia-go/aletheia/yaml.go:291:		parseYAMLWhenThen		90.0%
-total:										(statements)			86.9%
+ok  	github.com/aletheia-automotive/aletheia-go/aletheia	coverage: 87.3% of statements
+## go tool cover -func, total
+total:										(statements)			87.0%
