@@ -16,112 +16,85 @@ type ffiConfig struct {
 	logger   *slog.Logger
 }
 
-// WithRTSCores sets the number of GHC RTS capabilities (-N flag).
-// Use 1 (default) for single-bus monitoring. Set to the number of CAN
-// buses for multi-bus monitoring from separate goroutines. Only takes
-// effect on the first [NewFFIBackend] call in a process.
+// WithRTSCores sets the number of GHC RTS capabilities (the -N flag): 1, the
+// default, for one bus; the number of buses when several goroutines each
+// monitor their own. Only the first [NewFFIBackend] call in a process applies
+// it; a later call asking for a different number logs rts.cores_mismatch.
 func WithRTSCores(n int) FFIBackendOption {
 	return func(c *ffiConfig) { c.rtsCores = n }
 }
 
-// WithFFILogger sets a logger for FFI backend initialization events.
-// When nil (default), no logging occurs.
+// WithFFILogger sets the logger for backend initialisation events. Nil, the
+// default, logs nothing.
 func WithFFILogger(l *slog.Logger) FFIBackendOption {
 	return func(c *ffiConfig) { c.logger = l }
 }
 
-// Backend abstracts the FFI boundary to the Agda core.
-// Production code uses [FFIBackend]; tests use [MockBackend].
-// Sealed: only types in this package may implement Backend.
+// Backend is the FFI boundary to the Agda core: [FFIBackend] in production,
+// [MockBackend] in tests. It is sealed, so only this package implements it.
 //
-// # Thread safety contract
+// The caller serialises every call against one backend instance. [Client]
+// does so through its lockCh token channel; a direct caller (a test harness,
+// an orchestrator bypassing [Client]) must do the same. [MockBackend] also
+// locks internally, defensively. [FFIBackend] carries no lock on purpose: GHC
+// RTS state is process-global, and a second lock would only hide a caller's
+// bug. Concurrent direct calls on an [FFIBackend] race on the kernel's
+// StablePtr accounting and StreamState updates.
 //
-// Implementations MAY assume the caller serialises all method
-// invocations against a single backend instance.  [Client] provides
-// this serialisation via an internal token channel (see
-// `client.go::lockCh`); direct callers (test harnesses, custom
-// orchestrators that bypass [Client]) MUST provide equivalent
-// serialisation.
-//
-// [MockBackend] enforces serialisation defensively via an internal
-// `sync.Mutex`; [FFIBackend] does NOT carry a mutex — its
-// thread-unsafety is intentional because GHC RTS state has process-
-// global ownership, and double-locking would only mask caller-side
-// bugs.  Concurrent direct calls to [FFIBackend] are undefined
-// behaviour at the GHC RTS level (StablePtr accounting + StreamState
-// IORef updates race).
-//
-// The method set is grouped by data-format and direction to document the
-// JSON-command / binary-FFI mix.  The grouping
-// mirrors the [MANDATORY] / [OPTIONAL] split on C++ `IBackend` at
-// `cpp/include/aletheia/backend.hpp`; Go interfaces have no default-method
-// machinery, so every method is technically mandatory at the type level,
-// but the surface separates cleanly into three layers:
-//
-//  1. Session lifecycle + JSON command bus.  Every backend must minimally
-//     answer here; the JSON command path is the cross-binding semantic
-//     ground truth and remains the fallback for endpoints a backend chooses
-//     not to specialise (the Mock implements per-method canned responses
-//     instead of routing through `Process`).
-//  2. Binary-FFI send / event / state-transition endpoints.  Binary input
-//     bypasses JSON deserialisation on the send side; the response remains
-//     a JSON string.  These are the per-frame hot path.
-//  3. Binary-FFI bidirectional endpoints.  Raw payload bytes on both input
-//     and output sides.  No JSON allocation per call.
+// The methods fall into three groups, mirroring the [MANDATORY] and [OPTIONAL]
+// split of the C++ IBackend in cpp/include/aletheia/backend.hpp; Go has no
+// default methods, so every method is required here. The JSON command bus is
+// the cross-binding ground truth; the binary send endpoints take binary input
+// and answer JSON; the binary endpoints carry raw bytes both ways with no JSON
+// allocation.
 type Backend interface {
-	backend() // sealed — prevents third-party implementations
+	backend() // sealed
 
-	// ─── Group 1: Session lifecycle + JSON command bus ────────────────────
+	// Group 1: session lifecycle and the JSON command bus.
 
-	// Init creates a new session and returns an opaque state handle.
+	// Init creates a session and returns its opaque state handle.
 	Init() (unsafe.Pointer, error)
-	// Process sends a JSON command and returns the JSON response.
+	// Process sends one JSON command and returns the JSON response.
 	Process(state unsafe.Pointer, input string) (string, error)
 	// Close finalizes and frees the session state.
 	Close(state unsafe.Pointer)
 
-	// ─── Group 2: Binary-FFI send / event / state-transition endpoints ────
-	// Binary input → JSON response.
+	// Group 2: binary input, JSON response.
 
-	// SendFrameBinary sends a CAN frame via the binary FFI, bypassing JSON
-	// serialization on the input side. Returns the JSON response string.
-	// CAN-FD BRS / ESI bits (ISO 11898-1:2015 §10.4.2 / §10.4.3) are
-	// passed as *bool — pass nil for CAN 2.0B frames where the bits do
-	// not exist.  The Agda core does not consume BRS / ESI; they are
-	// pass-through metadata for binding consumers.
-	// Precondition: ts.Microseconds >= 0 (enforced by [Client.SendFrame]).
+	// SendFrameBinary sends a CAN frame. The CAN-FD BRS and ESI bits
+	// (ISO 11898-1:2015 §10.4.2 / §10.4.3) are nil on a CAN 2.0B frame and
+	// pass through: the kernel carries them in the trace without evaluating them.
+	// Precondition: ts.Microseconds >= 0, enforced by [Client.SendFrame].
 	SendFrameBinary(
 		state unsafe.Pointer, ts Timestamp,
 		id CANID, dlc DLC, data []byte,
 		brs *bool, esi *bool,
 	) (string, error)
-	// SendErrorBinary sends a CAN error event (no ID, no payload).
-	// Error frames are acknowledged without LTL evaluation.
-	// Precondition: ts.Microseconds >= 0 (enforced by [Client.SendError]
-	// but not checked at the Backend level for direct callers).
+	// SendErrorBinary sends a CAN error event (no ID, no payload); error
+	// frames are acknowledged without LTL evaluation.
+	// Precondition: ts.Microseconds >= 0, enforced by [Client.SendError] and
+	// not checked here for direct callers.
 	SendErrorBinary(state unsafe.Pointer, ts Timestamp) (string, error)
-	// SendRemoteBinary sends a CAN remote frame event (ID but no payload).
-	// Remote frames are acknowledged without LTL evaluation.
-	// Precondition: ts.Microseconds >= 0 (enforced by [Client.SendRemote]
-	// but not checked at the Backend level for direct callers).
+	// SendRemoteBinary sends a CAN remote frame event (ID, no payload); remote
+	// frames are acknowledged without LTL evaluation.
+	// Precondition: ts.Microseconds >= 0, enforced by [Client.SendRemote] and
+	// not checked here for direct callers.
 	SendRemoteBinary(state unsafe.Pointer, ts Timestamp, id CANID) (string, error)
-	// StartStreamBinary begins streaming mode without JSON parsing on input.
+	// StartStreamBinary begins streaming mode.
 	StartStreamBinary(state unsafe.Pointer) (string, error)
-	// EndStreamBinary finalizes streaming and returns verdicts without JSON parsing on input.
+	// EndStreamBinary ends streaming mode and returns the verdicts.
 	EndStreamBinary(state unsafe.Pointer) (string, error)
-	// FormatDBCBinary returns the loaded DBC as JSON without JSON parsing on input.
+	// FormatDBCBinary returns the loaded DBC as JSON.
 	FormatDBCBinary(state unsafe.Pointer) (string, error)
-	// ExtractSignalsBinary extracts signals from a binary CAN frame without JSON parsing on input.
+	// ExtractSignalsBinary extracts the signals of a binary CAN frame.
 	ExtractSignalsBinary(state unsafe.Pointer, id CANID, dlc DLC, data []byte) (string, error)
 
-	// ─── Group 3: Binary-FFI bidirectional endpoints ──────────────────────
-	// Raw payload bytes on both input and output — no JSON allocation.
+	// Group 3: raw bytes both ways.
 
-	// BuildFrameBin builds a CAN frame returning raw payload bytes, bypassing JSON on both input and output.
+	// BuildFrameBin builds a CAN frame from signal values and returns its payload.
 	BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error)
-	// UpdateFrameBin updates a CAN frame returning raw payload bytes, bypassing JSON on both input and output.
+	// UpdateFrameBin rewrites signals in an existing payload and returns the new payload.
 	UpdateFrameBin(state unsafe.Pointer, id CANID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error)
-	// ExtractSignalsBin extracts signals returning packed binary (no JSON on output).
-	// Returns the raw binary buffer that the caller must parse.
+	// ExtractSignalsBin extracts signals as the packed binary the caller parses.
 	ExtractSignalsBin(state unsafe.Pointer, id CANID, dlc DLC, data []byte) ([]byte, error)
 }
