@@ -329,6 +329,16 @@ jobs:
         run: >-
           python/.venv/bin/python3 -m tools.run_ci --iwyu-all --parallel
           ${{ github.event_name == 'push' && '--build-staleness=always' || '' }}
+      # The sweep echoes a step's output only when it fails; the log holds every
+      # step's output, the per-module times of the proof gate included, which
+      # is what a slow module or a lane that crowds another is diagnosed from.
+      - name: Upload the sweep log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-sweep-log
+          path: tools/ci-output/*.log
+          if-no-files-found: warn
 
       # Save the build tree so the next run restores it.  NOT gated to
       # pull_request: push:main must seed the cache for brand-new PRs to hit it

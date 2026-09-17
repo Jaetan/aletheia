@@ -31,7 +31,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, Self, TypedDict, cast
 
 from tools._common import agda_tree_lock, emit, find_executable, git_toplevel, run_capture
-from tools._resources import cpu_budget
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -77,11 +76,13 @@ type Name = str
 # A src-relative Agda module path, e.g. "Aletheia/LTL/Coalgebra.agda".
 type RelPath = str
 
-# Max seconds of agda SILENCE (no output line) before a Cmd_load read gives up,
-# so no command can hang on a silent agda.  A Cmd_load terminal arrives within
-# one module's check time even cold; the cap only fires on a genuinely wedged
-# process.
-_LOAD_SILENCE_S = 300.0
+# Max seconds without a line from agda before a Cmd_load read gives up.  Agda
+# sends nothing while it checks a module and everything once it is done (a
+# cold Substrate/Unsafe.agda: 40 lines, all in the last tenth of its 10.6s), so
+# this is a wall-clock bound on one module's check, not a hang detector, and
+# it must sit far above the slowest module on the slowest runner; the
+# workflow's job timeout bounds a true hang.
+_LOAD_SILENCE_S = 1800.0
 
 
 class DefSite(TypedDict):
@@ -164,7 +165,12 @@ def _spawn_agda() -> subprocess.Popen[str]:
         stderr=subprocess.DEVNULL,
         text=True,
         bufsize=1,
-        env={**os.environ, "GHCRTS": f"-M16G -N{cpu_budget()}"},
+        # One capability: agda's checker is single-threaded, so -N only adds
+        # parallel-GC threads, and they cost.  Measured cold on
+        # Substrate/Unsafe.agda, 24-core host: 8.2s at -N1, 10.4s at -N4, 12.0s
+        # at -N24 idle; 10.7s at -N1 and 11.6s at -N4 with every core held by
+        # another process.
+        env={**os.environ, "GHCRTS": "-M16G -N1"},
     )
 
 
@@ -255,19 +261,26 @@ def _apply_load_response(payload: _Response, state: _LoadState) -> bool:
     return False
 
 
-def read_load(read_line: Callable[[], str | None]) -> _LoadState:
+def read_load(
+    read_line: Callable[[], str | None], silence_s: float = _LOAD_SILENCE_S
+) -> _LoadState:
     """Fold Cmd_load response lines (from `read_line`) into a _LoadState.
 
     `read_line` returns the next line, None at EOF, and raises `queue.Empty` on
-    silence (a wedged process) — silence returns the partial state (`ok` False)
-    rather than hanging; EOF mid-load raises.  Pure (no process), so the
-    load-terminal logic is unit-testable with a synthetic line source.
+    silence (a wedged process) — silence returns the partial state (`ok` False,
+    `error` saying how long agda was silent) rather than hanging; EOF mid-load
+    raises.  Pure (no process), so the load-terminal logic is unit-testable
+    with a synthetic line source.
     """
     state = _LoadState()
     while True:
         try:
             line = read_line()
         except queue.Empty:
+            state.error = (
+                f"agda produced no output for {silence_s:.0f}s: a wedged process, or a module "
+                "that checks longer than the silence budget"
+            )
             return state  # silent past the load budget -> give up (ok False)
         if line is None:
             message = "agda --interaction-json exited unexpectedly"
@@ -338,7 +351,7 @@ class WarmAgda:
         cmd = f'IOTCM "{abspath}" NonInteractive Direct (Cmd_load "{abspath}" [])\n'
         _ = self.proc.stdin.write(cmd)
         self.proc.stdin.flush()
-        return read_load(lambda: self._next_line(_LOAD_SILENCE_S))
+        return read_load(lambda: self._next_line(_LOAD_SILENCE_S), _LOAD_SILENCE_S)
 
     def load(self, abspath: str) -> LoadResult:
         """Send Cmd_load; return the load's tokens, ok flag, and error message.

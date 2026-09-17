@@ -12,6 +12,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The proof gate waits for a slow module and runs Agda on one capability.** The
+  warm Agda process gave up on a module after 300 seconds without output, described
+  as a hang detector; Agda sends nothing while it checks a module and everything once
+  done, so the cap was a wall-clock bound that the two cold-checked proof modules
+  crossed on a loaded runner, failing sweeps that passed on retry. The cap moves far
+  above any module, a load that hits it reports how long Agda was silent, and Agda
+  runs at `-N1`: its checker is single-threaded, and the parallel-GC threads `-N` adds
+  only cost. The sweep log is uploaded as an artifact, per-module times included.
 - **A caller-injected Python backend is provably the one re-used after `close()`.**
   The re-entry test asserted only that re-entry succeeds, which it does either way:
   a client that wrongly treated an injected backend as its own would drop it on
