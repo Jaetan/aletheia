@@ -202,7 +202,7 @@ func TestCrossBinding_SendFrameMultiEvent(t *testing.T) {
 // An out-of-range CAN ID is refused by the type constructors before anything
 // reaches the FFI, on the standard and the extended range; the Python and C++
 // tests assert the same at their own type boundaries.
-func TestCrossBinding_SendFrameError(t *testing.T) {
+func TestCrossBinding_CANIDRefusedAtTheTypeBoundary(t *testing.T) {
 	if _, err := NewStandardID(0x800); err == nil {
 		t.Error("NewStandardID(0x800): want error on out-of-range standard CAN ID, got nil")
 	}
