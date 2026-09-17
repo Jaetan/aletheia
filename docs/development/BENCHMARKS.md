@@ -17,7 +17,7 @@ Per-binding throughput in frames a second: the committed baseline set, `benchmar
 
 Rust is within 3.6% of C++ on every lane. Go's gap runs from 14% on CAN 2.0B signal extraction to 1.4% on CAN-FD frame building.
 
-Per-frame C++ latency on CAN 2.0B streaming has a median of 3.1 µs and a mean of 3.5 µs, from the committed latency baseline. Memory is flat in the trace length: the suite refuses a run whose peak resident set grows by 32 MiB.
+Per-frame C++ latency on CAN 2.0B streaming has a median of 3.2 µs and a mean of 3.6 µs, from the committed latency baseline. Streaming does not retain what it accepts: the Python suite fails a session of 100,000 frames whose peak resident set grows by 32 MiB.
 
 ---
 
@@ -25,7 +25,7 @@ Per-frame C++ latency on CAN 2.0B streaming has a median of 3.1 µs and a mean o
 
 [`benchmarks/run_all.sh`](../../benchmarks/run_all.sh) **builds the C++, Go and Rust benchmark binaries itself**, incrementally, then produces one JSON file per binding that ran, in `benchmarks/results/`, followed by a side-by-side comparison from `benchmarks/compare.py`.
 
-A benchmark binary is never taken as found on disk: one that predates a kernel wire change does not measure an older system, it fails to measure the current one, so its numbers are void rather than merely old. What the runner needs from you is `libaletheia-ffi.so`, the Python package, and a *configured* `cpp/build` tree.
+A benchmark binary is never taken as found on disk: one that predates a kernel wire change does not measure an older system, it fails to measure the current one, so its numbers are void rather than merely old.
 
 The runner also clears the selected mode's results before running, so a lane that skips or fails contributes nothing rather than its previous numbers. It refuses a zero or non-numeric `--frames` or `--runs`, a negative `--warmup` and a mode it does not have, all before touching anything: a zero count makes every lane publish an all-zero report, and an unknown mode would reach a glob that deletes the committed baselines. A lane is skipped when what it needs is absent, which for Go and Rust is the toolchain and for C++ is a configured `cpp/build`; a lane whose build breaks with everything present is a failure. `ALETHEIA_BENCH_RESULTS_DIR` redirects the results directory, which is how the probes exercise the runner without touching the last measurements.
 
