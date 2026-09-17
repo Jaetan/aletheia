@@ -1,14 +1,14 @@
 # Aletheia
 
-**Check recorded CAN logs against plain-language rules — with a signal decoder that's mathematically proven correct, not just tested.**
+**Check recorded CAN logs against plain-language rules, with a signal decoder that is mathematically proven correct rather than merely tested.**
 
-Aletheia checks recorded CAN logs against rules like *"Speed never exceeds 220"* or *"the brake light turns on within 100 ms of the pedal"* — and the code that decodes your signals is mathematically **proven** correct, not just tested. Point it at your `.dbc` and your `.blf` / `.asc` / `.mf4` / candump log; get pass/fail plus the exact timestamp of every violation.
+Aletheia checks recorded CAN logs against rules like *"Speed never exceeds 220"* or *"the brake light turns on within 100 ms of the pedal"*, and the code that decodes your signals is mathematically **proven** correct rather than merely tested. Point it at your `.dbc` and your `.blf` / `.asc` / `.mf4` / candump log; get pass/fail plus the exact timestamp of every violation.
 
-> **The jargon, glossed once:** the "rules" are [Linear Temporal Logic](docs/GLOSSARY.md) (LTL) formulas, and the checker is written in [Agda](docs/GLOSSARY.md), a proof assistant where a program that compiles is a program that's proven correct. You never touch either — every italicized term is defined in the **[Glossary](docs/GLOSSARY.md)**.
+> **The jargon, glossed once:** the "rules" are [Linear Temporal Logic](docs/GLOSSARY.md) (LTL) formulas, and the checker is written in [Agda](docs/GLOSSARY.md), a proof assistant where a program that compiles is a program that's proven correct. You never touch either, and every italicized term is defined in the **[Glossary](docs/GLOSSARY.md)**.
 
 **Building something safety-critical?** Formal methods like Aletheia's are exactly what **ISO 26262** (automotive functional safety) *recommends* for **ASIL-D**, the highest integrity level. Aletheia hands you a decoder whose correctness is a theorem, not a test suite.
 
-**One honest caveat up front:** the proof covers the decoder and the rule-checker — it does *not* vouch for your DBC being right for your vehicle, the logger hardware, or a rule you specified wrong. ([Full scope below.](#what-the-proof-does-and-doesnt-cover))
+**One honest caveat up front:** the proof covers the decoder and the rule-checker. It does *not* vouch for your DBC being right for your vehicle, the logger hardware, or a rule you specified wrong. ([Full scope below.](#what-the-proof-does-and-doesnt-cover))
 
 ---
 
@@ -24,28 +24,28 @@ Every item below is a bug class that has shipped in real CAN tooling. Aletheia t
 
 ## Why switch from cantools / python-can / hand-rolled scripts?
 
-All three decode CAN with **tested** code: correct on the cases someone thought to test, and still potentially wrong on an untried endianness, sign, or multiplexer case. Aletheia's decoder is **proven correct for all inputs** — the guarantee holds even for signals no test ever exercised.
+All three decode CAN with **tested** code: correct on the cases someone thought to test, and still potentially wrong on an untried endianness, sign, or multiplexer case. Aletheia's decoder is **proven correct across the whole input space**: for every signal a valid DBC admits and every value it can hold, decode is proven to invert the DBC's encoding, in both byte orders and both signednesses. The guarantee holds even for signals and values no test ever exercised.
 
 | If you use… | How it decodes signals | The gap Aletheia closes |
 |---|---|---|
 | **cantools** | hand-written Python decoders, validated by unit tests | an untested endianness / sign / mux combination can still decode wrong |
 | **python-can** | transport plus tested per-DBC decoders | same tested-not-proven decode path, and no temporal-rule checking |
-| **hand-rolled scripts** | your own bit-shifts and threshold checks | the most bug-prone option — every script re-derives decode logic from scratch |
+| **hand-rolled scripts** | your own bit-shifts and threshold checks | the most bug-prone option: every script re-derives decode logic from scratch |
 
 ## What you get
 
-- **Proven-correct decoding** — signal extraction and frame building are correct for *every* valid DBC, by mathematical proof rather than test coverage.
-- **Temporal rules, not just thresholds** — *"within 100 ms"*, *"eventually"*, *"never after"*: full LTL over the whole trace, with a streaming checker that runs in O(1) memory (verified 1.08× growth across a 100× longer trace) — fast enough for real-time 1 Mbps CAN. Per-binding / per-lane throughput lives in [BENCHMARKS.md § Canonical Results](docs/development/BENCHMARKS.md#canonical-results).
-- **Four first-class bindings** — Python, C++, Go, and Rust, all running in-process (no subprocess, no IPC overhead) and all producing identical verdicts.
-- **Real-world DBC support** — multiplexed signals, 29-bit IDs, signed integers, value tables, attributes, environment variables, and comments; validated against a cross-binding corpus with typed rejection codes ([error reference](docs/architecture/PROTOCOL.md#error-code-reference)).
-- **Exact arithmetic** — signal values are exact rationals end-to-end, never floats: a decoded value is never off by a rounding step.
-- **Four ways to write checks** — Check API (engineers), YAML (CI/CD), Excel (technicians), and the full LTL DSL (developers). Pick the level that fits the team.
+- **Proven-correct decoding**: signal extraction and frame building are correct for *every* valid DBC, by mathematical proof rather than test coverage.
+- **Temporal rules, not just thresholds**: *"within 100 ms"*, *"eventually"*, *"never after"*: full LTL over the whole trace, with a streaming checker that runs in O(1) memory, the suite refusing a run whose peak resident set grows past 32 MiB whatever the frame count, and fast enough for real-time 1 Mbps CAN. Per-binding / per-lane throughput lives in [BENCHMARKS.md § Canonical Results](docs/development/BENCHMARKS.md#canonical-results).
+- **Four first-class bindings**: Python, C++, Go, and Rust, all running in-process (no subprocess, no IPC overhead) and all producing identical verdicts.
+- **Real-world DBC support**: multiplexed signals, 29-bit IDs, signed integers, value tables, attributes, environment variables, and comments; validated against a cross-binding corpus with typed rejection codes ([error reference](docs/architecture/PROTOCOL.md#error-code-reference)).
+- **Exact arithmetic**: signal values are exact rationals end-to-end, never floats: a decoded value is never off by a rounding step.
+- **Four ways to write checks**: Check API (engineers), YAML (CI/CD), Excel (technicians), and the full LTL DSL (developers). Pick the level that fits the team.
 
 ---
 
 ## Quick Start
 
-### 60-second try — no code
+### 60-second try, no code
 
 The fastest path writes zero code. Point the `aletheia` CLI at a DBC, a checks file, and a recorded log. Ready-to-run sample assets ship in [`examples/demo/`](examples/demo/), so this runs as-is:
 
@@ -54,11 +54,11 @@ cd examples/demo
 aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
 ```
 
-- **exit 0** — every check passed
-- **exit 1** — violations found (each printed with the exact microsecond timestamp)
-- **exit 2** — error (bad DBC, unreadable log, …)
+- **exit 0**: every check passed
+- **exit 1**: violations found, each printed with the exact microsecond timestamp
+- **exit 2**: an error, such as a bad DBC or an unreadable log
 
-The sample `drive.log` speeds past its 120 kph limit, so this run reports a timestamped `VehicleSpeed` violation and exits 1. The three shipped assets — `vehicle.dbc`, `vehicle_checks.yaml`, and the candump `drive.log` — are a matched set. Recorded logs in `.blf` / `.asc` / `.mf4` / candump `.log` all work as the trace argument. Full subcommand + flag reference: **[CLI Guide](docs/reference/CLI.md)** — six subcommands (`check`, `validate`, `extract`, `signals`, `format-dbc`, `mux-query`):
+The sample `drive.log` speeds past its 120 kph limit, so this run reports a timestamped `VehicleSpeed` violation and exits 1. The three shipped assets, `vehicle.dbc`, `vehicle_checks.yaml` and the candump `drive.log`, are a matched set. Recorded logs in `.blf` / `.asc` / `.mf4` / candump `.log` all work as the trace argument. Full subcommand and flag reference: **[CLI Guide](docs/reference/CLI.md)**, six subcommands, `check`, `validate`, `extract`, `signals`, `format-dbc` and `mux-query`:
 
 ```bash
 # Validate a DBC and list every issue (errors and warnings)
@@ -78,13 +78,13 @@ Aletheia separates a **one-time, build-time toolchain** from a **lightweight run
   ```
 - **Run**: only `libaletheia-ffi.so` plus Python 3.14 (and your binding's own runtime). No Agda, no proof assistant, at runtime.
 
-> **There is no published wheel yet — `pip install aletheia` does not work today.** After building the library, install the Python binding editable from the source tree: `pip install -e '.[can]'` inside `python/`. Full setup, prerequisites, and troubleshooting: **[Building Guide](docs/development/BUILDING.md)**.
+> **There is no wheel on PyPI, so `pip install aletheia` does not work.** A release carries a signed, self-contained bundle with all four bindings over one prebuilt library, and native `.deb` and `.rpm` packages, which is the quickest way in: **[Distribution Guide](docs/development/DISTRIBUTION.md)**. Building from source, as above, installs the Python binding from the tree with `pip install -e '.[can]'` inside `python/`. Full setup, prerequisites and troubleshooting: **[Building Guide](docs/development/BUILDING.md)**.
 
 ### In code: the Python streaming DSL
 
 Prefer to script it? The Python binding streams frames and reports violations with timestamps.
 
-> **Which style should I use?** New users should start with the **Check API** or the YAML/Excel loaders shown under [Higher-Level Interfaces](#higher-level-interfaces) below — they cover the common cases. The raw DSL (`Signal`, `set_properties`) shown here is the escape hatch for full LTL control (metric operators, custom predicates). See the [Interface Guide](docs/reference/INTERFACES.md) for an end-to-end comparison.
+> **Which style should I use?** New users should start with the **Check API** or the YAML/Excel loaders shown under [Higher-Level Interfaces](#higher-level-interfaces) below, which cover the common cases. The raw DSL (`Signal`, `set_properties`) shown here is the escape hatch for full LTL control (metric operators, custom predicates). See the [Interface Guide](docs/reference/INTERFACES.md) for an end-to-end comparison.
 
 ```python
 from aletheia import AletheiaClient, Signal
@@ -127,9 +127,7 @@ See the [Python API Guide](docs/reference/PYTHON_API.md) for the complete DSL re
 
 ### Higher-Level Interfaces
 
-For users who don't need full LTL control, Aletheia provides three
-higher-level interfaces that compile to the same verified core (recommended
-entry point for new users):
+For users who do not need full LTL control, three higher-level interfaces compile to the same verified core, and are the recommended entry point:
 
 ```python
 from aletheia import checks, load_checks, load_checks_from_excel
@@ -168,11 +166,7 @@ with AletheiaClient() as client:
 
 ### Async client and lazy iter
 
-For asyncio code, ``aletheia.asyncio.AletheiaClient`` mirrors the sync surface
-as ``async def`` methods, cancellable via ``asyncio.CancelledError``. Both
-clients expose ``send_frames_iter`` for processing frames lazily one at a
-time — useful when the source is a live producer (queue, socket, generator)
-and full materialization is wasteful or impossible.
+For asyncio code, `aletheia.asyncio.AletheiaClient` mirrors the synchronous surface as `async def` methods, cancellable through `asyncio.CancelledError`. Both clients expose `send_frames_iter`, which takes frames one at a time, for a source that is a live producer such as a queue, a socket or a generator, where materialising the whole trace is wasteful or impossible.
 
 ```python
 import asyncio
@@ -193,18 +187,17 @@ async def watch(timeout_s: float):
         await client.end_stream()
 ```
 
-See the [Cancellation contract](docs/architecture/CANCELLATION.md) for the
-behavioral parity guarantees Python, C++, Go, and Rust all share.
+See the [Cancellation contract](docs/architecture/CANCELLATION.md) for the behavioural parity guarantees Python, C++, Go and Rust all share.
 
 ### Which binding? Start here
 
-Python is the **reference binding**. C++, Go, and Rust are **API-compatible ports** that call the same proven core and produce identical verdicts — pick the one that matches your stack:
+Python is the **reference binding**. C++, Go, and Rust are **API-compatible ports** that call the same proven core and produce identical verdicts, so pick the one that matches your stack:
 
 | Language | Start here | Host CLI |
 |---|---|---|
 | **Python** (reference) | [Python API Guide](docs/reference/PYTHON_API.md) | ✅ all 6 subcommands |
-| **C++** | [C++ API Guide](docs/reference/CPP_API.md) | ✅ 5 (`check` deferred — needs a verified CAN-log reader) |
-| **Go** | [Go API Guide](docs/reference/GO_API.md) | ✅ 5 (`check` deferred — needs a verified CAN-log reader) |
+| **C++** | [C++ API Guide](docs/reference/CPP_API.md) | ✅ 5, `check` deferred for want of a verified CAN-log reader |
+| **Go** | [Go API Guide](docs/reference/GO_API.md) | ✅ 5, `check` deferred for want of a verified CAN-log reader |
 | **Rust** | [Rust API Guide](docs/reference/RUST_API.md) | typed client today; CLI is a Phase 6 goal |
 
 ## Project Structure
@@ -219,62 +212,29 @@ aletheia/
 ├── go/                  # Go binding
 ├── rust/                # Rust binding (loads libaletheia-ffi.so at runtime)
 ├── benchmarks/          # Cross-language benchmarks
+├── tools/               # The CI orchestrator and every gate it runs
+├── probes/              # One script per property a review has checked
+├── AGENTS/              # Per-language coding standards
+├── packaging/           # Distribution recipes
+├── keys/                # Release-signing public keys
 ├── docs/                # Documentation
-└── examples/            # Sample DBC files and demos
+├── examples/            # Sample DBC files and demos
+├── .github/             # Continuous-integration workflows
+└── .archive/            # Records of closed work, kept for their measurements
 ```
 
 ## Documentation
 
-**📚 [Complete Documentation Index](docs/INDEX.md)** - Full navigation guide
+**📚 [Complete Documentation Index](docs/INDEX.md)** lists every document in the tree. Four to start with:
 
-### Getting Started
-- [Glossary](docs/GLOSSARY.md) - Plain-language definitions of LTL, formal verification, Agda, DBC, and CAN terms
-- [Tutorials](docs/guides/TUTORIAL.md) - End-to-end walkthroughs by role (start here if new to Aletheia)
-- [Quick Start](docs/guides/QUICKSTART.md) - 5-minute walkthrough (assumes built library)
-- [Building Guide](docs/development/BUILDING.md) - Setup and installation
-
-### Guides
-- [Cookbook](docs/guides/COOKBOOK.md) - Problem-driven recipes
-
-### Reference
-- [Interface Guide](docs/reference/INTERFACES.md) - Check API, YAML, Excel loaders
-- [Python API Guide](docs/reference/PYTHON_API.md) - Raw DSL and AletheiaClient reference (reference binding)
-- [C++ API Guide](docs/reference/CPP_API.md) - `AletheiaClient`, Check API, and the `ltl::` DSL
-- [Go API Guide](docs/reference/GO_API.md) - `Client`, Check API, and the LTL DSL
-- [Rust API Guide](docs/reference/RUST_API.md) - `Client`, Check API, and the LTL DSL
-- [CLI Reference](docs/reference/CLI.md) - `aletheia` subcommands
-
-### Architecture & Design
-- [Design Overview](docs/architecture/DESIGN.md) - Three-layer architecture
-- [JSON Protocol](docs/architecture/PROTOCOL.md) - Low-level protocol specification
-- [Cancellation Contract](docs/architecture/CANCELLATION.md) - Cross-binding cancellation semantics
-- [cgo Notes](docs/architecture/CGO_NOTES.md) - Go binding's cgo + dlopen rationale
-
-### Operations
-- [Runbook](docs/operations/RUNBOOK.md) - Symptom → cause → action
-- [Stability Bench](docs/operations/STABILITY.md) - RSS / FD drift detection
-- [Mutation Testing](docs/operations/MUTATION.md) - Per-binding mutation testing
-
-### Development
-- [Local CI](docs/development/CI_LOCAL.md) - Three-layer CI architecture
-- [Release Guide](docs/development/RELEASE.md) - Tag / sign / publish procedure
-- [Feature Matrix](docs/FEATURE_MATRIX.yaml) - Cross-binding feature parity (the live source)
-
-### Contributing
-- [Contributing Guide](CONTRIBUTING.md) - How to contribute
-- [CLAUDE.md](CLAUDE.md) - AI-assisted development
-- [Project Status](PROJECT_STATUS.md) - Current phase and roadmap
-- [CHANGELOG](CHANGELOG.md) - Public-API change log
-
-### Additional
-- [Project Pitch](docs/PITCH.md) - Why Aletheia?
-- [Examples](examples/) - Sample DBC files and demos
+- [Glossary](docs/GLOSSARY.md), plain-language definitions of LTL, formal verification, Agda, DBC and CAN terms
+- [Tutorials](docs/guides/TUTORIAL.md), end-to-end walkthroughs by role, and the place to start if Aletheia is new to you
+- [Building Guide](docs/development/BUILDING.md), setup and installation
+- [Project Pitch](docs/PITCH.md), the case for using it
 
 ## Project Status
 
-**Current Phase**: See [PROJECT_STATUS.md](PROJECT_STATUS.md) for current phase and detailed status.
-
-Complete information on deliverables, quality gates, and roadmap is available in PROJECT_STATUS.md.
+[PROJECT_STATUS.md](PROJECT_STATUS.md) carries the phase, the deliverables, the quality gates and the roadmap.
 
 ## Contributing
 
@@ -292,31 +252,29 @@ BSD 2-Clause was chosen to allow broad adoption (including proprietary use) whil
 
 ## Under the hood (for the curious)
 
-You never need this section to *use* Aletheia — it's here for readers who want to know what "proven" actually means.
+You never need this section to *use* Aletheia. It is here for readers who want to know what "proven" actually means.
 
 ### What the proof does and doesn't cover
 
 **Proven** (a bug in these classes cannot exist in the verified core):
 
-- Signal extraction and frame building are correct for every valid DBC and every input frame — all byte orders, widths, signs, and multiplexer cases.
+- Signal extraction and frame building are correct for every valid DBC and every input frame, in all byte orders, widths, signs and multiplexer cases.
 - The LTL checker's verdicts match the formal semantics of the properties, and do not drift over arbitrarily long traces.
-- The DBC text round-trip is exact: `∀ d → WellFormedTextDBCAgg d → parseText (formatText d) ≡ inj₂ d` — parsing a formatted DBC returns the original definition, proven for every DBC in the nine-condition text-side well-formedness class (`WellFormedTextDBCAgg`; note that passing `aletheia validate` is a different, weaker condition — see [well-formed DBC](docs/GLOSSARY.md#describing-signals-the-dbc) in the glossary). The JSON round-trip needs no precondition at all.
+- The DBC text round-trip is exact: `∀ d → WellFormedTextDBCAgg d → parseText (formatText d) ≡ inj₂ d`, so parsing a formatted DBC returns the original definition, proven for every DBC in the nine-condition text-side well-formedness class (`WellFormedTextDBCAgg`; note that passing `aletheia validate` is a different, weaker condition, described under [well-formed DBC](docs/GLOSSARY.md#describing-signals-the-dbc) in the glossary). The JSON round-trip needs no precondition at all.
 
 **Not covered** (still your responsibility, as with any tool):
 
-- **Specification errors** — the proof shows the implementation matches the *stated* rule, not that the rule (or the DBC) is the right one for your vehicle.
-- **Hardware / bus / OS** — bit-stuffing on the physical bus, ECU faults, logger timestamp skew, kernel scheduling: all below Aletheia's boundary.
-- **Integration & operator error** — wiring the wrong log, missing a rule, misreading a YAML threshold.
-- **Trusted components** — Agda's `--safe` kernel, GHC, and the Haskell `base` + `text` used in the thin shim are trusted, not verified.
+- **Specification errors**: the proof shows the implementation matches the *stated* rule, not that the rule (or the DBC) is the right one for your vehicle.
+- **Hardware, bus and operating system**: bit-stuffing on the physical bus, ECU faults, logger timestamp skew and kernel scheduling all sit below Aletheia's boundary.
+- **Integration and operator error**: wiring the wrong log, missing a rule, misreading a YAML threshold.
+- **Trusted components**: Agda's `--safe` kernel, GHC, and the Haskell `base` + `text` used in the thin shim are trusted, not verified.
 
-In short: Aletheia eliminates the "the decoder was wrong" and "the checker drifted" bug classes — not bugs elsewhere in your system.
+In short: Aletheia eliminates the "the decoder was wrong" and "the checker drifted" bug classes, and no others.
 
 ### How the layers fit together
 
-The verified Agda core is compiled to Haskell (via Agda's MAlonzo backend) and linked into a single shared library, `libaletheia-ffi.so`. Every binding loads that same library in-process — Python via `ctypes`, C++ and Go via `dlopen`, Rust via `libloading` — so all four run identical proven logic with no subprocess or IPC overhead. Architecture detail: [Design Overview](docs/architecture/DESIGN.md).
+The verified Agda core is compiled to Haskell (via Agda's MAlonzo backend) and linked into a single shared library, `libaletheia-ffi.so`. Every binding loads that same library in-process, Python through `ctypes`, C++ and Go through `dlopen` and Rust through `libloading`, so all four run identical proven logic with no subprocess or interprocess overhead. Architecture detail: [Design Overview](docs/architecture/DESIGN.md).
 
 ### Etymology
 
-**Aletheia** (Ἀλήθεια) is Greek for "truth" or "disclosure" — in philosophy, the uncovering or revealing of truth. It's a fitting name for a tool whose job is to reveal what your CAN logs actually did, with correctness you can prove rather than hope for.
-</content>
-</invoke>
+**Aletheia** (Ἀλήθεια) is Greek for "truth" or "disclosure", in philosophy the uncovering or revealing of truth. It's a fitting name for a tool whose job is to reveal what your CAN logs actually did, with correctness you can prove rather than hope for.
