@@ -1117,10 +1117,9 @@ func TestLoadChecks_RejectsOversize(t *testing.T) {
 }
 
 func TestLoadChecks_RejectsZipBomb(t *testing.T) {
-	// Build a real ZIP with five entries totalling > MaxDBCTextBytes
-	// uncompressed.  Each entry is highly compressible (all zeros) so the
-	// archive on disk stays well under the raw cap; the central-directory
-	// walker is what flags it.
+	// A real archive whose entries expand past the bound while the file on disk
+	// stays far under it, so what refuses it is the index walk rather than the
+	// size check before it.
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "bomb.xlsx")
 	out, err := os.Create(path)
@@ -1128,8 +1127,11 @@ func TestLoadChecks_RejectsZipBomb(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	zw := zip.NewWriter(out)
-	zeros := make([]byte, 14*1024*1024) // 14 MiB
-	for i := 0; i < 5; i++ {            // 5 × 14 MiB = 70 MiB > 64 MiB cap
+	// Five parts, each a quarter of the bound and a little more, so together
+	// they pass it while every one of them compresses to almost nothing.
+	const parts = 5
+	zeros := make([]byte, aletheia.MaxDBCTextBytes/4)
+	for i := 0; i < parts; i++ {
 		w, err := zw.CreateHeader(&zip.FileHeader{
 			Name:   fmt.Sprintf("part-%d", i),
 			Method: zip.Deflate,
@@ -1155,6 +1157,13 @@ func TestLoadChecks_RejectsZipBomb(t *testing.T) {
 	}
 	if bound.BoundKind != aletheia.BoundKindInputLengthBytes {
 		t.Errorf("BoundKind: got %s, want input_length_bytes", bound.BoundKind)
+	}
+	// The refusal reports what the entries claim, not the bound plus one.
+	if want := uint64(parts) * uint64(len(zeros)); bound.Observed != want {
+		t.Errorf("observed: got %d, want %d, the size the entries claim", bound.Observed, want)
+	}
+	if bound.Limit != aletheia.MaxDBCTextBytes {
+		t.Errorf("limit: got %d, want %d", bound.Limit, aletheia.MaxDBCTextBytes)
 	}
 }
 
