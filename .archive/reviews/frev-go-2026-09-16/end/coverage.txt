@@ -1,4 +1,4 @@
-## go test ./aletheia/ -count=1 -coverprofile (no -race; the coverage lens, not a gate)
-ok  	github.com/aletheia-automotive/aletheia-go/aletheia	coverage: 87.3% of statements
-## go tool cover -func, total
+## go test ./aletheia/ -count=1 -coverprofile, with ALETHEIA_LIB naming the built kernel (no -race; the coverage lens, not a gate)
 total:										(statements)			87.0%
+## the same without ALETHEIA_LIB, which is the condition the opening record does not state
+ok  	github.com/aletheia-automotive/aletheia-go/aletheia	2.085s	coverage: 87.8% of statements

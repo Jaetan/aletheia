@@ -81,7 +81,7 @@ PASS probes/docs_guides_TUTORIAL.md--the-cpp-and-rust-paths-compile.sh
 PASS probes/docs_guides_TUTORIAL.md--the-demo-run-reports-what-it-says.sh
 PASS probes/docs_INDEX.md--every-tracked-document-is-in-the-index.sh
 PASS probes/docs_MUTATION_BENCH.yaml--the-cpp-baseline-matches-a-run.sh
-FAIL probes/docs_MUTATION_BENCH.yaml--the-go-baseline-matches-a-run.sh
+PASS probes/docs_MUTATION_BENCH.yaml--the-go-baseline-matches-a-run.sh
 PASS probes/docs_reference_CPP_API.md--no-compiled-fence-hides-a-failure.sh
 PASS probes/docs_reference_GO_API.md--the-shell-line-it-prints-runs-as-written.sh
 PASS probes/docs_reference_RUST_API.md--every-rust-fence-compiles.sh
@@ -149,4 +149,4 @@ PASS probes/tools__ci_steps.py--the-cmake-gate-scans-files.sh
 PASS probes/tools__ci_steps.py--the-format-gate-sees-only-tracked-sources.sh
 PASS probes/tools_mutation_run.py--a-sweep-that-timed-out-is-refused.sh
 PASS probes/tree--no-tracked-file-ends-in-a-tool-call-tag.sh
-probes: 151 run, exit 1
+probes: 151 run, exit 0
