@@ -545,9 +545,7 @@ def _parse_when_then_row(d: Mapping[str, CellValue], row_num: int) -> CheckResul
 
     then_builder = when_result.then(then_signal)
 
-    then_result = dispatch_then(
-        then_builder, then_cond, *_then_values(d, then_cond, row_num)
-    )
+    then_result = dispatch_then(then_builder, then_cond, *_then_values(d, then_cond, row_num))
     result = then_result.within(get_excel_int(d, "Within (ms)", _row_ctx(row_num)))
     return _apply_metadata(result, d)
 

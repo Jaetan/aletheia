@@ -15,6 +15,15 @@ gates       both: go build, CGO_ENABLED=0 go build, go vet and gofmt -l all sile
 tests       both: the binding, the host interface and the spreadsheet module green
             under -race, and the no-cgo subset green without it
 staticcheck both: no output
+fast tier   opening: all steps passed. Closing: all 12 steps passed, but only
+            after two findings the per-file gates could not see, both from
+            edits this round made: two Python loaders were formatted by hand
+            where the formatter disagreed, and a probe named the interpreter
+            relative to the directory it runs in, which is right when it runs
+            and invisible to the gate that reads the text. Both fixed.
+fuzz        opening: the response parser fuzzed 20s, pass. Closing: the same,
+            2,984,414 executions, pass, and nothing new written to the tracked
+            corpus.
 shape       opening: reports by contract: {'frev': 0, 'drev': 0, 'xrev': 0, 'not completed': 86}; out of shape: 0
             closing: 123 reports, none out of shape, and no entry left
             incomplete.

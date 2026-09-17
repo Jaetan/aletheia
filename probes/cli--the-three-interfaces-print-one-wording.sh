@@ -49,7 +49,7 @@ bad = []
 def run(binding, args, cwd=None):
     argv = {"go": [str(work / "go-cli")],
             "cpp": ["cpp/build/aletheia-cli"],
-            "python": [".venv/bin/python", "-m", "aletheia"]}[binding]
+            "python": [str(Path("python/.venv/bin/python").resolve()), "-m", "aletheia"]}[binding]
     r = subprocess.run(argv + args, capture_output=True, text=True, check=False,
                        cwd=cwd or ("python" if binding == "python" else None))
     if r.returncode != 0:

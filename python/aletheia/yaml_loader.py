@@ -440,9 +440,9 @@ def _parse_when_then_check(entry: Mapping[str, JSONValue]) -> CheckResult:
     then_signal = get_str(then, "signal", _ctx(name))
     then_builder = when_result.then(then_signal)
 
-    return dispatch_then(
-        then_builder, then_cond, *_then_values(then, then_cond, name)
-    ).within(within_ms)
+    return dispatch_then(then_builder, then_cond, *_then_values(then, then_cond, name)).within(
+        within_ms
+    )
 
 
 __all__ = ["load_checks"]
