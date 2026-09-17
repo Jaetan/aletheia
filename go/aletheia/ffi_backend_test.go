@@ -18,26 +18,16 @@ import (
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
 
-// ---------------------------------------------------------------------------
-// WithRTSCores mismatch warning (2026-04-09)
-// ---------------------------------------------------------------------------
-// NewFFIBackend initializes the GHC RTS exactly once per process. Subsequent
-// calls with a WithRTSCores value that differs from the active cores count
-// must emit a slog.Warn record with active_cores and requested_cores fields.
-// These tests use a captured slog handler to verify the warning semantics
-// without relying on the default stderr handler.
-
-// findFFILib locates libaletheia-ffi.so relative to the go package,
-// mirroring the search strategy in go/benchmarks/main.go. Returns the
-// empty string if the library cannot be found.
+// findFFILib is the built library, from the environment a bundled install
+// exports or from the build directory, and empty when neither has it. The
+// renderer searches the same candidates in the same order, with the path a
+// backend registered tried in between.
 func findFFILib() string {
-	// Environment override (CI / custom builds).
 	if env := os.Getenv("ALETHEIA_LIB"); env != "" {
 		if _, err := os.Stat(env); err == nil {
 			return env
 		}
 	}
-	// Project build directory, relative to go/aletheia.
 	candidates := []string{
 		"../../build/libaletheia-ffi.so",
 		"../build/libaletheia-ffi.so",
@@ -55,88 +45,73 @@ func findFFILib() string {
 	return ""
 }
 
+// requireFFILib is that path, or the reason to skip: a test that reaches the
+// kernel cannot run without the library.
+func requireFFILib(t *testing.T) string {
+	t.Helper()
+	lib := findFFILib()
+	if lib == "" {
+		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
+	}
+	return lib
+}
+
+// ffiBackendLog opens a backend with the options and answers what it logged.
+// The capture is the backend's own logger, the one WithFFILogger sets: the
+// runtime warning does not go to the client's logger, so a test watching that
+// one would pass whatever the backend did.
+func ffiBackendLog(t *testing.T, lib string, opts ...aletheia.FFIBackendOption) string {
+	t.Helper()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	if _, err := aletheia.NewFFIBackend(lib, append(opts, aletheia.WithFFILogger(logger))...); err != nil {
+		t.Fatalf("NewFFIBackend: %v", err)
+	}
+	return buf.String()
+}
+
+// startRuntime opens a backend with no options, which starts the GHC runtime
+// on one core if this is the first of the process and finds it started
+// otherwise, so the tests below know which count is active.
+func startRuntime(t *testing.T, lib string) {
+	t.Helper()
+	if _, err := aletheia.NewFFIBackend(lib); err != nil {
+		t.Fatalf("NewFFIBackend: %v", err)
+	}
+}
+
+// The GHC runtime starts once per process, so a later backend asking for
+// another core count is told which count is running. The record carries both
+// numbers, since the point is to show the caller what it got.
 func TestFFIBackend_RTSCoresMismatchWarns(t *testing.T) {
-	lib := findFFILib()
-	if lib == "" {
-		t.Skip("libaletheia-ffi.so not found — run 'cabal run shake -- build' first")
-	}
-
-	// Establish deterministic RTS state: first call initializes to 1 if the
-	// RTS has not yet been touched this process, else a no-op.
-	b1, err := aletheia.NewFFIBackend(lib)
-	if err != nil {
-		t.Fatalf("first NewFFIBackend: %v", err)
-	}
-	_ = b1
-
-	// Second call with different rts_cores must log a warning via WithFFILogger.
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	b2, err := aletheia.NewFFIBackend(lib, aletheia.WithRTSCores(8), aletheia.WithFFILogger(logger))
-	if err != nil {
-		t.Fatalf("second NewFFIBackend: %v", err)
-	}
-	_ = b2
-	output := buf.String()
-
-	if !strings.Contains(output, "rts.cores_mismatch") {
-		t.Errorf("expected 'rts.cores_mismatch' in slog output, got: %s", output)
-	}
-	if !strings.Contains(output, `"level":"WARN"`) {
-		t.Errorf("expected WARN level in slog output, got: %s", output)
-	}
-	if !strings.Contains(output, `"requested_cores":8`) {
-		t.Errorf("expected requested_cores=8 in slog output, got: %s", output)
-	}
-	if !strings.Contains(output, `"active_cores":1`) {
-		t.Errorf("expected active_cores=1 in slog output, got: %s", output)
+	lib := requireFFILib(t)
+	startRuntime(t, lib)
+	output := ffiBackendLog(t, lib, aletheia.WithRTSCores(8))
+	for _, want := range []string{"rts.cores_mismatch", `"level":"WARN"`, `"requested_cores":8`, `"active_cores":1`} {
+		if !strings.Contains(output, want) {
+			t.Errorf("the log does not carry %s: %s", want, output)
+		}
 	}
 }
 
+// Asking for the count already running says nothing.
 func TestFFIBackend_RTSCoresMatchingSilent(t *testing.T) {
-	lib := findFFILib()
-	if lib == "" {
-		t.Skip("libaletheia-ffi.so not found — run 'cabal run shake -- build' first")
-	}
-
-	// Ensure the RTS is initialized (to 1 cores) from this or a prior test.
-	b1, err := aletheia.NewFFIBackend(lib)
-	if err != nil {
-		t.Fatalf("first NewFFIBackend: %v", err)
-	}
-	_ = b1
-
-	// Matching rts_cores=1 must not emit a warning via WithFFILogger.
-	// Note: the mismatch warning is emitted to the FFIBackend's logger
-	// (set by WithFFILogger), not the Client logger (WithLogger); capturing
-	// the wrong logger in this test historically made it vacuously pass.
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	b2, err := aletheia.NewFFIBackend(lib, aletheia.WithRTSCores(1), aletheia.WithFFILogger(logger))
-	if err != nil {
-		t.Fatalf("second NewFFIBackend: %v", err)
-	}
-	_ = b2
-	output := buf.String()
-
-	if strings.Contains(output, "rts.cores_mismatch") {
-		t.Errorf("expected no rts.cores_mismatch record, got: %s", output)
-	}
-	if strings.Contains(output, `"level":"WARN"`) {
-		t.Errorf("expected no WARN-level record, got: %s", output)
+	lib := requireFFILib(t)
+	startRuntime(t, lib)
+	output := ffiBackendLog(t, lib, aletheia.WithRTSCores(1))
+	for _, unwanted := range []string{"rts.cores_mismatch", `"level":"WARN"`} {
+		if strings.Contains(output, unwanted) {
+			t.Errorf("the log carries %s though the counts match: %s", unwanted, output)
+		}
 	}
 }
 
-// ---------------------------------------------------------------------------
-// NewFFIBackendFromEnv — ALETHEIA_LIB resolution (env-symmetry with Python/Rust)
-// ---------------------------------------------------------------------------
-// The empty-check branch is exercised WITHOUT a real .so so it stays covered by
-// mutation testing: unset yields a Validation error and a set-but-missing path
-// yields an FFI (dlopen) error, and the two distinct Kinds are what kill a
-// dropped or inverted empty-check. Only the happy path below needs the .so.
-
+// An unset ALETHEIA_LIB is the caller's mistake, not a loader failure, and the
+// two tests below tell the kinds apart so that dropping or inverting the empty
+// check fails. Neither needs the library, which is what keeps the check under
+// the mutation lane on a machine that has not built it.
 func TestNewFFIBackendFromEnv_UnsetIsValidationError(t *testing.T) {
-	t.Setenv("ALETHEIA_LIB", "") // force empty; t.Setenv restores afterward
+	t.Setenv("ALETHEIA_LIB", "")
 	_, err := aletheia.NewFFIBackendFromEnv()
 	if err == nil {
 		t.Fatal("expected an error when ALETHEIA_LIB is unset, got nil")
@@ -146,10 +121,12 @@ func TestNewFFIBackendFromEnv_UnsetIsValidationError(t *testing.T) {
 		t.Fatalf("expected *aletheia.Error, got %T: %v", err, err)
 	}
 	if e.Kind != aletheia.ErrValidation {
-		t.Errorf("Kind = %v, want ErrValidation (unset is a usage error, not an FFI failure)", e.Kind)
+		t.Errorf("Kind = %v, want ErrValidation: unset is a usage error, not a loader failure", e.Kind)
 	}
 }
 
+// A path that is set but names nothing reaches the loader, which is the other
+// side of the same check.
 func TestNewFFIBackendFromEnv_MissingPathIsFFIError(t *testing.T) {
 	t.Setenv("ALETHEIA_LIB", "/nonexistent/libaletheia-ffi.so")
 	_, err := aletheia.NewFFIBackendFromEnv()
@@ -161,15 +138,13 @@ func TestNewFFIBackendFromEnv_MissingPathIsFFIError(t *testing.T) {
 		t.Fatalf("expected *aletheia.Error, got %T: %v", err, err)
 	}
 	if e.Kind != aletheia.ErrFFI {
-		t.Errorf("Kind = %v, want ErrFFI (a set-but-missing path must reach dlopen, not the unset guard)", e.Kind)
+		t.Errorf("Kind = %v, want ErrFFI: a set path must reach the loader, not the unset guard", e.Kind)
 	}
 }
 
+// A path that names the library opens it.
 func TestNewFFIBackendFromEnv_LoadsRealLibrary(t *testing.T) {
-	lib := findFFILib()
-	if lib == "" {
-		t.Skip("libaletheia-ffi.so not found — run 'cabal run shake -- build' first")
-	}
+	lib := requireFFILib(t)
 	t.Setenv("ALETHEIA_LIB", lib)
 	b, err := aletheia.NewFFIBackendFromEnv()
 	if err != nil {
@@ -190,11 +165,7 @@ const ffiEndpointDBC = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n" +
 // and the message identifier and length to address it with.
 func ffiEndpointClient(t *testing.T) (*aletheia.Client, aletheia.CANID, aletheia.DLC) {
 	t.Helper()
-	lib := findFFILib()
-	if lib == "" {
-		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
-	}
-	backend, err := aletheia.NewFFIBackend(lib)
+	backend, err := aletheia.NewFFIBackend(requireFFILib(t))
 	if err != nil {
 		t.Fatalf("NewFFIBackend: %v", err)
 	}
@@ -291,11 +262,7 @@ func TestFFIBackend_SendErrorAndSendRemoteBinaryStream(t *testing.T) {
 // A timestamp before the epoch is refused at the boundary, without reaching
 // the library, by both event endpoints.
 func TestFFIBackend_NegativeTimestampIsRefused(t *testing.T) {
-	lib := findFFILib()
-	if lib == "" {
-		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
-	}
-	backend, err := aletheia.NewFFIBackend(lib)
+	backend, err := aletheia.NewFFIBackend(requireFFILib(t))
 	if err != nil {
 		t.Fatalf("NewFFIBackend: %v", err)
 	}
@@ -320,11 +287,7 @@ func TestFFIBackend_NegativeTimestampIsRefused(t *testing.T) {
 // StablePtrCount counts the sessions the process holds: one more while a
 // session is open, and back where it started once it is closed.
 func TestFFIBackend_StablePtrCountTracksOpenSessions(t *testing.T) {
-	lib := findFFILib()
-	if lib == "" {
-		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
-	}
-	backend, err := aletheia.NewFFIBackend(lib)
+	backend, err := aletheia.NewFFIBackend(requireFFILib(t))
 	if err != nil {
 		t.Fatalf("NewFFIBackend: %v", err)
 	}
