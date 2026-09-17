@@ -26,6 +26,9 @@ func repoPath(parts ...string) string {
 // a stub.
 func ensureLib(t *testing.T) {
 	t.Helper()
+	if !cgoEnabled {
+		t.Skip("built without cgo; the binding cannot load the library")
+	}
 	if os.Getenv("ALETHEIA_LIB") != "" {
 		return
 	}

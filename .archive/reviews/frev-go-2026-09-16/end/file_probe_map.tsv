@@ -1,0 +1,88 @@
+go/README.md	probes/go_README.md--the-cited-section-and-identifiers-resolve.sh probes/go_README.md--the-fence-is-a-complete-program-that-reports-the-violation.sh probes/go_README.md--the-quick-start-finds-the-library-without-the-environment.sh 
+go/aletheia/backend.go	probes/go_aletheia_backend.go--comment-citations-resolve.sh probes/python_aletheia_client__backend.py--the-header-names-what-each-binding-passes.sh 
+go/aletheia/batch_test.go	 
+go/aletheia/byteorder_string.go	probes/go_aletheia_stringer_outputs--match-their-generate-directives.sh 
+go/aletheia/cancel_test.go	 
+go/aletheia/check.go	probes/go_aletheia_check.go--every-then-condition-carries-a-description.sh 
+go/aletheia/check_test.go	 
+go/aletheia/client.go	probes/go_README.md--the-cited-section-and-identifiers-resolve.sh probes/go_aletheia_backend.go--comment-citations-resolve.sh probes/go_aletheia_doc.go--the-event-list-matches-log-events.sh probes/tools_check_mutation_setup.py--a-hot-path-that-moved-is-caught.sh 
+go/aletheia/concurrent_test.go	 
+go/aletheia/cross_binding_integration_test.go	probes/cross_binding_integration--every-case-has-its-sibling-in-the-other-two.sh 
+go/aletheia/dbc.go	probes/go_aletheia_dbc.go--comment-citations-resolve.sh 
+go/aletheia/dbc_corpus_parity_test.go	probes/go_aletheia_dbc_corpus_parity_test.go--the-three-bindings-read-the-same-snapshots.sh 
+go/aletheia/dbc_stale_index_test.go	 
+go/aletheia/dbc_test.go	 
+go/aletheia/dbc_tier1_test.go	 
+go/aletheia/dbc_tier2_test.go	 
+go/aletheia/dbc_value_descriptions_test.go	 
+go/aletheia/dbcattrscope_string.go	probes/go_aletheia_stringer_outputs--match-their-generate-directives.sh 
+go/aletheia/dbcvartype_string.go	probes/go_aletheia_stringer_outputs--match-their-generate-directives.sh 
+go/aletheia/decimal.go	probes/go_aletheia--every-call-into-the-library-runs-on-a-pinned-thread.sh 
+go/aletheia/decimal_nocgo.go	 
+go/aletheia/decimal_test.go	 
+go/aletheia/doc.go	probes/go_aletheia_doc.go--citations-resolve.sh probes/go_aletheia_doc.go--the-event-list-matches-log-events.sh 
+go/aletheia/doc_examples_test.go	probes/go_aletheia_doc_examples_test.go--every-go-fence-in-the-tree-is-in-the-harness.sh 
+go/aletheia/doc_no_notest_test.go	 
+go/aletheia/dsl_test.go	 
+go/aletheia/enrich.go	 
+go/aletheia/enrich_test.go	 
+go/aletheia/eos_extract_once_test.go	 
+go/aletheia/error.go	probes/cpp_include_aletheia_error.hpp--comment-citations-resolve.sh probes/go_aletheia_error.go--the-peer-error-types-it-names-exist.sh probes/go_aletheia_wire_codes--every-declared-code-has-a-row.sh 
+go/aletheia/error_test.go	 
+go/aletheia/errorkind_string.go	probes/go_aletheia_stringer_outputs--match-their-generate-directives.sh 
+go/aletheia/export_test.go	probes/go_aletheia_export_test.go--the-re-exports-stay-out-of-the-build.sh 
+go/aletheia/extraction_bin_test.go	 
+go/aletheia/feature_matrix_test.go	 
+go/aletheia/ffi.go	probes/go_README.md--the-cited-section-and-identifiers-resolve.sh probes/go_aletheia--every-call-into-the-library-runs-on-a-pinned-thread.sh probes/go_aletheia_backend.go--comment-citations-resolve.sh probes/go_aletheia_doc.go--the-event-list-matches-log-events.sh probes/go_aletheia_ffi_nocgo.go--the-two-build-variants-declare-the-same-surface.sh 
+go/aletheia/ffi_backend_test.go	 
+go/aletheia/ffi_nocgo.go	probes/go_aletheia_ffi_nocgo.go--the-module-builds-without-cgo.sh probes/go_aletheia_ffi_nocgo.go--the-two-build-variants-declare-the-same-surface.sh 
+go/aletheia/format_dbc_text_roundtrip_test.go	 
+go/aletheia/fuzz_test.go	probes/AGENTS_go.md--the-fuzz-targets-it-names-are-the-ones-that-exist.sh probes/go_aletheia_fuzz_test.go--the-targets-are-the-ones-the-standard-names.sh 
+go/aletheia/helpers_test.go	 
+go/aletheia/input_bounds_test.go	 
+go/aletheia/internal_test_helpers_test.go	 
+go/aletheia/issueseverity_string.go	probes/go_aletheia_issueseverity_string.go--the-names-are-the-wire-severities.sh probes/go_aletheia_stringer_outputs--match-their-generate-directives.sh 
+go/aletheia/json.go	probes/go_aletheia_issueseverity_string.go--the-names-are-the-wire-severities.sh probes/go_aletheia_verdict_string.go--the-names-are-the-wire-statuses.sh 
+go/aletheia/json_error_decode_test.go	 
+go/aletheia/json_precision_test.go	 
+go/aletheia/limits.go	probes/go_aletheia_limits.go--every-kernel-limit-is-mirrored-with-its-value.sh probes/go_aletheia_limits.go--the-bound-kinds-spell-the-kernel-codes.sh 
+go/aletheia/loader.go	probes/go_aletheia_loader.go--a-new-slot-stops-every-loader-compiling.sh 
+go/aletheia/loader_test.go	 
+go/aletheia/log_events_test.go	 
+go/aletheia/ltl.go	 
+go/aletheia/main_test.go	 
+go/aletheia/mock.go	probes/go_aletheia_backend.go--comment-citations-resolve.sh probes/go_aletheia_mock.go--the-sentinels-match-the-python-mock.sh 
+go/aletheia/mux_mirror_warnings_test.go	 
+go/aletheia/mux_test.go	 
+go/aletheia/nested_mux_test.go	 
+go/aletheia/options_test.go	 
+go/aletheia/property_test.go	 
+go/aletheia/renderer.go	probes/go_aletheia--every-call-into-the-library-runs-on-a-pinned-thread.sh probes/go_excel_excel_test.go--the-library-search-matches-the-binding-s.sh 
+go/aletheia/result.go	probes/cpp_include_aletheia_response.hpp--comment-citations-resolve.sh probes/go_aletheia_doc.go--citations-resolve.sh probes/go_aletheia_issueseverity_string.go--the-names-are-the-wire-severities.sh probes/go_aletheia_verdict_string.go--the-names-are-the-wire-statuses.sh probes/go_aletheia_wire_codes--every-declared-code-has-a-row.sh 
+go/aletheia/rts.go	 
+go/aletheia/rts_heap_cap_test.go	 
+go/aletheia/rts_params_parity_test.go	 
+go/aletheia/seq_batch_test.go	 
+go/aletheia/stream_test.go	 
+go/aletheia/testdata/doc_examples/checks.yaml	 
+go/aletheia/testdata/fuzz/FuzzMarshalCommand/f32a925c08c852ac	 
+go/aletheia/types.go	probes/go_aletheia_types.go--the-byte-order-names-are-the-kernel-s.sh 
+go/aletheia/types_test.go	 
+go/aletheia/verdict_string.go	probes/go_aletheia_stringer_outputs--match-their-generate-directives.sh probes/go_aletheia_verdict_string.go--the-names-are-the-wire-statuses.sh 
+go/aletheia/wire_codes_parity_test.go	 
+go/aletheia/yaml.go	probes/go_aletheia_loader.go--a-new-slot-stops-every-loader-compiling.sh 
+go/aletheia/yaml_test.go	 
+go/benchmarks/main.go	probes/go_benchmarks_main.go--a-count-of-zero-is-refused.sh probes/go_benchmarks_main.go--a-report-that-cannot-be-written-is-not-a-success.sh probes/go_benchmarks_main.go--every-mode-reports-the-shape-the-schema-pins.sh probes/go_benchmarks_main.go--the-documented-invocation-finds-the-kernel.sh 
+go/benchmarks/stability/main.go	probes/go_benchmarks_stability_main.go--a-bad-count-is-refused.sh probes/go_benchmarks_stability_main.go--a-client-left-open-is-caught.sh probes/go_benchmarks_stability_main.go--the-report-carries-the-sub-checks-the-contract-names.sh probes/go_benchmarks_stability_main.go--the-runner-s-directory-finds-the-kernel.sh 
+go/cmd/aletheia/main.go	probes/cli--the-three-interfaces-print-one-wording.sh probes/go_cmd_aletheia_main.go--a-report-that-cannot-be-written-is-not-a-success.sh probes/go_cmd_aletheia_main.go--the-subcommands-are-the-python-ones.sh 
+go/cmd/aletheia/main_test.go	 
+go/excel/excel.go	probes/go_aletheia_loader.go--a-new-slot-stops-every-loader-compiling.sh probes/go_excel_excel.go--every-column-the-loaders-read-is-one-the-template-writes.sh 
+go/excel/excel_test.go	probes/go_excel_excel_test.go--the-library-search-matches-the-binding-s.sh 
+go/excel/go.mod	probes/go_README.md--the-cited-section-and-identifiers-resolve.sh probes/go_module_directives--the-two-modules-and-the-workspace-agree.sh 
+go/excel/go.sum	probes/go_module_checksums--every-entry-names-a-module-the-workspace-uses.sh 
+go/excel/hardening.go	probes/loaders--a-directory-that-cannot-be-read-is-not-reported-as-absent.sh 
+go/go.mod	probes/go_module_directives--the-two-modules-and-the-workspace-agree.sh 
+go/go.sum	probes/go_module_checksums--every-entry-names-a-module-the-workspace-uses.sh 
+go/go.work	probes/go_go.work--the-excel-module-builds-from-the-workspace-with-no-network.sh probes/go_module_checksums--every-entry-names-a-module-the-workspace-uses.sh probes/go_module_directives--the-two-modules-and-the-workspace-agree.sh 
+go/go.work.sum	probes/go_module_checksums--every-entry-names-a-module-the-workspace-uses.sh 
+# 87 tracked files under go/, 41 named by a probe
