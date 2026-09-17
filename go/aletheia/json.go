@@ -231,11 +231,7 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 		return nil, wrapProtocolError("failed to size-check DBC", err)
 	}
 	if size := uint64(len(b)); size > MaxDBCTextBytes {
-		return nil, &InputBoundExceededError{
-			BoundKind: BoundKindInputLengthBytes,
-			Observed:  size,
-			Limit:     MaxDBCTextBytes,
-		}
+		return nil, newInputBoundExceededError(BoundKindInputLengthBytes, size, MaxDBCTextBytes, CodeInputBoundExceeded)
 	}
 	return json.RawMessage(b), nil
 }

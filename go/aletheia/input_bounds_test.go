@@ -13,23 +13,52 @@ import (
 	"unsafe"
 )
 
-// UR-2 cross-binding parity: *InputBoundExceededError exists, carries
-// BoundKind/Observed/Limit, satisfies the error interface, and is
-// returned when a JSON payload exceeds MaxJSONBytes at the FFI boundary
-// before the payload is marshaled across cgo.
-//
-// The Agda kernel ALSO rejects (parseJSON's input-length cap returns a
-// parse_input_bound_exceeded error response), but the binding-side
-// short-circuit fires first so the C string is never strdup'd.
+// The typed bound error and every entry point that refuses before the payload
+// crosses. The kernel refuses oversized input too, its parser carrying the
+// same cap, but the binding's check fires first, so nothing is copied into C
+// to be rejected on the far side.
 
+// requireBoundExceeded holds that the failure is the typed bound error with
+// the kind, the observed size and the limit the caller expects. An observed
+// size of zero means only that it must be over the limit, which is what the
+// entry points that measure an encoded payload can promise.
+func requireBoundExceeded(t *testing.T, err error, observed, limit uint64) *InputBoundExceededError {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected a bound error, got nil")
+	}
+	var bex *InputBoundExceededError
+	if !errors.As(err, &bex) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bex.BoundKind != BoundKindInputLengthBytes {
+		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindInputLengthBytes)
+	}
+	if bex.Limit != limit {
+		t.Errorf("Limit = %d, want %d", bex.Limit, limit)
+	}
+	switch {
+	case observed != 0 && bex.Observed != observed:
+		t.Errorf("Observed = %d, want %d", bex.Observed, observed)
+	case observed == 0 && bex.Observed <= limit:
+		t.Errorf("Observed = %d, want more than the limit %d", bex.Observed, limit)
+	}
+	if bex.Code != CodeInputBoundExceeded {
+		t.Errorf("Code = %q, want %q", bex.Code, CodeInputBoundExceeded)
+	}
+	return bex
+}
+
+// The error carries the three numbers that let a caller act on it, renders all
+// three, and survives wrapping.
 func TestInputBoundExceededError_Shape(t *testing.T) {
+	err := &InputBoundExceededError{
+		BoundKind: BoundKindInputLengthBytes,
+		Observed:  100,
+		Limit:     50,
+		Code:      CodeInputBoundExceeded,
+	}
 	t.Run("carries kind observed limit", func(t *testing.T) {
-		err := &InputBoundExceededError{
-			BoundKind: BoundKindInputLengthBytes,
-			Observed:  100,
-			Limit:     50,
-			Code:      CodeInputBoundExceeded,
-		}
 		if err.BoundKind != "input_length_bytes" {
 			t.Errorf("BoundKind = %q, want %q", err.BoundKind, "input_length_bytes")
 		}
@@ -41,12 +70,7 @@ func TestInputBoundExceededError_Shape(t *testing.T) {
 		}
 	})
 
-	t.Run("error message contains all three fields", func(t *testing.T) {
-		err := &InputBoundExceededError{
-			BoundKind: BoundKindInputLengthBytes,
-			Observed:  100,
-			Limit:     50,
-		}
+	t.Run("renders all three", func(t *testing.T) {
 		msg := err.Error()
 		for _, want := range []string{"input_length_bytes", "100", "50"} {
 			if !strings.Contains(msg, want) {
@@ -55,14 +79,10 @@ func TestInputBoundExceededError_Shape(t *testing.T) {
 		}
 	})
 
-	t.Run("satisfies error interface and errors.As", func(t *testing.T) {
-		var err error = &InputBoundExceededError{
-			BoundKind: BoundKindInputLengthBytes,
-			Observed:  100,
-			Limit:     50,
-		}
+	t.Run("unwraps through errors.As", func(t *testing.T) {
+		var wrapped error = err
 		var bex *InputBoundExceededError
-		if !errors.As(err, &bex) {
+		if !errors.As(wrapped, &bex) {
 			t.Fatal("errors.As did not unwrap to *InputBoundExceededError")
 		}
 		if bex.Observed != 100 {
@@ -71,127 +91,74 @@ func TestInputBoundExceededError_Shape(t *testing.T) {
 	})
 }
 
+// The limits are the numbers the protocol fixes, and every bound kind spells
+// the wire code the kernel's own table spells. The roster here is the whole
+// set: a kind the binding declares and this map omits would go unchecked.
 func TestLimits_Constants(t *testing.T) {
-	tests := []struct {
-		name string
-		got  uint64
-		want uint64
-	}{
-		{"MaxJSONBytes 64 MiB", uint64(MaxJSONBytes), 64 * 1024 * 1024},
-		{"MaxDBCTextBytes 64 MiB", uint64(MaxDBCTextBytes), 64 * 1024 * 1024},
-		{"MaxNestingDepth", uint64(MaxNestingDepth), 64},
-		{"MaxFrameByteCount", uint64(MaxFrameByteCount), 64},
+	limits := map[string]struct{ got, want uint64 }{
+		"MaxJSONBytes":      {uint64(MaxJSONBytes), 64 * 1024 * 1024},
+		"MaxDBCTextBytes":   {uint64(MaxDBCTextBytes), 64 * 1024 * 1024},
+		"MaxNestingDepth":   {uint64(MaxNestingDepth), 64},
+		"MaxFrameByteCount": {uint64(MaxFrameByteCount), 64},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.got != tt.want {
-				t.Errorf("got %d, want %d", tt.got, tt.want)
+	for name, tc := range limits {
+		t.Run(name, func(t *testing.T) {
+			if tc.got != tc.want {
+				t.Errorf("%s = %d, want %d", name, tc.got, tc.want)
 			}
 		})
 	}
 
-	// Bound-kind wire codes mirror boundKindCode in Aletheia.Limits.
-	wantCodes := map[string]string{
-		"InputLengthBytes": BoundKindInputLengthBytes,
-		"NestingDepth":     BoundKindNestingDepth,
-		"ArrayCardinality": BoundKindArrayCardinality,
-		"IdentifierLength": BoundKindIdentifierLength,
-		"StringLength":     BoundKindStringLength,
-		"AtomCount":        BoundKindAtomCount,
-		"FrameByteCount":   BoundKindFrameByteCount,
+	kinds := map[string]string{
+		BoundKindInputLengthBytes:           "input_length_bytes",
+		BoundKindNestingDepth:               "nesting_depth",
+		BoundKindArrayCardinality:           "array_cardinality",
+		BoundKindIdentifierLength:           "identifier_length",
+		BoundKindStringLength:               "string_length",
+		BoundKindAtomCount:                  "atom_count",
+		BoundKindFrameByteCount:             "frame_byte_count",
+		BoundKindPropertyCount:              "property_count",
+		BoundKindRationalComponentMagnitude: "rational_component_magnitude",
 	}
-	wantValues := map[string]string{
-		"InputLengthBytes": "input_length_bytes",
-		"NestingDepth":     "nesting_depth",
-		"ArrayCardinality": "array_cardinality",
-		"IdentifierLength": "identifier_length",
-		"StringLength":     "string_length",
-		"AtomCount":        "atom_count",
-		"FrameByteCount":   "frame_byte_count",
-	}
-	for name, got := range wantCodes {
-		if got != wantValues[name] {
-			t.Errorf("BoundKind%s = %q, want %q", name, got, wantValues[name])
+	for got, want := range kinds {
+		if got != want {
+			t.Errorf("bound kind %q should spell %q", got, want)
 		}
 	}
+	if len(kinds) != 9 {
+		t.Errorf("the roster holds %d kinds; the binding declares nine", len(kinds))
+	}
 }
 
-// FFI-boundary short-circuit on oversize input.  Uses FFIBackend.Process
-// directly with a synthetic state pointer; we never reach the actual cgo
-// call because the bound check fires first.
+// A payload past the cap is refused at the boundary, before anything is
+// copied into C. The backend is the zero value on purpose: reaching a
+// trampoline through it would crash, so the test passing is itself the
+// evidence that the check fires first.
 func TestProcess_RejectsOversizeJSON(t *testing.T) {
-	// Construct a JSON payload one byte over MaxJSONBytes.  Using a
-	// minimal FFIBackend (zero-valued) is OK because the bound check
-	// is the first line of `process` — the cgo function pointers are
-	// never reached.
 	backend := &FFIBackend{}
-	bigInput := strings.Repeat("x", MaxJSONBytes+1)
-
-	_, err := backend.Process(unsafe.Pointer(nil), bigInput)
-	if err == nil {
-		t.Fatal("expected InputBoundExceededError, got nil")
-	}
-	var bex *InputBoundExceededError
-	if !errors.As(err, &bex) {
-		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
-	}
-	if bex.BoundKind != BoundKindInputLengthBytes {
-		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindInputLengthBytes)
-	}
-	if bex.Observed <= MaxJSONBytes {
-		t.Errorf("Observed = %d, want > %d", bex.Observed, MaxJSONBytes)
-	}
-	if bex.Limit != MaxJSONBytes {
-		t.Errorf("Limit = %d, want %d", bex.Limit, MaxJSONBytes)
-	}
-	if bex.Code != CodeInputBoundExceeded {
-		t.Errorf("Code = %q, want %q", bex.Code, CodeInputBoundExceeded)
-	}
+	_, err := backend.Process(unsafe.Pointer(nil), strings.Repeat("x", MaxJSONBytes+1))
+	requireBoundExceeded(t, err, uint64(MaxJSONBytes)+1, uint64(MaxJSONBytes))
 }
 
-// Per-loader bound checks for the YAML loader entry points,
-// closing the cross-binding asymmetry where Python's yaml_loader caps but
-// Go's loadYAMLData / LoadChecksFromYAMLFile previously did not.
-//
-// Uses a sparse file (truncate to MaxDBCTextBytes+1) so the test does not
-// write 64+ MiB of real bytes; the bound check reads st_size which reports
-// the truncated size unconditionally on Linux.
-
-func TestLoadChecksFromYAMLFile_RejectsOversize(t *testing.T) {
-	tmpFile := filepath.Join(t.TempDir(), "huge.yaml")
-	f, err := os.Create(tmpFile)
-	if err != nil {
-		t.Fatalf("create temp file: %v", err)
-	}
-	if err := f.Truncate(int64(MaxDBCTextBytes) + 1); err != nil {
-		t.Fatalf("truncate: %v", err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatalf("close: %v", err)
-	}
-
-	_, err = LoadChecksFromYAMLFile(tmpFile)
-	if err == nil {
-		t.Fatal("expected InputBoundExceededError, got nil")
-	}
-	var bex *InputBoundExceededError
-	if !errors.As(err, &bex) {
-		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
-	}
-	if bex.BoundKind != BoundKindInputLengthBytes {
-		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindInputLengthBytes)
-	}
-	if bex.Observed != uint64(MaxDBCTextBytes)+1 {
-		t.Errorf("Observed = %d, want %d", bex.Observed, uint64(MaxDBCTextBytes)+1)
-	}
-	if bex.Limit != MaxDBCTextBytes {
-		t.Errorf("Limit = %d, want %d", bex.Limit, MaxDBCTextBytes)
-	}
+// Both YAML entry points measure the file before reading it. The file is
+// sparse, so the test costs an inode rather than sixty-four mebibytes, and
+// the check reads the size the filesystem reports.
+func TestYAMLLoaders_RejectOversizeFile(t *testing.T) {
+	t.Run("LoadChecksFromYAMLFile", func(t *testing.T) {
+		_, err := LoadChecksFromYAMLFile(oversizeYAMLFile(t))
+		requireBoundExceeded(t, err, uint64(MaxDBCTextBytes)+1, uint64(MaxDBCTextBytes))
+	})
+	t.Run("loadYAMLData", func(t *testing.T) {
+		_, err := loadYAMLData(oversizeYAMLFile(t))
+		requireBoundExceeded(t, err, uint64(MaxDBCTextBytes)+1, uint64(MaxDBCTextBytes))
+	})
 }
 
-func TestLoadYAMLData_FilePathOversize(t *testing.T) {
-	tmpFile := filepath.Join(t.TempDir(), "huge.yaml")
-	f, err := os.Create(tmpFile)
+// oversizeYAMLFile is a sparse file one byte over the text cap.
+func oversizeYAMLFile(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "huge.yaml")
+	f, err := os.Create(path)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -201,109 +168,34 @@ func TestLoadYAMLData_FilePathOversize(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-
-	_, err = loadYAMLData(tmpFile)
-	if err == nil {
-		t.Fatal("expected InputBoundExceededError, got nil")
-	}
-	var bex *InputBoundExceededError
-	if !errors.As(err, &bex) {
-		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
-	}
-	if bex.Observed != uint64(MaxDBCTextBytes)+1 {
-		t.Errorf("Observed = %d, want %d", bex.Observed, uint64(MaxDBCTextBytes)+1)
-	}
+	return path
 }
 
+// Text handed to the YAML loader directly, rather than as a path, is measured
+// the same way.
 func TestLoadYAMLData_InlineStringOversize(t *testing.T) {
-	// loadYAMLData treats source as inline YAML when os.Stat fails (no file).
-	// A repeated-x string of length > MaxDBCTextBytes that's not a valid path
-	// triggers the inline-form bound check.
-	bigInline := strings.Repeat("x", MaxDBCTextBytes+1)
-	_, err := loadYAMLData(bigInline)
-	if err == nil {
-		t.Fatal("expected InputBoundExceededError, got nil")
-	}
-	var bex *InputBoundExceededError
-	if !errors.As(err, &bex) {
-		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
-	}
-	if bex.BoundKind != BoundKindInputLengthBytes {
-		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindInputLengthBytes)
-	}
-	if bex.Observed != uint64(MaxDBCTextBytes)+1 {
-		t.Errorf("Observed = %d, want %d", bex.Observed, uint64(MaxDBCTextBytes)+1)
-	}
-	if bex.Limit != MaxDBCTextBytes {
-		t.Errorf("Limit = %d, want %d", bex.Limit, MaxDBCTextBytes)
-	}
+	_, err := loadYAMLData(strings.Repeat("x", MaxDBCTextBytes+1))
+	requireBoundExceeded(t, err, uint64(MaxDBCTextBytes)+1, uint64(MaxDBCTextBytes))
 }
 
-// Defense-in-depth output bound on serializeDBC.
-// Constructs a DBCDefinition whose marshaled JSON exceeds MaxDBCTextBytes
-// and verifies serializeDBC returns *InputBoundExceededError before the
-// payload is handed to the FFI.  In normal flow the upstream parser cap
-// makes this redundant; this guard catches any internal blowup or future
-// bypass.
-
+// The serializer measures what it produced. Nothing upstream can currently
+// grow a definition past the cap, the parser refusing first, so this is the
+// second lock on the same door rather than the only one.
 func TestSerializeDBC_RejectsOversizeOutput(t *testing.T) {
-	// A 64 MiB+ Version string drives the marshaled JSON over the cap.
-	// Allocating a 64 MiB string is acceptable for a single test —
-	// completes in <1s on a typical CI box.
-	bigVersion := strings.Repeat("x", MaxDBCTextBytes+100)
-	dbc := DBCDefinition{Version: bigVersion}
-
-	_, err := serializeDBC(dbc)
-	if err == nil {
-		t.Fatal("expected InputBoundExceededError, got nil")
-	}
-	var bex *InputBoundExceededError
-	if !errors.As(err, &bex) {
-		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
-	}
-	if bex.BoundKind != BoundKindInputLengthBytes {
-		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindInputLengthBytes)
-	}
-	if bex.Observed <= uint64(MaxDBCTextBytes) {
-		t.Errorf("Observed = %d, want > %d", bex.Observed, MaxDBCTextBytes)
-	}
-	if bex.Limit != MaxDBCTextBytes {
-		t.Errorf("Limit = %d, want %d", bex.Limit, MaxDBCTextBytes)
-	}
+	_, err := serializeDBC(DBCDefinition{Version: strings.Repeat("x", MaxDBCTextBytes+100)})
+	requireBoundExceeded(t, err, 0, uint64(MaxDBCTextBytes))
 }
 
-// For cross-binding parity, ParseDBCText pre-checks
-// the inner text size against MaxDBCTextBytes before wrapping it in a JSON
-// command, so the rejection carries the precise dbc_text_input_bound_exceeded
-// wire code and a Limit field matching the inner cap.
-
+// The DBC text is measured before it is wrapped in a command, so the refusal
+// reports the inner cap rather than the cap on the command that would have
+// carried it.
 func TestParseDBCText_RejectsOversizeText(t *testing.T) {
-	mock := NewMockBackend()
-	c, err := NewClient(mock)
+	c, err := NewClient(NewMockBackend())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = c.Close() }()
 
-	bigText := strings.Repeat("x", MaxDBCTextBytes+1)
-	_, err = c.ParseDBCText(context.Background(), bigText)
-	if err == nil {
-		t.Fatal("expected InputBoundExceededError, got nil")
-	}
-	var bex *InputBoundExceededError
-	if !errors.As(err, &bex) {
-		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
-	}
-	if bex.BoundKind != BoundKindInputLengthBytes {
-		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindInputLengthBytes)
-	}
-	if bex.Observed != uint64(MaxDBCTextBytes)+1 {
-		t.Errorf("Observed = %d, want %d", bex.Observed, uint64(MaxDBCTextBytes)+1)
-	}
-	if bex.Limit != MaxDBCTextBytes {
-		t.Errorf("Limit = %d, want %d", bex.Limit, MaxDBCTextBytes)
-	}
-	if bex.Code != CodeInputBoundExceeded {
-		t.Errorf("Code = %q, want %q", bex.Code, CodeInputBoundExceeded)
-	}
+	_, err = c.ParseDBCText(context.Background(), strings.Repeat("x", MaxDBCTextBytes+1))
+	requireBoundExceeded(t, err, uint64(MaxDBCTextBytes)+1, uint64(MaxDBCTextBytes))
 }

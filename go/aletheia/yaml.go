@@ -53,11 +53,7 @@ func LoadChecksFromYAMLFile(path string) ([]CheckResult, error) {
 		return nil, validationError(fmt.Sprintf("YAML path is not a regular file: %s", path))
 	}
 	if size := uint64(info.Size()); size > MaxDBCTextBytes {
-		return nil, &InputBoundExceededError{
-			BoundKind: BoundKindInputLengthBytes,
-			Observed:  size,
-			Limit:     MaxDBCTextBytes,
-		}
+		return nil, newInputBoundExceededError(BoundKindInputLengthBytes, size, MaxDBCTextBytes, CodeInputBoundExceeded)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -82,11 +78,7 @@ func loadYAMLData(source string) ([]byte, error) {
 	info, statErr := os.Lstat(source)
 	if statErr == nil && info.Mode().IsRegular() {
 		if size := uint64(info.Size()); size > MaxDBCTextBytes {
-			return nil, &InputBoundExceededError{
-				BoundKind: BoundKindInputLengthBytes,
-				Observed:  size,
-				Limit:     MaxDBCTextBytes,
-			}
+			return nil, newInputBoundExceededError(BoundKindInputLengthBytes, size, MaxDBCTextBytes, CodeInputBoundExceeded)
 		}
 		data, err := os.ReadFile(source)
 		if err != nil {
@@ -106,11 +98,7 @@ func loadYAMLData(source string) ([]byte, error) {
 	// Stat-fails or non-regular non-symlink — treat as inline YAML.
 	// Not a file -- treat as inline YAML.
 	if size := uint64(len(source)); size > MaxDBCTextBytes {
-		return nil, &InputBoundExceededError{
-			BoundKind: BoundKindInputLengthBytes,
-			Observed:  size,
-			Limit:     MaxDBCTextBytes,
-		}
+		return nil, newInputBoundExceededError(BoundKindInputLengthBytes, size, MaxDBCTextBytes, CodeInputBoundExceeded)
 	}
 	return []byte(source), nil
 }
