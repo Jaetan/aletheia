@@ -74,7 +74,9 @@ TOML
 if ! (cd "$work/crate" && CARGO_NET_OFFLINE=true CARGO_TARGET_DIR="$work/target" \
     cargo build --quiet) > "$work/build.log" 2>&1; then
     echo "a fence in the guide does not compile:"
-    head -12 "$work/build.log" | sed 's/^/  /'
+    # The errors first: cargo prints every warning before them, and a dozen
+    # lines of unused-variable notes would otherwise bury the one that matters.
+    grep -A 6 "^error" "$work/build.log" | head -14 | sed 's/^/  /'
     exit 1
 fi
 

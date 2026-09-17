@@ -204,6 +204,26 @@ A frame can be decoded and built directly, inside a stream or outside one. The `
 - `BuildFrame(ctx, id, dlc, signals)` → `FramePayload` (encode signal values).
 - `UpdateFrame(ctx, id, dlc, data, signals)` → `FramePayload` (patch a frame).
 
+Decoding a frame and encoding one are inverses, and a `SignalValue` is a name beside an exact value:
+
+```go
+decoded, err := client.ExtractSignals(ctx, canID, dlc, data)
+if err != nil {
+	panic(err)
+}
+for _, value := range decoded.Values {
+	fmt.Printf("%s = %s\n", value.Name, value.Value)
+}
+
+rebuilt, err := client.BuildFrame(ctx, canID, dlc, []aletheia.SignalValue{
+	{Name: "VehicleSpeed", Value: aletheia.IntRational(72)},
+})
+if err != nil {
+	panic(err)
+}
+fmt.Printf("encoded %d bytes\n", len(rebuilt))
+```
+
 See `go doc aletheia.Client` for the exact signatures.
 
 ---

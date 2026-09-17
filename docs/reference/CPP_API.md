@@ -177,6 +177,22 @@ Outside (or inside) streaming, decode and synthesize frames directly. `dlc` must
 - `build_frame(stop, id, dlc, signals)` → `FramePayload` (encode signal values).
 - `update_frame(stop, id, dlc, data, signals)` → `FramePayload` (patch a frame).
 
+Decoding a frame and encoding one are inverses, and a `SignalValue` is a name beside an exact value:
+
+```cpp
+using namespace aletheia;
+auto decoded = client.extract_signals(std::stop_token{}, can_id, dlc, data);
+if (decoded)
+    for (const auto& value : decoded->values)
+        std::cout << value.name.get() << " = " << value.value.get().numerator() << '\n';
+
+std::vector<SignalValue> injected{
+    SignalValue{SignalName{"VehicleSpeed"}, PhysicalValue{Rational{72, 1}}}};
+auto rebuilt = client.build_frame(std::stop_token{}, can_id, dlc, injected);
+if (rebuilt)
+    std::cout << "encoded " << rebuilt->size() << " bytes\n";
+```
+
 ---
 
 ## Error Handling

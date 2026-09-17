@@ -177,10 +177,41 @@ A real application pulls frames from a CAN log. The binding has no CAN-log reade
 Outside streaming or inside it, decode and synthesize frames directly. The `dlc` must match the payload length, and each returns a `Result`:
 
 - `extract_signals(id, dlc, data)` → `ExtractionResult` (decode a frame).
-- `build_frame(id, dlc, signals)` → `Vec<u8>` (encode signal values).
-- `update_frame(id, dlc, data, signals)` → `Vec<u8>` (patch a frame).
+- `build_frame(message, dlc, signals)` → `Vec<u8>` (encode signal values).
+- `update_frame(message, dlc, frame, signals)` → `Vec<u8>` (patch a frame).
 
-See rustdoc for the exact `SignalInjection` argument shape.
+Encoding takes the `DbcMessage` itself rather than its identifier, the signal positions being resolved against that message. Decoding a frame and encoding one are inverses, and a `SignalValue` is a name beside an exact value:
+
+```rust
+use aletheia::{CanId, Client, Dlc, SignalValue, Rational};
+
+let client = Client::new()?;
+let parsed = client.parse_dbc_text(r#"VERSION ""
+
+NS_ :
+
+BS_:
+
+BU_: ECU
+
+BO_ 256 Engine: 8 ECU
+ SG_ Speed : 0|16@1+ (0.1,0) [0|6553.5] "km/h" ECU
+"#)?;
+let message = &parsed.dbc.messages[0];
+let dlc = Dlc::new(8)?;
+
+let decoded = client.extract_signals(CanId::standard(0x100)?, dlc, &[0u8; 8])?;
+for value in &decoded.values {
+    println!("{} = {:?}", value.name, value.value);
+}
+
+let rebuilt = client.build_frame(
+    message,
+    dlc,
+    &[SignalValue { name: "Speed".to_string(), value: Rational::integer(72) }],
+)?;
+println!("encoded {} bytes", rebuilt.len());
+```
 
 ---
 
