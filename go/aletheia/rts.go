@@ -3,19 +3,17 @@
 
 package aletheia
 
-// Runtime GHC RTS parameters — SSOT: docs/RESOURCE_BUDGETS.yaml (runtime
-// block); mirrored here verbatim.  Parity with the SSOT is enforced by
-// tools/check_rts_runtime.py (a run_ci gate) and rts_params_parity_test.go.
+// The arguments the GHC runtime is started with. The values are
+// docs/RESOURCE_BUDGETS.yaml's, mirrored here; tools/check_rts_runtime.py and
+// rts_params_parity_test.go hold the mirror to it.
 //
-// CONTAINMENT-BY-ABORT contract: the heap cap does NOT yield a recoverable
-// error.  The loaded kernel's GHC RTS has no heap limit by default, so a
-// runaway allocation exhausts host memory and the OOM killer takes the whole
-// machine down.  With the cap in place the same runaway trips GHC's
-// heap-overflow check and the foreign-export wrapper aborts the PROCESS
-// (`aletheia: aletheia_process: Return code (4) not ok`).  There is no
-// catchable error and no partial result — the host survives, the process does
-// not.  This is a containment bound with measured headroom (heaviest kernel
-// working set observed ~1.5 GiB), never a tuned working-set budget.
+// The heap cap contains rather than reports. Without it the runtime has no
+// limit, so an allocation that runs away takes the host's memory and the
+// kernel of the operating system kills whatever it chooses. With it, the same
+// allocation trips the runtime's own check and the process ends: there is no
+// error to catch and no partial answer, and the host lives. The cap is set for
+// containment with room to spare, the heaviest working set observed being
+// about 1.5 gibibytes, and is not a budget anyone tuned.
 
 import (
 	"fmt"
@@ -24,35 +22,33 @@ import (
 )
 
 const (
-	// rtsHeapCapFlag is the default -M heap cap emitted into the RTS argv.
+	// rtsHeapCapFlag is the heap cap every process gets.
 	rtsHeapCapFlag = "-M3G"
-	// rtsDefaultCores is the GHC capability count for single-bus monitoring;
-	// a -N flag is emitted only when a caller requests more.
+	// rtsDefaultCores is what one bus needs; a core count is passed to the
+	// runtime only when a caller asks for more than this.
 	rtsDefaultCores = 1
-	// rtsInitSymbol is the GHC entry point that starts the RTS.  Plain hs_init
-	// cannot carry the -M cap under the .so's link-time RtsOptsSafeOnly (it
-	// aborts at init with "Most RTS options are disabled");
-	// hs_init_with_rtsopts honours the full flag set.  Same C signature
-	// (void(int*, char***)), so the switch is a pure string change.
+	// rtsInitSymbol starts the runtime. The plainer entry point refuses the
+	// heap cap, the library being linked to allow only the safe options, and
+	// aborts saying so; this one takes every flag. Both have the same C
+	// signature, so which is called is only this string.
 	rtsInitSymbol = "hs_init_with_rtsopts"
-	// rtsOverrideEnv names the environment variable whose whitespace-split
-	// flags are appended after the cap (and after an optional -N), so a caller
-	// -M in it wins (the RTS honours the last occurrence).
+	// rtsOverrideEnv names the variable whose flags are appended last, so a
+	// cap given there replaces the one above: the runtime takes the last of a
+	// repeated flag.
 	rtsOverrideEnv = "ALETHEIA_RTS_OPTS"
 )
 
-// rtsOverrideFlags returns the whitespace-split flags from ALETHEIA_RTS_OPTS
-// (empty when unset), appended after the mirrored cap so a caller can tighten
-// or extend a single process's RTS options.
+// rtsOverrideFlags are the flags the environment adds, none when it sets
+// nothing, with which one process can tighten or extend what the runtime gets.
 func rtsOverrideFlags() []string {
 	return strings.Fields(os.Getenv(rtsOverrideEnv))
 }
 
-// rtsInitArgv assembles the argv passed to hs_init_with_rtsopts, per the SSOT
-// argv_order: {progname, +RTS, heap_cap, -N<k> iff k>1, override flags, -RTS}.
-// Pure (no cgo), so it is unit-testable and the parity test can drive it
-// directly.  The cap is ALWAYS present, so the host is protected regardless of
-// the requested core count.
+// rtsInitArgv is the argument vector the runtime is started with, in the
+// order the budgets document fixes: the program name, the cap, a core count
+// when one was asked for, whatever the environment adds, and the closing
+// marker. It touches nothing outside itself, so a test can read it directly.
+// The cap is in every vector, whatever the core count.
 func rtsInitArgv(cores int) []string {
 	argv := []string{"aletheia", "+RTS", rtsHeapCapFlag}
 	if cores > rtsDefaultCores {
