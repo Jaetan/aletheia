@@ -44,7 +44,7 @@ public:
     [[nodiscard]] auto find(const Key& key) const -> std::optional<std::size_t> {
         if (!cache_)
             return std::nullopt;
-        auto it = cache_->find(key);
+        auto const it = cache_->find(key);
         return (it != cache_->end()) ? std::optional{it->second} : std::nullopt;
     }
 

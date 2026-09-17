@@ -26,29 +26,29 @@ using namespace aletheia;
 // ===========================================================================
 
 TEST_CASE("check::signal never_exceeds", "[check]") {
-    auto result = check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});
+    auto const result = check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});
     auto f = result.to_formula();
     REQUIRE(f);
     CHECK(format_formula(*f) == "always(Speed <= 220)");
 }
 
 TEST_CASE("check::signal never_below", "[check]") {
-    auto result = check::signal("Voltage").never_below(PhysicalValue{Rational{23, 2}});
+    auto const result = check::signal("Voltage").never_below(PhysicalValue{Rational{23, 2}});
     auto f = result.to_formula();
     REQUIRE(f);
     CHECK(format_formula(*f) == "always(Voltage >= 11.5)");
 }
 
 TEST_CASE("check::signal stays_between", "[check]") {
-    auto result = check::signal("Voltage").stays_between(PhysicalValue{Rational{23, 2}},
-                                                         PhysicalValue{Rational{29, 2}});
+    auto const result = check::signal("Voltage").stays_between(PhysicalValue{Rational{23, 2}},
+                                                               PhysicalValue{Rational{29, 2}});
     auto f = result.to_formula();
     REQUIRE(f);
     CHECK(format_formula(*f) == "always(11.5 <= Voltage <= 14.5)");
 }
 
 TEST_CASE("check::signal never_equals", "[check]") {
-    auto result = check::signal("ErrorCode").never_equals(PhysicalValue{Rational{255, 1}});
+    auto const result = check::signal("ErrorCode").never_equals(PhysicalValue{Rational{255, 1}});
     auto f = result.to_formula();
     REQUIRE(f);
     CHECK(format_formula(*f) == "never ErrorCode = 255");
@@ -59,7 +59,7 @@ TEST_CASE("check::signal never_equals", "[check]") {
 // ===========================================================================
 
 TEST_CASE("check::signal equals always", "[check]") {
-    auto result = check::signal("Gear").equals(PhysicalValue{Rational{}}).always();
+    auto const result = check::signal("Gear").equals(PhysicalValue{Rational{}}).always();
     auto f = result.to_formula();
     REQUIRE(f);
     CHECK(format_formula(*f) == "always(Gear = 0)");
@@ -67,7 +67,7 @@ TEST_CASE("check::signal equals always", "[check]") {
 
 TEST_CASE("check::signal settles_between within", "[check]") {
     using namespace std::chrono_literals;
-    auto result =
+    auto const result =
         check::signal("Temp")
             .settles_between(PhysicalValue{Rational{60, 1}}, PhysicalValue{Rational{80, 1}})
             .within(500ms);
@@ -82,11 +82,11 @@ TEST_CASE("check::signal settles_between within", "[check]") {
 
 TEST_CASE("check::when then equals within", "[check]") {
     using namespace std::chrono_literals;
-    auto result = check::when("Brake")
-                      .exceeds(PhysicalValue{Rational{50, 1}})
-                      .then("BrakeLight")
-                      .equals(PhysicalValue{Rational{1, 1}})
-                      .within(100ms);
+    auto const result = check::when("Brake")
+                            .exceeds(PhysicalValue{Rational{50, 1}})
+                            .then("BrakeLight")
+                            .equals(PhysicalValue{Rational{1, 1}})
+                            .within(100ms);
     auto f = result.to_formula();
     REQUIRE(f);
     CHECK(format_formula(*f) ==
@@ -95,11 +95,11 @@ TEST_CASE("check::when then equals within", "[check]") {
 
 TEST_CASE("check::when drops_below then within", "[check]") {
     using namespace std::chrono_literals;
-    auto result = check::when("Voltage")
-                      .drops_below(PhysicalValue{Rational{11, 1}})
-                      .then("Warning")
-                      .equals(PhysicalValue{Rational{1, 1}})
-                      .within(50ms);
+    auto const result = check::when("Voltage")
+                            .drops_below(PhysicalValue{Rational{11, 1}})
+                            .then("Warning")
+                            .equals(PhysicalValue{Rational{1, 1}})
+                            .within(50ms);
     auto f = result.to_formula();
     REQUIRE(f);
     CHECK(format_formula(*f) ==
@@ -108,11 +108,12 @@ TEST_CASE("check::when drops_below then within", "[check]") {
 
 TEST_CASE("check::when then stays_between within", "[check]") {
     using namespace std::chrono_literals;
-    auto result = check::when("Brake")
-                      .exceeds(PhysicalValue{Rational{50, 1}})
-                      .then("Speed")
-                      .stays_between(PhysicalValue{Rational{}}, PhysicalValue{Rational{10, 1}})
-                      .within(200ms);
+    auto const result =
+        check::when("Brake")
+            .exceeds(PhysicalValue{Rational{50, 1}})
+            .then("Speed")
+            .stays_between(PhysicalValue{Rational{}}, PhysicalValue{Rational{10, 1}})
+            .within(200ms);
     auto f = result.to_formula();
     REQUIRE(f);
     CHECK(format_formula(*f) ==
@@ -121,11 +122,11 @@ TEST_CASE("check::when then stays_between within", "[check]") {
 
 TEST_CASE("check::when equals then exceeds within", "[check]") {
     using namespace std::chrono_literals;
-    auto result = check::when("Ignition")
-                      .equals(PhysicalValue{Rational{1, 1}})
-                      .then("FuelPump")
-                      .exceeds(PhysicalValue{Rational{}})
-                      .within(50ms);
+    auto const result = check::when("Ignition")
+                            .equals(PhysicalValue{Rational{1, 1}})
+                            .then("FuelPump")
+                            .exceeds(PhysicalValue{Rational{}})
+                            .within(50ms);
     auto f = result.to_formula();
     REQUIRE(f);
     CHECK(format_formula(*f) ==
@@ -146,22 +147,22 @@ TEST_CASE("Check metadata named and severity", "[check]") {
 }
 
 TEST_CASE("Check signal_name and condition_desc populated", "[check]") {
-    auto r1 = check::signal("V").never_below(PhysicalValue{Rational{23, 2}});
+    auto const r1 = check::signal("V").never_below(PhysicalValue{Rational{23, 2}});
     CHECK(r1.signal_name() == "V");
     CHECK(r1.condition_desc() == ">= 11.5");
 
-    auto r2 = check::signal("E").never_equals(PhysicalValue{Rational{}});
+    auto const r2 = check::signal("E").never_equals(PhysicalValue{Rational{}});
     CHECK(r2.signal_name() == "E");
     CHECK(r2.condition_desc() == "!= 0");
 }
 
 TEST_CASE("Check when/then metadata", "[check]") {
     using namespace std::chrono_literals;
-    auto result = check::when("Brake")
-                      .exceeds(PhysicalValue{Rational{50, 1}})
-                      .then("Light")
-                      .equals(PhysicalValue{Rational{1, 1}})
-                      .within(100ms);
+    auto const result = check::when("Brake")
+                            .exceeds(PhysicalValue{Rational{50, 1}})
+                            .then("Light")
+                            .equals(PhysicalValue{Rational{1, 1}})
+                            .within(100ms);
     CHECK(result.signal_name() == "Light");
     CHECK(result.condition_desc() == "= 1 within 100ms");
 }
@@ -171,10 +172,10 @@ TEST_CASE("Check when/then metadata", "[check]") {
 // ===========================================================================
 
 TEST_CASE("Check to_formula non-consuming", "[check]") {
-    auto result = check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});
-    auto f1 = result.to_formula();
+    auto const result = check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});
+    auto const f1 = result.to_formula();
     REQUIRE(f1.has_value());
-    auto f2 = result.to_formula();
+    auto const f2 = result.to_formula();
     CHECK(f2.has_value());
 }
 
@@ -184,17 +185,17 @@ TEST_CASE("Check to_formula non-consuming", "[check]") {
 
 TEST_CASE("Check settles_between negative time throws", "[check]") {
     using namespace std::chrono_literals;
-    auto builder = check::signal("T").settles_between(PhysicalValue{Rational{}},
-                                                      PhysicalValue{Rational{100, 1}});
+    auto const builder = check::signal("T").settles_between(PhysicalValue{Rational{}},
+                                                            PhysicalValue{Rational{100, 1}});
     CHECK_THROWS_AS(builder.within(-1ms), std::invalid_argument);
 }
 
 TEST_CASE("Check when/then negative time throws", "[check]") {
     using namespace std::chrono_literals;
-    auto cond = check::when("A")
-                    .exceeds(PhysicalValue{Rational{}})
-                    .then("B")
-                    .equals(PhysicalValue{Rational{1, 1}});
+    auto const cond = check::when("A")
+                          .exceeds(PhysicalValue{Rational{}})
+                          .then("B")
+                          .equals(PhysicalValue{Rational{1, 1}});
     CHECK_THROWS_AS(cond.within(-1ms), std::invalid_argument);
 }
 
@@ -205,7 +206,7 @@ TEST_CASE("Check when/then negative time throws", "[check]") {
 TEST_CASE("Check never_exceeds matches manual ltl", "[check]") {
     auto check_f =
         check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}).to_formula();
-    auto manual_f = ltl::always(
+    auto const manual_f = ltl::always(
         ltl::atomic(ltl::less_than_or_equal(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     REQUIRE(check_f);
     CHECK(format_formula(*check_f) == format_formula(manual_f));
@@ -225,7 +226,7 @@ TEST_CASE("within rejects ms that overflow the microsecond conversion", "[check]
     constexpr std::int64_t k_max_ok = std::numeric_limits<std::int64_t>::max() / 1000;
 
     // when/then path.
-    auto when_then = [](std::int64_t ms) {
+    auto const when_then = [](std::int64_t ms) {
         return check::when("A")
             .exceeds(PhysicalValue{Rational{1, 1}})
             .then("B")
@@ -236,7 +237,7 @@ TEST_CASE("within rejects ms that overflow the microsecond conversion", "[check]
     CHECK_THROWS_AS(when_then(k_max_ok + 1), std::invalid_argument);
 
     // settles_between path (the other within() call site).
-    auto settles = [](std::int64_t ms) {
+    auto const settles = [](std::int64_t ms) {
         return check::signal("S")
             .settles_between(PhysicalValue{Rational{0, 1}}, PhysicalValue{Rational{10, 1}})
             .within(milliseconds{ms});
@@ -253,7 +254,7 @@ TEST_CASE("Check stays_between matches manual ltl", "[check]") {
         check::signal("V")
             .stays_between(PhysicalValue{Rational{23, 2}}, PhysicalValue{Rational{29, 2}})
             .to_formula();
-    auto manual_f = ltl::always(ltl::atomic(ltl::between(
+    auto const manual_f = ltl::always(ltl::atomic(ltl::between(
         SignalName{"V"}, PhysicalValue{Rational{23, 2}}, PhysicalValue{Rational{29, 2}})));
     REQUIRE(check_f);
     CHECK(format_formula(*check_f) == format_formula(manual_f));
@@ -261,7 +262,8 @@ TEST_CASE("Check stays_between matches manual ltl", "[check]") {
 
 TEST_CASE("Check never_equals matches manual ltl", "[check]") {
     auto check_f = check::signal("Err").never_equals(PhysicalValue{Rational{255, 1}}).to_formula();
-    auto manual_f = ltl::never(ltl::equals(SignalName{"Err"}, PhysicalValue{Rational{255, 1}}));
+    auto const manual_f =
+        ltl::never(ltl::equals(SignalName{"Err"}, PhysicalValue{Rational{255, 1}}));
     REQUIRE(check_f);
     CHECK(format_formula(*check_f) == format_formula(manual_f));
 }
@@ -273,7 +275,7 @@ TEST_CASE("Check settles matches manual ltl", "[check]") {
             .settles_between(PhysicalValue{Rational{60, 1}}, PhysicalValue{Rational{80, 1}})
             .within(500ms)
             .to_formula();
-    auto manual_f =
+    auto const manual_f =
         ltl::always_within(Timestamp{500'000},
                            ltl::atomic(ltl::between(SignalName{"T"}, PhysicalValue{Rational{60, 1}},
                                                     PhysicalValue{Rational{80, 1}})));
@@ -294,7 +296,7 @@ TEST_CASE("add_checks sends properties to backend", "[check][client]") {
     checks.push_back(check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
     checks.push_back(check::signal("Voltage").stays_between(PhysicalValue{Rational{23, 2}},
                                                             PhysicalValue{Rational{29, 2}}));
-    auto result = client.add_checks(std::stop_token{}, std::move(checks));
+    auto const result = client.add_checks(std::stop_token{}, std::move(checks));
     REQUIRE(result.has_value());
 }
 
@@ -310,7 +312,7 @@ TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
 
     std::vector<CheckResult> checks;
     checks.push_back(check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
-    auto result = client.add_checks(std::stop_token{}, std::move(checks));
+    auto const result = client.add_checks(std::stop_token{}, std::move(checks));
     REQUIRE(result.has_value());
 }
 
@@ -329,26 +331,26 @@ TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
 
 TEST_CASE("format_formula plumbs a non-terminating Rational (N/D shape)", "[enrich][rational]") {
     using namespace ltl;
-    auto f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{1, 3}}));
+    auto const f = atomic(equals(SignalName{"S"}, PhysicalValue{Rational{1, 3}}));
     CHECK(format_formula(f) == "S = 1/3");
 }
 
 TEST_CASE("format_formula plumbs a signed Rational (sign preserved)", "[enrich][rational]") {
     using namespace ltl;
-    auto f = atomic(greater_than(SignalName{"S"}, PhysicalValue{Rational{-2, 7}}));
+    auto const f = atomic(greater_than(SignalName{"S"}, PhysicalValue{Rational{-2, 7}}));
     CHECK(format_formula(f) == "S > -2/7");
 }
 
 TEST_CASE("format_formula embeds Rationals in a between bound pair", "[enrich][rational]") {
     using namespace ltl;
-    auto f = atomic(
+    auto const f = atomic(
         between(SignalName{"S"}, PhysicalValue{Rational{1, 3}}, PhysicalValue{Rational{2, 3}}));
     CHECK(format_formula(f) == "1/3 <= S <= 2/3");
 }
 
 TEST_CASE("format_formula plumbs a terminating Rational (decimal shape) via the check builder",
           "[enrich][rational]") {
-    auto result = check::signal("Voltage").never_below(PhysicalValue{Rational{23, 2}});
+    auto const result = check::signal("Voltage").never_below(PhysicalValue{Rational{23, 2}});
     auto f = result.to_formula();
     REQUIRE(f);
     CHECK(format_formula(*f) == "always(Voltage >= 11.5)");

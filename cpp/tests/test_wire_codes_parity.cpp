@@ -57,7 +57,7 @@ struct WireCodeRow {
 } // namespace
 
 static auto load_section(const char* section) -> std::vector<WireCodeRow> {
-    const auto path = repo_root() / "docs" / "WIRE_CODES.yaml";
+    auto const path = repo_root() / "docs" / "WIRE_CODES.yaml";
     REQUIRE(std::filesystem::exists(path));
     auto root = YAML::LoadFile(path.string());
     REQUIRE(root[section]);
@@ -66,7 +66,7 @@ static auto load_section(const char* section) -> std::vector<WireCodeRow> {
 
     std::vector<WireCodeRow> out;
     out.reserve(root[section].size());
-    for (const auto& node : root[section]) {
+    for (auto const& node : root[section]) {
         out.push_back(WireCodeRow{
             .name = node["name"].as<std::string>(),
             .description = node["description"].as<std::string>(),
@@ -77,7 +77,7 @@ static auto load_section(const char* section) -> std::vector<WireCodeRow> {
 
 static auto name_set(const std::vector<WireCodeRow>& rows) -> std::set<std::string> {
     std::set<std::string> names;
-    for (const auto& row : rows) {
+    for (auto const& row : rows) {
         INFO("duplicate name: " << row.name);
         REQUIRE(names.insert(row.name).second);
     }
@@ -100,7 +100,7 @@ TEST_CASE("WIRE_CODES.yaml is well-formed", "[parity][wire_codes][yaml]") {
         auto rows = load_section(section);
         std::set<std::string> seen;
         for (std::size_t i = 0; i < rows.size(); ++i) {
-            const auto& row = rows[i];
+            auto const& row = rows[i];
             INFO(section << "[" << i << "] name=" << row.name);
             CHECK_FALSE(row.name.empty());
             CHECK(seen.insert(row.name).second);
@@ -112,7 +112,7 @@ TEST_CASE("WIRE_CODES.yaml is well-formed", "[parity][wire_codes][yaml]") {
 // ----- 2. issue_codes <-> IssueCode bijection -----
 
 TEST_CASE("issue codes are a bijection with the IssueCode enum", "[parity][wire_codes][issue]") {
-    const auto yaml_names = name_set(load_section("issue_codes"));
+    auto const yaml_names = name_set(load_section("issue_codes"));
     REQUIRE(yaml_names.size() == k_named_issue_count);
 
     // Binding -> YAML: every named enumerator renders to a wire string the
@@ -121,7 +121,7 @@ TEST_CASE("issue codes are a bijection with the IssueCode enum", "[parity][wire_
     // (see the sentinel canary), so a table gap fails here too.
     std::set<std::string> rendered;
     for (std::size_t i = 0; i < k_named_issue_count; ++i) {
-        const auto name = std::string{to_string(static_cast<IssueCode>(i))};
+        auto const name = std::string{to_string(static_cast<IssueCode>(i))};
         INFO("IssueCode enumerator " << i << " renders as: " << name);
         CHECK(yaml_names.contains(name));
         rendered.insert(name);
@@ -134,15 +134,15 @@ TEST_CASE("issue codes are a bijection with the IssueCode enum", "[parity][wire_
 // ----- 3. error_codes <-> ErrorCode bijection -----
 
 TEST_CASE("error codes are a bijection with the ErrorCode enum", "[parity][wire_codes][error]") {
-    const auto yaml_names = name_set(load_section("error_codes"));
+    auto const yaml_names = name_set(load_section("error_codes"));
     REQUIRE(yaml_names.size() == k_named_error_count);
 
     // YAML -> binding: every kernel code decodes to a distinct non-Unknown
     // enumerator. With the count anchor above, injectivity closes the
     // bijection by pigeonhole — no named enumerator can lack a YAML row.
     std::set<ErrorCode> decoded;
-    for (const auto& name : yaml_names) {
-        const auto code = error_code_from_string(name);
+    for (auto const& name : yaml_names) {
+        auto const code = error_code_from_string(name);
         INFO("error code with no non-Unknown ErrorCode member: " << name);
         CHECK(code != ErrorCode::Unknown);
         decoded.insert(code);

@@ -92,7 +92,7 @@ static auto parse_status_field(std::string_view field) -> std::int64_t {
         auto digits = std::string_view{line}.substr(field.size());
         digits.remove_prefix(std::min(digits.find_first_not_of(" \t"), digits.size()));
         std::int64_t value = 0;
-        [[maybe_unused]] const auto read =
+        [[maybe_unused]] auto const read =
             std::from_chars(std::to_address(digits.begin()), std::to_address(digits.end()), value);
         return value;
     }
@@ -115,16 +115,16 @@ static auto threads_count() -> std::int64_t {
 static auto fd_count() -> std::int64_t {
     std::int64_t count = 0;
     std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator("/proc/self/fd", ec)) {
+    for (auto const& entry : std::filesystem::directory_iterator("/proc/self/fd", ec)) {
         if (ec) {
             continue;
         }
         std::error_code link_ec;
-        auto target = std::filesystem::read_symlink(entry, link_ec);
+        auto const target = std::filesystem::read_symlink(entry, link_ec);
         if (link_ec) {
             continue;
         }
-        const auto target_str = target.string();
+        auto const target_str = target.string();
         if (target_str.starts_with("anon_inode:")) {
             continue;
         }
@@ -158,20 +158,20 @@ static auto malloc_info_bytes() -> std::int64_t {
     xml.assign(raw, raw_size);
 
     const std::string_view view{xml};
-    const auto last_heap = view.rfind("</heap>");
+    auto const last_heap = view.rfind("</heap>");
     std::int64_t total_bytes = 0;
     for (auto pos = last_heap == std::string_view::npos ? 0 : last_heap;
          (pos = view.find("<total type=", pos)) != std::string_view::npos;) {
-        const auto size_attr = view.find("size=\"", pos);
+        auto const size_attr = view.find("size=\"", pos);
         if (size_attr == std::string_view::npos)
             break;
-        const auto value_start = size_attr + 6;
-        const auto value_end = view.find('"', value_start);
+        auto const value_start = size_attr + 6;
+        auto const value_end = view.find('"', value_start);
         if (value_end == std::string_view::npos)
             break;
         std::int64_t value = 0;
-        const auto digits = view.substr(value_start, value_end - value_start);
-        [[maybe_unused]] const auto read =
+        auto const digits = view.substr(value_start, value_end - value_start);
+        [[maybe_unused]] auto const read =
             std::from_chars(std::to_address(digits.begin()), std::to_address(digits.end()), value);
         total_bytes += value;
         pos = value_end;
@@ -264,7 +264,7 @@ static auto env_count(const char* name, int default_value) -> int {
         return default_value;
     const std::string_view text{env};
     int value = 0;
-    const auto* const last = std::to_address(text.end());
+    auto const* const last = std::to_address(text.end());
     auto [end, ec] = std::from_chars(std::to_address(text.begin()), last, value);
     if (ec != std::errc{} || end != last || value <= 0)
         throw std::runtime_error(
@@ -330,8 +330,8 @@ static auto run() -> int {
         std::println(stderr, "setup: {}", e.what());
         return 2;
     }
-    const auto lib = find_library();
-    const auto dbc = minimal_dbc();
+    auto const lib = find_library();
+    auto const dbc = minimal_dbc();
 
     // Multi-cycle warmup to absorb the GHC RTS heap warmup + lazy MAlonzo /
     // Agda structure realization.  See k_warmup_cycles for empirical rationale.
@@ -344,8 +344,8 @@ static auto run() -> int {
         return 2;
     }
 
-    const auto start = take_snapshot();
-    const auto t0 = std::chrono::steady_clock::now();
+    auto const start = take_snapshot();
+    auto const t0 = std::chrono::steady_clock::now();
 
     for (int i = 0; i < cycles; ++i) {
         try {
@@ -356,11 +356,11 @@ static auto run() -> int {
         }
     }
 
-    const auto end = take_snapshot();
-    const auto elapsed =
+    auto const end = take_snapshot();
+    auto const elapsed =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 
-    const auto sub_checks = build_sub_checks(start, end);
+    auto const sub_checks = build_sub_checks(start, end);
     const bool all_passed = std::ranges::all_of(sub_checks, &SubCheck::passed);
 
     std::print("{{\n"

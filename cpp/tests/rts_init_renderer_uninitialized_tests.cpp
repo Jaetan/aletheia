@@ -37,14 +37,14 @@ static auto find_lib() -> fs::path {
     // renderer would miss the library and this test would throw the wrong error
     // (missing-library, not runtime-not-initialised). Only when EVERY candidate is
     // exhausted do we SKIP — locating the .so is a hard precondition for the test.
-    if (auto* env = std::getenv("ALETHEIA_LIB")) {
+    if (auto const* env = std::getenv("ALETHEIA_LIB")) {
         const std::string_view env_sv{env};
         if (!env_sv.empty()) {
             if (const fs::path p{env_sv}; fs::exists(p))
                 return p;
         }
     }
-    if (auto* repo = std::getenv("ALETHEIA_REPO_ROOT")) {
+    if (auto const* repo = std::getenv("ALETHEIA_REPO_ROOT")) {
         const std::string_view repo_sv{repo};
         if (!repo_sv.empty()) {
             const fs::path candidate = fs::path{repo_sv} / "build" / "libaletheia-ffi.so";
@@ -59,7 +59,7 @@ static auto find_lib() -> fs::path {
 
 TEST_CASE("renderer is vocal (throws) when the GHC runtime is uninitialised",
           "[rational_renderer][rts_init]") {
-    const auto lib = find_lib(); // SKIPs if the .so cannot be located
+    auto const lib = find_lib(); // SKIPs if the .so cannot be located
 
     // Register the .so so the renderer locates it (loads the format/free symbols)
     // and the throw below is the runtime-not-initialised error, not a missing-
@@ -74,7 +74,7 @@ TEST_CASE("renderer is vocal (throws) when the GHC runtime is uninitialised",
 
 TEST_CASE("Rational::from_decimal is vocal (throws) when the GHC runtime is uninitialised",
           "[rational_renderer][rts_init][decimal]") {
-    const auto lib = find_lib(); // SKIPs if the .so cannot be located
+    auto const lib = find_lib(); // SKIPs if the .so cannot be located
 
     // Register the .so so the parse path locates it (loads the parse/free symbols)
     // and the throw below is the runtime-not-initialised error, not a missing-
@@ -91,7 +91,7 @@ TEST_CASE("Rational::from_decimal is vocal (throws) when the GHC runtime is unin
 
 TEST_CASE("a runtime-down decimal parse answers on the runtime, not on the literal",
           "[rational_renderer][rts_init][decimal]") {
-    const auto lib = find_lib(); // SKIPs if the .so cannot be located
+    auto const lib = find_lib(); // SKIPs if the .so cannot be located
     aletheia::detail::register_default_lib_path(lib);
 
     // An interior NUL is refused with a Validation error once the runtime is up,

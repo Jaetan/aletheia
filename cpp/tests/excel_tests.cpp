@@ -66,7 +66,8 @@ static void write_bytes(std::ofstream& ofs, std::span<const unsigned char> bytes
         ofs.put(static_cast<char>(b));
 }
 
-static void write_header(OpenXLSX::XLWorksheet& ws, std::span<const std::string_view> headers) {
+static void write_header(OpenXLSX::XLWorksheet const& ws,
+                         std::span<const std::string_view> headers) {
     for (std::size_t i = 0; i < headers.size(); ++i)
         ws.cell(1, static_cast<std::uint16_t>(i + 1)).value() = std::string{headers[i]};
 }
@@ -79,12 +80,13 @@ static void write_header(OpenXLSX::XLWorksheet& ws, std::span<const std::string_
 /// (Rational::from_decimal); a number stored natively is rejected. To author a
 /// number deliberately stored as a *native number* cell (the strict-rejection
 /// tests), write it directly with an int64/double value.
-static void write_row(OpenXLSX::XLWorksheet& ws, int row, const std::vector<std::string>& values) {
+static void write_row(OpenXLSX::XLWorksheet const& ws, int row,
+                      const std::vector<std::string>& values) {
     for (std::size_t i = 0; i < values.size(); ++i) {
         const std::string& s = values[i];
         if (s.empty())
             continue;
-        const auto col = static_cast<std::uint16_t>(i + 1);
+        auto const col = static_cast<std::uint16_t>(i + 1);
         std::string upper = s;
         std::ranges::transform(upper, upper.begin(), [](unsigned char ch) -> char {
             return static_cast<char>(std::toupper(ch));
@@ -106,7 +108,7 @@ static void make_workbook(const std::filesystem::path& path, const std::string& 
     OpenXLSX::XLDocument doc;
     doc.create(path.string(), OpenXLSX::XLForceOverwrite);
     doc.workbook().worksheet("Sheet1").setName(sheet);
-    auto ws = doc.workbook().worksheet(sheet);
+    auto const ws = doc.workbook().worksheet(sheet);
     write_header(ws, headers);
     for (std::size_t r = 0; r < rows.size(); ++r)
         write_row(ws, static_cast<int>(r + 2), rows[r]);
@@ -141,7 +143,7 @@ static void make_dbc_workbook_with_raw_id(const std::filesystem::path& path, std
     OpenXLSX::XLDocument doc;
     doc.create(path.string(), OpenXLSX::XLForceOverwrite);
     doc.workbook().worksheet("Sheet1").setName("DBC");
-    auto ws = doc.workbook().worksheet("DBC");
+    auto const ws = doc.workbook().worksheet("DBC");
     write_header(ws, dbc_hdr);
     write_row(ws, 2,
               {"", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1", "0", "0", "255", "",
@@ -158,7 +160,7 @@ static void make_dbc_workbook_with_raw_id(const std::filesystem::path& path, std
     OpenXLSX::XLZipArchive zip;
     zip.open(path.string());
     std::string xml = zip.getEntry(sheet_name);
-    const auto pos = xml.find(needle);
+    auto const pos = xml.find(needle);
     REQUIRE(pos != std::string::npos);
     xml.replace(pos, needle.size(), replacement);
     zip.addEntry(sheet_name, xml);
@@ -338,7 +340,7 @@ TEST_CASE("excel: DBC single signal", "[excel][dbc]") {
     CHECK(msg.name.get() == "VehicleSpeed");
     CHECK(msg.signals.size() == 1);
 
-    auto& sig = msg.signals[0];
+    auto const& sig = msg.signals[0];
     CHECK(sig.name.get() == "Speed");
     CHECK(sig.start_bit.get() == 0);
     CHECK(sig.bit_length.get() == 16);
@@ -467,14 +469,14 @@ TEST_CASE("excel: DBC partial mux error", "[excel][mux]") {
 
 TEST_CASE("excel: create template", "[excel][template]") {
     TempPath tf("excel_template_test.xlsx");
-    auto result = create_excel_template(tf.path);
+    auto const result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
     CHECK(std::filesystem::exists(tf.path));
 }
 
 TEST_CASE("excel: template has 3 sheets", "[excel][template]") {
     TempPath tf("excel_template_sheets.xlsx");
-    auto result = create_excel_template(tf.path);
+    auto const result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
 
     OpenXLSX::XLDocument doc;
@@ -489,12 +491,12 @@ TEST_CASE("excel: template has 3 sheets", "[excel][template]") {
 
 TEST_CASE("excel: template DBC headers correct", "[excel][template]") {
     TempPath tf("excel_template_hdr.xlsx");
-    auto result = create_excel_template(tf.path);
+    auto const result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
 
     OpenXLSX::XLDocument doc;
     doc.open(tf.path.string());
-    auto ws = doc.workbook().worksheet("DBC");
+    auto const ws = doc.workbook().worksheet("DBC");
     const OpenXLSX::XLCellValue v1 = ws.cell(1, 1).value();
     const OpenXLSX::XLCellValue v3 = ws.cell(1, 3).value();
     const OpenXLSX::XLCellValue v5 = ws.cell(1, 5).value();
@@ -509,7 +511,7 @@ TEST_CASE("excel: template DBC headers correct", "[excel][template]") {
 
 TEST_CASE("excel: template headers are bold", "[excel][template]") {
     TempPath tf("excel_template_bold.xlsx");
-    auto result = create_excel_template(tf.path);
+    auto const result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
 
     // Reopen and verify the header cell's font is bold — round-trips through the
@@ -517,10 +519,10 @@ TEST_CASE("excel: template headers are bold", "[excel][template]") {
     // bold their template headers; this pins C++ parity.
     OpenXLSX::XLDocument doc;
     doc.open(tf.path.string());
-    auto& styles = doc.styles();
-    auto ws = doc.workbook().worksheet("DBC");
-    const auto fmt_idx = ws.cell(1, 1).cellFormat();
-    const auto font_idx = styles.cellFormats()[fmt_idx].fontIndex();
+    auto const& styles = doc.styles();
+    auto const ws = doc.workbook().worksheet("DBC");
+    auto const fmt_idx = ws.cell(1, 1).cellFormat();
+    auto const font_idx = styles.cellFormats()[fmt_idx].fontIndex();
     const bool is_bold = styles.fonts()[font_idx].bold();
     doc.close();
 
@@ -529,12 +531,12 @@ TEST_CASE("excel: template headers are bold", "[excel][template]") {
 
 TEST_CASE("excel: template Checks headers correct", "[excel][template]") {
     TempPath tf("excel_template_checks_hdr.xlsx");
-    auto result = create_excel_template(tf.path);
+    auto const result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
 
     OpenXLSX::XLDocument doc;
     doc.open(tf.path.string());
-    auto ws = doc.workbook().worksheet("Checks");
+    auto const ws = doc.workbook().worksheet("Checks");
     const OpenXLSX::XLCellValue v1 = ws.cell(1, 1).value();
     const OpenXLSX::XLCellValue v3 = ws.cell(1, 3).value();
     const OpenXLSX::XLCellValue v8 = ws.cell(1, 8).value();
@@ -547,12 +549,12 @@ TEST_CASE("excel: template Checks headers correct", "[excel][template]") {
 
 TEST_CASE("excel: template When-Then headers correct", "[excel][template]") {
     TempPath tf("excel_template_wt_hdr.xlsx");
-    auto result = create_excel_template(tf.path);
+    auto const result = create_excel_template(tf.path);
     REQUIRE(result.has_value());
 
     OpenXLSX::XLDocument doc;
     doc.open(tf.path.string());
-    auto ws = doc.workbook().worksheet("When-Then");
+    auto const ws = doc.workbook().worksheet("When-Then");
     const OpenXLSX::XLCellValue v1 = ws.cell(1, 1).value();
     const OpenXLSX::XLCellValue v10 = ws.cell(1, 10).value();
     const OpenXLSX::XLCellValue v11 = ws.cell(1, 11).value();
@@ -565,7 +567,7 @@ TEST_CASE("excel: template When-Then headers correct", "[excel][template]") {
 
 TEST_CASE("excel: template no overwrite", "[excel][template]") {
     TempPath tf("excel_template_nooverwrite.xlsx");
-    auto first = create_excel_template(tf.path);
+    auto const first = create_excel_template(tf.path);
     REQUIRE(first.has_value());
     auto second = create_excel_template(tf.path);
     REQUIRE(!second.has_value());
@@ -685,7 +687,7 @@ TEST_CASE("excel: empty rows are skipped", "[excel][simple]") {
     OpenXLSX::XLDocument doc;
     doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
     doc.workbook().worksheet("Sheet1").setName("Checks");
-    auto ws = doc.workbook().worksheet("Checks");
+    auto const ws = doc.workbook().worksheet("Checks");
     write_header(ws, checks_hdr);
     // Row 2: data (numeric Value written as TEXT per the all-text contract)
     ws.cell(2, 2).value() = std::string("Speed");
@@ -714,7 +716,7 @@ TEST_CASE("excel: DBC factor as integer rational", "[excel][dbc]") {
                                  "0", "0", "255", "", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(result.has_value());
-    const auto& factor = result->messages[0].signals[0].factor.get();
+    auto const& factor = result->messages[0].signals[0].factor.get();
     // Integer 1 should be represented as 1/1
     CHECK(factor.numerator() == 1);
     CHECK(factor.denominator() == 1);
@@ -726,7 +728,7 @@ TEST_CASE("excel: DBC factor as fractional rational", "[excel][dbc]") {
                                  "0.1", "0", "0", "300", "km/h", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(result.has_value());
-    const auto& factor = result->messages[0].signals[0].factor.get();
+    auto const& factor = result->messages[0].signals[0].factor.get();
     // 0.1 should be represented as 1/10 (after GCD simplification)
     CHECK(factor.numerator() == 1);
     CHECK(factor.denominator() == 10);
@@ -780,7 +782,7 @@ TEST_CASE("excel: DBC standard ID without Extended column", "[excel][dbc]") {
 
 TEST_CASE("excel: template roundtrip — load checks from empty template", "[excel][template]") {
     TempPath tf("excel_template_roundtrip.xlsx");
-    auto create_result = create_excel_template(tf.path);
+    auto const create_result = create_excel_template(tf.path);
     REQUIRE(create_result.has_value());
 
     // Load checks from the empty template — should return empty valid result
@@ -880,7 +882,7 @@ TEST_CASE("excel: ZIP central-directory bomb rejected", "[excel][hardening]") {
 }
 
 TEST_CASE("excel: create_template parent dir missing rejected", "[excel][hardening]") {
-    auto bad =
+    auto const bad =
         std::filesystem::temp_directory_path() / "aletheia_does_not_exist_12345" / "template.xlsx";
     auto result = create_excel_template(bad);
     REQUIRE(!result.has_value());
@@ -899,7 +901,7 @@ TEST_CASE("excel: create_template stat failure is distinguished from a missing p
     // failure is distinguished from a missing file", and Go's
     // TestCreateTemplate_StatFailureNotMislabeled holds this one.
     // ENAMETOOLONG is deterministic and needs no permissions.
-    const auto bad =
+    auto const bad =
         std::filesystem::temp_directory_path() / std::string(5000, 'a') / "template.xlsx";
     auto result = create_excel_template(bad);
     REQUIRE(!result.has_value());
@@ -924,7 +926,7 @@ TEST_CASE("excel: strict rejects a Value stored as a native number", "[excel][st
     OpenXLSX::XLDocument doc;
     doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
     doc.workbook().worksheet("Sheet1").setName("Checks");
-    auto ws = doc.workbook().worksheet("Checks");
+    auto const ws = doc.workbook().worksheet("Checks");
     write_header(ws, checks_hdr);
     ws.cell(2, 2).value() = std::string("Speed");
     ws.cell(2, 3).value() = std::string("never_exceeds");
@@ -942,7 +944,7 @@ TEST_CASE("excel: DBC strict rejects a Factor stored as a native number", "[exce
     OpenXLSX::XLDocument doc;
     doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
     doc.workbook().worksheet("Sheet1").setName("DBC");
-    auto ws = doc.workbook().worksheet("DBC");
+    auto const ws = doc.workbook().worksheet("DBC");
     write_header(ws, dbc_hdr);
     // dbc_hdr: ID, Name, DLC, Signal, Start Bit, Length, Byte Order, Signed,
     //          Factor(9), Offset(10), Min(11), Max(12), ...
@@ -1029,11 +1031,11 @@ TEST_CASE("excel: kernel decimal refusal carries row and field context", "[excel
 // Extended column, so every binding must load it as standard 11-bit messages
 // (matching Python / Go / Rust).
 TEST_CASE("excel: demo workbook DBC loads as standard messages", "[excel][dbc][portability]") {
-    auto path = repo_root() / "examples" / "demo" / "demo_workbook.xlsx";
+    auto const path = repo_root() / "examples" / "demo" / "demo_workbook.xlsx";
     auto result = load_dbc_from_excel(path);
     REQUIRE(result.has_value());
     CHECK(result->messages.size() == 2);
-    for (const auto& msg : result->messages)
+    for (auto const& msg : result->messages)
         CHECK(std::holds_alternative<StandardId>(msg.id));
 }
 

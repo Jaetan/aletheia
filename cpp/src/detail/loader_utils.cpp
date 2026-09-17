@@ -42,12 +42,12 @@ static auto byte_at(std::span<const char> s, std::size_t i) -> std::uint32_t {
 }
 
 static auto load_le16(std::span<const char> buf, std::size_t off) -> std::uint16_t {
-    const auto s = buf.subspan(off, 2);
+    auto const s = buf.subspan(off, 2);
     return static_cast<std::uint16_t>(byte_at(s, 0) | (byte_at(s, 1) << 8U));
 }
 
 static auto load_le32(std::span<const char> buf, std::size_t off) -> std::uint32_t {
-    const auto s = buf.subspan(off, 4);
+    auto const s = buf.subspan(off, 4);
     return byte_at(s, 0) | (byte_at(s, 1) << 8U) | (byte_at(s, 2) << 16U) | (byte_at(s, 3) << 24U);
 }
 
@@ -93,7 +93,7 @@ static auto find_eocd(std::ifstream& f, std::uintmax_t file_size) -> std::option
     if (file_size < k_eocd_min_size)
         return std::nullopt;
 
-    const auto search_size =
+    auto const search_size =
         static_cast<std::size_t>(std::min<std::uintmax_t>(file_size, k_eocd_max_search));
     std::vector<char> tail(search_size);
     f.seekg(static_cast<std::streamoff>(file_size - search_size), std::ios::beg);
@@ -177,7 +177,7 @@ static auto sum_uncompressed_sizes(std::ifstream& f, const EOCD& eocd)
 auto validate_loader_path(const std::filesystem::path& path, std::string_view kind)
     -> Result<void> {
     std::error_code ec;
-    auto status = std::filesystem::symlink_status(path, ec);
+    auto const status = std::filesystem::symlink_status(path, ec);
     // A stat *failure* (EACCES on an unsearchable parent, ELOOP, ENAMETOOLONG,
     // or EMFILE/ENFILE/EIO under load) is NOT the same as a genuinely absent
     // file.  Reporting the former as "file not found" masks the real cause
@@ -228,7 +228,7 @@ static auto make_input_bound_error(std::uint64_t observed, std::string_view subj
 
 auto check_file_size_bound(const std::filesystem::path& path) -> Result<void> {
     std::error_code ec;
-    const auto size = std::filesystem::file_size(path, ec);
+    auto const size = std::filesystem::file_size(path, ec);
     if (ec)
         return std::unexpected(AletheiaError{
             ErrorKind::Validation, "Could not stat file: " + path.string() + ": " + ec.message()});
@@ -246,7 +246,7 @@ auto check_input_size_bound(std::uint64_t observed) -> Result<void> {
 
 auto check_xlsx_uncompressed_bound(const std::filesystem::path& path) -> Result<void> {
     std::error_code ec;
-    const auto file_size = std::filesystem::file_size(path, ec);
+    auto const file_size = std::filesystem::file_size(path, ec);
     if (ec)
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "Could not stat .xlsx archive: " + path.string()});
@@ -283,7 +283,7 @@ auto check_xlsx_uncompressed_bound(const std::filesystem::path& path) -> Result<
 }
 
 auto validate_output_parent_dir(const std::filesystem::path& path) -> Result<void> {
-    auto parent = path.parent_path();
+    auto const parent = path.parent_path();
     if (parent.empty())
         return {};
     std::error_code ec;
@@ -293,7 +293,7 @@ auto validate_output_parent_dir(const std::filesystem::path& path) -> Result<voi
     // something that is already there.  ENOENT and ENOTDIR are absence; a
     // component too long to be a name, an unsearchable parent or a descriptor
     // limit are not.  Go's validateOutputParentDir keys the same way.
-    const auto status = std::filesystem::status(parent, ec);
+    auto const status = std::filesystem::status(parent, ec);
     if (ec) {
         if (ec == std::errc::no_such_file_or_directory || ec == std::errc::not_a_directory)
             return std::unexpected(AletheiaError{

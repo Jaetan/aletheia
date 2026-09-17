@@ -110,7 +110,7 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
 template<typename Table>
 static auto lookup(const Table& table, std::string_view wire)
     -> std::optional<typename Table::value_type::second_type> {
-    for (const auto& [name, value] : table)
+    for (auto const& [name, value] : table)
         if (name == wire)
             return value;
     return std::nullopt;
@@ -200,7 +200,7 @@ static auto require_uint(const Json& j, std::string_view context) -> T {
 // the `runtime_error` to a `Result<>` error via `make_error(ErrorKind::Protocol,
 // ...)`, which is the right semantic class (malformed/corrupted server reply).
 static auto parse_bounded(std::string_view input) -> Json {
-    auto callback = [](int depth, Json::parse_event_t /*event*/, Json& /*parsed*/) -> bool {
+    auto const callback = [](int depth, Json::parse_event_t /*event*/, Json& /*parsed*/) -> bool {
         if (std::cmp_greater(depth, max_nesting_depth)) {
             throw std::runtime_error("JSON nesting depth " + std::to_string(depth) +
                                      " exceeds limit " + std::to_string(max_nesting_depth));
@@ -228,7 +228,7 @@ static auto lift_validation_issues(const Json& j) -> std::optional<std::vector<V
     std::vector<ValidationIssue> issues;
     issues.reserve(j.at("issues").size());
     try {
-        for (const auto& issue : j.at("issues")) {
+        for (auto const& issue : j.at("issues")) {
             auto entry = parse_issue_entry(issue);
             if (!entry)
                 return std::nullopt;
@@ -254,7 +254,7 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
     if (!j.contains("message") || !j.at("message").is_string())
         return make_error(ErrorKind::Protocol,
                           "Error response missing or non-string 'message' field");
-    auto code = error_code_from_string(j.at("code").get<std::string>());
+    auto const code = error_code_from_string(j.at("code").get<std::string>());
     // The bound code carries its own kind whatever the caller guessed from the
     // response section, so the typed bound-info shape is uniform across the
     // JSON, DBC-text and binary parser surfaces, as in the Python and Go
@@ -298,9 +298,9 @@ static auto parse_optional_array(const Json& j, const char* key, Parse parse_ele
     std::vector<std::invoke_result_t<Parse, const Json&>> out;
     if (!j.contains(key))
         return out;
-    const auto& arr = j.at(key);
+    auto const& arr = j.at(key);
     out.reserve(arr.size());
-    for (const auto& elem : arr)
+    for (auto const& elem : arr)
         out.push_back(parse_element(elem));
     return out;
 }
@@ -309,8 +309,8 @@ static auto parse_optional_array(const Json& j, const char* key, Parse parse_ele
 // validating den > 0.  Caller is responsible for first verifying
 // `j.is_object() && j.contains("numerator") && j.contains("denominator")`.
 static auto parse_rational_dict(const Json& j) -> std::pair<std::int64_t, std::int64_t> {
-    auto num = require_int<std::int64_t>(j.at("numerator"), "rational numerator");
-    auto den = require_int<std::int64_t>(j.at("denominator"), "rational denominator");
+    auto const num = require_int<std::int64_t>(j.at("numerator"), "rational numerator");
+    auto const den = require_int<std::int64_t>(j.at("denominator"), "rational denominator");
     // The kernel emits rationals with a positive denominator (the ℕ⁺ invariant),
     // so a non-positive denominator is a wire-format violation — rejected here
     // rather than silently sign-normalized.  Mirrors Python
@@ -407,7 +407,7 @@ static auto parse_issue_code(std::string_view s) -> IssueCode {
 // Parse one validation-issue entry ({severity, code, detail}); shared by the
 // validate-response and parsed-DBC-warnings decoders.
 static auto parse_issue_entry(const Json& issue) -> Result<ValidationIssue> {
-    auto sev_str = issue.value("severity", "");
+    auto const sev_str = issue.value("severity", "");
     IssueSeverity severity{};
     if (sev_str == "error") {
         severity = IssueSeverity::Error;
@@ -417,7 +417,7 @@ static auto parse_issue_entry(const Json& issue) -> Result<ValidationIssue> {
         return std::unexpected(
             make_error(ErrorKind::Protocol, "Unknown validation severity: " + sev_str));
     }
-    auto code_str = issue.value("code", "");
+    auto const code_str = issue.value("code", "");
     return ValidationIssue{
         .severity = severity,
         .code = parse_issue_code(code_str),
@@ -430,7 +430,7 @@ static auto parse_issue_entry(const Json& issue) -> Result<ValidationIssue> {
 // whole number (parse_rational_dict has already refused a non-positive
 // denominator, so the division is safe).
 static auto parse_rational_as_int(const Json& j) -> std::int64_t {
-    const auto r = parse_rational(j);
+    auto const r = parse_rational(j);
     if (r.numerator() % r.denominator() != 0)
         throw std::runtime_error("Non-exact rational in integer field: " + j.dump());
     return r.numerator() / r.denominator();
@@ -446,7 +446,7 @@ static auto parse_rational_as_int(const Json& j) -> std::int64_t {
 // signal requires a non-empty multiplexor and a non-empty multiplex_values array
 // of u32 selectors.
 static auto parse_signal_presence(const Json& j) -> SignalPresence {
-    const auto presence_str = j.value("presence", std::string{});
+    auto const presence_str = j.value("presence", std::string{});
     if (presence_str == "always")
         return AlwaysPresent{};
     if (presence_str != "multiplexed")
@@ -458,13 +458,13 @@ static auto parse_signal_presence(const Json& j) -> SignalPresence {
         j.at("multiplex_values").empty())
         throw std::runtime_error(
             "multiplexed signal requires a non-empty \"multiplex_values\" array");
-    const auto& arr = j.at("multiplex_values");
+    auto const& arr = j.at("multiplex_values");
     std::vector<MultiplexValue> vals;
     vals.reserve(arr.size());
-    for (const auto& elem : arr) {
+    for (auto const& elem : arr) {
         // Read wide, then bound to u32 — nlohmann's get<uint32_t> would silently
         // truncate an out-of-range value rather than reject it.
-        const auto v = require_int<std::int64_t>(elem, "multiplex_values entry");
+        auto const v = require_int<std::int64_t>(elem, "multiplex_values entry");
         if (v < 0 || v > 0xFFFF'FFFFLL) // u32 max — parity with Go's MaxUint32 bound
             throw std::runtime_error("multiplex_values entry " + std::to_string(v) +
                                      " out of range (0-4294967295)");
@@ -484,7 +484,7 @@ static auto parse_value_entry(const Json& j, std::string_view context) -> DbcVal
 }
 
 static auto parse_signal_def(const Json& j) -> DbcSignal {
-    auto bo_str = j.value("byteOrder", "little_endian");
+    auto const bo_str = j.value("byteOrder", "little_endian");
     ByteOrder bo{};
     if (bo_str == "little_endian")
         bo = ByteOrder::LittleEndian;
@@ -501,11 +501,11 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
         return parse_value_entry(elem, "valueDescriptions value");
     });
 
-    const auto start_bit_raw = require_uint<std::uint32_t>(j.at("startBit"), "startBit");
+    auto const start_bit_raw = require_uint<std::uint32_t>(j.at("startBit"), "startBit");
     if (start_bit_raw > 511)
         throw std::runtime_error("startBit " + std::to_string(start_bit_raw) +
                                  " out of range (0-511)");
-    const auto length_raw = require_uint<std::uint32_t>(j.at("length"), "length");
+    auto const length_raw = require_uint<std::uint32_t>(j.at("length"), "length");
     if (length_raw < 1 || length_raw > 512)
         throw std::runtime_error("bit length " + std::to_string(length_raw) +
                                  " out of range (1-512)");
@@ -550,7 +550,7 @@ static auto json_to_can_id(std::uint32_t id_val, bool extended) -> CanId {
 }
 
 static auto parse_message_def(const Json& j) -> DbcMessage {
-    auto id_val = require_uint<std::uint32_t>(j.at("id"), "message id");
+    auto const id_val = require_uint<std::uint32_t>(j.at("id"), "message id");
     const bool extended = j.value("extended", false);
     const CanId id = json_to_can_id(id_val, extended);
 
@@ -559,7 +559,7 @@ static auto parse_message_def(const Json& j) -> DbcMessage {
         throw std::runtime_error("Invalid DLC: " + dlc_result.error());
 
     std::vector<DbcSignal> signals;
-    for (const auto& s : j.at("signals"))
+    for (auto const& s : j.at("signals"))
         signals.push_back(parse_signal_def(s));
 
     auto senders = parse_optional_array(
@@ -577,7 +577,7 @@ static auto parse_message_def(const Json& j) -> DbcMessage {
 
 static auto parse_signal_group(const Json& j) -> DbcSignalGroup {
     std::vector<SignalName> sigs;
-    for (const auto& s : j.at("signals"))
+    for (auto const& s : j.at("signals"))
         sigs.emplace_back(s.get<std::string>());
     return DbcSignalGroup{
         .name = j.at("name").get<std::string>(),
@@ -600,8 +600,8 @@ static auto parse_env_var_type(int raw, const std::string& name) -> DbcVarType {
 }
 
 static auto parse_env_var(const Json& j) -> DbcEnvironmentVar {
-    auto name = j.at("name").get<std::string>();
-    const auto raw_type = require_int<int>(j.at("varType"), "varType");
+    auto const name = j.at("name").get<std::string>();
+    auto const raw_type = require_int<int>(j.at("varType"), "varType");
     return DbcEnvironmentVar{
         .name = name,
         .var_type = parse_env_var_type(raw_type, name),
@@ -613,7 +613,7 @@ static auto parse_env_var(const Json& j) -> DbcEnvironmentVar {
 
 static auto parse_value_table(const Json& j) -> DbcValueTable {
     std::vector<DbcValueEntry> entries;
-    for (const auto& e : j.at("entries"))
+    for (auto const& e : j.at("entries"))
         entries.push_back(parse_value_entry(e, "valueTable entry value"));
     return DbcValueTable{
         .name = j.at("name").get<std::string>(),
@@ -641,7 +641,7 @@ static auto parse_target_can_id(const Json& j) -> CanId {
 }
 
 static auto parse_comment_target(const Json& j) -> DbcCommentTarget {
-    const auto kind = j.at("kind").get<std::string>();
+    auto const kind = j.at("kind").get<std::string>();
     if (kind == "network")
         return DbcCommentTargetNetwork{};
     if (kind == "node")
@@ -683,7 +683,7 @@ static auto parse_attr_scope(std::string_view s) -> DbcAttrScope {
 }
 
 static auto parse_attr_type(const Json& j) -> DbcAttrType {
-    const auto kind = j.at("kind").get<std::string>();
+    auto const kind = j.at("kind").get<std::string>();
     if (kind == "int")
         return DbcAttrTypeInt{.min = require_int<std::int64_t>(j.at("min"), "int attribute min"),
                               .max = require_int<std::int64_t>(j.at("max"), "int attribute max")};
@@ -694,7 +694,7 @@ static auto parse_attr_type(const Json& j) -> DbcAttrType {
         return DbcAttrTypeString{};
     if (kind == "enum") {
         std::vector<std::string> values;
-        for (const auto& v : j.at("values"))
+        for (auto const& v : j.at("values"))
             values.push_back(v.get<std::string>());
         return DbcAttrTypeEnum{.values = std::move(values)};
     }
@@ -705,7 +705,7 @@ static auto parse_attr_type(const Json& j) -> DbcAttrType {
 }
 
 static auto parse_attr_value(const Json& j) -> DbcAttrValue {
-    const auto kind = j.at("kind").get<std::string>();
+    auto const kind = j.at("kind").get<std::string>();
     if (kind == "int")
         return DbcAttrValueInt{.value =
                                    require_int<std::int64_t>(j.at("value"), "int attribute value")};
@@ -723,7 +723,7 @@ static auto parse_attr_value(const Json& j) -> DbcAttrValue {
 }
 
 static auto parse_attr_target(const Json& j) -> DbcAttrTarget {
-    const auto kind = j.at("kind").get<std::string>();
+    auto const kind = j.at("kind").get<std::string>();
     if (kind == "network")
         return DbcAttrTargetNetwork{};
     if (kind == "node")
@@ -746,7 +746,7 @@ static auto parse_attr_target(const Json& j) -> DbcAttrTarget {
 }
 
 static auto parse_attribute(const Json& j) -> DbcAttribute {
-    const auto kind = j.at("kind").get<std::string>();
+    auto const kind = j.at("kind").get<std::string>();
     if (kind == "definition")
         return DbcAttrDef{
             .name = j.at("name").get<std::string>(),
@@ -773,11 +773,11 @@ static auto parse_attribute(const Json& j) -> DbcAttribute {
 // at the cross-binding boundary, mirrored by Python `_normalize_raw_value_desc`
 // and Go `parseUnresolvedValueDescs`.
 static auto parse_raw_value_desc(const Json& j) -> DbcRawValueDesc {
-    auto id_val = require_uint<std::uint32_t>(j.at("id"), "CAN id");
+    auto const id_val = require_uint<std::uint32_t>(j.at("id"), "CAN id");
     const bool extended = j.value("extended", false);
     const CanId can_id = json_to_can_id(id_val, extended);
     std::vector<DbcValueEntry> entries;
-    for (const auto& e : j.at("entries"))
+    for (auto const& e : j.at("entries"))
         entries.push_back(parse_value_entry(e, "value-description value"));
     return DbcRawValueDesc{
         .can_id = can_id,
@@ -790,7 +790,7 @@ static auto parse_dbc_definition(const Json& j) -> DbcDefinition {
     // `messages` is required; every metadata array is optional on the wire and
     // absent reads the same as empty.
     std::vector<DbcMessage> messages;
-    for (const auto& m : j.at("messages"))
+    for (auto const& m : j.at("messages"))
         messages.push_back(parse_message_def(m));
     return DbcDefinition{
         .version = j.value("version", ""),
@@ -815,8 +815,8 @@ static auto parse_dbc_definition(const Json& j) -> DbcDefinition {
 
 auto parse_success(std::string_view input) -> Result<void> {
     try {
-        auto j = parse_bounded(input);
-        auto status = j.value("status", "");
+        auto const j = parse_bounded(input);
+        auto const status = j.value("status", "");
         if (status == "success")
             return {};
         if (status == "error")
@@ -829,8 +829,8 @@ auto parse_success(std::string_view input) -> Result<void> {
 
 auto parse_event_ack(std::string_view input) -> Result<void> {
     try {
-        auto j = parse_bounded(input);
-        auto status = j.value("status", "");
+        auto const j = parse_bounded(input);
+        auto const status = j.value("status", "");
         if (status == "ack")
             return {};
         if (status == "error")
@@ -844,14 +844,14 @@ auto parse_event_ack(std::string_view input) -> Result<void> {
 auto parse_validation(std::string_view input) -> Result<ValidationResult> {
     try {
         auto j = parse_bounded(input);
-        auto status = j.value("status", "");
+        auto const status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Validation, j));
         if (status != "validation")
             return std::unexpected(make_error(ErrorKind::Protocol, "Expected validation response"));
 
         std::vector<ValidationIssue> issues;
-        for (const auto& issue : j.at("issues")) {
+        for (auto const& issue : j.at("issues")) {
             auto entry = parse_issue_entry(issue);
             if (!entry)
                 return std::unexpected(entry.error());
@@ -868,8 +868,8 @@ auto parse_validation(std::string_view input) -> Result<ValidationResult> {
 
 auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
     try {
-        auto j = parse_bounded(input);
-        auto status = j.value("status", "");
+        auto const j = parse_bounded(input);
+        auto const status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
         if (status != "success")
@@ -877,17 +877,17 @@ auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
                 make_error(ErrorKind::Protocol, "Unexpected extraction status: " + status));
 
         std::vector<SignalValue> values;
-        for (const auto& v : j.value("values", Json::array()))
+        for (auto const& v : j.value("values", Json::array()))
             values.push_back({.name = SignalName{v.at("name").get<std::string>()},
                               .value = PhysicalValue{parse_rational(v.at("value"))}});
 
         std::vector<SignalError> errors;
-        for (const auto& e : j.value("errors", Json::array()))
+        for (auto const& e : j.value("errors", Json::array()))
             errors.push_back({.name = SignalName{e.at("name").get<std::string>()},
                               .reason = e.value("error", "")});
 
         std::vector<SignalName> absent;
-        for (const auto& a : j.value("absent", Json::array()))
+        for (auto const& a : j.value("absent", Json::array()))
             absent.emplace_back(a.get<std::string>());
 
         return ExtractionResult{
@@ -903,17 +903,17 @@ auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
 auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
     try {
         auto j = parse_bounded(input);
-        auto status = j.value("status", "");
+        auto const status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
         if (status != "success")
             return std::unexpected(
                 make_error(ErrorKind::Protocol, "Unexpected frame data status: " + status));
 
-        const auto& data = j.at("data");
+        auto const& data = j.at("data");
         FramePayload payload;
         payload.reserve(data.size());
-        for (const auto& byte_val : data)
+        for (auto const& byte_val : data)
             payload.push_back(
                 static_cast<std::byte>(require_uint<std::uint8_t>(byte_val, "frame data byte")));
         return payload;
@@ -926,7 +926,7 @@ auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
 // streaming PropertyBatch path (frame response) and the EndStream
 // StreamResult path (parse_stream_result).
 static auto parse_property_result_entry(const Json& r) -> PropertyResult {
-    auto entry_status = r.value("status", "");
+    auto const entry_status = r.value("status", "");
     Verdict verdict{};
     if (entry_status == "holds")
         verdict = Verdict::Holds;
@@ -970,7 +970,7 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
 
     try {
         auto j = parse_bounded(input);
-        auto status = j.value("status", "");
+        auto const status = j.value("status", "");
 
         if (status == "ack")
             return FrameResponse{Ack{}};
@@ -983,14 +983,14 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
         // is a PropertyResult (holds/fails/unresolved); a violation closes the
         // batch, in source order, per the Agda dispatchIterResult invariant.
         if (j.value("type", "") == "property_batch") {
-            const auto& raw_results = j.at("results");
+            auto const& raw_results = j.at("results");
             if (!raw_results.is_array() || raw_results.empty())
                 throw std::runtime_error(
                     "property_batch response 'results' must be a non-empty array "
                     "(zero-event frames are encoded as ack)");
             std::vector<PropertyResult> results;
             results.reserve(raw_results.size());
-            for (const auto& r : raw_results)
+            for (auto const& r : raw_results)
                 results.push_back(parse_property_result_entry(r));
             return FrameResponse{PropertyBatch{.results = std::move(results)}};
         }
@@ -1024,7 +1024,7 @@ static auto parse_stream_warning_entry(const Json& w) -> StreamWarning {
 auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
     try {
         auto j = parse_bounded(input);
-        auto status = j.value("status", "");
+        auto const status = j.value("status", "");
 
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
@@ -1032,12 +1032,12 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
             return std::unexpected(make_error(ErrorKind::Protocol, "Expected complete response"));
 
         std::vector<PropertyResult> results;
-        for (const auto& r : j.at("results"))
+        for (auto const& r : j.at("results"))
             results.push_back(parse_property_result_entry(r));
 
         std::vector<StreamWarning> warnings;
         if (j.contains("warnings")) {
-            for (const auto& w : j.at("warnings"))
+            for (auto const& w : j.at("warnings"))
                 warnings.push_back(parse_stream_warning_entry(w));
         }
         return StreamResult{.results = std::move(results), .warnings = std::move(warnings)};
@@ -1049,7 +1049,7 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
 auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition> {
     try {
         auto j = parse_bounded(input);
-        auto status = j.value("status", "");
+        auto const status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
         if (status != "success")
@@ -1067,7 +1067,7 @@ auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition> {
 auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
     try {
         auto j = parse_bounded(input);
-        auto status = j.value("status", "");
+        auto const status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
         if (status != "success")
@@ -1080,7 +1080,7 @@ auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
 
         std::vector<ValidationIssue> warnings;
         if (j.contains("warnings")) {
-            for (const auto& issue : j.at("warnings")) {
+            for (auto const& issue : j.at("warnings")) {
                 auto entry = parse_issue_entry(issue);
                 if (!entry)
                     return std::unexpected(entry.error());
@@ -1096,7 +1096,7 @@ auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
 auto parse_dbc_text_response(std::string_view input) -> Result<DbcText> {
     try {
         auto j = parse_bounded(input);
-        auto status = j.value("status", "");
+        auto const status = j.value("status", "");
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
         if (status != "success")
@@ -1115,7 +1115,7 @@ auto parse_dbc_text_response(std::string_view input) -> Result<DbcText> {
             if (!j.at("issues").is_array())
                 return std::unexpected(make_error(
                     ErrorKind::Protocol, "'issues' must be an array in formatDBCText response"));
-            for (const auto& issue : j.at("issues")) {
+            for (auto const& issue : j.at("issues")) {
                 auto entry = parse_issue_entry(issue);
                 if (!entry)
                     return std::unexpected(entry.error());
@@ -1146,7 +1146,7 @@ auto to_string(IssueSeverity severity) -> std::string_view {
 }
 
 auto to_string(IssueCode code) -> std::string_view {
-    for (const auto& [name, c] : detail::issue_code_table)
+    for (auto const& [name, c] : detail::issue_code_table)
         if (c == code)
             return name;
     return "unknown";

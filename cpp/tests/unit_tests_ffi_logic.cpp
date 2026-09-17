@@ -53,18 +53,18 @@ TEST_CASE("rts_init_args: the heap cap is ALWAYS present, single-core adds no -N
     const std::string cap{detail::rts_heap_cap_flag};
     // Kills `rts_cores > rts_default_cores` → `>=`: a >= mutant would inject -N
     // at the default core count.  The cap must be present regardless.
-    const auto one = detail::rts_init_args(1, "");
+    auto const one = detail::rts_init_args(1, "");
     CHECK(one == std::vector<std::string>{"aletheia", "+RTS", cap, "-RTS"});
-    const auto zero = detail::rts_init_args(0, "");
+    auto const zero = detail::rts_init_args(0, "");
     CHECK(zero == std::vector<std::string>{"aletheia", "+RTS", cap, "-RTS"});
 }
 
 TEST_CASE("rts_init_args: multi-core requests append -N<n> after the cap", "[ffi][logic][rts]") {
     const std::string cap{detail::rts_heap_cap_flag};
     // Kills `rts_cores > rts_default_cores` → `<=`: a <= mutant would omit -N at cores == 4.
-    const auto four = detail::rts_init_args(4, "");
+    auto const four = detail::rts_init_args(4, "");
     CHECK(four == std::vector<std::string>{"aletheia", "+RTS", cap, "-N4", "-RTS"});
-    const auto two = detail::rts_init_args(2, "");
+    auto const two = detail::rts_init_args(2, "");
     CHECK(two == std::vector<std::string>{"aletheia", "+RTS", cap, "-N2", "-RTS"});
 }
 
@@ -73,13 +73,13 @@ TEST_CASE("rts_init_args: ALETHEIA_RTS_OPTS flags land after the cap (so a calle
     const std::string cap{detail::rts_heap_cap_flag};
     // Override flags are whitespace-split and appended after the cap and any
     // -N, before the closing -RTS — so a caller -M occurs LAST and wins.
-    const auto over = detail::rts_init_args(1, "  -M12M   -hT ");
+    auto const over = detail::rts_init_args(1, "  -M12M   -hT ");
     CHECK(over == std::vector<std::string>{"aletheia", "+RTS", cap, "-M12M", "-hT", "-RTS"});
     // With multi-core: cap, -N, then override.
-    const auto both = detail::rts_init_args(2, "-M64M");
+    auto const both = detail::rts_init_args(2, "-M64M");
     CHECK(both == std::vector<std::string>{"aletheia", "+RTS", cap, "-N2", "-M64M", "-RTS"});
     // Empty / whitespace-only override adds nothing.
-    const auto empty = detail::rts_init_args(1, "   ");
+    auto const empty = detail::rts_init_args(1, "   ");
     CHECK(empty == std::vector<std::string>{"aletheia", "+RTS", cap, "-RTS"});
 }
 
@@ -104,7 +104,7 @@ TEST_CASE("rts_cores_mismatch: differing cores report {active, requested}", "[ff
 TEST_CASE("ffi_error_from_status: status 0 is success, frees nothing", "[ffi][logic][error]") {
     // Kills `status != 0` → `==`: an == mutant would treat success as an error.
     reset_free();
-    auto err = detail::ffi_error_from_status(0, nullptr, mock_free);
+    auto const err = detail::ffi_error_from_status(0, nullptr, mock_free);
     CHECK_FALSE(err.has_value());
     CHECK(free_calls() == 0);
 }

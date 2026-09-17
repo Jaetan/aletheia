@@ -48,8 +48,8 @@ static auto run(std::span<char* const> args) -> int {
             // default: a silent fallback runs the small workload under the tight
             // cap, which is the one case the driver reads as containment.
             const std::string_view arg{args[1]};
-            const auto* const last = std::to_address(arg.end());
-            const auto [ptr, ec] = std::from_chars(std::to_address(arg.begin()), last, n);
+            auto const* const last = std::to_address(arg.end());
+            auto const [ptr, ec] = std::from_chars(std::to_address(arg.begin()), last, n);
             if (ec != std::errc{} || ptr != last || n <= 0) {
                 std::println(
                     stderr,
@@ -59,7 +59,7 @@ static auto run(std::span<char* const> args) -> int {
             }
         }
         aletheia::AletheiaClient client(aletheia::make_ffi_backend_from_env());
-        auto parsed = client.parse_dbc_text(std::stop_token{}, build_dbc(n));
+        auto const parsed = client.parse_dbc_text(std::stop_token{}, build_dbc(n));
         if (!parsed)
             return 3;
     } catch (const std::exception& e) {

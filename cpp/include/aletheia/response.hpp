@@ -52,7 +52,7 @@ struct ExtractionResult {
     [[nodiscard]] auto get(const SignalName& name,
                            PhysicalValue fallback = PhysicalValue{Rational{}}) const
         -> PhysicalValue {
-        for (const auto& sv : values)
+        for (auto const& sv : values)
             if (sv.name == name)
                 return sv.value;
         return fallback;
@@ -107,7 +107,7 @@ struct PropertyBatch {
     /// Satisfactions; const or mutable to match the batch.
     template<typename Self>
     [[nodiscard]] auto first_violation(this Self& self) {
-        auto it = std::ranges::find_if(
+        auto const it = std::ranges::find_if(
             self.results, [](const PropertyResult& r) { return r.verdict == Verdict::Fails; });
         using Pointer = decltype(&*it);
         return it == self.results.end() ? Pointer{} : &*it;

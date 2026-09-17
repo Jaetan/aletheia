@@ -190,14 +190,14 @@ struct DataRow {
 
 /// Build a header->cell map from a worksheet row, keeping only present
 /// (non-empty) cells and dropping any column with an empty header name.
-static auto row_to_map(OpenXLSX::XLWorksheet& ws, int row, const std::vector<std::string>& headers)
-    -> CellMap {
+static auto row_to_map(OpenXLSX::XLWorksheet const& ws, int row,
+                       const std::vector<std::string>& headers) -> CellMap {
     CellMap result;
     for (std::size_t i = 0; i < headers.size(); ++i) {
         if (headers[i].empty())
             continue; // a column with no header name is ignored
-        const auto cell = ws.cell(row, static_cast<std::uint16_t>(i + 1));
-        auto str_val = cell_to_string(cell, headers[i], row);
+        auto const cell = ws.cell(row, static_cast<std::uint16_t>(i + 1));
+        auto const str_val = cell_to_string(cell, headers[i], row);
         if (str_val.empty())
             continue;
         result[headers[i]] = CellVal{
@@ -214,7 +214,7 @@ static auto row_to_map(OpenXLSX::XLWorksheet& ws, int row, const std::vector<std
 // number or boolean cell is rejected rather than silently stringified.
 static auto get_str(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> std::string {
-    auto it = cells.find(key);
+    auto const it = cells.find(key);
     if (it == cells.end() || it->second.value.empty())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected string)");
     if (!it->second.is_text)
@@ -227,7 +227,7 @@ static auto get_str(const CellMap& cells, const std::string& key, const std::str
 // Message ID, which legitimately accepts a hex string or a native number.
 static auto get_any(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> std::string {
-    auto it = cells.find(key);
+    auto const it = cells.find(key);
     if (it == cells.end() || it->second.value.empty())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "'");
     return it->second.value;
@@ -244,7 +244,7 @@ static auto get_any(const CellMap& cells, const std::string& key, const std::str
 // its own kind.
 static auto get_decimal(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> Rational {
-    auto it = cells.find(key);
+    auto const it = cells.find(key);
     if (it == cells.end() || it->second.value.empty())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected number)");
     if (!it->second.is_text)
@@ -266,7 +266,7 @@ static auto get_decimal(const CellMap& cells, const std::string& key, const std:
 // the kernel refusal handling.
 static auto get_int(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> std::int64_t {
-    const auto value = get_decimal(cells, key, ctx_str);
+    auto const value = get_decimal(cells, key, ctx_str);
     if (value.denominator() != 1)
         throw std::runtime_error(ctx_str + ": '" + key + "' value " +
                                  cells.find(key)->second.value + " is not a whole number");
@@ -289,7 +289,7 @@ static auto checked_cast(std::int64_t value, std::string_view field, const std::
 // are exempt from the all-text contract (which governs only numeric cells).
 static auto get_bool(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> bool {
-    auto it = cells.find(key);
+    auto const it = cells.find(key);
     if (it == cells.end() || it->second.value.empty())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key +
                                  "' (expected TRUE/FALSE)");
@@ -305,7 +305,7 @@ static auto get_bool(const CellMap& cells, const std::string& key, const std::st
 }
 
 static auto has_key(const CellMap& cells, const std::string& key) -> bool {
-    auto it = cells.find(key);
+    auto const it = cells.find(key);
     return it != cells.end() && !it->second.value.empty();
 }
 
@@ -313,7 +313,7 @@ static auto has_key(const CellMap& cells, const std::string& key) -> bool {
 // Header extraction from first row
 // ---------------------------------------------------------------------------
 
-static auto headers_from_row(OpenXLSX::XLWorksheet& ws, std::size_t count)
+static auto headers_from_row(OpenXLSX::XLWorksheet const& ws, std::size_t count)
     -> std::vector<std::string> {
     std::vector<std::string> result;
     result.reserve(count);
@@ -344,7 +344,7 @@ static auto parse_message_id(const std::string& val, const std::string& ctx_str)
     const bool is_hex = lower.starts_with("0x");
     const std::string digits = is_hex ? val.substr(2) : val;
     std::uint32_t result = 0;
-    const auto* const end = sv_end_ptr(digits);
+    auto const* const end = sv_end_ptr(digits);
     auto [ptr, ec] = std::from_chars(digits.data(), end, result, is_hex ? 16 : 10);
     if (ec != std::errc{} || ptr != end)
         throw std::runtime_error(
@@ -367,24 +367,24 @@ static void apply_row_metadata(CheckResult& result, const CellMap& cells,
 }
 
 static auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
-    const auto ctx_str = row_ctx(row_num);
+    auto const ctx_str = row_ctx(row_num);
     auto signal = get_str(cells, "Signal", ctx_str);
     auto condition = get_str(cells, "Condition", ctx_str);
 
     if (!detail::is_simple_condition(condition))
         throw std::runtime_error(ctx_str + ": unknown condition '" + condition + "'");
 
-    CheckResult result = [&]() -> CheckResult {
+    CheckResult result = [&] -> CheckResult {
         if (detail::is_simple_value_condition(condition)) {
-            auto value = PhysicalValue{get_decimal(cells, "Value", ctx_str)};
+            auto const value = PhysicalValue{get_decimal(cells, "Value", ctx_str)};
             return detail::dispatch_simple(signal, condition, value);
         }
         if (detail::is_simple_range_condition(condition)) {
             if (!has_key(cells, "Min") || !has_key(cells, "Max"))
                 throw std::runtime_error(ctx_str + ": condition '" + condition +
                                          "' requires 'Min' and 'Max'");
-            auto lo = PhysicalValue{get_decimal(cells, "Min", ctx_str)};
-            auto hi = PhysicalValue{get_decimal(cells, "Max", ctx_str)};
+            auto const lo = PhysicalValue{get_decimal(cells, "Min", ctx_str)};
+            auto const hi = PhysicalValue{get_decimal(cells, "Max", ctx_str)};
             return check::signal(signal).stays_between(lo, hi);
         }
         if (detail::is_simple_settles_condition(condition)) {
@@ -394,12 +394,12 @@ static auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
             if (!has_key(cells, "Time (ms)"))
                 throw std::runtime_error(ctx_str +
                                          ": condition 'settles_between' requires 'Time (ms)'");
-            auto lo = PhysicalValue{get_decimal(cells, "Min", ctx_str)};
-            auto hi = PhysicalValue{get_decimal(cells, "Max", ctx_str)};
-            auto ms = std::chrono::milliseconds{get_int(cells, "Time (ms)", ctx_str)};
+            auto const lo = PhysicalValue{get_decimal(cells, "Min", ctx_str)};
+            auto const hi = PhysicalValue{get_decimal(cells, "Max", ctx_str)};
+            auto const ms = std::chrono::milliseconds{get_int(cells, "Time (ms)", ctx_str)};
             return check::signal(signal).settles_between(lo, hi).within(ms);
         }
-        auto value = PhysicalValue{get_decimal(cells, "Value", ctx_str)};
+        auto const value = PhysicalValue{get_decimal(cells, "Value", ctx_str)};
         return check::signal(signal).equals(value).always();
     }();
 
@@ -412,23 +412,23 @@ static auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
 // ---------------------------------------------------------------------------
 
 static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResult {
-    const auto ctx_str = row_ctx(row_num);
-    auto when_signal = get_str(cells, "When Signal", ctx_str);
-    auto when_cond = get_str(cells, "When Condition", ctx_str);
-    auto when_value = PhysicalValue{get_decimal(cells, "When Value", ctx_str)};
+    auto const ctx_str = row_ctx(row_num);
+    auto const when_signal = get_str(cells, "When Signal", ctx_str);
+    auto const when_cond = get_str(cells, "When Condition", ctx_str);
+    auto const when_value = PhysicalValue{get_decimal(cells, "When Value", ctx_str)};
 
     if (!detail::is_when_condition(when_cond))
         throw std::runtime_error(ctx_str + ": unknown when condition '" + when_cond + "'");
 
-    auto when_builder = check::when(when_signal);
-    auto when_result = detail::dispatch_when(when_builder, when_cond, when_value);
+    auto const when_builder = check::when(when_signal);
+    auto const when_result = detail::dispatch_when(when_builder, when_cond, when_value);
 
-    auto then_signal = get_str(cells, "Then Signal", ctx_str);
+    auto const then_signal = get_str(cells, "Then Signal", ctx_str);
     auto then_cond = get_str(cells, "Then Condition", ctx_str);
 
     // The word is held to the vocabulary by taking its slots: one lookup
     // answers both whether the obligation is known and what it reads.
-    const auto slots = detail::then_slots(then_cond);
+    auto const slots = detail::then_slots(then_cond);
     if (!slots)
         throw std::runtime_error(ctx_str + ": unknown then condition '" + then_cond + "'");
 
@@ -438,7 +438,7 @@ static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResul
     // Which columns the obligation reads is the vocabulary's business, not
     // this loader's; which columns they are, and what to say when one is
     // missing, is this loader's.
-    CheckResult result = [&]() -> CheckResult {
+    CheckResult result = [&] -> CheckResult {
         // The slots the obligation does not read stay at zero and the
         // dispatcher ignores them.
         PhysicalValue value{Rational{0, 1}};
@@ -468,9 +468,9 @@ static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResul
 // ---------------------------------------------------------------------------
 
 static auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
-    auto ctx_str = row_ctx(row_num);
+    auto const ctx_str = row_ctx(row_num);
 
-    auto byte_order_str = get_str(cells, "Byte Order", ctx_str);
+    auto const byte_order_str = get_str(cells, "Byte Order", ctx_str);
     ByteOrder byte_order{};
     if (byte_order_str == "little_endian")
         byte_order = ByteOrder::LittleEndian;
@@ -483,7 +483,7 @@ static auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
     // Unit is optional text; a non-text cell defaults to empty (matching the
     // Python reference's is_str check) rather than erroring.
     std::string unit_str;
-    if (auto it = cells.find("Unit"); it != cells.end() && it->second.is_text)
+    if (auto const it = cells.find("Unit"); it != cells.end() && it->second.is_text)
         unit_str = it->second.value;
 
     // Multiplexing
@@ -496,7 +496,7 @@ static auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
 
     SignalPresence presence;
     if (has_muxor) {
-        const auto mux_val = checked_cast<std::uint32_t>(get_int(cells, "Multiplex Value", ctx_str),
+        auto const mux_val = checked_cast<std::uint32_t>(get_int(cells, "Multiplex Value", ctx_str),
                                                          "Multiplex Value", ctx_str);
         presence = Multiplexed{.multiplexor = SignalName{get_str(cells, "Multiplexor", ctx_str)},
                                .multiplex_values = {MultiplexValue{mux_val}}};
@@ -504,9 +504,9 @@ static auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
         presence = AlwaysPresent{};
     }
 
-    const auto start_bit_val =
+    auto const start_bit_val =
         checked_cast<std::uint16_t>(get_int(cells, "Start Bit", ctx_str), "Start Bit", ctx_str);
-    const auto bit_length_val =
+    auto const bit_length_val =
         checked_cast<std::uint16_t>(get_int(cells, "Length", ctx_str), "Length", ctx_str);
 
     return DbcSignal{
@@ -528,16 +528,16 @@ static auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
 // Sheet existence check
 // ---------------------------------------------------------------------------
 
-static auto worksheet_exists(OpenXLSX::XLDocument& doc, std::string_view name) -> bool {
+static auto worksheet_exists(OpenXLSX::XLDocument const& doc, std::string_view name) -> bool {
     return std::ranges::contains(doc.workbook().worksheetNames(), std::string(name));
 }
 
 // A sheet's data rows: every non-empty row below the header, each paired with
 // its 1-based sheet row number for error messages.
-static auto collect_data_rows(OpenXLSX::XLWorksheet& ws) -> std::vector<DataRow> {
-    const auto headers = headers_from_row(ws, static_cast<std::size_t>(ws.columnCount()));
+static auto collect_data_rows(OpenXLSX::XLWorksheet const& ws) -> std::vector<DataRow> {
+    auto const headers = headers_from_row(ws, static_cast<std::size_t>(ws.columnCount()));
     std::vector<DataRow> rows;
-    const auto total_rows = ws.rowCount();
+    auto const total_rows = ws.rowCount();
     for (std::uint32_t r = 2; r <= total_rows; ++r) {
         auto cells = row_to_map(ws, static_cast<int>(r), headers);
         if (!cells.empty())
@@ -560,7 +560,8 @@ static auto harden_excel_path(const std::filesystem::path& path) -> Result<void>
 // Write header row helper
 // ---------------------------------------------------------------------------
 
-static void write_header_row(OpenXLSX::XLWorksheet& ws, const std::vector<std::string>& headers,
+static void write_header_row(OpenXLSX::XLWorksheet const& ws,
+                             const std::vector<std::string>& headers,
                              OpenXLSX::XLStyleIndex header_fmt) {
     for (std::size_t i = 0; i < headers.size(); ++i) {
         auto cell = ws.cell(1, static_cast<std::uint16_t>(i + 1));
@@ -593,14 +594,14 @@ auto load_checks_from_excel(const std::filesystem::path& path, std::string_view 
         std::vector<CheckResult> results;
 
         if (has_checks) {
-            auto ws = doc.workbook().worksheet(std::string(checks_sheet));
-            for (const auto& row : collect_data_rows(ws))
+            auto const ws = doc.workbook().worksheet(std::string(checks_sheet));
+            for (auto const& row : collect_data_rows(ws))
                 results.push_back(parse_simple_row(row.cells, row.number));
         }
 
         if (has_when_then) {
-            auto ws = doc.workbook().worksheet(std::string(when_then_sheet));
-            for (const auto& row : collect_data_rows(ws))
+            auto const ws = doc.workbook().worksheet(std::string(when_then_sheet));
+            for (auto const& row : collect_data_rows(ws))
                 results.push_back(parse_when_then_row(row.cells, row.number));
         }
 
@@ -631,10 +632,10 @@ static auto group_rows_by_message(const std::vector<DataRow>& data_rows)
     std::vector<std::pair<MessageKeyExt, std::vector<std::size_t>>> groups;
     std::map<MessageKeyExt, std::size_t> positions;
     for (std::size_t i = 0; i < data_rows.size(); ++i) {
-        const auto& cells = data_rows[i].cells;
-        const auto ctx_str = row_ctx(data_rows[i].number);
+        auto const& cells = data_rows[i].cells;
+        auto const ctx_str = row_ctx(data_rows[i].number);
         auto msg_id = parse_message_id(get_any(cells, "Message ID", ctx_str), ctx_str);
-        auto msg_name = get_str(cells, "Message Name", ctx_str);
+        auto const msg_name = get_str(cells, "Message Name", ctx_str);
         auto dlc = get_int(cells, "DLC", ctx_str);
         const bool extended = has_key(cells, "Extended") && get_bool(cells, "Extended", ctx_str);
         MessageKeyExt key{msg_id, msg_name, dlc, extended};
@@ -653,7 +654,7 @@ static auto build_message_from_group(const MessageKeyExt& key,
                                      const std::vector<DataRow>& data_rows) -> Result<DbcMessage> {
     std::vector<DbcSignal> signals;
     signals.reserve(indices.size());
-    for (auto idx : indices)
+    for (auto const idx : indices)
         signals.push_back(parse_dbc_signal(data_rows[idx].cells, data_rows[idx].number));
     auto [msg_id, msg_name, dlc, extended] = key;
     auto can_id_result =
@@ -694,14 +695,14 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
             return std::unexpected(AletheiaError{
                 ErrorKind::Validation, "Workbook has no '" + std::string(sheet) + "' sheet"});
 
-        auto ws = doc.workbook().worksheet(std::string(sheet));
-        const auto data_rows = collect_data_rows(ws);
+        auto const ws = doc.workbook().worksheet(std::string(sheet));
+        auto const data_rows = collect_data_rows(ws);
         if (data_rows.empty())
             return std::unexpected(
                 AletheiaError{ErrorKind::Validation, "DBC sheet has no data rows"});
 
         std::vector<DbcMessage> messages;
-        for (const auto& [key, rows] : group_rows_by_message(data_rows)) {
+        for (auto const& [key, rows] : group_rows_by_message(data_rows)) {
             auto msg = build_message_from_group(key, rows, data_rows);
             if (!msg.has_value())
                 return std::unexpected(msg.error());
@@ -738,25 +739,25 @@ auto create_excel_template(const std::filesystem::path& path) -> Result<void> {
         // Bold cell format for the header rows, created once and applied to every
         // header cell.  Python (openpyxl Font(bold=True)) and Go (excelize
         // Font{Bold: true}) bold their template headers; match them.
-        auto& styles = doc.styles();
-        const auto bold_font = styles.fonts().create();
+        auto const& styles = doc.styles();
+        auto const bold_font = styles.fonts().create();
         styles.fonts()[bold_font].setBold(true);
-        const auto header_fmt = styles.cellFormats().create();
+        auto const header_fmt = styles.cellFormats().create();
         styles.cellFormats()[header_fmt].setFontIndex(bold_font);
 
         // The workbook starts with one default sheet; it becomes the DBC sheet.
         doc.workbook().worksheet("Sheet1").setName("DBC");
-        auto ws_dbc = doc.workbook().worksheet("DBC");
+        auto const ws_dbc = doc.workbook().worksheet("DBC");
         write_header_row(ws_dbc, dbc_headers(), header_fmt);
 
         // Checks sheet
         doc.workbook().addWorksheet("Checks");
-        auto ws_checks = doc.workbook().worksheet("Checks");
+        auto const ws_checks = doc.workbook().worksheet("Checks");
         write_header_row(ws_checks, checks_headers(), header_fmt);
 
         // When-Then sheet
         doc.workbook().addWorksheet("When-Then");
-        auto ws_wt = doc.workbook().worksheet("When-Then");
+        auto const ws_wt = doc.workbook().worksheet("When-Then");
         write_header_row(ws_wt, when_then_headers(), header_fmt);
 
         doc.save();

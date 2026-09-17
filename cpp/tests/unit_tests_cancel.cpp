@@ -144,7 +144,7 @@ public:
 TEST_CASE("Client cancellation: pre-FFI guard rejects already-cancelled stop_token",
           "[cancellation]") {
     auto backend_owned = std::make_unique<CancelTriggerBackend>(0, nullptr);
-    auto* backend = backend_owned.get();
+    auto const* backend = backend_owned.get();
     AletheiaClient client(std::move(backend_owned));
 
     const std::stop_source source;
@@ -163,13 +163,13 @@ TEST_CASE("Client cancellation: mid-batch commit-prefix-and-report", "[cancellat
 
     std::stop_source source;
     auto backend_owned = std::make_unique<CancelTriggerBackend>(cancel_after, &source);
-    auto* backend = backend_owned.get();
+    auto const* backend = backend_owned.get();
     AletheiaClient client(std::move(backend_owned));
 
     std::vector<Frame> frames;
     frames.reserve(total);
     auto sid = StandardId::create(0x123).value();
-    auto dlc = Dlc::create(8).value();
+    auto const dlc = Dlc::create(8).value();
     std::vector<std::byte> payload(8, std::byte{0});
     for (std::size_t i = 0; i < total; ++i) {
         frames.push_back(Frame{
@@ -202,7 +202,7 @@ TEST_CASE("Client cancellation: in-flight FFI runs to completion", "[cancellatio
     // (Catch2 macros are not thread-safe, so we never assert inside the worker).
     bool worker_ok = false;
     std::thread worker([&] {
-        auto r = client.set_properties(cancel_token, std::span<const LtlFormula>{});
+        auto const r = client.set_properties(cancel_token, std::span<const LtlFormula>{});
         worker_ok = r.has_value();
     });
 
@@ -218,7 +218,7 @@ TEST_CASE("Client cancellation: in-flight FFI runs to completion", "[cancellatio
     // destructs first; on the happy path the explicit release and join below run
     // first and leave it a no-op, release being idempotent and join skipped once
     // the worker has been joined.
-    const auto worker_guard = std::shared_ptr<void>(nullptr, [backend, &worker](void*) {
+    auto const worker_guard = std::shared_ptr<void>(nullptr, [backend, &worker](void*) {
         backend->release();
         if (worker.joinable())
             worker.join();

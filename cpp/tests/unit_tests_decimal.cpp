@@ -80,9 +80,9 @@ static void expect_validation_throw(std::string_view input) {
 }
 
 TEST_CASE("Rational::from_decimal parses valid decimals to exact rationals", "[types][decimal]") {
-    for (const auto& c : k_success_cases) {
+    for (auto const& c : k_success_cases) {
         DYNAMIC_SECTION("input=" << c.input) {
-            auto r = Rational::from_decimal(c.input);
+            auto const r = Rational::from_decimal(c.input);
             CHECK(r.numerator() == c.numerator);
             CHECK(r.denominator() == c.denominator);
         }
@@ -91,7 +91,7 @@ TEST_CASE("Rational::from_decimal parses valid decimals to exact rationals", "[t
 
 TEST_CASE("Rational::from_decimal rejects malformed literals as Validation errors",
           "[types][decimal]") {
-    for (const auto& input : k_parse_fail_cases) {
+    for (auto const& input : k_parse_fail_cases) {
         DYNAMIC_SECTION("input=[" << input << "]") {
             expect_validation_throw(input);
         }
@@ -100,7 +100,7 @@ TEST_CASE("Rational::from_decimal rejects malformed literals as Validation error
 
 TEST_CASE("Rational::from_decimal rejects int64-overflowing literals as Validation errors",
           "[types][decimal]") {
-    for (const auto& input : k_overflow_cases) {
+    for (auto const& input : k_overflow_cases) {
         DYNAMIC_SECTION("input=" << input) {
             expect_validation_throw(input);
         }

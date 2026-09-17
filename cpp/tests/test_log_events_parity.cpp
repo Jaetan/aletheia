@@ -69,7 +69,7 @@ struct LogEventRow {
 } // namespace
 
 static auto load_log_events() -> std::vector<LogEventRow> {
-    const auto path = yaml_path();
+    auto const path = yaml_path();
     REQUIRE(std::filesystem::exists(path));
     auto root = YAML::LoadFile(path.string());
     REQUIRE(root["events"]);
@@ -77,7 +77,7 @@ static auto load_log_events() -> std::vector<LogEventRow> {
 
     std::vector<LogEventRow> out;
     out.reserve(root["events"].size());
-    for (const auto& node : root["events"]) {
+    for (auto const& node : root["events"]) {
         out.push_back(LogEventRow{
             .name = node["name"].as<std::string>(),
             .level = node["level"].as<std::string>(),
@@ -103,7 +103,7 @@ TEST_CASE("LOG_EVENTS.yaml is well-formed", "[parity][log][yaml]") {
 
     std::set<std::string> seen;
     for (size_t i = 0; i < rows.size(); ++i) {
-        const auto& row = rows[i];
+        auto const& row = rows[i];
         INFO("events[" << i << "] name=" << row.name);
 
         CHECK_FALSE(row.name.empty());
@@ -200,8 +200,8 @@ static auto events_of_one_workflow() -> std::set<std::string> {
     // 4. start_stream
     REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
 
     // 5. send_frame ack
     FramePayload data_ack(8, std::byte{0});
@@ -220,19 +220,19 @@ static auto events_of_one_workflow() -> std::set<std::string> {
     REQUIRE_FALSE(captured.empty());
 
     std::set<std::string> unique_emitted;
-    for (const auto& e : captured)
+    for (auto const& e : captured)
         unique_emitted.insert(e);
     return unique_emitted;
 }
 
 TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflow]") {
-    auto known = canonical_event_set();
+    auto const known = canonical_event_set();
 
-    const auto unique_emitted = events_of_one_workflow();
+    auto const unique_emitted = events_of_one_workflow();
 
     // Core assertion: every emitted event is in the canonical YAML set.
     // A future emit-site drift fails this check loudly with the offending name.
-    for (const auto& event : unique_emitted) {
+    for (auto const& event : unique_emitted) {
         INFO("emitted event: " << event);
         const bool in_canonical = known.contains(event);
         CHECK(in_canonical);
@@ -254,7 +254,7 @@ TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflo
 // dbc.parsed like the JSON path and a separate name for it would be an event
 // one binding has and the others do not.
 TEST_CASE("LOG_EVENTS.yaml rejects the known drift event", "[parity][log][regression]") {
-    auto known = canonical_event_set();
+    auto const known = canonical_event_set();
     CHECK_FALSE(known.contains("dbc.text_parsed"));
     CHECK(known.contains("dbc.parsed"));
 }

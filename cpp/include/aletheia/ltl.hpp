@@ -139,8 +139,8 @@ struct LtlFormula {
     template<typename T>
         requires(!std::same_as<std::decay_t<T>, LtlFormula>) &&
                 std::constructible_from<LtlFormulaVariant, T>
-    LtlFormula(T&& v) // NOLINT(google-explicit-constructor,hicpp-explicit-conversions)
-        : value(std::forward<T>(v)) {}
+    // NOLINTNEXTLINE(google-explicit-constructor,misc-explicit-constructor,cppcoreguidelines-explicit-constructor)
+    LtlFormula(T&& v) : value(std::forward<T>(v)) {}
 
     template<typename Visitor>
     constexpr auto visit(Visitor&& vis) const& -> decltype(auto) {
@@ -270,7 +270,7 @@ namespace ltl {
     auto cp = [](const std::unique_ptr<LtlFormula>& p) -> std::unique_ptr<LtlFormula> {
         return p ? std::make_unique<LtlFormula>(clone(*p)) : nullptr;
     };
-    return f.visit([&cp](const auto& v) -> LtlFormula {
+    return f.visit([&cp](auto const& v) -> LtlFormula {
         using T = std::decay_t<decltype(v)>;
         if constexpr (requires { v.predicate; })
             return T{v.predicate};

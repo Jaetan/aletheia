@@ -51,7 +51,7 @@ public:
 } // namespace
 
 static auto one_message_dbc() -> DbcDefinition {
-    auto signal = [](const char* name, std::uint16_t start_bit) {
+    auto const signal = [](const char* name, std::uint16_t start_bit) {
         return DbcSignal{
             .name = SignalName{name},
             .start_bit = BitPosition{start_bit},
@@ -91,10 +91,10 @@ static auto harness() -> Harness& {
     static Harness built = [] {
         auto owned = std::make_unique<BinaryMock>();
         auto* mock = owned.get();
-        const auto dbc = one_message_dbc();
+        auto const dbc = one_message_dbc();
         mock->queue_response(detail::serialize_parsed_dbc_response(dbc));
         auto client = std::make_unique<AletheiaClient>(std::move(owned));
-        [[maybe_unused]] auto parsed = client->parse_dbc(std::stop_token{}, dbc);
+        [[maybe_unused]] auto const parsed = client->parse_dbc(std::stop_token{}, dbc);
         return Harness{.mock = mock, .client = std::move(client)};
     }();
     return built;
@@ -111,10 +111,10 @@ extern "C" auto LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) -> int 
     h.mock->bytes.assign(reinterpret_cast<const std::byte*>(data),
                          reinterpret_cast<const std::byte*>(data) + size);
 
-    const auto id = CanId{StandardId::create(0x100).value()};
-    const auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     const std::vector<std::byte> payload(8, std::byte{0});
-    [[maybe_unused]] auto result =
+    [[maybe_unused]] auto const result =
         h.client->extract_signals(std::stop_token{}, id, dlc, std::span{payload});
     return 0;
 }

@@ -42,14 +42,14 @@
 // the render-dependent tests failing vocally.
 static auto find_test_lib() -> std::filesystem::path {
     namespace fs = std::filesystem;
-    if (auto* env = std::getenv("ALETHEIA_LIB")) {
+    if (auto const* env = std::getenv("ALETHEIA_LIB")) {
         const std::string_view env_sv{env};
         if (!env_sv.empty()) {
             if (const fs::path p{env_sv}; fs::exists(p))
                 return p;
         }
     }
-    for (const auto* candidate : {"../../build/libaletheia-ffi.so", "../build/libaletheia-ffi.so",
+    for (auto const* candidate : {"../../build/libaletheia-ffi.so", "../build/libaletheia-ffi.so",
                                   "build/libaletheia-ffi.so"}) {
         if (fs::exists(candidate))
             return fs::canonical(candidate);
@@ -63,7 +63,7 @@ public:
     using Catch::EventListenerBase::EventListenerBase;
 
     void testRunStarting(const Catch::TestRunInfo& /*info*/) override {
-        const auto lib = find_test_lib();
+        auto const lib = find_test_lib();
         if (lib.empty())
             return; // best-effort; render tests fail vocally if the runtime is down
         try {

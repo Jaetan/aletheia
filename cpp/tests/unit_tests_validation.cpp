@@ -33,8 +33,8 @@ TEST_CASE("send_frame rejects payload length mismatch", "[client][validation]") 
     auto mock = std::make_unique<MockBackend>();
     AletheiaClient client(std::move(mock));
 
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value(); // expects 8 bytes
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value(); // expects 8 bytes
     FramePayload short_data(3, std::byte{0});
     auto result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, short_data);
 
@@ -48,8 +48,8 @@ TEST_CASE("extract_signals rejects payload length mismatch", "[client][validatio
     auto mock = std::make_unique<MockBackend>();
     AletheiaClient client(std::move(mock));
 
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload long_data(16, std::byte{0}); // 16 bytes but DLC 8 expects 8
     auto result = client.extract_signals(std::stop_token{}, id, dlc, long_data);
 
@@ -61,8 +61,8 @@ TEST_CASE("update_frame rejects payload length mismatch", "[client][validation]"
     auto mock = std::make_unique<MockBackend>();
     AletheiaClient client(std::move(mock));
 
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload bad_data(5, std::byte{0});
     std::vector<SignalValue> signals{
         {.name = SignalName{"S"}, .value = PhysicalValue{Rational{1, 1}}}};
@@ -77,8 +77,8 @@ TEST_CASE("send_frame accepts correct payload length", "[client][validation]") {
     mock->queue_response(R"({"status": "ack"})");
     AletheiaClient client(std::move(mock));
 
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload data(8, std::byte{0}); // exactly 8 bytes for DLC 8
     auto result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
 
@@ -91,8 +91,8 @@ TEST_CASE("send_frame accepts CAN-FD payload", "[client][validation]") {
     mock->queue_response(R"({"status": "ack"})");
     AletheiaClient client(std::move(mock));
 
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(15).value(); // DLC 15 = 64 bytes
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(15).value(); // DLC 15 = 64 bytes
     FramePayload data(64, std::byte{0});
     auto result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
 
@@ -108,8 +108,8 @@ TEST_CASE("send_frame rejects negative timestamp", "[client][validation]") {
     auto mock = std::make_unique<MockBackend>();
     AletheiaClient client(std::move(mock));
 
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
     FramePayload data(8, std::byte{0});
     auto result = client.send_frame(std::stop_token{}, Timestamp{-1000}, id, dlc, data);
 
@@ -122,7 +122,7 @@ TEST_CASE("send_error succeeds with mock backend", "[client][validation]") {
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(R"({"status": "ack"})"); // send_error binary response
     AletheiaClient client(std::move(mock));
-    auto result = client.send_error(std::stop_token{}, Timestamp{1'000'000});
+    auto const result = client.send_error(std::stop_token{}, Timestamp{1'000'000});
     CHECK(result.has_value());
 }
 
@@ -139,15 +139,15 @@ TEST_CASE("send_remote succeeds with mock backend", "[client][validation]") {
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(R"({"status": "ack"})"); // send_remote binary response
     AletheiaClient client(std::move(mock));
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto result = client.send_remote(std::stop_token{}, Timestamp{1'000'000}, id);
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const result = client.send_remote(std::stop_token{}, Timestamp{1'000'000}, id);
     CHECK(result.has_value());
 }
 
 TEST_CASE("send_remote rejects negative timestamp", "[client][validation]") {
     auto mock = std::make_unique<MockBackend>();
     AletheiaClient client(std::move(mock));
-    auto id = CanId{StandardId::create(0x100).value()};
+    auto const id = CanId{StandardId::create(0x100).value()};
     auto result = client.send_remote(std::stop_token{}, Timestamp{-1000}, id);
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Validation);

@@ -92,8 +92,8 @@ struct FrameKeyLess {
 
     template<typename A, typename B>
     [[nodiscard]] auto operator()(const A& a, const B& b) const -> bool {
-        const auto pa = prefix(a);
-        const auto pb = prefix(b);
+        auto const pa = prefix(a);
+        auto const pb = prefix(b);
         if (pa != pb)
             return pa < pb;
         return std::ranges::lexicographical_compare(payload(a), payload(b));

@@ -62,10 +62,10 @@ static auto run_capture(std::vector<std::string> args) -> std::pair<int, std::st
 // to EngineSpeed — a duplicate signal name, which the verified parser rejects
 // with handler_validation_failed carrying the validation issues.
 static auto duplicate_signal_dbc() -> std::string {
-    const auto fixture =
+    auto const fixture =
         repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "minimal.dbc";
     std::string text = read_text_file(fixture);
-    const auto pos = text.find("EngineTemp");
+    auto const pos = text.find("EngineTemp");
     if (pos == std::string::npos) {
         throw std::runtime_error("minimal.dbc no longer contains EngineTemp");
     }
@@ -77,7 +77,7 @@ TEST_CASE("CLI smoke over the real FFI core", "[cli]") {
     if (!lib_available()) {
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
     }
-    const auto dbc = (repo_root() / "examples" / "example.dbc").string();
+    auto const dbc = (repo_root() / "examples" / "example.dbc").string();
     CHECK(run({"validate", "--dbc", dbc}) == 0);
     CHECK(run({"validate", "--dbc", dbc, "--json"}) == 0);
     CHECK(run({"signals", "--dbc", dbc}) == 0);
@@ -86,7 +86,7 @@ TEST_CASE("CLI smoke over the real FFI core", "[cli]") {
     CHECK(run({"extract", "--dbc", dbc, "0x100", "102700000A000000"}) == 0);
     // A flag after positionals must still parse (Python argparse parity).
     CHECK(run({"extract", "--dbc", dbc, "0x100", "102700000A000000", "--json"}) == 0);
-    const auto mux =
+    auto const mux =
         (repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "multiplexing.dbc")
             .string();
     CHECK(run({"mux-query", "--dbc", mux, "0x64"}) == 0);
@@ -101,7 +101,7 @@ TEST_CASE("extract --json renders signal values as exact rationals, never a loss
     if (!lib_available()) {
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
     }
-    const auto dbc = (repo_root() / "examples" / "example.dbc").string();
+    auto const dbc = (repo_root() / "examples" / "example.dbc").string();
     // EngineSpeed is 16-bit @ factor 0.25; raw 10001 (0x2711, little-endian) =
     // 10001/4 = 2500.25, a non-integer rational -> the exact
     // {"numerator","denominator"} object, never a lossy double like 2500.25.
@@ -111,8 +111,8 @@ TEST_CASE("extract --json renders signal values as exact rationals, never a loss
     auto [code, out] =
         run_capture({"extract", "--dbc", dbc, "0x100", "112700000A000000", "--json"});
     CHECK(code == 0);
-    const auto parsed = nlohmann::json::parse(out);
-    const auto& values = parsed.at("values");
+    auto const parsed = nlohmann::json::parse(out);
+    auto const& values = parsed.at("values");
     CHECK(values.at("EngineSpeed") == nlohmann::json({{"numerator", 10001}, {"denominator", 4}}));
     CHECK(values.at("EngineSpeed").is_object()); // exact rational, never a float
     CHECK(values.at("EngineTemp") == nlohmann::json(-40));
@@ -157,12 +157,12 @@ TEST_CASE("validate --json emits the has_errors fail shape when the parser rejec
     // The exit code reflects the validation outcome in both output modes:
     // --json on a has_errors result exits 1 like text mode.
     CHECK(code == 1);
-    const auto parsed = nlohmann::json::parse(out);
+    auto const parsed = nlohmann::json::parse(out);
     CHECK(parsed.at("status") == "fail");
     CHECK(parsed.at("has_errors") == true);
     REQUIRE(!parsed.at("issues").empty());
     bool hit = false;
-    for (const auto& issue : parsed.at("issues"))
+    for (auto const& issue : parsed.at("issues"))
         if (issue.at("code") == "duplicate_signal_name" && issue.at("severity") == "error")
             hit = true;
     CHECK(hit);
@@ -176,7 +176,7 @@ TEST_CASE("validate reports warnings from the single parse pass", "[cli]") {
     // warning. The kernel's parse epilogue IS full validation, so the parse
     // response's warnings are the complete issue list and must survive into
     // the success report — no validate_dbc round-trip to re-collect them.
-    const auto dbc =
+    auto const dbc =
         (repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "minimal.dbc").string();
     auto [code, out] = run_capture({"validate", "--dbc", dbc});
     CHECK(code == 0);
