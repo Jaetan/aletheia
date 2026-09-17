@@ -12,10 +12,10 @@ import (
 
 const ack = `{"status":"ack"}`
 
-// startedBatchClient returns a streaming client over a mock that has already
+// startedClientWith returns a streaming client over a mock that has already
 // answered SetProperties and StartStream and holds the given responses for
-// the frames that follow. The one property is Speed below the limit.
-func startedBatchClient(t *testing.T, limit int64, responses ...aletheia.MockResponse) (*aletheia.Client, *aletheia.MockBackend) {
+// what follows; the properties are the ones installed.
+func startedClientWith(t *testing.T, properties []aletheia.Formula, responses ...aletheia.MockResponse) (*aletheia.Client, *aletheia.MockBackend) {
 	t.Helper()
 	queue := append([]aletheia.MockResponse{
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
@@ -27,14 +27,20 @@ func startedBatchClient(t *testing.T, limit int64, responses ...aletheia.MockRes
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
-	speedBelow := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(limit)}}}
-	if err := c.SetProperties(ctx, []aletheia.Formula{speedBelow}); err != nil {
+	if err := c.SetProperties(ctx, properties); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.StartStream(ctx); err != nil {
 		t.Fatal(err)
 	}
 	return c, mock
+}
+
+// startedBatchClient is startedClientWith over the one property Speed below the limit.
+func startedBatchClient(t *testing.T, limit int64, responses ...aletheia.MockResponse) (*aletheia.Client, *aletheia.MockBackend) {
+	t.Helper()
+	speedBelow := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(limit)}}}
+	return startedClientWith(t, []aletheia.Formula{speedBelow}, responses...)
 }
 
 // frameAt is a frame on standard ID 0x100 with DLC 8 and the given payload.

@@ -4,6 +4,7 @@
 package aletheia_test
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -11,803 +12,97 @@ import (
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
 
-// --- Formula pretty-printing ---
-
-func TestFormatFormula_AlwaysLessThan(t *testing.T) {
-	f := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}}
-	got := aletheia.FormatFormula(f)
-	expected := "always(Speed < 220)"
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
+func lt(sig string, v int64) aletheia.Formula {
+	return aletheia.Atomic{Predicate: aletheia.LessThan{Signal: aletheia.SignalName(sig), Value: aletheia.IntRational(v)}}
 }
 
-func TestFormatFormula_NeverPattern(t *testing.T) {
-	f := aletheia.Never(aletheia.GreaterThan{Signal: "Speed", Value: aletheia.IntRational(100)})
-	got := aletheia.FormatFormula(f)
-	expected := "never Speed > 100"
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
+func gt(sig string, v int64) aletheia.Formula {
+	return aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: aletheia.SignalName(sig), Value: aletheia.IntRational(v)}}
 }
 
-func TestFormatFormula_Eventually(t *testing.T) {
-	f := aletheia.Eventually{Inner: aletheia.Atomic{Predicate: aletheia.Equals{Signal: "Mode", Value: aletheia.IntRational(1)}}}
-	got := aletheia.FormatFormula(f)
-	expected := "eventually(Mode = 1)"
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
+// speedBelow220 is the one property most enrichment tests install.
+var speedBelow220 = aletheia.Always{Inner: lt("Speed", 220)}
+
+// violationAt is a frame response failing property 0 at the timestamp.
+func violationAt(ts int64, reason string) aletheia.MockResponse {
+	return aletheia.Respond(fmt.Sprintf(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":%d,"reason":%q}]}`, ts, reason))
 }
 
-func TestFormatFormula_MetricAlways(t *testing.T) {
-	f := aletheia.MetricAlways{
-		Bound: aletheia.TimeBound{Microseconds: 5000000},
-		Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}},
+// extractionOf is a successful extraction response carrying the named integer values.
+func extractionOf(values ...any) aletheia.MockResponse {
+	parts := make([]string, 0, len(values)/2)
+	for i := 0; i+1 < len(values); i += 2 {
+		parts = append(parts, fmt.Sprintf(`{"name":%q,"value":%d}`, values[i], values[i+1]))
 	}
-	got := aletheia.FormatFormula(f)
-	expected := "always within 5s (Speed < 220)"
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
+	return aletheia.Respond(`{"status":"success","values":[` + strings.Join(parts, ",") + `],"errors":[],"absent":[]}`)
 }
 
-func TestFormatFormula_MetricEventually(t *testing.T) {
-	f := aletheia.MetricEventually{
-		Bound: aletheia.TimeBound{Microseconds: 2000000},
-		Inner: aletheia.Atomic{Predicate: aletheia.Equals{Signal: "Mode", Value: aletheia.IntRational(1)}},
-	}
-	got := aletheia.FormatFormula(f)
-	expected := "eventually within 2s (Mode = 1)"
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
+// endStreamFailing is an end-of-stream response failing property 0.
+func endStreamFailing(ts int64, reason string) aletheia.MockResponse {
+	return aletheia.Respond(fmt.Sprintf(`{"status":"complete","results":[{"property_index":0,"status":"fails","timestamp":%d,"reason":%q}]}`, ts, reason))
 }
 
-func TestFormatFormula_Next(t *testing.T) {
-	f := aletheia.Next{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}}
-	got := aletheia.FormatFormula(f)
-	expected := "next(Speed < 220)"
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
-}
-
-func TestFormatFormula_And(t *testing.T) {
-	f := aletheia.And{
-		Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}},
-		Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.IntRational(500)}},
-	}
-	got := aletheia.FormatFormula(f)
-	expected := "Speed < 220 and RPM > 500"
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
-}
-
-func TestFormatFormula_Complex(t *testing.T) {
-	// always(Speed < 220 and RPM > 500)
-	f := aletheia.Always{Inner: aletheia.And{
-		Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}},
-		Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.IntRational(500)}},
-	}}
-	got := aletheia.FormatFormula(f)
-	expected := "always(Speed < 220 and RPM > 500)"
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
-}
-
-func TestFormatFormula_Until(t *testing.T) {
-	f := aletheia.Until{
-		Left:  aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.IntRational(500)}},
-		Right: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}},
-	}
-	got := aletheia.FormatFormula(f)
-	expected := "RPM > 500 until Speed < 220"
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
-}
-
-func TestFormatFormula_AllPredicates(t *testing.T) {
-	tests := []struct {
-		pred     aletheia.Predicate
-		expected string
-	}{
-		{aletheia.Equals{Signal: "S", Value: aletheia.IntRational(10)}, "S = 10"},
-		{aletheia.LessThan{Signal: "S", Value: aletheia.IntRational(10)}, "S < 10"},
-		{aletheia.GreaterThan{Signal: "S", Value: aletheia.IntRational(10)}, "S > 10"},
-		{aletheia.LessThanOrEqual{Signal: "S", Value: aletheia.IntRational(10)}, "S <= 10"},
-		{aletheia.GreaterThanOrEqual{Signal: "S", Value: aletheia.IntRational(10)}, "S >= 10"},
-		{aletheia.Between{Signal: "S", Min: aletheia.IntRational(5), Max: aletheia.IntRational(15)}, "5 <= S <= 15"},
-		{aletheia.ChangedBy{Signal: "S", Delta: aletheia.Rational{Numerator: 5, Denominator: 2}}, "ΔS >= 2.5"},
-		{aletheia.ChangedBy{Signal: "S", Delta: aletheia.IntRational(-3)}, "ΔS <= -3"},
-		{aletheia.StableWithin{Signal: "S", Tolerance: aletheia.Rational{Numerator: 5, Denominator: 2}}, "|ΔS| <= 2.5"},
-	}
-	for _, tt := range tests {
-		f := aletheia.Atomic{Predicate: tt.pred}
-		got := aletheia.FormatFormula(f)
-		if got != tt.expected {
-			t.Errorf("pred %T: got %q, want %q", tt.pred, got, tt.expected)
-		}
-	}
-}
-
-// FormatFormula embeds the FFI-rendered rational (aletheia_format_rational, the
-// shared Agda kernel) into each predicate type's display.  The renderer's
-// MATH and SHAPE — decimal-vs-N/D fallback, trailing-zero trimming, sign, the
-// k>18 cross-binding guard, exact (non-scientific) decimals — are proven and
-// pinned ONCE in the Agda kernel (RationalRenderer.Faithful.formatℚ-chars-
-// represents + the RationalRenderer.Properties shape golden), so they are no
-// longer re-asserted per binding (this used to triplicate the same value→string
-// table across Go/Python/C++).  What stays Go-specific: that the FFI plumbs
-// through (both output shapes) and that each predicate structure embeds it.
-func TestFormatFormula_RationalEmbedding(t *testing.T) {
-	tests := []struct {
-		name     string
-		pred     aletheia.Predicate
-		expected string
-	}{
-		{"equals, N/D shape", aletheia.Equals{Signal: "S", Value: aletheia.Rational{Numerator: 1, Denominator: 3}}, "S = 1/3"},
-		{"less_than, decimal shape", aletheia.LessThan{Signal: "V", Value: aletheia.Rational{Numerator: 23, Denominator: 2}}, "V < 11.5"},
-		{"greater_than, signed", aletheia.GreaterThan{Signal: "S", Value: aletheia.Rational{Numerator: -1, Denominator: 3}}, "S > -1/3"},
-		{"between, both bounds", aletheia.Between{Signal: "S", Min: aletheia.Rational{Numerator: 1, Denominator: 3}, Max: aletheia.Rational{Numerator: 2, Denominator: 3}}, "1/3 <= S <= 2/3"},
-		{"changed_by", aletheia.ChangedBy{Signal: "S", Delta: aletheia.Rational{Numerator: 1, Denominator: 3}}, "ΔS >= 1/3"},
-		{"stable_within", aletheia.StableWithin{Signal: "S", Tolerance: aletheia.Rational{Numerator: 1, Denominator: 7}}, "|ΔS| <= 1/7"},
-	}
-	for _, tt := range tests {
-		f := aletheia.Atomic{Predicate: tt.pred}
-		got := aletheia.FormatFormula(f)
-		if got != tt.expected {
-			t.Errorf("%s: got %q, want %q", tt.name, got, tt.expected)
-		}
-	}
-}
-
-func TestFormatFormula_Release(t *testing.T) {
-	f := aletheia.Release{
-		Left:  aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.IntRational(500)}},
-		Right: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}},
-	}
-	got := aletheia.FormatFormula(f)
-	expected := "RPM > 500 release Speed < 220"
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
-}
-
-func TestFormatFormula_NestedBinaryParens(t *testing.T) {
-	// And{Or{a, b}, c} should produce "(a or b) and c", not "a or b and c"
-	a := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}
-	b := aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.IntRational(500)}}
-	c := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Temp", Value: aletheia.IntRational(80)}}
-	f := aletheia.And{
-		Left:  aletheia.Or{Left: a, Right: b},
-		Right: c,
-	}
-	got := aletheia.FormatFormula(f)
-	expected := "(Speed < 220 or RPM > 500) and Temp < 80"
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
-}
-
-// --- Signal collection ---
-
-func TestCollectSignals_MultiSignal(t *testing.T) {
-	f := aletheia.And{
-		Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}},
-		Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.IntRational(500)}},
-	}
-	signals := aletheia.CollectSignals(f)
-	if len(signals) != 2 {
-		t.Fatalf("expected 2 signals, got %d", len(signals))
-	}
-	if signals[0] != "Speed" || signals[1] != "RPM" {
-		t.Errorf("got %v, want [Speed, RPM]", signals)
-	}
-}
-
-func TestCollectSignals_Dedup(t *testing.T) {
-	f := aletheia.And{
-		Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}},
-		Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "Speed", Value: aletheia.IntRational(0)}},
-	}
-	signals := aletheia.CollectSignals(f)
-	if len(signals) != 1 {
-		t.Fatalf("expected 1 signal (deduped), got %d: %v", len(signals), signals)
-	}
-	if signals[0] != "Speed" {
-		t.Errorf("got %v, want [Speed]", signals)
-	}
-}
-
-func TestBuildDiagnostic_AlwaysSucceeds(t *testing.T) {
-	formulas := []aletheia.Formula{
-		aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: aletheia.IntRational(1)}},
-		aletheia.Not{Inner: aletheia.Atomic{Predicate: aletheia.Equals{Signal: "S", Value: aletheia.IntRational(1)}}},
-		aletheia.And{
-			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: aletheia.IntRational(1)}},
-			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: aletheia.IntRational(2)}},
-		},
-		aletheia.Or{
-			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: aletheia.IntRational(1)}},
-			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: aletheia.IntRational(2)}},
-		},
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: aletheia.IntRational(1)}}},
-		aletheia.Eventually{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: aletheia.IntRational(1)}}},
-		aletheia.Next{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: aletheia.IntRational(1)}}},
-		aletheia.Until{
-			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: aletheia.IntRational(1)}},
-			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: aletheia.IntRational(2)}},
-		},
-		aletheia.Release{
-			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: aletheia.IntRational(1)}},
-			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: aletheia.IntRational(2)}},
-		},
-		aletheia.MetricAlways{Bound: aletheia.TimeBound{Microseconds: 1000000}, Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: aletheia.IntRational(1)}}},
-		aletheia.MetricEventually{Bound: aletheia.TimeBound{Microseconds: 1000000}, Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: aletheia.IntRational(1)}}},
-		aletheia.MetricUntil{Bound: aletheia.TimeBound{Microseconds: 1000000}, Left: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: aletheia.IntRational(1)}}, Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: aletheia.IntRational(2)}}},
-		aletheia.MetricRelease{Bound: aletheia.TimeBound{Microseconds: 1000000}, Left: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: aletheia.IntRational(1)}}, Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "B", Value: aletheia.IntRational(2)}}},
-	}
-	for i, f := range formulas {
-		diag := aletheia.BuildDiagnostic(f)
-		if diag.FormulaDesc == "" {
-			t.Errorf("formula %d: empty FormulaDesc", i)
-		}
-		if len(diag.Signals) == 0 {
-			t.Errorf("formula %d: empty Signals", i)
-		}
-	}
-}
-
-// --- Enrichment integration ---
-
-func TestSetProperties_AutoDerive(t *testing.T) {
-	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`), // SetProperties
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
-	})
-	if err != nil {
-		t.Fatalf("SetProperties: %v", err)
-	}
-	// Diagnostics are internal; we verify by triggering enrichment below.
-}
-
-func TestSendFrame_EnrichedViolation(t *testing.T) {
-	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`), // SetProperties
-		aletheia.Respond(`{"status":"success"}`), // StartStream
-		// SendFrame violation response (consumed first by processLocked)
-		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":2000000,"reason":"Atomic: predicate failed"}]}`),
-		// Extraction response (consumed by enrichment's extractSignalsLocked)
-		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":245}],"errors":[],"absent":[]}`),
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
-	})
-	if err != nil {
-		t.Fatalf("SetProperties: %v", err)
-	}
-	err = c.StartStream(ctx)
-	if err != nil {
-		t.Fatalf("StartStream: %v", err)
-	}
-
-	sid, _ := aletheia.NewStandardID(0x123)
-	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data, nil, nil)
-	if err != nil {
-		t.Fatalf("SendFrame: %v", err)
-	}
-
+// firstViolation is the enriched violation a frame response must carry.
+func firstViolation(t *testing.T, resp aletheia.FrameResponse) *aletheia.PropertyResult {
+	t.Helper()
 	b, ok := resp.(aletheia.PropertyBatch)
-
 	if !ok {
 		t.Fatalf("expected PropertyBatch, got %T", resp)
-
 	}
-
 	v := b.FirstViolation()
-
 	if v == nil {
-		t.Fatalf("expected violation in batch, got %+v", b)
-
+		t.Fatalf("expected a violation in the batch, got %+v", b)
 	}
 	if v.Enrichment == nil {
-		t.Fatal("expected non-nil Enrichment")
+		t.Fatal("expected the violation to be enriched")
 	}
-	if v.Enrichment.FormulaDesc != "always(Speed < 220)" {
-		t.Errorf("FormulaDesc = %q", v.Enrichment.FormulaDesc)
-	}
-	if val, ok := v.Enrichment.Signals["Speed"]; !ok || val != aletheia.IntRational(245) {
-		t.Errorf("Signals = %v, want Speed=245", v.Enrichment.Signals)
-	}
-	if !strings.Contains(v.Enrichment.EnrichedReason, "Speed = 245") {
-		t.Errorf("EnrichedReason = %q, want to contain 'Speed = 245'", v.Enrichment.EnrichedReason)
-	}
-	if !strings.Contains(v.Enrichment.EnrichedReason, "always(Speed < 220)") {
-		t.Errorf("EnrichedReason = %q, want to contain formula", v.Enrichment.EnrichedReason)
-	}
+	return v
 }
 
-func TestSendFrame_MultiSignalEnrichment(t *testing.T) {
-	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`), // SetProperties
-		aletheia.Respond(`{"status":"success"}`), // StartStream
-		// Violation response (consumed first by processLocked)
-		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":2000000,"reason":"Atomic: predicate failed"}]}`),
-		// Extraction response (consumed by enrichment)
-		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":245},{"name":"RPM","value":3000}],"errors":[],"absent":[]}`),
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.And{
-			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}},
-			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: aletheia.IntRational(500)}},
-		}},
-	})
-	if err != nil {
-		t.Fatalf("SetProperties: %v", err)
-	}
-	err = c.StartStream(ctx)
-	if err != nil {
-		t.Fatalf("StartStream: %v", err)
-	}
-
-	sid, _ := aletheia.NewStandardID(0x123)
-	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data, nil, nil)
-	if err != nil {
-		t.Fatalf("SendFrame: %v", err)
-	}
-
-	b, ok := resp.(aletheia.PropertyBatch)
-
-	if !ok {
-		t.Fatalf("expected PropertyBatch, got %T", resp)
-
-	}
-
-	v := b.FirstViolation()
-
-	if v == nil {
-		t.Fatalf("expected violation in batch, got %+v", b)
-
-	}
-	if v.Enrichment == nil {
-		t.Fatal("expected non-nil Enrichment")
-	}
-	if len(v.Enrichment.Signals) != 2 {
-		t.Errorf("expected 2 signals, got %d: %v", len(v.Enrichment.Signals), v.Enrichment.Signals)
-	}
-	if !strings.Contains(v.Enrichment.EnrichedReason, "Speed = 245") {
-		t.Errorf("EnrichedReason = %q, want Speed=245", v.Enrichment.EnrichedReason)
-	}
-	if !strings.Contains(v.Enrichment.EnrichedReason, "RPM = 3000") {
-		t.Errorf("EnrichedReason = %q, want RPM=3000", v.Enrichment.EnrichedReason)
-	}
-}
-
-func TestSendFrame_ExtractionCaching(t *testing.T) {
-	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`), // SetProperties
-		aletheia.Respond(`{"status":"success"}`), // StartStream
-		// First violation, then extraction (cached)
-		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":1000000,"reason":"test"}]}`),
-		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":245}],"errors":[],"absent":[]}`),
-		// Second violation with same frame — no new extraction (cache hit)
-		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":2000000,"reason":"test"}]}`),
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = c.StartStream(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	sid, _ := aletheia.NewStandardID(0x123)
-	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
-
-	resp1, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000000}, sid, dlc8(), data, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b1, ok := resp1.(aletheia.PropertyBatch)
-	if !ok {
-		t.Fatalf("expected PropertyBatch, got %T", resp1)
-	}
-	v1 := b1.FirstViolation()
-	if v1 == nil || v1.Enrichment == nil {
-		t.Fatal("expected enriched violation 1")
-	}
-
-	resp2, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b2, ok := resp2.(aletheia.PropertyBatch)
-	if !ok {
-		t.Fatalf("expected PropertyBatch, got %T", resp2)
-	}
-	v2 := b2.FirstViolation()
-	if v2 == nil || v2.Enrichment == nil {
-		t.Fatal("expected enriched violation 2")
-	}
-
-	// Both should have the same value — only 1 extraction call was made.
-	if v2.Enrichment.Signals["Speed"] != aletheia.IntRational(245) {
-		t.Errorf("expected cached Speed=245, got %v", v2.Enrichment.Signals["Speed"])
-	}
-
-	// Mock had 5 responses: SetProperties, StartStream, Extraction, Violation1, Violation2.
-	// If extraction was called twice, mock would have run out.
-	if got := len(mock.Inputs()); got != 5 {
-		t.Errorf("expected 5 mock calls (1 extraction), got %d", got)
-	}
-}
-
-func TestSendFrame_CacheBounded(t *testing.T) {
-	// Build mock responses for 257 violations with unique frames, each needing extraction.
-	var responses []aletheia.MockResponse
-	responses = append(responses, aletheia.Respond(`{"status":"success"}`)) // SetProperties
-	responses = append(responses, aletheia.Respond(`{"status":"success"}`)) // StartStream
-
-	// First 256 frames: violation then extraction (cached)
-	for i := 0; i < 256; i++ {
-		responses = append(responses, aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":1000,"reason":"test"}]}`))
-		responses = append(responses, aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":100}],"errors":[],"absent":[]}`))
-	}
-	// 257th frame: violation, then extraction (extracted but not cached — cache full)
-	responses = append(responses, aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":1000,"reason":"test"}]}`))
-	responses = append(responses, aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":100}],"errors":[],"absent":[]}`))
-
-	mock := aletheia.NewMockBackend(responses...)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = c.StartStream(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for i := 0; i < 257; i++ {
-		sid, _ := aletheia.NewStandardID(uint16(i % 2048))
-		data := aletheia.FramePayload{byte(i), byte(i >> 8), 0, 0, 0, 0, 0, 0}
-		resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil)
-		if err != nil {
-			t.Fatalf("SendFrame %d: %v", i, err)
-		}
-		b, ok := resp.(aletheia.PropertyBatch)
-
-		if !ok {
-			t.Fatalf("expected PropertyBatch, got %T", resp)
-
-		}
-
-		v := b.FirstViolation()
-
-		if v == nil {
-			t.Fatalf("expected violation in batch, got %+v", b)
-
-		}
-		// All frames enriched (extraction happens regardless, just not cached after 256)
-		if v.Enrichment == nil {
-			t.Errorf("frame %d: expected enrichment", i)
-		}
-	}
-}
-
-func TestEndStream_Enriched(t *testing.T) {
-	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`), // SetProperties
-		aletheia.Respond(`{"status":"success"}`), // StartStream
-		aletheia.Respond(`{"status":"ack"}`),     // SendFrame
-		aletheia.Respond(`{
-			"status":"complete",
-			"results":[{"property_index":0,"status":"fails","timestamp":5000000,"reason":"Atomic: predicate failed"}]
-		}`), // EndStream
-		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":150}],"errors":[],"absent":[]}`), // EOS extraction
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = c.StartStream(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	sid, _ := aletheia.NewStandardID(0x123)
-	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	sr, err := c.EndStream(ctx)
-	if err != nil {
-		t.Fatalf("EndStream: %v", err)
-	}
-	if len(sr.Results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(sr.Results))
-	}
-	pr := sr.Results[0]
-	if pr.Verdict != aletheia.Fails {
-		t.Fatalf("expected Fails, got %v", pr.Verdict)
-	}
-	if pr.Enrichment == nil {
-		t.Fatal("expected non-nil Enrichment on failed verdict")
-	}
-	if pr.Enrichment.FormulaDesc != "always(Speed < 220)" {
-		t.Errorf("FormulaDesc = %q", pr.Enrichment.FormulaDesc)
-	}
-	// EOS enrichment now includes last-known signal values.
-	if pr.Enrichment.Signals == nil {
-		t.Error("expected non-nil Signals from EOS enrichment")
-	} else if pr.Enrichment.Signals["Speed"] != aletheia.IntRational(150) {
-		t.Errorf("expected Speed=150, got %v", pr.Enrichment.Signals["Speed"])
-	}
-	if !strings.Contains(pr.Enrichment.EnrichedReason, "Speed = 150") {
-		t.Errorf("EnrichedReason = %q, want Speed value", pr.Enrichment.EnrichedReason)
-	}
-}
-
-func TestStartStream_ClearsCache(t *testing.T) {
-	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`), // SetProperties
-		aletheia.Respond(`{"status":"success"}`), // StartStream (1st)
-		// Violation then extraction for first stream
-		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":1000,"reason":"test"}]}`),
-		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":100}],"errors":[],"absent":[]}`),
-		aletheia.Respond(`{"status":"complete","results":[{"property_index":0,"status":"fails","timestamp":1000,"reason":"test"}]}`),
-		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":100}],"errors":[],"absent":[]}`), // EOS extraction
-		aletheia.Respond(`{"status":"success"}`), // StartStream (2nd)
-		// Violation then new extraction for same frame (cache was cleared)
-		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":2000,"reason":"test"}]}`),
-		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":200}],"errors":[],"absent":[]}`),
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// First stream
-	err = c.StartStream(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sid, _ := aletheia.NewStandardID(0x123)
-	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b1, ok := resp.(aletheia.PropertyBatch)
-	if !ok {
-		t.Fatalf("stream 1: expected PropertyBatch, got %T", resp)
-	}
-	v1 := b1.FirstViolation()
-	if v1 == nil || v1.Enrichment == nil || v1.Enrichment.Signals["Speed"] != aletheia.IntRational(100) {
-		t.Fatalf("stream 1: expected Speed=100, got %+v", v1)
-	}
-	_, err = c.EndStream(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Second stream (cache cleared by StartStream)
-	err = c.StartStream(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000}, sid, dlc8(), data, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b2, ok := resp.(aletheia.PropertyBatch)
-	if !ok {
-		t.Fatalf("stream 2: expected PropertyBatch, got %T", resp)
-	}
-	v2 := b2.FirstViolation()
-	if v2 == nil || v2.Enrichment == nil || v2.Enrichment.Signals["Speed"] != aletheia.IntRational(200) {
-		t.Fatalf("stream 2: expected Speed=200, got %+v", v2)
-	}
-}
-
-func TestFormatFormula_MetricTimeBounds(t *testing.T) {
-	inner := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "S", Value: aletheia.IntRational(1)}}
-	tests := []struct {
-		us   int64
-		want string // substring expected in formatted output
-	}{
-		{1500000, "1500ms"},
-		{1000, "1ms"},
-		{1500, "1500μs"},
-		{1, "1μs"},
-	}
-	for _, tt := range tests {
-		f := aletheia.MetricAlways{Bound: aletheia.TimeBound{Microseconds: tt.us}, Inner: inner}
-		got := aletheia.FormatFormula(f)
-		if !strings.Contains(got, tt.want) {
-			t.Errorf("TimeBound{%d}: FormatFormula = %q, want substring %q", tt.us, got, tt.want)
-		}
-	}
-}
-
-func TestEndStream_EnrichmentExtractionFailure(t *testing.T) {
-	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`), // SetProperties
-		aletheia.Respond(`{"status":"success"}`), // StartStream
-		aletheia.Respond(`{"status":"ack"}`),     // SendFrame (stores frame in lastFrames)
-		aletheia.Respond(`{
-			"status":"complete",
-			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"test"}]
-		}`), // EndStream
-		aletheia.Respond(`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`), // EOS extraction fails
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	if err := c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.StartStream(ctx); err != nil {
-		t.Fatal(err)
-	}
-
-	sid, _ := aletheia.NewStandardID(0x123)
-	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	sr, err := c.EndStream(ctx)
-	if err != nil {
-		t.Fatalf("EndStream: %v", err)
-	}
-	if len(sr.Results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(sr.Results))
-	}
-	pr := sr.Results[0]
-	if pr.Verdict != aletheia.Fails {
-		t.Fatalf("expected Fails, got %v", pr.Verdict)
-	}
-	// Enrichment is still attempted even when extraction fails.
-	if pr.Enrichment == nil {
-		t.Fatal("expected non-nil Enrichment even with extraction failure")
-	}
-	// No signal values available — extraction failed.
-	if pr.Enrichment.Signals != nil {
-		t.Errorf("expected nil Signals, got %v", pr.Enrichment.Signals)
-	}
-	// Fallback reason format: "violated: <formula>"
-	if !strings.Contains(pr.Enrichment.EnrichedReason, "violated:") {
-		t.Errorf("expected fallback reason starting with 'violated:', got %q", pr.Enrichment.EnrichedReason)
-	}
-	if pr.Enrichment.FormulaDesc != "always(Speed < 220)" {
-		t.Errorf("expected FormulaDesc='always(Speed < 220)', got %q", pr.Enrichment.FormulaDesc)
-	}
-}
-
-func TestConcurrent_WithDiagnostics(t *testing.T) {
-	n := 10
-	// SetProperties + StartStream + n*(violation + extraction)
-	var responses []aletheia.MockResponse
-	responses = append(responses, aletheia.Respond(`{"status":"success"}`)) // SetProperties
-	responses = append(responses, aletheia.Respond(`{"status":"success"}`)) // StartStream
-	for i := 0; i < n; i++ {
-		responses = append(responses, aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":1000,"reason":"test"}]}`))
-		responses = append(responses, aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":100}],"errors":[],"absent":[]}`))
-	}
-	mock := aletheia.NewMockBackend(responses...)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	err = c.SetProperties(ctx, []aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = c.StartStream(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			sid, _ := aletheia.NewStandardID(uint16(0x100 + idx))
-			data := aletheia.FramePayload{byte(idx), 0, 0, 0, 0, 0, 0, 0}
-			_, _ = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(idx * 1000)}, sid, dlc8(), data, nil, nil)
-		}(i)
-	}
-	wg.Wait()
-}
-
-// Every binary operator prints in parentheses when it is itself an operand,
-// and weak next prints with its own name.
-func TestFormatFormula_EveryBinaryOperatorParenthesises(t *testing.T) {
-	a := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: aletheia.IntRational(1)}}
-	b := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "B", Value: aletheia.IntRational(2)}}
-	c := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "C", Value: aletheia.IntRational(3)}}
+// The printer renders every operator and predicate in the shared display
+// form, with thresholds through the kernel renderer and a binary operand in
+// parentheses.
+func TestFormatFormula(t *testing.T) {
+	a, b, c := lt("A", 1), lt("B", 2), lt("C", 3)
 	ms := aletheia.TimeBound{Microseconds: 5000}
+	rat := func(n, d int64) aletheia.Rational { return aletheia.Rational{Numerator: n, Denominator: d} }
+	atom := func(p aletheia.Predicate) aletheia.Formula { return aletheia.Atomic{Predicate: p} }
 	cases := map[string]struct {
 		f    aletheia.Formula
 		want string
 	}{
+		"always":                    {aletheia.Always{Inner: lt("Speed", 220)}, "always(Speed < 220)"},
+		"never":                     {aletheia.Never(aletheia.GreaterThan{Signal: "Speed", Value: aletheia.IntRational(100)}), "never Speed > 100"},
+		"eventually":                {aletheia.Eventually{Inner: atom(aletheia.Equals{Signal: "Mode", Value: aletheia.IntRational(1)})}, "eventually(Mode = 1)"},
+		"metric always":             {aletheia.MetricAlways{Bound: aletheia.TimeBound{Microseconds: 5000000}, Inner: lt("Speed", 220)}, "always within 5s (Speed < 220)"},
+		"metric eventually":         {aletheia.MetricEventually{Bound: aletheia.TimeBound{Microseconds: 2000000}, Inner: atom(aletheia.Equals{Signal: "Mode", Value: aletheia.IntRational(1)})}, "eventually within 2s (Mode = 1)"},
+		"next":                      {aletheia.Next{Inner: lt("Speed", 220)}, "next(Speed < 220)"},
+		"weak next":                 {aletheia.WeakNext{Inner: a}, "weak_next(A < 1)"},
+		"and":                       {aletheia.And{Left: lt("Speed", 220), Right: gt("RPM", 500)}, "Speed < 220 and RPM > 500"},
+		"always of and":             {aletheia.Always{Inner: aletheia.And{Left: lt("Speed", 220), Right: gt("RPM", 500)}}, "always(Speed < 220 and RPM > 500)"},
+		"until":                     {aletheia.Until{Left: gt("RPM", 500), Right: lt("Speed", 220)}, "RPM > 500 until Speed < 220"},
+		"release":                   {aletheia.Release{Left: gt("RPM", 500), Right: lt("Speed", 220)}, "RPM > 500 release Speed < 220"},
+		"or inside and":             {aletheia.And{Left: aletheia.Or{Left: a, Right: b}, Right: c}, "(A < 1 or B < 2) and C < 3"},
 		"and inside or":             {aletheia.Or{Left: aletheia.And{Left: a, Right: b}, Right: c}, "(A < 1 and B < 2) or C < 3"},
 		"until inside and":          {aletheia.And{Left: aletheia.Until{Left: a, Right: b}, Right: c}, "(A < 1 until B < 2) and C < 3"},
 		"release inside and":        {aletheia.And{Left: aletheia.Release{Left: a, Right: b}, Right: c}, "(A < 1 release B < 2) and C < 3"},
 		"metric until inside and":   {aletheia.And{Left: aletheia.MetricUntil{Bound: ms, Left: a, Right: b}, Right: c}, "(A < 1 until within 5ms B < 2) and C < 3"},
 		"metric release inside and": {aletheia.And{Left: aletheia.MetricRelease{Bound: ms, Left: a, Right: b}, Right: c}, "(A < 1 release within 5ms B < 2) and C < 3"},
-		"weak next":                 {aletheia.WeakNext{Inner: a}, "weak_next(A < 1)"},
+		"equals":                    {atom(aletheia.Equals{Signal: "S", Value: aletheia.IntRational(10)}), "S = 10"},
+		"less than":                 {atom(aletheia.LessThan{Signal: "S", Value: aletheia.IntRational(10)}), "S < 10"},
+		"greater than":              {atom(aletheia.GreaterThan{Signal: "S", Value: aletheia.IntRational(10)}), "S > 10"},
+		"less than or equal":        {atom(aletheia.LessThanOrEqual{Signal: "S", Value: aletheia.IntRational(10)}), "S <= 10"},
+		"greater than or equal":     {atom(aletheia.GreaterThanOrEqual{Signal: "S", Value: aletheia.IntRational(10)}), "S >= 10"},
+		"between":                   {atom(aletheia.Between{Signal: "S", Min: aletheia.IntRational(5), Max: aletheia.IntRational(15)}), "5 <= S <= 15"},
+		"changed by, positive":      {atom(aletheia.ChangedBy{Signal: "S", Delta: rat(5, 2)}), "ΔS >= 2.5"},
+		"changed by, negative":      {atom(aletheia.ChangedBy{Signal: "S", Delta: aletheia.IntRational(-3)}), "ΔS <= -3"},
+		"stable within":             {atom(aletheia.StableWithin{Signal: "S", Tolerance: rat(5, 2)}), "|ΔS| <= 2.5"},
+		"equals, fraction":          {atom(aletheia.Equals{Signal: "S", Value: rat(1, 3)}), "S = 1/3"},
+		"less than, decimal":        {atom(aletheia.LessThan{Signal: "V", Value: rat(23, 2)}), "V < 11.5"},
+		"greater than, negative":    {atom(aletheia.GreaterThan{Signal: "S", Value: rat(-1, 3)}), "S > -1/3"},
+		"between, fractions":        {atom(aletheia.Between{Signal: "S", Min: rat(1, 3), Max: rat(2, 3)}), "1/3 <= S <= 2/3"},
+		"changed by, fraction":      {atom(aletheia.ChangedBy{Signal: "S", Delta: rat(1, 3)}), "ΔS >= 1/3"},
+		"stable within, fraction":   {atom(aletheia.StableWithin{Signal: "S", Tolerance: rat(1, 7)}), "|ΔS| <= 1/7"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -815,6 +110,61 @@ func TestFormatFormula_EveryBinaryOperatorParenthesises(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// A time bound prints in the largest unit that divides it.
+func TestFormatFormula_MetricTimeBounds(t *testing.T) {
+	cases := map[int64]string{1500000: "1500ms", 1000: "1ms", 1500: "1500μs", 1: "1μs"}
+	for us, want := range cases {
+		got := aletheia.FormatFormula(aletheia.MetricAlways{Bound: aletheia.TimeBound{Microseconds: us}, Inner: lt("S", 1)})
+		if !strings.Contains(got, want) {
+			t.Errorf("TimeBound{%d}: got %q, want it to contain %q", us, got, want)
+		}
+	}
+}
+
+// Signals are collected once each, in order of first appearance.
+func TestCollectSignals(t *testing.T) {
+	cases := map[string]struct {
+		f    aletheia.Formula
+		want []aletheia.SignalName
+	}{
+		"two signals":  {aletheia.And{Left: lt("Speed", 220), Right: gt("RPM", 500)}, []aletheia.SignalName{"Speed", "RPM"}},
+		"one repeated": {aletheia.And{Left: lt("Speed", 220), Right: gt("Speed", 0)}, []aletheia.SignalName{"Speed"}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := aletheia.CollectSignals(tc.f)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("got %v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+// Every operator yields a diagnostic with a printed form and its signals.
+func TestBuildDiagnostic_EveryOperator(t *testing.T) {
+	s := aletheia.TimeBound{Microseconds: 1000000}
+	pa, pb := lt("A", 1), gt("B", 2)
+	formulas := []aletheia.Formula{
+		lt("S", 1), aletheia.Not{Inner: lt("S", 1)},
+		aletheia.And{Left: pa, Right: pb}, aletheia.Or{Left: pa, Right: pb},
+		aletheia.Always{Inner: lt("S", 1)}, aletheia.Eventually{Inner: lt("S", 1)}, aletheia.Next{Inner: lt("S", 1)},
+		aletheia.Until{Left: pa, Right: pb}, aletheia.Release{Left: pa, Right: pb},
+		aletheia.MetricAlways{Bound: s, Inner: lt("S", 1)}, aletheia.MetricEventually{Bound: s, Inner: lt("S", 1)},
+		aletheia.MetricUntil{Bound: s, Left: pa, Right: pb}, aletheia.MetricRelease{Bound: s, Left: pa, Right: pb},
+	}
+	for i, f := range formulas {
+		diag := aletheia.BuildDiagnostic(f)
+		if diag.FormulaDesc == "" || len(diag.Signals) == 0 {
+			t.Errorf("formula %d: diagnostic %+v is incomplete", i, diag)
+		}
 	}
 }
 
@@ -839,5 +189,165 @@ func TestFormatEnrichedReason(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// A violating frame comes back enriched with the property's printed form,
+// the values extracted from the frame for the signals it names, and a
+// reason listing them.
+func TestSendFrame_EnrichedViolation(t *testing.T) {
+	c, _ := startedClientWith(t, []aletheia.Formula{aletheia.Always{Inner: aletheia.And{Left: lt("Speed", 220), Right: gt("RPM", 500)}}},
+		violationAt(2000000, "Atomic: predicate failed"), extractionOf("Speed", 245, "RPM", 3000))
+	v := firstViolation(t, sendFrame(t, c, 2000000, 0xF5, 0x09, 0, 0, 0, 0, 0, 0))
+	if v.Enrichment.FormulaDesc != "always(Speed < 220 and RPM > 500)" {
+		t.Errorf("FormulaDesc = %q", v.Enrichment.FormulaDesc)
+	}
+	if len(v.Enrichment.Signals) != 2 || v.Enrichment.Signals["Speed"] != aletheia.IntRational(245) || v.Enrichment.Signals["RPM"] != aletheia.IntRational(3000) {
+		t.Errorf("Signals = %v, want Speed=245 and RPM=3000", v.Enrichment.Signals)
+	}
+	for _, want := range []string{"Speed = 245", "RPM = 3000", "always(Speed < 220 and RPM > 500)", "[core: Atomic: predicate failed]"} {
+		if !strings.Contains(v.Enrichment.EnrichedReason, want) {
+			t.Errorf("EnrichedReason = %q, want it to contain %q", v.Enrichment.EnrichedReason, want)
+		}
+	}
+	if v.Enrichment.CoreReason != "Atomic: predicate failed" {
+		t.Errorf("CoreReason = %q", v.Enrichment.CoreReason)
+	}
+}
+
+// sendFrame sends one frame on ID 0x123 with the payload bytes.
+func sendFrame(t *testing.T, c *aletheia.Client, ts int64, data ...byte) aletheia.FrameResponse {
+	t.Helper()
+	sid, _ := aletheia.NewStandardID(0x123)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: ts}, sid, dlc8(), aletheia.FramePayload(data), nil, nil)
+	if err != nil {
+		t.Fatalf("SendFrame: %v", err)
+	}
+	return resp
+}
+
+// The extraction for a frame is done once and served from the cache to a
+// second violation on the same frame, so the mock sees one extraction.
+func TestSendFrame_ExtractionCaching(t *testing.T) {
+	c, mock := startedClientWith(t, []aletheia.Formula{speedBelow220},
+		violationAt(1000000, "test"), extractionOf("Speed", 245), violationAt(2000000, "test"))
+	firstViolation(t, sendFrame(t, c, 1000000, 0xF5, 0x09, 0, 0, 0, 0, 0, 0))
+	v2 := firstViolation(t, sendFrame(t, c, 2000000, 0xF5, 0x09, 0, 0, 0, 0, 0, 0))
+	if v2.Enrichment.Signals["Speed"] != aletheia.IntRational(245) {
+		t.Errorf("expected the cached Speed=245, got %v", v2.Enrichment.Signals["Speed"])
+	}
+	if got := len(mock.Inputs()); got != 5 {
+		t.Errorf("expected 5 backend calls (one extraction), got %d", got)
+	}
+}
+
+// Past the cache's capacity every violation is still enriched; the
+// extraction is done and not stored.
+func TestSendFrame_CacheBounded(t *testing.T) {
+	const frames = 257
+	responses := make([]aletheia.MockResponse, 0, 2*frames)
+	for range frames {
+		responses = append(responses, violationAt(1000, "test"), extractionOf("Speed", 100))
+	}
+	c, _ := startedClientWith(t, []aletheia.Formula{speedBelow220}, responses...)
+	for i := range frames {
+		sid, _ := aletheia.NewStandardID(uint16(i % 2048))
+		resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), aletheia.FramePayload{byte(i), byte(i >> 8), 0, 0, 0, 0, 0, 0}, nil, nil)
+		if err != nil {
+			t.Fatalf("SendFrame %d: %v", i, err)
+		}
+		firstViolation(t, resp)
+	}
+}
+
+// End of stream enriches a failed verdict from the last frame seen on each
+// CAN ID; when that extraction fails the enrichment still carries the
+// formula and falls back to it for the reason.
+func TestEndStream_Enriched(t *testing.T) {
+	cases := map[string]struct {
+		extraction aletheia.MockResponse
+		signals    bool
+		reason     string
+	}{
+		"extraction succeeds": {extractionOf("Speed", 150), true, "Speed = 150"},
+		"extraction fails":    {aletheia.Respond(`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`), false, "violated:"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c, _ := startedClientWith(t, []aletheia.Formula{speedBelow220},
+				aletheia.Respond(`{"status":"ack"}`), endStreamFailing(5000000, "Atomic: predicate failed"), tc.extraction)
+			sendFrame(t, c, 1000, 0, 0, 0, 0, 0, 0, 0, 0)
+			sr, err := c.EndStream(ctx)
+			if err != nil {
+				t.Fatalf("EndStream: %v", err)
+			}
+			if len(sr.Results) != 1 || sr.Results[0].Verdict != aletheia.Fails || sr.Results[0].Enrichment == nil {
+				t.Fatalf("expected one enriched failing verdict, got %+v", sr.Results)
+			}
+			e := sr.Results[0].Enrichment
+			if e.FormulaDesc != "always(Speed < 220)" {
+				t.Errorf("FormulaDesc = %q", e.FormulaDesc)
+			}
+			if tc.signals && e.Signals["Speed"] != aletheia.IntRational(150) {
+				t.Errorf("Signals = %v, want Speed=150", e.Signals)
+			}
+			if !tc.signals && e.Signals != nil {
+				t.Errorf("Signals = %v, want nil after a failed extraction", e.Signals)
+			}
+			if !strings.Contains(e.EnrichedReason, tc.reason) {
+				t.Errorf("EnrichedReason = %q, want it to contain %q", e.EnrichedReason, tc.reason)
+			}
+		})
+	}
+}
+
+// StartStream clears the extraction cache: the same frame in a second stream
+// is extracted again.
+func TestStartStream_ClearsCache(t *testing.T) {
+	c, _ := startedClientWith(t, []aletheia.Formula{speedBelow220},
+		violationAt(1000, "test"), extractionOf("Speed", 100),
+		endStreamFailing(1000, "test"), extractionOf("Speed", 100),
+		aletheia.Respond(`{"status":"success"}`),
+		violationAt(2000, "test"), extractionOf("Speed", 200))
+	if v := firstViolation(t, sendFrame(t, c, 1000, 0xF5, 0x09, 0, 0, 0, 0, 0, 0)); v.Enrichment.Signals["Speed"] != aletheia.IntRational(100) {
+		t.Fatalf("stream 1: expected Speed=100, got %+v", v.Enrichment.Signals)
+	}
+	if _, err := c.EndStream(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.StartStream(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if v := firstViolation(t, sendFrame(t, c, 2000, 0xF5, 0x09, 0, 0, 0, 0, 0, 0)); v.Enrichment.Signals["Speed"] != aletheia.IntRational(200) {
+		t.Fatalf("stream 2: expected Speed=200, got %+v", v.Enrichment.Signals)
+	}
+}
+
+// Concurrent sends on one client with diagnostics installed all succeed and
+// never race.
+func TestConcurrent_WithDiagnostics(t *testing.T) {
+	const n = 10
+	responses := make([]aletheia.MockResponse, 0, 2*n)
+	for range n {
+		responses = append(responses, violationAt(1000, "test"), extractionOf("Speed", 100))
+	}
+	c, _ := startedClientWith(t, []aletheia.Formula{speedBelow220}, responses...)
+	errs := make(chan error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sid, _ := aletheia.NewStandardID(uint16(0x100 + i))
+			_, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(i * 1000)}, sid, dlc8(), aletheia.FramePayload{byte(i), 0, 0, 0, 0, 0, 0, 0}, nil, nil)
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("a concurrent send failed: %v", err)
+		}
 	}
 }
