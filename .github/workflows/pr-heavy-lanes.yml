@@ -499,7 +499,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/mull-bin
-          key: mull23-0.34.1-llvm23-noble-v1
+          key: mull23-0.34.1-llvm23-noble-v2
       - name: Build Mull-23 from source (cache miss)
         if: steps.mull23.outputs.cache-hit != 'true'
         run: tools/build_mull.sh "${HOME}/mull-bin"

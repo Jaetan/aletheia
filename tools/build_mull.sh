@@ -7,7 +7,9 @@
 # into ~/.local/bin, or into the directory given as the first argument.
 #
 # Mull 0.34.1 stops at LLVM 22, so the build applies the patch below: LLVM 23
-# joins Mull's supported-version list and its ubuntu:24.04 and debian:13 maps;
+# joins Mull's supported-version list, and its ubuntu:24.04 and debian:13 maps
+# name that version alone, because Mull reads every LLVM directory its map
+# names and a leftover /usr/lib/llvm-<n> holding no lib/ aborts the build;
 # libirm gets the one include and the one call LLVM 23 changed (Constant::
 # isZeroValue is gone, and a ConstantFP's own isZero together with Constant::
 # isNullValue says the same); and a Debian release without a VERSION_ID in
@@ -43,26 +45,36 @@ git clone --quiet --depth 1 --branch "$mull_tag" --recursive \
     https://github.com/mull-project/mull "$src"
 git -C "$src" apply - <<'PATCH'
 diff --git a/MODULE.bazel b/MODULE.bazel
-index 2d6bf93..0fd0640 100644
+index 2d6bf93..02e30f1 100644
 --- a/MODULE.bazel
 +++ b/MODULE.bazel
-@@ -144,6 +144,7 @@ mull_supported_llvm_versions.configure(
+@@ -144,13 +144,7 @@ mull_supported_llvm_versions.configure(
              "15",
          ],
          "ubuntu:24.04": [
+-            "14",
+-            "15",
+-            "16",
+-            "17",
+-            "18",
+-            "19",
+-            "20",
 +            "23",
-             "14",
-             "15",
-             "16",
-@@ -161,6 +162,7 @@ mull_supported_llvm_versions.configure(
+         ],
+         "ubuntu:26.04": [
+             "17",
+@@ -161,9 +155,7 @@ mull_supported_llvm_versions.configure(
              "22",
          ],
          "debian:13": [
+-            "17",
+-            "18",
+-            "19",
 +            "23",
-             "17",
-             "18",
-             "19",
-@@ -185,6 +187,7 @@ SUPPORTED_LLVM_VERSIONS = [
+         ],
+         "rhel:9.6": ["21"],
+         "rhel:10.0": ["21"],
+@@ -185,6 +177,7 @@ SUPPORTED_LLVM_VERSIONS = [
      "20",
      "21",
      "22",
@@ -103,9 +115,10 @@ PATCH
     "//rust/mull-tools:mull-runner-$llvm" \
     "//rust/mull-tools:mull-reporter-$llvm" \
     "//:mull-ir-frontend-$llvm")
+# Bazel writes its outputs read-only; install replaces an earlier copy that cp
+# would refuse to overwrite, and sets the mode the runner and reporter need.
 for built in "rust/mull-tools/mull-runner-$llvm" "rust/mull-tools/mull-reporter-$llvm" \
     "mull-ir-frontend-$llvm"; do
-    cp -L "$src/bazel-bin/$built" "$dest/"
+    install -m 755 "$src/bazel-bin/$built" "$dest/"
 done
-chmod +x "$dest/mull-runner-$llvm" "$dest/mull-reporter-$llvm"
 echo "build_mull: mull-runner-$llvm, mull-reporter-$llvm and mull-ir-frontend-$llvm are in $dest"
