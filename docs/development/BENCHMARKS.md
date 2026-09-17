@@ -1,6 +1,6 @@
 # Aletheia Performance Benchmarks
 
-Benchmarks across the Python, C++, Go and Rust bindings. This document describes what the benchmarks measure, how to run them, and the canonical results.
+Benchmarks across the Python, C++, Go and Rust bindings.
 
 ## Canonical Results
 
@@ -23,11 +23,11 @@ Per-frame C++ latency on CAN 2.0B streaming has a median of 3.1 µs and a mean o
 
 ## Cross-Language Runner
 
-The primary entry point is [`benchmarks/run_all.sh`](../../benchmarks/run_all.sh). It **builds the C++, Go and Rust benchmark binaries itself**, incrementally, then produces one JSON file per binding that ran, in `benchmarks/results/`, followed by a side-by-side comparison printed by `benchmarks/compare.py`.
+[`benchmarks/run_all.sh`](../../benchmarks/run_all.sh) **builds the C++, Go and Rust benchmark binaries itself**, incrementally, then produces one JSON file per binding that ran, in `benchmarks/results/`, followed by a side-by-side comparison from `benchmarks/compare.py`.
 
 A benchmark binary is never taken as found on disk: one that predates a kernel wire change does not measure an older system, it fails to measure the current one, so its numbers are void rather than merely old. What the runner needs from you is `libaletheia-ffi.so`, the Python package, and a *configured* `cpp/build` tree.
 
-The runner also clears the selected mode's results before running, so a lane that skips or fails contributes nothing rather than its previous numbers. It refuses a zero or non-numeric `--frames` or `--runs` before touching anything, since a zero count makes every lane publish an all-zero report. A lane is skipped when what it needs is absent, which for Go and Rust is the toolchain and for C++ is a configured `cpp/build`; a lane whose build breaks with everything present is a failure. `ALETHEIA_BENCH_RESULTS_DIR` redirects the results directory, which is how the probes exercise the runner without touching the last measurements.
+The runner also clears the selected mode's results before running, so a lane that skips or fails contributes nothing rather than its previous numbers. It refuses a zero or non-numeric `--frames` or `--runs`, a negative `--warmup` and a mode it does not have, all before touching anything: a zero count makes every lane publish an all-zero report, and an unknown mode would reach a glob that deletes the committed baselines. A lane is skipped when what it needs is absent, which for Go and Rust is the toolchain and for C++ is a configured `cpp/build`; a lane whose build breaks with everything present is a failure. `ALETHEIA_BENCH_RESULTS_DIR` redirects the results directory, which is how the probes exercise the runner without touching the last measurements.
 
 ```bash
 # Prerequisites (one-time)
@@ -41,7 +41,7 @@ cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang
 
 # Other lanes / scales
 ./benchmarks/run_all.sh --frames 50000 --runs 3
-./benchmarks/run_all.sh --bench latency
+./benchmarks/run_all.sh --bench latency --warmup 500
 ./benchmarks/run_all.sh --bench scaling
 ```
 
@@ -74,7 +74,7 @@ Run as `python3 -m benchmarks.<name>` from `python/`.
 ./cpp/build/benchmark scaling    --runs 5 --quick --json
 ```
 
-Latency counts operations and scaling picks its own trace sizes, so a frame count reaches throughput alone: all three binaries take `--frames` on either without reading it, and the run measures the default and reports it. The C++ binary also aborts unless compiled with `NDEBUG`, and its reports carry `system.build_type`.
+Latency counts operations and scaling picks its own trace sizes, so `--frames` reaches throughput alone: the binaries accept it on the other two modes, ignore it, and report the default they ran. The C++ binary also aborts unless compiled with `NDEBUG`, and its reports carry `system.build_type`.
 
 ### Shared micro-benchmarks, in `benchmarks/`
 
@@ -83,7 +83,6 @@ Narrow-scope tools, outside the cross-language run. The long-run stability harne
 - `response_overhead.{py,cpp,go}` with `response_overhead_ffi.c`, the JSON response boundary isolated from Agda work.
 - `vec_construction.c`, constructing a `std::vector<std::byte>` on the C++ hot path.
 - `profile_extraction.py`, a per-frame signal-extraction profile in Python.
-- `compare.py`, which `run_all.sh` invokes to diff the per-binding outputs.
 
 ---
 
