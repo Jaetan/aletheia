@@ -5,12 +5,10 @@
 
 package aletheia
 
-// FFI backend — loads libaletheia-ffi.so via cgo + dlopen.
-//
-// This file uses cgo to call dlopen/dlsym from <dlfcn.h>. The GHC RTS
-// is initialized exactly once per process (guarded by hsInitMu / hsInitDone,
-// shared with renderer.go) and never finalized — hs_exit() is not supported
-// for reinitialization.
+// The FFI backend: libaletheia-ffi.so, opened with dlopen through cgo. The
+// GHC runtime starts once per process, under hsInitMu and hsInitDone, which
+// this file shares with renderer.go, and is never finalised, since hs_exit
+// does not allow a second start.
 
 // #cgo LDFLAGS: -ldl
 //
@@ -20,8 +18,8 @@ package aletheia
 // #include <stdlib.h>
 // #include <string.h>
 //
-// // Typed trampolines so cgo can call function pointers loaded via dlsym.
-// // cgo cannot call through C function pointer variables directly.
+// // cgo cannot call through a C function pointer, so each entry point gets a
+// // typed trampoline.
 //
 // static void* call_init(void *fn) {
 //     return ((void* (*)(void))fn)();
@@ -100,32 +98,23 @@ package aletheia
 //     ((void (*)(uint8_t*))fn)(ptr);
 // }
 //
-// // hs_init argv marshalling.  The Go side (rts.go rtsInitArgv) assembles the
-// // flag list — {aletheia, +RTS, -M<cap>, -N<k> iff k>1, override flags, -RTS}
-// // — and these helpers move it into C-owned storage that outlives the call.
-// //
-// // Why C-owned (calloc + strdup via CString), never Go memory:
-// //   hs_init_with_rtsopts MAY retain the argv array and its strings for the
-// //   whole process lifetime (the runtime parses +RTS flags lazily and keeps a
-// //   live reference to, e.g., the stored program name).  cgo forbids C from
-// //   retaining a Go pointer past the call, so both the array and every string
-// //   must be C allocations.
-// //
-// // Why we never free():
-// //   The retention window is the entire process lifetime — GHC has no
-// //   hs_release_argv hook — and the leak is bounded: one small array + a
-// //   handful of short strings, allocated once at first RTS init.  Python's
-// //   `aletheia/client/_ffi.py`, C++'s `cpp/src/ffi_backend.cpp`, and Rust's
-// //   `rust/src/backend.rs` all follow the same one-shot retain-forever pattern.
+// // The runtime's argument vector, assembled by rtsInitArgv in rts.go, moves
+// // into storage C owns: hs_init_with_rtsopts may keep the array and its
+// // strings for the life of the process, and cgo forbids C to keep a Go
+// // pointer past the call. Nothing frees them, because the runtime offers no
+// // hook to release them and the leak is one small array and a few short
+// // strings, allocated once. The Python, C++ and Rust bindings retain theirs
+// // the same way (aletheia/client/_ffi.py, cpp/src/ffi_backend.cpp,
+// // rust/src/backend.rs).
 // static char** g_alloc_argv(int n) {
 //     return (char**)calloc((size_t)n, sizeof(char*));
 // }
 // static void g_set_argv(char **argv, int i, char *s) {
-//     argv[i] = s;  // s is a CString the Go caller intentionally leaks
+//     argv[i] = s;  // s is a CString the Go caller means to leak
 // }
 // static void call_hs_init_argv(void *fn, int argc, char **argv) {
-//     // hs_init_with_rtsopts is void(int*, char***); it may rewrite the local
-//     // argc/argv copies (stripping the +RTS…-RTS span), which we discard.
+//     // hs_init_with_rtsopts takes int* and char***; it may rewrite the local
+//     // copies, stripping the span it consumed, and those copies are discarded.
 //     ((void (*)(int*, char***))fn)(&argc, &argv);
 // }
 import "C"
@@ -149,45 +138,34 @@ var (
 	hsInitDone  bool
 	hsInitCores int
 
-	// stablePtrCount tracks the live count of Haskell StablePtrs handed out
-	// via aletheia_init across the process.  Incremented in [FFIBackend.Init]
-	// and decremented in [FFIBackend.Close].  Exposed via [StablePtrCount]
-	// for AGENTS.md cat 27 long-run leak detection — a non-zero value at the
-	// end of a stability run indicates an unmatched Init/Close pair.
+	// stablePtrCount is how many session handles the process has taken from
+	// the kernel and not yet given back: [FFIBackend.Init] adds one and
+	// [FFIBackend.Close] takes one away.
 	stablePtrCount atomic.Int64
 )
 
-// hsInitialized reports whether the GHC RTS has been initialized (by an
-// FFIBackend constructor). The rational renderer checks this before calling
-// the kernel: FFI calls require the RTS to be up, so the renderer is vocal
-// (returns an error) rather than self-initialising when it is not. Reads the
-// shared hsInitDone under hsInitMu (a plain bool, not atomic).
+// hsInitialized reports whether a backend has started the GHC runtime. The
+// rational renderer asks before calling the kernel, so that it can answer an
+// error rather than start the runtime itself.
 func hsInitialized() bool {
 	hsInitMu.Lock()
 	defer hsInitMu.Unlock()
 	return hsInitDone
 }
 
-// StablePtrCount returns the current number of live Haskell StablePtrs
-// allocated via [FFIBackend.Init] and not yet released by
-// [FFIBackend.Close].  Used by the long-run stability harness
-// (`go/benchmarks/stability/main.go`) to detect leaks; production code does
-// not need to call this.  Counter is shared across all FFIBackend instances
-// in the process.
+// StablePtrCount is how many sessions the process holds open across every
+// backend: the handles [FFIBackend.Init] took and [FFIBackend.Close] has not
+// released. The long-run stability benchmark reads it to see a leak; nothing
+// in production needs it.
 func StablePtrCount() int64 {
 	return stablePtrCount.Load()
 }
 
-// FFIBackend implements [Backend] by loading libaletheia-ffi.so via dlopen.
-//
-// Requirements:
-//   - Linux (uses <dlfcn.h> for dlopen/dlsym)
-//   - CGO_ENABLED=1 (links -ldl for dynamic loading)
-//   - libaletheia-ffi.so built from the Agda core
-//
-// The GHC runtime system is initialized once per process via
-// hs_init_with_rtsopts (rts.go) and never finalized. All FFI calls are pinned to OS threads via
-// [runtime.LockOSThread] because the GHC RTS has per-capability state.
+// FFIBackend is the [Backend] that calls libaletheia-ffi.so, opened with
+// dlopen. It needs Linux, for dlfcn, cgo, for the loader, and the library
+// built from the kernel. The GHC runtime starts once per process (rts.go) and
+// is never finalised, and every call into it runs on a pinned OS thread,
+// because the runtime keeps state per capability.
 type FFIBackend struct {
 	handle              unsafe.Pointer // dlopen handle
 	initFn              unsafe.Pointer
@@ -209,10 +187,8 @@ type FFIBackend struct {
 
 func (*FFIBackend) backend() {}
 
-// loadSym looks up a symbol inside an already-dlopened library handle,
-// returning a structured error (with dlerror text) if the symbol is
-// missing. Callers cast the resulting void* to the expected C function
-// pointer type before invoking it.
+// loadSym resolves one symbol of an opened library, with the loader's own
+// message on failure. The caller pins the thread, since dlerror is per thread.
 func loadSym(handle unsafe.Pointer, name string) (unsafe.Pointer, error) {
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
@@ -226,42 +202,35 @@ func loadSym(handle unsafe.Pointer, name string) (unsafe.Pointer, error) {
 	return sym, nil
 }
 
-// NewFFIBackendFromEnv opens the library named by the ALETHEIA_LIB environment
-// variable, mirroring the env-based resolution of the Python and Rust bindings.
-// It is the zero-config entry point for a bundled install, whose install.sh
-// exports ALETHEIA_LIB to the bundled libaletheia-ffi.so. Returns a validation
-// error if ALETHEIA_LIB is unset or empty; for an explicit path, use
-// NewFFIBackend.
+// NewFFIBackendFromEnv opens the library named by ALETHEIA_LIB, which is what
+// a bundled install exports, as the Python and Rust bindings also do. An
+// unset or empty variable is a validation error; to name the path, use
+// [NewFFIBackend].
 func NewFFIBackendFromEnv(opts ...FFIBackendOption) (*FFIBackend, error) {
 	libPath := os.Getenv("ALETHEIA_LIB")
 	if libPath == "" {
 		return nil, validationError(
-			"ALETHEIA_LIB is not set — set it to the path of libaletheia-ffi.so, or use NewFFIBackend(path)")
+			"ALETHEIA_LIB is not set: set it to the path of libaletheia-ffi.so, or use NewFFIBackend(path)")
 	}
 	return NewFFIBackend(libPath, opts...)
 }
 
-// NewFFIBackend opens libaletheia-ffi.so at the given path and initializes
-// the GHC RTS. The library handle is never closed — the GHC RTS owns threads
-// that reference it.
+// NewFFIBackend opens libaletheia-ffi.so at the path and starts the GHC
+// runtime if no backend has. The handle is never closed on success, since the
+// runtime owns threads that reference the library.
 func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error) {
-	// Pin goroutine to OS thread — dlerror() is thread-local, and goroutine
-	// migration between dlsym and dlerror in loadSym could return stale data.
+	// dlerror is per thread, so the lookups below must not migrate.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	libPath = filepath.Clean(libPath)
-	// Reject NUL bytes before C.CString silently truncates.
-	// filepath.Clean does not validate NUL; a NUL-bearing
-	// libPath would translate to a different on-disk path inside cgo.
+	// Clean does not reject a NUL, and C.CString would truncate at one,
+	// opening a different path than the caller named.
 	if strings.ContainsRune(libPath, 0) {
 		return nil, validationError("libPath contains NUL byte")
 	}
-	// Register the user's libPath so the lazy-loaded
-	// Rational renderer (renderer.go) prefers the same .so instead of
-	// falling back to its relative-path heuristic.  Production users
-	// who pass an explicit libPath to NewFFIBackend
-	// now have their choice honored by the renderer.
+	// The renderer loads the library on its own; registering the path here
+	// keeps it on the same one rather than its relative search.
 	RegisterDefaultLibPath(libPath)
 	cPath := C.CString(libPath)
 	defer C.free(unsafe.Pointer(cPath))
@@ -270,8 +239,6 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	if handle == nil {
 		return nil, ffiError("dlopen failed: " + C.GoString(C.dlerror()))
 	}
-	// Close handle on error; the library is intentionally kept open on success
-	// because the GHC RTS owns threads that reference it.
 	closeOnErr := true
 	defer func() {
 		if closeOnErr {
@@ -279,29 +246,9 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		}
 	}()
 
-	// Required symbols from libaletheia-ffi.so (keep in sync with the
-	// loadSym calls below — a drifted comment is a bug).
-	// `aletheia_format_rational` is not loaded here: the cross-binding
-	// Rational pretty-printer is reached via the lazy-load in
-	// `renderer.go`, independent of FFIBackend, so tests that never
-	// instantiate a backend still route through the same Agda kernel
-	// function.
-	//   hs_init_with_rtsopts          — GHC RTS initialization (called once per process; see rts.go)
-	//   aletheia_init                 — create a new session (returns StablePtr)
-	//   aletheia_process              — send JSON command, receive JSON response
-	//   aletheia_send_frame           — binary CAN frame (streaming LTL hot path)
-	//   aletheia_send_error           — CAN error frame event
-	//   aletheia_send_remote          — CAN remote frame event
-	//   aletheia_start_stream         — begin streaming (no JSON input)
-	//   aletheia_end_stream           — finalize streaming (no JSON input)
-	//   aletheia_format_dbc           — export loaded DBC (no JSON input)
-	//   aletheia_extract_signals      — signal extraction, JSON response
-	//   aletheia_build_frame_bin      — frame building, binary response (hot path)
-	//   aletheia_update_frame_bin     — frame update, binary response (hot path)
-	//   aletheia_extract_signals_bin  — signal extraction, binary response (hot path)
-	//   aletheia_free_buf             — free Haskell-allocated binary buffers
-	//   aletheia_free_str             — free Haskell-allocated response strings
-	//   aletheia_close                — finalize and free session state
+	// aletheia_format_rational is deliberately not among these: the renderer
+	// loads it lazily in renderer.go, so a test that never builds a backend
+	// still renders through the kernel.
 	hsInit, err := loadSym(handle, rtsInitSymbol)
 	if err != nil {
 		return nil, err
@@ -367,27 +314,23 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		return nil, err
 	}
 
-	// Apply options.
 	cfg := ffiConfig{rtsCores: 1}
 	for _, o := range opts {
 		o(&cfg)
 	}
-
-	// Initialize GHC RTS exactly once per process.
 	if cfg.rtsCores < 1 {
 		return nil, validationError(fmt.Sprintf("rtsCores must be >= 1, got %d", cfg.rtsCores))
 	}
 	if cfg.rtsCores > math.MaxInt32 {
 		return nil, validationError(fmt.Sprintf("rtsCores %d exceeds C int range (max %d)", cfg.rtsCores, math.MaxInt32))
 	}
+
 	hsInitMu.Lock()
 	defer hsInitMu.Unlock()
 	if !hsInitDone {
-		// Always build the argv WITH the heap cap present (rts.go rtsInitArgv),
-		// so the host is contained regardless of the requested core count —
-		// unlike the old path, which passed no argv (and thus no cap) for the
-		// single-core default.  The C array + strings are intentionally leaked
-		// (GHC retains argv; see the g_alloc_argv rationale above).
+		// The argument vector always carries the heap cap, whatever the core
+		// count, so the host is contained either way. Its array and strings
+		// are leaked on purpose, as the preamble explains.
 		argv := rtsInitArgv(cfg.rtsCores)
 		cargv := C.g_alloc_argv(C.int(len(argv)))
 		for i, s := range argv {
@@ -423,10 +366,69 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	}, nil
 }
 
-// Init creates a new Aletheia session. The returned pointer is an opaque
-// StablePtr managed by the Haskell runtime.
+// extFlag is the byte the wire takes for an extended identifier.
+func extFlag(id CANID) C.uint8_t {
+	if id.IsExtended() {
+		return 1
+	}
+	return 0
+}
+
+// framePayloadPtr bounds a payload at the CAN-FD maximum and returns the
+// pointer the call takes, nil for an empty payload. The caller keeps the
+// slice alive across the call.
+func framePayloadPtr(data []byte) (*C.uint8_t, error) {
+	if len(data) > MaxFrameByteCount {
+		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), MaxFrameByteCount))
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+	return (*C.uint8_t)(unsafe.Pointer(&data[0])), nil
+}
+
+// signalArrayPtrs checks that the three parallel arrays hold the signals
+// claimed and returns the pointers the call takes, all nil for none. The
+// caller keeps the slices alive across the call.
+func signalArrayPtrs(numSignals uint32, indices []uint32, nums, dens []int64) (*C.uint32_t, *C.int64_t, *C.int64_t, error) {
+	if numSignals == 0 {
+		return nil, nil, nil, nil
+	}
+	n := int(numSignals)
+	if len(indices) < n || len(nums) < n || len(dens) < n {
+		return nil, nil, nil, validationError(fmt.Sprintf(
+			"parallel arrays too short for numSignals=%d: indices=%d nums=%d dens=%d", n, len(indices), len(nums), len(dens)))
+	}
+	return (*C.uint32_t)(unsafe.Pointer(&indices[0])),
+		(*C.int64_t)(unsafe.Pointer(&nums[0])),
+		(*C.int64_t)(unsafe.Pointer(&dens[0])),
+		nil
+}
+
+// stringResult copies a response the kernel allocated and frees it. A null
+// answer is the kernel or the ABI malfunctioning, never an ordinary refusal,
+// which arrives as an error envelope in the string.
+func (b *FFIBackend) stringResult(symbol string, result *C.char) (string, error) {
+	if result == nil {
+		return "", ffiError(symbol + " returned null")
+	}
+	defer C.call_free_str(b.freeStrFn, result)
+	return C.GoString(result), nil
+}
+
+// binaryStatusError is the error a non-zero status carries, freeing the
+// message the kernel allocated for it.
+func (b *FFIBackend) binaryStatusError(symbol string, status C.int8_t, outErr *C.char) error {
+	if outErr != nil {
+		msg := C.GoString(outErr)
+		C.call_free_str(b.freeStrFn, outErr)
+		return protocolError(msg)
+	}
+	return protocolError(fmt.Sprintf("%s returned status %d with null error message", symbol, status))
+}
+
+// Init opens a session and returns its handle, which the kernel owns.
 func (b *FFIBackend) Init() (unsafe.Pointer, error) {
-	// Pin goroutine to OS thread — GHC RTS has per-capability state.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -438,14 +440,11 @@ func (b *FFIBackend) Init() (unsafe.Pointer, error) {
 	return state, nil
 }
 
-// Process sends a JSON command and returns the JSON response.
-//
-// Rejects oversize JSON payloads (`> MaxJSONBytes`) with a typed
-// *InputBoundExceededError before marshaling across cgo, per AGENTS.md
-// universal rule "Adversarial-input bounds at parser surfaces".  The
-// Agda kernel enforces the same bound; this is the Go binding's
-// short-circuit so we do not strdup a 100 MiB payload only to be
-// rejected on the other side.
+// Process sends one JSON command and returns the JSON response. A payload
+// past MaxJSONBytes is refused here, before it is copied across the boundary;
+// the kernel bounds it too. A NUL byte is refused because the kernel's parser
+// reads bytes while a C string stops at the NUL, which would truncate the
+// command without either side noticing.
 func (b *FFIBackend) Process(state unsafe.Pointer, input string) (string, error) {
 	if len(input) > MaxJSONBytes {
 		return "", newInputBoundExceededError(
@@ -455,11 +454,6 @@ func (b *FFIBackend) Process(state unsafe.Pointer, input string) (string, error)
 			CodeInputBoundExceeded,
 		)
 	}
-	// Reject embedded NUL bytes before C.CString truncates.
-	// The Agda parser is byte-oriented (not C-string-
-	// oriented); a NUL-bearing input would silently truncate at the FFI
-	// boundary.  The bound check above is bytes-of-Go-string, so the
-	// post-truncation length disagreement is otherwise undetectable.
 	if strings.IndexByte(input, 0) >= 0 {
 		return "", validationError("input contains NUL byte")
 	}
@@ -470,18 +464,12 @@ func (b *FFIBackend) Process(state unsafe.Pointer, input string) (string, error)
 	cInput := C.CString(input)
 	defer C.free(unsafe.Pointer(cInput))
 
-	result := C.call_process(b.processFn, state, cInput)
-	if result == nil {
-		return "", ffiError("aletheia_process returned null")
-	}
-	defer C.call_free_str(b.freeStrFn, result)
-	return C.GoString(result), nil
+	return b.stringResult("aletheia_process", C.call_process(b.processFn, state, cInput))
 }
 
-// SendFrameBinary sends a CAN frame via the binary FFI entry point,
-// bypassing JSON serialization on the input side.  The optional BRS and
-// ESI CAN-FD bits (ISO 11898-1:2015 §10.4.2 / §10.4.3) are encoded as
-// (present, value) byte pairs — pass nil for CAN 2.0B frames.
+// SendFrameBinary sends a CAN frame without serialising it to JSON. The
+// CAN-FD BRS and ESI bits (ISO 11898-1:2015 §10.4.2 / §10.4.3) cross as a
+// present-and-value byte pair, both zero when the caller passes nil.
 func (b *FFIBackend) SendFrameBinary(
 	state unsafe.Pointer, ts Timestamp,
 	id CANID, dlc DLC, data []byte,
@@ -490,34 +478,22 @@ func (b *FFIBackend) SendFrameBinary(
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	var ext C.uint8_t
-	if id.IsExtended() {
-		ext = 1
-	}
-
 	if ts.Microseconds < 0 {
 		return "", validationError("timestamp must be non-negative")
 	}
-
-	if len(data) > MaxFrameByteCount {
-		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), MaxFrameByteCount))
+	dataPtr, err := framePayloadPtr(data)
+	if err != nil {
+		return "", err
 	}
-
-	var dataPtr *C.uint8_t
-	if len(data) > 0 {
-		dataPtr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
-	}
-
 	brsPresent, brsValue := encodeMaybeBool(brs)
 	esiPresent, esiValue := encodeMaybeBool(esi)
 
-	// C.uint8_t(len(data)) is safe: the bounds check above guarantees
-	// len(data) <= MaxFrameByteCount < 256, so the cast never truncates.
+	// The length cast cannot truncate: the bound above is below 256.
 	result := C.call_send_frame(
 		b.sendFrameFn, state,
 		C.uint64_t(ts.Microseconds),
 		C.uint32_t(id.Value()),
-		ext,
+		extFlag(id),
 		C.uint8_t(dlc.Value()),
 		dataPtr,
 		C.uint8_t(len(data)),
@@ -525,17 +501,12 @@ func (b *FFIBackend) SendFrameBinary(
 		esiPresent, esiValue,
 	)
 	runtime.KeepAlive(data)
-	if result == nil {
-		return "", ffiError("aletheia_send_frame returned null")
-	}
-	defer C.call_free_str(b.freeStrFn, result)
-	return C.GoString(result), nil
+	return b.stringResult("aletheia_send_frame", result)
 }
 
-// encodeMaybeBool encodes an Optional[bool] as the (present, value) byte
-// pair used by the binary FFI for CAN-FD BRS / ESI metadata.  Inverse of
-// the Haskell shim's mkMaybeBool — nil → (0, 0); &false → (1, 0);
-// &true → (1, 1).
+// encodeMaybeBool writes an optional bool as the present-and-value pair the
+// binary wire takes, which mkMaybeBool in the Haskell shim reads back: nil is
+// (0, 0), false is (1, 0) and true is (1, 1).
 func encodeMaybeBool(b *bool) (C.uint8_t, C.uint8_t) {
 	if b == nil {
 		return 0, 0
@@ -546,7 +517,7 @@ func encodeMaybeBool(b *bool) (C.uint8_t, C.uint8_t) {
 	return 1, 0
 }
 
-// SendErrorBinary sends a CAN error event via the binary FFI entry point.
+// SendErrorBinary sends a CAN error event.
 func (b *FFIBackend) SendErrorBinary(state unsafe.Pointer, ts Timestamp) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -554,16 +525,11 @@ func (b *FFIBackend) SendErrorBinary(state unsafe.Pointer, ts Timestamp) (string
 	if ts.Microseconds < 0 {
 		return "", validationError("timestamp must be non-negative")
 	}
-
-	result := C.call_send_error(b.sendErrorFn, state, C.uint64_t(ts.Microseconds))
-	if result == nil {
-		return "", ffiError("aletheia_send_error returned null")
-	}
-	defer C.call_free_str(b.freeStrFn, result)
-	return C.GoString(result), nil
+	return b.stringResult("aletheia_send_error",
+		C.call_send_error(b.sendErrorFn, state, C.uint64_t(ts.Microseconds)))
 }
 
-// SendRemoteBinary sends a CAN remote frame event via the binary FFI entry point.
+// SendRemoteBinary sends a CAN remote frame event.
 func (b *FFIBackend) SendRemoteBinary(state unsafe.Pointer, ts Timestamp, id CANID) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -571,121 +537,68 @@ func (b *FFIBackend) SendRemoteBinary(state unsafe.Pointer, ts Timestamp, id CAN
 	if ts.Microseconds < 0 {
 		return "", validationError("timestamp must be non-negative")
 	}
-
-	var ext C.uint8_t
-	if id.IsExtended() {
-		ext = 1
-	}
-
-	result := C.call_send_remote(b.sendRemoteFn, state, C.uint64_t(ts.Microseconds), C.uint32_t(id.Value()), ext)
-	if result == nil {
-		return "", ffiError("aletheia_send_remote returned null")
-	}
-	defer C.call_free_str(b.freeStrFn, result)
-	return C.GoString(result), nil
+	return b.stringResult("aletheia_send_remote",
+		C.call_send_remote(b.sendRemoteFn, state, C.uint64_t(ts.Microseconds), C.uint32_t(id.Value()), extFlag(id)))
 }
 
-// StartStreamBinary begins streaming mode via the binary FFI entry point.
+// StartStreamBinary begins streaming mode.
 func (b *FFIBackend) StartStreamBinary(state unsafe.Pointer) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	result := C.call_start_stream(b.startStreamFn, state)
-	if result == nil {
-		return "", ffiError("aletheia_start_stream returned null")
-	}
-	defer C.call_free_str(b.freeStrFn, result)
-	return C.GoString(result), nil
+	return b.stringResult("aletheia_start_stream", C.call_start_stream(b.startStreamFn, state))
 }
 
-// EndStreamBinary finalizes streaming and returns verdicts via the binary FFI entry point.
+// EndStreamBinary ends streaming mode and returns the verdicts.
 func (b *FFIBackend) EndStreamBinary(state unsafe.Pointer) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	result := C.call_end_stream(b.endStreamFn, state)
-	if result == nil {
-		return "", ffiError("aletheia_end_stream returned null")
-	}
-	defer C.call_free_str(b.freeStrFn, result)
-	return C.GoString(result), nil
+	return b.stringResult("aletheia_end_stream", C.call_end_stream(b.endStreamFn, state))
 }
 
-// FormatDBCBinary returns the loaded DBC as JSON via the binary FFI entry point.
+// FormatDBCBinary returns the loaded DBC as JSON.
 func (b *FFIBackend) FormatDBCBinary(state unsafe.Pointer) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	result := C.call_format_dbc(b.formatDBCFn, state)
-	if result == nil {
-		return "", ffiError("aletheia_format_dbc returned null")
-	}
-	defer C.call_free_str(b.freeStrFn, result)
-	return C.GoString(result), nil
+	return b.stringResult("aletheia_format_dbc", C.call_format_dbc(b.formatDBCFn, state))
 }
 
-// ExtractSignalsBinary extracts signals from a binary CAN frame via the binary FFI entry point.
+// ExtractSignalsBinary extracts the signals of a frame, answering JSON.
 func (b *FFIBackend) ExtractSignalsBinary(state unsafe.Pointer, id CANID, dlc DLC, data []byte) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	var ext C.uint8_t
-	if id.IsExtended() {
-		ext = 1
+	dataPtr, err := framePayloadPtr(data)
+	if err != nil {
+		return "", err
 	}
-
-	if len(data) > MaxFrameByteCount {
-		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), MaxFrameByteCount))
-	}
-
-	var dataPtr *C.uint8_t
-	if len(data) > 0 {
-		dataPtr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
-	}
-
 	result := C.call_extract_signals(
 		b.extractSignalsFn, state,
 		C.uint32_t(id.Value()),
-		ext,
+		extFlag(id),
 		C.uint8_t(dlc.Value()),
 		dataPtr,
 		C.uint8_t(len(data)),
 	)
 	runtime.KeepAlive(data)
-	if result == nil {
-		return "", ffiError("aletheia_extract_signals returned null")
-	}
-	defer C.call_free_str(b.freeStrFn, result)
-	return C.GoString(result), nil
+	return b.stringResult("aletheia_extract_signals", result)
 }
 
-// BuildFrameBin builds a CAN frame returning raw payload bytes, bypassing JSON entirely.
+// BuildFrameBin builds a frame from signal values, answering raw payload
+// bytes with no JSON on either side.
 func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	var ext C.uint8_t
-	if id.IsExtended() {
-		ext = 1
+	indicesPtr, numsPtr, densPtr, err := signalArrayPtrs(numSignals, indices, nums, dens)
+	if err != nil {
+		return nil, err
 	}
-
-	var indicesPtr *C.uint32_t
-	var numsPtr *C.int64_t
-	var densPtr *C.int64_t
-	if numSignals > 0 {
-		n := int(numSignals)
-		if len(indices) < n || len(nums) < n || len(dens) < n {
-			return nil, validationError(fmt.Sprintf("parallel arrays too short for numSignals=%d: indices=%d nums=%d dens=%d", n, len(indices), len(nums), len(dens)))
-		}
-		indicesPtr = (*C.uint32_t)(unsafe.Pointer(&indices[0]))
-		numsPtr = (*C.int64_t)(unsafe.Pointer(&nums[0]))
-		densPtr = (*C.int64_t)(unsafe.Pointer(&dens[0]))
-	}
-
-	expectedBytes := dlc.ToBytes()
-	outBuf := make([]byte, expectedBytes)
+	outBuf := make([]byte, dlc.ToBytes())
 	var outBufPtr *C.uint8_t
-	if expectedBytes > 0 {
+	if len(outBuf) > 0 {
 		outBufPtr = (*C.uint8_t)(unsafe.Pointer(&outBuf[0]))
 	}
 	var outErr *C.char
@@ -693,7 +606,7 @@ func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, numS
 	status := C.call_build_frame_bin(
 		b.buildFrameBinFn, state,
 		C.uint32_t(id.Value()),
-		ext,
+		extFlag(id),
 		C.uint8_t(dlc.Value()),
 		C.uint32_t(numSignals),
 		indicesPtr,
@@ -702,68 +615,36 @@ func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, numS
 		outBufPtr,
 		&outErr,
 	)
-	// Defensive against future inliner / GC: keep the Go-side slices alive
-	// until after the cgo call returns.  Without these, a sufficiently
-	// aggressive inliner could observe that `indices`/`nums`/`dens`/`outBuf`
-	// are no longer referenced from Go after their pointers cross the cgo
-	// boundary, and the GC could reclaim them while the C code is still
-	// reading.
+	// Every slice whose pointer crossed stays alive until the call returns:
+	// nothing in Go refers to them after the pointers are taken, so the
+	// collector could otherwise reclaim one while the kernel reads it.
 	runtime.KeepAlive(indices)
 	runtime.KeepAlive(nums)
 	runtime.KeepAlive(dens)
 	runtime.KeepAlive(outBuf)
 	if status != 0 {
-		var msg string
-		if outErr != nil {
-			msg = C.GoString(outErr)
-			C.call_free_str(b.freeStrFn, outErr)
-		} else {
-			msg = fmt.Sprintf("build_frame_bin returned status %d with null error message", status)
-		}
-		return nil, protocolError(msg)
+		return nil, b.binaryStatusError("build_frame_bin", status, outErr)
 	}
 	return outBuf, nil
 }
 
-// UpdateFrameBin updates a CAN frame returning raw payload bytes, bypassing JSON entirely.
+// UpdateFrameBin rewrites signals in an existing payload, answering raw
+// payload bytes with no JSON on either side.
 func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CANID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	var ext C.uint8_t
-	if id.IsExtended() {
-		ext = 1
+	dataPtr, err := framePayloadPtr(data)
+	if err != nil {
+		return nil, err
 	}
-
-	// Cap at the CAN-FD maximum payload size; every other data-accepting
-	// method (SendFrameBinary, ExtractSignalsBinary) applies the same bound
-	// before taking &data[0] into cgo.
-	if len(data) > MaxFrameByteCount {
-		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), MaxFrameByteCount))
+	indicesPtr, numsPtr, densPtr, err := signalArrayPtrs(numSignals, indices, nums, dens)
+	if err != nil {
+		return nil, err
 	}
-
-	var dataPtr *C.uint8_t
-	if len(data) > 0 {
-		dataPtr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
-	}
-
-	var indicesPtr *C.uint32_t
-	var numsPtr *C.int64_t
-	var densPtr *C.int64_t
-	if numSignals > 0 {
-		n := int(numSignals)
-		if len(indices) < n || len(nums) < n || len(dens) < n {
-			return nil, validationError(fmt.Sprintf("parallel arrays too short for numSignals=%d: indices=%d nums=%d dens=%d", n, len(indices), len(nums), len(dens)))
-		}
-		indicesPtr = (*C.uint32_t)(unsafe.Pointer(&indices[0]))
-		numsPtr = (*C.int64_t)(unsafe.Pointer(&nums[0]))
-		densPtr = (*C.int64_t)(unsafe.Pointer(&dens[0]))
-	}
-
-	expectedBytes := dlc.ToBytes()
-	outBuf := make([]byte, expectedBytes)
+	outBuf := make([]byte, dlc.ToBytes())
 	var outBufPtr *C.uint8_t
-	if expectedBytes > 0 {
+	if len(outBuf) > 0 {
 		outBufPtr = (*C.uint8_t)(unsafe.Pointer(&outBuf[0]))
 	}
 	var outErr *C.char
@@ -771,7 +652,7 @@ func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CANID, dlc DLC, dat
 	status := C.call_update_frame_bin(
 		b.updateFrameBinFn, state,
 		C.uint32_t(id.Value()),
-		ext,
+		extFlag(id),
 		C.uint8_t(dlc.Value()),
 		dataPtr,
 		C.uint8_t(len(data)),
@@ -788,39 +669,21 @@ func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CANID, dlc DLC, dat
 	runtime.KeepAlive(dens)
 	runtime.KeepAlive(outBuf)
 	if status != 0 {
-		var msg string
-		if outErr != nil {
-			msg = C.GoString(outErr)
-			C.call_free_str(b.freeStrFn, outErr)
-		} else {
-			msg = fmt.Sprintf("update_frame_bin returned status %d with null error message", status)
-		}
-		return nil, protocolError(msg)
+		return nil, b.binaryStatusError("update_frame_bin", status, outErr)
 	}
 	return outBuf, nil
 }
 
-// ExtractSignalsBin extracts signals returning packed binary, bypassing JSON entirely.
+// ExtractSignalsBin extracts signals as the packed binary the caller parses,
+// with no JSON on either side.
 func (b *FFIBackend) ExtractSignalsBin(state unsafe.Pointer, id CANID, dlc DLC, data []byte) ([]byte, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	var ext C.uint8_t
-	if id.IsExtended() {
-		ext = 1
+	dataPtr, err := framePayloadPtr(data)
+	if err != nil {
+		return nil, err
 	}
-
-	// Cap at the CAN-FD maximum payload size; every other data-accepting
-	// method applies the same bound before taking &data[0] into cgo.
-	if len(data) > MaxFrameByteCount {
-		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), MaxFrameByteCount))
-	}
-
-	var dataPtr *C.uint8_t
-	if len(data) > 0 {
-		dataPtr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
-	}
-
 	var outBuf *C.uint8_t
 	var outSize C.uint32_t
 	var outErr *C.char
@@ -828,7 +691,7 @@ func (b *FFIBackend) ExtractSignalsBin(state unsafe.Pointer, id CANID, dlc DLC, 
 	status := C.call_extract_signals_bin(
 		b.extractSignalsBinFn, state,
 		C.uint32_t(id.Value()),
-		ext,
+		extFlag(id),
 		C.uint8_t(dlc.Value()),
 		dataPtr,
 		C.uint8_t(len(data)),
@@ -838,16 +701,9 @@ func (b *FFIBackend) ExtractSignalsBin(state unsafe.Pointer, id CANID, dlc DLC, 
 	)
 	runtime.KeepAlive(data)
 	if status != 0 {
-		var msg string
-		if outErr != nil {
-			msg = C.GoString(outErr)
-			C.call_free_str(b.freeStrFn, outErr)
-		} else {
-			msg = fmt.Sprintf("extract_signals_bin returned status %d with null error message", status)
-		}
-		return nil, protocolError(msg)
+		return nil, b.binaryStatusError("extract_signals_bin", status, outErr)
 	}
-	// Guard against theoretical overflow when casting outSize (uint32) to C.int (int32).
+	// The copy below takes a C int, which cannot hold every uint32.
 	if outSize > math.MaxInt32 {
 		C.call_free_buf(b.freeBufFn, outBuf)
 		return nil, protocolError(fmt.Sprintf("extract_signals_bin returned outSize %d exceeding C.int range", outSize))
@@ -857,7 +713,7 @@ func (b *FFIBackend) ExtractSignalsBin(state unsafe.Pointer, id CANID, dlc DLC, 
 	return result, nil
 }
 
-// Close finalizes and frees the session state.
+// Close ends the session and frees its state.
 func (b *FFIBackend) Close(state unsafe.Pointer) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -866,7 +722,6 @@ func (b *FFIBackend) Close(state unsafe.Pointer) {
 	stablePtrCount.Add(-1)
 }
 
-// Compile-time assertion that *FFIBackend satisfies the Backend interface.
-// Mirrors the !cgo branch in ffi_nocgo.go so interface signature drift fails
-// at `go build` rather than at the first downstream caller.
+// The interface is satisfied here as it is in the no-cgo file, so a drift in
+// its signatures fails the build rather than the first caller.
 var _ Backend = (*FFIBackend)(nil)
