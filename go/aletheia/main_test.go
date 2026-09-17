@@ -6,6 +6,7 @@
 package aletheia
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,7 +15,7 @@ import (
 )
 
 // skipRTSInitEnv, when "1", tells TestMain not to start the GHC runtime, so a
-// subprocess can exercise the renderer's uninitialised-runtime path.
+// subprocess can exercise the renderer's and the decimal parser's uninitialised-runtime path.
 const skipRTSInitEnv = "ALETHEIA_TEST_SKIP_RTS_INIT"
 
 // TestMain brings the GHC runtime up once for the whole package. Point-2 made
@@ -92,6 +93,15 @@ func runRenderWithoutRuntimeChild() {
 	if hsInitialized() {
 		fmt.Println("FAIL: renderer self-initialised the runtime")
 		os.Exit(5)
+	}
+	var ffiErr *Error
+	if _, err := FromDecimal("0.1"); err == nil || !errors.As(err, &ffiErr) || ffiErr.Kind != ErrFFI {
+		fmt.Printf("FAIL: expected an FFI error from FromDecimal with the runtime uninitialised, got %v\n", err)
+		os.Exit(6)
+	}
+	if hsInitialized() {
+		fmt.Println("FAIL: FromDecimal self-initialised the runtime")
+		os.Exit(7)
 	}
 	fmt.Println("RENDER_VOCAL_OK")
 	os.Exit(0)
