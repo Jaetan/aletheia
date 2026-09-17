@@ -35,7 +35,6 @@ Complete API documentation:
 - **[Go API Guide](reference/GO_API.md)** - `Client`, Check API, and the LTL DSL
 - **[Rust API Guide](reference/RUST_API.md)** - `Client`, Check API, the typed DBC model, and the async client
 - **[CLI Reference](reference/CLI.md)** - `python3 -m aletheia` subcommands: check, validate, extract, signals, format-dbc, mux-query
-- **[JSON Protocol](architecture/PROTOCOL.md)** - Low-level protocol specification (advanced)
 
 ---
 
@@ -65,17 +64,18 @@ For deployment and on-call:
 
 Build and contribute:
 
-1. **[Building Guide](development/BUILDING.md)** - Setup, installation, the development workflow, and the [toolchain support policy](development/BUILDING.md#toolchain-support-policy)
-2. **[Distribution Guide](development/DISTRIBUTION.md)** - Packaging and integrating `libaletheia-ffi.so` into C, C++, and Go projects
-3. **[Local CI](development/CI_LOCAL.md)** - Three-layer CI architecture (always-on / opt-in / external); pre-push hook; orchestrator (`tools/run_ci.py`)
-4. **[Branch & PR Hygiene](development/BRANCH_PR_HYGIENE.md)** - The local-first + server-enforced gate model, required checks, and merge rules for `main`
-5. **[Release Guide](development/RELEASE.md)** - Tagging, signing (cosign), publishing, and supply-chain verification procedure
-6. **[Feature Matrix](FEATURE_MATRIX.yaml)** - Cross-binding feature parity matrix — the canonical record of which capability each binding (Python / C++ / Go / Rust / CLI) supports, and why any gap exists
-7. **[SOME/IP Design Draft](development/SOMEIP_DESIGN.md)** - Proposed architecture for SOME/IP support (verified monitor over captured traffic; one shared library; parameterized LTL kernel) — draft, not scheduled
-8. **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
-9. **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
-10. **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
-12. **[CHANGELOG](../CHANGELOG.md)** - Public-API change log (per `[Added]` / `[Changed]` / `[Removed]` per AGENTS.md "Public API stability and CHANGELOG discipline")
+- **[Building Guide](development/BUILDING.md)** - Setup, installation, the development workflow, and the [toolchain support policy](development/BUILDING.md#toolchain-support-policy)
+- **[Distribution Guide](development/DISTRIBUTION.md)** - Packaging and integrating `libaletheia-ffi.so` into C, C++, and Go projects
+- **[Local CI](development/CI_LOCAL.md)** - Three-layer CI architecture (always-on / opt-in / external); pre-push hook; orchestrator (`tools/run_ci.py`)
+- **[Branch & PR Hygiene](development/BRANCH_PR_HYGIENE.md)** - The local-first + server-enforced gate model, required checks, and merge rules for `main`
+- **[Release Guide](development/RELEASE.md)** - Tagging, signing (cosign), publishing, and supply-chain verification procedure
+- **[Resource Parameters](development/RESOURCE_PARAMETERS.md)** - How every number in `RESOURCE_BUDGETS.yaml` was arrived at, and what would change it
+- **[Feature Matrix](FEATURE_MATRIX.yaml)** - Cross-binding feature parity matrix, the canonical record of which capability each binding (Python / C++ / Go / Rust / CLI) supports, and why any gap exists
+- **[SOME/IP Design Draft](development/SOMEIP_DESIGN.md)** - Proposed architecture for SOME/IP support (verified monitor over captured traffic; one shared library; parameterized LTL kernel), a draft and not scheduled
+- **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
+- **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
+- **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
+- **[CHANGELOG](../CHANGELOG.md)** - Public-API change log (per `[Added]` / `[Changed]` / `[Removed]` per AGENTS.md "Public API stability and CHANGELOG discipline")
 
 ---
 
@@ -101,70 +101,4 @@ Learn by example:
 - **[Python Package README](../python/README.md)** - Installation via pip
 - **[DEPENDENCIES.md](../DEPENDENCIES.md)** - Third-party runtime dependencies and their licenses
 - **Deferred / NO-FIX items** - Each item's rationale lives as an in-source comment block at the call site (search `DEFERRED — TRACKED`).
-- **[AGENTS.md](../AGENTS.md)** - Per-language coding standards and review categories (canonical source for AI-assisted and human code review)
-
----
-
-## Documentation Map
-
-```
-aletheia/
-├── README.md                          # Main entry point
-├── CLAUDE.md                          # AI development guide
-├── CONTRIBUTING.md                    # Contribution guidelines
-├── PROJECT_STATUS.md                  # Phase tracking (canonical metrics)
-├── CHANGELOG.md                       # Public-API change log
-├── LICENSE.md                         # Legal
-├── AGENTS.md                          # Per-language coding standards / review categories
-├── DEPENDENCIES.md                    # Third-party dependencies & licenses
-│
-├── docs/
-│   ├── INDEX.md                       # THIS FILE - Navigation hub
-│   ├── PITCH.md                       # Elevator pitch
-│   ├── GLOSSARY.md                    # Plain-language domain glossary (CAN / LTL / DBC / MAlonzo)
-│   ├── FEATURE_MATRIX.yaml            # Cross-binding parity matrix (canonical)
-│   │
-│   ├── guides/
-│   │   ├── QUICKSTART.md              # 5-minute quick start
-│   │   ├── TUTORIAL.md                # End-to-end walkthroughs
-│   │   └── COOKBOOK.md                # Problem-driven recipes
-│   │
-│   ├── reference/
-│   │   ├── INTERFACES.md              # Check API, YAML, Excel
-│   │   ├── PYTHON_API.md              # Raw DSL and AletheiaClient
-│   │   ├── CPP_API.md                 # C++ AletheiaClient + Check/ltl DSL
-│   │   ├── GO_API.md                  # Go Client + Check/LTL DSL
-│   │   ├── RUST_API.md                # Rust Client + Check DSL + typed DBC + async client
-│   │   └── CLI.md                     # CLI subcommands (check / validate / extract / signals / format-dbc / mux-query)
-│   │
-│   ├── architecture/
-│   │   ├── DESIGN.md                  # Architecture overview
-│   │   ├── PROTOCOL.md                # JSON protocol spec + IssueCode reference
-│   │   ├── CANID_REPRESENTATION.md    # 11-bit / 29-bit IDs + CANID newtype
-│   │   ├── CANCELLATION.md            # Cross-binding cancellation contract
-│   │   └── CGO_NOTES.md               # Go cgo + dlopen rationale
-│   │
-│   ├── operations/
-│   │   ├── RUNBOOK.md                 # Symptom → cause → action runbook
-│   │   ├── STABILITY.md               # Long-run stability harnesses (RSS / FD drift)
-│   │   └── MUTATION.md                # Mutation testing (mutmut / gremlins / Mull)
-│   │
-│   ├── development/
-│   │   ├── BUILDING.md                # Build instructions + toolchain support policy
-│   │   ├── BENCHMARKS.md              # Benchmark suite, methodology, PR regression gate
-│   │   ├── DISTRIBUTION.md            # Packaging & native integration
-│   │   ├── CI_LOCAL.md                # Three-layer CI architecture
-│   │   ├── BRANCH_PR_HYGIENE.md       # Gate model + merge rules for main
-│   │   └── RELEASE.md                 # Tag / sign / publish procedure
-│
-└── examples/
-    ├── README.md                      # Curated index of demo scripts
-    ├── example.dbc                    # Sample CAN 2.0B DBC file
-    ├── example_canfd.dbc              # Sample CAN-FD DBC file
-    ├── simple_verification.py         # Standalone verification example
-    └── demo/                          # Demo scripts + support files
-```
-
----
-
-**Maintained By**: Aletheia Team
+- **[AGENTS.md](../AGENTS.md)** - Per-language coding standards and review categories (canonical source for AI-assisted and human code review), with one file per scope beside it: [Agda](../AGENTS/agda.md), [C++](../AGENTS/cpp.md), [Go](../AGENTS/go.md), [Python](../AGENTS/python.md), [Rust](../AGENTS/rust.md), [documentation](../AGENTS/docs.md) and [continuous integration](../AGENTS/cicd.md)
