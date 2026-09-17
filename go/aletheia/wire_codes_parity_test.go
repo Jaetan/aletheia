@@ -1,30 +1,24 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Cross-binding wire-code vocabulary parity — Go side.
+// The two code vocabularies this binding carries are the ones
+// docs/WIRE_CODES.yaml names, which the orchestrator's own gate anchors to the
+// kernel. Each is compared both ways, so a code the document has and the
+// binding lacks fails, and so does one the binding has and the document
+// dropped.
 //
-// Reads docs/WIRE_CODES.yaml (the cross-binding SSOT, itself anchored to the
-// Agda kernel by the `check-wire-codes` run_ci gate) and asserts the Go
-// vocabulary surfaces are each an exact mirror of their YAML section —
-// reciprocal set equality, so a missing member AND a stale member both fail:
+// The constants are listed below by hand, Go offering no way to enumerate
+// them: removing one breaks the build here, and a code added to the document
+// alone fails the comparison. A code added to the package and to neither is
+// what the probe over the source catches, which reads the declarations rather
+// than a list.
 //
-//	issue_codes <-> the Issue* [aletheia.IssueCode] constants (result.go)
-//	error_codes <-> the Code* error-code string constants (error.go)
+// IssueUnknown is not among them. It is what this binding uses when a wire
+// code is missing, not a code the kernel emits, and a test below holds the
+// document to never naming it. A code the kernel adds and this binding does
+// not know still crosses: the decoder carries it rather than refusing it.
 //
-// Go has no constant reflection, so the two slices below enumerate the
-// constants explicitly. The slices cannot rot silently: removing a constant
-// breaks compilation (the slice names it), a slice entry with no YAML row
-// fails the Go→YAML direction, and a constant added together with its YAML
-// row (the SSOT addition protocol) but not listed here fails the YAML→Go
-// direction. IssueUnknown is deliberately absent: it is the binding-local
-// default for a MISSING code (json.go parseIssueArray), not a kernel wire
-// code — pinned by its own test below. The runtime decode path deliberately
-// passes unknown non-empty codes through verbatim (forward compatibility)
-// and is not touched by this test.
-//
-// Mirrors python/tests/test_wire_codes_parity.py,
-// cpp/tests/test_wire_codes_parity.cpp, and rust/tests/wire_codes.rs, with
-// the same YAML-loading mechanics as log_events_test.go.
+// The Python, C++ and Rust suites hold their own vocabularies the same way.
 
 package aletheia_test
 
@@ -39,8 +33,6 @@ import (
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
 
-// ----- YAML schema -----
-
 type wireCodeRow struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
@@ -51,9 +43,10 @@ type wireCodeDoc struct {
 	ErrorCodes []wireCodeRow `yaml:"error_codes"`
 }
 
+// loadWireCodes reads the document, found from this source file rather than
+// from the working directory.
 func loadWireCodes(t *testing.T) wireCodeDoc {
 	t.Helper()
-	// Resolve docs/WIRE_CODES.yaml relative to this source file (go/aletheia/).
 	_, here, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller(0) failed")
@@ -89,9 +82,7 @@ func yamlNameSet(t *testing.T, section string, rows []wireCodeRow) map[string]st
 	return names
 }
 
-// ----- Go vocabulary surfaces -----
-
-// Every Issue* constant — the closed Go issue-code vocabulary (result.go).
+// goIssueCodes is every issue code the binding declares.
 var goIssueCodes = []aletheia.IssueCode{
 	aletheia.IssueDuplicateMessageID,
 	aletheia.IssueDuplicateMessageName,
@@ -123,7 +114,7 @@ var goIssueCodes = []aletheia.IssueCode{
 	aletheia.IssueAttributeEnumDefaultUnstable,
 }
 
-// Every Code* constant — the closed Go error-code vocabulary (error.go).
+// goErrorCodes is every error code the binding declares.
 var goErrorCodes = []string{
 	aletheia.CodeParseMissingField,
 	aletheia.CodeParseInvalidByteOrder,
@@ -188,8 +179,7 @@ var goErrorCodes = []string{
 	aletheia.CodeExtractionValueExceedsWireRange,
 }
 
-// ----- 1. YAML schema sanity -----
-
+// Every row of both sections names a code once and says what it is for.
 func TestWireCodesYAMLSchema(t *testing.T) {
 	doc := loadWireCodes(t)
 	for section, rows := range map[string][]wireCodeRow{
@@ -205,73 +195,54 @@ func TestWireCodesYAMLSchema(t *testing.T) {
 	}
 }
 
-// ----- 2. reciprocal set equality, both vocabularies -----
-
-func TestWireCodesIssueCodesMatchGoConstants(t *testing.T) {
+// Each vocabulary and its section name the same codes, in both directions.
+func TestWireCodes_MatchTheirSections(t *testing.T) {
 	doc := loadWireCodes(t)
-	yamlNames := yamlNameSet(t, "issue_codes", doc.IssueCodes)
-
-	goNames := make(map[string]struct{}, len(goIssueCodes))
+	issueNames := make([]string, 0, len(goIssueCodes))
 	for _, c := range goIssueCodes {
-		if _, dup := goNames[string(c)]; dup {
-			t.Fatalf("goIssueCodes lists %q twice", c)
-		}
-		goNames[string(c)] = struct{}{}
+		issueNames = append(issueNames, string(c))
 	}
-
-	for name := range yamlNames {
-		if _, ok := goNames[name]; !ok {
-			t.Errorf("issue code %q is in docs/WIRE_CODES.yaml but Go has no "+
-				"Issue* constant for it (or the constant is missing from "+
-				"goIssueCodes above)", name)
-		}
+	cases := map[string]struct {
+		rows      []wireCodeRow
+		declared  []string
+		constants string
+	}{
+		"issue codes": {doc.IssueCodes, issueNames, "Issue"},
+		"error codes": {doc.ErrorCodes, goErrorCodes, "Code"},
 	}
-	for name := range goNames {
-		if _, ok := yamlNames[name]; !ok {
-			t.Errorf("Issue* constant %q has no docs/WIRE_CODES.yaml row — "+
-				"stale Go constant or missing SSOT row", name)
-		}
-	}
-}
-
-func TestWireCodesErrorCodesMatchGoConstants(t *testing.T) {
-	doc := loadWireCodes(t)
-	yamlNames := yamlNameSet(t, "error_codes", doc.ErrorCodes)
-
-	goNames := make(map[string]struct{}, len(goErrorCodes))
-	for _, c := range goErrorCodes {
-		if _, dup := goNames[c]; dup {
-			t.Fatalf("goErrorCodes lists %q twice", c)
-		}
-		goNames[c] = struct{}{}
-	}
-
-	for name := range yamlNames {
-		if _, ok := goNames[name]; !ok {
-			t.Errorf("error code %q is in docs/WIRE_CODES.yaml but Go has no "+
-				"Code* constant for it (or the constant is missing from "+
-				"goErrorCodes above)", name)
-		}
-	}
-	for name := range goNames {
-		if _, ok := yamlNames[name]; !ok {
-			t.Errorf("Code* constant %q has no docs/WIRE_CODES.yaml row — "+
-				"stale Go constant or missing SSOT row", name)
-		}
+	for section, tc := range cases {
+		t.Run(section, func(t *testing.T) {
+			inDocument := yamlNameSet(t, section, tc.rows)
+			declared := make(map[string]struct{}, len(tc.declared))
+			for _, name := range tc.declared {
+				if _, dup := declared[name]; dup {
+					t.Fatalf("the list of %s constants names %q twice", tc.constants, name)
+				}
+				declared[name] = struct{}{}
+			}
+			for name := range inDocument {
+				if _, ok := declared[name]; !ok {
+					t.Errorf("%q is in the document and the binding declares no %s constant for it, "+
+						"or the constant is not in the list above", name, tc.constants)
+				}
+			}
+			for name := range declared {
+				if _, ok := inDocument[name]; !ok {
+					t.Errorf("the binding declares %q and the document has no row for it", name)
+				}
+			}
+		})
 	}
 }
 
-// ----- 3. sentinel canary -----
-
-// IssueUnknown is the Go binding's default for a MISSING code on the wire,
-// not a kernel wire code: the kernel never emits "unknown", so the SSOT must
-// never list it (mirrors the C++/Rust Unknown sentinels, likewise excluded).
+// The binding's own default for a missing code never becomes a code of the
+// wire: the kernel does not emit it, and the C++ and Rust bindings keep their
+// equivalents out of the document too.
 func TestWireCodesIssueUnknownIsNotAWireCode(t *testing.T) {
 	doc := loadWireCodes(t)
 	yamlNames := yamlNameSet(t, "issue_codes", doc.IssueCodes)
 	if _, ok := yamlNames[string(aletheia.IssueUnknown)]; ok {
-		t.Fatalf("docs/WIRE_CODES.yaml issue_codes contains %q — the "+
-			"binding-local missing-code default must not become a canonical "+
-			"wire code", aletheia.IssueUnknown)
+		t.Fatalf("the document names %q, which is what this binding uses when the "+
+			"wire carries no code", aletheia.IssueUnknown)
 	}
 }
