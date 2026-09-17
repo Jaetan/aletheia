@@ -99,8 +99,9 @@ impl Predicate {
 
     /// `min <= signal <= max` (Agda `ValuePredicate.Between`).
     ///
-    /// A range whose minimum exceeds its maximum is refused by [`Predicate::to_json`],
-    /// which is where every route to a predicate meets the wire.
+    /// A range whose minimum exceeds its maximum is refused when the property
+    /// carrying it is sent, which is where every route to a predicate meets the
+    /// wire, and not here.
     #[must_use]
     pub fn between(
         signal: impl Into<String>,
@@ -128,7 +129,8 @@ impl Predicate {
     /// The signal stayed within `tolerance` of its previous value
     /// (Agda `DeltaPredicate.StableWithin`).
     ///
-    /// A negative tolerance is refused by [`Predicate::to_json`].
+    /// A negative tolerance is refused when the property carrying it is sent,
+    /// and not here.
     #[must_use]
     pub fn stable_within(signal: impl Into<String>, tolerance: impl Into<Rational>) -> Predicate {
         Predicate::StableWithin {
