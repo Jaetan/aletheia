@@ -10,46 +10,17 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
 
-// findFFILib is the built library, from the environment a bundled install
-// exports or from the build directory, and empty when neither has it. The
-// renderer searches the same candidates in the same order, with the path a
-// backend registered tried in between.
-func findFFILib() string {
-	if env := os.Getenv("ALETHEIA_LIB"); env != "" {
-		if _, err := os.Stat(env); err == nil {
-			return env
-		}
-	}
-	candidates := []string{
-		"../../build/libaletheia-ffi.so",
-		"../build/libaletheia-ffi.so",
-		"build/libaletheia-ffi.so",
-	}
-	for _, c := range candidates {
-		abs, err := filepath.Abs(c)
-		if err != nil {
-			continue
-		}
-		if _, err := os.Stat(abs); err == nil {
-			return abs
-		}
-	}
-	return ""
-}
-
 // requireFFILib is that path, or the reason to skip: a test that reaches the
 // kernel cannot run without the library.
 func requireFFILib(t *testing.T) string {
 	t.Helper()
-	lib := findFFILib()
+	lib := aletheia.FindFFILibrary()
 	if lib == "" {
 		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
 	}

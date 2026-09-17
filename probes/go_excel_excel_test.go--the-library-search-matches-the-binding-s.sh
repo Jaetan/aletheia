@@ -2,16 +2,21 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Probes go/aletheia/ffi_backend_test.go.
-# Claim: the library search in findFFILib, which the comment there says the
-# renderer repeats, really is the renderer's: the same environment variable
-# first, then the same relative candidates in the same order. The renderer has
-# one step the test does not, the path a backend registered, and that step is
-# allowed to sit between the two. Non-zero exit: the two orders differ, so the
-# comment is false, or a function has moved out of the file named here.
+# Probes go/excel/excel_test.go.
+# Claim: the library search this module's tests carry is the binding's own: the
+# same environment variable first, then the same relative candidates in the same
+# order. The binding's has one step this one does not, the path a backend
+# registered, and that step is allowed to sit between the two.
+#
+# The two cannot be one. go/excel is a module of its own, so it reaches the
+# binding's exported surface and nothing else, and the binding's search is
+# unexported: what the tests inside the binding's own module now share through
+# the test-only re-export is out of this module's reach. So the duplication is
+# structural and this probe holds the copy in step with the original.
+# Non-zero exit: the two orders differ. Exits 2 when a file has moved.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-test_file=go/aletheia/ffi_backend_test.go
+test_file=go/excel/excel_test.go
 renderer=go/aletheia/renderer.go
 
 # The candidate list of one function, in order: the string literals ending in
