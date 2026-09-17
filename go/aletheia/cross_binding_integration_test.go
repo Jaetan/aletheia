@@ -62,35 +62,11 @@ func canonicalFrameIDs() (StandardID, DLC) {
 	return sid, d
 }
 
-// newCrossBindingClient is a client over the built library, closed when the
-// test ends; the test is skipped when the library is not built.
-func newCrossBindingClient(t *testing.T) *Client {
-	t.Helper()
-	lib := findFFILibrary()
-	if lib == "" {
-		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
-	}
-	backend, err := NewFFIBackend(lib)
-	if err != nil {
-		t.Fatalf("NewFFIBackend: %v", err)
-	}
-	c, err := NewClient(backend)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := c.Close(); err != nil {
-			t.Errorf("Close: %v", err)
-		}
-	})
-	return c
-}
-
 // streamingCrossBindingClient loads the canonical DBC, installs the given
 // properties, starts the stream, and ends it when the test ends.
 func streamingCrossBindingClient(t *testing.T, properties ...Formula) (*Client, context.Context) {
 	t.Helper()
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	ctx := context.Background()
 	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
@@ -125,7 +101,7 @@ func sendCanonical(t *testing.T, c *Client, ctx context.Context, ts int64, paylo
 // ParseDBC answers with ParsedDBC{DBC, Warnings}: Warnings is never nil, since
 // Python emits [] and not None, and the message and signal names come back.
 func TestCrossBinding_ParseDBCResponseShape(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	parsed, err := c.ParseDBC(context.Background(), canonicalDBC())
 	if err != nil {
 		t.Fatalf("ParseDBC: %v", err)
@@ -153,7 +129,7 @@ func TestCrossBinding_ParseDBCResponseShape(t *testing.T) {
 // ValidateDBC answers with ValidationResult{HasErrors, Issues}; the canonical
 // DBC has no errors and Issues is never nil.
 func TestCrossBinding_ValidateDBCResponseShape(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	result, err := c.ValidateDBC(context.Background(), canonicalDBC())
 	if err != nil {
 		t.Fatalf("ValidateDBC: %v", err)
@@ -261,7 +237,7 @@ func identifierDBCText(name string) string {
 
 // An identifier of exactly MaxIdentifierLength parses and comes back whole.
 func TestCrossBinding_IdentifierAtMaxLengthAccepted(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	name := strings.Repeat("A", MaxIdentifierLength)
 	parsed, err := c.ParseDBCText(context.Background(), identifierDBCText(name))
 	if err != nil {
@@ -276,7 +252,7 @@ func TestCrossBinding_IdentifierAtMaxLengthAccepted(t *testing.T) {
 // kernel's identifier check and surfaces as a parse error whose code is the
 // trailing-input one, because the parser stops where the identifier does.
 func TestCrossBinding_IdentifierOverMaxRejected(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	name := strings.Repeat("A", MaxIdentifierLength+1)
 	_, err := c.ParseDBCText(context.Background(), identifierDBCText(name))
 	if err == nil {
@@ -295,7 +271,7 @@ func TestCrossBinding_IdentifierOverMaxRejected(t *testing.T) {
 // on the JSON route, with a typed parse error naming the submitted value
 // (Python's TestGeometryGateParity is the same case).
 func TestCrossBinding_GeometryGateRefusesOutOfFrameStartBit(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	sid, _ := NewStandardID(256)
 	d, _ := NewDLC(1)
 	dbc := DBCDefinition{
@@ -335,7 +311,7 @@ func TestCrossBinding_GeometryGateRefusesOutOfFrameStartBit(t *testing.T) {
 // frame) loads on the text route, and the same document is accepted back on
 // the JSON route with the same geometry.
 func TestCrossBinding_MotorolaFullFrameClosure(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	ctx := context.Background()
 	text := "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: Engine\n\n" +
 		"BO_ 100 Msg: 2 Engine\n" +
@@ -369,7 +345,7 @@ func TestCrossBinding_MotorolaFullFrameClosure(t *testing.T) {
 // TestAtomCountBound), a tree of that many atoms being too slow to build
 // across the Go FFI for a unit test.
 func TestCrossBinding_NestingDepthLiftsToInputBoundExceeded(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	ctx := context.Background()
 	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
@@ -406,7 +382,7 @@ func TestCrossBinding_NestingDepthLiftsToInputBoundExceeded(t *testing.T) {
 // detailed string, byte-identical to the JSON path's for the same frame: one
 // shared kernel formatter, checked here end to end on an out-of-bounds value.
 func TestCrossBinding_BinaryExtractionReasonParity(t *testing.T) {
-	c := newCrossBindingClient(t)
+	c := newFFIClient(t)
 	ctx := context.Background()
 	sid, d := canonicalFrameIDs()
 	dbc := DBCDefinition{
