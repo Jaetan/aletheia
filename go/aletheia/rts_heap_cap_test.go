@@ -80,7 +80,7 @@ func TestRTSHeapCapContainment(t *testing.T) {
 		return // unreachable: runRTSWorkloadChild always exits
 	}
 
-	lib := findFFILibForParityTest()
+	lib := findFFILibrary()
 	if lib == "" {
 		t.Skip("libaletheia-ffi.so not found — run 'cabal run shake -- build' first")
 	}

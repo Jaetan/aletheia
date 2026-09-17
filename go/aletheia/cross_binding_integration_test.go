@@ -66,7 +66,7 @@ func canonicalFrameIDs() (StandardID, DLC) {
 // test ends; the test is skipped when the library is not built.
 func newCrossBindingClient(t *testing.T) *Client {
 	t.Helper()
-	lib := findFFILibForParityTest()
+	lib := findFFILibrary()
 	if lib == "" {
 		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
 	}

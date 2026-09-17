@@ -23,7 +23,7 @@ import (
 // fidelity. Mirrors the setup in TestDBCCorpusParity.
 func newFFIClient(t *testing.T) *Client {
 	t.Helper()
-	lib := findFFILibForParityTest()
+	lib := findFFILibrary()
 	if lib == "" {
 		t.Skip("libaletheia-ffi.so not found — run 'cabal run shake -- build' first")
 	}

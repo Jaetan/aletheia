@@ -27,7 +27,7 @@ const skipRTSInitEnv = "ALETHEIA_TEST_SKIP_RTS_INIT"
 // initialized" error while pure-logic tests still run.
 func TestMain(m *testing.M) {
 	if os.Getenv(skipRTSInitEnv) != "1" {
-		if lib := findFFILibForParityTest(); lib != "" {
+		if lib := findFFILibrary(); lib != "" {
 			// The constructor runs hs_init, bringing the RTS up for the package.
 			if _, err := NewFFIBackend(lib); err != nil {
 				fmt.Fprintf(os.Stderr, "TestMain: could not start GHC runtime: %v\n", err)
@@ -46,7 +46,7 @@ func TestRenderWithoutRuntimeIsVocal(t *testing.T) {
 	if os.Getenv(skipRTSInitEnv) == "1" {
 		runRenderWithoutRuntimeChild() // os.Exits; never returns
 	}
-	lib := findFFILibForParityTest()
+	lib := findFFILibrary()
 	if lib == "" {
 		t.Skip("libaletheia-ffi.so not found — run 'cabal run shake -- build' first")
 	}
