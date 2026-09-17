@@ -1,26 +1,22 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Backend Protocol — FFI-boundary DI seam for the Aletheia client.
+"""The FFI boundary the client is given, so that a test can give it another.
 
-Mirrors Go ``aletheia.Backend`` (``go/aletheia/backend.go``) and C++
-``aletheia::IBackend`` (``cpp/include/aletheia/backend.hpp``) for
-cross-binding parity at the FFI boundary.
+The same boundary as Go's ``aletheia.Backend`` in ``go/aletheia/backend.go`` and
+C++'s ``aletheia::IBackend`` in ``cpp/include/aletheia/backend.hpp``.
 
-Three implementations live here:
+The protocol :class:`Backend` is what production code and tests both target,
+structurally. :class:`FFIBackend` implements it over ``libaletheia-ffi.so``,
+owning the loaded library, the reference to the GHC runtime and every ``ctypes``
+call. :class:`MockBackend` implements it by replaying canned responses, for a
+test that should not load the library, as Go's and C++'s mocks do.
 
-* :class:`Backend` — the Protocol (structural typing) production code and
-  tests both target.
-* :class:`FFIBackend` — production wrapper around ``libaletheia-ffi.so``;
-  owns the loaded shared library, the GHC RTS reference, and every
-  ``ctypes`` call.
-* :class:`MockBackend` — canned-response replay for tests that should not
-  load the .so (cross-binding parity with Go ``MockBackend`` /
-  C++ ``aletheia::MockBackend`` at ``cpp/src/detail/mock_backend.hpp``).
-
-The state handle is ``int`` (raw ``void*`` address as integer) — opaque
-to the client, matching Go ``unsafe.Pointer`` and C++ ``void*`` opacity.
-``FFIBackend`` converts to ``ctypes.c_void_p(state)`` at each FFI call
-boundary; ``MockBackend`` ignores it entirely.
+A session's state is an ``int`` here, the address of what the kernel allocated,
+and the client never looks inside it. Go passes the same address as an
+``unsafe.Pointer``. C++ passes a ``BackendState``, a move-only handle that
+closes the session when it goes out of scope, so that binding's call sites
+neither hold nor release the address. :class:`FFIBackend` wraps the integer in
+a ``ctypes.c_void_p`` at each call, and :class:`MockBackend` ignores it.
 """
 
 from __future__ import annotations
