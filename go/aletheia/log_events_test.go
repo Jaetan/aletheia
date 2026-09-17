@@ -1,38 +1,17 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Cross-binding log event vocabulary parity — Go side.
+// The log events this binding emits are the ones docs/LOG_EVENTS.yaml names,
+// which is the vocabulary all four bindings share. The document is read here
+// rather than mirrored, and the tests hold two things: the document is well
+// formed, and a workflow driving the client emits nothing the document does
+// not name. The Python and C++ suites hold their own bindings the same way.
 //
-// Reads docs/LOG_EVENTS.yaml and asserts:
-//
-//   1. The YAML is well-formed (15 entries, each with name + valid level).
-//   2. Every event emitted by a comprehensive workflow is a member of the
-//      YAML name set — catches a future binding-side emit-call that drifts
-//      from the cross-binding canonical set.
-//
-// This is the "missing mechanism" half of the fix: the surface change
-// in client.go (renaming dbc.text_parsed → dbc.parsed) closes the rogue
-// 16th event, and this test prevents the same class of drift from being
-// reintroduced silently.  Mirrors python/tests/test_log_events_parity.py
-// (YAML ↔ LogEvent enum) and cpp/tests/test_log_events_parity.cpp.
-//
-// The workflow exercises:
-//   - ParseDBC          (JSON-shape DBC path     → dbc.parsed)
-//   - ParseDBCText      (DBC-text parser path    → dbc.parsed; THIS is
-//                                                  the path that drifted)
-//   - SetProperties     (properties.set)
-//   - StartStream       (stream.started)
-//   - SendFrame ack     (frame.processed)
-//   - SendFrame violate (frame.processed + cache.miss + cache.hit +
-//                        enrichment.* on extraction failure)
-//   - EndStream         (stream.ended + endstream.uncached_atom per warning)
-//   - Extraction error  (extraction.parse_failed + enrichment.extraction_failed)
-//
-// Events not exercised (need exotic setups, deliberately not asserted as
-// "must appear"; they remain protected by the ⊆ assertion against any
-// future emit drift): rts.cores_mismatch (FFI backend mismatch only),
-// cache.full (requires the cache capacity bound to be hit), error_event.sent
-// and remote_event.sent (event-injection paths not covered by mock).
+// A few events need a setup no mock reaches: the runtime warning wants a
+// second library backend, the cache-full event wants the cache bound reached,
+// and the two event-injection ones want a real stream. They are not required
+// to appear; the membership check covers them all the same, since it refuses
+// anything the document does not name rather than requiring a list.
 
 package aletheia_test
 
@@ -48,8 +27,6 @@ import (
 
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
-
-// ----- YAML schema -----
 
 type logEventRow struct {
 	Name        string `yaml:"name"`
@@ -67,9 +44,10 @@ var validLogEventLevels = map[string]struct{}{
 	"warn":  {},
 }
 
+// loadLogEvents reads the shared document, found from this source file rather
+// than from the working directory, which a test may be run from anywhere.
 func loadLogEvents(t *testing.T) []logEventRow {
 	t.Helper()
-	// Resolve docs/LOG_EVENTS.yaml relative to this source file (go/aletheia/).
 	_, here, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller(0) failed")
@@ -89,12 +67,43 @@ func loadLogEvents(t *testing.T) []logEventRow {
 	return doc.Events
 }
 
-// ----- 1. YAML schema sanity -----
+// knownEvents is the document's names as a set.
+func knownEvents(t *testing.T) map[string]struct{} {
+	t.Helper()
+	rows := loadLogEvents(t)
+	known := make(map[string]struct{}, len(rows))
+	for _, e := range rows {
+		known[e.Name] = struct{}{}
+	}
+	return known
+}
 
+// unknownEvents is what a run emitted that the document does not name. It is
+// the whole of the membership check, so the check itself can be tested without
+// a workflow.
+func unknownEvents(known map[string]struct{}, emitted []capturedRecord) []string {
+	var unknown []string
+	seen := map[string]struct{}{}
+	for _, rec := range emitted {
+		if _, ok := known[rec.event]; ok {
+			continue
+		}
+		if _, repeated := seen[rec.event]; repeated {
+			continue
+		}
+		seen[rec.event] = struct{}{}
+		unknown = append(unknown, rec.event)
+	}
+	return unknown
+}
+
+// Every row names an event once, at a level the vocabulary has, and says what
+// it is for. The count is held too: a row silently dropped would leave the
+// membership check below passing over a smaller vocabulary.
 func TestLogEventsYAML_Schema(t *testing.T) {
 	events := loadLogEvents(t)
 	if got, want := len(events), 16; got != want {
-		t.Fatalf("event count: got %d, want %d (cross-binding canonical total)", got, want)
+		t.Fatalf("the document names %d events, and the four bindings share %d", got, want)
 	}
 	seen := make(map[string]struct{}, len(events))
 	for i, e := range events {
@@ -107,7 +116,7 @@ func TestLogEventsYAML_Schema(t *testing.T) {
 		}
 		seen[e.Name] = struct{}{}
 		if _, ok := validLogEventLevels[e.Level]; !ok {
-			t.Errorf("events[%d] (%s): level %q not in {debug,info,warn}", i, e.Name, e.Level)
+			t.Errorf("events[%d] (%s): level %q is not one of debug, info or warn", i, e.Name, e.Level)
 		}
 		if e.Description == "" {
 			t.Errorf("events[%d] (%s): missing description", i, e.Name)
@@ -115,11 +124,8 @@ func TestLogEventsYAML_Schema(t *testing.T) {
 	}
 }
 
-// ----- 2. capturing slog.Handler -----
-
-// captureHandler records every (level, message) pair the binding emits.
-// Message is the slog.Record.Message which Go bindings set to the event
-// name string when calling logger.Info("event.name", kv-pairs...).
+// captureHandler keeps every record the binding writes. The message is the
+// event name, which is how this binding logs one.
 type captureHandler struct {
 	records []capturedRecord
 }
@@ -138,8 +144,6 @@ func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
 
 func (h *captureHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
 func (h *captureHandler) WithGroup(_ string) slog.Handler      { return h }
-
-// ----- 3. comprehensive workflow exercising emit sites -----
 
 const dbcSourceText = `VERSION ""
 NS_ :
@@ -171,35 +175,33 @@ const dbcParsedJSON = `{
 	}
 }`
 
+// A workflow through the whole client emits nothing the document does not
+// name, and does reach the events a reader of this test would expect it to.
 func TestLogEvents_ComprehensiveWorkflow_NoDrift(t *testing.T) {
-	canonicalEvents := loadLogEvents(t)
-	known := make(map[string]struct{}, len(canonicalEvents))
-	for _, e := range canonicalEvents {
-		known[e.Name] = struct{}{}
-	}
+	known := knownEvents(t)
 
 	mock := aletheia.NewMockBackend(
-		// 1. ParseDBC      (json path → dbc.parsed)
+		// The definition read as JSON, then the same one read as text: both
+		// paths report one parsed definition.
 		aletheia.Respond(dbcParsedJSON),
-		// 2. ParseDBCText  (text path → dbc.parsed; was dbc.text_parsed pre-fix)
 		aletheia.Respond(dbcParsedJSON),
-		// 3. SetProperties (properties.set)
+		// The properties, then the stream.
 		aletheia.Respond(`{"status":"success"}`),
-		// 4. StartStream   (stream.started)
 		aletheia.Respond(`{"status":"success"}`),
-		// 5. SendFrame ack (frame.processed @ debug)
+		// A frame that says nothing, then one that violates, which sends the
+		// client to extract the signals behind the violation.
 		aletheia.Respond(`{"status":"ack"}`),
-		// 6. SendFrame violation triggers enrichment extraction
 		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"}]}`),
-		// 7. Enrichment extraction returns success (cache.miss + value)
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`),
-		// 8. EndStream (stream.ended + endstream.uncached_atom per warning)
+		// The end of the stream, carrying a warning about an atom it never
+		// observed, which is reported one event per warning.
 		aletheia.Respond(`{
 			"status":"complete",
 			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"Atomic: predicate failed"}],
 			"warnings":[{"kind":"uncached_atom","property_index":0,"detail":"UnobservedSignal"}]
 		}`),
-		// 9. EOS extraction (cache.hit reuses prior value if SignalKey matches)
+		// The extraction the end of stream asks for, which reuses what the
+		// violation already put in the cache.
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`),
 	)
 
@@ -209,7 +211,7 @@ func TestLogEvents_ComprehensiveWorkflow_NoDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	if _, err := c.ParseDBC(ctx, aletheia.DBCDefinition{Version: "1.0"}); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
@@ -240,57 +242,41 @@ func TestLogEvents_ComprehensiveWorkflow_NoDrift(t *testing.T) {
 	}
 
 	if len(handler.records) == 0 {
-		t.Fatal("captured no log records — workflow did not exercise any emit site")
+		t.Fatal("the workflow emitted nothing, so this test holds nothing")
+	}
+	for _, event := range unknownEvents(known, handler.records) {
+		t.Errorf("the binding emitted %q, which docs/LOG_EVENTS.yaml does not name: "+
+			"add it to the document and to the event list, or fix the call site", event)
 	}
 
-	// Core assertion: every captured event is in the canonical YAML set.
-	// A future emit-site drift (e.g. someone adding logger.Info("dbc.foo", ...))
-	// fails this test loudly with the offending name.
-	uniqueEmitted := make(map[string]struct{}, len(handler.records))
+	// The floor: a workflow that stopped reaching these would leave the check
+	// above passing over a handful of events, so each is required by name.
+	emitted := map[string]struct{}{}
 	for _, rec := range handler.records {
-		uniqueEmitted[rec.event] = struct{}{}
+		emitted[rec.event] = struct{}{}
 	}
-	for event := range uniqueEmitted {
-		if _, ok := known[event]; !ok {
-			t.Errorf("emitted event %q is not in docs/LOG_EVENTS.yaml — "+
-				"add it to the canonical set and the LogEvent enum, or fix "+
-				"the call site", event)
+	for _, want := range []string{"dbc.parsed", "properties.set", "stream.started", "frame.processed", "stream.ended", "endstream.uncached_atom"} {
+		if _, ok := emitted[want]; !ok {
+			t.Errorf("the workflow did not reach %q, so this test covers less than it reads as", want)
 		}
-	}
-
-	// Sanity floor: the workflow above MUST exercise dbc.parsed (the path
-	// that drifted), or the gate is silently weakened.
-	if _, ok := uniqueEmitted["dbc.parsed"]; !ok {
-		t.Error("dbc.parsed not emitted — workflow does not exercise the " +
-			"DBC parse paths; the gate would have missed the original drift")
-	}
-
-	// Sanity floor: the EndStream Complete carries an uncached_atom warning,
-	// so the per-warning event MUST fire — otherwise a future refactor that
-	// drops the emit site would slip past this gate.
-	if _, ok := uniqueEmitted["endstream.uncached_atom"]; !ok {
-		t.Error("endstream.uncached_atom not emitted — EndStream mock carries " +
-			"a CompleteWarning but the per-warning emit site did not fire")
 	}
 }
 
-// TestLogEvents_RejectsKnownDrift verifies the gate's rejection logic by
-// constructing a synthetic capture containing the rogue dbc.text_parsed
-// event and confirming the membership check flags it.  This is a unit test
-// of the gate itself — independent of any binding workflow — so we know
-// the assertion would have caught the original drift even if the
-// workflow above were ever weakened.
-func TestLogEvents_RejectsKnownDrift(t *testing.T) {
-	canonicalEvents := loadLogEvents(t)
-	known := make(map[string]struct{}, len(canonicalEvents))
-	for _, e := range canonicalEvents {
-		known[e.Name] = struct{}{}
+// The membership check itself, put to a name no document names and to one
+// every document does. A workflow that stopped emitting anything would leave
+// the test above passing, and this one would not.
+func TestLogEvents_MembershipCheckFlagsWhatIsNotNamed(t *testing.T) {
+	known := knownEvents(t)
+	records := []capturedRecord{
+		{event: "dbc.parsed"},
+		{event: "sensor.drifted"},
+		{event: "sensor.drifted"},
 	}
-	if _, ok := known["dbc.text_parsed"]; ok {
-		t.Fatal("LOG_EVENTS.yaml unexpectedly contains dbc.text_parsed — " +
-			"the rogue event should NOT be in the canonical set")
+	unknown := unknownEvents(known, records)
+	if len(unknown) != 1 || unknown[0] != "sensor.drifted" {
+		t.Errorf("the check reported %v, want the one name the document does not carry", unknown)
 	}
-	if _, ok := known["dbc.parsed"]; !ok {
-		t.Fatal("LOG_EVENTS.yaml is missing dbc.parsed — canonical event")
+	if len(unknownEvents(known, []capturedRecord{{event: "dbc.parsed"}})) != 0 {
+		t.Error("a named event was reported as unknown")
 	}
 }
