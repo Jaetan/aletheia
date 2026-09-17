@@ -42,13 +42,14 @@ def main() -> int:
         return 2
 
     t0 = time.time()
-    failures: list[str] = []
+    failures: list[tuple[str, str]] = []
     with agda_tree_lock(), WarmAgda() as agda:
         for i, mod in enumerate(mods, 1):
             t = time.time()
-            ok = agda.load(str(SRC / mod)).ok
+            result = agda.load(str(SRC / mod))
+            ok = result.ok
             if not ok:
-                failures.append(mod)
+                failures.append((mod, result.error))
             status = "OK  " if ok else "FAIL"
             emit(f"[{i:2d}/{len(mods)}] {time.time() - t:5.1f}s {status} {mod}")
             sys.stdout.flush()
@@ -58,8 +59,12 @@ def main() -> int:
         _ = sys.stderr.write(
             f"\ncheck-properties: FAILED {len(failures)}/{len(mods)} " + f"in {elapsed:.0f}s:\n",
         )
-        for mod in failures:
+        # The reason travels with the failure: a module listed without agda's
+        # own message leaves a red gate that says nothing about what to fix.
+        for mod, error in failures:
             _ = sys.stderr.write(f"  {mod}\n")
+            for line in (error or "(agda reported no error text)").rstrip().split("\n"):
+                _ = sys.stderr.write(f"    {line}\n")
         return 1
     emit(f"\nAll {len(mods)} proof modules type-checked in {elapsed:.0f}s " + "(one warm process).")
     return 0
