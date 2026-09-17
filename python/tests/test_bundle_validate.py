@@ -61,8 +61,8 @@ _INSTALLER_OUTPUT = f"""Aletheia is unpacked at:
      target_link_libraries(your_app PRIVATE aletheia::aletheia-cpp)
 
    Go  (in your module):
-     go mod edit -replace "github.com/aletheia-automotive/aletheia-go={_HERE}/bindings/go"
-     go get github.com/aletheia-automotive/aletheia-go/aletheia
+     go mod edit -replace "github.com/aletheia-automotive/aletheia-go/v5={_HERE}/bindings/go"
+     go get github.com/aletheia-automotive/aletheia-go/v5/aletheia
 
    Rust  (in your crate's Cargo.toml):
      [dependencies]
@@ -92,10 +92,10 @@ class TestExtractRecipes:
     def test_go_block_lines_verbatim(self) -> None:
         """The Go block carries the printed go commands, verbatim."""
         recipes = extract_recipes(_INSTALLER_OUTPUT)
-        replace_arg = f"github.com/aletheia-automotive/aletheia-go={_HERE}/bindings/go"
+        replace_arg = f"github.com/aletheia-automotive/aletheia-go/v5={_HERE}/bindings/go"
         assert recipes["go"] == [
             f'go mod edit -replace "{replace_arg}"',
-            "go get github.com/aletheia-automotive/aletheia-go/aletheia",
+            "go get github.com/aletheia-automotive/aletheia-go/v5/aletheia",
         ]
 
     def test_rust_block_is_the_dependencies_toml(self) -> None:

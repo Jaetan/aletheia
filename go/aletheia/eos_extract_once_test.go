@@ -20,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
 )
 
 // extractCalls is how many extractions the mock recorded.

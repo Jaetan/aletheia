@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
 )
 
 // repoPath joins the test's package dir (go/cmd/aletheia) up to the repo root.

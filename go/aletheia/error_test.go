@@ -9,7 +9,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
 )
 
 // errorEnvelope is an error response carrying the code and message.

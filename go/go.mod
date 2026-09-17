@@ -1,4 +1,4 @@
-module github.com/aletheia-automotive/aletheia-go
+module github.com/aletheia-automotive/aletheia-go/v5
 
 go 1.24.0
 

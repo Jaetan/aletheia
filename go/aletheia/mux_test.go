@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
 )
 
 // ratOf is the exact rational n over d.

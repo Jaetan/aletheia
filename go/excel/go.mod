@@ -3,9 +3,11 @@
 // consumer driving checks from YAML or from code depends on the core module
 // alone, and one wanting the workbook loaders adds this on top.
 //
-// The core module is required below at the placeholder version v0.0.0, which
-// ../go.work resolves during development. This file carries no replace of its
-// own: it would travel with the module.
+// The core module is required below at the version of the last release, which
+// ../go.work resolves to this tree during development. Its path carries the
+// matching major-version suffix, without which Go refuses any major above the
+// first: a release named here is a release the path can carry. This file
+// carries no replace of its own: it would travel with the module.
 module github.com/aletheia-automotive/aletheia-go/excel
 
 go 1.24.0
@@ -13,7 +15,7 @@ go 1.24.0
 toolchain go1.24.6
 
 require (
-	github.com/aletheia-automotive/aletheia-go v0.0.0
+	github.com/aletheia-automotive/aletheia-go/v5 v5.0.0
 	github.com/xuri/excelize/v2 v2.10.1
 )
 

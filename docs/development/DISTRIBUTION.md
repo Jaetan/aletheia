@@ -74,8 +74,8 @@ target_link_libraries(your_app PRIVATE aletheia::aletheia-cpp)
 **Go** — the bundled module is standalone: it ships **no** `go.work` (a stray `go.work` would hijack your own module resolution). Add it with a `replace`:
 
 ```bash
-go mod edit -replace "github.com/aletheia-automotive/aletheia-go=<A>/bindings/go"
-go get github.com/aletheia-automotive/aletheia-go/aletheia
+go mod edit -replace "github.com/aletheia-automotive/aletheia-go/v5=<A>/bindings/go"
+go get github.com/aletheia-automotive/aletheia-go/v5/aletheia
 ```
 
 **Rust**:
@@ -325,7 +325,7 @@ The Go binding (`go/` in the Aletheia repository) uses `dlopen` at runtime via c
 #### Install
 
 ```bash
-go get github.com/aletheia-automotive/aletheia-go/aletheia
+go get github.com/aletheia-automotive/aletheia-go/v5/aletheia
 ```
 
 #### Usage
@@ -336,7 +336,7 @@ go get github.com/aletheia-automotive/aletheia-go/aletheia
 // libaletheia-ffi.so via dlopen and hand off to the same verified Agda core.
 package main
 
-import "github.com/aletheia-automotive/aletheia-go/aletheia"
+import "github.com/aletheia-automotive/aletheia-go/v5/aletheia"
 
 func main() {
     backend, err := aletheia.NewFFIBackend("/opt/aletheia/lib/libaletheia-ffi.so")
@@ -439,8 +439,8 @@ FROM golang:1.26-trixie AS build
 COPY --from=ghcr.io/jaetan/aletheia:X.Y.Z /opt/aletheia /opt/aletheia
 WORKDIR /app
 COPY . .
-RUN go mod edit -replace "github.com/aletheia-automotive/aletheia-go=/opt/aletheia/bindings/go" && \
-    go get github.com/aletheia-automotive/aletheia-go/aletheia && \
+RUN go mod edit -replace "github.com/aletheia-automotive/aletheia-go/v5=/opt/aletheia/bindings/go" && \
+    go get github.com/aletheia-automotive/aletheia-go/v5/aletheia && \
     CGO_ENABLED=1 go build -o app .
 
 FROM debian:trixie-slim

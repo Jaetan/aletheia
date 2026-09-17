@@ -107,8 +107,8 @@ COPY tools/bundle_validation/consumer_go /verify
 COPY examples/demo/vehicle.dbc /verify/vehicle.dbc
 WORKDIR /verify
 RUN go mod init consumer && \
-    go mod edit -replace github.com/aletheia-automotive/aletheia-go=/opt/aletheia/bindings/go && \
-    go get github.com/aletheia-automotive/aletheia-go/aletheia && \
+    go mod edit -replace github.com/aletheia-automotive/aletheia-go/v5=/opt/aletheia/bindings/go && \
+    go get github.com/aletheia-automotive/aletheia-go/v5/aletheia && \
     CGO_ENABLED=1 go build -o consumer .
 RUN ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so ./consumer vehicle.dbc && \
     echo go > /verified

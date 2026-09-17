@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
 )
 
 // requireFFILib is that path, or the reason to skip: a test that reaches the

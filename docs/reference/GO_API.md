@@ -2,7 +2,7 @@
 
 **Purpose**: Reference for Aletheia's Go binding: the `Client`, the Check API and the LTL DSL. The version it documents is in [DISTRIBUTION.md](../development/DISTRIBUTION.md).
 
-> **Exhaustive per-symbol docs** live as godoc comments in `go/aletheia/`: run `go doc github.com/aletheia-automotive/aletheia-go/aletheia`, or any symbol, such as `go doc aletheia.Client.SendFrame`. This guide is the narrative walkthrough and godoc is the contract.
+> **Exhaustive per-symbol docs** live as godoc comments in `go/aletheia/`: run `go doc github.com/aletheia-automotive/aletheia-go/v5/aletheia`, or any symbol, such as `go doc aletheia.Client.SendFrame`. This guide is the narrative walkthrough and godoc is the contract.
 >
 > **Other bindings**: the [Python API Guide](PYTHON_API.md), the [C++ API Guide](CPP_API.md), the [Rust API Guide](RUST_API.md) and the [Interface Guide](INTERFACES.md). The four bindings ship the same verified core with line-by-line equivalent APIs.
 
@@ -29,7 +29,7 @@ The binding wraps `libaletheia-ffi.so` via cgo + `dlopen`. Build a backend from 
 ```go
 package main
 
-import "github.com/aletheia-automotive/aletheia-go/aletheia"
+import "github.com/aletheia-automotive/aletheia-go/v5/aletheia"
 
 func main() {
     backend, err := aletheia.NewFFIBackend("/opt/aletheia/lib/libaletheia-ffi.so")
@@ -134,7 +134,7 @@ package main
 import (
     "context"
 
-    "github.com/aletheia-automotive/aletheia-go/aletheia"
+    "github.com/aletheia-automotive/aletheia-go/v5/aletheia"
 )
 
 func main() {
@@ -236,7 +236,7 @@ Every fallible operation answers `(value, error)` and the package never panics. 
 import (
     "errors"
 
-    "github.com/aletheia-automotive/aletheia-go/aletheia"
+    "github.com/aletheia-automotive/aletheia-go/v5/aletheia"
 )
 
 func describe(err error) string {
@@ -270,5 +270,5 @@ ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so go run ./cmd/aletheia signals 
 # Or build the binary once: go build -o aletheia ./cmd/aletheia
 ```
 
-The `--dbc` and `--json` flags, and `$ALETHEIA_LIB` ahead of the build tree, are what every binding's interface does. The subcommands are documented in the [CLI Reference](CLI.md), and godoc carries every symbol: `go doc github.com/aletheia-automotive/aletheia-go/aletheia`.
+The `--dbc` and `--json` flags, and `$ALETHEIA_LIB` ahead of the build tree, are what every binding's interface does. The subcommands are documented in the [CLI Reference](CLI.md), and godoc carries every symbol: `go doc github.com/aletheia-automotive/aletheia-go/v5/aletheia`.
 

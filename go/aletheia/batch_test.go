@@ -9,7 +9,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
 )
 
 const ack = `{"status":"ack"}`

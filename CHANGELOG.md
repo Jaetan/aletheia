@@ -136,6 +136,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   parent or a descriptor limit says the stat failed. Python already distinguished
   them, having no such check of its own.
 
+- **BREAKING (Go): the module path carries its major version.** The module is
+  `github.com/aletheia-automotive/aletheia-go/v5`, and every import moves with it
+  (`.../v5/aletheia`, `.../v5/cmd/aletheia`). Go accepts a major of two or more only
+  when the path ends in the matching suffix, so before this the module could not
+  name any release after the first major: the spreadsheet loader required it at a
+  placeholder version that only the development workspace resolved, and now requires
+  it at the version of the last release. The spreadsheet loader keeps its own path,
+  being a module of its own. A consumer of the distribution bundle follows the same
+  printed recipe as before, with the new path in it.
+
 - **The Go and Rust predicate builders carry every predicate the kernel defines.**
   Both carried the five comparisons, where the kernel has eight: `Signal(name)` in Go
   gains `Between`, `ChangedBy` and `StableWithin`, and `Predicate` in Rust gains

@@ -8,7 +8,7 @@ package aletheia_test
 import (
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
 )
 
 // The Signal builder is sugar: each method produces the same predicate struct

@@ -12,7 +12,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
 )
 
 // Sending frames as a sequence: what the caller gets, what reaches the

@@ -7,9 +7,11 @@
 // The replace below is what lets a change to the core module reach the Excel
 // module without a release. The use directive alone does not: it registers the
 // module for the workspace and leaves version resolution to the require, which
-// names a placeholder version, so Go goes looking for it on the network. The
+// names the last release, so Go would go looking for it on the network. The
 // replace is written here rather than in that module's own file because a
-// relative path written there would travel with the module.
+// relative path written there would travel with the module. It names the same
+// version the require does, a version-specific replace matching nothing when
+// the two drift apart.
 //
 // This file is not part of the bundle a release builds, which carries the core
 // module's files alone, and a consumer of either module never sees it.
@@ -22,4 +24,4 @@ use (
 	./excel
 )
 
-replace github.com/aletheia-automotive/aletheia-go v0.0.0 => ./
+replace github.com/aletheia-automotive/aletheia-go/v5 v5.0.0 => ./

@@ -35,7 +35,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aletheia-automotive/aletheia-go/aletheia"
+	"github.com/aletheia-automotive/aletheia-go/v5/aletheia"
 )
 
 // The soft cap, measured on a quiet host, changed here where a diff shows it.
