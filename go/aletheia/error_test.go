@@ -416,3 +416,24 @@ func TestParseError_NonIntegerMultiplexValue(t *testing.T) {
 		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
 	}
 }
+
+// An error carrying a cause renders both parts and unwraps to it, so
+// errors.Is reaches the cause; one with no cause renders one part and
+// unwraps to nil.
+func TestError_CauseIsRenderedAndUnwrapped(t *testing.T) {
+	cause := errors.New("underlying")
+	wrapped := aletheia.WrapValidationError("could not load", cause)
+	if got, want := wrapped.Error(), "aletheia validation error: could not load: underlying"; got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+	if !errors.Is(wrapped, cause) {
+		t.Error("errors.Is must reach the cause through Unwrap")
+	}
+	bare := aletheia.NewValidationError("no cause")
+	if got, want := bare.Error(), "aletheia validation error: no cause"; got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+	if errors.Unwrap(bare) != nil {
+		t.Error("an error with no cause must unwrap to nil")
+	}
+}
