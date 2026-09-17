@@ -12,19 +12,15 @@ End-to-end walkthroughs for each audience. Pick the path that matches your role.
 | [Path 6: Go Developer](#path-6-go-developer-client-api) | Go developer | Client (Go) | 30 min |
 | [Path 7: Rust Developer](#path-7-rust-developer-client-api) | Rust developer | Client (Rust) | 30 min |
 
-Paths 1–4 use the Python binding and CLI; Paths 5–7 cover the C++, Go, and Rust
-bindings. All four are first-class — Python, C++, Go, and Rust ship the same
-verified core with feature-equivalent APIs.
+Paths 1–4 use the Python binding and CLI; Paths 5–7 cover the C++, Go, and Rust bindings. All four are first-class: Python, C++, Go and Rust ship the same verified core with feature-equivalent APIs.
 
-**Prerequisites for all paths**: Aletheia built and installed.
-See [Building Guide](../development/BUILDING.md) and [Quick Start](QUICKSTART.md).
+**Prerequisites for all paths**: Aletheia built and installed. See [Building Guide](../development/BUILDING.md) and [Quick Start](QUICKSTART.md).
 
 ---
 
 ## Path 1: Technician (Excel + CLI)
 
-Define checks in a spreadsheet, run them from the command line.
-No Python coding required.
+Define checks in a spreadsheet, run them from the command line. No Python coding required.
 
 ### Step 1: Create a Template
 
@@ -45,8 +41,7 @@ Add one row per signal. Example:
 | 0x200 | BrakeStatus | 8 | BrakePressure | 0 | 16 | little_endian | FALSE | 0.1 | 0 | 0 | 6553.5 | kPa |
 | 0x200 | BrakeStatus | 8 | BrakeActive | 16 | 1 | little_endian | FALSE | 1 | 0 | 0 | 1 | |
 
-Multiple rows with the same Message ID are grouped into one message.
-If you have a `.dbc` file from your customer, use `--dbc` instead (skip this sheet).
+Multiple rows with the same Message ID are grouped into one message. If you have a `.dbc` file from your customer, use `--dbc` instead (skip this sheet).
 
 ### Step 3: Fill in the Checks Sheet
 
@@ -55,11 +50,11 @@ If you have a `.dbc` file from your customer, use `--dbc` instead (skip this she
 | Speed limit | VehicleSpeed | never_exceeds | 120 | | | | safety |
 | Brake pressure in range | BrakePressure | stays_between | | 0 | 6553.5 | | warning |
 
-See [Interface Guide — Condition Reference](../reference/INTERFACES.md#condition-reference) for the full list of available conditions.
+See [the Interface Guide's condition reference](../reference/INTERFACES.md#condition-reference) for every condition.
 
 ### Step 4: Fill in the When-Then Sheet (Optional)
 
-The When-Then sheet is optional — leave it empty if you only need simple signal bounds.
+The When-Then sheet is optional: leave it empty if simple signal bounds are all you need.
 
 For causal checks like "when X happens, Y must follow within T ms":
 
@@ -75,9 +70,7 @@ The `--excel` flag loads DBC, Checks, and When-Then from the same workbook:
 aletheia check --excel checks.xlsx drive.log
 ```
 
-To see a full violating run end-to-end without authoring a workbook first, the
-repository ships the equivalent split out into a plain `.dbc` plus a YAML checks
-file — run that shipped demo trio directly:
+To see a full violating run end-to-end without authoring a workbook first, the repository ships the equivalent split out into a plain `.dbc` plus a YAML checks file, so that trio can be run as it ships:
 
 ```bash
 cd examples/demo
@@ -105,11 +98,9 @@ RESULT: 18 violations found
 Summary: 18 violations, 0 unresolved in 3 checks, 134 frames processed
 ```
 
-The overspeed segment of `drive.log` breaks the 120 kph `VehicleSpeed` limit, so
-the run reports 18 timestamped violations and exits `1`.
+The overspeed segment of `drive.log` breaks the 120 kph `VehicleSpeed` limit, so the run reports 18 timestamped violations and exits `1`.
 
-Exit codes: `0` = all passed, `1` = violations found, `2` = error.
-Add `--json` for machine-readable output.
+Exit codes: `0` = all passed, `1` = violations found, `2` = error. Add `--json` for machine-readable output.
 
 ---
 
@@ -168,14 +159,11 @@ checks:
     severity: safety
 ```
 
-These checks name only the four signals in `examples/demo/vehicle.dbc`
-(`VehicleSpeed`, `BrakePressure`, `Acceleration`, `BrakeActive`), so the whole
-path runs end-to-end against the shipped demo.
+These checks name only the four signals in `examples/demo/vehicle.dbc` (`VehicleSpeed`, `BrakePressure`, `Acceleration`, `BrakeActive`), so the whole path runs end-to-end against the shipped demo.
 
 ### Step 2: Use a DBC File
 
-Get the `.dbc` file from your customer or ECU vendor. Alternatively, define DBC
-in an Excel workbook (see Path 1).
+Get the `.dbc` file from your customer or ECU vendor. Alternatively, define DBC in an Excel workbook (see Path 1).
 
 ### Step 3: Run Checks
 
@@ -183,9 +171,7 @@ in an Excel workbook (see Path 1).
 aletheia check --dbc vehicle.dbc --checks checks.yaml drive.log
 ```
 
-The demo ships `examples/demo/vehicle.dbc` and `examples/demo/drive.log`; drop
-your `checks.yaml` beside them (or use the shipped `vehicle_checks.yaml`) and run
-from that directory.
+The demo ships `examples/demo/vehicle.dbc` and `examples/demo/drive.log`; drop your `checks.yaml` beside them (or use the shipped `vehicle_checks.yaml`) and run from that directory.
 
 ### Step 4: JSON Output for CI/CD
 
@@ -215,9 +201,7 @@ aletheia check --dbc vehicle.dbc --checks checks.yaml drive.log --json
 }
 ```
 
-The `violations` array is abridged above to one of its 18 entries. This run
-exits `1` — the overspeed frames break the speed limit; a clean recording exits
-`0` with `"status": "pass"` and an empty `violations` array.
+The `violations` array is abridged above to one of its 18 entries. This run exits `1`, the overspeed frames breaking the speed limit; a clean recording exits `0` with `"status": "pass"` and an empty `violations` array.
 
 Use exit codes in CI: `0` = pass, `1` = violations, `2` = error.
 
@@ -322,7 +306,7 @@ with AletheiaClient() as client:
 
 ### Step 5: Handle Enriched Violations
 
-When checks are registered via `add_checks()`, violation responses are automatically enriched with signal values, formula descriptions, and human-readable reasons. See [Python API Guide — Enriched Violations](../reference/PYTHON_API.md#enriched-violations) for the full response schema.
+A violation of a check registered through `add_checks()` comes back enriched: the signal values, the formula described, and a reason in words. The [Python API Guide](../reference/PYTHON_API.md#enriched-violations) carries the whole shape.
 
 ---
 
@@ -346,7 +330,7 @@ Signal("Speed").greater_than(0)
 Signal("Speed").less_than_or_equal(200)
 Signal("Speed").greater_than_or_equal(60)
 
-# Range — decimals are exact Fractions (the float principle: no float)
+# Range; a decimal is an exact Fraction, never a float
 Signal("Voltage").between(Fraction("11.5"), Fraction("14.5"))
 
 # Change detection: directional (sign of delta determines direction)
@@ -465,16 +449,11 @@ client.add_checks(check_list)
 
 ## Path 5: C++ Developer (Client API)
 
-Wrap the verified core in C++ through `AletheiaClient`. Every operation returns
-`std::expected`, so each step is guarded. The five steps below are contiguous
-slices of one `main()`; the assembled program is in
-[CPP_API.md § End-to-End](../reference/CPP_API.md#end-to-end-parse-check-stream).
+Wrap the verified core in C++ through `AletheiaClient`. Every operation returns `std::expected`, so each step is guarded. The five steps below are contiguous slices of one `main()`; the assembled program is in [CPP_API.md § End-to-End](../reference/CPP_API.md#end-to-end-parse-check-stream).
 
 ### Step 1: Build & Link Setup
 
-The binding wraps `libaletheia-ffi.so` via `dlopen`. Build a backend from the
-library path, hand it to an `AletheiaClient`, and open a `using namespace
-aletheia;` (Steps 2–5 rely on it for the unqualified names):
+The binding wraps `libaletheia-ffi.so` via `dlopen`. Build a backend from the library path, hand it to an `AletheiaClient`, and open a `using namespace aletheia;` (Steps 2–5 rely on it for the unqualified names):
 
 ```cpp
 #include <aletheia/aletheia.hpp>
@@ -489,18 +468,21 @@ int main() {
     std::stop_token stop;  // a real app threads a real token for cancellation
 ```
 
-`make_ffi_backend(path, rts_cores)` takes an optional GHC RTS core count
-(default 1). Packaging and the loader search order live in the
-[Distribution Guide](../development/DISTRIBUTION.md).
+`make_ffi_backend(path, rts_cores)` takes a count of GHC runtime cores, one by default. The backend is given a path and looks for none. Packaging, and where an installation puts the library, are in the [Distribution Guide](../development/DISTRIBUTION.md).
 
 ### Step 2: Parse a DBC
 
-Parse an inline DBC string with `parse_dbc_text` (a real app reads a `.dbc` file
-into this string). Every `AletheiaClient` call takes the `std::stop_token` first:
+Parse an inline DBC string with `parse_dbc_text` (a real app reads a `.dbc` file into this string). Every `AletheiaClient` call takes the `std::stop_token` first:
 
 ```cpp
     constexpr std::string_view dbc = R"(VERSION ""
-BU_ ECU
+
+NS_ :
+
+BS_:
+
+BU_: ECU
+
 BO_ 256 Engine: 8 ECU
  SG_ Speed : 0|16@1+ (0.1,0) [0|6553.5] "km/h" ECU
 )";
@@ -510,9 +492,7 @@ BO_ 256 Engine: 8 ECU
 
 ### Step 3: Register a Check
 
-Build a check with the fluent `check::signal(...)` API and register it. Numeric
-thresholds are **exact rationals** — `PhysicalValue{Rational{220, 1}}` is 220,
-never a `double`:
+Build a check with the fluent `check::signal(...)` API and register it. Numeric thresholds are **exact rationals**: `PhysicalValue{Rational{220, 1}}` is 220, never a `double`:
 
 ```cpp
     std::vector<CheckResult> checks;  // CheckResult is move-only
@@ -523,8 +503,7 @@ never a `double`:
 
 ### Step 4: Stream a Frame
 
-Open the stream, then send frames. A real application pulls frames from a CAN
-log; here one synthetic 8-byte frame stands in:
+Open the stream, then send frames. A real application pulls frames from a CAN log; here one synthetic 8-byte frame stands in:
 
 ```cpp
     if (!client.start_stream(stop))
@@ -538,8 +517,7 @@ log; here one synthetic 8-byte frame stands in:
 
 ### Step 5: Read the Verdict
 
-Close the stream. `end_stream` returns a `Result<StreamResult>`; on success,
-`result->results` carries one finalization verdict per registered check:
+Close the stream. `end_stream` returns a `Result<StreamResult>`; on success, `result->results` carries one finalization verdict per registered check:
 
 ```cpp
     auto result = client.end_stream(stop);  // Result<StreamResult>
@@ -548,22 +526,16 @@ Close the stream. `end_stream` returns a `Result<StreamResult>`; on success,
     }
 ```
 
-On any failure, read `error().kind()` / `error().code()` / `error().message()`;
-`ErrorCode` mirrors the kernel's `IssueCode` enum
-([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
+On any failure, read `error().kind()` / `error().code()` / `error().message()`; `ErrorCode` mirrors the kernel's `IssueCode` enum ([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
 
 ### CLI Boundary
 
-The `aletheia-cli` host binary mirrors the Python `aletheia` subcommands but
-ships **5 of the 6**: `validate`, `extract`, `signals`, `format-dbc`,
-`mux-query`. `check` is deferred — it needs a verified CAN-log reader. Verify
-either through the streaming API above, or with the flagship `check` on the
-Python CLI:
+The `aletheia-cli` host binary carries the subcommands `python -m aletheia` carries, except `check`: `validate`, `extract`, `signals`, `format-dbc` and `mux-query`. It refuses `check` by name, which needs a CAN-log reader the binding does not provide. Verify through the streaming API above, or run `check` on the Python interface:
 
 ```bash
 cmake -S cpp -B cpp/build && cmake --build cpp/build --target aletheia-cli
 ALETHEIA_LIB=build/libaletheia-ffi.so cpp/build/aletheia-cli validate --dbc vehicle.dbc
-# `check` is deferred in the C++ host CLI; run the flagship check on the Python CLI:
+# The C++ interface does not carry check; the Python one does:
 aletheia check --dbc examples/demo/vehicle.dbc --checks examples/demo/vehicle_checks.yaml examples/demo/drive.log
 ```
 
@@ -571,15 +543,11 @@ aletheia check --dbc examples/demo/vehicle.dbc --checks examples/demo/vehicle_ch
 
 ## Path 6: Go Developer (Client API)
 
-Wrap the verified core in Go through `Client`. Every operation takes a
-`context.Context` first and returns an `error`. The five steps below are
-contiguous slices of one `main()`; the assembled program is in
-[GO_API.md § End-to-End](../reference/GO_API.md#end-to-end-parse-check-stream).
+Wrap the verified core in Go through `Client`. Every operation takes a `context.Context` first and answers an `error`. The five steps below are slices of one `main()`, assembled in [GO_API.md § End-to-End](../reference/GO_API.md#end-to-end-parse-check-stream). Each is also run on its own against a client that has this DBC loaded, which is why the last opens the stream it closes.
 
 ### Step 1: Build & Link Setup
 
-The binding wraps `libaletheia-ffi.so` via cgo + `dlopen`. Build a backend from
-the library path, hand it to a `Client`, `defer Close()`, and take a context:
+The binding wraps `libaletheia-ffi.so` via cgo + `dlopen`. Build a backend from the library path, hand it to a `Client`, `defer Close()`, and take a context:
 
 ```go
 package main
@@ -606,84 +574,90 @@ func main() {
 }
 ```
 
-`NewFFIBackend` accepts functional options (`aletheia.WithRTSCores`,
-`aletheia.WithFFILogger`); `NewClient` accepts `aletheia.WithLogger`. Packaging
-and the loader search order live in the
-[Distribution Guide](../development/DISTRIBUTION.md).
+`NewFFIBackend` takes `aletheia.WithRTSCores` and `aletheia.WithFFILogger`, and `NewClient` takes `aletheia.WithLogger`. Packaging is in the [Distribution Guide](../development/DISTRIBUTION.md).
 
 ### Step 2: Parse a DBC
 
-Parse an inline DBC string with `ParseDBCText` (a real app reads a `.dbc` file
-into this string):
+Parse an inline DBC string with `ParseDBCText` (a real app reads a `.dbc` file into this string):
 
 ```go
     const dbc = `VERSION ""
-BU_ ECU
+
+NS_ :
+
+BS_:
+
+BU_: ECU
+
 BO_ 256 Engine: 8 ECU
  SG_ Speed : 0|16@1+ (0.1,0) [0|6553.5] "km/h" ECU
 `
     if _, err := client.ParseDBCText(ctx, dbc); err != nil {
-        return
+        panic(err)
     }
 ```
 
 ### Step 3: Register a Check
 
-Numeric thresholds are **exact rationals** — build them with
-`aletheia.IntRational(n)` (never a `float64`):
+Numeric thresholds are **exact rationals**, built with `aletheia.IntRational(n)` (never a `float64`):
 
 ```go
     speedLimit := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
-    checks := []aletheia.CheckResult{speedLimit}
-    if err := client.AddChecks(ctx, checks); err != nil {
-        return
+    if err := client.AddChecks(ctx, []aletheia.CheckResult{speedLimit}); err != nil {
+        panic(err)
     }
 ```
 
 ### Step 4: Stream a Frame
 
-Open the stream, then send frames. A real application pulls frames from a CAN
-log; here one synthetic 8-byte frame stands in:
+Open the stream, then send frames. A real application pulls frames from a CAN log; here one synthetic 8-byte frame stands in:
 
 ```go
     if err := client.StartStream(ctx); err != nil {
-        return
+        panic(err)
     }
 
-    id, _ := aletheia.NewStandardID(0x100)
-    dlc, _ := aletheia.NewDLC(8)
+    id, err := aletheia.NewStandardID(0x100)
+    if err != nil {
+        panic(err)
+    }
+    dlc, err := aletheia.NewDLC(8)
+    if err != nil {
+        panic(err)
+    }
     data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-    _, _ = client.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, id, dlc, data, nil, nil)
+    if _, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, id, dlc, data, nil, nil); err != nil {
+        panic(err)
+    }
 ```
 
 ### Step 5: Read the Verdict
 
-Close the stream. `EndStream` returns `(*StreamResult, error)`; on success,
-`result.Results` carries one verdict per registered check:
+Close the stream. `EndStream` returns `(*StreamResult, error)`; on success, `result.Results` carries one verdict per registered check:
 
 ```go
-    result, err := client.EndStream(ctx) // (*StreamResult, error)
-    if err == nil {
-        _ = result // result.Results carries one verdict per registered check
+    if err := client.StartStream(ctx); err != nil {
+        panic(err)
     }
+    result, err := client.EndStream(ctx)
+    if err != nil {
+        panic(err)
+    }
+    _ = result.Results // one verdict per registered check
 ```
 
-On failure, `errors.As` a returned error into the typed `*aletheia.Error`
-(`Kind`, `Code`, `Message`); `Code` mirrors the kernel's `IssueCode` enum
-([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
+On failure, `errors.As` a returned error into the typed `*aletheia.Error` (`Kind`, `Code`, `Message`); `Code` mirrors the kernel's `IssueCode` enum ([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
 
 ### CLI Boundary
 
-The `cmd/aletheia` host binary mirrors the Python `aletheia` subcommands but
-ships **5 of the 6**: `validate`, `extract`, `signals`, `format-dbc`,
-`mux-query`. `check` is deferred — it needs a verified CAN-log reader. Verify
-either through the streaming API above, or with the flagship `check` on the
-Python CLI:
+The `cmd/aletheia` host binary carries the subcommands `python -m aletheia` carries, except `check`: `validate`, `extract`, `signals`, `format-dbc` and `mux-query`. It refuses `check` by name, which needs a CAN-log reader the binding does not provide. Verify through the streaming API above, or run `check` on the Python interface:
 
 ```bash
-ALETHEIA_LIB=build/libaletheia-ffi.so go run ./cmd/aletheia signals --dbc vehicle.dbc
-# or build a standalone binary: (cd go && go build -o aletheia ./cmd/aletheia)
-# `check` is deferred in the Go host CLI; run the flagship check on the Python CLI:
+# From the go/ directory, where the module is; the interface finds the built
+# library from there, and ALETHEIA_LIB points it elsewhere.
+go run ./cmd/aletheia signals --dbc ../examples/example.dbc
+# Or build the binary once: go build -o aletheia ./cmd/aletheia
+# The Go interface does not carry check; the Python one does:
 aletheia check --dbc examples/demo/vehicle.dbc --checks examples/demo/vehicle_checks.yaml examples/demo/drive.log
 ```
 
@@ -691,18 +665,11 @@ aletheia check --dbc examples/demo/vehicle.dbc --checks examples/demo/vehicle_ch
 
 ## Path 7: Rust Developer (Client API)
 
-Wrap the verified core in Rust through `Client`. Every fallible operation
-returns `Result<_, aletheia::Error>`, and `send_frame` returns a typed
-`FrameResponse` you `match` on — verdicts are read structurally, not from a JSON
-dict. The steps below are contiguous slices of one `fn main()`; the assembled
-program is in
-[RUST_API.md § End-to-End](../reference/RUST_API.md#end-to-end-parse-check-stream).
+Wrap the verified core in Rust through `Client`. Every fallible operation returns `Result<_, aletheia::Error>`, and `send_frame` returns a typed `FrameResponse` you `match` on, so verdicts are read structurally, not from a JSON dict. The steps below are contiguous slices of one `fn main()`; the assembled program is in [RUST_API.md § End-to-End](../reference/RUST_API.md#end-to-end-parse-check-stream).
 
 ### Step 1: Build & Link Setup
 
-Add the crate as a path/git dependency (it is not published to crates.io), build
-`libaletheia-ffi.so`, and point the binding at it with the `ALETHEIA_LIB`
-environment variable:
+Add the crate as a path/git dependency (it is not published to crates.io), build `libaletheia-ffi.so`, and point the binding at it with the `ALETHEIA_LIB` environment variable:
 
 ```toml
 # Cargo.toml
@@ -710,9 +677,7 @@ environment variable:
 aletheia = { path = "…" }
 ```
 
-`Client::new()` loads the default library and returns a ready client (for RTS
-cores / a logger use `Client::builder()`; for tests,
-`Client::with_backend(Box::new(MockBackend::new()))` needs no `.so`):
+`Client::new()` loads the default library and returns a ready client (for RTS cores / a logger use `Client::builder()`; for tests, `Client::with_backend(Box::new(MockBackend::new()))` needs no `.so`):
 
 ```rust
 use aletheia::{check, CanId, Client, Dlc, FrameResponse, Timestamp};
@@ -723,22 +688,27 @@ fn main() -> Result<(), aletheia::Error> {
 
 ### Step 2: Parse a DBC
 
-Parse an inline DBC string with `parse_dbc_text` (a real app reads a `.dbc` file
-into this string); it returns the parsed DBC plus any warnings:
+Parse an inline DBC string with `parse_dbc_text` (a real app reads a `.dbc` file into this string); it returns the parsed DBC plus any warnings:
 
 ```rust
     let dbc = r#"VERSION ""
-BU_ ECU
+
+NS_ :
+
+BS_:
+
+BU_: ECU
+
 BO_ 256 Engine: 8 ECU
  SG_ Speed : 0|16@1+ (0.1,0) [0|6553.5] "km/h" ECU
 "#;
-    let (_dbc, _warnings) = client.parse_dbc_text(dbc)?;
+    let parsed = client.parse_dbc_text(dbc)?;
+    let _ = (&parsed.dbc, &parsed.warnings);
 ```
 
 ### Step 3: Register a Check
 
-Numeric thresholds are **exact rationals**; an `i64` literal converts directly —
-`never_exceeds(220)` is 220, never an `f64`:
+Numeric thresholds are **exact rationals**, and an `i64` literal converts directly: `never_exceeds(220)` is 220, never an `f64`:
 
 ```rust
     client.add_checks(&[check::signal("Speed").never_exceeds(220)])?;
@@ -746,9 +716,7 @@ Numeric thresholds are **exact rationals**; an `i64` literal converts directly �
 
 ### Step 4: Stream a Frame
 
-Open the stream and send a frame. `send_frame` returns a typed `FrameResponse`;
-`match` it to read per-frame verdicts structurally (`FrameResponse::Verdicts`
-carries a `Vec<PropertyResult>`):
+Open the stream and send a frame. `send_frame` returns a typed `FrameResponse`; `match` it to read per-frame verdicts structurally (`FrameResponse::Verdicts` carries a `Vec<PropertyResult>`):
 
 ```rust
     client.start_stream()?;
@@ -770,8 +738,7 @@ carries a `Vec<PropertyResult>`):
 
 ### Step 5: Read the Verdict
 
-Close the stream. `end_stream` returns a `StreamResult` with one finalization
-verdict per registered check (plus warnings):
+Close the stream. `end_stream` returns a `StreamResult` with one finalization verdict per registered check (plus warnings):
 
 ```rust
     let result = client.end_stream()?;              // StreamResult: one verdict per check + warnings
@@ -780,17 +747,11 @@ verdict per registered check (plus warnings):
 }
 ```
 
-On failure, `Error` is an enum you `match` directly — `Error::Core { code,
-message }` mirrors the kernel's `IssueCode`; Rust has no dedicated `State` kind,
-so wrong-lifecycle conditions surface as `Error::Protocol`
-([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
+On failure, `Error` is an enum you `match` directly, and `Error::Core { code, message }` mirrors the kernel's `IssueCode`; Rust has no dedicated `State` kind, so wrong-lifecycle conditions surface as `Error::Protocol` ([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
 
 ### CLI Boundary
 
-Rust ships a typed `Client` but **no CLI yet** — a host CLI (and a Rust CAN-log
-reader) are planned for Phase 6. Until then, feed frames from your own source or
-`python-can` via IPC and verify through the streaming API above, or run the
-flagship `check` on the Python CLI:
+Rust ships a typed `Client` and no host interface. Feed frames from your own source, or from `python-can` across a process boundary, and verify through the streaming API above; or run `check` on the Python interface:
 
 ```bash
 aletheia check --dbc examples/demo/vehicle.dbc --checks examples/demo/vehicle_checks.yaml examples/demo/drive.log
@@ -800,11 +761,11 @@ aletheia check --dbc examples/demo/vehicle.dbc --checks examples/demo/vehicle_ch
 
 ## See Also
 
-- **[Quick Start](QUICKSTART.md)** — 5-minute path from zero to working verification
-- **[Cookbook](COOKBOOK.md)** — Problem-driven recipes
-- **[Interface Guide](../reference/INTERFACES.md)** — Complete Check API, YAML, Excel reference
-- **[Python API Guide](../reference/PYTHON_API.md)** — Full DSL and AletheiaClient reference
-- **[C++ API Guide](../reference/CPP_API.md)** — `AletheiaClient`, Check API, and LTL DSL (C++)
-- **[Go API Guide](../reference/GO_API.md)** — `Client`, Check API, and LTL DSL (Go)
-- **[Rust API Guide](../reference/RUST_API.md)** — `Client`, Check API, and LTL DSL (Rust)
-- **[CLI Reference](../reference/CLI.md)** — All subcommands and flags
+- **[Quick Start](QUICKSTART.md)**: the shortest path from nothing to a verified run
+- **[Cookbook](COOKBOOK.md)**: recipes, by the problem they solve
+- **[Interface Guide](../reference/INTERFACES.md)**: the Check API, YAML and Excel in full
+- **[Python API Guide](../reference/PYTHON_API.md)**: the DSL and the client
+- **[C++ API Guide](../reference/CPP_API.md)**: `AletheiaClient`, the Check API and the LTL DSL
+- **[Go API Guide](../reference/GO_API.md)**: `Client`, the Check API and the LTL DSL
+- **[Rust API Guide](../reference/RUST_API.md)**: `Client`, the Check API and the LTL DSL
+- **[CLI Reference](../reference/CLI.md)**: every subcommand and flag
