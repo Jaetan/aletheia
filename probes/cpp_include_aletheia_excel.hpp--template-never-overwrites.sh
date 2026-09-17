@@ -25,7 +25,7 @@ int main(int, char** argv) {
     return second ? 4 : 0;
 }
 CPP
-clang++-22 -std=c++23 -Icpp/include "$scratch/t.cpp" "$lib" $rpath -ldl -lpthread -o "$scratch/t" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }
+clang++-23 -std=c++23 -Icpp/include "$scratch/t.cpp" "$lib" $rpath -ldl -lpthread -o "$scratch/t" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }
 "$scratch/t" "$scratch/template.xlsx" || exit 1
 before=$(sha256sum "$scratch/template.xlsx" | cut -c1-64)
 "$scratch/t" "$scratch/template.xlsx" > /dev/null 2>&1; rc=$?

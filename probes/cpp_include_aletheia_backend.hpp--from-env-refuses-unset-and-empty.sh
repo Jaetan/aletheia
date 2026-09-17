@@ -27,7 +27,7 @@ int main() {
     }
 }
 CPP
-clang++-22 -std=c++23 -Icpp/include "$scratch/t.cpp" "$lib" $rpath -ldl -lpthread -o "$scratch/t" > "$scratch/compile.log" 2>&1 || { tail -3 "$scratch/compile.log"; exit 1; }
+clang++-23 -std=c++23 -Icpp/include "$scratch/t.cpp" "$lib" $rpath -ldl -lpthread -o "$scratch/t" > "$scratch/compile.log" 2>&1 || { tail -3 "$scratch/compile.log"; exit 1; }
 env -u ALETHEIA_LIB "$scratch/t"; unset_rc=$?
 ALETHEIA_LIB= "$scratch/t"; empty_rc=$?
 [ "$unset_rc" -eq 0 ] && [ "$empty_rc" -eq 0 ] || { echo "unset=$unset_rc empty=$empty_rc"; exit 1; }

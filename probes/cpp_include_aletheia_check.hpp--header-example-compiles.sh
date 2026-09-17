@@ -17,4 +17,4 @@ example=$(sed -n '/^\/\/   check::/,/;$/p' cpp/include/aletheia/check.hpp | sed 
     printf '%s\n' "$example" | sed 's/^\(check::\)/auto r_\1/' | awk '{ n++; sub(/^auto r_/, "auto r" n " = "); print }'
     printf '    return 0;\n}\n'
 } > "$scratch/t.cpp"
-clang++-22 -std=c++23 -fsyntax-only -Icpp/include "$scratch/t.cpp" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }
+clang++-23 -std=c++23 -fsyntax-only -Icpp/include "$scratch/t.cpp" > "$scratch/compile.log" 2>&1 || { tail -5 "$scratch/compile.log"; exit 1; }

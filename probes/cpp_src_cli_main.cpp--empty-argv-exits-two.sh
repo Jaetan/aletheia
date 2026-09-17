@@ -23,6 +23,6 @@ int main(int, char** argv) {
     return 99;
 }
 CPP
-clang++-22 -std=c++23 "$scratch/launch.cpp" -o "$scratch/launch" > "$scratch/compile.log" 2>&1 || { tail -3 "$scratch/compile.log"; exit 1; }
+clang++-23 -std=c++23 "$scratch/launch.cpp" -o "$scratch/launch" > "$scratch/compile.log" 2>&1 || { tail -3 "$scratch/compile.log"; exit 1; }
 "$scratch/launch" "$PWD/cpp/build/aletheia-cli" > "$scratch/out.txt" 2> "$scratch/err.txt"; rc=$?
 [ "$rc" -eq 2 ] && grep -q 'Usage: aletheia-cli' "$scratch/err.txt" || { echo "rc=$rc"; head -2 "$scratch/err.txt"; exit 1; }

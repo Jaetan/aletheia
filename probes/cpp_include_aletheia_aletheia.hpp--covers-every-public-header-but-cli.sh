@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.." || exit 2
 scratch=cpp/build/probe-scratch/umbrella
 mkdir -p "$scratch" || exit 2
 printf '#include <aletheia/aletheia.hpp>\n' > "$scratch/u.cpp"
-clang++-22 -std=c++23 -Icpp/include -MM "$scratch/u.cpp" > "$scratch/u.d" 2> "$scratch/u.err" || { tail -3 "$scratch/u.err"; exit 1; }
+clang++-23 -std=c++23 -Icpp/include -MM "$scratch/u.cpp" > "$scratch/u.d" 2> "$scratch/u.err" || { tail -3 "$scratch/u.err"; exit 1; }
 seen=$(tr ' \\' '\n\n' < "$scratch/u.d" | grep 'cpp/include/aletheia/' | sed 's|.*/include/aletheia/||' | sort -u)
 status=0
 for h in $(cd cpp/include/aletheia && ls *.hpp); do

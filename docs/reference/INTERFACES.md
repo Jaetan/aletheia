@@ -709,7 +709,7 @@ logging.getLogger("aletheia").addHandler(logging.StreamHandler())
 ```cpp
 auto logger = aletheia::Logger{[](const aletheia::LogRecord& r) {
     std::cerr << r.event;
-    for (const auto& [key, value] : r.fields) {
+    for (auto const& [key, value] : r.fields) {
         std::cerr << ' ' << key << '=';
         std::visit([](auto&& v) { std::cerr << v; }, value);
     }

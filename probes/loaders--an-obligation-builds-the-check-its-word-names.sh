@@ -92,7 +92,7 @@ print(f"  python: {len(WANT)} obligations build what they name, and an unknown o
 PY
 ) || status=1
 
-if command -v clang++-22 > /dev/null && [ -f cpp/build/libaletheia-cpp.so ]; then
+if command -v clang++-23 > /dev/null && [ -f cpp/build/libaletheia-cpp.so ]; then
     cat > "$work/c.cpp" <<'CPP'
 #include <aletheia/backend.hpp>
 #include <aletheia/yaml.hpp>
@@ -136,7 +136,7 @@ int main() {
     return bad == 0 ? 0 : 1;
 }
 CPP
-    if clang++-22 -std=c++23 -Icpp/include "$work/c.cpp" cpp/build/libaletheia-cpp.so \
+    if clang++-23 -std=c++23 -Icpp/include "$work/c.cpp" cpp/build/libaletheia-cpp.so \
         -Wl,-rpath,"$root/cpp/build" -ldl -lpthread -o "$work/c" > "$work/cc.log" 2>&1; then
         "$work/c" || status=1
     else

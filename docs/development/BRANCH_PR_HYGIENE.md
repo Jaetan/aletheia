@@ -153,9 +153,9 @@ impossible on `main`.
 ## Known footguns (baked into the draft, but the likely iteration points)
 
 - **C++/LLVM is the #1 risk.** `ubuntu-24.04` defaults to `gcc-13` / `clang-18`,
-  but the build uses `clang-22` (the supported toolchain — see
+  but the build uses `clang-23` (the supported toolchain, see
   [BUILDING.md § Toolchain support policy](BUILDING.md#toolchain-support-policy)),
-  and every C++ lane (ctest, clang-tidy, ubsan) pins it. `clang-22` is not in
+  and every C++ lane (ctest, clang-tidy, ubsan) pins it. `clang-23` is not in
   the runner's default apt, so the workflows install it from `apt.llvm.org`
   (cached). Expect this section to go red first.
 - **Diff base.** `run_ci`'s IWYU `--diff` and `changed_agda_files` do

@@ -380,7 +380,7 @@ pushes the runtime image (built from `Dockerfile.runtime` over the same
 
 The image build is itself a publish gate and runs *before* anything is
 published: throwaway verify stages must build the bundled Rust crate and
-C++ binding (clang-22), and build **and run** a Go consumer, against the
+C++ binding (clang-23), and build **and run** a Go consumer, against the
 image's own `/opt/aletheia` — so an image whose bindings cannot consume its
 kernel never ships.  The push happens last because it is the one
 non-draft publish surface: GHCR has no draft state, a failed push is

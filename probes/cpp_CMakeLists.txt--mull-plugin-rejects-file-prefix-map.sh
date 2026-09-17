@@ -14,15 +14,19 @@
 # when the plugin is not installed, since the claim is then untestable here.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-plugin=$HOME/.local/bin/mull-ir-frontend-22
+plugin=$HOME/.local/bin/mull-ir-frontend-23
 [ -x "$plugin" ] || { echo "plugin not installed, claim untestable"; exit 0; }
 scratch=cpp/build/probe-scratch/prefixmap
 mkdir -p "$scratch" || exit 2
 root=$(pwd)
 cd "$scratch" || exit 2
-if clang++-22 -std=c++23 "-fpass-plugin=$plugin" -g -O0 "-ffile-prefix-map=$root=." \
-    -I"$root/cpp/include" -I"$root/cpp/src" -c "$root/cpp/src/types.cpp" -o types.o > compile.log 2>&1; then
+# clang runs the compiler in its own process, so the plugin's crash is the
+# driver's own signal: the shell reports 128 plus SIGSEGV, which is 139.
+clang++-23 -std=c++23 "-fpass-plugin=$plugin" -g -O0 "-ffile-prefix-map=$root=." \
+    -I"$root/cpp/include" -I"$root/cpp/src" -c "$root/cpp/src/types.cpp" -o types.o > compile.log 2>&1
+status=$?
+if [ "$status" -eq 0 ]; then
     echo "plugin now accepts -ffile-prefix-map; drop the exclusion in cpp/CMakeLists.txt"
     exit 1
 fi
-grep -q 'exit code 139' compile.log
+[ "$status" -eq 139 ] || grep -q 'exit code 139' compile.log

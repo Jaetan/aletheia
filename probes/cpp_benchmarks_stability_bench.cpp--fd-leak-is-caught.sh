@@ -24,8 +24,8 @@ sed -e 's|^#include <malloc.h>|#include <malloc.h>\n#include <fcntl.h>|' \
     "$src" > "$scratch/leaky.cpp"
 grep -q 'injected leak' "$scratch/leaky.cpp" || { echo "injection point not found"; exit 1; }
 link="$lib $rpath -ldl -lpthread"
-clang++-22 -std=c++23 -O2 -DNDEBUG -Icpp/include "$scratch/leaky.cpp" $link -o "$scratch/leaky" > "$scratch/compile.log" 2>&1 || { tail -3 "$scratch/compile.log"; exit 1; }
-clang++-22 -std=c++23 -O2 -DNDEBUG -Icpp/include "$src" $link -o "$scratch/clean" >> "$scratch/compile.log" 2>&1 || { tail -3 "$scratch/compile.log"; exit 1; }
+clang++-23 -std=c++23 -O2 -DNDEBUG -Icpp/include "$scratch/leaky.cpp" $link -o "$scratch/leaky" > "$scratch/compile.log" 2>&1 || { tail -3 "$scratch/compile.log"; exit 1; }
+clang++-23 -std=c++23 -O2 -DNDEBUG -Icpp/include "$src" $link -o "$scratch/clean" >> "$scratch/compile.log" 2>&1 || { tail -3 "$scratch/compile.log"; exit 1; }
 export ALETHEIA_LIB=$PWD/build/libaletheia-ffi.so ALETHEIA_STABILITY_CYCLES=2 ALETHEIA_STABILITY_FRAMES=500
 "$scratch/clean" > "$scratch/clean.json" 2>/dev/null || { echo "clean harness failed"; exit 1; }
 if "$scratch/leaky" > "$scratch/leaky.json" 2>/dev/null; then echo "leaking harness passed"; exit 1; fi

@@ -10,12 +10,12 @@
 # checks reports over cpp/src.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v run-clang-tidy-22 > /dev/null || { echo "run-clang-tidy-22 not installed"; exit 0; }
+command -v run-clang-tidy-23 > /dev/null || { echo "run-clang-tidy-23 not installed"; exit 0; }
 [ -f cpp/build/compile_commands.json ] || { echo "no compile database; configure cpp/build"; exit 2; }
 checks=$(sed -n '/^Checks: >/,/^$/p' cpp/tests/.clang-tidy \
     | grep -oE '^\s*-[a-z][A-Za-z0-9*.-]*' | sed 's/^ *-//' | paste -sd, -)
 [ -n "$checks" ] || { echo "the test configuration disables nothing"; exit 1; }
-out=$(cd cpp && run-clang-tidy-22 -quiet -p build -checks="-*,$checks" cpp/src/ 2>&1)
+out=$(cd cpp && run-clang-tidy-23 -quiet -p build -checks="-*,$checks" cpp/src/ 2>&1)
 found=$(printf '%s\n' "$out" | grep -cE '(warning|error):')
 if [ "$found" -ne 0 ]; then
     echo "a check disabled for the tests reports over the library, $found times:"

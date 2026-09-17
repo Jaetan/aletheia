@@ -327,13 +327,13 @@ def _run_binding_tests(runner: Runner) -> None:
     cpp_lib = shlex.quote(str(runner.repo_root / "build" / "libaletheia-ffi.so"))
     runner.step(
         "ctest",
-        # Pin to clang-22 — the supported toolchain (latest stable), the SAME
+        # Pin to clang-23, the supported toolchain (latest stable), the SAME
         # compiler the sanitizer + mutation lanes use, so unit tests sanitize the
         # same compilation we ship. Bare `clang`/default cc resolves to the
         # runner's clang-18 / g++ (clang < 19 mis-handles the C++23 <expected>
-        # libstdc++ ships); clang-22 is version-pinned + installed by the workflow via
+        # libstdc++ ships); clang-23 is version-pinned + installed by the workflow via
         # apt.llvm.org (no update-alternatives roulette).
-        "cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 "
+        "cmake -B build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 "
         + f"> /dev/null && cmake --build build && ALETHEIA_LIB={cpp_lib} ctest --test-dir build",
         cwd=runner.repo_root / "cpp",
     )
@@ -509,16 +509,21 @@ def _run_lints(runner: Runner) -> None:
     # root configuration with nothing disabled on their account.
     runner.step(
         "clang-tidy",
-        "run-clang-tidy-22 -quiet -p build cpp/src/ cpp/tests/ cpp/benchmarks/",
+        "run-clang-tidy-23 -quiet -p build cpp/src/ cpp/tests/ cpp/benchmarks/",
         cwd=runner.repo_root / "cpp",
     )
     # Coverage guard: every cpp/src/**/*.cpp must appear in the compile DB, so a
     # source someone forgets to wire into a CMake target fails CI rather than
     # being silently unbuilt + unlinted (run-clang-tidy only lints compiled TUs).
+    # It reads cpp/build/compile_commands.json, which the ctest step above
+    # writes, so it runs in the cpp lane after that step; from the repository
+    # root its cwd would infer "misc" and it could run before the build tree
+    # exists.
     runner.step(
         "check-clang-tidy-coverage",
         [runner.python, "-m", "tools.check_clang_tidy_coverage"],
         cwd=runner.repo_root,
+        lane="cpp",
     )
 
     # Rust lints: rustfmt (check) + clippy (deny warnings) + rustdoc (deny
@@ -665,13 +670,13 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
     cpp_lib = shlex.quote(str(runner.repo_root / "build" / "libaletheia-ffi.so"))
     runner.step(
         "ubsan ctest",
-        # clang-22 (the supported toolchain — matches the regular ctest + mutation
+        # clang-23 (the supported toolchain, which matches the regular ctest + mutation
         # lanes).  UB can differ between compiler versions, so the sanitizer lane
         # MUST exercise the shipped compiler's codegen, not an older clang; bare
         # `clang++` also resolves to the runner's clang-18, which fails to compile
         # the <expected> libstdc++ ships (std::expected, C++23).
         "cmake -B build-ubsan -DALETHEIA_SANITIZER=undefined "
-        + "-DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 > /dev/null"
+        + "-DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null"
         + f" && cmake --build build-ubsan && ALETHEIA_LIB={cpp_lib} ctest --test-dir build-ubsan",
         cwd=runner.repo_root / "cpp",
         # Own lane (not "cpp"): ubsan uses a SEPARATE build-ubsan/ dir, so it runs

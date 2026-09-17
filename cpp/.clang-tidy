@@ -34,7 +34,6 @@
 #   performance-unnecessary-value-param
 #       — strong types are tiny; pass-by-value is intentional for 8-16 byte wrappers
 #   google-readability-braces-around-statements,
-#   hicpp-braces-around-statements,
 #   readability-braces-around-statements
 #       — we prefer compact single-statement bodies: if (x) return y;
 #   performance-enum-size
@@ -53,6 +52,11 @@
 #   cppcoreguidelines-pro-bounds-avoid-unchecked-container-access
 #       — operator[] on pre-validated indices is intentional; .at() would add
 #         hot-path bounds-check exceptions (we self-check our bounds)
+#   readability-trailing-comma
+#       clang-format answers a trailing comma by breaking the list one element
+#       per line and nesting each designated initializer on its own line, so the
+#       compact aggregate literals the tests are written in sprawl: enabling it
+#       reflows 1985 lines added for 1245 removed over 51 sources
 #   boost-use-ranges, llvm-use-ranges
 #       each asks for a range algorithm from a library the project does not
 #       depend on, and their fix-its add the include that pulls it in: one
@@ -82,13 +86,13 @@ Checks: >
   -bugprone-easily-swappable-parameters,
   -performance-unnecessary-value-param,
   -google-readability-braces-around-statements,
-  -hicpp-braces-around-statements,
   -readability-braces-around-statements,
   -performance-enum-size,
   -concurrency-mt-unsafe,
   -misc-use-anonymous-namespace,
   -portability-avoid-pragma-once,
   -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
+  -readability-trailing-comma,
   -boost-use-ranges,
   -llvm-use-ranges
 

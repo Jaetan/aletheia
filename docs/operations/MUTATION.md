@@ -58,7 +58,7 @@ independently.
 |---|---|---|
 | Python | `mutmut` 3.x | `aletheia/client/_client.py`, `aletheia/dbc/_converter.py`, `aletheia/yaml_loader.py`, `aletheia/codes/_issue.py`, `aletheia/types.py` |
 | Go | `gremlins` | `aletheia/client.go`, `dbc.go`, `json.go`¹, `ffi.go`, `ffi_nocgo.go`, `enrich.go`² |
-| C++ | `Mull` 0.34.0 (LLVM 22, from source) | `cpp/src/*.cpp` less `mock_backend.cpp` / `types.cpp` (test-only / type-defs) and `rational_renderer.cpp` — the exact mutated set is enumerated in `docs/MUTATION_BENCH.yaml` |
+| C++ | `Mull` 0.34.1 (LLVM 23, from source) | `cpp/src/*.cpp` less `mock_backend.cpp` / `types.cpp` (test-only / type-defs) and `rational_renderer.cpp`, with the exact mutated set enumerated in `docs/MUTATION_BENCH.yaml` |
 
 AGENTS.md cat 14(g) names `gomut` / `go-mutesting` / `mutate` for Go.  We use
 **`gremlins`** (`github.com/go-gremlins/gremlins`) instead because both
@@ -111,44 +111,34 @@ which gremlins    # expect: ~/go/bin/gremlins
 
 ### C++ — `Mull`
 
-The project supports only the latest stable Clang (22), and UB can differ
-between compiler versions — so the mutation lane MUST test clang-22 codegen.
-No prebuilt Mull deb ships for LLVM 22 (Mull's release debs stop at LLVM-15),
-so Mull is **built from source** against the system LLVM-22.  The binaries
-land in `~/.local/bin/` (no sudo for the copy), which the project assumes is
-on `$PATH` (see CLAUDE.md § Development Environment).
+The project supports only the latest stable Clang (23), and UB can differ
+between compiler versions, so the mutation lane MUST test clang-23 codegen.
+No prebuilt Mull deb ships past LLVM 15, and Mull 0.34.1 itself stops at LLVM
+22, so `tools/build_mull.sh` **builds Mull from source** against the system
+LLVM-23 with the patch that lets it see LLVM 23: its supported-version list,
+and the one call in libirm that LLVM 23 removed.  The binaries land in
+`~/.local/bin/` (no sudo for the copy), which the project assumes is on
+`$PATH` (see CLAUDE.md § Development Environment).
 
 ```bash
-# System LLVM-22 + clang-22 (one-time; apt.llvm.org on Debian/Ubuntu).
-sudo apt install clang-22 llvm-22-dev libclang-22-dev
+# System LLVM-23 + clang-23 (one-time; apt.llvm.org on Ubuntu, the archive on Debian).
+sudo apt install clang-23 llvm-23-dev libclang-23-dev
 
-# Build Mull 0.34.0 from source.  bazelisk reads Mull's .bazelversion (8.6.0);
-# the build uses the system LLVM via new_local_repository(/usr/lib/llvm-22) —
-# no LLVM download.
-curl -fsSL -o ~/.local/bin/bazel \
-  https://github.com/bazelbuild/bazelisk/releases/download/v1.27.0/bazelisk-linux-amd64
-chmod +x ~/.local/bin/bazel
-git clone --depth 1 --branch 0.34.0 --recursive \
-  https://github.com/mull-project/mull /tmp/mull
-cd /tmp/mull
-# Mull's MODULE.bazel OS map caps ubuntu:24.04 at LLVM-20 — add "22":
-sed -i 's/        "ubuntu:24.04": \[/        "ubuntu:24.04": [\n            "22",/' MODULE.bazel
-bazel build //rust/mull-tools:mull-runner-22 \
-            //rust/mull-tools:mull-reporter-22 //:mull-ir-frontend-22
-cp -L bazel-bin/rust/mull-tools/mull-runner-22   ~/.local/bin/
-cp -L bazel-bin/rust/mull-tools/mull-reporter-22 ~/.local/bin/
-cp -L bazel-bin/mull-ir-frontend-22              ~/.local/bin/
+# Build Mull 0.34.1 from source into ~/.local/bin.  bazelisk is fetched there
+# and reads Mull's .bazelversion; the build uses the system LLVM via
+# /usr/lib/llvm-23, so no LLVM is downloaded.
+tools/build_mull.sh
 
-# Verify
-mull-runner-22 --version    # expect: mull-runner 0.34.0  LLVM: 22.x
+# Verify: a from-source build prints the unstamped banner.
+mull-runner-23 --version    # mull-runner {STABLE_MULL_VERSION}
 ```
 
-`mull-runner` / `mull-reporter` are Rust binaries; `mull-ir-frontend-22` is a
+`mull-runner` / `mull-reporter` are Rust binaries; `mull-ir-frontend-23` is a
 C++ clang plugin `.so`.  The standard build (`cmake -B build`) also requires
-`clang++-22` (the project supports the latest stable Clang only; g++
-unsupported); the mutation lane uses the same `clang++-22` inside its dedicated
-`cpp/build-mutation/` tree.  CI caches both the clang-22 debs and the
-from-source Mull build (keyed on the Mull tag + LLVM version) — see
+`clang++-23` (the project supports the latest stable Clang only; g++
+unsupported); the mutation lane uses the same `clang++-23` inside its dedicated
+`cpp/build-mutation/` tree.  CI caches both the clang-23 debs and the
+from-source Mull build (keyed on the Mull tag + LLVM version), see
 `.github/workflows/pr-heavy-lanes.yml`.
 
 ## Running the lane
@@ -179,9 +169,9 @@ cd go && gremlins unleash ./aletheia
 # `cabal run shake -- build` first).
 cd cpp
 cmake -B build-mutation -DALETHEIA_MUTATION=ON \
-      -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22
+      -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 cmake --build build-mutation --target unit_tests
-mull-runner-22 ./build-mutation/unit_tests
+mull-runner-23 ./build-mutation/unit_tests
 ```
 
 Per-binding skip env vars (useful for partial runs):

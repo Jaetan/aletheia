@@ -91,6 +91,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The supported C++ toolchain is Clang 23.** Every site that installs, invokes,
+  caches or documents the compiler moves from 22 to 23: the five workflows, the
+  runtime image, the CI steps, the benchmark runner, the probes, the pinned pip
+  `clang-format`, and the policy line in `cpp/CMakeLists.txt`, which a new probe
+  reads to hold the rest of the tree to one version. The mutation lane moves with
+  it: Mull 0.34.1 stops at LLVM 22, so `tools/build_mull.sh` builds it from source
+  with the two-line patch LLVM 23 needs and is the one recipe the workflow and the
+  documents call. clang-tidy 23 retires the `hicpp` module and adds checks the
+  sources now satisfy: `const` on every value that is never written, no empty
+  parameter list on a lambda, and the single-character overloads of the string
+  members; `readability-trailing-comma` is disabled, because clang-format answers
+  a trailing comma by breaking the list one element per line. A const-qualified
+  `auto` is now spelled `auto const` everywhere, the placement the C++ standard
+  in `AGENTS/cpp.md` fixes and a probe holds. The `check-clang-tidy-coverage`
+  step runs in the C++ lane after the build that writes the compile database it
+  reads, instead of racing it.
 - **BREAKING (Go): the backend interface takes one slice of injections, not a count
   and three arrays.** `BuildFrameBin` and `UpdateFrameBin` took a signal count beside
   three slices of that length, so nothing carried the fact that the three agree and

@@ -13,7 +13,7 @@ Scope: ALL source files, headers, and test files in `cpp/`.
 2. **Formatting** -- .clang-format compliance
 3. **Include hygiene** -- minimal includes, no implementation details leaking into public headers
 4. **Dead code** -- no unused types, functions, or includes
-5. **const-correctness** -- const where possible, no unnecessary mutability
+5. **const-correctness** -- const where possible, no unnecessary mutability; a const-qualified `auto` is spelled `auto const` (`auto const&`, `auto const*`), never `const auto`, and a probe holds every source to it
 6. **Comment quality** -- explains "why" not "what"; no stale comments
 
 ### Type & Safety (4)
@@ -73,7 +73,7 @@ Scope: ALL source files, headers, and test files in `cpp/`.
 
 ### Build & Packaging (2)
 
-31. **ABI & compiler portability** -- targets **Clang 22 on Linux only** ([the supported toolchain](../docs/development/BUILDING.md#toolchain-support-policy)); any `__attribute__`/`[[gnu::...]]` extension or compiler builtin must be available under Clang 22; public headers use only C++23 features the toolchain's libstdc++/libc++ provides (`<expected>`, `<format>`); no reliance on undocumented layout of `std::` types; anonymous namespaces only in `.cpp` files, never in headers (ODR violations).
+31. **ABI & compiler portability** -- targets **Clang 23 on Linux only** ([the supported toolchain](../docs/development/BUILDING.md#toolchain-support-policy)); any `__attribute__`/`[[gnu::...]]` extension or compiler builtin must be available under Clang 23; public headers use only C++23 features the toolchain's libstdc++/libc++ provides (`<expected>`, `<format>`); no reliance on undocumented layout of `std::` types; anonymous namespaces only in `.cpp` files, never in headers (ODR violations).
 32. **Build reproducibility & CMake hygiene** -- `target_include_directories` uses `BUILD_INTERFACE`/`INSTALL_INTERFACE` correctly, no absolute paths baked into binaries, `__DATE__`/`__TIME__` not used, `target_link_libraries` scope (`PRIVATE`/`PUBLIC`/`INTERFACE`) intentional with no leaky `PUBLIC` on implementation-only deps, ctest targets isolated from each other (no shared temp files), FetchContent pinned to exact commits not floating branches, no global `add_definitions`.
 
 ### Dynamic Correctness Analysis (1)
@@ -94,7 +94,7 @@ cd cpp && ctest --test-dir build --schedule-random --output-on-failure
 git ls-files -z -- '*.cpp' '*.hpp' | xargs -0 -r clang-format-22 --style=file:cpp/.clang-format --dry-run --Werror
 # The lint gate runs FROM cpp/: clang-tidy finds .clang-tidy by walking up, so
 # the same command from the repository root enables no checks and looks clean.
-cd cpp && run-clang-tidy-22 -quiet -p build cpp/src/ cpp/tests/ cpp/benchmarks/
+cd cpp && run-clang-tidy-23 -quiet -p build cpp/src/ cpp/tests/ cpp/benchmarks/
 # Cat 33 dynamic-analysis lanes:
 cd cpp && cmake -B build-asan -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" && cmake --build build-asan && ctest --test-dir build-asan
 # The fuzz recipe is written once, in cpp/tests/fuzz/fuzz_parse_response.cpp,

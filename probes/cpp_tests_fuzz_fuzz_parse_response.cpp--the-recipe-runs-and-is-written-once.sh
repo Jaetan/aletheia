@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.." || exit 2
 owner=cpp/tests/fuzz/fuzz_parse_response.cpp
 status=0
 
-command -v clang > /dev/null && command -v clang++ > /dev/null || {
+command -v clang-23 > /dev/null && command -v clang++-23 > /dev/null || {
     echo "clang not installed, recipe untestable"
     exit 0
 }
@@ -52,7 +52,7 @@ done
 # The comment's paths are relative to cpp/, so the commands run from there.
 cd cpp || exit 2
 cmake -B build-fuzz -DALETHEIA_FUZZ=ON \
-    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > /dev/null 2>&1 || {
+    -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null 2>&1 || {
     echo "the configure line the comment gives does not run"
     exit 1
 }

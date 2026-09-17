@@ -26,14 +26,14 @@ grep -q 'add_library(aletheia-cpp ${ALETHEIA_CPP_LINKAGE}' "$cmake" || {
 
 # The count itself, against the recorded baseline, when the lane is built.
 report=cpp/build-mutation/probe-linkage.json
-if [ -x cpp/build-mutation/unit_tests ] && command -v mull-runner-22 > /dev/null; then
+if [ -x cpp/build-mutation/unit_tests ] && command -v mull-runner-23 > /dev/null; then
     # The runner's exit code is not the signal here: it exits non-zero when a
     # mutant survives, and this probe asks how many mutants the lane can see
     # rather than how many it kills, which is the C++ baseline's question. A
     # sweep that genuinely could not run leaves no report, which is what is
     # checked instead.
     (cd cpp/build-mutation &&
-        ALETHEIA_REPO_ROOT="$OLDPWD" mull-runner-22 ./unit_tests \
+        ALETHEIA_REPO_ROOT="$OLDPWD" mull-runner-23 ./unit_tests \
             --report-name=probe-linkage --reporters=Elements > /dev/null 2>&1) || true
     [ -s "$report" ] || {
         echo "FAIL: the sweep produced no report"

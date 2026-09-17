@@ -287,7 +287,7 @@ void streaming_worker(std::stop_token stop,
                                         frame->dlc, frame->data);
 
         if (!result) {
-            const auto& err = result.error();
+            auto const& err = result.error();
             if (err.kind() == aletheia::ErrorKind::Cancellation) {
                 // Contract: the call did NOT execute the FFI (pre-FFI check
                 // tripped on stop_requested). `committed` is accurate.

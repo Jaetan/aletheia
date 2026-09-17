@@ -33,7 +33,7 @@ The runner also clears the selected mode's results before running, so a lane tha
 # Prerequisites (one-time)
 cabal run shake -- build                                                # libaletheia-ffi.so
 source python/.venv/bin/activate && (cd python && pip install -e '.[dev]')  # Python binding
-cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22  # configure C++ (Clang 22)
+cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23  # configure C++ (Clang 23)
 # `go` and `cargo` on PATH; the runner builds those benchmarks itself.
 
 # Run throughput across all four bindings, 10,000 frames × 5 runs

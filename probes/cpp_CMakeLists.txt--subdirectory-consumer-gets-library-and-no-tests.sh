@@ -27,7 +27,7 @@ CPP
 # Point FetchContent at the sources the standalone tree already fetched, so
 # nothing is downloaded and the standalone tree's own sub-builds are untouched.
 deps=$here/cpp/build/_deps
-cmake -S "$scratch" -B "$scratch/build" -DCMAKE_CXX_COMPILER=clang++-22 \
+cmake -S "$scratch" -B "$scratch/build" -DCMAKE_CXX_COMPILER=clang++-23 \
     -DFETCHCONTENT_SOURCE_DIR_JSON="$deps/json-src" \
     -DFETCHCONTENT_SOURCE_DIR_YAML-CPP="$deps/yaml-cpp-src" \
     -DFETCHCONTENT_SOURCE_DIR_OPENXLSX="$deps/openxlsx-src" > "$scratch/configure.log" 2>&1 || { tail -5 "$scratch/configure.log"; exit 1; }

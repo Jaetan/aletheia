@@ -10,16 +10,16 @@
 # exit: a harness carries a finding, or the fuzz tree cannot be configured.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v run-clang-tidy-22 > /dev/null || { echo "run-clang-tidy-22 not installed"; exit 0; }
+command -v run-clang-tidy-23 > /dev/null || { echo "run-clang-tidy-23 not installed"; exit 0; }
 cd cpp || exit 2
 if [ ! -f build-fuzz/compile_commands.json ]; then
     cmake -B build-fuzz -DALETHEIA_FUZZ=ON \
-        -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > /dev/null 2>&1 || {
+        -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null 2>&1 || {
         echo "the fuzz tree cannot be configured"
         exit 2
     }
 fi
-out=$(run-clang-tidy-22 -quiet -p build-fuzz cpp/tests/fuzz/ 2>&1)
+out=$(run-clang-tidy-23 -quiet -p build-fuzz cpp/tests/fuzz/ 2>&1)
 found=$(printf '%s\n' "$out" | grep -cE '(warning|error):')
 if [ "$found" -ne 0 ]; then
     echo "the fuzz harnesses carry $found findings:"

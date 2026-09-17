@@ -157,7 +157,7 @@ build` already requires.  The opt-in lanes need additional installs.
 `-fsanitize-ignorelist=` flag (which g++ doesn't support).  Most distros'
 default `clang` package is sufficient; verify with `clang --version`.  No
 extra install if you already use `tools/run_ci.py` for the mutation lane
-(the supported clang-22 covers sanitizers too; older clang also works here).
+(the supported clang-23 covers sanitizers too; older clang also works here).
 This lane is always-on, not opt-in; if clang is absent the step fails loudly
 rather than silently skipping — install clang or run the sweep on a host
 that has it.
@@ -186,12 +186,13 @@ cd python && .venv/bin/pip install -e '.[mutation]'
 # because zimmski's repo is unmaintained since 2021 (panics on Go 1.26).
 go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
 
-# C++: Mull 0.34.0 built from source against system LLVM-22 (no prebuilt deb
-# ships for LLVM 22).  The full grounded recipe (apt deps, Bazel targets, the
-# MODULE.bazel ubuntu:24.04 patch) lives in docs/operations/MUTATION.md § C++.
+# C++: Mull 0.34.1 built from source against system LLVM-23 by
+# tools/build_mull.sh (no prebuilt deb ships past LLVM 15, and Mull itself
+# stops at LLVM 22, so the script carries the patch).  The procedure, apt deps
+# included, is in docs/operations/MUTATION.md § C++.
 
 # Verify all three are discoverable
-which mutmut gremlins mull-runner-22  # mutmut is in python/.venv/bin/
+which mutmut gremlins mull-runner-23  # mutmut is in python/.venv/bin/
 ```
 
 Each tool's absence is detected by `tools/mutation_run.py` and surfaces

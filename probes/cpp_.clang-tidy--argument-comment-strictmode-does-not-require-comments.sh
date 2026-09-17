@@ -20,7 +20,7 @@ void g() {
     f(/*beta=*/1, 2);
 }
 CPP
-out=$(clang-tidy-22 --quiet -checks='-*,bugprone-argument-comment' \
+out=$(clang-tidy-23 --quiet -checks='-*,bugprone-argument-comment' \
     -config='{CheckOptions: {bugprone-argument-comment.StrictMode: "true"}}' \
     "$scratch/t.cpp" -- -std=c++23 2>/dev/null)
 uncommented=$(printf '%s\n' "$out" | grep -c 't.cpp:3:')

@@ -18,6 +18,6 @@ int k(int* p, int n) {
     return 0;
 }
 CPP
-out=$(clang-tidy-22 --quiet -checks='-*,readability-implicit-bool-conversion' \
+out=$(clang-tidy-23 --quiet -checks='-*,readability-implicit-bool-conversion' \
     -config='{}' "$scratch/t.cpp" -- -std=c++23 2>/dev/null)
 printf '%s\n' "$out" | grep -q 't.cpp:2:' && printf '%s\n' "$out" | grep -q 't.cpp:3:'

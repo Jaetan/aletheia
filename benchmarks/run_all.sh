@@ -21,7 +21,7 @@
 # Prerequisites:
 #     - libaletheia-ffi.so built (cabal run shake -- build)
 #     - Python venv activated with aletheia installed
-#     - C++ tree configured (cd cpp && cmake -B build -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22)
+#     - C++ tree configured (cd cpp && cmake -B build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23)
 #     - Go (go) and Rust (cargo) toolchains on PATH
 #
 # The C++, Go, and Rust benchmark binaries are BUILT by this script, never
@@ -134,7 +134,7 @@ if [[ -f "$CPP_CACHE" ]]; then
         echo "ERROR: cpp/build is configured with CMAKE_BUILD_TYPE=Debug." >&2
         echo "       Debug builds produce unoptimized benchmarks." >&2
         echo "       Reconfigure with:" >&2
-        echo "         rm -rf cpp/build && cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 && cmake --build cpp/build" >&2
+        echo "         rm -rf cpp/build && cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 && cmake --build cpp/build" >&2
         exit 1
     fi
 fi
@@ -279,7 +279,7 @@ cd "$PROJECT_DIR"
 # Rebuilt here whenever the tree is configured, for the same reason as Go below:
 # a pre-built binary can predate a kernel wire change and measure a format it
 # cannot decode.  `cmake --build` is incremental, so a warm tree is fast.  An
-# unconfigured tree is a graceful SKIP (configuring needs clang-22 + the
+# unconfigured tree is a graceful SKIP (configuring needs clang-23 + the
 # FetchContent deps), matching the other optional-binding lanes; a configured
 # tree that fails to build is a FAIL, because the toolchain is present.
 CPP_DIR="$PROJECT_DIR/cpp"

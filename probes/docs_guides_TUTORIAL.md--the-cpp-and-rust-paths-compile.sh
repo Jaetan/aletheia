@@ -22,12 +22,12 @@ work=$(mktemp -d) || exit 2
 trap 'rm -rf "$work"' EXIT
 status=0
 
-if command -v clang++-22 > /dev/null && [ -f cpp/build/libaletheia-cpp.so ]; then
+if command -v clang++-23 > /dev/null && [ -f cpp/build/libaletheia-cpp.so ]; then
 	awk '/^```cpp$/{flag=1; next} /^```$/{flag=0} flag' "$guide" > "$work/path.cpp"
 	grep -q "int main" "$work/path.cpp" || { echo "the C++ path no longer opens a program"; exit 1; }
 	# The steps leave main open, each being a slice of it.
 	printf '    return 0;\n}\n' >> "$work/path.cpp"
-	if ! clang++-22 -std=c++23 -Icpp/include "$work/path.cpp" cpp/build/libaletheia-cpp.so \
+	if ! clang++-23 -std=c++23 -Icpp/include "$work/path.cpp" cpp/build/libaletheia-cpp.so \
 		-Wl,-rpath,"$root/cpp/build" -ldl -lpthread -o "$work/path" > "$work/cpp.log" 2>&1; then
 		echo "the C++ path does not compile:"
 		head -5 "$work/cpp.log" | sed 's/^/  /'
