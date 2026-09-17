@@ -1174,6 +1174,21 @@ func TestCreateTemplate_RejectsMissingParentDir(t *testing.T) {
 	requireErrorContains(t, err, "parent directory does not exist")
 }
 
+// TestCreateTemplate_StatFailureNotMislabeled: a parent whose component is
+// longer than a name may be makes the stat itself fail, which is not the
+// directory being absent. Reporting it as absent would send a reader to create
+// a directory that may well be there. The input path is held to the same
+// distinction by TestLoadExcelStatFailureNotMislabeled, and the C++ binding to
+// both. A name too long is the trigger because it needs no permissions.
+func TestCreateTemplate_StatFailureNotMislabeled(t *testing.T) {
+	bad := filepath.Join("/tmp", strings.Repeat("a", 5000), "template.xlsx")
+	err := CreateTemplate(bad)
+	requireErrorContains(t, err, "stat parent directory")
+	if strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("stat failure mislabeled as an absent directory: %v", err)
+	}
+}
+
 // TestLoadExcelChecksRejectsNumberCell: a numeric field stored as a number
 // cell, which holds a float, is refused; the exact value is entered as text and
 // the kernel parses the literal. Built cell by cell here, the workbook helpers

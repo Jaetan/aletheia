@@ -113,6 +113,12 @@ func checkXlsxUncompressedBound(path string) error {
 // validateOutputParentDir requires the directory a file is about to be written
 // into to exist. A path naming no directory is the working one, which does. The
 // C++ binding checks the same.
+//
+// A failure to look at the directory is not the directory being absent, and is
+// not reported as one: a component too long to be a name, a directory that
+// cannot be searched, or a descriptor limit reached under load would send a
+// reader to create something that is already there. This is the distinction
+// validateLoaderPath draws above, keyed the same way.
 func validateOutputParentDir(path string) error {
 	parent := filepath.Dir(path)
 	if parent == "" || parent == "." {
@@ -120,7 +126,10 @@ func validateOutputParentDir(path string) error {
 	}
 	info, err := os.Stat(parent)
 	if err != nil {
-		return aletheia.NewValidationError(fmt.Sprintf("parent directory does not exist: %s", parent))
+		if errors.Is(err, os.ErrNotExist) {
+			return aletheia.NewValidationError(fmt.Sprintf("parent directory does not exist: %s", parent))
+		}
+		return aletheia.WrapValidationError("stat parent directory", err)
 	}
 	if !info.IsDir() {
 		return aletheia.NewValidationError(fmt.Sprintf("parent path is not a directory: %s", parent))
