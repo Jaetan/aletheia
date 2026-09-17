@@ -1299,3 +1299,31 @@ func TestBuildFrame_BeforeParseDBC(t *testing.T) {
 		t.Errorf("the backend was reached %d times before a DBC was loaded", n)
 	}
 }
+
+// Once a DBC is loaded the client tries the binary extraction first. The
+// MockBackend answers it with ErrBinaryPathUnsupported, and that error alone
+// falls back to the JSON extraction, whose canned response is the result.
+func TestExtractSignals_MockBinaryFallthrough(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.RespondParseDBC(testDBC()),
+		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":150}],"errors":[],"absent":[]}`),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	if _, err := c.ParseDBC(ctx, testDBC()); err != nil {
+		t.Fatalf("ParseDBC: %v", err)
+	}
+
+	sid, _ := aletheia.NewStandardID(0x123)
+	result, err := c.ExtractSignals(ctx, sid, dlc8(), aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0})
+	if err != nil {
+		t.Fatalf("ExtractSignals did not fall back: %v", err)
+	}
+	if len(result.Values) != 1 || result.Values[0].Name != "Speed" ||
+		result.Values[0].Value != (aletheia.Rational{Numerator: 150, Denominator: 1}) {
+		t.Errorf("expected Speed=150 through the JSON fallback, got %+v", result.Values)
+	}
+}

@@ -4,111 +4,62 @@
 package aletheia_test
 
 import (
+	"errors"
 	"sync"
 	"testing"
 
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
 
-// TestExtractSignals_MockBinaryFallthrough is a regression guard for the
-// Mock+DBC parity gap in extractSignalsLocked. After ParseDBC
-// populates the signal-name cache, the binary extraction path is exercised
-// first — but MockBackend returns ErrBinaryPathUnsupported, which must
-// trigger the JSON fallback via ExtractSignalsBinary. Without the fall-
-// through, extractSignalsLocked silently returned nil and enrichment
-// yielded empty values against MockBackend.
-//
-// This test exercises the symmetric public entry point ExtractSignals;
-// both methods now share the same fall-through pattern, so a parity
-// regression here would reproduce the private-method bug.
-func TestExtractSignals_MockBinaryFallthrough(t *testing.T) {
-	mock := aletheia.NewMockBackend(
-		aletheia.RespondParseDBC(testDBC()), // ParseDBC
-		aletheia.Respond(`{
-			"status":"success",
-			"values":[{"name":"Speed","value":150}],
-			"errors":[],
-			"absent":[]
-		}`), // ExtractSignals via JSON fallback
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	// ParseDBC populates signalNames — the binary path is now active.
-	if _, err := c.ParseDBC(ctx, testDBC()); err != nil {
-		t.Fatalf("ParseDBC: %v", err)
-	}
-
-	sid, _ := aletheia.NewStandardID(0x123)
-	result, err := c.ExtractSignals(ctx, sid, dlc8(), aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0})
-	if err != nil {
-		t.Fatalf("ExtractSignals fell through to a real failure: %v", err)
-	}
-	if len(result.Values) != 1 || result.Values[0].Name != "Speed" ||
-		result.Values[0].Value != (aletheia.Rational{Numerator: 150, Denominator: 1}) {
-		t.Errorf("expected Speed=150 via JSON fallback, got %+v", result.Values)
-	}
-}
-
-// TestClient_Concurrent exercises the goroutine-safety guarantee documented in
-// doc.go and CLAUDE.md. It fires N worker goroutines issuing AddChecks against
-// one Client while a terminator goroutine calls Close repeatedly. The
-// MockBackend is preloaded with enough canned success responses to absorb
-// every call's JSON exchange — run this with `go test -race` to validate both
-// the channel-based semaphore serialization and the double-close guarantee.
-// (Cancel-while-waiting-on-lock semantics are tested separately in
-// cancel_test.go's TestClient_CancelWhileWaitingOnLock.)
+// Workers issue AddChecks against one client while another goroutine closes
+// it repeatedly. The guarantee under test is the one the Client documentation
+// states: the client never races or panics, a call on the closed client
+// returns a state error, the session is freed once, and the last Close still
+// returns nil. The race detector is the judge, so the suite runs under -race.
 func TestClient_Concurrent(t *testing.T) {
 	const workers = 8
 	const iterationsPerWorker = 4
-	// Each AddChecks sends one JSON command. Over-provision to avoid mock
-	// exhaustion if the scheduler lets several workers race past the closed
-	// check before the Close goroutine latches.
-	totalResponses := workers*iterationsPerWorker + 16
-	responses := make([]aletheia.MockResponse, totalResponses)
+	// one JSON command per AddChecks, with slack for calls that overtake Close
+	responses := make([]aletheia.MockResponse, workers*iterationsPerWorker+16)
 	for i := range responses {
 		responses[i] = aletheia.Respond(`{"status":"success"}`)
 	}
-	mock := aletheia.NewMockBackend(responses...)
-	c, err := aletheia.NewClient(mock)
+	c, err := aletheia.NewClient(aletheia.NewMockBackend(responses...))
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
+	checks := []aletheia.CheckResult{aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))}
 
-	speedCheck := aletheia.CheckSignal("Speed").NeverExceeds(aletheia.IntRational(220))
-	checks := []aletheia.CheckResult{speedCheck}
-
+	errs := make(chan error, workers*iterationsPerWorker)
 	var wg sync.WaitGroup
-	wg.Add(workers)
-	for w := 0; w < workers; w++ {
+	for range workers {
+		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < iterationsPerWorker; i++ {
-				// AddChecks is safe whether the client is open or closed — a
-				// closed client returns an *aletheia.Error with ErrState, not
-				// a panic. The invariant under test is that the Client never
-				// data-races or panics, not that every call succeeds.
-				_ = c.AddChecks(ctx, checks)
+			for range iterationsPerWorker {
+				errs <- c.AddChecks(ctx, checks)
 			}
 		}()
 	}
-
-	// Concurrent Close: repeated calls from a separate goroutine.
-	// sync.Once inside Close guarantees the backend state is freed exactly once.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 4; i++ {
+		for range 4 {
 			_ = c.Close()
 		}
 	}()
-
 	wg.Wait()
+	close(errs)
 
-	// Terminal Close must still succeed (double-close guarantee).
+	for err := range errs {
+		if err == nil {
+			continue
+		}
+		var e *aletheia.Error
+		if !errors.As(err, &e) || e.Kind != aletheia.ErrState {
+			t.Errorf("a call on the closing client returned %v, want a state error or nil", err)
+		}
+	}
 	if err := c.Close(); err != nil {
 		t.Errorf("final Close returned error: %v", err)
 	}
