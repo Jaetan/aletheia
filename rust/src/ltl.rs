@@ -97,6 +97,46 @@ impl Predicate {
         }
     }
 
+    /// `min <= signal <= max` (Agda `ValuePredicate.Between`).
+    ///
+    /// A range whose minimum exceeds its maximum is refused by [`Predicate::to_json`],
+    /// which is where every route to a predicate meets the wire.
+    #[must_use]
+    pub fn between(
+        signal: impl Into<String>,
+        min: impl Into<Rational>,
+        max: impl Into<Rational>,
+    ) -> Predicate {
+        Predicate::Between {
+            signal: signal.into(),
+            min: min.into(),
+            max: max.into(),
+        }
+    }
+
+    /// The signal moved by at least `delta` since the previous frame, a positive
+    /// delta asking for a rise and a negative one for a fall
+    /// (Agda `DeltaPredicate.ChangedBy`).
+    #[must_use]
+    pub fn changed_by(signal: impl Into<String>, delta: impl Into<Rational>) -> Predicate {
+        Predicate::ChangedBy {
+            signal: signal.into(),
+            delta: delta.into(),
+        }
+    }
+
+    /// The signal stayed within `tolerance` of its previous value
+    /// (Agda `DeltaPredicate.StableWithin`).
+    ///
+    /// A negative tolerance is refused by [`Predicate::to_json`].
+    #[must_use]
+    pub fn stable_within(signal: impl Into<String>, tolerance: impl Into<Rational>) -> Predicate {
+        Predicate::StableWithin {
+            signal: signal.into(),
+            tolerance: tolerance.into(),
+        }
+    }
+
     /// Encode the predicate as its `{"predicate":…}` wire object.
     ///
     /// # Errors
@@ -304,6 +344,40 @@ mod tests {
             Predicate::Equals {
                 signal: "Speed".to_string(),
                 value: Rational::integer(220),
+            }
+        );
+    }
+
+    #[test]
+    fn between_constructor_builds_between_variant() {
+        assert_eq!(
+            Predicate::between("Voltage", 11, 14),
+            Predicate::Between {
+                signal: "Voltage".to_string(),
+                min: Rational::integer(11),
+                max: Rational::integer(14),
+            }
+        );
+    }
+
+    #[test]
+    fn changed_by_constructor_builds_changed_by_variant() {
+        assert_eq!(
+            Predicate::changed_by("Speed", -10),
+            Predicate::ChangedBy {
+                signal: "Speed".to_string(),
+                delta: Rational::integer(-10),
+            }
+        );
+    }
+
+    #[test]
+    fn stable_within_constructor_builds_stable_within_variant() {
+        assert_eq!(
+            Predicate::stable_within("Temp", 2),
+            Predicate::StableWithin {
+                signal: "Temp".to_string(),
+                tolerance: Rational::integer(2),
             }
         );
     }

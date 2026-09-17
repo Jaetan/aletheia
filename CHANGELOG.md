@@ -136,6 +136,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   parent or a descriptor limit says the stat failed. Python already distinguished
   them, having no such check of its own.
 
+- **The Go and Rust predicate builders carry every predicate the kernel defines.**
+  Both carried the five comparisons, where the kernel has eight: `Signal(name)` in Go
+  gains `Between`, `ChangedBy` and `StableWithin`, and `Predicate` in Rust gains
+  `between`, `changed_by` and `stable_within`. Python and C++ already carried all
+  eight. A range whose minimum exceeds its maximum and a negative tolerance are
+  refused where the property is serialised, as before, that being the one place
+  every route to a predicate passes.
+
 - **The benchmark runner tells every binding how much to warm before timing latency.**
   The four harnesses default to 500 operations in Python and C++ and 2 in Go and Rust,
   and the runner passed nothing, so the four committed latency baselines had each been

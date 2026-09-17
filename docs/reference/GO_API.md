@@ -82,7 +82,7 @@ _ = brakeResponse
 
 ## LTL DSL
 
-For full temporal control, build a formula from the types directly. Eight predicates say something about a signal: `Equals`, `LessThan`, `GreaterThan`, `LessThanOrEqual`, `GreaterThanOrEqual`, `Between`, `ChangedBy` and `StableWithin`. `Atomic` makes a formula of one, and formulas compose under `Not`, `And`, `Or`, `Next`, `WeakNext`, `Always`, `Eventually`, `Until` and `Release`. Four of those carry a deadline as `MetricAlways`, `MetricEventually`, `MetricUntil` and `MetricRelease`, and `Never`, `Implies`, `AlwaysWithin` and `EventuallyWithin` are free functions that build them. `aletheia.Signal(name)` builds the five comparisons fluently, as Python's `aletheia.dsl.Signal` does; the other three predicates are written as their own values.
+For full temporal control, build a formula from the types directly. Eight predicates say something about a signal: `Equals`, `LessThan`, `GreaterThan`, `LessThanOrEqual`, `GreaterThanOrEqual`, `Between`, `ChangedBy` and `StableWithin`. `Atomic` makes a formula of one, and formulas compose under `Not`, `And`, `Or`, `Next`, `WeakNext`, `Always`, `Eventually`, `Until` and `Release`. Four of those carry a deadline as `MetricAlways`, `MetricEventually`, `MetricUntil` and `MetricRelease`, and `Never`, `Implies`, `AlwaysWithin` and `EventuallyWithin` are free functions that build them. `aletheia.Signal(name)` builds all eight fluently, as Python's `aletheia.dsl.Signal` does.
 
 ```go
 // always(Speed < 220)

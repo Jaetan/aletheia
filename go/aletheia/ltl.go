@@ -74,10 +74,9 @@ func (Between) predicate()            {}
 func (ChangedBy) predicate()          {}
 func (StableWithin) predicate()       {}
 
-// SignalBuilder names a signal and builds the comparison predicates over it.
-// The five comparisons are the family every binding spells alike; the other
-// predicates, which take a range or a change rather than a single threshold,
-// are their own types above and are written as values.
+// SignalBuilder names a signal and builds every predicate the kernel has over
+// it: the five comparisons, the range, and the two that read the previous
+// frame as well as this one.
 //
 // This is the formula-level builder. [CheckSignal] is the other one, which
 // names and builds whole checks.
@@ -85,7 +84,7 @@ type SignalBuilder struct {
 	name SignalName
 }
 
-// Signal names the signal a comparison is about:
+// Signal names the signal a predicate is about:
 //
 //	aletheia.Signal("Speed").LessThanOrEqual(aletheia.IntRational(220))
 //
@@ -93,8 +92,11 @@ type SignalBuilder struct {
 // [Eventually] and the rest through it.
 func Signal(name string) SignalBuilder { return SignalBuilder{name: SignalName(name)} }
 
-// The five comparisons. None can fail: the threshold is already an exact
-// rational, so there is nothing left to refuse.
+// None of these can fail. A threshold is already an exact rational, and the
+// two that can be asked for something impossible, a range whose minimum is
+// above its maximum and a negative tolerance, are refused where the property
+// is serialised, which is the one place every route to a predicate passes
+// through: a caller may also write the value directly.
 
 // Equals holds when the signal's value is exactly v.
 func (s SignalBuilder) Equals(v Rational) Predicate { return Equals{Signal: s.name, Value: v} }
@@ -115,6 +117,23 @@ func (s SignalBuilder) LessThanOrEqual(v Rational) Predicate {
 // GreaterThanOrEqual holds when the value is at least v.
 func (s SignalBuilder) GreaterThanOrEqual(v Rational) Predicate {
 	return GreaterThanOrEqual{Signal: s.name, Value: v}
+}
+
+// Between holds when the value is at least lo and at most hi.
+func (s SignalBuilder) Between(lo, hi Rational) Predicate {
+	return Between{Signal: s.name, Min: lo, Max: hi}
+}
+
+// ChangedBy holds when the signal moved by at least delta since the previous
+// frame, a positive delta asking for a rise and a negative one for a fall.
+func (s SignalBuilder) ChangedBy(delta Rational) Predicate {
+	return ChangedBy{Signal: s.name, Delta: delta}
+}
+
+// StableWithin holds when the signal stayed within tolerance of its value in
+// the previous frame.
+func (s SignalBuilder) StableWithin(tolerance Rational) Predicate {
+	return StableWithin{Signal: s.name, Tolerance: tolerance}
 }
 
 // Formula is a property over a trace of frames, built from predicates. Only

@@ -349,18 +349,23 @@ features:
       rust: { status: implemented, entry: "Client::set_properties" }
 
   - id: predicate_dsl
-    name: Fluent comparison-predicate DSL
+    name: Fluent predicate DSL
     description: |
-      Fluent builders for the Agda ValuePredicate comparison family —
-      equals, less_than, greater_than, and the at-or-below / at-or-above
-      pair — matching LTL/SignalPredicate/Types.agda.  Surfaces:
+      Fluent builders for every predicate LTL/SignalPredicate/Types.agda
+      defines: the ValuePredicate family, which is equals, less_than,
+      greater_than, the at-or-below / at-or-above pair and between, and the
+      DeltaPredicate pair, which is changed_by and stable_within and which
+      reads the previous frame as well as the current one.  Surfaces:
       Signal("X").less_than(v) (Python) / ltl::less_than(name, v) (C++) /
       Signal("X").LessThan(v) (Go) / Predicate::less_than(sig, v) (Rust).
-      The ≤/≥ builders are spelled less_than_or_equal / greater_than_or_equal
-      uniformly across all four bindings (the underlying Predicate variant is
-      LessThanOrEqual / GreaterThanOrEqual everywhere too).  Each entry below
-      pins the `less_than` representative (also uniform); the gate catches its
-      silent removal.
+      Every builder is spelled as its Agda constructor in that language's
+      case, so less_than_or_equal and stable_within read alike in Python, C++
+      and Rust and the Go methods carry the constructor names themselves.
+      A range whose minimum exceeds its maximum and a negative tolerance are
+      refused where the property is serialised in each binding, not in the
+      builder, which is the one place every route to a predicate passes.
+      Each entry below pins the `less_than` representative (uniform across the
+      four); the gate catches its silent removal.
     bindings:
       python: { status: implemented, entry: aletheia.Signal.less_than }
       cpp:    { status: implemented, entry: "aletheia/ltl.hpp#less_than" }

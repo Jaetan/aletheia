@@ -82,7 +82,7 @@ let brake_response = check::when("Brake").exceeds(50)
 
 ## LTL DSL
 
-For full temporal control, build formulas directly. `Predicate` has five constructor functions, `less_than`, `greater_than`, `equals`, `less_than_or_equal` and `greater_than_or_equal`, and three more variants, `Between`, `ChangedBy` and `StableWithin`. A predicate composes under the `Formula` temporal operators; the metric `Formula::always_within` and `eventually_within` take a `TimeBound`, and `Formula::never` and `Formula::implies` are constructors:
+For full temporal control, build formulas directly. `Predicate` has a constructor for each of the eight: `equals`, `less_than`, `greater_than`, `less_than_or_equal`, `greater_than_or_equal`, `between`, `changed_by` and `stable_within`. A predicate composes under the `Formula` temporal operators; the metric `Formula::always_within` and `eventually_within` take a `TimeBound`, and `Formula::never` and `Formula::implies` are constructors:
 
 ```rust
 use aletheia::{Formula, Predicate, TimeBound};

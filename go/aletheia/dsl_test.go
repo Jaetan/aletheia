@@ -16,6 +16,7 @@ import (
 func TestSignalBuilder_MatchesLiterals(t *testing.T) {
 	const sig = "Voltage"
 	v := aletheia.IntRational(12)
+	hi := aletheia.IntRational(14)
 	b := aletheia.Signal(sig)
 	cases := []struct {
 		name string
@@ -27,6 +28,9 @@ func TestSignalBuilder_MatchesLiterals(t *testing.T) {
 		{"GreaterThan", b.GreaterThan(v), aletheia.GreaterThan{Signal: sig, Value: v}},
 		{"LessThanOrEqual", b.LessThanOrEqual(v), aletheia.LessThanOrEqual{Signal: sig, Value: v}},
 		{"GreaterThanOrEqual", b.GreaterThanOrEqual(v), aletheia.GreaterThanOrEqual{Signal: sig, Value: v}},
+		{"Between", b.Between(v, hi), aletheia.Between{Signal: sig, Min: v, Max: hi}},
+		{"ChangedBy", b.ChangedBy(v), aletheia.ChangedBy{Signal: sig, Delta: v}},
+		{"StableWithin", b.StableWithin(v), aletheia.StableWithin{Signal: sig, Tolerance: v}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
