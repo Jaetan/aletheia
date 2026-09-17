@@ -12,13 +12,12 @@ import (
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
 
-// ctx is the default context for tests that don't exercise cancellation.
-// Tests that DO exercise cancellation create their own context.WithCancel
-// or context.WithTimeout in-test.
+// ctx is for the tests that do not exercise cancellation; one that does
+// makes its own, so that what it cancels is its own call.
 var ctx = context.Background()
 
-// requireErrorContains asserts err is a non-nil *aletheia.Error whose message
-// contains substr. Uses errors.As for proper unwrapping.
+// requireErrorContains holds that the failure is the binding's own error type,
+// through whatever wraps it, and that its message carries the substring.
 func requireErrorContains(t *testing.T, err error, substr string) {
 	t.Helper()
 	if err == nil {
@@ -33,23 +32,24 @@ func requireErrorContains(t *testing.T, err error, substr string) {
 	}
 }
 
-// dlc8 creates a DLC with value 8 for convenience in tests.
+// dlc8 is the eight-byte length every fixture here uses. The constructor
+// cannot refuse it, eight being a valid length, so the error is dropped.
 func dlc8() aletheia.DLC {
 	d, _ := aletheia.NewDLC(8)
 	return d
 }
 
-// testDBC returns a minimal DBC definition for testing.
+// testDBC is the fixture the tests parse and validate: one message carrying
+// one unsigned little-endian speed signal, a tenth of a unit per count.
 func testDBC() aletheia.DBCDefinition {
 	sid, _ := aletheia.NewStandardID(0x123)
-	dlc, _ := aletheia.NewDLC(8)
 	return aletheia.DBCDefinition{
 		Version: "1.0",
 		Messages: []aletheia.DBCMessage{
 			{
 				ID:     sid,
 				Name:   "EngineData",
-				DLC:    dlc,
+				DLC:    dlc8(),
 				Sender: "ECU",
 				Signals: []aletheia.DBCSignal{
 					{
@@ -71,10 +71,9 @@ func testDBC() aletheia.DBCDefinition {
 	}
 }
 
-// startedClientOpts returns a client over a mock that has already answered
-// SetProperties and StartStream and holds the given responses for what
-// follows, with the properties installed and the options applied. The client
-// is closed when the test ends.
+// startedClientOpts is a client over a mock that has answered SetProperties
+// and StartStream and holds the given responses for what follows, with the
+// properties installed and the options applied. It closes when the test ends.
 func startedClientOpts(t *testing.T, properties []aletheia.Formula, responses []aletheia.MockResponse, opts ...aletheia.ClientOption) (*aletheia.Client, *aletheia.MockBackend) {
 	t.Helper()
 	queue := append([]aletheia.MockResponse{
@@ -96,7 +95,7 @@ func startedClientOpts(t *testing.T, properties []aletheia.Formula, responses []
 	return c, mock
 }
 
-// startedClientWith is startedClientOpts with no client option.
+// startedClientWith is that client with no option.
 func startedClientWith(t *testing.T, properties []aletheia.Formula, responses ...aletheia.MockResponse) (*aletheia.Client, *aletheia.MockBackend) {
 	t.Helper()
 	return startedClientOpts(t, properties, responses)

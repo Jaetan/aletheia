@@ -100,9 +100,10 @@ func TestParseDBC_SerialisesPresenceAndID(t *testing.T) {
 		dbc  aletheia.DBCDefinition
 		want []string
 	}{
-		"always present": {testDBC(), []string{`"presence":"always"`}},
-		"multiplexed":    {muxDBC, []string{`"presence":"multiplexed"`, `"multiplexor":"MuxSelector"`, `"multiplex_values":[0]`}},
-		"extended id":    {extendedDBC, []string{`"extended":true`, `"id":419361024`}},
+		"always present": {testDBC(), []string{`"presence":"always"`, `"id":291`, `"name":"Speed"`,
+			`"factor":{"denominator":10,"numerator":1}`, `"maximum":300`, `"unit":"km/h"`}},
+		"multiplexed": {muxDBC, []string{`"presence":"multiplexed"`, `"multiplexor":"MuxSelector"`, `"multiplex_values":[0]`}},
+		"extended id": {extendedDBC, []string{`"extended":true`, `"id":419361024`}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
