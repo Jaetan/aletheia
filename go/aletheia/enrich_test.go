@@ -790,3 +790,54 @@ func TestConcurrent_WithDiagnostics(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// Every binary operator prints in parentheses when it is itself an operand,
+// and weak next prints with its own name.
+func TestFormatFormula_EveryBinaryOperatorParenthesises(t *testing.T) {
+	a := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "A", Value: aletheia.IntRational(1)}}
+	b := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "B", Value: aletheia.IntRational(2)}}
+	c := aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "C", Value: aletheia.IntRational(3)}}
+	ms := aletheia.TimeBound{Microseconds: 5000}
+	cases := map[string]struct {
+		f    aletheia.Formula
+		want string
+	}{
+		"and inside or":             {aletheia.Or{Left: aletheia.And{Left: a, Right: b}, Right: c}, "(A < 1 and B < 2) or C < 3"},
+		"until inside and":          {aletheia.And{Left: aletheia.Until{Left: a, Right: b}, Right: c}, "(A < 1 until B < 2) and C < 3"},
+		"release inside and":        {aletheia.And{Left: aletheia.Release{Left: a, Right: b}, Right: c}, "(A < 1 release B < 2) and C < 3"},
+		"metric until inside and":   {aletheia.And{Left: aletheia.MetricUntil{Bound: ms, Left: a, Right: b}, Right: c}, "(A < 1 until within 5ms B < 2) and C < 3"},
+		"metric release inside and": {aletheia.And{Left: aletheia.MetricRelease{Bound: ms, Left: a, Right: b}, Right: c}, "(A < 1 release within 5ms B < 2) and C < 3"},
+		"weak next":                 {aletheia.WeakNext{Inner: a}, "weak_next(A < 1)"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := aletheia.FormatFormula(tc.f); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// The enriched reason lists the observed values of the signals the diagnostic
+// names and appends the core's reason; with no value for any of them, or no
+// values at all, it falls back to the formula alone.
+func TestFormatEnrichedReason(t *testing.T) {
+	diag := aletheia.PropertyDiagnostic{Signals: []aletheia.SignalName{"Speed", "RPM"}, FormulaDesc: "always(Speed < 220)"}
+	cases := map[string]struct {
+		values map[aletheia.SignalName]aletheia.Rational
+		core   string
+		want   string
+	}{
+		"values and core":         {map[aletheia.SignalName]aletheia.Rational{"Speed": aletheia.IntRational(250)}, "halt", "Speed = 250 (formula: always(Speed < 220)) [core: halt]"},
+		"values without core":     {map[aletheia.SignalName]aletheia.Rational{"Speed": aletheia.IntRational(250)}, "", "Speed = 250 (formula: always(Speed < 220))"},
+		"no values":               {nil, "", "violated: always(Speed < 220)"},
+		"values of other signals": {map[aletheia.SignalName]aletheia.Rational{"Temp": aletheia.IntRational(80)}, "", "violated: always(Speed < 220)"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := aletheia.FormatEnrichedReason(diag, tc.values, tc.core); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

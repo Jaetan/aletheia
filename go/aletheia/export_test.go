@@ -36,3 +36,6 @@ func BuildDiagnostic(f Formula) PropertyDiagnostic {
 // CollectSignals re-exports the internal collectSignals for tests (infallible —
 // no FFI — so a plain alias suffices).
 var CollectSignals = collectSignals
+
+// FormatEnrichedReason exposes the enriched-reason composer to the external tests.
+var FormatEnrichedReason = formatEnrichedReason
