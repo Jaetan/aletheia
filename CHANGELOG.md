@@ -140,7 +140,9 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   The four harnesses default to 500 operations in Python and C++ and 2 in Go and Rust,
   and the runner passed nothing, so the four committed latency baselines had each been
   taken a different way. `run_all.sh` takes `--warmup`, defaulting to 500, and passes it
-  to all four lanes, and the four baselines are re-taken under it.
+  to all four lanes, and the four baselines are re-taken under it. BREAKING for a
+  caller who passed it elsewhere: `--warmup` is refused for any mode but latency,
+  where it reached nothing, the other modes warming in whole runs of the frame set.
 
 - **The Go mutation lane refuses a sweep that timed out instead of testing.** A mutant
   the tool could not finish is neither killed nor lived, so a sweep that timed out on

@@ -9,7 +9,10 @@
 # Results are saved as JSON in benchmarks/results/.
 #
 # Usage:
-#     ./benchmarks/run_all.sh [--frames N] [--runs N] [--bench throughput|latency|scaling]
+#     ./benchmarks/run_all.sh [--frames N] [--runs N] [--warmup N] [--bench throughput|latency|scaling]
+#
+# --warmup is the latency mode's and is refused for the others, where it
+# would reach nothing.
 #
 # Results go to benchmarks/results/ unless ALETHEIA_BENCH_RESULTS_DIR names
 # another directory.  The override exists so a probe can exercise this script

@@ -52,7 +52,7 @@ for node in ast.walk(tree):
 if "_MAX_GROWTH_KIB" not in named or "_CASES" not in named:
     print("python/tests/test_streaming_residency.py no longer names its budget and its cases")
     raise SystemExit(2)
-budget_mib = eval(ast.unparse(named["_MAX_GROWTH_KIB"]), {"__builtins__": {}}) / 1024  # noqa: S307
+budget_mib = eval(ast.unparse(named["_MAX_GROWTH_KIB"]), {"__builtins__": {}}) / 1024
 counts = {frames for _, frames in ast.literal_eval(named["_CASES"])}
 
 m = re.search(r"a session of ([\d,]+) frames whose peak resident set grows by (\d+) MiB", text)
