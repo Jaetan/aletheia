@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
 
 // repoPath joins the test's package dir (go/cmd/aletheia) up to the repo root.
@@ -263,6 +265,29 @@ func TestReorderArgs(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("reorderArgs[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+// TestCLIClosesEveryClientItOpens: each subcommand opens a client on the
+// verified core, and the handle the binding holds on the Haskell side is
+// released when it closes. A subcommand that returns without closing leaves one
+// behind, which the count reports and a long-lived host would accumulate.
+func TestCLIClosesEveryClientItOpens(t *testing.T) {
+	ensureLib(t)
+	silenceStdout(t)
+	dbc := repoPath("python", "tests", "fixtures", "dbc_corpus", "minimal.dbc")
+	before := aletheia.StablePtrCount()
+	for _, argv := range [][]string{
+		{"validate", "--dbc", dbc},
+		{"signals", "--dbc", dbc},
+		{"format-dbc", "--dbc", dbc},
+		{"extract", "--dbc", dbc, "0x100", "0000000000000000"},
+		{"mux-query", "--dbc", dbc, "0x100"},
+	} {
+		run(argv)
+		if held := aletheia.StablePtrCount(); held != before {
+			t.Errorf("after %v the binding holds %d handles, want %d", argv, held, before)
 		}
 	}
 }
