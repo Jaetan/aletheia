@@ -23,6 +23,13 @@ for tool in bash sh python3 sed awk mktemp mv rm mkdir dirname basename cat \
     src=$(command -v "$tool") || { echo "needed tool not found: $tool"; exit 2; }
     ln -s "$src" "$dir/bin/$tool"
 done
+# The C++ lane builds, and a build that has to link calls the linker and the
+# archiver through PATH. Without them the lane fails for want of a tool rather
+# than for the reason under test, and only while nothing needs relinking would
+# it pass. Each is linked when the host has it.
+for tool in ld ld.lld lld ld.gold ar ranlib strip objcopy nm as; do
+    src=$(command -v "$tool") && ln -s "$src" "$dir/bin/$tool"
+done
 out=$(PATH="$dir/bin" ALETHEIA_BENCH_RESULTS_DIR="$dir/results" \
     bash benchmarks/run_all.sh --frames 1 --runs 1 --bench throughput 2>&1)
 rc=$?

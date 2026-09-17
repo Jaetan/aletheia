@@ -16,16 +16,18 @@ import (
 	"unicode/utf8"
 )
 
-// --- Serialization (Go → JSON for Agda core) ---
+// --- Serialization: Go to the kernel's JSON ---
 
-// serializeCommand builds the JSON envelope sent to the Agda core for
-// control-plane commands (parseDBC, setProperties, validateDBC, …).
-// Go's encoding/json marshals map keys in lexical order, so the wire
-// output is deterministic across runs.
+// serializeCommand builds the JSON envelope the kernel reads for a
+// control-plane command. Map keys marshal in lexical order, so the same
+// command is the same bytes on every run.
 func serializeCommand(command string, fields map[string]any) (string, error) {
 	m := map[string]any{"type": "command", "command": command}
 	for k, v := range fields {
 		m[k] = v
+	}
+	if err := refuseInvalidUTF8("command", m); err != nil {
+		return "", err
 	}
 	b, err := json.Marshal(m)
 	if err != nil {
@@ -34,28 +36,58 @@ func serializeCommand(command string, fields map[string]any) (string, error) {
 	return string(b), nil
 }
 
-// serializeDBC converts a DBCDefinition into the marshaled JSON of the map
-// shape Agda expects under the "dbc" field of the parseDBC / validateDBC
-// command envelopes. Returning the bytes (json.RawMessage) lets callers
-// embed them verbatim, so each DBC-bearing operation marshals the DBC
-// exactly once.
-//
-// Defense-in-depth: a
-// `MaxDBCTextBytes` size cap is applied to the marshaled DBC before it
-// leaves Go — the one marshal that produces the returned bytes doubles as
-// the bound probe.  In normal flow the upstream parser bound (per UR-2)
-// makes this redundant; the guard catches any internal blowup or future
-// bypass that lets an oversized in-memory `DBCDefinition` reach the
-// serializer.
-// MarshalJSON renders the DBC as the canonical wire JSON the Agda core
-// emits — the same normalized shape serializeDBC sends across the FFI
-// (lowercase keys, rationals as {num,den}) — rather than Go's default
-// field-name encoding. This makes json.Marshal(dbc) the public,
-// idiomatic way to obtain the canonical form (used by the `format-dbc`
-// and `signals --json` CLI subcommands and any caller serializing a DBC
-// for the cross-binding wire protocol). It is the encoder half only; DBC
-// definitions are loaded via ParseDBCText / ParseDBC, so no canonical
-// UnmarshalJSON is paired with it.
+// refuseInvalidUTF8 walks a value about to be encoded and refuses any string
+// that is not valid UTF-8, naming where it sits. The encoder would otherwise
+// replace each bad byte with U+FFFD and send the altered string, so a caller
+// would learn nothing and the kernel would act on something else. The peer
+// bindings refuse the same input: Python raises encoding the command, C++
+// throws from its JSON writer, and a Rust string cannot hold the bytes at all.
+func refuseInvalidUTF8(path string, v any) error {
+	switch x := v.(type) {
+	case string:
+		if !utf8.ValidString(x) {
+			return validationError(path + " is not valid UTF-8")
+		}
+	case json.RawMessage:
+		if !utf8.Valid(x) {
+			return validationError(path + " is not valid UTF-8")
+		}
+	case map[string]any:
+		for k, item := range x {
+			if !utf8.ValidString(k) {
+				return validationError(path + ": a key is not valid UTF-8")
+			}
+			if err := refuseInvalidUTF8(path+"."+k, item); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for i, item := range x {
+			if err := refuseInvalidUTF8(fmt.Sprintf("%s[%d]", path, i), item); err != nil {
+				return err
+			}
+		}
+	case []string:
+		for i, item := range x {
+			if !utf8.ValidString(item) {
+				return validationError(fmt.Sprintf("%s[%d] is not valid UTF-8", path, i))
+			}
+		}
+	case []map[string]any:
+		for i, item := range x {
+			if err := refuseInvalidUTF8(fmt.Sprintf("%s[%d]", path, i), item); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// MarshalJSON renders the DBC as the canonical wire JSON the kernel emits,
+// lowercase keys and exact rationals, rather than the field names Go would
+// use, so json.Marshal of a definition is the form every binding reads. It is
+// the encoder half alone: a definition is loaded through ParseDBC or
+// ParseDBCText, so there is no canonical UnmarshalJSON beside it.
 func (d DBCDefinition) MarshalJSON() ([]byte, error) {
 	raw, err := serializeDBC(d)
 	if err != nil {
@@ -64,6 +96,14 @@ func (d DBCDefinition) MarshalJSON() ([]byte, error) {
 	return raw, nil
 }
 
+// serializeDBC is the definition as the bytes the kernel reads under the dbc
+// field of a command. Callers embed the bytes as they are, so a command
+// carrying a definition marshals it once.
+//
+// The one marshal doubles as the size check: the bytes are measured against
+// the text cap before they leave. The parser refuses an oversized input
+// first, so nothing reaching here should be over it, which is the point of
+// measuring anyway.
 func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 	msgs := make([]map[string]any, 0, len(dbc.Messages))
 	for _, msg := range dbc.Messages {
@@ -93,14 +133,11 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 				"receivers":         receivers,
 				"valueDescriptions": valueDescs,
 			}
-			switch sig.ByteOrder {
-			case BigEndian:
-				s["byteOrder"] = "big_endian"
-			case LittleEndian:
-				s["byteOrder"] = "little_endian"
-			default:
-				return nil, validationError(fmt.Sprintf("invalid byte order %d", sig.ByteOrder))
+			order, err := byteOrderWireName(sig.ByteOrder)
+			if err != nil {
+				return nil, err
 			}
+			s["byteOrder"] = order
 			// Emit explicit "presence"
 			// discriminator on multiplexed signals (mirrors Always
 			// signals' "presence": "always").  Cross-binding parity
@@ -122,11 +159,8 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 		if senders == nil {
 			senders = []string{}
 		}
-		// Mirror the Agda wire form: emit "extended" only when the CAN ID is
-		// extended (29-bit). Agda omits the field for standard 11-bit frames;
-		// its parser accepts both forms but the omit-when-false shape is
-		// canonical (matches attachCANID used for comment / attribute targets,
-		// and the same convention enforced by the Python and C++ bindings).
+		// The extended flag is written only when it is true, which is the shape
+		// the kernel writes and every binding reads.
 		m := map[string]any{
 			"name":    string(msg.Name),
 			"dlc":     msg.DLC.ToBytes(),
@@ -193,9 +227,8 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 		attributes = append(attributes, obj)
 	}
 
-	// Unresolved RawValueDescs from the text-parse path.
-	// Wire shape mirrors message_to_json's leading {id, extended} pair via
-	// attachCANID; the rest is signalName + entries (parallel to value tables).
+	// The value descriptions the text parser could not attach to a signal: the
+	// identifier pair, then the signal name and the entries.
 	unresolvedValueDescs := make([]map[string]any, 0, len(dbc.UnresolvedValueDescriptions))
 	for _, rvd := range dbc.UnresolvedValueDescriptions {
 		entries := make([]map[string]any, 0, len(rvd.Entries))
@@ -224,8 +257,13 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 		"attributes":           attributes,
 		"unresolvedValueDescs": unresolvedValueDescs,
 	}
-	// Single marshal: produces the returned bytes AND serves as the
-	// defense-in-depth bound check (see function-level comment).
+	// The definition is checked before it is encoded, not after: the encoder
+	// would have replaced a bad byte, and the bytes it returned would then be
+	// valid UTF-8 carrying a name the caller never wrote.
+	if err := refuseInvalidUTF8("dbc", out); err != nil {
+		return nil, err
+	}
+	// The one marshal is both the answer and the size check.
 	b, err := json.Marshal(out)
 	if err != nil {
 		return nil, wrapProtocolError("failed to size-check DBC", err)
@@ -236,11 +274,23 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 	return json.RawMessage(b), nil
 }
 
-// --- Tier 2 serializers (Go → JSON for Agda core) ---
+// byteOrderWireName is a byte order as the wire spells it, which is the name
+// String() renders from the constant's own line comment. Reading a byte order
+// back compares against the same two names, so the printed form and the wire
+// form cannot drift apart.
+func byteOrderWireName(b ByteOrder) (string, error) {
+	switch b {
+	case LittleEndian, BigEndian:
+		return b.String(), nil
+	default:
+		return "", validationError(fmt.Sprintf("invalid byte order %d", b))
+	}
+}
 
-// attachCANID mirrors the Agda formatter: emits "id" unconditionally and
-// "extended" only when true. Matching formatCANId keeps 11-bit frames
-// byte-identical to Tier 1 wire output.
+// --- Tier 2 serializers (Go to the kernel's JSON) ---
+
+// attachCANID writes an identifier the way the kernel's formatter does: the
+// number always, the extended flag only when it is set.
 func attachCANID(m map[string]any, id uint32, extended bool) {
 	m["id"] = id
 	if extended {
@@ -405,11 +455,9 @@ func serializeAttribute(a DBCAttribute) (map[string]any, error) {
 	}
 }
 
-// validateRational rejects rationals the wire format cannot represent
-// (zero or negative denominator).  Predicate values carry exact
-// [Rational] per the DecRat universal principle; the NaN / ±Inf
-// rejection that the float64 path needed is structurally absent — Rational
-// has no NaN / Inf representation — but denominator validation remains.
+// validateRational refuses a rational the wire cannot carry, which is one
+// whose denominator is zero or negative. A [Rational] is a pair of integers,
+// so there is nothing else to refuse: no value of it is infinite or undefined.
 func validateRational(name string, r Rational) error {
 	if r.Denominator <= 0 {
 		return validationError(fmt.Sprintf("%s: non-positive denominator %d (must be > 0)",
@@ -418,49 +466,50 @@ func validateRational(name string, r Rational) error {
 	return nil
 }
 
-// rationalLess reports r1 < r2 by comparing cross-products with the
-// (positive) denominators (validateRational is the precondition).
-//
-// Cross-product overflow is avoided by widening to math/big.Int — naive
-// int64 multiplication wraps silently (e.g. {MaxInt64, 2} vs {1, 2}
-// would falsely report r1 < r2 with int64 wraparound).
+// rationalLess compares two rationals by their cross-products, both
+// denominators being positive, which validateRational has established. The
+// products are taken at arbitrary width: at int64 they would wrap, and a
+// numerator near the maximum would compare as the smaller value.
 func rationalLess(r1, r2 Rational) bool {
 	a := new(big.Int).Mul(big.NewInt(r1.Numerator), big.NewInt(r2.Denominator))
 	b := new(big.Int).Mul(big.NewInt(r2.Numerator), big.NewInt(r1.Denominator))
 	return a.Cmp(b) < 0
 }
 
-// serializePredicate encodes a Predicate into the JSON tag/field shape
-// consumed by the Agda LTL parser (SignalPredicate.JSON).
+// ratPredicate is a predicate over one signal carrying one rational under the
+// field name the wire gives it. The rational is refused here rather than at
+// the kernel, since a denominator the wire cannot represent is the caller's
+// mistake and the message names which field it was.
+func ratPredicate(kind string, signal SignalName, field string, value Rational) (map[string]any, error) {
+	if err := validateRational(kind+"."+field, value); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"predicate": kind,
+		"signal":    string(signal),
+		field:       serializeRational(value),
+	}, nil
+}
+
+// serializePredicate encodes a predicate in the shape the kernel's LTL parser
+// reads.
 func serializePredicate(p Predicate) (map[string]any, error) {
 	switch p := p.(type) {
 	case Equals:
-		if err := validateRational("equals.value", p.Value); err != nil {
-			return nil, err
-		}
-		return map[string]any{"predicate": "equals", "signal": string(p.Signal), "value": serializeRational(p.Value)}, nil
+		return ratPredicate("equals", p.Signal, "value", p.Value)
 	case LessThan:
-		if err := validateRational("lessThan.value", p.Value); err != nil {
-			return nil, err
-		}
-		return map[string]any{"predicate": "lessThan", "signal": string(p.Signal), "value": serializeRational(p.Value)}, nil
+		return ratPredicate("lessThan", p.Signal, "value", p.Value)
 	case GreaterThan:
-		if err := validateRational("greaterThan.value", p.Value); err != nil {
-			return nil, err
-		}
-		return map[string]any{"predicate": "greaterThan", "signal": string(p.Signal), "value": serializeRational(p.Value)}, nil
+		return ratPredicate("greaterThan", p.Signal, "value", p.Value)
 	case LessThanOrEqual:
-		if err := validateRational("lessThanOrEqual.value", p.Value); err != nil {
-			return nil, err
-		}
-		return map[string]any{"predicate": "lessThanOrEqual", "signal": string(p.Signal), "value": serializeRational(p.Value)}, nil
+		return ratPredicate("lessThanOrEqual", p.Signal, "value", p.Value)
 	case GreaterThanOrEqual:
-		if err := validateRational("greaterThanOrEqual.value", p.Value); err != nil {
-			return nil, err
-		}
-		return map[string]any{"predicate": "greaterThanOrEqual", "signal": string(p.Signal), "value": serializeRational(p.Value)}, nil
+		return ratPredicate("greaterThanOrEqual", p.Signal, "value", p.Value)
+	case ChangedBy:
+		return ratPredicate("changedBy", p.Signal, "delta", p.Delta)
 	case Between:
-		if err := validateRational("between.min", p.Min); err != nil {
+		out, err := ratPredicate("between", p.Signal, "min", p.Min)
+		if err != nil {
 			return nil, err
 		}
 		if err := validateRational("between.max", p.Max); err != nil {
@@ -470,12 +519,8 @@ func serializePredicate(p Predicate) (map[string]any, error) {
 			return nil, validationError(fmt.Sprintf("between: min (%s) exceeds max (%s)",
 				formatRationalExact(p.Min), formatRationalExact(p.Max)))
 		}
-		return map[string]any{"predicate": "between", "signal": string(p.Signal), "min": serializeRational(p.Min), "max": serializeRational(p.Max)}, nil
-	case ChangedBy:
-		if err := validateRational("changedBy.delta", p.Delta); err != nil {
-			return nil, err
-		}
-		return map[string]any{"predicate": "changedBy", "signal": string(p.Signal), "delta": serializeRational(p.Delta)}, nil
+		out["max"] = serializeRational(p.Max)
+		return out, nil
 	case StableWithin:
 		if err := validateRational("stableWithin.tolerance", p.Tolerance); err != nil {
 			return nil, err
@@ -484,7 +529,7 @@ func serializePredicate(p Predicate) (map[string]any, error) {
 			return nil, validationError(fmt.Sprintf("negative tolerance: %s",
 				formatRationalExact(p.Tolerance)))
 		}
-		return map[string]any{"predicate": "stableWithin", "signal": string(p.Signal), "tolerance": serializeRational(p.Tolerance)}, nil
+		return ratPredicate("stableWithin", p.Signal, "tolerance", p.Tolerance)
 	default:
 		return nil, validationError(fmt.Sprintf("unsupported predicate type %T", p))
 	}
@@ -499,15 +544,50 @@ func validateTimeBound(t TimeBound) error {
 	return nil
 }
 
-// serializeFormula encodes an LTL formula AST for Agda, bounded in depth
-// to prevent unbounded recursion on pathological user input.
+// serializeFormula encodes a formula for the kernel, bounded in depth so that
+// input nested past what any real property needs fails rather than growing the
+// stack.
 func serializeFormula(f Formula) (map[string]any, error) {
 	return serializeFormulaDepth(f, 0)
 }
 
-// serializeFormulaDepth is the recursive core of serializeFormula. It
-// carries the remaining depth budget so deeply nested user input fails
-// fast instead of blowing the Go stack.
+// unaryOp is an operator over one formula.
+func unaryOp(op string, inner Formula, depth int) (map[string]any, error) {
+	f, err := serializeFormulaDepth(inner, depth+1)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"operator": op, "formula": f}, nil
+}
+
+// binaryOp is an operator over two.
+func binaryOp(op string, left, right Formula, depth int) (map[string]any, error) {
+	l, err := serializeFormulaDepth(left, depth+1)
+	if err != nil {
+		return nil, err
+	}
+	r, err := serializeFormulaDepth(right, depth+1)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"operator": op, "left": l, "right": r}, nil
+}
+
+// metricOp adds the time bound the metric operators carry, refusing a bound
+// the kernel has no representation for.
+func metricOp(bound TimeBound, build func() (map[string]any, error)) (map[string]any, error) {
+	if err := validateTimeBound(bound); err != nil {
+		return nil, err
+	}
+	m, err := build()
+	if err != nil {
+		return nil, err
+	}
+	m["timebound"] = bound.Microseconds
+	return m, nil
+}
+
+// serializeFormulaDepth carries the remaining depth budget through the tree.
 func serializeFormulaDepth(f Formula, depth int) (map[string]any, error) {
 	if depth > maxFormulaDepth {
 		return nil, validationError(fmt.Sprintf("formula nesting depth exceeds %d", maxFormulaDepth))
@@ -520,119 +600,31 @@ func serializeFormulaDepth(f Formula, depth int) (map[string]any, error) {
 		}
 		return map[string]any{"operator": "atomic", "predicate": pred}, nil
 	case Not:
-		inner, err := serializeFormulaDepth(f.Inner, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"operator": "not", "formula": inner}, nil
-	case And:
-		left, err := serializeFormulaDepth(f.Left, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		right, err := serializeFormulaDepth(f.Right, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"operator": "and", "left": left, "right": right}, nil
-	case Or:
-		left, err := serializeFormulaDepth(f.Left, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		right, err := serializeFormulaDepth(f.Right, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"operator": "or", "left": left, "right": right}, nil
+		return unaryOp("not", f.Inner, depth)
 	case Next:
-		inner, err := serializeFormulaDepth(f.Inner, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"operator": "next", "formula": inner}, nil
+		return unaryOp("next", f.Inner, depth)
 	case WeakNext:
-		inner, err := serializeFormulaDepth(f.Inner, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"operator": "weakNext", "formula": inner}, nil
+		return unaryOp("weakNext", f.Inner, depth)
 	case Always:
-		inner, err := serializeFormulaDepth(f.Inner, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"operator": "always", "formula": inner}, nil
+		return unaryOp("always", f.Inner, depth)
 	case Eventually:
-		inner, err := serializeFormulaDepth(f.Inner, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"operator": "eventually", "formula": inner}, nil
+		return unaryOp("eventually", f.Inner, depth)
+	case And:
+		return binaryOp("and", f.Left, f.Right, depth)
+	case Or:
+		return binaryOp("or", f.Left, f.Right, depth)
 	case Until:
-		left, err := serializeFormulaDepth(f.Left, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		right, err := serializeFormulaDepth(f.Right, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"operator": "until", "left": left, "right": right}, nil
+		return binaryOp("until", f.Left, f.Right, depth)
 	case Release:
-		left, err := serializeFormulaDepth(f.Left, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		right, err := serializeFormulaDepth(f.Right, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"operator": "release", "left": left, "right": right}, nil
+		return binaryOp("release", f.Left, f.Right, depth)
 	case MetricAlways:
-		if err := validateTimeBound(f.Bound); err != nil {
-			return nil, err
-		}
-		inner, err := serializeFormulaDepth(f.Inner, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"operator": "metricAlways", "timebound": f.Bound.Microseconds, "formula": inner}, nil
+		return metricOp(f.Bound, func() (map[string]any, error) { return unaryOp("metricAlways", f.Inner, depth) })
 	case MetricEventually:
-		if err := validateTimeBound(f.Bound); err != nil {
-			return nil, err
-		}
-		inner, err := serializeFormulaDepth(f.Inner, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"operator": "metricEventually", "timebound": f.Bound.Microseconds, "formula": inner}, nil
+		return metricOp(f.Bound, func() (map[string]any, error) { return unaryOp("metricEventually", f.Inner, depth) })
 	case MetricUntil:
-		if err := validateTimeBound(f.Bound); err != nil {
-			return nil, err
-		}
-		left, err := serializeFormulaDepth(f.Left, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		right, err := serializeFormulaDepth(f.Right, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"operator": "metricUntil", "timebound": f.Bound.Microseconds, "left": left, "right": right}, nil
+		return metricOp(f.Bound, func() (map[string]any, error) { return binaryOp("metricUntil", f.Left, f.Right, depth) })
 	case MetricRelease:
-		if err := validateTimeBound(f.Bound); err != nil {
-			return nil, err
-		}
-		left, err := serializeFormulaDepth(f.Left, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		right, err := serializeFormulaDepth(f.Right, depth+1)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"operator": "metricRelease", "timebound": f.Bound.Microseconds, "left": left, "right": right}, nil
+		return metricOp(f.Bound, func() (map[string]any, error) { return binaryOp("metricRelease", f.Left, f.Right, depth) })
 	default:
 		return nil, validationError(fmt.Sprintf("unsupported formula type %T", f))
 	}
@@ -648,9 +640,8 @@ func parseRational(v any) (Rational, error) {
 	case json.Number:
 		// A scalar number is the integer rational n/1.
 		i, cls := decodeJSONInt(v)
-		// v is a json.Number here, so decodeJSONInt returns only OK, fractional,
-		// or overflow — never notNumber (that arm fires only for the dict
-		// components rawNum/rawDen below, which may be non-numeric).
+		// The value is a number here, so only the fractional and the
+		// out-of-range answers can come back.
 		switch cls {
 		case intParseFractional:
 			return Rational{}, protocolError(fmt.Sprintf("expected integer rational, got fractional: %v", v))
@@ -659,34 +650,9 @@ func parseRational(v any) (Rational, error) {
 		}
 		return Rational{Numerator: i, Denominator: 1}, nil
 	case map[string]any:
-		rawNum, okNum := n["numerator"]
-		rawDen, okDen := n["denominator"]
-		if !okNum || !okDen {
-			return Rational{}, protocolError(fmt.Sprintf("rational dict missing fields: %v", v))
-		}
-		num, numCls := decodeJSONInt(rawNum)
-		den, denCls := decodeJSONInt(rawDen)
-		if numCls == intParseNotNumber || denCls == intParseNotNumber {
-			return Rational{}, protocolError(fmt.Sprintf("rational dict missing fields: %v", v))
-		}
-		// Reject non-integer components first: a fractional denominator must not
-		// be mis-reported as a "zero denominator", nor a fractional numerator
-		// silently truncated.
-		if numCls == intParseFractional || denCls == intParseFractional {
-			return Rational{}, protocolError(fmt.Sprintf("expected integer rational, got %v/%v", rawNum, rawDen))
-		}
-		if numCls == intParseOverflow || denCls == intParseOverflow {
-			return Rational{}, protocolError(fmt.Sprintf("rational components out of int64 range: %v/%v", rawNum, rawDen))
-		}
-		if den == 0 {
-			return Rational{}, protocolError(fmt.Sprintf("zero denominator in rational: %v", v))
-		}
-		// Reject negative denominators rather than rewriting them: Python and
-		// the Agda core reject den < 0 at parse time, so silently rewriting here
-		// would let asymmetric wire shapes pass through Go-only paths and surface
-		// as cross-binding parity failures.
-		if den < 0 {
-			return Rational{}, protocolError(fmt.Sprintf("negative denominator in rational: %v", v))
+		num, den, err := rationalParts(n)
+		if err != nil {
+			return Rational{}, err
 		}
 		return Rational{Numerator: num, Denominator: den}, nil
 	default:
@@ -694,8 +660,40 @@ func parseRational(v any) (Rational, error) {
 	}
 }
 
-// serializeRational emits a Rational as {"numerator","denominator"} so
-// the wire form preserves exact precision (no float rounding).
+// rationalParts reads the two components of a wire rational, refusing every
+// shape the wire does not carry: a component missing or not a number, one with
+// a fractional part, one outside int64, a zero denominator, and a negative
+// one. A negative denominator is refused rather than rewritten, since the
+// kernel and the Python decoder both refuse it and rewriting here would let a
+// shape through Go that no other binding accepts.
+func rationalParts(m map[string]any) (int64, int64, error) {
+	rawNum, okNum := m["numerator"]
+	rawDen, okDen := m["denominator"]
+	num, numCls := decodeJSONInt(rawNum)
+	den, denCls := decodeJSONInt(rawDen)
+	if !okNum || !okDen || numCls == intParseNotNumber || denCls == intParseNotNumber {
+		return 0, 0, protocolError(fmt.Sprintf("rational needs a numeric numerator and denominator, got %v", m))
+	}
+	// The components are checked for being integers before anything is read
+	// from them, so a fractional denominator is not reported as a zero one and
+	// a fractional numerator is never truncated.
+	if numCls == intParseFractional || denCls == intParseFractional {
+		return 0, 0, protocolError(fmt.Sprintf("expected integer rational, got %v/%v", rawNum, rawDen))
+	}
+	if numCls == intParseOverflow || denCls == intParseOverflow {
+		return 0, 0, protocolError(fmt.Sprintf("rational components out of int64 range: %v/%v", rawNum, rawDen))
+	}
+	if den == 0 {
+		return 0, 0, protocolError(fmt.Sprintf("zero denominator in rational: %v", m))
+	}
+	if den < 0 {
+		return 0, 0, protocolError(fmt.Sprintf("negative denominator in rational: %v", m))
+	}
+	return num, den, nil
+}
+
+// serializeRational emits a rational as its two components, so the wire keeps
+// the exact value rather than a rounded one.
 func serializeRational(r Rational) any {
 	if r.Denominator == 1 {
 		return r.Numerator
@@ -703,11 +701,10 @@ func serializeRational(r Rational) any {
 	return map[string]any{"numerator": r.Numerator, "denominator": r.Denominator}
 }
 
-// formatRationalExact renders r exactly for a validation-error message: via the
-// kernel format_rational when the GHC RTS is up (a terminating decimal or
-// fraction, matching enriched_reason and the C++/Python/Rust bindings), else a
-// bare "num/den" fraction fallback — predicate validation can run before any
-// backend exists, so this must never error and never emit a lossy float.
+// formatRationalExact renders a rational for a refusal message: through the
+// kernel when its runtime is up, which is the form every binding prints, and
+// as a bare fraction otherwise. Predicate validation runs before any backend
+// exists, so this never fails and never rounds.
 func formatRationalExact(r Rational) string {
 	if s, err := formatRational(r); err == nil {
 		return s
@@ -718,7 +715,7 @@ func formatRationalExact(r Rational) string {
 	return strconv.FormatInt(r.Numerator, 10) + "/" + strconv.FormatInt(r.Denominator, 10)
 }
 
-// --- Deserialization (JSON from Agda core → Go) ---
+// --- Deserialization: the kernel's JSON to Go ---
 
 // intParse classifies the outcome of decoding a JSON number as an int64.
 type intParse int
@@ -730,14 +727,10 @@ const (
 	intParseOverflow                   // integer-valued, but outside int64
 )
 
-// decodeJSONInt converts a JSON-decoded number to an exact int64. The
-// production decode entry (parseResponse) uses a UseNumber decoder, so on the
-// production path every wire number arrives as a json.Number, which
-// strconv.ParseInt reads exactly for the full int64 range — no float64
-// 53-bit-mantissa loss. There is deliberately no float64 arm: any non-json.Number
-// value — including a float64 a test or fuzzer may pass after a plain
-// json.Unmarshal (which decodes numbers as float64) — is not a wire integer and
-// falls to intParseNotNumber, rejected rather than silently truncated.
+// decodeJSONInt reads a wire number as an exact int64. There is no float64
+// arm on purpose: a value that is not a json.Number did not come off the wire
+// through parseResponse, and taking it would put every integer through a
+// float's 53 bits of mantissa.
 func decodeJSONInt(v any) (int64, intParse) {
 	switch n := v.(type) {
 	case json.Number:
@@ -745,11 +738,9 @@ func decodeJSONInt(v any) (int64, intParse) {
 		if err == nil {
 			return i, intParseOK
 		}
-		// ParseInt rejects fractional ("1.5"), exponent ("1e3"), and out-of-range
-		// forms. The core emits canonical integer literals for num/den (the peers'
-		// integer-only readers — C++ get<int64_t>, Rust as_i64, Python int — would
-		// already break otherwise), so rejecting non-canonical forms here matches
-		// them and avoids a float64 round-trip that would re-introduce 2^53 loss.
+		// A fractional, exponent or out-of-range literal is refused. The kernel
+		// writes plain integers, which the other bindings' readers also require,
+		// so nothing is lost by refusing the rest.
 		if errors.Is(err, strconv.ErrRange) {
 			return 0, intParseOverflow
 		}
@@ -759,15 +750,14 @@ func decodeJSONInt(v any) (int64, intParse) {
 	}
 }
 
-// parseNumberAsInt64 parses a JSON number (or a rational object that reduces to
-// an integer) as an exact int64 — see decodeJSONInt for the exactness contract.
+// parseNumberAsInt64 reads an exact int64 from a wire number, or from a
+// rational that divides evenly.
 func parseNumberAsInt64(v any) (int64, error) {
 	switch n := v.(type) {
 	case json.Number:
 		i, cls := decodeJSONInt(v)
-		// v is a json.Number here, so decodeJSONInt returns only OK, fractional,
-		// or overflow — never notNumber (that arm fires only for the dict
-		// components rawNum/rawDen below).
+		// The value is a number here, so only the fractional and the
+		// out-of-range answers can come back.
 		switch cls {
 		case intParseFractional:
 			return 0, protocolError(fmt.Sprintf("expected integer, got fractional: %v", v))
@@ -776,22 +766,9 @@ func parseNumberAsInt64(v any) (int64, error) {
 		}
 		return i, nil
 	case map[string]any:
-		// Agda emits rationals as {"numerator": n, "denominator": d}.
-		rawNum, okNum := n["numerator"]
-		rawDen, okDen := n["denominator"]
-		num, numCls := decodeJSONInt(rawNum)
-		den, denCls := decodeJSONInt(rawDen)
-		if !okNum || !okDen || numCls == intParseNotNumber || denCls == intParseNotNumber {
-			return 0, protocolError(fmt.Sprintf("expected {numerator: number, denominator: number}, got %v", n))
-		}
-		if numCls == intParseFractional || denCls == intParseFractional {
-			return 0, protocolError(fmt.Sprintf("expected integer rational, got %v/%v", rawNum, rawDen))
-		}
-		if numCls == intParseOverflow || denCls == intParseOverflow {
-			return 0, protocolError(fmt.Sprintf("rational components out of int64 range: %v/%v", rawNum, rawDen))
-		}
-		if den == 0 {
-			return 0, protocolError("zero denominator in rational")
+		num, den, err := rationalParts(n)
+		if err != nil {
+			return 0, err
 		}
 		if num%den != 0 {
 			return 0, protocolError(fmt.Sprintf("expected integer, got non-exact rational %d/%d", num, den))
@@ -842,16 +819,13 @@ func getObject(m map[string]any, key string) map[string]any {
 	return nil
 }
 
-// parseResponse unmarshals an Agda core response into a generic map
-// before typed parsers narrow it to a concrete response variant.
+// parseResponse reads a kernel response into a generic map, which the typed
+// decoders below narrow.
 //
-// A UseNumber decoder is used (not json.Unmarshal) so every JSON number lands as
-// a json.Number — an exact decimal string — rather than a float64, whose 53-bit
-// mantissa would silently round rational numerators/denominators above 2^53. The
-// three numeric helpers (parseRational, parseNumberAsInt64, jsonNumberToUint64)
-// read json.Number exactly. json.Unmarshal rejects trailing bytes after the
-// top-level value but a Decoder does not, so that rejection is re-asserted
-// explicitly here (a response must be exactly one JSON value).
+// Numbers arrive as decimal strings rather than float64, so a numerator or
+// denominator above two to the fifty-third survives; the three numeric helpers
+// read them exactly. A decoder accepts trailing bytes where json.Unmarshal
+// refuses them, so the refusal is made here: a response is one JSON value.
 func parseResponse(raw string) (map[string]any, error) {
 	dec := json.NewDecoder(strings.NewReader(raw))
 	dec.UseNumber()
@@ -867,11 +841,28 @@ func parseResponse(raw string) (map[string]any, error) {
 	return m, nil
 }
 
-// requireString extracts a string field from a parsed JSON object, returning
-// a protocol error if the field is missing or not a string. Used by error-
-// response parsing where the Agda core guarantees both fields are present;
-// a silent default would paper over FFI drift or a malformed stub (see
-// aletheia-py's “build_error_response“ for the canonical rationale).
+// decodeResponse reads a response, lifts an error envelope into its typed
+// error, and holds the status to the one the caller expects. Every typed
+// decoder below opens with it, so a response that is malformed, an error, or
+// simply not the answer to the command asked is refused in one place.
+func decodeResponse(raw, wantStatus string) (map[string]any, error) {
+	m, err := parseResponse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkErrorStatus(m); err != nil {
+		return nil, err
+	}
+	if status := getString(m, "status"); status != wantStatus {
+		return nil, protocolError(fmt.Sprintf("expected %s response, got status: %q", wantStatus, status))
+	}
+	return m, nil
+}
+
+// requireString reads a field that must be there. An error response carries
+// its code and its message, so a default in place of either would hide drift
+// between the binding and the kernel rather than report it. The Python decoder
+// requires the same two in build_error_response.
 func requireString(m map[string]any, key string) (string, error) {
 	v, ok := m[key]
 	if !ok {
@@ -886,18 +877,15 @@ func requireString(m map[string]any, key string) (string, error) {
 	return s, nil
 }
 
-// inputBoundExceededFromResponse lifts a wire response carrying
-// “bound_kind“ / “observed“ / “limit“ into a typed
-// [InputBoundExceededError].  Returns nil when any of the three fields
-// is missing or ill-typed (matches C++ “make_json_error“'s
-// degrade-to-nullopt rule and Python “build_error_response“'s
-// triple-must-be-complete check).  The wire “message“ string is not
-// threaded through — “*InputBoundExceededError.Error()“ reconstructs an
-// equivalent string from kind/observed/limit, matching cross-binding
-// convention where each language formats the message in its own idiom.
-// Cross-binding wire-symmetric lifting: kernel-rejected paths (NestingDepth,
-// AtomCount, etc.) surface the structured `bound_kind/observed/limit` triple
-// so callers can recover the typed error rather than a generic `*Error`.
+// The three lifts below turn a coded error response into the typed error a
+// caller can match on, and each answers nil when its payload is incomplete, so
+// the caller falls back to the generic coded error and the decode never fails
+// harder than it would have. C++ and Python degrade the same way.
+
+// inputBoundExceededFromResponse lifts a bound refusal, whichever bound the
+// kernel crossed. The wire message is not carried: the typed error renders an
+// equivalent one from the kind, the observed size and the limit, as each
+// binding renders it in its own idiom.
 func inputBoundExceededFromResponse(code string, m map[string]any) *InputBoundExceededError {
 	if code != CodeInputBoundExceeded {
 		return nil
@@ -917,12 +905,8 @@ func inputBoundExceededFromResponse(code string, m map[string]any) *InputBoundEx
 	return newInputBoundExceededError(kind, observed, limit, code)
 }
 
-// jsonNumberToUint64 narrows a JSON-decoded number to uint64. The production
-// decode entry (parseResponse) uses a UseNumber decoder, so a wire number is
-// always a json.Number; ParseUint reads the full uint64 range exactly and rejects
-// negatives, non-integers ("1.5"), non-canonical forms ("1e3" the core never
-// emits), and overflowing magnitudes. Any non-json.Number value (e.g. a float64
-// from a plain json.Unmarshal in a test) is not a uint64.
+// jsonNumberToUint64 reads a wire number as an exact uint64, refusing a
+// negative, a fractional, an exponent form and anything too large.
 func jsonNumberToUint64(v any) (uint64, bool) {
 	switch n := v.(type) {
 	case json.Number:
@@ -936,18 +920,11 @@ func jsonNumberToUint64(v any) (uint64, bool) {
 	}
 }
 
-// validationFailedFromResponse lifts a “handler_validation_failed“ wire
-// response carrying the structured “has_errors“ / “issues“ payload into
-// a typed [ValidationFailedError].  Returns nil when either field is
-// missing or ill-typed (same degrade-to-generic rule as
-// “inputBoundExceededFromResponse“) so the caller falls back to the
-// generic coded error — the decode never fails harder than before the
-// lift.  The “issues“ array uses the exact element shape of the
-// validation response, so decoding is shared with “parseIssueArray“;
-// its presence is checked separately because “getArray“ folds a missing
-// key into an empty array.  The legacy “message“ text is carried
-// through unchanged — “*ValidationFailedError.Error()“ renders it
-// byte-identically to the generic error it replaces.
+// validationFailedFromResponse lifts a refusal of a DBC that failed
+// validation. The issues have the element shape of a validation response, so
+// parseIssueArray decodes them; their presence is checked first, since a
+// missing key would otherwise read as an empty array. The wire message is
+// carried through, so the rendered error is what the generic one rendered.
 func validationFailedFromResponse(code, msg string, m map[string]any) *ValidationFailedError {
 	if code != CodeHandlerValidationFailed {
 		return nil
@@ -966,12 +943,8 @@ func validationFailedFromResponse(code, msg string, m map[string]any) *Validatio
 	return newValidationFailedError(issues, hasErrors, code, msg)
 }
 
-// textRoundtripFailedFromResponse lifts a “handler_text_roundtrip_failed“ wire
-// response carrying the structured “has_errors“ / “issues“ payload into a typed
-// [TextRoundTripFailedError].  Same degrade-to-generic rule as
-// “validationFailedFromResponse“ (returns nil when either field is missing or
-// ill-typed); the “issues“ array uses the exact validation-response element
-// shape, so decoding is shared with “parseIssueArray“.
+// textRoundtripFailedFromResponse lifts a refusal of a DBC whose text does not
+// re-parse, carrying the same payload as the validation refusal above.
 func textRoundtripFailedFromResponse(code, msg string, m map[string]any) *TextRoundTripFailedError {
 	if code != CodeHandlerTextRoundtripFailed {
 		return nil
@@ -990,19 +963,10 @@ func textRoundtripFailedFromResponse(code, msg string, m map[string]any) *TextRo
 	return newTextRoundTripFailedError(issues, hasErrors, code, msg)
 }
 
-// checkErrorStatus converts a parsed response with status="error" into
-// a typed error carrying the Agda-side code and message. Both “code“
-// and “message“ must be non-null strings — a missing or non-string
-// value surfaces as a protocol error rather than being papered over with
-// a default, matching Python's “build_error_response“ strict contract.
-//
-// InputBoundExceeded responses lift the structured triple into a typed
-// [InputBoundExceededError] when all three of “bound_kind“ /
-// “observed“ / “limit“ are present; mirrors Python's
-// “build_error_response“ and C++'s “make_json_error“ lifting.
-// HandlerValidationFailed responses likewise lift the structured
-// “has_errors“ / “issues“ payload into a typed
-// [ValidationFailedError] when both fields are well-typed.
+// checkErrorStatus turns an error response into a typed error carrying the
+// kernel's code and message, both of which must be strings. Where the response
+// also carries a structured payload, one of the lifts above gives the caller a
+// type to match on instead of the generic coded error.
 func checkErrorStatus(m map[string]any) error {
 	status := getString(m, "status")
 	if status != "error" {
@@ -1028,52 +992,31 @@ func checkErrorStatus(m map[string]any) error {
 	return newCodedError(ErrProtocol, code, msg)
 }
 
-// parseSuccessResponse validates an Agda command response for control-
-// plane commands (parseDBC, setProperties, …) and returns nil iff
-// status=="success".
+// parseSuccessResponse is the answer to a control-plane command that carries
+// nothing but its success.
 func parseSuccessResponse(raw string) error {
-	m, err := parseResponse(raw)
-	if err != nil {
-		return err
-	}
-	if err := checkErrorStatus(m); err != nil {
-		return err
-	}
-	status := getString(m, "status")
-	if status == "success" {
-		return nil
-	}
-	return protocolError(fmt.Sprintf("unexpected status: %q", status))
+	_, err := decodeResponse(raw, "success")
+	return err
 }
 
-// parseEventAck parses a send_error / send_remote response. Trace events
-// (Error / Remote) always resolve to Response.Ack in the Agda core — see
-// Protocol/StreamState.agda handleTraceEvent — so the wire status is "ack".
-// Python parse_event_response and C++ parse_event_ack enforce the same.
+// parseEventAck reads the answer to an error or remote event. handleTraceEvent
+// in Protocol/StreamState.agda resolves both to an acknowledgement, so that is
+// the only status either can carry, and the Python and C++ decoders hold their
+// events to the same one.
 func parseEventAck(raw string) error {
-	// Fast path: byte-level check before JSON parsing (~99% of real traffic).
+	// Almost every response is one of the two spellings of an acknowledgement,
+	// and comparing bytes is cheaper than parsing them.
 	if raw == ackCompact || raw == ackSpaced {
 		return nil
 	}
-	m, err := parseResponse(raw)
-	if err != nil {
-		return err
-	}
-	if err := checkErrorStatus(m); err != nil {
-		return err
-	}
-	status := getString(m, "status")
-	if status == "ack" {
-		return nil
-	}
-	return protocolError(fmt.Sprintf("unexpected status: %q", status))
+	_, err := decodeResponse(raw, "ack")
+	return err
 }
 
-// parseIssueArray decodes the array of validation-issue objects under key,
-// shared by the validate-response and parsed-DBC-warnings decoders. The
-// result is initialized empty (not nil) so JSON marshaling produces "[]"
-// instead of "null"; matches Python's empty-list default (a cross-binding
-// test caught the nil-vs-empty drift).
+// parseIssueArray decodes the validation issues under a key, for the
+// validation response and for the warnings of a parsed DBC. The result is
+// empty rather than nil, so encoding it again writes an empty array and not a
+// null, which is what the Python decoder answers.
 func parseIssueArray(m map[string]any, key string) ([]ValidationIssue, error) {
 	issues := []ValidationIssue{}
 	for _, item := range getArray(m, key) {
@@ -1106,18 +1049,10 @@ func parseIssueArray(m map[string]any, key string) ([]ValidationIssue, error) {
 // parseValidationResponse decodes a validateDBC response into typed
 // ValidationIssues, preserving severity and the Agda error code.
 func parseValidationResponse(raw string) (*ValidationResult, error) {
-	m, err := parseResponse(raw)
+	m, err := decodeResponse(raw, "validation")
 	if err != nil {
 		return nil, err
 	}
-	if err := checkErrorStatus(m); err != nil {
-		return nil, err
-	}
-	status := getString(m, "status")
-	if status != "validation" {
-		return nil, protocolError(fmt.Sprintf("expected validation response, got status: %q", status))
-	}
-
 	issues, err := parseIssueArray(m, "issues")
 	if err != nil {
 		return nil, err
@@ -1131,16 +1066,9 @@ func parseValidationResponse(raw string) (*ValidationResult, error) {
 // parseExtractionResponse decodes an extractAllSignals JSON response.
 // Binary-extraction responses use parseExtractionBin instead.
 func parseExtractionResponse(raw string) (*ExtractionResult, error) {
-	m, err := parseResponse(raw)
+	m, err := decodeResponse(raw, "success")
 	if err != nil {
 		return nil, err
-	}
-	if err := checkErrorStatus(m); err != nil {
-		return nil, err
-	}
-	status := getString(m, "status")
-	if status != "success" {
-		return nil, protocolError(fmt.Sprintf("expected success response, got status: %q", status))
 	}
 
 	var values []SignalValue
@@ -1189,20 +1117,12 @@ func parseExtractionResponse(raw string) (*ExtractionResult, error) {
 	return result, nil
 }
 
-// parseFrameDataResponse decodes a {"status":"success","data":[...]} response
-// into the raw CAN payload bytes. Used only by MockBackend — the real FFI path
-// returns raw bytes directly via aletheia_build_frame_bin / aletheia_update_frame_bin.
+// parseFrameDataResponse reads a payload out of a JSON response. Only the mock
+// backend answers this way; the library returns the bytes themselves.
 func parseFrameDataResponse(raw string) (FramePayload, error) {
-	m, err := parseResponse(raw)
+	m, err := decodeResponse(raw, "success")
 	if err != nil {
 		return nil, err
-	}
-	if err := checkErrorStatus(m); err != nil {
-		return nil, err
-	}
-	status := getString(m, "status")
-	if status != "success" {
-		return nil, protocolError(fmt.Sprintf("expected success response, got status: %q", status))
 	}
 
 	data := getArray(m, "data")
@@ -1228,18 +1148,17 @@ func parseFrameDataResponse(raw string) (FramePayload, error) {
 //	Header:  [nvals:u16][nerrs:u16][nabss:u16][reasonBytes:u32]  (10 bytes)
 //	Values:  nvals × (idx:u16, num:i64, den:i64)                 (18 bytes each)
 //	Errors:  nerrs × (idx:u16, code:u8)                          (3 bytes each)
-//	Offsets: (nerrs+1) × u32 — cumulative byte offsets into Reasons;
+//	Offsets: (nerrs+1) x u32, cumulative byte offsets into Reasons;
 //	         off[0] = 0, monotone non-decreasing, off[nerrs] = reasonBytes.
 //	Reasons: reasonBytes of UTF-8; error i's reason = bytes [off[i], off[i+1]).
 //	Absent:  nabss × (idx:u16)                                   (2 bytes each)
 //
-// Each error's reason is the kernel-minted detailed string carried on the
-// wire — byte-identical to what the JSON path surfaces for the same error.
-// The u8 error code (mirror of the Agda SSOT extractionErrorCodeToℕ in
-// Aletheia.CAN.BatchExtraction, injectivity machine-checked) is transported
-// for machine consumption but not surfaced on ExtractionResult: the JSON path
-// has no code field, and binary/JSON parity of the public surface is a repo
-// invariant. Unknown codes are not rejected — the reason is authoritative.
+// Each reason is the kernel's own string, byte for byte what the JSON path
+// carries for the same error. The one-byte code beside it, whose table is
+// extractionErrorCodeToℕ in Aletheia.CAN.BatchExtraction, is carried for a
+// machine to read but is not put on the result: the JSON path has no such
+// field, and the two paths present the same surface. A code outside the table
+// is not refused, the reason being what the caller reads.
 func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
 	const headerSize = 10
 	if len(buf) < headerSize {
@@ -1250,9 +1169,8 @@ func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
 	nabss := int(binary.LittleEndian.Uint16(buf[4:6]))
 	reasonBytes := int(binary.LittleEndian.Uint32(buf[6:10]))
 
-	// Exact total-size check up front: shorter AND longer are both protocol
-	// errors. A size mismatch indicates drift between the Agda writer and the
-	// Go reader and would silently hide bugs if ignored.
+	// The size must be exact, short and long alike: either means the writer and
+	// this reader disagree about the layout.
 	want := headerSize + 18*nvals + 3*nerrs + 4*(nerrs+1) + reasonBytes + 2*nabss
 	if len(buf) != want {
 		return nil, protocolError(fmt.Sprintf("extraction binary buffer size mismatch: got %d bytes, want %d", len(buf), want))
@@ -1271,36 +1189,32 @@ func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
 		den := int64(binary.LittleEndian.Uint64(buf[off+10 : off+18]))
 		off += 18
 		name := signalNameByIndex(names, idx)
-		// Carry the exact rational the kernel computed — no float round-trip.
-		// Reject a non-positive denominator to match the JSON path
-		// (parseRational) and the wire-symmetry contract; a successful
-		// extraction value never has den <= 0, so this is a corrupt buffer.
+		// The rational is the kernel's own, never rounded. A denominator of
+		// zero or less is a corrupt buffer rather than a value, and the JSON
+		// path refuses it too.
 		if den <= 0 {
 			return nil, protocolError(fmt.Sprintf("non-positive denominator %d for extracted signal %q (index %d)", den, name, idx))
 		}
 		result.Values = append(result.Values, SignalValue{Name: name, Value: Rational{Numerator: num, Denominator: den}})
 	}
 
-	// Zero-error fast path (the per-frame hot case): with no errors and an
-	// empty reasons blob, the three offsets-table invariants collapse to the
-	// single entry being 0 — one read instead of the general machinery.  Any
-	// other shape (including a malformed one) takes the general path below,
-	// which raises the canonical invariant errors.
+	// With no errors and no reasons, which is every frame that extracts
+	// cleanly, the three offsets invariants come to the single entry being
+	// zero. Anything else, malformed included, takes the general path below.
 	if nerrs == 0 && reasonBytes == 0 && binary.LittleEndian.Uint32(buf[off:off+4]) == 0 {
 		off += 4
 	} else {
-		// Errors segment carries (idx, code); the reason strings live in the
-		// Reasons blob, addressed via the Offsets table that follows.
+		// Each error carries its signal index and its code; the reasons live in
+		// the blob at the end, addressed by the offsets table.
 		errIdx := make([]uint16, 0, nerrs)
 		for range nerrs {
 			errIdx = append(errIdx, binary.LittleEndian.Uint16(buf[off:off+2]))
-			// buf[off+2] is the u8 error code — transported, not surfaced (see
-			// the function comment).
+			// The byte after the index is the code, carried but not surfaced.
 			off += 3
 		}
 
-		// Offsets table — always present, the single entry 0 when nerrs == 0.
-		// All three invariants must hold before slicing the Reasons blob.
+		// The offsets table is always there, and all three of its invariants
+		// hold before anything is sliced out of the blob.
 		offsets := make([]int, nerrs+1)
 		for i := range offsets {
 			offsets[i] = int(binary.LittleEndian.Uint32(buf[off : off+4]))
@@ -1339,10 +1253,10 @@ func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
 	return result, nil
 }
 
-// signalNameByIndex resolves a DBC signal index into its name using the
-// caller-supplied lookup table.  Returns a synthetic "signal_<idx>" on OOB
-// — diagnostic-grade only; the kernel guarantees indices in range, so OOB
-// reaching this branch indicates a binding-side bookkeeping bug.
+// signalNameByIndex is the name at an index of the caller's table. An index
+// past the table answers a placeholder naming the number, which is for reading
+// in a diagnostic: the kernel indexes the table it was given, so reaching it
+// means the binding lost track of the names.
 func signalNameByIndex(names []string, idx uint16) SignalName {
 	if int(idx) < len(names) {
 		return SignalName(names[idx])
@@ -1350,25 +1264,20 @@ func signalNameByIndex(names []string, idx uint16) SignalName {
 	return SignalName(fmt.Sprintf("signal_%d", idx))
 }
 
-// maxFormulaDepth bounds recursion in the parsed-formula tree (parseFormulaJSON).
-// Unrelated to the streaming hot path; defined here because both this and the
-// ack-fast-path constants live in json.go's parse-side helpers.
+// maxFormulaDepth bounds how deep a formula may nest.
 const maxFormulaDepth = 100
 
-// Ack fast path constants — avoid json.Unmarshal for ~99% of streaming frames.
-// The Agda core emits exactly {"status":"ack"} (compact). The spaced variant
-// covers json.Marshal output used by MockBackend.
+// The two spellings of an acknowledgement: the kernel writes the compact one
+// and the mock backend the spaced one.
 const (
 	ackCompact = `{"status":"ack"}`
 	ackSpaced  = `{"status": "ack"}`
 )
 
-// parseFrameResponse decodes the per-frame LTL response: Ack (no events),
-// PropertyBatch (one or more events), or a typed error.  The
-// wire shape for property events was lifted from a singular violation
-// object to a `{"type": "property_batch", "results": [...]}` envelope so
-// mid-stream Satisfaction events (previously dropped silently) reach the
-// caller alongside any terminal violation.
+// parseFrameResponse decodes the answer to one frame: an acknowledgement when
+// nothing happened, a batch of property events when something did, or a typed
+// error. The batch carries every event of the frame, so a mid-stream
+// satisfaction reaches the caller beside a violation rather than behind it.
 func parseFrameResponse(raw string) (FrameResponse, error) {
 	// Fast path: byte-level check before JSON parsing.
 	if raw == ackCompact || raw == ackSpaced {
@@ -1417,22 +1326,13 @@ func parseFrameResponse(raw string) (FrameResponse, error) {
 	))
 }
 
-// parseStreamResponse decodes an endStream response — a list of final
-// property verdicts (Satisfaction / Violation / Unresolved).
+// parseStreamResponse decodes the end of a stream: one final verdict per
+// property.
 func parseStreamResponse(raw string) (*StreamResult, error) {
-	m, err := parseResponse(raw)
+	m, err := decodeResponse(raw, "complete")
 	if err != nil {
 		return nil, err
 	}
-	if err := checkErrorStatus(m); err != nil {
-		return nil, err
-	}
-
-	status := getString(m, "status")
-	if status != "complete" {
-		return nil, protocolError(fmt.Sprintf("expected complete response, got status: %q", status))
-	}
-
 	var results []PropertyResult
 	for _, item := range getArray(m, "results") {
 		r, ok := item.(map[string]any)
@@ -1513,16 +1413,9 @@ func parsePropertyResult(r map[string]any) (PropertyResult, error) {
 
 // parseDBCResponse decodes a formatDBC response into a DBCDefinition.
 func parseDBCResponse(raw string) (*DBCDefinition, error) {
-	m, err := parseResponse(raw)
+	m, err := decodeResponse(raw, "success")
 	if err != nil {
 		return nil, err
-	}
-	if err := checkErrorStatus(m); err != nil {
-		return nil, err
-	}
-	status := getString(m, "status")
-	if status != "success" {
-		return nil, protocolError(fmt.Sprintf("expected success response, got status: %q", status))
 	}
 
 	dbcRaw := getObject(m, "dbc")
@@ -1539,16 +1432,9 @@ func parseDBCResponse(raw string) (*DBCDefinition, error) {
 // failure on the input, unexpected status) short-circuit to the (*DBCText,
 // error) tuple's error half.
 func parseDBCTextResponse(raw string) (*DBCText, error) {
-	m, err := parseResponse(raw)
+	m, err := decodeResponse(raw, "success")
 	if err != nil {
 		return nil, err
-	}
-	if err := checkErrorStatus(m); err != nil {
-		return nil, err
-	}
-	status := getString(m, "status")
-	if status != "success" {
-		return nil, protocolError(fmt.Sprintf("expected success response, got status: %q", status))
 	}
 	text, ok := m["text"].(string)
 	if !ok {
@@ -1574,16 +1460,9 @@ func parseDBCTextResponse(raw string) (*DBCText, error) {
 // (warnings).  Errors short-circuit to the (*ParsedDBC, error) tuple's
 // error half.
 func parseParsedDBCResponse(raw string) (*ParsedDBC, error) {
-	m, err := parseResponse(raw)
+	m, err := decodeResponse(raw, "success")
 	if err != nil {
 		return nil, err
-	}
-	if err := checkErrorStatus(m); err != nil {
-		return nil, err
-	}
-	status := getString(m, "status")
-	if status != "success" {
-		return nil, protocolError(fmt.Sprintf("expected success response, got status: %q", status))
 	}
 
 	dbcRaw := getObject(m, "dbc")
@@ -1602,10 +1481,8 @@ func parseParsedDBCResponse(raw string) (*ParsedDBC, error) {
 	return &ParsedDBC{DBC: *dbc, Warnings: warnings}, nil
 }
 
-// parseDBCDefinition decodes the "dbc" sub-object of a formatDBC
-// response into its typed DBCDefinition form. Tier 1 metadata arrays
-// (signalGroups / environmentVars / valueTables) are optional on the
-// wire — absent or null keys become empty slices.
+// parseDBCDefinition decodes the definition a response carries. Its metadata
+// arrays are optional: an absent or null key reads as none.
 func parseDBCDefinition(j map[string]any) (*DBCDefinition, error) {
 	var messages []DBCMessage
 	for _, item := range getArray(j, "messages") {
@@ -1664,13 +1541,10 @@ func parseDBCDefinition(j map[string]any) (*DBCDefinition, error) {
 	return def, nil
 }
 
-// parseObjects is the shared template for decoding an array-of-objects field
-// on the JSON wire.  Returns (nil, nil) for an empty/absent field, a protocol
-// error at the first non-object entry, and propagates per-entry decoder
-// errors verbatim.  The 7 list parsers in this file (parseSignalGroups /
-// parseEnvironmentVars / parseValueTables / parseNodes / parseComments /
-// parseAttributes / parseUnresolvedValueDescs) all share this outer
-// plumbing; their per-entry decode is the `decode` callback.
+// parseObjects decodes an array of objects under a key: nothing for an absent
+// or empty field, a refusal at the first entry that is not an object, and the
+// entry decoder's own error otherwise. Every list the DBC carries is read
+// through it, each passing what one entry means.
 func parseObjects[T any](
 	j map[string]any,
 	fieldName string,
@@ -1695,9 +1569,8 @@ func parseObjects[T any](
 	return out, nil
 }
 
-// parseUnresolvedValueDescs decodes the optional "unresolvedValueDescs" array.
-// Each entry is `{id, [extended], signalName, entries}`.
-// Empty/absent on the JSON-parse path is the common case.
+// parseUnresolvedValueDescs decodes the value descriptions the text parser
+// could not attach to a signal. The field is usually absent.
 func parseUnresolvedValueDescs(j map[string]any) ([]DBCRawValueDesc, error) {
 	return parseObjects(j, "unresolvedValueDescs", func(rvdRaw map[string]any) (DBCRawValueDesc, error) {
 		idVal, ext, err := parseCanIDFields(rvdRaw)
@@ -1756,9 +1629,8 @@ func parseSignalGroups(j map[string]any) ([]DBCSignalGroup, error) {
 	})
 }
 
-// parseEnvironmentVars decodes the optional "environmentVars" array.
-// The wire-tag “varType“ must be one of 0/1/2 (Int/Float/String); any
-// other value is a protocol error.
+// parseEnvironmentVars decodes the environment variables. The type tag is one
+// of the three the format has, and any other number is refused.
 func parseEnvironmentVars(j map[string]any) ([]DBCEnvironmentVar, error) {
 	return parseObjects(j, "environmentVars", func(evRaw map[string]any) (DBCEnvironmentVar, error) {
 		tagVal, err := parseNumberAsInt64(evRaw["varType"])
@@ -1790,9 +1662,7 @@ func parseEnvironmentVars(j map[string]any) ([]DBCEnvironmentVar, error) {
 	})
 }
 
-// parseValueTables decodes the optional "valueTables" array. Each entry's
-// integer value is parsed through [parseNumberAsInt64] (the shared json.Number
-// decoder — exact for the full int64 range).
+// parseValueTables decodes the value tables, each entry's value read exactly.
 func parseValueTables(j map[string]any) ([]DBCValueTable, error) {
 	return parseObjects(j, "valueTables", func(vtRaw map[string]any) (DBCValueTable, error) {
 		entries, err := parseObjects(vtRaw, "entries", func(eRaw map[string]any) (DBCValueEntry, error) {
@@ -1815,7 +1685,7 @@ func parseValueTables(j map[string]any) ([]DBCValueTable, error) {
 	})
 }
 
-// --- Tier 2 parsers (JSON from Agda core → Go) ---
+// --- Tier 2 parsers ---
 
 // parseNodes decodes the optional "nodes" array.
 func parseNodes(j map[string]any) ([]DBCNode, error) {
@@ -1824,9 +1694,9 @@ func parseNodes(j map[string]any) ([]DBCNode, error) {
 	})
 }
 
-// parseCanIDFields reads the {"id", "extended"} pair that every
-// message/signal-scoped tagged target embeds. "extended" is NotRequired
-// on the wire — absent means standard (11-bit) ID.
+// parseCanIDFields reads the identifier pair every message-scoped or
+// signal-scoped target carries. An absent extended flag means a standard
+// identifier.
 func parseCanIDFields(m map[string]any) (uint32, bool, error) {
 	idVal, err := parseNumberAsInt64(m["id"])
 	if err != nil {
@@ -1838,9 +1708,8 @@ func parseCanIDFields(m map[string]any) (uint32, bool, error) {
 	return uint32(idVal), getBool(m, "extended"), nil
 }
 
-// parseCommentTarget decodes one comment target object, dispatching on
-// the "kind" discriminator and rejecting unknown kinds as protocol
-// errors (matches Agda's parseCommentTarget).
+// parseCommentTarget decodes what a comment is attached to, refusing a kind
+// the format does not have, as the kernel's own parser does.
 func parseCommentTarget(m map[string]any) (DBCCommentTarget, error) {
 	kind := getString(m, "kind")
 	switch kind {
@@ -2178,13 +2047,13 @@ func parseDBCMessage(j map[string]any) (*DBCMessage, error) {
 func parseDBCSignal(j map[string]any) (DBCSignal, error) {
 	var zero DBCSignal
 	var bo ByteOrder
-	switch getString(j, "byteOrder") {
-	case "little_endian":
+	switch name := getString(j, "byteOrder"); name {
+	case LittleEndian.String():
 		bo = LittleEndian
-	case "big_endian":
+	case BigEndian.String():
 		bo = BigEndian
 	default:
-		return zero, protocolError(fmt.Sprintf("unrecognized byte order: %q", getString(j, "byteOrder")))
+		return zero, protocolError(fmt.Sprintf("unrecognized byte order: %q", name))
 	}
 
 	factor, err := parseRational(j["factor"])
@@ -2228,10 +2097,9 @@ func parseDBCSignal(j map[string]any) (DBCSignal, error) {
 		return zero, protocolError("signal missing required field: name")
 	}
 
-	// "signed" must be present in well-formed DBC JSON from the Agda parser.
-	// Silently default to false (the CAN unsigned default) if missing or not
-	// a bool — drift from the kernel is treated as a parser bug, not a user
-	// input error, so it does not surface as a typed validation failure.
+	// A signal the kernel wrote says whether it is signed. Missing, it reads as
+	// unsigned, which is the format's default, rather than failing the parse:
+	// the caller cannot act on drift between the binding and the kernel.
 	isSigned := false
 	if b, ok := j["signed"].(bool); ok {
 		isSigned = b
@@ -2285,11 +2153,10 @@ func parseDBCSignal(j map[string]any) (DBCSignal, error) {
 	}, nil
 }
 
-// parseSignalPresence decodes the explicit "presence" discriminator the core
-// emits for every signal — "always" or "multiplexed" — rather than inferring
-// multiplexing from the bare presence of a "multiplexor" field (matches the
-// Rust/C++/Python bindings). A multiplexed signal additionally requires a
-// non-empty "multiplexor" name and a non-empty "multiplex_values" array.
+// parseSignalPresence reads the presence the kernel states for every signal,
+// rather than inferring it from a multiplexor field being there, which is how
+// the other bindings read it too. A multiplexed signal must name its
+// multiplexor and carry at least one value.
 func parseSignalPresence(j map[string]any) (SignalPresence, error) {
 	switch presence := getString(j, "presence"); presence {
 	case "always":

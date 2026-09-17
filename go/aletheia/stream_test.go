@@ -499,7 +499,7 @@ func TestSendError_RejectsSuccessStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = c.SendError(ctx, aletheia.Timestamp{Microseconds: 1000})
-	requireErrorContains(t, err, `unexpected status: "success"`)
+	requireErrorContains(t, err, `expected ack response, got status: "success"`)
 }
 
 func TestSendRemote_RejectsSuccessStatus(t *testing.T) {
@@ -523,7 +523,7 @@ func TestSendRemote_RejectsSuccessStatus(t *testing.T) {
 	}
 	sid, _ := aletheia.NewStandardID(0x100)
 	err = c.SendRemote(ctx, aletheia.Timestamp{Microseconds: 1000}, sid)
-	requireErrorContains(t, err, `unexpected status: "success"`)
+	requireErrorContains(t, err, `expected ack response, got status: "success"`)
 }
 
 func TestConcurrentSendFrame(t *testing.T) {

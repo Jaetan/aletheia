@@ -455,3 +455,24 @@ func TestExtractSignals_MockBinaryFallthrough(t *testing.T) {
 		t.Errorf("expected Speed=150 through the JSON fallback, got %+v", result.Values)
 	}
 }
+
+// A name that is not valid UTF-8 is refused rather than encoded. The encoder
+// replaces each bad byte with the replacement character, so a definition sent
+// without this check would name a message nobody wrote, and the kernel would
+// answer about that one. Python raises on the same input and C++ throws.
+func TestSerializeDBC_RefusesInvalidUTF8(t *testing.T) {
+	dbc := testDBC()
+	dbc.Messages[0].Name = aletheia.MessageName("Engine\xa6Data")
+	c, _ := mockClient(t, aletheia.RespondParseDBC(testDBC()))
+	_, err := c.ParseDBC(ctx, dbc)
+	if err == nil {
+		t.Fatal("a message name that is not UTF-8 was sent")
+	}
+	var e *aletheia.Error
+	if !errors.As(err, &e) || e.Kind != aletheia.ErrValidation {
+		t.Fatalf("error is %v, want a validation error", err)
+	}
+	if !strings.Contains(err.Error(), "not valid UTF-8") {
+		t.Errorf("Error() = %q, want it to say the name is not valid UTF-8", err)
+	}
+}

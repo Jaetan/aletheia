@@ -190,3 +190,21 @@ func TestParseNumberAsInt64_AcceptsExactRational(t *testing.T) {
 		t.Errorf("got %d, want 3", got)
 	}
 }
+
+// An integer read from a rational is refused when its denominator is negative,
+// as the same rational is on the value path. The kernel emits neither, and a
+// decoder that divided by it would answer a positive integer for a shape every
+// other binding refuses.
+func TestParseNumberAsInt64_RefusesNegativeDenominator(t *testing.T) {
+	m, err := parseResponse(`{"v":{"numerator":-4,"denominator":-2}}`)
+	if err != nil {
+		t.Fatalf("parseResponse: %v", err)
+	}
+	got, err := parseNumberAsInt64(m["v"])
+	if err == nil {
+		t.Fatalf("a negative denominator decoded to %d", got)
+	}
+	if !strings.Contains(err.Error(), "negative denominator") {
+		t.Errorf("Error() = %q, want it to name the negative denominator", err)
+	}
+}
