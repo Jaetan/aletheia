@@ -16,9 +16,8 @@ tests       both: the binding, the host interface and the spreadsheet module gre
             under -race, and the no-cgo subset green without it
 staticcheck both: no output
 shape       opening: reports by contract: {'frev': 0, 'drev': 0, 'xrev': 0, 'not completed': 86}; out of shape: 0
-            closing: 122 reports, none out of shape. One entry is not
-            completed and says so: it is blocked on a question the ruling it
-            carries turned out to need answered first.
+            closing: 123 reports, none out of shape, and no entry left
+            incomplete.
 
 ## Coverage
 
@@ -46,9 +45,9 @@ Per file, over the functions the profile names:
 ## Lines
 
 opening 20463	4840	2375	0.24	TOTAL
-closing 17388	3969	1933	0.23	TOTAL
+closing 17401	3980	1936	0.23	TOTAL
 code, comment, blank, comment over code. The directory carries three more tracked
-files, 3062 fewer code lines and 864 fewer comment lines than it did, and the
+files, 3062 fewer code lines and 860 fewer comment lines than it did, and the
 comment-to-code ratio is a point lower rather than higher, which is what the
 contract asks a round to leave behind.
 
