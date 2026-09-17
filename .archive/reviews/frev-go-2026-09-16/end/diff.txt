@@ -4,8 +4,8 @@ a total is not read on its own, a total that falls being able to hide a new row.
 ## The runs
 
 probes      base: probes: 84 run, exit 1
-            end: probes: 153 run, exit 0
-            69 probes added over the round and one retired, a general rule
+            end: probes: 154 run, exit 0
+            70 probes added over the round and one retired, a general rule
             having subsumed what it held; none was edited to pass.
             The one red at the opening was the round's own staging probe, which
             read the snapshot list as incomplete before the round had filled it;
@@ -25,7 +25,7 @@ fuzz        opening: the response parser fuzzed 20s, pass. Closing: the same,
             2,984,414 executions, pass, and nothing new written to the tracked
             corpus.
 shape       opening: reports by contract: {'frev': 0, 'drev': 0, 'xrev': 0, 'not completed': 86}; out of shape: 0
-            closing: 123 reports, none out of shape, and no entry left
+            closing: 124 reports, none out of shape, and no entry left
             incomplete.
 
 ## Coverage
