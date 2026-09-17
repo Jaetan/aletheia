@@ -1,12 +1,11 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Package aletheia provides a Go client for the Aletheia formally verified
-// CAN frame analysis system. It wraps libaletheia-ffi.so via cgo/dlopen.
-//
-// The core logic (signal extraction, LTL evaluation, DBC validation) runs
-// inside the Agda-verified Haskell core. This package handles lifecycle
-// management, JSON protocol serialization, and Go-idiomatic type safety.
+// Package aletheia is the Go client for Aletheia, the formally verified CAN
+// frame analysis system. It wraps libaletheia-ffi.so through cgo and dlopen:
+// signal extraction, LTL evaluation and DBC validation run in the
+// Agda-verified core, and this package owns the session lifecycle, the JSON
+// protocol and the Go types.
 //
 // Basic usage:
 //
@@ -23,11 +22,10 @@
 //	_ = parsed.Warnings // non-fatal validation issues, if any
 //	result, err := client.ExtractSignals(ctx, canID, dlc, frameData)
 //
-// Cancellation: every operation method takes a context.Context as its first
-// parameter and honors cancellation cooperatively at FFI boundaries — see
-// docs/architecture/CANCELLATION.md for the full contract. NewClient and
-// Close do NOT take ctx (construction and teardown are synchronous and
-// uncancellable by design).
+// Every operation method takes a context.Context first and honours
+// cancellation at FFI boundaries; docs/architecture/CANCELLATION.md is the
+// contract. NewClient and Close take no context: construction and teardown
+// are synchronous and cannot be cancelled.
 //
 // Functional options:
 //
@@ -45,29 +43,18 @@
 //	)
 //	if err != nil { log.Fatal(err) }
 //
-// Streaming adequacy (Unresolved verdicts):
+// Streaming adequacy: the streaming evaluator is sound, and it asks of the
+// trace that every property's signal be observed at least once, the
+// AllObserved obligation of Aletheia.Protocol.Adequacy.StreamingWarm
+// (streaming-warms-cache), which the FFI does not check. A property whose
+// signal no frame carries may finalise as [Unresolved], the three-valued
+// Kleene "unsure", rather than [Holds] or [Fails]; the verdicts reported stay
+// sound. The section "Streaming Semantics: Soundness vs. Completeness" of
+// docs/architecture/PROTOCOL.md is the contract.
 //
-// The streaming evaluator is sound but requires that every property's
-// target signal is observed in the input trace at least once — the
-// AllObserved invariant from
-// Aletheia.Protocol.Adequacy.StreamingWarm.streaming-warms-cache. This
-// is a user obligation on the trace; the FFI does not check it.
-//
-// When the obligation is violated (e.g., a property references a signal
-// that no frame in the trace carries), the property may finalize as
-// [Unresolved] — the three-valued Kleene "Unsure" — rather than [Holds]
-// or [Fails]. Reported verdicts remain sound; coverage is the caller's
-// responsibility.
-//
-// See docs/architecture/PROTOCOL.md § Streaming Semantics: Soundness
-// vs. Completeness for the full contract.
-//
-// Observability event vocabulary:
-//
-// When a *slog.Logger is wired in (via WithLogger or WithFFILogger), the
-// Client and FFIBackend emit structured records with the following event
-// names. Cross-binding parity is asserted against the C++ Logger and the
-// Python logger adapter — any drift here is a bug.
+// Log events: with a *slog.Logger wired in through WithLogger or
+// WithFFILogger, the Client and the FFIBackend emit records under these
+// names, which docs/LOG_EVENTS.yaml pins across the four bindings:
 //
 //	rts.cores_mismatch              (FFIBackend, Warn)
 //	dbc.parsed                      (Client, Info)
