@@ -5,6 +5,8 @@ package aletheia
 
 import (
 	"errors"
+	"math"
+	"strings"
 	"testing"
 )
 
@@ -352,5 +354,42 @@ func TestSerializeFormulaDepthLimit(t *testing.T) {
 	}
 	if aleErr.Kind != ErrValidation {
 		t.Errorf("kind = %v, want ErrValidation", aleErr.Kind)
+	}
+}
+
+// The millisecond bound is refused when its microsecond conversion would
+// overflow int64, and the largest representable bound is accepted, on both
+// Within chains.
+func TestCheckWithinMicrosecondOverflow(t *testing.T) {
+	const largest = math.MaxInt64 / usPerMillisecond
+	settle := func(ms int64) error {
+		_, err := CheckSignal("T").SettlesBetween(IntRational(0), IntRational(1)).Within(ms)
+		return err
+	}
+	causal := func(ms int64) error {
+		_, err := CheckWhen("A").Exceeds(IntRational(0)).Then("B").Equals(IntRational(1)).Within(ms)
+		return err
+	}
+	for name, within := range map[string]func(int64) error{"settles": settle, "causal": causal} {
+		if err := within(largest); err != nil {
+			t.Errorf("%s: the largest bound was refused: %v", name, err)
+		}
+		err := within(largest + 1)
+		if err == nil || !strings.Contains(err.Error(), "overflows") {
+			t.Errorf("%s: expected an overflow refusal one past the largest bound, got %v", name, err)
+		}
+	}
+}
+
+// The range check cross-multiplies without overflow: these operands make the
+// naive int64 products wrap, and the order still comes out right both ways.
+func TestCheckStaysBetweenLargeOperands(t *testing.T) {
+	lo := Rational{Numerator: math.MaxInt64, Denominator: 2}
+	hi := Rational{Numerator: math.MaxInt64/2 + 1, Denominator: 1}
+	if _, err := CheckSignal("S").StaysBetween(lo, hi); err != nil {
+		t.Errorf("lo <= hi with large operands was refused: %v", err)
+	}
+	if _, err := CheckSignal("S").StaysBetween(hi, lo); err == nil {
+		t.Error("an inverted range with large operands was accepted")
 	}
 }
