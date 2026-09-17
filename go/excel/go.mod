@@ -3,11 +3,9 @@
 // consumer driving checks from YAML or from code depends on the core module
 // alone, and one wanting the workbook loaders adds this on top.
 //
-// The core module is required below at the placeholder version v0.0.0, and
-// ../go.work replaces it with this checkout, which is how a change to the core
-// reaches this module without a release. The replace lives there and not here
-// because a relative path in this file would travel with the module and point
-// at nothing on the machine that read it.
+// The core module is required below at the placeholder version v0.0.0, which
+// ../go.work resolves during development. This file carries no replace of its
+// own: it would travel with the module.
 module github.com/aletheia-automotive/aletheia-go/excel
 
 go 1.24.0
