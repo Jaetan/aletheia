@@ -15,18 +15,13 @@ const ack = `{"status":"ack"}`
 // startedBatchClient is startedClientWith over the one property Speed below the limit.
 func startedBatchClient(t *testing.T, limit int64, responses ...aletheia.MockResponse) (*aletheia.Client, *aletheia.MockBackend) {
 	t.Helper()
-	speedBelow := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(limit)}}}
-	return startedClientWith(t, []aletheia.Formula{speedBelow}, responses...)
+	return startedClientWith(t, []aletheia.Formula{speedBelow(limit)}, responses...)
 }
 
-// frameAt is a frame on standard ID 0x100 with DLC 8 and the given payload.
+// frameAt is a frame on the identifier these tests batch on.
 func frameAt(t *testing.T, ts int64, data ...byte) aletheia.Frame {
 	t.Helper()
-	sid, err := aletheia.NewStandardID(0x100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return aletheia.Frame{Timestamp: aletheia.Timestamp{Microseconds: ts}, ID: sid, DLC: dlc8(), Data: aletheia.FramePayload(data)}
+	return standardFrame(t, 0x100, ts, data...)
 }
 
 // sentinelCount is how many binary frame sends the mock recorded.

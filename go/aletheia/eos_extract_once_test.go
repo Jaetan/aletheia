@@ -65,18 +65,6 @@ func warnLog() (aletheia.ClientOption, *bytes.Buffer) {
 	return aletheia.WithLogger(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))), &buf
 }
 
-// sendStandardFrame sends one zero payload on the given standard CAN ID.
-func sendStandardFrame(t *testing.T, c *aletheia.Client, id uint16, ts int64) {
-	t.Helper()
-	sid, err := aletheia.NewStandardID(id)
-	if err != nil {
-		t.Fatalf("NewStandardID(%#x): %v", id, err)
-	}
-	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: ts}, sid, dlc8(), aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}, nil, nil); err != nil {
-		t.Fatalf("SendFrame %#x: %v", id, err)
-	}
-}
-
 // mustEndStream ends the stream and returns its verdicts.
 func mustEndStream(t *testing.T, c *aletheia.Client, want int) []aletheia.PropertyResult {
 	t.Helper()
@@ -114,9 +102,9 @@ func TestEndStream_ThreePropertiesShareOneExtractionPass(t *testing.T) {
 		extractionOf("SigA", 5), // frame 0x100, extracted first
 		extractionOf("SigB", 7), // frame 0x200
 	)
-	sendStandardFrame(t, c, 0x100, 0)
-	sendStandardFrame(t, c, 0x100, 1000) // overwrites the last frame on 0x100
-	sendStandardFrame(t, c, 0x200, 2000)
+	sendOn(t, c, 0x100, 0)
+	sendOn(t, c, 0x100, 1000) // overwrites the last frame on 0x100
+	sendOn(t, c, 0x200, 2000)
 
 	results := mustEndStream(t, c, 3)
 	if got := extractCalls(mock); got != 2 {
@@ -139,8 +127,8 @@ func TestEndStream_FrameLoopBreaksEarlyOnceUnionCovered(t *testing.T) {
 		endStreamFails(0, 1),
 		extractionOf("SigA", 5, "SigB", 7), // frame 0x100 covers the union
 	)
-	sendStandardFrame(t, c, 0x100, 0)
-	sendStandardFrame(t, c, 0x200, 1000)
+	sendOn(t, c, 0x100, 0)
+	sendOn(t, c, 0x200, 1000)
 
 	results := mustEndStream(t, c, 2)
 	if got := extractCalls(mock); got != 1 {
@@ -160,8 +148,8 @@ func TestEndStream_MergeIsFirstFrameWins(t *testing.T) {
 		extractionOf("SigA", 1),            // frame 0x100, extracted first
 		extractionOf("SigA", 2, "SigB", 3), // frame 0x200, whose SigA must lose
 	)
-	sendStandardFrame(t, c, 0x100, 0)
-	sendStandardFrame(t, c, 0x200, 1000)
+	sendOn(t, c, 0x100, 0)
+	sendOn(t, c, 0x200, 1000)
 
 	results := mustEndStream(t, c, 2)
 	if got := extractCalls(mock); got != 2 {
@@ -176,7 +164,7 @@ func TestEndStream_MergeIsFirstFrameWins(t *testing.T) {
 // would record a sentinel.
 func TestEndStream_AllSatisfiedMakesNoExtractionCalls(t *testing.T) {
 	c, mock := startedClientWith(t, twoSignalProperties(), aletheia.Respond(ack), endStreamHolds(0, 1))
-	sendStandardFrame(t, c, 0x100, 0)
+	sendOn(t, c, 0x100, 0)
 
 	results := mustEndStream(t, c, 2)
 	if got := extractCalls(mock); got != 0 {
@@ -199,7 +187,7 @@ func TestEndStream_FailedExtractionWarnsOncePerFrame(t *testing.T) {
 		endStreamFails(0, 1),
 		aletheia.Respond(`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`),
 	}, logger)
-	sendStandardFrame(t, c, 0x100, 0)
+	sendOn(t, c, 0x100, 0)
 
 	results := mustEndStream(t, c, 2)
 	if got := extractCalls(mock); got != 1 {
@@ -231,7 +219,7 @@ func TestEndStream_OOBIndexExcludedValidEntryStillEnriched(t *testing.T) {
 		endStreamFails(0, 3),
 		extractionOf("SigA", 5),
 	}, logger)
-	sendStandardFrame(t, c, 0x100, 0)
+	sendOn(t, c, 0x100, 0)
 
 	results := mustEndStream(t, c, 2)
 	out := logged.String()

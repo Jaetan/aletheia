@@ -12,6 +12,12 @@ import (
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
 
+// The helpers the tests outside the package share. internal_test_helpers_test.go
+// carries the same two for the tests inside it, the two test packages being
+// compiled separately: one copy would have to be exported from the package
+// under test, and the only difference between them is how the error type is
+// spelled from each side.
+
 // ctx is for the tests that do not exercise cancellation; one that does
 // makes its own, so that what it cancels is its own call.
 var ctx = context.Background()
@@ -69,6 +75,42 @@ func testDBC() aletheia.DBCDefinition {
 			},
 		},
 	}
+}
+
+// standardFrame is a frame of the eight-byte length on a standard identifier,
+// carrying the payload given or eight zero bytes.
+func standardFrame(t *testing.T, id uint16, ts int64, data ...byte) aletheia.Frame {
+	t.Helper()
+	if len(data) == 0 {
+		data = make([]byte, 8)
+	}
+	sid, err := aletheia.NewStandardID(id)
+	if err != nil {
+		t.Fatalf("NewStandardID(%#x): %v", id, err)
+	}
+	return aletheia.Frame{
+		Timestamp: aletheia.Timestamp{Microseconds: ts},
+		ID:        sid,
+		DLC:       dlc8(),
+		Data:      aletheia.FramePayload(data),
+	}
+}
+
+// sendOn sends one such frame and answers what the kernel said about it.
+func sendOn(t *testing.T, c *aletheia.Client, id uint16, ts int64, data ...byte) aletheia.FrameResponse {
+	t.Helper()
+	f := standardFrame(t, id, ts, data...)
+	resp, err := c.SendFrame(ctx, f.Timestamp, f.ID, f.DLC, f.Data, nil, nil)
+	if err != nil {
+		t.Fatalf("SendFrame on %#x: %v", id, err)
+	}
+	return resp
+}
+
+// speedBelow is the property most of these tests install.
+func speedBelow(limit int64) aletheia.Formula {
+	return aletheia.Always{Inner: aletheia.Atomic{
+		Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(limit)}}}
 }
 
 // startedClientOpts is a client over a mock that has answered SetProperties

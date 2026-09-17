@@ -21,7 +21,7 @@ func gt(sig string, v int64) aletheia.Formula {
 }
 
 // speedBelow220 is the one property most enrichment tests install.
-var speedBelow220 = aletheia.Always{Inner: lt("Speed", 220)}
+var speedBelow220 = speedBelow(220)
 
 // violationAt is a frame response failing property 0 at the timestamp.
 func violationAt(ts int64, reason string) aletheia.MockResponse {
@@ -215,15 +215,10 @@ func TestSendFrame_EnrichedViolation(t *testing.T) {
 	}
 }
 
-// sendFrame sends one frame on ID 0x123 with the payload bytes.
+// sendFrame sends one frame on the identifier these tests enrich.
 func sendFrame(t *testing.T, c *aletheia.Client, ts int64, data ...byte) aletheia.FrameResponse {
 	t.Helper()
-	sid, _ := aletheia.NewStandardID(0x123)
-	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: ts}, sid, dlc8(), aletheia.FramePayload(data), nil, nil)
-	if err != nil {
-		t.Fatalf("SendFrame: %v", err)
-	}
-	return resp
+	return sendOn(t, c, 0x123, ts, data...)
 }
 
 // The extraction for a frame is done once and served from the cache to a
