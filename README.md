@@ -35,7 +35,7 @@ All three decode CAN with **tested** code: correct on the cases someone thought 
 ## What you get
 
 - **Proven-correct decoding**: signal extraction and frame building are correct for *every* valid DBC, by mathematical proof rather than test coverage.
-- **Temporal rules, not just thresholds**: *"within 100 ms"*, *"eventually"*, *"never after"*: full LTL over the whole trace, with a streaming checker that runs in O(1) memory, the suite refusing a run whose peak resident set grows past 32 MiB whatever the frame count, and fast enough for real-time 1 Mbps CAN. Per-binding / per-lane throughput lives in [BENCHMARKS.md § Canonical Results](docs/development/BENCHMARKS.md#canonical-results).
+- **Temporal rules, not just thresholds**: *"within 100 ms"*, *"eventually"*, *"never after"*: full LTL over the whole trace, with a streaming checker that runs in O(1) memory, the suite refusing a streaming run whose peak resident set grows past 32 MiB at a hundred thousand frames and at a hundred and fifty thousand, and fast enough for real-time 1 Mbps CAN. Per-binding / per-lane throughput lives in [BENCHMARKS.md § Canonical Results](docs/development/BENCHMARKS.md#canonical-results).
 - **Four first-class bindings**: Python, C++, Go, and Rust, all running in-process (no subprocess, no IPC overhead) and all producing identical verdicts.
 - **Real-world DBC support**: multiplexed signals, 29-bit IDs, signed integers, value tables, attributes, environment variables, and comments; validated against a cross-binding corpus with typed rejection codes ([error reference](docs/architecture/PROTOCOL.md#error-code-reference)).
 - **Exact arithmetic**: signal values are exact rationals end-to-end, never floats: a decoded value is never off by a rounding step.
@@ -58,7 +58,7 @@ aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
 - **exit 1**: violations found, each printed with the exact microsecond timestamp
 - **exit 2**: an error, such as a bad DBC or an unreadable log
 
-The sample `drive.log` speeds past its 120 kph limit, so this run reports a timestamped `VehicleSpeed` violation and exits 1. The three shipped assets, `vehicle.dbc`, `vehicle_checks.yaml` and the candump `drive.log`, are a matched set. Recorded logs in `.blf` / `.asc` / `.mf4` / candump `.log` all work as the trace argument. Full subcommand and flag reference: **[CLI Guide](docs/reference/CLI.md)**, six subcommands, `check`, `validate`, `extract`, `signals`, `format-dbc` and `mux-query`:
+The sample `drive.log` speeds past its 120 kph limit, so this run reports a timestamped `VehicleSpeed` violation and exits 1. The three shipped assets, `vehicle.dbc`, `vehicle_checks.yaml` and the candump `drive.log`, are a matched set. The trace argument takes any format the reader supports: `.asc`, `.blf`, `.csv`, `.db`, `.mf4`, `.trc` and candump `.log`. Full subcommand and flag reference: **[CLI Guide](docs/reference/CLI.md)**, six subcommands, `check`, `validate`, `extract`, `signals`, `format-dbc` and `mux-query`:
 
 ```bash
 # Validate a DBC and list every issue (errors and warnings)
@@ -225,7 +225,7 @@ aletheia/
 
 ## Documentation
 
-**📚 [Complete Documentation Index](docs/INDEX.md)** lists every document in the tree. Four to start with:
+**📚 [Documentation Index](docs/INDEX.md)** is the navigation guide. Four to start with:
 
 - [Glossary](docs/GLOSSARY.md), plain-language definitions of LTL, formal verification, Agda, DBC and CAN terms
 - [Tutorials](docs/guides/TUTORIAL.md), end-to-end walkthroughs by role, and the place to start if Aletheia is new to you

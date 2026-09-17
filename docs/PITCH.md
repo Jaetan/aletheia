@@ -78,11 +78,11 @@ Aletheia provides:
 
 2. **Formally verified core**: Signal extraction and LTL checking implemented in Agda with mathematical proofs of correctness
 
-3. **Streaming architecture**: Process gigabyte-scale CAN traces with O(1) memory. The test suite refuses a streaming run whose peak resident set grows past 32 MiB, whatever the trace length. Single-bus streaming throughput per binding, lane and property shape is the canonical table in [BENCHMARKS.md § Canonical Results](development/BENCHMARKS.md#canonical-results).
+3. **Streaming architecture**: Process gigabyte-scale CAN traces with O(1) memory. The Python test suite refuses a streaming run whose peak resident set grows past 32 MiB, at a hundred thousand frames and at a hundred and fifty thousand. Single-bus streaming throughput per binding, lane and property shape is the canonical table in [BENCHMARKS.md § Canonical Results](development/BENCHMARKS.md#canonical-results).
 
-4. **DBC integration**: Parse real-world DBC files (tested against OpenDBC corpus)
+4. **DBC integration**: Parse real-world DBC files, tested against a cross-binding corpus that all four bindings must agree on
 
-5. **Proven DBC validator**: every structural check it makes carries a machine-checked **soundness and completeness** proof, and [PROTOCOL.md § Error Code Reference](architecture/PROTOCOL.md#error-code-reference) tabulates them. It certifies your DBC is well-formed, which is exactly the precondition the decode proof assumes, so a validated DBC is one the correctness guarantee actually applies to.
+5. **Proven DBC validator**: the error-class checks carry a machine-checked **soundness and completeness** proof, so a DBC the validator passes on those is provably well-formed; the warning-class checks are proven to be warnings and no more. [PROTOCOL.md § ValidateDBC](architecture/PROTOCOL.md#3-validatedbc) lists both sets. It certifies your DBC is well-formed, which is exactly the precondition the decode proof assumes, so a validated DBC is one the correctness guarantee actually applies to.
 
 6. **Exact arithmetic**: Signal values are exact rationals end-to-end and never floats, so a decoded value is never off by a rounding step.
 
@@ -99,8 +99,6 @@ Aletheia provides:
 
 ## Why Formal Verification?
 
-**Testing** shows the presence of bugs. **Formal verification** proves their absence.
-
 | Approach | What it provides | What it misses |
 |----------|------------------|----------------|
 | Unit tests | Examples of correct behavior | Edge cases, unexpected inputs |
@@ -111,9 +109,9 @@ Aletheia provides:
 
 **What the proofs don't cover** (important to set expectations):
 
-- **Specification errors**: The proofs guarantee the implementation matches the stated properties, not that the properties are the right ones. "Speed extraction returns the value encoded by the DBC" is proven; whether that DBC is correct for your vehicle is an engineering question.
+- **Specification errors**: The proofs guarantee the implementation matches the stated properties, not that the properties are the right ones. "Speed extraction returns the value the DBC encodes" is proven; whether that DBC suits your vehicle is an engineering question.
 - **Hardware, bus layer, and OS behaviour**: Bit-stuffing errors on the physical CAN bus, ECU faults, timestamp skew from the logger hardware, and kernel scheduling all sit below Aletheia's abstraction boundary.
-- **Integration and operator error**: Wiring the wrong log file, missing a property, misreading a YAML threshold: these are normal human-process risks and must be covered by the surrounding tooling and review practices.
+- **Integration and operator error**: Wiring the wrong log file, missing a property, misreading a YAML threshold: normal human-process risks, covered by the surrounding tooling and review.
 - **Third-party components**: Agda's `--safe` kernel, GHC, and the Haskell `base` + `text` used in the shim are trusted rather than verified. Compiler and runtime bugs at that level propagate through.
 
 In other words: Aletheia eliminates the class of bugs where "the signal extraction code was wrong" or "the LTL evaluator drifted over a long trace", and no others in the system.
@@ -121,8 +119,6 @@ In other words: Aletheia eliminates the class of bugs where "the signal extracti
 **Example**:
 - Test: "Speed extraction works for 100 km/h" ✓
 - Proof: "Speed extraction is correct for every value the signal can represent, in both byte orders" ✓✓✓
-
-**Trade-off**: Higher upfront cost (writing proofs), lower long-term cost (no signal extraction bugs, ever).
 
 ---
 
@@ -157,7 +153,7 @@ Agda (all logic + proofs, compiled via the MAlonzo backend)
 
 | Risk | Impact | Likelihood | Mitigation |
 |------|--------|------------|------------|
-| **Build complexity** | Requires Agda + GHC + Cabal | Low | Documented build process, tested on Ubuntu/Debian/WSL2. One-time build-time toolchain; runtime is just the shared library + Python. |
+| **Build complexity** | Requires Agda + GHC + Cabal | Low | Documented build process, built on Ubuntu in continuous integration and on WSL2 by hand. One-time build-time toolchain; runtime is just the shared library + Python. |
 | **Toolchain maturity** | Agda ecosystem smaller than Python | Low | Agda 2.8.0 is stable. GHC is industry-proven. Only standard library dependencies. |
 | **Agda learning curve** | Modifying core requires expertise | Medium | Binding APIs are stable. Core changes rare. Can contract experts if needed. |
 
@@ -240,8 +236,10 @@ with AletheiaClient() as client:
 
     for ts, can_id, dlc, data, _extended, _brs, _esi in iter_can_log("drive.blf"):
         response = client.send_frame(ts, can_id, dlc, data)
-        if response.get("status") == "fails":
-            print(f"Violation at {response['timestamp']['numerator']}us")
+        if response.get("type") == "property_batch":
+            for entry in response["results"]:
+                if entry.get("status") == "fails":
+                    print(f"Violation at {entry['timestamp']}us")
 
     client.end_stream()
 ```
@@ -260,9 +258,9 @@ match client.send_frame(ts, id, dlc, &data, None, None)? {
 }
 ```
 
-**Learning curve**: If you can use a standard library in your language, you can use Aletheia. All four bindings follow the same workflow and produce identical verification results; surface APIs use each language's idioms (Python fluent DSL, C++ strong types + `std::expected`, Go interfaces + functional options, Rust `Result` + builder) but the protocol-level behavior is the same.
+**Learning curve**: If you can use a standard library in your language, you can use Aletheia. All four bindings follow the same workflow and produce identical verification results; surface APIs use each language's own idioms, but the protocol-level behaviour is the same.
 
-**Debugging**: Violations include counterexamples (frame number, signal values). Standard debugging in your language applies.
+**Debugging**: A violation carries the microsecond timestamp of the frame that caused it and the signal values at that frame. Standard debugging in your language applies.
 
 **Testing**: Write unit tests for your properties, just like any other code. The difference: Aletheia's checker is proven correct, so if your property is right, it will catch bugs.
 
@@ -345,24 +343,24 @@ A: A one-time build-time Haskell/Agda toolchain plus `libgmp-dev`; the runtime i
 - Build environment cannot support Linux toolchain
 - Legal/compliance team rejects BSD 2-Clause license
 
-**Competitive advantage**: Few tools offer proven-correct CAN analysis. Most automotive testing is example-based. Formal verification is a differentiator for safety-critical systems.
+**Competitive advantage**: few tools offer proven-correct CAN analysis, most automotive testing being example-based.
 
 ---
 
 ## Current Status
 
-Phases 1 through 5.1 are complete and Phase 6 is the active track. All four binding stacks stand at functional parity on the verified core, covering signal extraction, LTL checking, DBC handling and the four-tier check interface, and v5.0.0 ships a signed, self-contained bundle carrying all four bindings over one prebuilt library, with native `.deb` and `.rpm` packages and a published container image. Host-surface features, the CLI and log-file reading, remain Python-led, as the per-binding notes below say. [PROJECT_STATUS.md](../PROJECT_STATUS.md) is the authoritative status, and this list is what you can use today:
+Phases 1 through 5.1 are complete and Phase 6 is planned, several of its binding items already delivered. All four binding stacks stand at functional parity on the verified core, covering signal extraction, LTL checking, DBC handling and the four-tier check interface, and v5.0.0 ships a signed, self-contained bundle carrying all four bindings over one prebuilt library, with native `.deb` and `.rpm` packages and a published container image. Host-surface features, the CLI and log-file reading, remain Python-led, as the per-binding notes below say. [PROJECT_STATUS.md](../PROJECT_STATUS.md) is the authoritative status, and this list is what you can use today:
 
 - Core infrastructure (parser, CAN encoding/decoding, DBC parser in the verified Agda kernel)
 - LTL verification with streaming architecture
 - Formal correctness proofs (parser, CAN encoding, LTL adequacy, DSL roundtrip)
-- DBC validator with formal proof, every check **sound and complete**; it certifies the DBC is well-formed, the precondition the decode proof relies on
+- DBC validator with formal proof: its error-class checks are **sound and complete**, so passing them certifies the DBC is well-formed, which is the precondition the decode proof relies on
 - Python, C++, Go, and Rust APIs with signal operations (in-process shared library, no subprocess)
 - Four-tier interface: Check API, YAML, Excel, DSL
 - **CLI ships today**: the Python CLI has six subcommands (`python3 -m aletheia {check,validate,extract,signals,format-dbc,mux-query}`); the C++ and Go host CLIs ship five of those, `check` being deferred for want of a verified CAN-log reader; Rust has a typed client and no CLI.
 - CAN log reader (ASC, BLF, CSV, DB, candump .log, MF4, TRC via python-can)
 - Enriched violation diagnostics (signal name, value, condition)
-- Comprehensive automated test suites across all four bindings (unit, property-based, cross-binding parity, and doc-example harnesses)
+- Automated test suites across all four bindings: unit and cross-binding parity everywhere, property-based and doc-example harnesses in Python, C++ and Go
 - High-throughput streaming via binary FFI across all four bindings (see [BENCHMARKS.md](development/BENCHMARKS.md#canonical-results) for current benchmarks)
 
 ---
@@ -375,7 +373,7 @@ Phases 1 through 5.1 are complete and Phase 6 is the active track. All four bind
 - Proven technology stack (Agda/Haskell used in high-assurance systems)
 - Python, C++, Go, and Rust bindings hide the complexity
 - CAN-FD support (variable-length payloads up to 64 bytes, DLC 0-15)
-- Real-world tested (OpenDBC corpus, multiplexed signals, 29-bit IDs)
+- Tested against a cross-binding DBC corpus covering multiplexed signals, 29-bit IDs, value tables, attributes and environment variables
 - High streaming throughput with real-time headroom: even the slowest binding on the slowest lane clears a live CAN-FD bus about three times over, and the streaming lanes by far more ([benchmarks](development/BENCHMARKS.md#canonical-results))
 
 **Limitations**:
@@ -398,7 +396,7 @@ Phases 1 through 5.1 are complete and Phase 6 is the active track. All four bind
 
 ## Try It
 
-There is no published wheel yet, so start with a one-time build; after that, the lowest-effort way to *use* Aletheia needs no code at all.
+A release carries a signed bundle and native packages, which is the quickest way in; from source, start with a one-time build. Either way, the lowest-effort way to *use* Aletheia needs no code at all.
 
 **Step 1, build once from source:**
 ```bash
@@ -438,10 +436,4 @@ See [BUILDING.md](development/BUILDING.md) for detailed instructions.
 
 ## Bottom Line
 
-**For engineers**: Use a proven-correct library, in Python, C++, Go or Rust, instead of hoping your tests caught everything.
-
-**For team leads**: Formal verification reduces long-term maintenance cost by eliminating a class of bugs.
-
-**For engineering managers**: High-assurance systems justify the upfront investment. For safety-critical work, formal methods are becoming table stakes.
-
-Aletheia brings proof-backed correctness to automotive CAN analysis. The question is whether your use case justifies the investment in learning and integration. For safety-critical systems, the answer is likely yes.
+The three sections above make the case for each audience. What they share: the question is whether your use case justifies the investment in learning and integration, and for safety-critical systems the answer is likely yes.
