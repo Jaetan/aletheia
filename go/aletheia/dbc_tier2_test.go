@@ -585,8 +585,7 @@ func TestSerializeDBC_EmitsEmptyTier2ArraysWhenMetadataAbsent(t *testing.T) {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 
-	inputs := mock.Inputs()
-	dbcObj := extractDBCObject(t, inputs[0])
+	dbcObj := dbcObjectSent(t, mock)
 
 	for _, key := range []string{"nodes", "comments", "attributes"} {
 		arr, ok := dbcObj[key].([]any)
