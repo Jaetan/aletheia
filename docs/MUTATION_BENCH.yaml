@@ -243,7 +243,7 @@ bindings:
       # measurement of this toolchain and not a target.
       survivors: 77
       total_mutants: 862
-      timeouts: 0
+      timeouts: 1
       score_pct: 70
       run_at: "2026-09-18"
       # The lane refuses a sweep with more than this many timed out, because a
