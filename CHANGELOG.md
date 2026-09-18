@@ -1490,7 +1490,8 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `drop (length qualifier + 1)` on the whitespace-delimited word, which assumed
   the word *started* with the qualifier — so a paren-prefixed call
   (`unsafeCoerce (AgdaX.d_f_12 …`) or a backtick-wrapped mention in a comment
-  mis-extracted to `.d_f_12`, spuriously failing the FFI-name drift gate. It now
+  mis-extracted to `.d_f_12`, failing the FFI-name drift gate over a name it had
+  read wrong. It now
   finds the qualifier prefix anywhere in the word and takes the trailing digits,
   so the FFI wrapper can call the export in the natural idiom; the renderer twin
   only passed by happening to be a standalone word.

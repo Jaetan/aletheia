@@ -8,10 +8,12 @@
 // condition description and enrichment's value render need it; yaml_tests and
 // excel_tests, whose numeric fields are parsed through the kernel decimal
 // source of truth; and log_events_tests, where set_properties renders the
-// condition descriptions. Real-backend binaries such as integration_tests must
-// not link it: they create their own FfiBackend, possibly asking for more than
-// one core, and the listener's single-core init would race them into a
-// spurious cores mismatch.
+// condition descriptions. The standalone integration_tests binary does not
+// link it, because every one of its tests creates the backend it needs. Where
+// the mutation build folds those same sources into unit_tests, the two sit in
+// one binary and agree: the listener initialises the runtime with one core,
+// which is what a default backend asks for, and the tests that assert on a
+// different count establish the count they assert against before asking.
 //
 // This Catch2 listener brings the RTS up once for the whole process
 // (`testRunStarting`) via a throwaway FfiBackend whose constructor runs `hs_init`;
