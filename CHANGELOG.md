@@ -131,6 +131,27 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The C++ mutation lane's survivors are worked down to a ledger.** The recorded
+  survivor count falls from 264 to 77 over twelve changes, each holding one class
+  of survivor: every client method's cancellation guard, the extended bit of a
+  CAN ID on every path it crosses, the wire-reason UTF-8 validator at every
+  boundary it draws, the binary extraction decoder's bounds and messages, the
+  client's state transitions, every log event by its level and fields, the
+  value-level guards, the JSON and YAML parsers at shapes no test sent, the
+  loader helpers at every bound and archive edge, the Excel loader's edges, and
+  the FFI backend's guards on its own interface. What survives is recorded by a
+  probe as a ledger of mutator, file and source line, so a survivor cannot be
+  traded for another unseen, and a sibling probe shows from the plugin's IR that
+  every surviving removal of a void call removes only a temporary's destructor.
+  Dead code found on the way goes: the Excel loader read a stored value through
+  a scanner with branches for tag shapes the value element never takes, and now
+  reads its one tag; a stored integer's optional plus sign, which no workbook
+  writes, is no longer accepted as a plain integer; the four cell getters, the
+  presence check and the message-id parser drop clauses the row map already
+  guarantees; the JSON command bound moves into the pure-logic unit where a
+  unit test holds it; the serializer's INT64_MIN guard keeps the numerator
+  only; the YAML root check and two enrichment guards lose a clause their
+  neighbour already covers.
 - **The supported C++ toolchain is Clang 23.** Every site that installs, invokes,
   caches or documents the compiler moves from 22 to 23: the five workflows, the
   runtime image, the CI steps, the benchmark runner, the probes, the pinned pip
