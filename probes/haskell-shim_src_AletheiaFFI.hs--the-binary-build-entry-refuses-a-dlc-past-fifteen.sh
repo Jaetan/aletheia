@@ -65,10 +65,12 @@ indices = (ctypes.c_uint32 * 2)(0, 1)
 numerators = (ctypes.c_int64 * 2)(1000, 3000)
 denominators = (ctypes.c_int64 * 2)(1, 1)
 
-# The buffer is larger than any frame, and every byte is set, so a write of
-# any length shows.
+# The buffer holds more than the largest code a byte can carry, so a build
+# that sizes the frame by the raw DLC writes inside it and is reported rather
+# than corrupting this process; every byte is set, so a write of any length
+# shows.
 SET = 0xFF
-BUFFER = 64
+BUFFER = 512
 failures = []
 for dlc, refused in ((8, False), (15, False), (16, True), (42, True), (255, True)):
     out = (ctypes.c_uint8 * BUFFER)(*([SET] * BUFFER))
