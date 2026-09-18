@@ -5,6 +5,8 @@
 // Run with: ctest -R integration (or ./integration_tests)
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <aletheia/aletheia.hpp>
 
@@ -741,6 +743,86 @@ TEST_CASE("binary and JSON extraction agree byte-for-byte on error reasons",
     // The reason is the kernel's detailed out-of-bounds string, not a
     // generic per-code message.
     CHECK(std::string_view{bin->errors[0].reason}.contains("not in ["));
+}
+
+TEST_CASE("the FFI backend is refused a library path that is empty", "[integration]") {
+    REQUIRE_THROWS_WITH(make_ffi_backend(std::filesystem::path{}),
+                        Catch::Matchers::ContainsSubstring("library path is empty"));
+}
+
+// The backend's endpoints are the public IBackend interface, so a call the
+// client would never make, a 65-byte payload or a message the DBC lacks, is
+// a legitimate call on that interface and not a fabricated state.
+TEST_CASE("the FFI backend's own guards answer on its interface", "[integration]") {
+    auto backend = make_ffi_backend(find_lib());
+    auto const state = backend->init();
+    // No DBC is loaded, so every binary endpoint the kernel reaches refuses.
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(15).value();
+    const std::vector<std::byte> data65(65, std::byte{0});
+    const std::vector<std::byte> data64(64, std::byte{0});
+    const std::vector<std::uint32_t> indices{0};
+    const std::vector<std::int64_t> ones{1};
+    auto const injection = SignalInjection::create(indices, ones, ones).value();
+    constexpr std::string_view too_long = "data length exceeds 64 bytes (CAN-FD max)";
+
+    SECTION("a payload past the CAN-FD maximum is refused before the kernel sees it") {
+        CHECK_THROWS_WITH(backend->send_frame_binary(state, Timestamp{0}, id, dlc, data65,
+                                                     std::nullopt, std::nullopt),
+                          Catch::Matchers::ContainsSubstring(std::string{too_long}));
+        CHECK_THROWS_WITH(backend->extract_signals_binary(state, id, dlc, data65),
+                          Catch::Matchers::ContainsSubstring(std::string{too_long}));
+        auto const updated = backend->update_frame_bin(state, id, dlc, data65, injection, 64);
+        REQUIRE_FALSE(updated.has_value());
+        CHECK(std::string_view{updated.error().message()}.contains(too_long));
+        auto const extracted = backend->extract_signals_bin(state, id, dlc, data65);
+        REQUIRE_FALSE(extracted.has_value());
+        CHECK(std::string_view{extracted.error().message()}.contains(too_long));
+    }
+    SECTION("a command past the JSON cap is refused before the kernel sees it") {
+        const std::string past_cap(max_json_bytes + 1, 'x');
+        auto const answer = backend->process(state, past_cap);
+        CHECK(answer.contains(R"("code":"input_bound_exceeded")"));
+        CHECK(answer.contains(R"("observed":67108865)"));
+    }
+    SECTION("a kernel refusal on a binary endpoint is surfaced, not swallowed") {
+        auto const built = backend->build_frame_bin(state, id, dlc, injection, 64);
+        REQUIRE_FALSE(built.has_value());
+        CHECK(built.error().kind() == ErrorKind::Protocol);
+        auto const updated = backend->update_frame_bin(state, id, dlc, data64, injection, 64);
+        REQUIRE_FALSE(updated.has_value());
+        CHECK(updated.error().kind() == ErrorKind::Protocol);
+        auto const extracted = backend->extract_signals_bin(state, id, dlc, data64);
+        REQUIRE_FALSE(extracted.has_value());
+        CHECK(extracted.error().kind() == ErrorKind::Protocol);
+    }
+}
+
+TEST_CASE("update then extract round-trip via real FFI", "[integration]") {
+    auto backend = make_ffi_backend(find_lib());
+    AletheiaClient client(std::move(backend));
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    const std::vector<SignalValue> both{
+        {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}},
+        {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{3000, 1}}},
+    };
+    auto const built = client.build_frame(std::stop_token{}, id, dlc, both);
+    REQUIRE(built.has_value());
+
+    // Only RPM is written; Speed must come back as built, since the update
+    // crosses the wire with the payload, its length, the DLC and the count
+    // of values, and a wrong one of those loses a signal or refuses the frame.
+    const std::vector<SignalValue> rpm_only{
+        {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{1234, 1}}}};
+    auto const updated = client.update_frame(std::stop_token{}, id, dlc, *built, rpm_only);
+    REQUIRE(updated.has_value());
+    auto const extracted = client.extract_signals(std::stop_token{}, id, dlc, *updated);
+    REQUIRE(extracted.has_value());
+    CHECK(extracted->get(SignalName{"Speed"}).get() == Rational{100, 1});
+    CHECK(extracted->get(SignalName{"RPM"}).get() == Rational{1234, 1});
 }
 
 TEST_CASE("build frame via real FFI", "[integration]") {

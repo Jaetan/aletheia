@@ -17,6 +17,7 @@
 #include "detail/rts_params.hpp"
 
 #include <aletheia/error.hpp>
+#include <aletheia/limits.hpp>
 
 #include <string>
 #include <vector>
@@ -133,4 +134,14 @@ TEST_CASE("ffi_error_from_status: non-zero status without message falls back, fr
     CHECK(std::string{err->message()} == "Unknown error");
     // Kills the free guard `err_str != nullptr` → `==`: an == mutant frees the null pointer.
     CHECK(free_calls() == 0);
+}
+
+TEST_CASE("json_input_bound_error admits the cap and refuses one byte more, by the wire's words",
+          "[ffi][logic][bounds]") {
+    CHECK_FALSE(detail::json_input_bound_error(max_json_bytes).has_value());
+    auto const refusal = detail::json_input_bound_error(max_json_bytes + 1);
+    REQUIRE(refusal.has_value());
+    CHECK(*refusal == R"({"status":"error","code":"input_bound_exceeded",)"
+                      R"("message":"input length (bytes) 67108865 exceeds limit 67108864",)"
+                      R"("bound_kind":"input_length_bytes","observed":67108865,"limit":67108864})");
 }

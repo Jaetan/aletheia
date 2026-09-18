@@ -233,8 +233,8 @@ bindings:
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
-      survivors: 93
-      total_mutants: 863
+      survivors: 77
+      total_mutants: 862
       timeouts: 0
       score_pct: 70
       run_at: "2026-09-18"

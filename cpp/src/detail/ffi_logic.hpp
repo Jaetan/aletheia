@@ -53,4 +53,12 @@ namespace aletheia::detail {
 [[nodiscard]] auto ffi_error_from_status(std::int8_t status, char* err_str, void (*free_str)(char*))
     -> std::optional<AletheiaError>;
 
+// The wire-form refusal of a JSON command longer than `max_json_bytes`, or
+// nullopt for one within it.  The kernel enforces the same bound; answering
+// here spares the copy of an input that would only be refused on the other
+// side.  The shape carries the structured bound_kind, observed and limit
+// fields beside the code and message, which the `parse_*` paths lift into
+// the error's bound_info, as the Python and Go bindings' typed errors do.
+[[nodiscard]] auto json_input_bound_error(std::size_t input_bytes) -> std::optional<std::string>;
+
 } // namespace aletheia::detail
