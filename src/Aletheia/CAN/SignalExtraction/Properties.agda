@@ -36,7 +36,7 @@ open import Aletheia.DBC.Types using (DBCMessage; DBCSignal; SignalPresence; Alw
 open import Aletheia.Error using (ExtractionError)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _≤_)
 open import Data.Nat.Properties using (≤⇒≤ᵇ)
-open import Data.Bool using (true; false)
+open import Data.Bool using (true)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.Data.Dec0 using (does₀)
 open import Aletheia.DBC.Decidable.SignalGeometry using (signalFitsFrame₀)
