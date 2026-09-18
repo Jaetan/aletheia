@@ -188,6 +188,11 @@ data ExtractionError : Set where
   -- every DBC field and frame byte is in range, so this is a per-signal
   -- runtime condition, not a DBC validation issue.
   ValueExceedsWireRange  : ExtractionError
+  -- The signal's last bit lies past the end of the frame that arrived, so
+  -- the bits it names are not there to read.  The reader is total and would
+  -- answer zero for them, which is a value the frame does not carry; this
+  -- says so instead.  Carries the frame's byte count.
+  SignalPastFrameEnd     : ℕ → ExtractionError
   InContext              : String → ExtractionError → ExtractionError
 
 formatExtractionError : ExtractionError → String
@@ -195,6 +200,8 @@ formatExtractionError MuxValueMismatch         = "multiplexor value mismatch"
 formatExtractionError (MuxSignalNotFound name)  =
   "multiplexor signal '" ++ₛ name ++ₛ "' not found in message"
 formatExtractionError MuxChainCycle             = "multiplexor chain depth exceeded (cycle?)"
+formatExtractionError (SignalPastFrameEnd bytes) =
+  "signal does not fit the frame that arrived, of size " ++ₛ showℕ bytes
 formatExtractionError (MuxExtractionFailed name) =
   "failed to extract multiplexor signal '" ++ₛ name ++ₛ "'"
 formatExtractionError (BitExtractionFailed reason) =
@@ -211,6 +218,7 @@ extractionErrorCode MuxChainCycle            = "extraction_mux_chain_cycle"
 extractionErrorCode (MuxExtractionFailed _)  = "extraction_mux_extraction_failed"
 extractionErrorCode (BitExtractionFailed _)  = "extraction_bit_extraction_failed"
 extractionErrorCode ValueExceedsWireRange    = "extraction_value_exceeds_wire_range"
+extractionErrorCode (SignalPastFrameEnd _)   = "extraction_signal_past_frame_end"
 extractionErrorCode (InContext _ inner)      = extractionErrorCode inner
 
 -- ============================================================================
@@ -225,6 +233,11 @@ data FrameError : Set where
   CANIdNotFound          : FrameError
   CANIdMismatch          : FrameError
   SignalValueOutOfBounds : String → FrameError  -- pre-formatted "v not in [min, max]"
+  -- The caller's DLC sizes the frame, and a signal's bits are placed from
+  -- the definition the DBC carries: a signal whose last bit lies past that
+  -- frame has nowhere to go, and the bits that do not fit would be dropped
+  -- without a word.  Carries the signal's name and the frame's byte count.
+  SignalPastFrameEnd     : String → ℕ → FrameError
   InContext              : String → FrameError → FrameError
   -- NOTE: Frame-byte-count and similar adversarial-input bounds emit
   -- via the top-level `Error.InputBoundExceeded` ctor.
@@ -234,6 +247,7 @@ formatFrameError (SignalNotFound name)          = "signal '" ++ₛ name ++ₛ "'
 formatFrameError (SignalIndexOOB idx)           = "signal index " ++ₛ showℕ idx ++ₛ " out of range"
 formatFrameError (InjectionFailed n)            = "injection failed for signal '" ++ₛ n ++ₛ "'"
 formatFrameError SignalsOverlap                 = "signals overlap"
+formatFrameError (SignalPastFrameEnd n bytes)   = "signal '" ++ₛ n ++ₛ "' does not fit a frame of size " ++ₛ showℕ bytes
 formatFrameError CANIdNotFound                  = "CAN ID not found in DBC"
 formatFrameError CANIdMismatch                  = "CAN ID does not match frame"
 formatFrameError (SignalValueOutOfBounds desc)  = "value out of bounds: " ++ₛ desc
@@ -244,6 +258,7 @@ frameErrorCode (SignalNotFound _)          = "frame_signal_not_found"
 frameErrorCode (SignalIndexOOB _)          = "frame_signal_index_oob"
 frameErrorCode (InjectionFailed _)         = "frame_injection_failed"
 frameErrorCode SignalsOverlap              = "frame_signals_overlap"
+frameErrorCode (SignalPastFrameEnd _ _)    = "frame_signal_past_frame_end"
 frameErrorCode CANIdNotFound               = "frame_can_id_not_found"
 frameErrorCode CANIdMismatch               = "frame_can_id_mismatch"
 frameErrorCode (SignalValueOutOfBounds _)  = "frame_signal_value_out_of_bounds"

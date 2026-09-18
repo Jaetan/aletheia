@@ -10,11 +10,14 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include "detail/mock_backend.hpp"
+#include "loaded_library.hpp"
 #include <aletheia/aletheia.hpp>
 
 #include <cstddef>
 #include <cstdlib>
+#include <dlfcn.h>
 #include <exception>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -261,6 +264,17 @@ TEST_CASE("make_ffi_backend with rts_cores < 1 throws Validation-kinded exceptio
         CHECK(e.kind() == ErrorKind::Validation);
         CHECK_THAT(std::string{e.what()}, ContainsSubstring("rts_cores must be >= 1"));
     }
+}
+
+// The fixture library carries none of the kernel's symbols, so the constructor
+// opens it, fails on its first lookup and must close it again: afterwards the
+// loader holds no mapping of it, which RTLD_NOLOAD reports without loading.
+TEST_CASE("a refused construction leaves the library it opened unloaded", "[ffi][validation]") {
+    const std::filesystem::path lib{ALETHEIA_TEST_SYMBOLLESS_LIB};
+    REQUIRE(std::filesystem::exists(lib));
+    REQUIRE_THROWS_WITH(make_ffi_backend(lib), ContainsSubstring("dlsym failed"));
+    const aletheia::test::LoadedLibrary still_mapped{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
+    CHECK(still_mapped == nullptr);
 }
 
 namespace {

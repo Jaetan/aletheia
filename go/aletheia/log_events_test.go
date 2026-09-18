@@ -180,6 +180,7 @@ const dbcParsedJSON = `{
 // A workflow through the whole client emits nothing the document does not
 // name, and does reach the events a reader of this test would expect it to.
 func TestLogEvents_ComprehensiveWorkflow_NoDrift(t *testing.T) {
+	ctx := bounded(t)
 	known := knownEvents(t)
 
 	mock := aletheia.NewMockBackend(
@@ -213,7 +214,7 @@ func TestLogEvents_ComprehensiveWorkflow_NoDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = c.Close() }()
+	defer func() { _ = closeWithin(t, c) }()
 
 	if _, err := c.ParseDBC(ctx, aletheia.DBCDefinition{Version: "1.0"}); err != nil {
 		t.Fatalf("ParseDBC: %v", err)

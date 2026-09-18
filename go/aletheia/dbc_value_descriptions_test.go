@@ -35,7 +35,7 @@ func newFFIClient(t *testing.T) *Client {
 		t.Fatalf("NewClient: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := client.Close(); err != nil {
+		if err := closeWithin(t, client); err != nil {
 			t.Errorf("Close: %v", err)
 		}
 	})
@@ -50,6 +50,7 @@ func valDBCText(message, valLine string) string {
 // A VAL_ line's entries land on the signal in order, and the formatter writes
 // the line back.
 func TestParseDBCText_ValueDescriptionsRoundTrip(t *testing.T) {
+	ctx := bounded(t)
 	client := newFFIClient(t)
 	const valLine = `VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;`
 	text := valDBCText("BO_ 300 Transmission: 8 ECU\n SG_ EngineState : 8|2@1+ (1,0) [0|3] \"\" Vector__XXX", valLine)
@@ -78,6 +79,7 @@ func TestParseDBCText_ValueDescriptionsRoundTrip(t *testing.T) {
 // A VAL_ line naming a message and signal the text does not declare loads
 // with the UnknownValueDescriptionTarget warning among the parse warnings.
 func TestParseDBCText_UnknownValueDescriptionTargetWarning(t *testing.T) {
+	ctx := bounded(t)
 	client := newFFIClient(t)
 	text := valDBCText("BO_ 256 Engine: 8 ECU\n SG_ Rpm : 0|16@1+ (1,0) [0|8000] \"rpm\" Vector__XXX", `VAL_ 999 GhostSignal 0 "Off" 1 "On" ;`)
 

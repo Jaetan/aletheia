@@ -49,6 +49,7 @@ var zeroPayload = []byte{0, 0, 0, 0, 0, 0, 0, 0}
 
 // A stream from end to end writes one event per step.
 func TestWithLogger_StreamLifecycle(t *testing.T) {
+	ctx := bounded(t)
 	c, buf := loggedClient(t,
 		aletheia.Respond(`{"status":"ack"}`),
 		aletheia.Respond(`{"status":"complete","results":[{"property_index":0,"status":"holds"}]}`),
@@ -63,6 +64,7 @@ func TestWithLogger_StreamLifecycle(t *testing.T) {
 // A violation is logged as one, and the extraction it drives reports that the
 // signal was not in the cache.
 func TestWithLogger_Enrichment(t *testing.T) {
+	ctx := bounded(t)
 	c, buf := loggedClient(t,
 		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"}]}`),
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`),
@@ -97,6 +99,7 @@ func TestWithLogger_ExtractionError(t *testing.T) {
 // With no logger the same stream runs, every logging site being a no-op
 // rather than a call on nothing.
 func TestWithoutLogger(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedClientOpts(t, speedUnder220(), []aletheia.MockResponse{
 		aletheia.Respond(`{"status":"ack"}`),
 		aletheia.Respond(`{"status":"complete","results":[{"property_index":0,"status":"holds"}]}`),

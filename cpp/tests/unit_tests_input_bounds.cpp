@@ -168,8 +168,9 @@ TEST_CASE("parse_dbc_text rejects oversize DBC text", "[input_bounds]") {
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
     CHECK(result.error().code() == aletheia::ErrorCode::InputBoundExceeded);
-    CHECK_THAT(std::string{result.error().message()},
-               Catch::Matchers::ContainsSubstring("exceeds limit"));
+    CHECK_THAT(
+        std::string{result.error().message()},
+        Catch::Matchers::ContainsSubstring("input length (bytes) 67108865 exceeds limit 67108864"));
 
     // bound_info() is populated with the structured triple, matching Python's
     // `InputBoundExceededError.kind`
@@ -218,4 +219,18 @@ TEST_CASE("Input-bound error JSON without structured fields degrades to nullopt"
     CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
     CHECK(result.error().code() == aletheia::ErrorCode::InputBoundExceeded);
     CHECK_FALSE(result.error().bound_info().has_value());
+}
+
+TEST_CASE("parse_dbc_text passes text at the cap to the backend", "[input_bounds]") {
+    auto mock = std::make_unique<aletheia::MockBackend>();
+    auto const* mock_ptr = mock.get();
+    mock->queue_response(R"({"status": "error", "message": "unparsed"})");
+    aletheia::AletheiaClient client{std::move(mock)};
+
+    const std::string at_cap(aletheia::max_dbc_text_bytes, 'x');
+    auto const result = client.parse_dbc_text(std::stop_token{}, at_cap);
+    // The backend, not the bound, answered.
+    REQUIRE(mock_ptr->captured().size() == 1);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() != aletheia::ErrorKind::InputBoundExceeded);
 }

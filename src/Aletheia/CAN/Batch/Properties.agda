@@ -24,6 +24,8 @@ open import Aletheia.CAN.Batch.Properties.Roundtrip public using
   ; AllPairsDisjoint; apd-nil; apd-cons
   ; AllSignalsFit; asf-nil; asf-cons
   ; signalFits
+  ; nonePastFrameEnd-fits
+  ; validateAndBuild-fits
   ; single-inject-preserves
   ; injectAll-preserves-disjoint
   ; InjectRoundtrips

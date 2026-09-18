@@ -196,7 +196,7 @@ func TestParseDBCText_RejectsOversizeText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = c.Close() }()
+	defer func() { _ = closeWithin(t, c) }()
 
 	_, err = c.ParseDBCText(context.Background(), strings.Repeat("x", MaxDBCTextBytes+1))
 	requireBoundExceeded(t, err, uint64(MaxDBCTextBytes)+1, uint64(MaxDBCTextBytes))

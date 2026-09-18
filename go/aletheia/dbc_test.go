@@ -18,6 +18,7 @@ import (
 // is populated; the responses follow the parse.
 func parsedClient(t *testing.T, responses ...aletheia.MockResponse) (*aletheia.Client, *aletheia.MockBackend) {
 	t.Helper()
+	ctx := bounded(t)
 	c, mock := mockClient(t, append([]aletheia.MockResponse{aletheia.RespondParseDBC(testDBC())}, responses...)...)
 	if _, err := c.ParseDBC(ctx, testDBC()); err != nil {
 		t.Fatal(err)
@@ -37,6 +38,7 @@ const (
 // always-present signal carries "presence":"always", a multiplexed one its
 // multiplexor and values, and an extended ID its flag.
 func TestParseDBC_SerialisesPresenceAndID(t *testing.T) {
+	ctx := bounded(t)
 	eid, _ := aletheia.NewExtendedID(0x18FEF100)
 	dlc, _ := aletheia.NewDLC(8)
 	rat := func(n int64) aletheia.Rational { return aletheia.IntRational(n) }
@@ -80,6 +82,7 @@ func TestParseDBC_SerialisesPresenceAndID(t *testing.T) {
 }
 
 func TestValidateDBC_NoErrors(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := mockClient(t, aletheia.Respond(`{"status":"validation","has_errors":false,"issues":[]}`))
 	result, err := c.ValidateDBC(ctx, testDBC())
 	if err != nil {
@@ -91,6 +94,7 @@ func TestValidateDBC_NoErrors(t *testing.T) {
 }
 
 func TestValidateDBC_WithIssues(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := mockClient(t, aletheia.Respond(`{"status":"validation","has_errors":true,"issues":[
 		{"severity":"error","code":"factor_zero","detail":"Signal Speed has zero factor"},
 		{"severity":"warning","code":"empty_message","detail":"Message Diag has no signals"}]}`))
@@ -113,6 +117,7 @@ func TestValidateDBC_WithIssues(t *testing.T) {
 }
 
 func TestValidateDBC_UnknownSeverityRejected(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := mockClient(t, aletheia.Respond(`{"status":"validation","has_errors":false,"issues":[{"severity":"info","code":"empty_message","detail":"x"}]}`))
 	_, err := c.ValidateDBC(ctx, testDBC())
 	requireKind(t, err, aletheia.ErrProtocol)
@@ -120,6 +125,7 @@ func TestValidateDBC_UnknownSeverityRejected(t *testing.T) {
 
 // FormatDBC decodes every field of the message and its signals.
 func TestFormatDBC(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := mockClient(t, aletheia.Respond(`{"status":"success","dbc":{"version":"2.0","messages":[
 		{"id":291,"extended":false,"name":"EngineData","dlc":8,"sender":"ECU","signals":[`+speedSignal+`,`+rpmSignal+`]}]}}`))
 	dbc, err := c.FormatDBC(ctx)
@@ -153,6 +159,7 @@ func TestFormatDBC(t *testing.T) {
 // spanning the whole 64-byte CAN-FD frame, which the kernel allows and the
 // decoder must not re-reject with a classic-CAN cap.
 func TestFormatDBC_Shapes(t *testing.T) {
+	ctx := bounded(t)
 	t.Run("extended id", func(t *testing.T) {
 		c, _ := mockClient(t, aletheia.Respond(formatDBCResponse(`{"id":419361024,"extended":true,"name":"J1939Msg","dlc":8,"sender":"Node","signals":[]}`)))
 		dbc, err := c.FormatDBC(ctx)
@@ -200,6 +207,7 @@ func TestFormatDBC_Shapes(t *testing.T) {
 // A FormatDBC response the decoder cannot trust is a protocol error, and
 // where the decoder names the reason the message says so.
 func TestFormatDBC_MalformedResponsesAreProtocolErrors(t *testing.T) {
+	ctx := bounded(t)
 	sig := func(fields string) string {
 		return oneSignalMessage(`{` + fields + `}`)
 	}
@@ -236,6 +244,7 @@ func TestFormatDBC_MalformedResponsesAreProtocolErrors(t *testing.T) {
 // ExtractSignals carries exact rationals, the extraction errors and the
 // absent signals; Get finds a value by name.
 func TestExtractSignals(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := mockClient(t, aletheia.Respond(extractionRsp))
 	result, err := c.ExtractSignals(ctx, standardID(t, sid123), dlc8(), aletheia.FramePayload{0xDE, 0xAD, 0xBE, 0xEF, 0, 0, 0, 0})
 	if err != nil {
@@ -264,6 +273,7 @@ func TestExtractSignals(t *testing.T) {
 // An extraction response the decoder cannot trust is refused, as a protocol
 // error where the decoder classifies it.
 func TestExtractSignals_MalformedResponsesAreRefused(t *testing.T) {
+	ctx := bounded(t)
 	cases := map[string]struct {
 		response string
 		want     string
@@ -289,6 +299,7 @@ func TestExtractSignals_MalformedResponsesAreRefused(t *testing.T) {
 // BuildFrame returns the payload the backend built, whatever its length;
 // a byte the wire cannot hold is refused.
 func TestBuildFrame(t *testing.T) {
+	ctx := bounded(t)
 	speed := []aletheia.SignalValue{{Name: "Speed", Value: aletheia.Rational{Numerator: 241, Denominator: 2}}}
 	t.Run("payload", func(t *testing.T) {
 		c, _ := parsedClient(t, aletheia.Respond(`{"status":"success","data":[222,173,190,239,0,0,0,0]}`))
@@ -318,6 +329,7 @@ func TestBuildFrame(t *testing.T) {
 }
 
 func TestUpdateFrame(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := parsedClient(t, aletheia.Respond(`{"status":"success","data":[0,100,0,0,0,0,0,0]}`))
 	payload, err := c.UpdateFrame(ctx, standardID(t, sid123), dlc8(), aletheia.FramePayload(zeroPayload8),
 		[]aletheia.SignalValue{{Name: "Speed", Value: aletheia.IntRational(100)}})
@@ -332,6 +344,7 @@ func TestUpdateFrame(t *testing.T) {
 // Each predicate serialises with its operator and fields under the names the
 // wire uses.
 func TestPredicatesSerialise(t *testing.T) {
+	ctx := bounded(t)
 	cases := map[string]struct {
 		predicate aletheia.Predicate
 		want      []string
@@ -361,6 +374,7 @@ func TestPredicatesSerialise(t *testing.T) {
 // A Between whose minimum exceeds its maximum is a validation error that
 // renders both bounds as exact rationals, not as floats.
 func TestBetween_MinExceedsMax(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := mockClient(t)
 	err := c.SetProperties(ctx, []aletheia.Formula{aletheia.Atomic{Predicate: aletheia.Between{
 		Signal: "Temp", Min: aletheia.Rational{Numerator: 1, Denominator: 3}, Max: aletheia.IntRational(0)}}})
@@ -369,11 +383,12 @@ func TestBetween_MinExceedsMax(t *testing.T) {
 }
 
 func TestFormatDBC_AfterClose(t *testing.T) {
+	ctx := bounded(t)
 	c, err := aletheia.NewClient(aletheia.NewMockBackend())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Close(); err != nil {
+	if err := closeWithin(t, c); err != nil {
 		t.Fatal(err)
 	}
 	_, err = c.FormatDBC(ctx)
@@ -384,6 +399,7 @@ func TestFormatDBC_AfterClose(t *testing.T) {
 // has loaded; before any ParseDBC both are refused with a state error that
 // says so, without reaching the backend.
 func TestBuildFrame_BeforeParseDBC(t *testing.T) {
+	ctx := bounded(t)
 	c, mock := mockClient(t)
 	signals := []aletheia.SignalValue{{Name: "Speed", Value: aletheia.IntRational(1)}}
 	_, err := c.BuildFrame(ctx, standardID(t, 0x100), dlc8(), signals)
@@ -400,6 +416,7 @@ func TestBuildFrame_BeforeParseDBC(t *testing.T) {
 // MockBackend answers it with ErrBinaryPathUnsupported, and that error alone
 // falls back to the JSON extraction, whose canned response is the result.
 func TestExtractSignals_MockBinaryFallthrough(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := parsedClient(t, aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":150}],"errors":[],"absent":[]}`))
 	result, err := c.ExtractSignals(ctx, standardID(t, sid123), dlc8(), aletheia.FramePayload(zeroPayload8))
 	if err != nil {
@@ -416,6 +433,7 @@ func TestExtractSignals_MockBinaryFallthrough(t *testing.T) {
 // without this check would name a message nobody wrote, and the kernel would
 // answer about that one. Python raises on the same input and C++ throws.
 func TestSerializeDBC_RefusesInvalidUTF8(t *testing.T) {
+	ctx := bounded(t)
 	dbc := testDBC()
 	dbc.Messages[0].Name = aletheia.MessageName("Engine\xa6Data")
 	c, _ := mockClient(t, aletheia.RespondParseDBC(testDBC()))

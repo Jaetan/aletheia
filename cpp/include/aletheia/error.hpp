@@ -85,6 +85,7 @@ enum class ErrorCode {
     FrameSignalIndexOob,
     FrameInjectionFailed,
     FrameSignalsOverlap,
+    FrameSignalPastFrameEnd,
     FrameCanIdNotFound,
     FrameCanIdMismatch,
     FrameSignalValueOutOfBounds,
@@ -119,6 +120,7 @@ enum class ErrorCode {
     DispatchRequestNotObject,
     // Extraction errors
     ExtractionMuxValueMismatch,
+    ExtractionSignalPastFrameEnd,
     ExtractionMuxSignalNotFound,
     ExtractionMuxChainCycle,
     ExtractionMuxExtractionFailed,

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Re-evaluating a Satisfied proc must not emit a spurious Violated counterexample.
+"""Re-evaluating a Satisfied proc must not emit a Violated the property has left behind.
 
 ``classifyStepResult`` in ``Aletheia.Protocol.StreamState.Internals`` returns
 ``complete`` (drops the property from the active iteration set) on Satisfied,
@@ -32,8 +32,8 @@ def test_raw_until_satisfied_drops_from_active_set(simple_dbc: DBCDefinition) ->
 
     ``Until(TestSignal == 1, TestSignal == 100)`` goes Satisfied at the frame
     where ``TestSignal == 100`` holds; the next frame where neither atom holds
-    must Ack (the property is no longer in the active set), not emit a spurious
-    Violated.
+    must Ack (the property is no longer in the active set), not emit a Violated
+    it is no longer subject to.
 
     Pre-fix runtime behaviour on this trace was: y₁ Satisfied via
     ``combineOr Satisfied _ = Satisfied``; y₂ Violated via
@@ -87,7 +87,7 @@ def test_raw_until_satisfied_drops_from_active_set(simple_dbc: DBCDefinition) ->
         )
         assert response_y2.get("status") == "ack", (
             "Expected ack at y₂ — Until was Satisfied at y₁ so the proc must "
-            "not be re-evaluated; pre-fix runtime emitted a spurious Violated "
+            "not be re-evaluated; the runtime once emitted a Violated "
             f"here. Got {response_y2!r}"
         )
 

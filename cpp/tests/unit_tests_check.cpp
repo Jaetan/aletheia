@@ -6,6 +6,8 @@
 // signal_name/condition_desc), equivalence with hand-rolled ltl:: formulas,
 // and the add_checks client integration path.
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include "detail/mock_backend.hpp"
 #include <aletheia/aletheia.hpp>
@@ -20,6 +22,7 @@
 #include <vector>
 
 using namespace aletheia;
+using Catch::Matchers::ContainsSubstring;
 
 // ===========================================================================
 // Check API — one-shot methods
@@ -190,6 +193,30 @@ TEST_CASE("Check settles_between negative time throws", "[check]") {
     CHECK_THROWS_AS(builder.within(-1ms), std::invalid_argument);
 }
 
+TEST_CASE("Check within accepts a zero time", "[check]") {
+    using namespace std::chrono_literals;
+    auto const settles = check::signal("T").settles_between(PhysicalValue{Rational{}},
+                                                            PhysicalValue{Rational{100, 1}});
+    CHECK(settles.within(0ms).condition_desc() == "between 0 and 100 within 0ms");
+    auto const cond = check::when("A")
+                          .exceeds(PhysicalValue{Rational{}})
+                          .then("B")
+                          .equals(PhysicalValue{Rational{1, 1}});
+    CHECK(cond.within(0ms).condition_desc() == "= 1 within 0ms");
+}
+
+TEST_CASE("a then-condition without a description describes nothing", "[check]") {
+    // ThenCondition is public, and its builder is whatever the caller
+    // hands it: none, or one that answers with an empty string.
+    using namespace std::chrono_literals;
+    auto const trigger = ltl::greater_than(SignalName{"A"}, PhysicalValue{Rational{}});
+    auto const then_pred = ltl::equals(SignalName{"B"}, PhysicalValue{Rational{1, 1}});
+    const ThenCondition without(trigger, then_pred, "B", nullptr);
+    CHECK(without.within(5ms).condition_desc().empty());
+    const ThenCondition empty(trigger, then_pred, "B", [] { return std::string{}; });
+    CHECK(empty.within(5ms).condition_desc().empty());
+}
+
 TEST_CASE("Check when/then negative time throws", "[check]") {
     using namespace std::chrono_literals;
     auto const cond = check::when("A")
@@ -289,6 +316,7 @@ TEST_CASE("Check settles matches manual ltl", "[check]") {
 
 TEST_CASE("add_checks sends properties to backend", "[check][client]") {
     auto mock = std::make_unique<MockBackend>();
+    auto const* mock_ptr = mock.get();
     mock->queue_response(R"({"status": "success"})");
     AletheiaClient client(std::move(mock));
 
@@ -298,6 +326,9 @@ TEST_CASE("add_checks sends properties to backend", "[check][client]") {
                                                             PhysicalValue{Rational{29, 2}}));
     auto const result = client.add_checks(std::stop_token{}, std::move(checks));
     REQUIRE(result.has_value());
+    REQUIRE(mock_ptr->captured().size() == 1);
+    CHECK_THAT(mock_ptr->last_captured(), ContainsSubstring("\"Speed\""));
+    CHECK_THAT(mock_ptr->last_captured(), ContainsSubstring("\"Voltage\""));
 }
 
 TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
@@ -308,12 +339,16 @@ TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
     defaults.push_back(check::signal("Voltage").stays_between(PhysicalValue{Rational{23, 2}},
                                                               PhysicalValue{Rational{29, 2}}));
 
+    auto const* mock_ptr = mock.get();
     AletheiaClient client(std::move(mock), {}, std::move(defaults));
 
     std::vector<CheckResult> checks;
     checks.push_back(check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
     auto const result = client.add_checks(std::stop_token{}, std::move(checks));
     REQUIRE(result.has_value());
+    REQUIRE(mock_ptr->captured().size() == 1);
+    CHECK(mock_ptr->last_captured().find("\"Voltage\"") <
+          mock_ptr->last_captured().find("\"Speed\""));
 }
 
 // ===========================================================================

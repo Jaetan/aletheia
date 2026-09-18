@@ -230,6 +230,7 @@ func (b *corruptBinBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, 
 // anything but the fallback sentinel, yields no result and one warning naming
 // the failure; the JSON path is not tried.
 func TestExtractSignalsLocked_CorruptBinaryIsLoggedAndSkipped(t *testing.T) {
+	ctx := bounded(t)
 	cases := map[string]struct {
 		buf   []byte
 		err   error
@@ -248,7 +249,7 @@ func TestExtractSignalsLocked_CorruptBinaryIsLoggedAndSkipped(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() { _ = c.Close() })
+			t.Cleanup(func() { _ = closeWithin(t, c) })
 			sid, _ := NewStandardID(0x100)
 			dlc, _ := NewDLC(8)
 			c.signalNames = map[uint64][]string{canIDKey(sid): {"S"}}

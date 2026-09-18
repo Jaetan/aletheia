@@ -565,7 +565,8 @@ class Predicate:
 
         Like ``next()``, but satisfied when no successor frame exists (end of
         trace). Use for "if X then next Y" patterns where X may be true on the
-        final frame — strong Next would produce a spurious violation there.
+        final frame, where strong Next would report a violation the trace's
+        end causes rather than the property.
 
         **DISCOURAGED on CAN networks** for the same timing-uncertainty
         reasons as ``next()``. Prefer ``within(time_ms)`` in practice.

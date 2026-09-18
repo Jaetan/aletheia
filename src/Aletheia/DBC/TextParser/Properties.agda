@@ -2,58 +2,29 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Correctness properties for the DBC text-format parser — facade
--- placeholder.
+-- Correctness properties for the DBC text-format parser: the facade its
+-- proof layers are read through.
 --
--- Purpose: Top-level theorem module for `Aletheia.DBC.TextParser`.  The
--- split-from-day-one structure follows the `DBC/Formatter/` facade
--- pattern: each sub-file type-checks independently, which keeps
--- incremental rebuild cost low once the proof burden grows past the
--- ~600–800 line soft cap.
+-- Each layer below is its own module, so one type-checks without the others
+-- and an incremental rebuild pays for what changed; this module re-exports
+-- them, so a consumer names one import. The layers run from the primitives an
+-- identifier and a byte-order tag are parsed by, through the preamble, the
+-- message topology, the value tables, the environment variables, the comments
+-- and the signal groups, to the attribute section's dispatchers and the
+-- char-class disjointness bridges the later layers rest on.
 --
--- Planned sub-files (populated as each proof layer
--- lands):
---   * Aletheia.DBC.TextParser.Grammar.agda          — grammar well-
---     formedness: no-trailing-whitespace invariants, keyword
---     disjointness, lexer-vs-grammar agreement lemmas.
---   * Aletheia.DBC.TextParser.VersionRoundtrip.agda — parseText on
---     `VERSION/NS_/BS_` preamble recovers the original DBC preamble
---     (first grammar category, anchors the roundtrip base case).
---   * Aletheia.DBC.TextParser.MessageRoundtrip.agda — BO_/SG_ roundtrip,
---     mirroring DBC/Formatter/MessageRoundtrip.agda's shape.
---   * Aletheia.DBC.TextParser.MetadataRoundtrip.agda — CM_/BA_*/VAL_*/
---     SIG_GROUP_/SIG_VALTYPE_/SG_MUL_VAL_/EV_ roundtrip, mirroring
---     DBC/Formatter/MetadataRoundtrip.agda.
---   * Aletheia.DBC.TextParser.ErrorCompleteness.agda — every
---     `DBCTextParseError` constructor is reachable from at least one
---     malformed-input witness (no dead error codes).
+-- The universal statement those layers build toward,
 --
--- Facade contract: this module will `open import ... public
--- using (...)` each sub-file's proved lemmas and expose the top-level
--- `parseText-formatText-roundtrip : ∀ d → parseText (formatText d) ≡
--- inj₂ d`.  The module body is intentionally empty — the
--- sub-files don't exist yet and creating placeholder holes would flag
--- spuriously under `check-properties`.
+--     parseText-on-formatText : ∀ d → WellFormedTextDBCAgg d
+--                             → parseText (formatText d) ≡ inj₂ d
 --
--- Pre-implementation audit (2026-04-22).  The stdlib
--- substrate audit (completed 2026-05-03) is complete.
--- Finding: the layer-1 target lemma
---
---     toList-++ₛ : ∀ s t → toList (s ++ₛ t) ≡ toList s ++ₗ toList t
---
--- (plus `toList-fromList` and `fromList-toList`) exists in stdlib only
--- via `Data.String.Unsafe`, where it is proven by `trustMe` under
--- `{-# OPTIONS --with-K #-}`.  That module is labelled Unsafe and
--- cannot be imported from a `--safe` module.  `Data.String.Properties`
--- and `Agda.Builtin.String.Properties` carry no append-behaviour
--- lemma at any layer.  Under `--safe --without-K`, the Agda String
--- primitives (`primStringAppend`, `primStringToList`,
--- `primStringFromList`) only reduce on closed terms, so a direct
--- in-project proof is also blocked.
---
--- Consequence: layer 1 is **not** import-and-re-export.  Selecting a
--- way forward requires explicit user approval — do NOT silently
--- introduce an Unsafe module, and do NOT silently weaken the target.
+-- is not here: it needs `toList (fromList cs) ≡ cs`, which Agda's String
+-- primitives do not give under `--safe --without-K`, since they reduce only on
+-- closed terms, and which the standard library proves only in its own Unsafe
+-- module. It is stated and proved in
+-- `Aletheia.DBC.TextParser.Properties.Substrate.Unsafe`, the one module this
+-- project allows to drop `--safe`, where the two bridging axioms and every
+-- consumer of them sit together.
 module Aletheia.DBC.TextParser.Properties where
 
 -- Layer 2 — per-primitive roundtrips.  Identifier +

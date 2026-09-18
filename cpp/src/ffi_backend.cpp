@@ -195,72 +195,71 @@ public:
             throw AletheiaException(
                 AletheiaError{ErrorKind::Validation,
                               "library path is empty: pass the path of libaletheia-ffi.so"});
-        handle_ = dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL);
-        if (handle_ == nullptr)
+        // The handle is owned by this guard until construction completes, so a
+        // refusal on any line below closes what was opened; a completed
+        // construction releases it into the member, which the destructor
+        // deliberately keeps (see the class-level docstring).
+        struct Closer {
+            void operator()(void* handle) const noexcept { dlclose(handle); }
+        };
+        std::unique_ptr<void, Closer> opened{dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL)};
+        if (opened == nullptr)
             throw AletheiaException(
                 AletheiaError{ErrorKind::Ffi, std::string("dlopen failed: ") + dlerror()});
+        void* const handle = opened.get();
 
-        try {
-            auto hs_init =
-                load_sym<HsInitFn>(handle_, std::string{detail::rts_init_symbol}.c_str());
-            init_fn_ = load_sym<AletheiaInitFn>(handle_, "aletheia_init");
-            process_fn_ = load_sym<AletheiaProcessFn>(handle_, "aletheia_process");
-            send_frame_fn_ = load_sym<AletheiaSendFrameFn>(handle_, "aletheia_send_frame");
-            free_str_fn_ = load_sym<AletheiaFreeStrFn>(handle_, "aletheia_free_str");
-            close_fn_ = load_sym<AletheiaCloseFn>(handle_, "aletheia_close");
-            send_error_fn_ = load_sym<AletheiaSendErrorFn>(handle_, "aletheia_send_error");
-            send_remote_fn_ = load_sym<AletheiaSendRemoteFn>(handle_, "aletheia_send_remote");
-            start_stream_fn_ = load_sym<AletheiaNoArgFn>(handle_, "aletheia_start_stream");
-            end_stream_fn_ = load_sym<AletheiaNoArgFn>(handle_, "aletheia_end_stream");
-            format_dbc_fn_ = load_sym<AletheiaNoArgFn>(handle_, "aletheia_format_dbc");
-            extract_signals_fn_ = load_sym<AletheiaExtractFn>(handle_, "aletheia_extract_signals");
-            build_frame_bin_fn_ =
-                load_sym<AletheiaBuildFrameBinFn>(handle_, "aletheia_build_frame_bin");
-            update_frame_bin_fn_ =
-                load_sym<AletheiaUpdateFrameBinFn>(handle_, "aletheia_update_frame_bin");
-            extract_signals_bin_fn_ =
-                load_sym<AletheiaExtractBinFn>(handle_, "aletheia_extract_signals_bin");
-            free_buf_fn_ = load_sym<AletheiaFreeBufFn>(handle_, "aletheia_free_buf");
+        auto hs_init = load_sym<HsInitFn>(handle, std::string{detail::rts_init_symbol}.c_str());
+        init_fn_ = load_sym<AletheiaInitFn>(handle, "aletheia_init");
+        process_fn_ = load_sym<AletheiaProcessFn>(handle, "aletheia_process");
+        send_frame_fn_ = load_sym<AletheiaSendFrameFn>(handle, "aletheia_send_frame");
+        free_str_fn_ = load_sym<AletheiaFreeStrFn>(handle, "aletheia_free_str");
+        close_fn_ = load_sym<AletheiaCloseFn>(handle, "aletheia_close");
+        send_error_fn_ = load_sym<AletheiaSendErrorFn>(handle, "aletheia_send_error");
+        send_remote_fn_ = load_sym<AletheiaSendRemoteFn>(handle, "aletheia_send_remote");
+        start_stream_fn_ = load_sym<AletheiaNoArgFn>(handle, "aletheia_start_stream");
+        end_stream_fn_ = load_sym<AletheiaNoArgFn>(handle, "aletheia_end_stream");
+        format_dbc_fn_ = load_sym<AletheiaNoArgFn>(handle, "aletheia_format_dbc");
+        extract_signals_fn_ = load_sym<AletheiaExtractFn>(handle, "aletheia_extract_signals");
+        build_frame_bin_fn_ = load_sym<AletheiaBuildFrameBinFn>(handle, "aletheia_build_frame_bin");
+        update_frame_bin_fn_ =
+            load_sym<AletheiaUpdateFrameBinFn>(handle, "aletheia_update_frame_bin");
+        extract_signals_bin_fn_ =
+            load_sym<AletheiaExtractBinFn>(handle, "aletheia_extract_signals_bin");
+        free_buf_fn_ = load_sym<AletheiaFreeBufFn>(handle, "aletheia_free_buf");
 
-            // Initialize GHC RTS (once per process, never finalized).  The
-            // init state is shared with `rational_renderer.cpp` through
-            // `detail::rts_init_state()`, so the first backend's core count is
-            // visible to every later one and a different request surfaces as
-            // the `rts.cores_mismatch` warning instead of being dropped.
-            auto& rts = detail::rts_init_state();
-            const std::scoped_lock lock(rts.mu);
-            if (!rts.initialized) {
-                // The argv always carries the containment heap cap.
-                // hs_init_with_rtsopts may retain argv for the whole process
-                // lifetime, so the backing storage must outlive this call:
-                // function-local statics give process-lifetime storage without
-                // a raw owning `new`, and this block runs exactly once
-                // (guarded by rts.initialized under rts.mu), so their
-                // runtime-valued initialisers evaluate once.
-                const char* override_env =
-                    std::getenv(std::string{detail::rts_override_env}.c_str());
-                static std::vector<std::string> rts_argv =
-                    detail::rts_init_args(rts_cores, override_env != nullptr ? override_env : "");
-                static std::vector<char*> rts_argv_ptrs = [] {
-                    std::vector<char*> ptrs;
-                    ptrs.reserve(rts_argv.size());
-                    for (auto& arg : rts_argv)
-                        ptrs.push_back(arg.data());
-                    return ptrs;
-                }();
-                auto argc = static_cast<int>(rts_argv_ptrs.size());
-                auto** argv = rts_argv_ptrs.data();
-                hs_init(&argc, &argv);
-                rts.cores = rts_cores;
-                rts.initialized = true;
-            } else if (auto mismatch = detail::rts_cores_mismatch(rts_cores, rts.cores)) {
-                rts_mismatch_ = *mismatch;
-            }
-        } catch (...) {
-            // RTS was never started — safe to release the library handle.
-            dlclose(handle_);
-            throw;
+        // Initialize GHC RTS (once per process, never finalized).  The
+        // init state is shared with `rational_renderer.cpp` through
+        // `detail::rts_init_state()`, so the first backend's core count is
+        // visible to every later one and a different request surfaces as
+        // the `rts.cores_mismatch` warning instead of being dropped.
+        auto& rts = detail::rts_init_state();
+        const std::scoped_lock lock(rts.mu);
+        if (!rts.initialized) {
+            // The argv always carries the containment heap cap.
+            // hs_init_with_rtsopts may retain argv for the whole process
+            // lifetime, so the backing storage must outlive this call:
+            // function-local statics give process-lifetime storage without
+            // a raw owning `new`, and this block runs exactly once
+            // (guarded by rts.initialized under rts.mu), so their
+            // runtime-valued initialisers evaluate once.
+            const char* override_env = std::getenv(std::string{detail::rts_override_env}.c_str());
+            static std::vector<std::string> rts_argv =
+                detail::rts_init_args(rts_cores, override_env != nullptr ? override_env : "");
+            static std::vector<char*> rts_argv_ptrs = [] {
+                std::vector<char*> ptrs(rts_argv.size());
+                for (std::size_t i = 0; i < ptrs.size(); ++i)
+                    ptrs[i] = rts_argv[i].data();
+                return ptrs;
+            }();
+            auto argc = static_cast<int>(rts_argv_ptrs.size());
+            auto** argv = rts_argv_ptrs.data();
+            hs_init(&argc, &argv);
+            rts.cores = rts_cores;
+            rts.initialized = true;
+        } else if (auto mismatch = detail::rts_cores_mismatch(rts_cores, rts.cores)) {
+            rts_mismatch_ = *mismatch;
         }
+        handle_ = opened.release();
     }
 
     // See class-level docstring for the no-hs_exit / no-dlclose rationale.
@@ -278,39 +277,8 @@ public:
     auto init() -> BackendState override { return BackendState{*this, init_fn_()}; }
 
     auto process(const BackendState& state, std::string_view input) -> std::string override {
-        // Adversarial-input bound: synthesize an error response before
-        // marshaling oversize inputs into Haskell, per AGENTS.md universal
-        // rule "Adversarial-input bounds at parser surfaces".  The Agda
-        // kernel enforces the same bound; this is the C++ binding's
-        // short-circuit so we do not allocate an N-byte std::string + a
-        // C-side null-terminated copy only to be rejected on the other
-        // side.  Returns the wire-format error JSON so the existing
-        // `detail::parse_*` paths translate to AletheiaError with
-        // code == ErrorCode::InputBoundExceeded uniformly after
-        // consolidation.
-        if (input.size() > aletheia::max_json_bytes) {
-            // Emit structured bound_kind /
-            // observed / limit fields alongside `code` and `message` so
-            // downstream `parse_*` paths can lift them into the
-            // AletheiaError's optional InputBoundExceededError, matching
-            // Python's typed `InputBoundExceededError(...)` shape and Go's
-            // `*InputBoundExceededError{Kind/Observed/Limit/Code}`.
-            std::string out;
-            out.reserve(256);
-            out.append(
-                R"({"status":"error","code":"input_bound_exceeded","message":"input length (bytes) )");
-            out.append(std::to_string(input.size()));
-            out.append(R"( exceeds limit )");
-            out.append(std::to_string(aletheia::max_json_bytes));
-            out.append(R"(","bound_kind":")");
-            out.append(aletheia::bound_kind_input_length_bytes);
-            out.append(R"(","observed":)");
-            out.append(std::to_string(input.size()));
-            out.append(R"(,"limit":)");
-            out.append(std::to_string(aletheia::max_json_bytes));
-            out.append(R"(})");
-            return out;
-        }
+        if (auto refusal = detail::json_input_bound_error(input.size()))
+            return std::move(*refusal);
         // The Agda core expects a null-terminated string.
         const std::string input_str{input};
         return wrap_str_result(process_fn_(state.get(), input_str.c_str()),

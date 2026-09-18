@@ -18,6 +18,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -348,3 +349,63 @@ def agda_tree_lock() -> Generator[None]:
         if fd is not None:
             with contextlib.suppress(OSError):
                 os.close(fd)  # closing the fd releases the flock
+
+
+# ---------------------------------------------------------------------------
+# Tree-scanning gates
+#
+# The gates that read the tracked tree as prose share what counts as prose: a
+# tracked file that is not one of these binary shapes, with Markdown code
+# masked so a string quoted as an example is documentation rather than the
+# project speaking. One definition, so a new gate cannot disagree with the
+# others about what it reads.
+# ---------------------------------------------------------------------------
+
+BINARY_SUFFIXES: frozenset[str] = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".ico",
+        ".pdf",
+        ".agdai",
+        ".so",
+        ".o",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".zip",
+        ".gz",
+        ".sig",
+        ".key",
+        ".pub",
+        ".wasm",
+        ".xlsx",
+    }
+)
+
+MARKDOWN_SUFFIXES: frozenset[str] = frozenset({".md", ".markdown"})
+
+_INLINE_CODE = re.compile(r"`[^`]*`")
+_FENCE = re.compile(r"^\s*(```|~~~)")
+
+
+def prose_lines(rel: str, text: str) -> list[tuple[int, str]]:
+    """Return ``(1-based lineno, line)`` pairs of ``text`` that are the project's prose.
+
+    A Markdown file drops fenced blocks and masks inline-code spans; every other
+    file is returned whole, because a comment in a source file is the project
+    speaking.
+    """
+    is_markdown = Path(rel).suffix in MARKDOWN_SUFFIXES
+    out: list[tuple[int, str]] = []
+    in_fence = False
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if is_markdown and _FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        out.append((lineno, _INLINE_CODE.sub("", line) if is_markdown else line))
+    return out

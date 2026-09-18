@@ -9,9 +9,11 @@
 #include "rts_params.hpp"
 
 #include <aletheia/error.hpp>
+#include <aletheia/limits.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <memory>
 #include <optional>
 #include <string>
@@ -59,6 +61,33 @@ auto ffi_error_from_status(std::int8_t status, char* err_str, void (*free_str)(c
     if (status != 0)
         return AletheiaError{ErrorKind::Protocol, owned ? owned.get() : "Unknown error"};
     return std::nullopt;
+}
+
+auto wire_count_refusal(std::size_t count) -> std::optional<std::string> {
+    if (std::in_range<std::uint32_t>(count))
+        return std::nullopt;
+    return std::format("signal injection carries {} values, more than the wire's count holds",
+                       count);
+}
+
+auto json_input_bound_error(std::size_t input_bytes) -> std::optional<std::string> {
+    if (input_bytes <= max_json_bytes)
+        return std::nullopt;
+    std::string out;
+    out.reserve(256);
+    out.append(
+        R"({"status":"error","code":"input_bound_exceeded","message":"input length (bytes) )");
+    out.append(std::to_string(input_bytes));
+    out.append(R"( exceeds limit )");
+    out.append(std::to_string(max_json_bytes));
+    out.append(R"(","bound_kind":")");
+    out.append(bound_kind_input_length_bytes);
+    out.append(R"(","observed":)");
+    out.append(std::to_string(input_bytes));
+    out.append(R"(,"limit":)");
+    out.append(std::to_string(max_json_bytes));
+    out.append(R"(})");
+    return out;
 }
 
 } // namespace aletheia::detail

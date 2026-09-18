@@ -273,6 +273,7 @@ def test_enum_matches_agda_constructor_order() -> None:
         "MuxChainCycle": "MUX_CHAIN_CYCLE",
         "MuxExtractionFailed": "MUX_EXTRACTION_FAILED",
         "MuxValueMismatch": "MUX_VALUE_MISMATCH",
+        "SignalPastFrameEnd": "SIGNAL_PAST_FRAME_END",
     }
     agda_ctors = _agda_constructors()
     assert agda_ctors, "no constructors parsed from Agda source"

@@ -16,8 +16,12 @@
 # which aborts clang on every source with such a call; libirm also gets the one
 # include and the one call LLVM 23 changed (Constant::isZeroValue is gone, and
 # a ConstantFP's own isZero together with Constant::isNullValue says the same);
-# and a Debian release without a VERSION_ID in /etc/os-release (testing, sid)
-# is read as the debian:13 row.
+# a Debian release without a VERSION_ID in /etc/os-release (testing, sid) is
+# read as the debian:13 row; and every mutant gets an identifier of its own
+# (tools/mull/mull-unique-mutant-ids.patch), where Mull named two mutations
+# of one statement, a temporary's destructor on the normal path and in the
+# exception-cleanup landing pad, or two instantiations of one template, by
+# one name and ran only the last it registered.
 #
 # Needs clang-<version>, /usr/lib/llvm-<version> (the llvm-<version>-dev and
 # libclang-<version>-dev packages), git and curl.  bazelisk is fetched into the
@@ -121,6 +125,7 @@ diff --git a/mull_deps.bzl b/mull_deps.bzl
  
      return modules.use_all_repos(module_ctx)
 PATCH
+git -C "$src" apply "$(cd "$(dirname "$0")" && pwd)/mull/mull-unique-mutant-ids.patch"
 (cd "$src" && "$bazel" build \
     "//rust/mull-tools:mull-runner-$llvm" \
     "//rust/mull-tools:mull-reporter-$llvm" \

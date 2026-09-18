@@ -34,7 +34,8 @@
 # these jobs hit the Agda store that workflow already populated).  The workflow
 # ALSO runs on push:main: the heavy caches (Mull-from-source, the build tree)
 # are otherwise only written on feature branches, which do NOT cross-pollinate,
-# so a fresh PR branch would miss them (cold ~33-min mutation run).  A push:main
+# so a fresh PR branch would miss them, and the mutation job pays for the Mull
+# build, the .so build and both C++ mutation trees from cold.  A push:main
 # run writes those caches under the default branch, where every PR branch can
 # read them — turning the cold Mull build (318s) + .so build (338s) into hits.
 

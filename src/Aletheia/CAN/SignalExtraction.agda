@@ -17,11 +17,11 @@ open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCoreFast; scaleExtracted; extractionBytes)
 open import Aletheia.CAN.Encoding.Arithmetic using (inBounds)
-open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds)
+open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds; ExtractionFailed)
 open import Aletheia.DBC.DecRat using (toℚ)
 open import Aletheia.CAN.DBCHelpers using (findMessageById; findSignalByName)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When; signalNameStr)
-open import Aletheia.Error using (ExtractionError; MuxValueMismatch; MuxSignalNotFound; MuxChainCycle; MuxExtractionFailed)
+open import Aletheia.Error using (ExtractionError; MuxValueMismatch; MuxSignalNotFound; MuxChainCycle; MuxExtractionFailed; SignalPastFrameEnd)
 open import Data.Rational using (ℚ; _/_)
 open import Data.Integer using (+_)
 open import Data.Nat using (ℕ; zero; suc)
@@ -30,12 +30,13 @@ open import Data.List using (length)
 open import Data.List.NonEmpty as List⁺ using (List⁺)
 open import Data.List.Relation.Unary.Any using (Any; here; there)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Bool using (Bool; false; if_then_else_)
+open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_)
 open import Relation.Nullary.Reflects using (ofⁿ)
 
 open import Aletheia.Data.Dec0 using (Dec₀; dec₀; or₀; map₀; does₀)
+open import Aletheia.DBC.Decidable.SignalGeometry using (signalFitsFrame₀)
 open import Aletheia.Data.Dec0.Rational using (_≟ℚ₀_)
 
 -- ============================================================================
@@ -118,20 +119,30 @@ checkSignalPresence frame msg sig =
 
 -- Extract signal from frame given known message and signal (no DBC lookups)
 -- This is the fast path used by batch extraction.
+-- The frame that arrived carries the bytes it carries, and the signal names
+-- bits by the definition the DBC gives: a signal whose last bit lies past the
+-- end of that frame is not in it.  The bit reader is total and would answer
+-- zero for those bits, which is a value the frame does not carry, so the
+-- geometry the ingest gates decide is asked here too, of the frame's own
+-- size, before anything is read.
 extractSignalDirect : ∀ {n} → DBCMessage → CANFrame n → DBCSignal → ExtractionResult
-extractSignalDirect msg frame sig with checkSignalPresence frame msg sig
-... | just reason = SignalNotPresent reason
-... | nothing =
-        let sigDef = DBCSignal.signalDef sig
-            bo = DBCSignal.byteOrder sig
-            bytes = extractionBytes frame bo
-            raw = extractSignalCoreFast bytes sigDef
-            value = scaleExtracted raw sigDef
-            minVal = toℚ (SignalDef.minimum sigDef)
-            maxVal = toℚ (SignalDef.maximum sigDef)
-        in if inBounds value minVal maxVal
-           then Success value
-           else ValueOutOfBounds value minVal maxVal
+extractSignalDirect {n} msg frame sig
+  with does₀ (signalFitsFrame₀ n (SignalDef.startBit (DBCSignal.signalDef sig))
+                                 (SignalDef.bitLength (DBCSignal.signalDef sig)))
+... | false = ExtractionFailed (SignalPastFrameEnd n)
+... | true with checkSignalPresence frame msg sig
+...   | just reason = SignalNotPresent reason
+...   | nothing =
+          let sigDef = DBCSignal.signalDef sig
+              bo = DBCSignal.byteOrder sig
+              bytes = extractionBytes frame bo
+              raw = extractSignalCoreFast bytes sigDef
+              value = scaleExtracted raw sigDef
+              minVal = toℚ (SignalDef.minimum sigDef)
+              maxVal = toℚ (SignalDef.maximum sigDef)
+          in if inBounds value minVal maxVal
+             then Success value
+             else ValueOutOfBounds value minVal maxVal
 
 -- Extract signal value from frame with full error reporting
 -- This is the primary interface for single signal extraction by name.

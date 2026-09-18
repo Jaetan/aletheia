@@ -24,11 +24,12 @@ module Aletheia.DBC.Decidable.SignalGeometry where
 
 open import Data.Bool using (if_then_else_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; _+_; _*_; _∸_; _<_; _≤_)
-open import Data.Nat.Properties using (_<?_; _≤?_)
+open import Data.Nat using (ℕ; _+_; _*_; _∸_; _<_; _≤_; _≤ᵇ_)
+open import Data.Nat.Properties using (_<?_; _≤?_; ≤ᵇ⇒≤; ≤⇒≤ᵇ)
 open import Relation.Nullary.Decidable using (Dec; does)
 
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; physicalBitPos)
+open import Aletheia.Data.Dec0 using (Dec₀; fromBridges)
 open import Aletheia.Error using
   ( ParseError; SignalBitLengthZero; SignalStartBitExceedsFrame
   ; SignalBitLengthExceedsFrame; SignalBigEndianOverflow )
@@ -53,6 +54,15 @@ bitLengthPositive? bl = 1 ≤? bl
 -- and `PhysicallyValid`'s big-endian fits conjunct.
 signalFitsFrame? : (frameBytes sb bl : ℕ) → Dec (sb + bl ≤ frameBytes * 8)
 signalFitsFrame? frameBytes sb bl = sb + bl ≤? frameBytes * 8
+
+-- The same proposition, decided without allocating: `does₀` is the builtin
+-- ℕ comparison and the certificate is erased, which is what the frame
+-- builder needs, since it asks this of every signal of every frame it
+-- builds. The `Dec` form above stays for the cold ingest gates, which read
+-- the certificate to build their typed refusals.
+signalFitsFrame₀ : (frameBytes sb bl : ℕ) → Dec₀ (sb + bl ≤ frameBytes * 8)
+signalFitsFrame₀ frameBytes sb bl =
+  fromBridges (sb + bl ≤ᵇ frameBytes * 8) (≤ᵇ⇒≤ (sb + bl) (frameBytes * 8)) ≤⇒≤ᵇ
 
 -- Big-endian no-wrap, on the PRE-conversion (Motorola/DBC-wire) start bit:
 -- descending `bl` bits from the MSB at `sb` must not run past the end of

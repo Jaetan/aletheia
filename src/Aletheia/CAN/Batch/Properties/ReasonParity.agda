@@ -15,6 +15,9 @@ module Aletheia.CAN.Batch.Properties.ReasonParity where
 
 open import Aletheia.CAN.ExtractionResult using
   (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds; ExtractionFailed)
+-- The error and its wire code share a name for this condition; the error's
+-- is renamed so both can be written in the clauses below.
+open import Aletheia.Error using () renaming (SignalPastFrameEnd to PastFrameEndError)
 open import Aletheia.Error using
   (MuxValueMismatch; MuxSignalNotFound; MuxChainCycle; MuxExtractionFailed;
    BitExtractionFailed; ValueExceedsWireRange; InContext)
@@ -23,6 +26,7 @@ open import Aletheia.CAN.BatchExtraction using
   ; ExtractionErrorCode; extractionErrorCodeToℕ
   ; NotInDBC; OutOfBounds; BitExtractionFailed; ValueExceedsWireRange
   ; MuxSignalNotFound; MuxChainCycle; MuxExtractionFailed; MuxValueMismatch
+  ; SignalPastFrameEnd
   )
 
 open import Data.List using (map)
@@ -53,6 +57,7 @@ reason-parity _ _ (SignalNotPresent MuxChainCycle)       = refl
 reason-parity _ _ (SignalNotPresent (MuxExtractionFailed _)) = refl
 reason-parity _ _ (SignalNotPresent (BitExtractionFailed _)) = refl
 reason-parity _ _ (SignalNotPresent ValueExceedsWireRange)   = refl
+reason-parity _ _ (SignalNotPresent (PastFrameEndError _)) = refl
 reason-parity _ _ (SignalNotPresent (InContext _ _))     = refl
 reason-parity _ _ (ValueOutOfBounds _ _ _)               = refl
 reason-parity _ _ (ExtractionFailed _)                   = refl
@@ -73,6 +78,7 @@ extractionErrorCodeFromℕ 4 = just MuxSignalNotFound
 extractionErrorCodeFromℕ 5 = just MuxChainCycle
 extractionErrorCodeFromℕ 6 = just MuxExtractionFailed
 extractionErrorCodeFromℕ 7 = just MuxValueMismatch
+extractionErrorCodeFromℕ 8 = just SignalPastFrameEnd
 extractionErrorCodeFromℕ _ = nothing
 
 -- Round-trip: every code decodes back to itself — the wire assignment is
@@ -86,6 +92,7 @@ fromℕ∘toℕ MuxSignalNotFound     = refl
 fromℕ∘toℕ MuxChainCycle         = refl
 fromℕ∘toℕ MuxExtractionFailed   = refl
 fromℕ∘toℕ MuxValueMismatch      = refl
+fromℕ∘toℕ SignalPastFrameEnd    = refl
 
 -- COROLLARY: no two error codes share a u8 wire value.
 extractionErrorCodeToℕ-injective : ∀ a b

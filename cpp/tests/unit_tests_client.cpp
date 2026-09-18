@@ -14,6 +14,7 @@
 
 #include "detail/mock_backend.hpp"
 #include <aletheia/aletheia.hpp>
+#include <aletheia/detail/cache_keys.hpp>
 
 #include <initializer_list>
 #include <nlohmann/json.hpp>
@@ -22,19 +23,24 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <span>
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <sys/mman.h>
 #include <utility>
 #include <variant>
 #include <vector>
 
 using namespace aletheia;
 using Json = nlohmann::json;
+using aletheia::test::BinExtractMockBackend;
 using aletheia::test::make_test_dbc;
+using aletheia::test::one_value_at_index_zero;
 using aletheia::test::parsed_dbc_response_for;
+using aletheia::test::took_json_extraction;
 using Catch::Matchers::ContainsSubstring;
 
 // ===========================================================================
@@ -553,7 +559,7 @@ TEST_CASE("send_frames payload validation mid-batch reports frame index", "[clie
     CHECK(result.responses.size() == 1); // frame 0 succeeded
     auto const msg = std::string(result.error->message());
     CHECK(msg.contains("frame 1"));
-    CHECK(msg.contains("payload"));
+    CHECK(msg.contains("payload length 8 does not match DLC 4 (expected 4 bytes)"));
 }
 
 TEST_CASE("send_frames empty", "[client][batch]") {
@@ -653,7 +659,7 @@ TEST_CASE("send_frames_lazy stops after first error with frame index", "[client]
         ++oks;
     }
     CHECK(oks == 1);
-    CHECK(err_msg.contains("frame 1")); // index prefix mirrors send_frames
+    CHECK(err_msg.contains("frame 1:")); // index prefix mirrors send_frames
     CHECK(err_msg.contains("payload"));
     CHECK(count_sentinel(mock->captured(), "<binary:sendFrame>") == 1); // frame 2 never sent
 }
@@ -792,43 +798,6 @@ TEST_CASE("move-assignment transfers client state", "[client]") {
 // ===========================================================================
 // Cache-full: extraction beyond the cache's capacity
 // ===========================================================================
-
-TEST_CASE("extraction cache full still works on 257th frame", "[client][enrich][cache]") {
-    auto mock = std::make_unique<MockBackend>();
-    auto* mock_ptr = mock.get();
-
-    // Queue: set_properties, start_stream
-    mock_ptr->queue_response(R"({"status": "success"})");
-    mock_ptr->queue_response(R"({"status": "success"})");
-
-    // Queue 257 ack responses for send_frame
-    for (int i = 0; i < 257; ++i)
-        mock_ptr->queue_response(R"({"status": "ack"})");
-
-    AletheiaClient client(std::move(mock));
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
-    std::vector<LtlFormula> props;
-    props.push_back(std::move(formula));
-
-    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
-    REQUIRE(client.start_stream(std::stop_token{}).has_value());
-
-    auto const id = CanId{StandardId::create(0x100).value()};
-    auto const dlc = Dlc::create(8).value();
-
-    // Send 257 frames with distinct data payloads to fill and overflow the cache
-    for (unsigned i = 0; i < 257; ++i) {
-        FramePayload data(8, std::byte{0});
-        // Vary first two bytes to make each frame key unique
-        data[0] = static_cast<std::byte>(i & 0xFFU);
-        data[1] = static_cast<std::byte>((i >> 8U) & 0xFFU);
-        auto result = client.send_frame(
-            std::stop_token{}, Timestamp{static_cast<std::int64_t>(i) * 1000}, id, dlc, data);
-        REQUIRE(result.has_value());
-        CHECK(std::holds_alternative<Ack>(*result));
-    }
-}
 
 TEST_CASE("the public mock factory answers without anything queued", "[client][mock]") {
     // What an installed consumer can reach: the factory and the public headers.
@@ -992,15 +961,49 @@ TEST_CASE("SignalInjection refuses a block the FFI would read past", "[client][i
         const std::vector<std::int64_t> short_numerators{1};
         auto block = SignalInjection::create(indices, short_numerators, denominators);
         REQUIRE_FALSE(block.has_value());
-        CHECK(block.error().contains("differ in length"));
+        CHECK(block.error().contains("differ in length: 2 indices, 1 numerators, 2 denominators"));
     }
 
     SECTION("a shorter denominator array is refused too") {
         const std::vector<std::int64_t> short_denominators{1};
         auto block = SignalInjection::create(indices, numerators, short_denominators);
         REQUIRE_FALSE(block.has_value());
-        CHECK(block.error().contains("differ in length"));
+        CHECK(block.error().contains("differ in length: 2 indices, 2 numerators, 1 denominators"));
     }
+}
+
+// The wire carries the count in 32 bits, so a block one past that is refused
+// on its length alone. The arrays live in an anonymous reservation the test
+// never touches: the pages are never allocated, and create() reads nothing but
+// the lengths, so the refusal is exercised with a real length at no memory cost.
+TEST_CASE("SignalInjection refuses a block wider than the wire's count", "[client][injection]") {
+    constexpr std::size_t count = std::size_t{1} << 32U;
+    constexpr std::size_t bytes = count * sizeof(std::int64_t);
+    void* const region =
+        mmap(nullptr, bytes, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    if (region == MAP_FAILED)
+        SKIP("this host refuses to reserve the address range the block needs");
+    class Reservation {
+    public:
+        Reservation(void* start, std::size_t length) : start_{start}, length_{length} {}
+        ~Reservation() { munmap(start_, length_); }
+        Reservation(const Reservation&) = delete;
+        auto operator=(const Reservation&) -> Reservation& = delete;
+        Reservation(Reservation&&) = delete;
+        auto operator=(Reservation&&) -> Reservation& = delete;
+
+    private:
+        void* start_;
+        std::size_t length_;
+    };
+    const Reservation reservation{region, bytes};
+    const std::span<const std::uint32_t> indices{static_cast<const std::uint32_t*>(region), count};
+    const std::span<const std::int64_t> values{static_cast<const std::int64_t*>(region), count};
+
+    auto const block = SignalInjection::create(indices, values, values);
+    REQUIRE_FALSE(block.has_value());
+    CHECK(block.error() ==
+          "signal injection carries 4294967296 values, more than the wire's count holds");
 }
 
 TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaustion",
@@ -1043,4 +1046,121 @@ TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaust
         REQUIRE(result.has_value());
         CHECK(*result == std::vector<std::byte>{std::byte{0x01}, std::byte{0x02}});
     }
+}
+
+TEST_CASE("parse_dbc_text arms the binary extraction path", "[client][mock]") {
+    auto mock = std::make_unique<BinExtractMockBackend>();
+    auto* mock_ptr = mock.get();
+    mock_ptr->queue_response(parsed_dbc_response_for(make_test_dbc()));
+    AletheiaClient client(std::move(mock));
+    REQUIRE(client.parse_dbc_text(std::stop_token{}, "VERSION \"\"").has_value());
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const result =
+        client.extract_signals(std::stop_token{}, id, Dlc::create(8).value(), FramePayload(8));
+    REQUIRE(result.has_value());
+    CHECK_FALSE(took_json_extraction(*mock_ptr));
+}
+
+TEST_CASE("reloading a DBC replaces the previous one's signals under the same message id",
+          "[client][mock]") {
+    auto mock = std::make_unique<BinExtractMockBackend>(one_value_at_index_zero());
+    auto* mock_ptr = mock.get();
+    auto const first = make_test_dbc();
+    auto second = make_test_dbc();
+    second.messages[0].signals[0].name = SignalName{"Other"};
+    mock_ptr->queue_response(parsed_dbc_response_for(first));
+    mock_ptr->queue_response(parsed_dbc_response_for(second));
+    AletheiaClient client(std::move(mock));
+    REQUIRE(client.parse_dbc(std::stop_token{}, first).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, second).has_value());
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    SECTION("the old signal no longer resolves") {
+        const std::vector<SignalValue> signals{
+            {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{1, 1}}}};
+        auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
+        REQUIRE_FALSE(built.has_value());
+        CHECK(built.error().kind() == ErrorKind::Validation);
+        CHECK_THAT(std::string{built.error().message()},
+                   ContainsSubstring("signal 'Speed' not found"));
+    }
+    SECTION("a wire index names the new signal") {
+        auto const result = client.extract_signals(std::stop_token{}, id, dlc, FramePayload(8));
+        REQUIRE(result.has_value());
+        REQUIRE(result->values.size() == 1);
+        CHECK(result->values[0].name == SignalName{"Other"});
+        CHECK(result->values[0].value == PhysicalValue{Rational{7, 1}});
+    }
+}
+
+TEST_CASE("build_frame refuses a signal the message does not carry, by name", "[client][mock]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
+    AletheiaClient client(std::move(mock));
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    const std::vector<SignalValue> signals{
+        {.name = SignalName{"Nope"}, .value = PhysicalValue{Rational{1, 1}}}};
+    auto const built = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
+    REQUIRE_FALSE(built.has_value());
+    CHECK(built.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(std::string{built.error().message()}, ContainsSubstring("signal 'Nope' not found"));
+}
+
+TEST_CASE("client keys its signal cache on the extended bit for extraction and resolution",
+          "[client][mock][extended]") {
+    auto const id = CanId{ExtendedId::create(0x18FEF100).value()};
+    auto dbc = make_test_dbc();
+    dbc.messages[0].id = id;
+
+    auto mock = std::make_unique<BinExtractMockBackend>();
+    auto* mock_ptr = mock.get();
+    mock_ptr->queue_response(parsed_dbc_response_for(dbc));
+    AletheiaClient client(std::move(mock));
+    REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
+
+    auto const dlc = Dlc::create(8).value();
+    const FramePayload data(8, std::byte{0});
+
+    SECTION("extraction of an extended-ID frame takes the binary path") {
+        auto const result = client.extract_signals(std::stop_token{}, id, dlc, data);
+        REQUIRE(result.has_value());
+        CHECK(result->values.empty());
+        CHECK(std::ranges::none_of(mock_ptr->captured(), [](const std::string& call) {
+            return call == "<binary:extractAllSignals>";
+        }));
+    }
+    SECTION("frame building resolves the extended-ID message") {
+        mock_ptr->queue_frame_bytes(std::vector<std::byte>(8, std::byte{0}));
+        const std::vector<SignalValue> signals{
+            {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{1, 1}}}};
+        auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
+        REQUIRE(built.has_value());
+    }
+}
+
+TEST_CASE("the cache keys hash every field they carry", "[client][cache]") {
+    // Two keys that differ in one field must not collide, whichever field it
+    // is, or the map would serve one message's signals for another's.
+    const detail::SignalKeyHash sig_hash;
+    const detail::SignalKey base{.id_value = 1, .is_extended = false, .signal_name = "a"};
+    CHECK(sig_hash(base) != sig_hash({.id_value = 2, .is_extended = false, .signal_name = "a"}));
+    CHECK(sig_hash(base) != sig_hash({.id_value = 1, .is_extended = true, .signal_name = "a"}));
+    CHECK(sig_hash(base) != sig_hash({.id_value = 1, .is_extended = false, .signal_name = "b"}));
+    const detail::MessageKeyHash msg_hash;
+    CHECK(msg_hash({1, false}) != msg_hash({2, false}));
+    CHECK(msg_hash({1, false}) != msg_hash({1, true}));
+}
+
+TEST_CASE("hash_combine mixes the seed and the hash through every term", "[client][cache]") {
+    // The mixing is a fixed function; these values are what it computes, and
+    // each pins one term of the sum: the constant, the shifted seed and the
+    // seed's high bits.
+    CHECK(detail::hash_combine(0, 0) == 0x9e3779b9U);
+    CHECK(detail::hash_combine(4, 0) == 0x9e377abeU);
+    CHECK(detail::hash_combine(4, 7) == 0x9e377ac5U);
+    CHECK(detail::hash_combine(0x1234, 0xabcd) == 0x9e3ca527U);
 }

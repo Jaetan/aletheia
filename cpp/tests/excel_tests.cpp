@@ -3,6 +3,7 @@
 // Excel loader tests.
 // Tests Excel check and DBC parsing with programmatically-created workbooks.
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <aletheia/enrich.hpp>
@@ -984,7 +985,7 @@ TEST_CASE("excel: DBC strict rejects a Factor stored as a native number", "[exce
 // no '.' and no negative exponent as Integer, and the underlying XML read
 // prefix-parses that text — so a stored "1e16" would silently load as Message
 // ID 1 and an empty <v/> as ID 0. The loader must trust the integer read only
-// after verifying the raw stored text is a pure optional-sign digit run, and
+// after verifying the raw stored text is a digit run with an optional minus, and
 // refuse truthfully otherwise.
 
 TEST_CASE("excel: DBC Message ID storing dot-free scientific notation is refused",
@@ -1069,4 +1070,142 @@ TEST_CASE("temp path: every shape is removed when its scope ends", "[excel][temp
     CHECK_FALSE(std::filesystem::exists(reserved));
     CHECK_FALSE(std::filesystem::exists(written));
     CHECK_FALSE(std::filesystem::exists(made));
+}
+
+// ===========================================================================
+// Edges of the sheet readers
+// ===========================================================================
+
+TEST_CASE("excel: a native integer Message ID carrying a nine and a minus is read exactly",
+          "[excel][dbc][strict]") {
+    // The digit run check admits every digit and a leading minus; the minus
+    // then fails as a CAN ID, by the ID's own wording and not the strict one.
+    SECTION("nineteen loads as 19") {
+        TempPath tf("excel_dbc_msgid_19.xlsx");
+        make_dbc_workbook_with_raw_id(tf.path, 19, nullptr);
+        auto result = load_dbc_from_excel(tf.path);
+        REQUIRE(result.has_value());
+        REQUIRE(result->messages.size() == 1);
+        CHECK(std::get<StandardId>(result->messages[0].id).value() == 19);
+    }
+    SECTION("minus nine is refused as an ID, not as a stored shape") {
+        TempPath tf("excel_dbc_msgid_minus.xlsx");
+        make_dbc_workbook_with_raw_id(tf.path, 31337421, "-9");
+        auto result = load_dbc_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("invalid 'Message ID'"));
+        CHECK_THAT(std::string(result.error().message()),
+                   !ContainsSubstring("not a plain integer"));
+    }
+}
+
+TEST_CASE("excel: a missing required cell is refused by its field's name", "[excel][error]") {
+    SECTION("a text field") {
+        TempPath tf("excel_missing_signal.xlsx");
+        make_checks_workbook(tf.path, {{"", "", "never_exceeds", "220", "", "", "", ""}});
+        auto result = load_checks_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("missing or invalid 'Signal' (expected string)"));
+    }
+    SECTION("a number field") {
+        TempPath tf("excel_missing_value.xlsx");
+        make_checks_workbook(tf.path, {{"", "Speed", "never_exceeds", "", "", "", "", ""}});
+        auto result = load_checks_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("missing or invalid 'Value' (expected number)"));
+    }
+    SECTION("the message id") {
+        TempPath tf("excel_missing_id.xlsx");
+        make_dbc_workbook(tf.path, {{"", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1",
+                                     "0", "0", "255", "", "", "", ""}});
+        auto result = load_dbc_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("missing or invalid 'Message ID'"));
+    }
+    SECTION("a boolean field") {
+        TempPath tf("excel_missing_signed.xlsx");
+        make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "", "1",
+                                     "0", "0", "255", "", "", "", ""}});
+        auto result = load_dbc_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("missing or invalid 'Signed' (expected TRUE/FALSE)"));
+    }
+}
+
+TEST_CASE("excel: DBC DLC is accepted at both ends of its range and refused past them",
+          "[excel][dbc]") {
+    auto const row = [](const char* dlc) -> std::vector<std::string> {
+        return {"256", "Msg", dlc, "Sig", "0", "8", "little_endian", "FALSE", "1", "0",
+                "0",   "255", "",  "",    "",  ""};
+    };
+    SECTION("0 and 15 load") {
+        auto const dlc = GENERATE(0, 15);
+        TempPath tf("excel_dbc_dlc_edge.xlsx");
+        make_dbc_workbook(tf.path, {row(std::to_string(dlc).c_str())});
+        auto result = load_dbc_from_excel(tf.path);
+        REQUIRE(result.has_value());
+        REQUIRE(result->messages.size() == 1);
+        CHECK(result->messages[0].dlc.value() == static_cast<std::uint8_t>(dlc));
+    }
+    SECTION("16 and -1 are refused") {
+        auto const dlc = GENERATE(16, -1);
+        TempPath tf("excel_dbc_dlc_past.xlsx");
+        make_dbc_workbook(tf.path, {row(std::to_string(dlc).c_str())});
+        auto result = load_dbc_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()), ContainsSubstring("DLC out of range"));
+    }
+}
+
+TEST_CASE("excel: every data row of a long sheet is loaded", "[excel][simple]") {
+    TempPath tf("excel_fifty_rows.xlsx");
+    std::vector<std::vector<std::string>> rows;
+    rows.reserve(50);
+    for (int i = 0; i < 50; ++i)
+        rows.push_back({"", "Sig" + std::to_string(i), "never_exceeds", "1", "", "", "", ""});
+    make_checks_workbook(tf.path, rows);
+    auto result = load_checks_from_excel(tf.path);
+    REQUIRE(result.has_value());
+    CHECK(result->size() == 50);
+}
+
+TEST_CASE("excel: a header far to the right of the others is still read", "[excel][metadata]") {
+    // The header row is read to the sheet's own column count, wherever the
+    // last named column sits.
+    TempPath tf("excel_wide_header.xlsx");
+    {
+        OpenXLSX::XLDocument doc;
+        doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
+        doc.workbook().worksheet("Sheet1").setName("Checks");
+        auto const ws = doc.workbook().worksheet("Checks");
+        write_header(ws, std::span{checks_hdr}.first(7));
+        ws.cell(1, 50).value() = std::string{"Severity"};
+        write_row(ws, 2, {"", "Speed", "never_exceeds", "220"});
+        ws.cell(2, 50).value() = std::string{"critical"};
+        doc.save();
+        doc.close();
+    }
+    auto result = load_checks_from_excel(tf.path);
+    REQUIRE(result.has_value());
+    REQUIRE(result->size() == 1);
+    CHECK((*result)[0].check_severity() == "critical");
+}
+
+TEST_CASE("excel: DBC multiplex value zero is a value, not an absence", "[excel][mux]") {
+    TempPath tf("excel_dbc_mux_zero.xlsx");
+    make_dbc_workbook(tf.path, {{"256", "Msg", "8", "MuxSig", "0", "8", "little_endian", "FALSE",
+                                 "1", "0", "0", "255", "", "Selector", "0", ""}});
+    auto result = load_dbc_from_excel(tf.path);
+    REQUIRE(result.has_value());
+    REQUIRE(result->messages.size() == 1);
+    auto const& sig = result->messages[0].signals[0];
+    auto const* mux = std::get_if<Multiplexed>(&sig.presence);
+    REQUIRE(mux != nullptr);
+    REQUIRE(mux->multiplex_values.size() == 1);
+    CHECK(mux->multiplex_values[0] == MultiplexValue{0});
 }

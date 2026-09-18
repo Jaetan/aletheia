@@ -21,7 +21,7 @@ py=python/.venv/bin/python
 import sys
 
 sys.path.insert(0, ".")
-from tools.mutation_run import _drift_for, load_spec, parse_gremlins_summary
+from tools.mutation_run import drift_for, load_spec, parse_gremlins_summary
 
 bindings = load_spec().get("bindings", {})
 ceiling = bindings.get("go", {}).get("baseline", {}).get("timeout_ceiling")
@@ -46,7 +46,7 @@ bad = []
 loaded = parse_gremlins_summary(tail(39, 0, 102, 622), "recorded")
 if loaded.timeouts != 622:
     bad.append(f"the parser read {loaded.timeouts} timeouts out of the loaded run, not 622")
-verdict = _drift_for(loaded, bindings)
+verdict = drift_for(loaded, bindings)
 if verdict.get("status") != "regression":
     bad.append(f"the loaded run verdicts {verdict.get('status')!r}, not a regression: {verdict}")
 
@@ -55,16 +55,16 @@ base = bindings.get("go", {}).get("baseline", {})
 clean = parse_gremlins_summary(
     tail(base.get("total_mutants", 0), base.get("survivors", 0),
          base.get("not_covered", 0), base.get("timeouts", 0)), "recorded")
-verdict = _drift_for(clean, bindings)
+verdict = drift_for(clean, bindings)
 if verdict.get("status") != "ok":
     bad.append(f"the recorded clean run verdicts {verdict.get('status')!r}, not ok: {verdict}")
 
 # A sweep one mutant over the ceiling is refused, so the ceiling is the edge.
 edge = parse_gremlins_summary(tail(600, 0, 118, ceiling + 1), "recorded")
-if _drift_for(edge, bindings).get("status") != "regression":
+if drift_for(edge, bindings).get("status") != "regression":
     bad.append(f"a sweep with {ceiling + 1} timeouts is taken, where the ceiling is {ceiling}")
 edge_ok = parse_gremlins_summary(tail(600, 0, 118, ceiling), "recorded")
-if _drift_for(edge_ok, bindings).get("status") != "ok":
+if drift_for(edge_ok, bindings).get("status") != "ok":
     bad.append(f"a sweep with exactly {ceiling} timeouts is refused, where the ceiling is {ceiling}")
 
 if bad:

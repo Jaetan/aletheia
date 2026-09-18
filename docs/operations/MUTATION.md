@@ -119,9 +119,36 @@ LLVM-23 with the patch that lets it see LLVM 23: its supported-version list,
 the one call in libirm that LLVM 23 removed, and libirm taken at the commit
 that truncates a call replacement's constant to the call's width, without which
 `cxx_replace_scalar_call` aborts clang on the first `bool`-returning call it
-meets.  The binaries land in
+meets. The same build gives every mutant an identifier of its own
+(`tools/mull/mull-unique-mutant-ids.patch`): Mull names a mutant by mutator and
+source range, so two mutations of one statement (a temporary's destructor on
+the normal path and in the exception-cleanup landing pad) or two instantiations
+of one template shared a name, and the trampoline ran only the last clone it
+registered while the report counted the others under it. The identifier gains a
+seventh part, a hash of the function's mangled name and an ordinal among that
+function's mutants of the same range, so every clone runs and is reported on
+its own; the probe
+`probes/tools_build_mull.sh--every-mutant-identifier-names-one-clone.sh`
+holds the installed plugin to that patch. The lane's tree is built under
+LeakSanitizer (`-DALETHEIA_SANITIZER=leak`), so a removed destructor whose
+object owned memory leaks and fails; one whose object owned nothing is not a
+change any test can see, and is recorded in the ledger below. The binaries land in
 `~/.local/bin/` (no sudo for the copy), which the project assumes is on
 `$PATH` (see CLAUDE.md § Development Environment).
+
+A destructor a container's growth would run while it throws is reached by
+failing an allocation, which `cpp/tests/alloc_fault.cpp` does: it replaces the
+program's allocation functions, counts the blocks the program holds, and fails
+one chosen allocation of a call, so a cleanup path that drops what it owns
+shows as a count that did not come back. The sweeps over the decoders and the
+builders are in `cpp/tests/unit_tests_alloc_fault.cpp`. They build in the
+lanes that run without a sanitizer, because a sanitizer runtime carries the
+same allocation functions and the two cannot be linked together, and they
+leave the JSON library's own allocations alone, since that library flattens a
+document onto a heap-allocated stack from a destructor and an exception
+leaving a destructor ends the program. The probe
+`probes/cpp_tests_alloc_fault.cpp--the-json-document-cleanup-cannot-take-a-failed-allocation.sh`
+holds both halves of that.
 
 ```bash
 # System LLVM-23 + clang-23 (one-time; apt.llvm.org on Ubuntu, the archive on Debian).
@@ -139,8 +166,9 @@ mull-runner-23 --version    # mull-runner {STABLE_MULL_VERSION}
 `mull-runner` / `mull-reporter` are Rust binaries; `mull-ir-frontend-23` is a
 C++ clang plugin `.so`.  The standard build (`cmake -B build`) also requires
 `clang++-23` (the project supports the latest stable Clang only; g++
-unsupported); the mutation lane uses the same `clang++-23` inside its dedicated
-`cpp/build-mutation/` tree.  CI caches both the clang-23 debs and the
+unsupported); the mutation lane uses the same `clang++-23` inside its two
+dedicated trees, `cpp/build-mutation/` and `cpp/build-mutation-plain/`.  CI
+caches both the clang-23 debs and the
 from-source Mull build (keyed on the Mull tag + LLVM version), see
 `.github/workflows/pr-heavy-lanes.yml`.
 
@@ -170,11 +198,18 @@ cd go && gremlins unleash ./aletheia
 # C++ (needs build/libaletheia-ffi.so — the ALETHEIA_MUTATION build folds the
 # real-.so integration tests into unit_tests to cover FfiBackend, so run
 # `cabal run shake -- build` first).
+# A mutant survives only where both trees let it: the leak tree reads a
+# destructor removal that leaks, the plain tree carries the allocation-fault
+# sweeps, and a sanitizer defines the allocation functions those replace.
 cd cpp
-cmake -B build-mutation -DALETHEIA_MUTATION=ON \
+cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
       -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 cmake --build build-mutation --target unit_tests
 mull-runner-23 ./build-mutation/unit_tests
+cmake -B build-mutation-plain -DALETHEIA_MUTATION=ON \
+      -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
+cmake --build build-mutation-plain --target unit_tests
+mull-runner-23 ./build-mutation-plain/unit_tests
 ```
 
 Per-binding skip env vars (useful for partial runs):
@@ -202,7 +237,21 @@ A baseline regression (observed > baseline) MUST be addressed by:
 2. Either: writing a test that kills the mutant (preferred), OR adding a
    `# pragma: mutmut-no-mutate` comment block at the source site naming
    why the mutant is equivalent / unreachable / non-operational (per
-   AGENTS.md "an unjustified survivor is a test gap").
+   AGENTS.md "an unjustified survivor is a test gap"). For C++, a survivor
+   that is kept is also recorded in the baseline's `survivors_ledger` in
+   `docs/MUTATION_BENCH.yaml`, by mutator, repository-relative file, the text
+   of its source line and how many share that line; the lane refuses a
+   survivor the ledger does not name even at an unchanged count, and reports
+   a row that no longer survives as stale. The lane's `cpp-mull.json` artifact
+   is Mull's Elements report of each tree, merged by
+   `tools.mutation_run.merge_elements` so a mutant either tree killed is
+   killed, and `tools.mutation_run.elements_survivor_rows`
+   renders what is left in the ledger's row shape. The probe
+   `probes/docs_MUTATION_BENCH.yaml--every-cpp-survivor-is-a-recorded-one.sh`
+   holds the ledger exact in both directions. To run one C++ mutant alone
+   against a test, set its identifier from the Elements report as an
+   environment variable of the mutation binary:
+   `env "<id>=1" cpp/build-mutation/unit_tests '<filter>'`.
 3. Re-running the lane to confirm no regression.
 
 A baseline IMPROVEMENT (observed < baseline) is permitted to land via the

@@ -84,12 +84,18 @@ endif()
 #   cmake -B build-asan   -DALETHEIA_SANITIZER=address
 #   cmake -B build-ubsan  -DALETHEIA_SANITIZER=undefined
 #   cmake -B build-tsan   -DALETHEIA_SANITIZER=thread
+#   cmake -B build-mutation -DALETHEIA_SANITIZER=leak (with ALETHEIA_MUTATION=ON)
+#
+# The leak choice is LeakSanitizer alone: no instrumentation pass, only the
+# runtime that reports what was never freed at exit. The mutation lane runs
+# under it so a mutant that removes a destructor leaks and fails, where an
+# instrumenting sanitizer would hand the mutator its own runtime calls.
 #
 # Use a separate build directory per sanitizer — sanitizer flags are not
 # safe to mix on the same archive.
 set(ALETHEIA_SANITIZER "" CACHE STRING
-    "Sanitizer lane: address | undefined | thread (empty = off)")
-set_property(CACHE ALETHEIA_SANITIZER PROPERTY STRINGS "" address undefined thread)
+    "Sanitizer lane: address | undefined | thread | leak (empty = off)")
+set_property(CACHE ALETHEIA_SANITIZER PROPERTY STRINGS "" address undefined thread leak)
 
 set(ALETHEIA_SANITIZER_FLAGS "")
 if(ALETHEIA_SANITIZER STREQUAL "address")
@@ -99,6 +105,8 @@ elseif(ALETHEIA_SANITIZER STREQUAL "undefined")
         -fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined)
 elseif(ALETHEIA_SANITIZER STREQUAL "thread")
     set(ALETHEIA_SANITIZER_FLAGS -fsanitize=thread -fno-omit-frame-pointer)
+elseif(ALETHEIA_SANITIZER STREQUAL "leak")
+    set(ALETHEIA_SANITIZER_FLAGS -fsanitize=leak -fno-omit-frame-pointer)
 elseif(ALETHEIA_SANITIZER)
     message(FATAL_ERROR
         "ALETHEIA_SANITIZER='${ALETHEIA_SANITIZER}' invalid; "
@@ -131,7 +139,7 @@ endif()
 # Build into a dedicated directory so the instrumented artifacts are not
 # mixed with the standard build:
 #
-#   cmake -B build-mutation -DALETHEIA_MUTATION=ON \
+#   cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
 #         -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 #   cmake --build build-mutation --target unit_tests
 #   mull-runner-23 ./build-mutation/unit_tests
@@ -453,6 +461,23 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         # suites in for the same reason as the integration tests.
         target_sources(unit_tests PRIVATE tests/yaml_tests.cpp tests/excel_tests.cpp)
         target_link_libraries(unit_tests PRIVATE yaml-cpp::yaml-cpp OpenXLSX::OpenXLSX)
+    endif()
+    # A library with none of the kernel's symbols: the backend opens it, fails
+    # its first lookup and must close it again.  Its path reaches the tests as
+    # a definition, so no test guesses a build layout.
+    add_library(aletheia_test_symbolless SHARED tests/symbolless_lib.cpp)
+    target_compile_definitions(unit_tests PRIVATE
+        ALETHEIA_TEST_SYMBOLLESS_LIB="$<TARGET_FILE:aletheia_test_symbolless>")
+    add_dependencies(unit_tests aletheia_test_symbolless)
+    # The allocation-fault sweeps replace the program's allocation functions,
+    # which every sanitizer runtime defines as well: the two carry the same
+    # symbols and cannot be linked together, so the sweeps build in the lanes
+    # that run without one. They read back the symbol an allocation returns
+    # into, which the dynamic loader answers for only when the binary exports
+    # its own symbols.
+    if(NOT ALETHEIA_SANITIZER)
+        target_sources(unit_tests PRIVATE tests/alloc_fault.cpp tests/unit_tests_alloc_fault.cpp)
+        set_target_properties(unit_tests PROPERTIES ENABLE_EXPORTS ON)
     endif()
     add_test(NAME unit_tests COMMAND unit_tests)
 

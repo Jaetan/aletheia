@@ -17,6 +17,7 @@ import (
 // returns a state error, the session is freed once, and the last Close still
 // returns nil. The race detector is the judge, so the suite runs under -race.
 func TestClient_Concurrent(t *testing.T) {
+	ctx := bounded(t)
 	const workers = 8
 	const iterationsPerWorker = 4
 	// one JSON command per AddChecks, with slack for calls that overtake Close
@@ -45,7 +46,7 @@ func TestClient_Concurrent(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range 4 {
-			_ = c.Close()
+			_ = closeWithin(t, c)
 		}
 	}()
 	wg.Wait()
@@ -60,7 +61,7 @@ func TestClient_Concurrent(t *testing.T) {
 			t.Errorf("a call on the closing client returned %v, want a state error or nil", err)
 		}
 	}
-	if err := c.Close(); err != nil {
+	if err := closeWithin(t, c); err != nil {
 		t.Errorf("final Close returned error: %v", err)
 	}
 }

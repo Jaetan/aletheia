@@ -121,9 +121,14 @@ func (c *Client) lock(ctx context.Context) error {
 	}
 }
 
-// unlock releases the client lock; the caller holds it.
+// unlock releases the client lock; the caller holds it, and a caller that
+// does not is a defect that fails here rather than blocking forever.
 func (c *Client) unlock() {
-	<-c.lockCh
+	select {
+	case <-c.lockCh:
+	default:
+		panic("aletheia: unlock of a lock that is not held")
+	}
 }
 
 // acquire takes the lock for the operation called name, rechecks the
