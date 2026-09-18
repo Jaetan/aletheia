@@ -34,8 +34,11 @@
 
 using namespace aletheia;
 using Json = nlohmann::json;
+using aletheia::test::BinExtractMockBackend;
 using aletheia::test::make_test_dbc;
+using aletheia::test::one_value_at_index_zero;
 using aletheia::test::parsed_dbc_response_for;
+using aletheia::test::took_json_extraction;
 using Catch::Matchers::ContainsSubstring;
 
 // ===========================================================================
@@ -794,43 +797,6 @@ TEST_CASE("move-assignment transfers client state", "[client]") {
 // Cache-full: extraction beyond the cache's capacity
 // ===========================================================================
 
-TEST_CASE("extraction cache full still works on 257th frame", "[client][enrich][cache]") {
-    auto mock = std::make_unique<MockBackend>();
-    auto* mock_ptr = mock.get();
-
-    // Queue: set_properties, start_stream
-    mock_ptr->queue_response(R"({"status": "success"})");
-    mock_ptr->queue_response(R"({"status": "success"})");
-
-    // Queue 257 ack responses for send_frame
-    for (int i = 0; i < 257; ++i)
-        mock_ptr->queue_response(R"({"status": "ack"})");
-
-    AletheiaClient client(std::move(mock));
-    auto formula = ltl::always(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
-    std::vector<LtlFormula> props;
-    props.push_back(std::move(formula));
-
-    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
-    REQUIRE(client.start_stream(std::stop_token{}).has_value());
-
-    auto const id = CanId{StandardId::create(0x100).value()};
-    auto const dlc = Dlc::create(8).value();
-
-    // Send 257 frames with distinct data payloads to fill and overflow the cache
-    for (unsigned i = 0; i < 257; ++i) {
-        FramePayload data(8, std::byte{0});
-        // Vary first two bytes to make each frame key unique
-        data[0] = static_cast<std::byte>(i & 0xFFU);
-        data[1] = static_cast<std::byte>((i >> 8U) & 0xFFU);
-        auto result = client.send_frame(
-            std::stop_token{}, Timestamp{static_cast<std::int64_t>(i) * 1000}, id, dlc, data);
-        REQUIRE(result.has_value());
-        CHECK(std::holds_alternative<Ack>(*result));
-    }
-}
-
 TEST_CASE("the public mock factory answers without anything queued", "[client][mock]") {
     // What an installed consumer can reach: the factory and the public headers.
     // The queueing methods are in a test-internal header, so a backend that
@@ -1044,44 +1010,6 @@ TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaust
         REQUIRE(result.has_value());
         CHECK(*result == std::vector<std::byte>{std::byte{0x01}, std::byte{0x02}});
     }
-}
-
-namespace {
-// MockBackend answers binary extraction with BinaryUnsupported, so a client
-// whose name cache misses a frame's message falls back to JSON and reads the
-// same as one whose cache hit. This double answers with a valid, empty
-// extraction buffer instead, so the binary path is observable: a cache hit
-// takes it and the JSON endpoint is never asked.
-class BinExtractMockBackend : public MockBackend {
-public:
-    // The default is a header of three zero counts and zero reason bytes,
-    // then the lone offsets entry: the smallest buffer the decoder accepts.
-    explicit BinExtractMockBackend(
-        std::vector<std::byte> buf = std::vector<std::byte>(14, std::byte{0}))
-        : buf_(std::move(buf)) {}
-
-    auto extract_signals_bin(const BackendState& /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
-                             std::span<const std::byte> /*data*/)
-        -> std::expected<std::vector<std::byte>, AletheiaError> override {
-        return buf_;
-    }
-
-private:
-    std::vector<std::byte> buf_;
-};
-} // namespace
-
-// One extracted value, wire index 0, worth 7/1, and nothing else.
-static auto one_value_at_index_zero() -> std::vector<std::byte> {
-    std::vector<std::byte> buf(14 + 18, std::byte{0});
-    buf[0] = std::byte{1};  // nvals
-    buf[12] = std::byte{7}; // numerator, little-endian
-    buf[20] = std::byte{1}; // denominator
-    return buf;
-}
-
-static auto took_json_extraction(const MockBackend& mock) -> bool {
-    return std::ranges::contains(mock.captured(), "<binary:extractAllSignals>");
 }
 
 TEST_CASE("parse_dbc_text arms the binary extraction path", "[client][mock]") {
