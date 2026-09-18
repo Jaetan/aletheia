@@ -144,6 +144,7 @@ var goErrorCodes = []string{
 	aletheia.CodeFrameSignalIndexOOB,
 	aletheia.CodeFrameInjectionFailed,
 	aletheia.CodeFrameSignalsOverlap,
+	aletheia.CodeFrameSignalPastFrameEnd,
 	aletheia.CodeFrameCanIDNotFound,
 	aletheia.CodeFrameCanIDMismatch,
 	aletheia.CodeFrameSignalValueOutOfBounds,

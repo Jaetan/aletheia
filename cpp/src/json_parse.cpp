@@ -62,6 +62,7 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"frame_signal_index_oob", ErrorCode::FrameSignalIndexOob},
     {"frame_injection_failed", ErrorCode::FrameInjectionFailed},
     {"frame_signals_overlap", ErrorCode::FrameSignalsOverlap},
+    {"frame_signal_past_frame_end", ErrorCode::FrameSignalPastFrameEnd},
     {"frame_can_id_not_found", ErrorCode::FrameCanIdNotFound},
     {"frame_can_id_mismatch", ErrorCode::FrameCanIdMismatch},
     {"frame_signal_value_out_of_bounds", ErrorCode::FrameSignalValueOutOfBounds},

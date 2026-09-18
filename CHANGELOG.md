@@ -12,6 +12,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A frame is built only at a DLC whose bytes hold every signal it places.**
+  The caller's DLC sizes the frame and the DBC places the bits, and the bit
+  writer is total: a signal reaching past the end had its overhanging bits
+  written nowhere and the frame answered as if it carried them. A build at DLC
+  1 of a message whose first signal is sixteen bits wide returned a one-byte
+  frame carrying half of it, with no error. The builder now names the first
+  signal that does not fit, on the same geometry proposition the DBC ingest
+  gates decide, and the update path holds the frame it is given to the same
+  rule. Two lemmas carry the refusal into the proofs: the check answering
+  "none" is the `AllSignalsFit` the round-trip theorems assume, and a payload
+  the builder answers with was built from signals that all fit, so the
+  hypothesis those theorems carried is now discharged by the call succeeding
+  rather than asked of the caller.
+
 - **The binary frame builder refuses a DLC code past the fifteen the wire has.**
   The DLC crosses the binary wire as a raw byte and the kernel sizes the frame
   it builds from it. Three of the four binary entries held it to the codes the

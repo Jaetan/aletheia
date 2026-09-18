@@ -872,6 +872,32 @@ private:
 };
 } // namespace
 
+// The caller's DLC sizes the frame and the DBC places the bits: a message
+// whose signals reach past a frame that small has nowhere to put them, and
+// the bit writer would drop what does not fit without a word. The kernel
+// names the first such signal instead.
+TEST_CASE("a frame built at a DLC the message outgrows is refused", "[integration]") {
+    auto const lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    const std::vector<SignalValue> speed{
+        {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}}};
+
+    // Speed occupies the first sixteen bits, so one byte cannot hold it.
+    auto const refused = client.build_frame(std::stop_token{}, id, Dlc::create(1).value(), speed);
+    REQUIRE_FALSE(refused.has_value());
+    CHECK_THAT(std::string{refused.error().message()},
+               Catch::Matchers::ContainsSubstring("signal 'Speed' does not fit a frame of size 1"));
+
+    // Four bytes hold both signals of the message, and the frame is that long.
+    auto const built = client.build_frame(std::stop_token{}, id, Dlc::create(4).value(), speed);
+    REQUIRE(built.has_value());
+    CHECK(built->size() == 4);
+}
+
 // Every binding prints an observed value through the kernel's own rational
 // formatter, so a terminating fraction reads as a decimal and a repeating one
 // keeps its two parts. The client reaches it while it enriches a violation;

@@ -56,6 +56,7 @@ class ErrorCode(StrEnum):
     FRAME_SIGNAL_INDEX_OOB = "frame_signal_index_oob"
     FRAME_INJECTION_FAILED = "frame_injection_failed"
     FRAME_SIGNALS_OVERLAP = "frame_signals_overlap"
+    FRAME_SIGNAL_PAST_FRAME_END = "frame_signal_past_frame_end"
     FRAME_CAN_ID_NOT_FOUND = "frame_can_id_not_found"
     FRAME_CAN_ID_MISMATCH = "frame_can_id_mismatch"
     FRAME_SIGNAL_VALUE_OUT_OF_BOUNDS = "frame_signal_value_out_of_bounds"

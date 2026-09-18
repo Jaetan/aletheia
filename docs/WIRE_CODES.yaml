@@ -246,6 +246,9 @@ error_codes:
   - name: frame_signals_overlap
     description: Two requested signals occupy overlapping bits.
 
+  - name: frame_signal_past_frame_end
+    description: A signal's last bit lies past the end of the frame the caller's DLC sizes.
+
   - name: frame_can_id_not_found
     description: The CAN ID is not present in the loaded DBC.
 
