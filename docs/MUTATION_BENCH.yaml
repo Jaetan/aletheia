@@ -219,10 +219,18 @@ bindings:
       # live under a per-process directory, so parallel mutant runs do not
       # fail each other.
       #
-      # What the survivors are. Most are call mutants that are equivalent by
-      # construction (a reserve of a size replaced by a constant); the rest
-      # are gaps in the suites, listed by file and line in the sweep report
-      # under benchmarks/mutation/<short-sha>/.
+      # What the survivors are. Each is recorded, by mutator, file and
+      # source line, in the probe that holds this count to a ledger: a
+      # temporary's destructor removed, which is the void call Mull finds at
+      # a push_back or an open of a temporary, and not the named call; a
+      # reserve given a constant size; the cache keys' hash mixed
+      # differently; a guard the code cannot reach, each with its reason at
+      # the site; a wire field the kernel does not read; the renderer's
+      # library search, held by a probe in a process of its own; and one
+      # instantiation of a template whose mutant shares its identifier with
+      # another's, so the runner dispatches only one of the two. A sibling
+      # probe shows, from the plugin's own IR, that every surviving removal
+      # of a void call removes only a destructor.
       #
       # A timeout is a kill by another route: the runner counts it against
       # the total, not as a survivor. Its exact count is not stable for a

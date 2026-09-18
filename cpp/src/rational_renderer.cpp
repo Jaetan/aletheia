@@ -81,6 +81,9 @@ static auto default_path_state() -> DefaultPathState& {
 // and both benchmarks. It lives here because the registered path it consults
 // is the state in this file, written by a make_ffi_backend call, and that
 // consultation is what keeps the renderer and the backend on the same library.
+// Runs once per process, on the first render, and the first FfiBackend of a
+// process has registered its path by then; so the order below is held by a
+// probe in a process of its own, not by the suite.
 static auto find_library_path() -> std::filesystem::path {
     namespace fs = std::filesystem;
     if (auto const* env = std::getenv("ALETHEIA_LIB")) {
