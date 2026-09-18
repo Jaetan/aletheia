@@ -58,7 +58,7 @@ dispatchSumResult (AgdaSum.C_inj'8322'_42 vecAny) outBuf _ = do
 -- hardcodes a wire constant — the code mints in the kernel enum.
 valueExceedsWireRangeCode :: Integer
 valueExceedsWireRangeCode =
-    AgdaBatch.d_extractionErrorCodeToℕ_158 AgdaBatch.C_ValueExceedsWireRange_148
+    AgdaBatch.d_extractionErrorCodeToℕ_160 AgdaBatch.C_ValueExceedsWireRange_148
 
 -- | Split one (index, ℚ) value pair into its wire components.  The kernel
 -- rational is unbounded; the wire's rational slots are i64.  `toIntegralSized`
@@ -81,7 +81,7 @@ splitValueEntry pair =
 -- (`wireRangeReason` in CAN/BatchExtraction.agda) so the shim never
 -- hardcodes reason text — same SSOT discipline as the reroute code above.
 wireRangeReasonText :: T.Text
-wireRangeReasonText = unsafeCoerce AgdaBatch.d_wireRangeReason_164 :: T.Text
+wireRangeReasonText = unsafeCoerce AgdaBatch.d_wireRangeReason_166 :: T.Text
 
 -- | Convert one kernel (index, (code, reason)) error entry to its wire
 -- components via the kernel's u8 mapping.  The reason Text travels the wire
@@ -91,7 +91,7 @@ kernelErrorEntry :: AgdaSigma.T_Σ_14 -> (Integer, Integer, T.Text)
 kernelErrorEntry pair =
     let codeReason = unsafeCoerce (AgdaSigma.d_snd_30 pair) :: AgdaSigma.T_Σ_14
     in ( unsafeCoerce (AgdaSigma.d_fst_28 pair) :: Integer
-       , AgdaBatch.d_extractionErrorCodeToℕ_158 (unsafeCoerce (AgdaSigma.d_fst_28 codeReason))
+       , AgdaBatch.d_extractionErrorCodeToℕ_160 (unsafeCoerce (AgdaSigma.d_fst_28 codeReason))
        , unsafeCoerce (AgdaSigma.d_snd_30 codeReason) :: T.Text
        )
 

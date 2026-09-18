@@ -190,6 +190,9 @@ const (
 
 	// CodeExtractionMuxValueMismatch — multiplexor value does not match the requested signal's mux selector.
 	CodeExtractionMuxValueMismatch = "extraction_mux_value_mismatch"
+	// CodeExtractionSignalPastFrameEnd — the signal's last bit lies past the end
+	// of the frame that arrived, so the bits it names are not there to read.
+	CodeExtractionSignalPastFrameEnd = "extraction_signal_past_frame_end"
 	// CodeExtractionMuxSignalNotFound — multiplexor signal referenced by a muxed signal is missing.
 	CodeExtractionMuxSignalNotFound = "extraction_mux_signal_not_found"
 	// CodeExtractionMuxChainCycle — multiplexor chain references itself.

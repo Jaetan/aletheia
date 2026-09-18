@@ -34,6 +34,10 @@ open import Aletheia.Error using
   ; MuxExtractionFailed; BitExtractionFailed; ValueExceedsWireRange; InContext
   ; formatExtractionError
   )
+-- The error and its wire code share a name for this condition, as they do for
+-- the multiplexor ones; the error's is renamed here so the two are distinct
+-- where the mapping between them is written.
+open import Aletheia.Error using () renaming (SignalPastFrameEnd to PastFrameEndError)
 
 -- ============================================================================
 -- PARAMETERIZED RESULT TYPE
@@ -153,6 +157,9 @@ data ExtractionErrorCode : Set where
   -- constructor owns a distinct code (totality of extractionErrorToCode
   -- without code sharing).
   MuxValueMismatch    : ExtractionErrorCode
+  -- 8: the signal's last bit lies past the end of the frame that arrived,
+  -- so the bits it names are not there to read.
+  SignalPastFrameEnd  : ExtractionErrorCode
 
 -- Encode ExtractionErrorCode as ℕ for binary wire format serialization.
 -- Must match Main.agda binary output documentation and AletheiaFFI.hs.
@@ -165,12 +172,14 @@ extractionErrorCodeToℕ MuxSignalNotFound     = 4
 extractionErrorCodeToℕ MuxChainCycle         = 5
 extractionErrorCodeToℕ MuxExtractionFailed   = 6
 extractionErrorCodeToℕ MuxValueMismatch      = 7
+extractionErrorCodeToℕ SignalPastFrameEnd    = 8
 
 -- Map a kernel ExtractionError to its wire code.  InContext wrappers carry
 -- no code of their own — the inner error's code travels (mirrors
 -- extractionErrorCode in Aletheia.Error, the string-code SSOT).
 extractionErrorToCode : ExtractionError → ExtractionErrorCode
 extractionErrorToCode MuxValueMismatch        = MuxValueMismatch
+extractionErrorToCode (PastFrameEndError _)   = SignalPastFrameEnd
 extractionErrorToCode (MuxSignalNotFound _)   = MuxSignalNotFound
 extractionErrorToCode MuxChainCycle           = MuxChainCycle
 extractionErrorToCode (MuxExtractionFailed _) = MuxExtractionFailed

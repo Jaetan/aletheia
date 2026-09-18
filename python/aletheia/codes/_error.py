@@ -93,6 +93,7 @@ class ErrorCode(StrEnum):
     DISPATCH_REQUEST_NOT_OBJECT = "dispatch_request_not_object"
     # Extraction errors
     EXTRACTION_MUX_VALUE_MISMATCH = "extraction_mux_value_mismatch"
+    EXTRACTION_SIGNAL_PAST_FRAME_END = "extraction_signal_past_frame_end"
     EXTRACTION_MUX_SIGNAL_NOT_FOUND = "extraction_mux_signal_not_found"
     EXTRACTION_MUX_CHAIN_CYCLE = "extraction_mux_chain_cycle"
     EXTRACTION_MUX_EXTRACTION_FAILED = "extraction_mux_extraction_failed"

@@ -173,6 +173,7 @@ var goErrorCodes = []string{
 	aletheia.CodeDispatchInvalidJSON,
 	aletheia.CodeDispatchRequestNotObject,
 	aletheia.CodeExtractionMuxValueMismatch,
+	aletheia.CodeExtractionSignalPastFrameEnd,
 	aletheia.CodeExtractionMuxSignalNotFound,
 	aletheia.CodeExtractionMuxChainCycle,
 	aletheia.CodeExtractionMuxExtractionFailed,

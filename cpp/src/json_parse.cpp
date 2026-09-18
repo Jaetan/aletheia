@@ -96,6 +96,7 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"dispatch_request_not_object", ErrorCode::DispatchRequestNotObject},
     // Extraction errors
     {"extraction_mux_value_mismatch", ErrorCode::ExtractionMuxValueMismatch},
+    {"extraction_signal_past_frame_end", ErrorCode::ExtractionSignalPastFrameEnd},
     {"extraction_mux_signal_not_found", ErrorCode::ExtractionMuxSignalNotFound},
     {"extraction_mux_chain_cycle", ErrorCode::ExtractionMuxChainCycle},
     {"extraction_mux_extraction_failed", ErrorCode::ExtractionMuxExtractionFailed},

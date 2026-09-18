@@ -232,6 +232,9 @@ error_codes:
   - name: extraction_value_exceeds_wire_range
     description: The extracted exact value's reduced numerator or denominator exceeds the signed 64-bit binary-wire range.
 
+  - name: extraction_signal_past_frame_end
+    description: The signal's last bit lies past the end of the frame that arrived.
+
   # frameErrorCode -- binary frame build/update paths.
 
   - name: frame_signal_not_found

@@ -12,6 +12,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A signal the frame does not carry is reported, not read.** The bit reader
+  is total and answers zero for bits that are not there, so extracting a
+  sixteen-bit signal from a one-byte frame reported success with a value the
+  frame never carried: the low byte read as the whole signal, and a signal
+  starting past the end read as zero. The extractor now asks the same geometry
+  the ingest gates decide, of the frame's own size, and routes a signal that
+  does not fit to the per-signal error stream with its own wire code. A
+  zero-byte frame reports every signal of the message rather than a set of
+  zeroes.
+
 - **A frame is built only at a DLC whose bytes hold every signal it places.**
   The caller's DLC sizes the frame and the DBC places the bits, and the bit
   writer is total: a signal reaching past the end had its overhanging bits

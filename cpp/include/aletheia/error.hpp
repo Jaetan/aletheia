@@ -120,6 +120,7 @@ enum class ErrorCode {
     DispatchRequestNotObject,
     // Extraction errors
     ExtractionMuxValueMismatch,
+    ExtractionSignalPastFrameEnd,
     ExtractionMuxSignalNotFound,
     ExtractionMuxChainCycle,
     ExtractionMuxExtractionFailed,
