@@ -387,6 +387,18 @@ checks:
     CHECK_THAT(std::string(result.error().message()), ContainsSubstring("requires 'value'"));
 }
 
+TEST_CASE("yaml: a value the kernel refuses names the field", "[yaml][error]") {
+    auto result = load_checks_from_yaml_string(R"(
+checks:
+  - signal: Speed
+    condition: never_exceeds
+    value: abc
+)");
+    REQUIRE(!result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("invalid 'value'"));
+}
+
 TEST_CASE("yaml: missing min/max for stays_between", "[yaml][error]") {
     auto result = load_checks_from_yaml_string(R"(
 checks:

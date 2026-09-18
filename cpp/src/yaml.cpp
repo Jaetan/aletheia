@@ -228,7 +228,7 @@ static auto parse_check(const YAML::Node& entry) -> CheckResult {
 // ---------------------------------------------------------------------------
 
 static auto parse_yaml_checks(const YAML::Node& root) -> Result<std::vector<CheckResult>> {
-    if (!root || !root.IsMap() || !root["checks"])
+    if (!root.IsMap() || !root["checks"])
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "YAML must contain a 'checks' list"});
 

@@ -714,6 +714,19 @@ TEST_CASE("parse_validation preserves the wire string for an unknown issue code"
     CHECK(issue_code_label(result->issues[0]) == "some_future_code");
 }
 
+TEST_CASE("issue_code_label falls back to the enum's spelling when the wire code is empty",
+          "[json][parse]") {
+    auto result = detail::parse_validation(R"({
+        "status": "validation",
+        "has_errors": true,
+        "issues": [{"severity": "error", "code": "", "detail": "unnamed"}]
+    })");
+    REQUIRE(result.has_value());
+    CHECK(result->issues[0].code == IssueCode::Unknown);
+    CHECK(result->issues[0].code_raw.empty());
+    CHECK(issue_code_label(result->issues[0]) == to_string(IssueCode::Unknown));
+}
+
 TEST_CASE("issue_code_label renders the canonical spelling for a known code", "[json][parse]") {
     auto result = detail::parse_validation(R"({
         "status": "validation",
@@ -1023,6 +1036,16 @@ static void add_tier2_attributes(DbcDefinition& dbc) {
                                        .signal = "Torque"},
         .value = DbcAttrValueHex{.value = 255},
     });
+    dbc.attributes.emplace_back(DbcAttrAssign{
+        .name = "BusType",
+        .target = DbcAttrTargetNetwork{},
+        .value = DbcAttrValueString{.value = "CAN"},
+    });
+    dbc.attributes.emplace_back(DbcAttrAssign{
+        .name = "EnvUnit",
+        .target = DbcAttrTargetEnvVar{.env_var = "AmbientTemp"},
+        .value = DbcAttrValueString{.value = "degC"},
+    });
 }
 
 static auto make_tier2_dbc() -> DbcDefinition {
@@ -1070,7 +1093,7 @@ TEST_CASE("Tier 2 DBC metadata serializes to the documented wire shape",
     CHECK(j["dbc"]["comments"][3]["target"]["kind"] == "signal");
     CHECK(j["dbc"]["comments"][3]["target"]["extended"] == true);
 
-    REQUIRE(j["dbc"]["attributes"].size() == 11);
+    REQUIRE(j["dbc"]["attributes"].size() == 13);
     CHECK(j["dbc"]["attributes"][0]["kind"] == "definition");
     CHECK(j["dbc"]["attributes"][0]["attrType"]["kind"] == "int");
     // Float attribute values serialize as {numerator, denominator} dicts
@@ -1107,7 +1130,7 @@ TEST_CASE("Tier 2 DBC metadata survives the parse leg of the round-trip",
     CHECK(sig_ct.signal == "Torque");
     CHECK(std::get<DbcCommentTargetEnvVar>(result->comments[4].target).env_var == "AmbientTemp");
 
-    REQUIRE(result->attributes.size() == 11);
+    REQUIRE(result->attributes.size() == 13);
     // Definitions
     auto const& def_int = std::get<DbcAttrDef>(result->attributes[0]);
     CHECK(def_int.name == "GenMsgCycleTime");
@@ -1147,6 +1170,14 @@ TEST_CASE("Tier 2 DBC metadata survives the parse leg of the round-trip",
     CHECK(ns_tgt.signal == "Torque");
     CHECK(can_id_is_extended(ns_tgt.id));
     CHECK(std::get<DbcAttrValueHex>(assign_ns.value).value == 255);
+
+    auto const& assign_net = std::get<DbcAttrAssign>(result->attributes[11]);
+    CHECK(std::holds_alternative<DbcAttrTargetNetwork>(assign_net.target));
+    CHECK(std::get<DbcAttrValueString>(assign_net.value).value == "CAN");
+
+    auto const& assign_env = std::get<DbcAttrAssign>(result->attributes[12]);
+    CHECK(std::get<DbcAttrTargetEnvVar>(assign_env.target).env_var == "AmbientTemp");
+    CHECK(std::get<DbcAttrValueString>(assign_env.value).value == "degC");
 }
 
 TEST_CASE("a target naming an identifier too wide for its width is refused",
@@ -1893,9 +1924,15 @@ TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
         sig.erase("multiplex_values");
         CHECK_FALSE(detail::parse_dbc_response(j.dump()).has_value());
     }
-    // multiplex value above the u32 range
-    CHECK_FALSE(detail::parse_dbc_response(make_mux("Mode", Json::array({5000000000LL})).dump())
-                    .has_value());
+    // multiplex values at and past both ends of the u32 range
+    CHECK(detail::parse_dbc_response(make_mux("Mode", Json::array({4294967295LL})).dump())
+              .has_value());
+    for (auto const past : {std::int64_t{4294967296LL}, std::int64_t{-1}}) {
+        auto const r = detail::parse_dbc_response(make_mux("Mode", Json::array({past})).dump());
+        REQUIRE_FALSE(r.has_value());
+        CHECK_THAT(std::string{r.error().message()},
+                   ContainsSubstring("out of range (0-4294967295)"));
+    }
     // well-formed multiplexed — accepted
     CHECK(detail::parse_dbc_response(make_mux("Mode", Json::array({0, 1})).dump()).has_value());
 }
