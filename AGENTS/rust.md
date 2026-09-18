@@ -33,7 +33,7 @@ their Go/C++ counterparts.
     - (d) **Real-vs-mock divergence testing**: where the mock response differs from the real FFI, a test exercises the real `.so` format (or the mock is corrected and a comment documents the real FFI shape). A mock chosen for convenience over fidelity is a finding.
     - (e) **Regression test discipline**: every bug fix ships with a test that fails without the fix and passes with it; a prior-round memory note is not a substitute for an in-repo test.
     - (f) **Test isolation**: tests must not depend on execution order or shared global state; env-var mutation is scoped and restored; no leaked worker threads observed by the next test.
-    - (g) **Mutation testing**: where `cargo-mutants` support exists, a mutation pass over hot-path source (`response.rs`, `dbc.rs`, `types.rs`, the FFI backend) — surviving mutants on operational logic are findings; justify any survivor with a source-site comment (equivalent/unreachable), never a fake-state test (see `feedback_unkillable_mutant_is_design_signal.md`).
+    - (g) **Mutation testing**: a `cargo-mutants` pass over hot-path source (`response.rs`, `dbc.rs`, `types.rs`, the FFI backend) — every surviving mutant is a finding, and the target is none (AGENTS.md § Universal Rules): a survivor is killed by a test, or the code it sits in is removed or restructured so a test sees the change, never justified beside it in a comment and never killed by a fake-state test (see `feedback_unkillable_mutant_is_design_signal.md`). The Rust lane is pending work in the task list.
 
 ### Architecture (4)
 
