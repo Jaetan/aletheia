@@ -202,7 +202,16 @@ A baseline regression (observed > baseline) MUST be addressed by:
 2. Either: writing a test that kills the mutant (preferred), OR adding a
    `# pragma: mutmut-no-mutate` comment block at the source site naming
    why the mutant is equivalent / unreachable / non-operational (per
-   AGENTS.md "an unjustified survivor is a test gap").
+   AGENTS.md "an unjustified survivor is a test gap"). For C++, a survivor
+   that is kept is also added to the ledger held by
+   `probes/docs_MUTATION_BENCH.yaml--every-cpp-survivor-is-a-recorded-one.sh`,
+   which records every survivor by mutator, file and source line and fails on
+   one it does not name; a surviving removal of a void call is confirmed to be
+   a temporary's destructor, and so not a gap, by
+   `probes/cpp_mull.yml--a-surviving-void-call-removal-removes-only-a-temporary-s-destructor.sh`.
+   To run one C++ mutant alone against a test, set its identifier from the
+   Elements report as an environment variable of the mutation binary:
+   `env "<id>=1" cpp/build-mutation/unit_tests '<filter>'`.
 3. Re-running the lane to confirm no regression.
 
 A baseline IMPROVEMENT (observed < baseline) is permitted to land via the

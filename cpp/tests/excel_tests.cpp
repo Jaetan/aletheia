@@ -985,7 +985,7 @@ TEST_CASE("excel: DBC strict rejects a Factor stored as a native number", "[exce
 // no '.' and no negative exponent as Integer, and the underlying XML read
 // prefix-parses that text — so a stored "1e16" would silently load as Message
 // ID 1 and an empty <v/> as ID 0. The loader must trust the integer read only
-// after verifying the raw stored text is a pure optional-sign digit run, and
+// after verifying the raw stored text is a digit run with an optional minus, and
 // refuse truthfully otherwise.
 
 TEST_CASE("excel: DBC Message ID storing dot-free scientific notation is refused",

@@ -118,7 +118,7 @@ static auto is_signed_digit_run(std::string_view s) -> bool {
 
 /// Convert a cell to its loader-string form, returning empty for empty cells.
 /// The Integer branch trusts the parsed value only after verifying the raw
-/// stored <v> text is a pure optional-sign digit run (see raw_stored_v_text);
+/// stored <v> text is a digit run with an optional minus (see raw_stored_v_text);
 /// anything else — dot-free scientific notation, an empty <v/> — is refused
 /// truthfully, naming the stored text. Float values render shortest
 /// round-trip: they are only ever echoed in rejection messages, and a
