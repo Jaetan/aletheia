@@ -9,6 +9,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <aletheia/aletheia.hpp>
+#include <aletheia/detail/rational_renderer.hpp>
 
 #include <algorithm>
 #include <array>
@@ -867,6 +868,19 @@ private:
     std::optional<std::string> saved_;
 };
 } // namespace
+
+// Every binding prints an observed value through the kernel's own rational
+// formatter, so a terminating fraction reads as a decimal and a repeating one
+// keeps its two parts. The client reaches it while it enriches a violation;
+// this reads it directly, which is the only test in this binary that renders
+// through a library the search had to find.
+TEST_CASE("the kernel renders a rational exactly", "[integration]") {
+    auto const backend = make_ffi_backend(find_lib()); // brings the runtime up
+    CHECK(detail::format_rational_ffi(1, 2) == "0.5");
+    CHECK(detail::format_rational_ffi(85, 2) == "42.5");
+    CHECK(detail::format_rational_ffi(1, 3) == "1/3");
+    CHECK(detail::format_rational_ffi(3, 1) == "3");
+}
 
 // The renderer consults the path the first backend registered when the
 // environment names none and the working directory holds no candidate, which

@@ -266,7 +266,7 @@ bindings:
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
-      survivors: 69
+      survivors: 68
       total_mutants: 965
       timeouts: 0
       score_pct: 93
@@ -277,10 +277,6 @@ bindings:
       # that no longer survives as stale; the change that kills or removes one
       # deletes its row here.
       survivors_ledger:
-        - mutator: cxx_le_to_lt
-          file: cpp/include/aletheia/types.hpp
-          text: if (den_ <= 0) {
-          count: 1
         - mutator: cxx_remove_void_call
           file: cpp/src/client.cpp
           text: diags_.push_back(build_diagnostic(f));

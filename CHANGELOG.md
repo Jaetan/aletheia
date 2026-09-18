@@ -151,7 +151,8 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   identifier of its own, where it named two mutations of one statement, or of
   two instantiations of one template, by one name and ran only the last it
   registered; each clone now runs and is reported on its own, which is what
-  put the work below on the surface.
+  put the work below on the surface. Over both lanes: 965 mutants, 897 killed,
+  68 surviving across 29 ledger rows.
 
   Every survivor class was answered in turn: every client method's
   cancellation guard, the extended bit of a CAN ID on every path it crosses,

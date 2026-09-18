@@ -2344,6 +2344,18 @@ TEST_CASE("a rational whose numerator is INT64_MIN is emitted raw, as a pair",
 // width and signedness a caller uses is its own instantiation, and each must
 // refuse the zero and admit the one on its own. A signed one also refuses the
 // negative; an unsigned one has none to refuse.
+// The two arguments are separate template parameters, so a caller that mixes
+// a wide numerator with a narrow literal denominator instantiates a pair of
+// its own, which refuses the zero like every other pair.
+TEST_CASE("Rational refuses a non-positive denominator when its arguments differ in type",
+          "[rational]") {
+    CHECK_THROWS_AS(Rational(std::int64_t{1}, 0), std::invalid_argument);
+    CHECK_FALSE(Rational::make(std::int64_t{1}, 0).has_value());
+    CHECK(Rational::make(std::int64_t{1}, 1).has_value());
+    CHECK_THROWS_AS(Rational(1, std::uint64_t{0}), std::invalid_argument);
+    CHECK_FALSE(Rational::make(1, std::uint64_t{0}).has_value());
+}
+
 TEMPLATE_TEST_CASE("Rational refuses a non-positive denominator on both construction paths",
                    "[rational]", short, int, long, long long, unsigned short, unsigned,
                    unsigned long, unsigned long long) {
