@@ -155,6 +155,7 @@ func TestMockResponseShapes_Decode(t *testing.T) {
 // the library rather than through a canned answer: a mock would return what
 // the test wrote and hold nothing.
 func TestProperty_DefinitionRoundTripsThroughTheKernel(t *testing.T) {
+	ctx := bounded(t)
 	lib := findFFILibrary()
 	if lib == "" {
 		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
@@ -167,7 +168,7 @@ func TestProperty_DefinitionRoundTripsThroughTheKernel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	defer func() { _ = c.Close() }()
+	defer func() { _ = closeWithin(t, c) }()
 
 	property := func(rawStart uint8, rawLength uint8, rawFactor uint16, rawOffset int16) bool {
 		// The generated numbers are brought into the ranges the format has,

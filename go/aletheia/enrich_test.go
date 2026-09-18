@@ -218,6 +218,7 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 // Past the cache's capacity every violation is still enriched; the
 // extraction is done and not stored.
 func TestSendFrame_CacheBounded(t *testing.T) {
+	ctx := bounded(t)
 	const frames = 257
 	responses := make([]aletheia.MockResponse, 0, 2*frames)
 	for range frames {
@@ -238,6 +239,7 @@ func TestSendFrame_CacheBounded(t *testing.T) {
 // CAN ID; when that extraction fails the enrichment still carries the
 // formula and falls back to it for the reason.
 func TestEndStream_Enriched(t *testing.T) {
+	ctx := bounded(t)
 	cases := map[string]struct {
 		extraction aletheia.MockResponse
 		signals    bool
@@ -278,6 +280,7 @@ func TestEndStream_Enriched(t *testing.T) {
 // StartStream clears the extraction cache: the same frame in a second stream
 // is extracted again.
 func TestStartStream_ClearsCache(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedClientWith(t, []aletheia.Formula{speedBelow220},
 		violationAt(1000, "test"), extractionOf("Speed", 100),
 		endStreamFailing(1000, "test"), extractionOf("Speed", 100),
@@ -300,6 +303,7 @@ func TestStartStream_ClearsCache(t *testing.T) {
 // Concurrent sends on one client with diagnostics installed all succeed and
 // never race.
 func TestConcurrent_WithDiagnostics(t *testing.T) {
+	ctx := bounded(t)
 	const n = 10
 	responses := make([]aletheia.MockResponse, 0, 2*n)
 	for range n {

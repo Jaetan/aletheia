@@ -66,6 +66,7 @@ func framesSent(mock *aletheia.MockBackend) int {
 
 // Every frame is answered, in order, and every one reaches the backend.
 func TestSendFramesSeq_AllAck(t *testing.T) {
+	ctx := bounded(t)
 	c, mock := seqStreamingClient(t, acks(3)...)
 	var results []aletheia.FrameResponse
 	for resp, err := range c.SendFramesSeq(ctx, slices.Values(seqFrames(3))) {
@@ -91,6 +92,7 @@ func TestSendFramesSeq_AllAck(t *testing.T) {
 // answered, and nothing after it is sent. The second frame carries fewer bytes
 // than its length declares, which is refused before the backend is reached.
 func TestSendFramesSeq_StopsOnError(t *testing.T) {
+	ctx := bounded(t)
 	c, mock := seqStreamingClient(t, acks(1)...)
 	frames := seqFrames(3)
 	frames[1].Data = aletheia.FramePayload{0, 0, 0}
@@ -117,6 +119,7 @@ func TestSendFramesSeq_StopsOnError(t *testing.T) {
 
 // A sequence with no frames yields nothing.
 func TestSendFramesSeq_Empty(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := seqStreamingClient(t)
 	count := 0
 	for range c.SendFramesSeq(ctx, slices.Values([]aletheia.Frame(nil))) {
@@ -131,6 +134,7 @@ func TestSendFramesSeq_Empty(t *testing.T) {
 // for never reach the backend, which the recorded calls show without waiting
 // on anything.
 func TestSendFramesSeq_StoppingEarlySendsNoMore(t *testing.T) {
+	ctx := bounded(t)
 	c, mock := seqStreamingClient(t, acks(5)...)
 	read := 0
 	for resp, err := range c.SendFramesSeq(ctx, slices.Values(seqFrames(5))) {
@@ -154,6 +158,7 @@ func TestSendFramesSeq_StoppingEarlySendsNoMore(t *testing.T) {
 // The two ways of sending a batch answer alike and call the backend alike, so
 // neither can drift from the other.
 func TestSendFramesSeq_MatchesTheEagerBatch(t *testing.T) {
+	ctx := bounded(t)
 	ce, me := seqStreamingClient(t, acks(3)...)
 	eager, err := ce.SendFrames(ctx, seqFrames(3))
 	if err != nil {
@@ -181,6 +186,7 @@ func TestSendFramesSeq_MatchesTheEagerBatch(t *testing.T) {
 // the cancellation is refused rather than sent, and the refusal carries the
 // cancellation.
 func TestSendFramesSeq_CtxCancelMidStream(t *testing.T) {
+	ctx := bounded(t)
 	c, mock := seqStreamingClient(t, acks(3)...)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -210,11 +216,12 @@ func TestSendFramesSeq_CtxCancelMidStream(t *testing.T) {
 
 // A sequence on a closed client yields one refusal and stops.
 func TestSendFramesSeq_AfterClose(t *testing.T) {
+	ctx := bounded(t)
 	c, err := aletheia.NewClient(aletheia.NewMockBackend())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Close(); err != nil {
+	if err := closeWithin(t, c); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 

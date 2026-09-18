@@ -51,6 +51,7 @@ func canonicalDBCJSON(dbc DBCDefinition) ([]byte, error) {
 // Every corpus DBC parsed through the real library canonicalises to its
 // snapshot byte for byte, and every snapshot has its fixture.
 func TestDBCCorpusParity(t *testing.T) {
+	ctx := bounded(t)
 	lib := findFFILibrary()
 	if lib == "" {
 		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
@@ -64,7 +65,7 @@ func TestDBCCorpusParity(t *testing.T) {
 		t.Fatalf("NewClient: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := client.Close(); err != nil {
+		if err := closeWithin(t, client); err != nil {
 			t.Errorf("Close: %v", err)
 		}
 	})
