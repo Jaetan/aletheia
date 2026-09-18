@@ -194,11 +194,21 @@ bindings:
       # unit_tests binary so the real FfiBackend (dlopen glue) is on the
       # mutation surface. Those tests dlopen build/libaletheia-ffi.so, so
       # `cabal run shake -- build` must have produced it first.
-      cd cpp && cmake -B build-mutation -DALETHEIA_MUTATION=ON \
-        -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 \
-        > /dev/null && \
-        cmake --build build-mutation --target unit_tests && \
+      #
+      # Two trees, and a mutant survives only where both let it survive. Under
+      # LeakSanitizer a removed destructor leaks what the object owned and the
+      # run fails; the plain tree carries the allocation-fault sweeps, which
+      # replace the program's allocation functions to reach the cleanup a
+      # container runs while its growth throws. A sanitizer runtime defines
+      # those same functions, so the two cannot be one binary.
+      cd cpp && cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
+        -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null &&
+        cmake --build build-mutation --target unit_tests &&
         mull-runner-23 ./build-mutation/unit_tests
+      cd cpp && cmake -B build-mutation-plain -DALETHEIA_MUTATION=ON \
+        -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null &&
+        cmake --build build-mutation-plain --target unit_tests &&
+        mull-runner-23 ./build-mutation-plain/unit_tests
     report: |
       # mull-runner-23 prints a per-mutant table to stdout; runner parses
       # the "Surviving mutants: N" / "Mutation score: P%" summary at the
@@ -217,20 +227,35 @@ bindings:
       # of a unit it cannot re-parse. The mutator set and the held-out paths
       # (vendored, system, and the test sources) are cpp/mull.yml. Fixtures
       # live under a per-process directory, so parallel mutant runs do not
-      # fail each other.
+      # fail each other. The plugin is patched
+      # (tools/mull/mull-unique-mutant-ids.patch) to give every mutant an
+      # identifier of its own, where Mull named two mutations of one
+      # statement, or of two instantiations of one template, by one name and
+      # ran only the last it registered.
       #
-      # What the survivors are, each a row of the ledger below: the
-      # injection block's width check, which no input a test can allocate
-      # reaches; the two wire fields the kernel acknowledges without reading,
-      # the CAN-FD bus bits and the timestamp of an error or remote event,
-      # held until a consumer of them lands; the discarded return of closing
-      # the library on a path that is already throwing; the ack fast path of
-      # the frame parser, which the throughput harness measures; and the
-      # renderer's library search, which runs once per process after the
-      # first backend has registered its path and is held by a probe in a
-      # process of its own. The plugin itself leaves destructor calls and
-      # landing-pad calls unmutated (tools/mull/libirm-void-call-removal.patch),
-      # since removing either is not a change a test can see.
+      # The two trees read the surface with instruments that cannot share a
+      # binary. The leak tree reports a destructor removal that leaks what the
+      # object owned. The plain tree carries the allocation-fault sweeps
+      # (cpp/tests/alloc_fault.cpp), which fail one chosen allocation of a
+      # call and read back the count of blocks the program holds, so the
+      # cleanup a container runs while its growth throws is entered and
+      # anything it drops is seen. A mutant is a survivor only where both
+      # lanes let it survive.
+      #
+      # What the survivors are, each a row of the ledger below. Most are
+      # removals of a destructor that frees nothing, which both instruments
+      # agree on: the temporary a push_back has already moved from, a string
+      # short enough to live in the object rather than on the heap, and the
+      # spreadsheet library's handles, which own nothing themselves. The
+      # spreadsheet loader has no sweep of its own yet, so its rows carry
+      # cleanup that has not been reached as well as cleanup that frees
+      # nothing. The rest: the two wire fields the kernel acknowledges without
+      # reading, the CAN-FD bus bits and the timestamp of an error or remote
+      # event, held until a consumer of them lands; the ack fast path of the
+      # frame parser, which the throughput harness measures; and the
+      # renderer's library search, which runs once per process after the first
+      # backend has registered its path and is held by a probe in a process of
+      # its own.
       #
       # A timeout is a kill by another route: the runner counts it against
       # the total, not as a survivor. Its exact count is not stable for a
@@ -241,10 +266,10 @@ bindings:
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
-      survivors: 12
-      total_mutants: 812
+      survivors: 69
+      total_mutants: 965
       timeouts: 0
-      score_pct: 70
+      score_pct: 93
       run_at: "2026-09-18"
       # Every survivor, by mutator, repository-relative file, the text of its
       # source line and how many mutants share that line. The lane refuses a
@@ -252,54 +277,123 @@ bindings:
       # that no longer survives as stale; the change that kills or removes one
       # deletes its row here.
       survivors_ledger:
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/backend.cpp
-          text: "if (!std::in_range<std::uint32_t>(indices.size()))"
+        - mutator: cxx_le_to_lt
+          file: cpp/include/aletheia/types.hpp
+          text: if (den_ <= 0) {
           count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/backend.cpp
-          text: "indices.size()));"
+        - mutator: cxx_remove_void_call
+          file: cpp/src/client.cpp
+          text: diags_.push_back(build_diagnostic(f));
           count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/ffi_backend.cpp
-          text: "auto const timestamp = static_cast<std::uint64_t>(ts.count());"
+        - mutator: cxx_remove_void_call
+          file: cpp/src/client.cpp
+          text: errors.push_back({.name = std::move(name), .reason = std::move(reason)});
+          count: 2
+        - mutator: cxx_remove_void_call
+          file: cpp/src/client.cpp
+          text: formulas.push_back(ltl::clone(*f));
+          count: 1
+        - mutator: cxx_remove_void_call
+          file: cpp/src/client.cpp
+          text: result.absent.push_back(signal_name_at(names, read_u16(off)));
+          count: 2
+        - mutator: cxx_remove_void_call
+          file: cpp/src/detail/ffi_logic.cpp
+          text: args.push_back("-N" + std::to_string(rts_cores));
+          count: 4
+        - mutator: cxx_remove_void_call
+          file: cpp/src/excel.cpp
+          text: doc.create(path.string(), OpenXLSX::XLForceOverwrite);
+          count: 1
+        - mutator: cxx_remove_void_call
+          file: cpp/src/excel.cpp
+          text: doc.open(path.string());
+          count: 2
+        - mutator: cxx_remove_void_call
+          file: cpp/src/excel.cpp
+          text: doc.workbook().addWorksheet("Checks");
+          count: 6
+        - mutator: cxx_remove_void_call
+          file: cpp/src/excel.cpp
+          text: doc.workbook().addWorksheet("When-Then");
+          count: 6
+        - mutator: cxx_remove_void_call
+          file: cpp/src/excel.cpp
+          text: doc.workbook().worksheet("Sheet1").setName("DBC");
+          count: 11
+        - mutator: cxx_remove_void_call
+          file: cpp/src/excel.cpp
+          text: result.push_back(val.get<std::string>());
+          count: 2
+        - mutator: cxx_remove_void_call
+          file: cpp/src/excel.cpp
+          text: results.push_back(parse_simple_row(row.cells, row.number));
+          count: 2
+        - mutator: cxx_remove_void_call
+          file: cpp/src/excel.cpp
+          text: results.push_back(parse_when_then_row(row.cells, row.number));
+          count: 2
+        - mutator: cxx_remove_void_call
+          file: cpp/src/excel.cpp
+          text: rows.push_back(DataRow{.number = static_cast<int>(r), .cells = std::move(cells)});
+          count: 2
+        - mutator: cxx_remove_void_call
+          file: cpp/src/json_parse.cpp
+          text: entries.push_back(parse_value_entry(e, "value-description value"));
+          count: 1
+        - mutator: cxx_remove_void_call
+          file: cpp/src/json_parse.cpp
+          text: entries.push_back(parse_value_entry(e, "valueTable entry value"));
+          count: 1
+        - mutator: cxx_remove_void_call
+          file: cpp/src/json_parse.cpp
+          text: errors.push_back({.name = SignalName{e.at("name").get<std::string>()},
+          count: 3
+        - mutator: cxx_remove_void_call
+          file: cpp/src/json_parse.cpp
+          text: messages.push_back(parse_message_def(m));
+          count: 1
+        - mutator: cxx_remove_void_call
+          file: cpp/src/json_parse.cpp
+          text: results.push_back(parse_property_result_entry(r));
+          count: 2
+        - mutator: cxx_remove_void_call
+          file: cpp/src/json_parse.cpp
+          text: signals.push_back(parse_signal_def(s));
+          count: 1
+        - mutator: cxx_remove_void_call
+          file: cpp/src/json_parse.cpp
+          text: values.push_back(v.get<std::string>());
+          count: 1
+        - mutator: cxx_remove_void_call
+          file: cpp/src/json_parse.cpp
+          text: values.push_back({.name = SignalName{v.at("name").get<std::string>()},
+          count: 3
+        - mutator: cxx_remove_void_call
+          file: cpp/src/json_parse.cpp
+          text: warnings.push_back(parse_stream_warning_entry(w));
+          count: 1
+        - mutator: cxx_remove_void_call
+          file: cpp/src/json_serialize.cpp
+          text: out.push_back(n.get());
+          count: 2
+        - mutator: cxx_remove_void_call
+          file: cpp/src/yaml.cpp
+          text: results.push_back(parse_check(entry));
           count: 2
         - mutator: cxx_replace_scalar_call
           file: cpp/src/ffi_backend.cpp
-          text: "dlclose(handle_);"
-          count: 1
+          text: auto const timestamp = static_cast<std::uint64_t>(ts.count());
+          count: 2
         - mutator: cxx_replace_scalar_call
           file: cpp/src/ffi_backend.cpp
-          text: "if (!b.has_value())"
+          text: if (!b.has_value())
           count: 1
         - mutator: cxx_replace_scalar_call
           file: cpp/src/json_parse.cpp
-          text: "if (input == ack_compact || input == ack_spaced)"
+          text: if (input == ack_compact || input == ack_spaced)
           count: 2
         - mutator: cxx_replace_scalar_call
           file: cpp/src/rational_renderer.cpp
-          text: "if (!d.path.empty()) {"
+          text: if (lib_path.empty()) {
           count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/rational_renderer.cpp
-          text: "if (!env_sv.empty()) {"
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/rational_renderer.cpp
-          text: "if (d.path.empty()) // first-write-wins"
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/rational_renderer.cpp
-          text: "if (lib_path.empty()) {"
-          count: 1
-      # The lane refuses a sweep with more than this many timed out, because a
-      # mutant that times out is neither killed nor lived and a sweep that
-      # timed out on nearly all of them reports no survivors and full efficacy.
-      # A quiet host on a cold test cache gives 11, in the file carrying the
-      # cgo trampolines, whose mutants each reload the library; a sweep with a
-      # second sweep beside it gave 622, and a sweep run straight after another
-      # gave 632. This sits far enough above the first not to flake and far
-      # enough below the others to fail hard.
-      timeout_ceiling: 50
-
-      run_at: "2026-09-15"

@@ -12,6 +12,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The binary frame builder refuses a DLC code past the fifteen the wire has.**
+  The DLC crosses the binary wire as a raw byte and the kernel sizes the frame
+  it builds from it. Three of the four binary entries held it to the codes the
+  wire has; the frame builder took none of them, so a build at DLC 42 answered
+  success and filled 42 bytes of a buffer the caller had sized for eight. The
+  bound the other three share is now one function they all call.
+
 - **The C++ mutation lane measures what it claims to.** Four defects held its
   surface to a fraction of the library. Mull's junk detector re-parses each
   translation unit to tell a mutant from junk, and the build recorded no command
@@ -131,42 +138,68 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
-- **The C++ mutation lane's survivors are worked down to a ledger.** The recorded
-  survivor count falls from 264 to 12 over the changes below, each holding one
-  class of survivor: every client method's cancellation guard, the extended bit of a
-  CAN ID on every path it crosses, the wire-reason UTF-8 validator at every
-  boundary it draws, the binary extraction decoder's bounds and messages, the
-  client's state transitions, every log event by its level and fields, the
-  value-level guards, the JSON and YAML parsers at shapes no test sent, the
-  loader helpers at every bound and archive edge, the Excel loader's edges, and
-  the FFI backend's guards on its own interface. What survives is recorded in
-  the baseline as a ledger of mutator, file, source line and multiplicity, and
-  the lane refuses a survivor the ledger does not name even at an unchanged
-  count, so a survivor cannot be traded for another unseen. The plugin the lane
-  runs is patched so its void-call mutator leaves destructor calls and
-  landing-pad calls alone: Mull attached a temporary's destructor to its
-  statement's source range, so `push_back(make())` read as a surviving removal
-  of the named call when only the destructor had been removed, and removing a
-  destructor is not a change a test can see. Survivors that were equivalent by
-  construction are gone from the code rather than justified beside it: every
-  `reserve` of a size the loop then fills, with the frame resolver sizing its
-  three arrays once instead; the cache keys' hash, now held by tests of its
-  distinctness and its mixing; the decoder's two per-record bounds checks the
-  exact-size check already covers; the empty-slice guard before a copy, which a
-  transform over the slice needs no more; the archive walker's saturating sum,
-  which 32-bit sizes cannot reach; the client's second clearing of its last
-  frames at the start of a stream, the one at its end being the one a test can
-  see; the tracking guard on frames sent without properties; and the Excel row
-  map's skip of unnamed columns, which no field reads. Dead code found on the
-  way goes: the Excel loader read a stored value through
-  a scanner with branches for tag shapes the value element never takes, and now
-  reads its one tag; a stored integer's optional plus sign, which no workbook
-  writes, is no longer accepted as a plain integer; the four cell getters, the
-  presence check and the message-id parser drop clauses the row map already
-  guarantees; the JSON command bound moves into the pure-logic unit where a
-  unit test holds it; the serializer's INT64_MIN guard keeps the numerator
-  only; the YAML root check and two enrichment guards lose a clause their
-  neighbour already covers.
+- **The C++ mutation lane's survivors are worked down to a ledger, read by two
+  instruments.** The lane sweeps two trees and counts a mutant as a survivor
+  only where both let it survive: one built under LeakSanitizer, where a
+  removed destructor leaks what the object owned and the run fails, and one
+  built plain, which carries allocation-fault sweeps that fail a chosen
+  allocation of a call and read back the count of blocks the program holds, so
+  the cleanup a container runs while its growth throws is entered and anything
+  it drops is seen. A sanitizer runtime defines the allocation functions those
+  sweeps replace, which is why the two cannot be one binary. Mull is patched
+  (`tools/mull/mull-unique-mutant-ids.patch`) to give every mutant an
+  identifier of its own, where it named two mutations of one statement, or of
+  two instantiations of one template, by one name and ran only the last it
+  registered; each clone now runs and is reported on its own, which is what
+  put the work below on the surface.
+
+  Every survivor class was answered in turn: every client method's
+  cancellation guard, the extended bit of a CAN ID on every path it crosses,
+  the wire-reason UTF-8 validator at every boundary it draws, the binary
+  extraction decoder's bounds and messages, the client's state transitions,
+  every log event by its level and fields, the value-level guards, the JSON
+  and YAML parsers at shapes no test sent, the loader helpers at every bound
+  and archive edge, the Excel loader's edges, the FFI backend's guards on its
+  own interface, and then, once the identifiers separated them, every
+  instantiation the suites had reached in only one of its forms: the formula
+  depth bound through every operator, the rational's non-positive denominator
+  through every integral width and signedness, the stale-index guard of every
+  lookup at the count, an integer field at the unsigned 64-bit maximum, a zero
+  multiplex value, and the injection block's width check as a pure function
+  held at the wire's width.
+
+  Survivors that were equivalent by construction are gone from the code rather
+  than justified beside it: every `reserve` of a size the loop then fills, with
+  the frame resolver sizing its three arrays once instead; the cache keys'
+  hash, now held by tests of its distinctness and its mixing; the decoder's two
+  per-record bounds checks the exact-size check already covers; the empty-slice
+  guard before a copy, which a transform over the slice needs no more; the
+  archive walker's saturating sum, which 32-bit sizes cannot reach; the
+  client's second clearing of its last frames at the start of a stream, the one
+  at its end being the one a test can see; the tracking guard on frames sent
+  without properties; the Excel row map's skip of unnamed columns, which no
+  field reads; and the two emptiness checks in front of the library search,
+  since a path that is empty is a path that does not exist. Dead code found on
+  the way goes: the Excel loader read a stored value through a scanner with
+  branches for tag shapes the value element never takes, and now reads its one
+  tag; a stored integer's optional plus sign, which no workbook writes, is no
+  longer accepted as a plain integer; the four cell getters, the presence check
+  and the message-id parser drop clauses the row map already guarantees; the
+  JSON command bound moves into the pure-logic unit where a unit test holds it;
+  the serializer's INT64_MIN guard keeps the numerator only; the YAML root
+  check and two enrichment guards lose a clause their neighbour already covers.
+
+  What is left is recorded in the baseline as a ledger of mutator, file, source
+  line and multiplicity, and the lane refuses a survivor the ledger does not
+  name even at an unchanged count, so a survivor cannot be traded for another
+  unseen.
+- **A Go mutant that leaves a lock held fails the suite instead of running out
+  the clock.** Four mutants of the client's lock ran to the mutation runner's
+  timeout rather than to a failure. Unlocking a lock nobody holds is now a
+  fault the client states, not a wait the next caller inherits, and every test
+  bounds what it waits on: the context of each call, the close in its cleanup,
+  the parked call of the cancellation gate and the channels it reads. A lock a
+  mutant leaves held fails the test in seconds.
 - **The supported C++ toolchain is Clang 23.** Every site that installs, invokes,
   caches or documents the compiler moves from 22 to 23: the five workflows, the
   runtime image, the CI steps, the benchmark runner, the probes, the pinned pip

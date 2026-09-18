@@ -59,6 +59,7 @@ each binding's hot-path source files existing per ``docs/MUTATION_BENCH.yaml``.
 from __future__ import annotations
 
 import collections
+import copy
 import json
 import os
 import re
@@ -507,14 +508,16 @@ def _build_cpp_mutation_tree(
     cpp_root: Path,
     build_dir: Path,
     artifact_dir: Path,
+    sanitizer: str,
 ) -> str | MutationReport:
-    """Configure + build the mutation build tree, returning the raw log or a failure report."""
+    """Configure + build one mutation build tree, returning the raw log or a failure report."""
     cmake_proc = run_capture(
         [
             cmake,
             "-B",
             str(build_dir),
             "-DALETHEIA_MUTATION=ON",
+            f"-DALETHEIA_SANITIZER={sanitizer}",
             "-DCMAKE_C_COMPILER=clang-23",
             "-DCMAKE_CXX_COMPILER=clang++-23",
         ],
@@ -550,21 +553,60 @@ def _build_cpp_mutation_tree(
     return raw
 
 
-def run_cpp(artifact_dir: Path) -> MutationReport:
-    """Mull pass via dedicated build tree; runs unit_tests under mull-runner-23."""
-    checked = _check_cpp_tools()
-    if isinstance(checked, str):
-        return MutationReport("cpp", "mull", 0, 0, "", error=checked)
-    cmake, mull_runner = checked
+# The two trees the C++ sweep runs, by the sanitizer each is built with and
+# the directory it lives in. Under LeakSanitizer a mutant that removes a
+# destructor leaks the object and fails, where a plain build cannot tell it
+# from the original. The plain tree carries the allocation-fault sweeps, which
+# replace the program's allocation functions to reach the cleanup a container
+# runs while it throws; a sanitizer runtime defines those same functions, so
+# the two cannot be linked together. A mutant survives the sweep only where it
+# survived both.
+CPP_LANES: tuple[tuple[str, str], ...] = (("leak", "build-mutation"), ("", "build-mutation-plain"))
 
-    cpp_root = REPO_ROOT / "cpp"
-    build_dir = cpp_root / "build-mutation"
-    built = _build_cpp_mutation_tree(cmake, cpp_root, build_dir, artifact_dir)
-    if isinstance(built, MutationReport):
-        return built
-    raw = built
 
-    unit_tests = build_dir / "unit_tests"
+def _lane_report_name(sanitizer: str) -> str:
+    """Name the Elements report one lane writes, beside the merged one."""
+    return f"{Path(CPP_ELEMENTS_REPORT).stem}-{sanitizer or 'plain'}"
+
+
+def merge_elements(reports: list[Mapping[str, object]]) -> dict[str, object]:
+    """Merge Elements reports, keeping a mutant a survivor only where every lane let it survive.
+
+    The lanes compile the same sources with the same plugin, so they carry the
+    same mutants under the same identifiers; a mutant one lane killed is
+    killed, whichever instrument read it.
+    """
+    survived_everywhere: set[str] | None = None
+    for report in reports:
+        files = cast("Mapping[str, Mapping[str, object]]", report.get("files", {}))
+        survivors = {
+            str(mutant["id"])
+            for entry in files.values()
+            for mutant in cast("list[Mapping[str, object]]", entry.get("mutants", []))
+            if mutant.get("status") == "Survived"
+        }
+        survived_everywhere = (
+            survivors if survived_everywhere is None else survived_everywhere & survivors
+        )
+    merged = copy.deepcopy(dict(reports[0]))
+    files = cast("dict[str, dict[str, object]]", merged.get("files", {}))
+    for entry in files.values():
+        for mutant in cast("list[dict[str, object]]", entry.get("mutants", [])):
+            if mutant.get("status") != "Survived":
+                continue
+            if str(mutant["id"]) not in (survived_everywhere or set()):
+                mutant["status"] = "Killed"
+    return merged
+
+
+def _run_cpp_lane(
+    mull_runner: str,
+    cpp_root: Path,
+    build_dir: Path,
+    artifact_dir: Path,
+    sanitizer: str,
+) -> tuple[str, tuple[int, int] | None]:
+    """Run one built tree under mull-runner, returning its log and its (killed, survived)."""
     # The mutation binary folds in the real-FFI integration tests, which read
     # the repository root from the environment the way ctest passes it.  Mull
     # runs the binary directly, so nothing would set it and every mutant would
@@ -582,33 +624,76 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
     runner_proc = run_capture(
         [
             mull_runner,
-            str(unit_tests),
+            str(build_dir / "unit_tests"),
             "--reporters=IDE",
             "--reporters=Elements",
             f"--report-dir={artifact_dir}",
-            f"--report-name={Path(CPP_ELEMENTS_REPORT).stem}",
+            f"--report-name={_lane_report_name(sanitizer)}",
         ],
         cwd=cpp_root,
         env=mull_env,
     )
-    raw += "=== mull-runner-23 ===\n" + runner_proc.stdout + runner_proc.stderr + "\n"
-    (artifact_dir / "cpp.raw.txt").write_text(raw)
+    lane = sanitizer or "plain"
+    raw = f"=== mull-runner-23 ({lane}) ===\n" + runner_proc.stdout + runner_proc.stderr + "\n"
+    return raw, _mull_counts(raw)
 
-    counts = _mull_counts(raw)
+
+def _sweep_cpp_lane(
+    cmake: str,
+    mull_runner: str,
+    build_dir: Path,
+    artifact_dir: Path,
+    sanitizer: str,
+) -> tuple[str, Mapping[str, object] | str]:
+    """Build and sweep one lane, returning its log and its report or the reason it has none."""
+    lane = sanitizer or "plain"
+    cpp_root = build_dir.parent
+    raw = f"=== {lane} lane ===\n"
+    built = _build_cpp_mutation_tree(cmake, cpp_root, build_dir, artifact_dir, sanitizer)
+    if isinstance(built, MutationReport):
+        return raw + built.raw_log, built.error or f"the {lane} lane did not build"
+    raw += built
+    lane_raw, counts = _run_cpp_lane(mull_runner, cpp_root, build_dir, artifact_dir, sanitizer)
+    raw += lane_raw
     if counts is None:
-        return MutationReport(
-            "cpp",
-            "mull",
-            0,
-            0,
-            raw,
-            error=(
-                "could not parse mull-runner-23 summary "
-                f"(see cpp.raw.txt; exit {runner_proc.returncode})"
-            ),
+        return raw, f"could not parse the {lane} lane's mull-runner-23 summary (see cpp.raw.txt)"
+    report_path = artifact_dir / f"{_lane_report_name(sanitizer)}.json"
+    if not report_path.is_file():
+        return raw, f"the {lane} lane wrote no {report_path.name}"
+    return raw, cast("Mapping[str, object]", json.loads(report_path.read_text(encoding="utf-8")))
+
+
+def run_cpp(artifact_dir: Path) -> MutationReport:
+    """Mull pass over both mutation trees; a mutant survives only where every lane let it."""
+    checked = _check_cpp_tools()
+    if isinstance(checked, str):
+        return MutationReport("cpp", "mull", 0, 0, "", error=checked)
+    cmake, mull_runner = checked
+
+    cpp_root = REPO_ROOT / "cpp"
+    raw = ""
+    reports: list[Mapping[str, object]] = []
+    for sanitizer, directory in CPP_LANES:
+        lane_raw, outcome = _sweep_cpp_lane(
+            cmake, mull_runner, cpp_root / directory, artifact_dir, sanitizer
         )
-    killed, survived = counts
-    return MutationReport("cpp", "mull", killed, survived, raw)
+        raw += lane_raw
+        (artifact_dir / "cpp.raw.txt").write_text(raw)
+        if isinstance(outcome, str):
+            return MutationReport("cpp", "mull", 0, 0, raw, error=outcome)
+        reports.append(outcome)
+
+    merged = merge_elements(reports)
+    (artifact_dir / CPP_ELEMENTS_REPORT).write_text(json.dumps(merged))
+    rows = elements_survivor_rows(merged, _repo_line)
+    survived = sum(rows.values())
+    total = sum(
+        len(cast("list[object]", entry.get("mutants", [])))
+        for entry in cast("Mapping[str, Mapping[str, object]]", merged.get("files", {})).values()
+    )
+    raw += f"=== merged ===\nkilled {total - survived}, survived {survived} of {total}\n"
+    (artifact_dir / "cpp.raw.txt").write_text(raw)
+    return MutationReport("cpp", "mull", total - survived, survived, raw)
 
 
 def _mull_counts(raw: str) -> tuple[int, int] | None:

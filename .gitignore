@@ -6,6 +6,7 @@ build-ubsan/
 build-tsan/
 build-fuzz/
 build-mutation/
+build-mutation-plain/
 _build/
 dist/
 dist-newstyle/

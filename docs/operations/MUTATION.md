@@ -166,8 +166,9 @@ mull-runner-23 --version    # mull-runner {STABLE_MULL_VERSION}
 `mull-runner` / `mull-reporter` are Rust binaries; `mull-ir-frontend-23` is a
 C++ clang plugin `.so`.  The standard build (`cmake -B build`) also requires
 `clang++-23` (the project supports the latest stable Clang only; g++
-unsupported); the mutation lane uses the same `clang++-23` inside its dedicated
-`cpp/build-mutation/` tree.  CI caches both the clang-23 debs and the
+unsupported); the mutation lane uses the same `clang++-23` inside its two
+dedicated trees, `cpp/build-mutation/` and `cpp/build-mutation-plain/`.  CI
+caches both the clang-23 debs and the
 from-source Mull build (keyed on the Mull tag + LLVM version), see
 `.github/workflows/pr-heavy-lanes.yml`.
 
@@ -197,11 +198,18 @@ cd go && gremlins unleash ./aletheia
 # C++ (needs build/libaletheia-ffi.so — the ALETHEIA_MUTATION build folds the
 # real-.so integration tests into unit_tests to cover FfiBackend, so run
 # `cabal run shake -- build` first).
+# A mutant survives only where both trees let it: the leak tree reads a
+# destructor removal that leaks, the plain tree carries the allocation-fault
+# sweeps, and a sanitizer defines the allocation functions those replace.
 cd cpp
 cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
       -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 cmake --build build-mutation --target unit_tests
 mull-runner-23 ./build-mutation/unit_tests
+cmake -B build-mutation-plain -DALETHEIA_MUTATION=ON \
+      -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
+cmake --build build-mutation-plain --target unit_tests
+mull-runner-23 ./build-mutation-plain/unit_tests
 ```
 
 Per-binding skip env vars (useful for partial runs):
@@ -235,8 +243,10 @@ A baseline regression (observed > baseline) MUST be addressed by:
    of its source line and how many share that line; the lane refuses a
    survivor the ledger does not name even at an unchanged count, and reports
    a row that no longer survives as stale. The lane's `cpp-mull.json` artifact
-   is Mull's Elements report, and `tools.mutation_run.elements_survivor_rows`
-   renders it in the ledger's row shape. The probe
+   is Mull's Elements report of each tree, merged by
+   `tools.mutation_run.merge_elements` so a mutant either tree killed is
+   killed, and `tools.mutation_run.elements_survivor_rows`
+   renders what is left in the ledger's row shape. The probe
    `probes/docs_MUTATION_BENCH.yaml--every-cpp-survivor-is-a-recorded-one.sh`
    holds the ledger exact in both directions. To run one C++ mutant alone
    against a test, set its identifier from the Elements report as an
