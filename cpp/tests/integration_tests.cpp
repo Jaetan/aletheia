@@ -583,6 +583,59 @@ TEST_CASE("binary extraction rejects invalid UTF-8 in a reason slice", "[integra
     CHECK(std::string_view{err.message()}.contains("UTF-8"));
 }
 
+// One error whose reason is exactly `reason`, so the validator sees the
+// sequence at the start and the end of a slice at once.
+static auto single_reason_buf(std::span<const std::uint8_t> reason) -> std::vector<std::byte> {
+    WireBuf w;
+    w.header(/*nvals=*/0, /*nerrs=*/1, /*nabss=*/0, static_cast<std::uint32_t>(reason.size()));
+    w.u16(0);
+    w.u8(1);
+    w.u32(0);
+    w.u32(static_cast<std::uint32_t>(reason.size()));
+    for (auto const b : reason)
+        w.u8(b);
+    return std::move(w.bytes);
+}
+
+TEST_CASE("binary extraction accepts every well-formed UTF-8 boundary in a reason slice",
+          "[integration]") {
+    // The smallest and largest code point of each encoding length, the two
+    // code points that bracket the surrogate range, and a multi-byte sequence
+    // that ends the slice: each is exactly on a boundary the validator draws.
+    auto const reason = GENERATE(
+        std::vector<std::uint8_t>{0x7F},                    // U+007F, the last one-byte point
+        std::vector<std::uint8_t>{0xC2, 0x80},              // U+0080, the first two-byte point
+        std::vector<std::uint8_t>{0xE0, 0xA0, 0x80},        // U+0800, the first three-byte point
+        std::vector<std::uint8_t>{0xED, 0x9F, 0xBF},        // U+D7FF, just below the surrogates
+        std::vector<std::uint8_t>{0xEE, 0x80, 0x80},        // U+E000, just above the surrogates
+        std::vector<std::uint8_t>{0xF0, 0x90, 0x80, 0x80},  // U+10000, the first four-byte point
+        std::vector<std::uint8_t>{0xF4, 0x8F, 0xBF, 0xBF}); // U+10FFFF, the last code point
+    auto result = extract_with_crafted_buf(single_reason_buf(reason));
+    REQUIRE(result.has_value());
+    REQUIRE(result->errors.size() == 1);
+    CHECK(std::ranges::equal(result->errors[0].reason, reason, [](char c, std::uint8_t b) {
+        return static_cast<std::uint8_t>(c) == b;
+    }));
+}
+
+TEST_CASE("binary extraction rejects every malformed UTF-8 shape in a reason slice",
+          "[integration]") {
+    auto const reason = GENERATE(
+        std::vector<std::uint8_t>{0x80},                   // a lone continuation byte
+        std::vector<std::uint8_t>{'a', 0x80},              // after an ASCII byte, too
+        std::vector<std::uint8_t>{0xC0, 0x80},             // overlong two-byte encoding of U+0000
+        std::vector<std::uint8_t>{0xE0, 0x80, 0x80},       // overlong three-byte encoding
+        std::vector<std::uint8_t>{0xF0, 0x80, 0x80, 0x80}, // overlong four-byte encoding
+        std::vector<std::uint8_t>{0xED, 0xA0, 0x80},       // U+D800, the first surrogate
+        std::vector<std::uint8_t>{0xED, 0xBF, 0xBF},       // U+DFFF, the last surrogate
+        std::vector<std::uint8_t>{0xF4, 0x90, 0x80, 0x80}, // U+110000, past the last code point
+        std::vector<std::uint8_t>{0xC3},                   // a two-byte lead that ends the slice
+        std::vector<std::uint8_t>{'a', 0xE2, 0x82},        // a three-byte sequence cut short
+        std::vector<std::uint8_t>{0xE2, 0x41, 0xAC});      // a non-continuation second byte
+    auto const err = expect_protocol_error(single_reason_buf(reason));
+    CHECK(std::string_view{err.message()}.contains("UTF-8"));
+}
+
 TEST_CASE("binary extraction rejects a non-positive denominator", "[integration]") {
     // den == 0 hits the zero-denominator guard; den < 0 is rejected by the
     // Rational newtype (denominators are strictly positive on the wire).
