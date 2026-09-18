@@ -2153,3 +2153,26 @@ TEST_CASE("parse_dbc_text_response rejects a missing text field", "[json][parse]
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Missing or non-string 'text'"));
 }
+
+TEST_CASE("DbcDefinition unresolvedValueDescs keeps an extended CAN ID across serialize -> parse",
+          "[json][serialize][parse][dbc]") {
+    auto dbc = make_test_dbc();
+    dbc.unresolved_value_descs.push_back(DbcRawValueDesc{
+        .can_id = CanId{*ExtendedId::create(0x18FEF100)},
+        .signal_name = "Phantom",
+        .entries = {DbcValueEntry{.value = 0, .description = "Off"}},
+    });
+
+    auto const cmd_str = detail::serialize_parse_dbc(dbc);
+    auto cmd_j = Json::parse(cmd_str);
+    REQUIRE(cmd_j["dbc"]["unresolvedValueDescs"].size() == 1);
+    CHECK(cmd_j["dbc"]["unresolvedValueDescs"][0]["extended"] == true);
+
+    const Json response = {{"status", "success"}, {"dbc", cmd_j["dbc"]}};
+    auto const parsed = detail::parse_dbc_response(response.dump());
+    REQUIRE(parsed.has_value());
+    REQUIRE(parsed->unresolved_value_descs.size() == 1);
+    auto const& rvd = parsed->unresolved_value_descs[0];
+    REQUIRE(std::holds_alternative<ExtendedId>(rvd.can_id));
+    CHECK(std::get<ExtendedId>(rvd.can_id).value() == 0x18FEF100);
+}

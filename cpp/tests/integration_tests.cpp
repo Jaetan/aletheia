@@ -660,6 +660,31 @@ TEST_CASE("build frame via real FFI", "[integration]") {
     CHECK((*result)[3] == std::byte{0x0B});
 }
 
+TEST_CASE("build then extract round-trip on an extended CAN ID via real FFI", "[integration]") {
+    auto const lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    // The same message under a 29-bit identifier: the extended bit crosses the
+    // wire on every binary call, and the kernel keys its message table on it.
+    auto const id = CanId{ExtendedId::create(0x18FEF100).value()};
+    auto dbc = make_integration_dbc();
+    dbc.messages[0].id = id;
+    REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
+
+    std::vector<SignalValue> signals{
+        {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{85, 2}}},
+        {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{1500, 1}}},
+    };
+    auto built = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
+    REQUIRE(built.has_value());
+
+    auto extracted = client.extract_signals(std::stop_token{}, id, Dlc::create(8).value(), *built);
+    REQUIRE(extracted.has_value());
+    CHECK(extracted->get(SignalName{"Speed"}).get() == Rational{85, 2});
+    CHECK(extracted->get(SignalName{"RPM"}).get() == Rational{1500, 1});
+}
+
 TEST_CASE("build frame for a CAN ID with no DBC message errors distinctly", "[integration]") {
     auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);

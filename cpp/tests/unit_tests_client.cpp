@@ -22,6 +22,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <span>
 #include <stop_token>
@@ -1042,5 +1043,55 @@ TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaust
         auto result = mock.build_frame_bin(state, id, dlc, signals, 8);
         REQUIRE(result.has_value());
         CHECK(*result == std::vector<std::byte>{std::byte{0x01}, std::byte{0x02}});
+    }
+}
+
+namespace {
+// MockBackend answers binary extraction with BinaryUnsupported, so a client
+// whose name cache misses a frame's message falls back to JSON and reads the
+// same as one whose cache hit. This double answers with a valid, empty
+// extraction buffer instead, so the binary path is observable: a cache hit
+// takes it and the JSON endpoint is never asked.
+class BinExtractMockBackend : public MockBackend {
+public:
+    auto extract_signals_bin(const BackendState& /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
+                             std::span<const std::byte> /*data*/)
+        -> std::expected<std::vector<std::byte>, AletheiaError> override {
+        // Header of three zero counts and zero reason bytes, then the lone
+        // offsets entry: the smallest buffer the decoder accepts.
+        return std::vector<std::byte>(14, std::byte{0});
+    }
+};
+} // namespace
+
+TEST_CASE("client keys its signal cache on the extended bit for extraction and resolution",
+          "[client][mock][extended]") {
+    auto const id = CanId{ExtendedId::create(0x18FEF100).value()};
+    auto dbc = make_test_dbc();
+    dbc.messages[0].id = id;
+
+    auto mock = std::make_unique<BinExtractMockBackend>();
+    auto* mock_ptr = mock.get();
+    mock_ptr->queue_response(parsed_dbc_response_for(dbc));
+    AletheiaClient client(std::move(mock));
+    REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
+
+    auto const dlc = Dlc::create(8).value();
+    const FramePayload data(8, std::byte{0});
+
+    SECTION("extraction of an extended-ID frame takes the binary path") {
+        auto const result = client.extract_signals(std::stop_token{}, id, dlc, data);
+        REQUIRE(result.has_value());
+        CHECK(result->values.empty());
+        CHECK(std::ranges::none_of(mock_ptr->captured(), [](const std::string& call) {
+            return call == "<binary:extractAllSignals>";
+        }));
+    }
+    SECTION("frame building resolves the extended-ID message") {
+        mock_ptr->queue_frame_bytes(std::vector<std::byte>(8, std::byte{0}));
+        const std::vector<SignalValue> signals{
+            {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{1, 1}}}};
+        auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
+        REQUIRE(built.has_value());
     }
 }
