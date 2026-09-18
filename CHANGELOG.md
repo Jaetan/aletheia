@@ -132,18 +132,33 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 ### Changed
 
 - **The C++ mutation lane's survivors are worked down to a ledger.** The recorded
-  survivor count falls from 264 to 77 over twelve changes, each holding one class
-  of survivor: every client method's cancellation guard, the extended bit of a
+  survivor count falls from 264 to 12 over the changes below, each holding one
+  class of survivor: every client method's cancellation guard, the extended bit of a
   CAN ID on every path it crosses, the wire-reason UTF-8 validator at every
   boundary it draws, the binary extraction decoder's bounds and messages, the
   client's state transitions, every log event by its level and fields, the
   value-level guards, the JSON and YAML parsers at shapes no test sent, the
   loader helpers at every bound and archive edge, the Excel loader's edges, and
-  the FFI backend's guards on its own interface. What survives is recorded by a
-  probe as a ledger of mutator, file and source line, so a survivor cannot be
-  traded for another unseen, and a sibling probe shows from the plugin's IR that
-  every surviving removal of a void call removes only a temporary's destructor.
-  Dead code found on the way goes: the Excel loader read a stored value through
+  the FFI backend's guards on its own interface. What survives is recorded in
+  the baseline as a ledger of mutator, file, source line and multiplicity, and
+  the lane refuses a survivor the ledger does not name even at an unchanged
+  count, so a survivor cannot be traded for another unseen. The plugin the lane
+  runs is patched so its void-call mutator leaves destructor calls and
+  landing-pad calls alone: Mull attached a temporary's destructor to its
+  statement's source range, so `push_back(make())` read as a surviving removal
+  of the named call when only the destructor had been removed, and removing a
+  destructor is not a change a test can see. Survivors that were equivalent by
+  construction are gone from the code rather than justified beside it: every
+  `reserve` of a size the loop then fills, with the frame resolver sizing its
+  three arrays once instead; the cache keys' hash, now held by tests of its
+  distinctness and its mixing; the decoder's two per-record bounds checks the
+  exact-size check already covers; the empty-slice guard before a copy, which a
+  transform over the slice needs no more; the archive walker's saturating sum,
+  which 32-bit sizes cannot reach; the client's second clearing of its last
+  frames at the start of a stream, the one at its end being the one a test can
+  see; the tracking guard on frames sent without properties; and the Excel row
+  map's skip of unnamed columns, which no field reads. Dead code found on the
+  way goes: the Excel loader read a stored value through
   a scanner with branches for tag shapes the value element never takes, and now
   reads its one tag; a stored integer's optional plus sign, which no workbook
   writes, is no longer accepted as a plain integer; the four cell getters, the
