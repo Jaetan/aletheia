@@ -119,7 +119,15 @@ LLVM-23 with the patch that lets it see LLVM 23: its supported-version list,
 the one call in libirm that LLVM 23 removed, and libirm taken at the commit
 that truncates a call replacement's constant to the call's width, without which
 `cxx_replace_scalar_call` aborts clang on the first `bool`-returning call it
-meets.  The binaries land in
+meets. The same build patches libirm's void-call mutator to leave destructor
+calls and landing-pad calls alone (`tools/mull/libirm-void-call-removal.patch`):
+Mull attaches a temporary's destructor to the statement's source range, so an
+unpatched plugin reports `push_back(make())` or `doc.open(path.string())` as a
+surviving removal of the named call when what it removed was the destructor,
+and removing a destructor or an unwinding-only call is not a change a test can
+see. The probe
+`probes/tools_build_mull.sh--the-void-call-mutator-leaves-destructors-and-landing-pads-alone.sh`
+holds the installed plugin to that patch.  The binaries land in
 `~/.local/bin/` (no sudo for the copy), which the project assumes is on
 `$PATH` (see CLAUDE.md § Development Environment).
 
@@ -203,14 +211,17 @@ A baseline regression (observed > baseline) MUST be addressed by:
    `# pragma: mutmut-no-mutate` comment block at the source site naming
    why the mutant is equivalent / unreachable / non-operational (per
    AGENTS.md "an unjustified survivor is a test gap"). For C++, a survivor
-   that is kept is also added to the ledger held by
-   `probes/docs_MUTATION_BENCH.yaml--every-cpp-survivor-is-a-recorded-one.sh`,
-   which records every survivor by mutator, file and source line and fails on
-   one it does not name; a surviving removal of a void call is confirmed to be
-   a temporary's destructor, and so not a gap, by
-   `probes/cpp_mull.yml--a-surviving-void-call-removal-removes-only-a-temporary-s-destructor.sh`.
-   To run one C++ mutant alone against a test, set its identifier from the
-   Elements report as an environment variable of the mutation binary:
+   that is kept is also recorded in the baseline's `survivors_ledger` in
+   `docs/MUTATION_BENCH.yaml`, by mutator, repository-relative file, the text
+   of its source line and how many share that line; the lane refuses a
+   survivor the ledger does not name even at an unchanged count, and reports
+   a row that no longer survives as stale. The lane's `cpp-mull.json` artifact
+   is Mull's Elements report, and `tools.mutation_run.elements_survivor_rows`
+   renders it in the ledger's row shape. The probe
+   `probes/docs_MUTATION_BENCH.yaml--every-cpp-survivor-is-a-recorded-one.sh`
+   holds the ledger exact in both directions. To run one C++ mutant alone
+   against a test, set its identifier from the Elements report as an
+   environment variable of the mutation binary:
    `env "<id>=1" cpp/build-mutation/unit_tests '<filter>'`.
 3. Re-running the lane to confirm no regression.
 

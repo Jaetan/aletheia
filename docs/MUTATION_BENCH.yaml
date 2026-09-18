@@ -219,18 +219,18 @@ bindings:
       # live under a per-process directory, so parallel mutant runs do not
       # fail each other.
       #
-      # What the survivors are. Each is recorded, by mutator, file and
-      # source line, in the probe that holds this count to a ledger: a
-      # temporary's destructor removed, which is the void call Mull finds at
-      # a push_back or an open of a temporary, and not the named call; a
-      # reserve given a constant size; the cache keys' hash mixed
-      # differently; a guard the code cannot reach, each with its reason at
-      # the site; a wire field the kernel does not read; the renderer's
-      # library search, held by a probe in a process of its own; and one
-      # instantiation of a template whose mutant shares its identifier with
-      # another's, so the runner dispatches only one of the two. A sibling
-      # probe shows, from the plugin's own IR, that every surviving removal
-      # of a void call removes only a destructor.
+      # What the survivors are, each a row of the ledger below: the
+      # injection block's width check, which no input a test can allocate
+      # reaches; the two wire fields the kernel acknowledges without reading,
+      # the CAN-FD bus bits and the timestamp of an error or remote event,
+      # held until a consumer of them lands; the discarded return of closing
+      # the library on a path that is already throwing; the ack fast path of
+      # the frame parser, which the throughput harness measures; and the
+      # renderer's library search, which runs once per process after the
+      # first backend has registered its path and is held by a probe in a
+      # process of its own. The plugin itself leaves destructor calls and
+      # landing-pad calls unmutated (tools/mull/libirm-void-call-removal.patch),
+      # since removing either is not a change a test can see.
       #
       # A timeout is a kill by another route: the runner counts it against
       # the total, not as a survivor. Its exact count is not stable for a
@@ -241,11 +241,57 @@ bindings:
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
-      survivors: 77
-      total_mutants: 862
-      timeouts: 1
+      survivors: 12
+      total_mutants: 812
+      timeouts: 0
       score_pct: 70
       run_at: "2026-09-18"
+      # Every survivor, by mutator, repository-relative file, the text of its
+      # source line and how many mutants share that line. The lane refuses a
+      # survivor not named here even at an unchanged count, and reports a row
+      # that no longer survives as stale; the change that kills or removes one
+      # deletes its row here.
+      survivors_ledger:
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/backend.cpp
+          text: "if (!std::in_range<std::uint32_t>(indices.size()))"
+          count: 1
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/backend.cpp
+          text: "indices.size()));"
+          count: 1
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/ffi_backend.cpp
+          text: "auto const timestamp = static_cast<std::uint64_t>(ts.count());"
+          count: 2
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/ffi_backend.cpp
+          text: "dlclose(handle_);"
+          count: 1
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/ffi_backend.cpp
+          text: "if (!b.has_value())"
+          count: 1
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/json_parse.cpp
+          text: "if (input == ack_compact || input == ack_spaced)"
+          count: 2
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/rational_renderer.cpp
+          text: "if (!d.path.empty()) {"
+          count: 1
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/rational_renderer.cpp
+          text: "if (!env_sv.empty()) {"
+          count: 1
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/rational_renderer.cpp
+          text: "if (d.path.empty()) // first-write-wins"
+          count: 1
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/rational_renderer.cpp
+          text: "if (lib_path.empty()) {"
+          count: 1
       # The lane refuses a sweep with more than this many timed out, because a
       # mutant that times out is neither killed nor lived and a sweep that
       # timed out on nearly all of them reports no survivors and full efficacy.
