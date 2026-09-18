@@ -557,7 +557,7 @@ TEST_CASE("send_frames payload validation mid-batch reports frame index", "[clie
     CHECK(result.responses.size() == 1); // frame 0 succeeded
     auto const msg = std::string(result.error->message());
     CHECK(msg.contains("frame 1"));
-    CHECK(msg.contains("payload"));
+    CHECK(msg.contains("payload length 8 does not match DLC 4 (expected 4 bytes)"));
 }
 
 TEST_CASE("send_frames empty", "[client][batch]") {
