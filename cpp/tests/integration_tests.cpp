@@ -33,6 +33,7 @@
 #include <variant>
 #include <vector>
 
+#include "loaded_library.hpp"
 #include "repo_root.hpp"
 #include "temp_path.hpp"
 #include <catch2/catch_message.hpp>
@@ -811,7 +812,7 @@ TEST_CASE("the kernel refuses a DLC code past 15 on the binary build entry", "[i
     auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     auto const state = backend->init();
-    void* const handle = dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD);
+    const aletheia::test::LoadedLibrary handle{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
     REQUIRE(handle != nullptr);
     using BuildFn = std::int8_t (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t, std::uint32_t,
                                     const std::uint32_t*, const std::int64_t*, const std::int64_t*,
@@ -820,21 +821,23 @@ TEST_CASE("the kernel refuses a DLC code past 15 on the binary build entry", "[i
     // dlsym returns void*; POSIX guarantees the round trip through void*
     // preserves function pointers wherever dlopen exists.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    auto const build = reinterpret_cast<BuildFn>(dlsym(handle, "aletheia_build_frame_bin"));
+    auto const build = reinterpret_cast<BuildFn>(dlsym(handle.get(), "aletheia_build_frame_bin"));
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    auto const free_str = reinterpret_cast<FreeFn>(dlsym(handle, "aletheia_free_str"));
+    auto const free_str = reinterpret_cast<FreeFn>(dlsym(handle.get(), "aletheia_free_str"));
     REQUIRE(build != nullptr);
     REQUIRE(free_str != nullptr);
 
     std::array<std::uint8_t, 64> out{};
-    char* err = nullptr;
+    char* raw_error = nullptr;
     auto const status =
-        build(state.get(), 0x100, 0, 42, 0, nullptr, nullptr, nullptr, out.data(), &err);
+        build(state.get(), 0x100, 0, 42, 0, nullptr, nullptr, nullptr, out.data(), &raw_error);
+    // The kernel allocated the message; it is released by the kernel's own
+    // free, from a destructor rather than from a line this test must reach.
+    auto const release = [free_str](char* message) { free_str(message); };
+    const std::unique_ptr<char, decltype(release)> error{raw_error, release};
     CHECK(status == 1);
-    REQUIRE(err != nullptr);
-    CHECK(std::string_view{err}.contains("DLC 42 exceeds maximum (15)"));
-    free_str(err);
-    dlclose(handle);
+    REQUIRE(error != nullptr);
+    CHECK(std::string_view{error.get()}.contains("DLC 42 exceeds maximum (15)"));
 }
 
 namespace {

@@ -179,38 +179,32 @@ TEST_CASE("the block count rises with a block held and falls with it released", 
     // Read the count into locals first: an assertion between two readings
     // allocates its own message and would be counted.
     auto const before = live_blocks();
-    const auto* held = new std::string(64, 'x'); // NOLINT(cppcoreguidelines-owning-memory)
+    auto held = std::make_unique<std::string>(64, 'x');
     auto const holding = live_blocks();
-    delete held; // NOLINT(cppcoreguidelines-owning-memory)
+    held.reset();
     auto const released = live_blocks();
     CHECK(holding > before);
     CHECK(released == before);
 }
 
-TEST_CASE("the sweep reads a cleanup path that drops what it holds", "[alloc_fault]") {
-    // A loop that owns its strings through raw pointers drops every one it has
-    // taken so far when the container it is filling throws, which is the shape
-    // the sweep exists to catch. The strings are registered as they are made,
-    // so the test releases afterwards what the dropped cleanup did not.
-    std::vector<const std::string*> registry;
-    auto const drops_what_it_holds = [&registry] {
-        std::vector<const std::string*> owned;
+TEST_CASE("the sweep reads a block the call left behind", "[alloc_fault]") {
+    // A call that hands every block it makes to an owner outside itself leaves
+    // them allocated when it returns, which is the shape of a cleanup path that
+    // drops what it holds: the block outlives the call. The sweep must read the
+    // count as risen, and the keeper releases what it took when the test ends.
+    std::vector<std::unique_ptr<std::string>> keeper;
+    auto const leaves_them_behind = [&keeper] {
+        std::size_t made = 0;
         for (int i = 0; i < 8; ++i) {
-            const auto* one = new std::string(64, 'x'); // NOLINT(cppcoreguidelines-owning-memory)
-            registry.push_back(one);
-            owned.push_back(one);
+            keeper.push_back(std::make_unique<std::string>(64, 'x'));
+            made += keeper.back()->size();
         }
-        for (const auto* one : owned)
-            delete one; // NOLINT(cppcoreguidelines-owning-memory)
-        registry.clear();
+        return made;
     };
 
-    auto const result = measure(drops_what_it_holds);
+    auto const result = measure(leaves_them_behind);
     CHECK(result.points > 0);
     CHECK(result.held > 0);
-
-    for (const auto* one : registry)
-        delete one; // NOLINT(cppcoreguidelines-owning-memory)
 }
 
 TEST_CASE("the DBC response decoder releases its temporaries when an allocation fails",

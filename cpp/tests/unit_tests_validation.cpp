@@ -10,6 +10,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include "detail/mock_backend.hpp"
+#include "loaded_library.hpp"
 #include <aletheia/aletheia.hpp>
 
 #include <cstddef>
@@ -272,9 +273,7 @@ TEST_CASE("a refused construction leaves the library it opened unloaded", "[ffi]
     const std::filesystem::path lib{ALETHEIA_TEST_SYMBOLLESS_LIB};
     REQUIRE(std::filesystem::exists(lib));
     REQUIRE_THROWS_WITH(make_ffi_backend(lib), ContainsSubstring("dlsym failed"));
-    void* const still_mapped = dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD);
-    if (still_mapped != nullptr)
-        dlclose(still_mapped);
+    const aletheia::test::LoadedLibrary still_mapped{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
     CHECK(still_mapped == nullptr);
 }
 
