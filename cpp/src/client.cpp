@@ -9,6 +9,7 @@
 
 #include "detail/json.hpp"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -165,7 +166,6 @@ void AletheiaClient::populate_signal_lookup(const DbcDefinition& dbc) {
         auto id_value = can_id_value(msg.id);
         auto const is_extended = can_id_is_extended(msg.id);
         std::vector<std::string> names;
-        names.reserve(msg.signals.size());
         for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(msg.signals.size()); ++i) {
             signal_index_.emplace(detail::SignalKey{.id_value = id_value,
                                                     .is_extended = is_extended,
@@ -372,10 +372,8 @@ static auto wire_signal_errors(std::span<const std::byte> buf, std::size_t error
                 ErrorKind::Protocol,
                 std::format("Invalid UTF-8 in extraction reason for {}", std::string_view{name})});
         std::string reason(slice.size(), '\0');
-        // An empty slice may carry a null pointer, and memcpy from null is
-        // undefined even for zero bytes.
-        if (!slice.empty())
-            std::memcpy(reason.data(), slice.data(), slice.size());
+        std::ranges::transform(slice, reason.begin(),
+                               [](std::byte b) { return static_cast<char>(b); });
         errors.push_back({.name = std::move(name), .reason = std::move(reason)});
     }
     return errors;
@@ -421,12 +419,6 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
     ExtractionResult result;
     result.values.reserve(nvals);
     for (std::uint16_t i = 0; i < nvals; ++i) {
-        // Per-read bounds check — redundant with the upfront expected_size
-        // guard above, but keeps the loop locally defensive against future
-        // changes to the record layout or header computation.
-        if (off + k_value_record_bytes > buf.size())
-            return std::unexpected(AletheiaError{
-                ErrorKind::Protocol, "Truncated extraction buffer while reading signal values"});
         auto const idx = read_u16(off);
         auto const num = read_i64(off + 2);
         auto const den = read_i64(off + 10);
@@ -447,11 +439,6 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
            ((std::size_t{nerrs} + 1) * k_offset_bytes) + std::size_t{reason_bytes};
     result.absent.reserve(nabss);
     for (std::uint16_t i = 0; i < nabss; ++i) {
-        // Redundant with the exact-size check, as the values loop's is, and
-        // kept for the same reason.
-        if (off + k_absent_record_bytes > buf.size())
-            return std::unexpected(AletheiaError{
-                ErrorKind::Protocol, "Truncated extraction buffer while reading absent signals"});
         result.absent.push_back(signal_name_at(names, read_u16(off)));
         off += k_absent_record_bytes;
     }
@@ -513,12 +500,13 @@ auto AletheiaClient::resolve_signals(std::string_view method, CanId id,
             std::format("no DBC message for CAN ID {} (extended={})", id_value, is_extended)});
     }
 
-    ResolvedSignals resolved;
-    resolved.indices.reserve(signals.size());
-    resolved.numerators.reserve(signals.size());
-    resolved.denominators.reserve(signals.size());
-
-    for (auto const& sv : signals) {
+    // Sized once from the input, so the three arrays are the block the FFI
+    // reads and not a growth that could diverge from it.
+    ResolvedSignals resolved{.indices = std::vector<std::uint32_t>(signals.size()),
+                             .numerators = std::vector<std::int64_t>(signals.size()),
+                             .denominators = std::vector<std::int64_t>(signals.size())};
+    for (std::size_t i = 0; i < signals.size(); ++i) {
+        auto const& sv = signals[i];
         auto const it = signal_index_.find(detail::SignalKey{
             .id_value = id_value, .is_extended = is_extended, .signal_name = sv.name.get()});
         if (it == signal_index_.end()) {
@@ -526,10 +514,10 @@ auto AletheiaClient::resolve_signals(std::string_view method, CanId id,
                 ErrorKind::Validation, std::format("signal '{}' not found in DBC for CAN ID {}",
                                                    std::string_view{sv.name}, id_value)});
         }
-        resolved.indices.push_back(it->second);
+        resolved.indices[i] = it->second;
         auto const& r = sv.value.get();
-        resolved.numerators.push_back(r.numerator());
-        resolved.denominators.push_back(r.denominator());
+        resolved.numerators[i] = r.numerator();
+        resolved.denominators[i] = r.denominator();
     }
     return resolved;
 }
@@ -584,7 +572,6 @@ auto AletheiaClient::set_properties(std::stop_token stop, std::span<const LtlFor
     // the documented contract (mirrors add_checks below).
     try {
         diags_.clear();
-        diags_.reserve(properties.size());
         for (auto const& f : properties)
             diags_.push_back(build_diagnostic(f));
         cache_.clear();
@@ -605,7 +592,6 @@ auto AletheiaClient::add_checks(std::stop_token stop, std::vector<CheckResult> c
         return std::unexpected(make_cancellation_error("add_checks"));
     try {
         std::vector<LtlFormula> formulas;
-        formulas.reserve(default_checks_.size() + checks.size());
         auto const push_check = [&](const CheckResult& c, std::string_view origin) -> Result<void> {
             auto const& f = c.formula();
             if (!f)
@@ -639,7 +625,6 @@ auto AletheiaClient::start_stream(std::stop_token stop) -> Result<void> {
     auto result = detail::parse_success(resp);
     if (result.has_value()) {
         cache_.clear();
-        last_frames_.clear();
         if (logger_)
             logger_.info("stream.started");
     }
@@ -660,7 +645,7 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
     if (result.has_value()) {
         auto id_value = can_id_value(id);
         auto const is_extended = can_id_is_extended(id);
-        // Track last frame per CAN ID for end-of-stream enrichment (skip when no diagnostics).
+        // Track last frame per CAN ID for end-of-stream enrichment.
         // Find-then-assign reuses the existing FramePayload's heap buffer
         // on subsequent frames for the same key — `assign` keeps the vector's
         // capacity intact when the new size fits, avoiding the temporary
@@ -668,17 +653,15 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
         // `insert_or_assign` would force per call.  First frame for a key
         // still allocates via `emplace`; this is the common cold path on a
         // bounded number of unique CAN IDs.
-        if (!diags_.empty()) {
-            auto key = detail::MessageKey{id_value, is_extended};
-            if (auto const it = last_frames_.find(key); it != last_frames_.end()) {
-                it->second.id = id;
-                it->second.dlc = dlc;
-                it->second.data.assign(data.begin(), data.end());
-            } else {
-                last_frames_.emplace(
-                    key, LastFrame{
-                             .id = id, .dlc = dlc, .data = FramePayload(data.begin(), data.end())});
-            }
+        auto key = detail::MessageKey{id_value, is_extended};
+        if (auto const it = last_frames_.find(key); it != last_frames_.end()) {
+            it->second.id = id;
+            it->second.dlc = dlc;
+            it->second.data.assign(data.begin(), data.end());
+        } else {
+            last_frames_.emplace(
+                key,
+                LastFrame{.id = id, .dlc = dlc, .data = FramePayload(data.begin(), data.end())});
         }
         // PropertyBatch may carry mid-stream Satisfactions + a terminal
         // Violation; enrich each fails entry and emit the standard
@@ -692,7 +675,6 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
 auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> frames)
     -> BatchResult {
     BatchResult batch;
-    batch.responses.reserve(frames.size());
     for (std::size_t i = 0; i < frames.size(); ++i) {
         // Per-frame check between FFI calls — the cancellation boundary for
         // batch ops. The most recent FFI call (if one was in flight when stop
@@ -762,8 +744,7 @@ auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
             enrich_end_stream_results(*result);
         if (logger_)
             log_end_stream_summary(*result);
-        // Dropped at both ends of a stream, as the Go client does, so a
-        // finished stream holds no frame.
+        // A finished stream holds no frame, so the next one starts with none.
         last_frames_.clear();
     }
     return result;

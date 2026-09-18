@@ -20,7 +20,6 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
-#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -158,10 +157,6 @@ static auto sum_uncompressed_sizes(std::ifstream& f, const EOCD& eocd)
         const std::uint16_t name_len = load_le16(cd, off + 28);
         const std::uint16_t extra_len = load_le16(cd, off + 30);
         const std::uint16_t comment_len = load_le16(cd, off + 32);
-        // Saturating add, kept for a wider size field: a 32-bit size summed
-        // at most 65535 times cannot reach the wrap, so no archive fails it.
-        if (uncompressed > std::numeric_limits<std::uint64_t>::max() - total)
-            return std::nullopt;
         total += uncompressed;
         const std::size_t entry_size = k_cd_entry_min + name_len + extra_len + comment_len;
         if (off + entry_size > cd.size())

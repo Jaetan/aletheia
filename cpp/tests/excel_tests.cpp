@@ -1173,3 +1173,25 @@ TEST_CASE("excel: every data row of a long sheet is loaded", "[excel][simple]") 
     REQUIRE(result.has_value());
     CHECK(result->size() == 50);
 }
+
+TEST_CASE("excel: a header far to the right of the others is still read", "[excel][metadata]") {
+    // The header row is read to the sheet's own column count, wherever the
+    // last named column sits.
+    TempPath tf("excel_wide_header.xlsx");
+    {
+        OpenXLSX::XLDocument doc;
+        doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
+        doc.workbook().worksheet("Sheet1").setName("Checks");
+        auto const ws = doc.workbook().worksheet("Checks");
+        write_header(ws, std::span{checks_hdr}.first(7));
+        ws.cell(1, 50).value() = std::string{"Severity"};
+        write_row(ws, 2, {"", "Speed", "never_exceeds", "220"});
+        ws.cell(2, 50).value() = std::string{"critical"};
+        doc.save();
+        doc.close();
+    }
+    auto result = load_checks_from_excel(tf.path);
+    REQUIRE(result.has_value());
+    REQUIRE(result->size() == 1);
+    CHECK((*result)[0].check_severity() == "critical");
+}

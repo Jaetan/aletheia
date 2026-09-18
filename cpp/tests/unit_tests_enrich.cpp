@@ -1129,3 +1129,40 @@ TEST_CASE("set_properties replaces the diagnostics and forgets cached extraction
     CHECK_THAT(v2->enrichment->formula_desc, ContainsSubstring("Other"));
     CHECK(count_extraction_sentinels(*mock_ptr) == 2);
 }
+
+TEST_CASE("end_stream forgets the frames of the stream it ends", "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
+    mock_ptr->queue_response(R"({"status": "ack"})");     // send_frame
+    mock_ptr->queue_response(R"({
+        "status": "complete",
+        "results": [{"type": "property", "status": "holds", "property_index": 0}]
+    })");
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream again
+    mock_ptr->queue_response(R"({
+        "status": "complete",
+        "results": [{"type": "property", "status": "fails", "property_index": 0, "reason": "r"}]
+    })");
+    AletheiaClient client(std::move(mock));
+    std::vector<LtlFormula> props;
+    props.push_back(ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+    auto const id = CanId{StandardId::create(0x100).value()};
+    const FramePayload data(8, std::byte{0});
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, id, Dlc::create(8).value(), data)
+                .has_value());
+    REQUIRE(client.end_stream(std::stop_token{}).has_value());
+
+    // The second stream saw no frame, so its failing verdict has no values
+    // to draw on: the first stream's frame must not be extracted for it.
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+    auto const ended = client.end_stream(std::stop_token{});
+    REQUIRE(ended.has_value());
+    REQUIRE(ended->results[0].enrichment.has_value());
+    CHECK(ended->results[0].enrichment->signals.empty());
+    CHECK(count_extraction_sentinels(*mock_ptr) == 0);
+}

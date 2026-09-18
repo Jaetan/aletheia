@@ -923,13 +923,18 @@ TEST_CASE("parse_dbc_response accepts missing Tier 1 metadata keys", "[json][par
 }
 
 TEST_CASE("parse_dbc_response rejects unknown varType", "[json][parse][dbc][error]") {
+    // Past the known types on either side: a negative type is an integer the
+    // reader accepts and the type switch refuses, by the same words.
+    auto const var_type = GENERATE(7, -1);
     auto result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "1.0",
             "messages": [],
             "environmentVars": [
-                {"name": "Bad", "varType": 7,
+                {"name": "Bad", "varType": )" +
+                                             std::to_string(var_type) +
+                                             R"(,
                  "initial": 0, "minimum": 0, "maximum": 0}
             ]
         }
@@ -937,7 +942,30 @@ TEST_CASE("parse_dbc_response rejects unknown varType", "[json][parse][dbc][erro
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     CHECK_THAT(std::string{result.error().message()},
-               ContainsSubstring("environment variable type"));
+               ContainsSubstring("Unknown environment variable type " + std::to_string(var_type)));
+}
+
+TEST_CASE("parse_dbc_response refuses a varType wider than its integer",
+          "[json][parse][dbc][error]") {
+    // The type is read as a 32-bit integer; a value past that width on either
+    // side is refused as out of range before the type switch ever sees a
+    // truncation of it.
+    auto const wide = GENERATE(std::int64_t{3000000000LL}, std::int64_t{-3000000000LL});
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "1.0",
+            "messages": [],
+            "environmentVars": [
+                {"name": "Wide", "varType": )" +
+                                             std::to_string(wide) +
+                                             R"(,
+                 "initial": 0, "minimum": 0, "maximum": 0}
+            ]
+        }
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("varType is out of range"));
 }
 
 TEST_CASE("parse_dbc_response env var preserves exact rationals", "[json][parse][dbc]") {

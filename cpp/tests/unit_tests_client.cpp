@@ -14,6 +14,7 @@
 
 #include "detail/mock_backend.hpp"
 #include <aletheia/aletheia.hpp>
+#include <aletheia/detail/cache_keys.hpp>
 
 #include <initializer_list>
 #include <nlohmann/json.hpp>
@@ -1104,4 +1105,27 @@ TEST_CASE("client keys its signal cache on the extended bit for extraction and r
         auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
         REQUIRE(built.has_value());
     }
+}
+
+TEST_CASE("the cache keys hash every field they carry", "[client][cache]") {
+    // Two keys that differ in one field must not collide, whichever field it
+    // is, or the map would serve one message's signals for another's.
+    const detail::SignalKeyHash sig_hash;
+    const detail::SignalKey base{.id_value = 1, .is_extended = false, .signal_name = "a"};
+    CHECK(sig_hash(base) != sig_hash({.id_value = 2, .is_extended = false, .signal_name = "a"}));
+    CHECK(sig_hash(base) != sig_hash({.id_value = 1, .is_extended = true, .signal_name = "a"}));
+    CHECK(sig_hash(base) != sig_hash({.id_value = 1, .is_extended = false, .signal_name = "b"}));
+    const detail::MessageKeyHash msg_hash;
+    CHECK(msg_hash({1, false}) != msg_hash({2, false}));
+    CHECK(msg_hash({1, false}) != msg_hash({1, true}));
+}
+
+TEST_CASE("hash_combine mixes the seed and the hash through every term", "[client][cache]") {
+    // The mixing is a fixed function; these values are what it computes, and
+    // each pins one term of the sum: the constant, the shifted seed and the
+    // seed's high bits.
+    CHECK(detail::hash_combine(0, 0) == 0x9e3779b9U);
+    CHECK(detail::hash_combine(4, 0) == 0x9e377abeU);
+    CHECK(detail::hash_combine(4, 7) == 0x9e377ac5U);
+    CHECK(detail::hash_combine(0x1234, 0xabcd) == 0x9e3ca527U);
 }

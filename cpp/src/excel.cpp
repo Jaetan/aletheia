@@ -19,6 +19,7 @@
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <memory>
@@ -173,14 +174,12 @@ struct DataRow {
 } // namespace
 
 /// Build a header->cell map from a worksheet row, keeping only present
-/// (non-empty) cells and dropping any column with an empty header name, so
-/// every cell the map holds has a name and a value.
+/// (non-empty) cells; a column with no header name is keyed by that empty
+/// name, which no field reads.
 static auto row_to_map(OpenXLSX::XLWorksheet const& ws, int row,
                        const std::vector<std::string>& headers) -> CellMap {
     CellMap result;
     for (std::size_t i = 0; i < headers.size(); ++i) {
-        if (headers[i].empty())
-            continue; // a column with no header name is ignored
         auto const cell = ws.cell(row, static_cast<std::uint16_t>(i + 1));
         auto const str_val = cell_to_string(cell, headers[i], row);
         if (str_val.empty())
@@ -297,14 +296,12 @@ static auto has_key(const CellMap& cells, const std::string& key) -> bool {
 // Header extraction from first row
 // ---------------------------------------------------------------------------
 
-// The row is read to the sheet's column count; a column past the last named
-// header reads as an empty name, which the row map drops.
-static auto headers_from_row(OpenXLSX::XLWorksheet const& ws, std::size_t count)
+static auto headers_from_row(OpenXLSX::XLWorksheet const& ws, std::uint16_t count)
     -> std::vector<std::string> {
     std::vector<std::string> result;
     result.reserve(count);
-    for (std::size_t i = 0; i < count; ++i) {
-        const OpenXLSX::XLCellValue val = ws.cell(1, static_cast<std::uint16_t>(i + 1)).value();
+    for (std::uint16_t col = 1; col <= count; ++col) {
+        const OpenXLSX::XLCellValue val = ws.cell(1, col).value();
         if (val.type() == OpenXLSX::XLValueType::String)
             result.push_back(val.get<std::string>());
         else
@@ -514,7 +511,7 @@ static auto worksheet_exists(OpenXLSX::XLDocument const& doc, std::string_view n
 // A sheet's data rows: every non-empty row below the header, each paired with
 // its 1-based sheet row number for error messages.
 static auto collect_data_rows(OpenXLSX::XLWorksheet const& ws) -> std::vector<DataRow> {
-    auto const headers = headers_from_row(ws, static_cast<std::size_t>(ws.columnCount()));
+    auto const headers = headers_from_row(ws, ws.columnCount());
     std::vector<DataRow> rows;
     auto const total_rows = ws.rowCount();
     for (std::uint32_t r = 2; r <= total_rows; ++r) {
@@ -632,9 +629,9 @@ static auto build_message_from_group(const MessageKeyExt& key,
                                      const std::vector<std::size_t>& indices,
                                      const std::vector<DataRow>& data_rows) -> Result<DbcMessage> {
     std::vector<DbcSignal> signals;
-    signals.reserve(indices.size());
-    for (auto const idx : indices)
-        signals.push_back(parse_dbc_signal(data_rows[idx].cells, data_rows[idx].number));
+    std::ranges::transform(indices, std::back_inserter(signals), [&](std::size_t idx) {
+        return parse_dbc_signal(data_rows[idx].cells, data_rows[idx].number);
+    });
     auto [msg_id, msg_name, dlc, extended] = key;
     auto can_id_result =
         extended
