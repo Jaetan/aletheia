@@ -520,7 +520,8 @@ TEST_CASE("binary extraction with zero errors decodes the lone offset entry", "[
 TEST_CASE("truncated binary extraction surfaces a Protocol error", "[integration]") {
     // A 9-byte buffer is one byte short of the mandatory 10-byte header
     // (3×u16 counts + u32 reasonBytes).
-    expect_protocol_error(std::vector<std::byte>(9, std::byte{0}));
+    auto const err = expect_protocol_error(std::vector<std::byte>(9, std::byte{0}));
+    CHECK(std::string_view{err.message()}.contains("9 bytes, need >= 10"));
 }
 
 TEST_CASE("binary extraction with trailing bytes surfaces a Protocol error", "[integration]") {
@@ -528,7 +529,17 @@ TEST_CASE("binary extraction with trailing bytes surfaces a Protocol error", "[i
     // bytes) plus the mandatory lone offsets entry is exactly expected_size
     // == 14; the 15th byte is trailing data the layout does not account for,
     // so the decoder must reject it rather than ignore the tail.
-    expect_protocol_error(std::vector<std::byte>(15, std::byte{0}));
+    auto const err = expect_protocol_error(std::vector<std::byte>(15, std::byte{0}));
+    CHECK(std::string_view{err.message()}.contains("15 bytes, expected exactly 14"));
+}
+
+TEST_CASE("binary extraction with a bare header is a size mismatch, not a truncation",
+          "[integration]") {
+    // Ten bytes is the whole header, so the truncation check passes and the
+    // exact-size check is the one that refuses: the lone offsets entry is
+    // missing.
+    auto const err = expect_protocol_error(std::vector<std::byte>(10, std::byte{0}));
+    CHECK(std::string_view{err.message()}.contains("10 bytes, expected exactly 14"));
 }
 
 TEST_CASE("binary extraction rejects a nonzero first reason offset", "[integration]") {
@@ -540,7 +551,7 @@ TEST_CASE("binary extraction rejects a nonzero first reason offset", "[integrati
     w.u32(4);
     w.str("abcd");
     auto const err = expect_protocol_error(std::move(w.bytes));
-    CHECK(std::string_view{err.message()}.contains("offsets"));
+    CHECK(std::string_view{err.message()}.contains("first offset is 1"));
 }
 
 TEST_CASE("binary extraction rejects non-monotone reason offsets", "[integration]") {
@@ -555,7 +566,7 @@ TEST_CASE("binary extraction rejects non-monotone reason offsets", "[integration
     w.u32(4);
     w.str("abcd");
     auto const err = expect_protocol_error(std::move(w.bytes));
-    CHECK(std::string_view{err.message()}.contains("offsets"));
+    CHECK(std::string_view{err.message()}.contains("offset 2 decreases"));
 }
 
 TEST_CASE("binary extraction rejects a final offset that mismatches reasonBytes", "[integration]") {
@@ -567,7 +578,49 @@ TEST_CASE("binary extraction rejects a final offset that mismatches reasonBytes"
     w.u32(3); // off[nErrors] must equal reasonBytes (4)
     w.str("abcd");
     auto const err = expect_protocol_error(std::move(w.bytes));
-    CHECK(std::string_view{err.message()}.contains("offsets"));
+    CHECK(std::string_view{err.message()}.contains("last offset 3 != reason bytes 4"));
+}
+
+TEST_CASE("binary extraction decodes adjacent reasons, an empty one included", "[integration]") {
+    // Three errors whose offsets are 0, 2, 2, 6: the second reason is empty,
+    // which equal consecutive offsets denote, and the others are the bytes
+    // between their offsets and nothing else.
+    WireBuf w;
+    w.header(/*nvals=*/0, /*nerrs=*/3, /*nabss=*/0, /*reason_bytes=*/6);
+    for (std::uint16_t i = 0; i < 3; ++i) {
+        w.u16(i);
+        w.u8(1);
+    }
+    w.u32(0);
+    w.u32(2);
+    w.u32(2);
+    w.u32(6);
+    w.str("abcdef");
+    auto result = extract_with_crafted_buf(std::move(w.bytes));
+    REQUIRE(result.has_value());
+    REQUIRE(result->errors.size() == 3);
+    CHECK(result->errors[0].reason == "ab");
+    CHECK(result->errors[1].reason.empty());
+    CHECK(result->errors[2].reason == "cdef");
+}
+
+TEST_CASE("binary extraction names a wire index one past the message's signals by placeholder",
+          "[integration]") {
+    // The integration DBC has two signals, so index 2 is the first one the
+    // message does not have.
+    WireBuf w;
+    w.header(/*nvals=*/1, /*nerrs=*/0, /*nabss=*/1, /*reason_bytes=*/0);
+    w.u16(2);
+    w.i64(1);
+    w.i64(1);
+    w.u32(0);
+    w.u16(2);
+    auto result = extract_with_crafted_buf(std::move(w.bytes));
+    REQUIRE(result.has_value());
+    REQUIRE(result->values.size() == 1);
+    CHECK(result->values[0].name == SignalName{"signal_2"});
+    REQUIRE(result->absent.size() == 1);
+    CHECK(result->absent[0] == SignalName{"signal_2"});
 }
 
 TEST_CASE("binary extraction rejects invalid UTF-8 in a reason slice", "[integration]") {

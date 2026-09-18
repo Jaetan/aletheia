@@ -372,6 +372,8 @@ static auto wire_signal_errors(std::span<const std::byte> buf, std::size_t error
                 ErrorKind::Protocol,
                 std::format("Invalid UTF-8 in extraction reason for {}", std::string_view{name})});
         std::string reason(slice.size(), '\0');
+        // An empty slice may carry a null pointer, and memcpy from null is
+        // undefined even for zero bytes.
         if (!slice.empty())
             std::memcpy(reason.data(), slice.data(), slice.size());
         errors.push_back({.name = std::move(name), .reason = std::move(reason)});
@@ -445,6 +447,8 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
            ((std::size_t{nerrs} + 1) * k_offset_bytes) + std::size_t{reason_bytes};
     result.absent.reserve(nabss);
     for (std::uint16_t i = 0; i < nabss; ++i) {
+        // Redundant with the exact-size check, as the values loop's is, and
+        // kept for the same reason.
         if (off + k_absent_record_bytes > buf.size())
             return std::unexpected(AletheiaError{
                 ErrorKind::Protocol, "Truncated extraction buffer while reading absent signals"});
