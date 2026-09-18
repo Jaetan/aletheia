@@ -193,6 +193,30 @@ TEST_CASE("Check settles_between negative time throws", "[check]") {
     CHECK_THROWS_AS(builder.within(-1ms), std::invalid_argument);
 }
 
+TEST_CASE("Check within accepts a zero time", "[check]") {
+    using namespace std::chrono_literals;
+    auto const settles = check::signal("T").settles_between(PhysicalValue{Rational{}},
+                                                            PhysicalValue{Rational{100, 1}});
+    CHECK(settles.within(0ms).condition_desc() == "between 0 and 100 within 0ms");
+    auto const cond = check::when("A")
+                          .exceeds(PhysicalValue{Rational{}})
+                          .then("B")
+                          .equals(PhysicalValue{Rational{1, 1}});
+    CHECK(cond.within(0ms).condition_desc() == "= 1 within 0ms");
+}
+
+TEST_CASE("a then-condition without a description describes nothing", "[check]") {
+    // ThenCondition is public, and its builder is whatever the caller
+    // hands it: none, or one that answers with an empty string.
+    using namespace std::chrono_literals;
+    auto const trigger = ltl::greater_than(SignalName{"A"}, PhysicalValue{Rational{}});
+    auto const then_pred = ltl::equals(SignalName{"B"}, PhysicalValue{Rational{1, 1}});
+    const ThenCondition without(trigger, then_pred, "B", nullptr);
+    CHECK(without.within(5ms).condition_desc().empty());
+    const ThenCondition empty(trigger, then_pred, "B", [] { return std::string{}; });
+    CHECK(empty.within(5ms).condition_desc().empty());
+}
+
 TEST_CASE("Check when/then negative time throws", "[check]") {
     using namespace std::chrono_literals;
     auto const cond = check::when("A")

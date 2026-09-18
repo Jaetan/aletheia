@@ -187,6 +187,17 @@ TEST_CASE("DbcMessage::signals_for_mux_value non-mux message", "[dbc][mux]") {
     CHECK(sigs.size() == plain.messages[0].signals.size());
 }
 
+TEST_CASE("DbcDefinition::message_by_name finds every message, not only the first", "[dbc]") {
+    auto dbc = make_mux_dbc();
+    auto second = dbc.messages[0];
+    second.id = CanId{StandardId::create(0x201).value()};
+    second.name = MessageName{"SecondMessage"};
+    dbc.messages.push_back(second);
+    auto const* found = dbc.message_by_name(MessageName{"SecondMessage"});
+    REQUIRE(found != nullptr);
+    CHECK(found == &dbc.messages[1]);
+}
+
 TEST_CASE("DbcDefinition::message_by_id", "[dbc]") {
     auto const dbc = make_mux_dbc();
     auto id = StandardId::create(0x200).value();

@@ -31,13 +31,10 @@ static auto rational_to_json(const Rational& r) -> Json {
     // ``Fraction`` (auto-canonical) and Go's parseRational sign convention,
     // preserving cross-binding wire symmetry.
     //
-    // Guard ``INT64_MIN`` before any negation
-    // or ``std::abs``.  ``-INT64_MIN`` and ``std::abs(INT64_MIN)`` are both
-    // signed-overflow UB; the Rational::make invariant rejects such values
-    // at construction, but on the format-only path we emit raw to surface
-    // the upstream defect rather than UB-fault here.
-    constexpr auto int64_min = std::numeric_limits<std::int64_t>::min();
-    if (r.numerator() == int64_min || r.denominator() == int64_min) {
+    // Guard ``INT64_MIN`` before ``std::abs``, whose result would overflow:
+    // the numerator is emitted raw, un-normalised, rather than faulting. The
+    // denominator cannot be it, being positive by construction.
+    if (r.numerator() == std::numeric_limits<std::int64_t>::min()) {
         return {{"numerator", r.numerator()}, {"denominator", r.denominator()}};
     }
     auto num = r.numerator();

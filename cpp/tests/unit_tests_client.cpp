@@ -657,7 +657,7 @@ TEST_CASE("send_frames_lazy stops after first error with frame index", "[client]
         ++oks;
     }
     CHECK(oks == 1);
-    CHECK(err_msg.contains("frame 1")); // index prefix mirrors send_frames
+    CHECK(err_msg.contains("frame 1:")); // index prefix mirrors send_frames
     CHECK(err_msg.contains("payload"));
     CHECK(count_sentinel(mock->captured(), "<binary:sendFrame>") == 1); // frame 2 never sent
 }
@@ -959,14 +959,14 @@ TEST_CASE("SignalInjection refuses a block the FFI would read past", "[client][i
         const std::vector<std::int64_t> short_numerators{1};
         auto block = SignalInjection::create(indices, short_numerators, denominators);
         REQUIRE_FALSE(block.has_value());
-        CHECK(block.error().contains("differ in length"));
+        CHECK(block.error().contains("differ in length: 2 indices, 1 numerators, 2 denominators"));
     }
 
     SECTION("a shorter denominator array is refused too") {
         const std::vector<std::int64_t> short_denominators{1};
         auto block = SignalInjection::create(indices, numerators, short_denominators);
         REQUIRE_FALSE(block.has_value());
-        CHECK(block.error().contains("differ in length"));
+        CHECK(block.error().contains("differ in length: 2 indices, 2 numerators, 1 denominators"));
     }
 }
 

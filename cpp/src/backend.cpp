@@ -68,6 +68,8 @@ auto SignalInjection::create(std::span<const std::uint32_t> indices,
             std::format("signal injection arrays differ in length: {} indices, {} numerators, "
                         "{} denominators",
                         indices.size(), numerators.size(), denominators.size()));
+    // Held by reading: a block past the wire's width needs more memory than
+    // a test can allocate.
     if (!std::in_range<std::uint32_t>(indices.size()))
         return std::unexpected(
             std::format("signal injection carries {} values, more than the wire's count holds",

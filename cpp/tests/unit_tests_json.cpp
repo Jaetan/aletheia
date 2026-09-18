@@ -18,7 +18,9 @@
 #include <aletheia/enrich.hpp>
 
 #include <cstdint>
+#include <limits>
 #include <nlohmann/json.hpp>
+#include <stdexcept>
 
 #include <cstddef>
 #include <memory>
@@ -2175,4 +2177,61 @@ TEST_CASE("DbcDefinition unresolvedValueDescs keeps an extended CAN ID across se
     auto const& rvd = parsed->unresolved_value_descs[0];
     REQUIRE(std::holds_alternative<ExtendedId>(rvd.can_id));
     CHECK(std::get<ExtendedId>(rvd.can_id).value() == 0x18FEF100);
+}
+
+TEST_CASE("serialize_set_properties refuses a formula nested past the depth bound",
+          "[json][serialize][bounds]") {
+    // Nesting to the bound is accepted and one level more is refused here
+    // rather than on the wire, whichever operand the depth descends through:
+    // the unary operand, or the left or the right operand of a binary one.
+    enum class Through : std::uint8_t { Unary, Left, Right };
+    auto const through = GENERATE(Through::Unary, Through::Left, Through::Right);
+    auto const nest = [through](std::uint64_t depth) {
+        auto const leaf = [] {
+            return ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{1, 1}}));
+        };
+        auto f = leaf();
+        for (std::uint64_t i = 0; i < depth; ++i) {
+            switch (through) {
+            case Through::Unary:
+                f = ltl::next(std::move(f));
+                break;
+            case Through::Left:
+                f = ltl::both(std::move(f), leaf());
+                break;
+            case Through::Right:
+                f = ltl::both(leaf(), std::move(f));
+                break;
+            }
+        }
+        std::vector<LtlFormula> props;
+        props.push_back(std::move(f));
+        return props;
+    };
+    CHECK_NOTHROW(detail::serialize_set_properties(nest(max_nesting_depth)));
+    CHECK_THROWS_WITH(detail::serialize_set_properties(nest(max_nesting_depth + 1)),
+                      ContainsSubstring("nesting depth exceeds 64"));
+}
+
+TEST_CASE("a rational whose numerator is INT64_MIN is emitted raw, as a pair",
+          "[json][serialize][rational]") {
+    // The numerator cannot be normalised, since its absolute value does not
+    // exist; the wire carries it un-normalised rather than the serializer
+    // computing it.
+    constexpr auto lowest = std::numeric_limits<std::int64_t>::min();
+    std::vector<LtlFormula> props;
+    props.push_back(ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{lowest, 1}})));
+    auto const j = Json::parse(detail::serialize_set_properties(props));
+    auto const& value = j["properties"][0]["predicate"]["value"];
+    REQUIRE(value.is_object());
+    CHECK(value["numerator"] == lowest);
+    CHECK(value["denominator"] == 1);
+}
+
+TEST_CASE("Rational refuses a zero denominator on both construction paths", "[rational]") {
+    CHECK_THROWS_AS(Rational(1, 0), std::invalid_argument);
+    CHECK_THROWS_AS(Rational(1, -1), std::invalid_argument);
+    CHECK_FALSE(Rational::make(1, 0).has_value());
+    CHECK_FALSE(Rational::make(1, -1).has_value());
+    CHECK(Rational::make(1, 1).has_value());
 }
