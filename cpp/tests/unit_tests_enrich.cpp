@@ -9,6 +9,7 @@
 // defensive path where a backend returns a property_index outside the caller's
 // property list.
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
@@ -966,10 +967,12 @@ TEST_CASE("end_stream failed extraction warns once per frame, not per property",
 
 TEST_CASE("end_stream OOB property_index is excluded while the valid entry is still enriched",
           "[client][enrich]") {
-    // Finalization batch [index 0 valid Fails, index 7 OOB Fails] against a
+    // Finalization batch [index 0 valid Fails, an OOB Fails] against a
     // single registered property: exactly one enrichment.property_index_oob
     // warning, the OOB entry gets NO enrichment, the valid entry is enriched,
-    // and the sentinel count reflects the valid entry's extraction only.
+    // and the sentinel count reflects the valid entry's extraction only. The
+    // first OOB index is the count itself, the boundary the check draws.
+    auto const oob = GENERATE(1, 7);
     auto mock = std::make_unique<MockBackend>();
     auto* mock_ptr = mock.get();
 
@@ -981,7 +984,8 @@ TEST_CASE("end_stream OOB property_index is excluded while the valid entry is st
         "results": [
             {"type": "property", "status": "fails", "property_index": 0,
              "timestamp": 5000000, "reason": "eventually unmet"},
-            {"type": "property", "status": "fails", "property_index": 7,
+            {"type": "property", "status": "fails", "property_index": )" +
+                             std::to_string(oob) + R"(,
              "timestamp": 5000000, "reason": "eventually unmet"}
         ]
     })");
@@ -1028,14 +1032,17 @@ TEST_CASE("end_stream OOB property_index is excluded while the valid entry is st
 TEST_CASE("violation with OOB property_index skips enrichment", "[client][enrich]") {
     auto mock = std::make_unique<MockBackend>();
 
-    // Queue: set_properties, start_stream, send_frame (violation with index 999)
+    // Queue: set_properties, start_stream, send_frame (violation with an index
+    // past the one property: the count itself, or far past it)
+    auto const oob = GENERATE(std::size_t{1}, std::size_t{999});
     mock->queue_response(R"({"status": "success"})"); // set_properties
     mock->queue_response(R"({"status": "success"})"); // start_stream
     mock->queue_response(R"({
         "type": "property_batch",
         "results": [{
             "status": "fails", "type": "property",
-                    "property_index": 999, "timestamp": 1000000,
+                    "property_index": )" +
+                         std::to_string(oob) + R"(, "timestamp": 1000000,
                     "reason": "some reason"
         }]
     })");
@@ -1060,8 +1067,65 @@ TEST_CASE("violation with OOB property_index skips enrichment", "[client][enrich
     auto& b = std::get<PropertyBatch>(*result);
     auto* v = b.first_violation();
     REQUIRE(v != nullptr);
-    CHECK(v->property_index == PropertyIndex{999});
+    CHECK(v->property_index == PropertyIndex{oob});
     CHECK(v->reason == "some reason");
     // Enrichment skipped due to OOB property index
     CHECK_FALSE(v->enrichment.has_value());
+}
+
+TEST_CASE("set_properties replaces the diagnostics and forgets cached extractions",
+          "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
+    const std::string violation = R"({
+        "type": "property_batch",
+        "results": [{
+            "status": "fails", "type": "property",
+                    "property_index": 0, "timestamp": 1000000
+        }]
+    })";
+    const std::string extraction = R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": 245}],
+        "errors": [], "absent": []
+    })";
+    mock_ptr->queue_response(violation);
+    mock_ptr->queue_response(extraction);
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties again
+    mock_ptr->queue_response(violation);
+    mock_ptr->queue_response(extraction);
+
+    AletheiaClient client(std::move(mock));
+    std::vector<LtlFormula> first;
+    first.push_back(ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}}))));
+    REQUIRE(client.set_properties(std::stop_token{}, first).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    const FramePayload data(8, std::byte{0});
+    auto const r1 = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
+    REQUIRE(r1.has_value());
+    auto const* v1 = std::get<PropertyBatch>(*r1).first_violation();
+    REQUIRE(v1 != nullptr);
+    REQUIRE(v1->enrichment.has_value());
+    CHECK_THAT(v1->enrichment->formula_desc, ContainsSubstring("Speed"));
+
+    // The same frame under a new property set: the enrichment describes the
+    // new property, index 0 of the new set and not of both sets appended, and
+    // the frame is extracted afresh rather than served from the old cache.
+    std::vector<LtlFormula> second;
+    second.push_back(ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Other"}, PhysicalValue{Rational{1, 1}}))));
+    REQUIRE(client.set_properties(std::stop_token{}, second).has_value());
+    auto const r2 = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
+    REQUIRE(r2.has_value());
+    auto const* v2 = std::get<PropertyBatch>(*r2).first_violation();
+    REQUIRE(v2 != nullptr);
+    REQUIRE(v2->enrichment.has_value());
+    CHECK_THAT(v2->enrichment->formula_desc, ContainsSubstring("Other"));
+    CHECK(count_extraction_sentinels(*mock_ptr) == 2);
 }

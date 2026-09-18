@@ -1054,15 +1054,97 @@ namespace {
 // takes it and the JSON endpoint is never asked.
 class BinExtractMockBackend : public MockBackend {
 public:
+    // The default is a header of three zero counts and zero reason bytes,
+    // then the lone offsets entry: the smallest buffer the decoder accepts.
+    explicit BinExtractMockBackend(
+        std::vector<std::byte> buf = std::vector<std::byte>(14, std::byte{0}))
+        : buf_(std::move(buf)) {}
+
     auto extract_signals_bin(const BackendState& /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
                              std::span<const std::byte> /*data*/)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
-        // Header of three zero counts and zero reason bytes, then the lone
-        // offsets entry: the smallest buffer the decoder accepts.
-        return std::vector<std::byte>(14, std::byte{0});
+        return buf_;
     }
+
+private:
+    std::vector<std::byte> buf_;
 };
 } // namespace
+
+// One extracted value, wire index 0, worth 7/1, and nothing else.
+static auto one_value_at_index_zero() -> std::vector<std::byte> {
+    std::vector<std::byte> buf(14 + 18, std::byte{0});
+    buf[0] = std::byte{1};  // nvals
+    buf[12] = std::byte{7}; // numerator, little-endian
+    buf[20] = std::byte{1}; // denominator
+    return buf;
+}
+
+static auto took_json_extraction(const MockBackend& mock) -> bool {
+    return std::ranges::contains(mock.captured(), "<binary:extractAllSignals>");
+}
+
+TEST_CASE("parse_dbc_text arms the binary extraction path", "[client][mock]") {
+    auto mock = std::make_unique<BinExtractMockBackend>();
+    auto* mock_ptr = mock.get();
+    mock_ptr->queue_response(parsed_dbc_response_for(make_test_dbc()));
+    AletheiaClient client(std::move(mock));
+    REQUIRE(client.parse_dbc_text(std::stop_token{}, "VERSION \"\"").has_value());
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const result =
+        client.extract_signals(std::stop_token{}, id, Dlc::create(8).value(), FramePayload(8));
+    REQUIRE(result.has_value());
+    CHECK_FALSE(took_json_extraction(*mock_ptr));
+}
+
+TEST_CASE("reloading a DBC replaces the previous one's signals under the same message id",
+          "[client][mock]") {
+    auto mock = std::make_unique<BinExtractMockBackend>(one_value_at_index_zero());
+    auto* mock_ptr = mock.get();
+    auto const first = make_test_dbc();
+    auto second = make_test_dbc();
+    second.messages[0].signals[0].name = SignalName{"Other"};
+    mock_ptr->queue_response(parsed_dbc_response_for(first));
+    mock_ptr->queue_response(parsed_dbc_response_for(second));
+    AletheiaClient client(std::move(mock));
+    REQUIRE(client.parse_dbc(std::stop_token{}, first).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, second).has_value());
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    SECTION("the old signal no longer resolves") {
+        const std::vector<SignalValue> signals{
+            {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{1, 1}}}};
+        auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
+        REQUIRE_FALSE(built.has_value());
+        CHECK(built.error().kind() == ErrorKind::Validation);
+        CHECK_THAT(std::string{built.error().message()},
+                   ContainsSubstring("signal 'Speed' not found"));
+    }
+    SECTION("a wire index names the new signal") {
+        auto const result = client.extract_signals(std::stop_token{}, id, dlc, FramePayload(8));
+        REQUIRE(result.has_value());
+        REQUIRE(result->values.size() == 1);
+        CHECK(result->values[0].name == SignalName{"Other"});
+        CHECK(result->values[0].value == PhysicalValue{Rational{7, 1}});
+    }
+}
+
+TEST_CASE("build_frame refuses a signal the message does not carry, by name", "[client][mock]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
+    AletheiaClient client(std::move(mock));
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    const std::vector<SignalValue> signals{
+        {.name = SignalName{"Nope"}, .value = PhysicalValue{Rational{1, 1}}}};
+    auto const built = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
+    REQUIRE_FALSE(built.has_value());
+    CHECK(built.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(std::string{built.error().message()}, ContainsSubstring("signal 'Nope' not found"));
+}
 
 TEST_CASE("client keys its signal cache on the extended bit for extraction and resolution",
           "[client][mock][extended]") {

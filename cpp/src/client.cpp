@@ -762,6 +762,8 @@ auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
             enrich_end_stream_results(*result);
         if (logger_)
             log_end_stream_summary(*result);
+        // Dropped at both ends of a stream, as the Go client does, so a
+        // finished stream holds no frame.
         last_frames_.clear();
     }
     return result;
@@ -814,36 +816,33 @@ static auto format_enriched_reason(const PropertyDiagnostic& diag,
                                    std::string_view core_reason) -> std::string {
     std::string reason;
     bool rendered = false;
-    if (!values.empty()) {
-        // Best-effort on the eval path: rendering the observed values needs the
-        // runtime, which is up here (the frame was processed through it) — so this
-        // is unreachable — but never sink an already-processed frame if the kernel
-        // renderer throws. Degrade to the formula description (no value rendered,
-        // no local fallback). set_properties, by contrast, propagates the throw.
-        try {
-            std::string parts;
-            bool first = true;
-            for (auto const& sig : diag.signals) {
-                if (auto const it = values.find(sig); it != values.end()) {
-                    if (!first)
-                        parts += ", ";
-                    // Render the observed value via the kernel formatℚ (same renderer
-                    // as the predicate threshold): exact, never a printf conversion or a
-                    // cast to double, and byte-identical to the other bindings.
-                    parts +=
-                        std::format("{} = {}", std::string_view{sig},
-                                    detail::format_rational_ffi(it->second.get().numerator(),
-                                                                it->second.get().denominator()));
-                    first = false;
-                }
+    // Best-effort on the eval path: rendering the observed values needs the
+    // runtime, which is up here (the frame was processed through it) — so this
+    // is unreachable — but never sink an already-processed frame if the kernel
+    // renderer throws. Degrade to the formula description (no value rendered,
+    // no local fallback). set_properties, by contrast, propagates the throw.
+    try {
+        std::string parts;
+        bool first = true;
+        for (auto const& sig : diag.signals) {
+            if (auto const it = values.find(sig); it != values.end()) {
+                if (!first)
+                    parts += ", ";
+                // Render the observed value via the kernel formatℚ (same renderer
+                // as the predicate threshold): exact, never a printf conversion or a
+                // cast to double, and byte-identical to the other bindings.
+                parts += std::format("{} = {}", std::string_view{sig},
+                                     detail::format_rational_ffi(it->second.get().numerator(),
+                                                                 it->second.get().denominator()));
+                first = false;
             }
-            if (!first) {
-                reason = parts + " (formula: " + diag.formula_desc + ")";
-                rendered = true;
-            }
-        } catch (const AletheiaException&) {
-            rendered = false;
         }
+        if (!first) {
+            reason = parts + " (formula: " + diag.formula_desc + ")";
+            rendered = true;
+        }
+    } catch (const AletheiaException&) {
+        rendered = false;
     }
     if (!rendered)
         reason = "violated: " + diag.formula_desc;
@@ -906,13 +905,13 @@ void AletheiaClient::enrich_violation(PropertyResult& pr, CanId id, Dlc dlc,
 
 void AletheiaClient::enrich_end_stream_results(StreamResult& result) {
     auto todo = collect_enrichable_results(result);
-    if (todo.empty())
-        return;
 
     // Union of the signal names any collected diagnostic wants. When the
     // union is empty, skip the frame extraction loop entirely (zero FFI
     // extraction calls, no extraction_failed warnings) — but still attach
     // an enrichment to every collected result via the empty-values fallback.
+    // Every formula names at least one signal, so the union is empty only
+    // when nothing was collected.
     std::set<SignalName> wanted;
     for (auto const& [pr, diag] : todo)
         wanted.insert(diag->signals.begin(), diag->signals.end());

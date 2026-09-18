@@ -6,6 +6,8 @@
 // signal_name/condition_desc), equivalence with hand-rolled ltl:: formulas,
 // and the add_checks client integration path.
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include "detail/mock_backend.hpp"
 #include <aletheia/aletheia.hpp>
@@ -20,6 +22,7 @@
 #include <vector>
 
 using namespace aletheia;
+using Catch::Matchers::ContainsSubstring;
 
 // ===========================================================================
 // Check API — one-shot methods
@@ -289,6 +292,7 @@ TEST_CASE("Check settles matches manual ltl", "[check]") {
 
 TEST_CASE("add_checks sends properties to backend", "[check][client]") {
     auto mock = std::make_unique<MockBackend>();
+    auto const* mock_ptr = mock.get();
     mock->queue_response(R"({"status": "success"})");
     AletheiaClient client(std::move(mock));
 
@@ -298,6 +302,9 @@ TEST_CASE("add_checks sends properties to backend", "[check][client]") {
                                                             PhysicalValue{Rational{29, 2}}));
     auto const result = client.add_checks(std::stop_token{}, std::move(checks));
     REQUIRE(result.has_value());
+    REQUIRE(mock_ptr->captured().size() == 1);
+    CHECK_THAT(mock_ptr->last_captured(), ContainsSubstring("\"Speed\""));
+    CHECK_THAT(mock_ptr->last_captured(), ContainsSubstring("\"Voltage\""));
 }
 
 TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
@@ -308,12 +315,16 @@ TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
     defaults.push_back(check::signal("Voltage").stays_between(PhysicalValue{Rational{23, 2}},
                                                               PhysicalValue{Rational{29, 2}}));
 
+    auto const* mock_ptr = mock.get();
     AletheiaClient client(std::move(mock), {}, std::move(defaults));
 
     std::vector<CheckResult> checks;
     checks.push_back(check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
     auto const result = client.add_checks(std::stop_token{}, std::move(checks));
     REQUIRE(result.has_value());
+    REQUIRE(mock_ptr->captured().size() == 1);
+    CHECK(mock_ptr->last_captured().find("\"Voltage\"") <
+          mock_ptr->last_captured().find("\"Speed\""));
 }
 
 // ===========================================================================
