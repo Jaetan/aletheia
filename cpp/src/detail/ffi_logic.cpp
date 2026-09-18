@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <memory>
 #include <optional>
 #include <string>
@@ -60,6 +61,13 @@ auto ffi_error_from_status(std::int8_t status, char* err_str, void (*free_str)(c
     if (status != 0)
         return AletheiaError{ErrorKind::Protocol, owned ? owned.get() : "Unknown error"};
     return std::nullopt;
+}
+
+auto wire_count_refusal(std::size_t count) -> std::optional<std::string> {
+    if (std::in_range<std::uint32_t>(count))
+        return std::nullopt;
+    return std::format("signal injection carries {} values, more than the wire's count holds",
+                       count);
 }
 
 auto json_input_bound_error(std::size_t input_bytes) -> std::optional<std::string> {

@@ -119,17 +119,36 @@ LLVM-23 with the patch that lets it see LLVM 23: its supported-version list,
 the one call in libirm that LLVM 23 removed, and libirm taken at the commit
 that truncates a call replacement's constant to the call's width, without which
 `cxx_replace_scalar_call` aborts clang on the first `bool`-returning call it
-meets. The same build patches libirm's void-call mutator to leave destructor
-calls and landing-pad calls alone (`tools/mull/libirm-void-call-removal.patch`):
-Mull attaches a temporary's destructor to the statement's source range, so an
-unpatched plugin reports `push_back(make())` or `doc.open(path.string())` as a
-surviving removal of the named call when what it removed was the destructor,
-and removing a destructor or an unwinding-only call is not a change a test can
-see. The probe
-`probes/tools_build_mull.sh--the-void-call-mutator-leaves-destructors-and-landing-pads-alone.sh`
-holds the installed plugin to that patch.  The binaries land in
+meets. The same build gives every mutant an identifier of its own
+(`tools/mull/mull-unique-mutant-ids.patch`): Mull names a mutant by mutator and
+source range, so two mutations of one statement (a temporary's destructor on
+the normal path and in the exception-cleanup landing pad) or two instantiations
+of one template shared a name, and the trampoline ran only the last clone it
+registered while the report counted the others under it. The identifier gains a
+seventh part, a hash of the function's mangled name and an ordinal among that
+function's mutants of the same range, so every clone runs and is reported on
+its own; the probe
+`probes/tools_build_mull.sh--every-mutant-identifier-names-one-clone.sh`
+holds the installed plugin to that patch. The lane's tree is built under
+LeakSanitizer (`-DALETHEIA_SANITIZER=leak`), so a removed destructor whose
+object owned memory leaks and fails; one whose object owned nothing is not a
+change any test can see, and is recorded in the ledger below. The binaries land in
 `~/.local/bin/` (no sudo for the copy), which the project assumes is on
 `$PATH` (see CLAUDE.md § Development Environment).
+
+A destructor a container's growth would run while it throws is reached by
+failing an allocation, which `cpp/tests/alloc_fault.cpp` does: it replaces the
+program's allocation functions, counts the blocks the program holds, and fails
+one chosen allocation of a call, so a cleanup path that drops what it owns
+shows as a count that did not come back. The sweeps over the decoders and the
+builders are in `cpp/tests/unit_tests_alloc_fault.cpp`. They build in the
+lanes that run without a sanitizer, because a sanitizer runtime carries the
+same allocation functions and the two cannot be linked together, and they
+leave the JSON library's own allocations alone, since that library flattens a
+document onto a heap-allocated stack from a destructor and an exception
+leaving a destructor ends the program. The probe
+`probes/cpp_tests_alloc_fault.cpp--the-json-document-cleanup-cannot-take-a-failed-allocation.sh`
+holds both halves of that.
 
 ```bash
 # System LLVM-23 + clang-23 (one-time; apt.llvm.org on Ubuntu, the archive on Debian).
@@ -179,7 +198,7 @@ cd go && gremlins unleash ./aletheia
 # real-.so integration tests into unit_tests to cover FfiBackend, so run
 # `cabal run shake -- build` first).
 cd cpp
-cmake -B build-mutation -DALETHEIA_MUTATION=ON \
+cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
       -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 cmake --build build-mutation --target unit_tests
 mull-runner-23 ./build-mutation/unit_tests

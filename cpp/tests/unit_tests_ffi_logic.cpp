@@ -17,7 +17,9 @@
 #include "detail/rts_params.hpp"
 
 #include <aletheia/error.hpp>
+
 #include <aletheia/limits.hpp>
+#include <cstddef>
 
 #include <string>
 #include <vector>
@@ -144,4 +146,14 @@ TEST_CASE("json_input_bound_error admits the cap and refuses one byte more, by t
     CHECK(*refusal == R"({"status":"error","code":"input_bound_exceeded",)"
                       R"("message":"input length (bytes) 67108865 exceeds limit 67108864",)"
                       R"("bound_kind":"input_length_bytes","observed":67108865,"limit":67108864})");
+}
+
+TEST_CASE("wire_count_refusal admits the wire's width and refuses one past it, by count alone",
+          "[ffi][logic][bounds]") {
+    constexpr auto width = std::size_t{1} << 32U;
+    CHECK_FALSE(detail::wire_count_refusal(width - 1).has_value());
+    auto const refusal = detail::wire_count_refusal(width);
+    REQUIRE(refusal.has_value());
+    CHECK(*refusal ==
+          "signal injection carries 4294967296 values, more than the wire's count holds");
 }

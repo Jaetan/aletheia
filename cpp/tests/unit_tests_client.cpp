@@ -29,6 +29,7 @@
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <sys/mman.h>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -969,6 +970,40 @@ TEST_CASE("SignalInjection refuses a block the FFI would read past", "[client][i
         REQUIRE_FALSE(block.has_value());
         CHECK(block.error().contains("differ in length: 2 indices, 2 numerators, 1 denominators"));
     }
+}
+
+// The wire carries the count in 32 bits, so a block one past that is refused
+// on its length alone. The arrays live in an anonymous reservation the test
+// never touches: the pages are never allocated, and create() reads nothing but
+// the lengths, so the refusal is exercised with a real length at no memory cost.
+TEST_CASE("SignalInjection refuses a block wider than the wire's count", "[client][injection]") {
+    constexpr std::size_t count = std::size_t{1} << 32U;
+    constexpr std::size_t bytes = count * sizeof(std::int64_t);
+    void* const region =
+        mmap(nullptr, bytes, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    if (region == MAP_FAILED)
+        SKIP("this host refuses to reserve the address range the block needs");
+    class Reservation {
+    public:
+        Reservation(void* start, std::size_t length) : start_{start}, length_{length} {}
+        ~Reservation() { munmap(start_, length_); }
+        Reservation(const Reservation&) = delete;
+        auto operator=(const Reservation&) -> Reservation& = delete;
+        Reservation(Reservation&&) = delete;
+        auto operator=(Reservation&&) -> Reservation& = delete;
+
+    private:
+        void* start_;
+        std::size_t length_;
+    };
+    const Reservation reservation{region, bytes};
+    const std::span<const std::uint32_t> indices{static_cast<const std::uint32_t*>(region), count};
+    const std::span<const std::int64_t> values{static_cast<const std::int64_t*>(region), count};
+
+    auto const block = SignalInjection::create(indices, values, values);
+    REQUIRE_FALSE(block.has_value());
+    CHECK(block.error() ==
+          "signal injection carries 4294967296 values, more than the wire's count holds");
 }
 
 TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaustion",

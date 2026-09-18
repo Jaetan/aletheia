@@ -61,4 +61,9 @@ namespace aletheia::detail {
 // the error's bound_info, as the Python and Go bindings' typed errors do.
 [[nodiscard]] auto json_input_bound_error(std::size_t input_bytes) -> std::optional<std::string>;
 
+// The refusal of a signal-injection block whose count the wire's 32-bit
+// field cannot carry, or nullopt when it fits.  A block that large is more
+// memory than a test can allocate, so the check is held on the count alone.
+[[nodiscard]] auto wire_count_refusal(std::size_t count) -> std::optional<std::string>;
+
 } // namespace aletheia::detail

@@ -86,23 +86,20 @@ static auto default_path_state() -> DefaultPathState& {
 // probe in a process of its own, not by the suite.
 static auto find_library_path() -> std::filesystem::path {
     namespace fs = std::filesystem;
+    // An empty value, from the environment or from no registration yet, is a
+    // path that does not exist, so each route is one existence check.
     if (auto const* env = std::getenv("ALETHEIA_LIB")) {
-        const std::string_view env_sv{env};
-        if (!env_sv.empty()) {
-            const fs::path p{env_sv};
-            if (fs::exists(p))
-                return p;
-        }
+        const fs::path p{env};
+        if (fs::exists(p))
+            return p;
     }
     // Registered path from FfiBackend ctor.
     {
         auto& d = default_path_state();
         const std::scoped_lock lk{d.mu};
-        if (!d.path.empty()) {
-            const fs::path p{d.path};
-            if (fs::exists(p))
-                return p;
-        }
+        const fs::path p{d.path};
+        if (fs::exists(p))
+            return p;
     }
     // Heuristic: ctest runs from `cpp/build`; integration / parity
     // tests already navigate to `<repo>/build/libaletheia-ffi.so`.
@@ -179,15 +176,19 @@ static void ensure_loaded() {
 // name the operation in those two refusals.  A null return is unreachable
 // for a well-formed call, so it throws rather than fabricating a value,
 // as Go and Rust do.
-template<typename Call>
-static auto kernel_string(Call call, std::string_view whats_down, std::string_view returned_null)
-    -> std::string {
+static auto loaded_state(std::string_view whats_down) -> RendererState& {
     ensure_loaded();
     if (!rts_initialized())
         throw AletheiaException(
             AletheiaError{ErrorKind::Ffi, "GHC runtime not initialized: create a backend before " +
                                               std::string{whats_down}});
-    auto& s = state();
+    return state();
+}
+
+template<typename Call>
+static auto kernel_string(Call call, std::string_view whats_down, std::string_view returned_null)
+    -> std::string {
+    auto& s = loaded_state(whats_down);
     char* raw = call(s);
     if (raw == nullptr)
         throw AletheiaException(

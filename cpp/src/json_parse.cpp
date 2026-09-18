@@ -182,9 +182,14 @@ static auto require_uint(const Json& j, std::string_view context) -> T {
     if (!j.is_number_unsigned())
         throw std::runtime_error(std::string{context} +
                                  " must be a non-negative integer, got: " + j.dump());
-    if (!std::in_range<T>(j.get<std::uint64_t>()))
-        throw out_of_range<T>(j, context);
-    return j.get<T>();
+    auto const wide = j.get<std::uint64_t>();
+    // A 64-bit unsigned target holds every value the reader can produce, so
+    // the range check exists only for the narrower ones.
+    if constexpr (std::numeric_limits<T>::max() < std::numeric_limits<std::uint64_t>::max()) {
+        if (!std::in_range<T>(wide))
+            throw out_of_range<T>(j, context);
+    }
+    return static_cast<T>(wide);
 }
 
 // Parse JSON with the `max_nesting_depth` bound enforced via nlohmann's
@@ -361,7 +366,7 @@ auto decode_decimal_response(std::string_view raw) -> Rational {
 // boundary.
 static auto parse_rational(const Json& j) -> Rational {
     if (j.is_number_integer())
-        return Rational{require_int<std::int64_t>(j, "rational integer"), 1};
+        return Rational{require_int<std::int64_t>(j, "rational integer"), std::int64_t{1}};
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
         auto [num, den] = parse_rational_dict(j);
         return Rational{num, den};

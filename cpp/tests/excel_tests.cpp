@@ -1195,3 +1195,17 @@ TEST_CASE("excel: a header far to the right of the others is still read", "[exce
     REQUIRE(result->size() == 1);
     CHECK((*result)[0].check_severity() == "critical");
 }
+
+TEST_CASE("excel: DBC multiplex value zero is a value, not an absence", "[excel][mux]") {
+    TempPath tf("excel_dbc_mux_zero.xlsx");
+    make_dbc_workbook(tf.path, {{"256", "Msg", "8", "MuxSig", "0", "8", "little_endian", "FALSE",
+                                 "1", "0", "0", "255", "", "Selector", "0", ""}});
+    auto result = load_dbc_from_excel(tf.path);
+    REQUIRE(result.has_value());
+    REQUIRE(result->messages.size() == 1);
+    auto const& sig = result->messages[0].signals[0];
+    auto const* mux = std::get_if<Multiplexed>(&sig.presence);
+    REQUIRE(mux != nullptr);
+    REQUIRE(mux->multiplex_values.size() == 1);
+    CHECK(mux->multiplex_values[0] == MultiplexValue{0});
+}

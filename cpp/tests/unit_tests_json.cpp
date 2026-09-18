@@ -8,6 +8,7 @@
 // formula into a human-readable string.
 #include "test_helpers.hpp"
 
+#include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -18,6 +19,7 @@
 #include <aletheia/enrich.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
@@ -25,6 +27,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -2249,26 +2252,70 @@ TEST_CASE("serialize_set_properties refuses a formula nested past the depth boun
     // Nesting to the bound is accepted and one level more is refused here
     // rather than on the wire, whichever operand the depth descends through:
     // the unary operand, or the left or the right operand of a binary one.
-    enum class Through : std::uint8_t { Unary, Left, Right };
-    auto const through = GENERATE(Through::Unary, Through::Left, Through::Right);
-    auto const nest = [through](std::uint64_t depth) {
+    // Every alternative that carries a formula is its own serializer
+    // instantiation, so each is nested on its own: the unary ones through their
+    // operand, the binary ones through the left and through the right.
+    using Wrap = std::function<LtlFormula(LtlFormula, LtlFormula)>;
+    auto const us = Timestamp{1};
+    auto const metric_until = [us](LtlFormula left, LtlFormula right) {
+        return LtlFormula{MetricUntil{.bound = us,
+                                      .left = std::make_unique<LtlFormula>(std::move(left)),
+                                      .right = std::make_unique<LtlFormula>(std::move(right))}};
+    };
+    auto const metric_release = [us](LtlFormula left, LtlFormula right) {
+        return LtlFormula{MetricRelease{.bound = us,
+                                        .left = std::make_unique<LtlFormula>(std::move(left)),
+                                        .right = std::make_unique<LtlFormula>(std::move(right))}};
+    };
+    auto const wrap = GENERATE_COPY(
+        Wrap{[](LtlFormula f, LtlFormula) { return ltl::next(std::move(f)); }},
+        Wrap{[](LtlFormula f, LtlFormula) { return ltl::weak_next(std::move(f)); }},
+        Wrap{[](LtlFormula f, LtlFormula) { return ltl::always(std::move(f)); }},
+        Wrap{[](LtlFormula f, LtlFormula) { return ltl::eventually(std::move(f)); }},
+        Wrap{[](LtlFormula f, LtlFormula) { return ltl::negate(std::move(f)); }},
+        Wrap{[us](LtlFormula f, LtlFormula) { return ltl::within(us, std::move(f)); }},
+        Wrap{[us](LtlFormula f, LtlFormula) { return ltl::always_within(us, std::move(f)); }},
+        Wrap{
+            [](LtlFormula f, LtlFormula leaf) { return ltl::both(std::move(f), std::move(leaf)); }},
+        Wrap{
+            [](LtlFormula f, LtlFormula leaf) { return ltl::both(std::move(leaf), std::move(f)); }},
+        Wrap{[](LtlFormula f, LtlFormula leaf) {
+            return ltl::either(std::move(f), std::move(leaf));
+        }},
+        Wrap{[](LtlFormula f, LtlFormula leaf) {
+            return ltl::either(std::move(leaf), std::move(f));
+        }},
+        Wrap{[](LtlFormula f, LtlFormula leaf) {
+            return ltl::until(std::move(f), std::move(leaf));
+        }},
+        Wrap{[](LtlFormula f, LtlFormula leaf) {
+            return ltl::until(std::move(leaf), std::move(f));
+        }},
+        Wrap{[](LtlFormula f, LtlFormula leaf) {
+            return ltl::release(std::move(f), std::move(leaf));
+        }},
+        Wrap{[](LtlFormula f, LtlFormula leaf) {
+            return ltl::release(std::move(leaf), std::move(f));
+        }},
+        Wrap{[&](LtlFormula f, LtlFormula leaf) {
+            return metric_until(std::move(f), std::move(leaf));
+        }},
+        Wrap{[&](LtlFormula f, LtlFormula leaf) {
+            return metric_until(std::move(leaf), std::move(f));
+        }},
+        Wrap{[&](LtlFormula f, LtlFormula leaf) {
+            return metric_release(std::move(f), std::move(leaf));
+        }},
+        Wrap{[&](LtlFormula f, LtlFormula leaf) {
+            return metric_release(std::move(leaf), std::move(f));
+        }});
+    auto const nest = [&wrap](std::uint64_t depth) {
         auto const leaf = [] {
             return ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{1, 1}}));
         };
         auto f = leaf();
-        for (std::uint64_t i = 0; i < depth; ++i) {
-            switch (through) {
-            case Through::Unary:
-                f = ltl::next(std::move(f));
-                break;
-            case Through::Left:
-                f = ltl::both(std::move(f), leaf());
-                break;
-            case Through::Right:
-                f = ltl::both(leaf(), std::move(f));
-                break;
-            }
-        }
+        for (std::uint64_t i = 0; i < depth; ++i)
+            f = wrap(std::move(f), leaf());
         std::vector<LtlFormula> props;
         props.push_back(std::move(f));
         return props;
@@ -2293,10 +2340,41 @@ TEST_CASE("a rational whose numerator is INT64_MIN is emitted raw, as a pair",
     CHECK(value["denominator"] == 1);
 }
 
-TEST_CASE("Rational refuses a zero denominator on both construction paths", "[rational]") {
-    CHECK_THROWS_AS(Rational(1, 0), std::invalid_argument);
-    CHECK_THROWS_AS(Rational(1, -1), std::invalid_argument);
-    CHECK_FALSE(Rational::make(1, 0).has_value());
-    CHECK_FALSE(Rational::make(1, -1).has_value());
-    CHECK(Rational::make(1, 1).has_value());
+// The constructor and make are templates over the integral types, so each
+// width and signedness a caller uses is its own instantiation, and each must
+// refuse the zero and admit the one on its own. A signed one also refuses the
+// negative; an unsigned one has none to refuse.
+TEMPLATE_TEST_CASE("Rational refuses a non-positive denominator on both construction paths",
+                   "[rational]", short, int, long, long long, unsigned short, unsigned,
+                   unsigned long, unsigned long long) {
+    using T = TestType;
+    CHECK_THROWS_AS(Rational(T{1}, T{0}), std::invalid_argument);
+    CHECK(Rational(T{1}, T{1}).denominator() == 1);
+    CHECK_FALSE(Rational::make(T{1}, T{0}).has_value());
+    CHECK(Rational::make(T{1}, T{1}).has_value());
+    if constexpr (std::is_signed_v<T>) {
+        CHECK_THROWS_AS(Rational(T{1}, T{-1}), std::invalid_argument);
+        CHECK_FALSE(Rational::make(T{1}, T{-1}).has_value());
+    }
+}
+
+TEST_CASE("an integer field past the signed 64-bit range is refused by its width",
+          "[json][parse][bounds]") {
+    // The largest unsigned value takes the unsigned branch of the reader,
+    // where the signed one would wrap it to minus one and accept it.
+    auto const big = detail::parse_extraction(R"({
+        "status": "success",
+        "values": [{"name": "S", "value": {"numerator": 18446744073709551615, "denominator": 1}}],
+        "errors": [], "absent": []
+    })");
+    REQUIRE_FALSE(big.has_value());
+    CHECK_THAT(std::string{big.error().message()}, ContainsSubstring("out of range"));
+    auto const var = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {"version": "1.0", "messages": [],
+                "environmentVars": [{"name": "Wide", "varType": 18446744073709551615,
+                                     "initial": 0, "minimum": 0, "maximum": 0}]}
+    })");
+    REQUIRE_FALSE(var.has_value());
+    CHECK_THAT(std::string{var.error().message()}, ContainsSubstring("varType is out of range"));
 }
