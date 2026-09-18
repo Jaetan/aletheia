@@ -15,9 +15,12 @@
 # mutator builds a 42 for a bool-returning call and LLVM's APInt asserts on it,
 # which aborts clang on every source with such a call; libirm also gets the one
 # include and the one call LLVM 23 changed (Constant::isZeroValue is gone, and
-# a ConstantFP's own isZero together with Constant::isNullValue says the same);
-# and a Debian release without a VERSION_ID in /etc/os-release (testing, sid)
-# is read as the debian:13 row.
+# a ConstantFP's own isZero together with Constant::isNullValue says the same),
+# and its void-call mutator leaves destructor calls and landing-pad calls
+# alone (tools/mull/libirm-void-call-removal.patch): removing a destructor
+# leaks, and a landing pad runs only while unwinding, so neither is a change
+# a test can see; and a Debian release without a VERSION_ID in
+# /etc/os-release (testing, sid) is read as the debian:13 row.
 #
 # Needs clang-<version>, /usr/lib/llvm-<version> (the llvm-<version>-dev and
 # libclang-<version>-dev packages), git and curl.  bazelisk is fetched into the
@@ -47,6 +50,10 @@ src=$(mktemp -d)
 trap 'rm -rf "$src"' EXIT
 git clone --quiet --depth 1 --branch "$mull_tag" --recursive \
     https://github.com/mull-project/mull "$src"
+# libirm's void-call mutator is patched to leave destructor calls and
+# landing-pad calls alone; the patch file travels with this script and is
+# handed to Bazel as a label in the mull workspace.
+cp "$(dirname "$0")/mull/libirm-void-call-removal.patch" "$src/"
 git -C "$src" apply - <<'PATCH'
 diff --git a/MODULE.bazel b/MODULE.bazel
 index 2d6bf93..02e30f1 100644
@@ -102,7 +109,7 @@ index 004ef56..15137ef 100644
 diff --git a/mull_deps.bzl b/mull_deps.bzl
 --- a/mull_deps.bzl
 +++ b/mull_deps.bzl
-@@ -153,10 +153,14 @@ def _mull_deps_extension(module_ctx):
+@@ -153,10 +153,16 @@ def _mull_deps_extension(module_ctx):
                  )
                  http_archive(
                      name = irm_repo_name,
@@ -113,6 +120,8 @@ diff --git a/mull_deps.bzl b/mull_deps.bzl
 +                    urls = ["https://github.com/mull-project/libirm/archive/b1888b732f1c2d166ec88f83912ac296ca32beea.zip"],
 +                    strip_prefix = "libirm-b1888b732f1c2d166ec88f83912ac296ca32beea",
                      build_file_content = IRM_BUILD_FILE.format(LLVM_VERSION = version),
++                    patches = ["//:libirm-void-call-removal.patch"],
++                    patch_args = ["-p1"],
 +                    patch_cmds = [
 +                        "sed -i '1i #include <llvm/IR/Constants.h>' lib/ConstantReplacement.cpp",
 +                        "sed -i 's/constant->isZeroValue()/(llvm::isa<llvm::ConstantFP>(constant) ? llvm::cast<llvm::ConstantFP>(constant)->isZero() : constant->isNullValue())/' lib/ConstantReplacement.cpp",

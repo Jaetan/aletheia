@@ -1,0 +1,19 @@
+Removing a destructor call leaks the object, and a call in a landing pad
+runs only while an exception unwinds: neither is a change in logic a test
+can be written to see, so the void-call mutator leaves both alone.
+--- a/lib/VoidCallRemoval.cpp
++++ b/lib/VoidCallRemoval.cpp
+@@ -32,6 +32,13 @@ bool VoidCallRemoval::canMutate(llvm::Instruction *instruction) {
+   if (!call->getCalledFunction()) {
+     return false;
+   }
++  if (instruction->getParent()->isLandingPad()) {
++    return false;
++  }
++  llvm::StringRef callee = call->getCalledFunction()->getName();
++  if (callee.ends_with("D0Ev") || callee.ends_with("D1Ev") || callee.ends_with("D2Ev")) {
++    return false;
++  }
+   assert(call->getFunctionType()->getReturnType());
+   if (call->getFunctionType()->getReturnType()->getTypeID() != llvm::Type::VoidTyID) {
+     return false;
