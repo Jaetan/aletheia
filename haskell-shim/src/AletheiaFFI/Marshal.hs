@@ -164,14 +164,23 @@ validateDLCAndLen ctx dlc dataLen
         Left $ FFIBoundExceeded "frame_byte_count"
                                 (fromIntegral dataLen)
                                 maxFrameByteCount
-    | dlc > 15  = Left $ FFIStringError $
-        ctx ++ ": DLC " ++ show dlc ++ " exceeds maximum (15)"
+    | Left err <- validateDLC ctx dlc = Left err
     | fromIntegral dataLen /= dlcToBytes dlc =
         Left $ FFIStringError $
             ctx ++ ": dataLen " ++ show dataLen ++ " != dlcToBytes " ++ show dlc
     | otherwise = Right (dlcToBytes dlc)
 
--- | Construct MAlonzo DLC from raw Integer. Caller validates ∈ [0,15].
+-- | The DLC bound every binary entry holds before it constructs a DLC: the
+-- Agda constructor's proof is erased, so a code past 15 would otherwise
+-- reach the kernel and size the frame it builds by the raw byte.
+validateDLC :: String -> Word8 -> Either FFIError ()
+validateDLC ctx dlc
+    | dlc > 15  = Left $ FFIStringError $
+        ctx ++ ": DLC " ++ show dlc ++ " exceeds maximum (15)"
+    | otherwise = Right ()
+
+-- | Construct MAlonzo DLC from raw Integer. Caller validates ∈ [0,15]
+-- through `validateDLC` or `validateDLCAndLen`.
 mkAgdaDLC :: Integer -> AgdaDLC.T_DLC_18
 mkAgdaDLC = AgdaDLC.C_mkDLC_28
 

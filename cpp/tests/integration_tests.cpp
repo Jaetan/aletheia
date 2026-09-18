@@ -11,10 +11,12 @@
 #include <aletheia/aletheia.hpp>
 
 #include <algorithm>
+#include <array>
 #include <barrier>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <dlfcn.h>
 #include <exception>
 #include <expected>
 #include <filesystem>
@@ -24,12 +26,14 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <utility>
 #include <variant>
 #include <vector>
 
 #include "repo_root.hpp"
+#include "temp_path.hpp"
 #include <catch2/catch_message.hpp>
 
 using aletheia::test::repo_root;
@@ -796,6 +800,84 @@ TEST_CASE("the FFI backend's own guards answer on its interface", "[integration]
         REQUIRE_FALSE(extracted.has_value());
         CHECK(extracted.error().kind() == ErrorKind::Protocol);
     }
+}
+
+// The wire carries the DLC as one byte and the kernel sizes the frame it
+// builds from it, so a code past 15 is refused at the entry, before any
+// signal is placed. The typed API cannot send one, so the test reaches the
+// entry the way the backend does, through the library's own symbol.
+TEST_CASE("the kernel refuses a DLC code past 15 on the binary build entry", "[integration]") {
+    auto const lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    auto const state = backend->init();
+    void* const handle = dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD);
+    REQUIRE(handle != nullptr);
+    using BuildFn = std::int8_t (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t, std::uint32_t,
+                                    const std::uint32_t*, const std::int64_t*, const std::int64_t*,
+                                    std::uint8_t*, char**);
+    using FreeFn = void (*)(char*);
+    // dlsym returns void*; POSIX guarantees the round trip through void*
+    // preserves function pointers wherever dlopen exists.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    auto const build = reinterpret_cast<BuildFn>(dlsym(handle, "aletheia_build_frame_bin"));
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    auto const free_str = reinterpret_cast<FreeFn>(dlsym(handle, "aletheia_free_str"));
+    REQUIRE(build != nullptr);
+    REQUIRE(free_str != nullptr);
+
+    std::array<std::uint8_t, 64> out{};
+    char* err = nullptr;
+    auto const status =
+        build(state.get(), 0x100, 0, 42, 0, nullptr, nullptr, nullptr, out.data(), &err);
+    CHECK(status == 1);
+    REQUIRE(err != nullptr);
+    CHECK(std::string_view{err}.contains("DLC 42 exceeds maximum (15)"));
+    free_str(err);
+    dlclose(handle);
+}
+
+namespace {
+// Hides two of the library search's three routes, the environment and the
+// working directory, and restores both when the test ends.
+class HiddenSearchRoutes {
+public:
+    HiddenSearchRoutes() : cwd_{fs::current_path()} {
+        if (const char* cur = std::getenv("ALETHEIA_LIB"))
+            saved_ = cur;
+        ::unsetenv("ALETHEIA_LIB");
+        // Two levels down, so no relative candidate the search tries from
+        // here can land on a build directory a developer keeps under /tmp.
+        auto const nowhere = aletheia::test::scratch_dir() / "search" / "nowhere";
+        fs::create_directories(nowhere);
+        fs::current_path(nowhere);
+    }
+    ~HiddenSearchRoutes() {
+        std::error_code ec;
+        fs::current_path(cwd_, ec);
+        if (saved_)
+            ::setenv("ALETHEIA_LIB", saved_->c_str(), /*overwrite=*/1);
+    }
+    HiddenSearchRoutes(const HiddenSearchRoutes&) = delete;
+    HiddenSearchRoutes(HiddenSearchRoutes&&) = delete;
+    auto operator=(const HiddenSearchRoutes&) -> HiddenSearchRoutes& = delete;
+    auto operator=(HiddenSearchRoutes&&) -> HiddenSearchRoutes& = delete;
+
+private:
+    fs::path cwd_;
+    std::optional<std::string> saved_;
+};
+} // namespace
+
+// The renderer consults the path the first backend registered when the
+// environment names none and the working directory holds no candidate, which
+// keeps a renderer in a process that moved elsewhere on the backend's library.
+TEST_CASE("the library the first backend loaded is found from anywhere", "[integration]") {
+    auto const lib = find_lib();
+    auto const backend = make_ffi_backend(lib);
+    const HiddenSearchRoutes hidden;
+    auto const found = find_ffi_library();
+    REQUIRE_FALSE(found.empty());
+    CHECK(fs::equivalent(found, lib));
 }
 
 TEST_CASE("update then extract round-trip via real FFI", "[integration]") {

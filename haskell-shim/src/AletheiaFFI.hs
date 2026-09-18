@@ -227,14 +227,16 @@ aletheia_build_frame_bin statePtr canId ext dlc numSignals indicesPtr numsPtr de
     indicesE <- peekArrayChecked "aletheia_build_frame_bin indices" n indicesPtr
     numsE <- peekArrayChecked "aletheia_build_frame_bin nums" n numsPtr
     densE <- peekArrayChecked "aletheia_build_frame_bin dens" n densPtr
-    case (,,) <$> indicesE <*> numsE <*> densE of
-      Left err -> errorOut err outErr
-      Right (indices, nums, dens) ->
-        case (,) <$> mkAgdaCanId canId ext <*> mkSignalPairs indices nums dens of
-          Left err -> errorOut err outErr
-          Right (agdaCanId, pairs) -> runBinDispatch statePtr
-            (\s -> AgdaBin.d_processBuildFrameBin_72 s agdaCanId (mkAgdaDLC (toInteger dlc)) pairs)
-            outBuf outErr
+    case validateDLC "aletheia_build_frame_bin" dlc of
+      Left ffiErr -> errorOut (formatFFIError ffiErr) outErr
+      Right _ -> case (,,) <$> indicesE <*> numsE <*> densE of
+        Left err -> errorOut err outErr
+        Right (indices, nums, dens) ->
+          case (,) <$> mkAgdaCanId canId ext <*> mkSignalPairs indices nums dens of
+            Left err -> errorOut err outErr
+            Right (agdaCanId, pairs) -> runBinDispatch statePtr
+              (\s -> AgdaBin.d_processBuildFrameBin_72 s agdaCanId (mkAgdaDLC (toInteger dlc)) pairs)
+              outBuf outErr
 
 foreign export ccall aletheia_update_frame_bin
     :: StateHandle -> Word32 -> Word8 -> Word8
