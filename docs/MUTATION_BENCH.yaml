@@ -164,9 +164,9 @@ bindings:
       # (test-only and type definitions).  This list is what the static gate
       # requires to exist; it does not select what Mull mutates.  The IR
       # plugin is attached to the library and the test binary, so Mull
-      # mutates whatever those compile, which reaches files not listed here
-      # and produces nothing for listed files whose operators it does not
-      # recognise.
+      # mutates whatever those compile and the link keeps, which reaches
+      # files not listed here.  A listed file with no mutant is a defect of
+      # the lane, not of the file: a probe holds that every file here has one.
       - cpp/src/backend.cpp
       - cpp/src/client.cpp
       - cpp/src/dbc.cpp
@@ -182,6 +182,13 @@ bindings:
       compiler: clang-23
       ir_plugin: ~/.local/bin/mull-ir-frontend-23
       runner: mull-runner-23
+      # Read by the plugin and the runner from their working directory upward.
+      # It names the mutator set and the paths held out (the vendored
+      # libraries and the system headers).  The mutation build records each
+      # unit's command line, which the plugin's junk detector re-parses with,
+      # and takes no ccache launcher, because ccache hashes neither this file
+      # nor the plugin.
+      mutators: cpp/mull.yml
     invocation: |
       # The ALETHEIA_MUTATION build folds tests/integration_tests.cpp into the
       # unit_tests binary so the real FfiBackend (dlopen glue) is on the
@@ -197,20 +204,48 @@ bindings:
       # the "Surviving mutants: N" / "Mutation score: P%" summary at the
       # tail.  Killed count derived from survived + score_pct.
     baseline:
-      # Zero survivors is the floor: any survivor on a future commit fails the
-      # lane, matching the Go binding above.
+      # The measured survivor count of the ruled surface is the floor: a
+      # survivor above it on a future commit fails the lane, and the count is
+      # worked down by the change that kills or justifies a survivor, which
+      # lowers it here in the same commit.
       #
-      # Two decisions hold the floor.  The mutation binary folds in the
-      # real-FFI integration tests, because a mock-only binary never executes
-      # the dlopen glue and Mull reports its mutants as uncovered.  Four
-      # boundary mutants on the payload-size guards sit behind the client's
-      # own size pre-check and are reachable only at exactly sixty-four
-      # bytes, which the integration suite's boundary case supplies.
+      # What holds the surface. The mutation binary folds in the real-FFI
+      # integration suite and the two loader suites, because a mock-only
+      # binary never executes the dlopen glue and the static link drops a
+      # loader object nothing references. The build records each unit's
+      # command line, without which Mull's junk detector drops every mutant
+      # of a unit it cannot re-parse. The mutator set and the held-out paths
+      # (vendored, system, and the test sources) are cpp/mull.yml. Fixtures
+      # live under a per-process directory, so parallel mutant runs do not
+      # fail each other.
       #
-      # The surface moves with the compiler, so the count below is a
+      # What the survivors are. Most are call mutants that are equivalent by
+      # construction (a reserve of a size replaced by a constant); the rest
+      # are gaps in the suites, listed by file and line in the sweep report
+      # under benchmarks/mutation/<short-sha>/.
+      #
+      # A timeout is a kill by another route: the runner counts it against
+      # the total, not as a survivor. Its exact count is not stable for a
+      # mutant whose behaviour is undefined (a signal count replaced by a
+      # constant reads past the arrays, and crashes on one run and hangs on
+      # the next), so the probe holds it within a stated margin of the count
+      # recorded here.
+      #
+      # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
-      survivors: 0
-      total_mutants: 62
-      timeouts: 0
-      score_pct: 100
+      survivors: 264
+      total_mutants: 890
+      timeouts: 6
+      score_pct: 70
+      run_at: "2026-09-17"
+      # The lane refuses a sweep with more than this many timed out, because a
+      # mutant that times out is neither killed nor lived and a sweep that
+      # timed out on nearly all of them reports no survivors and full efficacy.
+      # A quiet host on a cold test cache gives 11, in the file carrying the
+      # cgo trampolines, whose mutants each reload the library; a sweep with a
+      # second sweep beside it gave 622, and a sweep run straight after another
+      # gave 632. This sits far enough above the first not to flake and far
+      # enough below the others to fail hard.
+      timeout_ceiling: 50
+
       run_at: "2026-09-15"

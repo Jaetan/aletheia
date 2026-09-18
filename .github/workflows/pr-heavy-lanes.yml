@@ -493,13 +493,15 @@ jobs:
       # test clang-23 codegen.  tools/build_mull.sh builds Mull from source
       # against the system LLVM-23 (Bazel; /usr/lib/llvm-23), carrying the patch
       # Mull 0.34.1 needs to see LLVM 23.  Cached so it is a one-time cost per
-      # (Mull tag, LLVM version).
+      # build script: the key hashes tools/build_mull.sh, which pins the Mull
+      # tag, the LLVM version and the patch, so any change to what is built
+      # misses the cache rather than replaying the previous binaries.
       - name: Cache Mull-23 (built from source vs LLVM-23)
         id: mull23
         uses: actions/cache@v6
         with:
           path: ~/mull-bin
-          key: mull23-0.34.1-llvm23-noble-v2
+          key: mull23-noble-${{ hashFiles('tools/build_mull.sh') }}
       - name: Build Mull-23 from source (cache miss)
         if: steps.mull23.outputs.cache-hit != 'true'
         run: tools/build_mull.sh "${HOME}/mull-bin"

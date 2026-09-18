@@ -10,6 +10,8 @@
 #include <aletheia/error.hpp>
 #include <aletheia/yaml.hpp>
 
+#include "temp_path.hpp"
+
 #include <filesystem>
 #include <fstream>
 #include <ios>
@@ -264,7 +266,7 @@ checks:
 // ===========================================================================
 
 TEST_CASE("yaml: load from file", "[yaml][file]") {
-    auto const tmp = std::filesystem::temp_directory_path() / "aletheia_yaml_test.yaml";
+    auto const tmp = aletheia::test::scratch_dir() / "aletheia_yaml_test.yaml";
     {
         std::ofstream ofs(tmp);
         ofs << R"(
@@ -523,12 +525,12 @@ checks:
 // ===========================================================================
 
 TEST_CASE("yaml: symlink rejected", "[yaml][hardening]") {
-    auto const real = std::filesystem::temp_directory_path() / "yaml_real_target.yaml";
+    auto const real = aletheia::test::scratch_dir() / "yaml_real_target.yaml";
     {
         std::ofstream ofs(real);
         ofs << "checks:\n  - signal: Speed\n    condition: never_exceeds\n    value: 200\n";
     }
-    auto const link = std::filesystem::temp_directory_path() / "yaml_symlink.yaml";
+    auto const link = aletheia::test::scratch_dir() / "yaml_symlink.yaml";
     if (std::filesystem::exists(link))
         std::filesystem::remove(link);
     std::error_code ec;
@@ -548,7 +550,7 @@ TEST_CASE("yaml: symlink rejected", "[yaml][hardening]") {
 }
 
 TEST_CASE("yaml: file size cap rejected", "[yaml][hardening]") {
-    auto const tmp = std::filesystem::temp_directory_path() / "yaml_oversize.yaml";
+    auto const tmp = aletheia::test::scratch_dir() / "yaml_oversize.yaml";
     {
         std::ofstream ofs(tmp, std::ios::binary);
         std::vector<char> chunk(1024UL * 1024, 'a');

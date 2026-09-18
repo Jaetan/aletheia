@@ -437,26 +437,23 @@ static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResul
 
     // Which columns the obligation reads is the vocabulary's business, not
     // this loader's; which columns they are, and what to say when one is
-    // missing, is this loader's.
+    // missing, is this loader's. Only the slots the obligation reads are
+    // handed over.
     CheckResult result = [&] -> CheckResult {
-        // The slots the obligation does not read stay at zero and the
-        // dispatcher ignores them.
-        PhysicalValue value{Rational{0, 1}};
-        PhysicalValue lo{Rational{0, 1}};
-        PhysicalValue hi{Rational{0, 1}};
+        detail::ThenSlotValues read;
         switch (*slots) {
         case detail::ThenSlots::Value:
-            value = PhysicalValue{get_decimal(cells, "Then Value", ctx_str)};
+            read.emplace("value", PhysicalValue{get_decimal(cells, "Then Value", ctx_str)});
             break;
         case detail::ThenSlots::Range:
             if (!has_key(cells, "Then Min") || !has_key(cells, "Then Max"))
                 throw std::runtime_error(ctx_str + ": then condition '" + then_cond +
                                          "' requires 'Then Min' and 'Then Max'");
-            lo = PhysicalValue{get_decimal(cells, "Then Min", ctx_str)};
-            hi = PhysicalValue{get_decimal(cells, "Then Max", ctx_str)};
+            read.emplace("lo", PhysicalValue{get_decimal(cells, "Then Min", ctx_str)});
+            read.emplace("hi", PhysicalValue{get_decimal(cells, "Then Max", ctx_str)});
             break;
         }
-        return detail::dispatch_then(then_builder, then_cond, value, lo, hi, within_ms);
+        return detail::dispatch_then(then_builder, then_cond, read, within_ms);
     }();
 
     apply_row_metadata(result, cells, ctx_str);

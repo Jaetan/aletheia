@@ -34,6 +34,7 @@
 using aletheia::test::repo_root;
 
 using aletheia::test::AsDirectory;
+using aletheia::test::scratch_dir;
 using aletheia::test::TempPath;
 
 using namespace aletheia;
@@ -1060,8 +1061,7 @@ TEST_CASE("temp path: every shape is removed when its scope ends", "[excel][temp
         in >> body;
         CHECK(body == "hello");
 
-        const TempPath dir{std::filesystem::temp_directory_path() / "aletheia_temp_path_dir",
-                           AsDirectory{}};
+        const TempPath dir{scratch_dir() / "aletheia_temp_path_dir", AsDirectory{}};
         made = dir.path;
         std::ofstream{made / "inside.txt"} << "y";
         REQUIRE(std::filesystem::is_directory(made));

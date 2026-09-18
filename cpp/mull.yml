@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# Mull reads this from the compiler's and the runner's working directory upward,
+# so it holds for the plugin compiling under cpp/build-mutation and for
+# mull-runner run from cpp or from that tree.
+#
+# cxx_default is arithmetic, comparison, boundary and increment mutants, which
+# reach only sources that compare or compute on primitive values. cxx_calls adds
+# the removal of a void call and the replacement of a scalar-returning call with
+# a constant, which is the one mutation that reaches code written as calls: the
+# loaders' condition dispatch is string_view comparisons, and under cxx_default
+# alone it had no mutant at all.
+mutators:
+  - cxx_default
+  - cxx_calls
+# Regular expressions over the mutant's source path. The vendored libraries
+# under the build tree's _deps and the system headers are not this project's
+# surface; the junk detector already skips what clang classes as a system
+# header, and the first two patterns hold the rest out. The test sources are
+# held out too: a mutant in a test measures the harness rather than the
+# library, no test can be written to kill it, and one in a fixture's write
+# loop ran until the runner killed the process, leaving a multi-gigabyte
+# file behind each time. A library header instantiated only from a test keeps
+# its mutants, since the pattern is over the mutant's own file.
+excludePaths:
+  - /_deps/
+  - ^/usr/
+  - /cpp/tests/
+# Milliseconds a mutant run may take before it counts as a timeout. Mull's
+# default is ten times the unmutated run, which is under three seconds here,
+# and under it a mutant that slows the suite reads as a timeout on a loaded
+# runner and as a kill on an idle one. Thirty seconds is above any slow path
+# the suite has and still ends a mutant that hangs.
+timeout: 30000

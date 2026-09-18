@@ -180,25 +180,21 @@ static auto parse_when_then_check(const YAML::Node& entry, const std::string& na
 
     // Which keys the obligation reads is the vocabulary's business, not this
     // loader's; which keys they are, and what to say when one is missing, is
-    // this loader's.
-    // The slots the obligation does not read stay at zero and the dispatcher
-    // ignores them.
-    PhysicalValue value{Rational{0, 1}};
-    PhysicalValue lo{Rational{0, 1}};
-    PhysicalValue hi{Rational{0, 1}};
+    // this loader's. Only the slots the obligation reads are handed over.
+    detail::ThenSlotValues read;
     switch (*slots) {
     case detail::ThenSlots::Value:
-        value = PhysicalValue{get_decimal(then, "value", ctx(name))};
+        read.emplace("value", PhysicalValue{get_decimal(then, "value", ctx(name))});
         break;
     case detail::ThenSlots::Range:
         if (!then["min"] || !then["max"])
             throw std::runtime_error(ctx(name) + ": then condition '" + then_cond +
                                      "' requires 'min' and 'max'");
-        lo = PhysicalValue{get_decimal(then, "min", ctx(name))};
-        hi = PhysicalValue{get_decimal(then, "max", ctx(name))};
+        read.emplace("lo", PhysicalValue{get_decimal(then, "min", ctx(name))});
+        read.emplace("hi", PhysicalValue{get_decimal(then, "max", ctx(name))});
         break;
     }
-    return detail::dispatch_then(then_builder, then_cond, value, lo, hi, within_ms);
+    return detail::dispatch_then(then_builder, then_cond, read, within_ms);
 }
 
 // ---------------------------------------------------------------------------

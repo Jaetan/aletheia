@@ -47,7 +47,6 @@
 #include <vector>
 
 #include <sys/wait.h>
-#include <unistd.h>
 
 #include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -58,6 +57,7 @@
 
 using aletheia::test::AsDirectory;
 using aletheia::test::repo_root;
+using aletheia::test::scratch_dir;
 using aletheia::test::TempPath;
 
 using aletheia::test::read_text_file;
@@ -439,9 +439,7 @@ TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-exa
     auto const& fences = fence_cache();
     REQUIRE_FALSE(fences.empty());
 
-    const TempPath scratch{fs::temp_directory_path() /
-                               ("aletheia_doc_harness_" + std::to_string(::getpid())),
-                           AsDirectory{}};
+    const TempPath scratch{scratch_dir() / "aletheia_doc_harness", AsDirectory{}};
     auto const& workdir = scratch.path;
 
     for (std::size_t i = 0; i < fences.size(); ++i) {

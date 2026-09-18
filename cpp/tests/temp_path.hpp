@@ -10,6 +10,11 @@
 //
 // Non-copyable and non-movable, so the path's life is exactly the scope that
 // declared it.  `path` is public and const, which is what the call sites read.
+//
+// A name is placed under a directory this process owns, not under the system
+// temp directory itself: the mutation lane runs the whole suite in several
+// processes at once, and two of them writing and removing one fixed name
+// failed each other's file-size-cap cases.
 
 #include <filesystem>
 #include <fstream>
@@ -19,7 +24,30 @@
 #include <system_error>
 #include <utility>
 
+#include <unistd.h>
+
 namespace aletheia::test {
+
+/// The scratch directory of this process, created on first use and removed
+/// when the process ends, since a sweep that runs the suite once per mutant
+/// would otherwise leave one directory per run behind.
+[[nodiscard]] inline auto scratch_dir() -> const std::filesystem::path& {
+    struct Owned {
+        std::filesystem::path dir = std::filesystem::temp_directory_path() /
+                                    ("aletheia-cpp-tests-" + std::to_string(::getpid()));
+        Owned() { std::filesystem::create_directories(dir); }
+        ~Owned() {
+            std::error_code ec;
+            std::filesystem::remove_all(dir, ec);
+        }
+        Owned(const Owned&) = delete;
+        Owned(Owned&&) = delete;
+        auto operator=(const Owned&) -> Owned& = delete;
+        auto operator=(Owned&&) -> Owned& = delete;
+    };
+    static const Owned owned;
+    return owned.dir;
+}
 
 // Tag for the directory shape, so the three constructors differ by more than
 // their argument count at the call site.
@@ -27,11 +55,9 @@ struct AsDirectory {};
 
 class TempPath {
 public:
-    // A name under the system temporary directory, with anything already
+    // A name under this process's scratch directory, with anything already
     // there removed.
-    explicit TempPath(std::string_view name) : path(std::filesystem::temp_directory_path() / name) {
-        clear();
-    }
+    explicit TempPath(std::string_view name) : path(scratch_dir() / name) { clear(); }
 
     // The same, with `content` written to it.
     TempPath(std::string_view name, std::string_view content) : TempPath(name) {
