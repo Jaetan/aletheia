@@ -233,9 +233,9 @@ bindings:
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
-      survivors: 123
-      total_mutants: 886
-      timeouts: 2
+      survivors: 93
+      total_mutants: 863
+      timeouts: 0
       score_pct: 70
       run_at: "2026-09-18"
       # The lane refuses a sweep with more than this many timed out, because a

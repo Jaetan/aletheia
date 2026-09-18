@@ -87,45 +87,29 @@ static auto row_ctx(int row_num) -> std::string {
 /// turns dot-free scientific notation ("1e16") into 1 and an empty <v/> into
 /// 0 — so the raw stored text must come from the XML itself. XML entities are
 /// left encoded (they cannot form a digit run, so the strictness check treats
-/// them as the garbage they are). Returns "" for a missing or empty <v>.
+/// them as the garbage they are). Returns "" for a missing or empty <v>: the
+/// element carries no attributes, so its opening tag is the three bytes
+/// searched for, and a self-closing <v/> is not found, which reads as empty.
 static auto raw_stored_v_text(const OpenXLSX::XLCell& cell) -> std::string {
     std::ostringstream os;
     cell.print(os);
     const std::string xml = os.str();
-    // Within a <c> cell node, <v> is the only child element starting with 'v'.
-    std::size_t pos = 0;
-    while ((pos = xml.find("<v", pos)) != std::string::npos) {
-        const std::size_t after = pos + 2;
-        if (after >= xml.size())
-            break;
-        const char next = xml[after];
-        if (next == '>') { // <v>text</v>
-            const std::size_t close = xml.find("</v>", after + 1);
-            if (close == std::string::npos)
-                break;
-            return xml.substr(after + 1, close - (after + 1));
-        }
-        if (next == '/' || next == ' ') { // <v/> or <v attr...>
-            const std::size_t gt = xml.find('>', after);
-            if (gt == std::string::npos)
-                break;
-            if (xml[gt - 1] == '/')
-                return ""; // self-closing: an empty <v/>
-            const std::size_t close = xml.find("</v>", gt);
-            if (close == std::string::npos)
-                break;
-            return xml.substr(gt + 1, close - (gt + 1));
-        }
-        pos = after; // a longer element name — keep scanning
-    }
-    return "";
+    constexpr std::string_view open_tag = "<v>";
+    const std::size_t open = xml.find(open_tag);
+    if (open == std::string::npos)
+        return "";
+    const std::size_t text = open + open_tag.size();
+    const std::size_t close = xml.find("</v>", text);
+    if (close == std::string::npos)
+        return "";
+    return xml.substr(text, close - text);
 }
 
-/// True when s is a non-empty ASCII digit run with an optional single leading
-/// sign — the only raw stored shape whose Integer parse is exact rather than a
-/// prefix-read.
+/// True when s is a non-empty ASCII digit run with an optional leading minus,
+/// which is every shape a stored integer takes and the only one whose Integer
+/// parse is exact rather than a prefix-read.
 static auto is_signed_digit_run(std::string_view s) -> bool {
-    if (s.starts_with('+') || s.starts_with('-'))
+    if (s.starts_with('-'))
         s.remove_prefix(1);
     if (s.empty())
         return false;
@@ -189,7 +173,8 @@ struct DataRow {
 } // namespace
 
 /// Build a header->cell map from a worksheet row, keeping only present
-/// (non-empty) cells and dropping any column with an empty header name.
+/// (non-empty) cells and dropping any column with an empty header name, so
+/// every cell the map holds has a name and a value.
 static auto row_to_map(OpenXLSX::XLWorksheet const& ws, int row,
                        const std::vector<std::string>& headers) -> CellMap {
     CellMap result;
@@ -215,7 +200,7 @@ static auto row_to_map(OpenXLSX::XLWorksheet const& ws, int row,
 static auto get_str(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> std::string {
     auto const it = cells.find(key);
-    if (it == cells.end() || it->second.value.empty())
+    if (it == cells.end())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected string)");
     if (!it->second.is_text)
         throw std::runtime_error(ctx_str + ": '" + key + "' must be text, got a non-text value " +
@@ -228,7 +213,7 @@ static auto get_str(const CellMap& cells, const std::string& key, const std::str
 static auto get_any(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> std::string {
     auto const it = cells.find(key);
-    if (it == cells.end() || it->second.value.empty())
+    if (it == cells.end())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "'");
     return it->second.value;
 }
@@ -245,7 +230,7 @@ static auto get_any(const CellMap& cells, const std::string& key, const std::str
 static auto get_decimal(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> Rational {
     auto const it = cells.find(key);
-    if (it == cells.end() || it->second.value.empty())
+    if (it == cells.end())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected number)");
     if (!it->second.is_text)
         throw std::runtime_error(ctx_str + ": '" + key + "' is a number cell (got " +
@@ -290,7 +275,7 @@ static auto checked_cast(std::int64_t value, std::string_view field, const std::
 static auto get_bool(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> bool {
     auto const it = cells.find(key);
-    if (it == cells.end() || it->second.value.empty())
+    if (it == cells.end())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key +
                                  "' (expected TRUE/FALSE)");
     auto upper = it->second.value;
@@ -305,14 +290,15 @@ static auto get_bool(const CellMap& cells, const std::string& key, const std::st
 }
 
 static auto has_key(const CellMap& cells, const std::string& key) -> bool {
-    auto const it = cells.find(key);
-    return it != cells.end() && !it->second.value.empty();
+    return cells.contains(key);
 }
 
 // ---------------------------------------------------------------------------
 // Header extraction from first row
 // ---------------------------------------------------------------------------
 
+// The row is read to the sheet's column count; a column past the last named
+// header reads as an empty name, which the row map drops.
 static auto headers_from_row(OpenXLSX::XLWorksheet const& ws, std::size_t count)
     -> std::vector<std::string> {
     std::vector<std::string> result;
@@ -332,10 +318,6 @@ static auto headers_from_row(OpenXLSX::XLWorksheet const& ws, std::size_t count)
 // ---------------------------------------------------------------------------
 
 static auto parse_message_id(const std::string& val, const std::string& ctx_str) -> std::uint32_t {
-    if (val.empty())
-        throw std::runtime_error(
-            ctx_str +
-            ": invalid 'Message ID' \xe2\x80\x94 expected integer or hex string (e.g. 0x100)");
     // std::from_chars is locale-independent (unlike std::stoul).
     auto lower = val;
     std::ranges::transform(lower, lower.begin(), [](unsigned char ch) -> char {
