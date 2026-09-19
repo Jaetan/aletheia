@@ -1,4 +1,4 @@
-## C++ (33 categories)
+## C++ (34 categories)
 
 Scope: ALL source files, headers, and test files in `cpp/`.
 
@@ -84,6 +84,17 @@ Scope: ALL source files, headers, and test files in `cpp/`.
     - (b) **libFuzzer harnesses**: one fuzz target per binding-side parser (`fuzz_parse_response`, `fuzz_decode_binary_frame`, `fuzz_parse_dbc_json`, `fuzz_parse_rational_number`); seed corpus under `cpp/tests/fuzz/seed/<target>/`; CI runs each corpus as a 60s smoke plus a nightly extended lane (`-max_total_time=3600`). Fuzz targets compile under both Release and ASan to catch UB-on-fuzzed-input paths.
     - (c) **Property-based tests** via Catch2 generators (`GENERATE`, `GENERATE_REF`): round-trip properties for every wire-format encode/decode pair, parity invariants for `IBackend` defaults vs `FfiBackend` over generated inputs (the response field-set must agree). A binding-side data type without a round-trip property is a finding compounding cat 14 (b)/(c).
     - (d) **Cross-binding integration test**: mirror of Go cat 33d / Python cat 34d — one replay corpus across all three bindings produces identical sequences. Test lives at `cpp/tests/cross_binding_integration_tests.cpp`, opt-in via the same `cross_binding` build flag as the Go and Python entries so the three bindings exercise the same fixtures from one canonical corpus.
+
+### Type Deduction (1)
+
+34. **Deduce the type, do not restate it** -- a declaration whose initializer already fixes its type is written `auto`, in the const and pointer spellings cat 5 fixes: `auto const`, `auto*`, `auto const*`. A type written beside an initializer that already determines it states one fact twice, and the two halves drift: when the initializer's type changes the declaration goes on compiling, converting or narrowing at a line nobody edited. The rule reaches past initializers to any value that has to agree with another's type, which is deduced from that type, `decltype(bound){0}`, rather than spelled again beside it, so a counter and the bound it is compared against cannot come to be different types. Where the loop carries no position, cat 27's range vocabulary is better still: it leaves no counter to type. `modernize-use-auto` does not cover the class. It fires on a `new` expression, an explicit cast and an iterator declaration, which are the declarations whose written type cannot disagree with anything, and says nothing about one initialised from a call: the check covers what cannot be wrong and is silent on what can, which is the blind spot cat 27 records for `modernize-loop-convert` in another place.
+
+    A declaration built from literals alone is outside the class rather than an exception to it: `constexpr int k_json_indent = 2` fixes the type by writing it, the literal's own type following its spelling, so deducing there moves the decision into a suffix. The exceptions proper are declarations inside the class that keep their written type, because the type is a decision deduction would erase:
+
+    - **a wire-format width**: `const std::uint16_t name_len = load_le16(rest, 28)` says the field is two bytes because the format says so, the reader's return type being derived from the format and not the field from the reader. Under `auto` the format's contract is stated nowhere in the decoder.
+    - **a narrowing or a widening that is itself the decision**: the central directory's entry size is declared `std::size_t` so that summing the name, extra and comment lengths cannot wrap, and it holds that guarantee after any one addend changes width.
+    - **a declared type on a public interface**: a header's constant, a return type and a parameter type are the contract a consumer compiles against, not a deduction from a definition the consumer never reads.
+    - **a site where the deduced type is the wrong one**: a proxy reference, `std::vector<bool>`'s or the spreadsheet cell accessor's, where the written type is what calls the proxy's conversion operator and `auto` would take the proxy and copy a reference to a temporary; a braced initializer whose deduction differs from the type declared; and anywhere a copy is wanted from an expression that deduces to a reference.
 
 ### Verification
 

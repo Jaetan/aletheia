@@ -241,7 +241,7 @@ Per-language category lists and guidelines have been split into per-file modules
 |----------|------|------------|
 | Agda     | [`AGENTS/agda.md`](AGENTS/agda.md)     | 32 |
 | Go       | [`AGENTS/go.md`](AGENTS/go.md)         | 33 |
-| C++      | [`AGENTS/cpp.md`](AGENTS/cpp.md)       | 33 |
+| C++      | [`AGENTS/cpp.md`](AGENTS/cpp.md)       | 34 |
 | Rust     | [`AGENTS/rust.md`](AGENTS/rust.md)     | 33 |
 | Python   | [`AGENTS/python.md`](AGENTS/python.md) | 34 |
 | CI/CD    | [`AGENTS/cicd.md`](AGENTS/cicd.md)     | 5  |
