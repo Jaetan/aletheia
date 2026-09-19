@@ -337,8 +337,8 @@ static auto wire_signal_errors(std::span<const std::byte> buf, std::size_t error
                                std::uint16_t nerrs, std::uint32_t reason_bytes,
                                const std::vector<std::string>& names)
     -> Result<std::vector<SignalError>> {
-    const std::size_t offsets_off = errors_off + (std::size_t{nerrs} * k_error_record_bytes);
-    const std::size_t reasons_off = offsets_off + ((std::size_t{nerrs} + 1) * k_offset_bytes);
+    auto const offsets_off = errors_off + (std::size_t{nerrs} * k_error_record_bytes);
+    auto const reasons_off = offsets_off + ((std::size_t{nerrs} + 1) * k_offset_bytes);
     // Each segment is a run of fixed-size records, so it is read as the
     // records themselves: the count and the slicing then agree by
     // construction, and the segments lie inside the buffer by the caller's
@@ -428,7 +428,7 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
             ErrorKind::Protocol,
             std::format("Extraction buffer size mismatch: {} bytes, expected exactly {}",
                         buf.size(), expected_size)});
-    std::size_t off = k_header_bytes;
+    auto off = k_header_bytes;
 
     ExtractionResult result;
     result.values.reserve(nvals);

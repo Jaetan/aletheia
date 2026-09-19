@@ -108,7 +108,7 @@ auto search_ffi_library(const char* env_path, std::string_view registered_path,
              "../build/libaletheia-ffi.so",
              "build/libaletheia-ffi.so",
          }) {
-        const fs::path p = cwd / candidate;
+        auto const p = cwd / candidate;
         if (fs::exists(p))
             return fs::canonical(p);
     }
@@ -150,7 +150,7 @@ static auto load_renderer(const std::filesystem::path& lib_path)
         return std::unexpected(std::string{"renderer dlopen failed: "} + dlerror());
     auto const load_sym = [&](const char* name) -> std::expected<void*, std::string> {
         dlerror(); // clear previous errors
-        void* sym = dlsym(opened.get(), name);
+        auto* sym = dlsym(opened.get(), name);
         if (const char* err = dlerror(); err != nullptr)
             return std::unexpected(std::string{"renderer dlsym "} + name + ": " + err);
         return sym;
@@ -223,7 +223,7 @@ template<typename Call>
 static auto kernel_string(Call call, std::string_view whats_down, std::string_view returned_null)
     -> std::string {
     auto& s = loaded_state(whats_down);
-    char* raw = call(s);
+    auto* raw = call(s);
     if (raw == nullptr)
         throw AletheiaException(
             AletheiaError{ErrorKind::Ffi, std::string{returned_null} + " returned a null pointer"});

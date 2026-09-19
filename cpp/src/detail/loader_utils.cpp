@@ -162,7 +162,7 @@ static auto sum_uncompressed_sizes(std::ifstream& f, const EOCD& eocd)
     // iteration count is the directory's own declared entry count.
     std::uint64_t total = 0;
     std::span<const char> rest{cd};
-    for (std::uint16_t i = 0; i < eocd.total_entries; ++i) {
+    for (auto i = decltype(eocd.total_entries){0}; i < eocd.total_entries; ++i) {
         if (rest.size() < k_cd_entry_min)
             return std::nullopt;
         if (load_le32(rest, 0) != k_cd_entry_sig)

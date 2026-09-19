@@ -22,7 +22,7 @@
 
 loops:
   - file: cpp/src/detail/loader_utils.cpp
-    text: "for (std::uint16_t i = 0; i < eocd.total_entries; ++i)"
+    text: "for (auto i = decltype(eocd.total_entries){0}; i < eocd.total_entries; ++i)"
     count: 1
   - file: cpp/tests/doc_example_tests.cpp
     text: "while ((pos = s.find(from, pos)) != std::string::npos)"

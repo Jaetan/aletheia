@@ -38,9 +38,8 @@ auto rts_init_args(int rts_cores, std::string_view override_opts) -> std::vector
     // loop needs is a genuine equivalent under string_view's defined `[size()]`
     // read (it returns a non-space), so a mutation flipping it to `<=` cannot be
     // killed by any input.  find_first_*_of avoids the construct entirely.
-    for (std::size_t start = override_opts.find_first_not_of(k_rts_ws);
-         start != std::string_view::npos;) {
-        const std::size_t end = override_opts.find_first_of(k_rts_ws, start);
+    for (auto start = override_opts.find_first_not_of(k_rts_ws); start != std::string_view::npos;) {
+        auto const end = override_opts.find_first_of(k_rts_ws, start);
         args.emplace_back(override_opts.substr(start, end - start));
         start = override_opts.find_first_not_of(k_rts_ws, end);
     }

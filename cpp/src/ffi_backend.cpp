@@ -38,8 +38,7 @@ namespace {
 
 // CAN-FD's largest payload, aliased from the public limits header so a bound
 // change at that surface reaches this one.
-constexpr std::size_t max_can_fd_payload_bytes =
-    static_cast<std::size_t>(aletheia::max_frame_byte_count);
+constexpr auto max_can_fd_payload_bytes = static_cast<std::size_t>(aletheia::max_frame_byte_count);
 
 // The (value, extended-flag) pair every FFI signature takes for a CAN id.
 struct WireCanId {
@@ -207,7 +206,7 @@ public:
         if (opened == nullptr)
             throw AletheiaException(
                 AletheiaError{ErrorKind::Ffi, std::string("dlopen failed: ") + dlerror()});
-        void* const handle = opened.get();
+        auto* const handle = opened.get();
 
         auto hs_init = load_sym<HsInitFn>(handle, std::string{detail::rts_init_symbol}.c_str());
         init_fn_ = load_sym<AletheiaInitFn>(handle, "aletheia_init");
@@ -244,9 +243,9 @@ public:
             // (guarded by rts.initialized under rts.mu), so their
             // runtime-valued initialisers evaluate once.
             const char* override_env = std::getenv(std::string{detail::rts_override_env}.c_str());
-            static std::vector<std::string> rts_argv =
+            static auto rts_argv =
                 detail::rts_init_args(rts_cores, override_env != nullptr ? override_env : "");
-            static std::vector<char*> rts_argv_ptrs = [] {
+            static auto rts_argv_ptrs = [] {
                 std::vector<char*> ptrs(rts_argv.size());
                 std::ranges::transform(rts_argv, ptrs.begin(),
                                        [](std::string& arg) { return arg.data(); });

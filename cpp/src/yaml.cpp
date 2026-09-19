@@ -224,7 +224,7 @@ static auto parse_when_then_check(const YAML::Node& entry, const std::string& na
 static auto parse_check(const YAML::Node& entry) -> CheckResult {
     auto name = check_name(entry);
 
-    CheckResult result = [&] {
+    auto result = [&] {
         if (entry["when"])
             return parse_when_then_check(entry, name);
         if (entry["signal"])

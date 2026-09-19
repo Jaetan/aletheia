@@ -53,7 +53,7 @@ static auto rational_to_json(const Rational& r) -> Json {
 // A JSON array of the elements of `items`, each through `to_json`.
 template<typename Range, typename ToJson>
 static auto json_array(const Range& items, ToJson to_json) -> Json {
-    Json arr = Json::array();
+    auto arr = Json::array();
     for (auto const& item : items)
         arr.push_back(to_json(item));
     return arr;
@@ -89,7 +89,7 @@ static auto value_entry_to_json(const DbcValueEntry& e) -> Json {
 // A node-valued field crosses the wire as the plain string it always was; the
 // type it carries in the definition says which strings are meant.
 static auto node_names_to_json(const std::vector<NodeName>& names) -> Json {
-    Json out = Json::array();
+    auto out = Json::array();
     for (auto const& n : names)
         out.emplace_back(n.get());
     return out;

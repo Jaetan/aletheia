@@ -95,13 +95,13 @@ static auto row_ctx(int row_num) -> std::string {
 static auto raw_stored_v_text(const OpenXLSX::XLCell& cell) -> std::string {
     std::ostringstream os;
     cell.print(os);
-    const std::string xml = os.str();
+    auto const xml = os.str();
     constexpr std::string_view open_tag = "<v>";
-    const std::size_t open = xml.find(open_tag);
+    auto const open = xml.find(open_tag);
     if (open == std::string::npos)
         return "";
-    const std::size_t text = open + open_tag.size();
-    const std::size_t close = xml.find("</v>", text);
+    auto const text = open + open_tag.size();
+    auto const close = xml.find("</v>", text);
     if (close == std::string::npos)
         return "";
     return xml.substr(text, close - text);
@@ -132,7 +132,7 @@ static auto cell_to_string(const OpenXLSX::XLCell& cell, const std::string& head
     case OpenXLSX::XLValueType::String:
         return val.get<std::string>();
     case OpenXLSX::XLValueType::Integer: {
-        const std::string raw = raw_stored_v_text(cell);
+        auto const raw = raw_stored_v_text(cell);
         if (!is_signed_digit_run(raw))
             throw std::runtime_error(row_ctx(row_num) + ": '" + header + "' number cell stores \"" +
                                      raw +
@@ -334,8 +334,8 @@ static auto parse_message_id(const std::string& val, const std::string& ctx_str)
     std::ranges::transform(lower, lower.begin(), [](unsigned char ch) -> char {
         return static_cast<char>(std::tolower(ch));
     });
-    const bool is_hex = lower.starts_with("0x");
-    const std::string digits = is_hex ? val.substr(2) : val;
+    auto const is_hex = lower.starts_with("0x");
+    auto const digits = is_hex ? val.substr(2) : val;
     std::uint32_t result = 0;
     auto const* const end = sv_end_ptr(digits);
     auto [ptr, ec] = std::from_chars(digits.data(), end, result, is_hex ? 16 : 10);
@@ -367,7 +367,7 @@ static auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
     if (!detail::is_simple_condition(condition))
         throw std::runtime_error(ctx_str + ": unknown condition '" + condition + "'");
 
-    CheckResult result = [&] -> CheckResult {
+    auto result = [&] -> CheckResult {
         if (detail::is_simple_value_condition(condition)) {
             auto const value = PhysicalValue{get_decimal(cells, "Value", ctx_str)};
             return detail::dispatch_simple(signal, condition, value);
@@ -432,7 +432,7 @@ static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResul
     // this loader's; which columns they are, and what to say when one is
     // missing, is this loader's. Only the slots the obligation reads are
     // handed over.
-    CheckResult result = [&] -> CheckResult {
+    auto result = [&] -> CheckResult {
         detail::ThenSlotValues read;
         switch (*slots) {
         case detail::ThenSlots::Value:
@@ -477,8 +477,8 @@ static auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
         unit_str = it->second.value;
 
     // Multiplexing
-    const bool has_muxor = has_key(cells, "Multiplexor");
-    const bool has_mux_val = has_key(cells, "Multiplex Value");
+    auto const has_muxor = has_key(cells, "Multiplexor");
+    auto const has_mux_val = has_key(cells, "Multiplex Value");
 
     if (has_muxor != has_mux_val)
         throw std::runtime_error(ctx_str + ": 'Multiplexor' and 'Multiplex Value' "
@@ -575,8 +575,8 @@ auto load_checks_from_excel(const std::filesystem::path& path, std::string_view 
         OpenXLSX::XLDocument doc;
         doc.open(path.string());
 
-        const bool has_checks = worksheet_exists(doc, checks_sheet);
-        const bool has_when_then = worksheet_exists(doc, when_then_sheet);
+        auto const has_checks = worksheet_exists(doc, checks_sheet);
+        auto const has_when_then = worksheet_exists(doc, when_then_sheet);
 
         if (!has_checks && !has_when_then)
             return std::unexpected(AletheiaError{
@@ -628,7 +628,7 @@ static auto group_rows_by_message(const std::vector<DataRow>& data_rows)
         auto msg_id = parse_message_id(get_any(cells, "Message ID", ctx_str), ctx_str);
         auto const msg_name = get_str(cells, "Message Name", ctx_str);
         auto dlc = get_int(cells, "DLC", ctx_str);
-        const bool extended = has_key(cells, "Extended") && get_bool(cells, "Extended", ctx_str);
+        auto const extended = has_key(cells, "Extended") && get_bool(cells, "Extended", ctx_str);
         MessageKeyExt key{msg_id, msg_name, dlc, extended};
         auto [it, inserted] = positions.try_emplace(key, groups.size());
         if (inserted)

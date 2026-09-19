@@ -560,8 +560,8 @@ static auto json_to_can_id(std::uint32_t id_val, bool extended) -> CanId {
 
 static auto parse_message_def(const Json& j) -> DbcMessage {
     auto const id_val = require_uint<std::uint32_t>(j.at("id"), "message id");
-    const bool extended = j.value("extended", false);
-    const CanId id = json_to_can_id(id_val, extended);
+    auto const extended = j.value("extended", false);
+    auto const id = json_to_can_id(id_val, extended);
 
     auto dlc_result = bytes_to_dlc(require_uint<std::size_t>(j.at("dlc"), "dlc"));
     if (!dlc_result)
@@ -783,8 +783,8 @@ static auto parse_attribute(const Json& j) -> DbcAttribute {
 // and Go `parseUnresolvedValueDescs`.
 static auto parse_raw_value_desc(const Json& j) -> DbcRawValueDesc {
     auto const id_val = require_uint<std::uint32_t>(j.at("id"), "CAN id");
-    const bool extended = j.value("extended", false);
-    const CanId can_id = json_to_can_id(id_val, extended);
+    auto const extended = j.value("extended", false);
+    auto const can_id = json_to_can_id(id_val, extended);
     std::vector<DbcValueEntry> entries;
     for (auto const& e : j.at("entries"))
         entries.push_back(parse_value_entry(e, "value-description value"));

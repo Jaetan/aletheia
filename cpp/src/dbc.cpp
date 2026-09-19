@@ -130,7 +130,7 @@ auto DbcDefinition::message_by_id(const CanId& id) const -> const DbcMessage* {
             map.emplace(message_key(message.id), static_cast<std::size_t>(i));
         }
     });
-    const std::uint64_t key = message_key(id);
+    auto const key = message_key(id);
     return cached_element(id_index_cache.find(key), messages,
                           [&](const DbcMessage& m) { return message_key(m.id) == key; });
 }
