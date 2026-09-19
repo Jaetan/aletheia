@@ -10,6 +10,21 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **No index where a range will do, and a ratchet that holds it.** A loop that
+  counts an index states its own bound, and a hand-written bound can be written
+  wrong where a range's cannot; the failure is quiet, because the standard
+  library checks a subscript or a `subspan` only where its container assertions
+  are compiled in and the optimised build leaves them out. `AGENTS/cpp.md`
+  cat 27 now names the view each loop shape takes and what a surviving index
+  must look like, and `tools/check_cpp_index_loops.py` refuses a counting loop
+  that `docs/CPP_INDEX_LOOPS.yaml` does not already name, as well as a row
+  naming a loop the tree no longer holds, since such a row is standing
+  permission to reintroduce it. `clang-tidy`'s `modernize-loop-convert` cannot
+  serve here: it rewrites a loop only where the index does nothing but
+  subscript one container, which is the case where no bound is hand-written.
+
 ### Fixed
 
 - **The renderer closes a library it refuses.** Loading the rational

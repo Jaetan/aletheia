@@ -1,0 +1,239 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# Every counting loop the C++ tree holds, and the ratchet that keeps the list from
+# growing. AGENTS/cpp.md cat 27, "no index where a range will do": a loop that
+# counts an index states its own bound, and a hand-written bound can be written
+# wrong where a range's cannot. tools/check_cpp_index_loops.py refuses a counting
+# loop this file does not name, and refuses a row naming more loops than the file
+# holds, because such a row is standing permission to reintroduce one.
+#
+# A row leaves this file by the change that rewrites its loop as a range. Adding a
+# row needs user approval, on the same footing as a NOLINT suppression.
+#
+# Rows are keyed by file and by the loop header's canonical text, whitespace
+# collapsed, rather than by a line number, so an edit elsewhere in the file does
+# not move them; `count` is how many loops in that file share the header. A loop
+# is a counting loop when a variable of its header is stepped in the condition, the
+# increment clause or the body. All three spellings are read, `for`, `while` and
+# `do`/`while`, because a gate that knew only `for` would be passed by rewriting the
+# header. A scan advancing its index by a variable amount is a counting loop wherever
+# the step is written, while a getline loop, a find-driven cursor and a read drain
+# are not.
+
+loops:
+  - file: cpp/benchmarks/benchmark.cpp
+    text: "for (int i = 0; i < count; ++i)"
+    count: 1
+  - file: cpp/benchmarks/benchmark.cpp
+    text: "for (int i = 0; i < num_frames; ++i)"
+    count: 3
+  - file: cpp/benchmarks/benchmark.cpp
+    text: "for (int i = 0; i < ops; ++i)"
+    count: 3
+  - file: cpp/benchmarks/benchmark.cpp
+    text: "for (int i = 0; i < warmup; ++i)"
+    count: 3
+  - file: cpp/benchmarks/benchmark.cpp
+    text: "for (int r = 0; r < num_runs; ++r)"
+    count: 3
+  - file: cpp/benchmarks/benchmark.cpp
+    text: "for (int w = 0; w < warmup_runs; ++w)"
+    count: 1
+  - file: cpp/benchmarks/benchmark.cpp
+    text: "for (std::size_t i = 2; i < argv.size(); ++i)"
+    count: 1
+  - file: cpp/benchmarks/stability_bench.cpp
+    text: "for (int i = 0; i < cycles; ++i)"
+    count: 1
+  - file: cpp/benchmarks/stability_bench.cpp
+    text: "for (int i = 0; i < frames_per_cycle; ++i)"
+    count: 1
+  - file: cpp/benchmarks/stability_bench.cpp
+    text: "for (int i = 0; i < k_warmup_cycles; ++i)"
+    count: 1
+  - file: cpp/benchmarks/stability_bench.cpp
+    text: "for (std::size_t i = 0; i < sub_checks.size(); ++i)"
+    count: 1
+  - file: cpp/include/aletheia/types.hpp
+    text: "for (std::uint8_t code = 0; code <= 15; ++code)"
+    count: 1
+  - file: cpp/src/cli/cli.cpp
+    text: "for (std::size_t i = 0; i < args.size(); ++i)"
+    count: 1
+  - file: cpp/src/cli/cli.cpp
+    text: "for (std::size_t i = 0; i < view.size(); i += 2)"
+    count: 1
+  - file: cpp/src/client.cpp
+    text: "for (std::size_t i = 0; i < frames.size(); ++i)"
+    count: 1
+  - file: cpp/src/client.cpp
+    text: "for (std::size_t i = 0; i < signals.size(); ++i)"
+    count: 1
+  - file: cpp/src/client.cpp
+    text: "for (std::size_t k = 1; k < len; ++k)"
+    count: 1
+  - file: cpp/src/client.cpp
+    text: "for (std::uint16_t i = 0; i < nabss; ++i)"
+    count: 1
+  - file: cpp/src/client.cpp
+    text: "for (std::uint16_t i = 0; i < nerrs; ++i)"
+    count: 2
+  - file: cpp/src/client.cpp
+    text: "for (std::uint16_t i = 0; i < nvals; ++i)"
+    count: 1
+  - file: cpp/src/client.cpp
+    text: "for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(msg.signals.size()); ++i)"
+    count: 1
+  - file: cpp/src/client.cpp
+    text: "while (i < bytes.size())"
+    count: 1
+  - file: cpp/src/dbc.cpp
+    text: "for (std::size_t i = 0; i < messages.size(); ++i)"
+    count: 2
+  - file: cpp/src/dbc.cpp
+    text: "for (std::size_t i = 0; i < signals.size(); ++i)"
+    count: 1
+  - file: cpp/src/detail/loader_utils.cpp
+    text: "for (std::size_t i = search_size - k_eocd_min_size + 1; i-- > 0; )"
+    count: 1
+  - file: cpp/src/detail/loader_utils.cpp
+    text: "for (std::uint16_t i = 0; i < eocd.total_entries; ++i)"
+    count: 1
+  - file: cpp/src/excel.cpp
+    text: "for (std::size_t i = 0; i < data_rows.size(); ++i)"
+    count: 1
+  - file: cpp/src/excel.cpp
+    text: "for (std::size_t i = 0; i < headers.size(); ++i)"
+    count: 2
+  - file: cpp/src/excel.cpp
+    text: "for (std::uint32_t col = 1; col <= count; ++col)"
+    count: 1
+  - file: cpp/src/excel.cpp
+    text: "for (std::uint32_t r = 2; r <= total_rows; ++r)"
+    count: 1
+  - file: cpp/src/ffi_backend.cpp
+    text: "for (std::size_t i = 0; i < ptrs.size(); ++i)"
+    count: 1
+  - file: cpp/tests/alloc_fault.cpp
+    text: "for (int i = 0; i < depth; ++i)"
+    count: 1
+  - file: cpp/tests/alloc_fault.cpp
+    text: "for (std::size_t probe = 0; probe < 8; ++probe)"
+    count: 1
+  - file: cpp/tests/doc_example_tests.cpp
+    text: "for (auto it = begin; it != end; ++it)"
+    count: 1
+  - file: cpp/tests/doc_example_tests.cpp
+    text: "for (std::size_t i = 0; i < fences.size(); ++i)"
+    count: 1
+  - file: cpp/tests/doc_example_tests.cpp
+    text: "for (std::size_t i = 0; i < offenders.size(); ++i)"
+    count: 1
+  - file: cpp/tests/doc_example_tests.cpp
+    text: "while ((pos = s.find(from, pos)) != std::string::npos)"
+    count: 1
+  - file: cpp/tests/excel_tests.cpp
+    text: "for (int i = 0; i < 50; ++i)"
+    count: 1
+  - file: cpp/tests/excel_tests.cpp
+    text: "for (int i = 0; i < 65; ++i)"
+    count: 1
+  - file: cpp/tests/excel_tests.cpp
+    text: "for (std::size_t i = 0; i < headers.size(); ++i)"
+    count: 1
+  - file: cpp/tests/excel_tests.cpp
+    text: "for (std::size_t i = 0; i < values.size(); ++i)"
+    count: 1
+  - file: cpp/tests/excel_tests.cpp
+    text: "for (std::size_t r = 0; r < rows.size(); ++r)"
+    count: 1
+  - file: cpp/tests/integration_tests.cpp
+    text: "for (std::uint16_t i = 0; i < 3; ++i)"
+    count: 1
+  - file: cpp/tests/integration_tests.cpp
+    text: "for (std::uint64_t i = 0; i < 3; ++i)"
+    count: 4
+  - file: cpp/tests/integration_tests.cpp
+    text: "for (std::uint64_t i = 0; i < 5; ++i)"
+    count: 2
+  - file: cpp/tests/integration_tests.cpp
+    text: "for (unsigned i = 0; i < 8; ++i)"
+    count: 1
+  - file: cpp/tests/rts_heap_cap_workload.cpp
+    text: "for (int i = 0; i < n; ++i)"
+    count: 1
+  - file: cpp/tests/test_cross_binding_integration.cpp
+    text: "for (std::size_t i = 0; i < 63; ++i)"
+    count: 1
+  - file: cpp/tests/test_feature_matrix_parity.cpp
+    text: "for (std::size_t i = 0; i < n; )"
+    count: 1
+  - file: cpp/tests/test_feature_matrix_parity.cpp
+    text: "while ((pos = text.find(symbol, pos)) != std::string::npos)"
+    count: 1
+  - file: cpp/tests/test_feature_matrix_parity.cpp
+    text: "while (i + 1 < n && (text[i] != || text[i + 1] != ))"
+    count: 1
+  - file: cpp/tests/test_feature_matrix_parity.cpp
+    text: "while (i < n && text[i] != quote)"
+    count: 1
+  - file: cpp/tests/test_feature_matrix_parity.cpp
+    text: "while (i < n && text[i] !=)"
+    count: 1
+  - file: cpp/tests/test_feature_matrix_parity.cpp
+    text: "while (start > 0 && is_ident_char(text[start - 1]))"
+    count: 1
+  - file: cpp/tests/test_log_events_parity.cpp
+    text: "for (size_t i = 0; i < rows.size(); ++i)"
+    count: 1
+  - file: cpp/tests/test_wire_codes_parity.cpp
+    text: "for (std::size_t i = 0; i < k_named_issue_count; ++i)"
+    count: 1
+  - file: cpp/tests/test_wire_codes_parity.cpp
+    text: "for (std::size_t i = 0; i < rows.size(); ++i)"
+    count: 1
+  - file: cpp/tests/unit_tests_alloc_fault.cpp
+    text: "for (int i = 0; i < 8; ++i)"
+    count: 1
+  - file: cpp/tests/unit_tests_alloc_fault.cpp
+    text: "for (int shift = 0; shift < 32; shift += 8)"
+    count: 1
+  - file: cpp/tests/unit_tests_alloc_fault.cpp
+    text: "for (int shift = 0; shift < 64; shift += 8)"
+    count: 1
+  - file: cpp/tests/unit_tests_cancel.cpp
+    text: "for (std::size_t i = 0; i < total; ++i)"
+    count: 1
+  - file: cpp/tests/unit_tests_client.cpp
+    text: "for (int i = 0; i < 3; ++i)"
+    count: 1
+  - file: cpp/tests/unit_tests_client.cpp
+    text: "for (std::size_t i = 0; i < count; ++i)"
+    count: 1
+  - file: cpp/tests/unit_tests_client.cpp
+    text: "for (std::size_t i = 0; i < lazy.size(); ++i)"
+    count: 1
+  - file: cpp/tests/unit_tests_input_bounds.cpp
+    text: "for (std::uint64_t i = 0; i < safe_depth; ++i)"
+    count: 2
+  - file: cpp/tests/unit_tests_input_bounds.cpp
+    text: "for (std::uint64_t i = 0; i <= aletheia::max_nesting_depth; ++i)"
+    count: 2
+  - file: cpp/tests/unit_tests_json.cpp
+    text: "for (int i = 0; i < 64; ++i)"
+    count: 1
+  - file: cpp/tests/unit_tests_json.cpp
+    text: "for (std::uint64_t i = 0; i < depth; ++i)"
+    count: 1
+  - file: cpp/tests/unit_tests_loader_utils.cpp
+    text: "for (int i = 0; i < 5; ++i)"
+    count: 1
+  - file: cpp/tests/unit_tests_loader_utils.cpp
+    text: "for (std::size_t i = 0; i < std::size_t{name_len} + extra_len + comment_len; ++i)"
+    count: 1
+  - file: cpp/tests/unit_tests_log.cpp
+    text: "for (unsigned i = 0; i < frames; ++i)"
+    count: 2
+  - file: cpp/tests/yaml_tests.cpp
+    text: "for (int i = 0; i < 65; ++i)"
+    count: 1

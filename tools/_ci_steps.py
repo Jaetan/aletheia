@@ -98,6 +98,7 @@ FAST_STEPS: frozenset[str] = frozenset(
         "check-refused-words",
         "check-no-memory-citations",
         "check-venv-convention",
+        "check-cpp-index-loops",
         "check-dist-staging",
         "clang-format",
         "cmake-lint",
@@ -613,6 +614,11 @@ def _run_gha_checks(runner: Runner) -> None:
     runner.step(
         "check-venv-convention",
         [runner.python, "-m", "tools.check_venv_convention"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
+        "check-cpp-index-loops",
+        [runner.python, "-m", "tools.check_cpp_index_loops"],
         cwd=runner.repo_root,
     )
     runner.step(
