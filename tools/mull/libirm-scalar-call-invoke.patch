@@ -1,0 +1,58 @@
+A call that can throw is an invoke, a terminator carrying a normal and an unwind
+successor, and the scalar-call replacement tested for the Call opcode alone. At
+-O0 with exceptions enabled that is most calls, so the mutator that stands for
+"this call answered something else" never reached a throwing one: on the tree
+this was written against it carried 462 mutants, none of them on a call that can
+throw.
+
+An invoke's value is live on its normal edge alone, so the replacement takes
+over the uses first and the branch to that edge replaces the terminator after;
+the unwind destination then loses this block from its predecessors, which is
+what keeps a landing pad reached from elsewhere well formed. callbr stays out:
+its successors are asm labels and branching past them is not a call replacement.
+
+The sibling refusal in lib/IntrinsicReplacement.cpp is left alone: no Mull
+mutator constructs it, so nothing it refuses is ever asked for.
+--- a/lib/CallReplacement.cpp
++++ b/lib/CallReplacement.cpp
+@@ -25,10 +25,15 @@
+ 
+ bool CallReplacement::canMutate(llvm::Instruction *instruction) {
+   assert(instruction);
+-  if (instruction->getOpcode() != llvm::Instruction::Call) {
++  /// A call that can throw is an invoke, a terminator with a normal and an
++  /// unwind successor rather than a plain call.  Reaching only the Call opcode
++  /// left every throwing call unreplaced, which at -O0 with exceptions on is
++  /// most of them.  callbr stays out: its successors are asm labels.
++  if (instruction->getOpcode() != llvm::Instruction::Call &&
++      instruction->getOpcode() != llvm::Instruction::Invoke) {
+     return false;
+   }
+-  auto *call = llvm::dyn_cast<llvm::CallInst>(instruction);
++  auto *call = llvm::dyn_cast<llvm::CallBase>(instruction);
+   if (!call) {
+     return false;
+   }
+@@ -53,9 +58,21 @@
+ 
+ void CallReplacement::mutate(llvm::Instruction *instruction) {
+   assert(instruction);
+-  auto *call = llvm::dyn_cast<llvm::CallInst>(instruction);
++  auto *call = llvm::dyn_cast<llvm::CallBase>(instruction);
+   auto returnType = call->getFunctionType()->getReturnType();
+   auto replacement = constConstructor->constructValue(returnType);
++  /// An invoke is a terminator whose value is live on its normal edge alone,
++  /// so the replacement takes over the uses first and the branch to that edge
++  /// replaces the terminator after.  The unwind destination loses this block
++  /// from its predecessors, which is what keeps a landing pad reached from
++  /// elsewhere well formed.
++  if (auto *invoke = llvm::dyn_cast<llvm::InvokeInst>(instruction)) {
++    invoke->replaceAllUsesWith(replacement);
++    llvm::BranchInst::Create(invoke->getNormalDest(), invoke->getIterator());
++    invoke->getUnwindDest()->removePredecessor(invoke->getParent());
++    invoke->eraseFromParent();
++    return;
++  }
+   instruction->replaceAllUsesWith(replacement);
+   instruction->eraseFromParent();
+ }

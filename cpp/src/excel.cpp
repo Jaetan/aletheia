@@ -300,8 +300,16 @@ static auto headers_from_row(OpenXLSX::XLWorksheet const& ws, std::uint16_t coun
     -> std::vector<std::string> {
     std::vector<std::string> result;
     result.reserve(count);
-    for (std::uint16_t col = 1; col <= count; ++col) {
-        const OpenXLSX::XLCellValue val = ws.cell(1, col).value();
+    // The counter is wider than the bound it is compared against: at a count of
+    // the bound type's maximum, a counter of that same type wraps on the
+    // increment that should end the loop and the loop never ends.  The library
+    // clamps a column reference to its own maximum today, so nothing reaches
+    // that count, but the termination of this loop is not that library's to
+    // decide.
+    for (std::uint32_t col = 1; col <= count; ++col) {
+        // Lossless: the counter never exceeds the bound, which is of the
+        // narrower type the cell accessor takes.
+        const OpenXLSX::XLCellValue val = ws.cell(1, static_cast<std::uint16_t>(col)).value();
         if (val.type() == OpenXLSX::XLValueType::String)
             result.push_back(val.get<std::string>());
         else
@@ -581,7 +589,6 @@ auto load_checks_from_excel(const std::filesystem::path& path, std::string_view 
                 results.push_back(parse_when_then_row(row.cells, row.number));
         }
 
-        doc.close();
         return results;
 
     } catch (const AletheiaException& ex) {
@@ -685,7 +692,6 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
             messages.push_back(std::move(msg.value()));
         }
 
-        doc.close();
         return DbcDefinition{.version = "", .messages = std::move(messages)};
 
     } catch (const AletheiaException& ex) {
@@ -737,7 +743,6 @@ auto create_excel_template(const std::filesystem::path& path) -> Result<void> {
         write_header_row(ws_wt, when_then_headers(), header_fmt);
 
         doc.save();
-        doc.close();
         return {};
 
     } catch (const std::exception& ex) {

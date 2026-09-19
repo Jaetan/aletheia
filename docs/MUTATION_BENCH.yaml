@@ -266,8 +266,8 @@ bindings:
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
-      survivors: 68
-      total_mutants: 971
+      survivors: 74
+      total_mutants: 1047
       timeouts: 0
       score_pct: 93
       run_at: "2026-09-18"
@@ -277,106 +277,130 @@ bindings:
       # that no longer survives as stale; the change that kills or removes one
       # deletes its row here.
       survivors_ledger:
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/client.cpp
           text: diags_.push_back(build_diagnostic(f));
           count: 1
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/client.cpp
           text: errors.push_back({.name = std::move(name), .reason = std::move(reason)});
           count: 2
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/client.cpp
           text: formulas.push_back(ltl::clone(*f));
           count: 1
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/client.cpp
           text: result.absent.push_back(signal_name_at(names, read_u16(off)));
           count: 2
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/detail/ffi_logic.cpp
           text: args.push_back("-N" + std::to_string(rts_cores));
           count: 4
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/excel.cpp
           text: doc.create(path.string(), OpenXLSX::XLForceOverwrite);
           count: 1
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/excel.cpp
           text: doc.open(path.string());
           count: 2
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/excel.cpp
           text: doc.workbook().addWorksheet("Checks");
           count: 6
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/excel.cpp
           text: doc.workbook().addWorksheet("When-Then");
           count: 6
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/excel.cpp
           text: doc.workbook().worksheet("Sheet1").setName("DBC");
           count: 11
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/excel.cpp
           text: result.push_back(val.get<std::string>());
           count: 2
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/excel.cpp
           text: results.push_back(parse_simple_row(row.cells, row.number));
           count: 2
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/excel.cpp
           text: results.push_back(parse_when_then_row(row.cells, row.number));
           count: 2
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/excel.cpp
           text: rows.push_back(DataRow{.number = static_cast<int>(r), .cells = std::move(cells)});
           count: 2
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/json_parse.cpp
           text: entries.push_back(parse_value_entry(e, "value-description value"));
           count: 1
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/json_parse.cpp
           text: entries.push_back(parse_value_entry(e, "valueTable entry value"));
           count: 1
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/json_parse.cpp
           text: errors.push_back({.name = SignalName{e.at("name").get<std::string>()},
           count: 3
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/json_parse.cpp
           text: messages.push_back(parse_message_def(m));
           count: 1
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/json_parse.cpp
           text: results.push_back(parse_property_result_entry(r));
           count: 2
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/json_parse.cpp
           text: signals.push_back(parse_signal_def(s));
           count: 1
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/json_parse.cpp
           text: values.push_back(v.get<std::string>());
           count: 1
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/json_parse.cpp
           text: values.push_back({.name = SignalName{v.at("name").get<std::string>()},
           count: 3
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/json_parse.cpp
           text: warnings.push_back(parse_stream_warning_entry(w));
           count: 1
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/json_serialize.cpp
           text: out.push_back(n.get());
           count: 2
-        - mutator: cxx_remove_void_call
+        - mutator: cxx_remove_implicit_destructor
           file: cpp/src/yaml.cpp
           text: results.push_back(parse_check(entry));
           count: 2
+        - mutator: cxx_remove_void_call
+          file: cpp/src/client.cpp
+          text: errors.reserve(nerrs);
+          count: 1
+        - mutator: cxx_remove_void_call
+          file: cpp/src/client.cpp
+          text: result.absent.reserve(nabss);
+          count: 1
+        - mutator: cxx_remove_void_call
+          file: cpp/src/client.cpp
+          text: result.values.reserve(nvals);
+          count: 1
+        - mutator: cxx_remove_void_call
+          file: cpp/src/detail/ffi_logic.cpp
+          text: out.reserve(256);
+          count: 1
+        - mutator: cxx_remove_void_call
+          file: cpp/src/detail/mock_backend.hpp
+          text: frame_responses_.pop();
+          count: 1
+        - mutator: cxx_remove_void_call
+          file: cpp/src/excel.cpp
+          text: result.reserve(count);
+          count: 1
         - mutator: cxx_replace_scalar_call
           file: cpp/src/ffi_backend.cpp
           text: auto const timestamp = static_cast<std::uint64_t>(ts.count());

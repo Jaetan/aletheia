@@ -2193,6 +2193,52 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
     CHECK_FALSE(pr.enrichment->enriched_reason.empty());
 }
 
+TEST_CASE("end_stream: enrichment carries the newest payload of a repeated CAN id",
+          "[integration][eos][unresolved][enrich]") {
+    // The last-frame cache updates an entry in place, assigning the identifier,
+    // then the length, then the payload.  A second frame on one CAN id has to
+    // replace the bytes and not only the two fields before them, or enrichment
+    // reports the newest frame's header beside the oldest frame's values.  The
+    // frames carry different values for that reason: with one value the
+    // assignment is unobservable and the cache could drop it unnoticed.
+    auto const lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
+
+    // A liveness property no frame witnesses: both frames carry a Speed under
+    // the bound, so the Eventually finalizes to Fails, which is what attaches
+    // an enrichment.  The diagnostic names Speed, which is what keeps Speed in
+    // the enrichment's signal map, since that map is filtered to the
+    // diagnostic's own signals.
+    auto formula = ltl::eventually(
+        ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+
+    // Speed is the signal of message 0x100 in this DBC, scaled by one with no
+    // offset, so a frame built from a raw value carries that value.
+    auto const speed_id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    REQUIRE(
+        client.send_frame(std::stop_token{}, Timestamp{0}, speed_id, dlc, bytes_of(5)).has_value());
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, speed_id, dlc, bytes_of(7))
+                .has_value());
+
+    auto end = client.end_stream(std::stop_token{});
+    REQUIRE(end.has_value());
+    REQUIRE(end->results.size() == 1);
+    auto const& pr = end->results[0];
+    CHECK(pr.verdict == Verdict::Fails);
+    REQUIRE(pr.enrichment.has_value());
+    REQUIRE(pr.enrichment->signals.contains(SignalName{"Speed"}));
+    // Seven, the second frame's value, and not five, the first frame's.
+    CHECK(pr.enrichment->signals.at(SignalName{"Speed"}) == PhysicalValue{Rational{7, 1}});
+}
+
 // ---------------------------------------------------------------------------
 // Parse error codes from the signal-geometry entry gate
 // ---------------------------------------------------------------------------
