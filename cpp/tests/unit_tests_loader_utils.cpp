@@ -24,7 +24,9 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <sstream>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 using aletheia::detail::ThenSlotValues;
@@ -201,6 +203,44 @@ TEST_CASE("a path through a regular file is absence, on both loader path checks"
 
 TEST_CASE("a bare file name has no parent directory to check", "[loader][path]") {
     CHECK(validate_output_parent_dir("template.xlsx").has_value());
+}
+
+TEST_CASE("a positioned read fills its buffer whole or says it could not", "[loader][zip]") {
+    using aletheia::detail::read_exactly;
+    std::istringstream in{"abcdef"};
+    std::string out(3, '\0');
+    CHECK(read_exactly(in, 2, out));
+    CHECK(out == "cde");
+    SECTION("a read the stream cuts short") {
+        std::string four(4, '\0');
+        CHECK_FALSE(read_exactly(in, 4, four));
+    }
+    SECTION("a read past the end") {
+        std::string two(2, '\0');
+        CHECK_FALSE(read_exactly(in, 10, two));
+    }
+    SECTION("a stream already failed") {
+        std::string one(1, '\0');
+        in.setstate(std::ios::failbit);
+        CHECK_FALSE(read_exactly(in, 0, one));
+    }
+}
+
+TEST_CASE("an archive that cannot be opened is reported as such, not as malformed",
+          "[loader][zip]") {
+    // A file that stats but does not open: its size is known and its record
+    // is not, and the refusal has to say the first and not the second. Root
+    // opens anything, so under root there is no such file to make.
+    if (::geteuid() == 0)
+        SKIP("root opens a file whatever its mode");
+    TempPath f("loader_unreadable.xlsx");
+    make_sparse_file(f.path, 4096);
+    std::filesystem::permissions(f.path, std::filesystem::perms::none);
+    auto const r = check_xlsx_uncompressed_bound(f.path);
+    std::filesystem::permissions(f.path, std::filesystem::perms::owner_read |
+                                             std::filesystem::perms::owner_write);
+    REQUIRE_FALSE(r.has_value());
+    CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Could not open .xlsx archive"));
 }
 
 TEST_CASE("the archive walker finds the end-of-directory record at every size it can",

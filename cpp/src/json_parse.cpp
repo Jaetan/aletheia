@@ -704,7 +704,7 @@ static auto parse_attr_type(const Json& j) -> DbcAttrType {
     if (kind == "enum") {
         std::vector<std::string> values;
         for (auto const& v : j.at("values"))
-            values.push_back(v.get<std::string>());
+            v.get_to(values.emplace_back());
         return DbcAttrTypeEnum{.values = std::move(values)};
     }
     if (kind == "hex")
@@ -887,13 +887,12 @@ auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
 
         std::vector<SignalValue> values;
         for (auto const& v : j.value("values", Json::array()))
-            values.push_back({.name = SignalName{v.at("name").get<std::string>()},
-                              .value = PhysicalValue{parse_rational(v.at("value"))}});
+            values.emplace_back(SignalName{v.at("name").get<std::string>()},
+                                PhysicalValue{parse_rational(v.at("value"))});
 
         std::vector<SignalError> errors;
         for (auto const& e : j.value("errors", Json::array()))
-            errors.push_back({.name = SignalName{e.at("name").get<std::string>()},
-                              .reason = e.value("error", "")});
+            errors.emplace_back(SignalName{e.at("name").get<std::string>()}, e.value("error", ""));
 
         std::vector<SignalName> absent;
         for (auto const& a : j.value("absent", Json::array()))

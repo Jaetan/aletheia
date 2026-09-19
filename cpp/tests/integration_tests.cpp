@@ -2239,6 +2239,54 @@ TEST_CASE("end_stream: enrichment carries the newest payload of a repeated CAN i
     CHECK(pr.enrichment->signals.at(SignalName{"Speed"}) == PhysicalValue{Rational{7, 1}});
 }
 
+TEST_CASE("end_stream: the last-frame cache keeps a standard and an extended id of one value apart",
+          "[integration][eos][unresolved][enrich]") {
+    // The cache is keyed on the identifier's value and its extended bit
+    // together. A standard 0x100 and an extended 0x100 are two messages, and
+    // a key that dropped the bit would hold one entry for both, so the second
+    // frame would replace the first and enrichment would report one message's
+    // bytes under the other's signal.
+    auto const lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    auto dbc = make_two_message_dbc();
+    auto const extended_id = CanId{ExtendedId::create(0x100).value()};
+    dbc.messages[1].id = extended_id;
+    REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
+
+    // One liveness property per signal, each unwitnessed, so each finalizes to
+    // Fails and carries an enrichment filtered to its own signal.
+    std::vector<LtlFormula> props;
+    props.push_back(ltl::eventually(
+        ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}}))));
+    props.push_back(ltl::eventually(
+        ltl::atomic(ltl::greater_than(SignalName{"Rpm"}, PhysicalValue{Rational{10, 1}}))));
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+
+    auto const standard_id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{0}, standard_id, dlc, bytes_of(5))
+                .has_value());
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, extended_id, dlc, bytes_of(7))
+                .has_value());
+
+    auto end = client.end_stream(std::stop_token{});
+    REQUIRE(end.has_value());
+    REQUIRE(end->results.size() == 2);
+    for (auto const& pr : end->results) {
+        CHECK(pr.verdict == Verdict::Fails);
+        REQUIRE(pr.enrichment.has_value());
+    }
+    auto const& speed = end->results[0].enrichment->signals;
+    auto const& rpm = end->results[1].enrichment->signals;
+    REQUIRE(speed.contains(SignalName{"Speed"}));
+    REQUIRE(rpm.contains(SignalName{"Rpm"}));
+    CHECK(speed.at(SignalName{"Speed"}) == PhysicalValue{Rational{5, 1}});
+    CHECK(rpm.at(SignalName{"Rpm"}) == PhysicalValue{Rational{7, 1}});
+}
+
 // ---------------------------------------------------------------------------
 // Parse error codes from the signal-geometry entry gate
 // ---------------------------------------------------------------------------

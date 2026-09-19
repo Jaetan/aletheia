@@ -11,15 +11,19 @@
 
 #include "detail/mock_backend.hpp"
 #include "loaded_library.hpp"
+#include "temp_path.hpp"
 #include <aletheia/aletheia.hpp>
+#include <aletheia/detail/rational_renderer.hpp>
 
 #include <cstddef>
 #include <cstdlib>
 #include <dlfcn.h>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <optional>
+#include <stop_token>
 #include <string>
 #include <utility>
 #include <variant>
@@ -345,4 +349,123 @@ TEST_CASE("AletheiaException is catchable as std::exception", "[error]") {
     } catch (const std::exception& e) {
         CHECK_THAT(std::string{e.what()}, ContainsSubstring("test message"));
     }
+}
+
+TEST_CASE("the library search takes ALETHEIA_LIB when it names a file that exists",
+          "[ffi][search]") {
+    // The environment route comes first and is taken on existence alone: any
+    // file that exists is answered as given, before the registered path, so
+    // the answer is the file this test made and not the library the process
+    // already holds.
+    const aletheia::test::TempPath file{"search_env_route.so"};
+    { const std::ofstream touch{file.path}; }
+    REQUIRE(std::filesystem::exists(file.path));
+    const ScopedAletheiaLib guard{file.path.c_str()};
+    CHECK(find_ffi_library() == file.path);
+}
+
+TEST_CASE("the library search answers by route, on existence alone", "[ffi][search]") {
+    // Each route is one existence check, tried in order: the environment
+    // value, the registered path, then the build-tree candidates under the
+    // given directory. The search takes its inputs, so each route is reached
+    // whatever the process already holds.
+    using aletheia::detail::search_ffi_library;
+    const aletheia::test::TempPath env_file{"search_env.so"};
+    const aletheia::test::TempPath registered_file{"search_registered.so"};
+    const aletheia::test::TempPath tree{"search_tree"};
+    { const std::ofstream touch{env_file.path}; }
+    { const std::ofstream touch{registered_file.path}; }
+    std::filesystem::create_directories(tree.path / "build");
+    auto const candidate = tree.path / "build" / "libaletheia-ffi.so";
+    { const std::ofstream touch{candidate}; }
+    auto const nowhere = std::filesystem::path{"/nonexistent/aletheia"};
+
+    SECTION("the environment value wins when it exists") {
+        CHECK(search_ffi_library(env_file.path.c_str(), registered_file.path.string(), tree.path) ==
+              env_file.path);
+    }
+    SECTION("a registered path that exists answers next") {
+        CHECK(search_ffi_library(nowhere.c_str(), registered_file.path.string(), tree.path) ==
+              registered_file.path);
+        CHECK(search_ffi_library(nullptr, registered_file.path.string(), tree.path) ==
+              registered_file.path);
+    }
+    SECTION("a build-tree candidate under the directory answers last, canonically") {
+        CHECK(search_ffi_library(nullptr, "", tree.path) == std::filesystem::canonical(candidate));
+        CHECK(search_ffi_library(nowhere.c_str(), nowhere.string(), tree.path) ==
+              std::filesystem::canonical(candidate));
+    }
+    SECTION("no route answering is the empty path") {
+        CHECK(search_ffi_library(nullptr, "", nowhere).empty());
+        CHECK(search_ffi_library(nowhere.c_str(), nowhere.string(), nowhere).empty());
+    }
+}
+
+TEST_CASE("the renderer names why a library will not serve it", "[ffi][renderer]") {
+    using aletheia::detail::renderer_load_error;
+    SECTION("no library found") {
+        CHECK_THAT(renderer_load_error({}), ContainsSubstring("libaletheia-ffi.so not found"));
+    }
+    SECTION("a path that does not open") {
+        CHECK_THAT(renderer_load_error("/nonexistent/aletheia/libaletheia-ffi.so"),
+                   ContainsSubstring("renderer dlopen failed"));
+    }
+    SECTION("a library without the renderer's entries, closed again") {
+        CHECK_THAT(renderer_load_error(ALETHEIA_TEST_SYMBOLLESS_LIB),
+                   ContainsSubstring("renderer dlsym aletheia_format_rational"));
+        const aletheia::test::LoadedLibrary still_mapped{
+            dlopen(ALETHEIA_TEST_SYMBOLLESS_LIB, RTLD_NOW | RTLD_NOLOAD)};
+        CHECK(still_mapped == nullptr);
+    }
+    SECTION("the kernel library itself, which serves") {
+        auto const lib = find_ffi_library();
+        if (lib.empty())
+            SKIP("no kernel library to load");
+        CHECK(renderer_load_error(lib).empty());
+    }
+    SECTION("the library named is the one loaded, and it stays mapped") {
+        // The stand-in carries the renderer's entries, so it serves; a load
+        // that opened some other library, or none, would leave it unmapped.
+        const std::filesystem::path stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
+        REQUIRE(renderer_load_error(stand_in).empty());
+        const aletheia::test::LoadedLibrary mapped{
+            dlopen(stand_in.c_str(), RTLD_NOW | RTLD_NOLOAD)};
+        CHECK(mapped != nullptr);
+    }
+}
+
+TEST_CASE("the FFI backend hands the kernel the timestamp and bus bits it was given",
+          "[ffi][marshal]") {
+    // The recording kernel refuses every call with a message quoting its
+    // arguments, which is the only way to read what reached an entry the real
+    // kernel acknowledges without reading. Its runtime entry is a no-op, and
+    // the first backend of a process registers its library for the renderer
+    // and marks the runtime up, so this one is built only where the real
+    // library has already done both.
+    if (find_ffi_library().empty())
+        SKIP("no kernel library holds the process, so the stand-in must not be its first backend");
+    auto backend = make_ffi_backend(std::filesystem::path{ALETHEIA_TEST_RECORDING_KERNEL});
+    AletheiaClient client(std::move(backend));
+    auto const message = [](auto const& result) -> std::string {
+        REQUIRE_FALSE(result.has_value());
+        return std::string{result.error().message()};
+    };
+
+    CHECK_THAT(message(client.send_error(std::stop_token{}, Timestamp{123456})),
+               ContainsSubstring("send_error ts=123456"));
+
+    auto const extended = CanId{ExtendedId::create(0x18FEF100).value()};
+    CHECK_THAT(message(client.send_remote(std::stop_token{}, Timestamp{7890}, extended)),
+               ContainsSubstring("send_remote ts=7890 id=" +
+                                 std::to_string(can_id_value(extended)) + " extended=1"));
+
+    auto const standard = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(2).value();
+    const FramePayload data{std::byte{1}, std::byte{2}};
+    CHECK_THAT(message(client.send_frame(std::stop_token{}, Timestamp{99}, standard, dlc, data,
+                                         true, false)),
+               ContainsSubstring("send_frame ts=99 id=256 extended=0 dlc=2 len=2 brs=1/1 esi=1/0"));
+    CHECK_THAT(message(client.send_frame(std::stop_token{}, Timestamp{99}, standard, dlc, data,
+                                         std::nullopt, std::nullopt)),
+               ContainsSubstring("brs=0/0 esi=0/0"));
 }

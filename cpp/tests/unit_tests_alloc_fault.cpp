@@ -11,10 +11,12 @@
 #include "alloc_fault.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include "detail/ffi_logic.hpp"
 #include "detail/json.hpp"
 #include "detail/mock_backend.hpp"
+#include "test_helpers.hpp"
 #include <aletheia/aletheia.hpp>
 
 #include <cstddef>
@@ -24,12 +26,15 @@
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
+using aletheia::test::alloc_fault::allocations_of;
 using aletheia::test::alloc_fault::Arm;
+using aletheia::test::alloc_fault::expect_balanced;
 using aletheia::test::alloc_fault::live_blocks;
-using aletheia::test::alloc_fault::sweep;
+using aletheia::test::alloc_fault::measure;
 
 namespace {
 
@@ -127,31 +132,6 @@ constexpr std::string_view k_stream_result = R"({
 })";
 
 } // namespace
-
-// Sweeps `call` twice and reports the allocation points it covered and what
-// the block count did over the second sweep. The first settles whatever the
-// call reaches for once and keeps, which a single sweep would read as a block
-// the call lost; anything a cleanup path drops is dropped again on the second.
-namespace {
-struct SweepResult {
-    std::int64_t points;
-    std::int64_t held;
-};
-} // namespace
-
-[[nodiscard]] static auto measure(auto call) -> SweepResult {
-    static_cast<void>(sweep(call));
-    auto const before = live_blocks();
-    auto const points = sweep(call);
-    return {.points = points, .held = live_blocks() - before};
-}
-
-// Fails each allocation of `call` in turn and asserts it released everything.
-static void expect_balanced(auto call) {
-    auto const result = measure(call);
-    CHECK(result.points > 0);
-    CHECK(result.held == 0);
-}
 
 TEST_CASE("the allocation-fault harness fails the allocation it arms", "[alloc_fault]") {
     // Nothing that reports goes inside the armed scope: an assertion macro
@@ -260,4 +240,102 @@ TEST_CASE("the check builder releases its temporaries when an allocation fails",
                                             aletheia::PhysicalValue{aletheia::Rational{220, 1}}));
         return client.add_checks(std::stop_token{}, std::move(checks));
     });
+}
+
+// ---------------------------------------------------------------------------
+// What a call allocates is part of its contract where the code reserves ahead
+// ---------------------------------------------------------------------------
+//
+// A container told its size up front allocates once; one left to grow
+// allocates at each doubling. The sweep returns how many allocations a call
+// made, so the count is what tells a reservation from its absence.
+
+TEST_CASE("the ack fast path recognises the common response without allocating",
+          "[alloc_fault][json]") {
+    // The two spellings the kernel emits are matched byte for byte, before any
+    // document is parsed; parsing would allocate the document.
+    auto const spelling =
+        GENERATE(std::string_view{R"({"status":"ack"})"}, std::string_view{R"({"status": "ack"})"});
+    CHECK(allocations_of([spelling] { return aletheia::detail::parse_frame_response(spelling); }) ==
+          0);
+    CHECK(allocations_of(
+              [] { return aletheia::detail::parse_frame_response(R"({ "status": "ack" })"); }) > 0);
+}
+
+TEST_CASE("the input-bound refusal is built in one allocation", "[alloc_fault][ffi]") {
+    // The message is appended in pieces, each short enough to live inside the
+    // string; the one allocation is the reservation that holds them all.
+    CHECK(allocations_of([] {
+              return aletheia::detail::json_input_bound_error(aletheia::max_json_bytes + 1);
+          }) == 1);
+}
+
+// A binary extraction result over the two-signal message: two values, two
+// errors with a reason each, two absent names. Every name and reason is longer
+// than a string holds inline, so each is one allocation when copied.
+static auto two_of_each_extraction() -> std::vector<std::byte> {
+    std::vector<std::byte> buf;
+    auto const u16 = [&](std::uint16_t v) {
+        buf.push_back(static_cast<std::byte>(v & 0xFFU));
+        buf.push_back(static_cast<std::byte>(v >> 8U));
+    };
+    auto const u32 = [&](std::uint32_t v) {
+        for (int shift = 0; shift < 32; shift += 8)
+            buf.push_back(static_cast<std::byte>((v >> static_cast<unsigned>(shift)) & 0xFFU));
+    };
+    auto const i64 = [&](std::int64_t v) {
+        auto const bits = static_cast<std::uint64_t>(v);
+        for (int shift = 0; shift < 64; shift += 8)
+            buf.push_back(static_cast<std::byte>((bits >> static_cast<unsigned>(shift)) & 0xFFU));
+    };
+    constexpr std::string_view first_reason = "the signal extends past the end of the frame";
+    constexpr std::string_view second_reason = "the multiplexor selects another signal";
+    u16(2);
+    u16(2);
+    u16(2);
+    u32(static_cast<std::uint32_t>(first_reason.size() + second_reason.size()));
+    u16(0);
+    i64(3000);
+    i64(1);
+    u16(1);
+    i64(85);
+    i64(2);
+    for (std::uint16_t idx : {std::uint16_t{0}, std::uint16_t{1}}) {
+        u16(idx);
+        buf.push_back(std::byte{0});
+    }
+    u32(0);
+    u32(static_cast<std::uint32_t>(first_reason.size()));
+    u32(static_cast<std::uint32_t>(first_reason.size() + second_reason.size()));
+    for (char c : first_reason)
+        buf.push_back(static_cast<std::byte>(c));
+    for (char c : second_reason)
+        buf.push_back(static_cast<std::byte>(c));
+    u16(0);
+    u16(1);
+    return buf;
+}
+
+TEST_CASE("the binary extraction decoder allocates each container once and each string once",
+          "[alloc_fault][client]") {
+    auto const dbc = aletheia::detail::parse_dbc_response(k_dbc_response);
+    REQUIRE(dbc.has_value());
+    auto mock = std::make_unique<aletheia::test::BinExtractMockBackend>(two_of_each_extraction());
+    mock->queue_response(aletheia::test::parsed_dbc_response_for(*dbc));
+    aletheia::AletheiaClient client(std::move(mock));
+    REQUIRE(client.parse_dbc(std::stop_token{}, *dbc).has_value());
+
+    auto const id = aletheia::CanId{aletheia::StandardId::create(0x100).value()};
+    auto const dlc = aletheia::Dlc::create(8).value();
+    const aletheia::FramePayload data(8);
+    auto const call = [&] { return client.extract_signals(std::stop_token{}, id, dlc, data); };
+    auto const decoded = call();
+    REQUIRE(decoded.has_value());
+    REQUIRE(decoded->values.size() == 2);
+    REQUIRE(decoded->errors.size() == 2);
+    REQUIRE(decoded->absent.size() == 2);
+    // The mock's copy of its buffer, then one allocation per container and one
+    // per name or reason copied: values, errors and absent, two of each.
+    std::ignore = call();
+    CHECK(allocations_of(call) == 1 + (3 * 1) + (2 * 3) + 2);
 }

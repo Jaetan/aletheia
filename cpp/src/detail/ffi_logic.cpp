@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
@@ -31,7 +32,7 @@ auto rts_init_args(int rts_cores, std::string_view override_opts) -> std::vector
     // override_opts lands later and wins (the RTS honours the last occurrence).
     std::vector<std::string> args{"aletheia", "+RTS", std::string{rts_heap_cap_flag}};
     if (rts_cores > rts_default_cores)
-        args.push_back("-N" + std::to_string(rts_cores));
+        std::format_to(std::back_inserter(args.emplace_back()), "-N{}", rts_cores);
     // Whitespace-split override_opts and append each token.  The find-based form
     // carries no manual index-boundary comparison: the `< size()` guard such a
     // loop needs is a genuine equivalent under string_view's defined `[size()]`

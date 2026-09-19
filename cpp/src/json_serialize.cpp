@@ -40,17 +40,11 @@ static auto rational_to_json(const Rational& r) -> Json {
     auto num = r.numerator();
     auto den = r.denominator();
     // No sign normalisation: a Rational's constructor enforces a positive
-    // denominator, so only the numerator can be negative.  The zero test below
-    // is defensive for the same reason the INT64_MIN test above is: a
-    // format-only path must surface an upstream defect rather than fault on it.
-    if (den == 0) {
-        // Mirrored at the `Rational::make` invariant; emit raw to surface
-        // the bug rather than masking it.
-        return {{"numerator", r.numerator()}, {"denominator", r.denominator()}};
-    }
+    // denominator, so only the numerator can be negative, and the gcd with a
+    // positive denominator is at least one.
     auto const g = std::gcd(std::abs(num), den);
-    num /= (g == 0 ? 1 : g);
-    den /= (g == 0 ? 1 : g);
+    num /= g;
+    den /= g;
     if (den == 1)
         return num;
     return {{"numerator", num}, {"denominator", den}};
@@ -97,7 +91,7 @@ static auto value_entry_to_json(const DbcValueEntry& e) -> Json {
 static auto node_names_to_json(const std::vector<NodeName>& names) -> Json {
     Json out = Json::array();
     for (auto const& n : names)
-        out.push_back(n.get());
+        out.emplace_back(n.get());
     return out;
 }
 

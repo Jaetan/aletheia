@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <istream>
 #include <optional>
 #include <span>
 #include <string>
@@ -88,6 +89,12 @@ struct EOCD {
 
 } // namespace
 
+auto read_exactly(std::istream& in, std::streamoff offset, std::span<char> out) -> bool {
+    in.seekg(offset, std::ios::beg);
+    in.read(out.data(), static_cast<std::streamsize>(out.size()));
+    return static_cast<bool>(in);
+}
+
 static auto find_eocd(std::ifstream& f, std::uintmax_t file_size) -> std::optional<EOCD> {
     if (file_size < k_eocd_min_size)
         return std::nullopt;
@@ -95,9 +102,7 @@ static auto find_eocd(std::ifstream& f, std::uintmax_t file_size) -> std::option
     auto const search_size =
         static_cast<std::size_t>(std::min<std::uintmax_t>(file_size, k_eocd_max_search));
     std::vector<char> tail(search_size);
-    f.seekg(static_cast<std::streamoff>(file_size - search_size), std::ios::beg);
-    f.read(tail.data(), static_cast<std::streamsize>(search_size));
-    if (!f)
+    if (!read_exactly(f, static_cast<std::streamoff>(file_size - search_size), tail))
         return std::nullopt;
 
     // Scan backward from the latest possible EOCD start — first match wins.
@@ -141,9 +146,7 @@ constexpr std::size_t k_cd_entry_min = 46;
 static auto sum_uncompressed_sizes(std::ifstream& f, const EOCD& eocd)
     -> std::optional<std::uint64_t> {
     std::vector<char> cd(eocd.cd_size);
-    f.seekg(eocd.cd_offset, std::ios::beg);
-    f.read(cd.data(), static_cast<std::streamsize>(eocd.cd_size));
-    if (!f)
+    if (!read_exactly(f, eocd.cd_offset, cd))
         return std::nullopt;
 
     std::uint64_t total = 0;

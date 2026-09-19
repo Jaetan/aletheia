@@ -489,6 +489,18 @@ TEST_CASE("parse_frame_response ack", "[json][parse]") {
     CHECK(std::holds_alternative<Ack>(*result));
 }
 
+TEST_CASE("parse_frame_response reads an ack whatever its spacing", "[json][parse]") {
+    // The two byte-exact spellings are answered before the document is
+    // parsed; any other spacing is parsed and answered by its status.
+    auto const spelling =
+        GENERATE(std::string_view{R"({"status":"ack"})"}, std::string_view{R"({"status": "ack"})"},
+                 std::string_view{R"({ "status" : "ack" })"},
+                 std::string_view{"{\n  \"status\": \"ack\"\n}"});
+    auto result = detail::parse_frame_response(spelling);
+    REQUIRE(result.has_value());
+    CHECK(std::holds_alternative<Ack>(*result));
+}
+
 TEST_CASE("parse_frame_response violation", "[json][parse]") {
     auto result = detail::parse_frame_response(R"({
         "type": "property_batch",
@@ -586,6 +598,26 @@ TEST_CASE("parse_dbc_response", "[json][parse]") {
     CHECK(result->messages[0].name == MessageName{"TestMsg"});
     CHECK(result->messages[0].signals[0].name == SignalName{"Sig1"});
     CHECK(result->messages[0].signals[0].factor == RationalFactor{Rational{1, 1}});
+}
+
+TEST_CASE("parse_dbc_response reads a signed signal as signed", "[json][parse]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "",
+            "messages": [{
+                "id": 256, "name": "TestMsg", "dlc": 8, "sender": "Node1", "extended": false,
+                "signals": [{
+                    "name": "Torque", "startBit": 0, "length": 16,
+                    "byteOrder": "little_endian", "signed": true,
+                    "factor": 1, "offset": 0, "minimum": -32768, "maximum": 32767,
+                    "unit": "Nm", "presence": "always"
+                }]
+            }]
+        }
+    })");
+    REQUIRE(result.has_value());
+    CHECK(result->messages[0].signals[0].is_signed);
 }
 
 // ===========================================================================
@@ -1131,6 +1163,24 @@ TEST_CASE("Tier 2 DBC metadata serializes to the documented wire shape",
     // — matches Python's Fraction, drifts under double.
     CHECK(j["dbc"]["attributes"][1]["attrType"]["min"]["numerator"] == -1);
     CHECK(j["dbc"]["attributes"][1]["attrType"]["min"]["denominator"] == 2);
+}
+
+TEST_CASE("Tier 2 attribute bounds and values survive the parse leg, each one",
+          "[json][serialize][parse][dbc][tier2]") {
+    // Every integer the attributes carry, read back, including the zeros: a
+    // bound the parse leg replaced with a constant would go unseen where only
+    // the other bound is asserted.
+    auto const dbc = make_tier2_dbc();
+    auto const result = detail::parse_dbc_response(detail::serialize_parsed_dbc_response(dbc));
+    REQUIRE(result.has_value());
+    auto const& def_int = std::get<DbcAttrDef>(result->attributes[0]);
+    CHECK(std::get<DbcAttrTypeInt>(def_int.attr_type).min == 0);
+    CHECK(std::get<DbcAttrTypeInt>(def_int.attr_type).max == 10000);
+    auto const& def_hex = std::get<DbcAttrDef>(result->attributes[4]);
+    CHECK(std::get<DbcAttrTypeHex>(def_hex.attr_type).min == 0);
+    CHECK(std::get<DbcAttrTypeHex>(def_hex.attr_type).max == 65535);
+    auto const& assign_enum = std::get<DbcAttrAssign>(result->attributes[8]);
+    CHECK(std::get<DbcAttrValueEnum>(assign_enum.value).value == 0);
 }
 
 TEST_CASE("Tier 2 DBC metadata survives the parse leg of the round-trip",

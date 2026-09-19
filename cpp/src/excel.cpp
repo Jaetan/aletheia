@@ -194,27 +194,43 @@ static auto row_to_map(OpenXLSX::XLWorksheet const& ws, int row,
 // Typed field extractors with error context
 // ---------------------------------------------------------------------------
 
+// The refusal every cell reader below throws for a column that is absent or
+// holds a value of another kind; the wording is shared with the Python
+// loader, so it has one owner here. `expected` is the parenthesised kind the
+// reader wanted, and empty for the reader that takes any.
+static auto missing_or_invalid(const std::string& ctx_str, const std::string& key,
+                               std::string_view expected) -> std::runtime_error {
+    return std::runtime_error(ctx_str + ": missing or invalid '" + key + "'" +
+                              std::string{expected});
+}
+
+// The cell a column names, refused in the loader's words when the row has no
+// such column. Every reader takes its cell through here, so a row is never
+// read past the map's end.
+static auto require_cell(const CellMap& cells, const std::string& key, const std::string& ctx_str,
+                         std::string_view expected) -> const CellMap::mapped_type& {
+    auto const it = cells.find(key);
+    if (it == cells.end())
+        throw missing_or_invalid(ctx_str, key, expected);
+    return it->second;
+}
+
 // get_str requires a text cell — strict, matching the Python reference: a
 // number or boolean cell is rejected rather than silently stringified.
 static auto get_str(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> std::string {
-    auto const it = cells.find(key);
-    if (it == cells.end())
-        throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected string)");
-    if (!it->second.is_text)
+    auto const& cell = require_cell(cells, key, ctx_str, " (expected string)");
+    if (!cell.is_text)
         throw std::runtime_error(ctx_str + ": '" + key + "' must be text, got a non-text value " +
-                                 it->second.value);
-    return it->second.value;
+                                 cell.value);
+    return cell.value;
 }
 
 // get_any returns a present cell's value regardless of type — used only for
 // Message ID, which legitimately accepts a hex string or a native number.
 static auto get_any(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> std::string {
-    auto const it = cells.find(key);
-    if (it == cells.end())
-        throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "'");
-    return it->second.value;
+    return require_cell(cells, key, ctx_str, "").value;
 }
 
 // get_decimal requires a TEXT cell holding a decimal literal.  The float
@@ -228,16 +244,13 @@ static auto get_any(const CellMap& cells, const std::string& key, const std::str
 // its own kind.
 static auto get_decimal(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> Rational {
-    auto const it = cells.find(key);
-    if (it == cells.end())
-        throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected number)");
-    if (!it->second.is_text)
-        throw std::runtime_error(ctx_str + ": '" + key + "' is a number cell (got " +
-                                 it->second.value +
+    auto const& cell = require_cell(cells, key, ctx_str, " (expected number)");
+    if (!cell.is_text)
+        throw std::runtime_error(ctx_str + ": '" + key + "' is a number cell (got " + cell.value +
                                  "); format it as TEXT so the exact value is preserved "
                                  "(a number cell stores a lossy float)");
     try {
-        return Rational::from_decimal(it->second.value);
+        return Rational::from_decimal(cell.value);
     } catch (const AletheiaException& ex) {
         if (ex.kind() != ErrorKind::Validation)
             throw; // runtime-down / ABI faults are not properties of the cell
@@ -273,11 +286,7 @@ static auto checked_cast(std::int64_t value, std::string_view field, const std::
 // are exempt from the all-text contract (which governs only numeric cells).
 static auto get_bool(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> bool {
-    auto const it = cells.find(key);
-    if (it == cells.end())
-        throw std::runtime_error(ctx_str + ": missing or invalid '" + key +
-                                 "' (expected TRUE/FALSE)");
-    auto upper = it->second.value;
+    auto upper = require_cell(cells, key, ctx_str, " (expected TRUE/FALSE)").value;
     std::ranges::transform(upper, upper.begin(), [](unsigned char ch) -> char {
         return static_cast<char>(std::toupper(ch));
     });
@@ -285,7 +294,7 @@ static auto get_bool(const CellMap& cells, const std::string& key, const std::st
         return true;
     if (upper == "FALSE" || upper == "0")
         return false;
-    throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected TRUE/FALSE)");
+    throw missing_or_invalid(ctx_str, key, " (expected TRUE/FALSE)");
 }
 
 static auto has_key(const CellMap& cells, const std::string& key) -> bool {
@@ -299,7 +308,6 @@ static auto has_key(const CellMap& cells, const std::string& key) -> bool {
 static auto headers_from_row(OpenXLSX::XLWorksheet const& ws, std::uint16_t count)
     -> std::vector<std::string> {
     std::vector<std::string> result;
-    result.reserve(count);
     // The counter is wider than the bound it is compared against: at a count of
     // the bound type's maximum, a counter of that same type wraps on the
     // increment that should end the loop and the loop never ends.  The library
@@ -525,7 +533,7 @@ static auto collect_data_rows(OpenXLSX::XLWorksheet const& ws) -> std::vector<Da
     for (std::uint32_t r = 2; r <= total_rows; ++r) {
         auto cells = row_to_map(ws, static_cast<int>(r), headers);
         if (!cells.empty())
-            rows.push_back(DataRow{.number = static_cast<int>(r), .cells = std::move(cells)});
+            rows.emplace_back(static_cast<int>(r), std::move(cells));
     }
     return rows;
 }
@@ -727,19 +735,24 @@ auto create_excel_template(const std::filesystem::path& path) -> Result<void> {
         auto const header_fmt = styles.cellFormats().create();
         styles.cellFormats()[header_fmt].setFontIndex(bold_font);
 
+        // One workbook handle, and each sheet's name held once: the library
+        // takes names as strings, and a name given twice is a string made twice.
+        auto workbook = doc.workbook();
+        const std::string dbc_name{"DBC"};
+        const std::string checks_name{"Checks"};
+        const std::string when_then_name{"When-Then"};
+
         // The workbook starts with one default sheet; it becomes the DBC sheet.
-        doc.workbook().worksheet("Sheet1").setName("DBC");
-        auto const ws_dbc = doc.workbook().worksheet("DBC");
+        workbook.worksheet(1).setName(dbc_name);
+        auto const ws_dbc = workbook.worksheet(dbc_name);
         write_header_row(ws_dbc, dbc_headers(), header_fmt);
 
-        // Checks sheet
-        doc.workbook().addWorksheet("Checks");
-        auto const ws_checks = doc.workbook().worksheet("Checks");
+        workbook.addWorksheet(checks_name);
+        auto const ws_checks = workbook.worksheet(checks_name);
         write_header_row(ws_checks, checks_headers(), header_fmt);
 
-        // When-Then sheet
-        doc.workbook().addWorksheet("When-Then");
-        auto const ws_wt = doc.workbook().worksheet("When-Then");
+        workbook.addWorksheet(when_then_name);
+        auto const ws_wt = workbook.worksheet(when_then_name);
         write_header_row(ws_wt, when_then_headers(), header_fmt);
 
         doc.save();

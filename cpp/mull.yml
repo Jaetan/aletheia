@@ -6,14 +6,22 @@
 # mull-runner run from cpp or from that tree.
 #
 # cxx_default is arithmetic, comparison, boundary and increment mutants, which
-# reach only sources that compare or compute on primitive values. cxx_calls adds
-# the removal of a void call and the replacement of a scalar-returning call with
-# a constant, which is the one mutation that reaches code written as calls: the
-# loaders' condition dispatch is string_view comparisons, and under cxx_default
-# alone it had no mutant at all.
+# reach only sources that compare or compute on primitive values. The two call
+# mutators add the removal of a void call and the replacement of a
+# scalar-returning call with a constant, the one mutation that reaches code
+# written as calls: the loaders' condition dispatch is string_view comparisons,
+# and under cxx_default alone it had no mutant at all. The third member of the
+# plugin's cxx_calls group, cxx_remove_implicit_destructor, is left out: it
+# removes the destructor the compiler emits for a temporary at the end of a
+# statement, a call the source never writes, and on this tree every one it
+# reaches is the destructor of a temporary a value-returning function handed to
+# a container, moved from before it runs, so no project defect can change what
+# the removal does. The mutator stays in the plugin so that a removal of one is
+# never reported as a removal of a call the source wrote.
 mutators:
   - cxx_default
-  - cxx_calls
+  - cxx_remove_void_call
+  - cxx_replace_scalar_call
 # Regular expressions over the mutant's source path. The vendored libraries
 # under the build tree's _deps and the system headers are not this project's
 # surface; the junk detector already skips what clang classes as a system

@@ -143,12 +143,39 @@ seventh part, a hash of the function's mangled name and an ordinal among that
 function's mutants of the same range, so every clone runs and is reported on
 its own; the probe
 `probes/tools_build_mull.sh--every-mutant-identifier-names-one-clone.sh`
-holds the installed plugin to that patch. The lane's tree is built under
-LeakSanitizer (`-DALETHEIA_SANITIZER=leak`), so a removed destructor whose
-object owned memory leaks and fails; one whose object owned nothing is not a
-change any test can see, and is recorded in the ledger below. The binaries land in
+holds the installed plugin to that patch. The same build teaches the two
+call mutators the `invoke` instruction
+(`tools/mull/libirm-void-call-mutator.patch`,
+`tools/mull/libirm-scalar-call-invoke.patch`): at `-O0` with exceptions on, a
+call that can throw is an `invoke`, a different opcode, so as shipped neither
+mutator ever reached a call the source writes that can throw, and the void-call
+mutator reached only the implicit destructors of temporaries, which are
+`noexcept`. Those destructors are a mutator of their own,
+`cxx_remove_implicit_destructor` (`tools/mull/mull-implicit-destructor-mutator.patch`),
+which `cpp/mull.yml` leaves out of the swept set: it removes a call the
+compiler emits and the source never writes, and on this tree every one it
+reaches is the destructor of a temporary a value-returning function handed to
+a container, moved from before it runs, so no defect in the project can change
+what the removal does. It stays in the plugin so that such a removal is never
+reported as the removal of a call the source wrote. The lane's tree is built under
+LeakSanitizer (`-DALETHEIA_SANITIZER=leak`), so a removed call whose object
+owned memory leaks and fails, which is what holds a released handle or string
+to its release. The binaries land in
 `~/.local/bin/` (no sudo for the copy), which the project assumes is on
 `$PATH` (see CLAUDE.md § Development Environment).
+
+Two instruments beside the sanitizer make a mutant observable that no
+assertion on a result could see. The allocation-fault harness also counts a
+call's allocations, so a container reserved ahead is told from one left to
+grow, and the ack fast path from the parse it skips; its sweeps find a call's
+own allocations by one recorded run, naming the frames above each, so the
+allocations of a vendored library, which may not be failed, are never failed,
+and the loaders are swept whole. And a kernel stand-in
+(`cpp/tests/kernel_stand_in/`) carries every symbol the backend and the
+renderer resolve and refuses every call with a message quoting its arguments,
+which is the one way to read what the backend marshals to an entry whose
+arguments the real kernel acknowledges without reading: the timestamp of an
+error or remote event, and the CAN-FD bus bits of a frame.
 
 A destructor a container's growth would run while it throws is reached by
 failing an allocation, which `cpp/tests/alloc_fault.cpp` does: it replaces the

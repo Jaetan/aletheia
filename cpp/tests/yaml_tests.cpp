@@ -12,6 +12,9 @@
 #include <aletheia/yaml.hpp>
 
 #include "temp_path.hpp"
+#ifdef ALETHEIA_ALLOC_FAULT
+#include "alloc_fault.hpp"
+#endif
 
 #include <filesystem>
 #include <fstream>
@@ -622,3 +625,127 @@ checks:
     CHECK_THAT(std::string(result.error().message()),
                ContainsSubstring("requires 'min' and 'max'"));
 }
+
+// ===========================================================================
+// Each key a check reads is refused in the loader's own words
+// ===========================================================================
+//
+// Each guard below is one operand of a condition, and each test omits exactly
+// the key that operand reads while every other key is present. A guard that
+// stops deciding lets the read reach yaml-cpp's own refusal of an absent
+// node, whose wording is not the loader's; the assertion is on the loader's.
+
+TEST_CASE("yaml: a simple check without a condition is refused by name", "[yaml][error]") {
+    auto result = load_checks_from_yaml_string(R"(
+checks:
+  - signal: Speed
+    value: 100
+)");
+    REQUIRE(!result.has_value());
+    CHECK_THAT(std::string(result.error().message()),
+               ContainsSubstring("missing or invalid 'condition' (expected string)"));
+}
+
+TEST_CASE("yaml: a when clause without a value is refused by name", "[yaml][error]") {
+    auto result = load_checks_from_yaml_string(R"(
+checks:
+  - when:
+      signal: Brake
+      condition: exceeds
+    then:
+      signal: Light
+      condition: equals
+      value: 1
+    within_ms: 100
+)");
+    REQUIRE(!result.has_value());
+    CHECK_THAT(std::string(result.error().message()),
+               ContainsSubstring("missing or invalid 'value' (expected number)"));
+}
+
+TEST_CASE("yaml: every spelling of a boolean is refused where a number is read", "[yaml][error]") {
+    auto const spelling =
+        GENERATE(std::string_view{"true"}, std::string_view{"false"}, std::string_view{"TRUE"},
+                 std::string_view{"FALSE"}, std::string_view{"True"}, std::string_view{"False"});
+    auto result = load_checks_from_yaml_string("checks:\n  - signal: Speed\n"
+                                               "    condition: never_exceeds\n    value: " +
+                                               std::string{spelling} + "\n");
+    REQUIRE(!result.has_value());
+    CHECK_THAT(std::string(result.error().message()),
+               ContainsSubstring("missing or invalid 'value' (expected number)"));
+}
+
+TEST_CASE("yaml: stays_between with a max and no min is refused as a pair", "[yaml][error]") {
+    auto result = load_checks_from_yaml_string(R"(
+checks:
+  - signal: Speed
+    condition: stays_between
+    max: 100
+)");
+    REQUIRE(!result.has_value());
+    CHECK_THAT(std::string(result.error().message()),
+               ContainsSubstring("requires 'min' and 'max'"));
+}
+
+TEST_CASE("yaml: settles_between with one bound is refused as a pair, whichever is present",
+          "[yaml][error]") {
+    auto const present = GENERATE(std::string_view{"min"}, std::string_view{"max"});
+    auto result = load_checks_from_yaml_string("checks:\n  - signal: Speed\n"
+                                               "    condition: settles_between\n    " +
+                                               std::string{present} + ": 80\n    within_ms: 500\n");
+    REQUIRE(!result.has_value());
+    CHECK_THAT(std::string(result.error().message()),
+               ContainsSubstring("condition 'settles_between' requires 'min' and 'max'"));
+}
+
+TEST_CASE("yaml: then stays_between with a max and no min is refused as a pair", "[yaml][error]") {
+    auto result = load_checks_from_yaml_string(R"(
+checks:
+  - when:
+      signal: Brake
+      condition: exceeds
+      value: 50
+    then:
+      signal: Light
+      condition: stays_between
+      max: 2
+    within_ms: 100
+)");
+    REQUIRE(!result.has_value());
+    CHECK_THAT(std::string(result.error().message()),
+               ContainsSubstring("then condition 'stays_between' requires 'min' and 'max'"));
+}
+
+#ifdef ALETHEIA_ALLOC_FAULT
+// The loader fills its result one check at a time, and the container that
+// grows can throw with a parsed check still in hand; that check is destroyed
+// on the way out, and a cleanup that dropped it would leave its blocks behind.
+TEST_CASE("yaml: the loader releases its temporaries when an allocation fails",
+          "[yaml][alloc_fault]") {
+    static constexpr std::string_view doc = R"(
+checks:
+  - name: the engine speed stays under its redline in every frame
+    signal: EngineSpeedInRevolutionsPerMinute
+    condition: never_exceeds
+    value: 6000
+  - name: the coolant temperature settles into its operating band
+    signal: CoolantTemperatureInDegreesCelsius
+    condition: settles_between
+    min: 80
+    max: 95
+    within_ms: 30000
+  - name: braking dims the lamp within a tenth of a second
+    when:
+      signal: BrakePedalPositionAsAPercentage
+      condition: exceeds
+      value: 50
+    then:
+      signal: BrakeLampIlluminationState
+      condition: equals
+      value: 1
+    within_ms: 100
+)";
+    REQUIRE(load_checks_from_yaml_string(doc).has_value());
+    aletheia::test::alloc_fault::expect_balanced([] { return load_checks_from_yaml_string(doc); });
+}
+#endif

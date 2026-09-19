@@ -1048,6 +1048,25 @@ TEST_CASE("MockBackend build_frame_bin / update_frame_bin error on queue exhaust
     }
 }
 
+TEST_CASE("MockBackend hands out queued frame buffers in order, each once", "[client][mock]") {
+    // Two buffers queued, two calls: the second call reads the second buffer,
+    // which is only so if the first call consumed the first.
+    MockBackend mock;
+    auto const state = mock.init();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    auto const signals = SignalInjection::create({}, {}, {}).value();
+    mock.queue_frame_bytes({std::byte{0x01}});
+    mock.queue_frame_bytes({std::byte{0x02}});
+    auto const first = mock.build_frame_bin(state, id, dlc, signals, 8);
+    auto const second = mock.build_frame_bin(state, id, dlc, signals, 8);
+    REQUIRE(first.has_value());
+    REQUIRE(second.has_value());
+    CHECK(*first == std::vector<std::byte>{std::byte{0x01}});
+    CHECK(*second == std::vector<std::byte>{std::byte{0x02}});
+    CHECK_FALSE(mock.build_frame_bin(state, id, dlc, signals, 8).has_value());
+}
+
 TEST_CASE("parse_dbc_text arms the binary extraction path", "[client][mock]") {
     auto mock = std::make_unique<BinExtractMockBackend>();
     auto* mock_ptr = mock.get();

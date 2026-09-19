@@ -24,11 +24,13 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <expected>
 #include <filesystem>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <tuple>
 
 namespace aletheia::detail {
 
@@ -84,20 +86,18 @@ static auto default_path_state() -> DefaultPathState& {
 // Runs once per process, on the first render, and the first FfiBackend of a
 // process has registered its path by then; so the order below is held by a
 // probe in a process of its own, not by the suite.
-static auto find_library_path() -> std::filesystem::path {
+auto search_ffi_library(const char* env_path, std::string_view registered_path,
+                        const std::filesystem::path& cwd) -> std::filesystem::path {
     namespace fs = std::filesystem;
     // An empty value, from the environment or from no registration yet, is a
     // path that does not exist, so each route is one existence check.
-    if (auto const* env = std::getenv("ALETHEIA_LIB")) {
-        const fs::path p{env};
+    if (env_path != nullptr) {
+        const fs::path p{env_path};
         if (fs::exists(p))
             return p;
     }
-    // Registered path from FfiBackend ctor.
     {
-        auto& d = default_path_state();
-        const std::scoped_lock lk{d.mu};
-        const fs::path p{d.path};
+        const fs::path p{registered_path};
         if (fs::exists(p))
             return p;
     }
@@ -108,56 +108,90 @@ static auto find_library_path() -> std::filesystem::path {
              "../build/libaletheia-ffi.so",
              "build/libaletheia-ffi.so",
          }) {
-        const fs::path p = fs::current_path() / candidate;
+        const fs::path p = cwd / candidate;
         if (fs::exists(p))
             return fs::canonical(p);
     }
     return {};
 }
 
-// dlopen + dlsym the library.  Records either the resolved function
-// pointers or a load-error string in the singleton state.  Does NOT
-// initialise the GHC RTS (that is an FfiBackend's job).
-// Called exactly once per process via `std::call_once`.
-static void init_renderer() {
-    auto& s = state();
-    auto const lib_path = find_library_path();
-    if (lib_path.empty()) {
-        s.load_error = "libaletheia-ffi.so not found; build with: cabal run shake -- build";
-        return;
-    }
-    void* handle = dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL);
-    if (handle == nullptr) {
-        s.load_error = std::string{"renderer dlopen failed: "} + dlerror();
-        return;
-    }
-    auto const load_sym = [&](const char* name) -> void* {
+static auto find_library_path() -> std::filesystem::path {
+    auto& d = default_path_state();
+    const std::scoped_lock lk{d.mu};
+    return search_ffi_library(std::getenv("ALETHEIA_LIB"), d.path, std::filesystem::current_path());
+}
+
+namespace {
+// The three kernel entries the renderer calls, resolved from one library.
+struct RendererSymbols {
+    FormatRationalFn format_fn = nullptr;
+    FreeStrFn free_fn = nullptr;
+    ParseDecimalFn parse_decimal_fn = nullptr;
+};
+} // namespace
+
+// dlopen + dlsym the library at `lib_path`, or the reason it could not be.
+// The handle a successful load opened stays open for the process, which is
+// the renderer's own lifetime. Does NOT initialise the GHC RTS (that is an
+// FfiBackend's job).
+static auto load_renderer(const std::filesystem::path& lib_path)
+    -> std::expected<RendererSymbols, std::string> {
+    if (lib_path.empty())
+        return std::unexpected(
+            "libaletheia-ffi.so not found; build with: cabal run shake -- build");
+    // A library that lacks an entry is closed again on the way out, so a
+    // refused load leaves no mapping behind; the one that serves is released
+    // to the process for the renderer's lifetime.
+    struct Closer {
+        void operator()(void* handle) const noexcept { dlclose(handle); }
+    };
+    std::unique_ptr<void, Closer> opened{dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL)};
+    if (opened == nullptr)
+        return std::unexpected(std::string{"renderer dlopen failed: "} + dlerror());
+    auto const load_sym = [&](const char* name) -> std::expected<void*, std::string> {
         dlerror(); // clear previous errors
-        void* sym = dlsym(handle, name);
-        if (const char* err = dlerror(); err != nullptr) {
-            s.load_error = std::string{"renderer dlsym "} + name + ": " + err;
-            return nullptr;
-        }
+        void* sym = dlsym(opened.get(), name);
+        if (const char* err = dlerror(); err != nullptr)
+            return std::unexpected(std::string{"renderer dlsym "} + name + ": " + err);
         return sym;
     };
-    void* fmt_sym = load_sym("aletheia_format_rational");
-    if (fmt_sym == nullptr)
-        return;
-    void* free_sym = load_sym("aletheia_free_str");
-    if (free_sym == nullptr)
-        return;
-    void* parse_decimal_sym = load_sym("aletheia_parse_decimal");
-    if (parse_decimal_sym == nullptr)
-        return;
+    auto const fmt_sym = load_sym("aletheia_format_rational");
+    if (!fmt_sym)
+        return std::unexpected(fmt_sym.error());
+    auto const free_sym = load_sym("aletheia_free_str");
+    if (!free_sym)
+        return std::unexpected(free_sym.error());
+    auto const parse_decimal_sym = load_sym("aletheia_parse_decimal");
+    if (!parse_decimal_sym)
+        return std::unexpected(parse_decimal_sym.error());
+    std::ignore = opened.release();
+    return RendererSymbols{
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        .format_fn = reinterpret_cast<FormatRationalFn>(*fmt_sym),
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        .free_fn = reinterpret_cast<FreeStrFn>(*free_sym),
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        .parse_decimal_fn = reinterpret_cast<ParseDecimalFn>(*parse_decimal_sym),
+    };
+}
 
-    // The renderer does NOT initialise the GHC RTS: an FfiBackend is
-    // the sole initialiser, so it only resolves the format/free/parse symbols here.
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    s.format_fn = reinterpret_cast<FormatRationalFn>(fmt_sym);
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    s.free_fn = reinterpret_cast<FreeStrFn>(free_sym);
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    s.parse_decimal_fn = reinterpret_cast<ParseDecimalFn>(parse_decimal_sym);
+auto renderer_load_error(const std::filesystem::path& lib_path) -> std::string {
+    auto const loaded = load_renderer(lib_path);
+    return loaded ? std::string{} : loaded.error();
+}
+
+// Records the resolved function pointers, or the load's refusal, in the
+// singleton state. Called exactly once per process via `std::call_once`.
+static void init_renderer() {
+    auto& s = state();
+    auto const loaded = load_renderer(find_library_path());
+    if (!loaded) {
+        s.load_error = loaded.error();
+        return;
+    }
+    s.format_fn = loaded->format_fn;
+    s.free_fn = loaded->free_fn;
+    s.parse_decimal_fn = loaded->parse_decimal_fn;
     s.loaded = true;
 }
 

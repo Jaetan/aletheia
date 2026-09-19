@@ -445,6 +445,23 @@ TEST_CASE("error and remote events log their timestamp and target", "[client][lo
     CHECK(field<std::string>(rem, "response") == "ack");
 }
 
+TEST_CASE("a remote event on an extended identifier logs the extended bit set",
+          "[client][log][fields]") {
+    Capture cap;
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "success"})"); // start_stream
+    mock->queue_response(R"({"status": "ack"})");
+    AletheiaClient client(std::move(mock), cap.logger());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+
+    auto const id = CanId{ExtendedId::create(0x18FEF100).value()};
+    REQUIRE(client.send_remote(std::stop_token{}, Timestamp{3000}, id).has_value());
+
+    auto const& rem = cap.only("remote_event.sent");
+    CHECK(field<std::uint64_t>(rem, "canId") == 0x18FEF100);
+    CHECK(field<bool>(rem, "extended") == true);
+}
+
 TEST_CASE("cache.miss then cache.hit name the frame that was extracted", "[client][log][fields]") {
     Capture cap;
     auto mock = std::make_unique<MockBackend>();

@@ -28,7 +28,12 @@
 #include <vector>
 
 #include "temp_path.hpp"
+#ifdef ALETHEIA_ALLOC_FAULT
+#include "alloc_fault.hpp"
+#endif
 #include <catch2/matchers/catch_matchers.hpp>
+#include <dlfcn.h>
+#include <unistd.h>
 
 #include "repo_root.hpp"
 
@@ -1209,3 +1214,97 @@ TEST_CASE("excel: DBC multiplex value zero is a value, not an absence", "[excel]
     REQUIRE(mux->multiplex_values.size() == 1);
     CHECK(mux->multiplex_values[0] == MultiplexValue{0});
 }
+
+// ===========================================================================
+// The paths the library throws on
+// ===========================================================================
+
+TEST_CASE("excel: a ZIP archive that is not a workbook is refused by the library's own word",
+          "[excel][hardening]") {
+    // The archive walker admits any well-formed ZIP, so a ZIP with no workbook
+    // inside reaches the library's open, which throws; the loader answers with
+    // the library's message and leaves nothing of the attempt behind.
+    TempPath tf("excel_not_a_workbook.xlsx");
+    make_checks_workbook(tf.path, {});
+    {
+        OpenXLSX::XLZipArchive zip;
+        zip.open(tf.path.string());
+        zip.deleteEntry("xl/workbook.xml");
+        zip.save();
+        zip.close();
+    }
+    auto const checks = load_checks_from_excel(tf.path);
+    REQUIRE_FALSE(checks.has_value());
+    CHECK(checks.error().kind() == ErrorKind::Validation);
+    auto const dbc = load_dbc_from_excel(tf.path);
+    REQUIRE_FALSE(dbc.has_value());
+    CHECK(dbc.error().kind() == ErrorKind::Validation);
+}
+
+TEST_CASE("excel: a template into a directory that cannot be written is refused with the reason",
+          "[excel][hardening]") {
+    if (::geteuid() == 0)
+        SKIP("root writes anywhere");
+    const TempPath dir("excel_unwritable_dir");
+    std::filesystem::create_directories(dir.path);
+    std::filesystem::permissions(dir.path, std::filesystem::perms::owner_read |
+                                               std::filesystem::perms::owner_exec);
+    auto const result = create_excel_template(dir.path / "template.xlsx");
+    std::filesystem::permissions(dir.path, std::filesystem::perms::owner_all);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+}
+
+#ifdef ALETHEIA_ALLOC_FAULT
+// Each loader fills its result one row at a time, with a parsed row in hand
+// while the container grows; a growth that throws destroys that row on the
+// way out, and a cleanup that dropped it would leave its blocks behind.
+TEST_CASE("excel: the loaders release their temporaries when an allocation fails",
+          "[excel][alloc_fault]") {
+    using aletheia::test::alloc_fault::expect_balanced;
+    // The harness spares the library's own allocations by the names of the
+    // frames on the stack, and the library hides its symbols in the shipped
+    // build; a build that cannot name them would end the program on the first
+    // failed allocation inside the library.
+    if (dlsym(RTLD_DEFAULT, "_ZN8OpenXLSX10XLDocument4openERKNSt7__cxx1112basic_stringIcSt11char_"
+                            "traitsIcESaIcEEE") == nullptr)
+        SKIP("the spreadsheet library's frames cannot be named in this build");
+    SECTION("the checks loader, over a checks sheet") {
+        TempPath tf("excel_alloc_checks.xlsx");
+        make_checks_workbook(
+            tf.path,
+            {{"the engine speed stays under its redline", "EngineSpeedInRevolutionsPerMinute",
+              "never_exceeds", "6000", "", "", "", ""},
+             {"the coolant settles into its band", "CoolantTemperatureInDegreesCelsius",
+              "settles_between", "", "80", "95", "30000", ""}});
+        REQUIRE(load_checks_from_excel(tf.path).has_value());
+        expect_balanced([&] { return load_checks_from_excel(tf.path); });
+    }
+    SECTION("the checks loader, over a when-then sheet") {
+        TempPath tf("excel_alloc_when_then.xlsx");
+        make_wt_workbook(tf.path,
+                         {{"braking dims the lamp", "BrakePedalPositionAsAPercentage", "exceeds",
+                           "50", "BrakeLampIlluminationState", "equals", "1", "", "", "100", ""}});
+        REQUIRE(load_checks_from_excel(tf.path).has_value());
+        expect_balanced([&] { return load_checks_from_excel(tf.path); });
+    }
+    SECTION("the DBC loader") {
+        TempPath tf("excel_alloc_dbc.xlsx");
+        make_dbc_workbook(tf.path, {{"256", "VehicleSpeedInKilometresPerHour", "8",
+                                     "VehicleSpeedSignalName", "0", "16", "little_endian", "FALSE",
+                                     "0.1", "0", "0", "300", "kilometres per hour", "", "", ""},
+                                    {"256", "VehicleSpeedInKilometresPerHour", "8",
+                                     "EngineSpeedSignalName", "16", "16", "little_endian", "FALSE",
+                                     "1", "0", "0", "8000", "revolutions per minute", "", "", ""}});
+        REQUIRE(load_dbc_from_excel(tf.path).has_value());
+        expect_balanced([&] { return load_dbc_from_excel(tf.path); });
+    }
+    SECTION("the template writer") {
+        TempPath tf("excel_alloc_template.xlsx");
+        expect_balanced([&] {
+            std::filesystem::remove(tf.path);
+            return create_excel_template(tf.path);
+        });
+    }
+}
+#endif

@@ -12,6 +12,12 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The renderer closes a library it refuses.** Loading the rational
+  renderer opened the kernel library and, when an entry it needs was missing,
+  recorded the refusal and left the mapping open. The load now owns its handle
+  and closes it on every refusal; the one that serves is released to the
+  process for the renderer's lifetime.
+
 - **The mutation lanes run one per binding, and each one streams.** The C++
   surface that this round took from 264 mutants to 971 across two build trees
   shared a single 90-minute job with the Python and Go lanes, and was killed by
@@ -176,6 +182,27 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The C++ mutation lane has no survivor.** The two call mutators now reach
+  a call that can throw (an `invoke` at the lane's `-O0`), which as shipped
+  neither did. Every mutant on a call the source writes is killed or gone: the
+  loaders' guards by a document missing each key it reads, the capacity hints
+  and the ack fast path by allocation counts, the event timestamps and bus
+  bits by a kernel stand-in that refuses every call quoting what it was
+  handed, the library search and the renderer's load by taking their inputs,
+  the two archive reads by one positioned reader, and the serializer's check
+  of a denominator the type cannot produce by its removal, and the Excel cell
+  readers' lookup guard, whose removal read a row past its end and passed by
+  luck, has one owner as the YAML readers' has. The temporaries the code made
+  for nothing are gone with their destructors: a container fills in
+  place from the arguments, a string is read into its slot, and the template
+  writer holds one workbook handle and each sheet's name once. The
+  allocation-fault sweeps reach the loaders whole, finding a call's own
+  allocations by one recorded run so a vendored library's are never failed.
+  The implicit destructors the compiler emits for the temporaries the language
+  mandates, each moved from before it runs, are a mutator of their own that
+  the swept set leaves out, since no defect in the project can change what
+  their removal does. The surface reads 1140 mutants and 0 survivors.
+
 - **The C++ mutation lane's survivors are worked down to a ledger, read by two
   instruments.** The lane sweeps two trees and counts a mutant as a survivor
   only where both let it survive: one built under LeakSanitizer, where a
@@ -208,8 +235,10 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   held at the wire's width.
 
   Survivors that were equivalent by construction are gone from the code rather
-  than justified beside it: every `reserve` of a size the loop then fills, with
-  the frame resolver sizing its three arrays once instead; the cache keys'
+  than justified beside it: every `reserve` on a cold path of a size the loop
+  then fills, with the frame resolver sizing its three arrays once instead,
+  while the binary decoder's reservations stay on its hot path and are held by
+  an allocation count; the cache keys'
   hash, now held by tests of its distinctness and its mixing; the decoder's two
   per-record bounds checks the exact-size check already covers; the empty-slice
   guard before a copy, which a transform over the slice needs no more; the

@@ -223,6 +223,14 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 FetchContent_MakeAvailable(json yaml-cpp OpenXLSX)
+# The spreadsheet library hides its symbols. The allocation-fault harness
+# spares the library's own allocations by naming the frames on the stack, and
+# a hidden frame has no name, so the mutation trees, which are test trees and
+# ship nothing, build it visible; the shipped library keeps it hidden.
+if(ALETHEIA_MUTATION)
+    set_target_properties(OpenXLSX PROPERTIES CXX_VISIBILITY_PRESET default
+                                              VISIBILITY_INLINES_HIDDEN OFF)
+endif()
 unset(CMAKE_POLICY_VERSION_MINIMUM)
 
 # ---------------------------------------------------------------------------
@@ -466,9 +474,19 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # its first lookup and must close it again.  Its path reaches the tests as
     # a definition, so no test guesses a build layout.
     add_library(aletheia_test_symbolless SHARED tests/symbolless_lib.cpp)
+    target_compile_features(aletheia_test_symbolless PRIVATE cxx_std_23)
     target_compile_definitions(unit_tests PRIVATE
         ALETHEIA_TEST_SYMBOLLESS_LIB="$<TARGET_FILE:aletheia_test_symbolless>")
     add_dependencies(unit_tests aletheia_test_symbolless)
+    # A kernel stand-in that refuses every call, quoting what it was handed:
+    # the one way to read what the backend marshals to an entry whose
+    # arguments the real kernel acknowledges without reading.
+    add_library(aletheia_test_recording_kernel SHARED
+        tests/kernel_stand_in/recording_kernel_lib.cpp)
+    target_compile_features(aletheia_test_recording_kernel PRIVATE cxx_std_23)
+    target_compile_definitions(unit_tests PRIVATE
+        ALETHEIA_TEST_RECORDING_KERNEL="$<TARGET_FILE:aletheia_test_recording_kernel>")
+    add_dependencies(unit_tests aletheia_test_recording_kernel)
     # The allocation-fault sweeps replace the program's allocation functions,
     # which every sanitizer runtime defines as well: the two carry the same
     # symbols and cannot be linked together, so the sweeps build in the lanes
@@ -477,6 +495,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # its own symbols.
     if(NOT ALETHEIA_SANITIZER)
         target_sources(unit_tests PRIVATE tests/alloc_fault.cpp tests/unit_tests_alloc_fault.cpp)
+        target_compile_definitions(unit_tests PRIVATE ALETHEIA_ALLOC_FAULT=1)
         set_target_properties(unit_tests PROPERTIES ENABLE_EXPORTS ON)
     endif()
     add_test(NAME unit_tests COMMAND unit_tests)
@@ -509,6 +528,11 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # RTS up once for the process (this binary creates no FfiBackend of its own,
     # so there is no rts.cores_mismatch race).
     add_executable(yaml_tests tests/yaml_tests.cpp tests/rts_setup_listener.cpp)
+    if(NOT ALETHEIA_SANITIZER)
+        target_sources(yaml_tests PRIVATE tests/alloc_fault.cpp)
+        target_compile_definitions(yaml_tests PRIVATE ALETHEIA_ALLOC_FAULT=1)
+        set_target_properties(yaml_tests PROPERTIES ENABLE_EXPORTS ON)
+    endif()
     target_link_libraries(yaml_tests
         PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
     add_test(NAME yaml_tests COMMAND yaml_tests)
@@ -519,6 +543,11 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # the same reason as yaml_tests — numeric cells are parsed via the kernel
     # decimal SSOT (RTS-gated).
     add_executable(excel_tests tests/excel_tests.cpp tests/rts_setup_listener.cpp)
+    if(NOT ALETHEIA_SANITIZER)
+        target_sources(excel_tests PRIVATE tests/alloc_fault.cpp)
+        target_compile_definitions(excel_tests PRIVATE ALETHEIA_ALLOC_FAULT=1)
+        set_target_properties(excel_tests PROPERTIES ENABLE_EXPORTS ON)
+    endif()
     target_link_libraries(excel_tests
         PRIVATE aletheia-cpp OpenXLSX::OpenXLSX Catch2::Catch2WithMain)
     add_test(NAME excel_tests COMMAND excel_tests)

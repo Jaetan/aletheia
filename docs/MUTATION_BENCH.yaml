@@ -242,20 +242,17 @@ bindings:
       # anything it drops is seen. A mutant is a survivor only where both
       # lanes let it survive.
       #
-      # What the survivors are, each a row of the ledger below. Most are
-      # removals of a destructor that frees nothing, which both instruments
-      # agree on: the temporary a push_back has already moved from, a string
-      # short enough to live in the object rather than on the heap, and the
-      # spreadsheet library's handles, which own nothing themselves. The
-      # spreadsheet loader has no sweep of its own yet, so its rows carry
-      # cleanup that has not been reached as well as cleanup that frees
-      # nothing. The rest: the two wire fields the kernel acknowledges without
-      # reading, the CAN-FD bus bits and the timestamp of an error or remote
-      # event, held until a consumer of them lands; the ack fast path of the
-      # frame parser, which the throughput harness measures; and the
-      # renderer's library search, which runs once per process after the first
-      # backend has registered its path and is held by a probe in a process of
-      # its own.
+      # What the survivors are, each a row of the ledger below: none. Every
+      # call the source writes is either killed or gone: the named-call
+      # mutators reach a call that can throw, the capacity hints and the ack
+      # fast path are held by allocation counts, the loaders' guards by a
+      # document missing each key, the event timestamps and bus bits by a
+      # kernel stand-in that quotes what it was handed, the loaders' cleanup
+      # paths by allocation-fault sweeps that fail only the project's own
+      # allocations, and a temporary the code made for nothing is gone with
+      # its destructor. The destructors the compiler emits for the temporaries
+      # the language mandates are a mutator the swept set leaves out, for the
+      # reason cpp/mull.yml gives.
       #
       # A timeout is a kill by another route: the runner counts it against
       # the total, not as a survivor. Its exact count is not stable for a
@@ -266,154 +263,14 @@ bindings:
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
-      survivors: 74
-      total_mutants: 1047
+      survivors: 0
+      total_mutants: 1140
       timeouts: 0
-      score_pct: 93
-      run_at: "2026-09-18"
+      score_pct: 100
+      run_at: "2026-09-19"
       # Every survivor, by mutator, repository-relative file, the text of its
       # source line and how many mutants share that line. The lane refuses a
       # survivor not named here even at an unchanged count, and reports a row
       # that no longer survives as stale; the change that kills or removes one
       # deletes its row here.
-      survivors_ledger:
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/client.cpp
-          text: diags_.push_back(build_diagnostic(f));
-          count: 1
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/client.cpp
-          text: errors.push_back({.name = std::move(name), .reason = std::move(reason)});
-          count: 2
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/client.cpp
-          text: formulas.push_back(ltl::clone(*f));
-          count: 1
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/client.cpp
-          text: result.absent.push_back(signal_name_at(names, read_u16(off)));
-          count: 2
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/detail/ffi_logic.cpp
-          text: args.push_back("-N" + std::to_string(rts_cores));
-          count: 4
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/excel.cpp
-          text: doc.create(path.string(), OpenXLSX::XLForceOverwrite);
-          count: 1
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/excel.cpp
-          text: doc.open(path.string());
-          count: 2
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/excel.cpp
-          text: doc.workbook().addWorksheet("Checks");
-          count: 6
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/excel.cpp
-          text: doc.workbook().addWorksheet("When-Then");
-          count: 6
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/excel.cpp
-          text: doc.workbook().worksheet("Sheet1").setName("DBC");
-          count: 11
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/excel.cpp
-          text: result.push_back(val.get<std::string>());
-          count: 2
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/excel.cpp
-          text: results.push_back(parse_simple_row(row.cells, row.number));
-          count: 2
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/excel.cpp
-          text: results.push_back(parse_when_then_row(row.cells, row.number));
-          count: 2
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/excel.cpp
-          text: rows.push_back(DataRow{.number = static_cast<int>(r), .cells = std::move(cells)});
-          count: 2
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/json_parse.cpp
-          text: entries.push_back(parse_value_entry(e, "value-description value"));
-          count: 1
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/json_parse.cpp
-          text: entries.push_back(parse_value_entry(e, "valueTable entry value"));
-          count: 1
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/json_parse.cpp
-          text: errors.push_back({.name = SignalName{e.at("name").get<std::string>()},
-          count: 3
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/json_parse.cpp
-          text: messages.push_back(parse_message_def(m));
-          count: 1
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/json_parse.cpp
-          text: results.push_back(parse_property_result_entry(r));
-          count: 2
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/json_parse.cpp
-          text: signals.push_back(parse_signal_def(s));
-          count: 1
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/json_parse.cpp
-          text: values.push_back(v.get<std::string>());
-          count: 1
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/json_parse.cpp
-          text: values.push_back({.name = SignalName{v.at("name").get<std::string>()},
-          count: 3
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/json_parse.cpp
-          text: warnings.push_back(parse_stream_warning_entry(w));
-          count: 1
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/json_serialize.cpp
-          text: out.push_back(n.get());
-          count: 2
-        - mutator: cxx_remove_implicit_destructor
-          file: cpp/src/yaml.cpp
-          text: results.push_back(parse_check(entry));
-          count: 2
-        - mutator: cxx_remove_void_call
-          file: cpp/src/client.cpp
-          text: errors.reserve(nerrs);
-          count: 1
-        - mutator: cxx_remove_void_call
-          file: cpp/src/client.cpp
-          text: result.absent.reserve(nabss);
-          count: 1
-        - mutator: cxx_remove_void_call
-          file: cpp/src/client.cpp
-          text: result.values.reserve(nvals);
-          count: 1
-        - mutator: cxx_remove_void_call
-          file: cpp/src/detail/ffi_logic.cpp
-          text: out.reserve(256);
-          count: 1
-        - mutator: cxx_remove_void_call
-          file: cpp/src/detail/mock_backend.hpp
-          text: frame_responses_.pop();
-          count: 1
-        - mutator: cxx_remove_void_call
-          file: cpp/src/excel.cpp
-          text: result.reserve(count);
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/ffi_backend.cpp
-          text: auto const timestamp = static_cast<std::uint64_t>(ts.count());
-          count: 2
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/ffi_backend.cpp
-          text: if (!b.has_value())
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/json_parse.cpp
-          text: if (input == ack_compact || input == ack_spaced)
-          count: 2
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/rational_renderer.cpp
-          text: if (lib_path.empty()) {
-          count: 1
+      survivors_ledger: []

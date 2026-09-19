@@ -374,7 +374,7 @@ static auto wire_signal_errors(std::span<const std::byte> buf, std::size_t error
         std::string reason(slice.size(), '\0');
         std::ranges::transform(slice, reason.begin(),
                                [](std::byte b) { return static_cast<char>(b); });
-        errors.push_back({.name = std::move(name), .reason = std::move(reason)});
+        errors.emplace_back(std::move(name), std::move(reason));
     }
     return errors;
 }
