@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <iterator>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <variant>
 #include <vector>
@@ -102,8 +103,8 @@ auto DbcMessage::signals_for_mux_value(const SignalName& multiplexor, MultiplexV
 
 auto DbcMessage::signal_by_name(const SignalName& name) const -> const DbcSignal* {
     signal_index_cache.ensure([this](auto& map) {
-        for (std::size_t i = 0; i < signals.size(); ++i) {
-            map.emplace(signals[i].name.get(), i);
+        for (auto const [i, signal] : std::views::enumerate(signals)) {
+            map.emplace(signal.name.get(), static_cast<std::size_t>(i));
         }
     });
     return cached_element(signal_index_cache.find(name.get()), signals,
@@ -125,8 +126,8 @@ static auto message_key(const CanId& id) -> std::uint64_t {
 
 auto DbcDefinition::message_by_id(const CanId& id) const -> const DbcMessage* {
     id_index_cache.ensure([this](auto& map) {
-        for (std::size_t i = 0; i < messages.size(); ++i) {
-            map.emplace(message_key(messages[i].id), i);
+        for (auto const [i, message] : std::views::enumerate(messages)) {
+            map.emplace(message_key(message.id), static_cast<std::size_t>(i));
         }
     });
     const std::uint64_t key = message_key(id);
@@ -136,8 +137,8 @@ auto DbcDefinition::message_by_id(const CanId& id) const -> const DbcMessage* {
 
 auto DbcDefinition::message_by_name(const MessageName& name) const -> const DbcMessage* {
     name_index_cache.ensure([this](auto& map) {
-        for (std::size_t i = 0; i < messages.size(); ++i) {
-            map.emplace(messages[i].name.get(), i);
+        for (auto const [i, message] : std::views::enumerate(messages)) {
+            map.emplace(message.name.get(), static_cast<std::size_t>(i));
         }
     });
     return cached_element(name_index_cache.find(name.get()), messages,

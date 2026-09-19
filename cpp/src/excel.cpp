@@ -23,6 +23,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <ranges>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -179,13 +180,13 @@ struct DataRow {
 static auto row_to_map(OpenXLSX::XLWorksheet const& ws, int row,
                        const std::vector<std::string>& headers) -> CellMap {
     CellMap result;
-    for (std::size_t i = 0; i < headers.size(); ++i) {
+    for (auto const [i, header] : std::views::enumerate(headers)) {
         auto const cell = ws.cell(row, static_cast<std::uint16_t>(i + 1));
-        auto const str_val = cell_to_string(cell, headers[i], row);
+        auto const str_val = cell_to_string(cell, header, row);
         if (str_val.empty())
             continue;
-        result[headers[i]] = CellVal{
-            .value = str_val, .is_text = cell.value().type() == OpenXLSX::XLValueType::String};
+        result[header] = CellVal{.value = str_val,
+                                 .is_text = cell.value().type() == OpenXLSX::XLValueType::String};
     }
     return result;
 }
@@ -308,13 +309,10 @@ static auto has_key(const CellMap& cells, const std::string& key) -> bool {
 static auto headers_from_row(OpenXLSX::XLWorksheet const& ws, std::uint16_t count)
     -> std::vector<std::string> {
     std::vector<std::string> result;
-    // The counter is wider than the bound it is compared against: at a count of
-    // the bound type's maximum, a counter of that same type wraps on the
-    // increment that should end the loop and the loop never ends.  The library
-    // clamps a column reference to its own maximum today, so nothing reaches
-    // that count, but the termination of this loop is not that library's to
-    // decide.
-    for (std::uint32_t col = 1; col <= count; ++col) {
+    // The domain is wider than the column type the count comes in: at a count
+    // of that type's maximum, an end of count + 1 is not representable in it,
+    // and the range would come out empty where it should be full.
+    for (auto const col : std::views::iota(std::uint32_t{1}, std::uint32_t{count} + 1)) {
         // Lossless: the counter never exceeds the bound, which is of the
         // narrower type the cell accessor takes.
         const OpenXLSX::XLCellValue val = ws.cell(1, static_cast<std::uint16_t>(col)).value();
@@ -530,7 +528,9 @@ static auto collect_data_rows(OpenXLSX::XLWorksheet const& ws) -> std::vector<Da
     auto const headers = headers_from_row(ws, ws.columnCount());
     std::vector<DataRow> rows;
     auto const total_rows = ws.rowCount();
-    for (std::uint32_t r = 2; r <= total_rows; ++r) {
+    // Wider than the sheet's own row count for the same reason the header scan
+    // is wider than its column type: the end is one past the last row.
+    for (auto const r : std::views::iota(std::uint64_t{2}, std::uint64_t{total_rows} + 1)) {
         auto cells = row_to_map(ws, static_cast<int>(r), headers);
         if (!cells.empty())
             rows.emplace_back(static_cast<int>(r), std::move(cells));
@@ -555,9 +555,9 @@ static auto harden_excel_path(const std::filesystem::path& path) -> Result<void>
 static void write_header_row(OpenXLSX::XLWorksheet const& ws,
                              const std::vector<std::string>& headers,
                              OpenXLSX::XLStyleIndex header_fmt) {
-    for (std::size_t i = 0; i < headers.size(); ++i) {
+    for (auto const [i, header] : std::views::enumerate(headers)) {
         auto cell = ws.cell(1, static_cast<std::uint16_t>(i + 1));
-        cell.value() = headers[i];
+        cell.value() = header;
         cell.setCellFormat(header_fmt);
     }
 }
@@ -622,9 +622,9 @@ static auto group_rows_by_message(const std::vector<DataRow>& data_rows)
     -> std::vector<std::pair<MessageKeyExt, std::vector<std::size_t>>> {
     std::vector<std::pair<MessageKeyExt, std::vector<std::size_t>>> groups;
     std::map<MessageKeyExt, std::size_t> positions;
-    for (std::size_t i = 0; i < data_rows.size(); ++i) {
-        auto const& cells = data_rows[i].cells;
-        auto const ctx_str = row_ctx(data_rows[i].number);
+    for (auto const [i, data_row] : std::views::enumerate(data_rows)) {
+        auto const& cells = data_row.cells;
+        auto const ctx_str = row_ctx(data_row.number);
         auto msg_id = parse_message_id(get_any(cells, "Message ID", ctx_str), ctx_str);
         auto const msg_name = get_str(cells, "Message Name", ctx_str);
         auto dlc = get_int(cells, "DLC", ctx_str);
@@ -633,7 +633,7 @@ static auto group_rows_by_message(const std::vector<DataRow>& data_rows)
         auto [it, inserted] = positions.try_emplace(key, groups.size());
         if (inserted)
             groups.emplace_back(std::move(key), std::vector<std::size_t>{});
-        groups[it->second].second.push_back(i);
+        groups[it->second].second.push_back(static_cast<std::size_t>(i));
     }
     return groups;
 }

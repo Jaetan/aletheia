@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <compare>
@@ -319,23 +320,26 @@ public:
     auto operator<=>(const Dlc&) const = default;
 };
 
+namespace detail {
 // CAN-FD DLC to payload byte count mapping (ISO 11898-1:2015 §8.4.2.4).
 // DLC 0-8 maps directly; 9→12, 10→16, 11→20, 12→24, 13→32, 14→48, 15→64.
+// One table, read forwards by dlc_to_bytes and backwards by bytes_to_dlc.
+inline constexpr std::array<std::size_t, 16> k_dlc_bytes = {0, 1,  2,  3,  4,  5,  6,  7,
+                                                            8, 12, 16, 20, 24, 32, 48, 64};
+} // namespace detail
+
 [[nodiscard]] constexpr auto dlc_to_bytes(Dlc dlc) -> std::size_t {
-    constexpr std::array<std::size_t, 16> table = {0, 1,  2,  3,  4,  5,  6,  7,
-                                                   8, 12, 16, 20, 24, 32, 48, 64};
-    return table[dlc.value()];
+    return detail::k_dlc_bytes[dlc.value()];
 }
 
 // Payload byte count to DLC code: the inverse of dlc_to_bytes over the same
-// table, or an error for a byte count no DLC code denotes.
+// table, or an error for a byte count no DLC code denotes.  The search is the
+// table's own, so the codes it can return are exactly the ones it holds.
 [[nodiscard]] inline auto bytes_to_dlc(std::size_t byte_count) -> std::expected<Dlc, std::string> {
-    for (std::uint8_t code = 0; code <= 15; ++code) {
-        auto const dlc = *Dlc::create(code);
-        if (dlc_to_bytes(dlc) == byte_count)
-            return dlc;
-    }
-    return std::unexpected("invalid DLC byte count: " + std::to_string(byte_count));
+    auto const* const found = std::ranges::find(detail::k_dlc_bytes, byte_count);
+    if (found == detail::k_dlc_bytes.end())
+        return std::unexpected("invalid DLC byte count: " + std::to_string(byte_count));
+    return *Dlc::create(static_cast<std::uint8_t>(found - detail::k_dlc_bytes.begin()));
 }
 
 // ---------------------------------------------------------------------------

@@ -197,6 +197,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Loop over what the library can bound, not over a number we wrote.** Every counting
+  loop of `cpp/src` and `cpp/include` whose bound a view removes outright now carries the
+  view its shape calls for: `std::views::enumerate` where the body needs the position,
+  a `std::views::zip` over the signal resolution's input and the three arrays it fills,
+  sized from that input, `std::ranges::transform` for the RTS argument table,
+  `std::views::iota` for the spreadsheet's column and row domains, `std::views::chunk`
+  for a hex payload read two digits at a time, and a `std::span` cursor for the argument
+  parser, which consumes a flag's value from the front. `bytes_to_dlc` searches the DLC
+  table rather than counting to its last code, and that table is now one constant both
+  directions read. `docs/CPP_INDEX_LOOPS.yaml` loses the rows whose loops are gone, from
+  90 counting loops to 75. Measured against the same two mutation trees: the C++ surface
+  falls from 1133 mutants to 1086 with no survivor, and the mutants killed only by a
+  libstdc++ precondition rather than by a test from 132 to 105, the whole of that fall in
+  the files whose hand-written bounds the views replaced. The two-digit read leans on the
+  refusal of an odd digit count that precedes it, so the CLI suite now holds that refusal.
+
 - **Every mutant the three lanes sweep is one the project can answer for.**
   The C++ lane now keeps Mull's SQLite report of each tree and reads from it
   what ended every run, a test's assertion, a leak, the kernel or a fault,

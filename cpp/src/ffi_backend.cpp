@@ -17,6 +17,7 @@
 
 #include <dlfcn.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -247,8 +248,8 @@ public:
                 detail::rts_init_args(rts_cores, override_env != nullptr ? override_env : "");
             static std::vector<char*> rts_argv_ptrs = [] {
                 std::vector<char*> ptrs(rts_argv.size());
-                for (std::size_t i = 0; i < ptrs.size(); ++i)
-                    ptrs[i] = rts_argv[i].data();
+                std::ranges::transform(rts_argv, ptrs.begin(),
+                                       [](std::string& arg) { return arg.data(); });
                 return ptrs;
             }();
             auto argc = static_cast<int>(rts_argv_ptrs.size());

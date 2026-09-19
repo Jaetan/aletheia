@@ -21,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <span>
 #include <stop_token>
@@ -166,12 +167,12 @@ void AletheiaClient::populate_signal_lookup(const DbcDefinition& dbc) {
         auto id_value = can_id_value(msg.id);
         auto const is_extended = can_id_is_extended(msg.id);
         std::vector<std::string> names;
-        for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(msg.signals.size()); ++i) {
+        for (auto const [i, signal] : std::views::enumerate(msg.signals)) {
             signal_index_.emplace(detail::SignalKey{.id_value = id_value,
                                                     .is_extended = is_extended,
-                                                    .signal_name = msg.signals[i].name.get()},
-                                  i);
-            names.emplace_back(msg.signals[i].name.get());
+                                                    .signal_name = signal.name.get()},
+                                  static_cast<std::uint32_t>(i));
+            names.emplace_back(signal.name.get());
         }
         signal_names_.emplace(detail::MessageKey{id_value, is_extended}, std::move(names));
     }
@@ -505,8 +506,8 @@ auto AletheiaClient::resolve_signals(std::string_view method, CanId id,
     ResolvedSignals resolved{.indices = std::vector<std::uint32_t>(signals.size()),
                              .numerators = std::vector<std::int64_t>(signals.size()),
                              .denominators = std::vector<std::int64_t>(signals.size())};
-    for (std::size_t i = 0; i < signals.size(); ++i) {
-        auto const& sv = signals[i];
+    for (auto const& [sv, index, numerator, denominator] :
+         std::views::zip(signals, resolved.indices, resolved.numerators, resolved.denominators)) {
         auto const it = signal_index_.find(detail::SignalKey{
             .id_value = id_value, .is_extended = is_extended, .signal_name = sv.name.get()});
         if (it == signal_index_.end()) {
@@ -514,10 +515,10 @@ auto AletheiaClient::resolve_signals(std::string_view method, CanId id,
                 ErrorKind::Validation, std::format("signal '{}' not found in DBC for CAN ID {}",
                                                    std::string_view{sv.name}, id_value)});
         }
-        resolved.indices[i] = it->second;
+        index = it->second;
         auto const& r = sv.value.get();
-        resolved.numerators[i] = r.numerator();
-        resolved.denominators[i] = r.denominator();
+        numerator = r.numerator();
+        denominator = r.denominator();
     }
     return resolved;
 }
@@ -675,7 +676,7 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
 auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> frames)
     -> BatchResult {
     BatchResult batch;
-    for (std::size_t i = 0; i < frames.size(); ++i) {
+    for (auto const [i, frame] : std::views::enumerate(frames)) {
         // Per-frame check between FFI calls — the cancellation boundary for
         // batch ops. The most recent FFI call (if one was in flight when stop
         // fired) ran to completion and its response is in `responses`.
@@ -683,7 +684,7 @@ auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> fr
             batch.error = make_cancellation_error("send_frames");
             return batch;
         }
-        auto r = send_frame(stop, frames[i]);
+        auto r = send_frame(stop, frame);
         if (!r.has_value()) {
             auto const& e = r.error();
             // Cancellation propagates as-is so callers see ErrorKind::Cancellation

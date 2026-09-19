@@ -97,6 +97,19 @@ TEST_CASE("CLI smoke over the real FFI core", "[cli]") {
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode"}) == 2); // --value missing
 }
 
+TEST_CASE("extract refuses a payload that is not a whole number of bytes", "[cli]") {
+    if (!lib_available()) {
+        SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
+    }
+    auto const dbc = (repo_root() / "examples" / "example.dbc").string();
+    // The payload is read two hex digits at a time, so an odd digit count has
+    // to be refused before the read: the last digit would otherwise be taken
+    // for a byte of its own and a truncated frame would decode as a whole one.
+    CHECK(run({"extract", "--dbc", dbc, "0x100", "102700000A00000"}) == 2);
+    // The same payload one digit longer is a frame the core decodes.
+    CHECK(run({"extract", "--dbc", dbc, "0x100", "102700000A000000"}) == 0);
+}
+
 TEST_CASE("extract --json renders signal values as exact rationals, never a lossy float", "[cli]") {
     if (!lib_available()) {
         SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");

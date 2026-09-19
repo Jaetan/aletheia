@@ -44,6 +44,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <span>
 #include <sstream>
@@ -206,8 +207,8 @@ static auto parse_hex_data(std::string_view s) -> std::optional<std::vector<std:
         return std::nullopt;
     std::vector<std::byte> out;
     out.reserve(view.size() / 2);
-    for (std::size_t i = 0; i < view.size(); i += 2) {
-        const std::string octet{view.substr(i, 2)};
+    for (auto const octet_chars : view | std::views::chunk(2)) {
+        const std::string octet{octet_chars.begin(), octet_chars.end()};
         std::uint8_t byte = 0;
         auto const* const end = std::to_address(octet.end());
         auto [ptr, ec] = std::from_chars(octet.data(), end, byte, 16);
@@ -227,8 +228,12 @@ static auto parse_args(std::span<const std::string> args, const std::set<std::st
                        const std::set<std::string>& bool_flags)
     -> std::expected<Args, std::string> {
     Args out;
-    for (std::size_t i = 0; i < args.size(); ++i) {
-        const std::string& a = args[i];
+    // A cursor rather than a counter: a value flag consumes the argument after
+    // it, so the step is a variable number of elements and the consumption is
+    // what the loop says.
+    while (!args.empty()) {
+        const std::string& a = args.front();
+        args = args.subspan(1);
         if (!a.starts_with("--")) {
             out.positionals.push_back(a);
             continue;
@@ -242,12 +247,14 @@ static auto parse_args(std::span<const std::string> args, const std::set<std::st
         if (bool_flags.contains(name)) {
             out.flags.insert(name);
         } else if (value_flags.contains(name)) {
-            if (inline_val)
+            if (inline_val) {
                 out.opts[name] = *inline_val;
-            else if (i + 1 < args.size())
-                out.opts[name] = args[++i];
-            else
+            } else if (!args.empty()) {
+                out.opts[name] = args.front();
+                args = args.subspan(1);
+            } else {
                 return std::unexpected<std::string>("flag --" + name + " requires a value");
+            }
         } else {
             return std::unexpected<std::string>("unknown flag: " + a);
         }
