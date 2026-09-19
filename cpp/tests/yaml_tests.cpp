@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -581,7 +582,8 @@ TEST_CASE("yaml: file size cap rejected", "[yaml][hardening]") {
     {
         std::ofstream ofs(tmp, std::ios::binary);
         std::vector<char> chunk(1024UL * 1024, 'a');
-        for (int i = 0; i < 65; ++i) // 65 MiB
+        // 65 MiB, one mebibyte at a time: the count is the point, not a position.
+        for ([[maybe_unused]] auto const mebibyte : std::views::repeat(0, 65))
             ofs.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
     }
     auto result = load_checks_from_yaml(tmp);

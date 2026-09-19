@@ -7,6 +7,7 @@
 // every block this program allocates is one this file counted.
 #include "alloc_fault.hpp"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <bit>
@@ -16,6 +17,7 @@
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <new>
+#include <ranges>
 #include <string_view>
 #include <vector>
 
@@ -86,13 +88,12 @@ constexpr std::size_t k_stack_depth = 8;
 
 [[nodiscard]] static auto vendored_frame_among(const std::array<void*, k_stack_depth>& frames,
                                                int depth) -> bool {
-    for (int i = 0; i < depth; ++i) {
-        auto const name = symbol_at(frames[static_cast<std::size_t>(i)]);
-        if (name.contains("nlohmann") || name.contains("OpenXLSX") || name.contains("4YAML")) {
-            return true;
-        }
-    }
-    return false;
+    // take clamps, so a depth the capture never filled reads nothing rather
+    // than past the array.
+    return std::ranges::any_of(frames | std::views::take(depth), [](auto const* const frame) {
+        auto const name = symbol_at(frame);
+        return name.contains("nlohmann") || name.contains("OpenXLSX") || name.contains("4YAML");
+    });
 }
 
 // Whether the allocation the hook is answering is a vendored library's own,
@@ -115,7 +116,7 @@ constexpr std::size_t k_stack_depth = 8;
     for (auto const* frame : frames) {
         hash = (hash * 1099511628211ULL) ^ std::bit_cast<std::uintptr_t>(frame);
     }
-    for (std::size_t probe = 0; probe < 8; ++probe) {
+    for (auto const probe : std::views::iota(std::size_t{0}, std::size_t{8})) {
         auto& slot = table[(hash + probe) & (k_slots - 1)];
         if (!slot.filled) {
             slot.frames = frames;

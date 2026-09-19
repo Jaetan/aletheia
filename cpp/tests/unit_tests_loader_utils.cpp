@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <ranges>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -121,7 +122,7 @@ struct ZipImage {
     void cd_entry(std::uint32_t uncompressed, std::uint16_t name_len, std::uint16_t extra_len,
                   std::uint16_t comment_len) {
         u32(0x02014b50);
-        for (int i = 0; i < 5; ++i)
+        for ([[maybe_unused]] auto const field : std::views::repeat(0, 5))
             u16(0); // version made by, version needed, flags, method, mod time
         u16(0);     // mod date
         u32(0);     // CRC-32
@@ -134,7 +135,8 @@ struct ZipImage {
         u16(0); // internal attributes
         u32(0); // external attributes
         u32(0); // relative offset
-        for (std::size_t i = 0; i < std::size_t{name_len} + extra_len + comment_len; ++i)
+        for ([[maybe_unused]] auto const byte :
+             std::views::repeat(0, std::size_t{name_len} + extra_len + comment_len))
             bytes.push_back('x');
     }
     void eocd(std::uint16_t entries, std::uint32_t cd_size, std::uint32_t cd_offset) {

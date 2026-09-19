@@ -24,6 +24,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -423,7 +424,7 @@ struct WireBuf {
     }
     void i64(std::int64_t v) {
         auto u = static_cast<std::uint64_t>(v);
-        for (unsigned i = 0; i < 8; ++i)
+        for (auto const i : std::views::iota(0U, 8U))
             u8(static_cast<std::uint8_t>((u >> (8U * i)) & 0xFFU));
     }
     void str(std::string_view s) {
@@ -595,7 +596,7 @@ TEST_CASE("binary extraction decodes adjacent reasons, an empty one included", "
     // between their offsets and nothing else.
     WireBuf w;
     w.header(/*nvals=*/0, /*nerrs=*/3, /*nabss=*/0, /*reason_bytes=*/6);
-    for (std::uint16_t i = 0; i < 3; ++i) {
+    for (auto const i : std::views::iota(std::uint16_t{0}, std::uint16_t{3})) {
         w.u16(i);
         w.u8(1);
     }
@@ -1915,7 +1916,7 @@ TEST_CASE("end_stream: Always on never-observed signal after 5 frames → Unreso
 
     auto const rpm_id = CanId{StandardId::create(0x200).value()};
     auto const dlc = Dlc::create(8).value();
-    for (std::uint64_t i = 0; i < 5; ++i) {
+    for (auto const i : std::views::iota(std::uint64_t{0}, std::uint64_t{5})) {
         auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
@@ -1978,7 +1979,7 @@ TEST_CASE("end_stream: Eventually on never-observed signal → Unresolved",
 
     auto const rpm_id = CanId{StandardId::create(0x200).value()};
     auto const dlc = Dlc::create(8).value();
-    for (std::uint64_t i = 0; i < 5; ++i) {
+    for (auto const i : std::views::iota(std::uint64_t{0}, std::uint64_t{5})) {
         auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
@@ -2062,7 +2063,7 @@ TEST_CASE("end_stream: signal recovers after missing → Holds", "[integration][
     auto const dlc = Dlc::create(8).value();
 
     // Three frames of Msg512 (Speed absent).
-    for (std::uint64_t i = 0; i < 3; ++i) {
+    for (auto const i : std::views::iota(std::uint64_t{0}, std::uint64_t{3})) {
         auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
@@ -2103,7 +2104,7 @@ TEST_CASE("end_stream: K3 combination — Unresolved And Holds = Unresolved",
 
     auto const rpm_id = CanId{StandardId::create(0x200).value()};
     auto const dlc = Dlc::create(8).value();
-    for (std::uint64_t i = 0; i < 3; ++i) {
+    for (auto const i : std::views::iota(std::uint64_t{0}, std::uint64_t{3})) {
         auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
@@ -2141,7 +2142,7 @@ TEST_CASE("end_stream: K3 combination — Unresolved Or Fails = Unresolved",
 
     auto const rpm_id = CanId{StandardId::create(0x200).value()};
     auto const dlc = Dlc::create(8).value();
-    for (std::uint64_t i = 0; i < 3; ++i) {
+    for (auto const i : std::views::iota(std::uint64_t{0}, std::uint64_t{3})) {
         auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
@@ -2174,7 +2175,7 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
 
     auto const rpm_id = CanId{StandardId::create(0x200).value()};
     auto const dlc = Dlc::create(8).value();
-    for (std::uint64_t i = 0; i < 3; ++i) {
+    for (auto const i : std::views::iota(std::uint64_t{0}, std::uint64_t{3})) {
         auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());

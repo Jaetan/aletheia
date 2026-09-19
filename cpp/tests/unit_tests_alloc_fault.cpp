@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <memory>
 #include <new>
+#include <ranges>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -175,7 +176,7 @@ TEST_CASE("the sweep reads a block the call left behind", "[alloc_fault]") {
     std::vector<std::unique_ptr<std::string>> keeper;
     auto const leaves_them_behind = [&keeper] {
         std::size_t made = 0;
-        for (int i = 0; i < 8; ++i) {
+        for ([[maybe_unused]] auto const allocation : std::views::repeat(0, 8)) {
             keeper.push_back(std::make_unique<std::string>(64, 'x'));
             made += keeper.back()->size();
         }
@@ -280,12 +281,12 @@ static auto two_of_each_extraction() -> std::vector<std::byte> {
         buf.push_back(static_cast<std::byte>(v >> 8U));
     };
     auto const u32 = [&](std::uint32_t v) {
-        for (int shift = 0; shift < 32; shift += 8)
+        for (auto const shift : std::views::iota(0, 32) | std::views::stride(8))
             buf.push_back(static_cast<std::byte>((v >> static_cast<unsigned>(shift)) & 0xFFU));
     };
     auto const i64 = [&](std::int64_t v) {
         auto const bits = static_cast<std::uint64_t>(v);
-        for (int shift = 0; shift < 64; shift += 8)
+        for (auto const shift : std::views::iota(0, 64) | std::views::stride(8))
             buf.push_back(static_cast<std::byte>((bits >> static_cast<unsigned>(shift)) & 0xFFU));
     };
     constexpr std::string_view first_reason = "the signal extends past the end of the frame";

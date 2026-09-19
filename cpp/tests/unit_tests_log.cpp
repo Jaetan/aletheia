@@ -19,6 +19,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -493,7 +494,7 @@ TEST_CASE("cache.full fires once, on the first frame past the cache's capacity",
     mock->queue_response(R"({"status": "success"})"); // set_properties
     mock->queue_response(R"({"status": "success"})"); // start_stream
     constexpr unsigned frames = 257;
-    for (unsigned i = 0; i < frames; ++i) {
+    for ([[maybe_unused]] auto const frame : std::views::repeat(0, frames)) {
         mock->queue_response(std::string{k_violation});
         mock->queue_response(std::string{k_extraction});
     }
@@ -501,7 +502,7 @@ TEST_CASE("cache.full fires once, on the first frame past the cache's capacity",
 
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(8).value();
-    for (unsigned i = 0; i < frames; ++i) {
+    for (auto const i : std::views::iota(0U, frames)) {
         FramePayload data(8, std::byte{0});
         data[0] = static_cast<std::byte>(i & 0xFFU);
         data[1] = static_cast<std::byte>((i >> 8U) & 0xFFU);

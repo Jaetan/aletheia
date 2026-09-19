@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <stop_token>
 #include <string>
@@ -329,7 +330,7 @@ TEST_CASE("nesting depth over limit lifts to InputBoundExceeded", "[cross_bindin
     // 63 always-wrappers + atomic + predicate = JSON depth 65 (> 64).
     LtlFormula inner =
         ltl::atomic(ltl::equals(SignalName{"TestSignal"}, PhysicalValue{Rational{0, 1}}));
-    for (std::size_t i = 0; i < 63; ++i)
+    for ([[maybe_unused]] auto const level : std::views::repeat(0, 63))
         inner = ltl::always(std::move(inner));
     std::vector<LtlFormula> props;
     props.push_back(std::move(inner));

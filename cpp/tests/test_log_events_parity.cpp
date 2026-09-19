@@ -39,9 +39,9 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <ranges>
 #include <set>
 #include <string>
 #include <string_view>
@@ -102,8 +102,7 @@ TEST_CASE("LOG_EVENTS.yaml is well-formed", "[parity][log][yaml]") {
     REQUIRE(rows.size() == 16);
 
     std::set<std::string> seen;
-    for (size_t i = 0; i < rows.size(); ++i) {
-        auto const& row = rows[i];
+    for (auto const [i, row] : std::views::enumerate(rows)) {
         INFO("events[" << i << "] name=" << row.name);
 
         CHECK_FALSE(row.name.empty());

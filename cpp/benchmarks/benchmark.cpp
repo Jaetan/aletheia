@@ -28,6 +28,7 @@
 #include <memory>
 #include <numeric>
 #include <print>
+#include <ranges>
 #include <ratio>
 #include <span>
 #include <stdexcept>
@@ -553,7 +554,7 @@ static auto bench_streaming(const fs::path& lib, const DbcDefinition& dbc,
     auto client = make_streaming_client(lib, dbc, properties);
 
     auto const start = std::chrono::steady_clock::now();
-    for (int i = 0; i < num_frames; ++i) [[maybe_unused]]
+    for (auto const i : std::views::iota(0, num_frames)) [[maybe_unused]]
         auto const sent = client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
     auto const end = std::chrono::steady_clock::now();
 
@@ -568,7 +569,8 @@ static auto bench_extraction(const fs::path& lib, const DbcDefinition& dbc, CanI
     auto client = make_client(lib, dbc);
 
     auto const start = std::chrono::steady_clock::now();
-    for (int i = 0; i < num_frames; ++i) [[maybe_unused]]
+    for ([[maybe_unused]] auto const frame_index : std::views::repeat(0, num_frames))
+        [[maybe_unused]]
         auto const extracted = client.extract_signals(std::stop_token{}, id, dlc, frame);
     auto const end = std::chrono::steady_clock::now();
 
@@ -581,7 +583,8 @@ static auto bench_building(const fs::path& lib, const DbcDefinition& dbc, CanId 
     auto client = make_client(lib, dbc);
 
     auto const start = std::chrono::steady_clock::now();
-    for (int i = 0; i < num_frames; ++i) [[maybe_unused]]
+    for ([[maybe_unused]] auto const frame_index : std::views::repeat(0, num_frames))
+        [[maybe_unused]]
         auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
     auto const end = std::chrono::steady_clock::now();
 
@@ -592,23 +595,21 @@ static auto bench_building(const fs::path& lib, const DbcDefinition& dbc, CanId 
 static auto run_throughput_bench(std::string name, auto bench_fn, int num_frames, int num_runs,
                                  int warmup_runs) -> ThroughputResult {
     // Warmup
-    for (int w = 0; w < warmup_runs; ++w)
+    for ([[maybe_unused]] auto const warmup_run : std::views::repeat(0, warmup_runs))
         bench_fn(num_frames / 10);
 
     // Actual runs
     std::vector<double> results;
     results.reserve(num_runs);
-    for (int r = 0; r < num_runs; ++r) {
-        const double fps = bench_fn(num_frames);
-        results.push_back(fps);
-    }
+    for ([[maybe_unused]] auto const run : std::views::repeat(0, num_runs))
+        results.push_back(bench_fn(num_frames));
 
     auto const stats = compute_stats(results);
 
     std::println(out_file(), "\n{}:", name);
     std::println(out_file(), "----------------------------------------");
-    for (int r = 0; r < num_runs; ++r)
-        std::println(out_file(), "  Run {}/{}: {:.0f} ops/sec", r + 1, num_runs, results[r]);
+    for (auto const [r, fps] : std::views::enumerate(results))
+        std::println(out_file(), "  Run {}/{}: {:.0f} ops/sec", r + 1, num_runs, fps);
 
     return ThroughputResult{
         .name = std::move(name),
@@ -746,13 +747,13 @@ static auto bench_latency_streaming(const fs::path& lib, const DbcDefinition& db
     auto client = make_streaming_client(lib, dbc, properties);
 
     // Warmup
-    for (int i = 0; i < warmup; ++i) [[maybe_unused]]
+    for (auto const i : std::views::iota(0, warmup)) [[maybe_unused]]
         auto const sent = client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
 
     // Measure
     std::vector<double> latencies;
     latencies.reserve(ops);
-    for (int i = 0; i < ops; ++i) {
+    for (auto const i : std::views::iota(0, ops)) {
         auto const start = std::chrono::steady_clock::now();
         [[maybe_unused]] auto const sent =
             client.send_frame(std::stop_token{}, Timestamp{warmup + i}, id, dlc, frame);
@@ -771,13 +772,13 @@ static auto bench_latency_extraction(const fs::path& lib, const DbcDefinition& d
     auto client = make_client(lib, dbc);
 
     // Warmup
-    for (int i = 0; i < warmup; ++i) [[maybe_unused]]
+    for ([[maybe_unused]] auto const warmup_op : std::views::repeat(0, warmup)) [[maybe_unused]]
         auto const extracted = client.extract_signals(std::stop_token{}, id, dlc, frame);
 
     // Measure
     std::vector<double> latencies;
     latencies.reserve(ops);
-    for (int i = 0; i < ops; ++i) {
+    for ([[maybe_unused]] auto const op : std::views::repeat(0, ops)) {
         auto const start = std::chrono::steady_clock::now();
         [[maybe_unused]] auto const extracted =
             client.extract_signals(std::stop_token{}, id, dlc, frame);
@@ -794,13 +795,13 @@ static auto bench_latency_building(const fs::path& lib, const DbcDefinition& dbc
     auto client = make_client(lib, dbc);
 
     // Warmup
-    for (int i = 0; i < warmup; ++i) [[maybe_unused]]
+    for ([[maybe_unused]] auto const warmup_op : std::views::repeat(0, warmup)) [[maybe_unused]]
         auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
 
     // Measure
     std::vector<double> latencies;
     latencies.reserve(ops);
-    for (int i = 0; i < ops; ++i) {
+    for ([[maybe_unused]] auto const op : std::views::repeat(0, ops)) {
         auto const start = std::chrono::steady_clock::now();
         [[maybe_unused]] auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
         auto const end = std::chrono::steady_clock::now();
@@ -940,7 +941,7 @@ static auto mean_fps(const fs::path& lib, const DbcDefinition& dbc, CanId id, Dl
                      int num_frames, int num_runs) -> double {
     std::vector<double> fps_runs;
     fps_runs.reserve(num_runs);
-    for (int r = 0; r < num_runs; ++r)
+    for ([[maybe_unused]] auto const run : std::views::repeat(0, num_runs))
         fps_runs.push_back(
             bench_streaming(lib, dbc, clone_props(props), id, dlc, frame, num_frames));
     return compute_stats(fps_runs).mean;
@@ -1095,7 +1096,7 @@ static auto scan_property_count(const fs::path& lib, const DbcDefinition& dbc, i
         for (int count : counts) {
             std::vector<LtlFormula> props;
             props.reserve(count);
-            for (int i = 0; i < count; ++i)
+            for (auto const i : std::views::iota(0, count))
                 props.push_back(make_scaling_property(i));
             double fps =
                 mean_fps(lib, dbc, can20_id, can20_dlc, can20_frame(), props, num_frames, num_runs);
@@ -1252,22 +1253,33 @@ static auto parse_args(std::span<char* const> argv) -> Args {
         std::exit(1);
     }
 
-    for (std::size_t i = 2; i < argv.size(); ++i) {
-        auto arg = std::string_view{argv[i]};
+    // A cursor over what is left after the program name and the mode, because a
+    // flag that takes a value consumes the argument after it: the step is one
+    // or two, so the remainder carries the position rather than an index.
+    auto rest = argv.subspan(2);
+    auto const take_value = [&rest] {
+        auto const* const value = rest.front();
+        rest = rest.subspan(1);
+        return value;
+    };
+    while (!rest.empty()) {
+        auto arg = std::string_view{rest.front()};
+        rest = rest.subspan(1);
+        const bool has_value = !rest.empty();
         if (arg == "--json") {
             args.json_output = true;
         } else if (arg == "--quick") {
             args.quick = true;
-        } else if (arg == "--frames" && i + 1 < argv.size()) {
-            args.frames = parse_count(arg, argv[++i]);
-        } else if (arg == "--runs" && i + 1 < argv.size()) {
-            args.runs = parse_count(arg, argv[++i]);
-        } else if (arg == "--warmup" && i + 1 < argv.size()) {
-            const int val = parse_count(arg, argv[++i]);
+        } else if (arg == "--frames" && has_value) {
+            args.frames = parse_count(arg, take_value());
+        } else if (arg == "--runs" && has_value) {
+            args.runs = parse_count(arg, take_value());
+        } else if (arg == "--warmup" && has_value) {
+            const int val = parse_count(arg, take_value());
             args.warmup = val;
             args.warmup_ops = val;
-        } else if (arg == "--ops" && i + 1 < argv.size()) {
-            args.ops = parse_count(arg, argv[++i]);
+        } else if (arg == "--ops" && has_value) {
+            args.ops = parse_count(arg, take_value());
         } else {
             std::println(stderr, "Unknown option: {}", arg);
             print_usage(argv[0]);

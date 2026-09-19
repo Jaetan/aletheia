@@ -215,9 +215,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   consumes from the front of a `std::span` instead of comparing an offset against a
   length, so neither can be written past its end. The end-of-central-directory scan reads
   every position the record could start at as a `std::views::slide` window, reversed.
+  The suites follow the same rule: a position the body needs comes from
+  `std::views::enumerate`, two sequences compared come from `std::views::zip`, a fixed
+  stride from `std::views::stride`, a prefix of a buffer from `std::views::take`, which
+  clamps where a hand-written length did not, and a count with no position from
+  `std::views::repeat`. The two benchmark harnesses
+  follow as well, where a run repeated a fixed number of times is a `std::views::repeat`
+  and a frame numbered by its position a `std::views::iota`; measured before and after,
+  every lane moves less than the host's own variance, the largest of them a latency
+  median moving by one tick of the resolution it is reported at.
   `docs/CPP_INDEX_LOOPS.yaml` loses the rows whose loops are gone, from 90 counting loops
-  to 68, and the library sources keep one, the walk over variable-size directory entries
-  that no view expresses. Measured against the same two mutation trees: the C++ surface
+  to 8, and every one of those is a cursor rather than a counter: the walk over
+  variable-size ZIP directory entries, a find-driven replace, and the six of the parity
+  check's own comment and string scrubber. Measured against the same two mutation trees: the C++ surface
   falls from 1133 mutants to 1037 with no survivor, and the mutants killed only by a
   libstdc++ precondition rather than by a test from 132 to 91, the whole of that fall in
   the files whose hand-written bounds the views replaced, the ZIP loader reaching none.

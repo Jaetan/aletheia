@@ -22,6 +22,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <stop_token>
 #include <string>
@@ -173,7 +174,7 @@ TEST_CASE("Client cancellation: mid-batch commit-prefix-and-report", "[cancellat
     auto sid = StandardId::create(0x123).value();
     auto const dlc = Dlc::create(8).value();
     std::vector<std::byte> payload(8, std::byte{0});
-    for (std::size_t i = 0; i < total; ++i) {
+    for (auto const i : std::views::iota(std::size_t{0}, total)) {
         frames.push_back(Frame{
             .timestamp = Timestamp{static_cast<std::int64_t>((i + 1) * 1000)},
             .id = CanId{sid},

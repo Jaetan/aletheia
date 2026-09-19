@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -75,8 +76,8 @@ static void write_bytes(std::ofstream& ofs, std::span<const unsigned char> bytes
 
 static void write_header(OpenXLSX::XLWorksheet const& ws,
                          std::span<const std::string_view> headers) {
-    for (std::size_t i = 0; i < headers.size(); ++i)
-        ws.cell(1, static_cast<std::uint16_t>(i + 1)).value() = std::string{headers[i]};
+    for (auto const [i, header] : std::views::enumerate(headers))
+        ws.cell(1, static_cast<std::uint16_t>(i + 1)).value() = std::string{header};
 }
 
 /// Write a data row (2-indexed) under the float-principle all-text contract: a
@@ -89,8 +90,8 @@ static void write_header(OpenXLSX::XLWorksheet const& ws,
 /// tests), write it directly with an int64/double value.
 static void write_row(OpenXLSX::XLWorksheet const& ws, int row,
                       const std::vector<std::string>& values) {
-    for (std::size_t i = 0; i < values.size(); ++i) {
-        const std::string& s = values[i];
+    for (auto const [i, value] : std::views::enumerate(values)) {
+        const std::string& s = value;
         if (s.empty())
             continue;
         auto const col = static_cast<std::uint16_t>(i + 1);
@@ -117,8 +118,8 @@ static void make_workbook(const std::filesystem::path& path, const std::string& 
     doc.workbook().worksheet("Sheet1").setName(sheet);
     auto const ws = doc.workbook().worksheet(sheet);
     write_header(ws, headers);
-    for (std::size_t r = 0; r < rows.size(); ++r)
-        write_row(ws, static_cast<int>(r + 2), rows[r]);
+    for (auto const [r, row] : std::views::enumerate(rows))
+        write_row(ws, static_cast<int>(r + 2), row);
     doc.save();
     doc.close();
 }
@@ -831,7 +832,8 @@ TEST_CASE("excel: file size cap rejected", "[excel][hardening]") {
     {
         std::ofstream ofs(tf.path, std::ios::binary);
         std::vector<char> chunk(std::size_t{1024} * 1024, '\xAA');
-        for (int i = 0; i < 65; ++i) // 65 MiB
+        // 65 MiB, one mebibyte at a time: the count is the point, not a position.
+        for ([[maybe_unused]] auto const mebibyte : std::views::repeat(0, 65))
             ofs.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
     }
     auto result = load_checks_from_excel(tf.path);
@@ -1171,7 +1173,7 @@ TEST_CASE("excel: every data row of a long sheet is loaded", "[excel][simple]") 
     TempPath tf("excel_fifty_rows.xlsx");
     std::vector<std::vector<std::string>> rows;
     rows.reserve(50);
-    for (int i = 0; i < 50; ++i)
+    for (auto const i : std::views::iota(0, 50))
         rows.push_back({"", "Sig" + std::to_string(i), "never_exceeds", "1", "", "", "", ""});
     make_checks_workbook(tf.path, rows);
     auto result = load_checks_from_excel(tf.path);

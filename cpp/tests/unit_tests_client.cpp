@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <ranges>
 #include <span>
 #include <stop_token>
 #include <string>
@@ -346,7 +347,7 @@ TEST_CASE("sequential clients in same scope work independently", "[client][lifec
     // Any shared mutable state across instances would be a serious bug —
     // the GHC RTS is reference-counted and thread-safe, but each
     // AletheiaClient owns its own StablePtr on the Haskell side.
-    for (int i = 0; i < 3; ++i) {
+    for ([[maybe_unused]] auto const scope : std::views::repeat(0, 3)) {
         auto mock = std::make_unique<MockBackend>();
         mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
         AletheiaClient client(std::move(mock));
@@ -613,7 +614,7 @@ static auto ack_frames(std::size_t count) -> std::vector<Frame> {
     const FramePayload data(8, std::byte{0});
     std::vector<Frame> frames;
     frames.reserve(count);
-    for (std::size_t i = 0; i < count; ++i) {
+    for (auto const i : std::views::iota(std::size_t{0}, count)) {
         frames.push_back({.timestamp = Timestamp{static_cast<std::int64_t>((i + 1) * 1000)},
                           .id = CanId{sid},
                           .dlc = dlc,
@@ -733,8 +734,8 @@ TEST_CASE("send_frames_lazy matches send_frames", "[client][batch][lazy]") {
 
     REQUIRE_FALSE(eager.has_error());
     REQUIRE(eager.responses.size() == lazy.size());
-    for (std::size_t i = 0; i < lazy.size(); ++i) {
-        CHECK(eager.responses[i].index() == lazy[i].index());
+    for (auto const& [eager_response, lazy_response] : std::views::zip(eager.responses, lazy)) {
+        CHECK(eager_response.index() == lazy_response.index());
     }
     CHECK(eager_mock->captured() == lazy_mock->captured()); // identical backend call log
 }

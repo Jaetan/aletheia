@@ -26,6 +26,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <ranges>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -663,7 +664,7 @@ TEST_CASE("parse_frame_data accepts variable-length data", "[json][parse]") {
 TEST_CASE("parse_frame_data accepts CAN-FD 64-byte data", "[json][parse]") {
     // DLC 15 → 64 bytes
     std::string json_str = R"({"status": "success", "data": [)";
-    for (int i = 0; i < 64; ++i) {
+    for (auto const i : std::views::iota(0, 64)) {
         if (i > 0)
             json_str += ", ";
         json_str += std::to_string(i);
@@ -2364,7 +2365,7 @@ TEST_CASE("serialize_set_properties refuses a formula nested past the depth boun
             return ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{1, 1}}));
         };
         auto f = leaf();
-        for (std::uint64_t i = 0; i < depth; ++i)
+        for ([[maybe_unused]] auto const level : std::views::repeat(0, depth))
             f = wrap(std::move(f), leaf());
         std::vector<LtlFormula> props;
         props.push_back(std::move(f));
