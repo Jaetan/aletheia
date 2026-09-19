@@ -12,6 +12,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The mutation lanes run one per binding, and each one streams.** The C++
+  surface that this round took from 264 mutants to 971 across two build trees
+  shared a single 90-minute job with the Python and Go lanes, and was killed by
+  that budget with its sweep still running. The three now run as parallel lanes
+  on their own clocks, each told to skip the other two; the check the branch
+  ruleset requires keeps its name and reports them, passing only when every
+  lane succeeded and refusing every other result, a budget kill included. The long
+  commands, `mutmut run`, `gremlins unleash`, `mull-runner` and the cmake build
+  of each mutation tree, stream their output through a new
+  `tools/_common.run_streaming` instead of having it captured: the killed job
+  had logged one line in 78 minutes and lost the rest, so nothing said which
+  binding it was in or how far it had got. Each lane now records its own wall
+  time as `elapsed_s`, so the next budget is read off a measurement.
+
 - **A signal the frame does not carry is reported, not read.** The bit reader
   is total and answers zero for bits that are not there, so extracting a
   sixteen-bit signal from a one-byte frame reported success with a value the

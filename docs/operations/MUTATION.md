@@ -28,6 +28,20 @@ The static gate (`tools/check_mutation_setup.py`) runs always-on
 source file is renamed or deleted without updating the YAML.  The dynamic runner is opt-in via
 `ALETHEIA_MUTATION_CHECK=1` or `tools/run_ci.py --mutation`.
 
+In CI the runner is invoked once per binding, in parallel lanes with their own
+budgets, each told to skip the other two (`ALETHEIA_MUTATION_SKIP_PYTHON` /
+`_GO` / `_CPP`), because the three tools cost wildly different amounts and one
+job charges the slowest against a clock the others have already spent.  The
+`mutation testing` check the branch ruleset requires reports those lanes: it
+passes only on the single result meaning every lane finished clean, and refuses
+every other, a lane killed by its own budget included.  Each
+run records its lanes' wall times under `elapsed_s` in `summary.json`, so a
+budget is set from a measurement.
+
+The long-running commands stream their output rather than having it captured:
+a lane killed by its budget would otherwise take its entire log with it, and
+while it runs there would be no way to tell progress from a hang.
+
 ## Threshold model
 
 Two-tier per advisor 2026-05-09:

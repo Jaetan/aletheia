@@ -34,10 +34,11 @@
 # these jobs hit the Agda store that workflow already populated).  The workflow
 # ALSO runs on push:main: the heavy caches (Mull-from-source, the build tree)
 # are otherwise only written on feature branches, which do NOT cross-pollinate,
-# so a fresh PR branch would miss them, and the mutation job pays for the Mull
-# build, the .so build and both C++ mutation trees from cold.  A push:main
-# run writes those caches under the default branch, where every PR branch can
-# read them — turning the cold Mull build (318s) + .so build (338s) into hits.
+# so a fresh PR branch would miss them, and the mutation lanes pay for the .so
+# build from cold — the C++ lane additionally for Mull and both mutation trees.
+# A push:main run writes those caches under the default branch, where every PR
+# branch can read them — turning the cold Mull build (318s) + .so build (338s)
+# into hits.
 
 name: Heavy lanes (PR)
 
@@ -345,20 +346,54 @@ jobs:
 
   # ── Lane 3: mutation testing (REQUIRED; once per PR) ───────────────────────
   # The drift gate (tools/mutation_run.py) fails on a collection crash OR
-  # observed survivors > the docs/MUTATION_BENCH.yaml baseline, across all three
-  # bindings (mutmut / gremlins / Mull).  Add `mutation testing` to the main
-  # branch ruleset's required checks to make it merge-blocking.
-  mutation:
-    name: mutation testing
+  # observed survivors > the docs/MUTATION_BENCH.yaml baseline.  It runs once
+  # per binding, in parallel: the three tools cost wildly different amounts and
+  # a single job charges the slowest of them against a clock the other two have
+  # already spent.  The `mutation testing` job at the end of this file is what
+  # the main branch ruleset requires; it is the one that reports these lanes.
+  mutation-lane:
+    name: mutation ${{ matrix.binding }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      # One lane's regression must not cancel the others: a cancelled sweep
+      # reports nothing, and the reason to split them was to learn what each
+      # costs.  Every lane runs to its own verdict.
+      fail-fast: false
+      matrix:
+        include:
+          # Each lane names the bindings it skips, rather than deriving them
+          # from its own name: the derivation would rest on how GitHub casts
+          # the string it yields, and the failure it casts wrong is a lane that
+          # skips all three, runs nothing and reports success.
+          - binding: python
+            timeout: 60
+            skip_python: ''
+            skip_go: '1'
+            skip_cpp: '1'
+          - binding: go
+            timeout: 60
+            skip_python: '1'
+            skip_go: ''
+            skip_cpp: '1'
+          # The C++ lane builds and sweeps two whole mutation trees under Mull.
+          # Sharing one 90-minute job with the other two, it was killed at 90m
+          # with the sweep still running; on its own clock it starts from the
+          # budget that was never enough rather than from a guess, and the run
+          # records `elapsed_s` per lane so the next value is read off a
+          # measurement.
+          - binding: cpp
+            timeout: 150
+            skip_python: '1'
+            skip_go: '1'
+            skip_cpp: ''
     # Runs on every PR commit-state (so the required result reflects the latest
     # commit) AND on push:main (to seed the build caches — see the header).
     # cancel-in-progress collapses rapid PR iteration to ~one run on the settled
-    # state; push:main is exempt (below).  Own group so it never cancels the
-    # repro / stability lanes.
+    # state; push:main is exempt (below).  Per-binding group so the lanes never
+    # cancel each other, nor the repro / stability lanes.
     concurrency:
-      group: heavy-mutation-${{ github.event.pull_request.number || github.ref }}
+      group: heavy-mutation-${{ matrix.binding }}-${{ github.event.pull_request.number || github.ref }}
       # push:main is exempt — a seeding run must not be cancelled before it saves.
       cancel-in-progress: ${{ github.event_name != 'push' }}
     steps:
@@ -452,12 +487,14 @@ jobs:
             go/excel/go.sum
 
       - name: Install gremlins (Go mutation tool)
+        if: matrix.binding == 'go'
         run: |
           set -euo pipefail
           go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
           echo "${HOME}/go/bin" >> "${GITHUB_PATH}"
 
       - name: Cache clang-23 + LLVM-23-dev .debs (large download)
+        if: matrix.binding == 'cpp'
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
@@ -466,6 +503,7 @@ jobs:
       # toolchain) + the LLVM-23 dev libraries (needed to build Mull from source)
       # from apt.llvm.org.  mutation_run.py invokes clang-23 explicitly.
       - name: Install C++ toolchain + LLVM-23 dev (apt.llvm.org)
+        if: matrix.binding == 'cpp'
         run: |
           set -euo pipefail
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
@@ -498,15 +536,17 @@ jobs:
       # tag, the LLVM version and the patch, so any change to what is built
       # misses the cache rather than replaying the previous binaries.
       - name: Cache Mull-23 (built from source vs LLVM-23)
+        if: matrix.binding == 'cpp'
         id: mull23
         uses: actions/cache@v6
         with:
           path: ~/mull-bin
           key: mull23-noble-${{ hashFiles('tools/build_mull.sh') }}
       - name: Build Mull-23 from source (cache miss)
-        if: steps.mull23.outputs.cache-hit != 'true'
+        if: matrix.binding == 'cpp' && steps.mull23.outputs.cache-hit != 'true'
         run: tools/build_mull.sh "${HOME}/mull-bin"
       - name: Install Mull-23 to PATH
+        if: matrix.binding == 'cpp'
         run: |
           set -euo pipefail
           mkdir -p "${HOME}/.local/bin"
@@ -546,18 +586,26 @@ jobs:
       - name: Build the FFI library (needed by mutmut / Mull / gremlins lanes)
         run: cabal run shake -- build
 
-      - name: Mutation testing across the three bindings (required)
+      - name: Mutation testing (${{ matrix.binding }})
         env:
           ALETHEIA_MUTATION_CHECK: '1'
+          # The runner drives every binding it is not told to skip, and logs
+          # each skip, so a lane's log states which binding it covered.
+          ALETHEIA_MUTATION_SKIP_PYTHON: ${{ matrix.skip_python }}
+          ALETHEIA_MUTATION_SKIP_GO: ${{ matrix.skip_go }}
+          ALETHEIA_MUTATION_SKIP_CPP: ${{ matrix.skip_cpp }}
         run: python/.venv/bin/python3 -m tools.mutation_run
 
       # Seed the build tree so push:main writes it under the default branch for
       # fresh PR branches to restore.  NOT gated to pull_request (push:main is
       # the seeding event); `!cancelled()` avoids saving a truncated tree; skip
       # when the exact-sha key already exists (a re-run / the sibling workflow
-      # saved first — GHA cache keys are immutable).
+      # saved first — GHA cache keys are immutable).  One lane saves, because
+      # that immutability makes a second writer of the same key a logged
+      # failure rather than a no-op; the Python lane reaches it soonest and is
+      # the least likely of the three to run out of clock before it does.
       - name: Save incremental build tree
-        if: ${{ !cancelled() && steps.build-tree-cache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && matrix.binding == 'python' && steps.build-tree-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6
         with:
           path: |
@@ -565,3 +613,41 @@ jobs:
             dist-newstyle
             haskell-shim/dist-newstyle
           key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
+
+  # ── The required check ─────────────────────────────────────────────────────
+  # `mutation testing` is the context the main branch ruleset requires, so it
+  # must keep that exact name however the work behind it is arranged.  It
+  # reports the lanes above and adds nothing of its own: it passes on the one
+  # result meaning every leg finished clean, and refuses every other, whichever
+  # of them the platform uses for a leg its own `timeout-minutes` killed.
+  # Silence about a lane is never a pass.
+  mutation:
+    name: mutation testing
+    runs-on: ubuntu-24.04
+    needs: [mutation-lane]
+    # `always()`, so no arrangement of lane results can leave this job skipped:
+    # a skipped job reporting a required context is a context that cannot fail,
+    # and a lane killed by its clock is exactly when a narrower condition would
+    # skip it.  The cost is that a run superseded by a newer push, whose lanes
+    # cancel-in-progress, reports this check red on the commit it has already
+    # replaced.  That is accepted: required checks resolve per commit, so it
+    # blocks nothing, and every way of reading supersession off the run is also
+    # satisfied by a genuine timeout, which would then pass the gate over a
+    # lane that never finished.
+    if: ${{ always() }}
+    timeout-minutes: 5
+    steps:
+      - name: Every mutation lane reached a verdict and it was success
+        env:
+          LANES: ${{ toJSON(needs.mutation-lane) }}
+          RESULT: ${{ needs.mutation-lane.result }}
+        run: |
+          set -euo pipefail
+          printf 'mutation lanes: %s\n' "${LANES}"
+          if [ "${RESULT}" != "success" ]; then
+            echo "::error::the mutation lanes did not all succeed (${RESULT});" \
+                 "a lane killed by its own timeout-minutes arrives here as one" \
+                 "of these non-success results"
+            exit 1
+          fi
+          echo "every mutation lane succeeded"
