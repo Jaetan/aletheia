@@ -620,6 +620,38 @@ def merge_elements(reports: list[Mapping[str, object]]) -> dict[str, object]:
     return merged
 
 
+def cpp_lane_command(
+    mull_runner: str, build_dir: Path, artifact_dir: Path, sanitizer: str
+) -> list[str]:
+    """Build the runner's argv for one lane, the test binary's own argv behind ``--``."""
+    return [
+        mull_runner,
+        str(build_dir / "unit_tests"),
+        "--reporters=IDE",
+        "--reporters=Elements",
+        # The SQLite report keeps each mutant's exit status and the test
+        # binary's own output, which is what tells a kill by a test's
+        # assertion from one by a fault.
+        "--reporters=SQLite",
+        f"--report-dir={artifact_dir}",
+        f"--report-name={_lane_report_name(sanitizer)}",
+        # Everything past this marker is the test binary's own argv.
+        # Catch2 shuffles its cases by default under a seed that changes
+        # every run, and mull runs the binary once per mutant, so an
+        # unpinned lane reads a different census each sweep: two pinned
+        # sweeps of one tree agreed on every mutant, where two shuffled
+        # ones read the fault route at 98 and 99 against the pinned 93.
+        # A fault ends the process, so the order decides which test
+        # reports before the run stops. Pinning makes the recorded census
+        # a measurement rather than a sample; that the verdict holds under
+        # every order is a separate property, and a probe sweeps several
+        # orders to hold it.
+        "--",
+        "--order",
+        "decl",
+    ]
+
+
 def _run_cpp_lane(
     mull_runner: str,
     cpp_root: Path,
@@ -643,18 +675,7 @@ def _run_cpp_lane(
     # Elements reporter writes every mutant with its status and site, which
     # is what the ledger is checked against.
     runner_proc = run_streaming(
-        [
-            mull_runner,
-            str(build_dir / "unit_tests"),
-            "--reporters=IDE",
-            "--reporters=Elements",
-            # The SQLite report keeps each mutant's exit status and the test
-            # binary's own output, which is what tells a kill by a test's
-            # assertion from one by a fault.
-            "--reporters=SQLite",
-            f"--report-dir={artifact_dir}",
-            f"--report-name={_lane_report_name(sanitizer)}",
-        ],
+        cpp_lane_command(mull_runner, build_dir, artifact_dir, sanitizer),
         cwd=cpp_root,
         env=mull_env,
     )

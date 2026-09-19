@@ -3,15 +3,23 @@
 # SPDX-License-Identifier: BSD-2-Clause
 #
 # Probes docs/MUTATION_BENCH.yaml.
-# Claim: the C++ baseline's kill routes record a run. Sweeping the two
-# configured trees with Mull's SQLite reporter and reading each mutant's route
-# the way the lane does gives, for every route, a count within the recorded
-# margin of the recorded one, and the routes add up to the recorded total.
-# The margin exists because a mutant whose behaviour is undefined dies by a
-# different route from one run to the next: it crashes in one and fails a
-# test or hangs in the next. Non-zero exit: a route is outside the margin,
-# or the routes do not add up. Exits 0 with a note when Mull or either
-# mutation tree is not available, since the claim is untestable then.
+# Claim: the C++ baseline's kill routes record a run exactly. Sweeping the two
+# configured trees under the order the lane pins, and reading each mutant's
+# route the way the lane does, gives every route the recorded count, and the
+# routes add up to the recorded total. There is no tolerance: Catch2 shuffles
+# its cases by default, which moved the fault route between 93 and 101 across
+# six orders of one tree, and the lane pins the order precisely so that the
+# census is a measurement rather than one sample of that shuffle. Two runs of
+# the pinned order, compared mutant for mutant, moved nothing, and three on an
+# idle machine agreed on every count.
+# A timeout is the exception, and it is not absorbed: one mutant runs close to
+# the cap of ten times the unmutated baseline, so an oversubscribed machine
+# times it out where an idle one reads the route it dies by. A sweep with any
+# timeout is a census taken under load, which this reports as untestable
+# rather than as a finding.
+# Non-zero exit: a route differs from the recorded one, or the routes do not
+# add up. Exits 0 with a note when Mull or either tree is absent, and 2 when
+# the machine was too loaded to measure.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v mull-runner-23 > /dev/null || { echo "Mull not installed, claim untestable"; exit 0; }
@@ -23,11 +31,13 @@ dir=$(mktemp -d) || exit 2
 trap 'rm -rf "$dir"' EXIT
 # The lane's environment: the repository root for the integration suite, and
 # no ALETHEIA_LIB, so the library lookup reads the root as the lane's does.
+# The order behind `--` is the binary's own, and is what the lane pins.
 for lane in leak plain; do
     tree=build-mutation; [ "$lane" = plain ] && tree=build-mutation-plain
     (cd "cpp/$tree" &&
         env -u ALETHEIA_LIB ALETHEIA_REPO_ROOT="$OLDPWD" mull-runner-23 ./unit_tests \
-            --report-name="cpp-mull-$lane" --report-dir="$dir" --reporters=SQLite > /dev/null 2>&1) || true
+            --report-name="cpp-mull-$lane" --report-dir="$dir" --reporters=SQLite \
+            -- --order decl > /dev/null 2>&1) || true
     [ -f "$dir/cpp-mull-$lane.sqlite" ] || { echo "the $lane tree's sweep wrote no SQLite report"; exit 1; }
 done
 "$py" - "$dir" <<'PY'
@@ -41,15 +51,17 @@ from tools.mutation_run import cpp_kill_routes
 baseline = yaml.safe_load(Path("docs/MUTATION_BENCH.yaml").read_text(encoding="utf-8"))
 recorded = baseline["bindings"]["cpp"]["baseline"]
 routes = recorded["kill_routes"]
-margin = recorded["kill_routes_margin"]
 observed = cpp_kill_routes(Path(sys.argv[1]))
 if observed is None:
     print("no census could be read from the sweeps")
     sys.exit(1)
+if observed.get("timeout", 0):
+    print(f"{observed['timeout']} mutant(s) timed out: the machine was loaded, census not comparable")
+    sys.exit(2)
 bad = False
-for route, count in routes.items():
-    if abs(observed.get(route, 0) - count) > margin:
-        print(f"{route}: {observed.get(route, 0)} observed, {count} recorded, margin {margin}")
+for route in routes.keys() | observed.keys():
+    if observed.get(route, 0) != routes.get(route, 0):
+        print(f"{route}: {observed.get(route, 0)} observed, {routes.get(route, 0)} recorded")
         bad = True
 if sum(observed.values()) != recorded["total_mutants"]:
     print(f"routes add up to {sum(observed.values())}, total recorded {recorded['total_mutants']}")

@@ -25,6 +25,33 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   serve here: it rewrites a loop only where the index does nothing but
   subscript one container, which is the case where no bound is hand-written.
 
+### Changed
+
+- **The C++ mutation lane sweeps under a pinned test order, and its recorded
+  census is exact.** Catch2 shuffles its cases by default under a seed that
+  changes every run, and mull runs the test binary once per mutant, so the
+  lane read a different kill-route census every sweep: six orders of one tree
+  read the fault route at 93, 93, 96, 98, 99 and 101, while under the pinned
+  order two runs compared mutant for mutant moved nothing and three runs on an
+  idle machine agreed on every count. The baseline in
+  `docs/MUTATION_BENCH.yaml` carried a `kill_routes_margin` of 8 and a
+  four-timeout tolerance to absorb that spread, which was covering the shuffle
+  rather than anything about the code. The lane now hands the binary
+  `-- --order decl`, both baseline probes sweep under that same order, and the
+  recorded counts are compared for equality with no tolerance at all.
+  Pinning is not allowed to hide what the shuffle was incidentally exercising:
+  a probe sweeps three orders and refuses any mutant whose killed-or-survived
+  verdict moves with the order, which would be inter-test coupling, and runs
+  the unmutated suite under four orders besides. Measured over six orders of
+  1037 mutants, no verdict moves. The route is not asked to be
+  order-independent and cannot be: a fault ends the process, so the order
+  decides which test reports before the run stops. One mutant is the exception
+  that proves the reading, `dlc_to_bytes` at the `update_frame_bin` call site,
+  whose corrupted length runs close to the cap of ten times the unmutated
+  baseline; an oversubscribed machine times it out where an idle one reads the
+  fault it dies by, so a sweep with any timeout is reported as a census taken
+  under load rather than absorbed into a tolerance.
+
 ### Fixed
 
 - **A killed test run no longer leaves its scratch directory behind.** Each

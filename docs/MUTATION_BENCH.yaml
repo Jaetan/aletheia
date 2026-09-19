@@ -280,11 +280,12 @@ bindings:
       # reason cpp/mull.yml gives.
       #
       # A timeout is a kill by another route: the runner counts it against
-      # the total, not as a survivor. Its exact count is not stable for a
-      # mutant whose behaviour is undefined (a signal count replaced by a
-      # constant reads past the arrays, and crashes on one run and hangs on
-      # the next), so the probe holds it within a stated margin of the count
-      # recorded here.
+      # the total, not as a survivor. One mutant runs close to the cap of ten
+      # times the unmutated baseline, about 43 seconds against 4.3, so an
+      # oversubscribed machine times it out where an idle one reads the route
+      # it dies by. That is a property of the machine and not of the code, so
+      # a sweep with any timeout is a census taken under load: the probe
+      # reports it as untestable rather than absorbing it.
       #
       # How the kills were read, from Mull's SQLite report of each tree,
       # merged with a test's assertion taking precedence over any other
@@ -296,12 +297,21 @@ bindings:
       # activated against a tree built without those assertions: most then
       # fail a test outright, some die by a signal or hang, and the few that
       # survive are the loop bounds a test never observes past the end,
-      # each a finding on its own. The margin is what a mutant whose
-      # behaviour is undefined moves by between runs, dying by a different
-      # route each time; a route outside it is the finding. Three sweeps
-      # of one tree state read the fault route at 131, 132 and 127, the
-      # test route moving by the same amounts the other way, so the margin
-      # sits above that spread of five.
+      # each a finding on its own. The counts below are exact, and the probe
+      # compares them for equality. They can be, because the lane pins the
+      # order the tests run in: Catch2 shuffles its cases by default under a
+      # seed that changes every run, and mull runs the binary once per
+      # mutant, so an unpinned lane read a different census every sweep. Six
+      # orders of one tree read the fault route at 93, 93, 96, 98, 99 and
+      # 101. Under the pinned order it holds still: two runs compared mutant
+      # for mutant moved nothing, and three runs on an idle machine agreed on
+      # every count, the two groups differing by the single mutant an
+      # oversubscribed machine timed out. What the order moves is the route
+      # and not the verdict, because a fault
+      # ends the process and the order decides which test reports before it
+      # stops, while a mutant that dies at all dies under every order: that
+      # the verdict is order-independent is the separate claim, and a probe
+      # sweeps several orders to hold it.
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
@@ -309,14 +319,13 @@ bindings:
       total_mutants: 1037
       timeouts: 0
       score_pct: 100
-      run_at: "2026-09-19"
+      run_at: "2026-09-20"
       kill_routes:
-        test: 944
+        test: 942
         leak: 0
         kernel: 2
-        fault: 91
+        fault: 93
         timeout: 0
-      kill_routes_margin: 8
       # Every survivor, by mutator, repository-relative file, the text of its
       # source line and how many mutants share that line. The lane refuses a
       # survivor not named here even at an unchanged count, and reports a row
