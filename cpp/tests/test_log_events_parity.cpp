@@ -233,7 +233,7 @@ TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflo
     // A future emit-site drift fails this check loudly with the offending name.
     for (auto const& event : unique_emitted) {
         INFO("emitted event: " << event);
-        const bool in_canonical = known.contains(event);
+        auto const in_canonical = known.contains(event);
         CHECK(in_canonical);
     }
 

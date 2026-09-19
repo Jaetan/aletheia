@@ -380,7 +380,7 @@ static auto run_capture(const std::string& cmd) -> std::pair<int, std::string> {
     while (auto const n = std::fread(buf.data(), 1, buf.size(), fp)) {
         captured.append(buf.data(), n);
     }
-    const int rc = pclose(fp);
+    auto const rc = pclose(fp);
     if (WIFEXITED(rc))
         return {WEXITSTATUS(rc), captured};
     return {rc, captured};
@@ -392,7 +392,7 @@ static auto sh_quote(std::string_view s) -> std::string {
     std::string out;
     out.reserve(s.size() + 2);
     out.push_back('\'');
-    for (const char c : s) {
+    for (auto const c : s) {
         if (c == '\'')
             out.append("'\\''");
         else
@@ -508,7 +508,7 @@ TEST_CASE("doc-example structural gate: no `<!-- cpp notest -->` annotations",
         auto const begin = std::sregex_iterator(body.begin(), body.end(), notest_re);
         auto const end = std::sregex_iterator{};
         for (auto const& match : std::ranges::subrange(begin, end)) {
-            const int line =
+            auto const line =
                 static_cast<int>(std::count(body.begin(), body.begin() + match.position(), '\n')) +
                 1;
             offenders.push_back(line);

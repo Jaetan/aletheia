@@ -360,7 +360,7 @@ static auto run() -> int {
         std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 
     auto const sub_checks = build_sub_checks(start, end);
-    const bool all_passed = std::ranges::all_of(sub_checks, &SubCheck::passed);
+    auto const all_passed = std::ranges::all_of(sub_checks, &SubCheck::passed);
 
     std::print("{{\n"
                "  \"binding\": \"cpp\",\n"

@@ -50,7 +50,7 @@ static auto run(std::vector<std::string> args) -> int {
 static auto run_capture(std::vector<std::string> args) -> std::pair<int, std::string> {
     std::ostringstream oss;
     auto* old = std::cout.rdbuf(oss.rdbuf());
-    const int code = aletheia::run_cli(std::move(args));
+    auto const code = aletheia::run_cli(std::move(args));
     std::cout.rdbuf(old);
     return {code, std::move(oss).str()};
 }
@@ -64,7 +64,7 @@ static auto run_capture(std::vector<std::string> args) -> std::pair<int, std::st
 static auto duplicate_signal_dbc() -> std::string {
     auto const fixture =
         repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "minimal.dbc";
-    std::string text = read_text_file(fixture);
+    auto text = read_text_file(fixture);
     auto const pos = text.find("EngineTemp");
     if (pos == std::string::npos) {
         throw std::runtime_error("minimal.dbc no longer contains EngineTemp");

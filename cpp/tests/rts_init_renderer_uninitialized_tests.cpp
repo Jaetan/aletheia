@@ -47,7 +47,7 @@ static auto find_lib() -> fs::path {
     if (auto const* repo = std::getenv("ALETHEIA_REPO_ROOT")) {
         const std::string_view repo_sv{repo};
         if (!repo_sv.empty()) {
-            const fs::path candidate = fs::path{repo_sv} / "build" / "libaletheia-ffi.so";
+            auto const candidate = fs::path{repo_sv} / "build" / "libaletheia-ffi.so";
             if (fs::exists(candidate))
                 return candidate;
         }

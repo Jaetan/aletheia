@@ -317,7 +317,7 @@ static auto make_canfd_frame() -> FramePayload {
 }
 
 static auto canfd_frame() -> const FramePayload& {
-    static const FramePayload frame = make_canfd_frame();
+    static auto const frame = make_canfd_frame();
     return frame;
 }
 static constexpr auto canfd_id = CanId{StandardId::create(0x200).value()};
@@ -428,12 +428,12 @@ static auto compute_stats(const std::vector<double>& data) -> Stats {
     if (data.empty())
         return {};
     auto const n = static_cast<double>(data.size());
-    const double sum = std::reduce(data.begin(), data.end(), 0.0);
-    const double mean = sum / n;
+    auto const sum = std::reduce(data.begin(), data.end(), 0.0);
+    auto const mean = sum / n;
     double sq_sum = 0;
     for (auto const v : data)
         sq_sum += (v - mean) * (v - mean);
-    const double stdev = (data.size() > 1) ? std::sqrt(sq_sum / (n - 1.0)) : 0.0;
+    auto const stdev = (data.size() > 1) ? std::sqrt(sq_sum / (n - 1.0)) : 0.0;
     return {
         .mean = mean,
         .stdev = stdev,
@@ -458,7 +458,7 @@ struct LatencyStats {
 static auto percentile(const std::vector<double>& sorted, double p) -> double {
     if (sorted.empty())
         return 0.0;
-    const double k = static_cast<double>(sorted.size() - 1) * p / 100.0;
+    auto const k = static_cast<double>(sorted.size() - 1) * p / 100.0;
     auto const f = static_cast<std::size_t>(k);
     auto const c = (f + 1 < sorted.size()) ? f + 1 : f;
     return sorted[f] + ((k - static_cast<double>(f)) * (sorted[c] - sorted[f]));
@@ -468,7 +468,7 @@ static auto compute_latency_stats(std::vector<double>& latencies_us) -> LatencyS
     if (latencies_us.empty())
         return {};
     std::ranges::sort(latencies_us);
-    const double sum = std::reduce(latencies_us.begin(), latencies_us.end(), 0.0);
+    auto const sum = std::reduce(latencies_us.begin(), latencies_us.end(), 0.0);
     return {
         .count = latencies_us.size(),
         .mean_us = sum / static_cast<double>(latencies_us.size()),
@@ -489,7 +489,7 @@ static auto compute_latency_stats(std::vector<double>& latencies_us) -> LatencyS
 // function-local static so the destination is reachable without a mutable
 // object at namespace scope.
 static auto out_file() -> std::FILE*& {
-    static std::FILE* destination = stdout;
+    static auto* destination = stdout;
     return destination;
 }
 
@@ -691,9 +691,9 @@ static void run_throughput(const fs::path& lib, int num_frames, int num_runs, in
     std::println(out_file(), "{}", k_rule_heavy);
 
     if (emit_json) {
-        Json json_results = Json::array();
+        auto json_results = Json::array();
         for (auto const& r : results) {
-            const double us = (r.fps.mean > 0) ? 1'000'000.0 / r.fps.mean : 0;
+            auto const us = (r.fps.mean > 0) ? 1'000'000.0 / r.fps.mean : 0;
             json_results.push_back({
                 {"name", r.name},
                 {"frames", r.num_frames},
@@ -862,7 +862,7 @@ static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json
     std::println(out_file(), "{}", k_rule_heavy);
 
     if (emit_json) {
-        Json json_results = Json::array();
+        auto json_results = Json::array();
         for (auto const& r : results) {
             json_results.push_back({
                 {"name", r.name},
@@ -1036,7 +1036,7 @@ static void emit_scaling_json(const std::vector<TraceSizeRow>& trace_can20,
     using Ordered = nlohmann::ordered_json;
 
     auto const trace_json = [](const std::vector<TraceSizeRow>& rows) -> Ordered {
-        Ordered arr = Ordered::array();
+        auto arr = Ordered::array();
         for (auto const& r : rows)
             arr.push_back({
                 {"frames", r.frames},
@@ -1046,7 +1046,7 @@ static void emit_scaling_json(const std::vector<TraceSizeRow>& trace_can20,
         return arr;
     };
 
-    Ordered prop_count_json = Ordered::array();
+    auto prop_count_json = Ordered::array();
     for (auto const& r : prop_count)
         prop_count_json.push_back({
             {"properties", r.properties},
@@ -1055,7 +1055,7 @@ static void emit_scaling_json(const std::vector<TraceSizeRow>& trace_can20,
             {"relative", round3(r.relative)},
         });
 
-    Ordered complexity_json = Ordered::array();
+    auto complexity_json = Ordered::array();
     for (auto const& r : complexity)
         complexity_json.push_back({
             {"complexity", r.complexity},
@@ -1093,17 +1093,17 @@ static auto scan_property_count(const fs::path& lib, const DbcDefinition& dbc, i
     {
         constexpr std::array counts{1, 2, 3, 5, 7, 10};
         double baseline = 0;
-        for (int count : counts) {
+        for (auto const count : counts) {
             std::vector<LtlFormula> props;
             props.reserve(count);
             for (auto const i : std::views::iota(0, count))
                 props.push_back(make_scaling_property(i));
-            double fps =
+            auto fps =
                 mean_fps(lib, dbc, can20_id, can20_dlc, can20_frame(), props, num_frames, num_runs);
             if (baseline == 0)
                 baseline = fps;
-            double relative = relative_of(fps, baseline);
-            double us = us_per_frame_of(fps);
+            auto relative = relative_of(fps, baseline);
+            auto us = us_per_frame_of(fps);
             std::println(out_file(), "{:10} {:12.0f} {:10.1f} {:10.2f}x", count, fps, us, relative);
             prop_count.push_back(
                 {.properties = count, .fps = fps, .us_per_frame = us, .relative = relative});
@@ -1119,7 +1119,7 @@ static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit
 
     auto dbc_20 = make_can20_dbc();
     auto dbc_fd = make_canfd_dbc();
-    const int num_frames = quick ? 5000 : 10000;
+    auto const num_frames = quick ? 5000 : 10000;
 
     // Warmup
     std::println(out_file(), "\nWarming up...");
@@ -1141,11 +1141,11 @@ static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit
         print_separator();
         std::vector<TraceSizeRow> rows;
         double baseline = 0;
-        for (int size : trace_sizes(quick)) {
-            double fps = mean_fps(lib, dbc, id, dlc, frame, props, size, num_runs);
+        for (auto const size : trace_sizes(quick)) {
+            auto fps = mean_fps(lib, dbc, id, dlc, frame, props, size, num_runs);
             if (baseline == 0)
                 baseline = fps;
-            double relative = relative_of(fps, baseline);
+            auto relative = relative_of(fps, baseline);
             std::println(out_file(), "{:10} {:12.0f} {:10.2f}x", size, fps, relative);
             rows.push_back({.frames = size, .fps = fps, .relative = relative});
         }
@@ -1174,12 +1174,12 @@ static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit
     {
         double baseline = 0;
         for (auto const& [label, props] : complexity_levels()) {
-            double fps = mean_fps(lib, dbc_20, can20_id, can20_dlc, can20_frame(), props,
-                                  num_frames, num_runs);
+            auto fps = mean_fps(lib, dbc_20, can20_id, can20_dlc, can20_frame(), props, num_frames,
+                                num_runs);
             if (baseline == 0)
                 baseline = fps;
-            double relative = relative_of(fps, baseline);
-            double us = us_per_frame_of(fps);
+            auto relative = relative_of(fps, baseline);
+            auto us = us_per_frame_of(fps);
             std::println(out_file(), "{:<25} {:12.0f} {:10.1f} {:10.2f}x", label, fps, us,
                          relative);
             complexity.push_back(
@@ -1265,7 +1265,7 @@ static auto parse_args(std::span<char* const> argv) -> Args {
     while (!rest.empty()) {
         auto arg = std::string_view{rest.front()};
         rest = rest.subspan(1);
-        const bool has_value = !rest.empty();
+        auto const has_value = !rest.empty();
         if (arg == "--json") {
             args.json_output = true;
         } else if (arg == "--quick") {
@@ -1275,7 +1275,7 @@ static auto parse_args(std::span<char* const> argv) -> Args {
         } else if (arg == "--runs" && has_value) {
             args.runs = parse_count(arg, take_value());
         } else if (arg == "--warmup" && has_value) {
-            const int val = parse_count(arg, take_value());
+            auto const val = parse_count(arg, take_value());
             args.warmup = val;
             args.warmup_ops = val;
         } else if (arg == "--ops" && has_value) {

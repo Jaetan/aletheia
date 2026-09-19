@@ -250,7 +250,7 @@ TEST_CASE("Check never_exceeds matches manual ltl", "[check]") {
 
 TEST_CASE("within rejects ms that overflow the microsecond conversion", "[check][overflow]") {
     using std::chrono::milliseconds;
-    constexpr std::int64_t k_max_ok = std::numeric_limits<std::int64_t>::max() / 1000;
+    constexpr auto k_max_ok = std::numeric_limits<std::int64_t>::max() / 1000;
 
     // when/then path.
     auto const when_then = [](std::int64_t ms) {

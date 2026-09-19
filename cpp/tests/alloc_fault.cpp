@@ -190,7 +190,7 @@ auto operator new(std::size_t size) -> void* {
         }
     }
     // A zero-sized request still answers with a distinct address.
-    void* block = std::malloc(size != 0 ? size : 1); // NOLINT(cppcoreguidelines-no-malloc)
+    auto* block = std::malloc(size != 0 ? size : 1); // NOLINT(cppcoreguidelines-no-malloc)
     if (block == nullptr) {
         throw std::bad_alloc{};
     }

@@ -262,7 +262,7 @@ TEST_CASE("DbcDefinition::message_by_name", "[dbc]") {
 
 TEST_CASE("DbcMessage::signal_by_name guards a stale cached index", "[dbc][safety]") {
     auto dbc = make_mux_dbc();
-    DbcMessage msg = std::move(dbc.messages[0]); // fresh message; cache not yet built
+    auto msg = std::move(dbc.messages[0]); // fresh message; cache not yet built
     // Build the signal-index cache (lazy ensure() runs exactly once here).
     REQUIRE(msg.signal_by_name(SignalName{"Voltage"}) != nullptr);
     // Drop the last signal — "Voltage"'s cached index is now out of bounds.
@@ -302,7 +302,7 @@ TEST_CASE("DbcDefinition::message_by_id guards a stale cached index", "[dbc][saf
 TEST_CASE("DbcMessage::signal_by_name rejects an in-bounds but wrong cached index",
           "[dbc][safety]") {
     auto dbc = make_mux_dbc();
-    DbcMessage msg = std::move(dbc.messages[0]);
+    auto msg = std::move(dbc.messages[0]);
     REQUIRE(msg.signal_by_name(SignalName{"Voltage"}) != nullptr); // cache: Voltage -> 3
     // Replace the element at the cached index in place with a differently-named
     // signal (size unchanged, so the cached index stays in bounds).

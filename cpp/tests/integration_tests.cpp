@@ -428,7 +428,7 @@ struct WireBuf {
             u8(static_cast<std::uint8_t>((u >> (8U * i)) & 0xFFU));
     }
     void str(std::string_view s) {
-        for (const char c : s)
+        for (auto const c : s)
             u8(static_cast<std::uint8_t>(c));
     }
     void header(std::uint16_t nvals, std::uint16_t nerrs, std::uint16_t nabss,
@@ -1117,7 +1117,7 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
 
     // Speed 100, 120 and 150 km/h at the DBC's factor of one tenth, all
     // under the threshold.
-    for (std::uint16_t raw : {std::uint16_t{1000}, std::uint16_t{1200}, std::uint16_t{1500}}) {
+    for (auto const raw : {std::uint16_t{1000}, std::uint16_t{1200}, std::uint16_t{1500}}) {
         FramePayload data{static_cast<std::byte>(raw & 0xFFU),
                           static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
                           std::byte{0},
@@ -1159,7 +1159,7 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
 
     // Speed 100, 110 and 150 km/h at the DBC's factor of one tenth; the last
     // one breaks the threshold.
-    for (std::uint16_t raw : {std::uint16_t{1000}, std::uint16_t{1100}, std::uint16_t{1500}}) {
+    for (auto const raw : {std::uint16_t{1000}, std::uint16_t{1100}, std::uint16_t{1500}}) {
         FramePayload data{static_cast<std::byte>(raw & 0xFFU),
                           static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
                           std::byte{0},
@@ -1178,7 +1178,7 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
     REQUIRE(end.has_value());
 
     // Either got a mid-stream violation or end-of-stream violation
-    const bool eos_violation = !end->results.empty() && end->results[0].verdict == Verdict::Fails;
+    auto const eos_violation = !end->results.empty() && end->results[0].verdict == Verdict::Fails;
     CHECK((got_violation || eos_violation));
 }
 
@@ -1339,7 +1339,7 @@ VAL_ 999 GhostSignal 0 "Off" 1 "On" ;
 
     auto parsed = client.parse_dbc_text(std::stop_token{}, text);
     REQUIRE(parsed.has_value());
-    const bool hit = std::ranges::any_of(parsed->warnings, [](const ValidationIssue& issue) {
+    auto const hit = std::ranges::any_of(parsed->warnings, [](const ValidationIssue& issue) {
         return issue.code == IssueCode::UnknownValueDescriptionTarget;
     });
     CHECK(hit);
@@ -1417,7 +1417,7 @@ BO_ 256 EngineStatus: 8 Engine
     CHECK(parsed.error().code() == ErrorCode::HandlerValidationFailed);
     CHECK(std::string{parsed.error().message()}.contains("duplicate signal name"));
     REQUIRE(parsed.error().issues().has_value());
-    const bool hit =
+    auto const hit =
         std::ranges::any_of(*parsed.error().issues(), [](const ValidationIssue& issue) {
             return issue.severity == IssueSeverity::Error &&
                    issue.code == IssueCode::DuplicateSignalName;
@@ -1520,7 +1520,7 @@ static void run_concurrent_client(const fs::path& lib, std::barrier<>& sync,
         }
 
         // Check both mid-stream and EOS for the verdict
-        const bool mid_violation = std::holds_alternative<PropertyBatch>(*send_result);
+        auto const mid_violation = std::holds_alternative<PropertyBatch>(*send_result);
         out.verdict = (mid_violation || end->results[0].verdict == Verdict::Fails) ? Verdict::Fails
                                                                                    : Verdict::Holds;
         out.ok = true;
@@ -1779,7 +1779,7 @@ TEST_CASE("mux cycle rejected by validator via real FFI", "[integration][nested_
     auto result = client.validate_dbc(std::stop_token{}, cycle_dbc);
     REQUIRE(result.has_value());
     REQUIRE(result->has_errors);
-    const bool found_cycle = std::ranges::any_of(result->issues, [](auto const& issue) {
+    auto const found_cycle = std::ranges::any_of(result->issues, [](auto const& issue) {
         return issue.code == IssueCode::MultiplexorCycle;
     });
     CHECK(found_cycle);

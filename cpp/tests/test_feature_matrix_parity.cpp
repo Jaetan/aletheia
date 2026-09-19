@@ -77,7 +77,7 @@ static auto is_digit_separator(const std::string& text, std::size_t pos) -> bool
         return false;
     if (!is_ident_char(text[pos - 1]) || !is_ident_char(text[pos + 1]))
         return false;
-    std::size_t start = pos;
+    auto start = pos;
     while (start > 0 && is_ident_char(text[start - 1]))
         --start;
     return std::isdigit(static_cast<unsigned char>(text[start])) != 0;
@@ -90,7 +90,7 @@ static auto is_digit_separator(const std::string& text, std::size_t pos) -> bool
 static auto strip_lexical_noise(std::string text) -> std::string {
     auto const n = text.size();
     for (std::size_t i = 0; i < n;) {
-        const char c = text[i];
+        auto const c = text[i];
         if (c == '/' && i + 1 < n && text[i + 1] == '/') {
             while (i < n && text[i] != '\n') {
                 text[i++] = ' ';
@@ -109,7 +109,7 @@ static auto strip_lexical_noise(std::string text) -> std::string {
                 i += 2;
             }
         } else if (c == '"' || (c == '\'' && !is_digit_separator(text, i))) {
-            const char quote = c;
+            auto const quote = c;
             text[i++] = ' ';
             while (i < n && text[i] != quote) {
                 if (text[i] == '\\' && i + 1 < n) {
@@ -139,9 +139,9 @@ static auto symbol_present(const std::string& text, const std::string& symbol) -
     }
     std::size_t pos = 0;
     while ((pos = text.find(symbol, pos)) != std::string::npos) {
-        const bool left_ok = (pos == 0) || !is_ident_char(text[pos - 1]);
-        const std::size_t right_idx = pos + symbol.size();
-        const bool right_ok = (right_idx >= text.size()) || !is_ident_char(text[right_idx]);
+        auto const left_ok = (pos == 0) || !is_ident_char(text[pos - 1]);
+        auto const right_idx = pos + symbol.size();
+        auto const right_ok = (right_idx >= text.size()) || !is_ident_char(text[right_idx]);
         if (left_ok && right_ok) {
             return true;
         }

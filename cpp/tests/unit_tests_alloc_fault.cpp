@@ -301,16 +301,16 @@ static auto two_of_each_extraction() -> std::vector<std::byte> {
     u16(1);
     i64(85);
     i64(2);
-    for (std::uint16_t idx : {std::uint16_t{0}, std::uint16_t{1}}) {
+    for (auto const idx : {std::uint16_t{0}, std::uint16_t{1}}) {
         u16(idx);
         buf.push_back(std::byte{0});
     }
     u32(0);
     u32(static_cast<std::uint32_t>(first_reason.size()));
     u32(static_cast<std::uint32_t>(first_reason.size() + second_reason.size()));
-    for (char c : first_reason)
+    for (auto const c : first_reason)
         buf.push_back(static_cast<std::byte>(c));
-    for (char c : second_reason)
+    for (auto const c : second_reason)
         buf.push_back(static_cast<std::byte>(c));
     u16(0);
     u16(1);

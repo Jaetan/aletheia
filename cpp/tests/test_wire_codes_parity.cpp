@@ -97,7 +97,7 @@ constexpr auto k_named_error_count =
 // ----- 1. YAML schema sanity -----
 
 TEST_CASE("WIRE_CODES.yaml is well-formed", "[parity][wire_codes][yaml]") {
-    for (const char* section : {"issue_codes", "error_codes"}) {
+    for (auto const* section : {"issue_codes", "error_codes"}) {
         auto rows = load_section(section);
         std::set<std::string> seen;
         for (auto const [i, row] : std::views::enumerate(rows)) {

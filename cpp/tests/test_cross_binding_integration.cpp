@@ -286,7 +286,7 @@ TEST_CASE("identifier at max length is accepted", "[cross_binding]") {
     AletheiaClient client(std::move(backend));
 
     const std::string name(aletheia::max_identifier_length, 'A');
-    const std::string dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
+    auto const dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
     auto result = client.parse_dbc_text(std::stop_token{}, dbc_text);
     REQUIRE(result.has_value());
     REQUIRE(result->dbc.messages.size() == 1);
@@ -299,7 +299,7 @@ TEST_CASE("identifier over max length is rejected", "[cross_binding]") {
     AletheiaClient client(std::move(backend));
 
     const std::string name(aletheia::max_identifier_length + 1, 'A');
-    const std::string dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
+    auto const dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
     auto const result = client.parse_dbc_text(std::stop_token{}, dbc_text);
     REQUIRE_FALSE(result.has_value());
 }
@@ -328,8 +328,7 @@ TEST_CASE("nesting depth over limit lifts to InputBoundExceeded", "[cross_bindin
 
     REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
     // 63 always-wrappers + atomic + predicate = JSON depth 65 (> 64).
-    LtlFormula inner =
-        ltl::atomic(ltl::equals(SignalName{"TestSignal"}, PhysicalValue{Rational{0, 1}}));
+    auto inner = ltl::atomic(ltl::equals(SignalName{"TestSignal"}, PhysicalValue{Rational{0, 1}}));
     for ([[maybe_unused]] auto const level : std::views::repeat(0, 63))
         inner = ltl::always(std::move(inner));
     std::vector<LtlFormula> props;

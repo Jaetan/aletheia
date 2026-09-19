@@ -212,9 +212,9 @@ TEST_CASE("Logger::enabled() mirrors log()'s short-circuit exactly", "[log][enab
              {LogLevel::Debug, LogLevel::Info, LogLevel::Warn, LogLevel::Error}) {
             const Logger logger(bump, min_level);
             callback_count = 0;
-            const bool en = logger.enabled(call_level);
+            auto const en = logger.enabled(call_level);
             logger.log(call_level, "test", {});
-            const bool fired = (callback_count > 0);
+            auto const fired = (callback_count > 0);
             CHECK(en == fired);
         }
     }

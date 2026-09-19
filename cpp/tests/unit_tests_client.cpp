@@ -281,7 +281,7 @@ TEST_CASE("client is movable", "[client]") {
     AletheiaClient client1(std::move(mock));
     CHECK(client1.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
 
-    AletheiaClient client2 = std::move(client1);
+    auto client2 = std::move(client1);
     CHECK(client2.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
 }
 
@@ -308,7 +308,7 @@ TEST_CASE("moved-from client destructor is safe", "[client][lifecycle]") {
     {
         AletheiaClient source(std::move(mock));
         {
-            AletheiaClient target = std::move(source);
+            auto target = std::move(source);
             CHECK(target.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
         } // target destructor closes state_
         // source destructor runs here — state_ is already nullptr from the
@@ -979,8 +979,8 @@ TEST_CASE("SignalInjection refuses a block the FFI would read past", "[client][i
 // the lengths, so the refusal is exercised with a real length at no memory cost.
 TEST_CASE("SignalInjection refuses a block wider than the wire's count", "[client][injection]") {
     constexpr std::size_t count = std::size_t{1} << 32U;
-    constexpr std::size_t bytes = count * sizeof(std::int64_t);
-    void* const region =
+    constexpr auto bytes = count * sizeof(std::int64_t);
+    auto* const region =
         mmap(nullptr, bytes, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     if (region == MAP_FAILED)
         SKIP("this host refuses to reserve the address range the block needs");

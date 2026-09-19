@@ -70,7 +70,7 @@ constexpr std::array<std::string_view, 16> dbc_hdr = {
 // fixtures below read as unsigned, so each byte crosses as a value rather than
 // through a cast of the buffer's type.
 static void write_bytes(std::ofstream& ofs, std::span<const unsigned char> bytes) {
-    for (const unsigned char b : bytes)
+    for (auto const b : bytes)
         ofs.put(static_cast<char>(b));
 }
 
@@ -95,7 +95,7 @@ static void write_row(OpenXLSX::XLWorksheet const& ws, int row,
         if (s.empty())
             continue;
         auto const col = static_cast<std::uint16_t>(i + 1);
-        std::string upper = s;
+        auto upper = s;
         std::ranges::transform(upper, upper.begin(), [](unsigned char ch) -> char {
             return static_cast<char>(std::toupper(ch));
         });
@@ -162,12 +162,12 @@ static void make_dbc_workbook_with_raw_id(const std::filesystem::path& path, std
     if (raw_override == nullptr)
         return;
     const std::string sheet_name = "xl/worksheets/sheet1.xml";
-    const std::string needle = "<v>" + std::to_string(id_value) + "</v>";
-    const std::string replacement =
+    auto const needle = "<v>" + std::to_string(id_value) + "</v>";
+    auto const replacement =
         (*raw_override == '\0') ? std::string{"<v/>"} : "<v>" + std::string{raw_override} + "</v>";
     OpenXLSX::XLZipArchive zip;
     zip.open(path.string());
-    std::string xml = zip.getEntry(sheet_name);
+    auto xml = zip.getEntry(sheet_name);
     auto const pos = xml.find(needle);
     REQUIRE(pos != std::string::npos);
     xml.replace(pos, needle.size(), replacement);
@@ -531,7 +531,7 @@ TEST_CASE("excel: template headers are bold", "[excel][template]") {
     auto const ws = doc.workbook().worksheet("DBC");
     auto const fmt_idx = ws.cell(1, 1).cellFormat();
     auto const font_idx = styles.cellFormats()[fmt_idx].fontIndex();
-    const bool is_bold = styles.fonts()[font_idx].bold();
+    auto const is_bold = styles.fonts()[font_idx].bold();
     doc.close();
 
     CHECK(is_bold);
