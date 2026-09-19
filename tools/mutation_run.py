@@ -66,6 +66,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
@@ -76,6 +77,7 @@ from tools._common import (
     find_executable,
     prepare_artifact_dir,
     run_capture,
+    run_streaming,
     short_sha,
     write_and_report_summary,
 )
@@ -366,13 +368,12 @@ def run_python(artifact_dir: Path) -> MutationReport:
     # with no separate .mutmut/ cache, so the erase above is complete.  Run
     # produces that state; results parses it.  Both write to stdout; we capture
     # both.
-    # These two calls carry a custom ``env`` (ALETHEIA_LIB), which the shared
-    # ``run_capture`` helper does not thread through, so they go direct to
-    # ``subprocess.run``; ``str(mutmut_bin)`` is an absolute path (no S607).
-    run_proc = subprocess.run(
-        [str(mutmut_bin), "run"], cwd=cwd, env=env, capture_output=True, text=True, check=False
-    )
-    raw = "=== mutmut run ===\n" + run_proc.stdout + run_proc.stderr + "\n"
+    # The run is the long half and streams, so a sweep killed by a wall clock
+    # still leaves the log of how far it got; ``results`` is a fast read of the
+    # state the run wrote and stays captured.  Both carry a custom ``env``
+    # (ALETHEIA_LIB), and ``str(mutmut_bin)`` is an absolute path (no S607).
+    run_proc = run_streaming([str(mutmut_bin), "run"], cwd=cwd, env=env)
+    raw = "=== mutmut run ===\n" + run_proc.stdout + "\n"
     # Even on non-zero exit, mutants may have been generated; capture results.
     results_proc = subprocess.run(
         [str(mutmut_bin), "results"], cwd=cwd, env=env, capture_output=True, text=True, check=False
@@ -424,8 +425,8 @@ def run_go(artifact_dir: Path) -> MutationReport:
     # against each mutant.  We pass the canonical aletheia/ subpackage
     # (the only Go module that holds runtime code; benchmarks and tests
     # are excluded automatically by virtue of *_test.go convention).
-    proc = run_capture([gremlins, "unleash", "./aletheia"], cwd=cwd)
-    raw = proc.stdout + "\n=== STDERR ===\n" + proc.stderr
+    proc = run_streaming([gremlins, "unleash", "./aletheia"], cwd=cwd)
+    raw = proc.stdout
     (artifact_dir / "go.raw.txt").write_text(raw)
 
     return parse_gremlins_summary(raw, f"exit {proc.returncode}")
@@ -511,7 +512,7 @@ def _build_cpp_mutation_tree(
     sanitizer: str,
 ) -> str | MutationReport:
     """Configure + build one mutation build tree, returning the raw log or a failure report."""
-    cmake_proc = run_capture(
+    cmake_proc = run_streaming(
         [
             cmake,
             "-B",
@@ -523,7 +524,7 @@ def _build_cpp_mutation_tree(
         ],
         cwd=cpp_root,
     )
-    raw = "=== cmake configure ===\n" + cmake_proc.stdout + cmake_proc.stderr + "\n"
+    raw = "=== cmake configure ===\n" + cmake_proc.stdout + "\n"
     if cmake_proc.returncode != 0:
         (artifact_dir / "cpp.raw.txt").write_text(raw)
         return MutationReport(
@@ -535,11 +536,11 @@ def _build_cpp_mutation_tree(
             error=f"cmake configure failed (exit {cmake_proc.returncode}; see cpp.raw.txt)",
         )
 
-    build_proc = run_capture(
+    build_proc = run_streaming(
         [cmake, "--build", str(build_dir), "--target", "unit_tests"],
         cwd=cpp_root,
     )
-    raw += "=== cmake build ===\n" + build_proc.stdout + build_proc.stderr + "\n"
+    raw += "=== cmake build ===\n" + build_proc.stdout + "\n"
     if build_proc.returncode != 0:
         (artifact_dir / "cpp.raw.txt").write_text(raw)
         return MutationReport(
@@ -621,7 +622,7 @@ def _run_cpp_lane(
     # The IDE reporter prints the summary the counts are read from; the
     # Elements reporter writes every mutant with its status and site, which
     # is what the ledger is checked against.
-    runner_proc = run_capture(
+    runner_proc = run_streaming(
         [
             mull_runner,
             str(build_dir / "unit_tests"),
@@ -634,7 +635,7 @@ def _run_cpp_lane(
         env=mull_env,
     )
     lane = sanitizer or "plain"
-    raw = f"=== mull-runner-23 ({lane}) ===\n" + runner_proc.stdout + runner_proc.stderr + "\n"
+    raw = f"=== mull-runner-23 ({lane}) ===\n" + runner_proc.stdout + "\n"
     return raw, _mull_counts(raw)
 
 
@@ -816,8 +817,10 @@ RUNNERS: list[tuple[str, str, Callable[[Path], MutationReport]]] = [
 ]
 
 
-def _run_enabled_bindings(artifact_dir: Path, in_scope: set[str] | None) -> list[MutationReport]:
-    """Run each enabled, in-scope binding; archive its JSON; collect the reports.
+def _run_enabled_bindings(
+    artifact_dir: Path, in_scope: set[str] | None
+) -> tuple[list[MutationReport], dict[str, float]]:
+    """Run each enabled, in-scope binding; archive its JSON; collect reports and wall times.
 
     A binding is skipped when its explicit skip env var is set, or when diff
     scoping is active (``in_scope is not None``) and the binding is out of scope.
@@ -825,6 +828,10 @@ def _run_enabled_bindings(artifact_dir: Path, in_scope: set[str] | None) -> list
     run — a gate's claim is only as good as its record of what it covered.
     """
     reports: list[MutationReport] = []
+    # Wall seconds per binding that ran, so the budget a CI job gives a lane is
+    # read off a measurement rather than guessed -- the number nobody had when
+    # a lane was killed by its own wall clock.
+    elapsed: dict[str, float] = {}
     for name, skip_var, runner in RUNNERS:
         if os.environ.get(skip_var) == "1":
             _ = sys.stderr.write(f"[mutation] skip {name}: {skip_var}=1\n")
@@ -834,10 +841,14 @@ def _run_enabled_bindings(artifact_dir: Path, in_scope: set[str] | None) -> list
                 f"[mutation] skip {name}: no change under {_BINDING_DIRS[name]} (diff-scoped)\n"
             )
             continue
+        started = time.monotonic()
         rep = runner(artifact_dir)
+        elapsed[name] = round(time.monotonic() - started, 1)
+        _ = sys.stderr.write(f"[mutation] {name} finished in {elapsed[name]}s\n")
+        sys.stderr.flush()
         (artifact_dir / f"{rep.binding}.json").write_text(json.dumps(rep.to_dict(), indent=2))
         reports.append(rep)
-    return reports
+    return reports, elapsed
 
 
 def drift_for(
@@ -918,7 +929,7 @@ def main() -> int:
         _ = sys.stderr.write(
             f"[mutation] diff-scope: changed bindings only → {sorted(in_scope) or 'NONE'}\n"
         )
-    reports = _run_enabled_bindings(artifact_dir, in_scope)
+    reports, elapsed = _run_enabled_bindings(artifact_dir, in_scope)
 
     # Drift gate: compare each binding's survived count to the baseline in
     # the YAML spec.  null baseline = first run, no gating yet.  Otherwise,
@@ -933,6 +944,7 @@ def main() -> int:
         "commit": sha,
         "artifact_dir": str(artifact_dir.relative_to(REPO_ROOT)),
         "diff_scope": "all" if in_scope is None else sorted(in_scope),
+        "elapsed_s": elapsed,
         "runs": [r.to_dict() for r in reports],
         "drift": drift,
         "passed": not any_drift,

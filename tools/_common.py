@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Mapping
+    from collections.abc import Callable, Generator, Mapping
 
 
 def match_paren_content(text: str, start: int) -> str | None:
@@ -144,6 +144,63 @@ def run_capture(
     adding one variable passes ``os.environ | {...}``.
     """
     return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, check=check, env=env)
+
+
+def run_streaming(
+    cmd: list[str],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+    sink: Callable[[str], object] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run ``cmd``, emitting each output line as it arrives and returning the whole.
+
+    ``run_capture`` holds a child's output until the child exits, so a command
+    killed by a wall clock -- a CI job's ``timeout-minutes``, a host reboot --
+    takes its entire log with it, and while it runs there is no way to tell
+    progress from a hang.  This helper writes every line out as the child
+    produces it and accumulates the same text in the returned
+    ``CompletedProcess``, so the caller parses what it always parsed.
+
+    stderr is merged into stdout: interleaving is what makes a progress line
+    and the diagnostic that follows it legible in one stream, and the returned
+    object carries the merged text as ``stdout`` with ``stderr`` empty.
+
+    ``sink`` receives one call per line, newline included (default: write to
+    stderr and flush, which is where this package's own progress goes).  The
+    child's environment gains ``PYTHONUNBUFFERED=1``: a Python child block
+    buffers its stdout when it is a pipe rather than a terminal, which would
+    defeat the whole point for a line this side flushes diligently.
+
+    Text mode is what carries a progress bar: under universal newlines a bare
+    carriage return ends a line, so a tool that redraws one line in place is
+    read as a line per redraw rather than as one line at the end.  Both tools
+    on the mutation lane draw one (mutmut a spinner, mull-runner a bar).
+    """
+    write_line = sink if sink is not None else _emit_progress
+    child_env = (env if env is not None else os.environ.copy()) | {"PYTHONUNBUFFERED": "1"}
+    lines: list[str] = []
+    with subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=child_env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    ) as proc:
+        # proc.stdout is not None because stdout=PIPE was requested.
+        for line in proc.stdout:  # pyright: ignore[reportOptionalIterable]
+            lines.append(line)
+            _ = write_line(line)
+        returncode = proc.wait()
+    return subprocess.CompletedProcess(cmd, returncode, stdout="".join(lines), stderr="")
+
+
+def _emit_progress(line: str) -> None:
+    """Write one line to stderr, flushed, as ``run_streaming``'s default sink."""
+    _ = sys.stderr.write(line)
+    sys.stderr.flush()
 
 
 def git_ls_files(repo: Path, *patterns: str) -> list[str]:
