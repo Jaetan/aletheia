@@ -27,7 +27,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <ranges>
 #include <stop_token>
 #include <string>
 #include <utility>
@@ -113,15 +112,9 @@ TEST_CASE("parse_bounded rejects JSON exceeding nesting depth", "[input_bounds]"
     // Build a JSON with (max_nesting_depth + 1) levels of array nesting.
     std::string deep_json;
     deep_json.reserve(2 * (aletheia::max_nesting_depth + 2));
-    for ([[maybe_unused]] auto const level :
-         std::views::repeat(0, aletheia::max_nesting_depth + 1)) {
-        deep_json += '[';
-    }
+    deep_json.append(aletheia::max_nesting_depth + 1, '[');
     deep_json += '1';
-    for ([[maybe_unused]] auto const level :
-         std::views::repeat(0, aletheia::max_nesting_depth + 1)) {
-        deep_json += ']';
-    }
+    deep_json.append(aletheia::max_nesting_depth + 1, ']');
 
     auto result = aletheia::detail::parse_success(deep_json);
     REQUIRE_FALSE(result.has_value());
@@ -136,13 +129,9 @@ TEST_CASE("parse_bounded accepts JSON at nesting depth", "[input_bounds]") {
     // Build a JSON at exactly max_nesting_depth - 1 levels (well within bound).
     std::string ok_json;
     constexpr std::uint64_t safe_depth = 10;
-    for ([[maybe_unused]] auto const level : std::views::repeat(0, safe_depth)) {
-        ok_json += '[';
-    }
+    ok_json.append(safe_depth, '[');
     ok_json += R"({"status": "success"})";
-    for ([[maybe_unused]] auto const level : std::views::repeat(0, safe_depth)) {
-        ok_json += ']';
-    }
+    ok_json.append(safe_depth, ']');
 
     // parse_success rejects this for non-success status (it's wrapped in arrays),
     // but the depth-bound itself does not fire.  Verify the error message does

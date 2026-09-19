@@ -24,6 +24,7 @@
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <ranges>
@@ -2365,8 +2366,8 @@ TEST_CASE("serialize_set_properties refuses a formula nested past the depth boun
             return ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{1, 1}}));
         };
         auto f = leaf();
-        for ([[maybe_unused]] auto const level : std::views::repeat(0, depth))
-            f = wrap(std::move(f), leaf());
+        std::ranges::for_each(std::views::repeat(0, depth),
+                              [&](auto) { f = wrap(std::move(f), leaf()); });
         std::vector<LtlFormula> props;
         props.push_back(std::move(f));
         return props;

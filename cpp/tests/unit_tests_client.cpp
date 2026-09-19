@@ -347,12 +347,12 @@ TEST_CASE("sequential clients in same scope work independently", "[client][lifec
     // Any shared mutable state across instances would be a serious bug —
     // the GHC RTS is reference-counted and thread-safe, but each
     // AletheiaClient owns its own StablePtr on the Haskell side.
-    for ([[maybe_unused]] auto const scope : std::views::repeat(0, 3)) {
+    std::ranges::for_each(std::views::repeat(0, 3), [](auto) {
         auto mock = std::make_unique<MockBackend>();
         mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
         AletheiaClient client(std::move(mock));
         CHECK(client.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
-    } // Each iteration's destructor closes its state_ cleanly.
+    }); // Each call's destructor closes its state_ cleanly.
 }
 
 TEST_CASE("nested client scopes leave outer state intact", "[client][lifecycle]") {

@@ -833,8 +833,9 @@ TEST_CASE("excel: file size cap rejected", "[excel][hardening]") {
         std::ofstream ofs(tf.path, std::ios::binary);
         std::vector<char> chunk(std::size_t{1024} * 1024, '\xAA');
         // 65 MiB, one mebibyte at a time: the count is the point, not a position.
-        for ([[maybe_unused]] auto const mebibyte : std::views::repeat(0, 65))
+        std::ranges::for_each(std::views::repeat(0, 65), [&](auto) {
             ofs.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+        });
     }
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(!result.has_value());

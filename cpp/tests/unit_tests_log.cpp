@@ -494,10 +494,10 @@ TEST_CASE("cache.full fires once, on the first frame past the cache's capacity",
     mock->queue_response(R"({"status": "success"})"); // set_properties
     mock->queue_response(R"({"status": "success"})"); // start_stream
     constexpr unsigned frames = 257;
-    for ([[maybe_unused]] auto const frame : std::views::repeat(0, frames)) {
+    std::ranges::for_each(std::views::repeat(0, frames), [&mock](auto) {
         mock->queue_response(std::string{k_violation});
         mock->queue_response(std::string{k_extraction});
-    }
+    });
     auto client = streaming_client(std::move(mock), cap.logger());
 
     auto const id = CanId{StandardId::create(0x100).value()};

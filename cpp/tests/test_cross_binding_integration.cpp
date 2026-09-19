@@ -19,6 +19,7 @@
 
 #include <aletheia/aletheia.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -329,8 +330,8 @@ TEST_CASE("nesting depth over limit lifts to InputBoundExceeded", "[cross_bindin
     REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
     // 63 always-wrappers + atomic + predicate = JSON depth 65 (> 64).
     auto inner = ltl::atomic(ltl::equals(SignalName{"TestSignal"}, PhysicalValue{Rational{0, 1}}));
-    for ([[maybe_unused]] auto const level : std::views::repeat(0, 63))
-        inner = ltl::always(std::move(inner));
+    std::ranges::for_each(std::views::repeat(0, 63),
+                          [&inner](auto) { inner = ltl::always(std::move(inner)); });
     std::vector<LtlFormula> props;
     props.push_back(std::move(inner));
     auto result = client.set_properties(std::stop_token{}, props);

@@ -18,6 +18,7 @@
 #include <aletheia/limits.hpp>
 #include <aletheia/types.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -122,11 +123,11 @@ struct ZipImage {
     void cd_entry(std::uint32_t uncompressed, std::uint16_t name_len, std::uint16_t extra_len,
                   std::uint16_t comment_len) {
         u32(0x02014b50);
-        for ([[maybe_unused]] auto const field : std::views::repeat(0, 5))
-            u16(0); // version made by, version needed, flags, method, mod time
-        u16(0);     // mod date
-        u32(0);     // CRC-32
-        u32(0);     // compressed size
+        // version made by, version needed, flags, method, mod time
+        std::ranges::for_each(std::views::repeat(0, 5), [this](auto) { u16(0); });
+        u16(0); // mod date
+        u32(0); // CRC-32
+        u32(0); // compressed size
         u32(uncompressed);
         u16(name_len);
         u16(extra_len);
@@ -135,9 +136,7 @@ struct ZipImage {
         u16(0); // internal attributes
         u32(0); // external attributes
         u32(0); // relative offset
-        for ([[maybe_unused]] auto const byte :
-             std::views::repeat(0, std::size_t{name_len} + extra_len + comment_len))
-            bytes.push_back('x');
+        bytes.insert(bytes.end(), std::size_t{name_len} + extra_len + comment_len, 'x');
     }
     void eocd(std::uint16_t entries, std::uint32_t cd_size, std::uint32_t cd_offset) {
         u32(0x06054b50);

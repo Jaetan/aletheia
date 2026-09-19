@@ -19,6 +19,7 @@
 #include "test_helpers.hpp"
 #include <aletheia/aletheia.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -176,10 +177,10 @@ TEST_CASE("the sweep reads a block the call left behind", "[alloc_fault]") {
     std::vector<std::unique_ptr<std::string>> keeper;
     auto const leaves_them_behind = [&keeper] {
         std::size_t made = 0;
-        for ([[maybe_unused]] auto const allocation : std::views::repeat(0, 8)) {
+        std::ranges::for_each(std::views::repeat(0, 8), [&](auto) {
             keeper.push_back(std::make_unique<std::string>(64, 'x'));
             made += keeper.back()->size();
-        }
+        });
         return made;
     };
 

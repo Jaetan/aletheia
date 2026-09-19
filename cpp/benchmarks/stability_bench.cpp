@@ -336,8 +336,8 @@ static auto run() -> int {
     // Multi-cycle warmup to absorb the GHC RTS heap warmup + lazy MAlonzo /
     // Agda structure realization.  See k_warmup_cycles for empirical rationale.
     try {
-        for ([[maybe_unused]] auto const cycle : std::views::repeat(0, k_warmup_cycles))
-            run_cycle(lib, dbc, frames);
+        std::ranges::for_each(std::views::repeat(0, k_warmup_cycles),
+                              [&](auto) { run_cycle(lib, dbc, frames); });
     } catch (const std::exception& e) {
         std::println(stderr, "warm-up: {}", e.what());
         return 2;

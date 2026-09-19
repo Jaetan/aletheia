@@ -554,8 +554,10 @@ static auto bench_streaming(const fs::path& lib, const DbcDefinition& dbc,
     auto client = make_streaming_client(lib, dbc, properties);
 
     auto const start = std::chrono::steady_clock::now();
-    for (auto const i : std::views::iota(0, num_frames)) [[maybe_unused]]
-        auto const sent = client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
+    for (auto const i : std::views::iota(0, num_frames)) {
+        [[maybe_unused]] auto const sent =
+            client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
+    }
     auto const end = std::chrono::steady_clock::now();
 
     [[maybe_unused]] auto const ended = client.end_stream(std::stop_token{});
@@ -569,9 +571,10 @@ static auto bench_extraction(const fs::path& lib, const DbcDefinition& dbc, CanI
     auto client = make_client(lib, dbc);
 
     auto const start = std::chrono::steady_clock::now();
-    for ([[maybe_unused]] auto const frame_index : std::views::repeat(0, num_frames))
-        [[maybe_unused]]
-        auto const extracted = client.extract_signals(std::stop_token{}, id, dlc, frame);
+    std::ranges::for_each(std::views::repeat(0, num_frames), [&](auto) {
+        [[maybe_unused]] auto const extracted =
+            client.extract_signals(std::stop_token{}, id, dlc, frame);
+    });
     auto const end = std::chrono::steady_clock::now();
 
     auto const elapsed = std::chrono::duration<double>(end - start).count();
@@ -583,9 +586,9 @@ static auto bench_building(const fs::path& lib, const DbcDefinition& dbc, CanId 
     auto client = make_client(lib, dbc);
 
     auto const start = std::chrono::steady_clock::now();
-    for ([[maybe_unused]] auto const frame_index : std::views::repeat(0, num_frames))
-        [[maybe_unused]]
-        auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
+    std::ranges::for_each(std::views::repeat(0, num_frames), [&](auto) {
+        [[maybe_unused]] auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
+    });
     auto const end = std::chrono::steady_clock::now();
 
     auto const elapsed = std::chrono::duration<double>(end - start).count();
@@ -595,14 +598,14 @@ static auto bench_building(const fs::path& lib, const DbcDefinition& dbc, CanId 
 static auto run_throughput_bench(std::string name, auto bench_fn, int num_frames, int num_runs,
                                  int warmup_runs) -> ThroughputResult {
     // Warmup
-    for ([[maybe_unused]] auto const warmup_run : std::views::repeat(0, warmup_runs))
-        bench_fn(num_frames / 10);
+    std::ranges::for_each(std::views::repeat(0, warmup_runs),
+                          [&](auto) { bench_fn(num_frames / 10); });
 
     // Actual runs
     std::vector<double> results;
     results.reserve(num_runs);
-    for ([[maybe_unused]] auto const run : std::views::repeat(0, num_runs))
-        results.push_back(bench_fn(num_frames));
+    std::ranges::for_each(std::views::repeat(0, num_runs),
+                          [&](auto) { results.push_back(bench_fn(num_frames)); });
 
     auto const stats = compute_stats(results);
 
@@ -747,8 +750,10 @@ static auto bench_latency_streaming(const fs::path& lib, const DbcDefinition& db
     auto client = make_streaming_client(lib, dbc, properties);
 
     // Warmup
-    for (auto const i : std::views::iota(0, warmup)) [[maybe_unused]]
-        auto const sent = client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
+    for (auto const i : std::views::iota(0, warmup)) {
+        [[maybe_unused]] auto const sent =
+            client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
+    }
 
     // Measure
     std::vector<double> latencies;
@@ -772,19 +777,21 @@ static auto bench_latency_extraction(const fs::path& lib, const DbcDefinition& d
     auto client = make_client(lib, dbc);
 
     // Warmup
-    for ([[maybe_unused]] auto const warmup_op : std::views::repeat(0, warmup)) [[maybe_unused]]
-        auto const extracted = client.extract_signals(std::stop_token{}, id, dlc, frame);
+    std::ranges::for_each(std::views::repeat(0, warmup), [&](auto) {
+        [[maybe_unused]] auto const extracted =
+            client.extract_signals(std::stop_token{}, id, dlc, frame);
+    });
 
     // Measure
     std::vector<double> latencies;
     latencies.reserve(ops);
-    for ([[maybe_unused]] auto const op : std::views::repeat(0, ops)) {
+    std::ranges::for_each(std::views::repeat(0, ops), [&](auto) {
         auto const start = std::chrono::steady_clock::now();
         [[maybe_unused]] auto const extracted =
             client.extract_signals(std::stop_token{}, id, dlc, frame);
         auto const end = std::chrono::steady_clock::now();
         latencies.push_back(std::chrono::duration<double, std::micro>(end - start).count());
-    }
+    });
 
     return compute_latency_stats(latencies);
 }
@@ -795,18 +802,19 @@ static auto bench_latency_building(const fs::path& lib, const DbcDefinition& dbc
     auto client = make_client(lib, dbc);
 
     // Warmup
-    for ([[maybe_unused]] auto const warmup_op : std::views::repeat(0, warmup)) [[maybe_unused]]
-        auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
+    std::ranges::for_each(std::views::repeat(0, warmup), [&](auto) {
+        [[maybe_unused]] auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
+    });
 
     // Measure
     std::vector<double> latencies;
     latencies.reserve(ops);
-    for ([[maybe_unused]] auto const op : std::views::repeat(0, ops)) {
+    std::ranges::for_each(std::views::repeat(0, ops), [&](auto) {
         auto const start = std::chrono::steady_clock::now();
         [[maybe_unused]] auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
         auto const end = std::chrono::steady_clock::now();
         latencies.push_back(std::chrono::duration<double, std::micro>(end - start).count());
-    }
+    });
 
     return compute_latency_stats(latencies);
 }
@@ -941,9 +949,10 @@ static auto mean_fps(const fs::path& lib, const DbcDefinition& dbc, CanId id, Dl
                      int num_frames, int num_runs) -> double {
     std::vector<double> fps_runs;
     fps_runs.reserve(num_runs);
-    for ([[maybe_unused]] auto const run : std::views::repeat(0, num_runs))
+    std::ranges::for_each(std::views::repeat(0, num_runs), [&](auto) {
         fps_runs.push_back(
             bench_streaming(lib, dbc, clone_props(props), id, dlc, frame, num_frames));
+    });
     return compute_stats(fps_runs).mean;
 }
 

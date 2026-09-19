@@ -16,6 +16,7 @@
 #include "alloc_fault.hpp"
 #endif
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <ios>
@@ -583,8 +584,9 @@ TEST_CASE("yaml: file size cap rejected", "[yaml][hardening]") {
         std::ofstream ofs(tmp, std::ios::binary);
         std::vector<char> chunk(1024UL * 1024, 'a');
         // 65 MiB, one mebibyte at a time: the count is the point, not a position.
-        for ([[maybe_unused]] auto const mebibyte : std::views::repeat(0, 65))
+        std::ranges::for_each(std::views::repeat(0, 65), [&](auto) {
             ofs.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+        });
     }
     auto result = load_checks_from_yaml(tmp);
     std::filesystem::remove(tmp);
