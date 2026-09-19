@@ -7,6 +7,14 @@ duplicate -- stdout emission, content hashing, subprocess invocation, git
 metadata, timestamps, artifact directories -- so each lives in exactly one
 place.  Imported as ``from tools._common import ...``; the tools are invoked
 as ``python -m tools.X`` (see ``tools/__init__.py``).
+
+This module imports nothing outside the standard library, and must not.  The
+pre-commit hook runs ``tools.run_ci --fast`` under its own interpreter rather
+than the project's virtual environment, and ``run_ci`` reaches here through
+``tools/_ci_steps.py``; a third-party import at this depth turns every commit
+into a traceback on a machine whose bare interpreter lacks the package.  A
+helper that needs one belongs in a module only the gates that use it import,
+as the ratchet record reader does in ``tools/_ratchet.py``.
 """
 
 from __future__ import annotations

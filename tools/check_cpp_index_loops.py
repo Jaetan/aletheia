@@ -50,11 +50,14 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
-from typing import cast
 
-import yaml
-
-from tools._common import emit, git_ls_files, git_toplevel, match_paren_content
+from tools._common import (
+    emit,
+    git_ls_files,
+    git_toplevel,
+    match_paren_content,
+)
+from tools._ratchet import read_ratchet_rows
 
 # The ratchet's record, repo-root-relative.
 ALLOWLIST = Path("docs") / "CPP_INDEX_LOOPS.yaml"
@@ -327,26 +330,6 @@ def observed_rows(repo: Path) -> dict[tuple[str, str], int]:
     return rows
 
 
-def recorded_rows(path: Path) -> dict[tuple[str, str], int] | str:
-    """Read the YAML's rows, or the reason it could not be read."""
-    if not path.is_file():
-        return f"{ALLOWLIST} is missing; the gate has no record to ratchet against"
-    document: object = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(document, dict):
-        return f"{ALLOWLIST} is not a mapping"
-    listed = cast("dict[str, object]", document).get("loops")
-    if not isinstance(listed, list):
-        return f"{ALLOWLIST} has no `loops:` list"
-    rows: dict[tuple[str, str], int] = {}
-    for entry in cast("list[object]", listed):
-        if not isinstance(entry, dict):
-            return f"{ALLOWLIST} carries a row that is not a mapping"
-        row = cast("dict[str, object]", entry)
-        key = (str(row.get("file", "")), str(row.get("text", "")))
-        rows[key] = rows.get(key, 0) + int(cast("int", row.get("count", 1)))
-    return rows
-
-
 def as_row(file: str, text: str, count: int) -> str:
     """Render one row the way the YAML spells it, so a diagnostic can be pasted."""
     return f'  - file: {file}\n    text: "{text}"\n    count: {count}'
@@ -377,7 +360,7 @@ def report(observed: dict[tuple[str, str], int], recorded: dict[tuple[str, str],
 def main() -> int:
     """Compare the tree's counting loops against the record; 0 clean, 1 violations."""
     repo = git_toplevel()
-    recorded = recorded_rows(repo / ALLOWLIST)
+    recorded = read_ratchet_rows(repo, ALLOWLIST, "loops")
     if isinstance(recorded, str):
         emit(recorded)
         return 1

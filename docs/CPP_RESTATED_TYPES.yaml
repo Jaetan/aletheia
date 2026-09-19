@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# Every C++ declaration that keeps a written type its initializer already fixes,
+# and the ratchet that keeps the list from growing. AGENTS/cpp.md cat 34, "deduce
+# the type, do not restate it": a type written beside an initializer that already
+# determines it states one fact twice, and when the initializer's type changes the
+# declaration goes on compiling, converting or narrowing at a line nobody edited.
+# tools/check_cpp_restated_types.py refuses a restating declaration this file does
+# not name, and refuses a row naming more declarations than the file holds, because
+# such a row is standing permission to write one again.
+#
+# A row leaves this file by the change that deduces its type. Adding a row needs
+# user approval, on the same footing as a NOLINT suppression, and a row earns its
+# place only by carrying a decision deduction would erase.
+#
+# Rows are keyed by file and by the declaration's source text, whitespace collapsed,
+# rather than by a line number, so an edit elsewhere in the file does not move them;
+# `count` is how many declarations in that file share the text. The lens reports a
+# declaration only where `auto` would deduce the written type exactly, so every row
+# here is a type that could be deduced and is written instead.
+#
+# What is below is one decision twice over. The ZIP end-of-central-directory and
+# central-directory fields are two and four bytes because APPNOTE 4.3.12 says so,
+# and `load_le16` and `load_le32` have their return types from that, not the fields
+# from the readers: under `auto` the format's contract would be stated nowhere in
+# the decoder, and a reader whose width changed would silently take the fields with
+# it. The entry size is the one widening: it sums three sixteen-bit lengths onto a
+# `std::size_t` base so the total cannot wrap, and it holds that guarantee after any
+# one addend changes width.
+
+declarations:
+  - file: cpp/src/detail/loader_utils.cpp
+    text: "const std::uint16_t disk_num = load_le16(at, 4)"
+    count: 1
+  - file: cpp/src/detail/loader_utils.cpp
+    text: "const std::uint16_t cd_disk = load_le16(at, 6)"
+    count: 1
+  - file: cpp/src/detail/loader_utils.cpp
+    text: "const std::uint16_t entries_this = load_le16(at, 8)"
+    count: 1
+  - file: cpp/src/detail/loader_utils.cpp
+    text: "const std::uint16_t entries_total = load_le16(at, 10)"
+    count: 1
+  - file: cpp/src/detail/loader_utils.cpp
+    text: "const std::uint32_t cd_size = load_le32(at, 12)"
+    count: 1
+  - file: cpp/src/detail/loader_utils.cpp
+    text: "const std::uint32_t cd_off = load_le32(at, 16)"
+    count: 1
+  - file: cpp/src/detail/loader_utils.cpp
+    text: "const std::uint32_t uncompressed = load_le32(rest, 24)"
+    count: 1
+  - file: cpp/src/detail/loader_utils.cpp
+    text: "const std::uint16_t name_len = load_le16(rest, 28)"
+    count: 1
+  - file: cpp/src/detail/loader_utils.cpp
+    text: "const std::uint16_t extra_len = load_le16(rest, 30)"
+    count: 1
+  - file: cpp/src/detail/loader_utils.cpp
+    text: "const std::uint16_t comment_len = load_le16(rest, 32)"
+    count: 1
+  - file: cpp/src/detail/loader_utils.cpp
+    text: "const std::size_t entry_size = k_cd_entry_min + name_len + extra_len + comment_len"
+    count: 1

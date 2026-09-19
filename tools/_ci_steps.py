@@ -527,6 +527,18 @@ def _run_lints(runner: Runner) -> None:
         cwd=runner.repo_root,
         lane="cpp",
     )
+    # Type-deduction ratchet (AGENTS/cpp.md cat 34): every declaration whose
+    # initializer already fixes its type is written auto, or is a row in
+    # docs/CPP_RESTATED_TYPES.yaml.  It matches on the AST through clang-query,
+    # which comes with clang-tidy, and reads the same compile database, so it
+    # belongs here rather than in the misc lane: from the repository root it
+    # could run before the build tree exists.
+    runner.step(
+        "check-cpp-restated-types",
+        [runner.python, "-m", "tools.check_cpp_restated_types"],
+        cwd=runner.repo_root,
+        lane="cpp",
+    )
 
     # Rust lints: rustfmt (check) + clippy (deny warnings) + rustdoc (deny
     # warnings) — the cargo equivalents of gofmt+vet / clang-format+clang-tidy.
