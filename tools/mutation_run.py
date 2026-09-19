@@ -636,7 +636,13 @@ def _run_cpp_lane(
     )
     lane = sanitizer or "plain"
     raw = f"=== mull-runner-23 ({lane}) ===\n" + runner_proc.stdout + "\n"
-    return raw, _mull_counts(raw)
+    # Mull's own summary goes to the IDE report, and its stdout carries the
+    # survivor count only when there is one: a lane that killed everything
+    # says so in the report alone, so the report is part of the lane's log.
+    ide_report = artifact_dir / f"{_lane_report_name(sanitizer)}.txt"
+    if ide_report.is_file():
+        raw += ide_report.read_text(encoding="utf-8") + "\n"
+    return raw, mull_counts(raw)
 
 
 def _sweep_cpp_lane(
@@ -697,8 +703,10 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
     return MutationReport("cpp", "mull", total - survived, survived, raw)
 
 
-def _mull_counts(raw: str) -> tuple[int, int] | None:
-    """Read ``(killed, survived)`` from mull-runner's summary, or None if absent.
+def mull_counts(raw: str) -> tuple[int, int] | None:
+    """Read ``(killed, survived)`` from a lane's log, or None if it carries no summary.
+
+    The log is mull-runner's stdout followed by its IDE report.
 
     Mull-19 tail summary lines (the actual format observed empirically)::
 
