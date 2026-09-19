@@ -182,6 +182,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Every mutant the three lanes sweep is one the project can answer for.**
+  The C++ lane now keeps Mull's SQLite report of each tree and reads from it
+  what ended every run, a test's assertion, a leak, the kernel or a fault,
+  recording the counts beside the baseline; the test double under the
+  library's sources is held out of the C++ sweep, and the stringer outputs
+  out of the Go sweep, each a file no test written here can be the one to
+  kill a mutant in.
+
 - **The C++ mutation lane has no survivor.** The two call mutators now reach
   a call that can throw (an `invoke` at the lane's `-O0`), which as shipped
   neither did. Every mutant on a call the source writes is killed or gone: the

@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# Probes docs/MUTATION_BENCH.yaml.
+# Claim: the C++ baseline's kill routes record a run. Sweeping the two
+# configured trees with Mull's SQLite reporter and reading each mutant's route
+# the way the lane does gives, for every route, a count within the recorded
+# margin of the recorded one, and the routes add up to the recorded total.
+# The margin exists because a mutant whose behaviour is undefined dies by a
+# different route from one run to the next: it crashes in one and fails a
+# test or hangs in the next. Non-zero exit: a route is outside the margin,
+# or the routes do not add up. Exits 0 with a note when Mull or either
+# mutation tree is not available, since the claim is untestable then.
+set -u
+cd "$(dirname "$0")/.." || exit 2
+command -v mull-runner-23 > /dev/null || { echo "Mull not installed, claim untestable"; exit 0; }
+[ -x cpp/build-mutation/unit_tests ] && [ -x cpp/build-mutation-plain/unit_tests ] ||
+    { echo "the mutation trees are not both built, claim untestable"; exit 0; }
+py=python/.venv/bin/python
+[ -x "$py" ] || exit 2
+dir=$(mktemp -d) || exit 2
+trap 'rm -rf "$dir"' EXIT
+# The lane's environment: the repository root for the integration suite, and
+# no ALETHEIA_LIB, so the library lookup reads the root as the lane's does.
+for lane in leak plain; do
+    tree=build-mutation; [ "$lane" = plain ] && tree=build-mutation-plain
+    (cd "cpp/$tree" &&
+        env -u ALETHEIA_LIB ALETHEIA_REPO_ROOT="$OLDPWD" mull-runner-23 ./unit_tests \
+            --report-name="cpp-mull-$lane" --report-dir="$dir" --reporters=SQLite > /dev/null 2>&1) || true
+    [ -f "$dir/cpp-mull-$lane.sqlite" ] || { echo "the $lane tree's sweep wrote no SQLite report"; exit 1; }
+done
+"$py" - "$dir" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+from tools.mutation_run import cpp_kill_routes
+
+baseline = yaml.safe_load(Path("docs/MUTATION_BENCH.yaml").read_text(encoding="utf-8"))
+recorded = baseline["bindings"]["cpp"]["baseline"]
+routes = recorded["kill_routes"]
+margin = recorded["kill_routes_margin"]
+observed = cpp_kill_routes(Path(sys.argv[1]))
+if observed is None:
+    print("no census could be read from the sweeps")
+    sys.exit(1)
+bad = False
+for route, count in routes.items():
+    if abs(observed.get(route, 0) - count) > margin:
+        print(f"{route}: {observed.get(route, 0)} observed, {count} recorded, margin {margin}")
+        bad = True
+if sum(observed.values()) != recorded["total_mutants"]:
+    print(f"routes add up to {sum(observed.values())}, total recorded {recorded['total_mutants']}")
+    bad = True
+if not bad:
+    print("PASS: " + ", ".join(f"{route} {count}" for route, count in observed.items()))
+sys.exit(1 if bad else 0)
+PY

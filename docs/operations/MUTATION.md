@@ -56,6 +56,16 @@ Two-tier per advisor 2026-05-09:
   records `timeout_ceiling`, a run past it fails the lane whatever its
   survivor count.  The Go lane records one; the other two tools report no
   such bucket.
+- **Kill routes (C++, recorded, not gated)**: Mull's SQLite report keeps each
+  mutant's exit status and the test binary's output, and the runner reads
+  from them what ended every run: a test's assertion, a leak the sanitizer
+  reported, the kernel ending the process, or a fault (a signal, or an abort
+  from a precondition the standard library checks at the mutation build's
+  optimisation level, which the shipped build does not check).  A mutant
+  several lanes killed is attributed in that order.  The counts land in
+  `cpp-routes.json` beside `cpp.json` and in the C++ baseline; a probe holds them
+  within a margin of the record, since a mutant whose behaviour is undefined
+  dies by a different route from one run to the next.
 - **First run (no gate)** — when the YAML baseline is `null`, the runner
   records the observed survivor count as informational and exits 0.  The
   next commit is expected to either match this count or improve on it; the
@@ -71,8 +81,8 @@ independently.
 | Binding | Tool | Hot path (per AGENTS.md cat 14(g) + actual paths) |
 |---|---|---|
 | Python | `mutmut` 3.x | `aletheia/client/_client.py`, `aletheia/dbc/_converter.py`, `aletheia/yaml_loader.py`, `aletheia/codes/_issue.py`, `aletheia/types.py` |
-| Go | `gremlins` | `aletheia/client.go`, `dbc.go`, `json.go`¹, `ffi.go`, `ffi_nocgo.go`, `enrich.go`² |
-| C++ | `Mull` 0.34.1 (LLVM 23, from source) | `cpp/src/*.cpp` less `mock_backend.cpp` / `types.cpp` (test-only / type-defs) and `rational_renderer.cpp`, with the exact mutated set enumerated in `docs/MUTATION_BENCH.yaml`; the mutator set (`cxx_default` plus `cxx_calls`) and the held-out paths (vendored, system, and `cpp/tests`) are `cpp/mull.yml`; the build records each unit's command line so that Mull's junk detector can re-parse it, without which it drops every mutant of a unit it cannot parse |
+| Go | `gremlins` | `aletheia/client.go`, `dbc.go`, `json.go`¹, `ffi.go`, `ffi_nocgo.go`, `enrich.go`²; the stringer outputs are held out by `go/.gremlins.yaml` |
+| C++ | `Mull` 0.34.1 (LLVM 23, from source) | `cpp/src/*.cpp` less `mock_backend.cpp` / `types.cpp` (test-only / type-defs) and `rational_renderer.cpp`, with the exact mutated set enumerated in `docs/MUTATION_BENCH.yaml`; the mutator set (`cxx_default` plus the two call mutators), what each class of mutant stands for, and the held-out paths (vendored, system, `cpp/tests` and the test double under `cpp/src/detail`) are `cpp/mull.yml`; the build records each unit's command line so that Mull's junk detector can re-parse it, without which it drops every mutant of a unit it cannot parse |
 
 AGENTS.md cat 14(g) names `gomut` / `go-mutesting` / `mutate` for Go.  We use
 **`gremlins`** (`github.com/go-gremlins/gremlins`) instead because both
@@ -289,7 +299,9 @@ A baseline regression (observed > baseline) MUST be addressed by:
    killed, and `tools.mutation_run.elements_survivor_rows`
    renders what is left in the ledger's row shape. The probe
    `probes/docs_MUTATION_BENCH.yaml--every-cpp-survivor-is-a-recorded-one.sh`
-   holds the ledger exact in both directions. To run one C++ mutant alone
+   holds the ledger exact in both directions. Beside each lane's Elements
+   report the lane keeps Mull's SQLite report of it, which is where the kill
+   routes are read from. To run one C++ mutant alone
    against a test, set its identifier from the Elements report as an
    environment variable of the mutation binary:
    `env "<id>=1" cpp/build-mutation/unit_tests '<filter>'`.

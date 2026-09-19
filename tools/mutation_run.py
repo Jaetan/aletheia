@@ -47,6 +47,12 @@ Artifacts written:
     cpp.json       same shape
     cpp-mull.json  Mull's Elements report: every C++ mutant with its status
                    and site, which the ledger check reads
+    cpp-mull-<lane>.sqlite
+                   Mull's SQLite report of one tree: each mutant's exit
+                   status and the test binary's output, which the kill-route
+                   census (tools/mutation_routes.py) reads
+    cpp-routes.json
+                   that census: the C++ mutants counted by what killed them
     summary.json   {commit, runs: [...], passed: bool, baseline_drift: {...}}
 
 Usage:
@@ -81,6 +87,7 @@ from tools._common import (
     short_sha,
     write_and_report_summary,
 )
+from tools.mutation_routes import lane_routes, merge_routes
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -566,8 +573,20 @@ CPP_LANES: tuple[tuple[str, str], ...] = (("leak", "build-mutation"), ("", "buil
 
 
 def _lane_report_name(sanitizer: str) -> str:
-    """Name the Elements report one lane writes, beside the merged one."""
+    """Name the reports one lane writes, beside the merged Elements report."""
     return f"{Path(CPP_ELEMENTS_REPORT).stem}-{sanitizer or 'plain'}"
+
+
+# The kill-route census of the C++ sweep, beside the merged Elements report.
+CPP_ROUTES_REPORT = "cpp-routes.json"
+
+
+def cpp_kill_routes(artifact_dir: Path) -> dict[str, int] | None:
+    """Count the C++ sweep's mutants by kill route, or None where a lane wrote no SQLite report."""
+    paths = [artifact_dir / f"{_lane_report_name(sanitizer)}.sqlite" for sanitizer, _ in CPP_LANES]
+    if not all(path.is_file() for path in paths):
+        return None
+    return merge_routes([lane_routes(path) for path in paths])
 
 
 def merge_elements(reports: list[Mapping[str, object]]) -> dict[str, object]:
@@ -628,6 +647,10 @@ def _run_cpp_lane(
             str(build_dir / "unit_tests"),
             "--reporters=IDE",
             "--reporters=Elements",
+            # The SQLite report keeps each mutant's exit status and the test
+            # binary's own output, which is what tells a kill by a test's
+            # assertion from one by a fault.
+            "--reporters=SQLite",
             f"--report-dir={artifact_dir}",
             f"--report-name={_lane_report_name(sanitizer)}",
         ],
@@ -690,17 +713,26 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
             return MutationReport("cpp", "mull", 0, 0, raw, error=outcome)
         reports.append(outcome)
 
+    total, survived = _merge_cpp_lanes(artifact_dir, reports)
+    routes = cpp_kill_routes(artifact_dir)
+    raw += f"=== merged ===\nkilled {total - survived}, survived {survived} of {total}\n"
+    if routes is not None:
+        (artifact_dir / CPP_ROUTES_REPORT).write_text(json.dumps(routes, indent=2))
+        raw += "routes: " + ", ".join(f"{route} {count}" for route, count in routes.items()) + "\n"
+    (artifact_dir / "cpp.raw.txt").write_text(raw)
+    return MutationReport("cpp", "mull", total - survived, survived, raw)
+
+
+def _merge_cpp_lanes(artifact_dir: Path, reports: list[Mapping[str, object]]) -> tuple[int, int]:
+    """Write the merged Elements report and return its (total, survived) counts."""
     merged = merge_elements(reports)
     (artifact_dir / CPP_ELEMENTS_REPORT).write_text(json.dumps(merged))
-    rows = elements_survivor_rows(merged, _repo_line)
-    survived = sum(rows.values())
+    survived = sum(elements_survivor_rows(merged, _repo_line).values())
     total = sum(
         len(cast("list[object]", entry.get("mutants", [])))
         for entry in cast("Mapping[str, Mapping[str, object]]", merged.get("files", {})).values()
     )
-    raw += f"=== merged ===\nkilled {total - survived}, survived {survived} of {total}\n"
-    (artifact_dir / "cpp.raw.txt").write_text(raw)
-    return MutationReport("cpp", "mull", total - survived, survived, raw)
+    return total, survived
 
 
 def mull_counts(raw: str) -> tuple[int, int] | None:

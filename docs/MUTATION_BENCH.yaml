@@ -57,6 +57,20 @@ bindings:
       # instead, with a pragma: a type argument of a cast, which no runtime
       # reads, and the case of a codec name, which the standard library
       # normalises.
+      #
+      # What the set is made of, by mutmut's operators over these modules:
+      # most of it is an argument dropped from a call, then a string literal
+      # rewritten (wrapped, lowered or uppered, up to three mutants per
+      # literal), then an assignment's value replaced by None, and the rest
+      # a swapped operator, keyword or number. Every literal is one the
+      # module wrote, and Python has no undefined behaviour to crash on, so
+      # a kill is a test failing, an exception the test did not expect
+      # included; mutmut records no reason, so an argument dropped from a
+      # call that then raised is not told apart in the record from one a test
+      # caught by its result. The string mutants split by what the literal
+      # is: a key, a code or an operator name on the wire, which a test that
+      # reads the wire kills, or a message meant for a person, which only a
+      # test pinning its wording kills.
       survivors: 1
       total_mutants: 921
       score_pct: 99
@@ -80,7 +94,11 @@ bindings:
       - go/aletheia/ffi.go
       - go/aletheia/ffi_nocgo.go
       - go/aletheia/enrich.go
-    config: {}
+    config:
+      # gremlins reads this from the directory it runs in. It holds the
+      # stringer outputs out of the sweep: a mutant in generated code measures
+      # the generator, and no test written here can be the one that kills it.
+      exclude: go/.gremlins.yaml
     invocation: |
       cd go && gremlins unleash ./aletheia
     report: |
@@ -99,7 +117,7 @@ bindings:
       # is what the runner records and what score_pct is taken from.
       #
       # The split between killed and timed out moves with the machine, and it
-      # moves a long way. This tree gave 646 killed and 11 timed out in under
+      # moves a long way. This tree gave 617 killed and 2 timed out in under
       # two minutes on a quiet host with nothing editing it. Three conditions make a
       # sweep report numbers nobody should record, each measured here:
       #
@@ -127,17 +145,24 @@ bindings:
       # generated and not_covered, each a property of the source, its tests and
       # the kernel being present; the killed and timeout counts are what the
       # recorded run produced.
+      #
+      # Every mutant gremlins makes is on code this package wrote, the
+      # generated files being held out, and Go has no undefined behaviour to
+      # crash on: a kill is a test failing, a panic the test reported
+      # included. Two mutators reach one operator at one site, negating it
+      # and moving its boundary, and the two are told apart by the same
+      # input a test uses to tell the original from either.
       survivors: 0
-      generated: 759
-      not_covered: 102
-      timeouts: 11
-      total_mutants: 646
+      generated: 651
+      not_covered: 32
+      timeouts: 2
+      total_mutants: 617
       score_pct: 100
-      run_at: "2026-09-17"
+      run_at: "2026-09-19"
       # The lane refuses a sweep with more than this many timed out, because a
       # mutant that times out is neither killed nor lived and a sweep that
       # timed out on nearly all of them reports no survivors and full efficacy.
-      # A quiet host on a cold test cache gives 11, in the file carrying the
+      # A quiet host on a cold test cache gives 2, in the file carrying the
       # cgo trampolines, whose mutants each reload the library; a sweep with a
       # second sweep beside it gave 622, and a sweep run straight after another
       # gave 632. This sits far enough above the first not to flake and far
@@ -261,13 +286,37 @@ bindings:
       # the next), so the probe holds it within a stated margin of the count
       # recorded here.
       #
+      # How the kills were read, from Mull's SQLite report of each tree,
+      # merged with a test's assertion taking precedence over any other
+      # route. A fault is a signal, or an abort from a precondition the
+      # standard library checks: the trees compile at -O0, where libstdc++
+      # turns its assertions on, and the shipped build is optimised, where
+      # they are off, so a mutant killed only by a fault is one no test
+      # observes by behaviour. Every mutant killed only that way was
+      # activated against a tree built without those assertions: most then
+      # fail a test outright, some die by a signal or hang, and the few that
+      # survive are the loop bounds a test never observes past the end,
+      # each a finding on its own. The margin is what a mutant whose
+      # behaviour is undefined moves by between runs, dying by a different
+      # route each time; a route outside it is the finding. Three sweeps
+      # of one tree state read the fault route at 131, 132 and 127, the
+      # test route moving by the same amounts the other way, so the margin
+      # sits above that spread of five.
+      #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
       survivors: 0
-      total_mutants: 1140
+      total_mutants: 1133
       timeouts: 0
       score_pct: 100
       run_at: "2026-09-19"
+      kill_routes:
+        test: 999
+        leak: 0
+        kernel: 2
+        fault: 132
+        timeout: 0
+      kill_routes_margin: 8
       # Every survivor, by mutator, repository-relative file, the text of its
       # source line and how many mutants share that line. The lane refuses a
       # survivor not named here even at an unchanged count, and reports a row
