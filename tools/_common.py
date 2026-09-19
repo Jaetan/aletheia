@@ -206,9 +206,38 @@ def run_streaming(
 
 
 def _emit_progress(line: str) -> None:
-    """Write one line to stderr, flushed, as ``run_streaming``'s default sink."""
-    _ = sys.stderr.write(line)
-    sys.stderr.flush()
+    """Write one line to stderr, flushed, as ``run_streaming``'s default sink.
+
+    A write that fails takes the filesystem's free space with it into the
+    failure.  The one failure that reaches this sink is a full filesystem, and
+    the traceback on its own names whichever progress line happened to be
+    writing when the space ran out, which is never the cause.
+    """
+    try:
+        _ = sys.stderr.write(line)
+        sys.stderr.flush()
+    except OSError as exc:
+        message = f"cannot write progress: {exc}; {_stderr_space_note()}"
+        raise RuntimeError(message) from exc
+
+
+def _stderr_space_note() -> str:
+    """Name what stderr writes to and the bytes left on its filesystem.
+
+    ``fileno`` is absent under a capturing harness and on a stream that is not
+    a file, so what cannot be measured is reported as unmeasured rather than
+    raised over the failure it is there to describe.
+    """
+    try:
+        fd = sys.stderr.fileno()
+        stats = os.fstatvfs(fd)
+    except (AttributeError, OSError, ValueError) as exc:
+        return f"free space behind stderr is unknown ({exc})"
+    try:
+        target = str(Path(f"/proc/self/fd/{fd}").readlink())
+    except OSError:
+        target = f"file descriptor {fd}"
+    return f"{target} has {stats.f_bavail * stats.f_frsize} bytes free"
 
 
 def git_ls_files(repo: Path, *patterns: str) -> list[str]:

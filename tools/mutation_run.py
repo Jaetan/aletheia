@@ -87,6 +87,7 @@ from tools._common import (
     short_sha,
     write_and_report_summary,
 )
+from tools.cpp_scratch import reap_dead_scratch_dirs
 from tools.mutation_routes import lane_routes, merge_routes
 
 if TYPE_CHECKING:
@@ -659,6 +660,8 @@ def _run_cpp_lane(
     )
     lane = sanitizer or "plain"
     raw = f"=== mull-runner-23 ({lane}) ===\n" + runner_proc.stdout + "\n"
+    reaped = reap_dead_scratch_dirs()
+    raw += f"scratch directories left by killed runs and removed: {reaped}\n"
     # Mull's own summary goes to the IDE report, and its stdout carries the
     # survivor count only when there is one: a lane that killed everything
     # says so in the report alone, so the report is part of the lane's log.

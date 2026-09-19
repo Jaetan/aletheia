@@ -13,6 +13,8 @@ its first line, so a buffered implementation deadlocks instead of passing.
 
 from __future__ import annotations
 
+import errno
+import io
 import sys
 from typing import TYPE_CHECKING
 
@@ -147,3 +149,56 @@ def test_no_trailing_empty_line_is_invented(statements: tuple[str, ...]) -> None
     seen: list[str] = []
     _ = run_streaming(_python_child(*statements), sink=seen.append)
     assert seen == ([] if statements == ("pass",) else ["only line\n"])
+
+
+class _FailingStderr:
+    """A stderr whose write fails the way a filesystem with no space left fails it."""
+
+    def __init__(self, fd: int | None) -> None:
+        self._fd = fd
+
+    def write(self, _line: str) -> int:
+        """Fail as the real stream does when the filesystem behind it is full."""
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    def flush(self) -> None:
+        """Never reached, the write failing first."""
+
+    def fileno(self) -> int:
+        """Return the descriptor the space is measured through, or refuse to have one."""
+        if self._fd is None:
+            refusal = "fileno"
+            raise io.UnsupportedOperation(refusal)
+        return self._fd
+
+
+def test_a_write_failure_is_reported_with_the_space_left_on_the_filesystem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The default sink names what stderr writes to and what is left of it.
+
+    The failure this carries is a full temp filesystem, where the traceback on
+    its own names the progress line that happened to be writing and nothing
+    about the disk.
+    """
+    target = tmp_path / "progress.log"
+    with target.open("w", encoding="utf-8") as handle:
+        monkeypatch.setattr(sys, "stderr", _FailingStderr(handle.fileno()))
+        with pytest.raises(RuntimeError) as failure:
+            _ = run_streaming(_python_child("print('progress')"))
+    reported = str(failure.value)
+    assert "No space left on device" in reported
+    assert str(target) in reported
+    assert "bytes free" in reported
+
+
+def test_a_stderr_with_no_descriptor_reports_the_failure_as_unmeasured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stream the space cannot be read through still reports the write failure."""
+    monkeypatch.setattr(sys, "stderr", _FailingStderr(None))
+    with pytest.raises(RuntimeError) as failure:
+        _ = run_streaming(_python_child("print('progress')"))
+    reported = str(failure.value)
+    assert "No space left on device" in reported
+    assert "unknown" in reported

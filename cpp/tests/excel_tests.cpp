@@ -1080,6 +1080,64 @@ TEST_CASE("temp path: every shape is removed when its scope ends", "[excel][temp
     CHECK_FALSE(std::filesystem::exists(made));
 }
 
+TEST_CASE("temp path: a scratch directory outlives its owner only while the owner runs",
+          "[excel][temp]") {
+    // Removal at exit cannot be the whole answer: a run a signal ends never
+    // reaches static destruction and keeps its directory, which about one run
+    // in eight of a sweep does.  What the next run clears is every
+    // directory whose lock it can take, the lock being the liveness test a
+    // process id is not, since an id is reused, and a timestamp is not.
+    auto const root = std::filesystem::temp_directory_path();
+    auto const planted = [&root](std::string_view fate) {
+        return root / (std::string(aletheia::test::scratch_prefix) + std::to_string(::getpid()) +
+                       "-" + std::string(fate));
+    };
+
+    SECTION("one whose lock is free is removed, contents and all") {
+        auto const dead = planted("dead");
+        std::filesystem::create_directories(dead);
+        std::ofstream{dead / "left_behind.bin"} << "x";
+        REQUIRE(std::filesystem::exists(dead / "left_behind.bin"));
+        aletheia::test::reap_dead_scratch_dirs();
+        CHECK_FALSE(std::filesystem::exists(dead));
+    }
+
+    SECTION("one whose owner holds its lock is kept, and goes once the lock does") {
+        auto const live = planted("live");
+        std::filesystem::create_directories(live);
+        {
+            const aletheia::test::ScratchLock holder{live};
+            REQUIRE(holder.owns(live));
+            aletheia::test::reap_dead_scratch_dirs();
+            CHECK(std::filesystem::is_directory(live));
+        }
+        aletheia::test::reap_dead_scratch_dirs();
+        CHECK_FALSE(std::filesystem::exists(live));
+    }
+
+    SECTION("a link planted under the name is refused rather than followed") {
+        // The system temp directory is world writable, so a link is the one
+        // entry whose name says scratch and whose contents are someone else's.
+        auto const target = root / ("aletheia-link-target-" + std::to_string(::getpid()));
+        std::filesystem::create_directories(target);
+        auto const link = planted("link");
+        std::filesystem::create_directory_symlink(target, link);
+        aletheia::test::reap_dead_scratch_dirs();
+        CHECK(std::filesystem::is_symlink(link));
+        CHECK(std::filesystem::is_directory(target));
+        std::error_code ec;
+        std::filesystem::remove(link, ec);
+        std::filesystem::remove(target, ec);
+    }
+
+    SECTION("the sweeping process keeps its own scratch directory") {
+        const TempPath keeper{"aletheia_temp_path_keeper.bin", "still here"};
+        aletheia::test::reap_dead_scratch_dirs();
+        CHECK(std::filesystem::is_directory(scratch_dir()));
+        CHECK(std::filesystem::exists(keeper.path));
+    }
+}
+
 // ===========================================================================
 // Edges of the sheet readers
 // ===========================================================================

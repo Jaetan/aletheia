@@ -27,6 +27,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A killed test run no longer leaves its scratch directory behind.** Each
+  C++ test binary owns one directory under the system temp directory and
+  removes it at exit, which a run a signal ends never reaches: a mutant killed
+  by a test's assertion exits normally and removes its own, where one killed by
+  a fault or by the kernel leaves it behind. Measured over one sweep of the two
+  trees, 2074 runs of the test binary left
+  248 directories, and they accumulated across sweeps until a 16 GB `/tmp`
+  was full and a sweep died on the next line it wrote. The fixture now holds
+  an exclusive lock on its own directory and, before creating it, removes
+  every directory of the same shape whose lock it can take. The lock is what
+  separates a running owner from a gone one, where a process id is reused and
+  a timestamp is not a freshness signal, and it repairs every caller rather
+  than one: the probes that drive `mull-runner` themselves make these
+  directories too. The lane removes the tail its own last runs leave, which
+  has no next run to repair it, and a progress write that fails now names the
+  filesystem it failed on and the space left there, rather than pointing at
+  whichever line happened to be writing.
+
 - **The renderer closes a library it refuses.** Loading the rational
   renderer opened the kernel library and, when an entry it needs was missing,
   recorded the refusal and left the mapping open. The load now owns its handle
