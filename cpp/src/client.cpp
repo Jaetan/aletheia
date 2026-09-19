@@ -285,11 +285,14 @@ static auto wire_signal_value(std::uint16_t idx, std::int64_t num, std::int64_t 
 static auto is_valid_utf8(std::span<const std::byte> bytes) -> bool {
     // Minimum code point per sequence length — anything below is overlong.
     constexpr std::array<std::uint32_t, 5> min_cp = {0, 0, 0x80, 0x800, 0x10000};
-    std::size_t i = 0;
-    while (i < bytes.size()) {
-        auto const b0 = static_cast<std::uint8_t>(bytes[i]);
+    // A cursor, because a sequence is as many bytes as its lead byte says:
+    // the step is not a constant and the remainder is what the next step
+    // reads, so the span carries the position instead of an index compared
+    // against a length.
+    while (!bytes.empty()) {
+        auto const b0 = static_cast<std::uint8_t>(bytes.front());
         if (b0 < 0x80) {
-            ++i;
+            bytes = bytes.subspan(1);
             continue;
         }
         std::size_t len = 0;
@@ -306,17 +309,17 @@ static auto is_valid_utf8(std::span<const std::byte> bytes) -> bool {
         } else {
             return false; // Lone continuation byte or invalid lead byte.
         }
-        if (i + len > bytes.size())
+        if (len > bytes.size())
             return false;
-        for (std::size_t k = 1; k < len; ++k) {
-            auto const bk = static_cast<std::uint8_t>(bytes[i + k]);
+        for (auto const byte : bytes.first(len).subspan(1)) {
+            auto const bk = static_cast<std::uint8_t>(byte);
             if ((bk & 0xC0U) != 0x80)
                 return false;
             cp = (cp << 6U) | (bk & 0x3FU);
         }
         if (cp < min_cp[len] || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF))
             return false;
-        i += len;
+        bytes = bytes.subspan(len);
     }
     return true;
 }
@@ -334,40 +337,51 @@ static auto wire_signal_errors(std::span<const std::byte> buf, std::size_t error
                                std::uint16_t nerrs, std::uint32_t reason_bytes,
                                const std::vector<std::string>& names)
     -> Result<std::vector<SignalError>> {
-    auto const read_u16 = [&](std::size_t off) { return read_native<std::uint16_t>(buf, off); };
-    auto const read_u32 = [&](std::size_t off) { return read_native<std::uint32_t>(buf, off); };
     const std::size_t offsets_off = errors_off + (std::size_t{nerrs} * k_error_record_bytes);
     const std::size_t reasons_off = offsets_off + ((std::size_t{nerrs} + 1) * k_offset_bytes);
+    // Each segment is a run of fixed-size records, so it is read as the
+    // records themselves: the count and the slicing then agree by
+    // construction, and the segments lie inside the buffer by the caller's
+    // exact-size check.  The offset table holds one more entry than there are
+    // records, the end of the last reason.
+    auto const records = buf.subspan(errors_off, std::size_t{nerrs} * k_error_record_bytes) |
+                         std::views::chunk(k_error_record_bytes);
+    auto const offsets =
+        buf.subspan(offsets_off, (std::size_t{nerrs} + 1) * k_offset_bytes) |
+        std::views::chunk(k_offset_bytes) | std::views::transform([](auto const entry) {
+            return read_native<std::uint32_t>(std::span<const std::byte>{entry}, 0);
+        });
+    // Each reason is the span between two neighbouring offsets, so the
+    // table is read two entries at a time, which is also what says whether it
+    // is monotone.
+    auto const bounds = offsets | std::views::slide(2);
 
-    // Offset-table invariants — all three verified before any slicing:
-    // off[0] == 0, monotone non-decreasing, off[nerrs] == reason_bytes.
-    if (read_u32(offsets_off) != 0)
+    // Offset-table invariants, all three verified before any reason is
+    // sliced out: off[0] == 0, monotone non-decreasing,
+    // off[nerrs] == reason_bytes.
+    if (offsets.front() != 0)
         return std::unexpected(AletheiaError{
             ErrorKind::Protocol,
             std::format("Malformed extraction reason offsets: first offset is {}, must be 0",
-                        read_u32(offsets_off))});
-    for (std::uint16_t i = 0; i < nerrs; ++i) {
-        if (read_u32(offsets_off + (std::size_t{i} * k_offset_bytes)) >
-            read_u32(offsets_off + ((std::size_t{i} + 1) * k_offset_bytes)))
+                        offsets.front())});
+    for (auto const [i, bound] : std::views::enumerate(bounds)) {
+        if (bound.front() > bound.back())
             return std::unexpected(AletheiaError{
                 ErrorKind::Protocol,
                 std::format("Malformed extraction reason offsets: offset {} decreases", i + 1)});
     }
-    if (read_u32(offsets_off + (std::size_t{nerrs} * k_offset_bytes)) != reason_bytes)
+    if (offsets.back() != reason_bytes)
         return std::unexpected(AletheiaError{
             ErrorKind::Protocol,
             std::format("Malformed extraction reason offsets: last offset {} != reason bytes {}",
-                        read_u32(offsets_off + (std::size_t{nerrs} * k_offset_bytes)),
-                        reason_bytes)});
+                        offsets.back(), reason_bytes)});
 
     std::vector<SignalError> errors;
     errors.reserve(nerrs);
-    for (std::uint16_t i = 0; i < nerrs; ++i) {
-        auto name =
-            signal_name_at(names, read_u16(errors_off + (std::size_t{i} * k_error_record_bytes)));
-        auto const lo = read_u32(offsets_off + (std::size_t{i} * k_offset_bytes));
-        auto const hi = read_u32(offsets_off + ((std::size_t{i} + 1) * k_offset_bytes));
-        auto const slice = buf.subspan(reasons_off + lo, hi - lo);
+    for (auto const [record, bound] : std::views::zip(records, bounds)) {
+        auto name = signal_name_at(
+            names, read_native<std::uint16_t>(std::span<const std::byte>{record}, 0));
+        auto const slice = buf.subspan(reasons_off + bound.front(), bound.back() - bound.front());
         if (!is_valid_utf8(slice))
             return std::unexpected(AletheiaError{
                 ErrorKind::Protocol,
@@ -392,7 +406,6 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
     -> Result<ExtractionResult> {
     auto const read_u16 = [&](std::size_t off) { return read_native<std::uint16_t>(buf, off); };
     auto const read_u32 = [&](std::size_t off) { return read_native<std::uint32_t>(buf, off); };
-    auto const read_i64 = [&](std::size_t off) { return read_native<std::int64_t>(buf, off); };
 
     if (buf.size() < k_header_bytes)
         return std::unexpected(AletheiaError{
@@ -419,16 +432,19 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
 
     ExtractionResult result;
     result.values.reserve(nvals);
-    for (std::uint16_t i = 0; i < nvals; ++i) {
-        auto const idx = read_u16(off);
-        auto const num = read_i64(off + 2);
-        auto const den = read_i64(off + 10);
-        off += k_value_record_bytes;
-        auto sv = wire_signal_value(idx, num, den, names);
+    // A run of fixed-size records, read as the records: the stride is the
+    // view's and not an addition this loop repeats.
+    for (auto const entry : buf.subspan(off, std::size_t{nvals} * k_value_record_bytes) |
+                                std::views::chunk(k_value_record_bytes)) {
+        std::span<const std::byte> const record{entry};
+        auto sv = wire_signal_value(read_native<std::uint16_t>(record, 0),
+                                    read_native<std::int64_t>(record, 2),
+                                    read_native<std::int64_t>(record, 10), names);
         if (!sv)
             return std::unexpected(sv.error());
         result.values.push_back(std::move(*sv));
     }
+    off += std::size_t{nvals} * k_value_record_bytes;
     // Errors + Offsets + Reasons — all three segments lie within the buffer
     // by the exact-size check above; the helper verifies the offset-table
     // invariants and validates each reason slice as UTF-8.
@@ -439,9 +455,10 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
     off += (std::size_t{nerrs} * k_error_record_bytes) +
            ((std::size_t{nerrs} + 1) * k_offset_bytes) + std::size_t{reason_bytes};
     result.absent.reserve(nabss);
-    for (std::uint16_t i = 0; i < nabss; ++i) {
-        result.absent.push_back(signal_name_at(names, read_u16(off)));
-        off += k_absent_record_bytes;
+    for (auto const entry : buf.subspan(off, std::size_t{nabss} * k_absent_record_bytes) |
+                                std::views::chunk(k_absent_record_bytes)) {
+        result.absent.push_back(signal_name_at(
+            names, read_native<std::uint16_t>(std::span<const std::byte>{entry}, 0)));
     }
     return result;
 }

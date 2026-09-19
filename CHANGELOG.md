@@ -206,12 +206,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   for a hex payload read two digits at a time, and a `std::span` cursor for the argument
   parser, which consumes a flag's value from the front. `bytes_to_dlc` searches the DLC
   table rather than counting to its last code, and that table is now one constant both
-  directions read. `docs/CPP_INDEX_LOOPS.yaml` loses the rows whose loops are gone, from
-  90 counting loops to 75. Measured against the same two mutation trees: the C++ surface
-  falls from 1133 mutants to 1086 with no survivor, and the mutants killed only by a
-  libstdc++ precondition rather than by a test from 132 to 105, the whole of that fall in
-  the files whose hand-written bounds the views replaced. The two-digit read leans on the
-  refusal of an odd digit count that precedes it, so the CLI suite now holds that refusal.
+  directions read. The binary decoders follow: the extraction segments are read as the
+  fixed-size records they hold with `std::views::chunk`, the reason offsets two entries at
+  a time with `std::views::slide`, which is both what bounds a reason and what says the
+  table is monotone, and each error record is zipped with its offset pair, so that loop
+  carries no index at all. The UTF-8 validator and the ZIP central directory keep their
+  cursors, because a step of a variable number of bytes is what they are, but each
+  consumes from the front of a `std::span` instead of comparing an offset against a
+  length, so neither can be written past its end. The end-of-central-directory scan reads
+  every position the record could start at as a `std::views::slide` window, reversed.
+  `docs/CPP_INDEX_LOOPS.yaml` loses the rows whose loops are gone, from 90 counting loops
+  to 68, and the library sources keep one, the walk over variable-size directory entries
+  that no view expresses. Measured against the same two mutation trees: the C++ surface
+  falls from 1133 mutants to 1037 with no survivor, and the mutants killed only by a
+  libstdc++ precondition rather than by a test from 132 to 91, the whole of that fall in
+  the files whose hand-written bounds the views replaced, the ZIP loader reaching none.
+  The two-digit read leans on the refusal of an odd digit count that precedes it, so the
+  CLI suite now holds that refusal.
 
 - **Every mutant the three lanes sweep is one the project can answer for.**
   The C++ lane now keeps Mull's SQLite report of each tree and reads from it

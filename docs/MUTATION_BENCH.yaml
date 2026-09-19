@@ -306,15 +306,15 @@ bindings:
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
       survivors: 0
-      total_mutants: 1086
+      total_mutants: 1037
       timeouts: 0
       score_pct: 100
       run_at: "2026-09-19"
       kill_routes:
-        test: 979
+        test: 944
         leak: 0
         kernel: 2
-        fault: 105
+        fault: 91
         timeout: 0
       kill_routes_margin: 8
       # Every survivor, by mutator, repository-relative file, the text of its
