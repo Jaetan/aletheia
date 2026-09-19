@@ -52,6 +52,9 @@ pip-delete-this-directory.txt
 .session-state.md
 .r*-plan.md
 .commands-to-run.sh
+# Staged file versions the dribble copies in turn, when one commit's file is
+# edited again by a later one.
+.commands-to-run.d/
 
 # Coverage artifacts
 python/.coverage
