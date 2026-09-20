@@ -207,12 +207,15 @@ bindings:
       compiler: clang-23
       ir_plugin: ~/.local/bin/mull-ir-frontend-23
       runner: mull-runner-23
-      # Read by the plugin and the runner from their working directory upward.
-      # It names the mutator set and the paths held out (the vendored
-      # libraries and the system headers).  The mutation build records each
-      # unit's command line, which the plugin's junk detector re-parses with,
-      # and takes no ccache launcher, because ccache hashes neither this file
-      # nor the plugin.
+      # Named to the build and to the runner by ALETHEIA_MULL_CONFIG, which
+      # defaults to the tree's own; a sliced lane points it at a generated
+      # configuration holding the other slices' files out.  It names the
+      # mutator set and the paths held out (the vendored libraries and the
+      # system headers).  The mutation build records each unit's command line,
+      # which the plugin's junk detector re-parses with, and runs the compiler
+      # through ccache with this file and the plugin named as extra files to
+      # hash: what an object holds depends on both, and neither is on the
+      # command line by content.
       mutators: cpp/mull.yml
     invocation: |
       # The ALETHEIA_MUTATION build folds tests/integration_tests.cpp into the
@@ -317,6 +320,45 @@ bindings:
       # measurement of this toolchain and not a target.
       survivors: 0
       total_mutants: 1037
+      # Mutants per file, which is what the sweep's slices are cut on: a CI
+      # leg builds one slice of the surface, and a slice is a set of files
+      # whose recorded counts add up to about a third of this total. The
+      # counts stand for the sweep's cost because the cost of a mutant hardly
+      # varies, 4.6 seconds over the recorded run, and the files that depart
+      # from that are the ones carrying a handful.
+      #
+      # They are a measurement and they age in one direction: adding code adds
+      # mutants, nothing refuses that, and the slices drift out of balance
+      # quietly. So the merge prints what the heaviest slice would carry today
+      # under these weights, and the review that re-takes them is scheduled
+      # against that number rather than against a date
+      # (docs/operations/MUTATION.md, AGENTS.md § Universal Rules). Coverage
+      # never depends on them: a file the record does not name still lands in
+      # a slice, because the partition is computed over every tracked file of
+      # the library and not over this list.
+      mutants_by_file:
+        cpp/include/aletheia/backend.hpp: 2
+        cpp/include/aletheia/check.hpp: 14
+        cpp/include/aletheia/client.hpp: 2
+        cpp/include/aletheia/detail/cache_keys.hpp: 11
+        cpp/include/aletheia/detail/rational_renderer.hpp: 2
+        cpp/include/aletheia/log.hpp: 10
+        cpp/include/aletheia/ltl.hpp: 1
+        cpp/include/aletheia/response.hpp: 5
+        cpp/include/aletheia/types.hpp: 57
+        cpp/src/backend.cpp: 16
+        cpp/src/client.cpp: 280
+        cpp/src/dbc.cpp: 32
+        cpp/src/detail/ffi_logic.cpp: 14
+        cpp/src/detail/loader_utils.cpp: 74
+        cpp/src/detail/loader_utils.hpp: 23
+        cpp/src/enrich.cpp: 9
+        cpp/src/excel.cpp: 123
+        cpp/src/ffi_backend.cpp: 57
+        cpp/src/json_parse.cpp: 196
+        cpp/src/json_serialize.cpp: 40
+        cpp/src/rational_renderer.cpp: 20
+        cpp/src/yaml.cpp: 49
       timeouts: 0
       score_pct: 100
       run_at: "2026-09-20"

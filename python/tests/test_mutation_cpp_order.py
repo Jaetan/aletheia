@@ -17,12 +17,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tools.mutation_cpp import CPP_BUILD_JOBS_CAP, cpp_build_command, cpp_lane_command
+from tools.mutation_cpp import (
+    CPP_BUILD_JOBS_CAP,
+    CppLeg,
+    CppTree,
+    cpp_build_command,
+    cpp_lane_command,
+)
 
 
 def _command() -> list[str]:
-    """Build one lane's argv, the paths being the only thing it reads."""
-    return cpp_lane_command("mull-runner-23", Path("cpp/build-mutation"), Path("artifacts"), "")
+    """Build one leg's argv, the paths being the only thing it reads."""
+    leg = CppLeg(CppTree.PLAIN, 1)
+    return cpp_lane_command("mull-runner-23", Path("cpp") / leg.directory, Path("artifacts"), leg)
 
 
 def test_the_lane_hands_the_binary_a_pinned_order() -> None:

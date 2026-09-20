@@ -27,13 +27,52 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
-- **The C++ mutation lane runs as two legs and a merge, and every mutation
-  budget is read off a measurement.** Each mutation tree is swept in a CI lane
-  of its own (`ALETHEIA_MUTATION_CPP_STAGE=leak` or `plain`), which reports as
-  its own binding and judges no survivor, and the `mutation cpp` job merges
-  the two legs' reports (`ALETHEIA_MUTATION_CPP_STAGE=merge`), refusing a leg
-  that is missing, doubled or from another commit; the required check reports
-  the lanes and the merge together. The lane's wall clock on the runner was
+- **The C++ mutation sweep runs in slices, behind a compiler cache keyed on
+  the plugin and the configuration.** Each mutation tree is now swept by three
+  CI legs rather than one: a leg builds the tree under a generated Mull
+  configuration that holds the other slices' files out, so it carries its own
+  slice's mutants alone (`ALETHEIA_MUTATION_CPP_STAGE` names the tree,
+  `ALETHEIA_MUTATION_CPP_SLICE` the slice), and the `mutation cpp` job unions
+  each tree's slices before intersecting the trees. No list says which file is
+  in which slice: the set a slice can claim is every tracked file under
+  `cpp/src` and `cpp/include` that `cpp/mull.yml` does not already hold out,
+  and the partition is computed from it and balanced on the per-file counts
+  recorded in `docs/MUTATION_BENCH.yaml`. The slices state what they hold out
+  rather than what they claim, which decides how a mistake surfaces: a file no
+  slice claims is mutated by all of them, and the merge refuses the repeated
+  identifiers, where stating what a slice claims would drop that file and
+  report the smaller census as a clean sweep. The merge also refuses a union
+  below the recorded census, a census that grew being ordinary work. Measured
+  on the first sliced run, every cache cold: leak legs 11.3, 17.8 and 19.1
+  minutes against 40.4 for that tree as one leg, plain legs 22.1, 23.0 and
+  23.9 against 54.4, so the C++ half of the heavy lanes takes 23.9 minutes
+  where it took 54.4. It costs 117.3 runner minutes against 94.8, a quarter
+  more, because six legs each pay the setup two legs used to pay. Each tree's
+  slices union to its recorded 1037 mutants, the merged verdict kills all of
+  them, and the kill routes read exactly what the record holds. Every leg's
+  `timeout-minutes` is that run's slowest leg of its tree plus the measured
+  cost of a cold cache.
+- **A mutation build's objects are cached under the plugin's bytes and the
+  configuration's.** The build ran the compiler bare, because what its objects
+  hold is not all on the command line: the plugin is named there by path and
+  read by content, and the configuration naming the mutators and the held-out
+  paths is not named there at all. The launcher now runs the compiler through
+  `ccache` with both named as extra files to hash and the compiler hashed by
+  content, and `ALETHEIA_MULL_CONFIG` names that configuration for the
+  configure, the plugin and the cache alike. Measured on one tree: a cold
+  build takes 52s reading 204 misses of 205 cacheable calls, and the same tree
+  wiped and rebuilt takes 5s reading 204 hits of 204, with the rebuilt tree
+  carrying the recorded census unchanged. A slice's tree records the digest of
+  the configuration it was built under and is discarded when that differs,
+  because nothing in CMake knows an object depends on that file.
+
+- **The C++ mutation lane runs as legs and a merge, and every mutation budget
+  is read off a measurement.** Each leg is a CI lane of its own, reporting as
+  its own binding and judging no survivor, and the `mutation cpp` job merges
+  the legs' reports (`ALETHEIA_MUTATION_CPP_STAGE=merge`), refusing a leg that
+  is missing, doubled or from another commit; the required check reports the
+  lanes and the merge together. (What a leg covers is the entry above: one
+  tree at first, one slice of one tree now.) The lane's wall clock on the runner was
   1h44m for the two trees in sequence, and the longer tree becomes the lane.
   Every lane's `timeout-minutes` is now its slowest recorded wall clock plus
   the measured cost of its caches missing, the arithmetic beside each in the
@@ -479,6 +518,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A merged mutation report carries the score of its own mutants.** Mull
+  writes the score of the sweep behind each report, and both merges produce a
+  report no sweep did: the cross-tree merge revives every mutant another tree
+  killed, and a tree's slices each scored their own share of the surface. The
+  field was carried forward from the first input, so `cpp-mull.json` stated a
+  number nothing had measured, which is what the Elements viewer renders.
+  Measured on two reports scoring 50 and 99 whose merge kills every mutant:
+  the merge carried 50. It is recomputed from the merged statuses now. Masked
+  until now only because every C++ lane reads 100 percent.
 - **The Mull cache key hashes the patches the build applies.** The key hashed
   `tools/build_mull.sh` alone, so a patch under `tools/mull/` edited on its own
   replayed the previous binaries from the cache and the lane swept with a

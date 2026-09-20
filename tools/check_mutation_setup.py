@@ -46,7 +46,8 @@ from typing import cast
 
 import yaml
 
-from tools._common import emit
+from tools._common import RelPath, emit
+from tools.mutation_cpp_slices import partition, slice_domain
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SPEC_PATH = REPO_ROOT / "docs" / "MUTATION_BENCH.yaml"
@@ -167,6 +168,36 @@ def _tools_importing_tests_unignored() -> list[str]:
     return failures
 
 
+def cpp_slice_weights_are_of_the_domain(bindings: dict[str, object]) -> list[str]:
+    """Hold the recorded per-file census to the files a slice can actually claim.
+
+    The slices are cut over every tracked file of the library, so no file can
+    be left out of them; what can go wrong is the other direction, a recorded
+    weight for a file that has been renamed or held out, which silently stops
+    counting toward the balance.  The partition itself is checked here too:
+    the whole domain, once each, which is the property every other refusal in
+    the lane is written against.
+    """
+    spec = cast("dict[str, object]", bindings.get("cpp", {}))
+    baseline = cast("dict[str, object]", spec.get("baseline", {}))
+    counts = cast("dict[str, int]", baseline.get("mutants_by_file", {}))
+    recorded = {RelPath(path): count for path, count in counts.items()}
+    domain = slice_domain(REPO_ROOT, REPO_ROOT / "cpp" / "mull.yml")
+    failures = [
+        f"[cpp/slices] {path} carries a recorded mutant count and is not a file a slice can "
+        + "claim: it is untracked, renamed, or held out by cpp/mull.yml, so its weight "
+        + "counts toward no slice"
+        for path in sorted(set(recorded) - set(domain))
+    ]
+    claimed = [path for claims in partition(domain, recorded) for path in claims]
+    if sorted(claimed) != sorted(domain):
+        failures.append(
+            f"[cpp/slices] the partition claims {len(claimed)} of the domain's {len(domain)} "
+            + "files; a file in no slice is mutated by every slice, and one in two is swept twice",
+        )
+    return failures
+
+
 def _total_hot_paths(bindings: dict[str, object]) -> int:
     """Return the total number of declared hot-path sources across bindings."""
     total = 0
@@ -180,10 +211,11 @@ def _total_hot_paths(bindings: dict[str, object]) -> int:
 
 
 def main() -> int:
-    """Check both invariants: hot-path sources exist + tools-tests are mutmut-ignored."""
+    """Check hot paths exist, tools-tests are ignored, and the slices are of the tree."""
     bindings = _load_bindings()
     failures = _collect_failures(bindings)
     failures += _tools_importing_tests_unignored()
+    failures += cpp_slice_weights_are_of_the_domain(bindings)
 
     if failures:
         _ = sys.stderr.write("Mutation-setup coverage gate FAILED:\n")
@@ -201,7 +233,8 @@ def main() -> int:
     emit(
         "Mutation-setup coverage gate OK: "
         + f"{len(bindings)} bindings, {total} hot-path sources all present; "
-        + "all tools-importing tests are mutmut-ignored.",
+        + "all tools-importing tests are mutmut-ignored; "
+        + "every recorded C++ slice weight is a file the partition claims.",
     )
     return 0
 

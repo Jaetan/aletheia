@@ -35,13 +35,16 @@ In CI the runner is invoked once per binding, in parallel lanes with their own
 budgets, each told to skip the other two (`ALETHEIA_MUTATION_SKIP_PYTHON` /
 `_GO` / `_CPP`), because the three tools cost wildly different amounts and one
 job charges the slowest against a clock the others have already spent.  The
-C++ lane is two legs and a merge: each mutation tree is swept in a lane of its
-own (`ALETHEIA_MUTATION_CPP_STAGE=leak` or `plain`), which reports as the
-binding `cpp-leak` or `cpp-plain` and judges no survivor, since a mutant one
-tree let live may die in the other; the `mutation cpp` job downloads both legs'
-reports and merges them (`ALETHEIA_MUTATION_CPP_STAGE=merge`, the directory in
+C++ lane is six legs and a merge: a leg sweeps one slice of one mutation tree
+(`ALETHEIA_MUTATION_CPP_STAGE=leak` or `plain`, `ALETHEIA_MUTATION_CPP_SLICE`
+the slice), reports as the binding `cpp-leak-1` and so on, and judges no
+survivor, since it has read neither the rest of its tree nor the other tree,
+where the mutant it let live may die; the `mutation cpp` job downloads every
+leg's reports, unions each tree's slices and intersects the trees
+(`ALETHEIA_MUTATION_CPP_STAGE=merge`, the directory in
 `ALETHEIA_MUTATION_CPP_LEGS`), which is where the C++ survivors meet the
-baseline and the ledger.  The merge refuses a leg whose reports are missing or
+baseline and the ledger. How the slices are cut, and what the merge refuses,
+is below.  The merge refuses a leg whose reports are missing or
 doubled, or whose summary records another commit.  The
 `mutation testing` check the branch ruleset requires reports those lanes and
 the merge: it passes only on the single result meaning every one of them
@@ -382,6 +385,57 @@ The static gate guards against silent rename / removal of a hot-path file
 without YAML update — a config-vs-reality drift class, but for hot-path file paths.  The
 dynamic gate is the actual mutation pass; per AGENTS.md "once per PR is
 sufficient; per-commit is overkill".
+
+## The C++ lane's slices, and the weights they are cut on
+
+The C++ sweep is the slowest of the three, and one CI job per mutation tree
+still charged the clock of a whole tree's sweep against a single runner.  Each
+tree is therefore swept by three jobs, each building the tree under a Mull
+configuration that holds the other slices' files out, so a job carries its own
+slice's mutants alone.  The `mutation cpp` job unions each tree's slices, then
+intersects the trees, and that union is the verdict the drift gate reads.
+
+**Nothing keeps a list of which file is in which slice.**  The set a slice can
+claim is derived: every tracked file under `cpp/src` and `cpp/include` that
+`cpp/mull.yml` does not already hold out.  A file added to the library is in
+that set the moment it is tracked, and `tools/mutation_cpp_slices.py` computes
+the partition from it.  The slices state what they *hold out* rather than what
+they claim, which decides how a mistake surfaces: a file no slice claims is
+mutated by all three, so its mutants arrive once per slice and the merge
+refuses the repeated identifiers.  Stating what a slice claims would instead
+drop that file and report the smaller census as a clean sweep.
+
+Two refusals guard the union.  A mutant carried by two slices of one tree is
+refused by identity, as above.  A union *below* the recorded `total_mutants` is
+refused as a slice that carried fewer files than the partition gave it; a
+census that grew is ordinary work and passes, and a deliberate removal lowers
+the record in the same commit, the way the survivors baseline is lowered.
+
+**The weights are balance, never coverage, and they are reviewed on a
+schedule.**  The partition is balanced by `mutants_by_file` in
+`docs/MUTATION_BENCH.yaml`, the mutants each file carried when the census was
+last taken, which stands for the sweep's cost because the cost of a mutant
+hardly varies.  A file the record does not name still lands in a slice; it
+simply weighs nothing, which is right for the files that carry no mutants and
+costs a newly added file some balance until the census is re-taken.  Because
+adding code adds mutants and nothing refuses that, these counts age quietly in
+one direction.  So the merge prints, beside its verdict, what the heaviest
+slice would carry today under the recorded weights against an equal share,
+counted in mutants: fresh weights read about nothing there, measured at 0.1
+percent on the run that recorded them, and the figure grows as the surface
+outgrows the record.  The review that re-takes them is scheduled against it
+rather than against a date (AGENTS.md § Universal Rules; the task list carries
+it).  How evenly the cut divides the sweep's *time* is a separate measurement,
+taken from the recorded per-mutant durations rather than printed by any run,
+and is what says whether three slices is still the right number.  Re-take
+by reading `cpp-files.json` from the merge's artifacts into `mutants_by_file`.
+
+Changing the partition changes every slice's configuration, which the compiler
+cache keys on, so the run after such a change rebuilds all six trees.  It is
+also why a slice's build tree records the digest of the configuration it was
+built under and is discarded when that differs: nothing in CMake knows an
+object depends on the Mull configuration, so a tree left from another slice
+would answer a rebuild by doing nothing and sweep the other slice's mutants.
 
 ## Scope notes
 

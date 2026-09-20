@@ -12,6 +12,10 @@ from typing import IO, ClassVar
 
 def safe_load(stream: str | bytes | IO[str] | IO[bytes]) -> object: ...
 
+# Returns the document as text when no stream is given, which is the only way
+# it is called here: the C++ mutation lane writes a slice's configuration.
+def safe_dump(data: object, *, sort_keys: bool = True) -> str: ...
+
 class Node:
     """Subset of ``yaml.nodes.Node`` used by the float-tag constructor."""
 
