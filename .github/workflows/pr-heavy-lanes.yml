@@ -376,12 +376,12 @@ jobs:
           #
           # Every budget is read off a measurement: the lane's slowest recorded
           # wall clock plus the allowance for its caches missing, rounded up
-          # to five minutes.  A slice keeps the budget measured for the whole
-          # tree it is a slice of, which bounds it with room to spare and is
-          # the honest value until a sliced run has been read: this change
-          # cannot measure CI, and the rule that a change re-measures its
-          # budget is met by re-taking these from `cpp-legs.json` after the
-          # first run rather than by guessing a third of them now.  The allowance is what a cold run paid, measured
+          # to five minutes.  The C++ figures are the first sliced run's,
+          # 35506016652, taken with every cache cold for the new keys: leak
+          # legs 11.3, 17.8 and 19.1 minutes, plain legs 22.1, 23.0 and 23.9.
+          # A tree's legs share one budget, the slowest of them, because which
+          # slice is slowest moves with the surface; so leak is 19.1 + 33.3 =
+          # 52.4 and plain 23.9 + 33.3 = 57.2, each rounded up.  The allowance is what a cold run paid, measured
           # on run 30150643321 (the toolchain bump, every cache cold): the Agda
           # install 18m34s and the FFI build 9m08s, 27m42s; a C++ leg adds the
           # Mull build, 5m35s on run 35486430315, 33m17s.  The slowest walls
@@ -416,7 +416,7 @@ jobs:
             binding: cpp
             stage: leak
             slice: '1'
-            timeout: 80
+            timeout: 55
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -424,7 +424,7 @@ jobs:
             binding: cpp
             stage: leak
             slice: '2'
-            timeout: 80
+            timeout: 55
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -432,7 +432,7 @@ jobs:
             binding: cpp
             stage: leak
             slice: '3'
-            timeout: 80
+            timeout: 55
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -440,7 +440,7 @@ jobs:
             binding: cpp
             stage: plain
             slice: '1'
-            timeout: 95
+            timeout: 60
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -448,7 +448,7 @@ jobs:
             binding: cpp
             stage: plain
             slice: '2'
-            timeout: 95
+            timeout: 60
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -456,7 +456,7 @@ jobs:
             binding: cpp
             stage: plain
             slice: '3'
-            timeout: 95
+            timeout: 60
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -656,6 +656,20 @@ jobs:
         run: |
           set -euo pipefail
           command -v ccache >/dev/null || sudo apt-get install -y ccache
+          # The runner's ccache is whatever its image carries, and the
+          # correctness of a cached mutation object rests entirely on
+          # extra_files_to_hash: without it the plugin and the Mull
+          # configuration are unhashed and a stale object is served for a
+          # changed one.  A ccache too old to know the option would ignore the
+          # environment silently, so the option is checked for rather than
+          # assumed.  `ccache -p` enumerates the options the binary supports,
+          # so a name absent from it is a name it does not honour.
+          ccache -p | grep -q 'extra_files_to_hash' || {
+            echo "::error::this ccache ($(ccache --version | head -1)) does not" \
+                 "support extra_files_to_hash, so a mutation object would be" \
+                 "cached without the plugin and the configuration in its key"
+            exit 1
+          }
           {
             echo "CCACHE_DIR=${HOME}/.ccache"
             echo "CCACHE_MAXSIZE=400M"

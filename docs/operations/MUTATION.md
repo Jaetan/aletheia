@@ -420,9 +420,14 @@ simply weighs nothing, which is right for the files that carry no mutants and
 costs a newly added file some balance until the census is re-taken.  Because
 adding code adds mutants and nothing refuses that, these counts age quietly in
 one direction.  So the merge prints, beside its verdict, what the heaviest
-slice would carry today under the recorded weights against an equal share, and
-the review that re-takes them is scheduled against that figure rather than
-against a date (AGENTS.md § Universal Rules; the task list carries it).  Re-take
+slice would carry today under the recorded weights against an equal share,
+counted in mutants: fresh weights read about nothing there, measured at 0.1
+percent on the run that recorded them, and the figure grows as the surface
+outgrows the record.  The review that re-takes them is scheduled against it
+rather than against a date (AGENTS.md § Universal Rules; the task list carries
+it).  How evenly the cut divides the sweep's *time* is a separate measurement,
+taken from the recorded per-mutant durations rather than printed by any run,
+and is what says whether three slices is still the right number.  Re-take
 by reading `cpp-files.json` from the merge's artifacts into `mutants_by_file`.
 
 Changing the partition changes every slice's configuration, which the compiler

@@ -168,7 +168,7 @@ def _tools_importing_tests_unignored() -> list[str]:
     return failures
 
 
-def _cpp_slice_weights_are_of_the_domain(bindings: dict[str, object]) -> list[str]:
+def cpp_slice_weights_are_of_the_domain(bindings: dict[str, object]) -> list[str]:
     """Hold the recorded per-file census to the files a slice can actually claim.
 
     The slices are cut over every tracked file of the library, so no file can
@@ -215,7 +215,7 @@ def main() -> int:
     bindings = _load_bindings()
     failures = _collect_failures(bindings)
     failures += _tools_importing_tests_unignored()
-    failures += _cpp_slice_weights_are_of_the_domain(bindings)
+    failures += cpp_slice_weights_are_of_the_domain(bindings)
 
     if failures:
         _ = sys.stderr.write("Mutation-setup coverage gate FAILED:\n")

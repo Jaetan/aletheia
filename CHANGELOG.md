@@ -42,7 +42,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   slice claims is mutated by all of them, and the merge refuses the repeated
   identifiers, where stating what a slice claims would drop that file and
   report the smaller census as a clean sweep. The merge also refuses a union
-  below the recorded census, a census that grew being ordinary work.
+  below the recorded census, a census that grew being ordinary work. Measured
+  on the first sliced run, every cache cold: leak legs 11.3, 17.8 and 19.1
+  minutes against 40.4 for that tree as one leg, plain legs 22.1, 23.0 and
+  23.9 against 54.4, so the C++ half of the heavy lanes takes 23.9 minutes
+  where it took 54.4. It costs 117.3 runner minutes against 94.8, a quarter
+  more, because six legs each pay the setup two legs used to pay. Each tree's
+  slices union to its recorded 1037 mutants, the merged verdict kills all of
+  them, and the kill routes read exactly what the record holds. Every leg's
+  `timeout-minutes` is that run's slowest leg of its tree plus the measured
+  cost of a cold cache.
 - **A mutation build's objects are cached under the plugin's bytes and the
   configuration's.** The build ran the compiler bare, because what its objects
   hold is not all on the command line: the plugin is named there by path and
