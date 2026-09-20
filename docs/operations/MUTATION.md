@@ -64,8 +64,8 @@ Two-tier per advisor 2026-05-09:
   optimisation level, which the shipped build does not check).  A mutant
   several lanes killed is attributed in that order.  The counts land in
   `cpp-routes.json` beside `cpp.json` and in the C++ baseline; a probe holds them
-  within a margin of the record, since a mutant whose behaviour is undefined
-  dies by a different route from one run to the next.
+  equal to the record, which the pinned test order makes exact, and a sweep with
+  any timeout is reported as a census taken under load rather than compared.
 - **First run (no gate)** — when the YAML baseline is `null`, the runner
   records the observed survivor count as informational and exits 0.  The
   next commit is expected to either match this count or improve on it; the

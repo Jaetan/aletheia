@@ -24,9 +24,10 @@
 # call unmutated, and an implicit destructor carries its statement's range,
 # so one was being reported as the other.  Its scalar-call replacement reaches
 # an invoke too (tools/mull/libirm-scalar-call-invoke.patch), for the same
-# reason.  One file per patch, because Bazel matches each patch it is given
-# against the archive as extracted and reads one file per patch; a Debian release without a VERSION_ID in /etc/os-release
-# (testing, sid) is read as the debian:13 row; and every mutant gets an identifier of its own
+# reason, and it is one file per patch because Bazel matches each patch it is
+# given against the archive as extracted.  A Debian release without a
+# VERSION_ID in /etc/os-release (testing, sid) is read as the debian:13 row,
+# and every mutant gets an identifier of its own
 # (tools/mull/mull-unique-mutant-ids.patch), where Mull named two mutations
 # of one statement, a temporary's destructor on the normal path and in the
 # exception-cleanup landing pad, or two instantiations of one template, by
@@ -60,9 +61,10 @@ src=$(mktemp -d)
 trap 'rm -rf "$src"' EXIT
 git clone --quiet --depth 1 --branch "$mull_tag" --recursive \
     https://github.com/mull-project/mull "$src"
-# libirm's void-call mutator is patched to reach an invoke as well as a call;
-# the patch file travels with this script and is handed to Bazel as a label in
-# the mull workspace.
+# libirm's two call mutators are patched, the void-call one to reach an invoke
+# and to leave implicit destructors alone, the scalar-call one to reach an
+# invoke; the patch files travel with this script and are handed to Bazel as
+# labels in the mull workspace.
 cp "$(dirname "$0")/mull/libirm-void-call-mutator.patch" "$src/"
 cp "$(dirname "$0")/mull/libirm-void-call-mutator-header.patch" "$src/"
 cp "$(dirname "$0")/mull/libirm-scalar-call-invoke.patch" "$src/"

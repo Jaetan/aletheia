@@ -17,7 +17,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   wrong where a range's cannot; the failure is quiet, because the standard
   library checks a subscript or a `subspan` only where its container assertions
   are compiled in and the optimised build leaves them out. `AGENTS/cpp.md`
-  cat 27 now names the view each loop shape takes and what a surviving index
+  cat 27 now names the views the common loop shapes take and what a surviving index
   must look like, and `tools/check_cpp_index_loops.py` refuses a counting loop
   that `docs/CPP_INDEX_LOOPS.yaml` does not already name, as well as a row
   naming a loop the tree no longer holds, since such a row is standing
@@ -27,6 +27,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **A Python type hint carries the shape of the data, as faithfully as the
+  language allows.** `AGENTS/python.md` cat 8 refuses `dict[str, list[str]]`,
+  `tuple[str, int, str]` and their like where the function takes no arbitrary
+  string or mapping, and a `type` alias to `str` is only the first step: a
+  closed set of words is an enum or a `Literal`, a string with a rule is a
+  `NewType` minted by its checker, a composite a `NamedTuple`, an authored JSON
+  shape a `TypedDict`, a needed capability a `Protocol`. The two C++ ratchet
+  gates share `RowKey` and `RatchetRows` from `tools/_ratchet.py`, and the
+  changelog gate's `Category` enum, as the worked examples.
 - **The C++ mutation lane sweeps under a pinned test order, and its recorded
   census is exact.** Catch2 shuffles its cases by default under a seed that
   changes every run, and mull runs the test binary once per mutant, so the
@@ -51,196 +60,6 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   baseline; an oversubscribed machine times it out where an idle one reads the
   fault it dies by, so a sweep with any timeout is reported as a census taken
   under load rather than absorbed into a tolerance.
-
-### Fixed
-
-- **A killed test run no longer leaves its scratch directory behind.** Each
-  C++ test binary owns one directory under the system temp directory and
-  removes it at exit, which a run a signal ends never reaches: a mutant killed
-  by a test's assertion exits normally and removes its own, where one killed by
-  a fault or by the kernel leaves it behind. Measured over one sweep of the two
-  trees, 2074 runs of the test binary left
-  248 directories, and they accumulated across sweeps until a 16 GB `/tmp`
-  was full and a sweep died on the next line it wrote. The fixture now holds
-  an exclusive lock on its own directory and, before creating it, removes
-  every directory of the same shape whose lock it can take. The lock is what
-  separates a running owner from a gone one, where a process id is reused and
-  a timestamp is not a freshness signal, and it repairs every caller rather
-  than one: the probes that drive `mull-runner` themselves make these
-  directories too. The lane removes the tail its own last runs leave, which
-  has no next run to repair it, and a progress write that fails now names the
-  filesystem it failed on and the space left there, rather than pointing at
-  whichever line happened to be writing.
-
-- **The renderer closes a library it refuses.** Loading the rational
-  renderer opened the kernel library and, when an entry it needs was missing,
-  recorded the refusal and left the mapping open. The load now owns its handle
-  and closes it on every refusal; the one that serves is released to the
-  process for the renderer's lifetime.
-
-- **The mutation lanes run one per binding, and each one streams.** The C++
-  surface that this round took from 264 mutants to 971 across two build trees
-  shared a single 90-minute job with the Python and Go lanes, and was killed by
-  that budget with its sweep still running. The three now run as parallel lanes
-  on their own clocks, each told to skip the other two; the check the branch
-  ruleset requires keeps its name and reports them, passing only when every
-  lane succeeded and refusing every other result, a budget kill included. The long
-  commands, `mutmut run`, `gremlins unleash`, `mull-runner` and the cmake build
-  of each mutation tree, stream their output through a new
-  `tools/_common.run_streaming` instead of having it captured: the killed job
-  had logged one line in 78 minutes and lost the rest, so nothing said which
-  binding it was in or how far it had got. Each lane now records its own wall
-  time as `elapsed_s`, so the next budget is read off a measurement.
-
-- **A signal the frame does not carry is reported, not read.** The bit reader
-  is total and answers zero for bits that are not there, so extracting a
-  sixteen-bit signal from a one-byte frame reported success with a value the
-  frame never carried: the low byte read as the whole signal, and a signal
-  starting past the end read as zero. The extractor now asks the same geometry
-  the ingest gates decide, of the frame's own size, and routes a signal that
-  does not fit to the per-signal error stream with its own wire code. A
-  zero-byte frame reports every signal of the message rather than a set of
-  zeroes.
-
-- **A frame is built only at a DLC whose bytes hold every signal it places.**
-  The caller's DLC sizes the frame and the DBC places the bits, and the bit
-  writer is total: a signal reaching past the end had its overhanging bits
-  written nowhere and the frame answered as if it carried them. A build at DLC
-  1 of a message whose first signal is sixteen bits wide returned a one-byte
-  frame carrying half of it, with no error. The builder now names the first
-  signal that does not fit, on the same geometry proposition the DBC ingest
-  gates decide, and the update path holds the frame it is given to the same
-  rule. Two lemmas carry the refusal into the proofs: the check answering
-  "none" is the `AllSignalsFit` the round-trip theorems assume, and a payload
-  the builder answers with was built from signals that all fit, so the
-  hypothesis those theorems carried is now discharged by the call succeeding
-  rather than asked of the caller.
-
-- **The binary frame builder refuses a DLC code past the fifteen the wire has.**
-  The DLC crosses the binary wire as a raw byte and the kernel sizes the frame
-  it builds from it. Three of the four binary entries held it to the codes the
-  wire has; the frame builder took none of them, so a build at DLC 42 answered
-  success and filled 42 bytes of a buffer the caller had sized for eight. The
-  bound the other three share is now one function they all call.
-
-- **The C++ mutation lane measures what it claims to.** Four defects held its
-  surface to a fraction of the library. Mull's junk detector re-parses each
-  translation unit to tell a mutant from junk, and the build recorded no command
-  line, so it re-parsed with no flags, failed at the first project include, and
-  dropped every mutant of most units; the mutation build now records the command
-  line. The two loaders reached the binary through their own suites only, and the
-  static link dropped their objects, so `yaml.cpp` and `excel.cpp` had no mutant
-  though the baseline lists them; the loader suites are folded into the mutation
-  binary as the integration tests were. ccache replayed cached objects, and their
-  stderr, into a mutation build whose plugin and `cpp/mull.yml` it does not hash;
-  the mutation build takes no launcher. And the suites wrote fixtures under fixed
-  names in the system temp directory, so Mull's parallel runs failed each other's
-  file-size-cap cases and counted the failures as kills; every fixture now lives
-  under a per-process directory, and the per-mutant cap is pinned in the config
-  rather than left to Mull's ten-times-the-baseline default, under which the
-  same binary read ten times as many timeouts. With that, the shared then-dispatcher of the
-  loaders is on the surface: it takes a map of the slots the loader read and
-  refuses a slot it reads and was not given, by name, as the Python one does,
-  instead of positional values with a filler no test could observe; `cpp/mull.yml`
-  adds Mull's call mutators, which are the only ones that reach code written as
-  calls, and holds the test sources out, since a mutant in a test measures the
-  harness; the recorded C++ baseline is the measured survivor count of that
-  surface, with any survivor above it failing the lane; and `tools/build_mull.sh` takes libirm at the commit that truncates a
-  replaced call's constant to the call's width, because the scalar-call mutator
-  aborted clang on the first `bool`-returning call it met.
-- **The proof gate waits for a slow module and runs Agda on one capability.** The
-  warm Agda process gave up on a module after 300 seconds without output, described
-  as a hang detector; Agda sends nothing while it checks a module and everything once
-  done, so the cap was a wall-clock bound that the two cold-checked proof modules
-  crossed on a loaded runner, failing sweeps that passed on retry. The cap moves far
-  above any module, a load that hits it reports how long Agda was silent, and Agda
-  runs at `-N1`: its checker is single-threaded, and the parallel-GC threads `-N` adds
-  only cost. The sweep log is uploaded as an artifact, per-module times included.
-- **The bundle validator's Go consumer imports the module the bundle ships.** The
-  consumer fixture named this tree's module path, so validating a published release
-  failed the moment the path moved, as it did when the module took its major version:
-  the v5.0.0 bundle declares the old path and the validator asked `go get` for the
-  new one. The validator now reads the `module` directive from the bundle's own
-  `bindings/go/go.mod`, retargets the fixture's import to it, and refuses a bundle
-  whose installer prints a `go get` for any other module, naming both paths.
-- **A caller-injected Python backend is provably the one re-used after `close()`.**
-  The re-entry test asserted only that re-entry succeeds, which it does either way:
-  a client that wrongly treated an injected backend as its own would drop it on
-  close and build a real `FFIBackend` on the next `__enter__`, silently swapping a
-  test double for the shared library. The test now asserts the injected object is
-  the one initialised again. Found by the mutation lane once its generator was
-  pinned; the Python row is re-measured at 924 mutants with the one documented
-  equivalent surviving.
-- **Two gates stop depending on whatever the machine happens to have.** `cmake-lint`
-  came from a distro package declared nowhere, so the CMake gate exited 127 on the
-  runner while passing locally; it is pinned as `cmakelang` and routed through the
-  venv, like `clang-format`. `cmakelang` and `mutmut` are each pinned to one exact
-  version, because a lint tool's findings and a mutation generator's mutant set are
-  the gate itself: `mutmut` was a range, so a developer could sit on the floor while
-  CI resolved to the newest, two releases in one major enumerate different mutant
-  sets, and the survivor CI reported could not be reproduced locally at all.
-
-- **The Rust binding passes clippy on the toolchain CI installs.** CI tracks the
-  latest stable Rust, and `clippy::chunks_exact_to_as_chunks` is new in 1.98: it
-  fired on four pre-existing sites in the binary response decoder that no local run
-  could see, because the development toolchain was still on 1.97. The four read
-  `as_chunks::<N>().0` now, which is the same traversal with the chunk width in the
-  type, and the local toolchain was moved to stable so the lint is reproducible.
-
-- **The C++ library builds again on the standard library CI pins.** A filter helper
-  written during the review used the `views::filter | std::ranges::to<std::vector>()`
-  pipe, which needs a libstdc++ point release newer than the one ubuntu-24.04 ships,
-  so the whole C++ build failed on the runner while passing locally on a newer one.
-  It copies with `std::ranges::copy_if` now, and the benchmark's two folds use
-  `std::reduce` rather than `std::ranges::fold_left` for the same reason. The pinned
-  standard library is the floor a consumer building the binding is held to, so the
-  code moved rather than the floor.
-
-- **The bill of materials reads every C++ pin again, and names the package rather
-  than the fetch.** The generator derived a version from a release tag shaped
-  `v1.2.3` or a bare `1.2.3`, so the yaml-cpp bump to a tag that repeats the project
-  name (`yaml-cpp-0.9.0`) made the pin unreadable and failed the whole bill. It reads
-  that shape now. The two dependencies pinned on the spreadsheet library's behalf are
-  declared under the content name its helper requires, which carries a `_fetch`
-  suffix; the bill strips it, so they appear as `miniz` and `pugixml` with the purls a
-  consumer would look up. Both shapes have a test that fails without the fix.
-
-- **The benchmark harness no longer measures stale binaries.**
-  `benchmarks/run_all.sh` ran the C++ and Go benchmark binaries if the file merely
-  existed, building only Rust. A Go binary predating the detailed-extraction-reason
-  wire format could not decode extraction responses, so both Signal Extraction
-  lanes failed — and were then silently dropped, leaving 4-lane Go baselines in
-  `benchmarks/results/`. The harness now **builds** the C++, Go and Rust benchmarks
-  itself (incremental; a missing toolchain stays a per-lane skip), captures
-  benchmark stderr instead of discarding it and replays it when a lane fails, and
-  clears the selected mode's results first so a skipped or failed lane contributes
-  nothing rather than its previous run's numbers. CI was never affected — the
-  benchmark workflow always built all four in-job.
-- **A benchmark lane that cannot be measured is now an error, not an omission.**
-  The Go harness dropped an all-failed throughput lane, omitted a failed latency
-  lane, and reported a fabricated `0` for a failed scaling point (which divides
-  through every `relative` in the sweep). Any failed run is now fatal — continuing
-  published a row whose `runs` field overstated the sample it was computed from —
-  and neither Go nor Rust can average an empty sample. Python already aborted on a
-  failed operation; the C++ harness does not check its per-operation results and is
-  tracked separately.
-- **All 12 local baselines re-measured** with freshly built binaries. The previous
-  Go throughput/latency baselines are void rather than outdated: they came from a
-  binary that could not decode the wire it was measuring, so its four surviving
-  lanes are as untrustworthy as its two missing ones.
-- **The benchmark harness refuses a zero or non-numeric count, and a broken build
-  fails the run instead of skipping the lane.** `--frames 0` made every lane publish
-  a schema-conformant all-zero report and exit 0: a fabricated measurement set, the
-  class of defect the harness exists to prevent. Both `--frames` and `--runs` must
-  now be positive integers, checked before the mode check, every preflight and the
-  results clear, so a refused value touches nothing. A lane whose toolchain is on
-  PATH but whose build fails is reported as FAIL and fails the run; only an absent
-  toolchain is still a skip. A lane whose scratch file cannot be created fails
-  without leaving a file behind, the scratch names are ignored by git, and
-  `ALETHEIA_BENCH_RESULTS_DIR` redirects the results directory so the probes can
-  drive the harness without touching the last measurements.
-
-### Changed
 
 - **Loop over what the library can bound, not over a number we wrote.** Every counting
   loop of `cpp/src` and `cpp/include` whose bound a view removes outright now carries the
@@ -642,6 +461,217 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 - **`shake install` now purges stale shared libraries before re-staging**, so a
   GHC toolchain bump no longer leaves the prior runtime's `libHS*.so` orphaned
   in the install prefix.
+
+### Fixed
+
+- **The Mull cache key hashes the patches the build applies.** The key hashed
+  `tools/build_mull.sh` alone, so a patch under `tools/mull/` edited on its own
+  replayed the previous binaries from the cache and the lane swept with a
+  mutator the tree no longer described. A probe holds the key to the script
+  and to every patch it applies.
+- **A translation unit clang-query cannot parse fails the restated-type gate.**
+  clang-query exits zero after a fatal diagnostic and matches nothing in the
+  unit, which the gate read as a unit with nothing to report.
+- **The counting-loop gate reads a step written as an assignment.** `i = i + 1`
+  passed a scan that knew only the step operators, and the `while` and `do`
+  rows of `docs/CPP_INDEX_LOOPS.yaml` carried the scan's blanked text rather
+  than the header's own, so a row could not be pasted back. Both ratchet
+  records now refuse a malformed row by name instead of raising.
+- **The allocation-fault sweep refuses a call it cannot record.** A call
+  making more allocations than the recording holds read as zero points, the
+  answer of a call that allocates nothing; it is now `-1`, and the count of
+  scratch directories the sweep's tail removes counts what is gone rather than
+  what was attempted.
+- **The changelog gate refuses a category header repeated under `[Unreleased]`,
+  and one that is not a Keep-a-Changelog category.** A second `### Changed` is
+  where an entry lands out of sight of the first; the gate now names the header,
+  the two blocks this file carried are one, and the six categories are an
+  enumeration in the gate.
+- **A killed test run no longer leaves its scratch directory behind.** Each
+  C++ test binary owns one directory under the system temp directory and
+  removes it at exit, which a run a signal ends never reaches: a mutant killed
+  by a test's assertion exits normally and removes its own, where one killed by
+  a fault or by the kernel leaves it behind. Measured over one sweep of the two
+  trees, 2074 runs of the test binary left
+  248 directories, and they accumulated across sweeps until a 16 GB `/tmp`
+  was full and a sweep died on the next line it wrote. The fixture now holds
+  an exclusive lock on its own directory and, before creating it, removes
+  every directory of the same shape whose lock it can take. The lock is what
+  separates a running owner from a gone one, where a process id is reused and
+  a timestamp is not a freshness signal, and it repairs every caller rather
+  than one: the probes that drive `mull-runner` themselves make these
+  directories too. The lane removes the tail its own last runs leave, which
+  has no next run to repair it, and a progress write that fails now names the
+  filesystem it failed on and the space left there, rather than pointing at
+  whichever line happened to be writing.
+
+- **The renderer closes a library it refuses.** Loading the rational
+  renderer opened the kernel library and, when an entry it needs was missing,
+  recorded the refusal and left the mapping open. The load now owns its handle
+  and closes it on every refusal; the one that serves is released to the
+  process for the renderer's lifetime.
+
+- **The mutation lanes run one per binding, and each one streams.** The C++
+  surface that this change took from 264 mutants to 971 across two build trees
+  shared a single 90-minute job with the Python and Go lanes, and was killed by
+  that budget with its sweep still running. The three now run as parallel lanes
+  on their own clocks, each told to skip the other two; the check the branch
+  ruleset requires keeps its name and reports them, passing only when every
+  lane succeeded and refusing every other result, a budget kill included. The long
+  commands, `mutmut run`, `gremlins unleash`, `mull-runner` and the cmake build
+  of each mutation tree, stream their output through a new
+  `tools/_common.run_streaming` instead of having it captured: the killed job
+  had logged one line in 78 minutes and lost the rest, so nothing said which
+  binding it was in or how far it had got. Each lane now records its own wall
+  time as `elapsed_s`, so the next budget is read off a measurement.
+
+- **A signal the frame does not carry is reported, not read.** The bit reader
+  is total and answers zero for bits that are not there, so extracting a
+  sixteen-bit signal from a one-byte frame reported success with a value the
+  frame never carried: the low byte read as the whole signal, and a signal
+  starting past the end read as zero. The extractor now asks the same geometry
+  the ingest gates decide, of the frame's own size, and routes a signal that
+  does not fit to the per-signal error stream with its own wire code. A
+  zero-byte frame reports every signal of the message rather than a set of
+  zeroes.
+
+- **A frame is built only at a DLC whose bytes hold every signal it places.**
+  The caller's DLC sizes the frame and the DBC places the bits, and the bit
+  writer is total: a signal reaching past the end had its overhanging bits
+  written nowhere and the frame answered as if it carried them. A build at DLC
+  1 of a message whose first signal is sixteen bits wide returned a one-byte
+  frame carrying half of it, with no error. The builder now names the first
+  signal that does not fit, on the same geometry proposition the DBC ingest
+  gates decide, and the update path holds the frame it is given to the same
+  rule. Two lemmas carry the refusal into the proofs: the check answering
+  "none" is the `AllSignalsFit` the round-trip theorems assume, and a payload
+  the builder answers with was built from signals that all fit, so the
+  hypothesis those theorems carried is now discharged by the call succeeding
+  rather than asked of the caller.
+
+- **The binary frame builder refuses a DLC code past the fifteen the wire has.**
+  The DLC crosses the binary wire as a raw byte and the kernel sizes the frame
+  it builds from it. Three of the four binary entries held it to the codes the
+  wire has; the frame builder took none of them, so a build at DLC 42 answered
+  success and filled 42 bytes of a buffer the caller had sized for eight. The
+  bound the other three share is now one function they all call.
+
+- **The C++ mutation lane measures what it claims to.** Four defects held its
+  surface to a fraction of the library. Mull's junk detector re-parses each
+  translation unit to tell a mutant from junk, and the build recorded no command
+  line, so it re-parsed with no flags, failed at the first project include, and
+  dropped every mutant of most units; the mutation build now records the command
+  line. The two loaders reached the binary through their own suites only, and the
+  static link dropped their objects, so `yaml.cpp` and `excel.cpp` had no mutant
+  though the baseline lists them; the loader suites are folded into the mutation
+  binary as the integration tests were. ccache replayed cached objects, and their
+  stderr, into a mutation build whose plugin and `cpp/mull.yml` it does not hash;
+  the mutation build takes no launcher. And the suites wrote fixtures under fixed
+  names in the system temp directory, so Mull's parallel runs failed each other's
+  file-size-cap cases and counted the failures as kills; every fixture now lives
+  under a per-process directory, and the per-mutant cap is pinned in the config
+  rather than left to Mull's ten-times-the-baseline default, under which the
+  same binary read ten times as many timeouts. With that, the shared then-dispatcher of the
+  loaders is on the surface: it takes a map of the slots the loader read and
+  refuses a slot it reads and was not given, by name, as the Python one does,
+  instead of positional values with a filler no test could observe; `cpp/mull.yml`
+  adds Mull's call mutators, which are the only ones that reach code written as
+  calls, and holds the test sources out, since a mutant in a test measures the
+  harness; the recorded C++ baseline is the measured survivor count of that
+  surface, with any survivor above it failing the lane; and `tools/build_mull.sh` takes libirm at the commit that truncates a
+  replaced call's constant to the call's width, because the scalar-call mutator
+  aborted clang on the first `bool`-returning call it met.
+- **The proof gate waits for a slow module and runs Agda on one capability.** The
+  warm Agda process gave up on a module after 300 seconds without output, described
+  as a hang detector; Agda sends nothing while it checks a module and everything once
+  done, so the cap was a wall-clock bound that the two cold-checked proof modules
+  crossed on a loaded runner, failing sweeps that passed on retry. The cap moves far
+  above any module, a load that hits it reports how long Agda was silent, and Agda
+  runs at `-N1`: its checker is single-threaded, and the parallel-GC threads `-N` adds
+  only cost. The sweep log is uploaded as an artifact, per-module times included.
+- **The bundle validator's Go consumer imports the module the bundle ships.** The
+  consumer fixture named this tree's module path, so validating a published release
+  failed the moment the path moved, as it did when the module took its major version:
+  the v5.0.0 bundle declares the old path and the validator asked `go get` for the
+  new one. The validator now reads the `module` directive from the bundle's own
+  `bindings/go/go.mod`, retargets the fixture's import to it, and refuses a bundle
+  whose installer prints a `go get` for any other module, naming both paths.
+- **A caller-injected Python backend is provably the one re-used after `close()`.**
+  The re-entry test asserted only that re-entry succeeds, which it does either way:
+  a client that wrongly treated an injected backend as its own would drop it on
+  close and build a real `FFIBackend` on the next `__enter__`, silently swapping a
+  test double for the shared library. The test now asserts the injected object is
+  the one initialised again. Found by the mutation lane once its generator was
+  pinned; the Python row is re-measured at 924 mutants with the one documented
+  equivalent surviving.
+- **Two gates stop depending on whatever the machine happens to have.** `cmake-lint`
+  came from a distro package declared nowhere, so the CMake gate exited 127 on the
+  runner while passing locally; it is pinned as `cmakelang` and routed through the
+  venv, like `clang-format`. `cmakelang` and `mutmut` are each pinned to one exact
+  version, because a lint tool's findings and a mutation generator's mutant set are
+  the gate itself: `mutmut` was a range, so a developer could sit on the floor while
+  CI resolved to the newest, two releases in one major enumerate different mutant
+  sets, and the survivor CI reported could not be reproduced locally at all.
+
+- **The Rust binding passes clippy on the toolchain CI installs.** CI tracks the
+  latest stable Rust, and `clippy::chunks_exact_to_as_chunks` is new in 1.98: it
+  fired on four pre-existing sites in the binary response decoder that no local run
+  could see, because the development toolchain was still on 1.97. The four read
+  `as_chunks::<N>().0` now, which is the same traversal with the chunk width in the
+  type, and the local toolchain was moved to stable so the lint is reproducible.
+
+- **The C++ library builds again on the standard library CI pins.** A filter helper
+  written during the review used the `views::filter | std::ranges::to<std::vector>()`
+  pipe, which needs a libstdc++ point release newer than the one ubuntu-24.04 ships,
+  so the whole C++ build failed on the runner while passing locally on a newer one.
+  It copies with `std::ranges::copy_if` now, and the benchmark's two folds use
+  `std::reduce` rather than `std::ranges::fold_left` for the same reason. The pinned
+  standard library is the floor a consumer building the binding is held to, so the
+  code moved rather than the floor.
+
+- **The bill of materials reads every C++ pin again, and names the package rather
+  than the fetch.** The generator derived a version from a release tag shaped
+  `v1.2.3` or a bare `1.2.3`, so the yaml-cpp bump to a tag that repeats the project
+  name (`yaml-cpp-0.9.0`) made the pin unreadable and failed the whole bill. It reads
+  that shape now. The two dependencies pinned on the spreadsheet library's behalf are
+  declared under the content name its helper requires, which carries a `_fetch`
+  suffix; the bill strips it, so they appear as `miniz` and `pugixml` with the purls a
+  consumer would look up. Both shapes have a test that fails without the fix.
+
+- **The benchmark harness no longer measures stale binaries.**
+  `benchmarks/run_all.sh` ran the C++ and Go benchmark binaries if the file merely
+  existed, building only Rust. A Go binary predating the detailed-extraction-reason
+  wire format could not decode extraction responses, so both Signal Extraction
+  lanes failed — and were then silently dropped, leaving 4-lane Go baselines in
+  `benchmarks/results/`. The harness now **builds** the C++, Go and Rust benchmarks
+  itself (incremental; a missing toolchain stays a per-lane skip), captures
+  benchmark stderr instead of discarding it and replays it when a lane fails, and
+  clears the selected mode's results first so a skipped or failed lane contributes
+  nothing rather than its previous run's numbers. CI was never affected — the
+  benchmark workflow always built all four in-job.
+- **A benchmark lane that cannot be measured is now an error, not an omission.**
+  The Go harness dropped an all-failed throughput lane, omitted a failed latency
+  lane, and reported a fabricated `0` for a failed scaling point (which divides
+  through every `relative` in the sweep). Any failed run is now fatal — continuing
+  published a row whose `runs` field overstated the sample it was computed from —
+  and neither Go nor Rust can average an empty sample. Python already aborted on a
+  failed operation; the C++ harness does not check its per-operation results and is
+  tracked separately.
+- **All 12 local baselines re-measured** with freshly built binaries. The previous
+  Go throughput/latency baselines are void rather than outdated: they came from a
+  binary that could not decode the wire it was measuring, so its four surviving
+  lanes are as untrustworthy as its two missing ones.
+- **The benchmark harness refuses a zero or non-numeric count, and a broken build
+  fails the run instead of skipping the lane.** `--frames 0` made every lane publish
+  a schema-conformant all-zero report and exit 0: a fabricated measurement set, the
+  class of defect the harness exists to prevent. Both `--frames` and `--runs` must
+  now be positive integers, checked before the mode check, every preflight and the
+  results clear, so a refused value touches nothing. A lane whose toolchain is on
+  PATH but whose build fails is reported as FAIL and fails the run; only an absent
+  toolchain is still a skip. A lane whose scratch file cannot be created fails
+  without leaving a file behind, the scratch names are ignored by git, and
+  `ALETHEIA_BENCH_RESULTS_DIR` redirects the results directory so the probes can
+  drive the harness without touching the last measurements.
 
 ### Removed
 

@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tools._common import find_executable, run_capture
+from tools._common import RelPath, find_executable, run_capture
 from tools.check_changelog import main, watched_files
 
 if TYPE_CHECKING:
@@ -30,49 +30,49 @@ if TYPE_CHECKING:
 
 # Watched: a representative path per public-API + infra pattern.
 WATCHED_PATHS = [
-    "python/aletheia/client.py",
-    "go/aletheia/client.go",
-    "cpp/include/aletheia/client.hpp",
-    "rust/src/lib.rs",
-    "haskell-shim/ffi-exports.snapshot",
-    "haskell-shim/src/AletheiaFFI.hs",
-    "haskell-shim/aletheia.cabal",
-    "Shakefile.hs",
-    "shake.cabal",
-    "aletheia.agda-lib",
-    "tools/check_changelog.py",
-    "tools/run_ci.py",
-    ".github/workflows/pr-full-ci.yml",
+    RelPath("python/aletheia/client.py"),
+    RelPath("go/aletheia/client.go"),
+    RelPath("cpp/include/aletheia/client.hpp"),
+    RelPath("rust/src/lib.rs"),
+    RelPath("haskell-shim/ffi-exports.snapshot"),
+    RelPath("haskell-shim/src/AletheiaFFI.hs"),
+    RelPath("haskell-shim/aletheia.cabal"),
+    RelPath("Shakefile.hs"),
+    RelPath("shake.cabal"),
+    RelPath("aletheia.agda-lib"),
+    RelPath("tools/check_changelog.py"),
+    RelPath("tools/run_ci.py"),
+    RelPath(".github/workflows/pr-full-ci.yml"),
 ]
 
 # Excluded: never requires a CHANGELOG entry.  Includes the discriminators that
 # tell intent from implementation — a ``.md`` under a watched dir, Agda ``src/``
 # (covered transitively via the bindings), and the separate ``go/excel`` module.
 EXCLUDED_PATHS = [
-    "docs/development/BUILDING.md",
-    "README.md",
-    "CHANGELOG.md",
-    "tools/agda-iwyu-reader/README.md",
-    "haskell-shim/NOTES.md",
-    "python/tests/test_x.py",
-    "go/aletheia/client_test.go",
-    "cpp/tests/foo.cpp",
-    "rust/tests/dbc_model.rs",
-    "haskell-shim/test/ConstructorTest.hs",
-    "tools/agda-iwyu-reader/test/manifest.tsv",
-    "src/Aletheia/Main.agda",
-    "go/excel/loader.go",
+    RelPath("docs/development/BUILDING.md"),
+    RelPath("README.md"),
+    RelPath("CHANGELOG.md"),
+    RelPath("tools/agda-iwyu-reader/README.md"),
+    RelPath("haskell-shim/NOTES.md"),
+    RelPath("python/tests/test_x.py"),
+    RelPath("go/aletheia/client_test.go"),
+    RelPath("cpp/tests/foo.cpp"),
+    RelPath("rust/tests/dbc_model.rs"),
+    RelPath("haskell-shim/test/ConstructorTest.hs"),
+    RelPath("tools/agda-iwyu-reader/test/manifest.tsv"),
+    RelPath("src/Aletheia/Main.agda"),
+    RelPath("go/excel/loader.go"),
 ]
 
 
 @pytest.mark.parametrize("path", WATCHED_PATHS)
-def test_watched_path_requires_changelog(path: str) -> None:
+def test_watched_path_requires_changelog(path: RelPath) -> None:
     """Each watched path is reported as requiring a CHANGELOG entry."""
     assert watched_files([path]) == [path]
 
 
 @pytest.mark.parametrize("path", EXCLUDED_PATHS)
-def test_excluded_path_is_ignored(path: str) -> None:
+def test_excluded_path_is_ignored(path: RelPath) -> None:
     """Each excluded path is never reported, even under a watched directory."""
     assert watched_files([path]) == []
 
@@ -166,4 +166,56 @@ def test_e2e_doc_only_change_passes(
     (repo / "docs").mkdir()
     (repo / "docs" / "GUIDE.md").write_text("hello\n", encoding="utf-8")
     _commit(repo, "doc only")
+    assert _run_gate(repo, monkeypatch) == 0
+
+
+def test_e2e_a_repeated_category_header_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Two ``### Changed`` under Unreleased fail, whatever the diff holds."""
+    repo = _make_repo(tmp_path)
+    _git(repo, "checkout", "-b", "feature")
+    (repo / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- one\n\n### Fixed\n\n- two\n\n"
+        + "### Changed\n\n- three\n\n## [1.0.0]\n\n### Changed\n\n- released\n",
+        encoding="utf-8",
+    )
+    _commit(repo, "split the header")
+    assert _run_gate(repo, monkeypatch) == 1
+    assert "### Changed" in capsys.readouterr().err
+
+
+def test_e2e_a_header_outside_the_categories_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A ``### Improved`` under Unreleased is refused and named."""
+    repo = _make_repo(tmp_path)
+    _git(repo, "checkout", "-b", "feature")
+    (repo / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## [Unreleased]\n\n### Improved\n\n- one\n\n"
+        + "## [1.0.0]\n\n### Changed\n\n- x\n",
+        encoding="utf-8",
+    )
+    _commit(repo, "a header of its own")
+    assert _run_gate(repo, monkeypatch) == 1
+    assert "### Improved" in capsys.readouterr().err
+
+
+def test_e2e_one_header_per_category_passes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A header repeated only in a released section is not the Unreleased one."""
+    repo = _make_repo(tmp_path)
+    _git(repo, "checkout", "-b", "feature")
+    (repo / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- one\n\n### Fixed\n\n- two\n\n"
+        + "## [1.0.0]\n\n### Changed\n\n- released\n",
+        encoding="utf-8",
+    )
+    _commit(repo, "one header each")
     assert _run_gate(repo, monkeypatch) == 0
