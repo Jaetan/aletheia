@@ -430,11 +430,37 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
         return MutationReport("cpp", "mull", 0, 0, "", error=str(exc))
     if stage is CppStage.MERGE:
         return _merge_cpp_legs(artifact_dir)
+    # A leg reports under its own binding whatever becomes of it, so a leg that
+    # never reached its sweep says which leg it was.
+    binding = "cpp" if stage is None else leg_binding(stage)
     checked = _check_cpp_tools()
     if isinstance(checked, str):
-        return MutationReport("cpp", "mull", 0, 0, "", error=checked)
-    cmake, mull_runner = checked
+        return MutationReport(binding, "mull", 0, 0, "", error=checked)
+    raw, swept = _sweep_trees(checked, artifact_dir, stage)
+    if isinstance(swept, str):
+        return MutationReport(binding, "mull", 0, 0, raw, error=swept)
 
+    if stage is not None:
+        # One leg: its result is the tree's own census, judged by nobody until
+        # the merge reads every tree.
+        total, survived = elements_counts(swept[0])
+        raw += f"=== {stage.value} leg ===\nkilled {total - survived}, survived {survived}"
+        raw += f" of {total}\n"
+        (artifact_dir / "cpp.raw.txt").write_text(raw)
+        return MutationReport(binding, "mull", total - survived, survived, raw)
+    return _finish_cpp(artifact_dir, raw, swept)
+
+
+def _sweep_trees(
+    cpp_tools: tuple[str, str], artifact_dir: Path, stage: CppStage | None
+) -> tuple[str, list[Mapping[str, object]] | str]:
+    """Sweep the trees the stage selects, returning the log and the reports or the reason.
+
+    The whole lane sweeps every tree of ``CPP_LANES``; a leg sweeps the one
+    its stage names.  The log is written out after each tree, so a run its
+    clock kills leaves what it reached.
+    """
+    cmake, mull_runner = cpp_tools
     cpp_root = REPO_ROOT / "cpp"
     raw = ""
     reports: list[Mapping[str, object]] = []
@@ -447,18 +473,9 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
         raw += lane_raw
         (artifact_dir / "cpp.raw.txt").write_text(raw)
         if isinstance(outcome, str):
-            return MutationReport("cpp", "mull", 0, 0, raw, error=outcome)
+            return raw, outcome
         reports.append(outcome)
-
-    if stage is not None:
-        # One leg: its result is the tree's own census, judged by nobody until
-        # the merge reads every tree.
-        total, survived = elements_counts(reports[0])
-        raw += f"=== {stage.value} leg ===\nkilled {total - survived}, survived {survived}"
-        raw += f" of {total}\n"
-        (artifact_dir / "cpp.raw.txt").write_text(raw)
-        return MutationReport(leg_binding(stage), "mull", total - survived, survived, raw)
-    return _finish_cpp(artifact_dir, raw, reports)
+    return raw, reports
 
 
 def _merge_cpp_legs(artifact_dir: Path) -> MutationReport:
@@ -501,15 +518,15 @@ class LegReports(NamedTuple):
 
 def _copy_leg_reports(legs_dir: Path, artifact_dir: Path, sanitizer: str) -> LegReports | str:
     """Copy one tree's three reports beside the merge, or say which is not there once."""
+    lane = lane_name(sanitizer)
     log = ""
     for suffix in CPP_LANE_REPORT_SUFFIXES:
         name = _lane_report_name(sanitizer) + suffix
         found = sorted(legs_dir.rglob(name))
         if len(found) != 1:
-            lane = lane_name(sanitizer)
             return f"the {lane} leg: {len(found)} copies of {name} under {legs_dir}, wanted one"
         _ = shutil.copyfile(found[0], artifact_dir / name)
-        log += f"{lane_name(sanitizer)} leg: {found[0]}\n"
+        log += f"{lane} leg: {found[0]}\n"
     report_path = artifact_dir / (_lane_report_name(sanitizer) + ".json")
     elements = cast("Mapping[str, object]", json.loads(report_path.read_text(encoding="utf-8")))
     return LegReports(log, elements)

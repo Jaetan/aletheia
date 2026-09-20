@@ -195,7 +195,7 @@ go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
 which mutmut gremlins mull-runner-23  # mutmut is in python/.venv/bin/
 ```
 
-Each tool's absence is detected by `tools/mutation_run.py` and surfaces
+Each tool's absence is detected by the mutation runner and surfaces
 as a precise error in the per-binding JSON report; the orchestrator marks
 the lane as failed but doesn't crash, so a partial install (e.g.
 mutmut+gremlins without Mull) still gets you 2 of 3 binding reports.

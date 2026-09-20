@@ -150,6 +150,19 @@ def test_a_leg_that_did_not_build_is_an_error() -> None:
     assert mutation_run.drift_for(report, {})["status"] == "error"
 
 
+def test_a_leg_that_never_swept_reports_under_its_own_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A leg missing its tools fails under ``cpp-<leg>``, so the report says which leg."""
+    _fake_sweeps(monkeypatch, [])
+    monkeypatch.setattr(mutation_cpp, "_check_cpp_tools", lambda: "mull-runner-23 not in PATH")
+    _stage(monkeypatch, CppStage.LEAK.value)
+    report = run_cpp(tmp_path)
+    assert report.binding == leg_binding(CppStage.LEAK)
+    assert report.error == "mull-runner-23 not in PATH"
+    assert mutation_run.drift_for(report, {})["status"] == "error"
+
+
 def test_a_stage_that_is_no_stage_is_an_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

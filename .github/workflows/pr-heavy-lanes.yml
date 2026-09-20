@@ -381,10 +381,11 @@ jobs:
           # are run 35486430315's (push:main, 1037 C++ mutants): python 8m20s,
           # go 18m48s; a C++ leg is that job's warm setup, 3m41s, plus its own
           # tree's build and sweep, leak 7m48s + 33m14s = 44m43s and plain
-          # 8m09s + 45m41s = 57m31s (the builds of that run compiled one unit
-          # at a time; the runner now builds four at once, and the first run
-          # of that re-takes the figure).  So python 36m02s, go 46m30s, leak
-          # 78m00s, plain 90m48s, each rounded up.  A budget is a measurement of the
+          # 8m09s + 45m41s = 57m31s, the builds of that run compiling one unit
+          # at a time where the runner now builds four at once.  So python
+          # 36m02s, go 46m30s, leak 78m00s, plain 90m48s, each rounded up.
+          # Each budget is the slowest run recorded, so a faster one leaves it
+          # where it is.  A budget is a measurement of the
           # surface it was read from: it is re-taken when the mutation surface
           # changes or a run exceeds it, from `elapsed_s` in the lane's
           # summary.json (a leg's, and `cpp-legs.json` beside the merge's).
@@ -635,6 +636,9 @@ jobs:
       # Every lane's reports leave the runner whatever ended the lane: a C++
       # leg's reports are what the `mutation cpp` job merges, and a lane its
       # clock killed leaves the partial directory that says how far it got.
+      # `overwrite`, because that killed lane is the one a reader re-runs, its
+      # first attempt uploaded under this name, and a second upload of a name
+      # fails the step rather than the sweep, hiding the result behind it.
       - name: Upload the lane's reports
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
@@ -642,6 +646,7 @@ jobs:
           name: mutation-${{ matrix.lane }}
           path: benchmarks/mutation/
           if-no-files-found: warn
+          overwrite: true
           retention-days: 30
 
       # Seed the build tree so push:main writes it under the default branch for
@@ -725,6 +730,7 @@ jobs:
           name: mutation-cpp
           path: benchmarks/mutation/
           if-no-files-found: warn
+          overwrite: true
           retention-days: 30
 
   # ── The required check ─────────────────────────────────────────────────────

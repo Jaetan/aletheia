@@ -20,6 +20,9 @@ mutation lane is a per-PR signal, not per-commit (cost is high — 30 min to
 docs/MUTATION_BENCH.yaml           SSOT — per-binding tool, hot-path module list, baseline
 tools/check_mutation_setup.py      Static gate (offline, ~1 sec)
 tools/mutation_run.py              Dynamic runner (opt-in, ~30 min - 2 hours)
+tools/mutation_cpp.py              The C++ lane: Mull over the two trees, in stages
+tools/mutation_report.py           The report and baseline shapes the lanes share
+tools/mutation_routes.py           The C++ kill-route census
 benchmarks/mutation/<short-sha>/   Per-commit JSON + raw tool logs (gitignored)
 ```
 
@@ -400,5 +403,7 @@ needed.
 - `docs/MUTATION_BENCH.yaml` — actual on-disk paths, baseline numbers
 - `tools/check_mutation_setup.py` — static gate (always-on)
 - `tools/mutation_run.py` — dynamic runner (opt-in)
+- `tools/mutation_cpp.py`, `tools/mutation_report.py`, `tools/mutation_routes.py`:
+  the C++ lane, the shapes the lanes share, the kill-route census
 - `docs/operations/STABILITY.md` — sibling opt-in lane
 - `docs/development/CI_LOCAL.md` — three-layer CI architecture

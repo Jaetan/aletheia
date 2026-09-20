@@ -101,7 +101,7 @@ class MutationReport:
         return 100.0 * self.killed / total if total > 0 else 0.0
 
     def to_dict(self) -> dict[str, object]:
-        """Materialize for JSON archival; truncates raw_log to last 2000 chars."""
+        """Materialize for JSON archival; keeps the last ``RAW_LOG_TAIL_CHARS`` of the log."""
         return {
             "binding": self.binding,
             "tool": self.tool,
