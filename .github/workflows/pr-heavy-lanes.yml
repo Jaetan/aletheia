@@ -1,28 +1,25 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Phase 2 of the skipped-gate cleanup (Phase 1 = actionlint in pr-full-ci.yml).
-# The three heavy opt-in lanes that `tools/run_ci.py` skips by default —
-# reproducible-build, stability bench, mutation testing — run here as separate
-# PARALLEL jobs, OFF the required sweep's critical path (ready-time = max, not
-# sum).  Each invokes the lane TOOL directly (not `run_ci --<lane>`, which would
-# redundantly re-run the whole ~36-min base sweep already covered by
-# pr-full-ci.yml).
+# The mutation lanes: the heavy opt-in lane `tools/run_ci.py` skips by default,
+# run here as PARALLEL jobs, OFF the required sweep's critical path (ready-time
+# = max, not sum).  Each invokes the lane TOOL directly (not `run_ci
+# --mutation`, which would redundantly re-run the whole ~36-min base sweep
+# already covered by pr-full-ci.yml).
 #
-# Enforcement split (see BRANCH_PR_HYGIENE):
-#   * reproducible-build — DETERMINISTIC (two clean builds, sha256 compare);
-#     intended to become a REQUIRED check.  Runs on every PR event so the
-#     required status always reflects the latest commit.
+# The two lanes no required check reports, reproducible-build and the stability
+# bench, are in pr-build-lanes.yml, where a documentation path filter skips
+# them.  This file cannot carry that filter: it applies to a whole workflow,
+# and `mutation testing` below is the context the main branch ruleset requires,
+# which must report on every pull request.
+#
+# Enforcement (see BRANCH_PR_HYGIENE):
 #   * mutation testing — REQUIRED (2026-06-20).  The drift gate is baseline-
 #     relative (fails only on a collection crash OR observed survivors > the
 #     recorded baseline), and this project's suite is deterministic (no physical
 #     time in tests), so it is a stable merge-blocking signal — not "score-
-#     squishy".  The lane already ran on every PR; advisory merely discarded a
-#     signal we already paid to compute.  Add `mutation testing` to the `main`
-#     branch ruleset's required checks to activate it (do so only after a
-#     fresh-branch run confirms the seeded caches hit — see below).
-#   * stability bench — ADVISORY (genuinely timing-flaky).  NOT required.
-#   Each runs on EVERY PR commit-state (incl. synchronize) so the result
+#     squishy".
+#   The lanes run on EVERY PR commit-state (incl. synchronize) so the result
 #   reflects the latest commit — a `synchronize`-skip froze them at the PR's
 #   first (often broken) commit.  Per-job `cancel-in-progress` collapses rapid
 #   PR iteration to ~one run on the settled state (AGENTS.md cat 14g's "once per
@@ -30,8 +27,16 @@
 #   from cancellation so a rapid second merge cannot kill a cache-seeding run
 #   before it saves.  `workflow_dispatch` remains for manual re-runs.
 #
-# Toolchain steps are copied verbatim from pr-full-ci.yml (same cache keys, so
-# these jobs hit the Agda store that workflow already populated).  The workflow
+# A lane installs what its own sweep needs and nothing else: tools/mutation_run.py
+# scopes a pull request to the bindings its diff vs `main` could move, and
+# tools/mutation_scope.py asks that same function which side of the decision this
+# lane is on, ahead of the toolchain steps rather than after them.  A lane out of
+# scope still runs the runner, still reports and still uploads, so no required
+# context is ever reported by a job that did not run.
+#
+# Toolchain steps follow pr-full-ci.yml's and keep its cache keys, so these jobs
+# hit the Agda store that workflow already populated; each one additionally
+# carries this lane's scope condition, which that workflow's do not.  The workflow
 # ALSO runs on push:main: the heavy caches (Mull-from-source, the build tree)
 # are otherwise only written on feature branches, which do NOT cross-pollinate,
 # so a fresh PR branch would miss them, and the mutation lanes pay for the .so
@@ -58,293 +63,7 @@ env:
   STDLIB_VERSION: 'v2.4'
 
 jobs:
-  # ── Lane 1: reproducible-build (REQUIRED-intended; deterministic) ──────────
-  # Self-building: tools.check_reproducible_build runs `cabal run shake -- build`
-  # twice and compares sha256(build/libaletheia-ffi.so).  Needs only the Agda
-  # toolchain + a 3.14 python to invoke the tool (no venv extras, no C++/Go).
-  reproducible-build:
-    name: reproducible-build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    # Runs on every PR commit-state AND on push:main (to seed the build caches —
-    # see the header).  Push-iteration hygiene: a new PR commit cancels the stale
-    # repro run (push:main is exempt, below).  Its OWN group, so it never cancels
-    # the stability / mutation lanes below.
-    concurrency:
-      group: heavy-repro-${{ github.event.pull_request.number || github.ref }}
-      # push:main is exempt — a seeding run must not be cancelled before it saves.
-      cancel-in-progress: ${{ github.event_name != 'push' }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up GHC + cabal
-        run: |
-          set -euo pipefail
-          echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
-          export CABAL_DIR="${HOME}/.cabal"
-          sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
-          ghcup install ghc "${GHC_VERSION}" --set
-          ghcup install cabal 3.16.1.0 --set
-          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
-          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
-
-      - name: Restore cabal store (Agda library + executable + deps)
-        id: cabal-cache
-        uses: actions/cache/restore@v6
-        with:
-          path: |
-            ~/.cabal/store
-            ~/.cabal/packages
-            ~/.cabal/bin
-          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
-
-      # cabal's package index lives in the restored ~/.cabal/packages, so a fresh
-      # `cabal update` is redundant on a cache hit — and running it unconditionally
-      # before the restore made this lane hostage to the hackage-security bootstrap
-      # (the fresh TUF root.json fetch), which fails during a Hackage root-metadata
-      # outage even though the primary is up. Run it only on a miss (mirrors
-      # pr-full-ci.yml), where `cabal install Agda` below needs a current index.
-      - name: Update cabal package index (only on a cabal-store cache miss)
-        if: steps.cabal-cache.outputs.cache-hit != 'true'
-        run: cabal update
-
-      - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
-        run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
-
-      - name: Save cabal store (only on a cache miss)
-        if: steps.cabal-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: |
-            ~/.cabal/store
-            ~/.cabal/packages
-            ~/.cabal/bin
-          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
-
-      - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
-        uses: actions/cache@v6
-        with:
-          path: ~/.agda/agda-stdlib
-          key: agda-stdlib-${{ env.STDLIB_VERSION }}
-
-      - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.agda
-          if [ ! -d ~/.agda/agda-stdlib/.git ]; then
-            git clone --depth 1 --branch "${STDLIB_VERSION}" \
-              https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib
-          fi
-          echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
-          echo "standard-library" > ~/.agda/defaults
-
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-
-      - name: Reproducible-build hash gate (two clean builds, sha256 compare)
-        run: python3 -m tools.check_reproducible_build
-
-  # ── Lane 2: stability bench (ADVISORY; once per PR) ────────────────────────
-  stability:
-    name: stability bench (advisory)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    # Runs on every PR commit-state (so the advisory result reflects the latest
-    # commit) AND on push:main (to seed the build caches — see the header).
-    # cancel-in-progress collapses rapid PR iteration to ~one run on the settled
-    # state; push:main is exempt (below).  Own group so it never cancels the
-    # repro / mutation lanes.
-    concurrency:
-      group: heavy-stability-${{ github.event.pull_request.number || github.ref }}
-      # push:main is exempt — a seeding run must not be cancelled before it saves.
-      cancel-in-progress: ${{ github.event_name != 'push' }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up GHC + cabal
-        run: |
-          set -euo pipefail
-          echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
-          export CABAL_DIR="${HOME}/.cabal"
-          sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
-          ghcup install ghc "${GHC_VERSION}" --set
-          ghcup install cabal 3.16.1.0 --set
-          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
-          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
-
-      - name: Restore cabal store (Agda library + executable + deps)
-        id: cabal-cache
-        uses: actions/cache/restore@v6
-        with:
-          path: |
-            ~/.cabal/store
-            ~/.cabal/packages
-            ~/.cabal/bin
-          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
-
-      # cabal's package index lives in the restored ~/.cabal/packages, so a fresh
-      # `cabal update` is redundant on a cache hit — and running it unconditionally
-      # before the restore made this lane hostage to the hackage-security bootstrap
-      # (the fresh TUF root.json fetch), which fails during a Hackage root-metadata
-      # outage even though the primary is up. Run it only on a miss (mirrors
-      # pr-full-ci.yml), where `cabal install Agda` below needs a current index.
-      - name: Update cabal package index (only on a cabal-store cache miss)
-        if: steps.cabal-cache.outputs.cache-hit != 'true'
-        run: cabal update
-
-      - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
-        run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
-
-      - name: Save cabal store (only on a cache miss)
-        if: steps.cabal-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: |
-            ~/.cabal/store
-            ~/.cabal/packages
-            ~/.cabal/bin
-          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
-
-      - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
-        uses: actions/cache@v6
-        with:
-          path: ~/.agda/agda-stdlib
-          key: agda-stdlib-${{ env.STDLIB_VERSION }}
-
-      - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.agda
-          if [ ! -d ~/.agda/agda-stdlib/.git ]; then
-            git clone --depth 1 --branch "${STDLIB_VERSION}" \
-              https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib
-          fi
-          echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
-          echo "standard-library" > ~/.agda/defaults
-
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-
-      - name: Create the dev venv (python/.venv)
-        run: |
-          set -euo pipefail
-          python3.14 -m venv python/.venv
-          python/.venv/bin/pip install --upgrade pip
-          python/.venv/bin/pip install -e 'python/.[dev]'
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: 'stable'
-          cache-dependency-path: |
-            go/go.sum
-            go/excel/go.sum
-
-      - name: Cache clang-23 .debs (Clang is a large download)
-        uses: actions/cache@v6
-        with:
-          path: ~/llvm-cache
-          key: clang23-libstdcxx15-noble-v1
-      # ubuntu-24.04 pre-installs only clang ≤19; install clang-23 (the supported
-      # toolchain) from apt.llvm.org.  The cmake step below invokes clang-23
-      # explicitly, so no update-alternatives is needed.
-      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
-        run: |
-          set -euo pipefail
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
-            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
-          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
-            | sudo tee /etc/apt/sources.list.d/llvm23.list >/dev/null
-          # ubuntu-24.04 ships libstdc++ 14, whose std::ranges::to has no pipe
-          # form; the toolchain policy tracks the latest stable release rather
-          # than a floor, so take 15 from the toolchain PPA the same way clang
-          # comes from apt.llvm.org.  add-apt-repository is used here, rather
-          # than the hand-written deb line the runtime image needs, only
-          # because the runners already carry it and it fetches the key.
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          mkdir -p ~/llvm-cache
-          if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
-            sudo apt-get install -y --download-only \
-              -o Dir::Cache::archives="${HOME}/llvm-cache" \
-              clang-23 clang-tidy-23 libstdc++-15-dev
-            sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
-          fi
-          sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
-
-      # stability_run errors if these are absent (build/libaletheia-ffi.so and
-      # cpp/build/stability_bench).  Build them up front; the Go harness is
-      # built/run by the runner itself.
-      - name: Build the FFI library + C++ stability harness
-        run: |
-          set -euo pipefail
-          cabal run shake -- build
-          # -S cpp: the CMakeLists.txt lives in cpp/, not the repo root (the
-          # default source dir when only -B is given).  The first run failed
-          # with "source directory does not contain CMakeLists.txt".
-          cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null
-          cmake --build cpp/build --target stability_bench
-
-      # Retry-once-on-failure (jitter watch, 2026-07-02): the drift gate flaked
-      # on runtime-neutral PRs (#118 doc-only, #125 C++-only — provably runner
-      # jitter, not regressions).  A failed first attempt re-runs ONCE; the
-      # first attempt's per-binding variance JSONs are preserved and uploaded
-      # as the `stability-variance-attempt1` artifact.  TALLY: each retry emits
-      # a `FLAKE-RETRY` warning annotation + step-summary line, and leaves the
-      # attempt1 artifact — count retries across runs with:
-      #   gh api /repos/OWNER/REPO/actions/artifacts --paginate \
-      #     --jq '[.artifacts[] | select(.name | test("attempt1"))] | length'
-      # CI-only behavior: local runs keep the manual-rerun discipline.
-      - name: Stability bench (advisory; retry-once on failure)
-        env:
-          ALETHEIA_STABILITY_CHECK: '1'
-        run: |
-          set -euo pipefail
-          if python/.venv/bin/python3 -m tools.stability_run; then
-            exit 0
-          fi
-          echo "::warning title=FLAKE-RETRY::stability bench failed on attempt 1 — retrying once (runner jitter suspected; see the jitter watch)"
-          {
-            echo "## ⚠ FLAKE-RETRY: stability bench"
-            echo ""
-            echo "Attempt 1 failed the variance drift gate; the harness re-ran once."
-            echo "If attempt 2 passes, attempt 1 was runner jitter. First-attempt"
-            echo "per-binding JSONs are in the stability-variance-attempt1 artifact."
-          } >> "${GITHUB_STEP_SUMMARY}"
-          mkdir -p stability-attempt1
-          # Non-fatal (a failure before any JSON was written has nothing to
-          # copy, and the retry must still run) but VOCAL — a real copy failure
-          # must not silently lose the attempt-1 evidence.
-          cp -r benchmarks/stability/. stability-attempt1/ \
-            || echo "::warning title=FLAKE-RETRY::could not preserve attempt-1 stability JSONs (none written before the failure?)"
-          python/.venv/bin/python3 -m tools.stability_run
-
-      # Always upload the per-binding variance JSONs — before this step the
-      # exact CV that breached a failing run was unrecoverable (the jitter
-      # watch's diagnosis gap).
-      - name: Upload stability variance JSONs
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: stability-variance
-          path: benchmarks/stability/
-          if-no-files-found: warn
-
-      - name: Upload first-attempt variance JSONs (only exists on a retry)
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: stability-variance-attempt1
-          path: stability-attempt1/
-          if-no-files-found: ignore
-
-  # ── Lane 3: mutation testing (REQUIRED; once per PR) ───────────────────────
+  # ── mutation testing (REQUIRED; once per PR) ───────────────────────────────
   # The drift gate (tools/mutation_run.py) fails on a collection crash OR
   # observed survivors > the docs/MUTATION_BENCH.yaml baseline.  It runs once
   # per binding, in parallel: the three tools cost wildly different amounts and
@@ -479,7 +198,35 @@ jobs:
       - name: Ensure a local `main` ref for `git diff main...HEAD`
         run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
 
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Create the dev venv with the [mutation] extra (mutmut)
+        run: |
+          set -euo pipefail
+          python3.14 -m venv python/.venv
+          python/.venv/bin/pip install --upgrade pip
+          python/.venv/bin/pip install -e 'python/.[dev,mutation]'
+
+      # The runner scopes a pull request to the bindings whose mutation result
+      # its diff vs `main` could move, and skips the rest without sweeping.
+      # Reached after the installs, that decision costs a lane its whole
+      # toolchain to learn it has nothing to do, so it is asked here instead,
+      # of the same
+      # function the sweep below calls: two readings of one diff are two
+      # decisions, and the one that disagrees holds back an install the sweep
+      # then needs.  The steps that install a toolchain, restore a cache or
+      # save one read LANE_SWEEPS, and they read it as `!= '0'`, so an answer
+      # that did not arrive installs.  The sweep step itself is never gated:
+      # the lane runs the runner, reports and uploads whatever the scope, which
+      # is what keeps the required context reported by a job that ran.
+      - name: Does this lane's binding sweep on this diff?
+        run: python/.venv/bin/python3 -m tools.mutation_scope --binding "${{ matrix.binding }}"
+
       - name: Set up GHC + cabal
+        if: env.LANE_SWEEPS != '0'
         run: |
           set -euo pipefail
           echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
@@ -491,6 +238,7 @@ jobs:
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
 
       - name: Restore cabal store (Agda library + executable + deps)
+        if: env.LANE_SWEEPS != '0'
         id: cabal-cache
         uses: actions/cache/restore@v6
         with:
@@ -507,14 +255,15 @@ jobs:
       # outage even though the primary is up. Run it only on a miss (mirrors
       # pr-full-ci.yml), where `cabal install Agda` below needs a current index.
       - name: Update cabal package index (only on a cabal-store cache miss)
-        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        if: env.LANE_SWEEPS != '0' && steps.cabal-cache.outputs.cache-hit != 'true'
         run: cabal update
 
       - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
+        if: env.LANE_SWEEPS != '0'
         run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
 
       - name: Save cabal store (only on a cache miss)
-        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        if: env.LANE_SWEEPS != '0' && steps.cabal-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: |
@@ -524,12 +273,14 @@ jobs:
           key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
 
       - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
+        if: env.LANE_SWEEPS != '0'
         uses: actions/cache@v6
         with:
           path: ~/.agda/agda-stdlib
           key: agda-stdlib-${{ env.STDLIB_VERSION }}
 
       - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
+        if: env.LANE_SWEEPS != '0'
         run: |
           set -euo pipefail
           mkdir -p ~/.agda
@@ -540,19 +291,8 @@ jobs:
           echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
           echo "standard-library" > ~/.agda/defaults
 
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-
-      - name: Create the dev venv with the [mutation] extra (mutmut)
-        run: |
-          set -euo pipefail
-          python3.14 -m venv python/.venv
-          python/.venv/bin/pip install --upgrade pip
-          python/.venv/bin/pip install -e 'python/.[dev,mutation]'
-
       - name: Set up Go + gremlins
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'go'
         uses: actions/setup-go@v7
         with:
           go-version: 'stable'
@@ -561,14 +301,14 @@ jobs:
             go/excel/go.sum
 
       - name: Install gremlins (Go mutation tool)
-        if: matrix.binding == 'go'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'go'
         run: |
           set -euo pipefail
           go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
           echo "${HOME}/go/bin" >> "${GITHUB_PATH}"
 
       - name: Cache clang-23 + LLVM-23-dev .debs (large download)
-        if: matrix.binding == 'cpp'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
@@ -577,7 +317,7 @@ jobs:
       # toolchain) + the LLVM-23 dev libraries (needed to build Mull from source)
       # from apt.llvm.org.  mutation_cpp.py invokes clang-23 explicitly.
       - name: Install C++ toolchain + LLVM-23 dev (apt.llvm.org)
-        if: matrix.binding == 'cpp'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         run: |
           set -euo pipefail
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
@@ -613,17 +353,17 @@ jobs:
       # one; on a miss each builds Mull and each tries to save, and the second
       # save of a key is logged as a warning by the action, not a failure.
       - name: Cache Mull-23 (built from source vs LLVM-23)
-        if: matrix.binding == 'cpp'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         id: mull23
         uses: actions/cache@v6
         with:
           path: ~/mull-bin
           key: mull23-noble-${{ hashFiles('tools/build_mull.sh', 'tools/mull/*.patch') }}
       - name: Build Mull-23 from source (cache miss)
-        if: matrix.binding == 'cpp' && steps.mull23.outputs.cache-hit != 'true'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' && steps.mull23.outputs.cache-hit != 'true'
         run: tools/build_mull.sh "${HOME}/mull-bin"
       - name: Install Mull-23 to PATH
-        if: matrix.binding == 'cpp'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         run: |
           set -euo pipefail
           mkdir -p "${HOME}/.local/bin"
@@ -652,7 +392,7 @@ jobs:
       # it.  Split restore/save like the build tree, so a lane that built its
       # tree and then failed still seeds the next run.
       - name: Set up ccache (C++ mutation trees)
-        if: matrix.binding == 'cpp'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         run: |
           set -euo pipefail
           command -v ccache >/dev/null || sudo apt-get install -y ccache
@@ -675,7 +415,7 @@ jobs:
             echo "CCACHE_MAXSIZE=400M"
           } >> "${GITHUB_ENV}"
       - name: Restore ccache (C++ mutation trees)
-        if: matrix.binding == 'cpp'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         id: ccache-cache
         uses: actions/cache/restore@v6
         with:
@@ -703,6 +443,7 @@ jobs:
       # below with the toolchain rather than here: its objects depend on the
       # plugin and the Mull configuration, which this key does not carry.
       - name: Restore incremental build tree (build/ + dist-newstyle/)
+        if: env.LANE_SWEEPS != '0'
         id: build-tree-cache
         uses: actions/cache/restore@v6
         with:
@@ -715,6 +456,7 @@ jobs:
             build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
 
       - name: Build the FFI library (needed by mutmut / Mull / gremlins lanes)
+        if: env.LANE_SWEEPS != '0'
         run: cabal run shake -- build
 
       - name: Mutation testing (${{ matrix.lane }})
@@ -760,14 +502,14 @@ jobs:
       # saves what it compiled; skipped on an exact-key hit, the key being
       # immutable, which makes a second write of one a logged failure.
       - name: Save ccache (C++ mutation trees)
-        if: ${{ !cancelled() && matrix.binding == 'cpp' && steps.ccache-cache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' && steps.ccache-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6
         with:
           path: ~/.ccache
           key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-${{ github.sha }}
 
       - name: Save incremental build tree
-        if: ${{ !cancelled() && matrix.binding == 'python' && steps.build-tree-cache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'python' && steps.build-tree-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6
         with:
           path: |

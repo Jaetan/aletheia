@@ -382,6 +382,7 @@ _GLOBAL_MUTATION_PATHS: tuple[str, ...] = (
     "shake.cabal",
     "aletheia.agda-lib",
     "tools/mutation_run.py",  # this harness
+    "tools/mutation_scope.py",  # what a CI lane asks before installing a toolchain
     "tools/_common.py",  # the harness's shared helpers
     "docs/MUTATION_BENCH.yaml",  # the per-binding baselines the drift gate reads
     ".github/workflows/pr-heavy-lanes.yml",  # the lane definition

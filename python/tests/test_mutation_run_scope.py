@@ -87,6 +87,7 @@ def test_scope_matches_changed_bindings(
         ["aletheia.agda-lib"],  # build graph → .so
         ["docs/MUTATION_BENCH.yaml"],  # the baselines the drift gate reads
         ["tools/mutation_run.py"],  # this harness
+        ["tools/mutation_scope.py"],  # what a CI lane asks before installing a toolchain
         ["tools/_common.py"],  # the harness's shared helpers
         [".github/workflows/pr-heavy-lanes.yml"],  # the lane definition
         ["go/aletheia/check.go", "src/X.agda"],  # a global path wins over a binding

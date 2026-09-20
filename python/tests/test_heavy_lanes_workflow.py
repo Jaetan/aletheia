@@ -120,7 +120,9 @@ def test_the_cpp_legs_keep_a_compiler_cache_of_their_own() -> None:
     steps = _steps(_LANE_JOB)
     setup = [step for step in steps if "CCACHE_MAXSIZE" in str(step.get("run", ""))]
     assert len(setup) == 1
-    assert setup[0]["if"] == "matrix.binding == 'cpp'"
+    # Containment, not equality: the step reads the lane's diff scope as well,
+    # since a lane that sweeps nothing installs nothing (tools/mutation_scope.py).
+    assert "matrix.binding == 'cpp'" in str(setup[0]["if"])
     caches = [
         step
         for step in steps

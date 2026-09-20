@@ -21,7 +21,10 @@ on:
     # ruleset requires only run_ci + mutation), so a path-skipped run never
     # leaves a required check pending.  No paired `paths:` allowlist — adding
     # one would flip the default to "deny unless matched".  workflow_dispatch
-    # ignores path filters, so manual exploratory runs are unaffected.
+    # ignores path filters, so manual exploratory runs are unaffected.  The list
+    # is shared with pr-build-lanes.yml, the other lanes no required check
+    # reports; python/tests/test_doc_only_path_exemption.py holds the two equal,
+    # GitHub having no way to write the set once.
     paths-ignore:
       - '**/*.md'
       - 'docs/**'

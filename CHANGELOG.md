@@ -27,6 +27,44 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **A test the mutated tree cannot satisfy fails the Python mutation lane, and
+  the static gate now says so.** mutmut copies `python/` alone into `mutants/`,
+  where `Path(__file__).resolve().parents[2]` stops at `python/` rather than the
+  repository root, so a test that reads the tree above it finds nothing there.
+  Several tests already read that way and skip; one that asserts instead fails
+  mutmut's baseline collection, which ends with zero mutants run and a lane that
+  reports as though it swept. `tools/check_mutation_setup.py` caught only the
+  neighbouring shape, a test importing the repo-root `tools` package, and now
+  refuses this one too: reading above `python/`, no way to skip, and no
+  `--ignore=` entry is a finding, with the remedy naming both answers.
+
+- **A mutation lane installs what its own sweep needs.** The runner already
+  scoped a pull request to the bindings whose directory its diff against `main`
+  touches, and skipped the rest unswept; every lane reached that decision
+  after installing GHC, cabal, Agda, the standard library, Go, gremlins,
+  clang-23, the LLVM development libraries, Mull and the FFI library, so eight
+  lanes paid a full toolchain each to learn they had nothing to do. Each lane
+  now asks `tools/mutation_scope.py` first, which answers from the runner's own
+  `bindings_in_scope` rather than reading the diff a second time, and every step
+  that installs a toolchain or moves a cache reads that answer. It is read as
+  `!= '0'`, so an answer that did not arrive installs. The sweep step itself is
+  never gated: the lane runs the runner, reports and uploads whatever its scope,
+  which is what keeps `mutation testing` reported by a job that ran. `setup-go`,
+  which ran in all eight lanes, now runs in the Go lane alone.
+
+- **A documentation change no longer starts the lanes it cannot move.**
+  `reproducible-build` and the stability bench are now in
+  `.github/workflows/pr-build-lanes.yml`, which carries `benchmark.yml`'s
+  documentation path filter, so a pull request touching only Markdown files and
+  `docs/` no longer builds the whole tree twice and benchmarks it to report a
+  figure that diff cannot move. They cannot carry the filter beside the mutation
+  lanes: a path filter is a property of a workflow and skips every job in it,
+  and `mutation testing` is the context the branch ruleset requires, which must
+  report on every pull request.
+  `python/tests/test_doc_only_path_exemption.py` holds every ignored-path list
+  in the tree to one set, refuses a required context in a file carrying one, and
+  refuses an exempt lane outside one.
+
 - **The C++ mutation sweep runs in slices, behind a compiler cache keyed on
   the plugin and the configuration.** Each mutation tree is now swept by three
   CI legs rather than one: a leg builds the tree under a generated Mull

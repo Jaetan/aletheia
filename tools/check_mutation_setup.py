@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Static mutation-setup coverage gate.
 
-Two always-on invariants, checked without running the mutation tools (which
-take 30 min - 2 hours wall):
+Always-on invariants, checked without running the mutation tools (which take
+30 min - 2 hours wall):
 
 1. **Hot-path sources exist.** Parses ``docs/MUTATION_BENCH.yaml`` and verifies,
    for every binding, that the declared hot-path source files exist on disk —
@@ -19,6 +19,17 @@ take 30 min - 2 hours wall):
    This gate is in the REQUIRED sweep, so it surfaces the drift at PR time.
    (Reproduced 2026-06-20: ``tests/test_check_changelog.py`` landed in #51
    importing ``tools`` without an ignore, crashing the lane unnoticed for days.)
+
+3. **A test that reads the tree above ``python/`` either skips or is excluded.**
+   mutmut copies ``python/`` alone into ``mutants/``, so a test resolving
+   ``Path(__file__).resolve().parents[2]`` lands on ``python/`` there rather
+   than on the repository root, and every path it builds is absent.  A test
+   that answers that by skipping is fine wherever it runs; one that asserts
+   fails the baseline instead, which is the same zero-mutant outcome as an
+   aborted collection, so it must carry an ``--ignore=`` too.
+   (Reproduced 2026-09-20: ``tests/test_doc_only_path_exemption.py`` read
+   ``.github/workflows`` through ``parents[2]``, found nothing under
+   ``mutants/`` and failed the lane on its own assertion.)
 
 The dynamic counterpart is ``tools/mutation_run.py``, which actually drives
 each binding's mutation tool against this list and writes per-binding
@@ -64,6 +75,12 @@ PY_TESTS_DIR = REPO_ROOT / "python" / "tests"
 _TOOLS_IMPORT_RE = re.compile(r"^(?:from|import)[ \t]+tools(?:\.|[ \t]|$)", re.MULTILINE)
 # An ``--ignore=tests/<name>.py`` entry in the mutmut pytest args.
 _IGNORE_ARG_RE = re.compile(r"^--ignore=(tests/[\w./-]+\.py)$")
+# A path built above ``python/``: ``parents[2]`` and up from a file in
+# ``python/tests/``, or a literal walk up two levels.  Under ``mutants/`` the
+# same expression stops at ``python/``, so whatever it names is not there.
+_ABOVE_TREE_RE = re.compile(r"parents\[[2-9]\]|\.\./\.\./")
+# What lets a test answer an absent path by saying nothing rather than failing.
+_SKIPS_RE = re.compile(r"pytest\.skip|skipif|importorskip")
 
 
 def _load_bindings() -> dict[str, object]:
@@ -168,6 +185,30 @@ def _tools_importing_tests_unignored() -> list[str]:
     return failures
 
 
+def _above_tree_tests_unignored() -> list[str]:
+    """One diagnostic per test that reads above ``python/``, cannot skip, and is not ignored.
+
+    The three properties are one finding together: reaching above the copied
+    tree is ordinary, and several tests do it and skip when what they wanted is
+    absent; it is the test that asserts on what it found there that fails
+    mutmut's baseline and leaves the lane with no mutants at all.
+    """
+    ignored = _mutmut_ignored_tests()
+    failures: list[str] = []
+    for path in sorted(PY_TESTS_DIR.glob("test_*.py")):
+        source = path.read_text(encoding="utf-8")
+        if not _ABOVE_TREE_RE.search(source) or _SKIPS_RE.search(source):
+            continue
+        rel = f"tests/{path.name}"
+        if rel not in ignored:
+            failures.append(
+                f"[python/mutmut] {rel} reads the tree above python/ and cannot skip, but "
+                + f"is not excluded — add `--ignore={rel}` to [tool.mutmut].pytest_add_cli_args, "
+                + "or make it skip when the path is absent (under mutants/ it is)",
+            )
+    return failures
+
+
 def cpp_slice_weights_are_of_the_domain(bindings: dict[str, object]) -> list[str]:
     """Hold the recorded per-file census to the files a slice can actually claim.
 
@@ -215,6 +256,7 @@ def main() -> int:
     bindings = _load_bindings()
     failures = _collect_failures(bindings)
     failures += _tools_importing_tests_unignored()
+    failures += _above_tree_tests_unignored()
     failures += cpp_slice_weights_are_of_the_domain(bindings)
 
     if failures:
@@ -225,7 +267,8 @@ def main() -> int:
             f"\n{len(failures)} issue(s) above.  For a missing hot-path source: "
             + f"restore it or update {SPEC_PATH.relative_to(REPO_ROOT)} to reflect "
             + "the rename (AGENTS.md cat 14(g) has the canonical lists).  For a "
-            + "tools-importing test: add its `--ignore=` to [tool.mutmut].\n",
+            + "test that the mutated tree cannot satisfy: add its `--ignore=` to "
+            + "[tool.mutmut], or let it skip.\n",
         )
         return 1
 
@@ -233,7 +276,7 @@ def main() -> int:
     emit(
         "Mutation-setup coverage gate OK: "
         + f"{len(bindings)} bindings, {total} hot-path sources all present; "
-        + "all tools-importing tests are mutmut-ignored; "
+        + "every test the mutated tree cannot satisfy is mutmut-ignored; "
         + "every recorded C++ slice weight is a file the partition claims.",
     )
     return 0
