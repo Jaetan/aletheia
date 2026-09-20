@@ -27,6 +27,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **A documentation change no longer starts the lanes it cannot move.**
+  `reproducible-build` and the stability bench are now in
+  `.github/workflows/pr-build-lanes.yml`, which carries `benchmark.yml`'s
+  documentation path filter, so a pull request touching only Markdown files and
+  `docs/` no longer builds the whole tree twice and benchmarks it to report a
+  figure that diff cannot move. They cannot carry the filter beside the mutation
+  lanes: a path filter is a property of a workflow and skips every job in it,
+  and `mutation testing` is the context the branch ruleset requires, which must
+  report on every pull request.
+  `python/tests/test_doc_only_path_exemption.py` holds every ignored-path list
+  in the tree to one set, refuses a required context in a file carrying one, and
+  refuses an exempt lane outside one.
+
 - **The C++ mutation sweep runs in slices, behind a compiler cache keyed on
   the plugin and the configuration.** Each mutation tree is now swept by three
   CI legs rather than one: a leg builds the tree under a generated Mull

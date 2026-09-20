@@ -139,9 +139,10 @@ python/.venv/bin/python3 -m aletheia --version                              # al
   it locally too when releasing off-CI.
 - **Reproducible build** — `python/.venv/bin/python3 -m tools.check_reproducible_build`
   (two clean builds, sha256 compared, ~10-25 min). Not in the default `run_ci.py`
-  battery, but the PR's **`reproducible-build` heavy lane runs it at the head
-  SHA** (same module invocation), so a green PR covers it; run it locally only
-  when releasing off-CI. See
+  battery, but the PR's **`reproducible-build` lane runs it at the head SHA**
+  (same module invocation), so a green PR covers it; run it locally only when
+  releasing off-CI, or when the PR touches documentation alone, which is the one
+  diff that lane is skipped on. See
   [Reproducible build verification](#reproducible-build-verification).
 
 **Gate:** both green. A repro-build failure is a stop-the-world event, not a flake.

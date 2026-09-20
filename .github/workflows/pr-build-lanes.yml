@@ -1,0 +1,343 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# The two heavy lanes no required check reports: reproducible-build (two clean
+# builds of libaletheia-ffi.so, sha256 compared) and the stability bench
+# (advisory, because it is genuinely timing-flaky).  Both build the whole tree
+# and measure it, and both are skipped on a change that touches only
+# documentation.  That skip is what puts them in a file of their own: a path
+# filter is a property of the workflow and skips every job in it, and
+# pr-heavy-lanes.yml carries `mutation testing`, the context the main ruleset
+# requires, which must report on every pull request.  A required context whose
+# job a path filter skipped stays pending, and nothing can clear it.
+#
+# The exemption is benchmark.yml's, over the same set of paths: a change under
+# docs/ or to a Markdown file moves neither a build hash nor a throughput
+# figure.  There is no paired `paths:` allowlist, which would flip the default
+# to deny-unless-matched and skip a lane over a path nobody classified; the
+# ignore list fails open.  python/tests/test_doc_only_path_exemption.py holds
+# every such list in the tree to one set, and refuses a required context in a
+# file that carries one.
+#
+# The exemption lasts as long as the enforcement split does.
+# docs/development/BRANCH_PR_HYGIENE.md names reproducible-build as intended to
+# become required; adding it to the ruleset moves it out of this file, since a
+# required context cannot carry the filter it would inherit here.
+#
+# Toolchain steps are copied verbatim from pr-full-ci.yml (same cache keys, so
+# these jobs hit the Agda store that workflow populated).  The workflow also
+# runs on push:main, where a cache is written under the default branch and
+# every PR branch can read it.  The filter applies to that event too: the keys
+# these lanes seed are content-addressed and are seeded by any push that is not
+# documentation alone, as well as by pr-full-ci.yml.  workflow_dispatch ignores
+# path filters, so a manual run reaches both lanes whatever the diff.
+
+name: Build lanes (PR)
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GHC_VERSION: '9.8.4'
+  AGDA_VERSION: '2.8.0'
+  STDLIB_VERSION: 'v2.4'
+
+jobs:
+  # ── reproducible-build (REQUIRED-intended; deterministic) ──────────────────
+  # Self-building: tools.check_reproducible_build runs `cabal run shake -- build`
+  # twice and compares sha256(build/libaletheia-ffi.so).  Needs only the Agda
+  # toolchain + a 3.14 python to invoke the tool (no venv extras, no C++/Go).
+  reproducible-build:
+    name: reproducible-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # Runs on every PR commit-state AND on push:main (to seed the build caches —
+    # see the header).  Push-iteration hygiene: a new PR commit cancels the stale
+    # repro run (push:main is exempt, below).  Its OWN group, so it never cancels
+    # the stability / mutation lanes below.
+    concurrency:
+      group: heavy-repro-${{ github.event.pull_request.number || github.ref }}
+      # push:main is exempt — a seeding run must not be cancelled before it saves.
+      cancel-in-progress: ${{ github.event_name != 'push' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up GHC + cabal
+        run: |
+          set -euo pipefail
+          echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
+          export CABAL_DIR="${HOME}/.cabal"
+          sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
+          ghcup install ghc "${GHC_VERSION}" --set
+          ghcup install cabal 3.16.1.0 --set
+          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
+          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
+
+      - name: Restore cabal store (Agda library + executable + deps)
+        id: cabal-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      # cabal's package index lives in the restored ~/.cabal/packages, so a fresh
+      # `cabal update` is redundant on a cache hit — and running it unconditionally
+      # before the restore made this lane hostage to the hackage-security bootstrap
+      # (the fresh TUF root.json fetch), which fails during a Hackage root-metadata
+      # outage even though the primary is up. Run it only on a miss (mirrors
+      # pr-full-ci.yml), where `cabal install Agda` below needs a current index.
+      - name: Update cabal package index (only on a cabal-store cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        run: cabal update
+
+      - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
+        run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
+
+      - name: Save cabal store (only on a cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
+        uses: actions/cache@v6
+        with:
+          path: ~/.agda/agda-stdlib
+          key: agda-stdlib-${{ env.STDLIB_VERSION }}
+
+      - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.agda
+          if [ ! -d ~/.agda/agda-stdlib/.git ]; then
+            git clone --depth 1 --branch "${STDLIB_VERSION}" \
+              https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib
+          fi
+          echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
+          echo "standard-library" > ~/.agda/defaults
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Reproducible-build hash gate (two clean builds, sha256 compare)
+        run: python3 -m tools.check_reproducible_build
+
+  # ── stability bench (ADVISORY; once per PR) ────────────────────────────────
+  stability:
+    name: stability bench (advisory)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # Runs on every PR commit-state (so the advisory result reflects the latest
+    # commit) AND on push:main (to seed the build caches — see the header).
+    # cancel-in-progress collapses rapid PR iteration to ~one run on the settled
+    # state; push:main is exempt (below).  Own group so it never cancels the
+    # repro / mutation lanes.
+    concurrency:
+      group: heavy-stability-${{ github.event.pull_request.number || github.ref }}
+      # push:main is exempt — a seeding run must not be cancelled before it saves.
+      cancel-in-progress: ${{ github.event_name != 'push' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up GHC + cabal
+        run: |
+          set -euo pipefail
+          echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
+          export CABAL_DIR="${HOME}/.cabal"
+          sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
+          ghcup install ghc "${GHC_VERSION}" --set
+          ghcup install cabal 3.16.1.0 --set
+          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
+          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
+
+      - name: Restore cabal store (Agda library + executable + deps)
+        id: cabal-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      # cabal's package index lives in the restored ~/.cabal/packages, so a fresh
+      # `cabal update` is redundant on a cache hit — and running it unconditionally
+      # before the restore made this lane hostage to the hackage-security bootstrap
+      # (the fresh TUF root.json fetch), which fails during a Hackage root-metadata
+      # outage even though the primary is up. Run it only on a miss (mirrors
+      # pr-full-ci.yml), where `cabal install Agda` below needs a current index.
+      - name: Update cabal package index (only on a cabal-store cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        run: cabal update
+
+      - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
+        run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
+
+      - name: Save cabal store (only on a cache miss)
+        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
+        uses: actions/cache@v6
+        with:
+          path: ~/.agda/agda-stdlib
+          key: agda-stdlib-${{ env.STDLIB_VERSION }}
+
+      - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.agda
+          if [ ! -d ~/.agda/agda-stdlib/.git ]; then
+            git clone --depth 1 --branch "${STDLIB_VERSION}" \
+              https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib
+          fi
+          echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
+          echo "standard-library" > ~/.agda/defaults
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Create the dev venv (python/.venv)
+        run: |
+          set -euo pipefail
+          python3.14 -m venv python/.venv
+          python/.venv/bin/pip install --upgrade pip
+          python/.venv/bin/pip install -e 'python/.[dev]'
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: 'stable'
+          cache-dependency-path: |
+            go/go.sum
+            go/excel/go.sum
+
+      - name: Cache clang-23 .debs (Clang is a large download)
+        uses: actions/cache@v6
+        with:
+          path: ~/llvm-cache
+          key: clang23-libstdcxx15-noble-v1
+      # ubuntu-24.04 pre-installs only clang ≤19; install clang-23 (the supported
+      # toolchain) from apt.llvm.org.  The cmake step below invokes clang-23
+      # explicitly, so no update-alternatives is needed.
+      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
+        run: |
+          set -euo pipefail
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm23.list >/dev/null
+          # ubuntu-24.04 ships libstdc++ 14, whose std::ranges::to has no pipe
+          # form; the toolchain policy tracks the latest stable release rather
+          # than a floor, so take 15 from the toolchain PPA the same way clang
+          # comes from apt.llvm.org.  add-apt-repository is used here, rather
+          # than the hand-written deb line the runtime image needs, only
+          # because the runners already carry it and it fetches the key.
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          mkdir -p ~/llvm-cache
+          if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
+            sudo apt-get install -y --download-only \
+              -o Dir::Cache::archives="${HOME}/llvm-cache" \
+              clang-23 clang-tidy-23 libstdc++-15-dev
+            sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
+          fi
+          sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
+
+      # stability_run errors if these are absent (build/libaletheia-ffi.so and
+      # cpp/build/stability_bench).  Build them up front; the Go harness is
+      # built/run by the runner itself.
+      - name: Build the FFI library + C++ stability harness
+        run: |
+          set -euo pipefail
+          cabal run shake -- build
+          # -S cpp: the CMakeLists.txt lives in cpp/, not the repo root (the
+          # default source dir when only -B is given).  The first run failed
+          # with "source directory does not contain CMakeLists.txt".
+          cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null
+          cmake --build cpp/build --target stability_bench
+
+      # Retry-once-on-failure (jitter watch, 2026-07-02): the drift gate flaked
+      # on runtime-neutral PRs (#118 doc-only, #125 C++-only — provably runner
+      # jitter, not regressions).  A failed first attempt re-runs ONCE; the
+      # first attempt's per-binding variance JSONs are preserved and uploaded
+      # as the `stability-variance-attempt1` artifact.  TALLY: each retry emits
+      # a `FLAKE-RETRY` warning annotation + step-summary line, and leaves the
+      # attempt1 artifact — count retries across runs with:
+      #   gh api /repos/OWNER/REPO/actions/artifacts --paginate \
+      #     --jq '[.artifacts[] | select(.name | test("attempt1"))] | length'
+      # CI-only behavior: local runs keep the manual-rerun discipline.
+      - name: Stability bench (advisory; retry-once on failure)
+        env:
+          ALETHEIA_STABILITY_CHECK: '1'
+        run: |
+          set -euo pipefail
+          if python/.venv/bin/python3 -m tools.stability_run; then
+            exit 0
+          fi
+          echo "::warning title=FLAKE-RETRY::stability bench failed on attempt 1 — retrying once (runner jitter suspected; see the jitter watch)"
+          {
+            echo "## ⚠ FLAKE-RETRY: stability bench"
+            echo ""
+            echo "Attempt 1 failed the variance drift gate; the harness re-ran once."
+            echo "If attempt 2 passes, attempt 1 was runner jitter. First-attempt"
+            echo "per-binding JSONs are in the stability-variance-attempt1 artifact."
+          } >> "${GITHUB_STEP_SUMMARY}"
+          mkdir -p stability-attempt1
+          # Non-fatal (a failure before any JSON was written has nothing to
+          # copy, and the retry must still run) but VOCAL — a real copy failure
+          # must not silently lose the attempt-1 evidence.
+          cp -r benchmarks/stability/. stability-attempt1/ \
+            || echo "::warning title=FLAKE-RETRY::could not preserve attempt-1 stability JSONs (none written before the failure?)"
+          python/.venv/bin/python3 -m tools.stability_run
+
+      # Always upload the per-binding variance JSONs — before this step the
+      # exact CV that breached a failing run was unrecoverable (the jitter
+      # watch's diagnosis gap).
+      - name: Upload stability variance JSONs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stability-variance
+          path: benchmarks/stability/
+          if-no-files-found: warn
+
+      - name: Upload first-attempt variance JSONs (only exists on a retry)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stability-variance-attempt1
+          path: stability-attempt1/
+          if-no-files-found: ignore
