@@ -117,8 +117,9 @@ endif()
 # `compiler_check=content` hashes the compiler itself rather than its mtime and
 # size.  Without those a rebuild after a plugin or configuration change replays
 # the earlier configuration's mutants, and its stderr with them; with them it
-# misses, which is what probes/cpp_CMakeLists.txt--a-mutation-object-is-cached-
-# under-the-plugin-and-the-config.sh holds.  The same env carries MULL_CONFIG,
+# misses, which is the claim held by
+# probes/cpp_CMakeLists.txt--a-mutation-object-is-cached-under-the-plugin-and-the-config.sh
+# and measured over four arms there.  The same env carries MULL_CONFIG,
 # so the configuration the plugin reads is the one whose content was hashed.
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM AND NOT ALETHEIA_MUTATION)

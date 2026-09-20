@@ -57,13 +57,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   the configuration it was built under and is discarded when that differs,
   because nothing in CMake knows an object depends on that file.
 
-- **The C++ mutation lane runs as two legs and a merge, and every mutation
-  budget is read off a measurement.** Each mutation tree is swept in a CI lane
-  of its own (`ALETHEIA_MUTATION_CPP_STAGE=leak` or `plain`), which reports as
-  its own binding and judges no survivor, and the `mutation cpp` job merges
-  the two legs' reports (`ALETHEIA_MUTATION_CPP_STAGE=merge`), refusing a leg
-  that is missing, doubled or from another commit; the required check reports
-  the lanes and the merge together. The lane's wall clock on the runner was
+- **The C++ mutation lane runs as legs and a merge, and every mutation budget
+  is read off a measurement.** Each leg is a CI lane of its own, reporting as
+  its own binding and judging no survivor, and the `mutation cpp` job merges
+  the legs' reports (`ALETHEIA_MUTATION_CPP_STAGE=merge`), refusing a leg that
+  is missing, doubled or from another commit; the required check reports the
+  lanes and the merge together. (What a leg covers is the entry above: one
+  tree at first, one slice of one tree now.) The lane's wall clock on the runner was
   1h44m for the two trees in sequence, and the longer tree becomes the lane.
   Every lane's `timeout-minutes` is now its slowest recorded wall clock plus
   the measured cost of its caches missing, the arithmetic beside each in the

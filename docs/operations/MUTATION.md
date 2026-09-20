@@ -35,13 +35,16 @@ In CI the runner is invoked once per binding, in parallel lanes with their own
 budgets, each told to skip the other two (`ALETHEIA_MUTATION_SKIP_PYTHON` /
 `_GO` / `_CPP`), because the three tools cost wildly different amounts and one
 job charges the slowest against a clock the others have already spent.  The
-C++ lane is two legs and a merge: each mutation tree is swept in a lane of its
-own (`ALETHEIA_MUTATION_CPP_STAGE=leak` or `plain`), which reports as the
-binding `cpp-leak` or `cpp-plain` and judges no survivor, since a mutant one
-tree let live may die in the other; the `mutation cpp` job downloads both legs'
-reports and merges them (`ALETHEIA_MUTATION_CPP_STAGE=merge`, the directory in
+C++ lane is six legs and a merge: a leg sweeps one slice of one mutation tree
+(`ALETHEIA_MUTATION_CPP_STAGE=leak` or `plain`, `ALETHEIA_MUTATION_CPP_SLICE`
+the slice), reports as the binding `cpp-leak-1` and so on, and judges no
+survivor, since it has read neither the rest of its tree nor the other tree,
+where the mutant it let live may die; the `mutation cpp` job downloads every
+leg's reports, unions each tree's slices and intersects the trees
+(`ALETHEIA_MUTATION_CPP_STAGE=merge`, the directory in
 `ALETHEIA_MUTATION_CPP_LEGS`), which is where the C++ survivors meet the
-baseline and the ledger.  The merge refuses a leg whose reports are missing or
+baseline and the ledger. How the slices are cut, and what the merge refuses,
+is below.  The merge refuses a leg whose reports are missing or
 doubled, or whose summary records another commit.  The
 `mutation testing` check the branch ruleset requires reports those lanes and
 the merge: it passes only on the single result meaning every one of them

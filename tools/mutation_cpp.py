@@ -429,16 +429,16 @@ def cpp_kill_routes(artifact_dir: Path, legs: Sequence[CppLeg]) -> dict[str, int
     return merge_routes([lane_routes(path) for path in paths])
 
 
-def elements_file_counts(report: Mapping[str, object]) -> dict[str, int]:
+def elements_file_counts(report: Mapping[str, object]) -> dict[RelPath, int]:
     """Count an Elements report's mutants by repository-relative file.
 
     The census the recorded slice weights are re-taken from.  A path is made
     repository-relative at its ``cpp/`` component, as the survivor rows are.
     """
-    counts: dict[str, int] = collections.Counter()
+    counts: dict[RelPath, int] = collections.Counter()
     files = cast("Mapping[str, Mapping[str, object]]", report.get("files", {}))
     for path, entry in files.items():
-        file = "cpp/" + path.split("/cpp/", 1)[1] if "/cpp/" in path else path
+        file = RelPath("cpp/" + path.split("/cpp/", 1)[1] if "/cpp/" in path else path)
         counts[file] += len(cast("list[Mapping[str, object]]", entry.get("mutants", [])))
     return dict(sorted(counts.items()))
 
@@ -844,7 +844,7 @@ def _finish_cpp(
     return MutationReport("cpp", "mull", total - survived, survived, raw)
 
 
-def _weight_drift(observed: Mapping[str, int]) -> str:
+def _weight_drift(observed: Mapping[RelPath, int]) -> str:
     """Say how far the recorded weights have drifted from the surface they balance.
 
     The slices are cut on the recorded counts, and the surface grows without
