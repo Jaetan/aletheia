@@ -18,7 +18,7 @@ if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         "cmake -B build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23")
 elseif(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 23)
     message(WARNING
-        "aletheia-cpp is supported on the latest stable Clang (22); got Clang "
+        "aletheia-cpp is supported on the latest stable Clang (23); got Clang "
         "${CMAKE_CXX_COMPILER_VERSION}.  Older Clang may work but is unsupported "
         "(Clang < 19 mis-handles libstdc++-14's C++23 <expected>).")
 endif()

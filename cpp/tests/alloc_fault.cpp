@@ -153,6 +153,10 @@ auto end_recording() -> bool {
     return !overflowed;
 }
 
+auto recording_capacity() -> std::size_t {
+    return k_recording_capacity;
+}
+
 Arm::Arm(std::int64_t nth) {
     t_fault.countdown = nth;
     t_fault.fired = &fired_;

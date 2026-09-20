@@ -109,3 +109,5 @@ python/aletheia/_install_config.py
 .agda-tree.lock
 # Agda's own grammar, fetched on demand rather than vendored (tools/_agda_opens.py)
 .agda-reference/Parser.y
+# A probe's clang-tidy scratch sources, left only by a run a signal ended.
+cpp/tests/.tidy-shapes-*/

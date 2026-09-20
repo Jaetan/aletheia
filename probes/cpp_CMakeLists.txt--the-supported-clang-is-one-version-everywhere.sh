@@ -26,7 +26,7 @@ case $lane in
     *$'\n'*) echo "tools/mutation_run.py names more than one Mull runner"; exit 1 ;;
 esac
 
-tokens='run-clang-tidy-[0-9]+|clang-tidy-[0-9]+|clang\+\+-[0-9]+|clang-[0-9]+|clang[0-9]+-|llvm-toolchain-noble-[0-9]+|llvm[0-9]+\.list|Clang [0-9]+|mull-[a-z-]+-[0-9]+|llvm-[0-9]+-dev|libclang-[0-9]+-dev|/usr/lib/llvm-[0-9]+'
+tokens='run-clang-tidy-[0-9]+|clang-tidy-[0-9]+|clang\+\+-[0-9]+|clang-[0-9]+|clang[0-9]+-|llvm-toolchain-noble-[0-9]+|llvm[0-9]+\.list|Clang [0-9]+|Clang \([0-9]+\)|mull-[a-z-]+-[0-9]+|llvm-[0-9]+-dev|libclang-[0-9]+-dev|/usr/lib/llvm-[0-9]+'
 
 # check <label> <wanted version> <text>: every version token in the text is
 # the wanted one, a version below 19, or on a dated line.

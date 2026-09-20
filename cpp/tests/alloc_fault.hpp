@@ -10,7 +10,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -57,15 +59,19 @@ private:
 
 // Records, over one run of the code between the two calls, the ordinal of
 // every allocation that is this project's own, into `ordinals`. Ending the
-// recording says whether it held them all.
+// recording says whether it held them all; `recording_capacity` is how many
+// it can hold.
 void begin_recording(std::vector<std::int64_t>& ordinals);
 [[nodiscard]] auto end_recording() -> bool;
+[[nodiscard]] auto recording_capacity() -> std::size_t;
 
 // The ordinals of the allocations `call` makes for itself, from one recorded
-// run, or none when the recording could not hold them. Every exception is
-// swallowed here and below: a refusal still records what it allocated.
+// run, or nothing when the recording could not hold them all: a call that
+// allocates nothing answers an empty list, which is a different answer. Every
+// exception is swallowed here and below: a refusal still records what it
+// allocated.
 template<typename Call>
-[[nodiscard]] auto own_allocations(Call call) -> std::vector<std::int64_t> {
+[[nodiscard]] auto own_allocations(Call call) -> std::optional<std::vector<std::int64_t>> {
     std::vector<std::int64_t> ordinals;
     begin_recording(ordinals);
     try {
@@ -73,7 +79,7 @@ template<typename Call>
     } catch (...) { // NOLINT(bugprone-empty-catch): a refusal still records what it allocated
     }
     if (!end_recording()) {
-        ordinals.clear();
+        return std::nullopt;
     }
     return ordinals;
 }
@@ -99,12 +105,20 @@ template<typename Call>
 // by one recorded run and the faults land on those alone, so a library's own
 // allocations, which may not be failed, never cost a walk of the stack at the
 // fault. Returns -1 when the recording could not hold the call's allocations,
-// when they are more than `cap`, or when a fault was not reached.
+// when they are more than `cap`, or when a fault was not reached; a call that
+// allocates nothing returns 0, and only that call does.
 template<typename Call>
 auto sweep(Call call, std::int64_t cap = 4000) -> std::int64_t {
-    auto const ordinals = own_allocations(call);
-    if (ordinals.empty() || std::cmp_greater(ordinals.size(), cap)) {
-        return ordinals.empty() ? 0 : -1;
+    auto const recorded = own_allocations(call);
+    if (!recorded.has_value()) {
+        return -1;
+    }
+    auto const& ordinals = *recorded;
+    if (ordinals.empty()) {
+        return 0;
+    }
+    if (std::cmp_greater(ordinals.size(), cap)) {
+        return -1;
     }
     return fault_each(call, ordinals) ? static_cast<std::int64_t>(ordinals.size()) : -1;
 }

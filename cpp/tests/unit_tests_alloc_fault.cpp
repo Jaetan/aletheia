@@ -37,6 +37,9 @@ using aletheia::test::alloc_fault::Arm;
 using aletheia::test::alloc_fault::expect_balanced;
 using aletheia::test::alloc_fault::live_blocks;
 using aletheia::test::alloc_fault::measure;
+using aletheia::test::alloc_fault::own_allocations;
+using aletheia::test::alloc_fault::recording_capacity;
+using aletheia::test::alloc_fault::sweep;
 
 namespace {
 
@@ -187,6 +190,26 @@ TEST_CASE("the sweep reads a block the call left behind", "[alloc_fault]") {
     auto const result = measure(leaves_them_behind);
     CHECK(result.points > 0);
     CHECK(result.held > 0);
+}
+
+TEST_CASE("a call the recording cannot hold is refused, not read as allocating nothing",
+          "[alloc_fault]") {
+    // Beyond the recording's capacity the sweep has no ordinals to fault, and
+    // that is a refusal a test must see: read as zero points, it would be the
+    // answer of a call that allocates nothing, and expect_balanced would fail
+    // both the same way with nothing to tell them apart.
+    auto const beyond_capacity = [] {
+        std::vector<std::unique_ptr<int>> blocks;
+        blocks.reserve(recording_capacity() + 1);
+        std::ranges::for_each(std::views::repeat(0, blocks.capacity()),
+                              [&](auto) { blocks.push_back(std::make_unique<int>(0)); });
+        return blocks.size();
+    };
+    auto const allocates_nothing = [] { return 0; };
+
+    CHECK_FALSE(own_allocations(beyond_capacity).has_value());
+    CHECK(sweep(beyond_capacity) == -1);
+    CHECK(sweep(allocates_nothing) == 0);
 }
 
 TEST_CASE("the DBC response decoder releases its temporaries when an allocation fails",
