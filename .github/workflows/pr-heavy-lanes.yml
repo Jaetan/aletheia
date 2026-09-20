@@ -27,6 +27,12 @@
 #   from cancellation so a rapid second merge cannot kill a cache-seeding run
 #   before it saves.  `workflow_dispatch` remains for manual re-runs.
 #
+# A lane installs what its own sweep needs and nothing else: tools/mutation_run.py
+# scopes a pull request to the bindings its diff vs `main` could move, and
+# tools/mutation_scope.py asks that same function which side of the decision this
+# lane is on, ahead of the toolchain steps rather than after them.  A lane out of
+# scope still runs the runner, still reports and still uploads, so no required
+# context is ever reported by a job that did not run.
 #
 # Toolchain steps follow pr-full-ci.yml's and keep its cache keys, so these jobs
 # hit the Agda store that workflow already populated; each one additionally
@@ -192,7 +198,35 @@ jobs:
       - name: Ensure a local `main` ref for `git diff main...HEAD`
         run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
 
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Create the dev venv with the [mutation] extra (mutmut)
+        run: |
+          set -euo pipefail
+          python3.14 -m venv python/.venv
+          python/.venv/bin/pip install --upgrade pip
+          python/.venv/bin/pip install -e 'python/.[dev,mutation]'
+
+      # The runner scopes a pull request to the bindings whose mutation result
+      # its diff vs `main` could move, and skips the rest without sweeping.
+      # Reached after the installs, that decision costs a lane its whole
+      # toolchain to learn it has nothing to do, so it is asked here instead,
+      # of the same
+      # function the sweep below calls: two readings of one diff are two
+      # decisions, and the one that disagrees holds back an install the sweep
+      # then needs.  The steps that install a toolchain, restore a cache or
+      # save one read LANE_SWEEPS, and they read it as `!= '0'`, so an answer
+      # that did not arrive installs.  The sweep step itself is never gated:
+      # the lane runs the runner, reports and uploads whatever the scope, which
+      # is what keeps the required context reported by a job that ran.
+      - name: Does this lane's binding sweep on this diff?
+        run: python/.venv/bin/python3 -m tools.mutation_scope --binding "${{ matrix.binding }}"
+
       - name: Set up GHC + cabal
+        if: env.LANE_SWEEPS != '0'
         run: |
           set -euo pipefail
           echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
@@ -204,6 +238,7 @@ jobs:
           echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
 
       - name: Restore cabal store (Agda library + executable + deps)
+        if: env.LANE_SWEEPS != '0'
         id: cabal-cache
         uses: actions/cache/restore@v6
         with:
@@ -220,14 +255,15 @@ jobs:
       # outage even though the primary is up. Run it only on a miss (mirrors
       # pr-full-ci.yml), where `cabal install Agda` below needs a current index.
       - name: Update cabal package index (only on a cabal-store cache miss)
-        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        if: env.LANE_SWEEPS != '0' && steps.cabal-cache.outputs.cache-hit != 'true'
         run: cabal update
 
       - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
+        if: env.LANE_SWEEPS != '0'
         run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
 
       - name: Save cabal store (only on a cache miss)
-        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        if: env.LANE_SWEEPS != '0' && steps.cabal-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: |
@@ -237,12 +273,14 @@ jobs:
           key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
 
       - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
+        if: env.LANE_SWEEPS != '0'
         uses: actions/cache@v6
         with:
           path: ~/.agda/agda-stdlib
           key: agda-stdlib-${{ env.STDLIB_VERSION }}
 
       - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
+        if: env.LANE_SWEEPS != '0'
         run: |
           set -euo pipefail
           mkdir -p ~/.agda
@@ -253,19 +291,8 @@ jobs:
           echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
           echo "standard-library" > ~/.agda/defaults
 
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-
-      - name: Create the dev venv with the [mutation] extra (mutmut)
-        run: |
-          set -euo pipefail
-          python3.14 -m venv python/.venv
-          python/.venv/bin/pip install --upgrade pip
-          python/.venv/bin/pip install -e 'python/.[dev,mutation]'
-
       - name: Set up Go + gremlins
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'go'
         uses: actions/setup-go@v7
         with:
           go-version: 'stable'
@@ -274,14 +301,14 @@ jobs:
             go/excel/go.sum
 
       - name: Install gremlins (Go mutation tool)
-        if: matrix.binding == 'go'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'go'
         run: |
           set -euo pipefail
           go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
           echo "${HOME}/go/bin" >> "${GITHUB_PATH}"
 
       - name: Cache clang-23 + LLVM-23-dev .debs (large download)
-        if: matrix.binding == 'cpp'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
@@ -290,7 +317,7 @@ jobs:
       # toolchain) + the LLVM-23 dev libraries (needed to build Mull from source)
       # from apt.llvm.org.  mutation_cpp.py invokes clang-23 explicitly.
       - name: Install C++ toolchain + LLVM-23 dev (apt.llvm.org)
-        if: matrix.binding == 'cpp'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         run: |
           set -euo pipefail
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
@@ -326,17 +353,17 @@ jobs:
       # one; on a miss each builds Mull and each tries to save, and the second
       # save of a key is logged as a warning by the action, not a failure.
       - name: Cache Mull-23 (built from source vs LLVM-23)
-        if: matrix.binding == 'cpp'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         id: mull23
         uses: actions/cache@v6
         with:
           path: ~/mull-bin
           key: mull23-noble-${{ hashFiles('tools/build_mull.sh', 'tools/mull/*.patch') }}
       - name: Build Mull-23 from source (cache miss)
-        if: matrix.binding == 'cpp' && steps.mull23.outputs.cache-hit != 'true'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' && steps.mull23.outputs.cache-hit != 'true'
         run: tools/build_mull.sh "${HOME}/mull-bin"
       - name: Install Mull-23 to PATH
-        if: matrix.binding == 'cpp'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         run: |
           set -euo pipefail
           mkdir -p "${HOME}/.local/bin"
@@ -365,7 +392,7 @@ jobs:
       # it.  Split restore/save like the build tree, so a lane that built its
       # tree and then failed still seeds the next run.
       - name: Set up ccache (C++ mutation trees)
-        if: matrix.binding == 'cpp'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         run: |
           set -euo pipefail
           command -v ccache >/dev/null || sudo apt-get install -y ccache
@@ -388,7 +415,7 @@ jobs:
             echo "CCACHE_MAXSIZE=400M"
           } >> "${GITHUB_ENV}"
       - name: Restore ccache (C++ mutation trees)
-        if: matrix.binding == 'cpp'
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         id: ccache-cache
         uses: actions/cache/restore@v6
         with:
@@ -416,6 +443,7 @@ jobs:
       # below with the toolchain rather than here: its objects depend on the
       # plugin and the Mull configuration, which this key does not carry.
       - name: Restore incremental build tree (build/ + dist-newstyle/)
+        if: env.LANE_SWEEPS != '0'
         id: build-tree-cache
         uses: actions/cache/restore@v6
         with:
@@ -428,6 +456,7 @@ jobs:
             build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
 
       - name: Build the FFI library (needed by mutmut / Mull / gremlins lanes)
+        if: env.LANE_SWEEPS != '0'
         run: cabal run shake -- build
 
       - name: Mutation testing (${{ matrix.lane }})
@@ -473,14 +502,14 @@ jobs:
       # saves what it compiled; skipped on an exact-key hit, the key being
       # immutable, which makes a second write of one a logged failure.
       - name: Save ccache (C++ mutation trees)
-        if: ${{ !cancelled() && matrix.binding == 'cpp' && steps.ccache-cache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' && steps.ccache-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6
         with:
           path: ~/.ccache
           key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-${{ github.sha }}
 
       - name: Save incremental build tree
-        if: ${{ !cancelled() && matrix.binding == 'python' && steps.build-tree-cache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'python' && steps.build-tree-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6
         with:
           path: |

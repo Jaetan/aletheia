@@ -27,6 +27,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **A mutation lane installs what its own sweep needs.** The runner already
+  scoped a pull request to the bindings whose directory its diff against `main`
+  touches, and skipped the rest unswept; every lane reached that decision
+  after installing GHC, cabal, Agda, the standard library, Go, gremlins,
+  clang-23, the LLVM development libraries, Mull and the FFI library, so eight
+  lanes paid a full toolchain each to learn they had nothing to do. Each lane
+  now asks `tools/mutation_scope.py` first, which answers from the runner's own
+  `bindings_in_scope` rather than reading the diff a second time, and every step
+  that installs a toolchain or moves a cache reads that answer. It is read as
+  `!= '0'`, so an answer that did not arrive installs. The sweep step itself is
+  never gated: the lane runs the runner, reports and uploads whatever its scope,
+  which is what keeps `mutation testing` reported by a job that ran. `setup-go`,
+  which ran in all eight lanes, now runs in the Go lane alone.
+
 - **A documentation change no longer starts the lanes it cannot move.**
   `reproducible-build` and the stability bench are now in
   `.github/workflows/pr-build-lanes.yml`, which carries `benchmark.yml`'s
