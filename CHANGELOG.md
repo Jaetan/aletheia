@@ -27,6 +27,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **A test the mutated tree cannot satisfy fails the Python mutation lane, and
+  the static gate now says so.** mutmut copies `python/` alone into `mutants/`,
+  where `Path(__file__).resolve().parents[2]` stops at `python/` rather than the
+  repository root, so a test that reads the tree above it finds nothing there.
+  Several tests already read that way and skip; one that asserts instead fails
+  mutmut's baseline collection, which ends with zero mutants run and a lane that
+  reports as though it swept. `tools/check_mutation_setup.py` caught only the
+  neighbouring shape, a test importing the repo-root `tools` package, and now
+  refuses this one too: reading above `python/`, no way to skip, and no
+  `--ignore=` entry is a finding, with the remedy naming both answers.
+
 - **A mutation lane installs what its own sweep needs.** The runner already
   scoped a pull request to the bindings whose directory its diff against `main`
   touches, and skipped the rest unswept; every lane reached that decision

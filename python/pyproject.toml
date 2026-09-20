@@ -359,6 +359,10 @@ pytest_add_cli_args = [
     # package; also reads ../../Shakefile.hs, outside the relocated mutants/
     # tree).  Infra coverage, not hot-path.
     "--ignore=tests/test_check_dist_staging.py",
+    # Reads .github/workflows through parents[2], which stops at python/ in the
+    # relocated mutants/ tree: the set it reads is empty there and its first
+    # assertion fails, which ends the baseline as surely as an aborted import.
+    "--ignore=tests/test_doc_only_path_exemption.py",
     # The demo gate reaches repo-root `examples/demo` via parents[2] (only
     # `python/` in the relocated mutants/ tree, so the glob is empty) AND runs
     # each demo in a SUBPROCESS that imports the INSTALLED package, never the
