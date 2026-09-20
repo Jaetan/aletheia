@@ -65,10 +65,23 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import cast
+from typing import NamedTuple, NewType, cast
 
 from tools._common import emit, git_toplevel
-from tools._ratchet import read_ratchet_rows
+from tools._ratchet import CanonicalText, RatchetRows, RelPath, RowKey, as_row, read_ratchet_rows
+
+# A translation unit as the compile database names it, relative to `cpp/`;
+# `translation_units` is what mints one, from that database.
+UnitPath = NewType("UnitPath", str)
+
+
+class Hit(NamedTuple):
+    """One declaration the matcher bound: where it is, and its text."""
+
+    file: RelPath
+    line: int
+    text: CanonicalText
+
 
 # The ratchet's record, repo-root-relative.
 ALLOWLIST = Path("docs") / "CPP_RESTATED_TYPES.yaml"
@@ -153,13 +166,16 @@ varDecl(
 _LOCATION = re.compile(r"^(/[^\s:]+):(\d+):(\d+): note: \"root\" binds here$")
 _NUMBERED = re.compile(r"^\s*\d+ \| (.*)$")
 _CARET = re.compile(r"^\s*\| (\s*)(\^~*)\s*$")
+# A diagnostic clang-query prints for a unit it could not parse; its exit code
+# does not carry it.
+_ERROR = re.compile(r"^.*\berror: .*$", re.MULTILINE)
 
 # A macro invocation, which is what stands at the expansion location of a
 # declaration a macro wrote.  No declaration begins this way.
 _MACRO_CALL = re.compile(r"^[A-Z][A-Z0-9_]{2,}\s*\(")
 
 
-def translation_units(repo: Path) -> list[str] | str:
+def translation_units(repo: Path) -> list[UnitPath] | str:
     """Return the binding's own translation units, or why they cannot be read."""
     database = repo / COMPILE_DB
     if not database.is_file():
@@ -176,10 +192,10 @@ def translation_units(repo: Path) -> list[str] | str:
         for entry in cast("list[object]", entries)
         if isinstance(entry, dict)
     }
-    return sorted(unit for unit in units if unit and VENDORED not in unit)
+    return sorted(UnitPath(unit) for unit in units if unit and VENDORED not in unit)
 
 
-def run_matcher(repo: Path, script: Path, unit: str) -> list[tuple[str, int, str]] | str:
+def run_matcher(repo: Path, script: Path, unit: UnitPath) -> list[Hit] | str:
     """Match one translation unit, returning its hits or why the run failed."""
     try:
         finished = subprocess.run(
@@ -194,12 +210,18 @@ def run_matcher(repo: Path, script: Path, unit: str) -> list[tuple[str, int, str
     if finished.returncode != 0:
         detail = (finished.stderr or finished.stdout).strip().splitlines()
         return f"{CLANG_QUERY} failed on {unit}: {detail[0] if detail else 'no output'}"
+    # clang-query exits zero after a fatal diagnostic, a header it could not
+    # find included, and matches nothing in the unit it could not parse; read
+    # as clean, that unit's declarations would vanish from the gate.
+    diagnostic = _ERROR.search(finished.stderr)
+    if diagnostic is not None:
+        return f"{CLANG_QUERY} could not parse {unit}: {diagnostic.group(0).strip()}"
     return parse_hits(repo, finished.stdout)
 
 
-def parse_hits(repo: Path, output: str) -> list[tuple[str, int, str]]:
-    """Read (file, line, declaration text) out of clang-query's diagnostics."""
-    hits: list[tuple[str, int, str]] = []
+def parse_hits(repo: Path, output: str) -> list[Hit]:
+    """Read every declaration clang-query bound out of its diagnostics."""
+    hits: list[Hit] = []
     lines = output.splitlines()
     for index, line in enumerate(lines):
         location = _LOCATION.match(line)
@@ -216,44 +238,44 @@ def parse_hits(repo: Path, output: str) -> list[tuple[str, int, str]]:
         path = Path(location.group(1))
         if not any(path.is_relative_to(repo / CPP_ROOT / scoped) for scoped in SCOPED):
             continue
-        hits.append((str(path.relative_to(repo)), int(location.group(2)), text))
+        hits.append(Hit(RelPath(str(path.relative_to(repo))), int(location.group(2)), text))
     return hits
 
 
-def collapse(text: str) -> str:
-    """Collapse a declaration's whitespace, so a reflow does not move its row."""
-    return " ".join(text.split())
+def collapse(text: str) -> CanonicalText:
+    """Collapse a declaration's whitespace within the line the caret marks.
+
+    A reflow that keeps the declaration on one line does not move its row; one
+    that wraps it does, because the caret run spans a single source line and
+    the text is read from that line alone.
+    """
+    return CanonicalText(" ".join(text.split()))
 
 
-def observed_rows(repo: Path, units: list[str]) -> dict[tuple[str, str], int] | str:
+def observed_rows(repo: Path, units: list[UnitPath]) -> RatchetRows | str:
     """Count the tree's restating declarations, keyed by file and source text."""
     with TemporaryDirectory() as scratch:
         script = Path(scratch) / "restated.query"
         script.write_text(f"{TRAVERSAL}\nset output diag\nmatch {MATCHER}\n", encoding="utf-8")
 
-        def match(unit: str) -> list[tuple[str, int, str]] | str:
+        def match(unit: UnitPath) -> list[Hit] | str:
             return run_matcher(repo, script, unit)
 
         with ThreadPoolExecutor() as pool:
             results = list(pool.map(match, units))
-    seen: set[tuple[str, int, str]] = set()
+    seen: set[Hit] = set()
     for result in results:
         if isinstance(result, str):
             return result
         seen.update(result)
-    rows: dict[tuple[str, str], int] = {}
-    for file, _, text in seen:
-        rows[(file, text)] = rows.get((file, text), 0) + 1
+    rows: RatchetRows = {}
+    for hit in seen:
+        key = RowKey(hit.file, hit.text)
+        rows[key] = rows.get(key, 0) + 1
     return rows
 
 
-def as_row(file: str, text: str, count: int) -> str:
-    """Render one row the way the YAML spells it, so a diagnostic can be pasted."""
-    quoted = text.replace("\\", "\\\\").replace('"', '\\"')
-    return f'  - file: {file}\n    text: "{quoted}"\n    count: {count}'
-
-
-def report(observed: dict[tuple[str, str], int], recorded: dict[tuple[str, str], int]) -> int:
+def report(observed: RatchetRows, recorded: RatchetRows) -> int:
     """Print every unrecorded declaration and every stale row; return the exit code."""
     unrecorded = sorted(key for key, n in observed.items() if n > recorded.get(key, 0))
     stale = sorted(key for key, n in recorded.items() if n > observed.get(key, 0))
@@ -262,12 +284,12 @@ def report(observed: dict[tuple[str, str], int], recorded: dict[tuple[str, str],
         emit(f"    {text}")
         emit("  Write it auto (AGENTS/cpp.md cat 34, in the spelling cat 5 fixes), or,")
         emit(f"  with user approval, add this row to {ALLOWLIST}:")
-        emit(as_row(file, text, observed[(file, text)]))
+        emit(as_row(file, text, observed[RowKey(file, text)]))
     for file, text in stale:
         emit(f"{file}: a recorded row names more declarations than the file holds")
         emit(f"    {text}")
         emit(f"  Its type is deduced now: drop the row from {ALLOWLIST}, or lower its")
-        emit(f"  count to {observed.get((file, text), 0)}, in the change that deduced it.")
+        emit(f"  count to {observed.get(RowKey(file, text), 0)}, in the change that deduced it.")
     if unrecorded or stale:
         emit(f"{len(unrecorded)} unrecorded, {len(stale)} stale")
         return 1

@@ -7,9 +7,9 @@ index and subscripts with it states its own bound, and a bound written by hand
 can be written wrong, where the same traversal expressed as a range is bounded
 by the range itself.  The failure mode is quiet.  A wrong bound reads one past
 the end, which the standard library catches only where its container assertions
-are compiled in, and the optimised build leaves them out; five such bounds were
-found by mutation testing rather than by any test, and three of them had an
-identically shaped sibling loop whose mutant a wider fixture happened to catch.
+are compiled in, and the optimised build leaves them out, so such a bound is
+found by mutation testing rather than by a test, and only where a fixture
+happens to reach the row past the end.
 
 ``modernize-loop-convert`` does not cover the class.  It rewrites a loop only
 where the index does nothing but subscript one container, which is exactly the
@@ -28,8 +28,9 @@ a row whose loop is gone is standing permission to reintroduce it:
   row to delete.  The change that rewrites a loop deletes its row.
 
 A loop is a counting loop when a variable of its header is stepped (``++``,
-``--``, ``+=``, ``-=``) in the condition, in the increment clause, or in the
-body: a three-clause ``for`` whose init declares the variable, and a ``while``
+``--``, ``+=``, ``-=``, or assigned its own sum or difference) in the condition,
+in the increment clause, or in the body: a three-clause ``for`` whose init
+declares the variable, and a ``while``
 or ``do``/``while`` where any name the condition tests is the one stepped.  All
 three spellings are read, because a gate that knew only ``for`` would be passed
 by rewriting the header.  Reading the body is what separates the two shapes that
@@ -50,6 +51,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple, NewType
 
 from tools._common import (
     emit,
@@ -57,7 +59,38 @@ from tools._common import (
     git_toplevel,
     match_paren_content,
 )
-from tools._ratchet import read_ratchet_rows
+from tools._ratchet import CanonicalText, RatchetRows, RowKey, as_row, read_ratchet_rows
+
+# One clause of a three-clause `for` header: its init, its condition or its
+# increment, as `for_clauses` cut it; nothing else mints one.
+Clause = NewType("Clause", str)
+
+
+class Found(NamedTuple):
+    """A counting loop the scan found: where its keyword starts, and its header."""
+
+    offset: int
+    header: CanonicalText
+
+
+class FoundDo(NamedTuple):
+    """A counting ``do``/``while``: the ``do``, the ``while`` that closes it, and the header.
+
+    The condition offset is what lets the plain-``while`` scan leave that
+    ``while`` alone: it is the tail of a ``do``, not a loop of its own.
+    """
+
+    offset: int
+    condition: int
+    header: CanonicalText
+
+
+class Block(NamedTuple):
+    """A braced block, and the offset just past its closing brace."""
+
+    text: str
+    end: int
+
 
 # The ratchet's record, repo-root-relative.
 ALLOWLIST = Path("docs") / "CPP_INDEX_LOOPS.yaml"
@@ -134,7 +167,7 @@ def blank_noncode(text: str) -> str:
     return _NONCODE.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), blank_digit_separators(text))
 
 
-def for_clauses(header: str) -> list[str] | None:
+def for_clauses(header: str) -> list[Clause] | None:
     """Split a ``for`` header into its clauses, or None when it is not three-clause.
 
     Cuts on every ``;`` outside parentheses, angle brackets and braces, keeping
@@ -143,7 +176,7 @@ def for_clauses(header: str) -> list[str] | None:
     in the increment, and telling that from a range-based ``for`` needs the
     empty clause to survive the split.
     """
-    parts: list[str] = []
+    parts: list[Clause] = []
     buf: list[str] = []
     depth = 0
     for ch in header:
@@ -152,11 +185,11 @@ def for_clauses(header: str) -> list[str] | None:
         elif ch in ")]}":
             depth -= 1
         if ch == ";" and depth == 0:
-            parts.append("".join(buf))
+            parts.append(Clause("".join(buf)))
             buf = []
         else:
             buf.append(ch)
-    parts.append("".join(buf))
+    parts.append(Clause("".join(buf)))
     return parts if len(parts) == _FOR_CLAUSE_COUNT else None
 
 
@@ -198,17 +231,24 @@ def body_after(code: str, end: int) -> str:
 
 
 def steps_variable(text: str, name: str) -> bool:
-    """Say whether ``text`` steps the variable ``name`` by any of the step operators."""
+    """Say whether ``text`` steps the variable ``name``.
+
+    A step is an increment or decrement operator on the name, a compound
+    assignment, or the name assigned its own sum or difference, ``i = i + 1``,
+    which is the spelling that would pass a gate reading only the operators.
+    """
     word = re.escape(name)
-    return bool(re.search(rf"(?:\+\+|--)\s*\b{word}\b|\b{word}\s*(?:\+\+|--|\+=|-=)", text))
+    operators = rf"(?:\+\+|--)\s*\b{word}\b|\b{word}\s*(?:\+\+|--|\+=|-=)"
+    own_sum = rf"\b{word}\s*=\s*{word}\s*[+-]"
+    return re.search(f"{operators}|{own_sum}", text) is not None
 
 
-def is_counting_loop(clauses: list[str], body: str) -> bool:
+def is_counting_loop(clauses: list[Clause], body: str) -> bool:
     """Say whether a three-clause ``for`` steps its variable, in the header or the body."""
     if _STEP.search(clauses[1]) or _STEP.search(clauses[2]):
         return True
     name = init_variable(clauses[0])
-    return name is not None and steps_variable(body, name)
+    return name is not None and any(steps_variable(part, name) for part in (*clauses[1:], body))
 
 
 def condition_is_counted(condition: str, body: str) -> bool:
@@ -226,7 +266,7 @@ def condition_is_counted(condition: str, body: str) -> bool:
     )
 
 
-def canonical(keyword: str, parts: list[str]) -> str:
+def canonical(keyword: str, parts: list[Clause]) -> CanonicalText:
     """Render a loop header as the one text a row is keyed by.
 
     Whitespace is collapsed and the clauses are rejoined, so reflowing a long
@@ -234,10 +274,10 @@ def canonical(keyword: str, parts: list[str]) -> str:
     loop to a different row.
     """
     joined = "; ".join(" ".join(part.split()) for part in parts)
-    return f"{keyword} ({joined})"
+    return CanonicalText(f"{keyword} ({joined})")
 
 
-def block_after(code: str, start: int) -> tuple[str, int] | None:
+def block_after(code: str, start: int) -> Block | None:
     """Return the braced block starting at or after ``start``, and the offset past it."""
     index = start
     while index < len(code) and code[index].isspace():
@@ -251,13 +291,13 @@ def block_after(code: str, start: int) -> tuple[str, int] | None:
         elif code[stop] == "}":
             depth -= 1
             if depth == 0:
-                return code[index : stop + 1], stop + 1
+                return Block(code[index : stop + 1], stop + 1)
     return None
 
 
-def for_loops(text: str, code: str) -> list[tuple[int, str]]:
-    """Find every counting ``for``, as (header offset, canonical text)."""
-    found: list[tuple[int, str]] = []
+def for_loops(text: str, code: str) -> list[Found]:
+    """Find every counting ``for``."""
+    found: list[Found] = []
     for match in _FOR.finditer(code):
         header = match_paren_content(code, match.end())
         if header is None:
@@ -266,17 +306,13 @@ def for_loops(text: str, code: str) -> list[tuple[int, str]]:
         if clauses is None:
             continue
         if is_counting_loop(clauses, body_after(code, match.end() + len(header) + 1)):
-            found.append((match.start(), canonical("for", clauses)))
+            found.append(Found(match.start(), canonical("for", clauses)))
     return found
 
 
-def do_loops(text: str, code: str) -> list[tuple[int, int, str]]:
-    """Find every counting ``do``/``while``, as (offset, condition offset, canonical text).
-
-    The condition offset is reported so that the plain-``while`` scan can leave
-    these conditions alone: they are the tail of a ``do``, not a loop of their own.
-    """
-    found: list[tuple[int, int, str]] = []
+def do_loops(text: str, code: str) -> list[FoundDo]:
+    """Find every counting ``do``/``while``."""
+    found: list[FoundDo] = []
     for match in _DO.finditer(code):
         block = block_after(code, match.end() - 1)
         if block is None:
@@ -289,14 +325,17 @@ def do_loops(text: str, code: str) -> list[tuple[int, int, str]]:
         condition = match_paren_content(code, tail.end())
         if condition is None:
             continue
-        if condition_is_counted(text[tail.end() : tail.end() + len(condition)], body):
-            found.append((match.start(), tail.start(), canonical("do ... while", [condition])))
+        original = text[tail.end() : tail.end() + len(condition)]
+        if condition_is_counted(original, body):
+            found.append(
+                FoundDo(match.start(), tail.start(), canonical("do ... while", [Clause(original)]))
+            )
     return found
 
 
-def while_loops(text: str, code: str, skip: set[int]) -> list[tuple[int, str]]:
+def while_loops(text: str, code: str, skip: set[int]) -> list[Found]:
     """Find every counting ``while``, skipping the conditions that close a ``do``."""
-    found: list[tuple[int, str]] = []
+    found: list[Found] = []
     for match in _WHILE.finditer(code):
         if match.start() in skip:
             continue
@@ -304,38 +343,34 @@ def while_loops(text: str, code: str, skip: set[int]) -> list[tuple[int, str]]:
         if condition is None:
             continue
         body = body_after(code, match.end() + len(condition) + 1)
-        if condition_is_counted(text[match.end() : match.end() + len(condition)], body):
-            found.append((match.start(), canonical("while", [condition])))
+        original = text[match.end() : match.end() + len(condition)]
+        if condition_is_counted(original, body):
+            found.append(Found(match.start(), canonical("while", [Clause(original)])))
     return found
 
 
-def loops_in(text: str) -> list[str]:
+def loops_in(text: str) -> list[CanonicalText]:
     """Return the canonical text of every counting loop in one translation unit."""
     code = blank_noncode(text)
     dos = do_loops(text, code)
-    found = for_loops(text, code) + [(offset, name) for offset, _, name in dos]
-    found += while_loops(text, code, {condition for _, condition, _ in dos})
-    return [name for _, name in sorted(found)]
+    found = for_loops(text, code) + [Found(done.offset, done.header) for done in dos]
+    found += while_loops(text, code, {done.condition for done in dos})
+    return [loop.header for loop in sorted(found)]
 
 
-def observed_rows(repo: Path) -> dict[tuple[str, str], int]:
+def observed_rows(repo: Path) -> RatchetRows:
     """Count the tree's counting loops, keyed by file and canonical header text."""
-    rows: dict[tuple[str, str], int] = {}
+    rows: RatchetRows = {}
     for rel in git_ls_files(repo, f"{CPP_ROOT}/"):
         if not rel.endswith(CPP_SUFFIXES):
             continue
         text = (repo / rel).read_text(encoding="utf-8")
         for loop in loops_in(text):
-            rows[(rel, loop)] = rows.get((rel, loop), 0) + 1
+            rows[RowKey(rel, loop)] = rows.get(RowKey(rel, loop), 0) + 1
     return rows
 
 
-def as_row(file: str, text: str, count: int) -> str:
-    """Render one row the way the YAML spells it, so a diagnostic can be pasted."""
-    return f'  - file: {file}\n    text: "{text}"\n    count: {count}'
-
-
-def report(observed: dict[tuple[str, str], int], recorded: dict[tuple[str, str], int]) -> int:
+def report(observed: RatchetRows, recorded: RatchetRows) -> int:
     """Print every unrecorded loop and every stale row; return the process exit code."""
     unrecorded = sorted(key for key, n in observed.items() if n > recorded.get(key, 0))
     stale = sorted(key for key, n in recorded.items() if n > observed.get(key, 0))
@@ -344,12 +379,12 @@ def report(observed: dict[tuple[str, str], int], recorded: dict[tuple[str, str],
         emit(f"    {text}")
         emit("  Rewrite it as a range (AGENTS/cpp.md cat 27), or, with user approval,")
         emit(f"  add this row to {ALLOWLIST}:")
-        emit(as_row(file, text, observed[(file, text)]))
+        emit(as_row(file, text, observed[RowKey(file, text)]))
     for file, text in stale:
         emit(f"{file}: a recorded row names more loops than the file holds")
         emit(f"    {text}")
         emit(f"  Its loop was rewritten: drop the row from {ALLOWLIST}, or lower its count to")
-        emit(f"  {observed.get((file, text), 0)}, in the change that rewrote it.")
+        emit(f"  {observed.get(RowKey(file, text), 0)}, in the change that rewrote it.")
     if unrecorded or stale:
         emit(f"{len(unrecorded)} unrecorded, {len(stale)} stale")
         return 1

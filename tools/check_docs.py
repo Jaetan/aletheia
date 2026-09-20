@@ -30,8 +30,9 @@ import argparse
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
-from tools._common import emit, git_ls_files
+from tools._common import RelPath, emit, git_ls_files
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -74,11 +75,18 @@ _LABEL_SCOPE_FILES = {"README.md"}
 _LABEL_SCOPE_SUFFIX = "/README.md"
 
 
+class TrackedIndex(NamedTuple):
+    """What a fresh checkout contains: every tracked file, and every directory on the way to one."""
+
+    files: set[RelPath]
+    dirs: set[RelPath]
+
+
 def _tracked_md() -> list[Path]:
     return [REPO / p for p in git_ls_files(REPO, "*.md", "*.markdown")]
 
 
-def _tracked_index() -> tuple[set[str], set[str]]:
+def _tracked_index() -> TrackedIndex:
     """Return (tracked files, tracked dirs) as POSIX repo-relative strings.
 
     A link resolves iff its target is something git TRACKS — the set a fresh
@@ -88,12 +96,12 @@ def _tracked_index() -> tuple[set[str], set[str]]:
     local-only false green that then fails on CI.
     """
     files = set(git_ls_files(REPO))
-    dirs: set[str] = set()
+    dirs: set[RelPath] = set()
     for posix in files:
         parts = Path(posix).parts
         for i in range(1, len(parts)):
-            dirs.add(Path(*parts[:i]).as_posix())
-    return files, dirs
+            dirs.add(RelPath(Path(*parts[:i]).as_posix()))
+    return TrackedIndex(files, dirs)
 
 
 def slug(header: str) -> str:
@@ -179,7 +187,7 @@ def escapes_repo(tgt: Path) -> bool:
     return not tgt.is_relative_to(REPO)
 
 
-def target_in_checkout(rel: str, tracked: set[str], tracked_dirs: set[str]) -> bool:
+def target_in_checkout(rel: str, tracked: set[RelPath], tracked_dirs: set[RelPath]) -> bool:
     """Return True if a repo-relative target is a tracked file or tracked directory.
 
     ``rel`` is a POSIX repo-relative path. Membership in git's tracked set — not
@@ -192,8 +200,8 @@ def target_in_checkout(rel: str, tracked: set[str], tracked_dirs: set[str]) -> b
 def _link_finding(
     raw: str,
     src: Path,
-    tracked: set[str],
-    tracked_dirs: set[str],
+    tracked: set[RelPath],
+    tracked_dirs: set[RelPath],
     header_cache: dict[Path, set[str]],
 ) -> str | None:
     """Return a finding suffix for one extracted link, or None if it resolves."""

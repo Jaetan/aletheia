@@ -33,10 +33,14 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NewType
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Mapping
+
+# A path relative to the repository root, spelled as git prints it: `git ls-files`
+# and `git diff --name-only` both use this spelling, and only a git listing mints one.
+RelPath = NewType("RelPath", str)
 
 
 def match_paren_content(text: str, start: int) -> str | None:
@@ -240,16 +244,15 @@ def _stderr_space_note() -> str:
     return f"{target} has {stats.f_bavail * stats.f_frsize} bytes free"
 
 
-def git_ls_files(repo: Path, *patterns: str) -> list[str]:
+def git_ls_files(repo: Path, *patterns: str) -> list[RelPath]:
     """Return git-tracked paths (repo-relative POSIX strings) under ``repo``.
 
     Optional ``patterns`` are passed as ``git ls-files`` pathspecs. The result is
     the set a fresh checkout contains, so resolving against it (rather than
     ``Path.exists()``) never sees an untracked / gitignored working-tree file.
     """
-    return run_capture(
-        [find_executable("git"), "ls-files", *patterns], cwd=repo, check=True
-    ).stdout.split()
+    listed = run_capture([find_executable("git"), "ls-files", *patterns], cwd=repo, check=True)
+    return [RelPath(path) for path in listed.stdout.split()]
 
 
 def git_toplevel(start: Path | None = None) -> Path:

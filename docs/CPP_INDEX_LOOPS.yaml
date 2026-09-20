@@ -17,8 +17,8 @@
 # increment clause or the body. All three spellings are read, `for`, `while` and
 # `do`/`while`, because a gate that knew only `for` would be passed by rewriting the
 # header. A scan advancing its index by a variable amount is a counting loop wherever
-# the step is written, while a getline loop, a find-driven cursor and a read drain
-# are not.
+# the step is written, and so is a find-driven cursor whose body steps the position
+# it found, while a getline loop and a read drain are not.
 
 loops:
   - file: cpp/src/detail/loader_utils.cpp
@@ -34,13 +34,13 @@ loops:
     text: "while ((pos = text.find(symbol, pos)) != std::string::npos)"
     count: 1
   - file: cpp/tests/test_feature_matrix_parity.cpp
-    text: "while (i + 1 < n && (text[i] != || text[i + 1] != ))"
+    text: "while (i + 1 < n && (text[i] != '*' || text[i + 1] != '/'))"
     count: 1
   - file: cpp/tests/test_feature_matrix_parity.cpp
     text: "while (i < n && text[i] != quote)"
     count: 1
   - file: cpp/tests/test_feature_matrix_parity.cpp
-    text: "while (i < n && text[i] !=)"
+    text: "while (i < n && text[i] != '\\n')"
     count: 1
   - file: cpp/tests/test_feature_matrix_parity.cpp
     text: "while (start > 0 && is_ident_char(text[start - 1]))"

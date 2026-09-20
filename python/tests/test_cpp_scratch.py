@@ -79,3 +79,19 @@ def test_a_link_planted_under_the_name_is_refused_rather_than_followed(temp_root
     assert reap_dead_scratch_dirs() == 0
     assert link.is_symlink()
     assert (target / "not_ours.bin").is_file()
+
+
+def test_a_directory_the_removal_could_not_take_is_not_counted(temp_root: Path) -> None:
+    """The count is of directories gone, not of removals attempted."""
+    if os.geteuid() == 0:
+        pytest.skip("a superuser unlinks through any permission")
+    dead = temp_root / f"{SCRATCH_PREFIX}4246"
+    held = dead / "held"
+    held.mkdir(parents=True)
+    (held / "pinned.bin").write_bytes(b"x")
+    held.chmod(0o500)
+    try:
+        assert reap_dead_scratch_dirs() == 0
+        assert dead.exists()
+    finally:
+        held.chmod(0o700)

@@ -57,7 +57,11 @@ def reap_dead_scratch_dirs() -> int:
             continue
         else:
             shutil.rmtree(candidate, ignore_errors=True)
-            removed += 1
+            # Counted only when it is gone: a directory the removal could not
+            # take, one holding an entry this user cannot unlink, stays and is
+            # not a removal.
+            if not candidate.exists():
+                removed += 1
         finally:
             os.close(fd)
     return removed
