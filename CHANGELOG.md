@@ -27,6 +27,36 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The C++ mutation sweep runs in slices, behind a compiler cache keyed on
+  the plugin and the configuration.** Each mutation tree is now swept by three
+  CI legs rather than one: a leg builds the tree under a generated Mull
+  configuration that holds the other slices' files out, so it carries its own
+  slice's mutants alone (`ALETHEIA_MUTATION_CPP_STAGE` names the tree,
+  `ALETHEIA_MUTATION_CPP_SLICE` the slice), and the `mutation cpp` job unions
+  each tree's slices before intersecting the trees. No list says which file is
+  in which slice: the set a slice can claim is every tracked file under
+  `cpp/src` and `cpp/include` that `cpp/mull.yml` does not already hold out,
+  and the partition is computed from it and balanced on the per-file counts
+  recorded in `docs/MUTATION_BENCH.yaml`. The slices state what they hold out
+  rather than what they claim, which decides how a mistake surfaces: a file no
+  slice claims is mutated by all of them, and the merge refuses the repeated
+  identifiers, where stating what a slice claims would drop that file and
+  report the smaller census as a clean sweep. The merge also refuses a union
+  below the recorded census, a census that grew being ordinary work.
+- **A mutation build's objects are cached under the plugin's bytes and the
+  configuration's.** The build ran the compiler bare, because what its objects
+  hold is not all on the command line: the plugin is named there by path and
+  read by content, and the configuration naming the mutators and the held-out
+  paths is not named there at all. The launcher now runs the compiler through
+  `ccache` with both named as extra files to hash and the compiler hashed by
+  content, and `ALETHEIA_MULL_CONFIG` names that configuration for the
+  configure, the plugin and the cache alike. Measured on one tree: a cold
+  build takes 52s reading 204 misses of 205 cacheable calls, and the same tree
+  wiped and rebuilt takes 5s reading 204 hits of 204, with the rebuilt tree
+  carrying the recorded census unchanged. A slice's tree records the digest of
+  the configuration it was built under and is discarded when that differs,
+  because nothing in CMake knows an object depends on that file.
+
 - **The C++ mutation lane runs as two legs and a merge, and every mutation
   budget is read off a measurement.** Each mutation tree is swept in a CI lane
   of its own (`ALETHEIA_MUTATION_CPP_STAGE=leak` or `plain`), which reports as

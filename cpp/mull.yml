@@ -1,9 +1,12 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Mull reads this from the compiler's and the runner's working directory upward,
-# so it holds for the plugin compiling under cpp/build-mutation and for
-# mull-runner run from cpp or from that tree.
+# The build and the runner are both told to read this, by MULL_CONFIG, rather
+# than left to find it from their working directory upward: the compiler cache
+# hashes the file it is told to read, and a file found by a search is one the
+# cache could not have hashed. A sliced lane is given a generated configuration
+# instead, this one with the files of the other slices held out, so what a
+# slice's objects carry is named in the same place as what was hashed for them.
 #
 # cxx_default is arithmetic, comparison, boundary and increment mutants, which
 # reach only sources that compare or compute on primitive values. The two call

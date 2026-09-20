@@ -349,9 +349,11 @@ jobs:
   # observed survivors > the docs/MUTATION_BENCH.yaml baseline.  It runs once
   # per binding, in parallel: the three tools cost wildly different amounts and
   # a single job charges the slowest of them against a clock the other two have
-  # already spent.  The C++ binding is two legs, one per mutation tree, and
-  # the `mutation cpp` job below merges them into the one C++ verdict; a leg
-  # judges no survivor, since a mutant one tree let live may die in the other.
+  # already spent.  The C++ binding is six legs, each one tree carrying one
+  # slice of the surface's mutants, and the `mutation cpp` job below unions
+  # each tree's slices and intersects the trees into the one C++ verdict; a
+  # leg judges no survivor, since it has read neither the rest of its own
+  # tree nor anything of the other, where the mutant it let live may die.
   # The `mutation testing` job at the end of this file is what the main branch
   # ruleset requires; it is the one that reports these lanes.
   mutation-lane:
@@ -374,7 +376,12 @@ jobs:
           #
           # Every budget is read off a measurement: the lane's slowest recorded
           # wall clock plus the allowance for its caches missing, rounded up
-          # to five minutes.  The allowance is what a cold run paid, measured
+          # to five minutes.  A slice keeps the budget measured for the whole
+          # tree it is a slice of, which bounds it with room to spare and is
+          # the honest value until a sliced run has been read: this change
+          # cannot measure CI, and the rule that a change re-measures its
+          # budget is met by re-taking these from `cpp-legs.json` after the
+          # first run rather than by guessing a third of them now.  The allowance is what a cold run paid, measured
           # on run 30150643321 (the toolchain bump, every cache cold): the Agda
           # install 18m34s and the FFI build 9m08s, 27m42s; a C++ leg adds the
           # Mull build, 5m35s on run 35486430315, 33m17s.  The slowest walls
@@ -392,6 +399,7 @@ jobs:
           - lane: python
             binding: python
             stage: ''
+            slice: ''
             timeout: 40
             skip_python: ''
             skip_go: '1'
@@ -399,20 +407,55 @@ jobs:
           - lane: go
             binding: go
             stage: ''
+            slice: ''
             timeout: 50
             skip_python: '1'
             skip_go: ''
             skip_cpp: '1'
-          - lane: cpp-leak
+          - lane: cpp-leak-1
             binding: cpp
             stage: leak
+            slice: '1'
             timeout: 80
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
-          - lane: cpp-plain
+          - lane: cpp-leak-2
+            binding: cpp
+            stage: leak
+            slice: '2'
+            timeout: 80
+            skip_python: '1'
+            skip_go: '1'
+            skip_cpp: ''
+          - lane: cpp-leak-3
+            binding: cpp
+            stage: leak
+            slice: '3'
+            timeout: 80
+            skip_python: '1'
+            skip_go: '1'
+            skip_cpp: ''
+          - lane: cpp-plain-1
             binding: cpp
             stage: plain
+            slice: '1'
+            timeout: 95
+            skip_python: '1'
+            skip_go: '1'
+            skip_cpp: ''
+          - lane: cpp-plain-2
+            binding: cpp
+            stage: plain
+            slice: '2'
+            timeout: 95
+            skip_python: '1'
+            skip_go: '1'
+            skip_cpp: ''
+          - lane: cpp-plain-3
+            binding: cpp
+            stage: plain
+            slice: '3'
             timeout: 95
             skip_python: '1'
             skip_go: '1'
@@ -588,6 +631,45 @@ jobs:
           chmod +x "${HOME}/.local/bin/mull-runner-23" "${HOME}/.local/bin/mull-reporter-23"
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
+      # The mutation build compiles its tree from cold on every run, and the
+      # tree is the larger half of a C++ leg's clock.  ccache persists those
+      # objects across runs: cpp/CMakeLists.txt runs the compiler through it
+      # under ALETHEIA_MUTATION, naming the plugin and the Mull configuration
+      # as extra files to hash, which is what the command line does not carry
+      # (probes/cpp_CMakeLists.txt--a-mutation-object-is-cached-under-the-
+      # plugin-and-the-config.sh).  Measured locally, 24 cores at --parallel 8:
+      # a cold tree builds in 52s reading 204 misses of 205 cacheable calls, and
+      # the same tree wiped and rebuilt takes 5s reading 204 hits of 204.
+      #
+      # Per lane, because a lane's objects are its own: the two trees differ by
+      # their sanitizer and the slices by the configuration each is given, so
+      # one shared key would hold one lane's objects and miss for the other
+      # five.  CCACHE_MAXSIZE is read off the tree it holds: 114 MB of objects,
+      # so 400M leaves room for a few revisions of them and the six lanes
+      # together stay well inside what the platform keeps.  The key carries the
+      # toolchain deb key verbatim, because compiler_check=content hashes
+      # clang-23 and not the LLVM runtime beside it, and that key is what pins
+      # it.  Split restore/save like the build tree, so a lane that built its
+      # tree and then failed still seeds the next run.
+      - name: Set up ccache (C++ mutation trees)
+        if: matrix.binding == 'cpp'
+        run: |
+          set -euo pipefail
+          command -v ccache >/dev/null || sudo apt-get install -y ccache
+          {
+            echo "CCACHE_DIR=${HOME}/.ccache"
+            echo "CCACHE_MAXSIZE=400M"
+          } >> "${GITHUB_ENV}"
+      - name: Restore ccache (C++ mutation trees)
+        if: matrix.binding == 'cpp'
+        id: ccache-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.ccache
+          key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-${{ github.sha }}
+          restore-keys: |
+            ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-
+
       # Restore the build tree (Agda .agdai + MAlonzo .hs + the copied .so, plus
       # the shake-exe root dist-newstyle) so `cabal run shake -- build` below is a
       # Shake NO-OP when the PR touches no Agda source — the common case (a
@@ -603,8 +685,9 @@ jobs:
       # pr-full-ci.yml's key (SAME tree, seeded on push:main, so a fresh PR
       # branch reads it via the restore-keys prefix); safe to share — Shake keys
       # on content and `build` errors on a stale tree, so it never ships stale.
-      # NOT ccache: the Mull `-fpass-plugin` C++ compile is left cold (ccache
-      # cannot content-hash the plugin binary -> stale-object risk).
+      # The C++ mutation compile has a cache of its own, per lane, set up
+      # below with the toolchain rather than here: its objects depend on the
+      # plugin and the Mull configuration, which this key does not carry.
       - name: Restore incremental build tree (build/ + dist-newstyle/)
         id: build-tree-cache
         uses: actions/cache/restore@v6
@@ -628,9 +711,11 @@ jobs:
           ALETHEIA_MUTATION_SKIP_PYTHON: ${{ matrix.skip_python }}
           ALETHEIA_MUTATION_SKIP_GO: ${{ matrix.skip_go }}
           ALETHEIA_MUTATION_SKIP_CPP: ${{ matrix.skip_cpp }}
-          # Which C++ tree this lane sweeps; empty means the whole lane, which
-          # no lane here runs, since each tree is a leg of its own.
+          # Which C++ tree this lane sweeps, and which slice of the surface it
+          # carries mutants for. Empty means the whole lane, which no lane here
+          # runs, since each tree is three legs and each leg one slice.
           ALETHEIA_MUTATION_CPP_STAGE: ${{ matrix.stage }}
+          ALETHEIA_MUTATION_CPP_SLICE: ${{ matrix.slice }}
         run: python/.venv/bin/python3 -m tools.mutation_run
 
       # Every lane's reports leave the runner whatever ended the lane: a C++
@@ -657,6 +742,16 @@ jobs:
       # that immutability makes a second writer of the same key a logged
       # failure rather than a no-op; the Python lane reaches it soonest and is
       # the least likely of the three to run out of clock before it does.
+      # `!cancelled()`, so a lane that swept and then failed its verdict still
+      # saves what it compiled; skipped on an exact-key hit, the key being
+      # immutable, which makes a second write of one a logged failure.
+      - name: Save ccache (C++ mutation trees)
+        if: ${{ !cancelled() && matrix.binding == 'cpp' && steps.ccache-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.ccache
+          key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-${{ github.sha }}
+
       - name: Save incremental build tree
         if: ${{ !cancelled() && matrix.binding == 'python' && steps.build-tree-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6

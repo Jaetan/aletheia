@@ -98,9 +98,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
-
-import yaml
+from typing import TYPE_CHECKING
 
 from tools._common import (
     find_executable,
@@ -112,19 +110,19 @@ from tools._common import (
 )
 from tools.mutation_cpp import cpp_survivor_rows, is_cpp_leg, run_cpp
 from tools.mutation_report import (
+    SPEC_PATH,
     BindingSpec,
     DriftEntry,
     LedgerRow,
     MutationReport,
-    Spec,
     SurvivorKey,
+    load_spec,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SPEC_PATH = REPO_ROOT / "docs" / "MUTATION_BENCH.yaml"
 ARTIFACT_BASE = REPO_ROOT / "benchmarks" / "mutation"
 
 # Exit codes (mirrors the CHANGELOG / stability runners' convention).
@@ -160,11 +158,6 @@ class MutmutCounts:
     def total(self) -> int:
         """Sum across every parsed status section."""
         return self.killed + self.survived + self.timeout + self.skipped
-
-
-def load_spec() -> Spec:
-    """Load docs/MUTATION_BENCH.yaml (per-binding tool / hot_path / baseline)."""
-    return cast("Spec", yaml.safe_load(SPEC_PATH.read_text()))
 
 
 def _parse_mutmut(raw: str) -> MutmutCounts:

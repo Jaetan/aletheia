@@ -13,7 +13,16 @@ that drives it.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import NotRequired, TypedDict
+from pathlib import Path
+from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
+
+import yaml
+
+if TYPE_CHECKING:
+    from tools._common import RelPath
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SPEC_PATH = REPO_ROOT / "docs" / "MUTATION_BENCH.yaml"
 
 # Last ``raw_log`` characters kept in the archived JSON (full log lands in the
 # per-binding ``<binding>.raw.txt`` artifact alongside it).
@@ -35,6 +44,8 @@ class Baseline(TypedDict):
     survivors: NotRequired[int]
     timeout_ceiling: NotRequired[int]
     total_mutants: NotRequired[int]
+    # Mutants per repository-relative file, which the C++ slices are cut on.
+    mutants_by_file: NotRequired[dict[RelPath, int]]
     score_pct: NotRequired[int]
     run_at: NotRequired[str]
     survivors_ledger: NotRequired[list[LedgerRow]]
@@ -51,6 +62,17 @@ class Spec(TypedDict):
     """The top-level shape of ``docs/MUTATION_BENCH.yaml``."""
 
     bindings: NotRequired[dict[str, BindingSpec]]
+
+
+def load_spec() -> Spec:
+    """Load ``docs/MUTATION_BENCH.yaml`` (per-binding tool / hot_path / baseline).
+
+    Here rather than with the runner, so a lane can read the record without
+    importing the module that drives it: the C++ merge reads the census it
+    refuses a short union against, and the runner reads the same file to judge
+    the survivors.
+    """
+    return cast("Spec", yaml.safe_load(SPEC_PATH.read_text()))
 
 
 class DriftEntry(TypedDict):

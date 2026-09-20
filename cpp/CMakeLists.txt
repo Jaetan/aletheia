@@ -30,6 +30,74 @@ endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# ---------------------------------------------------------------------------
+# Mutation testing
+# ---------------------------------------------------------------------------
+# Opt-in via -DALETHEIA_MUTATION=ON.  When enabled, the Mull IR-pass plugin
+# is attached to the aletheia-cpp library + unit_tests target ONLY (NOT to
+# Catch2 / OpenXLSX / yaml-cpp / nlohmann_json — third-party code with heavy
+# templates triggers compiler crashes under the plugin, and we don't care
+# about their mutation score anyway).
+#
+# Build into a dedicated directory so the instrumented artifacts are not
+# mixed with the standard build:
+#
+#   cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
+#         -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
+#   cmake --build build-mutation --target unit_tests
+#   mull-runner-23 ./build-mutation/unit_tests
+#
+# A CI leg sweeps one slice of the surface instead of a whole tree, which is
+# the same build given a generated configuration holding the other slices'
+# files out (tools/mutation_cpp_slices.py writes it, tools/mutation_cpp.py
+# puts it in place).  Its tree is the tree's directory and the slice's number:
+#
+#   cmake -B build-mutation-plain-1 -DALETHEIA_MUTATION=ON \
+#         -DALETHEIA_MULL_CONFIG=$PWD/build-mutation-plain-1/mull-slice.yml \
+#         -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
+#
+# Requires Mull-23 (LLVM 23), which tools/build_mull.sh builds from source (see
+# docs/operations/MUTATION.md § Installation), and clang-23.  Mull's IR pass uses
+# LLVM version-specific APIs, so the compiler version MUST match the Mull binary
+# version (mull-ir-frontend-23 with clang-23, the supported toolchain).  -O0 -g is
+# mandatory: optimisations elide AST nodes
+# Mull would otherwise mutate, debug info pins source locations in the
+# survivor report.  ALETHEIA_MUTATION_FLAGS is consumed by the per-target
+# target_compile_options() calls below (next to the add_library /
+# add_executable definitions for aletheia-cpp + unit_tests).
+option(ALETHEIA_MUTATION "Build aletheia-cpp + unit_tests with Mull IR pass plugin" OFF)
+# The one name for the configuration the plugin reads as it compiles and the
+# runner reads as it sweeps.  A sliced lane points it at a generated config
+# that holds out the files of the other slices; everything else takes the
+# tree's own.  It is one variable because the compiler cache below hashes
+# whatever it names: two names could drift apart, and the object cached under
+# one configuration would then be served to another.
+set(ALETHEIA_MULL_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/mull.yml" CACHE FILEPATH
+    "The Mull configuration the plugin and the runner read")
+set(ALETHEIA_MUTATION_FLAGS "")
+if(ALETHEIA_MUTATION)
+    set(MULL_PLUGIN "$ENV{HOME}/.local/bin/mull-ir-frontend-23")
+    if(NOT EXISTS "${MULL_PLUGIN}")
+        message(FATAL_ERROR
+            "Mull IR pass plugin not found at ${MULL_PLUGIN}; "
+            "run tools/build_mull.sh (docs/operations/MUTATION.md § Installation)")
+    endif()
+    if(NOT EXISTS "${ALETHEIA_MULL_CONFIG}")
+        message(FATAL_ERROR
+            "Mull configuration not found at ${ALETHEIA_MULL_CONFIG}; "
+            "a mutation build reads one, and a missing one silently mutates "
+            "the vendored tree with the default mutator set")
+    endif()
+    message(STATUS "Mutation lane: -fpass-plugin=${MULL_PLUGIN} (aletheia-cpp + unit_tests only)")
+    # -grecord-command-line: the plugin re-parses each translation unit with
+    # the flags recorded here to tell a real mutant from junk (a macro
+    # expansion, a system header, an expression the source never wrote).
+    # Without the record it re-parses with no flags at all, the first project
+    # include fails, and it drops every mutant of that unit, so the surface was
+    # whichever units happened to parse without their include paths.
+    set(ALETHEIA_MUTATION_FLAGS -fpass-plugin=${MULL_PLUGIN} -g -O0 -grecord-command-line)
+endif()
+
 # ccache: a transparent compiler cache.  Auto-enabled wherever ccache is on PATH
 # (CI persists ~/.ccache across runs); a plain no-op when ccache is absent, so a
 # local build without it is unchanged.  Targets the repeated from-scratch C++
@@ -41,12 +109,27 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # `clang++-23` and is unaffected by ccache (cmake 4.1.2 exports no launcher
 # token, and clang-tidy-23 parses the DB cleanly).
 #
-# Never under ALETHEIA_MUTATION: the Mull plugin's output depends on the plugin
-# binary and on cpp/mull.yml, neither of which ccache hashes, so a cached object
-# replays the mutants (and the plugin's own stderr) of an earlier configuration.
+# A mutation build takes the launcher through `cmake -E env`, because what the
+# object depends on there is not all on the command line: the plugin binary
+# reached by -fpass-plugin is named by path and read by content, and the
+# configuration naming the mutators and the held-out paths is not on the line at
+# all.  So the environment names both to ccache as extra files to hash, and
+# `compiler_check=content` hashes the compiler itself rather than its mtime and
+# size.  Without those a rebuild after a plugin or configuration change replays
+# the earlier configuration's mutants, and its stderr with them; with them it
+# misses, which is what probes/cpp_CMakeLists.txt--a-mutation-object-is-cached-
+# under-the-plugin-and-the-config.sh holds.  The same env carries MULL_CONFIG,
+# so the configuration the plugin reads is the one whose content was hashed.
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM AND NOT ALETHEIA_MUTATION)
     set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+elseif(CCACHE_PROGRAM)
+    set(CMAKE_CXX_COMPILER_LAUNCHER
+        "${CMAKE_COMMAND}" -E env
+        "CCACHE_EXTRAFILES=${MULL_PLUGIN}:${ALETHEIA_MULL_CONFIG}"
+        "CCACHE_COMPILERCHECK=content"
+        "MULL_CONFIG=${ALETHEIA_MULL_CONFIG}"
+        "${CCACHE_PROGRAM}")
 endif()
 
 # ---------------------------------------------------------------------------
@@ -125,51 +208,6 @@ if(ALETHEIA_SANITIZER_FLAGS)
         "-fsanitize-ignorelist=${CMAKE_CURRENT_SOURCE_DIR}/sanitizer-ignorelist.txt")
     add_compile_options(${ALETHEIA_SANITIZER_FLAGS})
     add_link_options(${ALETHEIA_SANITIZER_FLAGS})
-endif()
-
-# ---------------------------------------------------------------------------
-# Mutation testing
-# ---------------------------------------------------------------------------
-# Opt-in via -DALETHEIA_MUTATION=ON.  When enabled, the Mull IR-pass plugin
-# is attached to the aletheia-cpp library + unit_tests target ONLY (NOT to
-# Catch2 / OpenXLSX / yaml-cpp / nlohmann_json — third-party code with heavy
-# templates triggers compiler crashes under the plugin, and we don't care
-# about their mutation score anyway).
-#
-# Build into a dedicated directory so the instrumented artifacts are not
-# mixed with the standard build:
-#
-#   cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
-#         -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
-#   cmake --build build-mutation --target unit_tests
-#   mull-runner-23 ./build-mutation/unit_tests
-#
-# Requires Mull-23 (LLVM 23), which tools/build_mull.sh builds from source (see
-# docs/operations/MUTATION.md § Installation), and clang-23.  Mull's IR pass uses
-# LLVM version-specific APIs, so the compiler version MUST match the Mull binary
-# version (mull-ir-frontend-23 with clang-23, the supported toolchain).  -O0 -g is
-# mandatory: optimisations elide AST nodes
-# Mull would otherwise mutate, debug info pins source locations in the
-# survivor report.  ALETHEIA_MUTATION_FLAGS is consumed by the per-target
-# target_compile_options() calls below (next to the add_library /
-# add_executable definitions for aletheia-cpp + unit_tests).
-option(ALETHEIA_MUTATION "Build aletheia-cpp + unit_tests with Mull IR pass plugin" OFF)
-set(ALETHEIA_MUTATION_FLAGS "")
-if(ALETHEIA_MUTATION)
-    set(MULL_PLUGIN "$ENV{HOME}/.local/bin/mull-ir-frontend-23")
-    if(NOT EXISTS "${MULL_PLUGIN}")
-        message(FATAL_ERROR
-            "Mull IR pass plugin not found at ${MULL_PLUGIN}; "
-            "run tools/build_mull.sh (docs/operations/MUTATION.md § Installation)")
-    endif()
-    message(STATUS "Mutation lane: -fpass-plugin=${MULL_PLUGIN} (aletheia-cpp + unit_tests only)")
-    # -grecord-command-line: the plugin re-parses each translation unit with
-    # the flags recorded here to tell a real mutant from junk (a macro
-    # expansion, a system header, an expression the source never wrote).
-    # Without the record it re-parses with no flags at all, the first project
-    # include fails, and it drops every mutant of that unit, so the surface was
-    # whichever units happened to parse without their include paths.
-    set(ALETHEIA_MUTATION_FLAGS -fpass-plugin=${MULL_PLUGIN} -g -O0 -grecord-command-line)
 endif()
 
 # ---------------------------------------------------------------------------

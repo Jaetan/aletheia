@@ -46,12 +46,14 @@ from pathlib import Path
 
 import yaml
 
-from tools.mutation_cpp import cpp_kill_routes
+from tools.mutation_cpp import CppLeg, CppTree, cpp_kill_routes
 
 baseline = yaml.safe_load(Path("docs/MUTATION_BENCH.yaml").read_text(encoding="utf-8"))
 recorded = baseline["bindings"]["cpp"]["baseline"]
 routes = recorded["kill_routes"]
-observed = cpp_kill_routes(Path(sys.argv[1]))
+# The trees swept whole above, which is how this census was recorded: a
+# sliced run reads the same mutants through six reports instead of two.
+observed = cpp_kill_routes(Path(sys.argv[1]), [CppLeg(tree) for tree in CppTree])
 if observed is None:
     print("no census could be read from the sweeps")
     sys.exit(1)

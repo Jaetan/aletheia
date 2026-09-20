@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tools.mutation_cpp import CPP_LANES, cpp_kill_routes
+from tools.mutation_cpp import CppLeg, CppTree, cpp_kill_routes, sliced_legs
 from tools.mutation_routes import KILL_ROUTES, MULL_PASSED, MULL_TIMEDOUT, kill_route, merge_routes
 
 if TYPE_CHECKING:
@@ -90,28 +90,45 @@ def _write_lane(path: Path, rows: list[tuple[str, int, str, str]]) -> None:
         _ = conn.executemany("INSERT INTO mutant VALUES (?, ?, ?, ?)", rows)
 
 
-def test_the_census_reads_every_lane_report(tmp_path: Path) -> None:
-    """The counts come from the lanes' SQLite reports, named as the lanes name them."""
-    names = [f"cpp-mull-{sanitizer or 'plain'}.sqlite" for sanitizer, _ in CPP_LANES]
-    _write_lane(
-        tmp_path / names[0],
-        [("m1", _FAILED, "", ""), ("m2", MULL_PASSED, _SUMMARY_PASSED, "")],
-    )
-    _write_lane(
-        tmp_path / names[1],
-        [
-            ("m1", _FAILED, _ASSERTION + _SUMMARY_FAILED, ""),
-            ("m2", MULL_PASSED, _SUMMARY_PASSED, ""),
-        ],
-    )
-    routes = cpp_kill_routes(tmp_path)
+def test_the_census_reads_every_leg_report(tmp_path: Path) -> None:
+    """The counts come from the legs' SQLite reports, named as the legs name them.
+
+    A mutant is in one slice per tree, so it is read by two of the six legs,
+    and a route it took in either is the route it is attributed by.
+    """
+    legs = sliced_legs()
+    for leg in legs:
+        # Two mutants per slice, named for the slice, so no two legs of a tree
+        # carry one identifier: that is what the partition guarantees.
+        killed, survived = f"k{leg}", f"s{leg}"
+        stdout = _ASSERTION + _SUMMARY_FAILED if leg.tree is CppTree.PLAIN else ""
+        _write_lane(
+            tmp_path / f"{leg.report_name}.sqlite",
+            [(killed, _FAILED, stdout, ""), (survived, MULL_PASSED, _SUMMARY_PASSED, "")],
+        )
+    routes = cpp_kill_routes(tmp_path, legs)
+    assert routes is not None
+    # Each tree's three slices carry two mutants each, and the trees carry
+    # different identifiers here, so the census is every leg's rows.
+    assert sum(routes.values()) == 2 * len(legs)
+    assert routes["survived"] == len(legs)
+
+
+def test_a_leg_without_a_report_leaves_no_census(tmp_path: Path) -> None:
+    """Part of a census would misattribute every mutant the missing leg killed."""
+    legs = sliced_legs()
+    _write_lane(tmp_path / f"{legs[0].report_name}.sqlite", [("m1", _FAILED, "", "")])
+    assert cpp_kill_routes(tmp_path, legs) is None
+
+
+def test_a_whole_tree_sweep_is_read_by_its_own_legs(tmp_path: Path) -> None:
+    """An unsliced run names its reports by tree alone, and the census reads those."""
+    legs = [CppLeg(tree) for tree in CppTree]
+    for leg in legs:
+        _write_lane(
+            tmp_path / f"{leg.report_name}.sqlite",
+            [("m1", _FAILED, _ASSERTION + _SUMMARY_FAILED, "")],
+        )
+    routes = cpp_kill_routes(tmp_path, legs)
     assert routes is not None
     assert routes["test"] == 1
-    assert routes["survived"] == 1
-    assert sum(routes.values()) == 2
-
-
-def test_a_lane_without_a_report_leaves_no_census(tmp_path: Path) -> None:
-    """Half a census would misattribute every mutant the missing lane killed."""
-    _write_lane(tmp_path / "cpp-mull-leak.sqlite", [("m1", _FAILED, "", "")])
-    assert cpp_kill_routes(tmp_path) is None
