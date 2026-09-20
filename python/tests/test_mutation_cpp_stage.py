@@ -32,9 +32,12 @@ from tools.mutation_cpp import (
     CPP_STAGE_ENV,
     CppLeg,
     CppTree,
+    elements_counts,
     is_cpp_leg,
+    merge_elements,
     run_cpp,
     sliced_legs,
+    union_slices,
 )
 from tools.mutation_cpp_slices import CPP_SLICES
 
@@ -373,6 +376,30 @@ def test_the_merge_refuses_a_union_under_the_recorded_census(
     merged = run_cpp(out)
     assert merged.error is not None
     assert f"union to {len(_ALL_MUTANTS)} mutants, under the recorded" in merged.error
+
+
+def test_a_merged_report_carries_the_score_of_its_own_mutants() -> None:
+    """A merge produces a report no sweep did, so the score must follow the merge.
+
+    Mull writes the score of the sweep behind each input, and the field is
+    what the Elements viewer renders: the cross-tree merge revives every
+    mutant another tree killed, and a tree's slices each scored their own
+    share of the surface. Carrying the first input's score forward states a
+    number nothing measured.
+    """
+    left = {**_elements(("m1", "m2"), {"m1"}), "mutationScore": 50.0}
+    right = {**_elements(("m1", "m2"), set()), "mutationScore": 99.0}
+    merged = merge_elements([left, right])
+    assert elements_counts(merged) == (2, 0)
+    assert merged["mutationScore"] == 100.0
+
+    # A tree's slices: one killed its only mutant, the other let its own live.
+    first = {**_elements(("m1",), set()), "mutationScore": 100.0}
+    second = {**_elements(("m2",), {"m2"}), "mutationScore": 0.0}
+    unioned = union_slices([first, second])
+    assert not isinstance(unioned, str)
+    assert elements_counts(unioned) == (2, 1)
+    assert unioned["mutationScore"] == 50.0
 
 
 def test_the_merge_needs_the_legs_directory(

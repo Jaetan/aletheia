@@ -467,6 +467,22 @@ def _short_of_record(tree: CppTree, total: int) -> str | None:
     )
 
 
+def _scored(report: dict[str, object]) -> dict[str, object]:
+    """Give a merged report the score its own mutants carry.
+
+    Mull writes the score of the sweep that produced a report, and a merge
+    produces a report no sweep did: the cross-tree merge revives every mutant
+    a tree other than the first killed, and a tree's slices each scored their
+    own share of the surface.  Left alone the field keeps the first input's
+    score, which is what the Elements viewer renders and what a reader of the
+    artifact believes.  Measured on two reports scoring 50 and 99 whose merge
+    kills every mutant: the merge carried 50.
+    """
+    total, survived = elements_counts(report)
+    report["mutationScore"] = round(100.0 * (total - survived) / total, 2) if total else 0.0
+    return report
+
+
 def union_slices(reports: Sequence[Mapping[str, object]]) -> dict[str, object] | str:
     """Union one tree's slices into that tree's census, or name a mutant two of them carry.
 
@@ -500,7 +516,7 @@ def union_slices(reports: Sequence[Mapping[str, object]]) -> dict[str, object] |
                 files[path] = {**copy.deepcopy(dict(entry)), "mutants": []}
             cast("list[object]", files[path]["mutants"]).extend(copy.deepcopy(mutants))
     merged["files"] = files
-    return merged
+    return _scored(merged)
 
 
 def merge_elements(reports: list[Mapping[str, object]]) -> dict[str, object]:
@@ -530,7 +546,7 @@ def merge_elements(reports: list[Mapping[str, object]]) -> dict[str, object]:
                 continue
             if str(mutant["id"]) not in (survived_everywhere or set()):
                 mutant["status"] = "Killed"
-    return merged
+    return _scored(merged)
 
 
 def cpp_lane_command(

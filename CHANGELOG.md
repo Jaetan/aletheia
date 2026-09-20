@@ -509,6 +509,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A merged mutation report carries the score of its own mutants.** Mull
+  writes the score of the sweep behind each report, and both merges produce a
+  report no sweep did: the cross-tree merge revives every mutant another tree
+  killed, and a tree's slices each scored their own share of the surface. The
+  field was carried forward from the first input, so `cpp-mull.json` stated a
+  number nothing had measured, which is what the Elements viewer renders.
+  Measured on two reports scoring 50 and 99 whose merge kills every mutant:
+  the merge carried 50. It is recomputed from the merged statuses now. Masked
+  until now only because every C++ lane reads 100 percent.
 - **The Mull cache key hashes the patches the build applies.** The key hashed
   `tools/build_mull.sh` alone, so a patch under `tools/mull/` edited on its own
   replayed the previous binaries from the cache and the lane swept with a
