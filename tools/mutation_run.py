@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Dynamic mutation-testing runner.
 
-Drives each binding's mutation tool in turn (mutmut for Python, go-mutesting
-for Go, Mull for C++), parses tool-specific output into a normalized
-``MutationReport`` shape, and archives per-binding JSON to
-``benchmarks/mutation/<short_sha>/``.
+Drives each binding's mutation tool in turn (mutmut for Python, gremlins for
+Go, Mull for C++ in ``tools/mutation_cpp.py``), parses tool-specific output
+into a normalized ``MutationReport`` shape (``tools/mutation_report.py``), and
+archives per-binding JSON to ``benchmarks/mutation/<short_sha>/``.
 
 Drift gate: each binding's report is compared against the baseline survivor
 count recorded in ``docs/MUTATION_BENCH.yaml``.  ``observed > baseline + 0``
@@ -31,6 +31,22 @@ Optional per-binding skip (useful for partial runs in CI lanes):
   - ALETHEIA_MUTATION_SKIP_GO=1
   - ALETHEIA_MUTATION_SKIP_CPP=1
 
+The C++ lane in stages, so CI can sweep its two trees on two machines:
+
+  - ALETHEIA_MUTATION_CPP_STAGE  unset: both trees are swept in this process
+                               and merged, the whole lane in one run.
+                               ``leak`` or ``plain``: that tree alone is
+                               swept, a leg, and the run passes when the
+                               tree built, swept and wrote its reports; a
+                               leg judges no survivor, since a mutant is a
+                               survivor of the lane only where every tree
+                               let it live.  ``merge``: nothing is swept;
+                               the legs' reports are read from the directory
+                               ALETHEIA_MUTATION_CPP_LEGS names (searched
+                               recursively, one copy of each report), merged,
+                               and gated as the whole lane is.
+  - ALETHEIA_MUTATION_CPP_LEGS   that directory, read by the merge stage only.
+
 Diff scoping (automatic): on a PR branch only the binding(s) whose directory the
 diff vs ``main`` touches are run; the rest are skipped, since an unchanged
 binding's survivor count is unchanged from its baseline by construction.  A
@@ -45,8 +61,16 @@ Artifacts written:
     python.json    {tool, total_mutants, killed, survived, score_pct, raw_log}
     go.json        same shape
     cpp.json       same shape
+    cpp-leak.json, cpp-plain.json
+                   one leg's census where the run is one leg of the C++
+                   lane (ALETHEIA_MUTATION_CPP_STAGE); recorded, not gated
+    cpp-legs.json  each leg's wall clock, written by the merge stage
     cpp-mull.json  Mull's Elements report: every C++ mutant with its status
                    and site, which the ledger check reads
+    cpp-mull-<lane>.json
+                   one tree's Elements report, what the merge reads
+    cpp-mull-<lane>.txt
+                   Mull's IDE report of that tree, its summary
     cpp-mull-<lane>.sqlite
                    Mull's SQLite report of one tree: each mutant's exit
                    status and the test binary's output, which the kill-route
@@ -65,7 +89,6 @@ each binding's hot-path source files existing per ``docs/MUTATION_BENCH.yaml``.
 from __future__ import annotations
 
 import collections
-import copy
 import json
 import os
 import re
@@ -75,7 +98,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, cast
 
 import yaml
 
@@ -87,11 +110,18 @@ from tools._common import (
     short_sha,
     write_and_report_summary,
 )
-from tools.cpp_scratch import reap_dead_scratch_dirs
-from tools.mutation_routes import lane_routes, merge_routes
+from tools.mutation_cpp import cpp_survivor_rows, is_cpp_leg, run_cpp
+from tools.mutation_report import (
+    BindingSpec,
+    DriftEntry,
+    LedgerRow,
+    MutationReport,
+    Spec,
+    SurvivorKey,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SPEC_PATH = REPO_ROOT / "docs" / "MUTATION_BENCH.yaml"
@@ -99,109 +129,6 @@ ARTIFACT_BASE = REPO_ROOT / "benchmarks" / "mutation"
 
 # Exit codes (mirrors the CHANGELOG / stability runners' convention).
 SPEC_ERROR_EXIT = 2
-
-# Last ``raw_log`` characters kept in the archived JSON (full log lands in the
-# per-binding ``<binding>.raw.txt`` artifact alongside it).
-RAW_LOG_TAIL_CHARS = 2000
-
-# A mutation score of 100% leaves the killed-from-score formula undefined
-# (division by ``100 - score``); the C++ parser special-cases it.
-FULL_SCORE_PCT = 100
-
-
-class LedgerRow(TypedDict):
-    """One recorded survivor: its mutator, file, source line and multiplicity."""
-
-    mutator: str
-    file: str
-    text: str
-    count: int
-
-
-class Baseline(TypedDict):
-    """The per-binding baseline block in ``docs/MUTATION_BENCH.yaml``."""
-
-    survivors: NotRequired[int]
-    timeout_ceiling: NotRequired[int]
-    total_mutants: NotRequired[int]
-    score_pct: NotRequired[int]
-    run_at: NotRequired[str]
-    survivors_ledger: NotRequired[list[LedgerRow]]
-
-
-class BindingSpec(TypedDict):
-    """One binding's entry under the YAML ``bindings`` mapping."""
-
-    tool: NotRequired[str]
-    baseline: NotRequired[Baseline]
-
-
-class Spec(TypedDict):
-    """The top-level shape of ``docs/MUTATION_BENCH.yaml``."""
-
-    bindings: NotRequired[dict[str, BindingSpec]]
-
-
-class DriftEntry(TypedDict):
-    """One binding's drift verdict, serialized into ``summary.json``."""
-
-    status: str
-    error: NotRequired[str]
-    observed_survivors: NotRequired[int]
-    baseline_survivors: NotRequired[int]
-    delta: NotRequired[int]
-    observed_timeouts: NotRequired[int]
-    timeout_ceiling: NotRequired[int]
-    unrecorded_survivors: NotRequired[list[LedgerRow]]
-    stale_ledger: NotRequired[list[LedgerRow]]
-
-
-# A survivor's identity in the ledger: mutator, repository-relative file and
-# the text of its source line.  Keyed on the text and not the line number, so
-# an edit above the site does not move it, and an edit of the site does.
-SurvivorKey = tuple[str, str, str]
-
-
-@dataclass
-class MutationReport:
-    """Per-binding mutation result; serialized to ``<binding>.json``."""
-
-    binding: str
-    tool: str
-    killed: int
-    survived: int
-    raw_log: str
-    error: str | None = None
-    # Mutants the tool started and could not finish, where it reports them.
-    # They are neither killed nor survived, so a run that timed out on nearly
-    # everything reports no survivors and full efficacy; the drift gate reads
-    # this to refuse such a run.  ``None`` where the tool has no such bucket.
-    timeouts: int | None = None
-
-    @property
-    def total_mutants(self) -> int:
-        """Killed + survived (excludes not-covered / skipped per tool semantics)."""
-        return self.killed + self.survived
-
-    @property
-    def score_pct(self) -> float:
-        """Mutation score: killed / (killed + survived) * 100, or 0 if total is 0."""
-        total = self.killed + self.survived
-        return 100.0 * self.killed / total if total > 0 else 0.0
-
-    def to_dict(self) -> dict[str, object]:
-        """Materialize for JSON archival; truncates raw_log to last 2000 chars."""
-        return {
-            "binding": self.binding,
-            "tool": self.tool,
-            "total_mutants": self.total_mutants,
-            "killed": self.killed,
-            "survived": self.survived,
-            "timeouts": self.timeouts,
-            "score_pct": self.score_pct,
-            "raw_log_tail": self.raw_log[-RAW_LOG_TAIL_CHARS:],
-            "error": self.error,
-        }
 
 
 def rows_to_ledger(rows: dict[SurvivorKey, int]) -> list[LedgerRow]:
@@ -218,50 +145,6 @@ def ledger_to_rows(ledger: list[LedgerRow]) -> dict[SurvivorKey, int]:
     for row in ledger:
         rows[(row["mutator"], row["file"], row["text"])] += row["count"]
     return rows
-
-
-def elements_survivor_rows(
-    report: Mapping[str, object], read_line: Callable[[str, int], str]
-) -> dict[SurvivorKey, int]:
-    """Collect the survivors of a Mull Elements report into rows.
-
-    ``report`` is the parsed ``mutation-testing-elements`` JSON: ``files``
-    maps an absolute path to its mutants, each with a ``status``, a
-    ``mutatorName`` and a start line.  A path is made repository-relative at
-    its ``cpp/`` component; ``read_line(file, line)`` supplies the source line,
-    which is stripped before it keys the row.
-    """
-    rows: dict[SurvivorKey, int] = collections.Counter()
-    files = cast("Mapping[str, Mapping[str, object]]", report.get("files", {}))
-    for path, entry in files.items():
-        mutants = cast("list[Mapping[str, object]]", entry.get("mutants", []))
-        for mutant in mutants:
-            if mutant.get("status") != "Survived":
-                continue
-            file = "cpp/" + path.split("/cpp/", 1)[1] if "/cpp/" in path else path
-            location = cast("Mapping[str, Mapping[str, int]]", mutant["location"])
-            line = location["start"]["line"]
-            rows[(str(mutant["mutatorName"]), file, read_line(file, line).strip())] += 1
-    return rows
-
-
-def _repo_line(file: str, line: int) -> str:
-    """Read the ``line``-th line (1-based) of ``file`` under the repository root."""
-    with (REPO_ROOT / file).open(encoding="utf-8") as src:
-        return src.read().split("\n")[line - 1]
-
-
-# The Elements report the C++ runner asks Mull for, beside ``cpp.json``.
-CPP_ELEMENTS_REPORT = "cpp-mull.json"
-
-
-def cpp_survivor_rows(artifact_dir: Path) -> dict[SurvivorKey, int] | None:
-    """Read the C++ sweep's survivor rows from its Elements report, if it wrote one."""
-    path = artifact_dir / CPP_ELEMENTS_REPORT
-    if not path.is_file():
-        return None
-    elements = cast("Mapping[str, object]", json.loads(path.read_text(encoding="utf-8")))
-    return elements_survivor_rows(elements, _repo_line)
 
 
 @dataclass
@@ -475,326 +358,6 @@ def parse_gremlins_summary(raw: str, where: str) -> MutationReport:
     )
 
 
-def _check_cpp_tools() -> tuple[str, str] | str:
-    """Return ``(cmake, mull_runner)`` paths when C++ can run, else an error string."""
-    cmake = shutil.which("cmake")
-    if cmake is None:
-        return "cmake not in PATH; install CMake 3.25+ to run the C++ mutation lane"
-    mull_runner = shutil.which("mull-runner-23")
-    if mull_runner is None:
-        return (
-            "mull-runner-23 not in PATH; build it with tools/build_mull.sh "
-            "(see docs/operations/MUTATION.md § Installation)"
-        )
-    if shutil.which("clang++-23") is None:
-        return "clang++-23 not in PATH; install clang-23 (apt.llvm.org, or Debian apt)"
-    plugin = Path.home() / ".local" / "bin" / "mull-ir-frontend-23"
-    if not plugin.is_file():
-        return (
-            f"mull-ir-frontend-23 plugin not found at {plugin}; "
-            "see docs/operations/MUTATION.md § Installation"
-        )
-    return (cmake, mull_runner)
-
-
-def _killed_from_mull(raw: str, survived: int) -> int:
-    """Derive the killed count from a Mull summary, falling back through its shapes."""
-    killed_m = re.search(r"Killed[^:\n]*:\s*(\d+)", raw)
-    if killed_m:
-        return int(killed_m.group(1))
-    score_m = re.search(r"Mutation score:\s*(\d+)\s*%", raw)
-    if score_m:
-        score_pct_in = int(score_m.group(1))
-        if score_pct_in >= FULL_SCORE_PCT:
-            return survived  # impossible to compute exactly; pick a reasonable proxy
-        return round(survived * score_pct_in / (FULL_SCORE_PCT - score_pct_in))
-    # Score not parsed either; fall back to "everything killed" guess.
-    return 0
-
-
-def _build_cpp_mutation_tree(
-    cmake: str,
-    cpp_root: Path,
-    build_dir: Path,
-    artifact_dir: Path,
-    sanitizer: str,
-) -> str | MutationReport:
-    """Configure + build one mutation build tree, returning the raw log or a failure report."""
-    cmake_proc = run_streaming(
-        [
-            cmake,
-            "-B",
-            str(build_dir),
-            "-DALETHEIA_MUTATION=ON",
-            f"-DALETHEIA_SANITIZER={sanitizer}",
-            "-DCMAKE_C_COMPILER=clang-23",
-            "-DCMAKE_CXX_COMPILER=clang++-23",
-        ],
-        cwd=cpp_root,
-    )
-    raw = "=== cmake configure ===\n" + cmake_proc.stdout + "\n"
-    if cmake_proc.returncode != 0:
-        (artifact_dir / "cpp.raw.txt").write_text(raw)
-        return MutationReport(
-            "cpp",
-            "mull",
-            0,
-            0,
-            raw,
-            error=f"cmake configure failed (exit {cmake_proc.returncode}; see cpp.raw.txt)",
-        )
-
-    build_proc = run_streaming(
-        [cmake, "--build", str(build_dir), "--target", "unit_tests"],
-        cwd=cpp_root,
-    )
-    raw += "=== cmake build ===\n" + build_proc.stdout + "\n"
-    if build_proc.returncode != 0:
-        (artifact_dir / "cpp.raw.txt").write_text(raw)
-        return MutationReport(
-            "cpp",
-            "mull",
-            0,
-            0,
-            raw,
-            error=f"cmake build failed (exit {build_proc.returncode}; see cpp.raw.txt)",
-        )
-    return raw
-
-
-# The two trees the C++ sweep runs, by the sanitizer each is built with and
-# the directory it lives in. Under LeakSanitizer a mutant that removes a
-# destructor leaks the object and fails, where a plain build cannot tell it
-# from the original. The plain tree carries the allocation-fault sweeps, which
-# replace the program's allocation functions to reach the cleanup a container
-# runs while it throws; a sanitizer runtime defines those same functions, so
-# the two cannot be linked together. A mutant survives the sweep only where it
-# survived both.
-CPP_LANES: tuple[tuple[str, str], ...] = (("leak", "build-mutation"), ("", "build-mutation-plain"))
-
-
-def _lane_report_name(sanitizer: str) -> str:
-    """Name the reports one lane writes, beside the merged Elements report."""
-    return f"{Path(CPP_ELEMENTS_REPORT).stem}-{sanitizer or 'plain'}"
-
-
-# The kill-route census of the C++ sweep, beside the merged Elements report.
-CPP_ROUTES_REPORT = "cpp-routes.json"
-
-
-def cpp_kill_routes(artifact_dir: Path) -> dict[str, int] | None:
-    """Count the C++ sweep's mutants by kill route, or None where a lane wrote no SQLite report."""
-    paths = [artifact_dir / f"{_lane_report_name(sanitizer)}.sqlite" for sanitizer, _ in CPP_LANES]
-    if not all(path.is_file() for path in paths):
-        return None
-    return merge_routes([lane_routes(path) for path in paths])
-
-
-def merge_elements(reports: list[Mapping[str, object]]) -> dict[str, object]:
-    """Merge Elements reports, keeping a mutant a survivor only where every lane let it survive.
-
-    The lanes compile the same sources with the same plugin, so they carry the
-    same mutants under the same identifiers; a mutant one lane killed is
-    killed, whichever instrument read it.
-    """
-    survived_everywhere: set[str] | None = None
-    for report in reports:
-        files = cast("Mapping[str, Mapping[str, object]]", report.get("files", {}))
-        survivors = {
-            str(mutant["id"])
-            for entry in files.values()
-            for mutant in cast("list[Mapping[str, object]]", entry.get("mutants", []))
-            if mutant.get("status") == "Survived"
-        }
-        survived_everywhere = (
-            survivors if survived_everywhere is None else survived_everywhere & survivors
-        )
-    merged = copy.deepcopy(dict(reports[0]))
-    files = cast("dict[str, dict[str, object]]", merged.get("files", {}))
-    for entry in files.values():
-        for mutant in cast("list[dict[str, object]]", entry.get("mutants", [])):
-            if mutant.get("status") != "Survived":
-                continue
-            if str(mutant["id"]) not in (survived_everywhere or set()):
-                mutant["status"] = "Killed"
-    return merged
-
-
-def cpp_lane_command(
-    mull_runner: str, build_dir: Path, artifact_dir: Path, sanitizer: str
-) -> list[str]:
-    """Build the runner's argv for one lane, the test binary's own argv behind ``--``."""
-    return [
-        mull_runner,
-        str(build_dir / "unit_tests"),
-        "--reporters=IDE",
-        "--reporters=Elements",
-        # The SQLite report keeps each mutant's exit status and the test
-        # binary's own output, which is what tells a kill by a test's
-        # assertion from one by a fault.
-        "--reporters=SQLite",
-        f"--report-dir={artifact_dir}",
-        f"--report-name={_lane_report_name(sanitizer)}",
-        # Everything past this marker is the test binary's own argv.
-        # Catch2 shuffles its cases by default under a seed that changes
-        # every run, and mull runs the binary once per mutant, so an
-        # unpinned lane reads a different census each sweep: two pinned
-        # sweeps of one tree agreed on every mutant, where two shuffled
-        # ones read the fault route at 98 and 99 against the pinned 93.
-        # A fault ends the process, so the order decides which test
-        # reports before the run stops. Pinning makes the recorded census
-        # a measurement rather than a sample; that the verdict holds under
-        # every order is a separate property, and a probe sweeps several
-        # orders to hold it.
-        "--",
-        "--order",
-        "decl",
-    ]
-
-
-def _run_cpp_lane(
-    mull_runner: str,
-    cpp_root: Path,
-    build_dir: Path,
-    artifact_dir: Path,
-    sanitizer: str,
-) -> tuple[str, tuple[int, int] | None]:
-    """Run one built tree under mull-runner, returning its log and its (killed, survived)."""
-    # The mutation binary folds in the real-FFI integration tests, which read
-    # the repository root from the environment the way ctest passes it.  Mull
-    # runs the binary directly, so nothing would set it and every mutant would
-    # read killed because the test died at setup.
-    #
-    # ALETHEIA_LIB is dropped for the same reason in reverse: with it set the
-    # library lookup returns before it reads the repository root, leaving that
-    # read's mutants uncovered, so the same tree would score differently for a
-    # caller who had sourced the environment script.
-    mull_env = os.environ | {"ALETHEIA_REPO_ROOT": str(REPO_ROOT)}
-    mull_env.pop("ALETHEIA_LIB", None)
-    # The IDE reporter prints the summary the counts are read from; the
-    # Elements reporter writes every mutant with its status and site, which
-    # is what the ledger is checked against.
-    runner_proc = run_streaming(
-        cpp_lane_command(mull_runner, build_dir, artifact_dir, sanitizer),
-        cwd=cpp_root,
-        env=mull_env,
-    )
-    lane = sanitizer or "plain"
-    raw = f"=== mull-runner-23 ({lane}) ===\n" + runner_proc.stdout + "\n"
-    reaped = reap_dead_scratch_dirs()
-    raw += f"scratch directories left by killed runs and removed: {reaped}\n"
-    # Mull's own summary goes to the IDE report, and its stdout carries the
-    # survivor count only when there is one: a lane that killed everything
-    # says so in the report alone, so the report is part of the lane's log.
-    ide_report = artifact_dir / f"{_lane_report_name(sanitizer)}.txt"
-    if ide_report.is_file():
-        raw += ide_report.read_text(encoding="utf-8") + "\n"
-    return raw, mull_counts(raw)
-
-
-def _sweep_cpp_lane(
-    cmake: str,
-    mull_runner: str,
-    build_dir: Path,
-    artifact_dir: Path,
-    sanitizer: str,
-) -> tuple[str, Mapping[str, object] | str]:
-    """Build and sweep one lane, returning its log and its report or the reason it has none."""
-    lane = sanitizer or "plain"
-    cpp_root = build_dir.parent
-    raw = f"=== {lane} lane ===\n"
-    built = _build_cpp_mutation_tree(cmake, cpp_root, build_dir, artifact_dir, sanitizer)
-    if isinstance(built, MutationReport):
-        return raw + built.raw_log, built.error or f"the {lane} lane did not build"
-    raw += built
-    lane_raw, counts = _run_cpp_lane(mull_runner, cpp_root, build_dir, artifact_dir, sanitizer)
-    raw += lane_raw
-    if counts is None:
-        return raw, f"could not parse the {lane} lane's mull-runner-23 summary (see cpp.raw.txt)"
-    report_path = artifact_dir / f"{_lane_report_name(sanitizer)}.json"
-    if not report_path.is_file():
-        return raw, f"the {lane} lane wrote no {report_path.name}"
-    return raw, cast("Mapping[str, object]", json.loads(report_path.read_text(encoding="utf-8")))
-
-
-def run_cpp(artifact_dir: Path) -> MutationReport:
-    """Mull pass over both mutation trees; a mutant survives only where every lane let it."""
-    checked = _check_cpp_tools()
-    if isinstance(checked, str):
-        return MutationReport("cpp", "mull", 0, 0, "", error=checked)
-    cmake, mull_runner = checked
-
-    cpp_root = REPO_ROOT / "cpp"
-    raw = ""
-    reports: list[Mapping[str, object]] = []
-    for sanitizer, directory in CPP_LANES:
-        lane_raw, outcome = _sweep_cpp_lane(
-            cmake, mull_runner, cpp_root / directory, artifact_dir, sanitizer
-        )
-        raw += lane_raw
-        (artifact_dir / "cpp.raw.txt").write_text(raw)
-        if isinstance(outcome, str):
-            return MutationReport("cpp", "mull", 0, 0, raw, error=outcome)
-        reports.append(outcome)
-
-    total, survived = _merge_cpp_lanes(artifact_dir, reports)
-    routes = cpp_kill_routes(artifact_dir)
-    raw += f"=== merged ===\nkilled {total - survived}, survived {survived} of {total}\n"
-    if routes is not None:
-        (artifact_dir / CPP_ROUTES_REPORT).write_text(json.dumps(routes, indent=2))
-        raw += "routes: " + ", ".join(f"{route} {count}" for route, count in routes.items()) + "\n"
-    (artifact_dir / "cpp.raw.txt").write_text(raw)
-    return MutationReport("cpp", "mull", total - survived, survived, raw)
-
-
-def _merge_cpp_lanes(artifact_dir: Path, reports: list[Mapping[str, object]]) -> tuple[int, int]:
-    """Write the merged Elements report and return its (total, survived) counts."""
-    merged = merge_elements(reports)
-    (artifact_dir / CPP_ELEMENTS_REPORT).write_text(json.dumps(merged))
-    survived = sum(elements_survivor_rows(merged, _repo_line).values())
-    total = sum(
-        len(cast("list[object]", entry.get("mutants", [])))
-        for entry in cast("Mapping[str, Mapping[str, object]]", merged.get("files", {})).values()
-    )
-    return total, survived
-
-
-def mull_counts(raw: str) -> tuple[int, int] | None:
-    """Read ``(killed, survived)`` from a lane's log, or None if it carries no summary.
-
-    The log is mull-runner's stdout followed by its IDE report.
-
-    Mull-19 tail summary lines (the actual format observed empirically)::
-
-        [info] Mutation score: 56%
-        [info] Surviving mutants: 17
-        [info] Total execution time: 273ms
-
-    When NOTHING survives, Mull omits the "Surviving mutants:" line entirely
-    and prints "All mutations have been killed" with a 100% score instead, so
-    a missing survivor line is the 0-survivor case, not a parse failure.  The
-    exact total comes from Mull's "<n>/<n>. Finished" progress tail (killed =
-    total - survived); the score-based estimate is the fallback when the
-    progress line is absent (older Mull / piped output).
-    """
-    survived_m = re.search(r"Surviving mutants:\s*(\d+)", raw) or re.search(
-        r"Survived[^:\n]*:\s*(\d+)", raw
-    )
-    all_killed = bool(
-        re.search(r"All mutations have been killed", raw)
-        or re.search(r"Mutation score:\s*100\s*%", raw)
-    )
-    if survived_m:
-        survived = int(survived_m.group(1))
-    elif all_killed:
-        survived = 0
-    else:
-        return None
-    finished = re.findall(r"\d+/(\d+)\.\s*Finished", raw)
-    killed = int(finished[-1]) - survived if finished else _killed_from_mull(raw, survived)
-    return killed, survived
-
-
 # ── Diff-scope ──────────────────────────────────────────────────────────────
 # A binding's mutation result can only change if its own source, tests, or
 # mutation config changed — OR if a shared artifact every binding depends on
@@ -915,6 +478,19 @@ def _run_enabled_bindings(
     return reports, elapsed
 
 
+def _ungated(rep: MutationReport) -> DriftEntry | None:
+    """Return the verdict no baseline enters into, or None where one does.
+
+    A leg is one tree: a mutant it let live may die in the other tree, so its
+    count is recorded and the merge is what is gated.
+    """
+    if rep.error:
+        return {"status": "error", "error": rep.error}
+    if is_cpp_leg(rep.binding):
+        return {"status": "leg", "observed_survivors": rep.survived}
+    return None
+
+
 def drift_for(
     rep: MutationReport,
     bindings: dict[str, BindingSpec],
@@ -926,8 +502,9 @@ def drift_for(
     reports them; with a ``survivors_ledger`` in the baseline, each must be a
     recorded row.
     """
-    if rep.error:
-        return {"status": "error", "error": rep.error}
+    ungated = _ungated(rep)
+    if ungated is not None:
+        return ungated
     spec_baseline = bindings.get(rep.binding, {}).get("baseline", {})
     # A mutant that timed out is neither killed nor survived, so a sweep that
     # timed out on nearly all of them reports no survivors and full efficacy.

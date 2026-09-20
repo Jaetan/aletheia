@@ -46,7 +46,7 @@ from pathlib import Path
 
 import yaml
 
-from tools.mutation_run import cpp_kill_routes
+from tools.mutation_cpp import cpp_kill_routes
 
 baseline = yaml.safe_load(Path("docs/MUTATION_BENCH.yaml").read_text(encoding="utf-8"))
 recorded = baseline["bindings"]["cpp"]["baseline"]

@@ -6,7 +6,7 @@
 # the probes, and every document that names the compiler.
 # Claim: the Clang the policy line in cpp/CMakeLists.txt names is the one every
 # toolchain site installs, invokes, caches and documents, and the mutation
-# lane's sites all name the one Clang that tools/mutation_run.py runs Mull
+# lane's sites all name the one Clang that tools/mutation_cpp.py runs Mull
 # against.  A version below 19 is the runner's stock compiler, named only to
 # say why it is not used; a line carrying a date is history; and a measurement
 # record ("Measured on ...") names the compiler that produced the numbers it
@@ -20,10 +20,10 @@ status=0
 policy=$(grep -oE 'CMAKE_CXX_COMPILER_VERSION VERSION_LESS [0-9]+' cpp/CMakeLists.txt \
     | grep -oE '[0-9]+$')
 [ -n "$policy" ] || { echo "cpp/CMakeLists.txt states no supported Clang"; exit 1; }
-lane=$(grep -oE 'mull-runner-[0-9]+' tools/mutation_run.py | sort -u | grep -oE '[0-9]+$')
+lane=$(grep -oE 'mull-runner-[0-9]+' tools/mutation_cpp.py | sort -u | grep -oE '[0-9]+$')
 case $lane in
-    '') echo "tools/mutation_run.py names no Mull runner"; exit 1 ;;
-    *$'\n'*) echo "tools/mutation_run.py names more than one Mull runner"; exit 1 ;;
+    '') echo "tools/mutation_cpp.py names no Mull runner"; exit 1 ;;
+    *$'\n'*) echo "tools/mutation_cpp.py names more than one Mull runner"; exit 1 ;;
 esac
 
 tokens='run-clang-tidy-[0-9]+|clang-tidy-[0-9]+|clang\+\+-[0-9]+|clang-[0-9]+|clang[0-9]+-|llvm-toolchain-noble-[0-9]+|llvm[0-9]+\.list|Clang [0-9]+|Clang \([0-9]+\)|mull-[a-z-]+-[0-9]+|llvm-[0-9]+-dev|libclang-[0-9]+-dev|/usr/lib/llvm-[0-9]+'
@@ -62,7 +62,7 @@ for f in $(ls .github/workflows/*.yml | grep -v pr-heavy-lanes) Dockerfile.runti
     docs/development/DISTRIBUTION.md docs/development/RELEASE.md; do
     check "$f" "$policy" "$(grep -viE 'mull|mutation|llvm-[0-9]+-dev' "$f")"
 done
-for f in tools/mutation_run.py docs/operations/MUTATION.md docs/MUTATION_BENCH.yaml; do
+for f in tools/mutation_cpp.py docs/operations/MUTATION.md docs/MUTATION_BENCH.yaml; do
     check "$f" "$lane" "$(cat "$f")"
 done
 # CI_LOCAL.md and CLAUDE.md each carry both: the sanitizer sentence and the

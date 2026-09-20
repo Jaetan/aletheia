@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tools.mutation_run import cpp_lane_command
+from tools.mutation_cpp import CPP_BUILD_JOBS_CAP, cpp_build_command, cpp_lane_command
 
 
 def _command() -> list[str]:
@@ -36,3 +36,11 @@ def test_every_runner_option_stays_ahead_of_the_separator() -> None:
     separator = argv.index("--")
     assert all(arg.startswith("--report") for arg in argv[2:separator])
     assert "--order" not in argv[:separator]
+
+
+def test_the_mutation_build_compiles_several_units_at_once(tmp_path: Path) -> None:
+    """The build carries a parallel count, bounded so the plugin compiles fit in memory."""
+    argv = cpp_build_command("cmake", tmp_path)
+    assert argv[:5] == ["cmake", "--build", str(tmp_path), "--target", "unit_tests"]
+    assert argv[5] == "--parallel"
+    assert 1 <= int(argv[6]) <= CPP_BUILD_JOBS_CAP

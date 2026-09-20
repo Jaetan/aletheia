@@ -11,14 +11,16 @@ without failing, as it does a lower count.
 from __future__ import annotations
 
 from tools import mutation_run
-from tools.mutation_run import (
+from tools.mutation_cpp import elements_survivor_rows
+from tools.mutation_report import (
+    Baseline,
     BindingSpec,
+    DriftEntry,
     LedgerRow,
     MutationReport,
-    elements_survivor_rows,
-    ledger_to_rows,
-    rows_to_ledger,
+    SurvivorKey,
 )
+from tools.mutation_run import ledger_to_rows, rows_to_ledger
 
 _ROW: LedgerRow = {
     "mutator": "cxx_replace_scalar_call",
@@ -29,15 +31,13 @@ _ROW: LedgerRow = {
 
 
 def _bindings(ledger: list[LedgerRow] | None) -> dict[str, BindingSpec]:
-    baseline: mutation_run.Baseline = {"survivors": 1}
+    baseline: Baseline = {"survivors": 1}
     if ledger is not None:
         baseline["survivors_ledger"] = ledger
     return {"cpp": {"tool": "mull", "baseline": baseline}}
 
 
-def _drift(
-    rows: dict[mutation_run.SurvivorKey, int] | None, ledger: list[LedgerRow] | None
-) -> mutation_run.DriftEntry:
+def _drift(rows: dict[SurvivorKey, int] | None, ledger: list[LedgerRow] | None) -> DriftEntry:
     survived = 0 if rows is None else sum(rows.values())
     return mutation_run.drift_for(
         MutationReport("cpp", "mull", 10, survived, ""), _bindings(ledger), rows

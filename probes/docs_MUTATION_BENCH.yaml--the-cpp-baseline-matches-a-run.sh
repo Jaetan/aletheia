@@ -53,7 +53,7 @@ import sys
 import yaml
 
 sys.path.insert(0, ".")
-from tools.mutation_run import merge_elements
+from tools.mutation_cpp import merge_elements
 
 report = merge_elements(
     [json.load(open(path, encoding="utf-8")) for path in sys.argv[1:]]

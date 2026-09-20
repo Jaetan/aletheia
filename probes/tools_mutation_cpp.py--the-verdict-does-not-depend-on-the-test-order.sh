@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Probes tools/mutation_run.py, the lane that sweeps the C++ mutants, and the
+# Probes tools/mutation_cpp.py, the lane that sweeps the C++ mutants, and the
 # suite it sweeps.
 # Claim: whatever is mutated, every permutation of the tests gives the same
 # verdict for every mutant. The lane pins the order so that the census it

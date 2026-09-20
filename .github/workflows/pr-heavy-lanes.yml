@@ -35,7 +35,7 @@
 # ALSO runs on push:main: the heavy caches (Mull-from-source, the build tree)
 # are otherwise only written on feature branches, which do NOT cross-pollinate,
 # so a fresh PR branch would miss them, and the mutation lanes pay for the .so
-# build from cold — the C++ lane additionally for Mull and both mutation trees.
+# build from cold — the C++ legs additionally for Mull and their mutation tree.
 # A push:main run writes those caches under the default branch, where every PR
 # branch can read them — turning the cold Mull build (318s) + .so build (338s)
 # into hits.
@@ -349,10 +349,13 @@ jobs:
   # observed survivors > the docs/MUTATION_BENCH.yaml baseline.  It runs once
   # per binding, in parallel: the three tools cost wildly different amounts and
   # a single job charges the slowest of them against a clock the other two have
-  # already spent.  The `mutation testing` job at the end of this file is what
-  # the main branch ruleset requires; it is the one that reports these lanes.
+  # already spent.  The C++ binding is two legs, one per mutation tree, and
+  # the `mutation cpp` job below merges them into the one C++ verdict; a leg
+  # judges no survivor, since a mutant one tree let live may die in the other.
+  # The `mutation testing` job at the end of this file is what the main branch
+  # ruleset requires; it is the one that reports these lanes.
   mutation-lane:
-    name: mutation ${{ matrix.binding }}
+    name: mutation ${{ matrix.lane }}
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
@@ -365,35 +368,62 @@ jobs:
           # Each lane names the bindings it skips, rather than deriving them
           # from its own name: the derivation would rest on how GitHub casts
           # the string it yields, and the failure it casts wrong is a lane that
-          # skips all three, runs nothing and reports success.
-          - binding: python
-            timeout: 60
+          # skips all three, runs nothing and reports success.  `lane` is the
+          # job's name and its artifact's; `stage` is what the C++ runner is
+          # told (tools/mutation_cpp.py `CppStage`), empty for the other two.
+          #
+          # Every budget is read off a measurement: the lane's slowest recorded
+          # wall clock plus the allowance for its caches missing, rounded up
+          # to five minutes.  The allowance is what a cold run paid, measured
+          # on run 30150643321 (the toolchain bump, every cache cold): the Agda
+          # install 18m34s and the FFI build 9m08s, 27m42s; a C++ leg adds the
+          # Mull build, 5m35s on run 35486430315, 33m17s.  The slowest walls
+          # are run 35486430315's (push:main, 1037 C++ mutants): python 8m20s,
+          # go 18m48s; a C++ leg is that job's warm setup, 3m41s, plus its own
+          # tree's build and sweep, leak 7m48s + 33m14s = 44m43s and plain
+          # 8m09s + 45m41s = 57m31s (the builds of that run compiled one unit
+          # at a time; the runner now builds four at once, and the first run
+          # of that re-takes the figure).  So python 36m02s, go 46m30s, leak
+          # 78m00s, plain 90m48s, each rounded up.  A budget is a measurement of the
+          # surface it was read from: it is re-taken when the mutation surface
+          # changes or a run exceeds it, from `elapsed_s` in the lane's
+          # summary.json (a leg's, and `cpp-legs.json` beside the merge's).
+          - lane: python
+            binding: python
+            stage: ''
+            timeout: 40
             skip_python: ''
             skip_go: '1'
             skip_cpp: '1'
-          - binding: go
-            timeout: 60
+          - lane: go
+            binding: go
+            stage: ''
+            timeout: 50
             skip_python: '1'
             skip_go: ''
             skip_cpp: '1'
-          # The C++ lane builds and sweeps two whole mutation trees under Mull.
-          # Sharing one 90-minute job with the other two, it was killed at 90m
-          # with the sweep still running; on its own clock it starts from the
-          # budget that was never enough rather than from a guess, and the run
-          # records `elapsed_s` per lane so the next value is read off a
-          # measurement.
-          - binding: cpp
-            timeout: 150
+          - lane: cpp-leak
+            binding: cpp
+            stage: leak
+            timeout: 80
+            skip_python: '1'
+            skip_go: '1'
+            skip_cpp: ''
+          - lane: cpp-plain
+            binding: cpp
+            stage: plain
+            timeout: 95
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
     # Runs on every PR commit-state (so the required result reflects the latest
     # commit) AND on push:main (to seed the build caches — see the header).
     # cancel-in-progress collapses rapid PR iteration to ~one run on the settled
-    # state; push:main is exempt (below).  Per-binding group so the lanes never
-    # cancel each other, nor the repro / stability lanes.
+    # state; push:main is exempt (below).  Per-lane group so the lanes never
+    # cancel each other (the two C++ legs included), nor the repro / stability
+    # lanes.
     concurrency:
-      group: heavy-mutation-${{ matrix.binding }}-${{ github.event.pull_request.number || github.ref }}
+      group: heavy-mutation-${{ matrix.lane }}-${{ github.event.pull_request.number || github.ref }}
       # push:main is exempt — a seeding run must not be cancelled before it saves.
       cancel-in-progress: ${{ github.event_name != 'push' }}
     steps:
@@ -501,7 +531,7 @@ jobs:
           key: clang23-llvm23dev-libstdcxx15-noble-v1
       # ubuntu-24.04 pre-installs only clang ≤19; install clang-23 (the supported
       # toolchain) + the LLVM-23 dev libraries (needed to build Mull from source)
-      # from apt.llvm.org.  mutation_run.py invokes clang-23 explicitly.
+      # from apt.llvm.org.  mutation_cpp.py invokes clang-23 explicitly.
       - name: Install C++ toolchain + LLVM-23 dev (apt.llvm.org)
         if: matrix.binding == 'cpp'
         run: |
@@ -535,7 +565,9 @@ jobs:
       # build: the key hashes tools/build_mull.sh, which pins the Mull tag and
       # the LLVM version, and every patch under tools/mull/ the script applies,
       # so any change to what is built misses the cache rather than replaying
-      # the previous binaries.
+      # the previous binaries.  Both C++ legs restore this key and the clang
+      # one; on a miss each builds Mull and each tries to save, and the second
+      # save of a key is logged as a warning by the action, not a failure.
       - name: Cache Mull-23 (built from source vs LLVM-23)
         if: matrix.binding == 'cpp'
         id: mull23
@@ -587,7 +619,7 @@ jobs:
       - name: Build the FFI library (needed by mutmut / Mull / gremlins lanes)
         run: cabal run shake -- build
 
-      - name: Mutation testing (${{ matrix.binding }})
+      - name: Mutation testing (${{ matrix.lane }})
         env:
           ALETHEIA_MUTATION_CHECK: '1'
           # The runner drives every binding it is not told to skip, and logs
@@ -595,7 +627,22 @@ jobs:
           ALETHEIA_MUTATION_SKIP_PYTHON: ${{ matrix.skip_python }}
           ALETHEIA_MUTATION_SKIP_GO: ${{ matrix.skip_go }}
           ALETHEIA_MUTATION_SKIP_CPP: ${{ matrix.skip_cpp }}
+          # Which C++ tree this lane sweeps; empty means the whole lane, which
+          # no lane here runs, since each tree is a leg of its own.
+          ALETHEIA_MUTATION_CPP_STAGE: ${{ matrix.stage }}
         run: python/.venv/bin/python3 -m tools.mutation_run
+
+      # Every lane's reports leave the runner whatever ended the lane: a C++
+      # leg's reports are what the `mutation cpp` job merges, and a lane its
+      # clock killed leaves the partial directory that says how far it got.
+      - name: Upload the lane's reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-${{ matrix.lane }}
+          path: benchmarks/mutation/
+          if-no-files-found: warn
+          retention-days: 30
 
       # Seed the build tree so push:main writes it under the default branch for
       # fresh PR branches to restore.  NOT gated to pull_request (push:main is
@@ -615,17 +662,82 @@ jobs:
             haskell-shim/dist-newstyle
           key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
 
+  # ── The C++ verdict ────────────────────────────────────────────────────────
+  # The two C++ legs above each sweep one mutation tree and have no verdict of
+  # their own.  This job downloads both legs' reports and merges them, which
+  # is where the survivors are counted against the baseline and the ledger
+  # (tools/mutation_cpp.py, stage `merge`).  It runs whatever the lanes'
+  # results, so a Python or Go failure does not erase the C++ verdict; its own
+  # pass needs both legs' complete report sets from this commit, and a leg its
+  # clock killed uploaded no Elements report, which the merge refuses.
+  mutation-cpp:
+    name: mutation cpp
+    runs-on: ubuntu-24.04
+    needs: [mutation-lane]
+    if: ${{ always() }}
+    timeout-minutes: 15
+    concurrency:
+      group: heavy-mutation-cpp-merge-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name != 'push' }}
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # The runner scopes the run by `git diff main...HEAD`, as the legs did.
+      - name: Ensure a local `main` ref for `git diff main...HEAD`
+        run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Create the dev venv
+        run: |
+          set -euo pipefail
+          python3.14 -m venv python/.venv
+          python/.venv/bin/pip install --upgrade pip
+          python/.venv/bin/pip install -e 'python/.[dev,mutation]'
+
+      # One directory per leg artifact under mutation-legs/; the merge wants
+      # each tree's reports exactly once, wherever they are under it.
+      - name: Download the C++ legs' reports
+        uses: actions/download-artifact@v8
+        with:
+          pattern: mutation-cpp-*
+          path: mutation-legs
+
+      - name: Merge the legs (the C++ drift gate)
+        env:
+          ALETHEIA_MUTATION_CHECK: '1'
+          ALETHEIA_MUTATION_SKIP_PYTHON: '1'
+          ALETHEIA_MUTATION_SKIP_GO: '1'
+          ALETHEIA_MUTATION_CPP_STAGE: merge
+          ALETHEIA_MUTATION_CPP_LEGS: mutation-legs
+        run: python/.venv/bin/python3 -m tools.mutation_run
+
+      - name: Upload the merged reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-cpp
+          path: benchmarks/mutation/
+          if-no-files-found: warn
+          retention-days: 30
+
   # ── The required check ─────────────────────────────────────────────────────
   # `mutation testing` is the context the main branch ruleset requires, so it
   # must keep that exact name however the work behind it is arranged.  It
-  # reports the lanes above and adds nothing of its own: it passes on the one
-  # result meaning every leg finished clean, and refuses every other, whichever
-  # of them the platform uses for a leg its own `timeout-minutes` killed.
-  # Silence about a lane is never a pass.
+  # reports the lanes and the C++ merge above and adds nothing of its own: it
+  # passes on the one result meaning every one of them finished clean, and
+  # refuses every other, whichever of them the platform uses for a job its own
+  # `timeout-minutes` killed.  Silence about a lane is never a pass.
   mutation:
     name: mutation testing
     runs-on: ubuntu-24.04
-    needs: [mutation-lane]
+    needs: [mutation-lane, mutation-cpp]
     # `always()`, so no arrangement of lane results can leave this job skipped:
     # a skipped job reporting a required context is a context that cannot fail,
     # and a lane killed by its clock is exactly when a narrower condition would
@@ -638,17 +750,20 @@ jobs:
     if: ${{ always() }}
     timeout-minutes: 5
     steps:
-      - name: Every mutation lane reached a verdict and it was success
+      - name: Every mutation lane and the C++ merge reached a verdict and it was success
         env:
           LANES: ${{ toJSON(needs.mutation-lane) }}
-          RESULT: ${{ needs.mutation-lane.result }}
+          LANES_RESULT: ${{ needs.mutation-lane.result }}
+          CPP: ${{ toJSON(needs.mutation-cpp) }}
+          CPP_RESULT: ${{ needs.mutation-cpp.result }}
         run: |
           set -euo pipefail
           printf 'mutation lanes: %s\n' "${LANES}"
-          if [ "${RESULT}" != "success" ]; then
-            echo "::error::the mutation lanes did not all succeed (${RESULT});" \
-                 "a lane killed by its own timeout-minutes arrives here as one" \
-                 "of these non-success results"
+          printf 'mutation cpp: %s\n' "${CPP}"
+          if [ "${LANES_RESULT}" != "success" ] || [ "${CPP_RESULT}" != "success" ]; then
+            echo "::error::the mutation lanes (${LANES_RESULT}) and the C++ merge" \
+                 "(${CPP_RESULT}) did not all succeed; a job killed by its own" \
+                 "timeout-minutes arrives here as one of these non-success results"
             exit 1
           fi
-          echo "every mutation lane succeeded"
+          echo "every mutation lane and the C++ merge succeeded"

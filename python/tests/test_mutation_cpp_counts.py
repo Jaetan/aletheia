@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Tests for ``tools.mutation_run.mull_counts``, the reader of a C++ lane's log.
+"""Tests for ``tools.mutation_cpp.mull_counts``, the reader of a C++ lane's log.
 
 Mull prints a survivor count to its stdout only when something survived; a
 lane that killed everything says so in its IDE report alone, with a score of
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools.mutation_run import mull_counts
+from tools.mutation_cpp import mull_counts
 
 _PROGRESS = "       [################################] 1140/1140. Finished in 2m59.9s\n"
 
