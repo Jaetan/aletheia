@@ -405,6 +405,9 @@ pytest_add_cli_args = [
     "--ignore=tests/test_mutation_run_routes.py",
     "--ignore=tests/test_cpp_scratch.py",
     "--ignore=tests/test_mutation_run_order.py",
+    "--ignore=tests/test_check_cpp_index_loops.py",
+    "--ignore=tests/test_check_cpp_restated_types.py",
+    "--ignore=tests/test_ratchet.py",
     # Same shape: cover the SBOM binding-manifest parsers and the SBOM
     # coverage gate (repo-root `tools` package).  Infra coverage, not hot-path.
     "--ignore=tests/test_sbom_generate.py",
