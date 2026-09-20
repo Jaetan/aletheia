@@ -20,6 +20,9 @@ mutation lane is a per-PR signal, not per-commit (cost is high — 30 min to
 docs/MUTATION_BENCH.yaml           SSOT — per-binding tool, hot-path module list, baseline
 tools/check_mutation_setup.py      Static gate (offline, ~1 sec)
 tools/mutation_run.py              Dynamic runner (opt-in, ~30 min - 2 hours)
+tools/mutation_cpp.py              The C++ lane: Mull over the two trees, in stages
+tools/mutation_report.py           The report and baseline shapes the lanes share
+tools/mutation_routes.py           The C++ kill-route census
 benchmarks/mutation/<short-sha>/   Per-commit JSON + raw tool logs (gitignored)
 ```
 
@@ -32,11 +35,23 @@ In CI the runner is invoked once per binding, in parallel lanes with their own
 budgets, each told to skip the other two (`ALETHEIA_MUTATION_SKIP_PYTHON` /
 `_GO` / `_CPP`), because the three tools cost wildly different amounts and one
 job charges the slowest against a clock the others have already spent.  The
-`mutation testing` check the branch ruleset requires reports those lanes: it
-passes only on the single result meaning every lane finished clean, and refuses
-every other, a lane killed by its own budget included.  Each
-run records its lanes' wall times under `elapsed_s` in `summary.json`, so a
-budget is set from a measurement.
+C++ lane is two legs and a merge: each mutation tree is swept in a lane of its
+own (`ALETHEIA_MUTATION_CPP_STAGE=leak` or `plain`), which reports as the
+binding `cpp-leak` or `cpp-plain` and judges no survivor, since a mutant one
+tree let live may die in the other; the `mutation cpp` job downloads both legs'
+reports and merges them (`ALETHEIA_MUTATION_CPP_STAGE=merge`, the directory in
+`ALETHEIA_MUTATION_CPP_LEGS`), which is where the C++ survivors meet the
+baseline and the ledger.  The merge refuses a leg whose reports are missing or
+doubled, or whose summary records another commit.  The
+`mutation testing` check the branch ruleset requires reports those lanes and
+the merge: it passes only on the single result meaning every one of them
+finished clean, and refuses every other, a job killed by its own budget
+included.  Each run records its lanes' wall times under `elapsed_s` in
+`summary.json`, and the merge records each leg's in `cpp-legs.json` beside it,
+so a budget is set from a measurement: the lane's slowest recorded wall clock
+plus what its cache misses cost, the arithmetic beside each budget in the
+workflow.  Every lane uploads its report directory as an artifact whatever
+ended it.
 
 The long-running commands stream their output rather than having it captured:
 a lane killed by its budget would otherwise take its entire log with it, and
@@ -271,6 +286,16 @@ ALETHEIA_MUTATION_SKIP_GO=1       # skip Go lane only
 ALETHEIA_MUTATION_SKIP_CPP=1      # skip C++ lane only
 ```
 
+The C++ lane in stages, as CI runs it (unset, the runner sweeps both trees in
+one process and merges them itself):
+
+```bash
+ALETHEIA_MUTATION_CPP_STAGE=leak    # sweep the leak tree alone; reports as cpp-leak, judges nothing
+ALETHEIA_MUTATION_CPP_STAGE=plain   # the plain tree likewise, as cpp-plain
+ALETHEIA_MUTATION_CPP_STAGE=merge \
+ALETHEIA_MUTATION_CPP_LEGS=<dir>    # sweep nothing; merge the legs' reports found under <dir>
+```
+
 ## Setting / updating a baseline
 
 After a clean run on `main`:
@@ -295,8 +320,8 @@ A baseline regression (observed > baseline) MUST be addressed by:
    survivor the ledger does not name even at an unchanged count, and reports
    a row that no longer survives as stale. The lane's `cpp-mull.json` artifact
    is Mull's Elements report of each tree, merged by
-   `tools.mutation_run.merge_elements` so a mutant either tree killed is
-   killed, and `tools.mutation_run.elements_survivor_rows`
+   `tools.mutation_cpp.merge_elements` so a mutant either tree killed is
+   killed, and `tools.mutation_cpp.elements_survivor_rows`
    renders what is left in the ledger's row shape. The probe
    `probes/docs_MUTATION_BENCH.yaml--every-cpp-survivor-is-a-recorded-one.sh`
    holds the ledger exact in both directions. Beside each lane's Elements
@@ -378,5 +403,7 @@ needed.
 - `docs/MUTATION_BENCH.yaml` — actual on-disk paths, baseline numbers
 - `tools/check_mutation_setup.py` — static gate (always-on)
 - `tools/mutation_run.py` — dynamic runner (opt-in)
+- `tools/mutation_cpp.py`, `tools/mutation_report.py`, `tools/mutation_routes.py`:
+  the C++ lane, the shapes the lanes share, the kill-route census
 - `docs/operations/STABILITY.md` — sibling opt-in lane
 - `docs/development/CI_LOCAL.md` — three-layer CI architecture

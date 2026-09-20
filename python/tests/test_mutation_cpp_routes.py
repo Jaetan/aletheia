@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tools.mutation_cpp import CPP_LANES, cpp_kill_routes
 from tools.mutation_routes import KILL_ROUTES, MULL_PASSED, MULL_TIMEDOUT, kill_route, merge_routes
-from tools.mutation_run import CPP_LANES, cpp_kill_routes
 
 if TYPE_CHECKING:
     from pathlib import Path

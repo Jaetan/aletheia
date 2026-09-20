@@ -27,6 +27,21 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The C++ mutation lane runs as two legs and a merge, and every mutation
+  budget is read off a measurement.** Each mutation tree is swept in a CI lane
+  of its own (`ALETHEIA_MUTATION_CPP_STAGE=leak` or `plain`), which reports as
+  its own binding and judges no survivor, and the `mutation cpp` job merges
+  the two legs' reports (`ALETHEIA_MUTATION_CPP_STAGE=merge`), refusing a leg
+  that is missing, doubled or from another commit; the required check reports
+  the lanes and the merge together. The lane's wall clock on the runner was
+  1h44m for the two trees in sequence, and the longer tree becomes the lane.
+  Every lane's `timeout-minutes` is now its slowest recorded wall clock plus
+  the measured cost of its caches missing, the arithmetic beside each in the
+  workflow, and every lane uploads its reports whatever ended it. The mutation
+  build compiles several units at once, bounded by a measured memory cost,
+  where it compiled one at a time and took 8 minutes of a leg. The C++ lane
+  and the report shapes moved out of `tools/mutation_run.py` into
+  `tools/mutation_cpp.py` and `tools/mutation_report.py`.
 - **A Python type hint carries the shape of the data, as faithfully as the
   language allows.** `AGENTS/python.md` cat 8 refuses `dict[str, list[str]]`,
   `tuple[str, int, str]` and their like where the function takes no arbitrary

@@ -42,12 +42,8 @@ import sys
 import yaml
 
 sys.path.insert(0, ".")
-from tools.mutation_run import (
-    elements_survivor_rows,
-    ledger_to_rows,
-    merge_elements,
-    rows_to_ledger,
-)
+from tools.mutation_cpp import elements_survivor_rows, merge_elements
+from tools.mutation_run import ledger_to_rows, rows_to_ledger
 
 
 def read_line(file, line):
