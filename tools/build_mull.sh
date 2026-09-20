@@ -15,9 +15,23 @@
 # mutator builds a 42 for a bool-returning call and LLVM's APInt asserts on it,
 # which aborts clang on every source with such a call; libirm also gets the one
 # include and the one call LLVM 23 changed (Constant::isZeroValue is gone, and
-# a ConstantFP's own isZero together with Constant::isNullValue says the same);
-# and a Debian release without a VERSION_ID in /etc/os-release (testing, sid)
-# is read as the debian:13 row.
+# a ConstantFP's own isZero together with Constant::isNullValue says the same),
+# and its void-call mutator both reaches an invoke and separates the
+# destructors a statement runs implicitly from the calls the source writes
+# (tools/mull/libirm-void-call-mutator.patch, with Mull's half of the second
+# in tools/mull/mull-implicit-destructor-mutator.patch): a void call that can
+# throw is an invoke, so testing the Call opcode alone left every throwing
+# call unmutated, and an implicit destructor carries its statement's range,
+# so one was being reported as the other.  Its scalar-call replacement reaches
+# an invoke too (tools/mull/libirm-scalar-call-invoke.patch), for the same
+# reason, and it is one file per patch because Bazel matches each patch it is
+# given against the archive as extracted.  A Debian release without a
+# VERSION_ID in /etc/os-release (testing, sid) is read as the debian:13 row,
+# and every mutant gets an identifier of its own
+# (tools/mull/mull-unique-mutant-ids.patch), where Mull named two mutations
+# of one statement, a temporary's destructor on the normal path and in the
+# exception-cleanup landing pad, or two instantiations of one template, by
+# one name and ran only the last it registered.
 #
 # Needs clang-<version>, /usr/lib/llvm-<version> (the llvm-<version>-dev and
 # libclang-<version>-dev packages), git and curl.  bazelisk is fetched into the
@@ -47,6 +61,13 @@ src=$(mktemp -d)
 trap 'rm -rf "$src"' EXIT
 git clone --quiet --depth 1 --branch "$mull_tag" --recursive \
     https://github.com/mull-project/mull "$src"
+# libirm's two call mutators are patched, the void-call one to reach an invoke
+# and to leave implicit destructors alone, the scalar-call one to reach an
+# invoke; the patch files travel with this script and are handed to Bazel as
+# labels in the mull workspace.
+cp "$(dirname "$0")/mull/libirm-void-call-mutator.patch" "$src/"
+cp "$(dirname "$0")/mull/libirm-void-call-mutator-header.patch" "$src/"
+cp "$(dirname "$0")/mull/libirm-scalar-call-invoke.patch" "$src/"
 git -C "$src" apply - <<'PATCH'
 diff --git a/MODULE.bazel b/MODULE.bazel
 index 2d6bf93..02e30f1 100644
@@ -102,7 +123,7 @@ index 004ef56..15137ef 100644
 diff --git a/mull_deps.bzl b/mull_deps.bzl
 --- a/mull_deps.bzl
 +++ b/mull_deps.bzl
-@@ -153,10 +153,14 @@ def _mull_deps_extension(module_ctx):
+@@ -153,10 +153,20 @@ def _mull_deps_extension(module_ctx):
                  )
                  http_archive(
                      name = irm_repo_name,
@@ -113,6 +134,12 @@ diff --git a/mull_deps.bzl b/mull_deps.bzl
 +                    urls = ["https://github.com/mull-project/libirm/archive/b1888b732f1c2d166ec88f83912ac296ca32beea.zip"],
 +                    strip_prefix = "libirm-b1888b732f1c2d166ec88f83912ac296ca32beea",
                      build_file_content = IRM_BUILD_FILE.format(LLVM_VERSION = version),
++                    patches = [
++                        "//:libirm-void-call-mutator.patch",
++                        "//:libirm-void-call-mutator-header.patch",
++                        "//:libirm-scalar-call-invoke.patch",
++                    ],
++                    patch_args = ["-p1"],
 +                    patch_cmds = [
 +                        "sed -i '1i #include <llvm/IR/Constants.h>' lib/ConstantReplacement.cpp",
 +                        "sed -i 's/constant->isZeroValue()/(llvm::isa<llvm::ConstantFP>(constant) ? llvm::cast<llvm::ConstantFP>(constant)->isZero() : constant->isNullValue())/' lib/ConstantReplacement.cpp",
@@ -121,6 +148,8 @@ diff --git a/mull_deps.bzl b/mull_deps.bzl
  
      return modules.use_all_repos(module_ctx)
 PATCH
+git -C "$src" apply "$(cd "$(dirname "$0")" && pwd)/mull/mull-unique-mutant-ids.patch"
+git -C "$src" apply "$(cd "$(dirname "$0")" && pwd)/mull/mull-implicit-destructor-mutator.patch"
 (cd "$src" && "$bazel" build \
     "//rust/mull-tools:mull-runner-$llvm" \
     "//rust/mull-tools:mull-reporter-$llvm" \

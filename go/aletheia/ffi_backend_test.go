@@ -145,7 +145,7 @@ func ffiEndpointClient(t *testing.T) (*aletheia.Client, aletheia.CANID, aletheia
 		t.Fatalf("NewClient: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := client.Close(); err != nil {
+		if err := closeWithin(t, client); err != nil {
 			t.Errorf("Close: %v", err)
 		}
 	})

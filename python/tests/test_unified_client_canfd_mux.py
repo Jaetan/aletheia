@@ -129,7 +129,7 @@ class TestCANFDFrames:
             assert result.values["WideSignal"] == 9999.0  # updated
 
     def test_canfd_all_valid_dlc_codes(self) -> None:
-        """All DLC codes 0-15 produce valid frames with correct byte counts."""
+        """Every DLC code that holds the signal reads it; a zero-byte frame does not."""
         dbc_def = dbc(
             [
                 message(
@@ -154,7 +154,15 @@ class TestCANFDFrames:
                     dlc=dlc_code,
                     data=data,
                 )
-                expected = float(dlc_code) if nbytes > 0 else 0.0
+                if nbytes == 0:
+                    # An eight-bit signal is not in a frame of no bytes, and
+                    # the kernel says so rather than reading zero for bits
+                    # that did not arrive.
+                    assert "Sig" not in result.values
+                    assert "Sig" in result.errors
+                    assert "does not fit the frame" in result.errors["Sig"]
+                    continue
+                expected = float(dlc_code)
                 assert result.values["Sig"] == expected, (
                     f"DLC {dlc_code} ({nbytes} bytes): expected {expected}, "
                     f"got {result.values.get('Sig')}"

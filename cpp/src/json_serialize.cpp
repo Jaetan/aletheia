@@ -31,29 +31,20 @@ static auto rational_to_json(const Rational& r) -> Json {
     // ``Fraction`` (auto-canonical) and Go's parseRational sign convention,
     // preserving cross-binding wire symmetry.
     //
-    // Guard ``INT64_MIN`` before any negation
-    // or ``std::abs``.  ``-INT64_MIN`` and ``std::abs(INT64_MIN)`` are both
-    // signed-overflow UB; the Rational::make invariant rejects such values
-    // at construction, but on the format-only path we emit raw to surface
-    // the upstream defect rather than UB-fault here.
-    constexpr auto int64_min = std::numeric_limits<std::int64_t>::min();
-    if (r.numerator() == int64_min || r.denominator() == int64_min) {
+    // Guard ``INT64_MIN`` before ``std::abs``, whose result would overflow:
+    // the numerator is emitted raw, un-normalised, rather than faulting. The
+    // denominator cannot be it, being positive by construction.
+    if (r.numerator() == std::numeric_limits<std::int64_t>::min()) {
         return {{"numerator", r.numerator()}, {"denominator", r.denominator()}};
     }
     auto num = r.numerator();
     auto den = r.denominator();
     // No sign normalisation: a Rational's constructor enforces a positive
-    // denominator, so only the numerator can be negative.  The zero test below
-    // is defensive for the same reason the INT64_MIN test above is: a
-    // format-only path must surface an upstream defect rather than fault on it.
-    if (den == 0) {
-        // Mirrored at the `Rational::make` invariant; emit raw to surface
-        // the bug rather than masking it.
-        return {{"numerator", r.numerator()}, {"denominator", r.denominator()}};
-    }
+    // denominator, so only the numerator can be negative, and the gcd with a
+    // positive denominator is at least one.
     auto const g = std::gcd(std::abs(num), den);
-    num /= (g == 0 ? 1 : g);
-    den /= (g == 0 ? 1 : g);
+    num /= g;
+    den /= g;
     if (den == 1)
         return num;
     return {{"numerator", num}, {"denominator", den}};
@@ -62,7 +53,7 @@ static auto rational_to_json(const Rational& r) -> Json {
 // A JSON array of the elements of `items`, each through `to_json`.
 template<typename Range, typename ToJson>
 static auto json_array(const Range& items, ToJson to_json) -> Json {
-    Json arr = Json::array();
+    auto arr = Json::array();
     for (auto const& item : items)
         arr.push_back(to_json(item));
     return arr;
@@ -98,9 +89,9 @@ static auto value_entry_to_json(const DbcValueEntry& e) -> Json {
 // A node-valued field crosses the wire as the plain string it always was; the
 // type it carries in the definition says which strings are meant.
 static auto node_names_to_json(const std::vector<NodeName>& names) -> Json {
-    Json out = Json::array();
+    auto out = Json::array();
     for (auto const& n : names)
-        out.push_back(n.get());
+        out.emplace_back(n.get());
     return out;
 }
 

@@ -1007,7 +1007,8 @@ Property must hold in the next frame. Fails at end of stream (no successor).
 ```
 Property must hold in the next frame, or holds vacuously at end of stream
 (no successor). Use for "if X then next Y" patterns where X may be true on
-the final frame — strong Next would produce a spurious violation there.
+the final frame, where strong Next would report a violation the trace's end
+causes rather than the property.
 
 #### Always (Globally)
 ```json

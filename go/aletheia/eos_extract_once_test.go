@@ -70,6 +70,7 @@ func warnLog() (aletheia.ClientOption, *bytes.Buffer) {
 // mustEndStream ends the stream and returns its verdicts.
 func mustEndStream(t *testing.T, c *aletheia.Client, want int) []aletheia.PropertyResult {
 	t.Helper()
+	ctx := bounded(t)
 	sr, err := c.EndStream(ctx)
 	if err != nil {
 		t.Fatalf("EndStream: %v", err)

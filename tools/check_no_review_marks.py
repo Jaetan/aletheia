@@ -54,7 +54,7 @@ from collections import Counter
 from pathlib import Path
 from typing import cast
 
-from tools._common import emit, git_ls_files
+from tools._common import BINARY_SUFFIXES, emit, git_ls_files, prose_lines
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -69,38 +69,12 @@ _EXEMPT_FILES = {
 }
 _EXEMPT_PREFIXES = (".archive/reviews/",)
 
-# Binary / non-text tracked files we never scan.
-_BINARY_SUFFIXES = {
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".ico",
-    ".pdf",
-    ".agdai",
-    ".so",
-    ".o",
-    ".woff",
-    ".woff2",
-    ".ttf",
-    ".zip",
-    ".gz",
-    ".sig",
-    ".key",
-    ".pub",
-    ".wasm",
-}
-
-_MD_SUFFIXES = {".md", ".markdown"}
-
 # Spans masked before matching, on EVERY file: agent-store pointers whose names
 # embed round/track tokens but resolve to real out-of-repo files.
 _KEEP_SPANS = [
     re.compile(r"\[\[[^\]]*\]\]"),  # [[project_r25_binding_review]]
     re.compile(r"memory/[\w./-]+\.md"),  # memory/project_r25_binding_review.md
 ]
-_INLINE_CODE = re.compile(r"`[^`]*`")
-_FENCE = re.compile(r"^\s*(```|~~~)")
 
 # The unambiguous review-mark shapes. Context-anchored so a clean tree has zero
 # hits (a bare ``R23`` is NOT here — too noisy; ``R19 cluster`` / ``pre-R23`` are).
@@ -135,23 +109,12 @@ def _mask_keeps(line: str) -> str:
 def scannable_lines(rel: str, text: str) -> list[tuple[int, str]]:
     """Return ``(1-based lineno, masked line)`` pairs to scan for ``rel``.
 
-    Markdown files drop fenced code and mask inline-code spans (a mark shown as
-    an example is documentation). All files mask the ``[[…]]`` / ``memory/…``
-    keep-spans. Non-Markdown files are otherwise scanned raw — a review mark in
-    a source comment is exactly what this gate exists to catch.
+    The shared scanner decides what is prose (Markdown drops fenced blocks and
+    masks inline code, every other file is read whole); this masks the
+    ``[[…]]`` / ``memory/…`` keep-spans on top, which resolve to real
+    out-of-repo files whose names embed round tokens.
     """
-    is_md = Path(rel).suffix in _MD_SUFFIXES
-    out: list[tuple[int, str]] = []
-    in_fence = False
-    for i, line in enumerate(text.splitlines(), start=1):
-        if is_md and _FENCE.match(line):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        masked = _INLINE_CODE.sub("", line) if is_md else line
-        out.append((i, _mask_keeps(masked)))
-    return out
+    return [(lineno, _mask_keeps(line)) for lineno, line in prose_lines(rel, text)]
 
 
 def scan_text(rel: str, text: str) -> list[str]:
@@ -181,7 +144,7 @@ def check_tree() -> list[str]:
     """Return every review-mark finding across the tracked, non-exempt tree."""
     findings: list[str] = []
     for rel in git_ls_files(REPO):
-        if is_exempt(rel) or Path(rel).suffix in _BINARY_SUFFIXES:
+        if is_exempt(rel) or Path(rel).suffix in BINARY_SUFFIXES:
             continue
         findings.extend(scan_file(rel))
     return findings

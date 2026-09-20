@@ -1,0 +1,37 @@
+The header half of the void-call mutator change; lib/VoidCallRemoval.cpp carries
+the rest, in a patch of its own because Bazel applies each patch it is given to
+the archive as extracted and reads one file per patch reliably.
+
+RemoveVoidFunctionCall refuses a destructor callee and RemoveImplicitDestructorCall
+takes only those, so Mull can name apart the destructors a statement runs
+implicitly and the calls the source writes, which until now shared one mutator
+because they share the statement's source range.
+--- a/include/irm/Mutations/VoidCallRemoval.h
++++ b/include/irm/Mutations/VoidCallRemoval.h
+@@ -22,12 +22,13 @@
+ 
+ class VoidCallRemoval : public IRMutation {
+ public:
+-  explicit VoidCallRemoval(bool onlyIntrinsics);
++  explicit VoidCallRemoval(bool onlyIntrinsics, bool onlyDestructors = false);
+   bool canMutate(llvm::Instruction *instruction) override;
+   void mutate(llvm::Instruction *instruction) override;
+ 
+ private:
+   bool onlyIntrinsics;
++  bool onlyDestructors;
+ };
+ 
+ class RemoveVoidFunctionCall : public VoidCallRemoval {
+@@ -40,4 +41,11 @@
+   RemoveVoidIntrinsicsCall() : VoidCallRemoval(true) {}
+ };
+ 
++/// The destructors a statement runs implicitly, which share its source range
++/// and which RemoveVoidFunctionCall therefore leaves to this one.
++class RemoveImplicitDestructorCall : public VoidCallRemoval {
++public:
++  RemoveImplicitDestructorCall() : VoidCallRemoval(false, true) {}
++};
++
+ } // namespace irm

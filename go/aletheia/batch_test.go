@@ -38,6 +38,7 @@ func sentinelCount(mock *aletheia.MockBackend) int {
 }
 
 func TestSendFrames_AllAck(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedBatchClient(t, 300, aletheia.Respond(ack), aletheia.Respond(ack), aletheia.Respond(ack))
 	frames := []aletheia.Frame{
 		frameAt(t, 1000, 0, 0, 0, 0, 0, 0, 0, 0),
@@ -60,6 +61,7 @@ func TestSendFrames_AllAck(t *testing.T) {
 }
 
 func TestSendFrames_WithViolation(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedBatchClient(t, 220,
 		aletheia.Respond(ack), // frame 1
 		aletheia.Respond(`{
@@ -113,6 +115,7 @@ func TestSendFrames_WithViolation(t *testing.T) {
 // A frame that fails validation stops the batch before the backend sees it,
 // and the frames sent before it are returned.
 func TestSendFrames_StopsOnValidationError(t *testing.T) {
+	ctx := bounded(t)
 	c, mock := startedBatchClient(t, 300, aletheia.Respond(ack))
 	frames := []aletheia.Frame{
 		frameAt(t, 1000, 0, 0, 0, 0, 0, 0, 0, 0),
@@ -135,6 +138,7 @@ func TestSendFrames_StopsOnValidationError(t *testing.T) {
 // and wraps the backend's, the committed prefix is returned, and no later
 // frame is sent.
 func TestSendFrames_StopsOnBackendError(t *testing.T) {
+	ctx := bounded(t)
 	boom := aletheia.NewValidationError("the backend refused the frame")
 	c, mock := startedBatchClient(t, 300, aletheia.Respond(ack), aletheia.RespondErr(boom))
 	frames := []aletheia.Frame{
@@ -157,6 +161,7 @@ func TestSendFrames_StopsOnBackendError(t *testing.T) {
 }
 
 func TestSendFrames_Empty(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedBatchClient(t, 300)
 
 	results, err := c.SendFrames(ctx, nil)
@@ -169,6 +174,7 @@ func TestSendFrames_Empty(t *testing.T) {
 }
 
 func TestSendFrames_NegativeTimestamp(t *testing.T) {
+	ctx := bounded(t)
 	c, mock := startedBatchClient(t, 300)
 	frames := []aletheia.Frame{frameAt(t, -1, 0, 0, 0, 0, 0, 0, 0, 0)}
 
@@ -185,11 +191,12 @@ func TestSendFrames_NegativeTimestamp(t *testing.T) {
 }
 
 func TestSendFrames_AfterClose(t *testing.T) {
+	ctx := bounded(t)
 	c, err := aletheia.NewClient(aletheia.NewMockBackend())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Close(); err != nil {
+	if err := closeWithin(t, c); err != nil {
 		t.Fatal(err)
 	}
 

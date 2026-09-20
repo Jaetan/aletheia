@@ -1,0 +1,76 @@
+Two changes to libirm's void-call mutator implementation; the class declarations
+are in tools/mull/libirm-void-call-mutator-header.patch.
+
+It reaches an invoke and not only a call. A void call that can throw is an
+invoke, a terminator carrying a normal and an unwind successor, and the mutator
+tested the Call opcode alone, so at -O0 with exceptions enabled every throwing
+void call went unmutated: a push_back of a temporary, a document's open of a
+path, a workbook's addWorksheet. Removing an invoke is a branch to the
+destination the call would have returned to, with the unwind destination losing
+this block from its predecessors. callbr stays out: its successors are asm
+labels and branching past them is not a call removal.
+
+It separates the destructors a statement runs implicitly from the calls the
+source writes. Those are void calls too and carry the statement's source range,
+so the mutator took both under one name and a destructor removal was reported
+against a line whose call it never touched. The predicate is the callee's
+mangled name, whose D0Ev, D1Ev and D2Ev suffixes are the deleting,
+complete-object and base-object destructor variants. It partitions the mutants
+and drops none.
+--- a/lib/VoidCallRemoval.cpp
++++ b/lib/VoidCallRemoval.cpp
+@@ -20,14 +20,21 @@
+ 
+ using namespace irm;
+ 
+-VoidCallRemoval::VoidCallRemoval(bool onlyIntrinsics) : onlyIntrinsics(onlyIntrinsics) {}
++VoidCallRemoval::VoidCallRemoval(bool onlyIntrinsics, bool onlyDestructors)
++    : onlyIntrinsics(onlyIntrinsics), onlyDestructors(onlyDestructors) {}
+ 
+ bool VoidCallRemoval::canMutate(llvm::Instruction *instruction) {
+   assert(instruction);
+-  if (instruction->getOpcode() != llvm::Instruction::Call) {
++  /// A void call that can throw is an invoke, a terminator with a normal and
++  /// an unwind successor rather than a plain call.  Reaching only the Call
++  /// opcode left every throwing call of a translation unit unmutated, which
++  /// at -O0 with exceptions on is most of them.  callbr stays out: its
++  /// successors are asm labels and branching past them is not a call removal.
++  if (instruction->getOpcode() != llvm::Instruction::Call &&
++      instruction->getOpcode() != llvm::Instruction::Invoke) {
+     return false;
+   }
+-  llvm::CallInst *call = llvm::dyn_cast<llvm::CallInst>(instruction);
++  llvm::CallBase *call = llvm::cast<llvm::CallBase>(instruction);
+   /// Do not touch indirect calls
+   if (!call->getCalledFunction()) {
+     return false;
+@@ -42,11 +49,28 @@
+   if (onlyIntrinsics) {
+     return isIntrinsic;
+   }
+-  return !isIntrinsic;
++  /// A destructor a statement runs implicitly carries that statement's source
++  /// range, so a removal of one is reported against the call the source names
++  /// while measuring something else entirely.  The two are separated here and
++  /// named apart by their mutators, rather than one standing in for the other.
++  llvm::StringRef callee = call->getCalledFunction()->getName();
++  const bool isDestructor =
++      callee.ends_with("D0Ev") || callee.ends_with("D1Ev") || callee.ends_with("D2Ev");
++  return !isIntrinsic && isDestructor == onlyDestructors;
+ }
+ 
+ void VoidCallRemoval::mutate(llvm::Instruction *instruction) {
+   assert(instruction);
+   assert(canMutate(instruction));
++  /// Erasing an invoke would leave the block without a terminator, so the
++  /// removal is a branch to the destination the call would have returned to.
++  /// The unwind destination loses this block as a predecessor, which is what
++  /// keeps the phi nodes of a landing pad reached from elsewhere well formed.
++  if (auto *invoke = llvm::dyn_cast<llvm::InvokeInst>(instruction)) {
++    llvm::BranchInst::Create(invoke->getNormalDest(), invoke->getIterator());
++    invoke->getUnwindDest()->removePredecessor(invoke->getParent());
++    invoke->eraseFromParent();
++    return;
++  }
+   instruction->eraseFromParent();
+ }

@@ -57,6 +57,20 @@ bindings:
       # instead, with a pragma: a type argument of a cast, which no runtime
       # reads, and the case of a codec name, which the standard library
       # normalises.
+      #
+      # What the set is made of, by mutmut's operators over these modules:
+      # most of it is an argument dropped from a call, then a string literal
+      # rewritten (wrapped, lowered or uppered, up to three mutants per
+      # literal), then an assignment's value replaced by None, and the rest
+      # a swapped operator, keyword or number. Every literal is one the
+      # module wrote, and Python has no undefined behaviour to crash on, so
+      # a kill is a test failing, an exception the test did not expect
+      # included; mutmut records no reason, so an argument dropped from a
+      # call that then raised is not told apart in the record from one a test
+      # caught by its result. The string mutants split by what the literal
+      # is: a key, a code or an operator name on the wire, which a test that
+      # reads the wire kills, or a message meant for a person, which only a
+      # test pinning its wording kills.
       survivors: 1
       total_mutants: 921
       score_pct: 99
@@ -80,7 +94,11 @@ bindings:
       - go/aletheia/ffi.go
       - go/aletheia/ffi_nocgo.go
       - go/aletheia/enrich.go
-    config: {}
+    config:
+      # gremlins reads this from the directory it runs in. It holds the
+      # stringer outputs out of the sweep: a mutant in generated code measures
+      # the generator, and no test written here can be the one that kills it.
+      exclude: go/.gremlins.yaml
     invocation: |
       cd go && gremlins unleash ./aletheia
     report: |
@@ -99,7 +117,7 @@ bindings:
       # is what the runner records and what score_pct is taken from.
       #
       # The split between killed and timed out moves with the machine, and it
-      # moves a long way. This tree gave 646 killed and 11 timed out in under
+      # moves a long way. This tree gave 617 killed and 2 timed out in under
       # two minutes on a quiet host with nothing editing it. Three conditions make a
       # sweep report numbers nobody should record, each measured here:
       #
@@ -127,17 +145,24 @@ bindings:
       # generated and not_covered, each a property of the source, its tests and
       # the kernel being present; the killed and timeout counts are what the
       # recorded run produced.
+      #
+      # Every mutant gremlins makes is on code this package wrote, the
+      # generated files being held out, and Go has no undefined behaviour to
+      # crash on: a kill is a test failing, a panic the test reported
+      # included. Two mutators reach one operator at one site, negating it
+      # and moving its boundary, and the two are told apart by the same
+      # input a test uses to tell the original from either.
       survivors: 0
-      generated: 759
-      not_covered: 102
-      timeouts: 11
-      total_mutants: 646
+      generated: 651
+      not_covered: 32
+      timeouts: 2
+      total_mutants: 617
       score_pct: 100
-      run_at: "2026-09-17"
+      run_at: "2026-09-19"
       # The lane refuses a sweep with more than this many timed out, because a
       # mutant that times out is neither killed nor lived and a sweep that
       # timed out on nearly all of them reports no survivors and full efficacy.
-      # A quiet host on a cold test cache gives 11, in the file carrying the
+      # A quiet host on a cold test cache gives 2, in the file carrying the
       # cgo trampolines, whose mutants each reload the library; a sweep with a
       # second sweep beside it gave 622, and a sweep run straight after another
       # gave 632. This sits far enough above the first not to flake and far
@@ -194,11 +219,21 @@ bindings:
       # unit_tests binary so the real FfiBackend (dlopen glue) is on the
       # mutation surface. Those tests dlopen build/libaletheia-ffi.so, so
       # `cabal run shake -- build` must have produced it first.
-      cd cpp && cmake -B build-mutation -DALETHEIA_MUTATION=ON \
-        -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 \
-        > /dev/null && \
-        cmake --build build-mutation --target unit_tests && \
+      #
+      # Two trees, and a mutant survives only where both let it survive. Under
+      # LeakSanitizer a removed destructor leaks what the object owned and the
+      # run fails; the plain tree carries the allocation-fault sweeps, which
+      # replace the program's allocation functions to reach the cleanup a
+      # container runs while its growth throws. A sanitizer runtime defines
+      # those same functions, so the two cannot be one binary.
+      cd cpp && cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
+        -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null &&
+        cmake --build build-mutation --target unit_tests &&
         mull-runner-23 ./build-mutation/unit_tests
+      cd cpp && cmake -B build-mutation-plain -DALETHEIA_MUTATION=ON \
+        -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null &&
+        cmake --build build-mutation-plain --target unit_tests &&
+        mull-runner-23 ./build-mutation-plain/unit_tests
     report: |
       # mull-runner-23 prints a per-mutant table to stdout; runner parses
       # the "Surviving mutants: N" / "Mutation score: P%" summary at the
@@ -217,35 +252,83 @@ bindings:
       # of a unit it cannot re-parse. The mutator set and the held-out paths
       # (vendored, system, and the test sources) are cpp/mull.yml. Fixtures
       # live under a per-process directory, so parallel mutant runs do not
-      # fail each other.
+      # fail each other. The plugin is patched
+      # (tools/mull/mull-unique-mutant-ids.patch) to give every mutant an
+      # identifier of its own, where Mull named two mutations of one
+      # statement, or of two instantiations of one template, by one name and
+      # ran only the last it registered.
       #
-      # What the survivors are. Most are call mutants that are equivalent by
-      # construction (a reserve of a size replaced by a constant); the rest
-      # are gaps in the suites, listed by file and line in the sweep report
-      # under benchmarks/mutation/<short-sha>/.
+      # The two trees read the surface with instruments that cannot share a
+      # binary. The leak tree reports a destructor removal that leaks what the
+      # object owned. The plain tree carries the allocation-fault sweeps
+      # (cpp/tests/alloc_fault.cpp), which fail one chosen allocation of a
+      # call and read back the count of blocks the program holds, so the
+      # cleanup a container runs while its growth throws is entered and
+      # anything it drops is seen. A mutant is a survivor only where both
+      # lanes let it survive.
+      #
+      # What the survivors are, each a row of the ledger below: none. Every
+      # call the source writes is either killed or gone: the named-call
+      # mutators reach a call that can throw, the capacity hints and the ack
+      # fast path are held by allocation counts, the loaders' guards by a
+      # document missing each key, the event timestamps and bus bits by a
+      # kernel stand-in that quotes what it was handed, the loaders' cleanup
+      # paths by allocation-fault sweeps that fail only the project's own
+      # allocations, and a temporary the code made for nothing is gone with
+      # its destructor. The destructors the compiler emits for the temporaries
+      # the language mandates are a mutator the swept set leaves out, for the
+      # reason cpp/mull.yml gives.
       #
       # A timeout is a kill by another route: the runner counts it against
-      # the total, not as a survivor. Its exact count is not stable for a
-      # mutant whose behaviour is undefined (a signal count replaced by a
-      # constant reads past the arrays, and crashes on one run and hangs on
-      # the next), so the probe holds it within a stated margin of the count
-      # recorded here.
+      # the total, not as a survivor. One mutant runs close to the cap of ten
+      # times the unmutated baseline, about 43 seconds against 4.3, so an
+      # oversubscribed machine times it out where an idle one reads the route
+      # it dies by. That is a property of the machine and not of the code, so
+      # a sweep with any timeout is a census taken under load: the probe
+      # reports it as untestable rather than absorbing it.
+      #
+      # How the kills were read, from Mull's SQLite report of each tree,
+      # merged with a test's assertion taking precedence over any other
+      # route. A fault is a signal, or an abort from a precondition the
+      # standard library checks: the trees compile at -O0, where libstdc++
+      # turns its assertions on, and the shipped build is optimised, where
+      # they are off, so a mutant killed only by a fault is one no test
+      # observes by behaviour. Every mutant killed only that way was
+      # activated against a tree built without those assertions: most then
+      # fail a test outright, some die by a signal or hang, and the few that
+      # survive are the loop bounds a test never observes past the end,
+      # each a finding on its own. The counts below are exact, and the probe
+      # compares them for equality. They can be, because the lane pins the
+      # order the tests run in: Catch2 shuffles its cases by default under a
+      # seed that changes every run, and mull runs the binary once per
+      # mutant, so an unpinned lane read a different census every sweep. Six
+      # orders of one tree read the fault route at 93, 93, 96, 98, 99 and
+      # 101. Under the pinned order it holds still: two runs compared mutant
+      # for mutant moved nothing, and three runs on an idle machine agreed on
+      # every count, the two groups differing by the single mutant an
+      # oversubscribed machine timed out. What the order moves is the route
+      # and not the verdict, because a fault
+      # ends the process and the order decides which test reports before it
+      # stops, while a mutant that dies at all dies under every order: that
+      # the verdict is order-independent is the separate claim, and a probe
+      # sweeps several orders to hold it.
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
-      survivors: 264
-      total_mutants: 890
-      timeouts: 6
-      score_pct: 70
-      run_at: "2026-09-17"
-      # The lane refuses a sweep with more than this many timed out, because a
-      # mutant that times out is neither killed nor lived and a sweep that
-      # timed out on nearly all of them reports no survivors and full efficacy.
-      # A quiet host on a cold test cache gives 11, in the file carrying the
-      # cgo trampolines, whose mutants each reload the library; a sweep with a
-      # second sweep beside it gave 622, and a sweep run straight after another
-      # gave 632. This sits far enough above the first not to flake and far
-      # enough below the others to fail hard.
-      timeout_ceiling: 50
-
-      run_at: "2026-09-15"
+      survivors: 0
+      total_mutants: 1037
+      timeouts: 0
+      score_pct: 100
+      run_at: "2026-09-20"
+      kill_routes:
+        test: 942
+        leak: 0
+        kernel: 2
+        fault: 93
+        timeout: 0
+      # Every survivor, by mutator, repository-relative file, the text of its
+      # source line and how many mutants share that line. The lane refuses a
+      # survivor not named here even at an unchanged count, and reports a row
+      # that no longer survives as stale; the change that kills or removes one
+      # deletes its row here.
+      survivors_ledger: []

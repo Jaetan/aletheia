@@ -12,14 +12,17 @@
 
 #include <aletheia/aletheia.hpp>
 
+#include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <functional>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <stop_token>
 #include <string>
@@ -171,7 +174,7 @@ TEST_CASE("Client cancellation: mid-batch commit-prefix-and-report", "[cancellat
     auto sid = StandardId::create(0x123).value();
     auto const dlc = Dlc::create(8).value();
     std::vector<std::byte> payload(8, std::byte{0});
-    for (std::size_t i = 0; i < total; ++i) {
+    for (auto const i : std::views::iota(std::size_t{0}, total)) {
         frames.push_back(Frame{
             .timestamp = Timestamp{static_cast<std::int64_t>((i + 1) * 1000)},
             .id = CanId{sid},
@@ -243,4 +246,88 @@ TEST_CASE("Client cancellation: in-flight FFI runs to completion", "[cancellatio
     auto r2 = client.set_properties(cancel_token, std::span<const LtlFormula>{});
     REQUIRE_FALSE(r2.has_value());
     REQUIRE(r2.error().kind() == ErrorKind::Cancellation);
+}
+
+// Every method that takes a stop_token has its own pre-FFI guard, and each
+// guard is observable only through its own method: a guard that never fires
+// lets the call reach the backend, which the counter below sees, or fall
+// through to a later refusal (build_frame with no DBC loaded answers State,
+// not Cancellation). One row per method keeps every guard on the suite.
+TEST_CASE("Client cancellation: every method's pre-FFI guard rejects a cancelled stop_token",
+          "[cancellation]") {
+    auto backend_owned = std::make_unique<CancelTriggerBackend>(0, nullptr);
+    auto const* backend = backend_owned.get();
+    AletheiaClient client(std::move(backend_owned));
+
+    const std::stop_source source;
+    source.request_stop();
+    auto const token = source.get_token();
+
+    auto const id = CanId{StandardId::create(0x123).value()};
+    auto const dlc = Dlc::create(8).value();
+    const FramePayload payload(8, std::byte{0});
+    const std::vector<Frame> frames{
+        Frame{.timestamp = Timestamp{1000}, .id = id, .dlc = dlc, .data = payload}};
+
+    struct Row {
+        std::string_view method;
+        std::function<std::optional<AletheiaError>()> call;
+    };
+    auto const error_of = [](auto const& r) -> std::optional<AletheiaError> {
+        if (r.has_value())
+            return std::nullopt;
+        return r.error();
+    };
+    const std::vector<Row> rows{
+        {.method = "parse_dbc",
+         .call = [&] { return error_of(client.parse_dbc(token, DbcDefinition{})); }},
+        {.method = "parse_dbc_text",
+         .call = [&] { return error_of(client.parse_dbc_text(token, "VERSION \"\"")); }},
+        {.method = "validate_dbc",
+         .call = [&] { return error_of(client.validate_dbc(token, DbcDefinition{})); }},
+        {.method = "format_dbc", .call = [&] { return error_of(client.format_dbc(token)); }},
+        {.method = "format_dbc_text",
+         .call = [&] { return error_of(client.format_dbc_text(token, DbcDefinition{})); }},
+        {.method = "extract_signals",
+         .call = [&] { return error_of(client.extract_signals(token, id, dlc, payload)); }},
+        {.method = "build_frame",
+         .call =
+             [&] {
+                 return error_of(
+                     client.build_frame(token, id, dlc, std::span<const SignalValue>{}));
+             }},
+        {.method = "update_frame",
+         .call =
+             [&] {
+                 return error_of(
+                     client.update_frame(token, id, dlc, payload, std::span<const SignalValue>{}));
+             }},
+        {.method = "set_properties",
+         .call =
+             [&] { return error_of(client.set_properties(token, std::span<const LtlFormula>{})); }},
+        {.method = "add_checks", .call = [&] { return error_of(client.add_checks(token, {})); }},
+        {.method = "start_stream", .call = [&] { return error_of(client.start_stream(token)); }},
+        {.method = "send_frame",
+         .call =
+             [&] { return error_of(client.send_frame(token, Timestamp{1000}, id, dlc, payload)); }},
+        {.method = "send_frames",
+         .call =
+             [&] {
+                 auto const batch = client.send_frames(token, frames);
+                 return batch.error;
+             }},
+        {.method = "send_error",
+         .call = [&] { return error_of(client.send_error(token, Timestamp{1000})); }},
+        {.method = "send_remote",
+         .call = [&] { return error_of(client.send_remote(token, Timestamp{1000}, id)); }},
+        {.method = "end_stream", .call = [&] { return error_of(client.end_stream(token)); }},
+    };
+    for (auto const& row : rows) {
+        INFO(row.method);
+        auto const err = row.call();
+        REQUIRE(err.has_value());
+        CHECK(err->kind() == ErrorKind::Cancellation);
+        CHECK(std::string_view{err->message()}.contains(row.method));
+        CHECK(backend->call_count() == 0);
+    }
 }

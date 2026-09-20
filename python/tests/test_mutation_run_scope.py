@@ -213,6 +213,11 @@ def test_run_python_erases_stale_mutants_tree(
         assert not stale.exists(), "run_python invoked mutmut without erasing mutants/"
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
+    # Both halves are stubbed: the long ``mutmut run`` streams (so a sweep a
+    # wall clock kills still leaves its log), while the fast ``mutmut results``
+    # read stays captured.  Stubbing only one would let the other reach for a
+    # binary that is not there.
+    monkeypatch.setattr(mutation_run, "run_streaming", fake_run)
     monkeypatch.setattr(mutation_run.subprocess, "run", fake_run)
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()

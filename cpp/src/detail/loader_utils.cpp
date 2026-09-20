@@ -20,8 +20,9 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
-#include <limits>
+#include <istream>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -89,6 +90,12 @@ struct EOCD {
 
 } // namespace
 
+auto read_exactly(std::istream& in, std::streamoff offset, std::span<char> out) -> bool {
+    in.seekg(offset, std::ios::beg);
+    in.read(out.data(), static_cast<std::streamsize>(out.size()));
+    return static_cast<bool>(in);
+}
+
 static auto find_eocd(std::ifstream& f, std::uintmax_t file_size) -> std::optional<EOCD> {
     if (file_size < k_eocd_min_size)
         return std::nullopt;
@@ -96,21 +103,24 @@ static auto find_eocd(std::ifstream& f, std::uintmax_t file_size) -> std::option
     auto const search_size =
         static_cast<std::size_t>(std::min<std::uintmax_t>(file_size, k_eocd_max_search));
     std::vector<char> tail(search_size);
-    f.seekg(static_cast<std::streamoff>(file_size - search_size), std::ios::beg);
-    f.read(tail.data(), static_cast<std::streamsize>(search_size));
-    if (!f)
+    if (!read_exactly(f, static_cast<std::streamoff>(file_size - search_size), tail))
         return std::nullopt;
 
-    // Scan backward from the latest possible EOCD start — first match wins.
-    for (std::size_t i = search_size - k_eocd_min_size + 1; i-- > 0;) {
-        if (load_le32(tail, i) != k_eocd_sig)
+    // Every position the record could start at, as a window the size of the
+    // record, latest first: the view counts the windows, so the last start is
+    // not a subtraction written here, and each window is the record itself.
+    for (auto const window : tail |
+                                 std::views::slide(static_cast<std::ptrdiff_t>(k_eocd_min_size)) |
+                                 std::views::reverse) {
+        std::span<const char> const at{window};
+        if (load_le32(at, 0) != k_eocd_sig)
             continue;
-        const std::uint16_t disk_num = load_le16(tail, i + 4);
-        const std::uint16_t cd_disk = load_le16(tail, i + 6);
-        const std::uint16_t entries_this = load_le16(tail, i + 8);
-        const std::uint16_t entries_total = load_le16(tail, i + 10);
-        const std::uint32_t cd_size = load_le32(tail, i + 12);
-        const std::uint32_t cd_off = load_le32(tail, i + 16);
+        const std::uint16_t disk_num = load_le16(at, 4);
+        const std::uint16_t cd_disk = load_le16(at, 6);
+        const std::uint16_t entries_this = load_le16(at, 8);
+        const std::uint16_t entries_total = load_le16(at, 10);
+        const std::uint32_t cd_size = load_le32(at, 12);
+        const std::uint32_t cd_off = load_le32(at, 16);
         // Reject multi-disk / spanned archives — .xlsx is single-disk.
         if (disk_num != 0 || cd_disk != 0 || entries_this != entries_total)
             return std::nullopt;
@@ -142,30 +152,30 @@ constexpr std::size_t k_cd_entry_min = 46;
 static auto sum_uncompressed_sizes(std::ifstream& f, const EOCD& eocd)
     -> std::optional<std::uint64_t> {
     std::vector<char> cd(eocd.cd_size);
-    f.seekg(eocd.cd_offset, std::ios::beg);
-    f.read(cd.data(), static_cast<std::streamsize>(eocd.cd_size));
-    if (!f)
+    if (!read_exactly(f, eocd.cd_offset, cd))
         return std::nullopt;
 
+    // The entries are not all one size, so no view expresses the walk: the
+    // remainder of the directory is the cursor, consumed from the front by
+    // whatever the entry just read says it measures, and what is left bounds
+    // the next read without an offset compared against a length.  The
+    // iteration count is the directory's own declared entry count.
     std::uint64_t total = 0;
-    std::size_t off = 0;
-    for (std::uint16_t i = 0; i < eocd.total_entries; ++i) {
-        if (off + k_cd_entry_min > cd.size())
+    std::span<const char> rest{cd};
+    for (auto i = decltype(eocd.total_entries){0}; i < eocd.total_entries; ++i) {
+        if (rest.size() < k_cd_entry_min)
             return std::nullopt;
-        if (load_le32(cd, off) != k_cd_entry_sig)
+        if (load_le32(rest, 0) != k_cd_entry_sig)
             return std::nullopt;
-        const std::uint32_t uncompressed = load_le32(cd, off + 24);
-        const std::uint16_t name_len = load_le16(cd, off + 28);
-        const std::uint16_t extra_len = load_le16(cd, off + 30);
-        const std::uint16_t comment_len = load_le16(cd, off + 32);
-        // Saturating add — refuse to silently wrap on a forged entry.
-        if (uncompressed > std::numeric_limits<std::uint64_t>::max() - total)
-            return std::nullopt;
+        const std::uint32_t uncompressed = load_le32(rest, 24);
+        const std::uint16_t name_len = load_le16(rest, 28);
+        const std::uint16_t extra_len = load_le16(rest, 30);
+        const std::uint16_t comment_len = load_le16(rest, 32);
         total += uncompressed;
         const std::size_t entry_size = k_cd_entry_min + name_len + extra_len + comment_len;
-        if (off + entry_size > cd.size())
+        if (rest.size() < entry_size)
             return std::nullopt;
-        off += entry_size;
+        rest = rest.subspan(entry_size);
     }
     return total;
 }

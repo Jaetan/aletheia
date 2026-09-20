@@ -90,7 +90,7 @@ public:
             // JSON control-plane path.  ErrorKind::State mirrors Go's kind for
             // the same condition; the message is the cross-binding unified
             // template (#108).
-            const std::string op = input.starts_with("<binary:") ? std::string{input} : "process";
+            auto const op = input.starts_with("<binary:") ? std::string{input} : "process";
             throw AletheiaException(
                 AletheiaError{ErrorKind::State, "mock backend: no queued response for " + op});
         }

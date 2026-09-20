@@ -62,6 +62,7 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"frame_signal_index_oob", ErrorCode::FrameSignalIndexOob},
     {"frame_injection_failed", ErrorCode::FrameInjectionFailed},
     {"frame_signals_overlap", ErrorCode::FrameSignalsOverlap},
+    {"frame_signal_past_frame_end", ErrorCode::FrameSignalPastFrameEnd},
     {"frame_can_id_not_found", ErrorCode::FrameCanIdNotFound},
     {"frame_can_id_mismatch", ErrorCode::FrameCanIdMismatch},
     {"frame_signal_value_out_of_bounds", ErrorCode::FrameSignalValueOutOfBounds},
@@ -95,6 +96,7 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"dispatch_request_not_object", ErrorCode::DispatchRequestNotObject},
     // Extraction errors
     {"extraction_mux_value_mismatch", ErrorCode::ExtractionMuxValueMismatch},
+    {"extraction_signal_past_frame_end", ErrorCode::ExtractionSignalPastFrameEnd},
     {"extraction_mux_signal_not_found", ErrorCode::ExtractionMuxSignalNotFound},
     {"extraction_mux_chain_cycle", ErrorCode::ExtractionMuxChainCycle},
     {"extraction_mux_extraction_failed", ErrorCode::ExtractionMuxExtractionFailed},
@@ -165,8 +167,13 @@ template<typename T>
 static auto require_int(const Json& j, std::string_view context) -> T {
     if (!j.is_number_integer())
         throw std::runtime_error(std::string{context} + " must be an integer, got: " + j.dump());
-    const bool fits = j.is_number_unsigned() ? std::in_range<T>(j.get<std::uint64_t>())
-                                             : std::in_range<T>(j.get<std::int64_t>());
+    // A signed value always fits a 64-bit target, so that branch is a check
+    // only for narrower targets.
+    bool fits = true;
+    if (j.is_number_unsigned())
+        fits = std::in_range<T>(j.get<std::uint64_t>());
+    else if constexpr (!std::is_same_v<T, std::int64_t>)
+        fits = std::in_range<T>(j.get<std::int64_t>());
     if (!fits)
         throw out_of_range<T>(j, context);
     return j.get<T>();
@@ -177,9 +184,14 @@ static auto require_uint(const Json& j, std::string_view context) -> T {
     if (!j.is_number_unsigned())
         throw std::runtime_error(std::string{context} +
                                  " must be a non-negative integer, got: " + j.dump());
-    if (!std::in_range<T>(j.get<std::uint64_t>()))
-        throw out_of_range<T>(j, context);
-    return j.get<T>();
+    auto const wide = j.get<std::uint64_t>();
+    // A 64-bit unsigned target holds every value the reader can produce, so
+    // the range check exists only for the narrower ones.
+    if constexpr (std::numeric_limits<T>::max() < std::numeric_limits<std::uint64_t>::max()) {
+        if (!std::in_range<T>(wide))
+            throw out_of_range<T>(j, context);
+    }
+    return static_cast<T>(wide);
 }
 
 // Parse JSON with the `max_nesting_depth` bound enforced via nlohmann's
@@ -226,7 +238,6 @@ static auto lift_validation_issues(const Json& j) -> std::optional<std::vector<V
         !j.at("issues").is_array())
         return std::nullopt;
     std::vector<ValidationIssue> issues;
-    issues.reserve(j.at("issues").size());
     try {
         for (auto const& issue : j.at("issues")) {
             auto entry = parse_issue_entry(issue);
@@ -299,7 +310,6 @@ static auto parse_optional_array(const Json& j, const char* key, Parse parse_ele
     if (!j.contains(key))
         return out;
     auto const& arr = j.at(key);
-    out.reserve(arr.size());
     for (auto const& elem : arr)
         out.push_back(parse_element(elem));
     return out;
@@ -358,7 +368,7 @@ auto decode_decimal_response(std::string_view raw) -> Rational {
 // boundary.
 static auto parse_rational(const Json& j) -> Rational {
     if (j.is_number_integer())
-        return Rational{require_int<std::int64_t>(j, "rational integer"), 1};
+        return Rational{require_int<std::int64_t>(j, "rational integer"), std::int64_t{1}};
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
         auto [num, den] = parse_rational_dict(j);
         return Rational{num, den};
@@ -460,7 +470,6 @@ static auto parse_signal_presence(const Json& j) -> SignalPresence {
             "multiplexed signal requires a non-empty \"multiplex_values\" array");
     auto const& arr = j.at("multiplex_values");
     std::vector<MultiplexValue> vals;
-    vals.reserve(arr.size());
     for (auto const& elem : arr) {
         // Read wide, then bound to u32 — nlohmann's get<uint32_t> would silently
         // truncate an out-of-range value rather than reject it.
@@ -551,8 +560,8 @@ static auto json_to_can_id(std::uint32_t id_val, bool extended) -> CanId {
 
 static auto parse_message_def(const Json& j) -> DbcMessage {
     auto const id_val = require_uint<std::uint32_t>(j.at("id"), "message id");
-    const bool extended = j.value("extended", false);
-    const CanId id = json_to_can_id(id_val, extended);
+    auto const extended = j.value("extended", false);
+    auto const id = json_to_can_id(id_val, extended);
 
     auto dlc_result = bytes_to_dlc(require_uint<std::size_t>(j.at("dlc"), "dlc"));
     if (!dlc_result)
@@ -695,7 +704,7 @@ static auto parse_attr_type(const Json& j) -> DbcAttrType {
     if (kind == "enum") {
         std::vector<std::string> values;
         for (auto const& v : j.at("values"))
-            values.push_back(v.get<std::string>());
+            v.get_to(values.emplace_back());
         return DbcAttrTypeEnum{.values = std::move(values)};
     }
     if (kind == "hex")
@@ -774,8 +783,8 @@ static auto parse_attribute(const Json& j) -> DbcAttribute {
 // and Go `parseUnresolvedValueDescs`.
 static auto parse_raw_value_desc(const Json& j) -> DbcRawValueDesc {
     auto const id_val = require_uint<std::uint32_t>(j.at("id"), "CAN id");
-    const bool extended = j.value("extended", false);
-    const CanId can_id = json_to_can_id(id_val, extended);
+    auto const extended = j.value("extended", false);
+    auto const can_id = json_to_can_id(id_val, extended);
     std::vector<DbcValueEntry> entries;
     for (auto const& e : j.at("entries"))
         entries.push_back(parse_value_entry(e, "value-description value"));
@@ -878,13 +887,12 @@ auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
 
         std::vector<SignalValue> values;
         for (auto const& v : j.value("values", Json::array()))
-            values.push_back({.name = SignalName{v.at("name").get<std::string>()},
-                              .value = PhysicalValue{parse_rational(v.at("value"))}});
+            values.emplace_back(SignalName{v.at("name").get<std::string>()},
+                                PhysicalValue{parse_rational(v.at("value"))});
 
         std::vector<SignalError> errors;
         for (auto const& e : j.value("errors", Json::array()))
-            errors.push_back({.name = SignalName{e.at("name").get<std::string>()},
-                              .reason = e.value("error", "")});
+            errors.emplace_back(SignalName{e.at("name").get<std::string>()}, e.value("error", ""));
 
         std::vector<SignalName> absent;
         for (auto const& a : j.value("absent", Json::array()))
@@ -912,7 +920,6 @@ auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
 
         auto const& data = j.at("data");
         FramePayload payload;
-        payload.reserve(data.size());
         for (auto const& byte_val : data)
             payload.push_back(
                 static_cast<std::byte>(require_uint<std::uint8_t>(byte_val, "frame data byte")));
@@ -961,8 +968,9 @@ static auto parse_property_result_entry(const Json& r) -> PropertyResult {
 }
 
 auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
-    // Fast path: byte-level check for the common ack response.
-    // Avoids full JSON parsing for ~99% of streaming frames.
+    // Fast path: byte-level check for the common ack response, which nearly
+    // every streaming frame is. Without it the C++ throughput harness reads
+    // 4 to 9 percent fewer frames per second on the streaming benchmarks.
     static constexpr std::string_view ack_compact = R"({"status":"ack"})";
     static constexpr std::string_view ack_spaced = R"({"status": "ack"})";
     if (input == ack_compact || input == ack_spaced)
@@ -989,7 +997,6 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
                     "property_batch response 'results' must be a non-empty array "
                     "(zero-event frames are encoded as ack)");
             std::vector<PropertyResult> results;
-            results.reserve(raw_results.size());
             for (auto const& r : raw_results)
                 results.push_back(parse_property_result_entry(r));
             return FrameResponse{PropertyBatch{.results = std::move(results)}};

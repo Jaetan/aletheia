@@ -59,4 +59,17 @@ namespace aletheia::detail {
 // file is skipped, not an error (a probe under probes/ pins both halves).
 void register_default_lib_path(const std::filesystem::path& lib_path);
 
+// The search behind `aletheia::find_ffi_library`, over the inputs it reads:
+// the `ALETHEIA_LIB` value or null, the registered path or empty, and the
+// directory the build-tree candidates are relative to. The first route that
+// names a file that exists answers; none answering is the empty path.
+[[nodiscard]] auto search_ffi_library(const char* env_path, std::string_view registered_path,
+                                      const std::filesystem::path& cwd) -> std::filesystem::path;
+
+// The refusal the renderer records for a library at `lib_path`, or empty
+// when that library loads and carries the renderer's three entries. A refused
+// library is closed again; one that serves stays mapped, as the renderer's
+// own would.
+[[nodiscard]] auto renderer_load_error(const std::filesystem::path& lib_path) -> std::string;
+
 } // namespace aletheia::detail

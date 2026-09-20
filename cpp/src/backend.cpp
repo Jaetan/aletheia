@@ -8,6 +8,8 @@
 // endpoints have no default (pure-virtual); see backend.hpp.
 #include <aletheia/backend.hpp>
 
+#include "detail/ffi_logic.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -68,10 +70,8 @@ auto SignalInjection::create(std::span<const std::uint32_t> indices,
             std::format("signal injection arrays differ in length: {} indices, {} numerators, "
                         "{} denominators",
                         indices.size(), numerators.size(), denominators.size()));
-    if (!std::in_range<std::uint32_t>(indices.size()))
-        return std::unexpected(
-            std::format("signal injection carries {} values, more than the wire's count holds",
-                        indices.size()));
+    if (auto refusal = detail::wire_count_refusal(indices.size()))
+        return std::unexpected(std::move(*refusal));
     SignalInjection block;
     block.indices_ = indices;
     block.numerators_ = numerators;

@@ -19,8 +19,11 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <ios>
+#include <istream>
 #include <map>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -88,6 +91,12 @@ namespace aletheia::detail {
 ///   - Sum of uncompressed sizes overflows / exceeds bound
 ///                                                → `ErrorKind::InputBoundExceeded`
 [[nodiscard]] auto check_xlsx_uncompressed_bound(const std::filesystem::path& path) -> Result<void>;
+
+// Fills `out` from the stream at `offset`, and says whether it could: a read
+// the stream cut short, or refused, is false, and `out` then holds bytes the
+// caller must not read. The archive walker's two positioned reads share it.
+[[nodiscard]] auto read_exactly(std::istream& in, std::streamoff offset, std::span<char> out)
+    -> bool;
 
 // ---------------------------------------------------------------------------
 // Output-path hardening (`create_excel_template`)

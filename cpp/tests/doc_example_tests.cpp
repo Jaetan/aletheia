@@ -246,6 +246,7 @@ constexpr std::string_view k_prologue =
 #include <aletheia/ltl.hpp>
 #include <aletheia/types.hpp>
 #include <aletheia/yaml.hpp>
+#include <ranges>
 
 using namespace aletheia;
 
@@ -379,7 +380,7 @@ static auto run_capture(const std::string& cmd) -> std::pair<int, std::string> {
     while (auto const n = std::fread(buf.data(), 1, buf.size(), fp)) {
         captured.append(buf.data(), n);
     }
-    const int rc = pclose(fp);
+    auto const rc = pclose(fp);
     if (WIFEXITED(rc))
         return {WEXITSTATUS(rc), captured};
     return {rc, captured};
@@ -391,7 +392,7 @@ static auto sh_quote(std::string_view s) -> std::string {
     std::string out;
     out.reserve(s.size() + 2);
     out.push_back('\'');
-    for (const char c : s) {
+    for (auto const c : s) {
         if (c == '\'')
             out.append("'\\''");
         else
@@ -442,8 +443,7 @@ TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-exa
     const TempPath scratch{scratch_dir() / "aletheia_doc_harness", AsDirectory{}};
     auto const& workdir = scratch.path;
 
-    for (std::size_t i = 0; i < fences.size(); ++i) {
-        auto const& fence = fences[i];
+    for (auto const [i, fence] : std::views::enumerate(fences)) {
         DYNAMIC_SECTION("Fence " << fence.display()) {
             auto body = substitute_paths(fence.content, lib, yaml_fix, excel_fix);
             auto const src = wrap_fence(std::move(body));
@@ -507,18 +507,19 @@ TEST_CASE("doc-example structural gate: no `<!-- cpp notest -->` annotations",
         std::vector<int> offenders;
         auto const begin = std::sregex_iterator(body.begin(), body.end(), notest_re);
         auto const end = std::sregex_iterator{};
-        for (auto it = begin; it != end; ++it) {
-            const int line =
-                static_cast<int>(std::count(body.begin(), body.begin() + it->position(), '\n')) + 1;
+        for (auto const& match : std::ranges::subrange(begin, end)) {
+            auto const line =
+                static_cast<int>(std::count(body.begin(), body.begin() + match.position(), '\n')) +
+                1;
             offenders.push_back(line);
         }
         if (!offenders.empty()) {
             std::ostringstream lines;
             lines << '[';
-            for (std::size_t i = 0; i < offenders.size(); ++i) {
+            for (auto const [i, offender] : std::views::enumerate(offenders)) {
                 if (i != 0)
                     lines << ", ";
-                lines << "L" << offenders[i];
+                lines << "L" << offender;
             }
             lines << ']';
             FAIL(rel << " has `<!-- cpp notest -->` annotations at " << lines.str()

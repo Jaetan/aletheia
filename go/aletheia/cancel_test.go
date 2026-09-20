@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"unsafe"
 )
 
@@ -94,8 +95,15 @@ func newGateBackend(resp string) *gateBackend {
 	b := &gateBackend{release: make(chan struct{}), entered: make(chan struct{}), resp: resp}
 	b.hook = func(int) (string, error) {
 		b.enteredOnce.Do(func() { close(b.entered) })
-		<-b.release
-		return b.resp, nil
+		// A park with no bound would hang the binary when the test that
+		// should release it fails first; a call the tests park is released
+		// within a second, so three is the bound of a defect, not a delay.
+		select {
+		case <-b.release:
+			return b.resp, nil
+		case <-time.After(3 * time.Second):
+			return "", errors.New("gate: the parked call was never released")
+		}
 	}
 	return b
 }
@@ -120,7 +128,7 @@ func newGatedClient(t *testing.T, resp string) (*Client, *gateBackend) {
 	}
 	t.Cleanup(func() {
 		backend.releaseWorker()
-		_ = c.Close()
+		_ = closeWithin(t, c)
 	})
 	return c, backend
 }
@@ -180,7 +188,7 @@ func TestClient_CancelWhileWaitingOnLock(t *testing.T) {
 	go func() {
 		aDone <- c.SetProperties(context.Background(), nil)
 	}()
-	<-backend.entered
+	recvWithin(t, backend.entered)
 
 	// B queues on the lock under a cancellable context.
 	bctx, cancelB := context.WithCancel(context.Background())
@@ -197,7 +205,7 @@ func TestClient_CancelWhileWaitingOnLock(t *testing.T) {
 
 	cancelB()
 
-	err := <-bDone
+	err := recvWithin(t, bDone)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("B: expected context.Canceled, got %v", err)
 	}
@@ -209,7 +217,7 @@ func TestClient_CancelWhileWaitingOnLock(t *testing.T) {
 	}
 
 	backend.releaseWorker()
-	if err := <-aDone; err != nil {
+	if err := recvWithin(t, aDone); err != nil {
 		t.Errorf("A: unexpected error %v", err)
 	}
 }
@@ -229,7 +237,7 @@ func TestClient_CancelDuringBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	t.Cleanup(func() { _ = c.Close() })
+	t.Cleanup(func() { _ = closeWithin(t, c) })
 
 	sid, _ := NewStandardID(0x123)
 	dlc, _ := NewDLC(8)
@@ -270,7 +278,7 @@ func TestClient_NoCancelOnInFlightFFI(t *testing.T) {
 	go func() {
 		done <- c.SetProperties(cctx, nil)
 	}()
-	<-backend.entered
+	recvWithin(t, backend.entered)
 
 	cancel()
 
@@ -286,7 +294,7 @@ func TestClient_NoCancelOnInFlightFFI(t *testing.T) {
 	}
 
 	backend.releaseWorker()
-	if err := <-done; err != nil {
+	if err := recvWithin(t, done); err != nil {
 		t.Errorf("expected nil error from the completed in-flight call, got %v", err)
 	}
 

@@ -187,6 +187,17 @@ TEST_CASE("DbcMessage::signals_for_mux_value non-mux message", "[dbc][mux]") {
     CHECK(sigs.size() == plain.messages[0].signals.size());
 }
 
+TEST_CASE("DbcDefinition::message_by_name finds every message, not only the first", "[dbc]") {
+    auto dbc = make_mux_dbc();
+    auto second = dbc.messages[0];
+    second.id = CanId{StandardId::create(0x201).value()};
+    second.name = MessageName{"SecondMessage"};
+    dbc.messages.push_back(second);
+    auto const* found = dbc.message_by_name(MessageName{"SecondMessage"});
+    REQUIRE(found != nullptr);
+    CHECK(found == &dbc.messages[1]);
+}
+
 TEST_CASE("DbcDefinition::message_by_id", "[dbc]") {
     auto const dbc = make_mux_dbc();
     auto id = StandardId::create(0x200).value();
@@ -251,7 +262,7 @@ TEST_CASE("DbcDefinition::message_by_name", "[dbc]") {
 
 TEST_CASE("DbcMessage::signal_by_name guards a stale cached index", "[dbc][safety]") {
     auto dbc = make_mux_dbc();
-    DbcMessage msg = std::move(dbc.messages[0]); // fresh message; cache not yet built
+    auto msg = std::move(dbc.messages[0]); // fresh message; cache not yet built
     // Build the signal-index cache (lazy ensure() runs exactly once here).
     REQUIRE(msg.signal_by_name(SignalName{"Voltage"}) != nullptr);
     // Drop the last signal — "Voltage"'s cached index is now out of bounds.
@@ -291,7 +302,7 @@ TEST_CASE("DbcDefinition::message_by_id guards a stale cached index", "[dbc][saf
 TEST_CASE("DbcMessage::signal_by_name rejects an in-bounds but wrong cached index",
           "[dbc][safety]") {
     auto dbc = make_mux_dbc();
-    DbcMessage msg = std::move(dbc.messages[0]);
+    auto msg = std::move(dbc.messages[0]);
     REQUIRE(msg.signal_by_name(SignalName{"Voltage"}) != nullptr); // cache: Voltage -> 3
     // Replace the element at the cached index in place with a differently-named
     // signal (size unchanged, so the cached index stays in bounds).
@@ -326,4 +337,24 @@ TEST_CASE("DbcDefinition::message_by_id rejects an in-bounds but wrong cached in
     CHECK(dbc.message_by_id(CanId{id_b}) == nullptr);
     // The unchanged message is still found.
     CHECK(dbc.message_by_id(CanId{id_a}) != nullptr);
+}
+
+TEST_CASE("the name lookups guard a cached index that the shrink made the count", "[dbc][safety]") {
+    // Each lookup caches the index of what it found; once the vector is one
+    // shorter, that index is exactly its size, which the guard must refuse
+    // rather than read past.
+    auto dbc = make_mux_dbc();
+    auto second = dbc.messages[0];
+    second.id = CanId{StandardId::create(0x201).value()};
+    second.name = MessageName{"SecondMessage"};
+    dbc.messages.push_back(second);
+    REQUIRE(dbc.message_by_name(MessageName{"SecondMessage"}) != nullptr);
+    dbc.messages.pop_back();
+    CHECK(dbc.message_by_name(MessageName{"SecondMessage"}) == nullptr);
+
+    auto& msg = dbc.messages[0];
+    auto const last = msg.signals.back().name;
+    REQUIRE(msg.signal_by_name(last) != nullptr);
+    msg.signals.pop_back();
+    CHECK(msg.signal_by_name(last) == nullptr);
 }

@@ -245,6 +245,7 @@ func TestCheckMetadataNamedSeverity(t *testing.T) {
 // one setProperties command; the mock's recorded input is read back and
 // compared property by property with the serializer's own output.
 func TestAddChecks(t *testing.T) {
+	ctx := bounded(t)
 	speed := CheckSignal("Speed").NeverExceeds(IntRational(220))
 	voltage, err := CheckSignal("Voltage").StaysBetween(half(23), half(29))
 	if err != nil {
@@ -265,7 +266,7 @@ func TestAddChecks(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewClient: %v", err)
 			}
-			t.Cleanup(func() { _ = client.Close() })
+			t.Cleanup(func() { _ = closeWithin(t, client) })
 			if err := client.AddChecks(ctx, tc.session); err != nil {
 				t.Fatalf("AddChecks: %v", err)
 			}

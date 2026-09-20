@@ -9,9 +9,12 @@
 #include "rts_params.hpp"
 
 #include <aletheia/error.hpp>
+#include <aletheia/limits.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <format>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
@@ -29,15 +32,14 @@ auto rts_init_args(int rts_cores, std::string_view override_opts) -> std::vector
     // override_opts lands later and wins (the RTS honours the last occurrence).
     std::vector<std::string> args{"aletheia", "+RTS", std::string{rts_heap_cap_flag}};
     if (rts_cores > rts_default_cores)
-        args.push_back("-N" + std::to_string(rts_cores));
+        std::format_to(std::back_inserter(args.emplace_back()), "-N{}", rts_cores);
     // Whitespace-split override_opts and append each token.  The find-based form
     // carries no manual index-boundary comparison: the `< size()` guard such a
     // loop needs is a genuine equivalent under string_view's defined `[size()]`
     // read (it returns a non-space), so a mutation flipping it to `<=` cannot be
     // killed by any input.  find_first_*_of avoids the construct entirely.
-    for (std::size_t start = override_opts.find_first_not_of(k_rts_ws);
-         start != std::string_view::npos;) {
-        const std::size_t end = override_opts.find_first_of(k_rts_ws, start);
+    for (auto start = override_opts.find_first_not_of(k_rts_ws); start != std::string_view::npos;) {
+        auto const end = override_opts.find_first_of(k_rts_ws, start);
         args.emplace_back(override_opts.substr(start, end - start));
         start = override_opts.find_first_not_of(k_rts_ws, end);
     }
@@ -59,6 +61,33 @@ auto ffi_error_from_status(std::int8_t status, char* err_str, void (*free_str)(c
     if (status != 0)
         return AletheiaError{ErrorKind::Protocol, owned ? owned.get() : "Unknown error"};
     return std::nullopt;
+}
+
+auto wire_count_refusal(std::size_t count) -> std::optional<std::string> {
+    if (std::in_range<std::uint32_t>(count))
+        return std::nullopt;
+    return std::format("signal injection carries {} values, more than the wire's count holds",
+                       count);
+}
+
+auto json_input_bound_error(std::size_t input_bytes) -> std::optional<std::string> {
+    if (input_bytes <= max_json_bytes)
+        return std::nullopt;
+    std::string out;
+    out.reserve(256);
+    out.append(
+        R"({"status":"error","code":"input_bound_exceeded","message":"input length (bytes) )");
+    out.append(std::to_string(input_bytes));
+    out.append(R"( exceeds limit )");
+    out.append(std::to_string(max_json_bytes));
+    out.append(R"(","bound_kind":")");
+    out.append(bound_kind_input_length_bytes);
+    out.append(R"(","observed":)");
+    out.append(std::to_string(input_bytes));
+    out.append(R"(,"limit":)");
+    out.append(std::to_string(max_json_bytes));
+    out.append(R"(})");
+    return out;
 }
 
 } // namespace aletheia::detail

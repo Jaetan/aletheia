@@ -19,12 +19,14 @@
 
 #include <aletheia/aletheia.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <stop_token>
 #include <string>
@@ -285,7 +287,7 @@ TEST_CASE("identifier at max length is accepted", "[cross_binding]") {
     AletheiaClient client(std::move(backend));
 
     const std::string name(aletheia::max_identifier_length, 'A');
-    const std::string dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
+    auto const dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
     auto result = client.parse_dbc_text(std::stop_token{}, dbc_text);
     REQUIRE(result.has_value());
     REQUIRE(result->dbc.messages.size() == 1);
@@ -298,7 +300,7 @@ TEST_CASE("identifier over max length is rejected", "[cross_binding]") {
     AletheiaClient client(std::move(backend));
 
     const std::string name(aletheia::max_identifier_length + 1, 'A');
-    const std::string dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
+    auto const dbc_text = "VERSION \"\"\nNS_:\nBS_:\nBU_:\nBO_ 100 " + name + ": 8 ECU\n";
     auto const result = client.parse_dbc_text(std::stop_token{}, dbc_text);
     REQUIRE_FALSE(result.has_value());
 }
@@ -327,10 +329,9 @@ TEST_CASE("nesting depth over limit lifts to InputBoundExceeded", "[cross_bindin
 
     REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
     // 63 always-wrappers + atomic + predicate = JSON depth 65 (> 64).
-    LtlFormula inner =
-        ltl::atomic(ltl::equals(SignalName{"TestSignal"}, PhysicalValue{Rational{0, 1}}));
-    for (std::size_t i = 0; i < 63; ++i)
-        inner = ltl::always(std::move(inner));
+    auto inner = ltl::atomic(ltl::equals(SignalName{"TestSignal"}, PhysicalValue{Rational{0, 1}}));
+    std::ranges::for_each(std::views::repeat(0, 63),
+                          [&inner](auto) { inner = ltl::always(std::move(inner)); });
     std::vector<LtlFormula> props;
     props.push_back(std::move(inner));
     auto result = client.set_properties(std::stop_token{}, props);

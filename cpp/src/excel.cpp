@@ -19,9 +19,11 @@
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <memory>
+#include <ranges>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -87,45 +89,29 @@ static auto row_ctx(int row_num) -> std::string {
 /// turns dot-free scientific notation ("1e16") into 1 and an empty <v/> into
 /// 0 — so the raw stored text must come from the XML itself. XML entities are
 /// left encoded (they cannot form a digit run, so the strictness check treats
-/// them as the garbage they are). Returns "" for a missing or empty <v>.
+/// them as the garbage they are). Returns "" for a missing or empty <v>: the
+/// element carries no attributes, so its opening tag is the three bytes
+/// searched for, and a self-closing <v/> is not found, which reads as empty.
 static auto raw_stored_v_text(const OpenXLSX::XLCell& cell) -> std::string {
     std::ostringstream os;
     cell.print(os);
-    const std::string xml = os.str();
-    // Within a <c> cell node, <v> is the only child element starting with 'v'.
-    std::size_t pos = 0;
-    while ((pos = xml.find("<v", pos)) != std::string::npos) {
-        const std::size_t after = pos + 2;
-        if (after >= xml.size())
-            break;
-        const char next = xml[after];
-        if (next == '>') { // <v>text</v>
-            const std::size_t close = xml.find("</v>", after + 1);
-            if (close == std::string::npos)
-                break;
-            return xml.substr(after + 1, close - (after + 1));
-        }
-        if (next == '/' || next == ' ') { // <v/> or <v attr...>
-            const std::size_t gt = xml.find('>', after);
-            if (gt == std::string::npos)
-                break;
-            if (xml[gt - 1] == '/')
-                return ""; // self-closing: an empty <v/>
-            const std::size_t close = xml.find("</v>", gt);
-            if (close == std::string::npos)
-                break;
-            return xml.substr(gt + 1, close - (gt + 1));
-        }
-        pos = after; // a longer element name — keep scanning
-    }
-    return "";
+    auto const xml = os.str();
+    constexpr std::string_view open_tag = "<v>";
+    auto const open = xml.find(open_tag);
+    if (open == std::string::npos)
+        return "";
+    auto const text = open + open_tag.size();
+    auto const close = xml.find("</v>", text);
+    if (close == std::string::npos)
+        return "";
+    return xml.substr(text, close - text);
 }
 
-/// True when s is a non-empty ASCII digit run with an optional single leading
-/// sign — the only raw stored shape whose Integer parse is exact rather than a
-/// prefix-read.
+/// True when s is a non-empty ASCII digit run with an optional leading minus,
+/// which is every shape a stored integer takes and the only one whose Integer
+/// parse is exact rather than a prefix-read.
 static auto is_signed_digit_run(std::string_view s) -> bool {
-    if (s.starts_with('+') || s.starts_with('-'))
+    if (s.starts_with('-'))
         s.remove_prefix(1);
     if (s.empty())
         return false;
@@ -134,7 +120,7 @@ static auto is_signed_digit_run(std::string_view s) -> bool {
 
 /// Convert a cell to its loader-string form, returning empty for empty cells.
 /// The Integer branch trusts the parsed value only after verifying the raw
-/// stored <v> text is a pure optional-sign digit run (see raw_stored_v_text);
+/// stored <v> text is a digit run with an optional minus (see raw_stored_v_text);
 /// anything else — dot-free scientific notation, an empty <v/> — is refused
 /// truthfully, naming the stored text. Float values render shortest
 /// round-trip: they are only ever echoed in rejection messages, and a
@@ -146,7 +132,7 @@ static auto cell_to_string(const OpenXLSX::XLCell& cell, const std::string& head
     case OpenXLSX::XLValueType::String:
         return val.get<std::string>();
     case OpenXLSX::XLValueType::Integer: {
-        const std::string raw = raw_stored_v_text(cell);
+        auto const raw = raw_stored_v_text(cell);
         if (!is_signed_digit_run(raw))
             throw std::runtime_error(row_ctx(row_num) + ": '" + header + "' number cell stores \"" +
                                      raw +
@@ -189,19 +175,18 @@ struct DataRow {
 } // namespace
 
 /// Build a header->cell map from a worksheet row, keeping only present
-/// (non-empty) cells and dropping any column with an empty header name.
+/// (non-empty) cells; a column with no header name is keyed by that empty
+/// name, which no field reads.
 static auto row_to_map(OpenXLSX::XLWorksheet const& ws, int row,
                        const std::vector<std::string>& headers) -> CellMap {
     CellMap result;
-    for (std::size_t i = 0; i < headers.size(); ++i) {
-        if (headers[i].empty())
-            continue; // a column with no header name is ignored
+    for (auto const [i, header] : std::views::enumerate(headers)) {
         auto const cell = ws.cell(row, static_cast<std::uint16_t>(i + 1));
-        auto const str_val = cell_to_string(cell, headers[i], row);
+        auto const str_val = cell_to_string(cell, header, row);
         if (str_val.empty())
             continue;
-        result[headers[i]] = CellVal{
-            .value = str_val, .is_text = cell.value().type() == OpenXLSX::XLValueType::String};
+        result[header] = CellVal{.value = str_val,
+                                 .is_text = cell.value().type() == OpenXLSX::XLValueType::String};
     }
     return result;
 }
@@ -210,27 +195,43 @@ static auto row_to_map(OpenXLSX::XLWorksheet const& ws, int row,
 // Typed field extractors with error context
 // ---------------------------------------------------------------------------
 
+// The refusal every cell reader below throws for a column that is absent or
+// holds a value of another kind; the wording is shared with the Python
+// loader, so it has one owner here. `expected` is the parenthesised kind the
+// reader wanted, and empty for the reader that takes any.
+static auto missing_or_invalid(const std::string& ctx_str, const std::string& key,
+                               std::string_view expected) -> std::runtime_error {
+    return std::runtime_error(ctx_str + ": missing or invalid '" + key + "'" +
+                              std::string{expected});
+}
+
+// The cell a column names, refused in the loader's words when the row has no
+// such column. Every reader takes its cell through here, so a row is never
+// read past the map's end.
+static auto require_cell(const CellMap& cells, const std::string& key, const std::string& ctx_str,
+                         std::string_view expected) -> const CellMap::mapped_type& {
+    auto const it = cells.find(key);
+    if (it == cells.end())
+        throw missing_or_invalid(ctx_str, key, expected);
+    return it->second;
+}
+
 // get_str requires a text cell — strict, matching the Python reference: a
 // number or boolean cell is rejected rather than silently stringified.
 static auto get_str(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> std::string {
-    auto const it = cells.find(key);
-    if (it == cells.end() || it->second.value.empty())
-        throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected string)");
-    if (!it->second.is_text)
+    auto const& cell = require_cell(cells, key, ctx_str, " (expected string)");
+    if (!cell.is_text)
         throw std::runtime_error(ctx_str + ": '" + key + "' must be text, got a non-text value " +
-                                 it->second.value);
-    return it->second.value;
+                                 cell.value);
+    return cell.value;
 }
 
 // get_any returns a present cell's value regardless of type — used only for
 // Message ID, which legitimately accepts a hex string or a native number.
 static auto get_any(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> std::string {
-    auto const it = cells.find(key);
-    if (it == cells.end() || it->second.value.empty())
-        throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "'");
-    return it->second.value;
+    return require_cell(cells, key, ctx_str, "").value;
 }
 
 // get_decimal requires a TEXT cell holding a decimal literal.  The float
@@ -244,16 +245,13 @@ static auto get_any(const CellMap& cells, const std::string& key, const std::str
 // its own kind.
 static auto get_decimal(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> Rational {
-    auto const it = cells.find(key);
-    if (it == cells.end() || it->second.value.empty())
-        throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected number)");
-    if (!it->second.is_text)
-        throw std::runtime_error(ctx_str + ": '" + key + "' is a number cell (got " +
-                                 it->second.value +
+    auto const& cell = require_cell(cells, key, ctx_str, " (expected number)");
+    if (!cell.is_text)
+        throw std::runtime_error(ctx_str + ": '" + key + "' is a number cell (got " + cell.value +
                                  "); format it as TEXT so the exact value is preserved "
                                  "(a number cell stores a lossy float)");
     try {
-        return Rational::from_decimal(it->second.value);
+        return Rational::from_decimal(cell.value);
     } catch (const AletheiaException& ex) {
         if (ex.kind() != ErrorKind::Validation)
             throw; // runtime-down / ABI faults are not properties of the cell
@@ -289,11 +287,7 @@ static auto checked_cast(std::int64_t value, std::string_view field, const std::
 // are exempt from the all-text contract (which governs only numeric cells).
 static auto get_bool(const CellMap& cells, const std::string& key, const std::string& ctx_str)
     -> bool {
-    auto const it = cells.find(key);
-    if (it == cells.end() || it->second.value.empty())
-        throw std::runtime_error(ctx_str + ": missing or invalid '" + key +
-                                 "' (expected TRUE/FALSE)");
-    auto upper = it->second.value;
+    auto upper = require_cell(cells, key, ctx_str, " (expected TRUE/FALSE)").value;
     std::ranges::transform(upper, upper.begin(), [](unsigned char ch) -> char {
         return static_cast<char>(std::toupper(ch));
     });
@@ -301,24 +295,27 @@ static auto get_bool(const CellMap& cells, const std::string& key, const std::st
         return true;
     if (upper == "FALSE" || upper == "0")
         return false;
-    throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected TRUE/FALSE)");
+    throw missing_or_invalid(ctx_str, key, " (expected TRUE/FALSE)");
 }
 
 static auto has_key(const CellMap& cells, const std::string& key) -> bool {
-    auto const it = cells.find(key);
-    return it != cells.end() && !it->second.value.empty();
+    return cells.contains(key);
 }
 
 // ---------------------------------------------------------------------------
 // Header extraction from first row
 // ---------------------------------------------------------------------------
 
-static auto headers_from_row(OpenXLSX::XLWorksheet const& ws, std::size_t count)
+static auto headers_from_row(OpenXLSX::XLWorksheet const& ws, std::uint16_t count)
     -> std::vector<std::string> {
     std::vector<std::string> result;
-    result.reserve(count);
-    for (std::size_t i = 0; i < count; ++i) {
-        const OpenXLSX::XLCellValue val = ws.cell(1, static_cast<std::uint16_t>(i + 1)).value();
+    // The domain is wider than the column type the count comes in: at a count
+    // of that type's maximum, an end of count + 1 is not representable in it,
+    // and the range would come out empty where it should be full.
+    for (auto const col : std::views::iota(std::uint32_t{1}, std::uint32_t{count} + 1)) {
+        // Lossless: the counter never exceeds the bound, which is of the
+        // narrower type the cell accessor takes.
+        const OpenXLSX::XLCellValue val = ws.cell(1, static_cast<std::uint16_t>(col)).value();
         if (val.type() == OpenXLSX::XLValueType::String)
             result.push_back(val.get<std::string>());
         else
@@ -332,17 +329,13 @@ static auto headers_from_row(OpenXLSX::XLWorksheet const& ws, std::size_t count)
 // ---------------------------------------------------------------------------
 
 static auto parse_message_id(const std::string& val, const std::string& ctx_str) -> std::uint32_t {
-    if (val.empty())
-        throw std::runtime_error(
-            ctx_str +
-            ": invalid 'Message ID' \xe2\x80\x94 expected integer or hex string (e.g. 0x100)");
     // std::from_chars is locale-independent (unlike std::stoul).
     auto lower = val;
     std::ranges::transform(lower, lower.begin(), [](unsigned char ch) -> char {
         return static_cast<char>(std::tolower(ch));
     });
-    const bool is_hex = lower.starts_with("0x");
-    const std::string digits = is_hex ? val.substr(2) : val;
+    auto const is_hex = lower.starts_with("0x");
+    auto const digits = is_hex ? val.substr(2) : val;
     std::uint32_t result = 0;
     auto const* const end = sv_end_ptr(digits);
     auto [ptr, ec] = std::from_chars(digits.data(), end, result, is_hex ? 16 : 10);
@@ -374,7 +367,7 @@ static auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
     if (!detail::is_simple_condition(condition))
         throw std::runtime_error(ctx_str + ": unknown condition '" + condition + "'");
 
-    CheckResult result = [&] -> CheckResult {
+    auto result = [&] -> CheckResult {
         if (detail::is_simple_value_condition(condition)) {
             auto const value = PhysicalValue{get_decimal(cells, "Value", ctx_str)};
             return detail::dispatch_simple(signal, condition, value);
@@ -439,7 +432,7 @@ static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResul
     // this loader's; which columns they are, and what to say when one is
     // missing, is this loader's. Only the slots the obligation reads are
     // handed over.
-    CheckResult result = [&] -> CheckResult {
+    auto result = [&] -> CheckResult {
         detail::ThenSlotValues read;
         switch (*slots) {
         case detail::ThenSlots::Value:
@@ -484,8 +477,8 @@ static auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
         unit_str = it->second.value;
 
     // Multiplexing
-    const bool has_muxor = has_key(cells, "Multiplexor");
-    const bool has_mux_val = has_key(cells, "Multiplex Value");
+    auto const has_muxor = has_key(cells, "Multiplexor");
+    auto const has_mux_val = has_key(cells, "Multiplex Value");
 
     if (has_muxor != has_mux_val)
         throw std::runtime_error(ctx_str + ": 'Multiplexor' and 'Multiplex Value' "
@@ -532,13 +525,15 @@ static auto worksheet_exists(OpenXLSX::XLDocument const& doc, std::string_view n
 // A sheet's data rows: every non-empty row below the header, each paired with
 // its 1-based sheet row number for error messages.
 static auto collect_data_rows(OpenXLSX::XLWorksheet const& ws) -> std::vector<DataRow> {
-    auto const headers = headers_from_row(ws, static_cast<std::size_t>(ws.columnCount()));
+    auto const headers = headers_from_row(ws, ws.columnCount());
     std::vector<DataRow> rows;
     auto const total_rows = ws.rowCount();
-    for (std::uint32_t r = 2; r <= total_rows; ++r) {
+    // Wider than the sheet's own row count for the same reason the header scan
+    // is wider than its column type: the end is one past the last row.
+    for (auto const r : std::views::iota(std::uint64_t{2}, std::uint64_t{total_rows} + 1)) {
         auto cells = row_to_map(ws, static_cast<int>(r), headers);
         if (!cells.empty())
-            rows.push_back(DataRow{.number = static_cast<int>(r), .cells = std::move(cells)});
+            rows.emplace_back(static_cast<int>(r), std::move(cells));
     }
     return rows;
 }
@@ -560,9 +555,9 @@ static auto harden_excel_path(const std::filesystem::path& path) -> Result<void>
 static void write_header_row(OpenXLSX::XLWorksheet const& ws,
                              const std::vector<std::string>& headers,
                              OpenXLSX::XLStyleIndex header_fmt) {
-    for (std::size_t i = 0; i < headers.size(); ++i) {
+    for (auto const [i, header] : std::views::enumerate(headers)) {
         auto cell = ws.cell(1, static_cast<std::uint16_t>(i + 1));
-        cell.value() = headers[i];
+        cell.value() = header;
         cell.setCellFormat(header_fmt);
     }
 }
@@ -580,8 +575,8 @@ auto load_checks_from_excel(const std::filesystem::path& path, std::string_view 
         OpenXLSX::XLDocument doc;
         doc.open(path.string());
 
-        const bool has_checks = worksheet_exists(doc, checks_sheet);
-        const bool has_when_then = worksheet_exists(doc, when_then_sheet);
+        auto const has_checks = worksheet_exists(doc, checks_sheet);
+        auto const has_when_then = worksheet_exists(doc, when_then_sheet);
 
         if (!has_checks && !has_when_then)
             return std::unexpected(AletheiaError{
@@ -602,7 +597,6 @@ auto load_checks_from_excel(const std::filesystem::path& path, std::string_view 
                 results.push_back(parse_when_then_row(row.cells, row.number));
         }
 
-        doc.close();
         return results;
 
     } catch (const AletheiaException& ex) {
@@ -628,18 +622,18 @@ static auto group_rows_by_message(const std::vector<DataRow>& data_rows)
     -> std::vector<std::pair<MessageKeyExt, std::vector<std::size_t>>> {
     std::vector<std::pair<MessageKeyExt, std::vector<std::size_t>>> groups;
     std::map<MessageKeyExt, std::size_t> positions;
-    for (std::size_t i = 0; i < data_rows.size(); ++i) {
-        auto const& cells = data_rows[i].cells;
-        auto const ctx_str = row_ctx(data_rows[i].number);
+    for (auto const [i, data_row] : std::views::enumerate(data_rows)) {
+        auto const& cells = data_row.cells;
+        auto const ctx_str = row_ctx(data_row.number);
         auto msg_id = parse_message_id(get_any(cells, "Message ID", ctx_str), ctx_str);
         auto const msg_name = get_str(cells, "Message Name", ctx_str);
         auto dlc = get_int(cells, "DLC", ctx_str);
-        const bool extended = has_key(cells, "Extended") && get_bool(cells, "Extended", ctx_str);
+        auto const extended = has_key(cells, "Extended") && get_bool(cells, "Extended", ctx_str);
         MessageKeyExt key{msg_id, msg_name, dlc, extended};
         auto [it, inserted] = positions.try_emplace(key, groups.size());
         if (inserted)
             groups.emplace_back(std::move(key), std::vector<std::size_t>{});
-        groups[it->second].second.push_back(i);
+        groups[it->second].second.push_back(static_cast<std::size_t>(i));
     }
     return groups;
 }
@@ -650,9 +644,9 @@ static auto build_message_from_group(const MessageKeyExt& key,
                                      const std::vector<std::size_t>& indices,
                                      const std::vector<DataRow>& data_rows) -> Result<DbcMessage> {
     std::vector<DbcSignal> signals;
-    signals.reserve(indices.size());
-    for (auto const idx : indices)
-        signals.push_back(parse_dbc_signal(data_rows[idx].cells, data_rows[idx].number));
+    std::ranges::transform(indices, std::back_inserter(signals), [&](std::size_t idx) {
+        return parse_dbc_signal(data_rows[idx].cells, data_rows[idx].number);
+    });
     auto [msg_id, msg_name, dlc, extended] = key;
     auto can_id_result =
         extended
@@ -706,7 +700,6 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
             messages.push_back(std::move(msg.value()));
         }
 
-        doc.close();
         return DbcDefinition{.version = "", .messages = std::move(messages)};
 
     } catch (const AletheiaException& ex) {
@@ -742,23 +735,27 @@ auto create_excel_template(const std::filesystem::path& path) -> Result<void> {
         auto const header_fmt = styles.cellFormats().create();
         styles.cellFormats()[header_fmt].setFontIndex(bold_font);
 
+        // One workbook handle, and each sheet's name held once: the library
+        // takes names as strings, and a name given twice is a string made twice.
+        auto workbook = doc.workbook();
+        const std::string dbc_name{"DBC"};
+        const std::string checks_name{"Checks"};
+        const std::string when_then_name{"When-Then"};
+
         // The workbook starts with one default sheet; it becomes the DBC sheet.
-        doc.workbook().worksheet("Sheet1").setName("DBC");
-        auto const ws_dbc = doc.workbook().worksheet("DBC");
+        workbook.worksheet(1).setName(dbc_name);
+        auto const ws_dbc = workbook.worksheet(dbc_name);
         write_header_row(ws_dbc, dbc_headers(), header_fmt);
 
-        // Checks sheet
-        doc.workbook().addWorksheet("Checks");
-        auto const ws_checks = doc.workbook().worksheet("Checks");
+        workbook.addWorksheet(checks_name);
+        auto const ws_checks = workbook.worksheet(checks_name);
         write_header_row(ws_checks, checks_headers(), header_fmt);
 
-        // When-Then sheet
-        doc.workbook().addWorksheet("When-Then");
-        auto const ws_wt = doc.workbook().worksheet("When-Then");
+        workbook.addWorksheet(when_then_name);
+        auto const ws_wt = workbook.worksheet(when_then_name);
         write_header_row(ws_wt, when_then_headers(), header_fmt);
 
         doc.save();
-        doc.close();
         return {};
 
     } catch (const std::exception& ex) {

@@ -9,6 +9,7 @@
 
 #include "detail/json.hpp"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -20,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <span>
 #include <stop_token>
@@ -165,13 +167,12 @@ void AletheiaClient::populate_signal_lookup(const DbcDefinition& dbc) {
         auto id_value = can_id_value(msg.id);
         auto const is_extended = can_id_is_extended(msg.id);
         std::vector<std::string> names;
-        names.reserve(msg.signals.size());
-        for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(msg.signals.size()); ++i) {
+        for (auto const [i, signal] : std::views::enumerate(msg.signals)) {
             signal_index_.emplace(detail::SignalKey{.id_value = id_value,
                                                     .is_extended = is_extended,
-                                                    .signal_name = msg.signals[i].name.get()},
-                                  i);
-            names.emplace_back(msg.signals[i].name.get());
+                                                    .signal_name = signal.name.get()},
+                                  static_cast<std::uint32_t>(i));
+            names.emplace_back(signal.name.get());
         }
         signal_names_.emplace(detail::MessageKey{id_value, is_extended}, std::move(names));
     }
@@ -284,11 +285,14 @@ static auto wire_signal_value(std::uint16_t idx, std::int64_t num, std::int64_t 
 static auto is_valid_utf8(std::span<const std::byte> bytes) -> bool {
     // Minimum code point per sequence length — anything below is overlong.
     constexpr std::array<std::uint32_t, 5> min_cp = {0, 0, 0x80, 0x800, 0x10000};
-    std::size_t i = 0;
-    while (i < bytes.size()) {
-        auto const b0 = static_cast<std::uint8_t>(bytes[i]);
+    // A cursor, because a sequence is as many bytes as its lead byte says:
+    // the step is not a constant and the remainder is what the next step
+    // reads, so the span carries the position instead of an index compared
+    // against a length.
+    while (!bytes.empty()) {
+        auto const b0 = static_cast<std::uint8_t>(bytes.front());
         if (b0 < 0x80) {
-            ++i;
+            bytes = bytes.subspan(1);
             continue;
         }
         std::size_t len = 0;
@@ -305,17 +309,17 @@ static auto is_valid_utf8(std::span<const std::byte> bytes) -> bool {
         } else {
             return false; // Lone continuation byte or invalid lead byte.
         }
-        if (i + len > bytes.size())
+        if (len > bytes.size())
             return false;
-        for (std::size_t k = 1; k < len; ++k) {
-            auto const bk = static_cast<std::uint8_t>(bytes[i + k]);
+        for (auto const byte : bytes.first(len).subspan(1)) {
+            auto const bk = static_cast<std::uint8_t>(byte);
             if ((bk & 0xC0U) != 0x80)
                 return false;
             cp = (cp << 6U) | (bk & 0x3FU);
         }
         if (cp < min_cp[len] || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF))
             return false;
-        i += len;
+        bytes = bytes.subspan(len);
     }
     return true;
 }
@@ -333,48 +337,59 @@ static auto wire_signal_errors(std::span<const std::byte> buf, std::size_t error
                                std::uint16_t nerrs, std::uint32_t reason_bytes,
                                const std::vector<std::string>& names)
     -> Result<std::vector<SignalError>> {
-    auto const read_u16 = [&](std::size_t off) { return read_native<std::uint16_t>(buf, off); };
-    auto const read_u32 = [&](std::size_t off) { return read_native<std::uint32_t>(buf, off); };
-    const std::size_t offsets_off = errors_off + (std::size_t{nerrs} * k_error_record_bytes);
-    const std::size_t reasons_off = offsets_off + ((std::size_t{nerrs} + 1) * k_offset_bytes);
+    auto const offsets_off = errors_off + (std::size_t{nerrs} * k_error_record_bytes);
+    auto const reasons_off = offsets_off + ((std::size_t{nerrs} + 1) * k_offset_bytes);
+    // Each segment is a run of fixed-size records, so it is read as the
+    // records themselves: the count and the slicing then agree by
+    // construction, and the segments lie inside the buffer by the caller's
+    // exact-size check.  The offset table holds one more entry than there are
+    // records, the end of the last reason.
+    auto const records = buf.subspan(errors_off, std::size_t{nerrs} * k_error_record_bytes) |
+                         std::views::chunk(k_error_record_bytes);
+    auto const offsets =
+        buf.subspan(offsets_off, (std::size_t{nerrs} + 1) * k_offset_bytes) |
+        std::views::chunk(k_offset_bytes) | std::views::transform([](auto const entry) {
+            return read_native<std::uint32_t>(std::span<const std::byte>{entry}, 0);
+        });
+    // Each reason is the span between two neighbouring offsets, so the
+    // table is read two entries at a time, which is also what says whether it
+    // is monotone.
+    auto const bounds = offsets | std::views::slide(2);
 
-    // Offset-table invariants — all three verified before any slicing:
-    // off[0] == 0, monotone non-decreasing, off[nerrs] == reason_bytes.
-    if (read_u32(offsets_off) != 0)
+    // Offset-table invariants, all three verified before any reason is
+    // sliced out: off[0] == 0, monotone non-decreasing,
+    // off[nerrs] == reason_bytes.
+    if (offsets.front() != 0)
         return std::unexpected(AletheiaError{
             ErrorKind::Protocol,
             std::format("Malformed extraction reason offsets: first offset is {}, must be 0",
-                        read_u32(offsets_off))});
-    for (std::uint16_t i = 0; i < nerrs; ++i) {
-        if (read_u32(offsets_off + (std::size_t{i} * k_offset_bytes)) >
-            read_u32(offsets_off + ((std::size_t{i} + 1) * k_offset_bytes)))
+                        offsets.front())});
+    for (auto const [i, bound] : std::views::enumerate(bounds)) {
+        if (bound.front() > bound.back())
             return std::unexpected(AletheiaError{
                 ErrorKind::Protocol,
                 std::format("Malformed extraction reason offsets: offset {} decreases", i + 1)});
     }
-    if (read_u32(offsets_off + (std::size_t{nerrs} * k_offset_bytes)) != reason_bytes)
+    if (offsets.back() != reason_bytes)
         return std::unexpected(AletheiaError{
             ErrorKind::Protocol,
             std::format("Malformed extraction reason offsets: last offset {} != reason bytes {}",
-                        read_u32(offsets_off + (std::size_t{nerrs} * k_offset_bytes)),
-                        reason_bytes)});
+                        offsets.back(), reason_bytes)});
 
     std::vector<SignalError> errors;
     errors.reserve(nerrs);
-    for (std::uint16_t i = 0; i < nerrs; ++i) {
-        auto name =
-            signal_name_at(names, read_u16(errors_off + (std::size_t{i} * k_error_record_bytes)));
-        auto const lo = read_u32(offsets_off + (std::size_t{i} * k_offset_bytes));
-        auto const hi = read_u32(offsets_off + ((std::size_t{i} + 1) * k_offset_bytes));
-        auto const slice = buf.subspan(reasons_off + lo, hi - lo);
+    for (auto const [record, bound] : std::views::zip(records, bounds)) {
+        auto name = signal_name_at(
+            names, read_native<std::uint16_t>(std::span<const std::byte>{record}, 0));
+        auto const slice = buf.subspan(reasons_off + bound.front(), bound.back() - bound.front());
         if (!is_valid_utf8(slice))
             return std::unexpected(AletheiaError{
                 ErrorKind::Protocol,
                 std::format("Invalid UTF-8 in extraction reason for {}", std::string_view{name})});
         std::string reason(slice.size(), '\0');
-        if (!slice.empty())
-            std::memcpy(reason.data(), slice.data(), slice.size());
-        errors.push_back({.name = std::move(name), .reason = std::move(reason)});
+        std::ranges::transform(slice, reason.begin(),
+                               [](std::byte b) { return static_cast<char>(b); });
+        errors.emplace_back(std::move(name), std::move(reason));
     }
     return errors;
 }
@@ -391,7 +406,6 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
     -> Result<ExtractionResult> {
     auto const read_u16 = [&](std::size_t off) { return read_native<std::uint16_t>(buf, off); };
     auto const read_u32 = [&](std::size_t off) { return read_native<std::uint32_t>(buf, off); };
-    auto const read_i64 = [&](std::size_t off) { return read_native<std::int64_t>(buf, off); };
 
     if (buf.size() < k_header_bytes)
         return std::unexpected(AletheiaError{
@@ -414,26 +428,23 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
             ErrorKind::Protocol,
             std::format("Extraction buffer size mismatch: {} bytes, expected exactly {}",
                         buf.size(), expected_size)});
-    std::size_t off = k_header_bytes;
+    auto off = k_header_bytes;
 
     ExtractionResult result;
     result.values.reserve(nvals);
-    for (std::uint16_t i = 0; i < nvals; ++i) {
-        // Per-read bounds check — redundant with the upfront expected_size
-        // guard above, but keeps the loop locally defensive against future
-        // changes to the record layout or header computation.
-        if (off + k_value_record_bytes > buf.size())
-            return std::unexpected(AletheiaError{
-                ErrorKind::Protocol, "Truncated extraction buffer while reading signal values"});
-        auto const idx = read_u16(off);
-        auto const num = read_i64(off + 2);
-        auto const den = read_i64(off + 10);
-        off += k_value_record_bytes;
-        auto sv = wire_signal_value(idx, num, den, names);
+    // A run of fixed-size records, read as the records: the stride is the
+    // view's and not an addition this loop repeats.
+    for (auto const entry : buf.subspan(off, std::size_t{nvals} * k_value_record_bytes) |
+                                std::views::chunk(k_value_record_bytes)) {
+        std::span<const std::byte> const record{entry};
+        auto sv = wire_signal_value(read_native<std::uint16_t>(record, 0),
+                                    read_native<std::int64_t>(record, 2),
+                                    read_native<std::int64_t>(record, 10), names);
         if (!sv)
             return std::unexpected(sv.error());
         result.values.push_back(std::move(*sv));
     }
+    off += std::size_t{nvals} * k_value_record_bytes;
     // Errors + Offsets + Reasons — all three segments lie within the buffer
     // by the exact-size check above; the helper verifies the offset-table
     // invariants and validates each reason slice as UTF-8.
@@ -444,12 +455,10 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
     off += (std::size_t{nerrs} * k_error_record_bytes) +
            ((std::size_t{nerrs} + 1) * k_offset_bytes) + std::size_t{reason_bytes};
     result.absent.reserve(nabss);
-    for (std::uint16_t i = 0; i < nabss; ++i) {
-        if (off + k_absent_record_bytes > buf.size())
-            return std::unexpected(AletheiaError{
-                ErrorKind::Protocol, "Truncated extraction buffer while reading absent signals"});
-        result.absent.push_back(signal_name_at(names, read_u16(off)));
-        off += k_absent_record_bytes;
+    for (auto const entry : buf.subspan(off, std::size_t{nabss} * k_absent_record_bytes) |
+                                std::views::chunk(k_absent_record_bytes)) {
+        result.absent.push_back(signal_name_at(
+            names, read_native<std::uint16_t>(std::span<const std::byte>{entry}, 0)));
     }
     return result;
 }
@@ -509,12 +518,13 @@ auto AletheiaClient::resolve_signals(std::string_view method, CanId id,
             std::format("no DBC message for CAN ID {} (extended={})", id_value, is_extended)});
     }
 
-    ResolvedSignals resolved;
-    resolved.indices.reserve(signals.size());
-    resolved.numerators.reserve(signals.size());
-    resolved.denominators.reserve(signals.size());
-
-    for (auto const& sv : signals) {
+    // Sized once from the input, so the three arrays are the block the FFI
+    // reads and not a growth that could diverge from it.
+    ResolvedSignals resolved{.indices = std::vector<std::uint32_t>(signals.size()),
+                             .numerators = std::vector<std::int64_t>(signals.size()),
+                             .denominators = std::vector<std::int64_t>(signals.size())};
+    for (auto const& [sv, index, numerator, denominator] :
+         std::views::zip(signals, resolved.indices, resolved.numerators, resolved.denominators)) {
         auto const it = signal_index_.find(detail::SignalKey{
             .id_value = id_value, .is_extended = is_extended, .signal_name = sv.name.get()});
         if (it == signal_index_.end()) {
@@ -522,10 +532,10 @@ auto AletheiaClient::resolve_signals(std::string_view method, CanId id,
                 ErrorKind::Validation, std::format("signal '{}' not found in DBC for CAN ID {}",
                                                    std::string_view{sv.name}, id_value)});
         }
-        resolved.indices.push_back(it->second);
+        index = it->second;
         auto const& r = sv.value.get();
-        resolved.numerators.push_back(r.numerator());
-        resolved.denominators.push_back(r.denominator());
+        numerator = r.numerator();
+        denominator = r.denominator();
     }
     return resolved;
 }
@@ -580,7 +590,6 @@ auto AletheiaClient::set_properties(std::stop_token stop, std::span<const LtlFor
     // the documented contract (mirrors add_checks below).
     try {
         diags_.clear();
-        diags_.reserve(properties.size());
         for (auto const& f : properties)
             diags_.push_back(build_diagnostic(f));
         cache_.clear();
@@ -601,7 +610,6 @@ auto AletheiaClient::add_checks(std::stop_token stop, std::vector<CheckResult> c
         return std::unexpected(make_cancellation_error("add_checks"));
     try {
         std::vector<LtlFormula> formulas;
-        formulas.reserve(default_checks_.size() + checks.size());
         auto const push_check = [&](const CheckResult& c, std::string_view origin) -> Result<void> {
             auto const& f = c.formula();
             if (!f)
@@ -635,7 +643,6 @@ auto AletheiaClient::start_stream(std::stop_token stop) -> Result<void> {
     auto result = detail::parse_success(resp);
     if (result.has_value()) {
         cache_.clear();
-        last_frames_.clear();
         if (logger_)
             logger_.info("stream.started");
     }
@@ -656,7 +663,7 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
     if (result.has_value()) {
         auto id_value = can_id_value(id);
         auto const is_extended = can_id_is_extended(id);
-        // Track last frame per CAN ID for end-of-stream enrichment (skip when no diagnostics).
+        // Track last frame per CAN ID for end-of-stream enrichment.
         // Find-then-assign reuses the existing FramePayload's heap buffer
         // on subsequent frames for the same key — `assign` keeps the vector's
         // capacity intact when the new size fits, avoiding the temporary
@@ -664,17 +671,15 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
         // `insert_or_assign` would force per call.  First frame for a key
         // still allocates via `emplace`; this is the common cold path on a
         // bounded number of unique CAN IDs.
-        if (!diags_.empty()) {
-            auto key = detail::MessageKey{id_value, is_extended};
-            if (auto const it = last_frames_.find(key); it != last_frames_.end()) {
-                it->second.id = id;
-                it->second.dlc = dlc;
-                it->second.data.assign(data.begin(), data.end());
-            } else {
-                last_frames_.emplace(
-                    key, LastFrame{
-                             .id = id, .dlc = dlc, .data = FramePayload(data.begin(), data.end())});
-            }
+        auto key = detail::MessageKey{id_value, is_extended};
+        if (auto const it = last_frames_.find(key); it != last_frames_.end()) {
+            it->second.id = id;
+            it->second.dlc = dlc;
+            it->second.data.assign(data.begin(), data.end());
+        } else {
+            last_frames_.emplace(
+                key,
+                LastFrame{.id = id, .dlc = dlc, .data = FramePayload(data.begin(), data.end())});
         }
         // PropertyBatch may carry mid-stream Satisfactions + a terminal
         // Violation; enrich each fails entry and emit the standard
@@ -688,8 +693,7 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
 auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> frames)
     -> BatchResult {
     BatchResult batch;
-    batch.responses.reserve(frames.size());
-    for (std::size_t i = 0; i < frames.size(); ++i) {
+    for (auto const [i, frame] : std::views::enumerate(frames)) {
         // Per-frame check between FFI calls — the cancellation boundary for
         // batch ops. The most recent FFI call (if one was in flight when stop
         // fired) ran to completion and its response is in `responses`.
@@ -697,7 +701,7 @@ auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> fr
             batch.error = make_cancellation_error("send_frames");
             return batch;
         }
-        auto r = send_frame(stop, frames[i]);
+        auto r = send_frame(stop, frame);
         if (!r.has_value()) {
             auto const& e = r.error();
             // Cancellation propagates as-is so callers see ErrorKind::Cancellation
@@ -758,6 +762,7 @@ auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
             enrich_end_stream_results(*result);
         if (logger_)
             log_end_stream_summary(*result);
+        // A finished stream holds no frame, so the next one starts with none.
         last_frames_.clear();
     }
     return result;
@@ -810,36 +815,33 @@ static auto format_enriched_reason(const PropertyDiagnostic& diag,
                                    std::string_view core_reason) -> std::string {
     std::string reason;
     bool rendered = false;
-    if (!values.empty()) {
-        // Best-effort on the eval path: rendering the observed values needs the
-        // runtime, which is up here (the frame was processed through it) — so this
-        // is unreachable — but never sink an already-processed frame if the kernel
-        // renderer throws. Degrade to the formula description (no value rendered,
-        // no local fallback). set_properties, by contrast, propagates the throw.
-        try {
-            std::string parts;
-            bool first = true;
-            for (auto const& sig : diag.signals) {
-                if (auto const it = values.find(sig); it != values.end()) {
-                    if (!first)
-                        parts += ", ";
-                    // Render the observed value via the kernel formatℚ (same renderer
-                    // as the predicate threshold): exact, never a printf conversion or a
-                    // cast to double, and byte-identical to the other bindings.
-                    parts +=
-                        std::format("{} = {}", std::string_view{sig},
-                                    detail::format_rational_ffi(it->second.get().numerator(),
-                                                                it->second.get().denominator()));
-                    first = false;
-                }
+    // Best-effort on the eval path: rendering the observed values needs the
+    // runtime, which is up here (the frame was processed through it) — so this
+    // is unreachable — but never sink an already-processed frame if the kernel
+    // renderer throws. Degrade to the formula description (no value rendered,
+    // no local fallback). set_properties, by contrast, propagates the throw.
+    try {
+        std::string parts;
+        bool first = true;
+        for (auto const& sig : diag.signals) {
+            if (auto const it = values.find(sig); it != values.end()) {
+                if (!first)
+                    parts += ", ";
+                // Render the observed value via the kernel formatℚ (same renderer
+                // as the predicate threshold): exact, never a printf conversion or a
+                // cast to double, and byte-identical to the other bindings.
+                parts += std::format("{} = {}", std::string_view{sig},
+                                     detail::format_rational_ffi(it->second.get().numerator(),
+                                                                 it->second.get().denominator()));
+                first = false;
             }
-            if (!first) {
-                reason = parts + " (formula: " + diag.formula_desc + ")";
-                rendered = true;
-            }
-        } catch (const AletheiaException&) {
-            rendered = false;
         }
+        if (!first) {
+            reason = parts + " (formula: " + diag.formula_desc + ")";
+            rendered = true;
+        }
+    } catch (const AletheiaException&) {
+        rendered = false;
     }
     if (!rendered)
         reason = "violated: " + diag.formula_desc;
@@ -902,13 +904,13 @@ void AletheiaClient::enrich_violation(PropertyResult& pr, CanId id, Dlc dlc,
 
 void AletheiaClient::enrich_end_stream_results(StreamResult& result) {
     auto todo = collect_enrichable_results(result);
-    if (todo.empty())
-        return;
 
     // Union of the signal names any collected diagnostic wants. When the
     // union is empty, skip the frame extraction loop entirely (zero FFI
     // extraction calls, no extraction_failed warnings) — but still attach
     // an enrichment to every collected result via the empty-values fallback.
+    // Every formula names at least one signal, so the union is empty only
+    // when nothing was collected.
     std::set<SignalName> wanted;
     for (auto const& [pr, diag] : todo)
         wanted.insert(diag->signals.begin(), diag->signals.end());

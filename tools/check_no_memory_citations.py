@@ -70,7 +70,7 @@ import re
 import sys
 from pathlib import Path
 
-from tools._common import emit, git_ls_files
+from tools._common import BINARY_SUFFIXES, emit, git_ls_files
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -92,28 +92,6 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
         "memory-note filename",
     ),
 ]
-
-# Binary / non-text tracked files we never scan.
-_BINARY_SUFFIXES = {
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".ico",
-    ".pdf",
-    ".agdai",
-    ".so",
-    ".o",
-    ".woff",
-    ".woff2",
-    ".ttf",
-    ".zip",
-    ".gz",
-    ".sig",
-    ".key",
-    ".pub",
-    ".wasm",
-}
 
 # Files that carry citation-shaped strings by construction (detectors + fixtures)
 # or legitimately cite the store (AI-process-infra docs) — scanned-around, never
@@ -149,7 +127,7 @@ def in_scope(rel: str) -> bool:
     Markdown is scanned too (the AI-process-infra docs that may cite the store are
     exempted by name), so a bare ``[[slug]]`` in a product ``.md`` doc is caught.
     """
-    return not is_exempt(rel) and Path(rel).suffix not in _BINARY_SUFFIXES
+    return not is_exempt(rel) and Path(rel).suffix not in BINARY_SUFFIXES
 
 
 def scan_text(rel: str, text: str) -> list[str]:

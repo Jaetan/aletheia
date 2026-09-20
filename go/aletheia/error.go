@@ -125,6 +125,9 @@ const (
 	CodeFrameInjectionFailed = "frame_injection_failed"
 	// CodeFrameSignalsOverlap — two signals occupy overlapping bit positions.
 	CodeFrameSignalsOverlap = "frame_signals_overlap"
+	// CodeFrameSignalPastFrameEnd — a signal's last bit lies past the end of the
+	// frame the caller's DLC sizes, so its overhanging bits have nowhere to go.
+	CodeFrameSignalPastFrameEnd = "frame_signal_past_frame_end"
 	// CodeFrameCanIDNotFound — no message in the DBC has this CAN ID.
 	CodeFrameCanIDNotFound = "frame_can_id_not_found"
 	// CodeFrameCanIDMismatch — frame CAN ID disagrees with the message ID resolved by name.
@@ -187,6 +190,9 @@ const (
 
 	// CodeExtractionMuxValueMismatch — multiplexor value does not match the requested signal's mux selector.
 	CodeExtractionMuxValueMismatch = "extraction_mux_value_mismatch"
+	// CodeExtractionSignalPastFrameEnd — the signal's last bit lies past the end
+	// of the frame that arrived, so the bits it names are not there to read.
+	CodeExtractionSignalPastFrameEnd = "extraction_signal_past_frame_end"
 	// CodeExtractionMuxSignalNotFound — multiplexor signal referenced by a muxed signal is missing.
 	CodeExtractionMuxSignalNotFound = "extraction_mux_signal_not_found"
 	// CodeExtractionMuxChainCycle — multiplexor chain references itself.

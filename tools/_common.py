@@ -7,6 +7,14 @@ duplicate -- stdout emission, content hashing, subprocess invocation, git
 metadata, timestamps, artifact directories -- so each lives in exactly one
 place.  Imported as ``from tools._common import ...``; the tools are invoked
 as ``python -m tools.X`` (see ``tools/__init__.py``).
+
+This module imports nothing outside the standard library, and must not.  The
+pre-commit hook runs ``tools.run_ci --fast`` under its own interpreter rather
+than the project's virtual environment, and ``run_ci`` reaches here through
+``tools/_ci_steps.py``; a third-party import at this depth turns every commit
+into a traceback on a machine whose bare interpreter lacks the package.  A
+helper that needs one belongs in a module only the gates that use it import,
+as the ratchet record reader does in ``tools/_ratchet.py``.
 """
 
 from __future__ import annotations
@@ -18,16 +26,21 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NewType
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Mapping
+    from collections.abc import Callable, Generator, Mapping
+
+# A path relative to the repository root, spelled as git prints it: `git ls-files`
+# and `git diff --name-only` both use this spelling, and only a git listing mints one.
+RelPath = NewType("RelPath", str)
 
 
 def match_paren_content(text: str, start: int) -> str | None:
@@ -145,16 +158,101 @@ def run_capture(
     return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, check=check, env=env)
 
 
-def git_ls_files(repo: Path, *patterns: str) -> list[str]:
+def run_streaming(
+    cmd: list[str],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+    sink: Callable[[str], object] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run ``cmd``, emitting each output line as it arrives and returning the whole.
+
+    ``run_capture`` holds a child's output until the child exits, so a command
+    killed by a wall clock -- a CI job's ``timeout-minutes``, a host reboot --
+    takes its entire log with it, and while it runs there is no way to tell
+    progress from a hang.  This helper writes every line out as the child
+    produces it and accumulates the same text in the returned
+    ``CompletedProcess``, so the caller parses what it always parsed.
+
+    stderr is merged into stdout: interleaving is what makes a progress line
+    and the diagnostic that follows it legible in one stream, and the returned
+    object carries the merged text as ``stdout`` with ``stderr`` empty.
+
+    ``sink`` receives one call per line, newline included (default: write to
+    stderr and flush, which is where this package's own progress goes).  The
+    child's environment gains ``PYTHONUNBUFFERED=1``: a Python child block
+    buffers its stdout when it is a pipe rather than a terminal, which would
+    defeat the whole point for a line this side flushes diligently.
+
+    Text mode is what carries a progress bar: under universal newlines a bare
+    carriage return ends a line, so a tool that redraws one line in place is
+    read as a line per redraw rather than as one line at the end.  Both tools
+    on the mutation lane draw one (mutmut a spinner, mull-runner a bar).
+    """
+    write_line = sink if sink is not None else _emit_progress
+    child_env = (env if env is not None else os.environ.copy()) | {"PYTHONUNBUFFERED": "1"}
+    lines: list[str] = []
+    with subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=child_env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    ) as proc:
+        # proc.stdout is not None because stdout=PIPE was requested.
+        for line in proc.stdout:  # pyright: ignore[reportOptionalIterable]
+            lines.append(line)
+            _ = write_line(line)
+        returncode = proc.wait()
+    return subprocess.CompletedProcess(cmd, returncode, stdout="".join(lines), stderr="")
+
+
+def _emit_progress(line: str) -> None:
+    """Write one line to stderr, flushed, as ``run_streaming``'s default sink.
+
+    A write that fails takes the filesystem's free space with it into the
+    failure.  The one failure that reaches this sink is a full filesystem, and
+    the traceback on its own names whichever progress line happened to be
+    writing when the space ran out, which is never the cause.
+    """
+    try:
+        _ = sys.stderr.write(line)
+        sys.stderr.flush()
+    except OSError as exc:
+        message = f"cannot write progress: {exc}; {_stderr_space_note()}"
+        raise RuntimeError(message) from exc
+
+
+def _stderr_space_note() -> str:
+    """Name what stderr writes to and the bytes left on its filesystem.
+
+    ``fileno`` is absent under a capturing harness and on a stream that is not
+    a file, so what cannot be measured is reported as unmeasured rather than
+    raised over the failure it is there to describe.
+    """
+    try:
+        fd = sys.stderr.fileno()
+        stats = os.fstatvfs(fd)
+    except (AttributeError, OSError, ValueError) as exc:
+        return f"free space behind stderr is unknown ({exc})"
+    try:
+        target = str(Path(f"/proc/self/fd/{fd}").readlink())
+    except OSError:
+        target = f"file descriptor {fd}"
+    return f"{target} has {stats.f_bavail * stats.f_frsize} bytes free"
+
+
+def git_ls_files(repo: Path, *patterns: str) -> list[RelPath]:
     """Return git-tracked paths (repo-relative POSIX strings) under ``repo``.
 
     Optional ``patterns`` are passed as ``git ls-files`` pathspecs. The result is
     the set a fresh checkout contains, so resolving against it (rather than
     ``Path.exists()``) never sees an untracked / gitignored working-tree file.
     """
-    return run_capture(
-        [find_executable("git"), "ls-files", *patterns], cwd=repo, check=True
-    ).stdout.split()
+    listed = run_capture([find_executable("git"), "ls-files", *patterns], cwd=repo, check=True)
+    return [RelPath(path) for path in listed.stdout.split()]
 
 
 def git_toplevel(start: Path | None = None) -> Path:
@@ -348,3 +446,63 @@ def agda_tree_lock() -> Generator[None]:
         if fd is not None:
             with contextlib.suppress(OSError):
                 os.close(fd)  # closing the fd releases the flock
+
+
+# ---------------------------------------------------------------------------
+# Tree-scanning gates
+#
+# The gates that read the tracked tree as prose share what counts as prose: a
+# tracked file that is not one of these binary shapes, with Markdown code
+# masked so a string quoted as an example is documentation rather than the
+# project speaking. One definition, so a new gate cannot disagree with the
+# others about what it reads.
+# ---------------------------------------------------------------------------
+
+BINARY_SUFFIXES: frozenset[str] = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".ico",
+        ".pdf",
+        ".agdai",
+        ".so",
+        ".o",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".zip",
+        ".gz",
+        ".sig",
+        ".key",
+        ".pub",
+        ".wasm",
+        ".xlsx",
+    }
+)
+
+MARKDOWN_SUFFIXES: frozenset[str] = frozenset({".md", ".markdown"})
+
+_INLINE_CODE = re.compile(r"`[^`]*`")
+_FENCE = re.compile(r"^\s*(```|~~~)")
+
+
+def prose_lines(rel: str, text: str) -> list[tuple[int, str]]:
+    """Return ``(1-based lineno, line)`` pairs of ``text`` that are the project's prose.
+
+    A Markdown file drops fenced blocks and masks inline-code spans; every other
+    file is returned whole, because a comment in a source file is the project
+    speaking.
+    """
+    is_markdown = Path(rel).suffix in MARKDOWN_SUFFIXES
+    out: list[tuple[int, str]] = []
+    in_fence = False
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if is_markdown and _FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        out.append((lineno, _INLINE_CODE.sub("", line) if is_markdown else line))
+    return out

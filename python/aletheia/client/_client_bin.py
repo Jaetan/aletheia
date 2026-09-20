@@ -93,6 +93,10 @@ class ExtractionErrorCode(IntEnum):
     # emitted by the kernel (that condition routes to the absent
     # partition); listed so every Agda constructor owns a distinct code.
     MUX_VALUE_MISMATCH = 7
+    # Agda: ``Aletheia.CAN.BatchExtraction.SignalPastFrameEnd`` — the
+    # signal's last bit lies past the end of the frame that arrived, so the
+    # bits it names are not there to read.
+    SIGNAL_PAST_FRAME_END = 8
 
 
 @dataclass(frozen=True, slots=True)

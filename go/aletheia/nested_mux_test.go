@@ -61,13 +61,14 @@ func nestedMuxClient(t *testing.T) *aletheia.Client {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	t.Cleanup(func() { _ = c.Close() })
+	t.Cleanup(func() { _ = closeWithin(t, c) })
 	return c
 }
 
 // The chain loads, and the validator names only what it is: a shape with no
 // single always-present master, which is a warning rather than a refusal.
 func TestNestedMux_LoadsAndIsNamedAWarning(t *testing.T) {
+	ctx := bounded(t)
 	c := nestedMuxClient(t)
 	if _, err := c.ParseDBC(ctx, nestedMuxDBC()); err != nil {
 		t.Fatalf("a nested chain must load: %v", err)
@@ -89,6 +90,7 @@ func TestNestedMux_LoadsAndIsNamedAWarning(t *testing.T) {
 // selectors matching the leaf carries its value; with the inner one off the
 // leaf is absent; with the outer one off the inner signal and the leaf are.
 func TestNestedMux_ExtractionFollowsTheChain(t *testing.T) {
+	ctx := bounded(t)
 	c := nestedMuxClient(t)
 	if _, err := c.ParseDBC(ctx, nestedMuxDBC()); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
@@ -156,6 +158,7 @@ func TestNestedMux_ExtractionFollowsTheChain(t *testing.T) {
 // Two signals each selected by the other is a cycle, which the validator
 // refuses: it names each signal of the cycle, and the errors flag goes up.
 func TestNestedMux_CycleIsRefused(t *testing.T) {
+	ctx := bounded(t)
 	c := nestedMuxClient(t)
 	sid, err := aletheia.NewStandardID(0x301)
 	if err != nil {

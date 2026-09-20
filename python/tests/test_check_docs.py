@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tools._common import RelPath
 from tools.check_docs import (
     REPO,
     escapes_repo,
@@ -100,8 +101,8 @@ def test_target_in_checkout_gates_on_git_tracking() -> None:
     the gate passed locally — but a fresh CI checkout lacks it, so the PITCH.md link
     to it was broken. Resolving against git's tracked set makes local match CI.
     """
-    tracked = {"docs/PITCH.md", "src/Aletheia/Main.agda"}
-    tracked_dirs = {"docs", "src", "src/Aletheia"}
+    tracked = {RelPath("docs/PITCH.md"), RelPath("src/Aletheia/Main.agda")}
+    tracked_dirs = {RelPath("docs"), RelPath("src"), RelPath("src/Aletheia")}
     assert target_in_checkout("docs/PITCH.md", tracked, tracked_dirs)  # tracked file
     assert target_in_checkout("src/Aletheia", tracked, tracked_dirs)  # tracked dir
     assert not target_in_checkout("docs/presentation/index.html", tracked, tracked_dirs)  # ignored

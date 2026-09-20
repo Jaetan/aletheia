@@ -125,17 +125,17 @@ TEST_CASE("Rational ctor/make reject out-of-int64-range integral inputs", "[type
     constexpr std::uint64_t too_big = std::uint64_t{1} << 63U;
 
     SECTION("the constructor throws") {
-        REQUIRE_THROWS_AS(Rational(too_big, 1), std::invalid_argument);
-        REQUIRE_THROWS_AS(Rational(1, too_big), std::invalid_argument);
+        REQUIRE_THROWS_AS(Rational(too_big, std::uint64_t{1}), std::invalid_argument);
+        REQUIRE_THROWS_AS(Rational(std::uint64_t{1}, too_big), std::invalid_argument);
     }
     SECTION("make returns an error instead of a wrapped value") {
-        REQUIRE_FALSE(Rational::make(too_big, 1).has_value());
-        REQUIRE_FALSE(Rational::make(1, too_big).has_value());
+        REQUIRE_FALSE(Rational::make(too_big, std::uint64_t{1}).has_value());
+        REQUIRE_FALSE(Rational::make(std::uint64_t{1}, too_big).has_value());
     }
     SECTION("an in-range integral still constructs") {
         constexpr auto big_ok = static_cast<std::int64_t>(std::uint64_t{1} << 62U); // < INT64_MAX
-        REQUIRE(Rational(big_ok, 1).numerator() == big_ok);
-        REQUIRE(Rational::make(big_ok, 2).has_value());
+        REQUIRE(Rational(big_ok, std::int64_t{1}).numerator() == big_ok);
+        REQUIRE(Rational::make(big_ok, std::int64_t{2}).has_value());
     }
 }
 

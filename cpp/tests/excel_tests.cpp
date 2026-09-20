@@ -3,6 +3,7 @@
 // Excel loader tests.
 // Tests Excel check and DBC parsing with programmatically-created workbooks.
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <aletheia/enrich.hpp>
@@ -19,6 +20,7 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -27,7 +29,12 @@
 #include <vector>
 
 #include "temp_path.hpp"
+#ifdef ALETHEIA_ALLOC_FAULT
+#include "alloc_fault.hpp"
+#endif
 #include <catch2/matchers/catch_matchers.hpp>
+#include <dlfcn.h>
+#include <unistd.h>
 
 #include "repo_root.hpp"
 
@@ -63,14 +70,14 @@ constexpr std::array<std::string_view, 16> dbc_hdr = {
 // fixtures below read as unsigned, so each byte crosses as a value rather than
 // through a cast of the buffer's type.
 static void write_bytes(std::ofstream& ofs, std::span<const unsigned char> bytes) {
-    for (const unsigned char b : bytes)
+    for (auto const b : bytes)
         ofs.put(static_cast<char>(b));
 }
 
 static void write_header(OpenXLSX::XLWorksheet const& ws,
                          std::span<const std::string_view> headers) {
-    for (std::size_t i = 0; i < headers.size(); ++i)
-        ws.cell(1, static_cast<std::uint16_t>(i + 1)).value() = std::string{headers[i]};
+    for (auto const [i, header] : std::views::enumerate(headers))
+        ws.cell(1, static_cast<std::uint16_t>(i + 1)).value() = std::string{header};
 }
 
 /// Write a data row (2-indexed) under the float-principle all-text contract: a
@@ -83,12 +90,12 @@ static void write_header(OpenXLSX::XLWorksheet const& ws,
 /// tests), write it directly with an int64/double value.
 static void write_row(OpenXLSX::XLWorksheet const& ws, int row,
                       const std::vector<std::string>& values) {
-    for (std::size_t i = 0; i < values.size(); ++i) {
-        const std::string& s = values[i];
+    for (auto const [i, value] : std::views::enumerate(values)) {
+        const std::string& s = value;
         if (s.empty())
             continue;
         auto const col = static_cast<std::uint16_t>(i + 1);
-        std::string upper = s;
+        auto upper = s;
         std::ranges::transform(upper, upper.begin(), [](unsigned char ch) -> char {
             return static_cast<char>(std::toupper(ch));
         });
@@ -111,8 +118,8 @@ static void make_workbook(const std::filesystem::path& path, const std::string& 
     doc.workbook().worksheet("Sheet1").setName(sheet);
     auto const ws = doc.workbook().worksheet(sheet);
     write_header(ws, headers);
-    for (std::size_t r = 0; r < rows.size(); ++r)
-        write_row(ws, static_cast<int>(r + 2), rows[r]);
+    for (auto const [r, row] : std::views::enumerate(rows))
+        write_row(ws, static_cast<int>(r + 2), row);
     doc.save();
     doc.close();
 }
@@ -155,12 +162,12 @@ static void make_dbc_workbook_with_raw_id(const std::filesystem::path& path, std
     if (raw_override == nullptr)
         return;
     const std::string sheet_name = "xl/worksheets/sheet1.xml";
-    const std::string needle = "<v>" + std::to_string(id_value) + "</v>";
-    const std::string replacement =
+    auto const needle = "<v>" + std::to_string(id_value) + "</v>";
+    auto const replacement =
         (*raw_override == '\0') ? std::string{"<v/>"} : "<v>" + std::string{raw_override} + "</v>";
     OpenXLSX::XLZipArchive zip;
     zip.open(path.string());
-    std::string xml = zip.getEntry(sheet_name);
+    auto xml = zip.getEntry(sheet_name);
     auto const pos = xml.find(needle);
     REQUIRE(pos != std::string::npos);
     xml.replace(pos, needle.size(), replacement);
@@ -524,7 +531,7 @@ TEST_CASE("excel: template headers are bold", "[excel][template]") {
     auto const ws = doc.workbook().worksheet("DBC");
     auto const fmt_idx = ws.cell(1, 1).cellFormat();
     auto const font_idx = styles.cellFormats()[fmt_idx].fontIndex();
-    const bool is_bold = styles.fonts()[font_idx].bold();
+    auto const is_bold = styles.fonts()[font_idx].bold();
     doc.close();
 
     CHECK(is_bold);
@@ -825,8 +832,10 @@ TEST_CASE("excel: file size cap rejected", "[excel][hardening]") {
     {
         std::ofstream ofs(tf.path, std::ios::binary);
         std::vector<char> chunk(std::size_t{1024} * 1024, '\xAA');
-        for (int i = 0; i < 65; ++i) // 65 MiB
+        // 65 MiB, one mebibyte at a time: the count is the point, not a position.
+        std::ranges::for_each(std::views::repeat(0, 65), [&](auto) {
             ofs.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+        });
     }
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(!result.has_value());
@@ -984,7 +993,7 @@ TEST_CASE("excel: DBC strict rejects a Factor stored as a native number", "[exce
 // no '.' and no negative exponent as Integer, and the underlying XML read
 // prefix-parses that text — so a stored "1e16" would silently load as Message
 // ID 1 and an empty <v/> as ID 0. The loader must trust the integer read only
-// after verifying the raw stored text is a pure optional-sign digit run, and
+// after verifying the raw stored text is a digit run with an optional minus, and
 // refuse truthfully otherwise.
 
 TEST_CASE("excel: DBC Message ID storing dot-free scientific notation is refused",
@@ -1070,3 +1079,293 @@ TEST_CASE("temp path: every shape is removed when its scope ends", "[excel][temp
     CHECK_FALSE(std::filesystem::exists(written));
     CHECK_FALSE(std::filesystem::exists(made));
 }
+
+TEST_CASE("temp path: a scratch directory outlives its owner only while the owner runs",
+          "[excel][temp]") {
+    // Removal at exit cannot be the whole answer: a run a signal ends never
+    // reaches static destruction and keeps its directory, which about one run
+    // in eight of a sweep does.  What the next run clears is every
+    // directory whose lock it can take, the lock being the liveness test a
+    // process id is not, since an id is reused, and a timestamp is not.
+    auto const root = std::filesystem::temp_directory_path();
+    auto const planted = [&root](std::string_view fate) {
+        return root / (std::string(aletheia::test::scratch_prefix) + std::to_string(::getpid()) +
+                       "-" + std::string(fate));
+    };
+
+    SECTION("one whose lock is free is removed, contents and all") {
+        auto const dead = planted("dead");
+        std::filesystem::create_directories(dead);
+        std::ofstream{dead / "left_behind.bin"} << "x";
+        REQUIRE(std::filesystem::exists(dead / "left_behind.bin"));
+        aletheia::test::reap_dead_scratch_dirs();
+        CHECK_FALSE(std::filesystem::exists(dead));
+    }
+
+    SECTION("one whose owner holds its lock is kept, and goes once the lock does") {
+        auto const live = planted("live");
+        std::filesystem::create_directories(live);
+        {
+            const aletheia::test::ScratchLock holder{live};
+            REQUIRE(holder.owns(live));
+            aletheia::test::reap_dead_scratch_dirs();
+            CHECK(std::filesystem::is_directory(live));
+        }
+        aletheia::test::reap_dead_scratch_dirs();
+        CHECK_FALSE(std::filesystem::exists(live));
+    }
+
+    SECTION("a link planted under the name is refused rather than followed") {
+        // The system temp directory is world writable, so a link is the one
+        // entry whose name says scratch and whose contents are someone else's.
+        auto const target = root / ("aletheia-link-target-" + std::to_string(::getpid()));
+        std::filesystem::create_directories(target);
+        auto const link = planted("link");
+        std::filesystem::create_directory_symlink(target, link);
+        aletheia::test::reap_dead_scratch_dirs();
+        CHECK(std::filesystem::is_symlink(link));
+        CHECK(std::filesystem::is_directory(target));
+        std::error_code ec;
+        std::filesystem::remove(link, ec);
+        std::filesystem::remove(target, ec);
+    }
+
+    SECTION("the sweeping process keeps its own scratch directory") {
+        const TempPath keeper{"aletheia_temp_path_keeper.bin", "still here"};
+        aletheia::test::reap_dead_scratch_dirs();
+        CHECK(std::filesystem::is_directory(scratch_dir()));
+        CHECK(std::filesystem::exists(keeper.path));
+    }
+}
+
+// ===========================================================================
+// Edges of the sheet readers
+// ===========================================================================
+
+TEST_CASE("excel: a native integer Message ID carrying a nine and a minus is read exactly",
+          "[excel][dbc][strict]") {
+    // The digit run check admits every digit and a leading minus; the minus
+    // then fails as a CAN ID, by the ID's own wording and not the strict one.
+    SECTION("nineteen loads as 19") {
+        TempPath tf("excel_dbc_msgid_19.xlsx");
+        make_dbc_workbook_with_raw_id(tf.path, 19, nullptr);
+        auto result = load_dbc_from_excel(tf.path);
+        REQUIRE(result.has_value());
+        REQUIRE(result->messages.size() == 1);
+        CHECK(std::get<StandardId>(result->messages[0].id).value() == 19);
+    }
+    SECTION("minus nine is refused as an ID, not as a stored shape") {
+        TempPath tf("excel_dbc_msgid_minus.xlsx");
+        make_dbc_workbook_with_raw_id(tf.path, 31337421, "-9");
+        auto result = load_dbc_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("invalid 'Message ID'"));
+        CHECK_THAT(std::string(result.error().message()),
+                   !ContainsSubstring("not a plain integer"));
+    }
+}
+
+TEST_CASE("excel: a missing required cell is refused by its field's name", "[excel][error]") {
+    SECTION("a text field") {
+        TempPath tf("excel_missing_signal.xlsx");
+        make_checks_workbook(tf.path, {{"", "", "never_exceeds", "220", "", "", "", ""}});
+        auto result = load_checks_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("missing or invalid 'Signal' (expected string)"));
+    }
+    SECTION("a number field") {
+        TempPath tf("excel_missing_value.xlsx");
+        make_checks_workbook(tf.path, {{"", "Speed", "never_exceeds", "", "", "", "", ""}});
+        auto result = load_checks_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("missing or invalid 'Value' (expected number)"));
+    }
+    SECTION("the message id") {
+        TempPath tf("excel_missing_id.xlsx");
+        make_dbc_workbook(tf.path, {{"", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1",
+                                     "0", "0", "255", "", "", "", ""}});
+        auto result = load_dbc_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("missing or invalid 'Message ID'"));
+    }
+    SECTION("a boolean field") {
+        TempPath tf("excel_missing_signed.xlsx");
+        make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "", "1",
+                                     "0", "0", "255", "", "", "", ""}});
+        auto result = load_dbc_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("missing or invalid 'Signed' (expected TRUE/FALSE)"));
+    }
+}
+
+TEST_CASE("excel: DBC DLC is accepted at both ends of its range and refused past them",
+          "[excel][dbc]") {
+    auto const row = [](const char* dlc) -> std::vector<std::string> {
+        return {"256", "Msg", dlc, "Sig", "0", "8", "little_endian", "FALSE", "1", "0",
+                "0",   "255", "",  "",    "",  ""};
+    };
+    SECTION("0 and 15 load") {
+        auto const dlc = GENERATE(0, 15);
+        TempPath tf("excel_dbc_dlc_edge.xlsx");
+        make_dbc_workbook(tf.path, {row(std::to_string(dlc).c_str())});
+        auto result = load_dbc_from_excel(tf.path);
+        REQUIRE(result.has_value());
+        REQUIRE(result->messages.size() == 1);
+        CHECK(result->messages[0].dlc.value() == static_cast<std::uint8_t>(dlc));
+    }
+    SECTION("16 and -1 are refused") {
+        auto const dlc = GENERATE(16, -1);
+        TempPath tf("excel_dbc_dlc_past.xlsx");
+        make_dbc_workbook(tf.path, {row(std::to_string(dlc).c_str())});
+        auto result = load_dbc_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()), ContainsSubstring("DLC out of range"));
+    }
+}
+
+TEST_CASE("excel: every data row of a long sheet is loaded", "[excel][simple]") {
+    TempPath tf("excel_fifty_rows.xlsx");
+    std::vector<std::vector<std::string>> rows;
+    rows.reserve(50);
+    for (auto const i : std::views::iota(0, 50))
+        rows.push_back({"", "Sig" + std::to_string(i), "never_exceeds", "1", "", "", "", ""});
+    make_checks_workbook(tf.path, rows);
+    auto result = load_checks_from_excel(tf.path);
+    REQUIRE(result.has_value());
+    CHECK(result->size() == 50);
+}
+
+TEST_CASE("excel: a header far to the right of the others is still read", "[excel][metadata]") {
+    // The header row is read to the sheet's own column count, wherever the
+    // last named column sits.
+    TempPath tf("excel_wide_header.xlsx");
+    {
+        OpenXLSX::XLDocument doc;
+        doc.create(tf.path.string(), OpenXLSX::XLForceOverwrite);
+        doc.workbook().worksheet("Sheet1").setName("Checks");
+        auto const ws = doc.workbook().worksheet("Checks");
+        write_header(ws, std::span{checks_hdr}.first(7));
+        ws.cell(1, 50).value() = std::string{"Severity"};
+        write_row(ws, 2, {"", "Speed", "never_exceeds", "220"});
+        ws.cell(2, 50).value() = std::string{"critical"};
+        doc.save();
+        doc.close();
+    }
+    auto result = load_checks_from_excel(tf.path);
+    REQUIRE(result.has_value());
+    REQUIRE(result->size() == 1);
+    CHECK((*result)[0].check_severity() == "critical");
+}
+
+TEST_CASE("excel: DBC multiplex value zero is a value, not an absence", "[excel][mux]") {
+    TempPath tf("excel_dbc_mux_zero.xlsx");
+    make_dbc_workbook(tf.path, {{"256", "Msg", "8", "MuxSig", "0", "8", "little_endian", "FALSE",
+                                 "1", "0", "0", "255", "", "Selector", "0", ""}});
+    auto result = load_dbc_from_excel(tf.path);
+    REQUIRE(result.has_value());
+    REQUIRE(result->messages.size() == 1);
+    auto const& sig = result->messages[0].signals[0];
+    auto const* mux = std::get_if<Multiplexed>(&sig.presence);
+    REQUIRE(mux != nullptr);
+    REQUIRE(mux->multiplex_values.size() == 1);
+    CHECK(mux->multiplex_values[0] == MultiplexValue{0});
+}
+
+// ===========================================================================
+// The paths the library throws on
+// ===========================================================================
+
+TEST_CASE("excel: a ZIP archive that is not a workbook is refused by the library's own word",
+          "[excel][hardening]") {
+    // The archive walker admits any well-formed ZIP, so a ZIP with no workbook
+    // inside reaches the library's open, which throws; the loader answers with
+    // the library's message and leaves nothing of the attempt behind.
+    TempPath tf("excel_not_a_workbook.xlsx");
+    make_checks_workbook(tf.path, {});
+    {
+        OpenXLSX::XLZipArchive zip;
+        zip.open(tf.path.string());
+        zip.deleteEntry("xl/workbook.xml");
+        zip.save();
+        zip.close();
+    }
+    auto const checks = load_checks_from_excel(tf.path);
+    REQUIRE_FALSE(checks.has_value());
+    CHECK(checks.error().kind() == ErrorKind::Validation);
+    auto const dbc = load_dbc_from_excel(tf.path);
+    REQUIRE_FALSE(dbc.has_value());
+    CHECK(dbc.error().kind() == ErrorKind::Validation);
+}
+
+TEST_CASE("excel: a template into a directory that cannot be written is refused with the reason",
+          "[excel][hardening]") {
+    if (::geteuid() == 0)
+        SKIP("root writes anywhere");
+    const TempPath dir("excel_unwritable_dir");
+    std::filesystem::create_directories(dir.path);
+    std::filesystem::permissions(dir.path, std::filesystem::perms::owner_read |
+                                               std::filesystem::perms::owner_exec);
+    auto const result = create_excel_template(dir.path / "template.xlsx");
+    std::filesystem::permissions(dir.path, std::filesystem::perms::owner_all);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+}
+
+#ifdef ALETHEIA_ALLOC_FAULT
+// Each loader fills its result one row at a time, with a parsed row in hand
+// while the container grows; a growth that throws destroys that row on the
+// way out, and a cleanup that dropped it would leave its blocks behind.
+TEST_CASE("excel: the loaders release their temporaries when an allocation fails",
+          "[excel][alloc_fault]") {
+    using aletheia::test::alloc_fault::expect_balanced;
+    // The harness spares the library's own allocations by the names of the
+    // frames on the stack, and the library hides its symbols in the shipped
+    // build; a build that cannot name them would end the program on the first
+    // failed allocation inside the library.
+    if (dlsym(RTLD_DEFAULT, "_ZN8OpenXLSX10XLDocument4openERKNSt7__cxx1112basic_stringIcSt11char_"
+                            "traitsIcESaIcEEE") == nullptr)
+        SKIP("the spreadsheet library's frames cannot be named in this build");
+    SECTION("the checks loader, over a checks sheet") {
+        TempPath tf("excel_alloc_checks.xlsx");
+        make_checks_workbook(
+            tf.path,
+            {{"the engine speed stays under its redline", "EngineSpeedInRevolutionsPerMinute",
+              "never_exceeds", "6000", "", "", "", ""},
+             {"the coolant settles into its band", "CoolantTemperatureInDegreesCelsius",
+              "settles_between", "", "80", "95", "30000", ""}});
+        REQUIRE(load_checks_from_excel(tf.path).has_value());
+        expect_balanced([&] { return load_checks_from_excel(tf.path); });
+    }
+    SECTION("the checks loader, over a when-then sheet") {
+        TempPath tf("excel_alloc_when_then.xlsx");
+        make_wt_workbook(tf.path,
+                         {{"braking dims the lamp", "BrakePedalPositionAsAPercentage", "exceeds",
+                           "50", "BrakeLampIlluminationState", "equals", "1", "", "", "100", ""}});
+        REQUIRE(load_checks_from_excel(tf.path).has_value());
+        expect_balanced([&] { return load_checks_from_excel(tf.path); });
+    }
+    SECTION("the DBC loader") {
+        TempPath tf("excel_alloc_dbc.xlsx");
+        make_dbc_workbook(tf.path, {{"256", "VehicleSpeedInKilometresPerHour", "8",
+                                     "VehicleSpeedSignalName", "0", "16", "little_endian", "FALSE",
+                                     "0.1", "0", "0", "300", "kilometres per hour", "", "", ""},
+                                    {"256", "VehicleSpeedInKilometresPerHour", "8",
+                                     "EngineSpeedSignalName", "16", "16", "little_endian", "FALSE",
+                                     "1", "0", "0", "8000", "revolutions per minute", "", "", ""}});
+        REQUIRE(load_dbc_from_excel(tf.path).has_value());
+        expect_balanced([&] { return load_dbc_from_excel(tf.path); });
+    }
+    SECTION("the template writer") {
+        TempPath tf("excel_alloc_template.xlsx");
+        expect_balanced([&] {
+            std::filesystem::remove(tf.path);
+            return create_excel_template(tf.path);
+        });
+    }
+}
+#endif

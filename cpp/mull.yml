@@ -6,14 +6,40 @@
 # mull-runner run from cpp or from that tree.
 #
 # cxx_default is arithmetic, comparison, boundary and increment mutants, which
-# reach only sources that compare or compute on primitive values. cxx_calls adds
-# the removal of a void call and the replacement of a scalar-returning call with
-# a constant, which is the one mutation that reaches code written as calls: the
-# loaders' condition dispatch is string_view comparisons, and under cxx_default
-# alone it had no mutant at all.
+# reach only sources that compare or compute on primitive values. The two call
+# mutators add the removal of a void call and the replacement of a
+# scalar-returning call with a constant, the one mutation that reaches code
+# written as calls: the loaders' condition dispatch is string_view comparisons,
+# and under cxx_default alone it had no mutant at all. The third member of the
+# plugin's cxx_calls group, cxx_remove_implicit_destructor, is left out: it
+# removes the destructor the compiler emits for a temporary at the end of a
+# statement, a call the source never writes, and on this tree every one it
+# reaches is the destructor of a temporary a value-returning function handed to
+# a container, moved from before it runs, so no project defect can change what
+# the removal does. The mutator stays in the plugin so that a removal of one is
+# never reported as a removal of a call the source wrote.
+#
+# What each kept class can reveal, read from a sweep's kill routes. The
+# comparison, boundary and arithmetic mutants stand for a guard or a bound
+# off by one, and their kills are the tests' own, except the loop bounds a
+# test never observes past the end: those the standard library's own
+# assertions catch at this build's optimisation level, and the sweep records
+# such a kill as a fault rather than as the test's. The increment mutants
+# stand for a counter running the wrong way. The scalar-call replacement
+# stands for a call that answered something else, and it answers one thing:
+# its constant truncates to false on a boolean, so a guard that branches on
+# the value is tested only for not firing, one that negates it only for
+# firing, and nearly every guard on this tree is the first kind. A function
+# template instantiated more
+# than once carries one mutant per instantiation, each a function of its own,
+# and each is killed on its own. The one call the compiler emits that the
+# junk detector cannot tell from the source's is the default argument of a
+# void call, such as an empty initializer list, constructed at the call's own
+# location; its removal is a mutant of the void-call mutator.
 mutators:
   - cxx_default
-  - cxx_calls
+  - cxx_remove_void_call
+  - cxx_replace_scalar_call
 # Regular expressions over the mutant's source path. The vendored libraries
 # under the build tree's _deps and the system headers are not this project's
 # surface; the junk detector already skips what clang classes as a system
@@ -21,12 +47,15 @@ mutators:
 # held out too: a mutant in a test measures the harness rather than the
 # library, no test can be written to kill it, and one in a fixture's write
 # loop ran until the runner killed the process, leaving a multi-gigabyte
-# file behind each time. A library header instantiated only from a test keeps
-# its mutants, since the pattern is over the mutant's own file.
+# file behind each time. The test double the tests queue responses into
+# lives under the library's sources but only the tests include it, so it is
+# held out for the same reason. A library header instantiated only from a
+# test keeps its mutants, since the pattern is over the mutant's own file.
 excludePaths:
   - /_deps/
   - ^/usr/
   - /cpp/tests/
+  - /cpp/src/detail/mock_backend\.hpp$
 # Milliseconds a mutant run may take before it counts as a timeout. Mull's
 # default is ten times the unmutated run, which is under three seconds here,
 # and under it a mutant that slows the suite reads as a timeout on a loaded

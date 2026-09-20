@@ -28,6 +28,20 @@ The static gate (`tools/check_mutation_setup.py`) runs always-on
 source file is renamed or deleted without updating the YAML.  The dynamic runner is opt-in via
 `ALETHEIA_MUTATION_CHECK=1` or `tools/run_ci.py --mutation`.
 
+In CI the runner is invoked once per binding, in parallel lanes with their own
+budgets, each told to skip the other two (`ALETHEIA_MUTATION_SKIP_PYTHON` /
+`_GO` / `_CPP`), because the three tools cost wildly different amounts and one
+job charges the slowest against a clock the others have already spent.  The
+`mutation testing` check the branch ruleset requires reports those lanes: it
+passes only on the single result meaning every lane finished clean, and refuses
+every other, a lane killed by its own budget included.  Each
+run records its lanes' wall times under `elapsed_s` in `summary.json`, so a
+budget is set from a measurement.
+
+The long-running commands stream their output rather than having it captured:
+a lane killed by its budget would otherwise take its entire log with it, and
+while it runs there would be no way to tell progress from a hang.
+
 ## Threshold model
 
 Two-tier per advisor 2026-05-09:
@@ -42,6 +56,16 @@ Two-tier per advisor 2026-05-09:
   records `timeout_ceiling`, a run past it fails the lane whatever its
   survivor count.  The Go lane records one; the other two tools report no
   such bucket.
+- **Kill routes (C++, recorded, not gated)**: Mull's SQLite report keeps each
+  mutant's exit status and the test binary's output, and the runner reads
+  from them what ended every run: a test's assertion, a leak the sanitizer
+  reported, the kernel ending the process, or a fault (a signal, or an abort
+  from a precondition the standard library checks at the mutation build's
+  optimisation level, which the shipped build does not check).  A mutant
+  several lanes killed is attributed in that order.  The counts land in
+  `cpp-routes.json` beside `cpp.json` and in the C++ baseline; a probe holds them
+  equal to the record, which the pinned test order makes exact, and a sweep with
+  any timeout is reported as a census taken under load rather than compared.
 - **First run (no gate)** — when the YAML baseline is `null`, the runner
   records the observed survivor count as informational and exits 0.  The
   next commit is expected to either match this count or improve on it; the
@@ -57,8 +81,8 @@ independently.
 | Binding | Tool | Hot path (per AGENTS.md cat 14(g) + actual paths) |
 |---|---|---|
 | Python | `mutmut` 3.x | `aletheia/client/_client.py`, `aletheia/dbc/_converter.py`, `aletheia/yaml_loader.py`, `aletheia/codes/_issue.py`, `aletheia/types.py` |
-| Go | `gremlins` | `aletheia/client.go`, `dbc.go`, `json.go`¹, `ffi.go`, `ffi_nocgo.go`, `enrich.go`² |
-| C++ | `Mull` 0.34.1 (LLVM 23, from source) | `cpp/src/*.cpp` less `mock_backend.cpp` / `types.cpp` (test-only / type-defs) and `rational_renderer.cpp`, with the exact mutated set enumerated in `docs/MUTATION_BENCH.yaml`; the mutator set (`cxx_default` plus `cxx_calls`) and the held-out paths (vendored, system, and `cpp/tests`) are `cpp/mull.yml`; the build records each unit's command line so that Mull's junk detector can re-parse it, without which it drops every mutant of a unit it cannot parse |
+| Go | `gremlins` | `aletheia/client.go`, `dbc.go`, `json.go`¹, `ffi.go`, `ffi_nocgo.go`, `enrich.go`²; the stringer outputs are held out by `go/.gremlins.yaml` |
+| C++ | `Mull` 0.34.1 (LLVM 23, from source) | `cpp/src/*.cpp` less `mock_backend.cpp` / `types.cpp` (test-only / type-defs) and `rational_renderer.cpp`, with the exact mutated set enumerated in `docs/MUTATION_BENCH.yaml`; the mutator set (`cxx_default` plus the two call mutators), what each class of mutant stands for, and the held-out paths (vendored, system, `cpp/tests` and the test double under `cpp/src/detail`) are `cpp/mull.yml`; the build records each unit's command line so that Mull's junk detector can re-parse it, without which it drops every mutant of a unit it cannot parse |
 
 AGENTS.md cat 14(g) names `gomut` / `go-mutesting` / `mutate` for Go.  We use
 **`gremlins`** (`github.com/go-gremlins/gremlins`) instead because both
@@ -119,9 +143,63 @@ LLVM-23 with the patch that lets it see LLVM 23: its supported-version list,
 the one call in libirm that LLVM 23 removed, and libirm taken at the commit
 that truncates a call replacement's constant to the call's width, without which
 `cxx_replace_scalar_call` aborts clang on the first `bool`-returning call it
-meets.  The binaries land in
+meets. The same build gives every mutant an identifier of its own
+(`tools/mull/mull-unique-mutant-ids.patch`): Mull names a mutant by mutator and
+source range, so two mutations of one statement (a temporary's destructor on
+the normal path and in the exception-cleanup landing pad) or two instantiations
+of one template shared a name, and the trampoline ran only the last clone it
+registered while the report counted the others under it. The identifier gains a
+seventh part, a hash of the function's mangled name and an ordinal among that
+function's mutants of the same range, so every clone runs and is reported on
+its own; the probe
+`probes/tools_build_mull.sh--every-mutant-identifier-names-one-clone.sh`
+holds the installed plugin to that patch. The same build teaches the two
+call mutators the `invoke` instruction
+(`tools/mull/libirm-void-call-mutator.patch`,
+`tools/mull/libirm-scalar-call-invoke.patch`): at `-O0` with exceptions on, a
+call that can throw is an `invoke`, a different opcode, so as shipped neither
+mutator ever reached a call the source writes that can throw, and the void-call
+mutator reached only the implicit destructors of temporaries, which are
+`noexcept`. Those destructors are a mutator of their own,
+`cxx_remove_implicit_destructor` (`tools/mull/mull-implicit-destructor-mutator.patch`),
+which `cpp/mull.yml` leaves out of the swept set: it removes a call the
+compiler emits and the source never writes, and on this tree every one it
+reaches is the destructor of a temporary a value-returning function handed to
+a container, moved from before it runs, so no defect in the project can change
+what the removal does. It stays in the plugin so that such a removal is never
+reported as the removal of a call the source wrote. The lane's tree is built under
+LeakSanitizer (`-DALETHEIA_SANITIZER=leak`), so a removed call whose object
+owned memory leaks and fails, which is what holds a released handle or string
+to its release. The binaries land in
 `~/.local/bin/` (no sudo for the copy), which the project assumes is on
 `$PATH` (see CLAUDE.md § Development Environment).
+
+Two instruments beside the sanitizer make a mutant observable that no
+assertion on a result could see. The allocation-fault harness also counts a
+call's allocations, so a container reserved ahead is told from one left to
+grow, and the ack fast path from the parse it skips; its sweeps find a call's
+own allocations by one recorded run, naming the frames above each, so the
+allocations of a vendored library, which may not be failed, are never failed,
+and the loaders are swept whole. And a kernel stand-in
+(`cpp/tests/kernel_stand_in/`) carries every symbol the backend and the
+renderer resolve and refuses every call with a message quoting its arguments,
+which is the one way to read what the backend marshals to an entry whose
+arguments the real kernel acknowledges without reading: the timestamp of an
+error or remote event, and the CAN-FD bus bits of a frame.
+
+A destructor a container's growth would run while it throws is reached by
+failing an allocation, which `cpp/tests/alloc_fault.cpp` does: it replaces the
+program's allocation functions, counts the blocks the program holds, and fails
+one chosen allocation of a call, so a cleanup path that drops what it owns
+shows as a count that did not come back. The sweeps over the decoders and the
+builders are in `cpp/tests/unit_tests_alloc_fault.cpp`. They build in the
+lanes that run without a sanitizer, because a sanitizer runtime carries the
+same allocation functions and the two cannot be linked together, and they
+leave the JSON library's own allocations alone, since that library flattens a
+document onto a heap-allocated stack from a destructor and an exception
+leaving a destructor ends the program. The probe
+`probes/cpp_tests_alloc_fault.cpp--the-json-document-cleanup-cannot-take-a-failed-allocation.sh`
+holds both halves of that.
 
 ```bash
 # System LLVM-23 + clang-23 (one-time; apt.llvm.org on Ubuntu, the archive on Debian).
@@ -139,8 +217,9 @@ mull-runner-23 --version    # mull-runner {STABLE_MULL_VERSION}
 `mull-runner` / `mull-reporter` are Rust binaries; `mull-ir-frontend-23` is a
 C++ clang plugin `.so`.  The standard build (`cmake -B build`) also requires
 `clang++-23` (the project supports the latest stable Clang only; g++
-unsupported); the mutation lane uses the same `clang++-23` inside its dedicated
-`cpp/build-mutation/` tree.  CI caches both the clang-23 debs and the
+unsupported); the mutation lane uses the same `clang++-23` inside its two
+dedicated trees, `cpp/build-mutation/` and `cpp/build-mutation-plain/`.  CI
+caches both the clang-23 debs and the
 from-source Mull build (keyed on the Mull tag + LLVM version), see
 `.github/workflows/pr-heavy-lanes.yml`.
 
@@ -170,11 +249,18 @@ cd go && gremlins unleash ./aletheia
 # C++ (needs build/libaletheia-ffi.so — the ALETHEIA_MUTATION build folds the
 # real-.so integration tests into unit_tests to cover FfiBackend, so run
 # `cabal run shake -- build` first).
+# A mutant survives only where both trees let it: the leak tree reads a
+# destructor removal that leaks, the plain tree carries the allocation-fault
+# sweeps, and a sanitizer defines the allocation functions those replace.
 cd cpp
-cmake -B build-mutation -DALETHEIA_MUTATION=ON \
+cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
       -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 cmake --build build-mutation --target unit_tests
 mull-runner-23 ./build-mutation/unit_tests
+cmake -B build-mutation-plain -DALETHEIA_MUTATION=ON \
+      -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
+cmake --build build-mutation-plain --target unit_tests
+mull-runner-23 ./build-mutation-plain/unit_tests
 ```
 
 Per-binding skip env vars (useful for partial runs):
@@ -202,7 +288,23 @@ A baseline regression (observed > baseline) MUST be addressed by:
 2. Either: writing a test that kills the mutant (preferred), OR adding a
    `# pragma: mutmut-no-mutate` comment block at the source site naming
    why the mutant is equivalent / unreachable / non-operational (per
-   AGENTS.md "an unjustified survivor is a test gap").
+   AGENTS.md "an unjustified survivor is a test gap"). For C++, a survivor
+   that is kept is also recorded in the baseline's `survivors_ledger` in
+   `docs/MUTATION_BENCH.yaml`, by mutator, repository-relative file, the text
+   of its source line and how many share that line; the lane refuses a
+   survivor the ledger does not name even at an unchanged count, and reports
+   a row that no longer survives as stale. The lane's `cpp-mull.json` artifact
+   is Mull's Elements report of each tree, merged by
+   `tools.mutation_run.merge_elements` so a mutant either tree killed is
+   killed, and `tools.mutation_run.elements_survivor_rows`
+   renders what is left in the ledger's row shape. The probe
+   `probes/docs_MUTATION_BENCH.yaml--every-cpp-survivor-is-a-recorded-one.sh`
+   holds the ledger exact in both directions. Beside each lane's Elements
+   report the lane keeps Mull's SQLite report of it, which is where the kill
+   routes are read from. To run one C++ mutant alone
+   against a test, set its identifier from the Elements report as an
+   environment variable of the mutation binary:
+   `env "<id>=1" cpp/build-mutation/unit_tests '<filter>'`.
 3. Re-running the lane to confirm no regression.
 
 A baseline IMPROVEMENT (observed < baseline) is permitted to land via the

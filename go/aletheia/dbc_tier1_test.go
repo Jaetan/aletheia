@@ -32,6 +32,7 @@ func dbcObjectSent(t *testing.T, mock *aletheia.MockBackend) map[string]any {
 // the dbc object the serializer wrote.
 func serialisedDBC(t *testing.T, dbc aletheia.DBCDefinition) map[string]any {
 	t.Helper()
+	ctx := bounded(t)
 	c, mock := mockClient(t, aletheia.RespondParseDBC(dbc))
 	if _, err := c.ParseDBC(ctx, dbc); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
@@ -44,6 +45,7 @@ func serialisedDBC(t *testing.T, dbc aletheia.DBCDefinition) map[string]any {
 // wire form the binding writes is one it reads.
 func roundTripThroughMock(t *testing.T, dbc aletheia.DBCDefinition) *aletheia.DBCDefinition {
 	t.Helper()
+	ctx := bounded(t)
 	resp, err := json.Marshal(map[string]any{"status": "success", "dbc": serialisedDBC(t, dbc)})
 	if err != nil {
 		t.Fatal(err)
@@ -135,6 +137,7 @@ func TestSerializeDBC_EmitsEmptyArraysWhenMetadataAbsent(t *testing.T) {
 // The decoder reads the three tier 1 slices, and an exact rational in an
 // environment variable (1/3 has no finite binary expansion) survives.
 func TestFormatDBC_AcceptsTier1Metadata(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := mockClient(t, aletheia.Respond(`{"status":"success","dbc":{"version":"1.0",
 		"messages":[{"id":256,"extended":false,"name":"EngineData","dlc":8,"sender":"ECU","signals":[]}],
 		"signalGroups":[{"name":"EngineGroup","signals":["RPM","Coolant"]}],
@@ -165,6 +168,7 @@ func TestFormatDBC_AcceptsTier1Metadata(t *testing.T) {
 
 // Tier 1 keys absent from a response decode to nil slices.
 func TestFormatDBC_AcceptsMissingTier1Keys(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := mockClient(t, aletheia.Respond(`{"status":"success","dbc":{"version":"0.1","messages":[]}}`))
 	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
@@ -178,6 +182,7 @@ func TestFormatDBC_AcceptsMissingTier1Keys(t *testing.T) {
 // A variable type tag outside the DBC text's three is a protocol error that
 // names the field.
 func TestFormatDBC_RejectsUnknownVarType(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := mockClient(t, aletheia.Respond(`{"status":"success","dbc":{"version":"0.1","messages":[],
 		"environmentVars":[{"name":"Bad","varType":99,"initial":{"numerator":0,"denominator":1},"minimum":{"numerator":0,"denominator":1},"maximum":{"numerator":0,"denominator":1}}]}}`))
 	_, err := c.FormatDBC(ctx)

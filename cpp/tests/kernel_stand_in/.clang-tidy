@@ -1,0 +1,9 @@
+---
+# The kernel stand-in defines the kernel's C entry points at the kernel's own
+# signatures, three of which take more parameters than the root threshold; the
+# width is the FFI ABI's, so that one threshold is raised to it here and the
+# check's other limits stay as the root sets them.
+InheritParentConfig: true
+
+CheckOptions:
+  readability-function-size.ParameterThreshold: 12

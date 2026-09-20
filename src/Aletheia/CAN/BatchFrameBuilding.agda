@@ -19,6 +19,8 @@ open import Aletheia.CAN.Encoding using (injectSignal)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; signalNameStr)
 open import Aletheia.DBC.Decidable using (signalPhysicalBits; Intersects; bitsIntersect₀)
+open import Aletheia.DBC.Decidable.SignalGeometry using (signalFitsFrame₀)
+open import Aletheia.CAN.Signal using (SignalDef)
 open import Data.List.Relation.Unary.Any using (Any; here; there)
 open import Relation.Nullary.Reflects using (ofⁿ)
 
@@ -34,7 +36,7 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.Prelude using (listIndex; _>>=ₑ_)
 open import Aletheia.Error using
   ( FrameError; SignalIndexOOB; InjectionFailed
-  ; SignalsOverlap; CANIdNotFound; CANIdMismatch
+  ; SignalsOverlap; CANIdNotFound; CANIdMismatch; SignalPastFrameEnd
   )
 
 -- ============================================================================
@@ -161,6 +163,20 @@ injectOne frame (sig , value) with injectSignal value (DBCSignal.signalDef sig) 
 ... | nothing = inj₁ (InjectionFailed (signalNameStr sig))
 ... | just f  = inj₂ f
 
+-- The frame's size is the caller's and each signal's placement is the DBC's:
+-- the two are compatible only where a signal's last bit lies inside the
+-- frame.  The bit writer is total, so a signal running past the end would
+-- have its overhanging bits written nowhere and the frame returned as if it
+-- carried them; this names the first such signal, on the same geometry
+-- proposition the ingest gates decide, here decided without allocating.
+firstPastFrameEnd : ℕ → List DBCSignal → Maybe DBCSignal
+firstPastFrameEnd _ [] = nothing
+firstPastFrameEnd n (sig ∷ rest)
+  with does₀ (signalFitsFrame₀ n (SignalDef.startBit (DBCSignal.signalDef sig))
+                                 (SignalDef.bitLength (DBCSignal.signalDef sig)))
+... | true  = firstPastFrameEnd n rest
+... | false = just sig
+
 -- Inject all signals into a frame (left-to-right fold)
 injectAll : ∀ {n} → CANFrame n → List (DBCSignal × ℚ) → FrameError ⊎ CANFrame n
 injectAll frame [] = inj₂ frame
@@ -174,9 +190,12 @@ injectAll frame (sig ∷ rest) = injectOne frame sig >>=ₑ λ frame' → inject
 -- - Signal value out of bounds or injection fails
 -- Shared build pipeline: check overlaps, inject into empty frame, extract payload
 validateAndBuild : CANId → (dlc : DLC) → List (DBCSignal × ℚ) → FrameError ⊎ Vec Byte (dlcBytes dlc)
-validateAndBuild canId dlc defs with hasOverlaps (dlcBytes dlc) (map Data.Product.proj₁ defs)
-... | true = inj₁ SignalsOverlap
-... | false = injectAll emptyFrame defs >>=ₑ λ finalFrame → inj₂ (CANFrame.payload finalFrame)
+validateAndBuild canId dlc defs
+  with firstPastFrameEnd (dlcBytes dlc) (map Data.Product.proj₁ defs)
+... | just sig = inj₁ (SignalPastFrameEnd (signalNameStr sig) (dlcBytes dlc))
+... | nothing with hasOverlaps (dlcBytes dlc) (map Data.Product.proj₁ defs)
+...   | true = inj₁ SignalsOverlap
+...   | false = injectAll emptyFrame defs >>=ₑ λ finalFrame → inj₂ (CANFrame.payload finalFrame)
   where
     emptyFrame : CANFrame (dlcBytes dlc)
     emptyFrame = record { id = canId ; dlc = dlc ; payload = Vec.replicate (dlcBytes dlc) 0 }
@@ -193,15 +212,22 @@ buildFrameG strat dbc canId dlc signals with findMessageById canId dbc
 
 -- Generic update: verify CAN ID match, lookup signals, inject into existing frame.
 updateFrameG : ∀ {K} → LookupStrategy K → ∀ {n} → DBC → CANId → CANFrame n → List (K × ℚ) → FrameError ⊎ CANFrame n
-updateFrameG strat dbc canId frame signals =
+updateFrameG strat {n = n} dbc canId frame signals =
   if canIdEquals canId (CANFrame.id frame)
   then findAndInject
   else inj₁ CANIdMismatch
   where
+    -- The frame being updated carries its own size, and the same geometry
+    -- rule holds of it: a signal past its end has nowhere to write.
+    fitOrInject : List (DBCSignal × ℚ) → FrameError ⊎ CANFrame n
+    fitOrInject defs with firstPastFrameEnd n (map Data.Product.proj₁ defs)
+    ... | just sig = inj₁ (SignalPastFrameEnd (signalNameStr sig) n)
+    ... | nothing  = injectAll frame defs
+
     findAndInject : FrameError ⊎ CANFrame _
     findAndInject with findMessageById canId dbc
     ... | nothing = inj₁ CANIdNotFound
-    ... | just msg = lookupSignalsG strat signals msg >>=ₑ λ signalDefs → injectAll frame signalDefs
+    ... | just msg = lookupSignalsG strat signals msg >>=ₑ fitOrInject
 
 -- Index-based API (binary FFI path — no string allocation)
 buildFrameByIndex : DBC → CANId → (dlc : DLC) → List (ℕ × ℚ) → FrameError ⊎ Vec Byte (dlcBytes dlc)

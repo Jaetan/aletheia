@@ -20,14 +20,21 @@ open import Aletheia.CAN.Encoding.Properties using (
   SignedFits)
 open import Aletheia.CAN.Encoding.Arithmetic using (inBounds; toSigned)
 open import Aletheia.CAN.Endianness using (extractBits)
-open import Aletheia.CAN.BatchFrameBuilding using (injectAll)
+open import Aletheia.CAN.BatchFrameBuilding using (injectAll; firstPastFrameEnd; validateAndBuild)
 open import Aletheia.DBC.Types using (DBCSignal)
 open import Aletheia.DBC.Decidable using (PhysicallyDisjoint)
+open import Aletheia.DBC.Decidable.SignalGeometry using (signalFitsFrame₀)
+open import Aletheia.Data.Dec0 using (does₀)
+open import Aletheia.CAN.DLC using (DLC; dlcBytes)
+open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.DBC.Properties using (physicallyDisjoint-sym)
 
-open import Data.List using (List; []; _∷_)
-open import Data.Product using (_×_; _,_)
+open import Data.List using (List; []; _∷_; map)
+open import Data.Product using (_×_; _,_; proj₁)
 open import Data.Maybe using (just; nothing)
+open import Data.Bool using (T)
+open import Data.Unit using (tt)
+open import Data.Nat.Properties using (≤ᵇ⇒≤)
 open import Data.Sum using (inj₂)
 open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _^_; _>_)
 open import Data.Rational using (ℚ; 0ℚ)
@@ -75,6 +82,35 @@ data AllSignalsFit (payloadBytes : ℕ) : List (DBCSignal × ℚ) → Set where
 -- Helper: Signal fit bounds (parameterized by payload byte count)
 signalFits : ℕ → SignalDef → Set
 signalFits payloadBytes sig = SignalDef.startBit sig + SignalDef.bitLength sig ≤ payloadBytes * 8
+
+-- ============================================================================
+-- THE BUILDER ESTABLISHES THE FIT THE THEOREMS BELOW ASSUME
+-- ============================================================================
+
+-- `firstPastFrameEnd` names the first signal whose last bit lies past the end
+-- of a frame of `n` bytes, on the geometry proposition the ingest gates
+-- decide.  Naming none means every signal fits, which is what the roundtrip
+-- theorems ask of their caller: the builder checks it, so a caller that built
+-- a frame has it already.
+nonePastFrameEnd-fits : ∀ {n} (defs : List (DBCSignal × ℚ))
+  → firstPastFrameEnd n (map proj₁ defs) ≡ nothing
+  → AllSignalsFit n defs
+nonePastFrameEnd-fits [] _ = asf-nil
+nonePastFrameEnd-fits {n} ((s , v) ∷ rest) eq
+  with does₀ (signalFitsFrame₀ n (SignalDef.startBit (DBCSignal.signalDef s))
+                                 (SignalDef.bitLength (DBCSignal.signalDef s)))
+       in fitsEq
+... | true = asf-cons (≤ᵇ⇒≤ _ _ (subst T (sym fitsEq) tt))
+                      (nonePastFrameEnd-fits rest eq)
+
+-- The build path's own statement of it: a payload it answers with was built
+-- from signals that all fit the frame the caller asked for.
+validateAndBuild-fits : ∀ (canId : CANId) (dlc : DLC) (defs : List (DBCSignal × ℚ)) {payload}
+  → validateAndBuild canId dlc defs ≡ inj₂ payload
+  → AllSignalsFit (dlcBytes dlc) defs
+validateAndBuild-fits canId dlc defs eq
+  with firstPastFrameEnd (dlcBytes dlc) (map proj₁ defs) in fEq
+... | nothing = nonePastFrameEnd-fits defs fEq
 
 -- ============================================================================
 -- SINGLE INJECTION PRESERVES DISJOINT EXTRACTION

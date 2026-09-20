@@ -18,7 +18,7 @@ if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         "cmake -B build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23")
 elseif(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 23)
     message(WARNING
-        "aletheia-cpp is supported on the latest stable Clang (22); got Clang "
+        "aletheia-cpp is supported on the latest stable Clang (23); got Clang "
         "${CMAKE_CXX_COMPILER_VERSION}.  Older Clang may work but is unsupported "
         "(Clang < 19 mis-handles libstdc++-14's C++23 <expected>).")
 endif()
@@ -84,12 +84,18 @@ endif()
 #   cmake -B build-asan   -DALETHEIA_SANITIZER=address
 #   cmake -B build-ubsan  -DALETHEIA_SANITIZER=undefined
 #   cmake -B build-tsan   -DALETHEIA_SANITIZER=thread
+#   cmake -B build-mutation -DALETHEIA_SANITIZER=leak (with ALETHEIA_MUTATION=ON)
+#
+# The leak choice is LeakSanitizer alone: no instrumentation pass, only the
+# runtime that reports what was never freed at exit. The mutation lane runs
+# under it so a mutant that removes a destructor leaks and fails, where an
+# instrumenting sanitizer would hand the mutator its own runtime calls.
 #
 # Use a separate build directory per sanitizer — sanitizer flags are not
 # safe to mix on the same archive.
 set(ALETHEIA_SANITIZER "" CACHE STRING
-    "Sanitizer lane: address | undefined | thread (empty = off)")
-set_property(CACHE ALETHEIA_SANITIZER PROPERTY STRINGS "" address undefined thread)
+    "Sanitizer lane: address | undefined | thread | leak (empty = off)")
+set_property(CACHE ALETHEIA_SANITIZER PROPERTY STRINGS "" address undefined thread leak)
 
 set(ALETHEIA_SANITIZER_FLAGS "")
 if(ALETHEIA_SANITIZER STREQUAL "address")
@@ -99,6 +105,8 @@ elseif(ALETHEIA_SANITIZER STREQUAL "undefined")
         -fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined)
 elseif(ALETHEIA_SANITIZER STREQUAL "thread")
     set(ALETHEIA_SANITIZER_FLAGS -fsanitize=thread -fno-omit-frame-pointer)
+elseif(ALETHEIA_SANITIZER STREQUAL "leak")
+    set(ALETHEIA_SANITIZER_FLAGS -fsanitize=leak -fno-omit-frame-pointer)
 elseif(ALETHEIA_SANITIZER)
     message(FATAL_ERROR
         "ALETHEIA_SANITIZER='${ALETHEIA_SANITIZER}' invalid; "
@@ -131,7 +139,7 @@ endif()
 # Build into a dedicated directory so the instrumented artifacts are not
 # mixed with the standard build:
 #
-#   cmake -B build-mutation -DALETHEIA_MUTATION=ON \
+#   cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
 #         -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 #   cmake --build build-mutation --target unit_tests
 #   mull-runner-23 ./build-mutation/unit_tests
@@ -215,6 +223,14 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 FetchContent_MakeAvailable(json yaml-cpp OpenXLSX)
+# The spreadsheet library hides its symbols. The allocation-fault harness
+# spares the library's own allocations by naming the frames on the stack, and
+# a hidden frame has no name, so the mutation trees, which are test trees and
+# ship nothing, build it visible; the shipped library keeps it hidden.
+if(ALETHEIA_MUTATION)
+    set_target_properties(OpenXLSX PROPERTIES CXX_VISIBILITY_PRESET default
+                                              VISIBILITY_INLINES_HIDDEN OFF)
+endif()
 unset(CMAKE_POLICY_VERSION_MINIMUM)
 
 # ---------------------------------------------------------------------------
@@ -454,6 +470,34 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         target_sources(unit_tests PRIVATE tests/yaml_tests.cpp tests/excel_tests.cpp)
         target_link_libraries(unit_tests PRIVATE yaml-cpp::yaml-cpp OpenXLSX::OpenXLSX)
     endif()
+    # A library with none of the kernel's symbols: the backend opens it, fails
+    # its first lookup and must close it again.  Its path reaches the tests as
+    # a definition, so no test guesses a build layout.
+    add_library(aletheia_test_symbolless SHARED tests/symbolless_lib.cpp)
+    target_compile_features(aletheia_test_symbolless PRIVATE cxx_std_23)
+    target_compile_definitions(unit_tests PRIVATE
+        ALETHEIA_TEST_SYMBOLLESS_LIB="$<TARGET_FILE:aletheia_test_symbolless>")
+    add_dependencies(unit_tests aletheia_test_symbolless)
+    # A kernel stand-in that refuses every call, quoting what it was handed:
+    # the one way to read what the backend marshals to an entry whose
+    # arguments the real kernel acknowledges without reading.
+    add_library(aletheia_test_recording_kernel SHARED
+        tests/kernel_stand_in/recording_kernel_lib.cpp)
+    target_compile_features(aletheia_test_recording_kernel PRIVATE cxx_std_23)
+    target_compile_definitions(unit_tests PRIVATE
+        ALETHEIA_TEST_RECORDING_KERNEL="$<TARGET_FILE:aletheia_test_recording_kernel>")
+    add_dependencies(unit_tests aletheia_test_recording_kernel)
+    # The allocation-fault sweeps replace the program's allocation functions,
+    # which every sanitizer runtime defines as well: the two carry the same
+    # symbols and cannot be linked together, so the sweeps build in the lanes
+    # that run without one. They read back the symbol an allocation returns
+    # into, which the dynamic loader answers for only when the binary exports
+    # its own symbols.
+    if(NOT ALETHEIA_SANITIZER)
+        target_sources(unit_tests PRIVATE tests/alloc_fault.cpp tests/unit_tests_alloc_fault.cpp)
+        target_compile_definitions(unit_tests PRIVATE ALETHEIA_ALLOC_FAULT=1)
+        set_target_properties(unit_tests PROPERTIES ENABLE_EXPORTS ON)
+    endif()
     add_test(NAME unit_tests COMMAND unit_tests)
 
     # Integration tests (real .so, Catch2, threads for concurrent test)
@@ -484,6 +528,11 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # RTS up once for the process (this binary creates no FfiBackend of its own,
     # so there is no rts.cores_mismatch race).
     add_executable(yaml_tests tests/yaml_tests.cpp tests/rts_setup_listener.cpp)
+    if(NOT ALETHEIA_SANITIZER)
+        target_sources(yaml_tests PRIVATE tests/alloc_fault.cpp)
+        target_compile_definitions(yaml_tests PRIVATE ALETHEIA_ALLOC_FAULT=1)
+        set_target_properties(yaml_tests PROPERTIES ENABLE_EXPORTS ON)
+    endif()
     target_link_libraries(yaml_tests
         PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
     add_test(NAME yaml_tests COMMAND yaml_tests)
@@ -494,6 +543,11 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # the same reason as yaml_tests — numeric cells are parsed via the kernel
     # decimal SSOT (RTS-gated).
     add_executable(excel_tests tests/excel_tests.cpp tests/rts_setup_listener.cpp)
+    if(NOT ALETHEIA_SANITIZER)
+        target_sources(excel_tests PRIVATE tests/alloc_fault.cpp)
+        target_compile_definitions(excel_tests PRIVATE ALETHEIA_ALLOC_FAULT=1)
+        set_target_properties(excel_tests PROPERTIES ENABLE_EXPORTS ON)
+    endif()
     target_link_libraries(excel_tests
         PRIVATE aletheia-cpp OpenXLSX::OpenXLSX Catch2::Catch2WithMain)
     add_test(NAME excel_tests COMMAND excel_tests)

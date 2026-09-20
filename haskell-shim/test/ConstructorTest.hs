@@ -145,7 +145,7 @@ walkPartitionedResults ier =
     walkErrorPair p =
         let idx  = unsafeCoerce (AgdaSigma.d_fst_28 p) :: Integer
             codeReason = unsafeCoerce (AgdaSigma.d_snd_30 p) :: AgdaSigma.T_Σ_14
-            code = AgdaBatch.d_extractionErrorCodeToℕ_158
+            code = AgdaBatch.d_extractionErrorCodeToℕ_160
                      (unsafeCoerce (AgdaSigma.d_fst_28 codeReason))
             reason = unsafeCoerce (AgdaSigma.d_snd_30 codeReason) :: T.Text
         in (idx, code, reason)

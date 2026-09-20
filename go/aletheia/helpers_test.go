@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
@@ -19,9 +20,33 @@ import (
 // under test, and the only difference between them is how the error type is
 // spelled from each side.
 
-// ctx is for the tests that do not exercise cancellation; one that does
-// makes its own, so that what it cancels is its own call.
-var ctx = context.Background()
+// bounded is the context a test hands the client: a call the client answers
+// takes milliseconds, so a deadline of two seconds turns a hang, such as a lock
+// left held by an earlier call, into a failure of this test rather than of
+// the whole binary. A test that exercises cancellation makes its own.
+func bounded(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	t.Cleanup(cancel)
+	return ctx
+}
+
+// closeWithin closes the client, failing the test rather than hanging it
+// when Close cannot take the lock within two seconds: Close waits for the lock with no
+// context, by design, so a lock an earlier call left held would otherwise
+// block the whole binary.
+func closeWithin(t *testing.T, c *aletheia.Client) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- c.Close() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not return within two seconds: the client lock is still held")
+		return nil
+	}
+}
 
 // requireErrorContains holds that the failure is the binding's own error type,
 // through whatever wraps it, and that its message carries the substring.
@@ -112,7 +137,7 @@ func mockClient(t *testing.T, responses ...aletheia.MockResponse) (*aletheia.Cli
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = c.Close() })
+	t.Cleanup(func() { _ = closeWithin(t, c) })
 	return c, mock
 }
 
@@ -172,6 +197,7 @@ func standardFrame(t *testing.T, id uint16, ts int64, data ...byte) aletheia.Fra
 // sendOn sends one such frame and answers what the kernel said about it.
 func sendOn(t *testing.T, c *aletheia.Client, id uint16, ts int64, data ...byte) aletheia.FrameResponse {
 	t.Helper()
+	ctx := bounded(t)
 	f := standardFrame(t, id, ts, data...)
 	resp, err := c.SendFrame(ctx, f.Timestamp, f.ID, f.DLC, f.Data, nil, nil)
 	if err != nil {
@@ -191,6 +217,7 @@ func speedBelow(limit int64) aletheia.Formula {
 // properties installed and the options applied. It closes when the test ends.
 func startedClientOpts(t *testing.T, properties []aletheia.Formula, responses []aletheia.MockResponse, opts ...aletheia.ClientOption) (*aletheia.Client, *aletheia.MockBackend) {
 	t.Helper()
+	ctx := bounded(t)
 	queue := append([]aletheia.MockResponse{
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream
@@ -200,7 +227,7 @@ func startedClientOpts(t *testing.T, properties []aletheia.Formula, responses []
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = c.Close() })
+	t.Cleanup(func() { _ = closeWithin(t, c) })
 	if err := c.SetProperties(ctx, properties); err != nil {
 		t.Fatal(err)
 	}

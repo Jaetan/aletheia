@@ -1,0 +1,108 @@
+Mull names a mutant by its mutator and source range, so two mutations of
+one statement, the destructor of a temporary on the normal path and the
+same destructor in the exception-cleanup landing pad, or two instantiations
+of one template, share a name; the trampoline of a function checks that one
+name for each of its clones and dispatches the last it registered, so the
+others never run and are reported under the one that did. The identifier
+gains a seventh part, a hash of the function's mangled name and an ordinal
+among the function's mutants of the same range, so every clone runs and is
+reported on its own; the runner reads the first six parts as before and the
+replacement from the last. A function's hash and ordinals are the same in
+every translation unit that instantiates it, so a linkonce copy dropped at
+link time still shares its identifiers with the copy kept.
+
+diff --git a/include/mull/MutationPoint.h b/include/mull/MutationPoint.h
+index 71a87f0..17319bf 100644
+--- a/include/mull/MutationPoint.h
++++ b/include/mull/MutationPoint.h
+@@ -64,6 +64,7 @@ class MutationPoint {
+   std::string userIdentifier;
+ 
+   SourceLocation endLocation;
++  int ordinal = -1;
+ 
+ public:
+   MutationPoint(Mutator *mutator, irm::IRMutation *irMutator, llvm::Instruction *instruction,
+diff --git a/lib/MutationPoint.cpp b/lib/MutationPoint.cpp
+index 3132561..a691d4f 100644
+--- a/lib/MutationPoint.cpp
++++ b/lib/MutationPoint.cpp
+@@ -9,7 +9,9 @@
+ #include <llvm/Transforms/Utils/ModuleUtils.h>
+ 
+ #include <cassert>
++#include <mutex>
+ #include <sstream>
++#include <unordered_map>
+ #include <utility>
+ 
+ using namespace llvm;
+@@ -119,10 +121,30 @@ void MutationPoint::setEndLocation(int line, int column) {
+ }
+ 
+ void MutationPoint::updateIdentifier() {
++  // The ordinal counts this function's mutants of the same mutator at the
++  // same start, in instruction order, which is the same order in every
++  // translation unit that compiles the function.
++  static std::mutex ordinalsMutex;
++  static std::unordered_map<std::string, int> ordinals;
++  std::string functionName = originalFunction ? originalFunction->getName().str() : "";
++  if (ordinal < 0) {
++    std::string key = functionName + '#' + mutator->getUniqueIdentifier() + ':' +
++                      sourceLocation.filePath + ':' + std::to_string(sourceLocation.line) + ':' +
++                      std::to_string(sourceLocation.column);
++    std::lock_guard<std::mutex> lock(ordinalsMutex);
++    ordinal = ordinals[key]++;
++  }
++  unsigned long long hash = 1469598103934665603ULL;
++  for (unsigned char c : functionName) {
++    hash ^= c;
++    hash *= 1099511628211ULL;
++  }
++  std::ostringstream discriminator;
++  discriminator << std::hex << (hash & 0xffffffffULL) << '.' << std::dec << ordinal;
+   userIdentifier = mutator->getUniqueIdentifier() + ':' + sourceLocation.filePath + ':' +
+                    std::to_string(sourceLocation.line) + ':' +
+                    std::to_string(sourceLocation.column) + ':' + std::to_string(endLocation.line) +
+-                   ':' + std::to_string(endLocation.column);
++                   ':' + std::to_string(endLocation.column) + ':' + discriminator.str();
+ }
+ 
+ void MutationPoint::recordMutation() {
+diff --git a/rust/mull-state/src/mutant.rs b/rust/mull-state/src/mutant.rs
+index 09e741f..78bf544 100644
+--- a/rust/mull-state/src/mutant.rs
++++ b/rust/mull-state/src/mutant.rs
+@@ -50,7 +50,7 @@ impl Mutant {
+         replacement: String,
+     ) -> Self {
+         let chunks = identifier.split(":").collect::<Vec<&str>>();
+-        assert_eq!(chunks.len(), 6);
++        assert!(chunks.len() >= 6, "mutant identifier has fewer than six parts: {identifier}");
+         let mutator = chunks[0].to_string();
+         let location = SourceRange {
+             filepath: chunks[1].into(),
+diff --git a/rust/mull-tools/mutant_extractor.rs b/rust/mull-tools/mutant_extractor.rs
+index 584f7b6..170ee75 100644
+--- a/rust/mull-tools/mutant_extractor.rs
++++ b/rust/mull-tools/mutant_extractor.rs
+@@ -52,16 +52,16 @@ fn extract_from_file(diag: &MullDiagnostics, path: &str) -> Vec<String> {
+ fn parse_encoding(diag: &MullDiagnostics, encoding: &str) -> Option<Mutant> {
+     let chunks: Vec<&str> = encoding.split(':').collect();
+ 
+-    if chunks.len() < 7 {
++    if chunks.len() < 8 {
+         diag_warning!(
+             diag,
+-            "Invalid mutant encoding (expected at least 7 parts): {}",
++            "Invalid mutant encoding (expected at least 8 parts): {}",
+             encoding
+         );
+         return None;
+     }
+ 
+-    let replacement = chunks[6];
++    let replacement = chunks[chunks.len() - 1];
+     let identifier = encoding[..encoding.rfind(':').unwrap()].to_string();
+ 
+     Some(Mutant::from_identifier(

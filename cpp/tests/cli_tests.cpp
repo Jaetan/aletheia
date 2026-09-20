@@ -50,7 +50,7 @@ static auto run(std::vector<std::string> args) -> int {
 static auto run_capture(std::vector<std::string> args) -> std::pair<int, std::string> {
     std::ostringstream oss;
     auto* old = std::cout.rdbuf(oss.rdbuf());
-    const int code = aletheia::run_cli(std::move(args));
+    auto const code = aletheia::run_cli(std::move(args));
     std::cout.rdbuf(old);
     return {code, std::move(oss).str()};
 }
@@ -64,7 +64,7 @@ static auto run_capture(std::vector<std::string> args) -> std::pair<int, std::st
 static auto duplicate_signal_dbc() -> std::string {
     auto const fixture =
         repo_root() / "python" / "tests" / "fixtures" / "dbc_corpus" / "minimal.dbc";
-    std::string text = read_text_file(fixture);
+    auto text = read_text_file(fixture);
     auto const pos = text.find("EngineTemp");
     if (pos == std::string::npos) {
         throw std::runtime_error("minimal.dbc no longer contains EngineTemp");
@@ -95,6 +95,19 @@ TEST_CASE("CLI smoke over the real FFI core", "[cli]") {
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1"}) == 0);
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode", "--value", "1", "--json"}) == 0);
     CHECK(run({"mux-query", "--dbc", mux, "0x64", "--mux", "Mode"}) == 2); // --value missing
+}
+
+TEST_CASE("extract refuses a payload that is not a whole number of bytes", "[cli]") {
+    if (!lib_available()) {
+        SKIP("libaletheia-ffi.so not found — run 'cabal run shake -- build' first");
+    }
+    auto const dbc = (repo_root() / "examples" / "example.dbc").string();
+    // The payload is read two hex digits at a time, so an odd digit count has
+    // to be refused before the read: the last digit would otherwise be taken
+    // for a byte of its own and a truncated frame would decode as a whole one.
+    CHECK(run({"extract", "--dbc", dbc, "0x100", "102700000A00000"}) == 2);
+    // The same payload one digit longer is a frame the core decodes.
+    CHECK(run({"extract", "--dbc", dbc, "0x100", "102700000A000000"}) == 0);
 }
 
 TEST_CASE("extract --json renders signal values as exact rationals, never a lossy float", "[cli]") {

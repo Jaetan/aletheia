@@ -39,9 +39,9 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <ranges>
 #include <set>
 #include <string>
 #include <string_view>
@@ -102,8 +102,7 @@ TEST_CASE("LOG_EVENTS.yaml is well-formed", "[parity][log][yaml]") {
     REQUIRE(rows.size() == 16);
 
     std::set<std::string> seen;
-    for (size_t i = 0; i < rows.size(); ++i) {
-        auto const& row = rows[i];
+    for (auto const [i, row] : std::views::enumerate(rows)) {
         INFO("events[" << i << "] name=" << row.name);
 
         CHECK_FALSE(row.name.empty());
@@ -234,7 +233,7 @@ TEST_CASE("emitted events are subset of LOG_EVENTS.yaml", "[parity][log][workflo
     // A future emit-site drift fails this check loudly with the offending name.
     for (auto const& event : unique_emitted) {
         INFO("emitted event: " << event);
-        const bool in_canonical = known.contains(event);
+        auto const in_canonical = known.contains(event);
         CHECK(in_canonical);
     }
 

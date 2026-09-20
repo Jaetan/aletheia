@@ -24,11 +24,31 @@ namespace aletheia {
 // YAML field extractors with error context
 // ---------------------------------------------------------------------------
 
+// The refusal every field reader below throws, for a key that is absent or
+// that names a node of another kind; the wording is shared with the Python
+// loader, so it has one owner here.
+static auto missing_or_invalid(const std::string& ctx, const std::string& key,
+                               std::string_view expected) -> std::runtime_error {
+    return std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected " +
+                              std::string{expected} + ")");
+}
+
+// The child a key names, refused in the loader's words when absent. Every
+// reader takes its child through here, so an undefined node never reaches a
+// kind test, whose refusal would be yaml-cpp's rather than the loader's.
+static auto require_child(const YAML::Node& node, const std::string& key, const std::string& ctx,
+                          std::string_view expected) -> YAML::Node {
+    auto const child = node[key];
+    if (!child)
+        throw missing_or_invalid(ctx, key, expected);
+    return child;
+}
+
 static auto get_str(const YAML::Node& node, const std::string& key, const std::string& ctx)
     -> std::string {
-    auto const child = node[key];
-    if (!child || !child.IsScalar())
-        throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected string)");
+    auto const child = require_child(node, key, ctx, "string");
+    if (!child.IsScalar())
+        throw missing_or_invalid(ctx, key, "string");
     return child.as<std::string>();
 }
 
@@ -42,15 +62,15 @@ static auto get_str(const YAML::Node& node, const std::string& key, const std::s
 // not about the literal keeps its own kind all the way out of the loader.
 static auto get_decimal(const YAML::Node& node, const std::string& key, const std::string& ctx)
     -> Rational {
-    auto const child = node[key];
-    if (!child || !child.IsScalar())
-        throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected number)");
+    auto const child = require_child(node, key, ctx, "number");
+    if (!child.IsScalar())
+        throw missing_or_invalid(ctx, key, "number");
     // Reject booleans: yaml-cpp parses "true"/"false" as scalars too, and the
     // kernel grammar would otherwise reject them with a less specific message.
     auto const raw = child.as<std::string>();
     if (raw == "true" || raw == "false" || raw == "TRUE" || raw == "FALSE" || raw == "True" ||
         raw == "False")
-        throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected number)");
+        throw missing_or_invalid(ctx, key, "number");
     try {
         return Rational::from_decimal(raw);
     } catch (const AletheiaException& ex) {
@@ -62,21 +82,21 @@ static auto get_decimal(const YAML::Node& node, const std::string& key, const st
 
 static auto get_int(const YAML::Node& node, const std::string& key, const std::string& ctx)
     -> std::int64_t {
-    auto const child = node[key];
-    if (!child || !child.IsScalar())
-        throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected integer)");
+    auto const child = require_child(node, key, ctx, "integer");
+    if (!child.IsScalar())
+        throw missing_or_invalid(ctx, key, "integer");
     try {
         return child.as<std::int64_t>();
     } catch (const YAML::BadConversion&) {
-        throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected integer)");
+        throw missing_or_invalid(ctx, key, "integer");
     }
 }
 
 static auto get_map(const YAML::Node& node, const std::string& key, const std::string& ctx)
     -> YAML::Node {
-    auto const child = node[key];
-    if (!child || !child.IsMap())
-        throw std::runtime_error(ctx + ": missing or invalid '" + key + "' (expected mapping)");
+    auto const child = require_child(node, key, ctx, "mapping");
+    if (!child.IsMap())
+        throw missing_or_invalid(ctx, key, "mapping");
     return child;
 }
 
@@ -204,7 +224,7 @@ static auto parse_when_then_check(const YAML::Node& entry, const std::string& na
 static auto parse_check(const YAML::Node& entry) -> CheckResult {
     auto name = check_name(entry);
 
-    CheckResult result = [&] {
+    auto result = [&] {
         if (entry["when"])
             return parse_when_then_check(entry, name);
         if (entry["signal"])
@@ -228,7 +248,7 @@ static auto parse_check(const YAML::Node& entry) -> CheckResult {
 // ---------------------------------------------------------------------------
 
 static auto parse_yaml_checks(const YAML::Node& root) -> Result<std::vector<CheckResult>> {
-    if (!root || !root.IsMap() || !root["checks"])
+    if (!root.IsMap() || !root["checks"])
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "YAML must contain a 'checks' list"});
 

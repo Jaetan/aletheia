@@ -13,8 +13,53 @@
 #include <aletheia/aletheia.hpp>
 
 #include "detail/json.hpp"
+#include "detail/mock_backend.hpp"
+
+#include <algorithm>
+#include <cstddef>
+#include <expected>
+#include <span>
+#include <utility>
+#include <vector>
 
 namespace aletheia::test {
+
+// MockBackend answers binary extraction with BinaryUnsupported, so a client
+// whose name cache misses a frame's message falls back to JSON and reads the
+// same as one whose cache hit. This double answers with a caller-supplied
+// result instead, so the binary path is observable: a cache hit takes it,
+// its decoding is exercised, and the JSON endpoint is never asked.
+class BinExtractMockBackend : public ::aletheia::MockBackend {
+public:
+    using BinResult = std::expected<std::vector<std::byte>, ::aletheia::AletheiaError>;
+
+    // The default is a header of three zero counts and zero reason bytes,
+    // then the lone offsets entry: the smallest buffer the decoder accepts.
+    explicit BinExtractMockBackend(BinResult result = std::vector<std::byte>(14, std::byte{0}))
+        : result_(std::move(result)) {}
+
+    auto extract_signals_bin(const ::aletheia::BackendState& /*state*/,
+                             const ::aletheia::CanId& /*id*/, ::aletheia::Dlc /*dlc*/,
+                             std::span<const std::byte> /*data*/) -> BinResult override {
+        return result_;
+    }
+
+private:
+    BinResult result_;
+};
+
+// One extracted value, wire index 0, worth 7/1, and nothing else.
+inline auto one_value_at_index_zero() -> std::vector<std::byte> {
+    std::vector<std::byte> buf(14 + 18, std::byte{0});
+    buf[0] = std::byte{1};  // nvals
+    buf[12] = std::byte{7}; // numerator, little-endian
+    buf[20] = std::byte{1}; // denominator
+    return buf;
+}
+
+inline auto took_json_extraction(const ::aletheia::MockBackend& mock) -> bool {
+    return std::ranges::contains(mock.captured(), "<binary:extractAllSignals>");
+}
 
 // parsed_dbc_response_for(dbc) — render the canonical
 // `{"status":"success","dbc":...,"warnings":[]}` wire image so MockBackend

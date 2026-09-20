@@ -15,6 +15,7 @@ import (
 )
 
 func TestStreamingLTL_NoViolation(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedClientWith(t, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
 			Signal: "Speed", Value: aletheia.IntRational(200),
@@ -59,6 +60,7 @@ func TestStreamingLTL_NoViolation(t *testing.T) {
 }
 
 func TestStreamingLTL_Violation(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedClientWith(t, []aletheia.Formula{
 		aletheia.Never(aletheia.GreaterThanOrEqual{Signal: "Speed", Value: aletheia.IntRational(200)}),
 	},
@@ -124,6 +126,7 @@ func TestStreamingLTL_Violation(t *testing.T) {
 }
 
 func TestViolation_CoreReason(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedClientWith(t, []aletheia.Formula{
 		aletheia.MetricEventually{
 			Bound: aletheia.TimeBound{Microseconds: 5_000_000},
@@ -195,6 +198,7 @@ func TestViolation_CoreReason(t *testing.T) {
 }
 
 func TestViolation_EmptyCoreReason(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedClientWith(t, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
 	},
@@ -242,6 +246,7 @@ func TestViolation_EmptyCoreReason(t *testing.T) {
 }
 
 func TestMetricFormulas(t *testing.T) {
+	ctx := bounded(t)
 	mock := aletheia.NewMockBackend(
 		aletheia.Respond(`{"status":"success"}`),
 	)
@@ -249,7 +254,7 @@ func TestMetricFormulas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer closeWithin(t, c)
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.AlwaysWithin(
@@ -267,6 +272,7 @@ func TestMetricFormulas(t *testing.T) {
 }
 
 func TestEndStream_TimestampParseError(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedClientWith(t, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(300)}}},
 	},
@@ -285,6 +291,7 @@ func TestEndStream_TimestampParseError(t *testing.T) {
 }
 
 func TestSendError_Ack(t *testing.T) {
+	ctx := bounded(t)
 	c, mock := startedClientWith(t, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(300)}}},
 	},
@@ -308,18 +315,20 @@ func TestSendError_Ack(t *testing.T) {
 }
 
 func TestSendError_NegativeTimestamp(t *testing.T) {
+	ctx := bounded(t)
 	mock := aletheia.NewMockBackend()
 	c, err := aletheia.NewClient(mock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer closeWithin(t, c)
 
 	err = c.SendError(ctx, aletheia.Timestamp{Microseconds: -1})
 	requireErrorContains(t, err, "timestamp must be non-negative")
 }
 
 func TestSendRemote_Ack(t *testing.T) {
+	ctx := bounded(t)
 	c, mock := startedClientWith(t, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(300)}}},
 	},
@@ -344,12 +353,13 @@ func TestSendRemote_Ack(t *testing.T) {
 }
 
 func TestSendRemote_NegativeTimestamp(t *testing.T) {
+	ctx := bounded(t)
 	mock := aletheia.NewMockBackend()
 	c, err := aletheia.NewClient(mock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer closeWithin(t, c)
 
 	sid, _ := aletheia.NewStandardID(0x100)
 	err = c.SendRemote(ctx, aletheia.Timestamp{Microseconds: -1}, sid)
@@ -357,18 +367,20 @@ func TestSendRemote_NegativeTimestamp(t *testing.T) {
 }
 
 func TestSendError_AfterClose(t *testing.T) {
+	ctx := bounded(t)
 	mock := aletheia.NewMockBackend()
 	c, err := aletheia.NewClient(mock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.Close()
+	closeWithin(t, c)
 
 	err = c.SendError(ctx, aletheia.Timestamp{Microseconds: 1000})
 	requireErrorContains(t, err, "closed")
 }
 
 func TestSendError_RejectsSuccessStatus(t *testing.T) {
+	ctx := bounded(t)
 	// Trace events always resolve to Response.Ack in Agda, so "success" must
 	// not be accepted for send_error.
 	c, _ := startedClientWith(t, nil,
@@ -379,6 +391,7 @@ func TestSendError_RejectsSuccessStatus(t *testing.T) {
 }
 
 func TestSendRemote_RejectsSuccessStatus(t *testing.T) {
+	ctx := bounded(t)
 	// Trace events always resolve to Response.Ack in Agda, so "success" must
 	// not be accepted for send_remote.
 	c, _ := startedClientWith(t, nil,
@@ -390,6 +403,7 @@ func TestSendRemote_RejectsSuccessStatus(t *testing.T) {
 }
 
 func TestConcurrentSendFrame(t *testing.T) {
+	ctx := bounded(t)
 	const n = 10
 	responses := make([]aletheia.MockResponse, 0, n+2)
 	responses = append(responses, aletheia.Respond(`{"status":"success"}`)) // SetProperties
@@ -416,6 +430,7 @@ func TestConcurrentSendFrame(t *testing.T) {
 }
 
 func TestSendFrame_NegativeTimestamp(t *testing.T) {
+	ctx := bounded(t)
 	mock := aletheia.NewMockBackend(
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream
@@ -424,7 +439,7 @@ func TestSendFrame_NegativeTimestamp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer closeWithin(t, c)
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
@@ -447,6 +462,7 @@ func TestSendFrame_NegativeTimestamp(t *testing.T) {
 // FrameProcessor/Properties.agda PROPERTY 28); the Go binding's job is to
 // surface the error code to the caller.
 func TestSendFrame_NonMonotonicTimestamp(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedClientWith(t, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(500)}}},
 	},
@@ -493,6 +509,7 @@ func TestSendFrame_NonMonotonicTimestamp(t *testing.T) {
 }
 
 func TestSendFrame_PayloadDLCMismatch(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedClientWith(t, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
 	})
@@ -504,12 +521,13 @@ func TestSendFrame_PayloadDLCMismatch(t *testing.T) {
 }
 
 func TestSetProperties_NegativeTimeBound(t *testing.T) {
+	ctx := bounded(t)
 	mock := aletheia.NewMockBackend()
 	c, err := aletheia.NewClient(mock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer closeWithin(t, c)
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.MetricAlways{
@@ -521,6 +539,7 @@ func TestSetProperties_NegativeTimeBound(t *testing.T) {
 }
 
 func TestSetProperties_NegativeDelta(t *testing.T) {
+	ctx := bounded(t)
 	mock := aletheia.NewMockBackend(
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 	)
@@ -528,7 +547,7 @@ func TestSetProperties_NegativeDelta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer closeWithin(t, c)
 
 	// A negative delta is valid: it asks for a fall of at least that much
 	err = c.SetProperties(ctx, []aletheia.Formula{
@@ -540,12 +559,13 @@ func TestSetProperties_NegativeDelta(t *testing.T) {
 }
 
 func TestSetProperties_NegativeTolerance(t *testing.T) {
+	ctx := bounded(t)
 	mock := aletheia.NewMockBackend()
 	c, err := aletheia.NewClient(mock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer closeWithin(t, c)
 
 	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.StableWithin{Signal: "Speed", Tolerance: aletheia.IntRational(-2)}}},
@@ -556,6 +576,7 @@ func TestSetProperties_NegativeTolerance(t *testing.T) {
 // --- Group Q: Out-of-order streaming tests ---
 
 func TestSendFrame_WithoutStartStream(t *testing.T) {
+	ctx := bounded(t)
 	mock := aletheia.NewMockBackend(
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		// a frame sent before the stream started, which the kernel refuses
@@ -565,7 +586,7 @@ func TestSendFrame_WithoutStartStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer closeWithin(t, c)
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
@@ -582,6 +603,7 @@ func TestSendFrame_WithoutStartStream(t *testing.T) {
 }
 
 func TestEndStream_WithoutStartStream(t *testing.T) {
+	ctx := bounded(t)
 	mock := aletheia.NewMockBackend(
 		aletheia.Respond(`{"status":"success"}`),                                                         // SetProperties
 		aletheia.Respond(`{"status":"error","code":"handler_stream_not_started","message":"no stream"}`), // EndStream without StartStream
@@ -590,7 +612,7 @@ func TestEndStream_WithoutStartStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer closeWithin(t, c)
 
 	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
@@ -605,6 +627,7 @@ func TestEndStream_WithoutStartStream(t *testing.T) {
 }
 
 func TestConsecutiveStartStream(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedClientWith(t, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
 	},
@@ -618,6 +641,7 @@ func TestConsecutiveStartStream(t *testing.T) {
 // --- PropertyIndex out-of-bounds tests ---
 
 func TestSendFrame_PropertyIndexOutOfBounds(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedClientWith(t, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
 	},
@@ -661,6 +685,7 @@ func TestSendFrame_PropertyIndexOutOfBounds(t *testing.T) {
 }
 
 func TestStreamingLTL_Unresolved(t *testing.T) {
+	ctx := bounded(t)
 	// Atomic predicate whose signal was never observed finalizes to
 	// Unresolved (three-valued Kleene Unknown) rather than Fails.
 	c, _ := startedClientWith(t, []aletheia.Formula{
@@ -696,6 +721,7 @@ func TestStreamingLTL_Unresolved(t *testing.T) {
 }
 
 func TestEndStream_UncachedAtomWarning(t *testing.T) {
+	ctx := bounded(t)
 	// The kernel emits one `uncached_atom`
 	// warning per atom whose target signal never appeared in trace.
 	// Verifies the Go binding surfaces these on StreamResult.Warnings.
@@ -736,6 +762,7 @@ func TestEndStream_UncachedAtomWarning(t *testing.T) {
 }
 
 func TestEndStream_PropertyIndexOutOfBounds(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedClientWith(t, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.IntRational(220)}}},
 	},
@@ -782,6 +809,7 @@ func TestEndStream_PropertyIndexOutOfBounds(t *testing.T) {
 // the same verdicts to the library.
 
 func TestEOS_AlwaysNeverObserved_ManyFrames(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := startedClientWith(t, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
 			Signal: "Speed", Value: aletheia.IntRational(100),
@@ -820,6 +848,7 @@ func TestEOS_AlwaysNeverObserved_ManyFrames(t *testing.T) {
 }
 
 func TestEOS_ChangedByOneFrame_Unresolved(t *testing.T) {
+	ctx := bounded(t)
 	// A single frame gives changed_by(0) no prior observation to compare
 	// against, so its inner Atomic finalizes to Unsure. Under Kleene K3 the
 	// negation stays Unsure and the Always absorption leaves an
@@ -855,6 +884,7 @@ func TestEOS_ChangedByOneFrame_Unresolved(t *testing.T) {
 }
 
 func TestEOS_EventuallyNeverObserved_Unresolved(t *testing.T) {
+	ctx := bounded(t)
 	// A disjunction with an eventually on one side is not absorbed into that
 	// side when the other side is undecided: the disjunction stands, and an
 	// undecided side beside a failing one leaves the whole undecided.
@@ -896,6 +926,7 @@ func TestEOS_EventuallyNeverObserved_Unresolved(t *testing.T) {
 }
 
 func TestEOS_EventuallyZeroFrames_Fails(t *testing.T) {
+	ctx := bounded(t)
 	// Against the case above, which saw a frame: on a trace with none, an
 	// eventually fails outright. Nothing was left undecided, because nothing
 	// was ever observed.
@@ -923,6 +954,7 @@ func TestEOS_EventuallyZeroFrames_Fails(t *testing.T) {
 }
 
 func TestEOS_AlwaysZeroFrames_Holds(t *testing.T) {
+	ctx := bounded(t)
 	// Standard LTLf vacuous truth: G φ on the empty trace holds regardless
 	// of whether φ's signal would be observable. Distinguishes the
 	// empty-trace finalization path (direct on Always) from the non-empty
@@ -951,6 +983,7 @@ func TestEOS_AlwaysZeroFrames_Holds(t *testing.T) {
 }
 
 func TestEOS_K3Combination_UnresolvedAndHolds(t *testing.T) {
+	ctx := bounded(t)
 	// Kleene truth table: Unsure ∧ Holds = Unsure. The And combinator with
 	// one Unresolved operand and one Holds operand must surface as
 	// Unresolved. Verifies the JSON status mapping and the Go Verdict
@@ -991,6 +1024,7 @@ func TestEOS_K3Combination_UnresolvedAndHolds(t *testing.T) {
 }
 
 func TestEOS_K3Combination_UnresolvedOrFails(t *testing.T) {
+	ctx := bounded(t)
 	// Kleene truth table: Unsure ∨ Fails = Unsure. An Or with one Unresolved
 	// operand and one Fails operand must surface as Unresolved.
 	c, _ := startedClientWith(t, []aletheia.Formula{
@@ -1029,6 +1063,7 @@ func TestEOS_K3Combination_UnresolvedOrFails(t *testing.T) {
 }
 
 func TestEOS_MixedVerdicts(t *testing.T) {
+	ctx := bounded(t)
 	// Stream with three properties that finalize to different K3 verdicts.
 	// Confirms the Go result decoder correctly parses and orders a mix of
 	// Holds, Fails, and Unresolved in a single stream response.
@@ -1078,6 +1113,7 @@ func TestEOS_MixedVerdicts(t *testing.T) {
 }
 
 func TestEOS_UnresolvedCarriesEnrichment(t *testing.T) {
+	ctx := bounded(t)
 	// Client.EndStream runs enrichEndOfStream over Unresolved verdicts
 	// (client.go, todo collection). Verify the enrichment field is populated
 	// with FormulaDesc/CoreReason for an Unresolved result, parallel to the

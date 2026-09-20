@@ -44,6 +44,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <span>
 #include <sstream>
@@ -196,7 +197,7 @@ static auto make_can_id(std::uint32_t n, bool extended) -> std::optional<CanId> 
 
 static auto parse_hex_data(std::string_view s) -> std::optional<std::vector<std::byte>> {
     std::string cleaned;
-    for (const char c : s)
+    for (auto const c : s)
         if (c != ' ' && c != ':')
             cleaned.push_back(c);
     std::string_view view{cleaned};
@@ -206,8 +207,8 @@ static auto parse_hex_data(std::string_view s) -> std::optional<std::vector<std:
         return std::nullopt;
     std::vector<std::byte> out;
     out.reserve(view.size() / 2);
-    for (std::size_t i = 0; i < view.size(); i += 2) {
-        const std::string octet{view.substr(i, 2)};
+    for (auto const octet_chars : view | std::views::chunk(2)) {
+        const std::string octet{octet_chars.begin(), octet_chars.end()};
         std::uint8_t byte = 0;
         auto const* const end = std::to_address(octet.end());
         auto [ptr, ec] = std::from_chars(octet.data(), end, byte, 16);
@@ -227,13 +228,17 @@ static auto parse_args(std::span<const std::string> args, const std::set<std::st
                        const std::set<std::string>& bool_flags)
     -> std::expected<Args, std::string> {
     Args out;
-    for (std::size_t i = 0; i < args.size(); ++i) {
-        const std::string& a = args[i];
+    // A cursor rather than a counter: a value flag consumes the argument after
+    // it, so the step is a variable number of elements and the consumption is
+    // what the loop says.
+    while (!args.empty()) {
+        const std::string& a = args.front();
+        args = args.subspan(1);
         if (!a.starts_with("--")) {
             out.positionals.push_back(a);
             continue;
         }
-        std::string name = a.substr(2);
+        auto name = a.substr(2);
         std::optional<std::string> inline_val;
         if (auto const eq = name.find('='); eq != std::string::npos) {
             inline_val = name.substr(eq + 1);
@@ -242,12 +247,14 @@ static auto parse_args(std::span<const std::string> args, const std::set<std::st
         if (bool_flags.contains(name)) {
             out.flags.insert(name);
         } else if (value_flags.contains(name)) {
-            if (inline_val)
+            if (inline_val) {
                 out.opts[name] = *inline_val;
-            else if (i + 1 < args.size())
-                out.opts[name] = args[++i];
-            else
+            } else if (!args.empty()) {
+                out.opts[name] = args.front();
+                args = args.subspan(1);
+            } else {
                 return std::unexpected<std::string>("flag --" + name + " requires a value");
+            }
         } else {
             return std::unexpected<std::string>("unknown flag: " + a);
         }
@@ -269,15 +276,15 @@ static auto opt_or(const Args& a, const std::string& key) -> std::string {
 static auto render_validation(bool has_errors, const std::vector<aletheia::ValidationIssue>& issues,
                               bool as_json) -> int {
     if (as_json) {
-        Json arr = Json::array();
+        auto arr = Json::array();
         for (auto const& i : issues)
             arr.push_back({{"severity", std::string{aletheia::to_string(i.severity)}},
                            {"code", std::string{aletheia::issue_code_label(i)}},
                            {"detail", i.detail}});
-        const int code = emit_json({{"status", has_errors ? "fail" : "pass"},
-                                    {"has_errors", has_errors},
-                                    {"total_issues", issues.size()},
-                                    {"issues", arr}});
+        auto const code = emit_json({{"status", has_errors ? "fail" : "pass"},
+                                     {"has_errors", has_errors},
+                                     {"total_issues", issues.size()},
+                                     {"issues", arr}});
         // An emit failure is an operational error and must not be masked
         // by the validation outcome.
         if (code != cli_exit_ok)
@@ -372,7 +379,7 @@ static auto cmd_extract(const Args& a) -> int {
     auto data = parse_hex_data(a.positionals[1]);
     if (!data)
         return die("invalid hex data: " + a.positionals[1]);
-    const bool extended = a.flags.contains("extended");
+    auto const extended = a.flags.contains("extended");
     auto client = make_client();
     if (!client)
         return die(client.error());
@@ -382,7 +389,7 @@ static auto cmd_extract(const Args& a) -> int {
     auto id = make_can_id(*can_id, extended);
     if (!id)
         return die("invalid CAN ID for the selected width");
-    const DbcMessage* msg = def->dbc.message_by_id(*id);
+    auto const* msg = def->dbc.message_by_id(*id);
     if (msg == nullptr)
         return die("CAN ID not found in DBC");
     auto res = client->extract_signals(std::stop_token{}, *id, msg->dlc, *data);
@@ -390,13 +397,13 @@ static auto cmd_extract(const Args& a) -> int {
         return die(res.error().message());
 
     if (a.flags.contains("json")) {
-        Json values = Json::object();
+        auto values = Json::object();
         for (auto const& v : res->values)
             values[v.name.get()] = extract_value_to_json(v.value.get());
-        Json errors = Json::object();
+        auto errors = Json::object();
         for (auto const& e : res->errors)
             errors[e.name.get()] = e.reason;
-        Json absent = Json::array();
+        auto absent = Json::array();
         for (auto const& s : res->absent)
             absent.push_back(s.get());
         return emit_json({{"can_id", *can_id},
@@ -468,7 +475,7 @@ static auto resolve_mux_message(const DbcDefinition& def, const std::string& ide
     -> const DbcMessage* {
     if (auto can_id = parse_can_id(ident))
         if (auto id = make_can_id(*can_id, extended))
-            if (const DbcMessage* msg = def.message_by_id(*id))
+            if (auto const* msg = def.message_by_id(*id))
                 return msg;
     return def.message_by_name(aletheia::MessageName{ident});
 }
@@ -498,7 +505,7 @@ static auto mux_selector(const DbcMessage& msg, const std::string& mux, std::uin
     auto const sigs =
         msg.signals_for_mux_value(aletheia::SignalName{mux}, aletheia::MultiplexValue{value});
     if (as_json) {
-        Json names = Json::array();
+        auto names = Json::array();
         for (auto const& s : sigs)
             names.push_back(s.name.get());
         return emit_json({{"message_id", aletheia::can_id_value(msg.id)},
@@ -518,11 +525,11 @@ static auto mux_selector(const DbcMessage& msg, const std::string& mux, std::uin
 // mux-query summary mode: every multiplexor, its values, and their signals.
 static auto mux_summary(const DbcMessage& msg, bool as_json) -> int {
     if (as_json) {
-        Json muxes = Json::array();
+        auto muxes = Json::array();
         for (auto const& name : msg.multiplexor_names()) {
-            Json vals = Json::array();
+            auto vals = Json::array();
             for (auto const v : msg.multiplex_values(name)) {
-                Json sigs = Json::array();
+                auto sigs = Json::array();
                 for (auto const& s : msg.signals_for_mux_value(name, v))
                     sigs.push_back(s.name.get());
                 vals.push_back({{"value", v.get()}, {"signals", sigs}});
@@ -560,15 +567,14 @@ static auto cmd_mux_query(const Args& a) -> int {
     auto def = load_dbc_text(*client, opt_or(a, "dbc"));
     if (!def)
         return die(def.error().message);
-    const DbcMessage* msg =
-        resolve_mux_message(def->dbc, a.positionals[0], a.flags.contains("extended"));
+    auto const* msg = resolve_mux_message(def->dbc, a.positionals[0], a.flags.contains("extended"));
     if (msg == nullptr)
         return die("message not found by id or name: " + a.positionals[0]);
 
     // `--mux NAME --value N` (both or neither) selects one multiplexor value;
     // otherwise print the full summary. Mirrors the Python/Go CLIs.
-    const bool has_mux = a.opts.contains("mux");
-    const bool has_value = a.opts.contains("value");
+    auto const has_mux = a.opts.contains("mux");
+    auto const has_value = a.opts.contains("value");
     if (has_mux != has_value)
         return die("--mux and --value must be provided together");
     if (!has_mux)

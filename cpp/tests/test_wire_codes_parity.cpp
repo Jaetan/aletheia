@@ -44,6 +44,7 @@
 
 #include "repo_root.hpp"
 #include <catch2/catch_message.hpp>
+#include <ranges>
 
 using aletheia::test::repo_root;
 
@@ -96,11 +97,10 @@ constexpr auto k_named_error_count =
 // ----- 1. YAML schema sanity -----
 
 TEST_CASE("WIRE_CODES.yaml is well-formed", "[parity][wire_codes][yaml]") {
-    for (const char* section : {"issue_codes", "error_codes"}) {
+    for (auto const* section : {"issue_codes", "error_codes"}) {
         auto rows = load_section(section);
         std::set<std::string> seen;
-        for (std::size_t i = 0; i < rows.size(); ++i) {
-            auto const& row = rows[i];
+        for (auto const [i, row] : std::views::enumerate(rows)) {
             INFO(section << "[" << i << "] name=" << row.name);
             CHECK_FALSE(row.name.empty());
             CHECK(seen.insert(row.name).second);
@@ -120,7 +120,7 @@ TEST_CASE("issue codes are a bijection with the IssueCode enum", "[parity][wire_
     // missing from the decoder's lookup table, which is never a YAML row
     // (see the sentinel canary), so a table gap fails here too.
     std::set<std::string> rendered;
-    for (std::size_t i = 0; i < k_named_issue_count; ++i) {
+    for (auto const i : std::views::iota(std::size_t{0}, k_named_issue_count)) {
         auto const name = std::string{to_string(static_cast<IssueCode>(i))};
         INFO("IssueCode enumerator " << i << " renders as: " << name);
         CHECK(yaml_names.contains(name));

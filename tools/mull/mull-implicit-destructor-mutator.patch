@@ -1,0 +1,127 @@
+Every void call of a statement shares that statement's source range, and the
+destructors a statement runs implicitly are void calls, so a removal of one was
+emitted under the named call's identifier and reported against a line whose call
+it never touched. The two are different mutations and are named apart: the
+implicit destructor removals move to cxx_remove_implicit_destructor and
+cxx_remove_void_call keeps the calls the source writes. Neither set loses a
+mutant, the junk detector answers both kinds with the visitor that already
+matches the statement's call expression, and cxx_calls carries both names so a
+configuration naming that group is unchanged.
+diff --git a/include/mull/Mutators/CXX/CallMutators.h b/include/mull/Mutators/CXX/CallMutators.h
+index 4a6bc2f..b1b5fc6 100644
+--- a/include/mull/Mutators/CXX/CallMutators.h
++++ b/include/mull/Mutators/CXX/CallMutators.h
+@@ -11,6 +11,15 @@ public:
+   RemoveVoidCall();
+ };
+ 
++/// The destructors a statement runs implicitly share that statement's source
++/// range, so a removal of one was reported against the call the source names
++/// while measuring something else.  Reported under its own name instead.
++class RemoveImplicitDestructor : public TrivialCXXMutator {
++public:
++  static std::string ID();
++  RemoveImplicitDestructor();
++};
++
+ class ReplaceScalarCall : public TrivialCXXMutator {
+ public:
+   static std::string ID();
+diff --git a/include/mull/Mutators/MutatorKind.h b/include/mull/Mutators/MutatorKind.h
+index 7fde9d8..33f1db7 100644
+--- a/include/mull/Mutators/MutatorKind.h
++++ b/include/mull/Mutators/MutatorKind.h
+@@ -13,6 +13,7 @@ enum class MutatorKind {
+   NegateMutator,
+ 
+   CXX_RemoveVoidCall,
++  CXX_RemoveImplicitDestructor,
+   CXX_ReplaceScalarCall,
+ 
+   CXX_AddToSub,
+diff --git a/lib/JunkDetection/CXX/CXXJunkDetector.cpp b/lib/JunkDetection/CXX/CXXJunkDetector.cpp
+index ee83d78..73afcac 100644
+--- a/lib/JunkDetection/CXX/CXXJunkDetector.cpp
++++ b/lib/JunkDetection/CXX/CXXJunkDetector.cpp
+@@ -20,6 +20,7 @@ static const clang::Stmt *findMutantExpression(MutationPoint *point,
+                                                VisitorParameters &visitorParameters,
+                                                clang::Decl *decl) {
+   switch (point->getMutator()->mutatorKind()) {
++  case MutatorKind::CXX_RemoveImplicitDestructor:
+   case MutatorKind::CXX_RemoveVoidCall: {
+     RemoveVoidFunctionVisitor visitor(visitorParameters);
+     visitor.TraverseDecl(decl);
+diff --git a/lib/Mutators/CXX/CallMutators.cpp b/lib/Mutators/CXX/CallMutators.cpp
+index e2ac9bb..64552e3 100644
+--- a/lib/Mutators/CXX/CallMutators.cpp
++++ b/lib/Mutators/CXX/CallMutators.cpp
+@@ -19,6 +19,22 @@ RemoveVoidCall::RemoveVoidCall()
+                         "Removes calls to a function returning void", "",
+                         "Removed the call to the function") {}
+ 
++static std::vector<std::unique_ptr<irm::IRMutation>> getRemoveImplicitDestructor() {
++  std::vector<std::unique_ptr<irm::IRMutation>> mutators;
++  mutators.push_back(std::make_unique<irm::RemoveImplicitDestructorCall>());
++  return mutators;
++}
++
++std::string RemoveImplicitDestructor::ID() {
++  return "cxx_remove_implicit_destructor";
++}
++
++RemoveImplicitDestructor::RemoveImplicitDestructor()
++    : TrivialCXXMutator(getRemoveImplicitDestructor(), MutatorKind::CXX_RemoveImplicitDestructor,
++                        RemoveImplicitDestructor::ID(),
++                        "Removes a destructor a statement runs implicitly", "",
++                        "Removed the implicit destructor") {}
++
+ static std::vector<std::unique_ptr<irm::IRMutation>> getReplaceScalarCall() {
+   std::vector<std::unique_ptr<irm::IRMutation>> mutators;
+   mutators.push_back(std::make_unique<irm::IntCallReplacement>(42));
+diff --git a/lib/Mutators/MutatorKind.cpp b/lib/Mutators/MutatorKind.cpp
+index 9de72e8..3e848e2 100644
+--- a/lib/Mutators/MutatorKind.cpp
++++ b/lib/Mutators/MutatorKind.cpp
+@@ -14,6 +14,9 @@ std::string MutationKindToString(MutatorKind mutatorKind) {
+   case MutatorKind::CXX_RemoveVoidCall: {
+     return "Remove Void";
+   }
++  case MutatorKind::CXX_RemoveImplicitDestructor: {
++    return "Remove Implicit Destructor";
++  }
+   case MutatorKind::CXX_ReplaceScalarCall: {
+     return "Replace Call";
+   }
+diff --git a/lib/Mutators/MutatorsFactory.cpp b/lib/Mutators/MutatorsFactory.cpp
+index 77fb988..9048d13 100644
+--- a/lib/Mutators/MutatorsFactory.cpp
++++ b/lib/Mutators/MutatorsFactory.cpp
+@@ -26,6 +26,7 @@ void MutatorsFactory::init() {
+   addMutator<NegateConditionMutator>(mutatorsMapping);
+ 
+   addMutator<cxx::RemoveVoidCall>(mutatorsMapping);
++  addMutator<cxx::RemoveImplicitDestructor>(mutatorsMapping);
+   addMutator<cxx::ReplaceScalarCall>(mutatorsMapping);
+ 
+   addMutator<cxx::NumberAssignConst>(mutatorsMapping);
+diff --git a/rust/mull-filters/src/mutator_groups.rs b/rust/mull-filters/src/mutator_groups.rs
+index 564e7bb..2205db3 100644
+--- a/rust/mull-filters/src/mutator_groups.rs
++++ b/rust/mull-filters/src/mutator_groups.rs
+@@ -30,7 +30,7 @@ pub fn get_group_definitions() -> Vec<(String, String)> {
+         ("cxx_logical", "cxx_remove_negation"),
+         ("cxx_comparison", "cxx_eq_to_ne, cxx_ne_to_eq, cxx_le_to_gt, cxx_lt_to_ge, cxx_ge_to_lt, cxx_gt_to_le"),
+         ("cxx_boundary", "cxx_le_to_lt, cxx_lt_to_le, cxx_ge_to_gt, cxx_gt_to_ge"),
+-        ("cxx_calls", "cxx_remove_void_call, cxx_replace_scalar_call"),
++        ("cxx_calls", "cxx_remove_void_call, cxx_remove_implicit_destructor, cxx_replace_scalar_call"),
+         ("experimental", "negate_mutator, cxx_logical"),
+     ];
+ 
+@@ -73,6 +73,7 @@ fn expand_group(group: &str, result: &mut HashSet<String>) {
+         // Leaf groups
+         "cxx_calls" => {
+             result.insert("cxx_remove_void_call".to_string());
++            result.insert("cxx_remove_implicit_destructor".to_string());
+             result.insert("cxx_replace_scalar_call".to_string());
+         }
+         "cxx_const_assignment" => {

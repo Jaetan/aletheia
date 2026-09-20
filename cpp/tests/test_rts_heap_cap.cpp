@@ -41,7 +41,7 @@ static auto run_workload(const std::string& n, const char* rts_opts)
     std::array<int, 2> out{};
     REQUIRE(pipe(out.data()) == 0);
 
-    const pid_t pid = fork();
+    auto const pid = fork();
     if (pid == 0) {
         close(out[0]);
         dup2(out[1], STDOUT_FILENO);

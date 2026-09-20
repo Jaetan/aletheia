@@ -6,6 +6,7 @@ build-ubsan/
 build-tsan/
 build-fuzz/
 build-mutation/
+build-mutation-plain/
 _build/
 dist/
 dist-newstyle/
@@ -51,6 +52,9 @@ pip-delete-this-directory.txt
 .session-state.md
 .r*-plan.md
 .commands-to-run.sh
+# Staged file versions the dribble copies in turn, when one commit's file is
+# edited again by a later one.
+.commands-to-run.d/
 
 # Coverage artifacts
 python/.coverage
@@ -105,3 +109,5 @@ python/aletheia/_install_config.py
 .agda-tree.lock
 # Agda's own grammar, fetched on demand rather than vendored (tools/_agda_opens.py)
 .agda-reference/Parser.y
+# A probe's clang-tidy scratch sources, left only by a run a signal ended.
+cpp/tests/.tidy-shapes-*/

@@ -40,6 +40,7 @@
 #include <malloc.h>
 #include <memory>
 #include <print>
+#include <ranges>
 #include <stdexcept>
 #include <stop_token>
 #include <string>
@@ -241,9 +242,8 @@ static void run_cycle(const std::filesystem::path& lib, const aletheia::DbcDefin
     constexpr auto dlc = Dlc::create(8).value();
     const FramePayload frame{std::byte{0x40}, std::byte{0x1F}, std::byte{0x82}, std::byte{0x00},
                              std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}};
-    for (int i = 0; i < frames_per_cycle; ++i) {
+    for (auto const i : std::views::iota(0, frames_per_cycle))
         require(client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame), "send_frame");
-    }
     require(client.end_stream(std::stop_token{}), "end_stream");
     // ~AletheiaClient runs here; backend dlcloses the .so handle if it was
     // the last reference.
@@ -336,9 +336,8 @@ static auto run() -> int {
     // Multi-cycle warmup to absorb the GHC RTS heap warmup + lazy MAlonzo /
     // Agda structure realization.  See k_warmup_cycles for empirical rationale.
     try {
-        for (int i = 0; i < k_warmup_cycles; ++i) {
-            run_cycle(lib, dbc, frames);
-        }
+        std::ranges::for_each(std::views::repeat(0, k_warmup_cycles),
+                              [&](auto) { run_cycle(lib, dbc, frames); });
     } catch (const std::exception& e) {
         std::println(stderr, "warm-up: {}", e.what());
         return 2;
@@ -347,7 +346,7 @@ static auto run() -> int {
     auto const start = take_snapshot();
     auto const t0 = std::chrono::steady_clock::now();
 
-    for (int i = 0; i < cycles; ++i) {
+    for (auto const i : std::views::iota(0, cycles)) {
         try {
             run_cycle(lib, dbc, frames);
         } catch (const std::exception& e) {
@@ -361,7 +360,7 @@ static auto run() -> int {
         std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 
     auto const sub_checks = build_sub_checks(start, end);
-    const bool all_passed = std::ranges::all_of(sub_checks, &SubCheck::passed);
+    auto const all_passed = std::ranges::all_of(sub_checks, &SubCheck::passed);
 
     std::print("{{\n"
                "  \"binding\": \"cpp\",\n"
@@ -371,9 +370,8 @@ static auto run() -> int {
                "  \"elapsed_seconds\": {},\n"
                "  \"sub_checks\": [\n",
                cycles, frames, static_cast<std::int64_t>(cycles) * frames, elapsed);
-    for (std::size_t i = 0; i < sub_checks.size(); ++i) {
-        emit_sub_check_json(sub_checks[i], i == 0);
-    }
+    for (auto const [i, sub_check] : std::views::enumerate(sub_checks))
+        emit_sub_check_json(sub_check, i == 0);
     std::print("\n  ],\n"
                "  \"passed\": {}\n"
                "}}\n",

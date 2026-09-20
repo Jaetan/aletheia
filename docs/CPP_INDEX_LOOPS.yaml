@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# Every counting loop the C++ tree holds, and the ratchet that keeps the list from
+# growing. AGENTS/cpp.md cat 27, "no index where a range will do": a loop that
+# counts an index states its own bound, and a hand-written bound can be written
+# wrong where a range's cannot. tools/check_cpp_index_loops.py refuses a counting
+# loop this file does not name, and refuses a row naming more loops than the file
+# holds, because such a row is standing permission to reintroduce one.
+#
+# A row leaves this file by the change that rewrites its loop as a range. Adding a
+# row needs user approval, on the same footing as a NOLINT suppression.
+#
+# Rows are keyed by file and by the loop header's canonical text, whitespace
+# collapsed, rather than by a line number, so an edit elsewhere in the file does
+# not move them; `count` is how many loops in that file share the header. A loop
+# is a counting loop when a variable of its header is stepped in the condition, the
+# increment clause or the body. All three spellings are read, `for`, `while` and
+# `do`/`while`, because a gate that knew only `for` would be passed by rewriting the
+# header. A scan advancing its index by a variable amount is a counting loop wherever
+# the step is written, and so is a find-driven cursor whose body steps the position
+# it found, while a getline loop and a read drain are not.
+
+loops:
+  - file: cpp/src/detail/loader_utils.cpp
+    text: "for (auto i = decltype(eocd.total_entries){0}; i < eocd.total_entries; ++i)"
+    count: 1
+  - file: cpp/tests/doc_example_tests.cpp
+    text: "while ((pos = s.find(from, pos)) != std::string::npos)"
+    count: 1
+  - file: cpp/tests/test_feature_matrix_parity.cpp
+    text: "for (std::size_t i = 0; i < n; )"
+    count: 1
+  - file: cpp/tests/test_feature_matrix_parity.cpp
+    text: "while ((pos = text.find(symbol, pos)) != std::string::npos)"
+    count: 1
+  - file: cpp/tests/test_feature_matrix_parity.cpp
+    text: "while (i + 1 < n && (text[i] != '*' || text[i + 1] != '/'))"
+    count: 1
+  - file: cpp/tests/test_feature_matrix_parity.cpp
+    text: "while (i < n && text[i] != quote)"
+    count: 1
+  - file: cpp/tests/test_feature_matrix_parity.cpp
+    text: "while (i < n && text[i] != '\\n')"
+    count: 1
+  - file: cpp/tests/test_feature_matrix_parity.cpp
+    text: "while (start > 0 && is_ident_char(text[start - 1]))"
+    count: 1

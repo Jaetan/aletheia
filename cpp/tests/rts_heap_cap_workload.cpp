@@ -23,6 +23,7 @@
 #include <exception>
 #include <memory>
 #include <print>
+#include <ranges>
 #include <span>
 #include <sstream>
 #include <stop_token>
@@ -33,7 +34,7 @@
 static auto build_dbc(int n) -> std::string {
     std::ostringstream dbc;
     dbc << "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n";
-    for (int i = 0; i < n; ++i) {
+    for (auto const i : std::views::iota(0, n)) {
         dbc << "BO_ " << (256 + i) << " Msg" << i << ": 8 ECU\n";
         dbc << " SG_ Sig" << i << " : 0|16@1+ (0.25,0) [0|8000] \"u\" ECU\n\n";
     }

@@ -34,7 +34,12 @@ open import Aletheia.CAN.DBCHelpers using (findSignalByName; findSignalInList)
 open import Aletheia.DBC.Validator.Checks using (walkMux; findSignalPresence)
 open import Aletheia.DBC.Types using (DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.Error using (ExtractionError)
-open import Data.Nat using (ℕ; zero; suc)
+open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _≤_)
+open import Data.Nat.Properties using (≤⇒≤ᵇ)
+open import Data.Bool using (true)
+open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.Data.Dec0 using (does₀)
+open import Aletheia.DBC.Decidable.SignalGeometry using (signalFitsFrame₀)
 open import Data.List using (List; length)
 open import Data.List.NonEmpty using (List⁺)
 open import Data.Maybe using (just; nothing; Is-just) renaming (map to mapₘ)
@@ -104,17 +109,25 @@ checkSignalPresence-sound frame msg sig eq with DBCSignal.presence sig
 -- PROPERTY 4: Extraction respects multiplexor
 -- ============================================================================
 
--- When the presence check fails, extractSignalDirect returns SignalNotPresent
--- with the failure reason. This guarantees no data is returned for a
--- multiplexed signal whose multiplexor value doesn't match (or whose mux
--- ancestor chain isn't satisfied).
+-- When the presence check fails on a signal the frame is long enough to
+-- carry, extractSignalDirect returns SignalNotPresent with the failure
+-- reason. This guarantees no data is returned for a multiplexed signal whose
+-- multiplexor value doesn't match (or whose mux ancestor chain isn't
+-- satisfied). A signal the frame is too short for is answered before the
+-- presence check runs, with the geometry failure instead, which is the
+-- hypothesis below.
 extractSignalDirect-mux : ∀ {n} (msg : DBCMessage) (frame : CANFrame n) (sig : DBCSignal)
   (reason : ExtractionError)
+  → SignalDef.startBit (DBCSignal.signalDef sig)
+    + SignalDef.bitLength (DBCSignal.signalDef sig) ≤ n * 8
   → checkSignalPresence frame msg sig ≡ just reason
   → extractSignalDirect msg frame sig ≡ SignalNotPresent reason
-extractSignalDirect-mux msg frame sig reason eq
-  with checkSignalPresence frame msg sig
-... | just r = cong SignalNotPresent (just-injective eq)
+extractSignalDirect-mux {n} msg frame sig reason fits eq
+  with does₀ (signalFitsFrame₀ n (SignalDef.startBit (DBCSignal.signalDef sig))
+                                 (SignalDef.bitLength (DBCSignal.signalDef sig)))
+     | ≤⇒≤ᵇ fits
+... | true | _ with checkSignalPresence frame msg sig
+...   | just r = cong SignalNotPresent (just-injective eq)
 
 -- ============================================================================
 -- PROPERTY 5: walkMux blocks the cycle branch in checkPresenceP

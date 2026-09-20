@@ -8,6 +8,7 @@
 // formula into a human-readable string.
 #include "test_helpers.hpp"
 
+#include <catch2/catch_template_test_macros.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -18,11 +19,17 @@
 #include <aletheia/enrich.hpp>
 
 #include <cstdint>
+#include <functional>
+#include <limits>
 #include <nlohmann/json.hpp>
+#include <stdexcept>
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <ranges>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -484,6 +491,18 @@ TEST_CASE("parse_frame_response ack", "[json][parse]") {
     CHECK(std::holds_alternative<Ack>(*result));
 }
 
+TEST_CASE("parse_frame_response reads an ack whatever its spacing", "[json][parse]") {
+    // The two byte-exact spellings are answered before the document is
+    // parsed; any other spacing is parsed and answered by its status.
+    auto const spelling =
+        GENERATE(std::string_view{R"({"status":"ack"})"}, std::string_view{R"({"status": "ack"})"},
+                 std::string_view{R"({ "status" : "ack" })"},
+                 std::string_view{"{\n  \"status\": \"ack\"\n}"});
+    auto result = detail::parse_frame_response(spelling);
+    REQUIRE(result.has_value());
+    CHECK(std::holds_alternative<Ack>(*result));
+}
+
 TEST_CASE("parse_frame_response violation", "[json][parse]") {
     auto result = detail::parse_frame_response(R"({
         "type": "property_batch",
@@ -583,6 +602,26 @@ TEST_CASE("parse_dbc_response", "[json][parse]") {
     CHECK(result->messages[0].signals[0].factor == RationalFactor{Rational{1, 1}});
 }
 
+TEST_CASE("parse_dbc_response reads a signed signal as signed", "[json][parse]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "",
+            "messages": [{
+                "id": 256, "name": "TestMsg", "dlc": 8, "sender": "Node1", "extended": false,
+                "signals": [{
+                    "name": "Torque", "startBit": 0, "length": 16,
+                    "byteOrder": "little_endian", "signed": true,
+                    "factor": 1, "offset": 0, "minimum": -32768, "maximum": 32767,
+                    "unit": "Nm", "presence": "always"
+                }]
+            }]
+        }
+    })");
+    REQUIRE(result.has_value());
+    CHECK(result->messages[0].signals[0].is_signed);
+}
+
 // ===========================================================================
 // JSON parse error + edge-case tests
 // ===========================================================================
@@ -626,7 +665,7 @@ TEST_CASE("parse_frame_data accepts variable-length data", "[json][parse]") {
 TEST_CASE("parse_frame_data accepts CAN-FD 64-byte data", "[json][parse]") {
     // DLC 15 → 64 bytes
     std::string json_str = R"({"status": "success", "data": [)";
-    for (int i = 0; i < 64; ++i) {
+    for (auto const i : std::views::iota(0, 64)) {
         if (i > 0)
             json_str += ", ";
         json_str += std::to_string(i);
@@ -710,6 +749,19 @@ TEST_CASE("parse_validation preserves the wire string for an unknown issue code"
     // to the literal "unknown" — matching Go / Rust / Python.
     CHECK(result->issues[0].code_raw == "some_future_code");
     CHECK(issue_code_label(result->issues[0]) == "some_future_code");
+}
+
+TEST_CASE("issue_code_label falls back to the enum's spelling when the wire code is empty",
+          "[json][parse]") {
+    auto result = detail::parse_validation(R"({
+        "status": "validation",
+        "has_errors": true,
+        "issues": [{"severity": "error", "code": "", "detail": "unnamed"}]
+    })");
+    REQUIRE(result.has_value());
+    CHECK(result->issues[0].code == IssueCode::Unknown);
+    CHECK(result->issues[0].code_raw.empty());
+    CHECK(issue_code_label(result->issues[0]) == to_string(IssueCode::Unknown));
 }
 
 TEST_CASE("issue_code_label renders the canonical spelling for a known code", "[json][parse]") {
@@ -908,13 +960,18 @@ TEST_CASE("parse_dbc_response accepts missing Tier 1 metadata keys", "[json][par
 }
 
 TEST_CASE("parse_dbc_response rejects unknown varType", "[json][parse][dbc][error]") {
+    // Past the known types on either side: a negative type is an integer the
+    // reader accepts and the type switch refuses, by the same words.
+    auto const var_type = GENERATE(7, -1);
     auto result = detail::parse_dbc_response(R"({
         "status": "success",
         "dbc": {
             "version": "1.0",
             "messages": [],
             "environmentVars": [
-                {"name": "Bad", "varType": 7,
+                {"name": "Bad", "varType": )" +
+                                             std::to_string(var_type) +
+                                             R"(,
                  "initial": 0, "minimum": 0, "maximum": 0}
             ]
         }
@@ -922,7 +979,30 @@ TEST_CASE("parse_dbc_response rejects unknown varType", "[json][parse][dbc][erro
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     CHECK_THAT(std::string{result.error().message()},
-               ContainsSubstring("environment variable type"));
+               ContainsSubstring("Unknown environment variable type " + std::to_string(var_type)));
+}
+
+TEST_CASE("parse_dbc_response refuses a varType wider than its integer",
+          "[json][parse][dbc][error]") {
+    // The type is read as a 32-bit integer; a value past that width on either
+    // side is refused as out of range before the type switch ever sees a
+    // truncation of it.
+    auto const wide = GENERATE(std::int64_t{3000000000LL}, std::int64_t{-3000000000LL});
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "1.0",
+            "messages": [],
+            "environmentVars": [
+                {"name": "Wide", "varType": )" +
+                                             std::to_string(wide) +
+                                             R"(,
+                 "initial": 0, "minimum": 0, "maximum": 0}
+            ]
+        }
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("varType is out of range"));
 }
 
 TEST_CASE("parse_dbc_response env var preserves exact rationals", "[json][parse][dbc]") {
@@ -1021,6 +1101,16 @@ static void add_tier2_attributes(DbcDefinition& dbc) {
                                        .signal = "Torque"},
         .value = DbcAttrValueHex{.value = 255},
     });
+    dbc.attributes.emplace_back(DbcAttrAssign{
+        .name = "BusType",
+        .target = DbcAttrTargetNetwork{},
+        .value = DbcAttrValueString{.value = "CAN"},
+    });
+    dbc.attributes.emplace_back(DbcAttrAssign{
+        .name = "EnvUnit",
+        .target = DbcAttrTargetEnvVar{.env_var = "AmbientTemp"},
+        .value = DbcAttrValueString{.value = "degC"},
+    });
 }
 
 static auto make_tier2_dbc() -> DbcDefinition {
@@ -1068,13 +1158,31 @@ TEST_CASE("Tier 2 DBC metadata serializes to the documented wire shape",
     CHECK(j["dbc"]["comments"][3]["target"]["kind"] == "signal");
     CHECK(j["dbc"]["comments"][3]["target"]["extended"] == true);
 
-    REQUIRE(j["dbc"]["attributes"].size() == 11);
+    REQUIRE(j["dbc"]["attributes"].size() == 13);
     CHECK(j["dbc"]["attributes"][0]["kind"] == "definition");
     CHECK(j["dbc"]["attributes"][0]["attrType"]["kind"] == "int");
     // Float attribute values serialize as {numerator, denominator} dicts
     // — matches Python's Fraction, drifts under double.
     CHECK(j["dbc"]["attributes"][1]["attrType"]["min"]["numerator"] == -1);
     CHECK(j["dbc"]["attributes"][1]["attrType"]["min"]["denominator"] == 2);
+}
+
+TEST_CASE("Tier 2 attribute bounds and values survive the parse leg, each one",
+          "[json][serialize][parse][dbc][tier2]") {
+    // Every integer the attributes carry, read back, including the zeros: a
+    // bound the parse leg replaced with a constant would go unseen where only
+    // the other bound is asserted.
+    auto const dbc = make_tier2_dbc();
+    auto const result = detail::parse_dbc_response(detail::serialize_parsed_dbc_response(dbc));
+    REQUIRE(result.has_value());
+    auto const& def_int = std::get<DbcAttrDef>(result->attributes[0]);
+    CHECK(std::get<DbcAttrTypeInt>(def_int.attr_type).min == 0);
+    CHECK(std::get<DbcAttrTypeInt>(def_int.attr_type).max == 10000);
+    auto const& def_hex = std::get<DbcAttrDef>(result->attributes[4]);
+    CHECK(std::get<DbcAttrTypeHex>(def_hex.attr_type).min == 0);
+    CHECK(std::get<DbcAttrTypeHex>(def_hex.attr_type).max == 65535);
+    auto const& assign_enum = std::get<DbcAttrAssign>(result->attributes[8]);
+    CHECK(std::get<DbcAttrValueEnum>(assign_enum.value).value == 0);
 }
 
 TEST_CASE("Tier 2 DBC metadata survives the parse leg of the round-trip",
@@ -1105,7 +1213,7 @@ TEST_CASE("Tier 2 DBC metadata survives the parse leg of the round-trip",
     CHECK(sig_ct.signal == "Torque");
     CHECK(std::get<DbcCommentTargetEnvVar>(result->comments[4].target).env_var == "AmbientTemp");
 
-    REQUIRE(result->attributes.size() == 11);
+    REQUIRE(result->attributes.size() == 13);
     // Definitions
     auto const& def_int = std::get<DbcAttrDef>(result->attributes[0]);
     CHECK(def_int.name == "GenMsgCycleTime");
@@ -1145,6 +1253,14 @@ TEST_CASE("Tier 2 DBC metadata survives the parse leg of the round-trip",
     CHECK(ns_tgt.signal == "Torque");
     CHECK(can_id_is_extended(ns_tgt.id));
     CHECK(std::get<DbcAttrValueHex>(assign_ns.value).value == 255);
+
+    auto const& assign_net = std::get<DbcAttrAssign>(result->attributes[11]);
+    CHECK(std::holds_alternative<DbcAttrTargetNetwork>(assign_net.target));
+    CHECK(std::get<DbcAttrValueString>(assign_net.value).value == "CAN");
+
+    auto const& assign_env = std::get<DbcAttrAssign>(result->attributes[12]);
+    CHECK(std::get<DbcAttrTargetEnvVar>(assign_env.target).env_var == "AmbientTemp");
+    CHECK(std::get<DbcAttrValueString>(assign_env.value).value == "degC");
 }
 
 TEST_CASE("a target naming an identifier too wide for its width is refused",
@@ -1891,9 +2007,15 @@ TEST_CASE("parse_dbc_response rejects malformed multiplexed presence",
         sig.erase("multiplex_values");
         CHECK_FALSE(detail::parse_dbc_response(j.dump()).has_value());
     }
-    // multiplex value above the u32 range
-    CHECK_FALSE(detail::parse_dbc_response(make_mux("Mode", Json::array({5000000000LL})).dump())
-                    .has_value());
+    // multiplex values at and past both ends of the u32 range
+    CHECK(detail::parse_dbc_response(make_mux("Mode", Json::array({4294967295LL})).dump())
+              .has_value());
+    for (auto const past : {std::int64_t{4294967296LL}, std::int64_t{-1}}) {
+        auto const r = detail::parse_dbc_response(make_mux("Mode", Json::array({past})).dump());
+        REQUIRE_FALSE(r.has_value());
+        CHECK_THAT(std::string{r.error().message()},
+                   ContainsSubstring("out of range (0-4294967295)"));
+    }
     // well-formed multiplexed — accepted
     CHECK(detail::parse_dbc_response(make_mux("Mode", Json::array({0, 1})).dump()).has_value());
 }
@@ -2152,4 +2274,171 @@ TEST_CASE("parse_dbc_text_response rejects a missing text field", "[json][parse]
     auto r = detail::parse_dbc_text_response(R"({"status":"success"})");
     CHECK_FALSE(r.has_value());
     CHECK_THAT(std::string{r.error().message()}, ContainsSubstring("Missing or non-string 'text'"));
+}
+
+TEST_CASE("DbcDefinition unresolvedValueDescs keeps an extended CAN ID across serialize -> parse",
+          "[json][serialize][parse][dbc]") {
+    auto dbc = make_test_dbc();
+    dbc.unresolved_value_descs.push_back(DbcRawValueDesc{
+        .can_id = CanId{*ExtendedId::create(0x18FEF100)},
+        .signal_name = "Phantom",
+        .entries = {DbcValueEntry{.value = 0, .description = "Off"}},
+    });
+
+    auto const cmd_str = detail::serialize_parse_dbc(dbc);
+    auto cmd_j = Json::parse(cmd_str);
+    REQUIRE(cmd_j["dbc"]["unresolvedValueDescs"].size() == 1);
+    CHECK(cmd_j["dbc"]["unresolvedValueDescs"][0]["extended"] == true);
+
+    const Json response = {{"status", "success"}, {"dbc", cmd_j["dbc"]}};
+    auto const parsed = detail::parse_dbc_response(response.dump());
+    REQUIRE(parsed.has_value());
+    REQUIRE(parsed->unresolved_value_descs.size() == 1);
+    auto const& rvd = parsed->unresolved_value_descs[0];
+    REQUIRE(std::holds_alternative<ExtendedId>(rvd.can_id));
+    CHECK(std::get<ExtendedId>(rvd.can_id).value() == 0x18FEF100);
+}
+
+TEST_CASE("serialize_set_properties refuses a formula nested past the depth bound",
+          "[json][serialize][bounds]") {
+    // Nesting to the bound is accepted and one level more is refused here
+    // rather than on the wire, whichever operand the depth descends through:
+    // the unary operand, or the left or the right operand of a binary one.
+    // Every alternative that carries a formula is its own serializer
+    // instantiation, so each is nested on its own: the unary ones through their
+    // operand, the binary ones through the left and through the right.
+    using Wrap = std::function<LtlFormula(LtlFormula, LtlFormula)>;
+    auto const us = Timestamp{1};
+    auto const metric_until = [us](LtlFormula left, LtlFormula right) {
+        return LtlFormula{MetricUntil{.bound = us,
+                                      .left = std::make_unique<LtlFormula>(std::move(left)),
+                                      .right = std::make_unique<LtlFormula>(std::move(right))}};
+    };
+    auto const metric_release = [us](LtlFormula left, LtlFormula right) {
+        return LtlFormula{MetricRelease{.bound = us,
+                                        .left = std::make_unique<LtlFormula>(std::move(left)),
+                                        .right = std::make_unique<LtlFormula>(std::move(right))}};
+    };
+    auto const wrap = GENERATE_COPY(
+        Wrap{[](LtlFormula f, LtlFormula) { return ltl::next(std::move(f)); }},
+        Wrap{[](LtlFormula f, LtlFormula) { return ltl::weak_next(std::move(f)); }},
+        Wrap{[](LtlFormula f, LtlFormula) { return ltl::always(std::move(f)); }},
+        Wrap{[](LtlFormula f, LtlFormula) { return ltl::eventually(std::move(f)); }},
+        Wrap{[](LtlFormula f, LtlFormula) { return ltl::negate(std::move(f)); }},
+        Wrap{[us](LtlFormula f, LtlFormula) { return ltl::within(us, std::move(f)); }},
+        Wrap{[us](LtlFormula f, LtlFormula) { return ltl::always_within(us, std::move(f)); }},
+        Wrap{
+            [](LtlFormula f, LtlFormula leaf) { return ltl::both(std::move(f), std::move(leaf)); }},
+        Wrap{
+            [](LtlFormula f, LtlFormula leaf) { return ltl::both(std::move(leaf), std::move(f)); }},
+        Wrap{[](LtlFormula f, LtlFormula leaf) {
+            return ltl::either(std::move(f), std::move(leaf));
+        }},
+        Wrap{[](LtlFormula f, LtlFormula leaf) {
+            return ltl::either(std::move(leaf), std::move(f));
+        }},
+        Wrap{[](LtlFormula f, LtlFormula leaf) {
+            return ltl::until(std::move(f), std::move(leaf));
+        }},
+        Wrap{[](LtlFormula f, LtlFormula leaf) {
+            return ltl::until(std::move(leaf), std::move(f));
+        }},
+        Wrap{[](LtlFormula f, LtlFormula leaf) {
+            return ltl::release(std::move(f), std::move(leaf));
+        }},
+        Wrap{[](LtlFormula f, LtlFormula leaf) {
+            return ltl::release(std::move(leaf), std::move(f));
+        }},
+        Wrap{[&](LtlFormula f, LtlFormula leaf) {
+            return metric_until(std::move(f), std::move(leaf));
+        }},
+        Wrap{[&](LtlFormula f, LtlFormula leaf) {
+            return metric_until(std::move(leaf), std::move(f));
+        }},
+        Wrap{[&](LtlFormula f, LtlFormula leaf) {
+            return metric_release(std::move(f), std::move(leaf));
+        }},
+        Wrap{[&](LtlFormula f, LtlFormula leaf) {
+            return metric_release(std::move(leaf), std::move(f));
+        }});
+    auto const nest = [&wrap](std::uint64_t depth) {
+        auto const leaf = [] {
+            return ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{1, 1}}));
+        };
+        auto f = leaf();
+        std::ranges::for_each(std::views::repeat(0, depth),
+                              [&](auto) { f = wrap(std::move(f), leaf()); });
+        std::vector<LtlFormula> props;
+        props.push_back(std::move(f));
+        return props;
+    };
+    CHECK_NOTHROW(detail::serialize_set_properties(nest(max_nesting_depth)));
+    CHECK_THROWS_WITH(detail::serialize_set_properties(nest(max_nesting_depth + 1)),
+                      ContainsSubstring("nesting depth exceeds 64"));
+}
+
+TEST_CASE("a rational whose numerator is INT64_MIN is emitted raw, as a pair",
+          "[json][serialize][rational]") {
+    // The numerator cannot be normalised, since its absolute value does not
+    // exist; the wire carries it un-normalised rather than the serializer
+    // computing it.
+    constexpr auto lowest = std::numeric_limits<std::int64_t>::min();
+    std::vector<LtlFormula> props;
+    props.push_back(ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{lowest, 1}})));
+    auto const j = Json::parse(detail::serialize_set_properties(props));
+    auto const& value = j["properties"][0]["predicate"]["value"];
+    REQUIRE(value.is_object());
+    CHECK(value["numerator"] == lowest);
+    CHECK(value["denominator"] == 1);
+}
+
+// The constructor and make are templates over the integral types, so each
+// width and signedness a caller uses is its own instantiation, and each must
+// refuse the zero and admit the one on its own. A signed one also refuses the
+// negative; an unsigned one has none to refuse.
+// The two arguments are separate template parameters, so a caller that mixes
+// a wide numerator with a narrow literal denominator instantiates a pair of
+// its own, which refuses the zero like every other pair.
+TEST_CASE("Rational refuses a non-positive denominator when its arguments differ in type",
+          "[rational]") {
+    CHECK_THROWS_AS(Rational(std::int64_t{1}, 0), std::invalid_argument);
+    CHECK_FALSE(Rational::make(std::int64_t{1}, 0).has_value());
+    CHECK(Rational::make(std::int64_t{1}, 1).has_value());
+    CHECK_THROWS_AS(Rational(1, std::uint64_t{0}), std::invalid_argument);
+    CHECK_FALSE(Rational::make(1, std::uint64_t{0}).has_value());
+}
+
+TEMPLATE_TEST_CASE("Rational refuses a non-positive denominator on both construction paths",
+                   "[rational]", short, int, long, long long, unsigned short, unsigned,
+                   unsigned long, unsigned long long) {
+    using T = TestType;
+    CHECK_THROWS_AS(Rational(T{1}, T{0}), std::invalid_argument);
+    CHECK(Rational(T{1}, T{1}).denominator() == 1);
+    CHECK_FALSE(Rational::make(T{1}, T{0}).has_value());
+    CHECK(Rational::make(T{1}, T{1}).has_value());
+    if constexpr (std::is_signed_v<T>) {
+        CHECK_THROWS_AS(Rational(T{1}, T{-1}), std::invalid_argument);
+        CHECK_FALSE(Rational::make(T{1}, T{-1}).has_value());
+    }
+}
+
+TEST_CASE("an integer field past the signed 64-bit range is refused by its width",
+          "[json][parse][bounds]") {
+    // The largest unsigned value takes the unsigned branch of the reader,
+    // where the signed one would wrap it to minus one and accept it.
+    auto const big = detail::parse_extraction(R"({
+        "status": "success",
+        "values": [{"name": "S", "value": {"numerator": 18446744073709551615, "denominator": 1}}],
+        "errors": [], "absent": []
+    })");
+    REQUIRE_FALSE(big.has_value());
+    CHECK_THAT(std::string{big.error().message()}, ContainsSubstring("out of range"));
+    auto const var = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {"version": "1.0", "messages": [],
+                "environmentVars": [{"name": "Wide", "varType": 18446744073709551615,
+                                     "initial": 0, "minimum": 0, "maximum": 0}]}
+    })");
+    REQUIRE_FALSE(var.has_value());
+    CHECK_THAT(std::string{var.error().message()}, ContainsSubstring("varType is out of range"));
 }

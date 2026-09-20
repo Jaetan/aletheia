@@ -104,6 +104,7 @@ func TestSignalReceiversAndMessageSenders_RoundtripThroughMock(t *testing.T) {
 // Tier 2 keys, a signal's receivers and a message's senders absent from a
 // response decode to nil.
 func TestFormatDBC_AbsentTier2KeysDecodeToNil(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := mockClient(t, aletheia.Respond(formatDBCResponse(oneSignalMessage(
 		`{"name":"S","startBit":0,"length":8,"byteOrder":"little_endian","signed":false,"factor":1,"offset":0,"minimum":0,"maximum":255,"unit":"","presence":"always"}`))))
 	dbc, err := c.FormatDBC(ctx)
@@ -123,6 +124,7 @@ func TestFormatDBC_AbsentTier2KeysDecodeToNil(t *testing.T) {
 
 // A comment target kind outside the five is a protocol error naming it.
 func TestFormatDBC_RejectsUnknownCommentTargetKind(t *testing.T) {
+	ctx := bounded(t)
 	c, _ := mockClient(t, aletheia.Respond(`{"status":"success","dbc":{"version":"0.1","messages":[],"comments":[{"target":{"kind":"bogus"},"text":"bad"}]}}`))
 	_, err := c.FormatDBC(ctx)
 	requireKind(t, err, aletheia.ErrProtocol)
@@ -150,6 +152,7 @@ func TestSerializeDBC_EmitsEmptyTier2ArraysWhenMetadataAbsent(t *testing.T) {
 // went on the field the pair was a raw number and a flag, and a comment could
 // name a message no frame could carry.
 func TestCommentTargetRefusesAnIdentifierNoFrameCouldCarry(t *testing.T) {
+	ctx := bounded(t)
 	for _, tc := range []struct {
 		name   string
 		target map[string]any

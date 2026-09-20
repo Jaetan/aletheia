@@ -97,6 +97,7 @@ func hasWarning(issues []ValidationIssue, code IssueCode) bool {
 // Each shape is named with its warning, and nothing is named on the shape
 // that is coherent. The errors flag stays down throughout: these shapes load.
 func TestValidateDBC_NamesTheMirrorShapes(t *testing.T) {
+	ctx := bounded(t)
 	coherent := func(t *testing.T) DBCDefinition {
 		t.Helper()
 		return mirrorDBC(t,
@@ -136,6 +137,7 @@ func TestValidateDBC_NamesTheMirrorShapes(t *testing.T) {
 // The loading route says the same thing: both shapes load, each carrying its
 // warning, so a caller sees the shape named without being refused.
 func TestParseDBC_MirrorWarningsDoNotBlockLoad(t *testing.T) {
+	ctx := bounded(t)
 	cases := []struct {
 		name string
 		dbc  DBCDefinition

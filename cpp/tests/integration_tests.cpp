@@ -5,29 +5,38 @@
 // Run with: ctest -R integration (or ./integration_tests)
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <aletheia/aletheia.hpp>
+#include <aletheia/detail/rational_renderer.hpp>
 
 #include <algorithm>
+#include <array>
 #include <barrier>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <dlfcn.h>
 #include <exception>
 #include <expected>
 #include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <utility>
 #include <variant>
 #include <vector>
 
+#include "loaded_library.hpp"
 #include "repo_root.hpp"
+#include "temp_path.hpp"
 #include <catch2/catch_message.hpp>
 
 using aletheia::test::repo_root;
@@ -415,11 +424,11 @@ struct WireBuf {
     }
     void i64(std::int64_t v) {
         auto u = static_cast<std::uint64_t>(v);
-        for (unsigned i = 0; i < 8; ++i)
+        for (auto const i : std::views::iota(0U, 8U))
             u8(static_cast<std::uint8_t>((u >> (8U * i)) & 0xFFU));
     }
     void str(std::string_view s) {
-        for (const char c : s)
+        for (auto const c : s)
             u8(static_cast<std::uint8_t>(c));
     }
     void header(std::uint16_t nvals, std::uint16_t nerrs, std::uint16_t nabss,
@@ -520,7 +529,8 @@ TEST_CASE("binary extraction with zero errors decodes the lone offset entry", "[
 TEST_CASE("truncated binary extraction surfaces a Protocol error", "[integration]") {
     // A 9-byte buffer is one byte short of the mandatory 10-byte header
     // (3×u16 counts + u32 reasonBytes).
-    expect_protocol_error(std::vector<std::byte>(9, std::byte{0}));
+    auto const err = expect_protocol_error(std::vector<std::byte>(9, std::byte{0}));
+    CHECK(std::string_view{err.message()}.contains("9 bytes, need >= 10"));
 }
 
 TEST_CASE("binary extraction with trailing bytes surfaces a Protocol error", "[integration]") {
@@ -528,7 +538,17 @@ TEST_CASE("binary extraction with trailing bytes surfaces a Protocol error", "[i
     // bytes) plus the mandatory lone offsets entry is exactly expected_size
     // == 14; the 15th byte is trailing data the layout does not account for,
     // so the decoder must reject it rather than ignore the tail.
-    expect_protocol_error(std::vector<std::byte>(15, std::byte{0}));
+    auto const err = expect_protocol_error(std::vector<std::byte>(15, std::byte{0}));
+    CHECK(std::string_view{err.message()}.contains("15 bytes, expected exactly 14"));
+}
+
+TEST_CASE("binary extraction with a bare header is a size mismatch, not a truncation",
+          "[integration]") {
+    // Ten bytes is the whole header, so the truncation check passes and the
+    // exact-size check is the one that refuses: the lone offsets entry is
+    // missing.
+    auto const err = expect_protocol_error(std::vector<std::byte>(10, std::byte{0}));
+    CHECK(std::string_view{err.message()}.contains("10 bytes, expected exactly 14"));
 }
 
 TEST_CASE("binary extraction rejects a nonzero first reason offset", "[integration]") {
@@ -540,7 +560,7 @@ TEST_CASE("binary extraction rejects a nonzero first reason offset", "[integrati
     w.u32(4);
     w.str("abcd");
     auto const err = expect_protocol_error(std::move(w.bytes));
-    CHECK(std::string_view{err.message()}.contains("offsets"));
+    CHECK(std::string_view{err.message()}.contains("first offset is 1"));
 }
 
 TEST_CASE("binary extraction rejects non-monotone reason offsets", "[integration]") {
@@ -555,7 +575,7 @@ TEST_CASE("binary extraction rejects non-monotone reason offsets", "[integration
     w.u32(4);
     w.str("abcd");
     auto const err = expect_protocol_error(std::move(w.bytes));
-    CHECK(std::string_view{err.message()}.contains("offsets"));
+    CHECK(std::string_view{err.message()}.contains("offset 2 decreases"));
 }
 
 TEST_CASE("binary extraction rejects a final offset that mismatches reasonBytes", "[integration]") {
@@ -567,7 +587,49 @@ TEST_CASE("binary extraction rejects a final offset that mismatches reasonBytes"
     w.u32(3); // off[nErrors] must equal reasonBytes (4)
     w.str("abcd");
     auto const err = expect_protocol_error(std::move(w.bytes));
-    CHECK(std::string_view{err.message()}.contains("offsets"));
+    CHECK(std::string_view{err.message()}.contains("last offset 3 != reason bytes 4"));
+}
+
+TEST_CASE("binary extraction decodes adjacent reasons, an empty one included", "[integration]") {
+    // Three errors whose offsets are 0, 2, 2, 6: the second reason is empty,
+    // which equal consecutive offsets denote, and the others are the bytes
+    // between their offsets and nothing else.
+    WireBuf w;
+    w.header(/*nvals=*/0, /*nerrs=*/3, /*nabss=*/0, /*reason_bytes=*/6);
+    for (auto const i : std::views::iota(std::uint16_t{0}, std::uint16_t{3})) {
+        w.u16(i);
+        w.u8(1);
+    }
+    w.u32(0);
+    w.u32(2);
+    w.u32(2);
+    w.u32(6);
+    w.str("abcdef");
+    auto result = extract_with_crafted_buf(std::move(w.bytes));
+    REQUIRE(result.has_value());
+    REQUIRE(result->errors.size() == 3);
+    CHECK(result->errors[0].reason == "ab");
+    CHECK(result->errors[1].reason.empty());
+    CHECK(result->errors[2].reason == "cdef");
+}
+
+TEST_CASE("binary extraction names a wire index one past the message's signals by placeholder",
+          "[integration]") {
+    // The integration DBC has two signals, so index 2 is the first one the
+    // message does not have.
+    WireBuf w;
+    w.header(/*nvals=*/1, /*nerrs=*/0, /*nabss=*/1, /*reason_bytes=*/0);
+    w.u16(2);
+    w.i64(1);
+    w.i64(1);
+    w.u32(0);
+    w.u16(2);
+    auto result = extract_with_crafted_buf(std::move(w.bytes));
+    REQUIRE(result.has_value());
+    REQUIRE(result->values.size() == 1);
+    CHECK(result->values[0].name == SignalName{"signal_2"});
+    REQUIRE(result->absent.size() == 1);
+    CHECK(result->absent[0] == SignalName{"signal_2"});
 }
 
 TEST_CASE("binary extraction rejects invalid UTF-8 in a reason slice", "[integration]") {
@@ -580,6 +642,59 @@ TEST_CASE("binary extraction rejects invalid UTF-8 in a reason slice", "[integra
     w.u8(0xFF); // 0xFF is never valid in UTF-8
     w.u8(0xFE);
     auto const err = expect_protocol_error(std::move(w.bytes));
+    CHECK(std::string_view{err.message()}.contains("UTF-8"));
+}
+
+// One error whose reason is exactly `reason`, so the validator sees the
+// sequence at the start and the end of a slice at once.
+static auto single_reason_buf(std::span<const std::uint8_t> reason) -> std::vector<std::byte> {
+    WireBuf w;
+    w.header(/*nvals=*/0, /*nerrs=*/1, /*nabss=*/0, static_cast<std::uint32_t>(reason.size()));
+    w.u16(0);
+    w.u8(1);
+    w.u32(0);
+    w.u32(static_cast<std::uint32_t>(reason.size()));
+    for (auto const b : reason)
+        w.u8(b);
+    return std::move(w.bytes);
+}
+
+TEST_CASE("binary extraction accepts every well-formed UTF-8 boundary in a reason slice",
+          "[integration]") {
+    // The smallest and largest code point of each encoding length, the two
+    // code points that bracket the surrogate range, and a multi-byte sequence
+    // that ends the slice: each is exactly on a boundary the validator draws.
+    auto const reason = GENERATE(
+        std::vector<std::uint8_t>{0x7F},                    // U+007F, the last one-byte point
+        std::vector<std::uint8_t>{0xC2, 0x80},              // U+0080, the first two-byte point
+        std::vector<std::uint8_t>{0xE0, 0xA0, 0x80},        // U+0800, the first three-byte point
+        std::vector<std::uint8_t>{0xED, 0x9F, 0xBF},        // U+D7FF, just below the surrogates
+        std::vector<std::uint8_t>{0xEE, 0x80, 0x80},        // U+E000, just above the surrogates
+        std::vector<std::uint8_t>{0xF0, 0x90, 0x80, 0x80},  // U+10000, the first four-byte point
+        std::vector<std::uint8_t>{0xF4, 0x8F, 0xBF, 0xBF}); // U+10FFFF, the last code point
+    auto result = extract_with_crafted_buf(single_reason_buf(reason));
+    REQUIRE(result.has_value());
+    REQUIRE(result->errors.size() == 1);
+    CHECK(std::ranges::equal(result->errors[0].reason, reason, [](char c, std::uint8_t b) {
+        return static_cast<std::uint8_t>(c) == b;
+    }));
+}
+
+TEST_CASE("binary extraction rejects every malformed UTF-8 shape in a reason slice",
+          "[integration]") {
+    auto const reason = GENERATE(
+        std::vector<std::uint8_t>{0x80},                   // a lone continuation byte
+        std::vector<std::uint8_t>{'a', 0x80},              // after an ASCII byte, too
+        std::vector<std::uint8_t>{0xC0, 0x80},             // overlong two-byte encoding of U+0000
+        std::vector<std::uint8_t>{0xE0, 0x80, 0x80},       // overlong three-byte encoding
+        std::vector<std::uint8_t>{0xF0, 0x80, 0x80, 0x80}, // overlong four-byte encoding
+        std::vector<std::uint8_t>{0xED, 0xA0, 0x80},       // U+D800, the first surrogate
+        std::vector<std::uint8_t>{0xED, 0xBF, 0xBF},       // U+DFFF, the last surrogate
+        std::vector<std::uint8_t>{0xF4, 0x90, 0x80, 0x80}, // U+110000, past the last code point
+        std::vector<std::uint8_t>{0xC3},                   // a two-byte lead that ends the slice
+        std::vector<std::uint8_t>{'a', 0xE2, 0x82},        // a three-byte sequence cut short
+        std::vector<std::uint8_t>{0xE2, 0x41, 0xAC});      // a non-continuation second byte
+    auto const err = expect_protocol_error(single_reason_buf(reason));
     CHECK(std::string_view{err.message()}.contains("UTF-8"));
 }
 
@@ -637,6 +752,205 @@ TEST_CASE("binary and JSON extraction agree byte-for-byte on error reasons",
     CHECK(std::string_view{bin->errors[0].reason}.contains("not in ["));
 }
 
+TEST_CASE("the FFI backend is refused a library path that is empty", "[integration]") {
+    REQUIRE_THROWS_WITH(make_ffi_backend(std::filesystem::path{}),
+                        Catch::Matchers::ContainsSubstring("library path is empty"));
+}
+
+// The backend's endpoints are the public IBackend interface, so a call the
+// client would never make, a 65-byte payload or a message the DBC lacks, is
+// a legitimate call on that interface and not a fabricated state.
+TEST_CASE("the FFI backend's own guards answer on its interface", "[integration]") {
+    auto backend = make_ffi_backend(find_lib());
+    auto const state = backend->init();
+    // No DBC is loaded, so every binary endpoint the kernel reaches refuses.
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(15).value();
+    const std::vector<std::byte> data65(65, std::byte{0});
+    const std::vector<std::byte> data64(64, std::byte{0});
+    const std::vector<std::uint32_t> indices{0};
+    const std::vector<std::int64_t> ones{1};
+    auto const injection = SignalInjection::create(indices, ones, ones).value();
+    constexpr std::string_view too_long = "data length exceeds 64 bytes (CAN-FD max)";
+
+    SECTION("a payload past the CAN-FD maximum is refused before the kernel sees it") {
+        CHECK_THROWS_WITH(backend->send_frame_binary(state, Timestamp{0}, id, dlc, data65,
+                                                     std::nullopt, std::nullopt),
+                          Catch::Matchers::ContainsSubstring(std::string{too_long}));
+        CHECK_THROWS_WITH(backend->extract_signals_binary(state, id, dlc, data65),
+                          Catch::Matchers::ContainsSubstring(std::string{too_long}));
+        auto const updated = backend->update_frame_bin(state, id, dlc, data65, injection, 64);
+        REQUIRE_FALSE(updated.has_value());
+        CHECK(std::string_view{updated.error().message()}.contains(too_long));
+        auto const extracted = backend->extract_signals_bin(state, id, dlc, data65);
+        REQUIRE_FALSE(extracted.has_value());
+        CHECK(std::string_view{extracted.error().message()}.contains(too_long));
+    }
+    SECTION("a command past the JSON cap is refused before the kernel sees it") {
+        const std::string past_cap(max_json_bytes + 1, 'x');
+        auto const answer = backend->process(state, past_cap);
+        CHECK(answer.contains(R"("code":"input_bound_exceeded")"));
+        CHECK(answer.contains(R"("observed":67108865)"));
+    }
+    SECTION("a kernel refusal on a binary endpoint is surfaced, not swallowed") {
+        auto const built = backend->build_frame_bin(state, id, dlc, injection, 64);
+        REQUIRE_FALSE(built.has_value());
+        CHECK(built.error().kind() == ErrorKind::Protocol);
+        auto const updated = backend->update_frame_bin(state, id, dlc, data64, injection, 64);
+        REQUIRE_FALSE(updated.has_value());
+        CHECK(updated.error().kind() == ErrorKind::Protocol);
+        auto const extracted = backend->extract_signals_bin(state, id, dlc, data64);
+        REQUIRE_FALSE(extracted.has_value());
+        CHECK(extracted.error().kind() == ErrorKind::Protocol);
+    }
+}
+
+// The wire carries the DLC as one byte and the kernel sizes the frame it
+// builds from it, so a code past 15 is refused at the entry, before any
+// signal is placed. The typed API cannot send one, so the test reaches the
+// entry the way the backend does, through the library's own symbol.
+TEST_CASE("the kernel refuses a DLC code past 15 on the binary build entry", "[integration]") {
+    auto const lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    auto const state = backend->init();
+    const aletheia::test::LoadedLibrary handle{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
+    REQUIRE(handle != nullptr);
+    using BuildFn = std::int8_t (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t, std::uint32_t,
+                                    const std::uint32_t*, const std::int64_t*, const std::int64_t*,
+                                    std::uint8_t*, char**);
+    using FreeFn = void (*)(char*);
+    // dlsym returns void*; POSIX guarantees the round trip through void*
+    // preserves function pointers wherever dlopen exists.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    auto const build = reinterpret_cast<BuildFn>(dlsym(handle.get(), "aletheia_build_frame_bin"));
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    auto const free_str = reinterpret_cast<FreeFn>(dlsym(handle.get(), "aletheia_free_str"));
+    REQUIRE(build != nullptr);
+    REQUIRE(free_str != nullptr);
+
+    std::array<std::uint8_t, 64> out{};
+    char* raw_error = nullptr;
+    auto const status =
+        build(state.get(), 0x100, 0, 42, 0, nullptr, nullptr, nullptr, out.data(), &raw_error);
+    // The kernel allocated the message; it is released by the kernel's own
+    // free, from a destructor rather than from a line this test must reach.
+    auto const release = [free_str](char* message) { free_str(message); };
+    const std::unique_ptr<char, decltype(release)> error{raw_error, release};
+    CHECK(status == 1);
+    REQUIRE(error != nullptr);
+    CHECK(std::string_view{error.get()}.contains("DLC 42 exceeds maximum (15)"));
+}
+
+namespace {
+// Hides two of the library search's three routes, the environment and the
+// working directory, and restores both when the test ends.
+class HiddenSearchRoutes {
+public:
+    HiddenSearchRoutes() : cwd_{fs::current_path()} {
+        if (const char* cur = std::getenv("ALETHEIA_LIB"))
+            saved_ = cur;
+        ::unsetenv("ALETHEIA_LIB");
+        // Two levels down, so no relative candidate the search tries from
+        // here can land on a build directory a developer keeps under /tmp.
+        auto const nowhere = aletheia::test::scratch_dir() / "search" / "nowhere";
+        fs::create_directories(nowhere);
+        fs::current_path(nowhere);
+    }
+    ~HiddenSearchRoutes() {
+        std::error_code ec;
+        fs::current_path(cwd_, ec);
+        if (saved_)
+            ::setenv("ALETHEIA_LIB", saved_->c_str(), /*overwrite=*/1);
+    }
+    HiddenSearchRoutes(const HiddenSearchRoutes&) = delete;
+    HiddenSearchRoutes(HiddenSearchRoutes&&) = delete;
+    auto operator=(const HiddenSearchRoutes&) -> HiddenSearchRoutes& = delete;
+    auto operator=(HiddenSearchRoutes&&) -> HiddenSearchRoutes& = delete;
+
+private:
+    fs::path cwd_;
+    std::optional<std::string> saved_;
+};
+} // namespace
+
+// The caller's DLC sizes the frame and the DBC places the bits: a message
+// whose signals reach past a frame that small has nowhere to put them, and
+// the bit writer would drop what does not fit without a word. The kernel
+// names the first such signal instead.
+TEST_CASE("a frame built at a DLC the message outgrows is refused", "[integration]") {
+    auto const lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    const std::vector<SignalValue> speed{
+        {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}}};
+
+    // Speed occupies the first sixteen bits, so one byte cannot hold it.
+    auto const refused = client.build_frame(std::stop_token{}, id, Dlc::create(1).value(), speed);
+    REQUIRE_FALSE(refused.has_value());
+    CHECK_THAT(std::string{refused.error().message()},
+               Catch::Matchers::ContainsSubstring("signal 'Speed' does not fit a frame of size 1"));
+
+    // Four bytes hold both signals of the message, and the frame is that long.
+    auto const built = client.build_frame(std::stop_token{}, id, Dlc::create(4).value(), speed);
+    REQUIRE(built.has_value());
+    CHECK(built->size() == 4);
+}
+
+// Every binding prints an observed value through the kernel's own rational
+// formatter, so a terminating fraction reads as a decimal and a repeating one
+// keeps its two parts. The client reaches it while it enriches a violation;
+// this reads it directly, which is the only test in this binary that renders
+// through a library the search had to find.
+TEST_CASE("the kernel renders a rational exactly", "[integration]") {
+    auto const backend = make_ffi_backend(find_lib()); // brings the runtime up
+    CHECK(detail::format_rational_ffi(1, 2) == "0.5");
+    CHECK(detail::format_rational_ffi(85, 2) == "42.5");
+    CHECK(detail::format_rational_ffi(1, 3) == "1/3");
+    CHECK(detail::format_rational_ffi(3, 1) == "3");
+}
+
+// The renderer consults the path the first backend registered when the
+// environment names none and the working directory holds no candidate, which
+// keeps a renderer in a process that moved elsewhere on the backend's library.
+TEST_CASE("the library the first backend loaded is found from anywhere", "[integration]") {
+    auto const lib = find_lib();
+    auto const backend = make_ffi_backend(lib);
+    const HiddenSearchRoutes hidden;
+    auto const found = find_ffi_library();
+    REQUIRE_FALSE(found.empty());
+    CHECK(fs::equivalent(found, lib));
+}
+
+TEST_CASE("update then extract round-trip via real FFI", "[integration]") {
+    auto backend = make_ffi_backend(find_lib());
+    AletheiaClient client(std::move(backend));
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    const std::vector<SignalValue> both{
+        {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}},
+        {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{3000, 1}}},
+    };
+    auto const built = client.build_frame(std::stop_token{}, id, dlc, both);
+    REQUIRE(built.has_value());
+
+    // Only RPM is written; Speed must come back as built, since the update
+    // crosses the wire with the payload, its length, the DLC and the count
+    // of values, and a wrong one of those loses a signal or refuses the frame.
+    const std::vector<SignalValue> rpm_only{
+        {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{1234, 1}}}};
+    auto const updated = client.update_frame(std::stop_token{}, id, dlc, *built, rpm_only);
+    REQUIRE(updated.has_value());
+    auto const extracted = client.extract_signals(std::stop_token{}, id, dlc, *updated);
+    REQUIRE(extracted.has_value());
+    CHECK(extracted->get(SignalName{"Speed"}).get() == Rational{100, 1});
+    CHECK(extracted->get(SignalName{"RPM"}).get() == Rational{1234, 1});
+}
+
 TEST_CASE("build frame via real FFI", "[integration]") {
     auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
@@ -658,6 +972,31 @@ TEST_CASE("build frame via real FFI", "[integration]") {
     // RPM: 3000 = 0x0BB8 LE → [0xB8, 0x0B]
     CHECK((*result)[2] == std::byte{0xB8});
     CHECK((*result)[3] == std::byte{0x0B});
+}
+
+TEST_CASE("build then extract round-trip on an extended CAN ID via real FFI", "[integration]") {
+    auto const lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    // The same message under a 29-bit identifier: the extended bit crosses the
+    // wire on every binary call, and the kernel keys its message table on it.
+    auto const id = CanId{ExtendedId::create(0x18FEF100).value()};
+    auto dbc = make_integration_dbc();
+    dbc.messages[0].id = id;
+    REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
+
+    std::vector<SignalValue> signals{
+        {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{85, 2}}},
+        {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{1500, 1}}},
+    };
+    auto built = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
+    REQUIRE(built.has_value());
+
+    auto extracted = client.extract_signals(std::stop_token{}, id, Dlc::create(8).value(), *built);
+    REQUIRE(extracted.has_value());
+    CHECK(extracted->get(SignalName{"Speed"}).get() == Rational{85, 2});
+    CHECK(extracted->get(SignalName{"RPM"}).get() == Rational{1500, 1});
 }
 
 TEST_CASE("build frame for a CAN ID with no DBC message errors distinctly", "[integration]") {
@@ -778,7 +1117,7 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
 
     // Speed 100, 120 and 150 km/h at the DBC's factor of one tenth, all
     // under the threshold.
-    for (std::uint16_t raw : {std::uint16_t{1000}, std::uint16_t{1200}, std::uint16_t{1500}}) {
+    for (auto const raw : {std::uint16_t{1000}, std::uint16_t{1200}, std::uint16_t{1500}}) {
         FramePayload data{static_cast<std::byte>(raw & 0xFFU),
                           static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
                           std::byte{0},
@@ -820,7 +1159,7 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
 
     // Speed 100, 110 and 150 km/h at the DBC's factor of one tenth; the last
     // one breaks the threshold.
-    for (std::uint16_t raw : {std::uint16_t{1000}, std::uint16_t{1100}, std::uint16_t{1500}}) {
+    for (auto const raw : {std::uint16_t{1000}, std::uint16_t{1100}, std::uint16_t{1500}}) {
         FramePayload data{static_cast<std::byte>(raw & 0xFFU),
                           static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
                           std::byte{0},
@@ -839,7 +1178,7 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
     REQUIRE(end.has_value());
 
     // Either got a mid-stream violation or end-of-stream violation
-    const bool eos_violation = !end->results.empty() && end->results[0].verdict == Verdict::Fails;
+    auto const eos_violation = !end->results.empty() && end->results[0].verdict == Verdict::Fails;
     CHECK((got_violation || eos_violation));
 }
 
@@ -1000,7 +1339,7 @@ VAL_ 999 GhostSignal 0 "Off" 1 "On" ;
 
     auto parsed = client.parse_dbc_text(std::stop_token{}, text);
     REQUIRE(parsed.has_value());
-    const bool hit = std::ranges::any_of(parsed->warnings, [](const ValidationIssue& issue) {
+    auto const hit = std::ranges::any_of(parsed->warnings, [](const ValidationIssue& issue) {
         return issue.code == IssueCode::UnknownValueDescriptionTarget;
     });
     CHECK(hit);
@@ -1078,7 +1417,7 @@ BO_ 256 EngineStatus: 8 Engine
     CHECK(parsed.error().code() == ErrorCode::HandlerValidationFailed);
     CHECK(std::string{parsed.error().message()}.contains("duplicate signal name"));
     REQUIRE(parsed.error().issues().has_value());
-    const bool hit =
+    auto const hit =
         std::ranges::any_of(*parsed.error().issues(), [](const ValidationIssue& issue) {
             return issue.severity == IssueSeverity::Error &&
                    issue.code == IssueCode::DuplicateSignalName;
@@ -1181,7 +1520,7 @@ static void run_concurrent_client(const fs::path& lib, std::barrier<>& sync,
         }
 
         // Check both mid-stream and EOS for the verdict
-        const bool mid_violation = std::holds_alternative<PropertyBatch>(*send_result);
+        auto const mid_violation = std::holds_alternative<PropertyBatch>(*send_result);
         out.verdict = (mid_violation || end->results[0].verdict == Verdict::Fails) ? Verdict::Fails
                                                                                    : Verdict::Holds;
         out.ok = true;
@@ -1440,7 +1779,7 @@ TEST_CASE("mux cycle rejected by validator via real FFI", "[integration][nested_
     auto result = client.validate_dbc(std::stop_token{}, cycle_dbc);
     REQUIRE(result.has_value());
     REQUIRE(result->has_errors);
-    const bool found_cycle = std::ranges::any_of(result->issues, [](auto const& issue) {
+    auto const found_cycle = std::ranges::any_of(result->issues, [](auto const& issue) {
         return issue.code == IssueCode::MultiplexorCycle;
     });
     CHECK(found_cycle);
@@ -1577,7 +1916,7 @@ TEST_CASE("end_stream: Always on never-observed signal after 5 frames → Unreso
 
     auto const rpm_id = CanId{StandardId::create(0x200).value()};
     auto const dlc = Dlc::create(8).value();
-    for (std::uint64_t i = 0; i < 5; ++i) {
+    for (auto const i : std::views::iota(std::uint64_t{0}, std::uint64_t{5})) {
         auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
@@ -1640,7 +1979,7 @@ TEST_CASE("end_stream: Eventually on never-observed signal → Unresolved",
 
     auto const rpm_id = CanId{StandardId::create(0x200).value()};
     auto const dlc = Dlc::create(8).value();
-    for (std::uint64_t i = 0; i < 5; ++i) {
+    for (auto const i : std::views::iota(std::uint64_t{0}, std::uint64_t{5})) {
         auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
@@ -1724,7 +2063,7 @@ TEST_CASE("end_stream: signal recovers after missing → Holds", "[integration][
     auto const dlc = Dlc::create(8).value();
 
     // Three frames of Msg512 (Speed absent).
-    for (std::uint64_t i = 0; i < 3; ++i) {
+    for (auto const i : std::views::iota(std::uint64_t{0}, std::uint64_t{3})) {
         auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
@@ -1765,7 +2104,7 @@ TEST_CASE("end_stream: K3 combination — Unresolved And Holds = Unresolved",
 
     auto const rpm_id = CanId{StandardId::create(0x200).value()};
     auto const dlc = Dlc::create(8).value();
-    for (std::uint64_t i = 0; i < 3; ++i) {
+    for (auto const i : std::views::iota(std::uint64_t{0}, std::uint64_t{3})) {
         auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
@@ -1803,7 +2142,7 @@ TEST_CASE("end_stream: K3 combination — Unresolved Or Fails = Unresolved",
 
     auto const rpm_id = CanId{StandardId::create(0x200).value()};
     auto const dlc = Dlc::create(8).value();
-    for (std::uint64_t i = 0; i < 3; ++i) {
+    for (auto const i : std::views::iota(std::uint64_t{0}, std::uint64_t{3})) {
         auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
@@ -1836,7 +2175,7 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
 
     auto const rpm_id = CanId{StandardId::create(0x200).value()};
     auto const dlc = Dlc::create(8).value();
-    for (std::uint64_t i = 0; i < 3; ++i) {
+    for (auto const i : std::views::iota(std::uint64_t{0}, std::uint64_t{3})) {
         auto const ack =
             client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
@@ -1853,6 +2192,100 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
     // ViolationEnrichment field should be populated.
     REQUIRE(pr.enrichment.has_value());
     CHECK_FALSE(pr.enrichment->enriched_reason.empty());
+}
+
+TEST_CASE("end_stream: enrichment carries the newest payload of a repeated CAN id",
+          "[integration][eos][unresolved][enrich]") {
+    // The last-frame cache updates an entry in place, assigning the identifier,
+    // then the length, then the payload.  A second frame on one CAN id has to
+    // replace the bytes and not only the two fields before them, or enrichment
+    // reports the newest frame's header beside the oldest frame's values.  The
+    // frames carry different values for that reason: with one value the
+    // assignment is unobservable and the cache could drop it unnoticed.
+    auto const lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
+
+    // A liveness property no frame witnesses: both frames carry a Speed under
+    // the bound, so the Eventually finalizes to Fails, which is what attaches
+    // an enrichment.  The diagnostic names Speed, which is what keeps Speed in
+    // the enrichment's signal map, since that map is filtered to the
+    // diagnostic's own signals.
+    auto formula = ltl::eventually(
+        ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+
+    // Speed is the signal of message 0x100 in this DBC, scaled by one with no
+    // offset, so a frame built from a raw value carries that value.
+    auto const speed_id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    REQUIRE(
+        client.send_frame(std::stop_token{}, Timestamp{0}, speed_id, dlc, bytes_of(5)).has_value());
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, speed_id, dlc, bytes_of(7))
+                .has_value());
+
+    auto end = client.end_stream(std::stop_token{});
+    REQUIRE(end.has_value());
+    REQUIRE(end->results.size() == 1);
+    auto const& pr = end->results[0];
+    CHECK(pr.verdict == Verdict::Fails);
+    REQUIRE(pr.enrichment.has_value());
+    REQUIRE(pr.enrichment->signals.contains(SignalName{"Speed"}));
+    // Seven, the second frame's value, and not five, the first frame's.
+    CHECK(pr.enrichment->signals.at(SignalName{"Speed"}) == PhysicalValue{Rational{7, 1}});
+}
+
+TEST_CASE("end_stream: the last-frame cache keeps a standard and an extended id of one value apart",
+          "[integration][eos][unresolved][enrich]") {
+    // The cache is keyed on the identifier's value and its extended bit
+    // together. A standard 0x100 and an extended 0x100 are two messages, and
+    // a key that dropped the bit would hold one entry for both, so the second
+    // frame would replace the first and enrichment would report one message's
+    // bytes under the other's signal.
+    auto const lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    auto dbc = make_two_message_dbc();
+    auto const extended_id = CanId{ExtendedId::create(0x100).value()};
+    dbc.messages[1].id = extended_id;
+    REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
+
+    // One liveness property per signal, each unwitnessed, so each finalizes to
+    // Fails and carries an enrichment filtered to its own signal.
+    std::vector<LtlFormula> props;
+    props.push_back(ltl::eventually(
+        ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}}))));
+    props.push_back(ltl::eventually(
+        ltl::atomic(ltl::greater_than(SignalName{"Rpm"}, PhysicalValue{Rational{10, 1}}))));
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+
+    auto const standard_id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{0}, standard_id, dlc, bytes_of(5))
+                .has_value());
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1000}, extended_id, dlc, bytes_of(7))
+                .has_value());
+
+    auto end = client.end_stream(std::stop_token{});
+    REQUIRE(end.has_value());
+    REQUIRE(end->results.size() == 2);
+    for (auto const& pr : end->results) {
+        CHECK(pr.verdict == Verdict::Fails);
+        REQUIRE(pr.enrichment.has_value());
+    }
+    auto const& speed = end->results[0].enrichment->signals;
+    auto const& rpm = end->results[1].enrichment->signals;
+    REQUIRE(speed.contains(SignalName{"Speed"}));
+    REQUIRE(rpm.contains(SignalName{"Rpm"}));
+    CHECK(speed.at(SignalName{"Speed"}) == PhysicalValue{Rational{5, 1}});
+    CHECK(rpm.at(SignalName{"Rpm"}) == PhysicalValue{Rational{7, 1}});
 }
 
 // ---------------------------------------------------------------------------
