@@ -27,6 +27,46 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The C++ mutation trees run libstdc++'s debug mode, and a kill by the
+  library's own check is its own route.** A mutant that skips a lookup's guard
+  reads past the map's end, and what it reads there is not reproducible: the
+  recorded census watched one such mutant's route move between two sweeps of
+  the pinned order, a garbage string's length deciding between a `bad_alloc` a
+  test caught and a signal. Every object of both mutation trees now compiles
+  under `_GLIBCXX_DEBUG`, so a read past a container's end or an out-of-range
+  subscript ends the run at that step, with the check's message, and two sweeps
+  of each tree read every mutant's route the same. The census reads such a kill
+  as `check`, apart from `fault`, which is now a bare signal, and the routes are
+  re-taken. The mutants no test observes by behaviour, killed in every lane by a
+  check or a signal, are a maintained ledger: 69 rows over 97 mutants under
+  `unobserved_ledger` in the C++ baseline, each a mutator, a file, the text of
+  its source line, the route and the invariant the check refused, because what
+  each changes, a guard for 90 of the 97 and the value an index is computed
+  from for the other seven, leads straight to an operation the language does
+  not define. The lane refuses a kill the ledger does not name and reports one
+  it no longer produces, as it does for survivors; the probe refuses both
+  directions; and `tools/check_mutation_setup.py` holds every row of both
+  ledgers to a file and a line the tree still has, so a rename or a reworded
+  line fails in the always-on sweep instead of rotting until someone sweeps.
+  A row is keyed on the line's text rather than its number, and records the
+  refusal down to its invariant without the index and size the check printed,
+  since those come from the test data. The rows cross the standard library
+  version the lane is built against: measured between libstdc++ 16 and the 15
+  the workflow installs, the debug-mode sentences are identical, the
+  assertions differ only in the header path and line a row does not record,
+  and each of the nine invariants recorded is present in both versions. Measured over the unmutated suite, three
+  runs each: the leak tree 2.1 s either way, the plain tree 3.6 s to 4.9 s.
+  The cap per mutant is now on the runner's command line, ten minutes: Mull's
+  default is ten times the unmutated run, and under debug mode the four
+  mutants that let an oversized input through to a parser run 65 to 79 s
+  against baselines of 2 and 5 s, so the default ended them where the tests
+  would have. The configuration's `timeout` key caps the runner's own runs of the
+  unmutated binary, not a mutant's, and now says so; it is raised to a minute,
+  since Mull's default of three seconds is under the plain tree's suite under
+  debug mode. An instrumenting sanitizer stays out of
+  the trees, now by measurement: under UBSan the plain tree carried 81 more
+  mutants, each removing a check the sanitizer had inserted at the site of a
+  call the source wrote, and 87 survived.
 - **A test the mutated tree cannot satisfy fails the Python mutation lane, and
   the static gate now says so.** mutmut copies `python/` alone into `mutants/`,
   where `Path(__file__).resolve().parents[2]` stops at `python/` rather than the

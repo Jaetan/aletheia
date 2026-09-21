@@ -24,17 +24,27 @@ py=python/.venv/bin/python
 # the plain tree carries the allocation-fault sweeps, and the two cannot be
 # one binary because a sanitizer defines the allocation functions those sweeps
 # replace.
-for tree in build-mutation build-mutation-plain; do
-    rm -f "cpp/$tree/probe-ledger.json"
-    (cd "cpp/$tree" &&
-        env -u ALETHEIA_LIB ALETHEIA_REPO_ROOT="$OLDPWD" mull-runner-23 ./unit_tests \
-            --report-name=probe-ledger --reporters=Elements > /dev/null 2>&1) || true
-    [ -s "cpp/$tree/probe-ledger.json" ] || {
-        echo "the sweep of $tree produced no report"
+# The runner's argv is the lane's own, built by tools/mutation_cpp.py, so the
+# cap per mutant and the pinned order have one owner; only where the reports
+# land is this probe's. Both matter to this claim: a mutant the runner ends at
+# its cap is neither killed nor surviving, so it would leave the ledger's
+# candidates without being read, and an unpinned order decides which test
+# reports before a dying process stops.
+dir=$(mktemp -d) || exit 2
+trap 'rm -rf "$dir"' EXIT
+for lane in leak plain; do
+    argv=$("$py" -c 'import shlex, sys
+from pathlib import Path
+from tools.mutation_cpp import CppLeg, CppTree, cpp_lane_command
+leg = CppLeg(CppTree(sys.argv[2]))
+print(shlex.join(cpp_lane_command("mull-runner-23", Path("cpp", leg.directory).resolve(), Path(sys.argv[1]), leg)))' "$dir" "$lane") || exit 2
+    (cd cpp && unset ALETHEIA_LIB && ALETHEIA_REPO_ROOT="$OLDPWD" eval "$argv" > /dev/null 2>&1) || true
+    [ -s "$dir/cpp-mull-$lane.json" ] || {
+        echo "the sweep of the $lane tree produced no report"
         exit 1
     }
 done
-"$py" - cpp/build-mutation/probe-ledger.json cpp/build-mutation-plain/probe-ledger.json <<'PY'
+"$py" - "$dir/cpp-mull-leak.json" "$dir/cpp-mull-plain.json" <<'PY'
 import collections
 import json
 import sys

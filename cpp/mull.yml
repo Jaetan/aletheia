@@ -25,9 +25,9 @@
 # What each kept class can reveal, read from a sweep's kill routes. The
 # comparison, boundary and arithmetic mutants stand for a guard or a bound
 # off by one, and their kills are the tests' own, except the loop bounds a
-# test never observes past the end: those the standard library's own
-# assertions catch at this build's optimisation level, and the sweep records
-# such a kill as a fault rather than as the test's. The increment mutants
+# test never observes past the end: those the standard library's own checks
+# catch, since the trees run its debug mode, and the sweep records such a
+# kill as a check rather than as the test's. The increment mutants
 # stand for a counter running the wrong way. The scalar-call replacement
 # stands for a call that answered something else, and it answers one thing:
 # its constant truncates to false on a boolean, so a guard that branches on
@@ -59,9 +59,13 @@ excludePaths:
   - ^/usr/
   - /cpp/tests/
   - /cpp/src/detail/mock_backend\.hpp$
-# Milliseconds a mutant run may take before it counts as a timeout. Mull's
-# default is ten times the unmutated run, which is under three seconds here,
-# and under it a mutant that slows the suite reads as a timeout on a loaded
-# runner and as a kill on an idle one. Thirty seconds is above any slow path
-# the suite has and still ends a mutant that hangs.
-timeout: 30000
+# Milliseconds the runner's own runs of the unmutated binary, the warm-up and
+# the baseline, may take before it refuses the tree as one whose tests fail.
+# Mull's default is three seconds, under the plain tree's five under debug
+# mode and under what a loaded machine makes of the leak tree's two. Mull
+# deprecates this key in favour of the runner's --timeout, and it stays here
+# because every invocation that finds this file inherits it, the probes' dry
+# runs included, where a flag is one each would have to carry. It caps no
+# mutant's run: that cap is ten times the baseline unless the runner is given
+# more, which the lane does (tools/mutation_cpp.py).
+timeout: 60000

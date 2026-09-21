@@ -42,16 +42,26 @@ py=python/.venv/bin/python
 dir=$(mktemp -d) || exit 2
 trap 'rm -rf "$dir"' EXIT
 
-sweep() { # report name, then the binary's own argv
+# The runner's half of the argv is the lane's own, built by tools/mutation_cpp.py,
+# so the cap per mutant has one owner; what follows the separator is the order
+# this probe varies, each order's reports in a directory of its own. The whole
+# command line is built here, at the repository root, because the interpreter
+# that builds it is named relative to the root and the sweep runs from cpp/.
+sweep() { # report name, then the binary's own argv behind the separator
     local name=$1; shift
-    (cd "$tree" && env -u ALETHEIA_LIB ALETHEIA_REPO_ROOT="$OLDPWD" \
-        mull-runner-23 ./unit_tests --report-name="$name" --report-dir="$dir" \
-        --reporters=SQLite "$@" > /dev/null 2>&1) || true
-    [ -f "$dir/$name.sqlite" ] || { echo "the sweep under $name wrote no report"; return 1; }
+    local argv
+    argv=$("$py" -c 'import shlex, sys
+from pathlib import Path
+from tools.mutation_cpp import CppLeg, CppTree, cpp_lane_command
+leg = CppLeg(CppTree.PLAIN)
+argv = cpp_lane_command("mull-runner-23", Path("cpp", leg.directory).resolve(), Path(sys.argv[1]), leg)
+print(shlex.join(argv[: argv.index("--") + 1] + sys.argv[2:]))' "$dir/$name" "$@") || return 1
+    (cd cpp && unset ALETHEIA_LIB && ALETHEIA_REPO_ROOT="$OLDPWD" eval "$argv" > /dev/null 2>&1) || true
+    [ -f "$dir/$name/cpp-mull-plain.sqlite" ] || { echo "the sweep under $name wrote no report"; return 1; }
 }
-sweep decl -- --order decl || exit 1
-sweep lex -- --order lex || exit 1
-sweep rand -- --order rand --rng-seed 4919 || exit 1
+sweep decl --order decl || exit 1
+sweep lex --order lex || exit 1
+sweep rand --order rand --rng-seed 4919 || exit 1
 
 "$py" - "$dir" <<'PY'
 import sys
@@ -59,7 +69,7 @@ from pathlib import Path
 
 from tools.mutation_routes import lane_routes
 
-runs = {p.stem: lane_routes(p) for p in sorted(Path(sys.argv[1]).glob("*.sqlite"))}
+runs = {p.parent.name: lane_routes(p) for p in sorted(Path(sys.argv[1]).glob("*/cpp-mull-plain.sqlite"))}
 verdicts = {name: {m: r == "survived" for m, r in routes.items()} for name, routes in runs.items()}
 names = sorted(verdicts)
 base = names[0]

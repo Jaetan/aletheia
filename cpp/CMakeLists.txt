@@ -96,6 +96,22 @@ if(ALETHEIA_MUTATION)
     # include fails, and it drops every mutant of that unit, so the surface was
     # whichever units happened to parse without their include paths.
     set(ALETHEIA_MUTATION_FLAGS -fpass-plugin=${MULL_PLUGIN} -g -O0 -grecord-command-line)
+    # The mutation trees run the standard library's debug mode, every object
+    # of the tree included, so a mutant that steps past a container's end or
+    # subscripts out of range dies at that step with the check's message,
+    # instead of reading what lies beyond. What lies beyond is not
+    # reproducible, so a census read from it moves between runs: the garbage a
+    # skipped guard reads past a map's end decides between a bad_alloc a test
+    # catches and a signal. Debug mode changes the containers' layout, so it is
+    # the whole tree or nothing: the fetched libraries are compiled below under
+    # the same define, and the trees link no prebuilt C++ but libstdc++ itself,
+    # which debug mode is built against. The shipped build is untouched.
+    # Measured over the unmutated suite, three runs each: the leak tree 2.1s
+    # either way, the plain tree 3.6s to 4.9s. The mutants that let an
+    # oversized input through to a parser pay far more, which is why the
+    # runner's cap per mutant is explicit (tools/mutation_cpp.py).
+    # probes/cpp_CMakeLists.txt--a-mutation-tree-ends-a-read-past-the-end-at-the-read.sh
+    add_compile_definitions(_GLIBCXX_DEBUG)
 endif()
 
 # ccache: a transparent compiler cache.  Auto-enabled wherever ccache is on PATH
@@ -173,7 +189,14 @@ endif()
 # The leak choice is LeakSanitizer alone: no instrumentation pass, only the
 # runtime that reports what was never freed at exit. The mutation lane runs
 # under it so a mutant that removes a destructor leaks and fails, where an
-# instrumenting sanitizer would hand the mutator its own runtime calls.
+# instrumenting sanitizer hands the mutator its own runtime calls: measured
+# on the plain tree under -fsanitize=undefined, 1116 mutants against its
+# 1037, the 81 more each removing a check the sanitizer had inserted at the
+# site of a call the source wrote, and 87 mutants surviving where none does.
+# Debug mode (ALETHEIA_MUTATION above) is the instrument the trees carry for
+# undefined behaviour instead: its checks live in the library's headers,
+# which the mutation configuration holds out, and the census under it is the
+# tree's own, file for file.
 #
 # Use a separate build directory per sanitizer — sanitizer flags are not
 # safe to mix on the same archive.

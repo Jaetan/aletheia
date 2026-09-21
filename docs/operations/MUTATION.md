@@ -77,13 +77,33 @@ Two-tier per advisor 2026-05-09:
 - **Kill routes (C++, recorded, not gated)**: Mull's SQLite report keeps each
   mutant's exit status and the test binary's output, and the runner reads
   from them what ended every run: a test's assertion, a leak the sanitizer
-  reported, the kernel ending the process, or a fault (a signal, or an abort
-  from a precondition the standard library checks at the mutation build's
-  optimisation level, which the shipped build does not check).  A mutant
-  several lanes killed is attributed in that order.  The counts land in
-  `cpp-routes.json` beside `cpp.json` and in the C++ baseline; a probe holds them
-  equal to the record, which the pinned test order makes exact, and a sweep with
-  any timeout is reported as a census taken under load rather than compared.
+  reported, the kernel ending the process, a check the standard library runs
+  in the mutation build (the trees compile under libstdc++'s debug mode, so a
+  read past a container's end or an out-of-range subscript ends the run at that
+  step, with its message), or a fault (a signal).  A mutant several lanes
+  killed is attributed in that order.  The counts land in `cpp-routes.json`
+  beside `cpp.json` and in the C++ baseline; a probe holds them equal to the
+  record, which the pinned test order and the debug-mode checks make exact, and
+  a sweep with any timeout is reported as a census taken under load rather than
+  compared.  The mutants attributed to a check or a fault are the ones no test
+  observes by behaviour: what each changes, a guard for most of them and the
+  value an index is computed from for the rest, leads straight to an operation
+  the language does not define.
+- **The unobserved ledger (C++, gated)**: those kills are recorded in the C++
+  baseline as `unobserved_ledger`, a row per mutator, repository-relative file,
+  source-line text, route and refused invariant, with the count of mutants
+  sharing the line.  The lane refuses a kill the ledger does not name, as it
+  refuses an unrecorded survivor, and reports a row the sweep no longer
+  produces without failing on it, so a test that learned to observe one does
+  not fail the change that wrote it; the probe over the ledger refuses that
+  direction too, and the change lowers the record.  The row is keyed on the
+  line's text and not its number, and the refusal is recorded down to its
+  invariant without the index and size the check printed, because those come
+  from the test data.  `tools/check_mutation_setup.py` holds every row of both
+  ledgers to a file and a line the tree still has, in the always-on sweep, so a
+  rename or a reworded line surfaces in seconds rather than at the end of a
+  mutation run.  The lane writes the same rows to `cpp-unobserved.json` beside the
+  census and prints them in its log, so re-taking the ledger is a copy.
 - **First run (no gate)** — when the YAML baseline is `null`, the runner
   records the observed survivor count as informational and exits 0.  The
   next commit is expected to either match this count or improve on it; the
@@ -283,11 +303,14 @@ cd cpp
 cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
       -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 cmake --build build-mutation --target unit_tests
-mull-runner-23 ./build-mutation/unit_tests
+# The lane's own flags: the cap per mutant, since Mull's default of ten times
+# the baseline ends the slow mutants under debug mode, and the pinned order.
+# The cap on the runner's runs of the unmutated binary is cpp/mull.yml's.
+mull-runner-23 --minimum-timeout=600000 ./build-mutation/unit_tests -- --order decl
 cmake -B build-mutation-plain -DALETHEIA_MUTATION=ON \
       -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 cmake --build build-mutation-plain --target unit_tests
-mull-runner-23 ./build-mutation-plain/unit_tests
+mull-runner-23 --minimum-timeout=600000 ./build-mutation-plain/unit_tests -- --order decl
 ```
 
 Per-binding skip env vars (useful for partial runs):

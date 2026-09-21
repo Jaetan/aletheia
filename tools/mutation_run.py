@@ -18,6 +18,14 @@ unchanged and fails the lane all the same.  A ledger row that no longer
 survives is reported as stale and does not fail the lane, the way a lower
 count does not; the record is lowered by the change that made it stale.
 
+An ``unobserved_ledger`` is held the same way, over the kills no test observes
+by behaviour: the mutants the C++ lane attributes to a check the standard
+library runs in the mutation build or to a bare signal, where the suite
+reports nothing before the process stops.  A row the record does not name
+fails the lane, because a line whose mutation runs into an operation the
+language does not define, with no test saying so, is a gap somebody has to
+look at rather than a number to carry.
+
 Per-binding env contract:
 
   - ALETHEIA_MUTATION_CHECK    set to anything truthy by run_ci.py to enable
@@ -77,6 +85,10 @@ Artifacts written:
                    census (tools/mutation_routes.py) reads
     cpp-routes.json
                    that census: the C++ mutants counted by what killed them
+    cpp-unobserved.json
+                   the kills no test observes by behaviour, in the shape the
+                   baseline's unobserved_ledger carries, which the drift gate
+                   reads back and a re-take copies
     summary.json   {commit, runs: [...], passed: bool, baseline_drift: {...}}
 
 Usage:
@@ -108,15 +120,19 @@ from tools._common import (
     short_sha,
     write_and_report_summary,
 )
-from tools.mutation_cpp import cpp_survivor_rows, is_cpp_leg, run_cpp
+from tools.mutation_cpp import cpp_survivor_rows, cpp_unobserved_rows, is_cpp_leg, run_cpp
 from tools.mutation_report import (
     SPEC_PATH,
+    Baseline,
     BindingSpec,
     DriftEntry,
     LedgerRow,
     MutationReport,
     SurvivorKey,
+    UnobservedKey,
     load_spec,
+    unobserved_ledger_to_rows,
+    unobserved_rows_to_ledger,
 )
 
 if TYPE_CHECKING:
@@ -495,12 +511,17 @@ def drift_for(
     rep: MutationReport,
     bindings: dict[str, BindingSpec],
     survivor_rows: dict[SurvivorKey, int] | None = None,
+    unobserved_rows: dict[UnobservedKey, int] | None = None,
 ) -> DriftEntry:
     """Compute one binding's drift verdict against its YAML baseline.
 
     ``survivor_rows`` are the run's survivors by identity where the tool
     reports them; with a ``survivors_ledger`` in the baseline, each must be a
-    recorded row.
+    recorded row.  ``unobserved_rows`` are the kills no test observes by
+    behaviour, held to an ``unobserved_ledger`` the same way: a row the record
+    does not name fails the lane, because a line whose mutation runs into an
+    operation the language does not define, with no test saying so, is a gap
+    somebody has to look at rather than a number to carry.
     """
     ungated = _ungated(rep)
     if ungated is not None:
@@ -533,6 +554,7 @@ def drift_for(
         "observed_survivors": rep.survived,
         "baseline_survivors": baseline,
     }
+    _judge_unobserved(entry, spec_baseline, unobserved_rows)
     ledger = spec_baseline.get("survivors_ledger")
     if ledger is None or survivor_rows is None:
         return entry
@@ -546,6 +568,33 @@ def drift_for(
         entry["status"] = "regression"
         entry["unrecorded_survivors"] = unrecorded
     return entry
+
+
+def _judge_unobserved(
+    entry: DriftEntry,
+    spec_baseline: Baseline,
+    unobserved_rows: dict[UnobservedKey, int] | None,
+) -> None:
+    """Hold the run's unobserved kills to the recorded ledger, both ways.
+
+    A row the record does not name fails the lane, as an unrecorded survivor
+    does.  A recorded row the run no longer produces is reported and does not
+    fail: a test that learned to observe a kill is an improvement, and the
+    change that made it lowers the record.  The probe over this ledger refuses
+    that direction too, so a stale row is not carried quietly.
+    """
+    ledger = spec_baseline.get("unobserved_ledger")
+    if ledger is None or unobserved_rows is None:
+        return
+    recorded = collections.Counter(unobserved_ledger_to_rows(ledger))
+    observed = collections.Counter(unobserved_rows)
+    stale = unobserved_rows_to_ledger(dict(recorded - observed))
+    unrecorded = unobserved_rows_to_ledger(dict(observed - recorded))
+    if stale:
+        entry["stale_unobserved_ledger"] = stale
+    if unrecorded:
+        entry["status"] = "regression"
+        entry["unrecorded_unobserved_kills"] = unrecorded
 
 
 def main() -> int:
@@ -577,8 +626,10 @@ def main() -> int:
     # observed > baseline = lane fails.
     drift: dict[str, DriftEntry] = {}
     for rep in reports:
-        rows = cpp_survivor_rows(artifact_dir) if rep.binding == "cpp" else None
-        drift[rep.binding] = drift_for(rep, bindings, rows)
+        is_cpp = rep.binding == "cpp"
+        rows = cpp_survivor_rows(artifact_dir) if is_cpp else None
+        unobserved = cpp_unobserved_rows(artifact_dir) if is_cpp else None
+        drift[rep.binding] = drift_for(rep, bindings, rows, unobserved)
     any_drift = any(entry["status"] in ("error", "regression") for entry in drift.values())
 
     summary = {
