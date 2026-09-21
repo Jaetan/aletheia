@@ -43,8 +43,16 @@ from tools.mutation_cpp_slices import (
     slice_config_text,
     slice_domain,
 )
-from tools.mutation_report import MutationReport, SurvivorKey, load_spec
-from tools.mutation_routes import lane_routes, merge_routes
+from tools.mutation_report import (
+    MutationReport,
+    SurvivorKey,
+    UnobservedKey,
+    UnobservedRow,
+    load_spec,
+    unobserved_ledger_to_rows,
+    unobserved_rows_to_ledger,
+)
+from tools.mutation_routes import KILL_ROUTES, Ending, lane_endings, merge_endings
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -78,6 +86,37 @@ def elements_survivor_rows(
             location = cast("Mapping[str, Mapping[str, int]]", mutant["location"])
             line = location["start"]["line"]
             rows[(str(mutant["mutatorName"]), file, read_line(file, line).strip())] += 1
+    return rows
+
+
+def unobserved_kill_rows(
+    lanes: Sequence[Mapping[str, Ending]], read_line: Callable[[str, int], str]
+) -> dict[UnobservedKey, int]:
+    """Collect the kills no test observes by behaviour into rows.
+
+    A mutant is here when every lane that ran it ended by a check the standard
+    library runs in the mutation build or by a bare signal: what it changes, a
+    guard for most of them and the value an index is computed from for the
+    rest, leads straight to an operation the language does not define, and the
+    suite reports nothing before the process stops.  A row is keyed as a
+    survivor's is, by mutator, repository-relative file and the stripped text
+    of the source line rather than its number, plus the route and what the
+    check refused; ``read_line(file, line)`` supplies the text.  The
+    instantiations of one template share a line and are one row with their
+    count.  Where the lanes refused different invariants for one mutant, the
+    row carries the first lane's, the trees being read in their own order.
+    """
+    rows: dict[UnobservedKey, int] = collections.Counter()
+    for mutant in {mutant for lane in lanes for mutant in lane}:
+        endings = [lane[mutant] for lane in lanes if mutant in lane]
+        route = next(r for r in KILL_ROUTES if r in {ending.route for ending in endings})
+        if route not in ("check", "fault"):
+            continue
+        mutator, location = mutant.split(":", 1)
+        path, line = location.split(":")[:2]
+        file = "cpp/" + path.split("/cpp/", 1)[1] if "/cpp/" in path else path
+        refused = next((ending.refused for ending in endings if ending.refused), "")
+        rows[(mutator, file, read_line(file, int(line)).strip(), route, refused)] += 1
     return rows
 
 
@@ -302,6 +341,17 @@ CPP_MERGE_STAGE = "merge"
 # the budget a CI job gives a leg is read off the run that measured it.
 CPP_LEGS_REPORT = "cpp-legs.json"
 
+# Milliseconds a mutant's run may take before the runner ends it. Mull's own
+# cap is ten times the unmutated run, which moves with the tree's speed and
+# not with the mutants': under debug mode the four mutants that let an
+# oversized input through to a parser run 65 to 79 seconds against baselines
+# of 2 and 5, and the default ended them where the tests would have.
+# ``--minimum-timeout`` is the knob that raises it, measured on both trees.
+# Ten minutes is seven times the slowest run measured, with room for a CI
+# runner's slower clock; a mutant that hangs costs this once per tree, and
+# none does today.
+CPP_MUTANT_CAP_MS = 600_000
+
 # The merge stage's census of the surface by file, beside ``cpp.json``: what
 # the recorded slice weights are re-taken from when the review of the balance
 # falls due (docs/operations/MUTATION.md).
@@ -414,6 +464,34 @@ def elements_counts(report: Mapping[str, object]) -> ElementsCounts:
 
 # The kill-route census of the C++ sweep, beside the merged Elements report.
 CPP_ROUTES_REPORT = "cpp-routes.json"
+# The merge stage's list of the mutants no test observes by behaviour, beside
+# ``cpp.json``: each killed in every lane by a check the standard library runs
+# in the mutation build or by a signal, with its site, so that the changes
+# running straight into an operation the language does not define are named
+# and not only counted.
+CPP_UNOBSERVED_REPORT = "cpp-unobserved.json"
+
+
+def cpp_endings(artifact_dir: Path, legs: Sequence[CppLeg]) -> list[dict[str, Ending]] | None:
+    """Read each leg's endings, or None where a leg wrote no SQLite report."""
+    paths = [artifact_dir / f"{leg.report_name}.sqlite" for leg in legs]
+    if not all(path.is_file() for path in paths):
+        return None
+    return [lane_endings(path) for path in paths]
+
+
+def cpp_unobserved_rows(artifact_dir: Path) -> dict[UnobservedKey, int] | None:
+    """Read the run's unobserved kills by identity, or None where the run wrote none.
+
+    From the artifact the merge wrote rather than from the reports again, so
+    what the record is compared against is exactly what the run published and a
+    re-take is a copy.
+    """
+    report = artifact_dir / CPP_UNOBSERVED_REPORT
+    if not report.is_file():
+        return None
+    ledger = cast("list[UnobservedRow]", json.loads(report.read_text(encoding="utf-8")))
+    return unobserved_ledger_to_rows(ledger)
 
 
 def cpp_kill_routes(artifact_dir: Path, legs: Sequence[CppLeg]) -> dict[str, int] | None:
@@ -423,10 +501,8 @@ def cpp_kill_routes(artifact_dir: Path, legs: Sequence[CppLeg]) -> dict[str, int
     report, and a tree's slices hold disjoint mutants, so the legs of a sliced
     run and the two trees of an unsliced one are read the same way.
     """
-    paths = [artifact_dir / f"{leg.report_name}.sqlite" for leg in legs]
-    if not all(path.is_file() for path in paths):
-        return None
-    return merge_routes([lane_routes(path) for path in paths])
+    endings = cpp_endings(artifact_dir, legs)
+    return None if endings is None else merge_endings(endings)
 
 
 def elements_file_counts(report: Mapping[str, object]) -> dict[RelPath, int]:
@@ -564,6 +640,7 @@ def cpp_lane_command(
         "--reporters=SQLite",
         f"--report-dir={artifact_dir}",
         f"--report-name={leg.report_name}",
+        f"--minimum-timeout={CPP_MUTANT_CAP_MS}",
         # Everything past this marker is the test binary's own argv.
         # Catch2 shuffles its cases by default under a seed that changes
         # every run, and mull runs the binary once per mutant, so an
@@ -598,9 +675,11 @@ def _run_cpp_lane(
     # caller who had sourced the environment script.
     #
     # The configuration is named to the runner as it was to the build, because
-    # the runner reads the timeout from it: left to find one from its working
-    # directory upward, a sliced leg would run under the tree's own timeout
-    # rather than the one its objects were compiled against.
+    # the runner reads the cap on its unmutated runs from it: left to find one
+    # from its working directory upward, a sliced leg would run under the
+    # tree's own rather than the one its objects were compiled against. The
+    # cap per mutant is not in it; that is on the command line, for the
+    # reason at CPP_MUTANT_CAP_MS.
     mull_env = os.environ | {
         "ALETHEIA_REPO_ROOT": str(REPO_ROOT),
         "MULL_CONFIG": str(paths.config),
@@ -844,11 +923,15 @@ def _finish_cpp(
 ) -> MutationReport:
     """Merge the trees' reports, count the kill routes and the surface, and write the lane's log."""
     total, survived = _merge_cpp_lanes(artifact_dir, reports)
-    routes = cpp_kill_routes(artifact_dir, legs)
     raw += f"=== merged ===\nkilled {total - survived}, survived {survived} of {total}\n"
-    if routes is not None:
+    endings = cpp_endings(artifact_dir, legs)
+    if endings is not None:
+        routes = merge_endings(endings)
         (artifact_dir / CPP_ROUTES_REPORT).write_text(json.dumps(routes, indent=2))
         raw += "routes: " + ", ".join(f"{route} {count}" for route, count in routes.items()) + "\n"
+        unobserved = unobserved_rows_to_ledger(unobserved_kill_rows(endings, _repo_line))
+        (artifact_dir / CPP_UNOBSERVED_REPORT).write_text(json.dumps(unobserved, indent=2))
+        raw += unobserved_summary(unobserved)
     merged = cast(
         "Mapping[str, object]",
         json.loads((artifact_dir / CPP_ELEMENTS_REPORT).read_text(encoding="utf-8")),
@@ -858,6 +941,30 @@ def _finish_cpp(
     raw += weight_drift(observed)
     (artifact_dir / "cpp.raw.txt").write_text(raw)
     return MutationReport("cpp", "mull", total - survived, survived, raw)
+
+
+def unobserved_summary(unobserved: Sequence[UnobservedRow]) -> str:
+    """Say which mutants no test observes by behaviour, and what ended each.
+
+    The count is the census's ``check`` and ``fault`` routes together; the rows
+    are what the count cannot say, and each names a line the suite reports
+    nothing about before the process stops.
+    """
+    total = sum(row["count"] for row in unobserved)
+    checks = sum(row["count"] for row in unobserved if row["route"] == "check")
+    lines = [
+        (
+            f"no test observes {total} mutants by behaviour: "
+            f"{checks} end at a library check, {total - checks} by a signal"
+        )
+    ]
+    lines.extend(
+        f"  {row['file']} {row['mutator']}"
+        + (f" x{row['count']}" if row["count"] > 1 else "")
+        + f": {row['refused'] or row['route']} | {row['text']}"
+        for row in unobserved
+    )
+    return "\n".join(lines) + "\n"
 
 
 def weight_drift(observed: Mapping[RelPath, int]) -> str:

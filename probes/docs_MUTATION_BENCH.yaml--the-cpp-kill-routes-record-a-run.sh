@@ -9,9 +9,11 @@
 # routes add up to the recorded total. There is no tolerance: Catch2 shuffles
 # its cases by default, which moved the fault route between 93 and 101 across
 # six orders of one tree, and the lane pins the order precisely so that the
-# census is a measurement rather than one sample of that shuffle. Two runs of
-# the pinned order, compared mutant for mutant, moved nothing, and three on an
-# idle machine agreed on every count.
+# census is a measurement rather than one sample of that shuffle. Under the
+# pinned order alone one mutant still moved between the test and the fault
+# route, a skipped lookup guard reading a string past a map's end; both trees
+# now compile under libstdc++'s debug mode, which ends such a read at the
+# check, and two sweeps of each tree then moved nothing.
 # A timeout is the exception, and it is not absorbed: one mutant runs close to
 # the cap of ten times the unmutated baseline, so an oversubscribed machine
 # times it out where an idle one reads the route it dies by. A sweep with any
@@ -31,13 +33,16 @@ dir=$(mktemp -d) || exit 2
 trap 'rm -rf "$dir"' EXIT
 # The lane's environment: the repository root for the integration suite, and
 # no ALETHEIA_LIB, so the library lookup reads the root as the lane's does.
-# The order behind `--` is the binary's own, and is what the lane pins.
+# The runner's argv is the lane's own, built by tools/mutation_cpp.py, so the
+# cap per mutant and the pinned order have one owner; only where the reports
+# land is this probe's.
 for lane in leak plain; do
-    tree=build-mutation; [ "$lane" = plain ] && tree=build-mutation-plain
-    (cd "cpp/$tree" &&
-        env -u ALETHEIA_LIB ALETHEIA_REPO_ROOT="$OLDPWD" mull-runner-23 ./unit_tests \
-            --report-name="cpp-mull-$lane" --report-dir="$dir" --reporters=SQLite \
-            -- --order decl > /dev/null 2>&1) || true
+    argv=$("$py" -c 'import shlex, sys
+from pathlib import Path
+from tools.mutation_cpp import CppLeg, CppTree, cpp_lane_command
+leg = CppLeg(CppTree(sys.argv[2]))
+print(shlex.join(cpp_lane_command("mull-runner-23", Path("cpp", leg.directory).resolve(), Path(sys.argv[1]), leg)))' "$dir" "$lane") || exit 2
+    (cd cpp && unset ALETHEIA_LIB && ALETHEIA_REPO_ROOT="$OLDPWD" eval "$argv" > /dev/null 2>&1) || true
     [ -f "$dir/cpp-mull-$lane.sqlite" ] || { echo "the $lane tree's sweep wrote no SQLite report"; exit 1; }
 done
 "$py" - "$dir" <<'PY'

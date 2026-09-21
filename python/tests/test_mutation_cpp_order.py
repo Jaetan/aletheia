@@ -19,6 +19,7 @@ from pathlib import Path
 
 from tools.mutation_cpp import (
     CPP_BUILD_JOBS_CAP,
+    CPP_MUTANT_CAP_MS,
     CppLeg,
     CppTree,
     cpp_build_command,
@@ -41,8 +42,19 @@ def test_every_runner_option_stays_ahead_of_the_separator() -> None:
     """Mull parses what precedes the separator; only Catch2 reads what follows."""
     argv = _command()
     separator = argv.index("--")
-    assert all(arg.startswith("--report") for arg in argv[2:separator])
+    assert all(arg.startswith("--") for arg in argv[2:separator])
     assert "--order" not in argv[:separator]
+
+
+def test_the_cap_per_mutant_is_the_runner_s_minimum_timeout() -> None:
+    """The knob that raises Mull's ten-times-the-baseline, ahead of the separator.
+
+    The cap on the unmutated runs is the configuration's, which every
+    invocation inherits, so the command line carries no ``--timeout``.
+    """
+    argv = _command()
+    assert f"--minimum-timeout={CPP_MUTANT_CAP_MS}" in argv[: argv.index("--")]
+    assert not any(arg.startswith("--timeout") for arg in argv)
 
 
 def test_the_mutation_build_compiles_several_units_at_once(tmp_path: Path) -> None:

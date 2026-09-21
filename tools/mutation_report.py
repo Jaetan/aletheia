@@ -12,6 +12,7 @@ that drives it.
 
 from __future__ import annotations
 
+import collections
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
@@ -38,6 +39,23 @@ class LedgerRow(TypedDict):
     count: int
 
 
+class UnobservedRow(TypedDict):
+    """One recorded kill no test observes by behaviour.
+
+    Its mutator, file and source line identify it as a survivor's row does;
+    ``route`` says whether the standard library's own check ended the run or a
+    bare signal did, and ``refused`` is what that check reported, the invariant
+    it would not let the program break.
+    """
+
+    mutator: str
+    file: str
+    text: str
+    route: str
+    refused: str
+    count: int
+
+
 class Baseline(TypedDict):
     """The per-binding baseline block in ``docs/MUTATION_BENCH.yaml``."""
 
@@ -49,6 +67,7 @@ class Baseline(TypedDict):
     score_pct: NotRequired[int]
     run_at: NotRequired[str]
     survivors_ledger: NotRequired[list[LedgerRow]]
+    unobserved_ledger: NotRequired[list[UnobservedRow]]
 
 
 class BindingSpec(TypedDict):
@@ -87,12 +106,50 @@ class DriftEntry(TypedDict):
     timeout_ceiling: NotRequired[int]
     unrecorded_survivors: NotRequired[list[LedgerRow]]
     stale_ledger: NotRequired[list[LedgerRow]]
+    unrecorded_unobserved_kills: NotRequired[list[UnobservedRow]]
+    stale_unobserved_ledger: NotRequired[list[UnobservedRow]]
 
 
 # A survivor's identity in the ledger: mutator, repository-relative file and
 # the text of its source line.  Keyed on the text and not the line number, so
 # an edit above the site does not move it, and an edit of the site does.
 SurvivorKey = tuple[str, str, str]
+
+# An unobserved kill's identity: a survivor's three, then the route it took and
+# what the check refused.  The route and the refusal are part of the identity
+# because they are the diagnosis the row exists to carry, and a line that loses
+# one check and gains another is a different claim about the same line.
+UnobservedKey = tuple[str, str, str, str, str]
+
+
+def unobserved_rows_to_ledger(rows: dict[UnobservedKey, int]) -> list[UnobservedRow]:
+    """Render unobserved kills in the ledger's row shape, sorted by identity.
+
+    Here rather than with the runner, because the lane writes the same shape
+    into its artifact as the runner compares against the record, and a second
+    spelling of it is a second thing to keep true.
+    """
+    return [
+        {
+            "mutator": mutator,
+            "file": file,
+            "text": text,
+            "route": route,
+            "refused": refused,
+            "count": count,
+        }
+        for (mutator, file, text, route, refused), count in sorted(rows.items())
+    ]
+
+
+def unobserved_ledger_to_rows(ledger: list[UnobservedRow]) -> dict[UnobservedKey, int]:
+    """Read a ledger back into unobserved kills keyed by identity."""
+    rows: dict[UnobservedKey, int] = collections.Counter()
+    for row in ledger:
+        rows[(row["mutator"], row["file"], row["text"], row["route"], row["refused"])] += row[
+            "count"
+        ]
+    return rows
 
 
 @dataclass

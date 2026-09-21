@@ -31,6 +31,14 @@ Always-on invariants, checked without running the mutation tools (which take
    ``.github/workflows`` through ``parents[2]``, found nothing under
    ``mutants/`` and failed the lane on its own assertion.)
 
+4. **Every ledger row still names a line of the tree.** The survivors and
+   the unobserved kills are both recorded by mutator, file and the text of the
+   source line, keyed on that text rather than on the line's number so that an
+   edit above the site does not move a row and an edit of the site does.  What
+   moves one, then, is a rename or a rewording, which nothing else notices: the
+   sweep would, half an hour later and only on the lane.  Each row's file is
+   read here for its text.
+
 The dynamic counterpart is ``tools/mutation_run.py``, which actually drives
 each binding's mutation tool against this list and writes per-binding
 survivor counts.
@@ -239,6 +247,73 @@ def cpp_slice_weights_are_of_the_domain(bindings: dict[str, object]) -> list[str
     return failures
 
 
+def ledger_rows_still_name_their_line(bindings: dict[str, object]) -> list[str]:
+    """Hold every recorded ledger row to a file and a line the tree still has.
+
+    Both ledgers key a row on the text of its source line rather than on the
+    line's number, so that an edit above the site does not move it and an edit
+    of the site does.  What moves it, then, is exactly what nothing else
+    notices: the line is reworded, or its file is renamed, and the row goes on
+    claiming something about a line that is gone.  The sweep would say so, but
+    only after half an hour, and only on the lane; this says so in the
+    always-on gate, reading the recorded file for the recorded text.  A row
+    whose count exceeds the times the text occurs is not a defect: several
+    mutants of one line share it, and the tree does not say how many.
+    """
+    failures: list[str] = []
+    for binding_name, binding_spec in bindings.items():
+        if not isinstance(binding_spec, dict):
+            continue
+        spec = cast("dict[str, object]", binding_spec)
+        baseline = cast("dict[str, object]", spec.get("baseline", {}))
+        for name in ("survivors_ledger", "unobserved_ledger"):
+            rows = baseline.get(name, [])
+            if not isinstance(rows, list):
+                failures.append(f"[{binding_name}/{name}] must be a list of rows")
+                continue
+            for row in cast("list[object]", rows):
+                if not isinstance(row, dict):
+                    failures.append(f"[{binding_name}/{name}] every row must be a mapping")
+                    continue
+                failures += _row_names_its_line(binding_name, name, cast("dict[str, object]", row))
+    return failures
+
+
+def _row_names_its_line(binding_name: str, ledger: str, row: dict[str, object]) -> list[str]:
+    """Say why one ledger row no longer names a line of the tree, or nothing."""
+    file, text = row.get("file"), row.get("text")
+    if not isinstance(file, str) or not isinstance(text, str):
+        return [f"[{binding_name}/{ledger}] a row must carry a 'file' and a 'text'"]
+    source = REPO_ROOT / file
+    if not source.is_file():
+        return [
+            f"[{binding_name}/{ledger}] {file} is not a file of the tree: the row records a "
+            + "line of a source that was renamed or removed, and nothing else reads it",
+        ]
+    if not any(line.strip() == text for line in source.read_text(encoding="utf-8").split("\n")):
+        return [
+            f"[{binding_name}/{ledger}] {file} holds no line reading {text!r}: the row was "
+            + "recorded against a line the tree has since reworded, so re-take the ledger "
+            + "from a sweep or delete the row with the change that made it stale",
+        ]
+    return []
+
+
+def _ledger_rows(bindings: dict[str, object]) -> int:
+    """Count the ledger rows the record carries, over every binding and both ledgers."""
+    total = 0
+    for binding_spec in bindings.values():
+        if not isinstance(binding_spec, dict):
+            continue
+        spec = cast("dict[str, object]", binding_spec)
+        baseline = cast("dict[str, object]", spec.get("baseline", {}))
+        for name in ("survivors_ledger", "unobserved_ledger"):
+            rows = baseline.get(name, [])
+            if isinstance(rows, list):
+                total += len(cast("list[object]", rows))
+    return total
+
+
 def _total_hot_paths(bindings: dict[str, object]) -> int:
     """Return the total number of declared hot-path sources across bindings."""
     total = 0
@@ -258,6 +333,7 @@ def main() -> int:
     failures += _tools_importing_tests_unignored()
     failures += _above_tree_tests_unignored()
     failures += cpp_slice_weights_are_of_the_domain(bindings)
+    failures += ledger_rows_still_name_their_line(bindings)
 
     if failures:
         _ = sys.stderr.write("Mutation-setup coverage gate FAILED:\n")
@@ -277,7 +353,8 @@ def main() -> int:
         "Mutation-setup coverage gate OK: "
         + f"{len(bindings)} bindings, {total} hot-path sources all present; "
         + "every test the mutated tree cannot satisfy is mutmut-ignored; "
-        + "every recorded C++ slice weight is a file the partition claims.",
+        + "every recorded C++ slice weight is a file the partition claims; "
+        + f"each of {_ledger_rows(bindings)} ledger rows names a line the tree holds.",
     )
     return 0
 
