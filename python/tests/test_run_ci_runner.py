@@ -131,6 +131,13 @@ def _runner(tmp_path: Path, *, parallel: bool = False) -> Runner:
     return Runner(opts, ctx)
 
 
+def _build_dir(cmd: str) -> str:
+    """Return the ``cmake -B`` directory a shell step configures."""
+    marker = "cmake -B "
+    start = cmd.index(marker) + len(marker)
+    return cmd[start:].split(" ", 1)[0]
+
+
 def test_register_all_steps_populates_the_catalog(tmp_path: Path) -> None:
     """register_all_steps fills the runner with the load-bearing steps, no dups.
 
@@ -144,8 +151,68 @@ def test_register_all_steps_populates_the_catalog(tmp_path: Path) -> None:
     names = runner.registered_step_names
     # The build prereq, the Agda fan-in, and one step from each binding/lint lane.
     # AGDA_GATES_STEP (not the "agda gates" literal) so a label change can't go stale.
-    assert {"build", AGDA_GATES_STEP, "pytest", "ruff", "ubsan ctest"} <= set(names)
+    assert {"build", AGDA_GATES_STEP, "pytest", "ruff", "ubsan ctest", "asan ctest"} <= set(names)
     assert len(names) == len(set(names))  # a duplicate name would mask a dropped step
+
+
+def test_each_sanitizer_lane_owns_its_tree_and_its_lane(tmp_path: Path) -> None:
+    """The two sanitizer ctest steps share neither a build tree nor a lane.
+
+    Sanitizer flags are not safe to mix in one archive, and two steps in one
+    lane run in turn rather than beside each other.  A copy-edited step that
+    kept the other's ``-B`` directory would build one tree twice, each time
+    with the other's flags, and read as a passing lane.
+    """
+    runner = _runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    lanes = {
+        step.name: step
+        for step in runner.registered_steps
+        if step.name in {"ubsan ctest", "asan ctest"}
+    }
+    assert set(lanes) == {"ubsan ctest", "asan ctest"}
+    assert {step.lane for step in lanes.values()} == {"ubsan", "asan"}
+    trees = {name: _build_dir(str(step.cmd)) for name, step in lanes.items()}
+    assert trees == {"ubsan ctest": "build-ubsan", "asan ctest": "build-asan"}
+    for name, step in lanes.items():
+        assert f"--test-dir {trees[name]}" in str(step.cmd)
+        assert step.heavy, f"{name} builds a whole tree and is heavy"
+
+
+def test_each_sanitizer_lane_reads_its_tree_back_before_building(tmp_path: Path) -> None:
+    """Each sanitizer step asserts the configured tree carries the sanitizer it asked for.
+
+    CMake drops a cache whose compiler has changed and configures afresh, and a
+    tree that comes back without ``ALETHEIA_SANITIZER`` builds uninstrumented,
+    runs the battery green and reports as a sanitizer lane.  The lane reads the
+    value back from the cache, so that tree fails where it is built.
+    """
+    runner = _runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    wanted = {"ubsan ctest": "undefined", "asan ctest": "address"}
+    for name, sanitizer in wanted.items():
+        step = next(entry for entry in runner.registered_steps if entry.name == name)
+        cmd = str(step.cmd)
+        tree = _build_dir(cmd)
+        assert f"grep -qx 'ALETHEIA_SANITIZER:STRING={sanitizer}' {tree}/CMakeCache.txt" in cmd
+        assert cmd.index("CMakeCache.txt") < cmd.index("cmake --build"), (
+            f"{name} reads the cache back before it builds"
+        )
+
+
+def test_the_asan_lane_asks_for_stack_use_after_return(tmp_path: Path) -> None:
+    """The ASan step names the option rather than relying on the runtime default.
+
+    Stack-use-after-return detection is the one class this lane reads that no
+    other always-on gate does, and whether it is on by default is the sanitizer
+    runtime's business, not this repository's.  A step that dropped the option
+    would still pass and would still be called a sanitizer lane.
+    """
+    runner = _runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    step = next(entry for entry in runner.registered_steps if entry.name == "asan ctest")
+    assert "ASAN_OPTIONS=detect_stack_use_after_return=1" in str(step.cmd)
+    assert "-DALETHEIA_SANITIZER=address" in str(step.cmd)
 
 
 def test_fast_steps_all_resolve_to_registered_steps(tmp_path: Path) -> None:

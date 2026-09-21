@@ -40,9 +40,11 @@ to maintain.  The same gate runs blocking at pre-push.
 ## Offline correctness sweep — `tools/run_ci.py`
 
 Documented in [`tools/run_ci.py`](../../tools/run_ci.py). The always-on
-sequential steps run ~22-30 minutes warm (UBSan ctest is always-on, not
-opt-in: an opt-in sanitizer lane can let UB — as in `Rational::from_double`
-— ship undetected; the IWYU gate + its self-test is the dead-import gate).
+sequential steps run ~22-30 minutes warm (both sanitizer ctest lanes are
+always-on, not opt-in: an opt-in sanitizer lane can let a defect — UB, as in
+`Rational::from_double`, or a read of a returned frame, as in the serializer
+depth-bound test — ship undetected; the IWYU gate + its self-test is the
+dead-import gate).
 `run_ci` prints each step as `[i/N]` at runtime, so the live count is
 authoritative.
 Plus 3 opt-in lanes (reproducible build, stability bench, mutation
@@ -129,7 +131,7 @@ opt-in lane; `--no-<lane>` always wins (e.g. `--full --no-mutation` runs
 everything except mutation testing).
 
 ```bash
-# Always-on steps only (default; ~22-30 min, incl. UBSan ctest ~5 min)
+# Always-on steps only (default; ~22-30 min, incl. both sanitizer ctest lanes)
 tools/run_ci.py
 
 # Two specific opt-in lanes
@@ -153,14 +155,21 @@ other two are per-push-friendly when developers want extra coverage.
 The always-on sweep needs no extra tooling beyond what `cabal run shake --
 build` already requires.  The opt-in lanes need additional installs.
 
-**UBSan ctest (always-on, no flag)** — needs `clang` for the
+**UBSan and ASan ctest (always-on, no flag)** — need `clang` for the
 `-fsanitize-ignorelist=` flag (which g++ doesn't support).  Most distros'
 default `clang` package is sufficient; verify with `clang --version`.  No
 extra install if you already use `tools/run_ci.py` for the mutation lane
 (the supported clang-23 covers sanitizers too; older clang also works here).
-This lane is always-on, not opt-in; if clang is absent the step fails loudly
-rather than silently skipping — install clang or run the sweep on a host
-that has it.
+Each lane owns its own build tree, `build-ubsan` and `build-asan`, because
+sanitizer flags are not safe to mix in one archive, and each runs the whole
+ctest battery.  The ASan lane asks for stack-use-after-return detection by
+name, which is the class it reads that nothing else does; its entries that
+load `libaletheia-ffi.so` run uninstrumented kernel code, so what it reports
+about them concerns this repository's own sources
+([CGO_NOTES](../architecture/CGO_NOTES.md#addresssanitizer-asan)).
+Both lanes are always-on, not opt-in; if clang is absent the step fails
+loudly rather than silently skipping — install clang or run the sweep on a
+host that has it.
 
 **Reproducible build lane (`--repro`)** — no extra tools (the gate runs
 two clean Shake builds and `sha256sum`s the result).
