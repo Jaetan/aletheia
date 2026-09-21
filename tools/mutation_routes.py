@@ -5,11 +5,12 @@
 Mull's SQLite report keeps, per mutant, the execution status, the exit
 status and the test binary's own output. This reads from those what ended
 each run, so that a kill by a test's assertion is told from one by a leak
-the sanitizer reported, the kernel ending the process, a check the standard
-library runs in the mutation build (debug mode's iterator and bounds checks,
-and its assertions), or a fault: a signal the process died by. A mutant
-several lanes killed is attributed to the first of those routes it took in
-any lane.
+the sanitizer reported, a read of memory the program does not own that the
+address sanitizer reported, the kernel ending the process, a check the
+standard library runs in the mutation build (debug mode's iterator and bounds
+checks, and its assertions), or a fault: a signal the process died by. A
+mutant several lanes killed is attributed to the first of those routes it
+took in any lane.
 """
 
 from __future__ import annotations
@@ -40,6 +41,23 @@ _FATAL_CONDITION = "due to a fatal error condition"
 # The kernel ending the process, from the shim's own error path.
 _KERNEL_ENDED = re.compile(r"^aletheia: ", re.MULTILINE)
 _LEAK_REPORTED = "LeakSanitizer: detected memory leaks"
+# AddressSanitizer names itself on the first line of every report it ends a
+# run with, whatever the class it read: a use after free, a read past an
+# allocation, or a read of a frame that has returned. LeakSanitizer's own
+# report is read before this one, so a leak under an address tree stays a
+# leak rather than becoming an address kill.
+_ADDRESS_REPORTED = "ERROR: AddressSanitizer:"
+# What the address sanitizer read, the word it names the class by: a use after
+# free, a read past an allocation, a read of a frame that has returned. It
+# carries no values, so it keys a row the way a check's invariant does.
+_ADDRESS_KIND = re.compile(r"ERROR: AddressSanitizer: (\S+)")
+# The sanitizers that end a run with a report, in the order a run carrying
+# more than one is read by: LeakSanitizer's report is part of what an
+# address tree prints at exit, and a leak is a leak wherever it was read.
+_SANITIZER_REPORTS: tuple[tuple[str, str], ...] = (
+    (_LEAK_REPORTED, "leak"),
+    (_ADDRESS_REPORTED, "address"),
+)
 # libstdc++ reports a failed check on stderr and aborts. Debug mode prints the
 # header's path, the function under ``In function:``, then ``Error:`` and what
 # the operation attempted, wrapped over lines up to a blank one; the
@@ -61,17 +79,28 @@ _CHECK_VALUES = re.compile(r"\s*\d.*\Z", re.DOTALL)
 # The routes a kill is read by, in the order a mutant killed by several lanes
 # is attributed: a test's assertion first, since that is the one the suite
 # would give without any instrument.
-KILL_ROUTES: tuple[str, ...] = ("test", "leak", "kernel", "check", "fault", "timeout", "survived")
+KILL_ROUTES: tuple[str, ...] = (
+    "test",
+    "leak",
+    "address",
+    "kernel",
+    "check",
+    "fault",
+    "timeout",
+    "survived",
+)
 
 
 def kill_route(execution_status: int, stdout: str, stderr: str) -> str:
     """Read what ended one lane's run of one mutant.
 
     ``test``: an assertion failed, whatever ended the process after it;
-    ``leak``: LeakSanitizer reported a leak; ``kernel``: the kernel ended the
-    process from its own error path; ``check``: a check the standard library
-    runs in the mutation build ended it, at the read or the subscript it
-    refused; ``fault``: the process died another way, by a signal;
+    ``leak``: LeakSanitizer reported a leak; ``address``: AddressSanitizer
+    reported a read or a write of memory the program does not own;
+    ``kernel``: the kernel ended the process from its own error path;
+    ``check``: a check the standard library runs in the mutation build ended
+    it, at the read or the subscript it refused; ``fault``: the process died
+    another way, by a signal;
     ``timeout``: the runner ended it; ``survived``: every test passed. A block
     Catch2 reports for an exception a test did not expect is an assertion's
     kill here: the behaviour is defined and the test reported it.
@@ -80,8 +109,9 @@ def kill_route(execution_status: int, stdout: str, stderr: str) -> str:
         return _ROUTE_BY_STATUS[execution_status]
     if any(_FATAL_CONDITION not in block for block in _FAILED_BLOCK.findall(stdout)):
         return "test"
-    if _LEAK_REPORTED in stderr:
-        return "leak"
+    reported = next((route for marker, route in _SANITIZER_REPORTS if marker in stderr), "")
+    if reported:
+        return reported
     if _KERNEL_ENDED.search(stderr):
         return "kernel"
     if _LIBSTDCXX_CHECK.search(stderr):
@@ -93,9 +123,10 @@ class Ending(NamedTuple):
     """How one lane's run of one mutant ended: its route, and what the check refused.
 
     ``refused`` is the invariant the standard library's check reported, the
-    one the read or the subscript would have broken, and empty for every other
-    route. The values it was refused for are not part of it, for the reason at
-    ``_CHECK_VALUES``.
+    one the read or the subscript would have broken, or, where the address
+    sanitizer ended the run, the class it names the report by. It is empty for
+    every other route. The values a check was refused for are not part of it,
+    for the reason at ``_CHECK_VALUES``.
     """
 
     route: str
@@ -114,6 +145,9 @@ def lane_endings(sqlite_path: Path) -> dict[str, Ending]:
 
 def _ending(execution_status: int, stdout: str, stderr: str) -> Ending:
     route = kill_route(execution_status, stdout, stderr)
+    if route == "address":
+        kind = _ADDRESS_KIND.search(stderr)
+        return Ending(route, kind.group(1) if kind else "")
     if route != "check":
         return Ending(route, "")
     check = _LIBSTDCXX_CHECK.search(stderr)

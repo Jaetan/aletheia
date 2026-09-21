@@ -66,7 +66,7 @@ census build-mutation-plain "$root/cpp/mull.yml" whole ||
     { echo "the unsliced tree's dry run failed"; exit 1; }
 number=1
 while [ "$number" -le "$slices" ]; do
-    config="$root/cpp/build-mutation-plain-$number/mull-slice.yml"
+    config="$root/cpp/build-mutation-plain-$number/$("$py" -c 'from tools.mutation_cpp import CPP_GENERATED_CONFIG; print(CPP_GENERATED_CONFIG)')"
     build "build-mutation-plain-$number" "$config" ||
         { echo "slice $number did not build"; exit 1; }
     census "build-mutation-plain-$number" "$config" "slice-$number" ||

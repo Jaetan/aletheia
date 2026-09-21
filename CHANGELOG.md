@@ -48,6 +48,37 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **A third mutation tree, read by AddressSanitizer, and a merge that judges a
+  mutant only where a tree carried it.** The two trees swept until now read a
+  leak and an allocation that fails, and libstdc++'s debug mode under both
+  checks a container's own preconditions; none of them reads the lifetime of a
+  reference, so a mutant that leaves a value read after what held it has gone
+  was a mutant no instrument could kill. The lane now sweeps a third tree built
+  with `-DALETHEIA_SANITIZER=address`. That tree drops the two mutators over
+  calls: a sanitizer inserts its own checks at the source location of the
+  statement they guard, so a mutator over calls mutates those rather than the
+  program's own calls, which was measured at 1185 mutants against the 1037 the
+  other trees carry, 153 of them surviving, every one the removal of a check.
+  Without them the tree carries 310 mutants, every one an identifier the plain
+  tree also carries, none surviving, and it keeps what it is for: 21 of the 29
+  kills it alone reads are a flipped comparison that then reads memory the
+  program does not own. Because a tree that drops a mutator carries none of its
+  mutants, the merge now keeps a mutant a survivor where every tree *carrying
+  it* let it live: judging on the intersection alone would have read a mutant's
+  absence from one tree as a kill, which is the one direction a merge must not
+  invent. The census floor is per tree for the same reason, and
+  `docs/MUTATION_BENCH.yaml` records what each tree carries.
+
+- **One sweep of the mutation trees, shared by every probe that reads one.** Four
+  probes each state a claim about one sweep, and written to sweep for themselves
+  they re-measured the same run once per claim: with a third tree that was 44
+  minutes of the store's clock, measured at 674, 650, 622 and 648 seconds.
+  `tools/mutation_sweep_cache.py` runs the sweep once, keyed on every tree's test
+  binary and the lane's own argv, so a rebuilt tree is swept again and an
+  unchanged one is served; the four probes read it and the last three now take a
+  second between them. The sweep runs on every core but one, because the machine
+  it runs on is somebody's to use while it does.
+
 - **The C++ mutation trees run libstdc++'s debug mode, and a kill by the
   library's own check is its own route.** A mutant that skips a lookup's guard
   reads past the map's end, and what it reads there is not reproducible: the

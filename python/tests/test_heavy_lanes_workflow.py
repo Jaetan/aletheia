@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""The heavy-lanes workflow carries the C++ mutation lane as six legs and a merge.
+"""The heavy-lanes workflow carries the C++ mutation lane as a leg per slice and a merge.
 
 ``.github/workflows/pr-heavy-lanes.yml`` gives every leg ``sliced_legs`` names
 a lane of its own, uploads each one's reports under a name the merge job's

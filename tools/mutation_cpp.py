@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""The C++ mutation lane: Mull over the two mutation trees, merged into one verdict.
+"""The C++ mutation lane: Mull over the mutation trees, merged into one verdict.
 
 Driven by ``tools/mutation_run.py`` as the ``cpp`` binding.  The lane builds
 each tree ``CppTree`` names, sweeps it under ``mull-runner-23``, and merges
@@ -42,6 +42,7 @@ from tools.mutation_cpp_slices import (
     partition,
     slice_config_text,
     slice_domain,
+    tree_config_text,
 )
 from tools.mutation_report import (
     MutationReport,
@@ -89,13 +90,20 @@ def elements_survivor_rows(
     return rows
 
 
+# The routes a kill takes when no test observed it: the standard library's own
+# check, a sanitizer's report, and a bare signal.  A leak is a sanitizer's
+# report too, and is here for the same reason.
+_UNOBSERVED_ROUTES: frozenset[str] = frozenset({"check", "address", "leak", "fault"})
+
+
 def unobserved_kill_rows(
     lanes: Sequence[Mapping[str, Ending]], read_line: Callable[[str, int], str]
 ) -> dict[UnobservedKey, int]:
     """Collect the kills no test observes by behaviour into rows.
 
     A mutant is here when every lane that ran it ended by a check the standard
-    library runs in the mutation build or by a bare signal: what it changes, a
+    library runs in the mutation build, by a sanitizer's report, or by a bare
+    signal: what it changes, a
     guard for most of them and the value an index is computed from for the
     rest, leads straight to an operation the language does not define, and the
     suite reports nothing before the process stops.  A row is keyed as a
@@ -110,7 +118,7 @@ def unobserved_kill_rows(
     for mutant in {mutant for lane in lanes for mutant in lane}:
         endings = [lane[mutant] for lane in lanes if mutant in lane]
         route = next(r for r in KILL_ROUTES if r in {ending.route for ending in endings})
-        if route not in ("check", "fault"):
+        if route not in _UNOBSERVED_ROUTES:
             continue
         mutator, location = mutant.split(":", 1)
         path, line = location.split(":")[:2]
@@ -258,29 +266,63 @@ def cpp_build_command(cmake: str, build_dir: Path) -> list[str]:
 
 
 class CppTree(StrEnum):
-    """One of the two builds the C++ surface is read with.
+    """One of the builds the C++ surface is read with, each reading a class the others cannot.
 
     Under LeakSanitizer a mutant that removes a destructor leaks the object
     and the run fails, where a plain build cannot tell it from the original.
-    The plain tree carries the allocation-fault sweeps, which replace the
-    program's allocation functions to reach the cleanup a container runs while
-    it throws; a sanitizer runtime defines those same functions, so the two
-    cannot be linked together.  A mutant survives the sweep only where it
-    survived both.
+    Under AddressSanitizer a mutant that leaves a value read after the object
+    or the frame holding it is gone fails there, where libstdc++'s debug mode,
+    which every tree compiles under, checks a container's own preconditions
+    and not a reference's lifetime.  The plain tree carries the
+    allocation-fault sweeps, which replace the program's allocation functions
+    to reach the cleanup a container runs while it throws; a sanitizer runtime
+    defines those same functions, so a sanitizer tree cannot carry them.  A
+    mutant survives the sweep only where it survived every tree.
     """
 
     LEAK = "leak"
     PLAIN = "plain"
+    ADDRESS = "address"
 
     @property
     def sanitizer(self) -> str:
         """The sanitizer the tree is built with; the plain tree carries none."""
-        return self.value if self is CppTree.LEAK else ""
+        return "" if self is CppTree.PLAIN else self.value
 
     @property
     def directory(self) -> str:
         """Where the tree is configured, under ``cpp/``."""
-        return "build-mutation" if self is CppTree.LEAK else "build-mutation-plain"
+        return _CPP_TREE_DIRECTORIES[self]
+
+    @property
+    def dropped_mutators(self) -> tuple[str, ...]:
+        """The mutators this tree cannot read, dropped from the configuration it builds under.
+
+        AddressSanitizer instruments the program by inserting its own calls,
+        each at the source location of the statement it guards, so a mutator
+        over calls mutates those checks rather than the program's own calls:
+        measured on this tree, 1185 mutants against the 1037 the other trees
+        carry, and 153 of them surviving, every one the removal of a check.
+        Without the call mutators the tree carries 310 mutants, the ones the
+        other trees carry under the same identifiers, none of them surviving,
+        and it keeps what it is for: 21 of the 29 kills it alone reads are a
+        flipped comparison that then reads memory the program does not own.
+        """
+        return _CPP_CALL_MUTATORS if self is CppTree.ADDRESS else ()
+
+
+# Where each tree is configured. The names are the ones the documented recipes
+# and the build-tree ignore rules already carry, so a tree a reader configures
+# by hand is the tree the lane sweeps.
+# The two mutators over calls. Named here rather than inside the property that
+# drops them, so the set a tree cannot read is one list a reader can find.
+_CPP_CALL_MUTATORS: tuple[str, ...] = ("cxx_remove_void_call", "cxx_replace_scalar_call")
+
+_CPP_TREE_DIRECTORIES: dict[CppTree, str] = {
+    CppTree.LEAK: "build-mutation",
+    CppTree.PLAIN: "build-mutation-plain",
+    CppTree.ADDRESS: "build-mutation-asan",
+}
 
 
 class CppLeg(NamedTuple):
@@ -519,9 +561,24 @@ def elements_file_counts(report: Mapping[str, object]) -> dict[RelPath, int]:
     return dict(sorted(counts.items()))
 
 
-def recorded_total_mutants() -> int | None:
-    """Read the mutants the recorded census counted, or None where none is recorded."""
-    return load_spec().get("bindings", {}).get("cpp", {}).get("baseline", {}).get("total_mutants")
+def recorded_total_mutants(tree: CppTree | None = None) -> int | None:
+    """Read the mutants the recorded census counted, or None where none is recorded.
+
+    With a tree, its own figure where the record names one: the trees do not
+    all carry one surface, since a tree that cannot read a mutator carries
+    none of its mutants.  Without one, the merged surface, which is what the
+    trees carrying every mutator hold.
+    """
+    baseline = cast(
+        "Mapping[str, object]",
+        load_spec().get("bindings", {}).get("cpp", {}).get("baseline", {}),
+    )
+    merged = baseline.get("total_mutants")
+    if tree is not None:
+        by_tree = cast("Mapping[str, int]", baseline.get("mutants_by_tree", {}))
+        if tree.value in by_tree:
+            return by_tree[tree.value]
+    return cast("int | None", merged)
 
 
 def _short_of_record(tree: CppTree, total: int) -> str | None:
@@ -533,7 +590,7 @@ def _short_of_record(tree: CppTree, total: int) -> str | None:
     deliberate removal, and a deliberate removal lowers the record in the same
     commit, the way the survivors baseline is lowered.
     """
-    recorded = recorded_total_mutants()
+    recorded = recorded_total_mutants(tree)
     if recorded is None or total >= recorded:
         return None
     return (
@@ -596,31 +653,38 @@ def union_slices(reports: Sequence[Mapping[str, object]]) -> dict[str, object] |
 
 
 def merge_elements(reports: list[Mapping[str, object]]) -> dict[str, object]:
-    """Merge Elements reports, keeping a mutant a survivor only where every lane let it survive.
+    """Merge Elements reports: a mutant survives where every lane carrying it let it live.
 
-    The lanes compile the same sources with the same plugin, so they carry the
-    same mutants under the same identifiers; a mutant one lane killed is
-    killed, whichever instrument read it.
+    The lanes compile the same sources with the same plugin, so a mutant both
+    carry is one identifier; a mutant one lane killed is killed, whichever
+    instrument read it.  A tree that drops a mutator carries none of that
+    mutator's mutants, and a lane that never read a mutant says nothing about
+    it: judging on the intersection alone would read its absence as a kill,
+    which is the one direction a merge must not invent.
     """
-    survived_everywhere: set[str] | None = None
+    carried: list[set[str]] = []
+    survivors: list[set[str]] = []
     for report in reports:
         files = cast("Mapping[str, Mapping[str, object]]", report.get("files", {}))
-        survivors = {
-            str(mutant["id"])
+        mutants = [
+            mutant
             for entry in files.values()
             for mutant in cast("list[Mapping[str, object]]", entry.get("mutants", []))
-            if mutant.get("status") == "Survived"
-        }
-        survived_everywhere = (
-            survivors if survived_everywhere is None else survived_everywhere & survivors
-        )
+        ]
+        carried.append({str(mutant["id"]) for mutant in mutants})
+        survivors.append({str(m["id"]) for m in mutants if m.get("status") == "Survived"})
     merged = copy.deepcopy(dict(reports[0]))
     files = cast("dict[str, dict[str, object]]", merged.get("files", {}))
     for entry in files.values():
         for mutant in cast("list[dict[str, object]]", entry.get("mutants", [])):
             if mutant.get("status") != "Survived":
                 continue
-            if str(mutant["id"]) not in (survived_everywhere or set()):
+            identifier = str(mutant["id"])
+            killed_somewhere = any(
+                identifier in held and identifier not in lived
+                for held, lived in zip(carried, survivors, strict=True)
+            )
+            if killed_somewhere:
                 mutant["status"] = "Killed"
     return _scored(merged)
 
@@ -709,6 +773,10 @@ def _run_cpp_lane(
 # under, so a tree built for another slice is discarded rather than reused.
 CPP_CONFIG_STAMP = ".mull-config.sha256"
 
+# What a generated configuration is written as, beside the tree it configures:
+# a slice's, a tree's narrowed mutator set, or both at once.
+CPP_GENERATED_CONFIG = "mull-config.yml"
+
 
 def leg_config(leg: CppLeg, build_dir: Path) -> Path:
     """Put the configuration the leg builds and sweeps under in place, and name it.
@@ -728,16 +796,20 @@ def leg_config(leg: CppLeg, build_dir: Path) -> Path:
     cache turns the rebuild after a real change into cache reads.
     """
     config = REPO_ROOT / "cpp" / "mull.yml"
-    if leg.slice_no is None:
+    dropped = leg.tree.dropped_mutators
+    if leg.slice_no is None and not dropped:
         return config
-    _, held_out = leg_files(leg)
-    text = slice_config_text(config, held_out, leg.slice_no, CPP_SLICES)
+    if leg.slice_no is None:
+        text = tree_config_text(config, dropped)
+    else:
+        _, held_out = leg_files(leg)
+        text = slice_config_text(config, held_out, leg.slice_no, CPP_SLICES, dropped)
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     stamp = build_dir / CPP_CONFIG_STAMP
     if build_dir.is_dir() and (not stamp.is_file() or stamp.read_text(encoding="utf-8") != digest):
         shutil.rmtree(build_dir)
     build_dir.mkdir(parents=True, exist_ok=True)
-    written = build_dir / "mull-slice.yml"
+    written = build_dir / CPP_GENERATED_CONFIG
     written.write_text(text, encoding="utf-8")
     stamp.write_text(digest, encoding="utf-8")
     return written

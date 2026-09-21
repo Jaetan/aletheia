@@ -103,12 +103,13 @@ def test_a_run_is_read_by_what_ended_it(status: int, stdout: str, stderr: str, r
 def test_a_mutant_several_lanes_killed_takes_the_first_route() -> None:
     """An assertion in any lane attributes the mutant to the test, whatever the other lanes read."""
     lanes = [
-        {"a": "fault", "b": "leak", "c": "survived", "d": "timeout", "e": "fault"},
-        {"a": "test", "b": "fault", "c": "survived", "d": "fault", "e": "check"},
+        {"a": "fault", "b": "leak", "c": "survived", "d": "timeout", "e": "fault", "f": "address"},
+        {"a": "test", "b": "fault", "c": "survived", "d": "fault", "e": "check", "f": "fault"},
     ]
     assert merge_routes(lanes) == {
         "test": 1,
         "leak": 1,
+        "address": 1,
         "kernel": 0,
         "check": 1,
         "fault": 1,
@@ -155,8 +156,8 @@ def _write_lane(path: Path, rows: list[tuple[str, int, str, str]]) -> None:
 def test_the_census_reads_every_leg_report(tmp_path: Path) -> None:
     """The counts come from the legs' SQLite reports, named as the legs name them.
 
-    A mutant is in one slice per tree, so it is read by two of the six legs,
-    and a route it took in either is the route it is attributed by.
+    A mutant is in one slice per tree, so it is read by one leg of each tree,
+    and a route it took in any of them is the route it is attributed by.
     """
     legs = sliced_legs()
     for leg in legs:

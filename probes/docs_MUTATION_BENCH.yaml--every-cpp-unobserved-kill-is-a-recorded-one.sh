@@ -24,26 +24,29 @@
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v mull-runner-23 > /dev/null || { echo "Mull not installed, claim untestable"; exit 0; }
-[ -x cpp/build-mutation/unit_tests ] && [ -x cpp/build-mutation-plain/unit_tests ] ||
-    { echo "the mutation trees are not both built, claim untestable"; exit 0; }
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
-dir=$(mktemp -d) || exit 2
-trap 'rm -rf "$dir"' EXIT
-# Both trees, because a kill is attributed across them: a mutant a test
-# observes in either is not an unobserved kill, whatever the other read.
-for lane in leak plain; do
-    argv=$("$py" -c 'import shlex, sys
-from pathlib import Path
-from tools.mutation_cpp import CppLeg, CppTree, cpp_lane_command
-leg = CppLeg(CppTree(sys.argv[2]))
-print(shlex.join(cpp_lane_command("mull-runner-23", Path("cpp", leg.directory).resolve(), Path(sys.argv[1]), leg)))' "$dir" "$lane") || exit 2
-    (cd cpp && unset ALETHEIA_LIB && ALETHEIA_REPO_ROOT="$OLDPWD" eval "$argv" > /dev/null 2>&1) || true
-    [ -f "$dir/cpp-mull-$lane.sqlite" ] || {
-        echo "the sweep of the $lane tree wrote no SQLite report"
-        exit 1
-    }
+# The trees are the ones the lane sweeps, read from the lane rather than named
+# here, so a tree the lane gains is a tree this probe reads.
+trees=$("$py" -c 'from tools.mutation_cpp import CppTree
+print(" ".join(tree.value for tree in CppTree))') || exit 2
+for lane in $trees; do
+    built=$("$py" -c 'import sys
+from tools.mutation_cpp import CppTree
+print(CppTree(sys.argv[1]).directory)' "$lane") || exit 2
+    [ -x "cpp/$built/unit_tests" ] ||
+        { echo "the $lane mutation tree is not built, claim untestable"; exit 0; }
 done
+# One sweep serves every probe that reads one: tools/mutation_sweep_cache.py
+# runs it once, keyed on each tree's test binary and the lane's own argv, so a
+# second reader pays nothing and a rebuilt tree is swept again. The lane's
+# environment and the runner's arguments are the lane's own, built by
+# tools/mutation_cpp.py, so the cap per mutant and the pinned order have one
+# owner.
+dir=$("$py" -m tools.mutation_sweep_cache) || {
+    echo "no sweep of the mutation trees could be had"
+    exit 2
+}
 "$py" - "$dir" <<'PY'
 import collections
 import sys
@@ -52,7 +55,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, ".")
-from tools.mutation_cpp import _repo_line, unobserved_kill_rows
+from tools.mutation_cpp import CppTree, _repo_line, unobserved_kill_rows
 from tools.mutation_report import unobserved_ledger_to_rows, unobserved_rows_to_ledger
 from tools.mutation_routes import lane_endings
 
@@ -61,7 +64,7 @@ ledger = spec["bindings"]["cpp"]["baseline"].get("unobserved_ledger")
 if ledger is None:
     print("docs/MUTATION_BENCH.yaml records no unobserved_ledger for the C++ lane")
     sys.exit(1)
-reports = [Path(sys.argv[1]) / f"cpp-mull-{lane}.sqlite" for lane in ("leak", "plain")]
+reports = [Path(sys.argv[1]) / f"cpp-mull-{tree.value}.sqlite" for tree in CppTree]
 observed = collections.Counter(
     unobserved_kill_rows([lane_endings(path) for path in reports], _repo_line)
 )

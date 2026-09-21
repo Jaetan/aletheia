@@ -20,7 +20,7 @@ mutation lane is a per-PR signal, not per-commit (cost is high — 30 min to
 docs/MUTATION_BENCH.yaml           SSOT — per-binding tool, hot-path module list, baseline
 tools/check_mutation_setup.py      Static gate (offline, ~1 sec)
 tools/mutation_run.py              Dynamic runner (opt-in, ~30 min - 2 hours)
-tools/mutation_cpp.py              The C++ lane: Mull over the two trees, in stages
+tools/mutation_cpp.py              The C++ lane: Mull over the trees, in stages
 tools/mutation_report.py           The report and baseline shapes the lanes share
 tools/mutation_routes.py           The C++ kill-route census
 benchmarks/mutation/<short-sha>/   Per-commit JSON + raw tool logs (gitignored)
@@ -35,12 +35,13 @@ In CI the runner is invoked once per binding, in parallel lanes with their own
 budgets, each told to skip the other two (`ALETHEIA_MUTATION_SKIP_PYTHON` /
 `_GO` / `_CPP`), because the three tools cost wildly different amounts and one
 job charges the slowest against a clock the others have already spent.  The
-C++ lane is six legs and a merge: a leg sweeps one slice of one mutation tree
-(`ALETHEIA_MUTATION_CPP_STAGE=leak` or `plain`, `ALETHEIA_MUTATION_CPP_SLICE`
-the slice), reports as the binding `cpp-leak-1` and so on, and judges no
-survivor, since it has read neither the rest of its tree nor the other tree,
-where the mutant it let live may die; the `mutation cpp` job downloads every
-leg's reports, unions each tree's slices and intersects the trees
+C++ lane is nine legs and a merge: a leg sweeps one slice of one mutation tree
+(`ALETHEIA_MUTATION_CPP_STAGE=leak`, `plain` or `address`,
+`ALETHEIA_MUTATION_CPP_SLICE` the slice), reports as the binding `cpp-leak-1`
+and so on, and judges no survivor, since it has read neither the rest of its
+tree nor the other trees, where the mutant it let live may die; the
+`mutation cpp` job downloads every leg's reports, unions each tree's slices
+and intersects the trees over the mutants each carries
 (`ALETHEIA_MUTATION_CPP_STAGE=merge`, the directory in
 `ALETHEIA_MUTATION_CPP_LEGS`), which is where the C++ survivors meet the
 baseline and the ledger. How the slices are cut, and what the merge refuses,
@@ -256,7 +257,8 @@ mull-runner-23 --version    # mull-runner {STABLE_MULL_VERSION}
 C++ clang plugin `.so`.  The standard build (`cmake -B build`) also requires
 `clang++-23` (the project supports the latest stable Clang only; g++
 unsupported); the mutation lane uses the same `clang++-23` inside its two
-dedicated trees, `cpp/build-mutation/` and `cpp/build-mutation-plain/`.  CI
+dedicated trees, `cpp/build-mutation/`, `cpp/build-mutation-plain/` and
+`cpp/build-mutation-asan/`.  CI
 caches both the clang-23 debs and the
 from-source Mull build (keyed on the Mull tag + LLVM version), see
 `.github/workflows/pr-heavy-lanes.yml`.
@@ -296,9 +298,12 @@ cd go && gremlins unleash ./aletheia
 # C++ (needs build/libaletheia-ffi.so — the ALETHEIA_MUTATION build folds the
 # real-.so integration tests into unit_tests to cover FfiBackend, so run
 # `cabal run shake -- build` first).
-# A mutant survives only where both trees let it: the leak tree reads a
-# destructor removal that leaks, the plain tree carries the allocation-fault
-# sweeps, and a sanitizer defines the allocation functions those replace.
+# A mutant survives only where every tree carrying it let it: the leak tree
+# reads a destructor removal that leaks, the address tree a value read after
+# what held it has gone, and the plain tree carries the allocation-fault
+# sweeps, which no sanitizer tree can carry because a sanitizer defines the
+# allocation functions they replace.  The address tree drops the two mutators
+# over calls, whose mutants there are the sanitizer's own inserted checks.
 cd cpp
 cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
       -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
@@ -311,6 +316,18 @@ cmake -B build-mutation-plain -DALETHEIA_MUTATION=ON \
       -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 cmake --build build-mutation-plain --target unit_tests
 mull-runner-23 --minimum-timeout=600000 ./build-mutation-plain/unit_tests -- --order decl
+# The address tree builds under a configuration the lane generates beside it,
+# which is `cpp/mull.yml` without the two call mutators; the runner is given
+# the same file, so the tree and the sweep read one mutator set.
+python/.venv/bin/python -c 'from pathlib import Path
+from tools.mutation_cpp import CppLeg, CppTree, leg_config
+print(leg_config(CppLeg(CppTree.ADDRESS), Path("cpp/build-mutation-asan")))'
+cmake -B build-mutation-asan -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=address \
+      -DALETHEIA_MULL_CONFIG="$PWD/build-mutation-asan/mull-config.yml" \
+      -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
+cmake --build build-mutation-asan --target unit_tests
+MULL_CONFIG="$PWD/build-mutation-asan/mull-config.yml" \
+  mull-runner-23 --minimum-timeout=600000 ./build-mutation-asan/unit_tests -- --order decl
 ```
 
 Per-binding skip env vars (useful for partial runs):
@@ -321,12 +338,13 @@ ALETHEIA_MUTATION_SKIP_GO=1       # skip Go lane only
 ALETHEIA_MUTATION_SKIP_CPP=1      # skip C++ lane only
 ```
 
-The C++ lane in stages, as CI runs it (unset, the runner sweeps both trees in
+The C++ lane in stages, as CI runs it (unset, the runner sweeps every tree in
 one process and merges them itself):
 
 ```bash
 ALETHEIA_MUTATION_CPP_STAGE=leak    # sweep the leak tree alone; reports as cpp-leak, judges nothing
 ALETHEIA_MUTATION_CPP_STAGE=plain   # the plain tree likewise, as cpp-plain
+ALETHEIA_MUTATION_CPP_STAGE=address # the address tree likewise, as cpp-address
 ALETHEIA_MUTATION_CPP_STAGE=merge \
 ALETHEIA_MUTATION_CPP_LEGS=<dir>    # sweep nothing; merge the legs' reports found under <dir>
 ```

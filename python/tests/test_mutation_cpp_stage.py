@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for the C++ lane in stages (``tools.mutation_cpp``).
 
-Unset, the stage sweeps both trees whole in one process and merges them.  A
+Unset, the stage sweeps every tree whole in one process and merges them.  A
 leg sweeps one slice of one tree, reports as its own binding, and is never
-judged: it has read neither the rest of its tree nor the other tree, where the
+judged: it has read neither the rest of its tree nor the other trees, where the
 mutant it let live may die.  The merge sweeps nothing, reads the legs' reports
 from a directory, unions each tree's slices and intersects the trees, and
 refuses a leg that is missing, doubled, or from another commit.  The merge of
@@ -55,10 +55,11 @@ _SLICE_MUTANTS: Mapping[int, tuple[str, ...]] = {
 }
 _ALL_MUTANTS = tuple(mutant for mutants in _SLICE_MUTANTS.values() for mutant in mutants)
 
-# What each tree lets live: m11 survives both, m21 only the leak tree.
+# What each tree lets live: m11 survives every tree, m21 the leak tree alone.
+# Read over ``CppTree`` rather than listed tree by tree, so a tree the lane
+# gains is a tree this fixture covers rather than one it raises on.
 _SURVIVORS: Mapping[CppTree, set[str]] = {
-    CppTree.LEAK: {"m11", "m21"},
-    CppTree.PLAIN: {"m11"},
+    tree: {"m11", "m21"} if tree is CppTree.LEAK else {"m11"} for tree in CppTree
 }
 
 
@@ -98,6 +99,16 @@ def _write_leg_reports(artifact_dir: Path, leg: CppLeg) -> Mapping[str, object]:
     return elements
 
 
+def _fixture_census(_tree: CppTree | None = None) -> int:
+    """Stand in for ``recorded_total_mutants`` with the fixture's own surface."""
+    return len(_ALL_MUTANTS)
+
+
+def _one_over_the_fixture(_tree: CppTree | None = None) -> int:
+    """Stand in for it with one mutant more than the fixture sweeps, which the merge refuses."""
+    return len(_ALL_MUTANTS) + 1
+
+
 def _fixed_sha(_root: Path | None = None) -> str:
     """Stand in for ``short_sha`` with a constant under the sandbox."""
     return _SHA
@@ -117,7 +128,7 @@ def _fake_sweeps(monkeypatch: pytest.MonkeyPatch, swept: list[str]) -> None:
     monkeypatch.setattr(mutation_cpp, "short_sha", _fixed_sha)
     # The fixture's surface is nine mutants, not the repository's census, so
     # the floor is the fixture's; the refusal it exists for has its own test.
-    monkeypatch.setattr(mutation_cpp, "recorded_total_mutants", lambda: len(_ALL_MUTANTS))
+    monkeypatch.setattr(mutation_cpp, "recorded_total_mutants", _fixture_census)
 
 
 def _stage(monkeypatch: pytest.MonkeyPatch, value: str | None, slice_no: str = "") -> None:
@@ -128,7 +139,7 @@ def _stage(monkeypatch: pytest.MonkeyPatch, value: str | None, slice_no: str = "
             monkeypatch.setenv(name, wanted)
 
 
-def test_unset_stage_sweeps_both_trees_whole_and_merges(
+def test_unset_stage_sweeps_every_tree_whole_and_merges(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The whole lane in one process: every tree swept whole, in order, one merged verdict."""
@@ -205,7 +216,7 @@ def test_a_stage_that_is_no_tree_is_an_error(
     report = run_cpp(tmp_path)
     assert report.error is not None
     assert CPP_STAGE_ENV in report.error
-    assert "leak, plain, merge" in report.error
+    assert "leak, plain, address, merge" in report.error
 
 
 def test_a_slice_that_is_no_slice_is_an_error(
@@ -221,7 +232,7 @@ def test_a_slice_that_is_no_slice_is_an_error(
 
 
 def test_a_slice_of_no_tree_is_an_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """A job that names a slice and forgets the tree would sweep both trees whole."""
+    """A job that names a slice and forgets the tree would sweep every tree whole."""
     _fake_sweeps(monkeypatch, [])
     _stage(monkeypatch, None, "1")
     report = run_cpp(tmp_path)
@@ -267,7 +278,7 @@ def _merge(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> mutation_run.Muta
 def test_the_merge_of_the_legs_is_the_one_process_run(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Six legs merged read exactly what one process sweeping both trees whole reads."""
+    """The legs merged read exactly what one process sweeping every tree whole reads."""
     _download(tmp_path / "legs", *sliced_legs())
     merged = _merge(monkeypatch, tmp_path)
     assert merged.error is None
@@ -368,7 +379,7 @@ def test_the_merge_refuses_a_union_under_the_recorded_census(
     _download(tmp_path / "legs", *sliced_legs())
     _fake_sweeps(monkeypatch, [])
     # After the fixture, which sets the floor to what the fixture sweeps.
-    monkeypatch.setattr(mutation_cpp, "recorded_total_mutants", lambda: len(_ALL_MUTANTS) + 1)
+    monkeypatch.setattr(mutation_cpp, "recorded_total_mutants", _one_over_the_fixture)
     _stage(monkeypatch, CPP_MERGE_STAGE)
     monkeypatch.setenv(CPP_LEGS_ENV, str(tmp_path / "legs"))
     out = tmp_path / "out"
@@ -376,6 +387,49 @@ def test_the_merge_refuses_a_union_under_the_recorded_census(
     merged = run_cpp(out)
     assert merged.error is not None
     assert f"union to {len(_ALL_MUTANTS)} mutants, under the recorded" in merged.error
+
+
+def test_the_census_floor_is_the_tree_s_own(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A tree is held to what the record says that tree carries, not to the merged surface.
+
+    The trees do not all carry one surface: one that cannot read a mutator
+    carries none of its mutants, and holding it to the merged figure would
+    refuse every sweep it ever ran.
+    """
+    spec = {
+        "bindings": {
+            "cpp": {
+                "baseline": {
+                    "total_mutants": 100,
+                    "mutants_by_tree": {CppTree.ADDRESS.value: 30},
+                }
+            }
+        }
+    }
+    monkeypatch.setattr(mutation_cpp, "load_spec", lambda: spec)
+    assert mutation_cpp.recorded_total_mutants() == 100
+    assert mutation_cpp.recorded_total_mutants(CppTree.ADDRESS) == 30
+    # A tree the record names no figure for is held to the merged one.
+    assert mutation_cpp.recorded_total_mutants(CppTree.PLAIN) == 100
+
+
+def test_a_tree_that_does_not_carry_a_mutant_says_nothing_about_it() -> None:
+    """A mutant absent from a tree's report is not a mutant that tree killed.
+
+    A tree drops the mutators it cannot read, so it carries none of their
+    mutants: the address tree drops the two over calls, whose mutants there
+    are the sanitizer's own inserted checks rather than the program's calls.
+    Judging a survivor on every report alike would read that absence as a
+    kill, which is the one direction a merge must not invent.
+    """
+    carried_by_both = _elements(("m1", "m2"), {"m1", "m2"})
+    narrower = _elements(("m2",), {"m2"})
+    merged = merge_elements([carried_by_both, narrower])
+    assert elements_counts(merged) == (2, 2)
+
+    # And a tree that does carry it, and killed it, still kills it.
+    killed_there = _elements(("m1", "m2"), {"m2"})
+    assert elements_counts(merge_elements([carried_by_both, killed_there])) == (2, 1)
 
 
 def test_a_merged_report_carries_the_score_of_its_own_mutants() -> None:
