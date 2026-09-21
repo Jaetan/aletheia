@@ -2309,6 +2309,10 @@ TEST_CASE("serialize_set_properties refuses a formula nested past the depth boun
     // operand, the binary ones through the left and through the right.
     using Wrap = std::function<LtlFormula(LtlFormula, LtlFormula)>;
     auto const us = Timestamp{1};
+    // The generator is built once and serves its alternatives on the later
+    // entries of this body, each of them a fresh frame, so an alternative
+    // holds nothing by reference: the two helpers below are captured by value
+    // where they are used, as the bound is.
     auto const metric_until = [us](LtlFormula left, LtlFormula right) {
         return LtlFormula{MetricUntil{.bound = us,
                                       .left = std::make_unique<LtlFormula>(std::move(left)),
@@ -2349,16 +2353,16 @@ TEST_CASE("serialize_set_properties refuses a formula nested past the depth boun
         Wrap{[](LtlFormula f, LtlFormula leaf) {
             return ltl::release(std::move(leaf), std::move(f));
         }},
-        Wrap{[&](LtlFormula f, LtlFormula leaf) {
+        Wrap{[metric_until](LtlFormula f, LtlFormula leaf) {
             return metric_until(std::move(f), std::move(leaf));
         }},
-        Wrap{[&](LtlFormula f, LtlFormula leaf) {
+        Wrap{[metric_until](LtlFormula f, LtlFormula leaf) {
             return metric_until(std::move(leaf), std::move(f));
         }},
-        Wrap{[&](LtlFormula f, LtlFormula leaf) {
+        Wrap{[metric_release](LtlFormula f, LtlFormula leaf) {
             return metric_release(std::move(f), std::move(leaf));
         }},
-        Wrap{[&](LtlFormula f, LtlFormula leaf) {
+        Wrap{[metric_release](LtlFormula f, LtlFormula leaf) {
             return metric_release(std::move(leaf), std::move(f));
         }});
     auto const nest = [&wrap](std::uint64_t depth) {
