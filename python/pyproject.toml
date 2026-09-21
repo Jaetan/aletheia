@@ -413,6 +413,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_heavy_lanes_workflow.py",
     "--ignore=tests/test_cpp_scratch.py",
     "--ignore=tests/test_mutation_cpp_order.py",
+    "--ignore=tests/test_mutation_cpp_weight_drift.py",
     "--ignore=tests/test_check_cpp_index_loops.py",
     "--ignore=tests/test_check_cpp_restated_types.py",
     "--ignore=tests/test_ratchet.py",

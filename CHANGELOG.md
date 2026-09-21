@@ -556,6 +556,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The C++ merge's drift line prints the share it compares against to a
+  decimal.** The line beside the merge's verdict, the one figure the scheduled
+  review of the slice weights reads, printed the equal share rounded to a
+  whole mutant, so a fresh census of 1037 read as a heaviest slice of 346
+  "0.1% over an equal share of 346". The share is printed to a tenth now, and
+  the line has a test for each of its three arms, which it had none of. The
+  comment on the slice count in `tools/mutation_cpp_slices.py` cited two
+  percentages no commit of the record reproduces; it now states the reason
+  for three and names the merge's print as the measurement.
 - **A merged mutation report carries the score of its own mutants.** Mull
   writes the score of the sweep behind each report, and both merges produce a
   report no sweep did: the cross-tree merge revives every mutant another tree

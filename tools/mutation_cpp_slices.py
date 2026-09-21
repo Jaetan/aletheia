@@ -32,10 +32,13 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 # Slices one mutation tree is swept in.  Three, because the partition is even
-# at three over the recorded census (the heaviest slice runs 0.2% over an
-# equal share of the plain tree and 2.8% over the leak tree's) while the
+# at three over the recorded census, which the merge measures on every run by
+# printing what the heaviest slice carries against an equal share, while the
 # fixed cost each job pays before it sweeps -- the toolchain, the library and
-# the tree's build -- is paid three times per tree rather than more.
+# the tree's build -- is paid three times per tree rather than more.  Whether
+# three stays right is the scheduled review's question, answered from the
+# per-mutant durations a run's reports carry rather than from any run's
+# print (docs/operations/MUTATION.md).
 CPP_SLICES = 3
 
 # Where the mutation build compiles the library from.  A mutant's site is a
