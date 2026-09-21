@@ -855,12 +855,12 @@ def _finish_cpp(
     )
     observed = elements_file_counts(merged)
     (artifact_dir / CPP_FILES_REPORT).write_text(json.dumps(observed, indent=2))
-    raw += _weight_drift(observed)
+    raw += weight_drift(observed)
     (artifact_dir / "cpp.raw.txt").write_text(raw)
     return MutationReport("cpp", "mull", total - survived, survived, raw)
 
 
-def _weight_drift(observed: Mapping[RelPath, int]) -> str:
+def weight_drift(observed: Mapping[RelPath, int]) -> str:
     """Say how far the recorded weights have drifted from the surface they balance.
 
     The slices are cut on the recorded counts, and the surface grows without
@@ -880,7 +880,7 @@ def _weight_drift(observed: Mapping[RelPath, int]) -> str:
     over = 100 * (max(loads) / share - 1) if share else 0.0
     unrecorded = sorted(set(observed) - set(recorded))
     drift = f"weights: the heaviest slice carries {max(loads)} of {sum(loads)}, {over:.1f}% over an"
-    drift += f" equal share of {share:.0f}\n"
+    drift += f" equal share of {share:.1f}\n"
     if unrecorded:
         drift += f"weights: {len(unrecorded)} file(s) carry mutants the record does not count: "
         drift += ", ".join(unrecorded) + "\n"

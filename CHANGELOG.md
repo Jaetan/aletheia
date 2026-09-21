@@ -556,6 +556,25 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The C++ merge's drift line prints the share it compares against to a
+  decimal.** The line beside the merge's verdict, the one figure the scheduled
+  review of the slice weights reads, printed the equal share rounded to a
+  whole mutant, so a fresh census of 1037 read as a heaviest slice of 346
+  "0.1% over an equal share of 346". The share is printed to a tenth now, and
+  the line has a test for each of its three arms, which it had none of. The
+  comment on the slice count in `tools/mutation_cpp_slices.py` cited two
+  percentages no commit of the record reproduces; it now states the reason
+  for three and names the merge's print as the measurement.
+- **A change to any module of the mutation harness runs every mutation lane.**
+  The scope rule names the paths whose change is every binding's change, and
+  it named the harness by its runner alone, so the modules the C++ lane, its
+  report shapes, its kill-route census and its slice partition live in were
+  a change no lane ran on its own pull request: the legs read no binding
+  directory in the diff and reported in under a minute, and the change was
+  first exercised by the push to `main`. The rule now covers the harness by
+  prefix, with the scratch-directory helper the C++ lane imports named beside
+  it, and the scope tests read every tracked harness module from the tree
+  rather than from a list, which is how a module added later stays covered.
 - **A merged mutation report carries the score of its own mutants.** Mull
   writes the score of the sweep behind each report, and both merges produce a
   report no sweep did: the cross-tree merge revives every mutant another tree

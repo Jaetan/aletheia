@@ -245,8 +245,9 @@ On a pull request the runner sweeps only the bindings whose directory the diff
 against `main` touches, and each CI lane installs only the toolchain its own
 sweep needs: the lane asks `tools/mutation_scope.py`, which reads that same
 scope, ahead of its install steps rather than after them. A change under the
-Agda kernel, the FFI shim, this harness or the recorded baselines is every
-binding's change, and a push to `main`, whose diff is empty, sweeps all three.
+Agda kernel, the FFI shim, any module of this harness or the recorded
+baselines is every binding's change, and a push to `main`, whose diff is
+empty, sweeps all three.
 Set `ALETHEIA_MUTATION_NO_DIFF_SCOPE=1` to sweep everything regardless.
 
 ## Running the lane
