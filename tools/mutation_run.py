@@ -381,8 +381,14 @@ _GLOBAL_MUTATION_PATHS: tuple[str, ...] = (
     "Shakefile.hs",  # build graph → .so
     "shake.cabal",
     "aletheia.agda-lib",
-    "tools/mutation_run.py",  # this harness
-    "tools/mutation_scope.py",  # what a CI lane asks before installing a toolchain
+    # The harness, every module of it: the runner, the scope question a lane
+    # asks before installing a toolchain, the C++ lane, its report shapes, its
+    # kill-route census and its slice partition.  A prefix rather than a list,
+    # so a module the harness grows is covered the day it is tracked: a
+    # harness module no global path covers is a change no lane runs on its
+    # own pull request.
+    "tools/mutation_",
+    "tools/cpp_scratch.py",  # the C++ lane's scratch-directory reaping
     "tools/_common.py",  # the harness's shared helpers
     "docs/MUTATION_BENCH.yaml",  # the per-binding baselines the drift gate reads
     ".github/workflows/pr-heavy-lanes.yml",  # the lane definition

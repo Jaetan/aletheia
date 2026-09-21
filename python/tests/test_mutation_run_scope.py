@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tools import mutation_run
+from tools._common import git_ls_files
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -86,8 +87,13 @@ def test_scope_matches_changed_bindings(
         ["Shakefile.hs"],  # build graph → .so
         ["aletheia.agda-lib"],  # build graph → .so
         ["docs/MUTATION_BENCH.yaml"],  # the baselines the drift gate reads
-        ["tools/mutation_run.py"],  # this harness
+        ["tools/mutation_run.py"],  # the harness's runner
         ["tools/mutation_scope.py"],  # what a CI lane asks before installing a toolchain
+        ["tools/mutation_cpp.py"],  # the C++ lane, whose merge no binding directory names
+        ["tools/mutation_cpp_slices.py"],  # the partition the C++ legs are cut on
+        ["tools/mutation_report.py"],  # the shapes every lane reports in
+        ["tools/mutation_routes.py"],  # the kill-route census
+        ["tools/cpp_scratch.py"],  # the scratch-directory reaping the C++ lane imports
         ["tools/_common.py"],  # the harness's shared helpers
         [".github/workflows/pr-heavy-lanes.yml"],  # the lane definition
         ["go/aletheia/check.go", "src/X.agda"],  # a global path wins over a binding
@@ -97,6 +103,20 @@ def test_global_paths_force_all_bindings(monkeypatch: pytest.MonkeyPatch, files:
     """A change to the shared .so / harness / baselines forces the full run."""
     _fake_diff(monkeypatch, files=files)
     assert mutation_run.bindings_in_scope(mutation_run.REPO_ROOT) is None
+
+
+def test_every_tracked_harness_module_forces_all_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A harness module added later is covered the day it is tracked, not the day someone lists it.
+
+    The parametrised cases above name the modules the harness has today; this
+    one reads the tree, so a module the harness grows cannot slip past the
+    scope the way one would past a list.
+    """
+    tracked = git_ls_files(mutation_run.REPO_ROOT, "tools/mutation_*.py")
+    assert len(tracked) >= 2, tracked  # the runner and the scope question at least
+    for module in tracked:
+        _fake_diff(monkeypatch, files=[module])
+        assert mutation_run.bindings_in_scope(mutation_run.REPO_ROOT) is None, module
 
 
 def test_empty_diff_runs_all(monkeypatch: pytest.MonkeyPatch) -> None:
