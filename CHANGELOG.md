@@ -596,6 +596,25 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A build-tree cache entry is saved only where there is a build tree.** The
+  save step was gated on the run not having been cancelled, which is true of a
+  run that failed, so a job that died before the build still wrote an archive of
+  whatever scraps were on disk under its own key. The restore keys match by
+  prefix, newest first, so every later run found that entry ahead of a real one,
+  restored nothing and rebuilt the kernel from scratch. Measured on the entries
+  three failed runs left: about 1.4 kB each against the 35 MB a built tree takes,
+  and a 308-second rebuild in the job that restored one, where a hit no-ops in
+  0.03s. Both workflows that save the tree now ask first whether the shared
+  library it is for is on disk, and `python/tests/test_build_tree_cache_guard.py`
+  holds every such save to that question, since the run that poisons the cache
+  passes and the one that pays is the next. The stability bench, which restored
+  no tree at all, now restores one and saves it under the same guard: it
+  measures the kernel rather than the compiler, and paid about five minutes a
+  run to build what another lane had already built. The lane that compares two
+  clean builds keeps restoring nothing, which the same test holds it to, since a
+  restored tree would make its first build incremental and its comparison
+  vacuous.
+
 - **The C++ merge's drift line prints the share it compares against to a
   decimal.** The line beside the merge's verdict, the one figure the scheduled
   review of the slice weights reads, printed the equal share rounded to a
