@@ -230,7 +230,7 @@ See `go doc aletheia.Client` for the exact signatures.
 
 ## Error Handling
 
-Every fallible operation answers `(value, error)` and the package never panics. Read an error with `errors.As` to reach the typed `*aletheia.Error` and its `Kind`, `Code` and `Message`:
+Every fallible operation answers `(value, error)`, and no call a host can make panics. The package's own exception is an unlock of a lock nobody holds, which breaks an invariant of its unexported lock that only a defect inside the package can break, and it panics there, the way `sync.Mutex` treats an unlock of an unlocked mutex as a run-time error, rather than turning the defect into a wait a later caller inherits. Read an error with `errors.As` to reach the typed `*aletheia.Error` and its `Kind`, `Code` and `Message`:
 
 ```go
 import (

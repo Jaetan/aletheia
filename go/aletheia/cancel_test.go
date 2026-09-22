@@ -303,3 +303,24 @@ func TestClient_NoCancelOnInFlightFFI(t *testing.T) {
 		t.Errorf("expected context.Canceled on the next call, got %v", err)
 	}
 }
+
+// An unlock of a lock nobody holds is a defect inside the package, and it
+// fails at once instead of turning the defect into a wait a later caller
+// inherits. The guide names this fault as the exception to its no-panic
+// rule, and the probe over the package holds it to exactly this message.
+func TestClient_UnlockNotHeldFails(t *testing.T) {
+	c, _ := newGatedClient(t, `{"status":"success"}`)
+
+	// On a goroutine, so an unlock that blocks fails the bounded wait rather
+	// than running to the test deadline.
+	recovered := make(chan any, 1)
+	go func() {
+		defer func() { recovered <- recover() }()
+		c.unlock()
+	}()
+
+	const want = "aletheia: unlock of a lock that is not held"
+	if got := recvWithin(t, recovered); got != want {
+		t.Errorf("unlock of a lock nobody holds: recovered %v, want %q", got, want)
+	}
+}
