@@ -119,15 +119,15 @@ jobs:
           # 8m09s + 45m41s = 57m31s, the builds of that run compiling one unit
           # at a time where the runner now builds four at once.  So python
           # 36m02s, go 46m30s, leak 78m00s, plain 90m48s, each rounded up.
-          # The address tree has no CI run to read yet, so its legs are budgeted
-          # from the ratio of the two trees measured locally under the lane's own
-          # command on one host: the plain tree sweeps whole in 5m10s and the
-          # address tree in 8m05s, 1.56 times, because the sanitizer's own
-          # instrumentation is compiled into every unit and mutated with it
-          # (1185 mutants against 1037).  The slowest plain leg recorded, 23.9,
-          # scaled by that ratio is 37.3, plus the same 33.3 cold allowance,
-          # 70.6, rounded up to 75.  The first run of these legs is their first
-          # measurement and is what re-takes the figure.
+          # The address legs are budgeted from their own run, 35670441747, the
+          # first that swept them: 15.1, 11.0 and 14.5 minutes of wall, against
+          # leak's 18.1, 14.3 and 24.1 and plain's 28.3, 28.2 and 33.6.  The
+          # address tree is the cheapest of the three, carrying 310 mutants
+          # against the others' 1037, where the local ratio this figure was
+          # first taken from said it would be the dearest: that ratio scaled the
+          # sweep, and a leg's wall is mostly the setup and the tree build,
+          # which every tree pays alike.  Slowest leg 15.1 plus the 33.3 cold
+          # allowance is 48.4, rounded up to 50.
           # Each budget is the slowest run recorded, so a faster one leaves it
           # where it is.  A budget is a measurement of the
           # surface it was read from: it is re-taken when the mutation surface
@@ -201,7 +201,7 @@ jobs:
             binding: cpp
             stage: address
             slice: '1'
-            timeout: 75
+            timeout: 50
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -209,7 +209,7 @@ jobs:
             binding: cpp
             stage: address
             slice: '2'
-            timeout: 75
+            timeout: 50
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -217,7 +217,7 @@ jobs:
             binding: cpp
             stage: address
             slice: '3'
-            timeout: 75
+            timeout: 50
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''

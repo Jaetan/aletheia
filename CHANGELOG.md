@@ -48,6 +48,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The address legs' budget is read off their own run.** They shipped budgeted
+  at 75 minutes from a ratio measured locally, which scaled the sweep: the
+  address tree carries 310 mutants against the other trees' 1037, so its sweep
+  is the shortest, while a leg's wall is mostly the setup and the tree build
+  that every tree pays alike. Their first CI run measured 15.1, 11.0 and 14.5
+  minutes, against leak's 18.1, 14.3 and 24.1 and plain's 28.3, 28.2 and 33.6,
+  so the budget is the slowest leg plus the lane's cold-cache allowance, 48.4,
+  rounded up to 50. The leak and plain budgets are unchanged: this run sits
+  inside both.
+
 - **A third mutation tree, read by AddressSanitizer, and a merge that judges a
   mutant only where a tree carried it.** The two trees swept until now read a
   leak and an allocation that fails, and libstdc++'s debug mode under both
