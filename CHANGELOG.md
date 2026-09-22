@@ -61,6 +61,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The Go guide names the panic the package keeps for itself.** Its
+  error-handling section said the package never panics, and the probe holding
+  it to that read red on every run, because the client fails an unlock of a
+  lock nobody holds rather than turning the defect into a wait a later
+  caller inherits. The sentence now says what the code does: no call a host can make
+  panics, and the unlock of a lock nobody holds breaks an invariant of the
+  package's own unexported lock that only a defect inside it can break,
+  failing there the way `sync.Mutex` does. A test holds that fault to its
+  message on a bounded wait, so an unlock that blocks fails in seconds, and
+  the probe holds the package to that panic in that method, refuses a tree
+  where the panic is gone while the guide still names it, and refuses a guide
+  that stops naming it.
+
 - **The C++ mutation lanes' compiler caches are capped from a measurement.**
   Each of the nine lanes keeps its own cache of its tree's objects, and the
   cap every lane inherited would have let the nine together, on `main` and on
