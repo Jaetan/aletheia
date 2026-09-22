@@ -84,8 +84,8 @@ the build tree) only seed on `push: main`, adding it to the ruleset is gated on 
 1. ✅ Merge the "cache + require the mutation lane" change (renames the job to
    `mutation testing`; adds the `push: [main]` trigger so the caches seed under the
    default branch). The check is not required yet.
-2. Let the `push: main` run of `pr-heavy-lanes.yml` finish and **save** the Mull +
-   build-tree caches.
+2. Let the `push: main` runs finish and **save** the caches: `pr-heavy-lanes.yml`
+   the Mull cache, `pr-full-ci.yml` the build tree (the one workflow that saves it).
 3. Open a throwaway one-line PR from a **fresh branch** and confirm the mutation
    job's *"Build Mull-22 from source (cache miss)"* step shows **skipped (0s)** and
    the FFI `.so` build is a warm relink — i.e. fresh branches actually inherit the

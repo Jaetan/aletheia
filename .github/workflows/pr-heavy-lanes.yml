@@ -37,13 +37,14 @@
 # Toolchain steps follow pr-full-ci.yml's and keep its cache keys, so these jobs
 # hit the Agda store that workflow already populated; each one additionally
 # carries this lane's scope condition, which that workflow's do not.  The workflow
-# ALSO runs on push:main: the heavy caches (Mull-from-source, the build tree)
-# are otherwise only written on feature branches, which do NOT cross-pollinate,
-# so a fresh PR branch would miss them, and the mutation lanes pay for the .so
-# build from cold — the C++ legs additionally for Mull and their mutation tree.
-# A push:main run writes those caches under the default branch, where every PR
-# branch can read them — turning the cold Mull build (318s) + .so build (338s)
-# into hits.
+# ALSO runs on push:main: the heavy caches (Mull-from-source, the mutation
+# trees) are otherwise only written on feature branches, which do NOT
+# cross-pollinate, so a fresh PR branch would miss them, and the C++ legs pay
+# for Mull and their mutation tree from cold.  A push:main run writes those
+# caches under the default branch, where every PR branch can read them,
+# turning the cold Mull build (318s) into a hit.  The build tree the lanes
+# restore is pr-full-ci.yml's to save, that sweep being the run that
+# type-checks every module; these lanes only read it.
 
 name: Heavy lanes (PR)
 
@@ -500,16 +501,19 @@ jobs:
       # pr-full-ci.yml's key (SAME tree, seeded on push:main, so a fresh PR
       # branch reads it via the restore-keys prefix); safe to share — Shake keys
       # on content and `build` errors on a stale tree, so it never ships stale.
+      # Restore-only: pr-full-ci is the one saver, being the sweep that
+      # type-checks every module, so the interfaces it saves are complete.
       # The C++ mutation compile has a cache of its own, per lane, set up
       # below with the toolchain rather than here: its objects depend on the
       # plugin and the Mull configuration, which this key does not carry.
-      - name: Restore incremental build tree (build/ + dist-newstyle/)
+      - name: Restore incremental build tree (build/ + _build/ + dist-newstyle/)
         if: env.LANE_SWEEPS != '0'
         id: build-tree-cache
         uses: actions/cache/restore@v6
         with:
           path: |
             build
+            _build
             dist-newstyle
             haskell-shim/dist-newstyle
           key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
@@ -551,14 +555,6 @@ jobs:
           overwrite: true
           retention-days: 30
 
-      # Seed the build tree so push:main writes it under the default branch for
-      # fresh PR branches to restore.  NOT gated to pull_request (push:main is
-      # the seeding event); `!cancelled()` avoids saving a truncated tree; skip
-      # when the exact-sha key already exists (a re-run / the sibling workflow
-      # saved first — GHA cache keys are immutable).  One lane saves, because
-      # that immutability makes a second writer of the same key a logged
-      # failure rather than a no-op; the Python lane reaches it soonest and is
-      # the least likely of the three to run out of clock before it does.
       # `!cancelled()`, so a lane that swept and then failed its verdict still
       # saves what it compiled; skipped on an exact-key hit, the key being
       # immutable, which makes a second write of one a logged failure.
@@ -574,37 +570,6 @@ jobs:
         with:
           path: ~/.ccache
           key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-${{ github.sha }}
-
-      # A run that fails before the build leaves no tree, and a save then writes
-      # a near-empty archive under this run's key.  Every later run matches it
-      # by the restore-keys prefix, newest first, ahead of a real one, restores
-      # nothing and rebuilds from scratch: measured 2026-09-21, three entries of
-      # about 1.4 kB against the 35 MB a built tree takes, and a 308-second Agda
-      # rebuild in the job that restored one, where a hit no-ops in 0.03s.  So
-      # the save asks first whether the artifact this tree is for is there.
-      - name: Is there a build tree to save?
-        id: build-tree-present
-        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'python' }}
-        run: |
-          set -euo pipefail
-          if [ -f build/libaletheia-ffi.so ]; then
-            echo "present=true" >> "${GITHUB_OUTPUT}"
-          else
-            echo "present=false" >> "${GITHUB_OUTPUT}"
-            echo "::notice::nothing to save: the shared library the tree is for is absent"
-          fi
-
-      - name: Save incremental build tree
-        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'python'
-          && steps.build-tree-cache.outputs.cache-hit != 'true'
-          && steps.build-tree-present.outputs.present == 'true' }}
-        uses: actions/cache/save@v6
-        with:
-          path: |
-            build
-            dist-newstyle
-            haskell-shim/dist-newstyle
-          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
 
   # ── The C++ verdict ────────────────────────────────────────────────────────
   # The two C++ legs above each sweep one mutation tree and have no verdict of

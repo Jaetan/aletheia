@@ -202,11 +202,12 @@ jobs:
       # on CONTENT, not mtime, which actions/cache resets — so `shake -- build`
       # reproduces the exact current .so and the benchmark measures the PR's
       # actual code.
-      - name: Restore incremental build tree (build/ + dist-newstyle/)
+      - name: Restore incremental build tree (build/ + _build/ + dist-newstyle/)
         uses: actions/cache/restore@v6
         with:
           path: |
             build
+            _build
             dist-newstyle
             haskell-shim/dist-newstyle
           key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
