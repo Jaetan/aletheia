@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# Prune the Actions cache of the entries no run can restore or would be given.
+#
+# The cache is held under a size ceiling, and at the ceiling the platform
+# evicts whatever was read longest ago, whichever branch needs it.  Two kinds of
+# entry fill it without ever being read again: the ones a pull request's runs
+# saved, which live on that request's merge ref and are unreadable once it is
+# closed, and the ones on `main` under a commit-suffixed key that a newer entry
+# under the same prefix has superseded.  `tools/prune_actions_cache.py` deletes
+# those two kinds and nothing else; this workflow runs it.
+#
+# Two paths.  A closed pull request prunes its own ref at once, taking the event
+# as the evidence its runs are over.  The schedule sweeps the whole store, which
+# also catches a close whose run could not delete (a request opened by a bot is
+# run under a token the `permissions` below may not raise), and a dispatch is
+# the same sweep on demand.
+name: Cache prune
+
+on:
+  pull_request:
+    types: [closed]
+  schedule:
+    # Daily, off the hour, after the night's merges have saved their entries.
+    - cron: '23 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cache-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Prune the Actions cache
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # `gh cache delete` needs this; nothing else here writes.
+      actions: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Prune
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          # Empty on the schedule and on a dispatch, which sweep the whole store.
+          CLOSED_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ -n "${CLOSED_PR_NUMBER}" ]; then
+            python3 -m tools.prune_actions_cache --apply --ref "refs/pull/${CLOSED_PR_NUMBER}/merge"
+          else
+            python3 -m tools.prune_actions_cache --apply
+          fi

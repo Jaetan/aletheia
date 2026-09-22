@@ -74,7 +74,7 @@ followed.
    section), so every subsequent PR is gated.
 
 **Mutation testing → required (2026-06-20).** The `mutation testing` check (the
-Python, Go, and C++ drift gate in `pr-heavy-lanes.yml`, the C++ half as six legs
+Python, Go, and C++ drift gate in `pr-heavy-lanes.yml`, the C++ half as nine legs
 merged by the `mutation cpp` job, three per mutation tree; the Rust binding has
 no mutation lane yet) follows the same
 advisory-green → required rollout. But because its heavy caches (Mull-from-source,

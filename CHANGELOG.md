@@ -12,6 +12,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **The Actions cache is pruned of what nothing can restore.** The repository's
+  cache stood past its ceiling, and at the ceiling the platform evicts whatever
+  was read longest ago, whichever lane needed it. Most of it was unreadable: an
+  entry a pull request's run saves lives on that request's merge ref, which only
+  that request's runs restore, so a closed request's entries are dead weight, and
+  an entry on `main` under a commit-suffixed key is passed over once a newer one
+  under the same prefix exists, because a prefix match yields the newest.
+  `tools/prune_actions_cache.py` deletes those two kinds and nothing else,
+  keeping a request whose state it could not read and the newest two entries
+  under each prefix on `main`, and prints the plan unless asked to apply it.
+  `.github/workflows/cache-prune.yml` runs it on every closed pull request, for
+  that request's ref, and once a day over the whole store.
+
 - **An address-sanitizer ctest lane, always-on beside the UndefinedBehaviorSanitizer
   one.** The sanitizer matrix `AGENTS/cpp.md` cat 33(a) asks for had one half: UB
   was gated on every sweep and the lifetime of a reference was gated nowhere. A
@@ -47,6 +60,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   subscript one container, which is the case where no bound is hand-written.
 
 ### Changed
+
+- **The C++ mutation lanes' compiler caches are capped from a measurement.**
+  Each of the nine lanes keeps its own cache of its tree's objects, and the
+  cap every lane inherited would have let the nine together, on `main` and on
+  each open pull request's ref, outgrow the platform's ceiling on their own.
+  Each slice was built from cold into an empty cache: a leak slice holds about
+  25 MB, a plain slice about 26 MB and an address slice about 30 MB, the
+  sanitizer's instrumentation making the address objects the largest rather
+  than the smallest. The cap is now four caches of the largest slice, room for
+  the live generation of objects and three superseded ones, and the lane's
+  comment states the figures and the rule. Each lane also prints its cache's
+  own statistics before saving it, so the figures can be re-read from a run.
 
 - **The address legs' budget is read off their own run.** They shipped budgeted
   at 75 minutes from a ratio measured locally, which scaled the sweep: the
