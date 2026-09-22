@@ -426,13 +426,26 @@ jobs:
       # Per lane, because a lane's objects are its own: the trees differ by
       # their sanitizer and the slices by the configuration each is given, so
       # one shared key would hold one lane's objects and miss for every other
-      # lane.  CCACHE_MAXSIZE is read off the tree it holds: 114 MB of objects,
-      # so 400M leaves room for a few revisions of them and the lanes
-      # together stay well inside what the platform keeps.  The key carries the
-      # toolchain deb key verbatim, because compiler_check=content hashes
-      # clang-23 and not the LLVM runtime beside it, and that key is what pins
-      # it.  Split restore/save like the build tree, so a lane that built its
-      # tree and then failed still seeds the next run.
+      # lane.  CCACHE_MAXSIZE is four fresh caches of the largest slice, rounded
+      # up.  Measured, each slice built from cold into an empty cache, 24 cores
+      # at the build's own job cap: a leak slice holds 24944 to 24996 KiB, a
+      # plain slice 26060 to 26100 KiB, an address slice 29688 to 29696 KiB
+      # (the address objects are the largest, the sanitizer's instrumentation
+      # being in them), so four of the largest is 121.6 MB and the cap is 128M.
+      # Four, because a saved cache is the restored one plus this run's
+      # objects, and it holds a superseded generation for every change to what
+      # every object hashes (the plugin, the configuration, the toolchain)
+      # until the cap trims it, in approximate LRU: three such generations
+      # beside the live one is the room, and the live one, being the newest,
+      # is the last to go.  The cap bounds the store as a whole: nine lanes at
+      # the cap on `main` and on each open pull request's ref, beside the other
+      # families, stay under the platform's 10 GB where nine at 400M would pass
+      # it with two requests open.
+      # The key carries the toolchain deb key verbatim, because
+      # compiler_check=content hashes clang-23 and not the LLVM runtime beside
+      # it, and that key is what pins it.  Split restore/save like the build
+      # tree, so a lane that built its tree and then failed still seeds the
+      # next run.
       - name: Set up ccache (C++ mutation trees)
         if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
         run: |
@@ -454,7 +467,7 @@ jobs:
           }
           {
             echo "CCACHE_DIR=${HOME}/.ccache"
-            echo "CCACHE_MAXSIZE=400M"
+            echo "CCACHE_MAXSIZE=128M"
           } >> "${GITHUB_ENV}"
       - name: Restore ccache (C++ mutation trees)
         if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
@@ -465,6 +478,12 @@ jobs:
           key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-${{ github.sha }}
           restore-keys: |
             ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-
+      # The counters travel with the cache, so a restored one carries every
+      # earlier run's hits and misses; zeroed here, the report below reads
+      # this run alone.
+      - name: Zero ccache statistics (C++ mutation trees)
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
+        run: ccache --zero-stats
 
       # Restore the build tree (Agda .agdai + MAlonzo .hs + the copied .so, plus
       # the shake-exe root dist-newstyle) so `cabal run shake -- build` below is a
@@ -543,6 +562,12 @@ jobs:
       # `!cancelled()`, so a lane that swept and then failed its verdict still
       # saves what it compiled; skipped on an exact-key hit, the key being
       # immutable, which makes a second write of one a logged failure.
+      # The record of what the lane's cache held and did, in the log: the
+      # restore step reports only the tarball's size, and the cap above is
+      # sized from figures this line is how a later run re-reads.
+      - name: Report ccache (C++ mutation trees)
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' }}
+        run: ccache --show-stats
       - name: Save ccache (C++ mutation trees)
         if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'cpp' && steps.ccache-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6

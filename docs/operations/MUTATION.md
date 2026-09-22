@@ -256,12 +256,17 @@ mull-runner-23 --version    # mull-runner {STABLE_MULL_VERSION}
 `mull-runner` / `mull-reporter` are Rust binaries; `mull-ir-frontend-23` is a
 C++ clang plugin `.so`.  The standard build (`cmake -B build`) also requires
 `clang++-23` (the project supports the latest stable Clang only; g++
-unsupported); the mutation lane uses the same `clang++-23` inside its two
+unsupported); the mutation lane uses the same `clang++-23` inside its three
 dedicated trees, `cpp/build-mutation/`, `cpp/build-mutation-plain/` and
-`cpp/build-mutation-asan/`.  CI
-caches both the clang-23 debs and the
-from-source Mull build (keyed on the Mull tag + LLVM version), see
-`.github/workflows/pr-heavy-lanes.yml`.
+`cpp/build-mutation-asan/`.  CI caches the clang-23 debs, the from-source Mull
+build (keyed on the Mull tag + LLVM version) and, per lane, the compiler cache
+of its tree's objects under a cap the lane's own comment sizes from a
+measurement; see `.github/workflows/pr-heavy-lanes.yml`.  The repository's
+Actions cache as a whole is kept under its ceiling by
+`.github/workflows/cache-prune.yml`, which runs `tools/prune_actions_cache.py`
+on every closed pull request and once a day: a closed request's entries, which
+nothing can restore, and the entries on `main` a newer one under the same key
+prefix has superseded are deleted, and nothing else is.
 
 On a pull request the runner sweeps only the bindings whose directory the diff
 against `main` touches, and each CI lane installs only the toolchain its own
