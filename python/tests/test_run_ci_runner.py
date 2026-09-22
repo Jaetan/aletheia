@@ -11,6 +11,7 @@ level (the lane scheduler itself is covered by test_scheduler.py).
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 from tools._ci_steps import (
@@ -21,6 +22,14 @@ from tools._ci_steps import (
     build_prereq_cmd,
     register_all_steps,
     should_run_staleness,
+)
+from tools._common import find_executable, run_capture
+from tools.check_gate_claim import (
+    SOURCES_ENV,
+    SOURCES_LINE,
+    SOURCES_UNRECORDED,
+    evidence_for,
+    sources_digest_of_worktree,
 )
 from tools.run_ci import (
     OptInOptions,
@@ -118,16 +127,23 @@ def test_heavy_limit_non_positive_clamped_to_one(monkeypatch: pytest.MonkeyPatch
     assert parse_args(["--ci-heavy-limit", "-3"]).heavy_limit == 1
 
 
-def _runner(tmp_path: Path, *, parallel: bool = False) -> Runner:
-    """Build a Runner writing to a temp log, with all opt-in lanes off."""
+def _runner(tmp_path: Path, *, parallel: bool = False, fast: bool = False) -> Runner:
+    """Build a Runner writing to a temp log, with all opt-in lanes off.
+
+    ``tmp_path`` becomes a git repository, since the sweep digests the build
+    sources it observes at the start and re-measures them at the end.
+    """
+    init = run_capture([find_executable("git"), "-C", str(tmp_path), "init", "-q"])
+    assert init.returncode == 0, init.stderr
     ctx = RunContext(
         repo_root=tmp_path,
         branch="test",
         commit="0000000",
         log_path=tmp_path / "ci.log",
         python="python3",
+        sources=sources_digest_of_worktree(tmp_path),
     )
-    opts = OptInOptions(repro=False, stability=False, mutation=False, parallel=parallel)
+    opts = OptInOptions(repro=False, stability=False, mutation=False, parallel=parallel, fast=fast)
     return Runner(opts, ctx)
 
 
@@ -303,3 +319,69 @@ def test_live_progress_streams_to_stderr(
     # ✓ line follows its header directly — no filler blank lines in the log.
     assert "quickstep (0s) ───\n  ✓ quickstep" in log
     assert "\n\n─── quickstep" not in log
+
+
+def test_a_full_sweep_records_and_exports_the_sources_it_observes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The header carries the digest, every step sees it, and the export is undone.
+
+    The gate-claim enforcer runs inside the sweep, before any log of it is
+    finished, so the export is the only way it can learn which tree the sweep
+    observes; the header is what it reads once the log is finished.
+    """
+    monkeypatch.delenv(SOURCES_ENV, raising=False)
+    runner = _runner(tmp_path)
+    runner.step("observe", f"echo seen=${SOURCES_ENV}", lane="x")
+    assert runner.run() == 0
+    log = (tmp_path / "ci.log").read_text(encoding="utf-8")
+    assert f"{SOURCES_LINE}{runner.ctx.sources}\n" in log
+    assert f"seen={runner.ctx.sources}" in log
+    assert SOURCES_ENV not in os.environ
+
+
+def test_a_full_sweep_that_passed_is_read_back_as_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The log a passing sweep leaves is one the enforcer accepts for its digest.
+
+    The writer and the reader are pinned to each other here: a summary line
+    reworded on one side without the other is a sweep whose evidence nothing
+    can read.
+    """
+    monkeypatch.delenv(SOURCES_ENV, raising=False)
+    runner = _runner(tmp_path)
+    runner.step("a", "exit 0", lane="x")
+    assert runner.run() == 0
+    assert evidence_for(runner.ctx.sources, log_dir=tmp_path, environ={}) is not None
+    assert evidence_for("0" * 64, log_dir=tmp_path, environ={}) is None
+
+
+def test_a_fast_sweep_records_no_sources_and_exports_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fast-tier sweep runs a subset, so its passing log vouches for no tree."""
+    monkeypatch.setenv(SOURCES_ENV, "stale-from-a-caller")
+    runner = _runner(tmp_path, fast=True)
+    runner.step("observe", f"echo seen=[${SOURCES_ENV}]", lane="x")
+    assert runner.run() == 0
+    log = (tmp_path / "ci.log").read_text(encoding="utf-8")
+    assert f"{SOURCES_LINE}{SOURCES_UNRECORDED}\n" in log
+    assert "seen=[]" in log
+    assert os.environ[SOURCES_ENV] == "stale-from-a-caller"
+    assert evidence_for(runner.ctx.sources, log_dir=tmp_path, environ={}) is None
+
+
+def test_a_sweep_whose_sources_moved_under_it_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every step passed, but a build source changed meanwhile: no record, exit 1."""
+    monkeypatch.delenv(SOURCES_ENV, raising=False)
+    runner = _runner(tmp_path)
+    runner.step(
+        "edit", "mkdir -p src && echo 'module A where' > src/A.agda", cwd=tmp_path, lane="x"
+    )
+    assert runner.run() == 1
+    log = (tmp_path / "ci.log").read_text(encoding="utf-8")
+    assert "build sources moved during the sweep" in log
+    assert evidence_for(runner.ctx.sources, log_dir=tmp_path, environ={}) is None

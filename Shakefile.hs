@@ -1186,13 +1186,17 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
 
     phony "check-gate-claim" $ do
         -- Gate-claim integrity enforcer: a commit may not assert that gates are
-        -- clean unless they were actually run at its own SHA.
-        -- When a commit message contains a gate-clean assertion ("all gates
-        -- clean", "gates green", etc.), verify that build/libaletheia-ffi.so
-        -- mtime postdates every build-relevant staged source file's mtime.
+        -- clean unless a sweep observed the build sources it commits.  When a
+        -- commit message contains a gate-clean assertion ("all gates clean",
+        -- "gates green", etc.), the check digests the commit's build sources
+        -- and asks for a sweep that recorded that digest: the sweep this
+        -- target runs inside, which exports the digest of the tree it
+        -- observes, or a passed log under tools/ci-output/ whose header
+        -- carries it.  Content, never a timestamp: a checkout moves mtimes
+        -- and no verdict.
         --
-        -- Defaults to HEAD-mode when invoked via Shake (pre-commit mode is
-        -- only meaningful inside the actual pre-commit hook context).
+        -- Defaults to HEAD-mode when invoked via Shake (a named commit is the
+        -- audit form, for a commit that is no longer HEAD).
         cmd_ pythonBin "-m" "tools.check_gate_claim" "HEAD"
 
     phony "check-runbook" $ do

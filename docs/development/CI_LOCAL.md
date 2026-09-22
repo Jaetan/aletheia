@@ -50,8 +50,14 @@ authoritative.
 Plus 3 opt-in lanes (reproducible build, stability bench, mutation
 testing) that can be enabled individually via CLI flags or env vars,
 or all at once via `--full`.  Logs to
-`tools/ci-output/ci-<branch>-<timestamp>.log` for use as falsifiable
-gate-claim-integrity evidence.
+`tools/ci-output/ci-<branch>-<timestamp>.log`.  The log's header records a
+digest of the build sources the sweep observed (the Agda sources, the
+Shakefile, the Haskell shim and the library file, keyed by git's own blob ids,
+so a checkout that rewrites every mtime leaves it unchanged), and the summary
+re-measures it: a sweep whose build sources moved while it ran fails rather
+than vouch for a tree no step is known to have observed.  A passed log is the
+falsifiable evidence behind a "gates clean" claim, and `tools/check_gate_claim.py`
+reads it by that digest.  A `--fast` sweep runs a subset and records no digest.
 
 ### The build prerequisite and the staleness gate
 
@@ -333,8 +339,8 @@ git push --no-verify
 
 Only bypass when you understand why — the hook is the principal correctness
 gate. The gate-claim-integrity enforcer (`tools/check_gate_claim.py`) still
-validates the .so freshness invariant on commits with "all gates clean"
-assertions, even if the pre-push hook didn't run.
+refuses a commit whose message asserts "all gates clean" over build sources no
+passed sweep recorded, even if the pre-push hook didn't run.
 
 ## See also
 
@@ -344,5 +350,4 @@ assertions, even if the pre-push hook didn't run.
 - [`tools/_iwyu.py`](../../tools/_iwyu.py) — its engine (internal): the `.agdai` reader driver + both analyses.
 - [`tools/agda-iwyu-reader/`](../../tools/agda-iwyu-reader/) — the Haskell reader (links the prebuilt Agda from the cabal store) + its `test/` fixture matrix.
 - [`tools/check_changelog.py`](../../tools/check_changelog.py) — CHANGELOG discipline (public API + build/CI/tooling).
-- [`tools/check_gate_claim.py`](../../tools/check_gate_claim.py) — gate-claim integrity (Phase 2).
-- Gate-claim integrity — a "gates clean" claim means fresh runs at the head SHA, the discipline `tools/check_gate_claim.py` enforces.
+- [`tools/check_gate_claim.py`](../../tools/check_gate_claim.py) — gate-claim integrity: a "gates clean" claim means a sweep observed the build sources the commit carries, read from the sweep's own record and never from a timestamp.
