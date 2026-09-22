@@ -68,11 +68,11 @@ jobs:
   # observed survivors > the docs/MUTATION_BENCH.yaml baseline.  It runs once
   # per binding, in parallel: the three tools cost wildly different amounts and
   # a single job charges the slowest of them against a clock the other two have
-  # already spent.  The C++ binding is six legs, each one tree carrying one
+  # already spent.  The C++ binding is nine legs, each one tree carrying one
   # slice of the surface's mutants, and the `mutation cpp` job below unions
   # each tree's slices and intersects the trees into the one C++ verdict; a
   # leg judges no survivor, since it has read neither the rest of its own
-  # tree nor anything of the other, where the mutant it let live may die.
+  # tree nor anything of the others, where the mutant it let live may die.
   # The `mutation testing` job at the end of this file is what the main branch
   # ruleset requires; it is the one that reports these lanes.
   mutation-lane:
@@ -119,6 +119,15 @@ jobs:
           # 8m09s + 45m41s = 57m31s, the builds of that run compiling one unit
           # at a time where the runner now builds four at once.  So python
           # 36m02s, go 46m30s, leak 78m00s, plain 90m48s, each rounded up.
+          # The address tree has no CI run to read yet, so its legs are budgeted
+          # from the ratio of the two trees measured locally under the lane's own
+          # command on one host: the plain tree sweeps whole in 5m10s and the
+          # address tree in 8m05s, 1.56 times, because the sanitizer's own
+          # instrumentation is compiled into every unit and mutated with it
+          # (1185 mutants against 1037).  The slowest plain leg recorded, 23.9,
+          # scaled by that ratio is 37.3, plus the same 33.3 cold allowance,
+          # 70.6, rounded up to 75.  The first run of these legs is their first
+          # measurement and is what re-takes the figure.
           # Each budget is the slowest run recorded, so a faster one leaves it
           # where it is.  A budget is a measurement of the
           # surface it was read from: it is re-taken when the mutation surface
@@ -188,11 +197,35 @@ jobs:
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
+          - lane: cpp-address-1
+            binding: cpp
+            stage: address
+            slice: '1'
+            timeout: 75
+            skip_python: '1'
+            skip_go: '1'
+            skip_cpp: ''
+          - lane: cpp-address-2
+            binding: cpp
+            stage: address
+            slice: '2'
+            timeout: 75
+            skip_python: '1'
+            skip_go: '1'
+            skip_cpp: ''
+          - lane: cpp-address-3
+            binding: cpp
+            stage: address
+            slice: '3'
+            timeout: 75
+            skip_python: '1'
+            skip_go: '1'
+            skip_cpp: ''
     # Runs on every PR commit-state (so the required result reflects the latest
     # commit) AND on push:main (to seed the build caches — see the header).
     # cancel-in-progress collapses rapid PR iteration to ~one run on the settled
     # state; push:main is exempt (below).  Per-lane group so the lanes never
-    # cancel each other (the two C++ legs included), nor the repro / stability
+    # cancel each other (the C++ legs included), nor the repro / stability
     # lanes.
     concurrency:
       group: heavy-mutation-${{ matrix.lane }}-${{ github.event.pull_request.number || github.ref }}
@@ -390,11 +423,11 @@ jobs:
       # a cold tree builds in 52s reading 204 misses of 205 cacheable calls, and
       # the same tree wiped and rebuilt takes 5s reading 204 hits of 204.
       #
-      # Per lane, because a lane's objects are its own: the two trees differ by
+      # Per lane, because a lane's objects are its own: the trees differ by
       # their sanitizer and the slices by the configuration each is given, so
-      # one shared key would hold one lane's objects and miss for the other
-      # five.  CCACHE_MAXSIZE is read off the tree it holds: 114 MB of objects,
-      # so 400M leaves room for a few revisions of them and the six lanes
+      # one shared key would hold one lane's objects and miss for every other
+      # lane.  CCACHE_MAXSIZE is read off the tree it holds: 114 MB of objects,
+      # so 400M leaves room for a few revisions of them and the lanes
       # together stay well inside what the platform keeps.  The key carries the
       # toolchain deb key verbatim, because compiler_check=content hashes
       # clang-23 and not the LLVM runtime beside it, and that key is what pins

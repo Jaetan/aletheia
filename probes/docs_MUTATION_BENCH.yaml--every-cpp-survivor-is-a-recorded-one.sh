@@ -15,36 +15,44 @@
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v mull-runner-23 > /dev/null || { echo "Mull not installed, claim untestable"; exit 0; }
-[ -x cpp/build-mutation/unit_tests ] && [ -x cpp/build-mutation-plain/unit_tests ] ||
-    { echo "the mutation trees are not both built, claim untestable"; exit 0; }
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
-# Both trees are swept, because a mutant survives the lane only where every
-# lane let it survive: the leak tree reports a destructor removal that leaks,
-# the plain tree carries the allocation-fault sweeps, and the two cannot be
-# one binary because a sanitizer defines the allocation functions those sweeps
-# replace.
+# The trees are the ones the lane sweeps, read from the lane rather than named
+# here, so a tree the lane gains is a tree this probe reads.
+trees=$("$py" -c 'from tools.mutation_cpp import CppTree
+print(" ".join(tree.value for tree in CppTree))') || exit 2
+for lane in $trees; do
+    built=$("$py" -c 'import sys
+from tools.mutation_cpp import CppTree
+print(CppTree(sys.argv[1]).directory)' "$lane") || exit 2
+    [ -x "cpp/$built/unit_tests" ] ||
+        { echo "the $lane mutation tree is not built, claim untestable"; exit 0; }
+done
+# Every tree is swept, because a mutant survives the lane only where every
+# tree carrying it let it survive: the leak tree reports a destructor removal
+# that leaks, the address tree a value read after what held it has gone, and
+# the plain tree carries the allocation-fault sweeps, which no sanitizer tree
+# can carry because a sanitizer defines the allocation functions they replace.
 # The runner's argv is the lane's own, built by tools/mutation_cpp.py, so the
 # cap per mutant and the pinned order have one owner; only where the reports
 # land is this probe's. Both matter to this claim: a mutant the runner ends at
 # its cap is neither killed nor surviving, so it would leave the ledger's
 # candidates without being read, and an unpinned order decides which test
 # reports before a dying process stops.
-dir=$(mktemp -d) || exit 2
-trap 'rm -rf "$dir"' EXIT
-for lane in leak plain; do
-    argv=$("$py" -c 'import shlex, sys
-from pathlib import Path
-from tools.mutation_cpp import CppLeg, CppTree, cpp_lane_command
-leg = CppLeg(CppTree(sys.argv[2]))
-print(shlex.join(cpp_lane_command("mull-runner-23", Path("cpp", leg.directory).resolve(), Path(sys.argv[1]), leg)))' "$dir" "$lane") || exit 2
-    (cd cpp && unset ALETHEIA_LIB && ALETHEIA_REPO_ROOT="$OLDPWD" eval "$argv" > /dev/null 2>&1) || true
-    [ -s "$dir/cpp-mull-$lane.json" ] || {
-        echo "the sweep of the $lane tree produced no report"
-        exit 1
-    }
-done
-"$py" - "$dir/cpp-mull-leak.json" "$dir/cpp-mull-plain.json" <<'PY'
+# One sweep serves every probe that reads one: tools/mutation_sweep_cache.py
+# runs it once, keyed on each tree's test binary and the lane's own argv, so a
+# second reader pays nothing and a rebuilt tree is swept again. The lane's
+# environment and the runner's arguments are the lane's own, built by
+# tools/mutation_cpp.py, so the cap per mutant and the pinned order have one
+# owner.
+dir=$("$py" -m tools.mutation_sweep_cache) || {
+    echo "no sweep of the mutation trees could be had"
+    exit 2
+}
+reports=""
+for lane in $trees; do reports="$reports $dir/cpp-mull-$lane.json"; done
+# shellcheck disable=SC2086
+"$py" - $reports <<'PY'
 import collections
 import json
 import sys

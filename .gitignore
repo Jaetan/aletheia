@@ -7,6 +7,9 @@ build-tsan/
 build-fuzz/
 build-mutation/
 build-mutation-*/
+# The sweeps the probe store shares (tools/mutation_sweep_cache.py): reports of
+# a run, keyed on the trees that produced them, not sources.
+cpp/mutation-sweeps/
 _build/
 dist/
 dist-newstyle/

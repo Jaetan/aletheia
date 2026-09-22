@@ -19,7 +19,7 @@
 # Non-zero exit: a C++ unit of a tree compiles without the define, or under a
 # tree's flags the program exits zero or dies without the check's message, or
 # without the define it does not run to its end. Exits 0 with a note when
-# clang-23 or both trees are absent.
+# clang-23 or a tree is absent.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v clang++-23 > /dev/null || { echo "clang-23 not installed, claim untestable"; exit 0; }

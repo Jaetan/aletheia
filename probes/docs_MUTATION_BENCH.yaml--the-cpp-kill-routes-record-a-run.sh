@@ -11,7 +11,7 @@
 # six orders of one tree, and the lane pins the order precisely so that the
 # census is a measurement rather than one sample of that shuffle. Under the
 # pinned order alone one mutant still moved between the test and the fault
-# route, a skipped lookup guard reading a string past a map's end; both trees
+# route, a skipped lookup guard reading a string past a map's end; the trees
 # now compile under libstdc++'s debug mode, which ends such a read at the
 # check, and two sweeps of each tree then moved nothing.
 # A timeout is the exception, and it is not absorbed: one mutant runs close to
@@ -25,26 +25,29 @@
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v mull-runner-23 > /dev/null || { echo "Mull not installed, claim untestable"; exit 0; }
-[ -x cpp/build-mutation/unit_tests ] && [ -x cpp/build-mutation-plain/unit_tests ] ||
-    { echo "the mutation trees are not both built, claim untestable"; exit 0; }
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
-dir=$(mktemp -d) || exit 2
-trap 'rm -rf "$dir"' EXIT
-# The lane's environment: the repository root for the integration suite, and
-# no ALETHEIA_LIB, so the library lookup reads the root as the lane's does.
-# The runner's argv is the lane's own, built by tools/mutation_cpp.py, so the
-# cap per mutant and the pinned order have one owner; only where the reports
-# land is this probe's.
-for lane in leak plain; do
-    argv=$("$py" -c 'import shlex, sys
-from pathlib import Path
-from tools.mutation_cpp import CppLeg, CppTree, cpp_lane_command
-leg = CppLeg(CppTree(sys.argv[2]))
-print(shlex.join(cpp_lane_command("mull-runner-23", Path("cpp", leg.directory).resolve(), Path(sys.argv[1]), leg)))' "$dir" "$lane") || exit 2
-    (cd cpp && unset ALETHEIA_LIB && ALETHEIA_REPO_ROOT="$OLDPWD" eval "$argv" > /dev/null 2>&1) || true
-    [ -f "$dir/cpp-mull-$lane.sqlite" ] || { echo "the $lane tree's sweep wrote no SQLite report"; exit 1; }
+# The trees are the ones the lane sweeps, read from the lane rather than named
+# here, so a tree the lane gains is a tree this probe reads.
+trees=$("$py" -c 'from tools.mutation_cpp import CppTree
+print(" ".join(tree.value for tree in CppTree))') || exit 2
+for lane in $trees; do
+    built=$("$py" -c 'import sys
+from tools.mutation_cpp import CppTree
+print(CppTree(sys.argv[1]).directory)' "$lane") || exit 2
+    [ -x "cpp/$built/unit_tests" ] ||
+        { echo "the $lane mutation tree is not built, claim untestable"; exit 0; }
 done
+# One sweep serves every probe that reads one: tools/mutation_sweep_cache.py
+# runs it once, keyed on each tree's test binary and the lane's own argv, so a
+# second reader pays nothing and a rebuilt tree is swept again. The lane's
+# environment and the runner's arguments are the lane's own, built by
+# tools/mutation_cpp.py, so the cap per mutant and the pinned order have one
+# owner.
+dir=$("$py" -m tools.mutation_sweep_cache) || {
+    echo "no sweep of the mutation trees could be had"
+    exit 2
+}
 "$py" - "$dir" <<'PY'
 import sys
 from pathlib import Path

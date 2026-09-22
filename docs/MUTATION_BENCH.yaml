@@ -333,6 +333,15 @@ bindings:
       # measurement of this toolchain and not a target.
       survivors: 0
       total_mutants: 1037
+      # What each tree carries, which is not one number: the address tree drops
+      # the two mutators over calls, since a sanitizer inserts its own checks at
+      # the source location of the statement they guard and a mutator over calls
+      # mutates those rather than the program's own. Each tree is held to its own
+      # figure, and the merge judges a mutant only over the trees carrying it.
+      mutants_by_tree:
+        leak: 1037
+        plain: 1037
+        address: 310
       # Mutants per file, which is what the sweep's slices are cut on: a CI
       # leg builds one slice of the surface, and a slice is a set of files
       # whose recorded counts add up to about a third of this total. The
@@ -378,9 +387,10 @@ bindings:
       kill_routes:
         test: 938
         leak: 0
+        address: 22
         kernel: 2
         check: 70
-        fault: 27
+        fault: 5
         timeout: 0
       # Every survivor, by mutator, repository-relative file, the text of its
       # source line and how many mutants share that line. The lane refuses a
@@ -389,14 +399,15 @@ bindings:
       # deletes its row here.
       survivors_ledger: []
       # Every kill no test observes by behaviour, by mutator, repository-relative
-      # file, the text of its source line, the route it took and the invariant
-      # the standard library's check refused; the count is how many mutants of
+      # file, the text of its source line, the route it took and what refused
+      # it: the invariant of the standard library's check, or the class the
+      # address sanitizer names its report by. The count is how many mutants of
       # that mutator share the line. These are the mutations that run straight
       # into an operation the language does not define, a guard for most of
       # them and the value an index is computed from for the rest, with the
-      # suite reporting nothing before the process stops: the library's check
-      # is what ends them, and on the shipped build, which runs no such check,
-      # nothing would.
+      # suite reporting nothing before the process stops: an instrument is what
+      # ends them, and on the shipped build, which runs none of them, nothing
+      # would.
       #
       # The lane refuses a row this does not name, as it refuses an unrecorded
       # survivor: a new one is a line somebody has to look at, not a number to
@@ -455,14 +466,14 @@ bindings:
         - mutator: cxx_eq_to_ne
           file: cpp/src/ffi_backend.cpp
           text: if (env == nullptr || *env == '\0')
-          route: fault
-          refused: ''
+          route: address
+          refused: SEGV
           count: 1
         - mutator: cxx_eq_to_ne
           file: cpp/src/ffi_backend.cpp
           text: if (sym == nullptr)
-          route: fault
-          refused: ''
+          route: address
+          refused: SEGV
           count: 14
         - mutator: cxx_ge_to_gt
           file: cpp/src/client.cpp
@@ -491,44 +502,44 @@ bindings:
         - mutator: cxx_ne_to_eq
           file: cpp/src/backend.cpp
           text: if (this != &other) {
-          route: fault
-          refused: ''
+          route: address
+          refused: heap-use-after-free
           count: 1
         - mutator: cxx_ne_to_eq
           file: cpp/src/client.cpp
           text: if (batch != nullptr && !diags_.empty()) {
-          route: fault
-          refused: ''
+          route: address
+          refused: SEGV
           count: 1
         - mutator: cxx_ne_to_eq
           file: cpp/src/dbc.cpp
           text: m != nullptr && m->multiplexor == multiplexor) {
-          route: fault
-          refused: ''
+          route: address
+          refused: SEGV
           count: 1
         - mutator: cxx_ne_to_eq
           file: cpp/src/dbc.cpp
           text: m != nullptr && seen.insert(m->multiplexor).second) {
-          route: fault
-          refused: ''
+          route: address
+          refused: SEGV
           count: 1
         - mutator: cxx_ne_to_eq
           file: cpp/src/ffi_backend.cpp
           text: 'detail::rts_init_args(rts_cores, override_env != nullptr ? override_env : "");'
-          route: fault
-          refused: ''
+          route: address
+          refused: SEGV
           count: 1
         - mutator: cxx_ne_to_eq
           file: cpp/src/rational_renderer.cpp
           text: if (const char* err = dlerror(); err != nullptr)
-          route: fault
-          refused: ''
+          route: address
+          refused: SEGV
           count: 1
         - mutator: cxx_ne_to_eq
           file: cpp/src/rational_renderer.cpp
           text: if (env_path != nullptr) {
-          route: fault
-          refused: ''
+          route: address
+          refused: SEGV
           count: 1
         - mutator: cxx_remove_void_call
           file: cpp/src/excel.cpp

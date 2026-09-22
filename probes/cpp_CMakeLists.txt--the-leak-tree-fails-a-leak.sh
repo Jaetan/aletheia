@@ -5,7 +5,8 @@
 # Probes cpp/CMakeLists.txt.
 # Claim: the leak tree of the mutation lane fails a program that leaks, by
 # LeakSanitizer's exit code and report. The lane counts a mutant as a
-# survivor only where both trees let it live, and the leak tree's reason to
+# survivor only where every tree carrying it let it live, and the leak
+# tree's reason to
 # exist is a mutant whose removed call would have released memory; that
 # reading is worth something only if the tree's own flags make a leak fail. A
 # unit that leaks one block is compiled with the flags the tree records for

@@ -26,7 +26,9 @@ grep -q '^ALETHEIA_SANITIZER:STRING=address$' "$cache" || {
 }
 log=$tree/probe-scratch/nesting-test.log
 mkdir -p "$(dirname "$log")" || exit 2
-cmake --build "$tree" --target unit_tests -j"$(nproc)" > "$log" 2>&1 || {
+# One core is left free, since the machine is somebody's to use while a
+# probe runs.
+cmake --build "$tree" --target unit_tests -j"$(($(nproc) - 1))" > "$log" 2>&1 || {
     echo "the address-sanitizer unit tests do not build:"
     tail -20 "$log"
     exit 2
