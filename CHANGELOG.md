@@ -695,6 +695,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A "gates clean" claim is checked against the sweep's own record of what it
+  observed, never against a timestamp.** `tools/check_gate_claim.py` compared
+  the modification time of `build/libaletheia-ffi.so` with that of every
+  build-relevant file the commit changed. A checkout rewrites every mtime and
+  moves no content, so after a branch switch every such file read as newer
+  than the library, the build the remedy named found nothing to relink, and
+  only a clean rebuild, measured at 3m48s of compiler time spent to change a
+  timestamp, cleared a gate that had fired on a clean tree. The sweep now
+  digests the build sources it observes, git's own blob ids over the Agda
+  sources, the Shakefile, the Haskell shim and the library file, records the
+  digest in its log's header and exports it to every step it runs; the check
+  digests the commit's sources the same way and asks for a sweep that recorded
+  it, the running one or a passed log under `tools/ci-output/`. A sweep
+  re-measures the digest before it vouches and fails when the sources moved
+  under it, and a `--fast` sweep, which runs a subset, records none. The
+  remedy the check prints is the sweep, whose log is the evidence.
+
 - **A build-tree cache entry is saved only where there is a build tree.** The
   save step was gated on the run not having been cancelled, which is true of a
   run that failed, so a job that died before the build still wrote an archive of

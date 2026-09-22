@@ -5,8 +5,11 @@
 Chains the full gate sweep that commit messages have historically asserted
 "all gates clean / green" against, plus the offline enforcers
 (check-changelog, check-gate-claim).  Captures all output to a timestamped log
-under ``tools/ci-output/`` so the gate-claim-integrity enforcer can point at
-it as falsifiable evidence (v1+ artifact-based design).
+under ``tools/ci-output/`` whose header records a digest of the build sources
+the sweep observed, and exports that digest to every step it runs, so the
+gate-claim enforcer reads whether a sweep observed a commit's content from
+this provenance rather than from a timestamp.  A ``--fast`` sweep runs a
+subset and records no digest.
 
 Invoked from:
   * ``tools/run_ci.py`` (direct, manual or scripted)
@@ -148,6 +151,12 @@ from tools._ci_steps import FAST_STEPS, HEAVY_STEPS, register_all_steps
 from tools._common import emit, find_executable, git_toplevel
 from tools._resources import cpu_budget
 from tools._scheduler import Step, StepEvent, StepResult, run_lanes
+from tools.check_gate_claim import (
+    SOURCES_ENV,
+    SOURCES_LINE,
+    SOURCES_UNRECORDED,
+    sources_digest_of_worktree,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -429,10 +438,14 @@ class RunContext:
     commit: str
     log_path: Path
     python: str
+    # The digest of the build sources the sweep observes, taken before any step
+    # runs: the record the gate-claim enforcer reads, and what the summary
+    # re-measures to tell whether those sources moved under the sweep.
+    sources: str
 
     @classmethod
     def discover(cls, repo_root: Path) -> RunContext:
-        """Gather git identity, the timestamped log path, and the python interpreter."""
+        """Gather git identity, the log path, the interpreter and the source digest."""
         log_dir = repo_root / "tools" / "ci-output"
         log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -455,6 +468,7 @@ class RunContext:
             commit=commit,
             log_path=log_dir / f"ci-{branch_safe}-{timestamp}.log",
             python=python,
+            sources=sources_digest_of_worktree(repo_root),
         )
 
 
@@ -503,8 +517,17 @@ class Runner:
         """Names of the steps registered so far, in registration order."""
         return tuple(entry.name for entry in self.registered_steps)
 
+    @property
+    def recorded_sources(self) -> str:
+        """The build-source digest this sweep vouches for, or the note that it does not.
+
+        A fast-tier sweep runs a subset of the steps, so its passing summary
+        must not read as evidence that every gate observed the tree.
+        """
+        return SOURCES_UNRECORDED if self.opts.fast else self.ctx.sources
+
     def _header(self, total: int) -> None:
-        """Tee the run banner (branch, commit, step count, mode, opt-ins)."""
+        """Tee the run banner (branch, commit, sources, step count, mode, opt-ins)."""
         opt_in = " ".join(
             f"+{name}" if enabled else f"-{name}"
             for name, enabled in (
@@ -525,6 +548,7 @@ class Runner:
                     f"Started:  {_now_utc():%Y-%m-%d %H:%M:%S UTC}",
                     f"Branch:   {self.ctx.branch}",
                     f"Commit:   {self.ctx.commit}",
+                    f"{SOURCES_LINE}{self.recorded_sources}",
                     f"Steps:    {total}",
                     f"Mode:     {mode}",
                     f"Opt-ins:  {opt_in}",
@@ -647,7 +671,29 @@ class Runner:
         return missing
 
     def run(self) -> int:
-        """Execute build first, then the lanes (serial or parallel); return exit code."""
+        """Execute build first, then the lanes (serial or parallel); return exit code.
+
+        For the duration of a full-tier run the digest of the observed build
+        sources is exported to every step, which is how the gate-claim
+        enforcer, running inside this sweep before any log of it is finished,
+        learns which tree the sweep observes.  The variable is restored on
+        exit so a caller's environment is left as it was found.
+        """
+        previous = os.environ.get(SOURCES_ENV)
+        if self.opts.fast:
+            _ = os.environ.pop(SOURCES_ENV, None)
+        else:
+            os.environ[SOURCES_ENV] = self.ctx.sources
+        try:
+            return self._run_steps()
+        finally:
+            if previous is None:
+                _ = os.environ.pop(SOURCES_ENV, None)
+            else:
+                os.environ[SOURCES_ENV] = previous
+
+    def _run_steps(self) -> int:
+        """Run the registered steps and finalize; the body of :meth:`run`."""
         total = len(self._registry)
         self._header(total)
         for name, reason in self._skips:
@@ -684,9 +730,25 @@ class Runner:
         return self._finalize(results, total)
 
     def _finalize(self, results: list[StepResult], total: int) -> int:
-        """Tee the summary, close the log, return 0 iff every step passed."""
+        """Tee the summary, close the log, return 0 iff every step passed.
+
+        A passing sweep re-measures the build sources before it vouches for
+        them: an edit to one while the steps ran leaves a tree no step is
+        known to have observed, so the record it would write is refused and
+        the sweep fails, naming the digest it found.
+        """
         elapsed = int(time.time() - self.start)
         failures = [r.name for r in results if r.returncode != 0]
+        vouching = not failures and not self.opts.fast
+        if vouching and sources_digest_of_worktree(self.ctx.repo_root) != self.ctx.sources:
+            self._tee_err("")
+            self._tee_err(
+                "═══ CI FAILED: every step passed, but the build sources moved during "
+                + "the sweep, so no step is known to have observed the tree as it is now ═══",
+            )
+            self._tee_err(f"Full log: {self.ctx.log_path}")
+            self.log_fh.close()
+            return 1
         if not failures:
             self._tee(
                 "\n".join(
@@ -695,6 +757,7 @@ class Runner:
                         f"Result:   ALL {total} STEPS PASSED",
                         f"Duration: {elapsed}s ({elapsed // 60}m{elapsed % 60:02d}s)",
                         f"Log:      {self.ctx.log_path}",
+                        f"{SOURCES_LINE}{self.recorded_sources}",
                         "Use this log as the falsifiable evidence behind any 'all "
                         + "gates' claim.",
                     ]
