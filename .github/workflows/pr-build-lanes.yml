@@ -279,6 +279,24 @@ jobs:
       # stability_run errors if these are absent (build/libaletheia-ffi.so and
       # cpp/build/stability_bench).  Build them up front; the Go harness is
       # built/run by the runner itself.
+      # The kernel this bench measures is the kernel any other lane builds, so
+      # the tree is restored rather than compiled again: `cabal run shake --
+      # build` no-ops on a hit (0.03s against about five minutes), Shake
+      # deciding freshness on content, which actions/cache's reset mtimes do
+      # not disturb.  The reproducible-build job above restores nothing on
+      # purpose: it compares two clean builds, and a restored tree is not one.
+      - name: Restore incremental build tree (build/ + dist-newstyle/)
+        id: build-tree-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            build
+            dist-newstyle
+            haskell-shim/dist-newstyle
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
+          restore-keys: |
+            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
+
       - name: Build the FFI library + C++ stability harness
         run: |
           set -euo pipefail
@@ -288,6 +306,36 @@ jobs:
           # with "source directory does not contain CMakeLists.txt".
           cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null
           cmake --build cpp/build --target stability_bench
+
+      # A run that fails before the build leaves no tree, and a save then writes
+      # a near-empty archive under this run's key.  Every later run matches it
+      # by the restore-keys prefix, newest first, ahead of a real one, restores
+      # nothing and rebuilds from scratch: measured 2026-09-21, three entries of
+      # about 1.4 kB against the 35 MB a built tree takes, and a 308-second Agda
+      # rebuild in the job that restored one, where a hit no-ops in 0.03s.  So
+      # the save asks first whether the artifact this tree is for is there.
+      - name: Is there a build tree to save?
+        id: build-tree-present
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          if [ -f build/libaletheia-ffi.so ]; then
+            echo "present=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "present=false" >> "${GITHUB_OUTPUT}"
+            echo "::notice::nothing to save: the shared library the tree is for is absent"
+          fi
+
+      - name: Save incremental build tree
+        if: ${{ !cancelled() && steps.build-tree-cache.outputs.cache-hit != 'true'
+          && steps.build-tree-present.outputs.present == 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            build
+            dist-newstyle
+            haskell-shim/dist-newstyle
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
 
       # Retry-once-on-failure (jitter watch, 2026-07-02): the drift gate flaked
       # on runtime-neutral PRs (#118 doc-only, #125 C++-only — provably runner

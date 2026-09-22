@@ -550,8 +550,29 @@ jobs:
           path: ~/.ccache
           key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-${{ github.sha }}
 
+      # A run that fails before the build leaves no tree, and a save then writes
+      # a near-empty archive under this run's key.  Every later run matches it
+      # by the restore-keys prefix, newest first, ahead of a real one, restores
+      # nothing and rebuilds from scratch: measured 2026-09-21, three entries of
+      # about 1.4 kB against the 35 MB a built tree takes, and a 308-second Agda
+      # rebuild in the job that restored one, where a hit no-ops in 0.03s.  So
+      # the save asks first whether the artifact this tree is for is there.
+      - name: Is there a build tree to save?
+        id: build-tree-present
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'python' }}
+        run: |
+          set -euo pipefail
+          if [ -f build/libaletheia-ffi.so ]; then
+            echo "present=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "present=false" >> "${GITHUB_OUTPUT}"
+            echo "::notice::nothing to save: the shared library the tree is for is absent"
+          fi
+
       - name: Save incremental build tree
-        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'python' && steps.build-tree-cache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && env.LANE_SWEEPS != '0' && matrix.binding == 'python'
+          && steps.build-tree-cache.outputs.cache-hit != 'true'
+          && steps.build-tree-present.outputs.present == 'true' }}
         uses: actions/cache/save@v6
         with:
           path: |
