@@ -478,6 +478,12 @@ jobs:
           key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-${{ github.sha }}
           restore-keys: |
             ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-
+      # The counters travel with the cache, so a restored one carries every
+      # earlier run's hits and misses; zeroed here, the report below reads
+      # this run alone.
+      - name: Zero ccache statistics (C++ mutation trees)
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
+        run: ccache --zero-stats
 
       # Restore the build tree (Agda .agdai + MAlonzo .hs + the copied .so, plus
       # the shake-exe root dist-newstyle) so `cabal run shake -- build` below is a
