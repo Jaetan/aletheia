@@ -131,15 +131,16 @@ jobs:
           python/.venv/bin/pip install --upgrade pip
           python/.venv/bin/pip install -e 'python/.[dev]'
 
-      # Restore-only: the exact-sha tree is seeded by the push:main runs of
-      # the PR workflows (pr-full-ci / pr-heavy-lanes, same key + prefix), so
+      # Restore-only: the exact-sha tree is seeded by pr-full-ci's push:main
+      # runs (the one workflow that saves it, same key + prefix), so
       # a weekly run restores the newest match and the `.so` build inside
       # `shake dist` is incremental instead of cold.
-      - name: Restore incremental build tree (build/ + dist-newstyle/)
+      - name: Restore incremental build tree (build/ + _build/ + dist-newstyle/)
         uses: actions/cache/restore@v6
         with:
           path: |
             build
+            _build
             dist-newstyle
             haskell-shim/dist-newstyle
           key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}

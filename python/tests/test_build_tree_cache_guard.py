@@ -121,3 +121,62 @@ def test_the_clean_build_gate_is_handed_no_tree() -> None:
             f"{path.name}:{name} runs the clean-build gate and restores a build tree, "
             "so the gate would compare a restored artifact with itself"
         )
+
+
+# Where Agda writes interface files: under the project root, never beside the
+# MAlonzo output in `build/`.  A tree cached without this directory hands the
+# proof gate a cold closure on every run, since the proof-only modules reach no
+# other cached artifact: measured 2026-09-22 on a docs-only pull request whose
+# run restored a 35 MB tree, 831 s for the proof gate against 26 s warm.
+THE_INTERFACE_DIR = "_build"
+
+# The sweep that type-checks every module of the tree, proof-only ones
+# included, so the interface directory it leaves behind is complete.  A build
+# lane checks the runtime closure at most, and a cache key is immutable: were
+# such a lane to save first, that commit's entry would lack the proof
+# interfaces for good, and every later prefix match would inherit the gap.
+THE_WHOLE_TREE_SWEEP = "tools.run_ci --iwyu-all"
+
+
+def _build_tree_cache_steps() -> list[tuple[Path, str, Step]]:
+    """Every build-tree restore and save in every workflow."""
+    return [
+        (path, name, step)
+        for path in sorted(WORKFLOWS.glob("*.yml"))
+        for name, job in _jobs(path).items()
+        for step in _steps(job)
+        if _restores_the_build_tree(step) or _saves_the_build_tree(step)
+    ]
+
+
+def _cached_paths(step: Step) -> list[str]:
+    """Read the path list a cache step names, one entry per line."""
+    raw = str(cast("dict[str, object]", step.get("with", {})).get("path", ""))
+    return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
+def test_every_build_tree_cache_step_names_one_path_set_holding_the_interfaces() -> None:
+    """One path set everywhere, and the interface directory is in it.
+
+    The platform hashes the path list into an entry's version, so a restore
+    listing a different set than the save misses however the key matches;
+    and the set carries the interface directory, or the gate the tree exists
+    to warm runs cold.
+    """
+    steps = _build_tree_cache_steps()
+    assert steps, "no workflow caches a build tree"
+    sets = {tuple(_cached_paths(step)) for _, _, step in steps}
+    assert len(sets) == 1, f"the build-tree cache steps name {len(sets)} path sets: {sorted(sets)}"
+    (paths,) = sets
+    assert THE_INTERFACE_DIR in paths, (
+        f"the build-tree cache omits {THE_INTERFACE_DIR}, where Agda writes its interfaces"
+    )
+
+
+def test_only_the_whole_tree_sweep_saves_the_build_tree() -> None:
+    """Each saver's job runs the sweep that type-checks every module first."""
+    for path, job, _, steps in _build_tree_saves():
+        assert any(THE_WHOLE_TREE_SWEEP in str(step.get("run", "")) for step in steps), (
+            f"{path.name}:{job} saves a build tree without running {THE_WHOLE_TREE_SWEEP}, "
+            "so the interfaces it saves are at most the runtime closure's"
+        )

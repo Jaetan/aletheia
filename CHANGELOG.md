@@ -708,6 +708,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The proof gate runs warm on a restored build tree.** Agda writes its
+  interface files under the project root's `_build/`, never beside the MAlonzo
+  output, and the build-tree cache carried `build/` and the two `dist-newstyle`
+  trees only, so every run type-checked the proof-only closure from cold whatever
+  the cache restored: measured 2026-09-22 on a documentation-only pull request
+  whose run restored the tree, 831 s for the proof gate on the runner against
+  26 s warm on the development machine. The cache now carries `_build/` too, in
+  every workflow that restores it, since the platform hashes the path list into
+  an entry's version and a step naming a different set misses. The full sweep is
+  the one workflow that saves the tree: it is the run that type-checks every
+  module, so the interfaces it saves are complete, where a build lane's hold the
+  runtime closure at most, and a cache key once written is immutable.
+
 - **A "gates clean" claim is checked against the sweep's own record of what it
   observed, never against a timestamp.** `tools/check_gate_claim.py` compared
   the modification time of `build/libaletheia-ffi.so` with that of every

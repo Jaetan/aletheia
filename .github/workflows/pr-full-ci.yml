@@ -268,13 +268,22 @@ jobs:
           set -euo pipefail
           command -v fish >/dev/null || sudo apt-get install -y fish
 
-      # ── Incremental build-tree cache (Agda .agdai + MAlonzo .hs + the cabal
-      # foreign-lib build) ───────────────────────────────────────────────────
+      # ── Incremental build-tree cache (Agda interfaces + MAlonzo .hs + the
+      # cabal foreign-lib build) ─────────────────────────────────────────────
       # The single biggest CI-speed lever.  Without it every run is a COLD build
       # (fresh VM, empty checkout): the `build` step alone is ~384s and `agda
       # gates` / `iwyu` re-typecheck the whole tree.  Restoring the prior build
       # tree lets the staleness-safe incremental build rebuild ONLY what the
       # commit changed (`build` ~384s -> ~23s, measured).
+      #
+      # _build/ holds the interface files Agda writes, under the project root
+      # and never beside the MAlonzo output: the proof-only modules reach no
+      # other artifact, so a tree cached without it hands the proof gate a cold
+      # closure on every run (measured 2026-09-22 on a docs-only pull request
+      # whose run restored the tree: 831 s for the proof gate against 26 s
+      # warm).  Agda judges an interface by the source's hash and the imported
+      # interfaces' hashes, so the mtime reset a restore applies leaves it
+      # current.
       #
       # haskell-shim/dist-newstyle (the foreign lib's ~194 MB .o/.hi tree) is
       # included: it is the cabal foreign-lib build state that
@@ -299,12 +308,13 @@ jobs:
       # run seeds the tree — which is why the save step is NOT gated to
       # pull_request.  The key pins the toolchain versions (a bump forces a cold
       # rebuild); restore-keys falls back to the latest same-toolchain tree.
-      - name: Restore incremental build tree (build/ + dist-newstyle/)
+      - name: Restore incremental build tree (build/ + _build/ + dist-newstyle/)
         id: build-tree-cache
         uses: actions/cache/restore@v6
         with:
           path: |
             build
+            _build
             dist-newstyle
             haskell-shim/dist-newstyle
           key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
@@ -340,13 +350,17 @@ jobs:
           path: tools/ci-output/*.log
           if-no-files-found: warn
 
-      # Save the build tree so the next run restores it.  NOT gated to
-      # pull_request: push:main must seed the cache for brand-new PRs to hit it
-      # via restore-keys.  `!cancelled()` avoids saving a truncated tree when a
-      # concurrent push cancels the run (cancel-in-progress is on for PRs); skip
-      # when the exact-sha key already exists (a re-run) since GHA cache keys are
-      # immutable.  The build's staleness gate ran inside the sweep above, so a
-      # saved tree is known-consistent with its sources.
+      # Save the build tree so the next run restores it.  This sweep is the
+      # one saver: it type-checks every module (`--iwyu-all` and the proof
+      # gate), so the interface directory it saves is complete, where a build
+      # lane's holds the runtime closure at most, and a key once written is
+      # immutable.  NOT gated to pull_request: push:main must seed the cache
+      # for brand-new PRs to hit it via restore-keys.  `!cancelled()` avoids
+      # saving a truncated tree when a concurrent push cancels the run
+      # (cancel-in-progress is on for PRs); skip when the exact-sha key already
+      # exists (a re-run) since GHA cache keys are immutable.  The build's
+      # staleness gate ran inside the sweep above, so a saved tree is
+      # known-consistent with its sources.
       # A run that fails before the build leaves no tree, and a save then writes
       # a near-empty archive under this run's key.  Every later run matches it
       # by the restore-keys prefix, newest first, ahead of a real one, restores
@@ -373,6 +387,7 @@ jobs:
         with:
           path: |
             build
+            _build
             dist-newstyle
             haskell-shim/dist-newstyle
           key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
