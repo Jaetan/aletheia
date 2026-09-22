@@ -1,6 +1,6 @@
-# CI run logs from tools/run-ci.sh.  Kept locally as falsifiable evidence
-# behind "all gates clean" / "gates green" assertions in commit messages,
-# but never tracked in git — logs are dev-machine artifacts, not source of
-# truth.
+# Run records kept locally and never tracked: the logs tools/run_ci.py writes,
+# the falsifiable evidence behind a "gates green" claim in a commit message,
+# and under probes/ the output of every probe that failed the latest run of
+# probes/run_all.sh. Dev-machine artifacts, not a source of truth.
 *
 !.gitignore
