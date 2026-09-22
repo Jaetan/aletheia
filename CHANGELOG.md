@@ -12,6 +12,27 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **An address-sanitizer ctest lane, always-on beside the UndefinedBehaviorSanitizer
+  one.** The sanitizer matrix `AGENTS/cpp.md` cat 33(a) asks for had one half: UB
+  was gated on every sweep and the lifetime of a reference was gated nowhere. A
+  value read after the frame holding it has returned changes no result a test
+  asserts on, and libstdc++'s debug mode, which the mutation trees run, checks a
+  container's own preconditions rather than a reference's lifetime, so nothing in
+  the repository read that class. `tools/run_ci.py` now builds the whole ctest
+  battery against `-DALETHEIA_SANITIZER=address` in its own tree and lane and runs
+  every entry, asking for stack-use-after-return detection by name rather than
+  taking the sanitizer runtime's default. The entries that load
+  `libaletheia-ffi.so` run in it: what the lane sees there is this repository's own
+  code, the kernel's allocator being invisible to it, and
+  `docs/architecture/CGO_NOTES.md` states that limit where it states the others.
+  Both sanitizer lanes now read their tree back from its CMake cache between the
+  configure and the build, because a tree whose compiler has changed is dropped
+  and configured afresh, and one that comes back without `ALETHEIA_SANITIZER`
+  builds every target uninstrumented, runs the battery green and reports as a
+  sanitizer lane: measured on `build-asan`, where the uninstrumented tree ran the
+  373 test cases it holds rather than the 359 a sanitizer tree holds, and passed
+  on the very text whose defect the instrumented tree refuses.
+
 - **No index where a range will do, and a ratchet that holds it.** A loop that
   counts an index states its own bound, and a hand-written bound can be written
   wrong where a range's cannot; the failure is quiet, because the standard

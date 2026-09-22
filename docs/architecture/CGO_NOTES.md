@@ -60,11 +60,19 @@ The GHC RTS clashes on each axis:
   observed this in practice on Linux x86_64 6.x kernels but it has been
   reported in the wider ecosystem.
 
-The resulting practical answer is: **ASan against test executables that
-load `libaletheia-ffi.so` is unreliable**. It can be made to work by
-rebuilding the `.so` with sanitizer instrumentation across the GHC
-toolchain (a `bignum`-style rebuild project), but the engineering cost
-exceeds the marginal coverage value.
+The always-on ASan lane builds the whole ctest battery with
+`-fsanitize=address` and runs every entry, the ones that load
+`libaletheia-ffi.so` included. It reads this repository's own loads and
+stores, so a report from it names a defect on the C++ side of the boundary;
+the class it alone reads is the lifetime of a reference, a value read after
+the frame holding it has returned. Its limits follow from the clashes
+above: a defect inside the RTS is a false negative, since ASan does not see
+the megablock heap; an RTS stack overflow arrives as a sanitizer crash
+rather than a controlled RTS exception, because ASan owns `SIGSEGV`; and
+the lane says nothing about the kernel's own memory safety, which the Agda
+proofs carry. Closing the first two means rebuilding the `.so` with
+sanitizer instrumentation across the GHC toolchain, a `bignum`-style
+rebuild whose cost exceeds the coverage it would add.
 
 ### UndefinedBehaviorSanitizer (UBSan)
 

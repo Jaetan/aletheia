@@ -71,6 +71,7 @@ HEAVY_STEPS: frozenset[str] = frozenset(
         "go test -race (excel module)",
         "ctest",
         "ubsan ctest",
+        "asan ctest",
         "check-reproducible-build",
         "stability bench",
         "mutation testing",
@@ -681,32 +682,42 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
     # total_steps and the "ALL N STEPS PASSED" line in finalize() already reflect
     # whichever lanes are enabled — no separate per-lane bookkeeping here.
 
-    # Always-on UBSan lane (Cat 33a; promoted from opt-in to
-    # always-on after UB in Rational::from_double had previously shipped
-    # undetected exactly because the lane was opt-in).  Builds the full
-    # ctest battery against -DALETHEIA_SANITIZER=undefined and asserts
-    # every test passes.  Vendored zippy.hpp UB filtered via
-    # cpp/sanitizer-ignorelist.txt; clang required (g++ has no equivalent).
-    # ALETHEIA_LIB pins the .so (same Haskell .so the regular ctest step uses), so
-    # the render tests resolve it deterministically rather than via the renderer's
-    # cwd-relative probe. Defined locally — this is a separate function from the
-    # core ctest step, so its `cpp_lib` is out of scope here.
+    # The two always-on sanitizer lanes (Cat 33a), each building the whole ctest
+    # battery in its own tree and asserting every test passes.  UBSan reads
+    # undefined behaviour; ASan reads memory the program does not own, which
+    # includes the lifetime of a reference, the one class libstdc++'s debug mode
+    # in the mutation trees cannot see.  Both are always-on rather than opt-in: a
+    # sanitizer lane nobody runs reads nothing, and each of them was opened by a
+    # defect that shipped under a green suite.
+    # Vendored zippy.hpp UB is filtered via cpp/sanitizer-ignorelist.txt, which
+    # applies to every sanitizer; clang is required for that flag (g++ has no
+    # equivalent).  ALETHEIA_LIB pins the .so (the same Haskell .so the regular
+    # ctest step uses), so the render tests resolve it deterministically rather
+    # than via the renderer's cwd-relative probe.  Defined locally — this is a
+    # separate function from the core ctest step, so its `cpp_lib` is out of
+    # scope here.
     cpp_lib = shlex.quote(str(runner.repo_root / "build" / "libaletheia-ffi.so"))
     runner.step(
         "ubsan ctest",
-        # clang-23 (the supported toolchain, which matches the regular ctest + mutation
-        # lanes).  UB can differ between compiler versions, so the sanitizer lane
-        # MUST exercise the shipped compiler's codegen, not an older clang; bare
-        # `clang++` also resolves to the runner's clang-18, which fails to compile
-        # the <expected> libstdc++ ships (std::expected, C++23).
-        "cmake -B build-ubsan -DALETHEIA_SANITIZER=undefined "
-        + "-DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null"
-        + f" && cmake --build build-ubsan && ALETHEIA_LIB={cpp_lib} ctest --test-dir build-ubsan",
+        sanitizer_ctest_cmd("undefined", cpp_lib),
         cwd=runner.repo_root / "cpp",
-        # Own lane (not "cpp"): ubsan uses a SEPARATE build-ubsan/ dir, so it runs
-        # concurrently with the cpp lane's ctest→clang-tidy on build/ — splitting
-        # the local C++ bottleneck (~305s → ~180s, measured 2026-06-14).
+        # Own lane (not "cpp"): each sanitizer uses a SEPARATE build tree, so it
+        # runs concurrently with the cpp lane's ctest→clang-tidy on build/ —
+        # splitting the local C++ bottleneck (~305s → ~180s, measured 2026-06-14).
         lane="ubsan",
+    )
+    runner.step(
+        "asan ctest",
+        # detect_stack_use_after_return is asked for by name rather than taken
+        # from the sanitizer runtime's default, so the lane reads the same
+        # whatever that default is.  What it then reports of that class is what
+        # the run reaches: a fake frame is poisoned until the runtime hands the
+        # slot to another frame, so a read of a returned frame is certain to be
+        # reported only while the slot is still poisoned.  The probe store holds
+        # the one such claim the tree has proven, by running that test alone.
+        sanitizer_ctest_cmd("address", cpp_lib, env="ASAN_OPTIONS=detect_stack_use_after_return=1"),
+        cwd=runner.repo_root / "cpp",
+        lane="asan",
     )
 
     # Opt-in: reproducible-build gate ────────────────────────────
@@ -751,6 +762,37 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
             "mutation testing",
             "set ALETHEIA_MUTATION_CHECK=1 or pass --mutation to enable",
         )
+
+
+def sanitizer_ctest_cmd(sanitizer: str, cpp_lib: str, *, env: str = "") -> str:
+    """Build one sanitizer lane's shell: configure, assert the tree, build, run.
+
+    The assertion between the configure and the build is the lane's own gate on
+    itself.  CMake drops a cache whose compiler has changed and configures the
+    tree afresh, and a tree configured without ``ALETHEIA_SANITIZER`` builds
+    every target with no instrumentation, runs the battery green and reports as
+    a sanitizer lane: measured on ``build-asan`` 2026-09-21, where the suite ran
+    the 373 cases of an uninstrumented tree rather than the 359 a sanitizer tree
+    holds.  Reading the value back from the cache refuses that tree at the point
+    it is built rather than at the point somebody trusts it.
+
+    ``sanitizer`` is what ``-DALETHEIA_SANITIZER`` takes and names the tree
+    (``build-<name>``, with ``asan``/``ubsan`` the established directory names);
+    ``env`` is prefixed to the ctest invocation for a lane whose runtime takes
+    options.  clang-23 is pinned for both lanes: a sanitizer lane exercises the
+    shipped compiler's codegen, not the runner's older clang, which also fails
+    to compile the <expected> libstdc++ ships (std::expected, C++23).
+    """
+    tree = f"build-{'asan' if sanitizer == 'address' else 'ubsan'}"
+    prefix = f"{env} " if env else ""
+    return (
+        f"cmake -B {tree} -DALETHEIA_SANITIZER={sanitizer} "
+        "-DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null"
+        f" && {{ grep -qx 'ALETHEIA_SANITIZER:STRING={sanitizer}' {tree}/CMakeCache.txt"
+        f" || {{ echo '{tree} is configured without the {sanitizer} sanitizer'; exit 1; }}; }}"
+        f" && cmake --build {tree}"
+        f" && ALETHEIA_LIB={cpp_lib} {prefix}ctest --test-dir {tree}"
+    )
 
 
 def register_all_steps(runner: Runner, cabal: list[str], opts: OptInOptions) -> None:

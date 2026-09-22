@@ -75,9 +75,12 @@ its ``.so`` / ``.agdai``), then the lanes run serially (default) or concurrently
   Source-hygiene gate:
     - check-spdx-headers (SPDX license header on every source/build file)
     - check-venv-convention (exactly one venv, at python/.venv)
-  C++ sanitizer lane (runs last):
+  C++ sanitizer lanes (run last):
     - ubsan ctest (full ctest against -DALETHEIA_SANITIZER=undefined; always-on
       after UB in Rational::from_double shipped undetected as an opt-in lane)
+    - asan ctest (the same battery against -DALETHEIA_SANITIZER=address, with
+      stack-use-after-return detection asked for by name; the one always-on
+      gate that reads the lifetime of a reference)
 
 ═══ OPT-IN LANES (3 total) ═══
 
@@ -96,7 +99,8 @@ running in a context where one lane is too slow).
   ──────────────────────────────────────────────────────────────────────
   --full         (all three above)             ~45m+ all opt-ins
 
-Total wall-time: ~22-27 min always-on (incl. ubsan ctest ~5 min), plus
+Total wall-time: ~22-27 min always-on (incl. the two sanitizer ctest
+lanes, which run concurrently with each other and the cpp lane), plus
 enabled opt-ins.  ``--full`` on a warm host typically lands in 45-85 min;
 cold (no test cache, no Mull build-mutation tree) closer to 55-115 min.
 
@@ -482,17 +486,22 @@ class Runner:
         return self.ctx.python
 
     @property
-    def registered_step_names(self) -> tuple[str, ...]:
-        """Names of the steps registered so far, in registration order.
+    def registered_steps(self) -> tuple[Step, ...]:
+        """The steps registered so far, in registration order.
 
-        A read-only view over the internal registry so a test can assert that
-        ``register_all_steps`` (in ``tools/_ci_steps.py``) populated the catalog
-        without reaching into ``_registry``.  The registration path is otherwise
-        only exercised at real push time, where a moved helper referencing a name
-        that no longer resolves after the run_ci/_ci_steps split would surface too
-        late.
+        A read-only view over the internal registry so a test can assert what
+        ``register_all_steps`` (in ``tools/_ci_steps.py``) registered, down to a
+        step's command, lane and weight, without reaching into ``_registry``.
+        The registration path is otherwise only exercised at real push time,
+        where a moved helper referencing a name that no longer resolves after
+        the run_ci/_ci_steps split would surface too late.
         """
-        return tuple(entry.name for entry in self._registry)
+        return tuple(self._registry)
+
+    @property
+    def registered_step_names(self) -> tuple[str, ...]:
+        """Names of the steps registered so far, in registration order."""
+        return tuple(entry.name for entry in self.registered_steps)
 
     def _header(self, total: int) -> None:
         """Tee the run banner (branch, commit, step count, mode, opt-ins)."""
