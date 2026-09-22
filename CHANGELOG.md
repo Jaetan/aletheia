@@ -73,6 +73,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   comment states the figures and the rule. Each lane also prints its cache's
   own statistics before saving it, so the figures can be re-read from a run.
 
+- **A failing probe says why.** The probe store's runner sent every probe's
+  output to `/dev/null` and printed `FAIL` and a path, so a probe that crashed
+  in its own inline Python read exactly like a probe that refused its claim,
+  and the reason was only visible on re-running that one probe alone. The
+  runner now keeps a failing probe's whole output under
+  `tools/ci-output/probes/`, in a file its `FAIL` line names beside the exit
+  status, and prints the last lines of it beneath, so the store's record is
+  read whole and a chatty failure does not fill it. A passing probe is still one
+  line, whatever it said, and the directory holds only the latest run's
+  failures. A probe over the runner holds each of these, red against the
+  runner it replaces.
+
 - **The address legs' budget is read off their own run.** They shipped budgeted
   at 75 minutes from a ratio measured locally, which scaled the sweep: the
   address tree carries 310 mutants against the other trees' 1037, so its sweep
