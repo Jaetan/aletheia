@@ -1,11 +1,12 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// The benchmark harness's timed loops. An operation that fails inside one
-// measures nothing: its error leaves the loop as an exception naming the step,
-// and the lane aborts with it instead of timing the failure as a success. The
-// clock is a type parameter so a test can drive the loops with one that reads
-// no host time.
+// The step check the benchmark and stability harnesses share, and the
+// benchmark harness's timed loops. An operation that fails inside one measures
+// nothing: its error leaves the loop as an exception naming the step, and the
+// lane aborts with it instead of timing the failure as a success. The clock is
+// a type parameter so a test can drive the loops with one that reads no host
+// time.
 #pragma once
 
 #include <aletheia/error.hpp>
