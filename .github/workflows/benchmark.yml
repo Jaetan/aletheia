@@ -13,8 +13,9 @@ name: Benchmark
 
 on:
   # On every PR: a regression gate (tools/benchmark_gate.py fails the check if
-  # any lane is >30% slower than the committed GHA baseline — generous because
-  # the shared runner is noisy; see benchmarks/gha_baseline.json).
+  # any lane is >30% slower than the committed GHA baseline, generous because
+  # the shared runner is noisy, or if a binding that ran lacks a baseline lane;
+  # see benchmarks/gha_baseline.json).
   pull_request:
     # Doc-only PRs cannot change runtime throughput, so skip the ~12-min lane
     # for them.  Safe because Benchmark is NOT a required check (the main

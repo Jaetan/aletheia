@@ -740,6 +740,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A binding that ran but reports no number for a baseline lane fails the
+  benchmark gate.** `tools/benchmark_gate.py` walked the baseline's lanes and
+  skipped any the run did not carry, one rule for two cases: a binding with no
+  result file at all, which did not build and is `pr-full-ci`'s to report, and a
+  binding whose file is present and shorter than the baseline, which the gate
+  read as nothing to compare. A harness that lost a lane, or renamed one while
+  the baseline kept the old name, passed with the lane unscored. The gate now
+  skips only the binding with no file; a present binding lacking a baseline lane
+  fails, with the binding and lane named on stderr under their own heading,
+  apart from the regressions. A test and a probe hold that polarity, and
+  `docs/development/BENCHMARKS.md` states both cases.
+
 - **The Go benchmark harness aborts on a failed warmup operation, as the other
   three do.** Its throughput mode printed a warmup failure and went on to the
   measured runs, on the reasoning that a warmup produces no number. It produces

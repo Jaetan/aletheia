@@ -98,7 +98,7 @@ Run `cabal run shake -- build` before every measurement. Shake tracks the Agda s
 
 ## CI regression gate
 
-`.github/workflows/benchmark.yml` runs the throughput suite on every pull request touching something other than Markdown or `docs/`, and on demand through `workflow_dispatch`. On a pull request it then runs `tools/benchmark_gate.py`, which **fails the check if any lane is more than 30% slower** than the GitHub-runner baseline in `benchmarks/gha_baseline.json`.
+`.github/workflows/benchmark.yml` runs the throughput suite on every pull request touching something other than Markdown or `docs/`, and on demand through `workflow_dispatch`. On a pull request it then runs `tools/benchmark_gate.py`, which **fails the check if any lane is more than 30% slower** than the GitHub-runner baseline in `benchmarks/gha_baseline.json`. A binding with no result file is skipped, its build failure being `pr-full-ci`'s to report; a binding whose file is present but lacks a lane the baseline names fails the gate with the lane named.
 
 The threshold is generous: the hosted runner is shared and noisy, so the gate catches a *noticeable* regression rather than jitter, the five-run mean having damped the noise within a run. A failing gate re-measures once and gates again, a slow runner slowing every lane at once where a real regression slows only what changed. The baseline is measured **on the runner**, never locally, the two machines differing several-fold. The hosted runners come in more than one CPU class, and the classes differ by up to twofold, so the baseline is taken from the most common class, which the C++ report's `system.cpu` names: a run on a faster class passes with a wide margin, and a run on the common class is the one the gate measures.
 
