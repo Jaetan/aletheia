@@ -726,6 +726,21 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The C++ benchmark harness aborts on a failed timed operation and refuses a
+  count of zero.** Inside its measured loops a `send_frame`, `extract_signals`
+  or `build_frame` that returned an error was timed like a success, so a binary
+  that could not decode the current wire published a plausible frames-per-second
+  figure rather than failing, the one binding where a fabricated measurement
+  could still reach a baseline. The timed loops now live in
+  `cpp/benchmarks/measure.hpp`, whose loops throw the first operation's error
+  with the step's name, and whose clock is a type parameter so their unit test
+  drives them under a stepping clock rather than the host's time. `--frames 0`,
+  `--runs 0` and `--ops 0` are refused at the option parser with the Go
+  harness's wording; `--warmup 0` stays a measurement with no warmup. The header
+  is on the C++ mutation surface, so the sliced lane's partition, cut over
+  `cpp/src` and `cpp/include`, now takes `cpp/benchmarks` into its domain and
+  the census record is re-taken with the header's mutants.
+
 - **`shake clean` removes the Agda interfaces.** Agda writes its interfaces
   under the project root's `_build/`, and the line meant to remove them named
   `src`, where none has ever been, so a clean build re-derived MAlonzo from

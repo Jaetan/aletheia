@@ -41,10 +41,11 @@ if TYPE_CHECKING:
 # print (docs/operations/MUTATION.md).
 CPP_SLICES = 3
 
-# Where the mutation build compiles the library from.  A mutant's site is a
+# Where the mutation build compiles the library from, and the benchmarks'
+# directory, whose header the test binary instantiates.  A mutant's site is a
 # file of one of these or of a path the configuration holds out; the merge is
 # what holds that claim, by refusing a census that is not the recorded one.
-CPP_SOURCE_TREES: tuple[str, ...] = ("cpp/src", "cpp/include")
+CPP_SOURCE_TREES: tuple[str, ...] = ("cpp/src", "cpp/include", "cpp/benchmarks")
 
 # Mutants a file carries, as a census counted them.
 type MutantCounts = Mapping[RelPath, int]

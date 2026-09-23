@@ -101,7 +101,7 @@ Checks: >
 # error instead of an after-the-fact audit.
 WarningsAsErrors: '*'
 
-HeaderFilterRegex: 'include/aletheia/.*\.hpp$|src/detail/.*\.hpp$'
+HeaderFilterRegex: 'include/aletheia/.*\.hpp$|src/detail/.*\.hpp$|benchmarks/.*\.hpp$'
 
 CheckOptions:
   # Naming conventions — match existing code style

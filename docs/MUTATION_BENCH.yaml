@@ -332,16 +332,16 @@ bindings:
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
       survivors: 0
-      total_mutants: 1037
+      total_mutants: 1044
       # What each tree carries, which is not one number: the address tree drops
       # the two mutators over calls, since a sanitizer inserts its own checks at
       # the source location of the statement they guard and a mutator over calls
       # mutates those rather than the program's own. Each tree is held to its own
       # figure, and the merge judges a mutant only over the trees carrying it.
       mutants_by_tree:
-        leak: 1037
-        plain: 1037
-        address: 310
+        leak: 1044
+        plain: 1044
+        address: 312
       # Mutants per file, which is what the sweep's slices are cut on: a CI
       # leg builds one slice of the surface, and a slice is a set of files
       # whose recorded counts add up to about a third of this total. The
@@ -359,6 +359,7 @@ bindings:
       # a slice, because the partition is computed over every tracked file of
       # the library and not over this list.
       mutants_by_file:
+        cpp/benchmarks/measure.hpp: 7
         cpp/include/aletheia/backend.hpp: 2
         cpp/include/aletheia/check.hpp: 14
         cpp/include/aletheia/client.hpp: 2
@@ -383,9 +384,9 @@ bindings:
         cpp/src/yaml.cpp: 49
       timeouts: 0
       score_pct: 100
-      run_at: "2026-09-21"
+      run_at: "2026-09-23"
       kill_routes:
-        test: 938
+        test: 945
         leak: 0
         address: 22
         kernel: 2
