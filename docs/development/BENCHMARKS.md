@@ -1,10 +1,10 @@
 # Aletheia Performance Benchmarks
 
-Benchmarks across the Python, C++, Go and Rust bindings. This document describes what the benchmarks measure, how to run them, and the canonical results.
+Benchmarks across the Python, C++, Go and Rust bindings: what they measure, how to run them, the committed baselines and the canonical results.
 
 ## Canonical Results
 
-Per-binding throughput in frames a second: the committed baseline set, `benchmarks/results/*_throughput_baseline.json`, measured 2026-07-26 on the host below. No lane's standard deviation exceeds 5.1% of its mean.
+Per-binding throughput in frames a second: the committed baseline set, `benchmarks/results/*_throughput_baseline.json`, measured 2026-07-26 on the host [Local baselines](#local-baselines) names. No lane's standard deviation exceeds 5.1% of its mean.
 
 | Benchmark | C++ (fps) | Rust (fps) | Go (fps) | Python (fps) |
 |---|---:|---:|---:|---:|
@@ -15,19 +15,15 @@ Per-binding throughput in frames a second: the committed baseline set, `benchmar
 | CAN-FD:   Signal Extraction | 28,685 | 28,802 | 27,755 | 20,150 |
 | CAN-FD:   Frame Building | 31,778 | 32,074 | 31,334 | 26,149 |
 
-Rust is within 3.6% of C++ on every lane. Go's gap runs from 14% on CAN 2.0B signal extraction to 1.4% on CAN-FD frame building.
-
 Per-frame C++ latency on CAN 2.0B streaming has a median of 3.2 µs and a mean of 3.6 µs, from the committed latency baseline. Streaming does not retain what it accepts: the Python suite fails a session of 100,000 frames whose peak resident set grows by 32 MiB.
 
 ---
 
 ## Cross-Language Runner
 
-[`benchmarks/run_all.sh`](../../benchmarks/run_all.sh) **builds the C++, Go and Rust benchmark binaries itself**, incrementally, then produces one JSON file per binding that ran, in `benchmarks/results/`, followed by a side-by-side comparison from `benchmarks/compare.py`.
+[`benchmarks/run_all.sh`](../../benchmarks/run_all.sh) builds the C++, Go and Rust benchmark binaries itself, incrementally, runs one mode across the four bindings, writes `benchmarks/results/<binding>_<mode>.json` for each binding that ran, and prints the comparison from `benchmarks/compare.py`. A binary is never taken as found on disk: one that predates a kernel wire change fails to measure the current system.
 
-A benchmark binary is never taken as found on disk: one that predates a kernel wire change does not measure an older system, it fails to measure the current one, so its numbers are void rather than merely old.
-
-The runner also clears the selected mode's results before running, so a lane that skips or fails contributes nothing rather than its previous numbers. It refuses a zero or non-numeric `--frames` or `--runs`, a negative `--warmup`, any flag the chosen mode does not read, and a mode it does not have, all before touching anything: a zero count makes every lane publish an all-zero report, an unknown mode would reach a glob that deletes the committed baselines, and a flag outside its mode would reach nothing while the run reported success. Throughput reads both counts, latency reads `--frames` as its operation count and `--warmup`, and scaling reads `--runs` alone. A lane is skipped when what it needs is absent, which for Go and Rust is the toolchain and for C++ is a configured `cpp/build`; a lane whose build breaks with everything present is a failure. `ALETHEIA_BENCH_RESULTS_DIR` redirects the results directory.
+Throughput reads `--frames` and `--runs`, latency reads `--frames` as its operation count and `--warmup`, and scaling reads `--runs` alone. The runner clears the mode's previous results, so a lane that skips or fails contributes nothing rather than its previous numbers, and before clearing them it refuses a zero or non-numeric count, a negative warmup, a mode it does not have, a flag the chosen mode does not read, and a Debug-configured `cpp/build`, for which it prints the reconfigure. A lane is skipped when what it needs is absent, the toolchain for Go and Rust and a configured `cpp/build` for C++; a lane whose build breaks with everything present is a failure. `ALETHEIA_BENCH_RESULTS_DIR` redirects the results directory.
 
 ```bash
 # Prerequisites (one-time)
@@ -39,13 +35,29 @@ cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang
 # Run throughput across all four bindings, 10,000 frames × 5 runs
 ./benchmarks/run_all.sh
 
-# Other lanes / scales
-./benchmarks/run_all.sh --frames 50000 --runs 3
+# Other modes
 ./benchmarks/run_all.sh --bench latency --warmup 500
 ./benchmarks/run_all.sh --bench scaling
 ```
 
-The runner refuses a Debug-mode C++ build, reading `CMAKE_BUILD_TYPE` from `cpp/build/CMakeCache.txt`, because an unoptimized tree reads as a regression of twenty per cent or more. Reconfigure with `-DCMAKE_BUILD_TYPE=Release` if it trips.
+---
+
+## Local baselines
+
+`benchmarks/results/<binding>_<mode>_baseline.json`, one per binding and mode, is the committed measurement; the runner's own `<binding>_<mode>.json` beside it is ignored by git.
+
+Measured on an Intel Core Ultra 9 285K of 24 cores under WSL2, with `clang++-22` at `-O3`; each file's `system` object records the runtime that measured it, and no file records the C++ compiler. A throughput baseline is 10 runs of 10,000 frames per lane, a latency baseline 10,000 timed operations per lane, and a scaling baseline the full sweep, five trace sizes where `--quick` runs four; the warmup and the scaling run count are not recorded in the files.
+
+To read a fresh run against its baseline, run `cabal run shake -- build`, since a stale library measures the previous Agda core; run the mode with the counts the baseline records; and give `compare.py` the binding's fresh file and its baseline:
+
+```bash
+./benchmarks/run_all.sh --frames 10000 --runs 10
+python/.venv/bin/python benchmarks/compare.py benchmarks/results/cpp_throughput*.json
+```
+
+Given a binding's fresh file and its baseline, `compare.py` prints per lane the current mean, the baseline mean, the delta and the current standard deviation, the report shape AGENTS.md asks for; given several bindings it prints them side by side, given several modes a table per mode, and two files that would share a column are refused rather than one replacing the other.
+
+The delta is not a verdict on its own: the host runs the same lane at its baseline speed or at about half of it from one batch to the next with no code cause, so a fresh run is repeated and the faster batch read against the baseline, beside its standard deviation and the ±10% variance gate and 2% to 4% noise floor [AGENTS.md § Step 4](../../AGENTS.md#step-4-implement-and-verify) codifies.
 
 ---
 
@@ -53,16 +65,11 @@ The runner refuses a Debug-mode C++ build, reading `CMAKE_BUILD_TYPE` from `cpp/
 
 ### Python, in `python/benchmarks/`
 
-Run as `python3 -m benchmarks.<name>` from `python/`.
+Run as `python3 -m benchmarks.<name>` from `python/`. `throughput`, `latency` and `scaling` take the flags `benchmarks/SCHEMA.yaml` pins for their mode, as the binaries below do; scaling sweeps trace size, property count and property complexity. The other three are Python-only:
 
-| Script | Measures | Typical arguments |
-|---|---|---|
-| `throughput.py` | Frames per second through the full pipeline | `--frames 10000 --runs 5` |
-| `latency.py` | Per-operation latency distribution (p50, p90, p99, p99.9) | `--ops 5000` |
-| `violations.py` | Enrichment overhead on `send_frame` and `_run_checks`, against a 256-entry extraction cache | `--frames 10000 --runs 5` |
-| `scaling.py` | Scaling across trace size (1K–100K frames), property count (1–10), property complexity | `--quick` for a reduced iteration count |
-| `simplification.py` | Throughput against trace length per LTL formula shape; a rate that falls away is an unbounded Rosu simplification tree | `--quick` for a reduced iteration count |
-| `sysinfo.py` | A short run, with peak memory and Docker sizing | none |
+- `violations.py`, the enrichment overhead on `send_frame` and `_run_checks`, against a 256-entry extraction cache.
+- `simplification.py`, throughput against trace length per LTL formula shape; a rate that falls away is an unbounded Rosu simplification tree. `--quick` reduces the iteration count.
+- `sysinfo.py`, a short run with peak memory and Docker sizing.
 
 ### One binary each, for C++, Go and Rust
 
@@ -74,7 +81,7 @@ Run as `python3 -m benchmarks.<name>` from `python/`.
 ./cpp/build/benchmark scaling    --runs 5 --quick --json
 ```
 
-Latency counts operations and scaling picks its own trace sizes, so `--frames` reaches throughput alone: the binaries accept it on the other two modes, ignore it, and report the default they ran. The C++ binary also aborts unless compiled with `NDEBUG`, and its reports carry `system.build_type`.
+`--frames` reaches throughput alone: the binaries accept it on the other two modes, ignore it, and report the default they ran. The C++ binary also aborts unless compiled with `NDEBUG`, and its reports carry `system.build_type`.
 
 ### Shared micro-benchmarks, in `benchmarks/`
 
@@ -83,16 +90,6 @@ Narrow-scope tools, outside the cross-language run. The long-run stability harne
 - `response_overhead.{py,cpp,go}` with `response_overhead_ffi.c`, the JSON response boundary isolated from Agda work.
 - `vec_construction.c`, constructing a `std::vector<std::byte>` on the C++ hot path.
 - `profile_extraction.py`, a per-frame signal-extraction profile in Python.
-
----
-
-## Methodology and Variance
-
-Measured on an Intel Core Ultra 9 285K of 24 cores under WSL2, with `clang++-22` at `-O3`, Go 1.26.3, Python 3.14.5 and rustc 1.97.1. Each report's `system` object carries the host, plus the runtime version for Go, Python and Rust and `build_type` for C++.
-
-The inter-run variance gate of ±10% and the noise floor of 2% to 4% are codified in [AGENTS.md § Step 4: Implement and verify](../../AGENTS.md#step-4-implement-and-verify). On an apparent regression, run the binary twice and read the second batch against the baseline: that separates WSL2 and thermal noise from a real change.
-
-Run `cabal run shake -- build` before every measurement. Shake tracks the Agda sources by content, so it costs nothing when nothing changed; a stale library measures the previous Agda core.
 
 ---
 

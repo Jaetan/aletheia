@@ -133,8 +133,8 @@ if [[ -f "$CPP_CACHE" ]]; then
     if [[ "$CPP_BUILD_TYPE" == "Debug" ]]; then
         echo "ERROR: cpp/build is configured with CMAKE_BUILD_TYPE=Debug." >&2
         echo "       Debug builds produce unoptimized benchmarks." >&2
-        echo "       Reconfigure with:" >&2
-        echo "         rm -rf cpp/build && cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 && cmake --build cpp/build" >&2
+        echo "       Reconfigure with (the cache keeps the compilers; no clean needed):" >&2
+        echo "         cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release" >&2
         exit 1
     fi
 fi
