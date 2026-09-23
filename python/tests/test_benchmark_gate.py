@@ -8,8 +8,9 @@ reads are the languages ``benchmarks/SCHEMA.yaml`` names, and each carries
 every throughput lane the schema pins, with a positive number. A lane the
 baseline lacks is one the gate skips without a word, so the shape is the gate's
 teeth. And ``main`` itself, every polarity: a lane past the threshold fails,
-one inside it passes, a binding the run lacks is skipped, a run with no result
-file fails, and a missing baseline reports and passes.
+one inside it passes, a binding the run lacks is skipped, a binding the run
+has that lacks a baseline lane fails, a run with no result file fails, and a
+missing baseline reports and passes.
 """
 
 from __future__ import annotations
@@ -113,6 +114,17 @@ def test_a_binding_the_run_lacks_is_skipped(tmp_path: Path) -> None:
     _write_results(tmp_path / "results", "cpp", BASE_FPS)
     _write_baseline(tmp_path / "baseline.json", {"cpp": {LANE: BASE_FPS}, "go": {LANE: BASE_FPS}})
     assert _gate(tmp_path / "results", tmp_path / "baseline.json") == 0
+
+
+def test_a_present_binding_lacking_a_baseline_lane_fails(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A binding with a result file that lacks a baseline lane fails, the lane named."""
+    other = "CAN 2.0B: Signal Extraction"
+    _write_results(tmp_path / "results", "cpp", BASE_FPS)
+    _write_baseline(tmp_path / "baseline.json", {"cpp": {LANE: BASE_FPS, other: BASE_FPS}})
+    assert _gate(tmp_path / "results", tmp_path / "baseline.json") == 1
+    assert f"cpp / {other}" in capsys.readouterr().err
 
 
 def test_a_run_with_no_result_file_fails(tmp_path: Path) -> None:

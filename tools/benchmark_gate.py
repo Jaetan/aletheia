@@ -5,7 +5,8 @@
 Compares the per-lane mean throughput in ``benchmarks/results/*_<bench>.json``
 (produced by ``benchmarks/run_all.sh``) against a committed GitHub-runner
 baseline (``benchmarks/gha_baseline.json``) and exits non-zero if any lane is
-slower than its baseline by more than ``--threshold-pct``.
+slower than its baseline by more than ``--threshold-pct``, or if a binding whose
+result file is present lacks a lane the baseline names.
 
 The gate runs on the GitHub-hosted runner, which is shared, variable, and a
 different machine than the local benchmark host — so the baseline MUST itself be
@@ -28,7 +29,8 @@ from typing import TypedDict, cast
 
 # The four bindings benchmarked by run_all.sh, the languages benchmarks/SCHEMA.yaml
 # names. A binding absent from a run (one that failed to build) is skipped, not
-# scored as a 100% regression: build failures are pr-full-ci's job to report.
+# scored as a 100% regression: build failures are pr-full-ci's job to report. A
+# binding that is present and reports fewer lanes than the baseline names fails.
 BINDINGS = ("cpp", "go", "python", "rust")
 
 # Baseline JSON shape: {binding: {lane_name: fps_mean}}.
@@ -70,15 +72,24 @@ def _load_results(results_dir: Path, bench: str) -> Baseline:
     return out
 
 
-def _compare(current: Baseline, baseline: Baseline, threshold_pct: float) -> list[str]:
-    """Print a per-lane table; return the lanes that regressed beyond the threshold."""
+def _compare(
+    current: Baseline, baseline: Baseline, threshold_pct: float
+) -> tuple[list[str], list[str]]:
+    """Print a per-lane table; return (lanes past the threshold, lanes a present binding lacks)."""
     regressions: list[str] = []
+    missing: list[str] = []
     _emit(f"benchmark-gate: fail if any lane is >{threshold_pct:.0f}% slower than baseline\n")
     for binding in BINDINGS:
-        cur = current.get(binding, {})
+        if binding not in current:
+            continue
+        cur = current[binding]
         for lane, base_fps in baseline.get(binding, {}).items():
             cur_fps = cur.get(lane)
-            if cur_fps is None or base_fps <= 0.0:
+            if cur_fps is None:
+                _emit(f"  {binding:7s} {lane:32s} {base_fps:>11.0f} -> (absent)  <-- MISSING")
+                missing.append(f"{binding} / {lane}: {base_fps:.0f} -> absent from the run")
+                continue
+            if base_fps <= 0.0:
                 continue
             delta_pct = (cur_fps - base_fps) / base_fps * 100.0
             regressed = -delta_pct > threshold_pct
@@ -89,7 +100,7 @@ def _compare(current: Baseline, baseline: Baseline, threshold_pct: float) -> lis
                 regressions.append(
                     f"{binding} / {lane}: {base_fps:.0f} -> {cur_fps:.0f} ({delta_pct:+.1f}%)"
                 )
-    return regressions
+    return regressions, missing
 
 
 def _parse_args(argv: list[str] | None) -> tuple[str, Path, Path, float]:
@@ -141,11 +152,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     baseline = cast("Baseline", json.loads(baseline_path.read_text(encoding="utf-8")))
-    regressions = _compare(current, baseline, threshold_pct)
+    regressions, missing = _compare(current, baseline, threshold_pct)
+    if missing:
+        _fail("\nbenchmark-gate: FAIL: a binding that ran reports no number for a baseline lane:")
+        for line in missing:
+            _fail(f"  {line}")
     if regressions:
-        _fail("\nbenchmark-gate: FAIL — noticeable performance regression:")
+        _fail("\nbenchmark-gate: FAIL: noticeable performance regression:")
         for line in regressions:
             _fail(f"  {line}")
+    if missing or regressions:
         return 1
     _emit("\nbenchmark-gate: ok (no lane regressed beyond threshold)")
     return 0
