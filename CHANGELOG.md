@@ -726,6 +726,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The Go benchmark harness aborts on a failed warmup operation, as the other
+  three do.** Its throughput mode printed a warmup failure and went on to the
+  measured runs, on the reasoning that a warmup produces no number. It produces
+  no number, but a lane whose warmup failed ran against a client it could not
+  drive, and its measured runs then measured something else or died later on the
+  same cause with the warmup's message gone; the Go latency mode, the C++, Rust
+  and Python harnesses all abort. The throughput lane now lives in one function
+  that returns the first failed pass as its error, warmup or measured, named by
+  the lane and the pass, and the harness dies on it. That function is driven by
+  tests that need no kernel, and a probe over the four harnesses holds every
+  warmup loop to calling what the measured loop times, guarding it the same way,
+  and sitting in a function that catches nothing.
+
 - **The C++ benchmark harness aborts on a failed timed operation and refuses a
   count of zero.** Inside its measured loops a `send_frame`, `extract_signals`
   or `build_frame` that returned an error was timed like a success, so a binary

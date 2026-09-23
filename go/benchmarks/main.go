@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -29,9 +30,10 @@ import (
 )
 
 // die reports a condition that makes the report untrue and exits. Every
-// measured failure is fatal: a lane left out, or a row computed from fewer
-// runs than it claims, is indistinguishable from a healthy one in
-// benchmarks/SCHEMA.yaml and reads as "not measured yet" rather than "broken".
+// failed pass, warmup or measured, is fatal: a lane left out, or a row
+// computed from fewer runs than it claims, is indistinguishable from a healthy
+// one in benchmarks/SCHEMA.yaml and reads as "not measured yet" rather than
+// "broken".
 func die(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "benchmark: "+format+"\n", args...)
 	os.Exit(1)
@@ -425,39 +427,11 @@ func runThroughput(backend *aletheia.FFIBackend, out *os.File, numFrames, numRun
 
 	var results []throughputResult
 	for _, l := range lanes {
-		fmt.Fprintf(out, "\n%s:\n", l.name)
-		fmt.Fprintf(out, "%s\n", strings.Repeat("-", 40))
-
-		// A warmup failure is reported and not fatal: it produces no number that
-		// reaches the report, and one that matters recurs in the measured runs.
-		for w := 0; w < warmupRuns; w++ {
-			if _, err := l.run(numFrames / 10); err != nil {
-				fmt.Fprintf(out, "  Warmup error: %v\n", err)
-			}
+		r, err := throughputLane(out, l.name, l.run, numFrames, numRuns, warmupRuns)
+		if err != nil {
+			die("%v", err)
 		}
-
-		// A failed measured run is fatal, as it is for the other three harnesses.
-		fpsList := make([]float64, 0, numRuns)
-		for r := 0; r < numRuns; r++ {
-			fps, err := l.run(numFrames)
-			if err != nil {
-				die("lane %q run %d/%d failed: %v", l.name, r+1, numRuns, err)
-			}
-			fpsList = append(fpsList, fps)
-			fmt.Fprintf(out, "  Run %d/%d: %.0f ops/sec\n", r+1, numRuns, fps)
-		}
-
-		m := mean(fpsList)
-		results = append(results, throughputResult{
-			Name:       l.name,
-			Frames:     numFrames,
-			Runs:       numRuns,
-			FPSMean:    round1(m),
-			FPSStdev:   round1(stdev(fpsList)),
-			FPSMin:     round1(slices.Min(fpsList)),
-			FPSMax:     round1(slices.Max(fpsList)),
-			USPerFrame: round1(usPerFrameOf(m)),
-		})
+		results = append(results, r)
 	}
 
 	fmt.Fprintf(out, "\n%s\n", strings.Repeat("=", 70))
@@ -471,6 +445,43 @@ func runThroughput(backend *aletheia.FFIBackend, out *os.File, numFrames, numRun
 	fmt.Fprintf(out, "%s\n", strings.Repeat("=", 70))
 
 	return results
+}
+
+// throughputLane warms a lane up over a tenth of the frames, untimed, then
+// measures it numRuns times. A pass that fails, warmup or measured, is the
+// lane's error, named by the pass: a lane whose warmup failed ran against a
+// client it could not drive, and nothing it measures afterwards is a number.
+func throughputLane(out io.Writer, name string, run func(int) (float64, error), numFrames, numRuns, warmupRuns int) (throughputResult, error) {
+	fmt.Fprintf(out, "\n%s:\n", name)
+	fmt.Fprintf(out, "%s\n", strings.Repeat("-", 40))
+
+	for w := 0; w < warmupRuns; w++ {
+		if _, err := run(numFrames / 10); err != nil {
+			return throughputResult{}, fmt.Errorf("lane %q warmup %d/%d failed: %w", name, w+1, warmupRuns, err)
+		}
+	}
+
+	fpsList := make([]float64, 0, numRuns)
+	for r := 0; r < numRuns; r++ {
+		fps, err := run(numFrames)
+		if err != nil {
+			return throughputResult{}, fmt.Errorf("lane %q run %d/%d failed: %w", name, r+1, numRuns, err)
+		}
+		fpsList = append(fpsList, fps)
+		fmt.Fprintf(out, "  Run %d/%d: %.0f ops/sec\n", r+1, numRuns, fps)
+	}
+
+	m := mean(fpsList)
+	return throughputResult{
+		Name:       name,
+		Frames:     numFrames,
+		Runs:       numRuns,
+		FPSMean:    round1(m),
+		FPSStdev:   round1(stdev(fpsList)),
+		FPSMin:     round1(slices.Min(fpsList)),
+		FPSMax:     round1(slices.Max(fpsList)),
+		USPerFrame: round1(usPerFrameOf(m)),
+	}, nil
 }
 
 type latencyStats struct {
