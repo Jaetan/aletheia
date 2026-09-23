@@ -1074,6 +1074,25 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `ALETHEIA_BENCH_RESULTS_DIR` redirects the results directory so the probes can
   drive the harness without touching the last measurements.
 
+- **A fresh benchmark run can be read against its committed baseline.**
+  `benchmarks/compare.py` keyed its columns on the language a file named, so a
+  binding's fresh result and its baseline replaced one another without a word,
+  as did one binding's three modes, and the complexity labels of the scaling
+  table were cut at twelve characters. A column is now the binding plus what
+  the file's name adds beyond `<binding>_<mode>`, every mode given prints its
+  own table, two files that would share a column are refused with both named,
+  and a binding given with its baseline prints, per lane, the current mean, the
+  baseline mean, the delta and the current standard deviation, the report shape
+  `AGENTS.md` asks for. The reconfigure `benchmarks/run_all.sh` prints when it
+  refuses a Debug-configured `cpp/build` no longer opens with a clean of the
+  tree: setting the build type on the existing cache is the whole of the fix,
+  and the clean threw away the fetched dependencies for nothing.
+  `docs/development/BENCHMARKS.md` gains the Local baselines section that names
+  the committed files, what each mode's baseline records and how a fresh run is
+  read against it, and loses a runtime version list one baseline already
+  contradicted; the runtime versions are each file's `system` object. Nine
+  probes under `probes/` carry the claims.
+
 ### Removed
 
 - **`docs/development/DEFERRED_ITEMS.md`.** Pending work is tracked in one task
