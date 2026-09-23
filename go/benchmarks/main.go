@@ -436,8 +436,7 @@ func runThroughput(backend *aletheia.FFIBackend, out *os.File, numFrames, numRun
 			}
 		}
 
-		// A failed measured run is fatal, as it is for Python and Rust. The C++
-		// harness discards each operation's result and cannot notice one.
+		// A failed measured run is fatal, as it is for the other three harnesses.
 		fpsList := make([]float64, 0, numRuns)
 		for r := 0; r < numRuns; r++ {
 			fps, err := l.run(numFrames)

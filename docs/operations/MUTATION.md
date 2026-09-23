@@ -451,11 +451,13 @@ slice's mutants alone.  The `mutation cpp` job unions each tree's slices, then
 intersects the trees, and that union is the verdict the drift gate reads.
 
 **Nothing keeps a list of which file is in which slice.**  The set a slice can
-claim is derived: every tracked file under `cpp/src` and `cpp/include` that
-`cpp/mull.yml` does not already hold out.  A file added to the library is in
-that set the moment it is tracked, and `tools/mutation_cpp_slices.py` computes
-the partition from it.  The slices state what they *hold out* rather than what
-they claim, which decides how a mistake surfaces: a file no slice claims is
+claim is derived: every tracked file under `cpp/src`, `cpp/include` and
+`cpp/benchmarks` that `cpp/mull.yml` does not already hold out, the last for
+the header the benchmark harness keeps its timed loops in, which the unit tests
+instantiate.  A file added to the library is in that set the moment it is
+tracked, and `tools/mutation_cpp_slices.py` computes the partition from it.
+The slices state what they *hold out* rather than what they claim, which
+decides how a mistake surfaces: a file no slice claims is
 mutated by all three, so its mutants arrive once per slice and the merge
 refuses the repeated identifiers.  Stating what a slice claims would instead
 drop that file and report the smaller census as a clean sweep.
@@ -476,7 +478,7 @@ costs a newly added file some balance until the census is re-taken.  Because
 adding code adds mutants and nothing refuses that, these counts age quietly in
 one direction.  So the merge prints, beside its verdict, what the heaviest
 slice would carry today under the recorded weights against an equal share,
-counted in mutants: fresh weights read about nothing there, measured at 0.1
+counted in mutants: fresh weights read about nothing there, measured at 0.0
 percent on the run that recorded them, and the figure grows as the surface
 outgrows the record.  The review that re-takes them is scheduled against it
 rather than against a date (AGENTS.md § Universal Rules; the task list carries

@@ -8,6 +8,8 @@
 //
 // Usage: ./benchmark [throughput|latency|scaling] [--frames N] [--runs N] [--quick] [--json]
 
+#include "measure.hpp"
+
 #include <aletheia/aletheia.hpp>
 
 #include <cstddef>
@@ -29,15 +31,12 @@
 #include <numeric>
 #include <print>
 #include <ranges>
-#include <ratio>
 #include <span>
-#include <stdexcept>
 #include <stop_token>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <thread>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -47,9 +46,11 @@ using aletheia::AletheiaClient, aletheia::AlwaysPresent, aletheia::BitLength, al
     aletheia::ByteOrder, aletheia::CanId, aletheia::DbcDefinition, aletheia::DbcMessage,
     aletheia::DbcSignal, aletheia::Dlc, aletheia::FramePayload, aletheia::LtlFormula,
     aletheia::MessageName, aletheia::NodeName, aletheia::PhysicalValue, aletheia::Rational,
-    aletheia::RationalBound, aletheia::RationalFactor, aletheia::RationalOffset, aletheia::Result,
+    aletheia::RationalBound, aletheia::RationalFactor, aletheia::RationalOffset,
     aletheia::SignalName, aletheia::SignalValue, aletheia::StandardId, aletheia::Timestamp,
     aletheia::Unit, aletheia::make_ffi_backend;
+using aletheia::bench::latencies_us, aletheia::bench::operations_per_second,
+    aletheia::bench::require;
 namespace ltl = aletheia::ltl;
 using Json = nlohmann::json;
 namespace fs = std::filesystem;
@@ -511,15 +512,7 @@ static void print_separator() {
 // ---------------------------------------------------------------------------
 
 // A benchmark must never time a client whose setup failed, so every setup
-// step that returns std::expected is checked and its error thrown.
-template<typename T>
-static auto require(Result<T> result, std::string_view step) -> T {
-    if (!result)
-        throw std::runtime_error(std::format("{} failed: {}", step, result.error().message()));
-    if constexpr (!std::is_void_v<T>)
-        return std::move(*result);
-}
-
+// step is checked through require like the timed operations are.
 static auto make_client(const fs::path& lib, const DbcDefinition& dbc) -> AletheiaClient {
     AletheiaClient client(make_ffi_backend(lib));
     require(client.parse_dbc(std::stop_token{}, dbc), "parse_dbc");
@@ -552,47 +545,27 @@ static auto bench_streaming(const fs::path& lib, const DbcDefinition& dbc,
                             std::vector<LtlFormula> properties, CanId id, Dlc dlc,
                             const FramePayload& frame, int num_frames) -> double {
     auto client = make_streaming_client(lib, dbc, properties);
-
-    auto const start = std::chrono::steady_clock::now();
-    for (auto const i : std::views::iota(0, num_frames)) {
-        [[maybe_unused]] auto const sent =
-            client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
-    }
-    auto const end = std::chrono::steady_clock::now();
-
-    [[maybe_unused]] auto const ended = client.end_stream(std::stop_token{});
-
-    auto const elapsed = std::chrono::duration<double>(end - start).count();
-    return static_cast<double>(num_frames) / elapsed;
+    auto const fps = operations_per_second(num_frames, "send_frame", [&](int i) {
+        return client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
+    });
+    require(client.end_stream(std::stop_token{}), "end_stream");
+    return fps;
 }
 
 static auto bench_extraction(const fs::path& lib, const DbcDefinition& dbc, CanId id, Dlc dlc,
                              const FramePayload& frame, int num_frames) -> double {
     auto client = make_client(lib, dbc);
-
-    auto const start = std::chrono::steady_clock::now();
-    std::ranges::for_each(std::views::repeat(0, num_frames), [&](auto) {
-        [[maybe_unused]] auto const extracted =
-            client.extract_signals(std::stop_token{}, id, dlc, frame);
+    return operations_per_second(num_frames, "extract_signals", [&](auto) {
+        return client.extract_signals(std::stop_token{}, id, dlc, frame);
     });
-    auto const end = std::chrono::steady_clock::now();
-
-    auto const elapsed = std::chrono::duration<double>(end - start).count();
-    return static_cast<double>(num_frames) / elapsed;
 }
 
 static auto bench_building(const fs::path& lib, const DbcDefinition& dbc, CanId id, Dlc dlc,
                            const std::vector<SignalValue>& signals, int num_frames) -> double {
     auto client = make_client(lib, dbc);
-
-    auto const start = std::chrono::steady_clock::now();
-    std::ranges::for_each(std::views::repeat(0, num_frames), [&](auto) {
-        [[maybe_unused]] auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
+    return operations_per_second(num_frames, "build_frame", [&](auto) {
+        return client.build_frame(std::stop_token{}, id, dlc, signals);
     });
-    auto const end = std::chrono::steady_clock::now();
-
-    auto const elapsed = std::chrono::duration<double>(end - start).count();
-    return static_cast<double>(num_frames) / elapsed;
 }
 
 static auto run_throughput_bench(std::string name, auto bench_fn, int num_frames, int num_runs,
@@ -748,26 +721,12 @@ static auto bench_latency_streaming(const fs::path& lib, const DbcDefinition& db
                                     const FramePayload& frame, int warmup, int ops)
     -> LatencyStats {
     auto client = make_streaming_client(lib, dbc, properties);
-
-    // Warmup
-    for (auto const i : std::views::iota(0, warmup)) {
-        [[maybe_unused]] auto const sent =
-            client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
-    }
-
-    // Measure
-    std::vector<double> latencies;
-    latencies.reserve(ops);
-    for (auto const i : std::views::iota(0, ops)) {
-        auto const start = std::chrono::steady_clock::now();
-        [[maybe_unused]] auto const sent =
-            client.send_frame(std::stop_token{}, Timestamp{warmup + i}, id, dlc, frame);
-        auto const end = std::chrono::steady_clock::now();
-        auto const us = std::chrono::duration<double, std::micro>(end - start).count();
-        latencies.push_back(us);
-    }
-
-    [[maybe_unused]] auto const ended = client.end_stream(std::stop_token{});
+    // The stream reads timestamps in order, so the warmup frames carry the
+    // first ones and the measured frames continue the count.
+    auto latencies = latencies_us(warmup, ops, "send_frame", [&](int i) {
+        return client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
+    });
+    require(client.end_stream(std::stop_token{}), "end_stream");
     return compute_latency_stats(latencies);
 }
 
@@ -775,24 +734,9 @@ static auto bench_latency_extraction(const fs::path& lib, const DbcDefinition& d
                                      Dlc dlc, const FramePayload& frame, int warmup, int ops)
     -> LatencyStats {
     auto client = make_client(lib, dbc);
-
-    // Warmup
-    std::ranges::for_each(std::views::repeat(0, warmup), [&](auto) {
-        [[maybe_unused]] auto const extracted =
-            client.extract_signals(std::stop_token{}, id, dlc, frame);
+    auto latencies = latencies_us(warmup, ops, "extract_signals", [&](auto) {
+        return client.extract_signals(std::stop_token{}, id, dlc, frame);
     });
-
-    // Measure
-    std::vector<double> latencies;
-    latencies.reserve(ops);
-    std::ranges::for_each(std::views::repeat(0, ops), [&](auto) {
-        auto const start = std::chrono::steady_clock::now();
-        [[maybe_unused]] auto const extracted =
-            client.extract_signals(std::stop_token{}, id, dlc, frame);
-        auto const end = std::chrono::steady_clock::now();
-        latencies.push_back(std::chrono::duration<double, std::micro>(end - start).count());
-    });
-
     return compute_latency_stats(latencies);
 }
 
@@ -800,22 +744,9 @@ static auto bench_latency_building(const fs::path& lib, const DbcDefinition& dbc
                                    const std::vector<SignalValue>& signals, int warmup, int ops)
     -> LatencyStats {
     auto client = make_client(lib, dbc);
-
-    // Warmup
-    std::ranges::for_each(std::views::repeat(0, warmup), [&](auto) {
-        [[maybe_unused]] auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
+    auto latencies = latencies_us(warmup, ops, "build_frame", [&](auto) {
+        return client.build_frame(std::stop_token{}, id, dlc, signals);
     });
-
-    // Measure
-    std::vector<double> latencies;
-    latencies.reserve(ops);
-    std::ranges::for_each(std::views::repeat(0, ops), [&](auto) {
-        auto const start = std::chrono::steady_clock::now();
-        [[maybe_unused]] auto const built = client.build_frame(std::stop_token{}, id, dlc, signals);
-        auto const end = std::chrono::steady_clock::now();
-        latencies.push_back(std::chrono::duration<double, std::micro>(end - start).count());
-    });
-
     return compute_latency_stats(latencies);
 }
 
@@ -1292,6 +1223,19 @@ static auto parse_args(std::span<char* const> argv) -> Args {
         } else {
             std::println(stderr, "Unknown option: {}", arg);
             print_usage(argv[0]);
+            std::exit(1);
+        }
+    }
+
+    // A count of zero measures nothing, and a row computed from nothing reads
+    // as a rate of zero rather than as a failure. Each is checked whichever
+    // mode runs, so the refusal does not depend on which flag that mode reads;
+    // a warmup of zero is a measurement with no warmup and stays legal.
+    for (auto const [option, value] :
+         std::array{std::pair{"--frames", args.frames}, std::pair{"--runs", args.runs},
+                    std::pair{"--ops", args.ops}}) {
+        if (value < 1) {
+            std::println(stderr, "{} must be at least 1, got {}", option, value);
             std::exit(1);
         }
     }

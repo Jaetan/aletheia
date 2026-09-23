@@ -505,8 +505,11 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         tests/unit_tests_ffi_logic.cpp
         tests/unit_tests_decimal.cpp
         tests/unit_tests_loader_utils.cpp
+        tests/unit_tests_benchmark_measure.cpp
         tests/rts_setup_listener.cpp)
-    target_include_directories(unit_tests PRIVATE src)
+    # benchmarks: the benchmark harness's timed loops live there as a header,
+    # and their test drives them under a clock of its own.
+    target_include_directories(unit_tests PRIVATE src benchmarks)
     target_link_libraries(unit_tests
         PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
     # Mutation lane: the test sources compile with the plugin too, not for
