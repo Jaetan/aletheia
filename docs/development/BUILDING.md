@@ -456,7 +456,7 @@ cabal run shake -- install-python     # Build + install Python package (pip inst
 cabal run shake -- check-properties   # Type-check all proof modules
 cabal run shake -- dist               # Package dist/aletheia.tar.gz (C/C++/Go/Rust)
 cabal run shake -- docker             # Build Docker runtime image (requires dist)
-cabal run shake -- clean              # Remove build artifacts
+cabal run shake -- clean              # Remove build artifacts, the Agda interfaces under _build/ included
 cabal run shake -- install            # System install (default: ~/.local)
 cabal run shake -- uninstall          # Remove system install
 ```

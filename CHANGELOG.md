@@ -726,6 +726,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **`shake clean` removes the Agda interfaces.** Agda writes its interfaces
+  under the project root's `_build/`, and the line meant to remove them named
+  `src`, where none has ever been, so a clean build re-derived MAlonzo from
+  interfaces it did not regenerate and the reproducible-build gate compared two
+  builds sharing one interface set. `clean` now removes `_build/` with the rest,
+  and the gate's second build type-checks the runtime closure from cold, which
+  is the cost of comparing two clean builds.
+
 - **The proof gate runs warm on a restored build tree.** Agda writes its
   interface files under the project root's `_build/`, never beside the MAlonzo
   output, and the build-tree cache carried `build/` and the two `dist-newstyle`

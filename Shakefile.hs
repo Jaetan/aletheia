@@ -1880,7 +1880,9 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
     phony "clean" $ do
         putInfo "Cleaning build artifacts..."
         removeFilesAfter "build" ["//*"]
-        removeFilesAfter "src" ["//*.agdai"]
+        -- Agda writes its interfaces under `_build/<version>/agda/`, never
+        -- beside the sources; a clean build re-derives them too.
+        removeFilesAfter "_build" ["//*"]
         removeFilesAfter "haskell-shim" ["//MAlonzo"]
         cmd_ (Cwd "haskell-shim") "cabal clean"
 
