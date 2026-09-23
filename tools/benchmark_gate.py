@@ -26,10 +26,10 @@ import sys
 from pathlib import Path
 from typing import TypedDict, cast
 
-# The three bindings benchmarked by run_all.sh. A lane absent from a run (a
-# binding that failed to build) is skipped, not scored as a 100% regression —
-# build failures are pr-full-ci's job to report.
-BINDINGS = ("cpp", "go", "python")
+# The four bindings benchmarked by run_all.sh, the languages benchmarks/SCHEMA.yaml
+# names. A binding absent from a run (one that failed to build) is skipped, not
+# scored as a 100% regression: build failures are pr-full-ci's job to report.
+BINDINGS = ("cpp", "go", "python", "rust")
 
 # Baseline JSON shape: {binding: {lane_name: fps_mean}}.
 Baseline = dict[str, dict[str, float]]

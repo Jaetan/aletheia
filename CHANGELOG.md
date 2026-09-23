@@ -61,6 +61,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The runner benchmark baseline is current, and the gate reads Rust.** The
+  bar `tools/benchmark_gate.py` held every pull request to dated from June and
+  predated the hot-path work since, so on the common runner class the streaming
+  lanes ran up to half again faster than it and a regression of that size would
+  have passed; it also carried no Rust column, the gate naming three bindings
+  where `benchmarks/run_all.sh` measures four. `benchmarks/gha_baseline.json`
+  is now a known-good pull-request run's own report, written through the gate's
+  bootstrap mode, from the CPU class seven of the last ten runs landed on, and
+  the gate compares the four languages `benchmarks/SCHEMA.yaml` names. A test
+  and a probe hold the baseline to that shape: every language, every throughput
+  lane, a positive number in each, since a lane the baseline lacks is one the
+  gate skips without a word. `docs/development/BENCHMARKS.md` states the runner
+  classes and the refresh procedure.
+
 - **The pre-commit IWYU check blocks, and it waits for the agda-tree lock.**
   The hook installed by `tools/install_hooks.py` ran `tools/iwyu.py --check`
   on the staged `.agda` files as an advisory, and read every non-zero exit as

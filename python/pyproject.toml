@@ -342,6 +342,10 @@ pytest_add_cli_args = [
     # Same shape: covers the gate-claim provenance check (repo-root `tools`
     # package).  Infra coverage, not hot-path.
     "--ignore=tests/test_check_gate_claim.py",
+    # Same shape: covers the runner benchmark gate (repo-root `tools` package)
+    # and reads the baseline and the schema above python/.  Infra coverage,
+    # not hot-path.
+    "--ignore=tests/test_benchmark_gate.py",
     # Same shape, by reading rather than importing: it holds every build-tree
     # cache save to asking whether there is a tree, and the workflows it reads
     # are above python/, which the relocated mutants/ tree does not carry.

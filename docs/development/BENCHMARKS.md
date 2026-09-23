@@ -100,9 +100,9 @@ Run `cabal run shake -- build` before every measurement. Shake tracks the Agda s
 
 `.github/workflows/benchmark.yml` runs the throughput suite on every pull request touching something other than Markdown or `docs/`, and on demand through `workflow_dispatch`. On a pull request it then runs `tools/benchmark_gate.py`, which **fails the check if any lane is more than 30% slower** than the GitHub-runner baseline in `benchmarks/gha_baseline.json`.
 
-The threshold is generous: the hosted runner is shared and noisy, so the gate catches a *noticeable* regression rather than jitter, the five-run mean having damped the noise within a run. A failing gate re-measures once and gates again, a slow runner slowing every lane at once where a real regression slows only what changed. The baseline is measured **on the runner**, never locally, the two machines differing several-fold.
+The threshold is generous: the hosted runner is shared and noisy, so the gate catches a *noticeable* regression rather than jitter, the five-run mean having damped the noise within a run. A failing gate re-measures once and gates again, a slow runner slowing every lane at once where a real regression slows only what changed. The baseline is measured **on the runner**, never locally, the two machines differing several-fold. The hosted runners come in more than one CPU class, and the classes differ by up to twofold, so the baseline is taken from the most common class, which the C++ report's `system.cpu` names: a run on a faster class passes with a wide margin, and a run on the common class is the one the gate measures.
 
-To refresh it after an intentional change, commit a known-good run's numbers, which the gate prints and the workflow uploads as the `benchmark-throughput-results` artifact. With that file absent the gate is in bootstrap mode: it reports and passes.
+To refresh it after an intentional change, take a known-good pull-request run's `benchmark-throughput-results` artifact, check that its C++ report names the common class, and write the baseline with the gate's own bootstrap mode, `python3 -m tools.benchmark_gate --results-dir <artifact> --baseline /nonexistent`, which prints the run in baseline shape. With the baseline file absent on a pull request the gate is in that mode: it reports and passes.
 
 ---
 
