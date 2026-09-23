@@ -476,13 +476,15 @@ def run_warm_gate(args: list[str], action: Callable[[WarmAgda, list[RelPath]], i
     → exit 0 no-op), the agda-tree lock + one warm process, and a `Cmd_load` of
     every scoped file so the `.agdai` interfaces the reader reads are current.
     ``action(agda, files)`` does the per-tool work; its return is the exit code.
+    ``--wait-lock`` queues behind a running Agda tool instead of refusing to
+    start beside it, which is what a hook that must reach a verdict wants.
     """
     files = select_files(args)
     if files is None:
         return 2
     if not files:
         return 0  # nothing in scope (e.g. --diff with no .agda change): a true no-op
-    with agda_tree_lock(), WarmAgda() as agda:
+    with agda_tree_lock(wait="--wait-lock" in args), WarmAgda() as agda:
         for rel in files:
             _ = agda.load(str(SRC / rel))  # refresh `.agdai` so the reader sees current interfaces
         return action(agda, files)

@@ -25,8 +25,10 @@ Modes (mutually exclusive; default is a report):
     gate (it replaced the retired recompile oracle), so CI runs it always.
 
 Scope: `--all` (whole tree), `--diff` (changed vs `main`), or explicit paths.
+`--wait-lock` queues behind a running Agda tool instead of refusing to start.
 
-Invoke: `python -m tools.iwyu (--check | --apply | --self-test) [--all | --diff | FILE.agda ...]`.
+Invoke: `python -m tools.iwyu (--check | --apply | --self-test) [--wait-lock]
+(--all | --diff | FILE.agda ...)`.
 """
 
 from __future__ import annotations
