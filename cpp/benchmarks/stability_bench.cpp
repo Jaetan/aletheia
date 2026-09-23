@@ -24,6 +24,8 @@
 //
 // Linux-specific (relies on /proc and glibc malloc_info).
 
+#include "measure.hpp"
+
 #include <aletheia/aletheia.hpp>
 
 #include <algorithm>
@@ -222,18 +224,11 @@ static auto minimal_dbc() -> aletheia::DbcDefinition {
     return DbcDefinition{.version = "", .messages = {engine_msg}};
 }
 
-// A cycle that fails any step measures nothing, so every std::expected the
-// client returns is checked and its error thrown.
-template<typename T>
-static void require(const aletheia::Result<T>& result, std::string_view step) {
-    if (!result)
-        throw std::runtime_error(std::format("{} failed: {}", step, result.error().message()));
-}
-
 static void run_cycle(const std::filesystem::path& lib, const aletheia::DbcDefinition& dbc,
                       int frames_per_cycle) {
     using aletheia::AletheiaClient, aletheia::CanId, aletheia::Dlc, aletheia::FramePayload,
         aletheia::make_ffi_backend, aletheia::StandardId, aletheia::Timestamp;
+    using aletheia::bench::require;
     AletheiaClient client(make_ffi_backend(lib));
     require(client.parse_dbc(std::stop_token{}, dbc), "parse_dbc");
     require(client.start_stream(std::stop_token{}), "start_stream");
