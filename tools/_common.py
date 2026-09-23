@@ -396,8 +396,13 @@ def _read_lock_pid(fd: int) -> int:
         return -1
 
 
-def _acquire_agda_lock() -> int | None:
-    """Acquire the repo-wide Agda lock via flock; exit if a live tool holds it.
+def _acquire_agda_lock(*, wait: bool) -> int | None:
+    """Acquire the repo-wide Agda lock via flock.
+
+    When a live tool holds it: with ``wait`` the caller blocks until the holder
+    releases, saying so once on stderr with the holder's pid; without it the
+    tool exits with that message instead, so an interactive sweep started over
+    a running one fails at once rather than queueing behind it.
 
     Returns the held fd (closed by `agda_tree_lock` to release), or None when the
     filesystem cannot lock -- in which case the tool proceeds unlocked rather
@@ -409,14 +414,22 @@ def _acquire_agda_lock() -> int | None:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         holder = _read_lock_pid(fd)
-        os.close(fd)
         liveness = "alive" if _process_alive(holder) else "stale?"
-        message = (
-            f"another Agda tool holds {_AGDA_LOCK_NAME} (pid {holder}, {liveness}); "
-            + "refusing to start a concurrent Agda op -- wait for it to finish "
-            + "(this guards the read-during-write prune race)."
-        )
-        sys.exit(message)
+        if wait:
+            _ = sys.stderr.write(
+                f"waiting for {_AGDA_LOCK_NAME}, held by another Agda tool "
+                + f"(pid {holder}, {liveness})...\n"
+            )
+            sys.stderr.flush()
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        else:
+            os.close(fd)
+            message = (
+                f"another Agda tool holds {_AGDA_LOCK_NAME} (pid {holder}, {liveness}); "
+                + "refusing to start a concurrent Agda op -- wait for it to finish "
+                + "(this guards the read-during-write prune race)."
+            )
+            sys.exit(message)
     except OSError as exc:
         os.close(fd)
         if exc.errno in (errno.ENOLCK, errno.ENOSYS, errno.EOPNOTSUPP):
@@ -432,14 +445,15 @@ def _acquire_agda_lock() -> int | None:
 
 
 @contextlib.contextmanager
-def agda_tree_lock() -> Generator[None]:
+def agda_tree_lock(*, wait: bool = False) -> Generator[None]:
     """Hold the exclusive repo-wide "one Agda process at a time" lock.
 
-    Wrap any Agda-invoking tool body in this.  Acquires the lock (or aborts with
-    a clear message naming the live holder); the `finally` closes the fd, which
-    frees the `flock`.  See the section comment for the crash-safety rationale.
+    Wrap any Agda-invoking tool body in this.  Acquires the lock, aborting with
+    a message naming the live holder unless ``wait`` asks to queue behind it;
+    the `finally` closes the fd, which frees the `flock`.  See the section
+    comment for the crash-safety rationale.
     """
-    fd = _acquire_agda_lock()
+    fd = _acquire_agda_lock(wait=wait)
     try:
         yield
     finally:

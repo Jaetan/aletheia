@@ -12,8 +12,9 @@ Hooks installed:
     failure, so a non-conforming commit fails in seconds rather than minutes
     later at pre-push.  Unstaged + untracked changes are stashed for the
     duration so the gates see exactly what is being committed, then restored.
-    Also runs ``tools/iwyu.py --check`` on staged .agda files as a non-blocking
-    ADVISORY (prints findings, never blocks).
+    Then runs ``tools/iwyu.py --check`` on the staged .agda files as a
+    BLOCKING import gate, queued behind a running Agda tool rather than
+    refused beside it.
 
   * pre-push — runs ``tools/run_ci.py`` before allowing push.  Refuses
     push on any non-zero exit.  Rationale: limited GitHub Actions monthly
@@ -43,7 +44,7 @@ from pathlib import Path
 from tools._common import emit, find_executable
 
 PRE_PUSH_MARKER = "# aletheia-pre-push-marker (offline CI sweep)"
-PRE_COMMIT_MARKER = "# aletheia-pre-commit-marker (FAST static gate + IWYU advisory)"
+PRE_COMMIT_MARKER = "# aletheia-pre-commit-marker (FAST static gate + IWYU gate)"
 
 PRE_PUSH_BODY = f'''\
 #!/usr/bin/env python3.14
@@ -116,7 +117,7 @@ if __name__ == "__main__":
 PRE_COMMIT_BODY = f'''\
 #!/usr/bin/env python3.14
 {PRE_COMMIT_MARKER}
-"""Aletheia pre-commit hook — FAST static gate (blocking) + IWYU advisory.
+"""Aletheia pre-commit hook — FAST static gate + IWYU import gate, both blocking.
 
 Runs the compile-free FAST tier of the CI sweep (`tools/run_ci.py --fast`:
 per-binding format checks, SPDX / review-mark / venv hygiene, ruff, pylint)
@@ -131,7 +132,11 @@ ever fails, the message says where the work is (recoverable via `git stash`).
 Every FAST gate is non-mutating (`--check` / `--dry-run`), so the pop never
 conflicts with the check itself.
 
-Also runs the `.agda` IWYU import check as a non-blocking advisory.
+Then runs the `.agda` IWYU import gate (`tools/iwyu.py --check`) on the
+staged `.agda` files and BLOCKS on any finding, and on a run that never
+reached a verdict.  The gate queues behind a running Agda tool (`--wait-lock`)
+rather than refusing to start beside it, so a commit made during a sweep
+waits for the sweep instead of going through unchecked.
 
 Bypass: `git commit --no-verify`.
 """
@@ -157,8 +162,25 @@ def _has_worktree_changes(root):
     return bool(others.strip())
 
 
-def _iwyu_advisory(root):
-    # For each staged .agda under src/, run the .agdai IWYU reader as a WARNING.
+def _run_iwyu(rels, cwd):
+    # stdout captured (the report is the verdict), stderr left on the terminal
+    # so the tool's own progress and refusals are read live: "waiting for the
+    # agda-tree lock" during a sweep, a traceback when it crashes.
+    return subprocess.run(
+        [sys.executable, "-m", "tools.iwyu", "--check", "--wait-lock", *rels],
+        stdout=subprocess.PIPE,
+        text=True,
+        check=False,
+        cwd=cwd,
+    )
+
+
+def _iwyu_gate(root):
+    # Run the .agdai IWYU reader over every staged .agda under src/; return the
+    # hook's exit code.  A run that found something prints its report on stdout.
+    # A non-zero exit with nothing on stdout is a run that never happened (a
+    # usage error, a crash before the report), and that blocks too: a gate
+    # that could not run vouches for nothing.
     diff = _run(
         ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR", "--", "src/*.agda"],
         cwd=root,
@@ -173,15 +195,29 @@ def _iwyu_advisory(root):
             except ValueError:
                 continue
     if not rels:
-        return
-    res = _run([sys.executable, "-m", "tools.iwyu", "--check", *rels], cwd=root)
-    if res.returncode != 0:
-        sys.stderr.write("\\npre-commit: IWYU flagged imports in staged .agda files:\\n\\n")
-        sys.stderr.write(res.stdout.strip() + "\\n\\n")
+        return 0
+    sys.stderr.write(
+        "pre-commit: IWYU import gate on " + str(len(rels)) + " staged .agda file(s) "
+        "(queues behind a running Agda tool)...\\n"
+    )
+    res = _run_iwyu(rels, root)
+    if res.returncode == 0:
+        return 0
+    if not res.stdout.strip():
         sys.stderr.write(
-            "pre-commit: ADVISORY ONLY — commit proceeds.  Remove a DEAD named "
-            "import; fix wildcard `open import M` via `python -m tools.iwyu --apply`.\\n\\n"
+            "\\npre-commit: IWYU could not run on the staged .agda files (exit "
+            + str(res.returncode) + "); its own output is above.  Commit refused: "
+            "this hook cannot vouch for a check it never got.  Reproduce with "
+            "`python -m tools.iwyu --check " + " ".join(rels) + "`.\\n\\n"
         )
+        return 1
+    sys.stderr.write("\\npre-commit: IWYU flagged imports in staged .agda files:\\n\\n")
+    sys.stderr.write(res.stdout.strip() + "\\n\\n")
+    sys.stderr.write(
+        "pre-commit: commit refused.  Remove a DEAD named import; fix wildcard "
+        "`open import M` via `python -m tools.iwyu --apply`.\\n\\n"
+    )
+    return 1
 
 
 def _create_stash(root):
@@ -253,18 +289,17 @@ def main() -> int:
         rc = subprocess.run(
             [sys.executable, "-m", "tools.run_ci", "--fast"], cwd=root, check=False
         ).returncode
-        if rc == 0:
-            _iwyu_advisory(root)
+        if rc != 0:
+            sys.stderr.write(
+                "\\npre-commit: FAST static gates failed — commit refused.\\n"
+                "pre-commit: fix the reported format/lint/hygiene issues, or bypass "
+                "with `git commit --no-verify`.\\n"
+            )
+        else:
+            rc = _iwyu_gate(root)
     finally:
         if stash_sha:
             _restore_stash(root, stash_sha)
-
-    if rc != 0:
-        sys.stderr.write(
-            "\\npre-commit: FAST static gates failed — commit refused.\\n"
-            "pre-commit: fix the reported format/lint/hygiene issues, or bypass "
-            "with `git commit --no-verify`.\\n"
-        )
     return rc
 
 

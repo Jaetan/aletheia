@@ -15,7 +15,7 @@ minutes.
 
 | Layer | Lives in | Triggered by | Coverage |
 |---|---|---|---|
-| Pre-commit advisory | `tools/iwyu.py --check` (via pre-commit hook) | `git commit` | IWYU `.agdai`-reader scan (named + wildcard) on staged `.agda` files (advisory only — never blocks) |
+| Pre-commit gate | `tools/run_ci.py --fast` + `tools/iwyu.py --check --wait-lock` (via pre-commit hook) | `git commit` | The compile-free FAST tier on the staged content, then the IWYU `.agdai`-reader scan (named + wildcard) on staged `.agda` files; blocks on any failure or finding |
 | Offline correctness sweep | `tools/run_ci.py` (via pre-push hook) | `git push` | **The always-on gate sweep** — Agda gates (the proof/invariant/erasure/fidelity/export checks fold into one `cabal run shake` call; build is a separate prereq; + the IWYU gate + its self-test on branch-modified files), offline enforcers, binding tests, lints, GHA meta-checks (+ 3 opt-in lanes) |
 | Push-time meta-gates | `.github/workflows/*.yml` | `git push origin <branch>` to GitHub | Action-pin / workflow-permissions / actionlint — verifies the GHA infrastructure itself |
 | Local GHA-replay | `act` + `.actrc` | manual `act <event>` | Run the GHA workflows offline before push to catch breakage before consuming Actions minutes |
@@ -23,12 +23,19 @@ minutes.
 The pre-push hook (installed by `tools/install_hooks.py`) is the principal
 correctness gate; the GHA workflows are intentionally narrow.
 
-## Pre-commit hook (advisory) — `tools/iwyu.py --check`
+## Pre-commit hook (blocking) — `tools/run_ci.py --fast` + `tools/iwyu.py --check`
 
-The single scope-aware `.agdai` IWYU tool runs at every `git commit`
-against staged `.agda` files under `src/`.  Any finding (dead / redundant
-/ narrowable / unresolved import) is printed as a WARNING; the commit
-always proceeds.
+The hook first runs the compile-free FAST tier of the sweep on the staged
+content (unstaged and untracked changes are stashed for the duration and
+restored after) and refuses the commit on any failure.  It then runs the
+single scope-aware `.agdai` IWYU tool against staged `.agda` files under
+`src/`.  Any finding (dead / redundant / narrowable / unresolved import)
+refuses the commit, and so does a run that never reached a verdict: a
+non-zero exit with no report is reported as a check the hook did not get,
+with the tool's own output above it, never as findings.  The tool is run
+with `--wait-lock`, so a commit made while another Agda tool holds the
+agda-tree lock (a proof sweep, another IWYU run) waits for it, saying so
+with the holder's pid, rather than being refused or waved through.
 
 It is not sub-second (it warm-loads the staged files to refresh their
 `.agdai` interfaces), so it runs only when `.agda` files are staged.  The
@@ -112,12 +119,13 @@ tools/install_hooks.py
 ```
 
 Idempotent (safe to re-run; preserves any existing hooks by backing them
-up).  After install, every `git commit` runs the pre-commit IWYU advisory
-and every `git push` runs the full always-on sweep (blocking).
+up).  After install, every `git commit` runs the FAST tier and the IWYU
+gate on the staged content, and every `git push` runs the full always-on
+sweep; all of it blocking.
 Bypass either hook with `--no-verify`:
 
 ```bash
-git commit --no-verify   # skip pre-commit IWYU advisory
+git commit --no-verify   # skip the pre-commit FAST tier + IWYU gate
 git push   --no-verify   # skip pre-push CI sweep (for incident response)
 ```
 
@@ -346,7 +354,7 @@ passed sweep recorded, even if the pre-push hook didn't run.
 
 - [`tools/run_ci.py`](../../tools/run_ci.py) — offline correctness orchestrator (Phase 3).
 - [`tools/install_hooks.py`](../../tools/install_hooks.py) — pre-commit + pre-push hook installer.
-- [`tools/iwyu.py`](../../tools/iwyu.py) — the single IWYU tool: `--check` (named + wildcard gate), `--apply` (wildcard narrow/remove), `--self-test` (fixture matrix). Pre-commit advisory + pre-push gate.
+- [`tools/iwyu.py`](../../tools/iwyu.py) — the single IWYU tool: `--check` (named + wildcard gate), `--apply` (wildcard narrow/remove), `--self-test` (fixture matrix); `--wait-lock` queues behind a running Agda tool. Pre-commit gate + pre-push gate.
 - [`tools/_iwyu.py`](../../tools/_iwyu.py) — its engine (internal): the `.agdai` reader driver + both analyses.
 - [`tools/agda-iwyu-reader/`](../../tools/agda-iwyu-reader/) — the Haskell reader (links the prebuilt Agda from the cabal store) + its `test/` fixture matrix.
 - [`tools/check_changelog.py`](../../tools/check_changelog.py) — CHANGELOG discipline (public API + build/CI/tooling).

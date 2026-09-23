@@ -61,6 +61,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The pre-commit IWYU check blocks, and it waits for the agda-tree lock.**
+  The hook installed by `tools/install_hooks.py` ran `tools/iwyu.py --check`
+  on the staged `.agda` files as an advisory, and read every non-zero exit as
+  findings. The tool also exits non-zero when it never ran, with the reason on
+  stderr and nothing on stdout, the agda-tree lock refusing a concurrent Agda
+  operation being the common case: a commit made while a sweep held the lock
+  (observed 2026-09-16, on two files the tool reports clean on their own) was
+  shown the "flagged imports" header over an empty report, never told why, and
+  let through. Imports in the Agda tree are to be clean, so the check is now a
+  gate: a finding refuses the commit with its report, and so does a run that
+  reached no verdict, whose own output the hook now leaves on the terminal
+  rather than capturing. The lock no longer refuses the hook: `tools/iwyu.py`
+  takes `--wait-lock`, under which the shared lock in `tools/_common.py` queues
+  behind the holder, naming its pid, instead of exiting, and the hook passes
+  it, so a commit during a proof sweep waits for the sweep. Every other Agda
+  tool keeps the refusal. Reinstall the hook with `python -m tools.install_hooks`
+  to pick the change up.
+
 - **The Go guide names the panic the package keeps for itself.** Its
   error-handling section said the package never panics, and the probe holding
   it to that read red on every run, because the client fails an unlock of a

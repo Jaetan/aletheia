@@ -413,7 +413,7 @@ For Docker deployment (Dockerfiles, build commands, runtime image), see [DISTRIB
 
 ### 8. Install Git Hooks (Recommended for Contributors)
 
-Aletheia's CI is local-first: a pre-push hook runs the full offline correctness sweep before allowing push (`tools/run_ci.py`), and a pre-commit hook runs an advisory IWYU dead-import scan on staged `.agda` files. Install both with:
+Aletheia's CI is local-first: a pre-push hook runs the full offline correctness sweep before allowing push (`tools/run_ci.py`), and a pre-commit hook runs the compile-free FAST gate tier on the staged content and the IWYU import gate on staged `.agda` files, refusing the commit on any failure. Install both with:
 
 ```bash
 tools/install_hooks.py
@@ -423,13 +423,13 @@ Idempotent (safe to re-run; preserves any existing hooks by backing them up). Af
 
 | Hook | When | What runs | Severity |
 |---|---|---|---|
-| `pre-commit` | `git commit` | `tools/iwyu.py --check` on staged `.agda` files (the single scope-aware `.agdai` IWYU tool) | **Advisory** — prints warning, always proceeds |
+| `pre-commit` | `git commit` | `tools/run_ci.py --fast` on the staged content, then `tools/iwyu.py --check --wait-lock` on staged `.agda` files (the single scope-aware `.agdai` IWYU tool; it queues behind a running Agda tool) | **Blocking** — refuses the commit on any finding, and on a check that never reached a verdict |
 | `pre-push` | `git push` | `tools/run_ci.py` — the full offline correctness sweep (~22-30 min warm) | **Blocking** — refuses push on any non-zero exit |
 
 Bypass either hook with `--no-verify` when needed (e.g. doc-only fixes that don't affect gates):
 
 ```bash
-git commit --no-verify   # skip pre-commit IWYU advisory
+git commit --no-verify   # skip the pre-commit FAST tier + IWYU gate
 git push   --no-verify   # skip pre-push CI sweep
 ```
 
