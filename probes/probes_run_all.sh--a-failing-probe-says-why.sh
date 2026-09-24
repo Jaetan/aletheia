@@ -8,9 +8,14 @@
 # last lines inline and the whole of it in a file the line names, so a probe
 # that crashed reads differently from one that refused its claim. The record
 # directory holds only the latest run's failures, and the runner still exits
-# non-zero and counts every probe. Non-zero exit: a failure's reason is lost,
-# a passing probe's chatter reaches the record, a stale failure survives a
-# run, or the runner no longer reports the failure.
+# non-zero and counts every probe. A probe that writes a tracked file and puts
+# its bytes back, exiting zero, fails all the same, its line counting the
+# files it moved and its log naming them, because the runner reads every
+# tracked file's mtime, size and mode before and after each probe; and a store
+# with no git work tree around it is refused rather than run unwatched.
+# Non-zero exit: a failure's reason is lost, a passing probe's chatter reaches
+# the record, a stale failure survives a run, the runner no longer reports the
+# failure, a restored write passes, or a store outside git runs.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v python3 > /dev/null || { echo "python3 is needed to stage a crashing probe"; exit 2; }
@@ -18,6 +23,14 @@ work=$(mktemp -d) || exit 2
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/probes" "$work/tools/ci-output/probes" || exit 2
 cp probes/run_all.sh "$work/probes/run_all.sh" || exit 2
+# A store outside a work tree is refused before any probe runs.
+out=$(bash "$work/probes/run_all.sh" 2>&1); rc=$?
+[ "$rc" -eq 2 ] || { echo "a store with no git work tree ran, exit $rc"; exit 1; }
+grep -q 'tracked file' <<< "$out" || { echo "the refusal does not say what it cannot see: $out"; exit 1; }
+# The tracked file the restoring probe below writes and puts back.
+git init -q "$work" || exit 2
+printf 'tracked\n' > "$work/tracked.txt"
+git -C "$work" add tracked.txt || exit 2
 echo "left by an earlier run" > "$work/tools/ci-output/probes/stale.log"
 
 cat > "$work/probes/a--passes-loudly.sh" <<'SH'
@@ -43,6 +56,12 @@ echo "the last word: reason-d"
 exit 2
 SH
 
+cat > "$work/probes/e--restores-what-it-wrote.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'tracked\n' > tracked.txt
+exit 0
+SH
+
 out=$(bash "$work/probes/run_all.sh")
 rc=$?
 logs="$work/tools/ci-output/probes"
@@ -50,7 +69,7 @@ status=0
 fail() { echo "$1"; status=1; }
 
 [ "$rc" -ne 0 ] || fail "the runner exited zero over a store with failures"
-grep -qx 'probes: 4 run, exit 1' <<< "$out" || fail "the summary line does not count the four probes"
+grep -qx 'probes: 5 run, exit 1' <<< "$out" || fail "the summary line does not count the five probes"
 
 [ "$(grep -c '^PASS probes/a--passes-loudly.sh$' <<< "$out")" -eq 1 ] || fail "the passing probe is not one PASS line"
 grep -q 'chatter' <<< "$out" && fail "a passing probe's output reached the record"
@@ -70,7 +89,13 @@ grep -qx '    the last word: reason-d' <<< "$out" || fail "the talkative probe's
 grep -qx '    line 1' <<< "$out" && fail "the talkative probe's whole output reached the record"
 grep -qx 'line 1' "$logs/d--talks-then-refuses.log" 2> /dev/null || fail "the talkative probe's whole output is not in the named file"
 
+grep -q '^FAIL probes/e--restores-what-it-wrote.sh exit 0, moved 1 tracked file(s), ' <<< "$out" \
+    || fail "the probe that wrote a tracked file and restored it did not fail by count"
+grep -qx '    tracked.txt' <<< "$out" || fail "the moved file is not named inline"
+grep -qx 'tracked.txt' "$logs/e--restores-what-it-wrote.log" 2> /dev/null || fail "the moved file is not named in the kept log"
+[ ! -e "$logs/tracked.before" ] && [ ! -e "$logs/tracked.after" ] || fail "the runner left its snapshots in the record"
+
 [ ! -e "$logs/stale.log" ] || fail "a failure from an earlier run survived"
 
-[ "$status" -eq 0 ] && echo "PASS: a failing probe says why, a passing one says nothing"
+[ "$status" -eq 0 ] && echo "PASS: a failing probe says why, a passing one says nothing, and a restored write fails"
 exit $status

@@ -11,13 +11,14 @@
 # and none for an interface it loads. With every interface dated 2020 and
 # every source dated now, loading a proof-only module re-checks nothing;
 # with one imported interface deleted, it re-checks exactly that module.
-# The probe touches the mtimes of src/ and _build/ and deletes one interface
-# file that its own last run writes back, so the tree is left as it found it
-# except for mtimes, which the build decides nothing on: Shake and Agda judge
-# a file by its content.
+# The probe dates every interface under _build/ to 2020 and deletes one that
+# its own last run writes back; the sources it leaves alone, since a tracked
+# file's mtime is the tree's, and checks instead that none is older than the
+# interfaces' date, which a checkout guarantees.
 # Non-zero exit: Agda re-checked a module whose interface was current, or
-# loaded a module whose interface was gone. Exits 2 when agda is missing or
-# any of the three runs fails to check, so a crash never reads as a pass.
+# loaded a module whose interface was gone. Exits 2 when agda is missing, a
+# source is dated before the interfaces, or any of the three runs fails to
+# check, so a crash never reads as a pass.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 agda=$(command -v agda) || agda=/home/nicolas/.cabal/bin/agda
@@ -35,7 +36,8 @@ rechecked() { grep -cE '^ *Checking ' "$out"; }
 check
 [ -f "$dep" ] || { echo "baseline wrote no $dep"; exit 2; }
 find _build -name '*.agdai' -exec touch -d '2020-01-01' {} +
-find src -name '*.agda' -exec touch {} +
+old=$(find src -name '*.agda' ! -newermt '2020-01-01' | head -1)
+[ -z "$old" ] || { echo "a source is dated before the interfaces: $old"; exit 2; }
 check; n=$(rechecked)
 echo "sources newer than every interface: $n modules re-checked"
 [ "$n" -eq 0 ] || exit 1
