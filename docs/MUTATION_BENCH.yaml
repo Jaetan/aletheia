@@ -1174,6 +1174,12 @@ bindings:
           refused: '!_M_has_value'
           count: 1
         - mutator: cxx_sub_to_add
+          file: cpp/include/aletheia/types.hpp
+          text: return *Dlc::create(static_cast<std::uint8_t>(found - detail::k_dlc_bytes.begin()));
+          route: check
+          refused: _M_has_value
+          count: 1
+        - mutator: cxx_sub_to_add
           file: cpp/src/client.cpp
           text: auto const slice = buf.subspan(reasons_off + bound.front(), bound.back() - bound.front());
           route: check
