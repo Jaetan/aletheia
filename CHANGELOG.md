@@ -12,6 +12,12 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **The FFI-name gate runs on demand and reads a wrapper it is given.**
+  `cabal run shake -- check-ffi-names` runs the check the Main.hs build rule
+  runs inline, against the wrapper named by `ALETHEIA_FFI_WRAPPER` or, unset,
+  the shim's own. A probe hands the phony the shim's wrapper rewritten into each
+  shape the extractor must read through and reads the verdict.
+
 - **The Actions cache is pruned of what nothing can restore.** The repository's
   cache stood past its ceiling, and at the ceiling the platform evicts whatever
   was read longest ago, whichever lane needed it. Most of it was unreadable: an
@@ -60,6 +66,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   subscript one container, which is the case where no bound is hand-written.
 
 ### Changed
+
+- **The FFI-name gate refuses a name it cannot read.** A wrapper that spells an
+  export only inside a comment, or a MAlonzo module that lost the definition,
+  used to warn and pass; each is now a build error. The shim's own call to
+  `parseDecimal` is glued to a parenthesis, so a regression of the extractor to
+  word-start matching would have warned once and shipped. The fix hint names the
+  file the gate read rather than the shim's path.
 
 - **The dependency and licence ledger is a section of the Building Guide.**
   `DEPENDENCIES.md` is gone: its ledger lives under
