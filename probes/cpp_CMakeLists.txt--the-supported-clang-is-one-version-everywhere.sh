@@ -56,7 +56,7 @@ check "cpp/CMakeLists.txt (mutation block)" "$lane" "$(sed -n "/$cmake_split/,\$
 
 for f in $(ls .github/workflows/*.yml | grep -v pr-heavy-lanes) Dockerfile.runtime \
     tools/_ci_steps.py tools/bundle_validate.py benchmarks/run_all.sh \
-    AGENTS.md AGENTS/cpp.md CLAUDE.md DEPENDENCIES.md cpp/README.md cpp/src/ffi_backend.cpp \
+    AGENTS.md AGENTS/cpp.md CLAUDE.md cpp/README.md cpp/src/ffi_backend.cpp \
     docs/architecture/CGO_NOTES.md docs/development/BENCHMARKS.md \
     docs/development/BRANCH_PR_HYGIENE.md docs/development/BUILDING.md \
     docs/development/DISTRIBUTION.md docs/development/RELEASE.md; do

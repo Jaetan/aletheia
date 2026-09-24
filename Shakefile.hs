@@ -16,7 +16,7 @@ import System.Environment (lookupEnv)
 import System.Exit (ExitCode(..))
 import System.IO.Error (catchIOError)
 import Data.List (isInfixOf, isPrefixOf, stripPrefix, nub, intercalate, sort)
-import Data.Maybe (listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Char (isSpace, isDigit, isAlphaNum)
 import Control.Monad (when, unless, forM, forM_)
 import Control.Exception (evaluate)
@@ -174,9 +174,13 @@ extractFFIName qualifier funcName content =
                      name <- words code,
                      Just rest <- [afterNeedle qualPrefix name] ]
 
--- | Check that the FFI wrapper uses the correct mangled name for a single function.
-checkOneFFIName :: String -> String -> String -> String -> Action ()
-checkOneFFIName qualifier funcName malonzoContent ffiContent =
+-- | Check that the FFI wrapper at `ffiFile` uses the correct mangled name for
+-- a single function. A name that cannot be read on either side is an error,
+-- not a warning: every `ffiExports` entry is a definition the wrapper calls,
+-- so a wrapper that no longer calls one, or a MAlonzo module that no longer
+-- defines one, is drift the gate exists to refuse.
+checkOneFFIName :: FilePath -> String -> String -> String -> String -> Action ()
+checkOneFFIName ffiFile qualifier funcName malonzoContent ffiContent =
     case (extractMangledName funcName malonzoContent, extractFFIName qualifier funcName ffiContent) of
         (Just generatedName, Just ffiName) ->
             when (generatedName /= ffiName) $ do
@@ -193,7 +197,7 @@ checkOneFFIName qualifier funcName malonzoContent ffiContent =
                     , "a different mangled name. Update the FFI wrapper to match."
                     , ""
                     , "To fix, run:"
-                    , "  sed -i 's/" ++ ffiName ++ "/" ++ generatedName ++ "/g' haskell-shim/src/AletheiaFFI.hs"
+                    , "  sed -i 's/" ++ ffiName ++ "/" ++ generatedName ++ "/g' " ++ ffiFile
                     , ""
                     , "Then rebuild:"
                     , "  cabal run shake -- build"
@@ -203,12 +207,15 @@ checkOneFFIName qualifier funcName malonzoContent ffiContent =
                     ]
                 error $ "FFI name mismatch for " ++ funcName ++ " - see above for fix instructions"
         (Nothing, _) ->
-            putWarn $ "Could not extract mangled name for " ++ funcName ++ " from MAlonzo output"
+            error $ "FFI name check: no `d_" ++ funcName ++ "_<digits> ::` in the MAlonzo "
+                 ++ "output; the Agda definition is gone or renamed"
         (_, Nothing) ->
-            putWarn $ "Could not extract " ++ funcName ++ " name from FFI wrapper"
+            error $ "FFI name check: " ++ ffiFile ++ " has no call to " ++ qualifier
+                 ++ ".d_" ++ funcName ++ "_<digits> outside a comment"
 
 -- | FFI export specification. Single source of truth for both
--- `checkFFINames` (verifies AletheiaFFI.hs matches MAlonzo output) and
+-- `checkFFINames` (verifies the FFI wrapper matches MAlonzo output, inline
+-- in the Main.hs build rule and on demand via `check-ffi-names`) and
 -- the `check-ffi-exports`/`regen-ffi-exports` phonies (maintain a
 -- checked-in snapshot of mangled names to catch silent drift).
 data FFIExport = FFIExport
@@ -272,7 +279,7 @@ checkFFINames ffiFile = do
     moduleContents <- loadFFIModuleContents
     forM_ ffiExports $ \e ->
         case lookup (ffiModule e) moduleContents of
-            Just c  -> checkOneFFIName (ffiQualifier e) (ffiFuncName e) c ffiContent
+            Just c  -> checkOneFFIName ffiFile (ffiQualifier e) (ffiFuncName e) c ffiContent
             Nothing -> return ()  -- unreachable: loadFFIModuleContents covers every module
 
 -- | Parse the digest-pinned base image from Dockerfile.runtime.
@@ -891,13 +898,25 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                ++ "means every Dec₀-valued hot-path predicate allocates."
         putInfo "Erasure guards OK: CANId single-Integer ctor + Timestamp newtype + stdlib constructors + Maybe/Sigma builtins + Dec₀ newtype-over-Bool."
 
+    phony "check-ffi-names" $ do
+        -- Run `checkFFINames` on demand, against the wrapper named by
+        -- ALETHEIA_FFI_WRAPPER or, unset, the shim's own. The Main.hs build
+        -- rule runs the same check inline on the shim's wrapper only; taking
+        -- the path here is what lets a probe hand the extractor a wrapper
+        -- written in a shape the shim does not use and read the verdict.
+        need ["build/MAlonzo/Code/Aletheia/Main.hs"]
+        wrapper <- liftIO $ lookupEnv "ALETHEIA_FFI_WRAPPER"
+        let ffiFile = fromMaybe "haskell-shim/src/AletheiaFFI.hs" wrapper
+        checkFFINames ffiFile
+        putInfo $ "FFI names OK: " ++ ffiFile ++ " calls every export by its MAlonzo name."
+
     phony "check-ffi-exports" $ do
         -- Diff MAlonzo-mangled FFI export names against the checked-in
         -- `haskell-shim/ffi-exports.snapshot`. Guards against silent drift
         -- when Agda definitions are reordered or new definitions are added
-        -- above existing exports. Complements `checkFFINames` (run inline
-        -- during the Main.hs build rule), which keeps AletheiaFFI.hs in
-        -- sync with the mangled names.
+        -- above existing exports. Complements `checkFFINames` (inline in
+        -- the Main.hs build rule, on demand via `check-ffi-names`), which
+        -- keeps the wrapper in sync with the mangled names.
         --
         -- Each non-blank, non-`#` snapshot line carries one of three
         -- kind prefixes:

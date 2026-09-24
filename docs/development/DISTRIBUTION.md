@@ -151,7 +151,7 @@ All `.so` files are stripped (`--strip-unneeded`) and set to `RPATH=$ORIGIN` for
 
 ### System dependencies (not bundled)
 
-See [DEPENDENCIES.md](../../DEPENDENCIES.md) for the complete list with licenses. In brief, only `libgmp` needs explicit installation — the rest are universally present:
+See [BUILDING.md § Dependencies and Licenses](BUILDING.md#dependencies-and-licenses) for the complete list with licenses. In brief, only `libgmp` needs explicit installation — the rest are universally present:
 
 | Library | Package (Debian/Ubuntu) | Package (Fedora) |
 |---------|------------------------|-------------------|

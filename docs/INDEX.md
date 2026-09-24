@@ -99,6 +99,6 @@ Learn by example:
 
 - **[LICENSE](../LICENSE.md)** - BSD 2-Clause License
 - **[Python Package README](../python/README.md)** - Installation via pip
-- **[DEPENDENCIES.md](../DEPENDENCIES.md)** - Third-party runtime dependencies and their licenses
+- **[Building Guide § Dependencies and Licenses](development/BUILDING.md#dependencies-and-licenses)** - Third-party dependencies, their licenses, and the distribution obligations
 - **Deferred / NO-FIX items** - Each item's rationale lives as an in-source comment block at the call site (search `DEFERRED — TRACKED`).
 - **[AGENTS.md](../AGENTS.md)** - Per-language coding standards and review categories (canonical source for AI-assisted and human code review), with one file per scope beside it: [Agda](../AGENTS/agda.md), [C++](../AGENTS/cpp.md), [Go](../AGENTS/go.md), [Python](../AGENTS/python.md), [Rust](../AGENTS/rust.md), [documentation](../AGENTS/docs.md) and [continuous integration](../AGENTS/cicd.md)
