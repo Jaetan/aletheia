@@ -131,14 +131,12 @@ jobs:
           # plus the 33.3 cold allowance is 48.4, rounded up to 50.
           # The surface then grew, from 1037 mutants to 1476 on the leak and
           # plain trees and from 310 to 337 on the address tree, when the
-          # mutator set widened (cpp/mull.yml), and no run of the new surface
-          # is recorded yet: the C++ budgets below are the recorded legs with
-          # their sweep part scaled by that growth, 1.42 and 1.09, pending the
-          # first run's own figure.  Leak: the slowest leg's 19.1 less its
-          # 11.1 of sweep, plus 17.8 times 1.42, plus 33.3, is 66.6.  Plain:
-          # 23.9 less 15.2, plus 26.8 times 1.42, plus 33.3, is 80.1.
-          # Address: 15.1, whose sweep part is unrecorded, times 1.09, plus
-          # 33.3, is 49.8.  Each rounded up.
+          # mutator set widened (cpp/mull.yml).  The first run of that
+          # surface, 36017662713, with the Mull cache cold for the new
+          # patches: leak legs 29.5, 31.0 and 35.7 minutes, plain 33.6, 43.0
+          # and 33.8, address 20.1, 21.9 and 25.3.  Slowest leg plus the
+          # 33.3 cold allowance: leak 69.0, plain 76.3, address 58.6, each
+          # rounded up.
           # Each budget is the slowest run recorded, so a faster one leaves it
           # where it is.  A budget is a measurement of the
           # surface it was read from: it is re-taken when the mutation surface
@@ -188,7 +186,7 @@ jobs:
             binding: cpp
             stage: plain
             slice: '1'
-            timeout: 85
+            timeout: 80
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -196,7 +194,7 @@ jobs:
             binding: cpp
             stage: plain
             slice: '2'
-            timeout: 85
+            timeout: 80
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -204,7 +202,7 @@ jobs:
             binding: cpp
             stage: plain
             slice: '3'
-            timeout: 85
+            timeout: 80
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -212,7 +210,7 @@ jobs:
             binding: cpp
             stage: address
             slice: '1'
-            timeout: 50
+            timeout: 60
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -220,7 +218,7 @@ jobs:
             binding: cpp
             stage: address
             slice: '2'
-            timeout: 50
+            timeout: 60
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -228,7 +226,7 @@ jobs:
             binding: cpp
             stage: address
             slice: '3'
-            timeout: 50
+            timeout: 60
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
