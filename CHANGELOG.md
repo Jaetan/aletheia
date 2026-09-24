@@ -771,6 +771,31 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A probe edits a scratch copy of the tree, never the tree.** Seven probes
+  in the store appended a fixture to a tracked source, or drifted a header or a
+  record, and restored it on exit, so between the two the file read as the
+  user's change to whatever else read the tree: a push made while the store
+  ran was refused by the pre-push sweep over a fixture line it took for the
+  tree's own, and a fast sweep run meanwhile failed its format step on a test
+  source holding another probe's fixture. Those probes now edit a scratch copy:
+  six a detached worktree of `HEAD` with the uncommitted diff applied, the
+  compile database rewritten to it and the fetched dependencies shared
+  read-only where the lens parses; the seventh a copy of the header alone,
+  compiled through the one test unit that includes it with the tracked header
+  shadowed on the include path and the test binary's own link line reused, so
+  nothing under the tree or its build moves. A probe over the store reads every probe for the constructs that
+  write, resolves each target through the literals the probe itself spells,
+  and refuses a target git tracks; it reads red over each of the seven as they
+  were, and one probe's scratch write is respelled under its scratch variable
+  so the lens reads it as one. The runner reads every tracked file's mtime,
+  size and mode before and after each probe and fails the probe that moved
+  one, whatever it exited, its line counting the files and its log naming
+  them, so a write the lens cannot see from the probe's text is seen when it
+  happens; a store with no git work tree around it is refused rather than run
+  unwatched. Over the store it found an eighth probe the lens could not, one
+  that touched every Agda source to date it after the interfaces; the touch is
+  now a check that the sources already are.
+
 - **A binding that ran but reports no number for a baseline lane fails the
   benchmark gate.** `tools/benchmark_gate.py` walked the baseline's lanes and
   skipped any the run did not carry, one rule for two cases: a binding with no

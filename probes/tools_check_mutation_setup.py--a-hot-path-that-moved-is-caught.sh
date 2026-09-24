@@ -7,12 +7,14 @@
 # is not where the file says. That list is the mutation lane's own idea of what
 # is worth mutating, and a file renamed or split out from under it silently
 # shrinks the lane; only this gate reads the two against each other.
-# The check runs against a copy, so the tracked file is not touched.
+# The rename lands in a scratch copy of the working tree, so the tree itself is
+# never written: a sweep, a hook or a commit reading it meanwhile would take the
+# rename for the user's change.
 # Non-zero exit: the gate passed over a path that names nothing, or refused the
 # tracked file. Exits 2 without the virtual environment.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-py=python/.venv/bin/python
+py=$PWD/python/.venv/bin/python
 [ -x "$py" ] || exit 2
 
 if ! "$py" -m tools.check_mutation_setup > /dev/null 2>&1; then
@@ -22,15 +24,21 @@ if ! "$py" -m tools.check_mutation_setup > /dev/null 2>&1; then
 fi
 
 work=$(mktemp -d) || exit 2
-trap 'cp "$work/MUTATION_BENCH.yaml" docs/MUTATION_BENCH.yaml 2> /dev/null; rm -rf "$work"' EXIT
-cp docs/MUTATION_BENCH.yaml "$work/MUTATION_BENCH.yaml"
+tree=$work/tree
+trap 'git worktree remove --force "$tree" > /dev/null 2>&1; rm -rf "$work"' EXIT
+# The checkout is HEAD; the diff carries what is edited and not yet committed,
+# since the probe must read the tree as it stands.
+git worktree add -q --detach "$tree" HEAD || exit 2
+git diff --no-ext-diff --no-color --binary --src-prefix=a/ --dst-prefix=b/ HEAD |
+    git -C "$tree" apply --index --allow-empty || exit 2
+record=$tree/docs/MUTATION_BENCH.yaml
 
-sed -i 's|^      - go/aletheia/client.go$|      - go/aletheia/moved_away.go|' docs/MUTATION_BENCH.yaml
-if ! grep -q "moved_away.go" docs/MUTATION_BENCH.yaml; then
+sed -i 's|^      - go/aletheia/client.go$|      - go/aletheia/moved_away.go|' "$record"
+if ! grep -q "moved_away.go" "$record"; then
 	echo "the line the probe renames is not where it looked for it"
 	exit 1
 fi
-if "$py" -m tools.check_mutation_setup > "$work/out.txt" 2>&1; then
+if (cd "$tree" && "$py" -m tools.check_mutation_setup) > "$work/out.txt" 2>&1; then
 	echo "the gate passed over a hot-path source that is not there"
 	exit 1
 fi
@@ -39,5 +47,4 @@ if ! grep -q "moved_away.go" "$work/out.txt"; then
 	head -3 "$work/out.txt" | sed 's/^/  /'
 	exit 1
 fi
-cp "$work/MUTATION_BENCH.yaml" docs/MUTATION_BENCH.yaml
 echo "PASS: a hot-path source that is not where the file says fails the gate by name"
