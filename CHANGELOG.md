@@ -61,6 +61,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The dependency and licence ledger is a section of the Building Guide.**
+  `DEPENDENCIES.md` is gone: its ledger lives under
+  `docs/development/BUILDING.md § Dependencies and Licenses`, next to the
+  prerequisites that install what it lists, and the index and the Distribution
+  Guide link there. The ledger names each dependency and its licence and points
+  at the build file that pins its version instead of repeating the number: every
+  version column had rotted (the C++ pins, the setuptools floor, the GHC
+  packages), and miniz and pugixml, which CMake fetches with OpenXLSX, were
+  unlisted. The Building Guide itself was reviewed whole: one owner per fact
+  (the venv setup, the build timings, the compiler line and the GMP install
+  each appeared in three or more places), a Rust prerequisite and test line,
+  `ALETHEIA_LIB` for the tests, and the stale entries gone (a `version` field
+  `aletheia.agda-lib` no longer has, a `Dockerfile` the tree no longer
+  carries, an FFI export named `aletheia_process_json`, build times said to
+  live in the status document). The README's frame-tuple comment names the
+  tuple's `timestamp` field, its exit-code line says an unresolved check
+  exits 0, and it shows the `--excel` path and the loaders' extras.
+
 - **The runner benchmark baseline is current, and the gate reads Rust.** The
   bar `tools/benchmark_gate.py` held every pull request to dated from June and
   predated the hot-path work since, so on the common runner class the streaming
@@ -726,7 +744,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   binding test pass unchanged on the new toolchain (agda-stdlib v2.4 lists no
   non-backwards-compatible changes). The shipped `libaletheia-ffi.so` now links
   the GHC 9.8.4 runtime (base 4.19.2.0, text 2.1.1, containers 0.6.8,
-  bytestring 0.12.1.0, and siblings — see [DEPENDENCIES.md](DEPENDENCIES.md)).
+  bytestring 0.12.1.0, and siblings — see [BUILDING.md § Dependencies and Licenses](docs/development/BUILDING.md#dependencies-and-licenses)).
   No public API or wire-format change. Two stdlib-2.4 fold-ins: the
   `_×-dec_` → `_×?_` deprecation fixed in the mux well-formedness checker, and
   the ℚ `_<ℚ₀_` comparator simplified onto the new `Data.Rational._<ᵇ_`
