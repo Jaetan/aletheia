@@ -21,13 +21,9 @@ mkdir -p "$scratch" || exit 2
 # The gate anchors its repository root on its own module path, so the copy of
 # the package is what puts the throwaway repository in scope.
 cp -r tools "$scratch/tools" || exit 2
-(
-    cd "$scratch" || exit 2
-    git init -q .
-    printf 'Copyright 2025 Nicolas Pelletier\n' > LICENSE.md
-    printf '# SPDX-FileCopyrightText: 2025 Nicolas Pelletier\n# SPDX-License-Identifier: BSD-2-Clause\n' > ok.py
-    git add -A
-) || exit 2
+printf 'Copyright 2025 Nicolas Pelletier\n' > "$scratch/LICENSE.md"
+printf '# SPDX-FileCopyrightText: 2025 Nicolas Pelletier\n# SPDX-License-Identifier: BSD-2-Clause\n' > "$scratch/ok.py"
+(cd "$scratch" && git init -q . && git add -A) || exit 2
 
 run() { (cd "$scratch" && "$py" -m tools.check_spdx_headers 2>&1); }
 
