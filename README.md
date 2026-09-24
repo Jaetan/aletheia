@@ -47,14 +47,14 @@ All three decode CAN with **tested** code: correct on the cases someone thought 
 
 ### 60-second try, no code
 
-The fastest path writes zero code. Point the `aletheia` CLI at a DBC, a checks file, and a recorded log. Ready-to-run sample assets ship in [`examples/demo/`](examples/demo/), so this runs as-is:
+The fastest path writes zero code. Point the `aletheia` CLI, the Python package's console script (see [Install](#install)), at a DBC, a checks file, and a recorded log. Ready-to-run sample assets ship in [`examples/demo/`](examples/demo/) in the source tree, so from a repo clone this runs as-is:
 
 ```bash
 cd examples/demo
 aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
 ```
 
-- **exit 0**: every check passed
+- **exit 0**: no violations found (a check whose signal never appeared is reported *unresolved*, and also exits 0)
 - **exit 1**: violations found, each printed with the exact microsecond timestamp
 - **exit 2**: an error, such as a bad DBC or an unreadable log
 
@@ -66,6 +66,10 @@ aletheia validate --dbc vehicle.dbc
 
 # List the signals a DBC defines
 aletheia signals --dbc vehicle.dbc
+
+# Code-free from a spreadsheet: one .xlsx workbook holding both the DBC and the
+# checks, the technician path (a filled-in template: examples/demo/demo_workbook.xlsx)
+aletheia check --excel workbook.xlsx trace.log
 ```
 
 ### Install
@@ -99,13 +103,10 @@ speed_limit = Signal("Speed").less_than(220).always()
 brake_check = Signal("BrakePressed").equals(1).eventually()
 
 # Stream CAN frames from a .blf / .asc / .log / .mf4 trace and check properties.
-# iter_can_log() yields CANFrameTuple(timestamp_us, can_id, dlc, data, extended,
-# brs, esi) — seven fields. timestamp_us is microseconds (int), can_id is the
-# raw 11- or 29-bit arbitration ID, dlc is the DLC code (0–8 for CAN 2.0B, 0–15
-# for CAN-FD), data is bytes/bytearray of length dlc_to_bytes(dlc), extended is
-# True for 29-bit IDs, brs/esi are CAN-FD Bit Rate Switch / Error State
-# Indicator (None on CAN 2.0B frames). The unpack below ignores the trailing
-# three fields for brevity.
+# iter_can_log() yields CANFrameTuple(timestamp, can_id, dlc, data, extended,
+# brs, esi), seven fields; timestamp is microseconds (int). Per-field semantics
+# (DLC ranges, the CAN-FD brs/esi fields) are in the Python API Guide. The unpack
+# below takes the first four positionally and ignores the trailing three.
 with AletheiaClient() as client:
     client.parse_dbc(dbc_json)
     client.set_properties([speed_limit.to_dict(), brake_check.to_dict()])
@@ -143,7 +144,7 @@ check_list = load_checks("checks.yaml")
 check_list = load_checks_from_excel("checks.xlsx")
 ```
 
-See the [Interface Guide](docs/reference/INTERFACES.md) for end-to-end workflows.
+`load_checks` needs the `[yaml]` extra and `load_checks_from_excel` needs `[excel]` (or `[all]` for both), installed the way `[can]` is under [Install](#install). See the [Interface Guide](docs/reference/INTERFACES.md) for end-to-end workflows.
 
 ### Signal Operations
 
@@ -199,6 +200,8 @@ Python is the **reference binding**. C++, Go, and Rust are **API-compatible port
 | **C++** | [C++ API Guide](docs/reference/CPP_API.md) | ✅ 5, `check` deferred for want of a verified CAN-log reader |
 | **Go** | [Go API Guide](docs/reference/GO_API.md) | ✅ 5, `check` deferred for want of a verified CAN-log reader |
 | **Rust** | [Rust API Guide](docs/reference/RUST_API.md) | typed client today; CLI is a Phase 6 goal |
+
+Linking the library into a C++, Go, or Rust project, the `add_subdirectory` / `go mod -replace` / `path`-dependency recipes plus where the release artifacts live, is in the [Distribution Guide § Wire it into your language](docs/development/DISTRIBUTION.md#2-wire-it-into-your-language).
 
 ## Project Structure
 
