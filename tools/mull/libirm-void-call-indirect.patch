@@ -1,0 +1,45 @@
+A void call through a pointer, a virtual dispatch or a function pointer, has no
+callee to read, and the void-call removal refused every such call as indirect:
+on the tree this was written against, the kernel's release of a string and the
+close of a stream are such calls, so no mutant ever dropped them. The refusal
+is lifted: inline asm stays out, since it is not a call, and the intrinsic and
+destructor tests read the callee only where there is one, a call with no
+callee being neither.
+--- a/lib/VoidCallRemoval.cpp
++++ b/lib/VoidCallRemoval.cpp
+@@ -35,8 +35,10 @@
+     return false;
+   }
+   llvm::CallBase *call = llvm::cast<llvm::CallBase>(instruction);
+-  /// Do not touch indirect calls
+-  if (!call->getCalledFunction()) {
++  /// A call through a pointer, a virtual dispatch or a function pointer, has
++  /// no callee to read, and it is still a call the source writes: refusing it
++  /// left every such call unremoved.  Inline asm is not a call.
++  if (call->isInlineAsm()) {
+     return false;
+   }
+   assert(call->getFunctionType()->getReturnType());
+@@ -44,8 +46,8 @@
+     return false;
+   }
+ 
+-  assert(call->getCalledFunction());
+-  bool isIntrinsic = call->getCalledFunction()->getIntrinsicID() != llvm::Intrinsic::not_intrinsic;
++  llvm::Function *callee = call->getCalledFunction();
++  bool isIntrinsic = callee && callee->getIntrinsicID() != llvm::Intrinsic::not_intrinsic;
+   if (onlyIntrinsics) {
+     return isIntrinsic;
+   }
+@@ -53,9 +55,9 @@
+   /// range, so a removal of one is reported against the call the source names
+   /// while measuring something else entirely.  The two are separated here and
+   /// named apart by their mutators, rather than one standing in for the other.
+-  llvm::StringRef callee = call->getCalledFunction()->getName();
++  llvm::StringRef name = callee ? callee->getName() : llvm::StringRef();
+   const bool isDestructor =
+-      callee.ends_with("D0Ev") || callee.ends_with("D1Ev") || callee.ends_with("D2Ev");
++      name.ends_with("D0Ev") || name.ends_with("D1Ev") || name.ends_with("D2Ev");
+   return !isIntrinsic && isDestructor == onlyDestructors;
+ }
+ 

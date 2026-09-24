@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <span>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -667,4 +668,48 @@ TEST_CASE("extraction failures on the binary path are logged by kind, and a succ
         CHECK(cap.count("extraction.parse_failed") == 0);
         CHECK(cap.count("extraction.process_failed") == 0);
     }
+}
+
+TEST_CASE("a logger given no callback takes no sink and is never enabled", "[log]") {
+    Logger logger{nullptr};
+    CHECK_FALSE(logger.enabled(LogLevel::Info));
+    logger.add_sink(nullptr);
+    CHECK_FALSE(logger.enabled(LogLevel::Info));
+    CHECK_NOTHROW(logger.info("nothing"));
+}
+
+TEST_CASE("set_properties that the backend refuses logs no properties.set", "[client][log]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(
+        R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
+    std::vector<std::string> events;
+    const Logger logger([&](const LogRecord& r) { events.emplace_back(r.event); });
+    AletheiaClient client(std::move(mock), logger);
+    CHECK_FALSE(
+        client.set_properties(std::stop_token{}, std::span<const LtlFormula>{}).has_value());
+    CHECK(std::ranges::find(events, "properties.set") == events.end());
+}
+
+TEST_CASE("a sink added after construction takes events", "[log]") {
+    Logger logger{nullptr};
+    std::vector<std::string> events;
+    logger.add_sink([&](const LogRecord& r) { events.emplace_back(r.event); });
+    CHECK(logger.enabled(LogLevel::Info));
+    logger.info("added");
+    CHECK(events == std::vector<std::string>{"added"});
+}
+
+TEST_CASE("an event the backend refuses logs no sent event", "[client][log]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(
+        R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
+    mock->queue_response(
+        R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
+    std::vector<std::string> events;
+    const Logger logger([&](const LogRecord& r) { events.emplace_back(r.event); });
+    AletheiaClient client(std::move(mock), logger);
+    CHECK_FALSE(client.send_error(std::stop_token{}, Timestamp{1}).has_value());
+    auto const id = CanId{StandardId::create(0x100).value()};
+    CHECK_FALSE(client.send_remote(std::stop_token{}, Timestamp{2}, id).has_value());
+    CHECK(std::ranges::none_of(events, [](std::string_view e) { return e.ends_with(".sent"); }));
 }

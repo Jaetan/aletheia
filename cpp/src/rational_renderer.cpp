@@ -22,12 +22,14 @@
 
 #include <dlfcn.h>
 
+#include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -155,23 +157,25 @@ static auto load_renderer(const std::filesystem::path& lib_path)
             return std::unexpected(std::string{"renderer dlsym "} + name + ": " + err);
         return sym;
     };
-    auto const fmt_sym = load_sym("aletheia_format_rational");
-    if (!fmt_sym)
-        return std::unexpected(fmt_sym.error());
-    auto const free_sym = load_sym("aletheia_free_str");
-    if (!free_sym)
-        return std::unexpected(free_sym.error());
-    auto const parse_decimal_sym = load_sym("aletheia_parse_decimal");
-    if (!parse_decimal_sym)
-        return std::unexpected(parse_decimal_sym.error());
+    // The three entries the renderer needs, resolved by one loop with one
+    // refusal, so a library missing any of them is refused at the first.
+    constexpr std::array names{"aletheia_format_rational", "aletheia_free_str",
+                               "aletheia_parse_decimal"};
+    std::array<void*, names.size()> syms{};
+    for (auto const [i, name] : std::views::enumerate(names)) {
+        auto const sym = load_sym(name);
+        if (!sym)
+            return std::unexpected(sym.error());
+        syms[static_cast<std::size_t>(i)] = *sym;
+    }
     std::ignore = opened.release();
     return RendererSymbols{
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        .format_fn = reinterpret_cast<FormatRationalFn>(*fmt_sym),
+        .format_fn = reinterpret_cast<FormatRationalFn>(syms[0]),
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        .free_fn = reinterpret_cast<FreeStrFn>(*free_sym),
+        .free_fn = reinterpret_cast<FreeStrFn>(syms[1]),
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        .parse_decimal_fn = reinterpret_cast<ParseDecimalFn>(*parse_decimal_sym),
+        .parse_decimal_fn = reinterpret_cast<ParseDecimalFn>(syms[2]),
     };
 }
 

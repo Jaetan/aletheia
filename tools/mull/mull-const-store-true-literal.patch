@@ -1,0 +1,52 @@
+The constant-store replacements write 42 where the source wrote true, and a
+bool occupies a byte, in which 42 is still true: on the tree this was written
+against seven such stores survived, each a mutant no test can tell from the
+program. A store or an initialisation whose value is the literal true is not a
+mutation site; one whose value is false keeps its mutant, since 42 there is a
+flag set the other way.
+diff --git a/lib/JunkDetection/CXX/CXXJunkDetector.cpp b/lib/JunkDetection/CXX/CXXJunkDetector.cpp
+index 476125a..30e84ad 100644
+--- a/lib/JunkDetection/CXX/CXXJunkDetector.cpp
++++ b/lib/JunkDetection/CXX/CXXJunkDetector.cpp
+@@ -16,6 +16,18 @@ using namespace mull;
+ CXXJunkDetector::CXXJunkDetector(const MullDiagnostics &diagnostics, ASTStorage &astStorage)
+     : diagnostics(diagnostics), astStorage(astStorage) {}
+ 
++/// Whether the expression is the literal true.  The constant-store
++/// replacements write 42 where the source wrote true, and a bool occupies a
++/// byte, in which 42 is still true: the mutant cannot be told from the
++/// program, so a store of true is not a mutation site.
++static bool isTrueLiteral(const clang::Expr *expression) {
++  if (!expression) {
++    return false;
++  }
++  auto *literal = llvm::dyn_cast<clang::CXXBoolLiteralExpr>(expression->IgnoreImplicit());
++  return literal && literal->getValue();
++}
++
+ static const clang::Stmt *findMutantExpression(MutationPoint *point,
+                                                VisitorParameters &visitorParameters,
+                                                clang::Decl *decl) {
+@@ -166,13 +178,19 @@ static const clang::Stmt *findMutantExpression(MutationPoint *point,
+     return cxx::BinaryVisitor::findMutant(
+         visitorParameters, decl, clang::BinaryOperator::Opcode::BO_XorAssign);
+ 
+-  case MutatorKind::CXX_AssignConst:
+-    return cxx::BinaryVisitor::findMutant(
++  case MutatorKind::CXX_AssignConst: {
++    auto *assignment = cxx::BinaryVisitor::findMutant(
+         visitorParameters, decl, clang::BinaryOperator::Opcode::BO_Assign);
++    if (auto *binary = llvm::dyn_cast_or_null<clang::BinaryOperator>(assignment);
++        binary && isTrueLiteral(binary->getRHS())) {
++      return nullptr;
++    }
++    return assignment;
++  }
+   case MutatorKind::CXX_InitConst: {
+     cxx::VarDeclVisitor visitor(visitorParameters);
+     visitor.TraverseDecl(decl);
+-    return visitor.foundMutant();
++    return isTrueLiteral(visitor.foundMutant()) ? nullptr : visitor.foundMutant();
+   }
+ 
+   case MutatorKind::CXX_RemoveNegation:

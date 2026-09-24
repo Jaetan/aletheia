@@ -187,7 +187,6 @@ TEST_CASE("excel: never_exceeds", "[excel][simple]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    REQUIRE((*result)[0].to_formula().has_value());
     CHECK((*result)[0].condition_desc() == "<= 220");
 }
 
@@ -250,8 +249,7 @@ TEST_CASE("excel: when exceeds then equals", "[excel][when-then]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    REQUIRE((*result)[0].to_formula().has_value());
-    CHECK(format_formula(*(*result)[0].to_formula()) ==
+    CHECK(format_formula((*result)[0].to_formula()) ==
           "always(not(BrakePedal > 50) or eventually within 100ms (BrakeLight = 1))");
 }
 
@@ -262,8 +260,7 @@ TEST_CASE("excel: when equals then exceeds", "[excel][when-then]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    REQUIRE((*result)[0].to_formula().has_value());
-    CHECK(format_formula(*(*result)[0].to_formula()) ==
+    CHECK(format_formula((*result)[0].to_formula()) ==
           "always(not(Gear = 1) or eventually within 200ms (ReverseLight > 0))");
 }
 
@@ -274,8 +271,7 @@ TEST_CASE("excel: when drops_below then stays_between", "[excel][when-then]") {
     auto result = load_checks_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    REQUIRE((*result)[0].to_formula().has_value());
-    CHECK(format_formula(*(*result)[0].to_formula()) ==
+    CHECK(format_formula((*result)[0].to_formula()) ==
           "always(not(FuelLevel < 10) or eventually within 500ms (1 <= FuelWarning <= 1))");
 }
 
@@ -1219,7 +1215,9 @@ TEST_CASE("excel: DBC DLC is accepted at both ends of its range and refused past
         CHECK(result->messages[0].dlc.value() == static_cast<std::uint8_t>(dlc));
     }
     SECTION("16 and -1 are refused") {
-        auto const dlc = GENERATE(16, -1);
+        // 256 truncates to 0 in a byte, a valid DLC: the refusal must come
+        // before the narrowing, not from the factory after it.
+        auto const dlc = GENERATE(16, -1, 256);
         TempPath tf("excel_dbc_dlc_past.xlsx");
         make_dbc_workbook(tf.path, {row(std::to_string(dlc).c_str())});
         auto result = load_dbc_from_excel(tf.path);
@@ -1369,3 +1367,76 @@ TEST_CASE("excel: the loaders release their temporaries when an allocation fails
     }
 }
 #endif
+
+TEST_CASE("excel: a boolean cell that is neither TRUE nor FALSE is refused, by name",
+          "[excel][error]") {
+    TempPath tf("excel_dbc_bool_maybe.xlsx");
+    make_dbc_workbook(tf.path, {{"256", "M", "8", "S", "0", "8", "little_endian", "MAYBE", "1", "0",
+                                 "0", "255", "", "", "", ""}});
+    auto const result = load_dbc_from_excel(tf.path);
+    REQUIRE_FALSE(result.has_value());
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("expected TRUE/FALSE"));
+}
+
+TEST_CASE("excel: a range condition missing a bound is refused, by name", "[excel][error]") {
+    SECTION("stays_between without Max") {
+        TempPath tf("excel_range_no_max.xlsx");
+        make_checks_workbook(tf.path, {{"", "V", "stays_between", "", "11.5", "", "", ""}});
+        auto const result = load_checks_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("requires 'Min' and 'Max'"));
+    }
+    SECTION("settles_between without Min") {
+        TempPath tf("excel_settles_no_min.xlsx");
+        make_checks_workbook(tf.path,
+                             {{"", "Coolant", "settles_between", "", "", "95", "5000", ""}});
+        auto const result = load_checks_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("requires 'Min' and 'Max'"));
+    }
+    SECTION("a then range without Then Max") {
+        TempPath tf("excel_then_range_no_max.xlsx");
+        make_wt_workbook(tf.path, {{"", "BrakePedal", "exceeds", "50", "Coolant", "stays_between",
+                                    "", "85", "", "100", ""}});
+        auto const result = load_checks_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("requires 'Then Min' and 'Then Max'"));
+    }
+}
+
+TEST_CASE("excel: a standard CAN ID past its range is refused, by name", "[excel][dbc][error]") {
+    // 65792 truncates to 256 in 16 bits, a valid id: the refusal must come
+    // before the narrowing, not from the factory after it.
+    auto const* const id = GENERATE("2048", "65792");
+    TempPath tf("excel_dbc_id_past.xlsx");
+    make_dbc_workbook(tf.path, {{id, "M", "8", "S", "0", "8", "little_endian", "FALSE", "1", "0",
+                                 "0", "255", "", "", "", ""}});
+    auto const result = load_dbc_from_excel(tf.path);
+    REQUIRE_FALSE(result.has_value());
+    CHECK_THAT(std::string(result.error().message()), ContainsSubstring("Invalid CAN ID"));
+}
+
+TEST_CASE("excel: a range condition missing its other bound is refused, by name",
+          "[excel][error]") {
+    SECTION("settles_between without Max") {
+        TempPath tf("excel_settles_no_max.xlsx");
+        make_checks_workbook(tf.path,
+                             {{"", "Coolant", "settles_between", "", "85", "", "5000", ""}});
+        auto const result = load_checks_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("requires 'Min' and 'Max'"));
+    }
+    SECTION("a then range without Then Min") {
+        TempPath tf("excel_then_range_no_min.xlsx");
+        make_wt_workbook(tf.path, {{"", "BrakePedal", "exceeds", "50", "Coolant", "stays_between",
+                                    "", "", "95", "100", ""}});
+        auto const result = load_checks_from_excel(tf.path);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string(result.error().message()),
+                   ContainsSubstring("requires 'Then Min' and 'Then Max'"));
+    }
+}

@@ -358,3 +358,17 @@ TEST_CASE("the name lookups guard a cached index that the shrink made the count"
     msg.signals.pop_back();
     CHECK(msg.signal_by_name(last) == nullptr);
 }
+
+TEST_CASE("DbcDefinition::message_by_name answers nothing for a name it does not hold", "[dbc]") {
+    auto const dbc = make_mux_dbc();
+    CHECK(dbc.message_by_name(MessageName{"NoSuchMessage"}) == nullptr);
+}
+
+TEST_CASE("DbcDefinition::message_by_name refuses a cached index the messages no longer match",
+          "[dbc]") {
+    auto dbc = make_mux_dbc();
+    auto const original = dbc.messages[0].name;
+    REQUIRE(dbc.message_by_name(original) == dbc.messages.data()); // builds the index
+    dbc.messages[0].name = MessageName{"Renamed"};
+    CHECK(dbc.message_by_name(original) == nullptr);
+}

@@ -417,8 +417,9 @@ def test_a_tree_that_does_not_carry_a_mutant_says_nothing_about_it() -> None:
     """A mutant absent from a tree's report is not a mutant that tree killed.
 
     A tree drops the mutators it cannot read, so it carries none of their
-    mutants: the address tree drops the two over calls, whose mutants there
-    are the sanitizer's own inserted checks rather than the program's calls.
+    mutants: the address tree drops the ones over calls and over constant
+    stores, whose mutants there are the sanitizer's own inserted checks and
+    stores rather than the program's own.
     Judging a survivor on every report alike would read that absence as a
     kill, which is the one direction a merge must not invent.
     """

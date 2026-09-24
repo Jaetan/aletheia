@@ -9,40 +9,71 @@
 # slice's objects carry is named in the same place as what was hashed for them.
 #
 # cxx_default is arithmetic, comparison, boundary and increment mutants, which
-# reach only sources that compare or compute on primitive values. The two call
-# mutators add the removal of a void call and the replacement of a
-# scalar-returning call with a constant, the one mutation that reaches code
-# written as calls: the loaders' condition dispatch is string_view comparisons,
-# and under cxx_default alone it had no mutant at all. The third member of the
-# plugin's cxx_calls group, cxx_remove_implicit_destructor, is left out: it
-# removes the destructor the compiler emits for a temporary at the end of a
-# statement, a call the source never writes, and on this tree every one it
-# reaches is the destructor of a temporary a value-returning function handed to
-# a container, moved from before it runs, so no project defect can change what
-# the removal does. The mutator stays in the plugin so that a removal of one is
-# never reported as a removal of a call the source wrote.
+# reach only sources that compare or compute on primitive values; the
+# decrement, assignment, bitwise and negation groups are named beside it
+# because the default leaves them out, and a construct the tree does not
+# write today is still swept the day it is written. The four call mutators
+# reach code written as calls, which is most of this library: the loaders'
+# condition dispatch is string_view comparisons, and under cxx_default alone
+# it had no mutant at all. They remove a void call, replace a scalar-returning
+# call with a constant, replace a bool-returning call with true, and replace a
+# pointer-returning call with null. All four reach a call through a function
+# pointer, which is the whole kernel boundary, so a mutant drops a kernel call
+# or a kernel string's release and another makes the kernel answer null. The
+# fifth member of the plugin's cxx_calls group, cxx_remove_implicit_destructor,
+# is left out: it removes the destructor the compiler emits for a temporary at
+# the end of a statement, a call the source never writes, and on this tree
+# every one it reaches is the destructor of a temporary a value-returning
+# function handed to a container, moved from before it runs, so no project
+# defect can change what the removal does. The mutator stays in the plugin so
+# that a removal of one is never reported as a removal of a call the source
+# wrote.
 #
 # What each kept class can reveal, read from a sweep's kill routes. The
 # comparison, boundary and arithmetic mutants stand for a guard or a bound
 # off by one, and their kills are the tests' own, except the loop bounds a
 # test never observes past the end: those the standard library's own checks
 # catch, since the trees run its debug mode, and the sweep records such a
-# kill as a check rather than as the test's. The increment mutants
-# stand for a counter running the wrong way. The scalar-call replacement
-# stands for a call that answered something else, and it answers one thing:
-# its constant truncates to false on a boolean, so a guard that branches on
-# the value is tested only for not firing, one that negates it only for
-# firing, and nearly every guard on this tree is the first kind. A function
-# template instantiated more
+# kill as a check rather than as the test's. The increment and decrement
+# mutants stand for a counter running the wrong way, the assignment mutants
+# for an accumulation running the wrong way or a constant that was never
+# read, the bitwise mutants for a mask or a shift the wrong way round, and
+# the negation mutants for a condition read backwards. The scalar-call
+# replacement stands for a call that answered something else, and its
+# constant truncates to false on a boolean, so on a bool-returning call it
+# stands for a predicate answering no; the bool-call replacement is the
+# predicate answering yes, since nearly every guard on this tree branches on
+# the value directly and is tested by the first for not firing alone. The
+# pointer-call replacement stands for a library answering null, and it is
+# made only where null is an answer the caller reads: the call goes through
+# a function pointer, or its result reaches a comparison with null in the
+# calling function. A string's data or an exception's message never answers
+# null, and a replacement there would measure the language's undefined
+# behaviour rather than the program. A function template instantiated more
 # than once carries one mutant per instantiation, each a function of its own,
 # and each is killed on its own. The one call the compiler emits that the
 # junk detector cannot tell from the source's is the default argument of a
 # void call, such as an empty initializer list, constructed at the call's own
-# location; its removal is a mutant of the void-call mutator.
+# location; its removal is a mutant of the void-call mutator. The calls the
+# compiler emits under a name of its own, the intrinsics that copy, set and
+# mark memory, are refused by both call mutators, since no line of the source
+# writes them; so is inline assembly, of which the library writes none.
+# The assignment group is named by its three members, because the address
+# tree drops the constant stores alone: a sanitizer writes stores of its own
+# at a statement's location, and a mutant of one measures the sanitizer.
 mutators:
   - cxx_default
+  - cxx_decrement
+  - cxx_arithmetic_assignment
+  - cxx_bitwise_assignment
+  - cxx_const_assignment
+  - cxx_bitwise
+  - cxx_logical
+  - negate_mutator
   - cxx_remove_void_call
   - cxx_replace_scalar_call
+  - cxx_replace_bool_call_true
+  - cxx_replace_pointer_call_null
 # Regular expressions over the mutant's source path. The vendored libraries
 # under the build tree's _deps and the system headers are not this project's
 # surface; the junk detector already skips what clang classes as a system

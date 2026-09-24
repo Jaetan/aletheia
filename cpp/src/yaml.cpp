@@ -83,8 +83,7 @@ static auto get_decimal(const YAML::Node& node, const std::string& key, const st
 static auto get_int(const YAML::Node& node, const std::string& key, const std::string& ctx)
     -> std::int64_t {
     auto const child = require_child(node, key, ctx, "integer");
-    if (!child.IsScalar())
-        throw missing_or_invalid(ctx, key, "integer");
+    // A non-scalar fails the conversion below with the same refusal.
     try {
         return child.as<std::int64_t>();
     } catch (const YAML::BadConversion&) {

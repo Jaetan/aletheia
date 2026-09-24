@@ -18,6 +18,7 @@
 #include <exception>
 #include <expected>
 #include <format>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <optional>
@@ -93,9 +94,9 @@ constexpr std::size_t k_absent_record_bytes = 2;
 // agree only because the assertion above forbids a big-endian build.
 template<typename T>
 static auto read_native(std::span<const std::byte> buf, std::size_t off) -> T {
-    T v{};
-    std::memcpy(&v, buf.subspan(off, sizeof(T)).data(), sizeof(T));
-    return v;
+    alignas(T) std::array<std::byte, sizeof(T)> raw{};
+    std::ranges::copy(buf.subspan(off, sizeof(T)), raw.begin());
+    return std::bit_cast<T>(raw);
 }
 
 AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
@@ -107,8 +108,6 @@ AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
     if (!state_)
         throw AletheiaException(
             AletheiaError{ErrorKind::Ffi, "backend init() returned null state"});
-    if (!logger_)
-        return;
     // Parity with the `rts.cores_mismatch` event of Go (go/aletheia/ffi.go) and
     // Python (python/aletheia/client/_ffi.py), both of which carry
     // `active_cores` and `requested_cores` integer fields.
@@ -187,9 +186,8 @@ auto AletheiaClient::parse_dbc(std::stop_token stop, const DbcDefinition& dbc)
     auto result = detail::parse_parsed_dbc(resp);
     if (result.has_value()) {
         populate_signal_lookup(result->dbc);
-        if (logger_)
-            logger_.info("dbc.parsed",
-                         {{"messages", static_cast<std::uint64_t>(result->dbc.messages.size())}});
+        logger_.info("dbc.parsed",
+                     {{"messages", static_cast<std::uint64_t>(result->dbc.messages.size())}});
     }
     return result;
 }
@@ -221,9 +219,8 @@ auto AletheiaClient::parse_dbc_text(std::stop_token stop, std::string_view text)
     auto result = detail::parse_parsed_dbc(resp);
     if (result.has_value()) {
         populate_signal_lookup(result->dbc);
-        if (logger_)
-            logger_.info("dbc.parsed",
-                         {{"messages", static_cast<std::uint64_t>(result->dbc.messages.size())}});
+        logger_.info("dbc.parsed",
+                     {{"messages", static_cast<std::uint64_t>(result->dbc.messages.size())}});
     }
     return result;
 }
@@ -295,20 +292,20 @@ static auto is_valid_utf8(std::span<const std::byte> bytes) -> bool {
             bytes = bytes.subspan(1);
             continue;
         }
-        std::size_t len = 0;
-        std::uint32_t cp = 0;
-        if ((b0 & 0xE0U) == 0xC0) {
-            len = 2;
-            cp = b0 & 0x1FU;
-        } else if ((b0 & 0xF0U) == 0xE0) {
-            len = 3;
-            cp = b0 & 0x0FU;
-        } else if ((b0 & 0xF8U) == 0xF0) {
-            len = 4;
-            cp = b0 & 0x07U;
-        } else {
-            return false; // Lone continuation byte or invalid lead byte.
-        }
+        // The lead byte names the sequence length and the bits it carries, or
+        // is a lone continuation or invalid lead byte, which names nothing.
+        auto const lead = [b0] -> std::optional<std::pair<std::size_t, std::uint32_t>> {
+            if ((b0 & 0xE0U) == 0xC0)
+                return std::pair{std::size_t{2}, std::uint32_t{b0 & 0x1FU}};
+            if ((b0 & 0xF0U) == 0xE0)
+                return std::pair{std::size_t{3}, std::uint32_t{b0 & 0x0FU}};
+            if ((b0 & 0xF8U) == 0xF0)
+                return std::pair{std::size_t{4}, std::uint32_t{b0 & 0x07U}};
+            return std::nullopt;
+        }();
+        if (!lead)
+            return false;
+        auto [len, cp] = *lead;
         if (len > bytes.size())
             return false;
         for (auto const byte : bytes.first(len).subspan(1)) {
@@ -593,9 +590,7 @@ auto AletheiaClient::set_properties(std::stop_token stop, std::span<const LtlFor
         for (auto const& f : properties)
             diags_.push_back(build_diagnostic(f));
         cache_.clear();
-        if (logger_)
-            logger_.info("properties.set",
-                         {{"count", static_cast<std::uint64_t>(properties.size())}});
+        logger_.info("properties.set", {{"count", static_cast<std::uint64_t>(properties.size())}});
         return result;
     } catch (const AletheiaException& e) {
         return std::unexpected(e.error());
@@ -610,24 +605,9 @@ auto AletheiaClient::add_checks(std::stop_token stop, std::vector<CheckResult> c
         return std::unexpected(make_cancellation_error("add_checks"));
     try {
         std::vector<LtlFormula> formulas;
-        auto const push_check = [&](const CheckResult& c, std::string_view origin) -> Result<void> {
-            auto const& f = c.formula();
-            if (!f)
-                return std::unexpected(AletheiaError{
-                    ErrorKind::Validation, std::string(origin) + " check has no formula"});
-            formulas.push_back(ltl::clone(*f));
-            return {};
-        };
-        for (auto const& dc : default_checks_) {
-            auto r = push_check(dc, "default");
-            if (!r)
-                return r;
-        }
-        for (auto const& check : checks) {
-            auto r = push_check(check, "user");
-            if (!r)
-                return r;
-        }
+        auto const to_formula = [](const CheckResult& c) { return c.to_formula(); };
+        std::ranges::transform(default_checks_, std::back_inserter(formulas), to_formula);
+        std::ranges::transform(checks, std::back_inserter(formulas), to_formula);
         return set_properties(stop, formulas);
     } catch (const AletheiaException& e) {
         return std::unexpected(e.error());
@@ -641,11 +621,10 @@ auto AletheiaClient::start_stream(std::stop_token stop) -> Result<void> {
         return std::unexpected(make_cancellation_error("start_stream"));
     auto const resp = backend_->start_stream_binary(state_);
     auto result = detail::parse_success(resp);
-    if (result.has_value()) {
-        cache_.clear();
-        if (logger_)
-            logger_.info("stream.started");
-    }
+    if (!result.has_value())
+        return result;
+    cache_.clear();
+    logger_.info("stream.started");
     return result;
 }
 
@@ -729,7 +708,7 @@ auto AletheiaClient::send_error(std::stop_token stop, Timestamp ts) -> Result<vo
         return std::unexpected(t.error());
     auto const resp = backend_->send_error_binary(state_, ts);
     auto r = detail::parse_event_ack(resp);
-    if (r.has_value() && logger_.enabled(LogLevel::Debug)) {
+    if (r.has_value()) {
         logger_.debug("error_event.sent", {{"ts", static_cast<std::int64_t>(ts.count())},
                                            {"response", std::string_view{"ack"}}});
     }
@@ -743,7 +722,7 @@ auto AletheiaClient::send_remote(std::stop_token stop, Timestamp ts, CanId id) -
         return std::unexpected(t.error());
     auto const resp = backend_->send_remote_binary(state_, ts, id);
     auto r = detail::parse_event_ack(resp);
-    if (r.has_value() && logger_.enabled(LogLevel::Debug)) {
+    if (r.has_value()) {
         logger_.debug("remote_event.sent", {{"ts", static_cast<std::int64_t>(ts.count())},
                                             {"canId", static_cast<std::uint64_t>(can_id_value(id))},
                                             {"extended", can_id_is_extended(id)},
@@ -757,14 +736,13 @@ auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
         return std::unexpected(make_cancellation_error("end_stream"));
     auto const resp = backend_->end_stream_binary(state_);
     auto result = detail::parse_stream_result(resp);
-    if (result.has_value()) {
-        if (!diags_.empty())
-            enrich_end_stream_results(*result);
-        if (logger_)
-            log_end_stream_summary(*result);
-        // A finished stream holds no frame, so the next one starts with none.
-        last_frames_.clear();
-    }
+    if (!result.has_value())
+        return result;
+    if (!diags_.empty())
+        enrich_end_stream_results(*result);
+    log_end_stream_summary(*result);
+    // A finished stream holds no frame, so the next one starts with none.
+    last_frames_.clear();
     return result;
 }
 
@@ -814,7 +792,7 @@ static auto format_enriched_reason(const PropertyDiagnostic& diag,
                                    const std::map<SignalName, PhysicalValue>& values,
                                    std::string_view core_reason) -> std::string {
     std::string reason;
-    bool rendered = false;
+    auto const unrendered = "violated: " + diag.formula_desc;
     // Best-effort on the eval path: rendering the observed values needs the
     // runtime, which is up here (the frame was processed through it) — so this
     // is unreachable — but never sink an already-processed frame if the kernel
@@ -836,15 +814,10 @@ static auto format_enriched_reason(const PropertyDiagnostic& diag,
                 first = false;
             }
         }
-        if (!first) {
-            reason = parts + " (formula: " + diag.formula_desc + ")";
-            rendered = true;
-        }
+        reason = first ? unrendered : parts + " (formula: " + diag.formula_desc + ")";
     } catch (const AletheiaException&) {
-        rendered = false;
+        reason = unrendered;
     }
-    if (!rendered)
-        reason = "violated: " + diag.formula_desc;
     if (!core_reason.empty())
         reason += " [core: " + std::string{core_reason} + "]";
     return reason;
@@ -862,20 +835,17 @@ void AletheiaClient::finalize_frame_response(FrameResponse& fr, Timestamp ts, Ca
                 has_fail = true;
             }
         }
-        if (logger_.enabled(LogLevel::Debug))
-            logger_.debug(
-                "frame.processed",
-                {{"ts", static_cast<std::int64_t>(ts.count())},
-                 {"canId", static_cast<std::uint64_t>(id_value)},
-                 {"extended", is_extended},
-                 {"response", std::string_view{has_fail ? "violation" : "satisfaction"}}});
+        logger_.debug("frame.processed",
+                      {{"ts", static_cast<std::int64_t>(ts.count())},
+                       {"canId", static_cast<std::uint64_t>(id_value)},
+                       {"extended", is_extended},
+                       {"response", std::string_view{has_fail ? "violation" : "satisfaction"}}});
         return;
     }
-    if (logger_.enabled(LogLevel::Debug))
-        logger_.debug("frame.processed", {{"ts", static_cast<std::int64_t>(ts.count())},
-                                          {"canId", static_cast<std::uint64_t>(id_value)},
-                                          {"extended", is_extended},
-                                          {"response", std::string_view{"ack"}}});
+    logger_.debug("frame.processed", {{"ts", static_cast<std::int64_t>(ts.count())},
+                                      {"canId", static_cast<std::uint64_t>(id_value)},
+                                      {"extended", is_extended},
+                                      {"response", std::string_view{"ack"}}});
 }
 
 void AletheiaClient::enrich_violation(PropertyResult& pr, CanId id, Dlc dlc,
@@ -885,10 +855,9 @@ void AletheiaClient::enrich_violation(PropertyResult& pr, CanId id, Dlc dlc,
     auto idx = v.property_index.get();
     if (idx >= diags_.size()) {
         // Property index out of range — protocol mismatch; skip enrichment.
-        if (logger_)
-            logger_.warn("enrichment.property_index_oob",
-                         {{"index", static_cast<std::int64_t>(idx)},
-                          {"count", static_cast<std::uint64_t>(diags_.size())}});
+        logger_.warn("enrichment.property_index_oob",
+                     {{"index", static_cast<std::int64_t>(idx)},
+                      {"count", static_cast<std::uint64_t>(diags_.size())}});
         return;
     }
     auto const& diag = diags_[idx];
@@ -946,10 +915,9 @@ auto AletheiaClient::collect_enrichable_results(StreamResult& result)
         auto idx = pr.property_index.get();
         if (idx >= diags_.size()) {
             // Property index out of range — protocol mismatch; skip enrichment.
-            if (logger_)
-                logger_.warn("enrichment.property_index_oob",
-                             {{"index", static_cast<std::int64_t>(idx)},
-                              {"count", static_cast<std::uint64_t>(diags_.size())}});
+            logger_.warn("enrichment.property_index_oob",
+                         {{"index", static_cast<std::int64_t>(idx)},
+                          {"count", static_cast<std::uint64_t>(diags_.size())}});
             continue;
         }
         todo.emplace_back(&pr, &diags_[idx]);
@@ -968,9 +936,8 @@ auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId
 
     auto cache_it = cache_.find(lookup);
     if (cache_it == cache_.end()) {
-        if (logger_.enabled(LogLevel::Debug))
-            logger_.debug("cache.miss", {{"canId", static_cast<std::uint64_t>(id_value)},
-                                         {"dlc", static_cast<std::uint64_t>(dlc.value())}});
+        logger_.debug("cache.miss", {{"canId", static_cast<std::uint64_t>(id_value)},
+                                     {"dlc", static_cast<std::uint64_t>(dlc.value())}});
         auto extraction = extract_signals_internal(id, dlc, data, id_value, is_extended);
         if (!extraction.has_value())
             return {};
@@ -982,12 +949,11 @@ auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId
                                  .data = FramePayload(data.begin(), data.end())};
             cache_it = cache_.emplace(std::move(key), std::move(*extraction)).first;
         } else {
-            if (logger_)
-                logger_.warn("cache.full", {{"size", static_cast<std::uint64_t>(cache_.size())}});
+            logger_.warn("cache.full", {{"size", static_cast<std::uint64_t>(cache_.size())}});
             // Over capacity — use result directly without caching
             return collect_matching_signals(diag, *extraction);
         }
-    } else if (logger_.enabled(LogLevel::Debug)) {
+    } else {
         logger_.debug("cache.hit", {{"canId", static_cast<std::uint64_t>(id_value)},
                                     {"dlc", static_cast<std::uint64_t>(dlc.value())}});
     }
@@ -1007,9 +973,8 @@ auto AletheiaClient::merge_last_known_values(std::set<SignalName> remaining)
         auto extraction = extract_signals_internal(last_frame.id, last_frame.dlc, last_frame.data,
                                                    key.first, key.second);
         if (!extraction.has_value()) {
-            if (logger_)
-                logger_.warn("enrichment.extraction_failed",
-                             {{"canId", static_cast<std::uint64_t>(key.first)}});
+            logger_.warn("enrichment.extraction_failed",
+                         {{"canId", static_cast<std::uint64_t>(key.first)}});
             continue;
         }
         for (auto const& sv : extraction->values) {
@@ -1036,19 +1001,17 @@ auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const
         if (buf) {
             auto bin_result = parse_extraction_bin(*buf, names_it->second);
             if (!bin_result) {
-                if (logger_)
-                    logger_.warn("extraction.parse_failed",
-                                 {{"canId", static_cast<std::uint64_t>(id_value)},
-                                  {"error", bin_result.error().message()}});
+                logger_.warn("extraction.parse_failed",
+                             {{"canId", static_cast<std::uint64_t>(id_value)},
+                              {"error", bin_result.error().message()}});
                 return std::nullopt;
             }
             return std::move(*bin_result);
         }
         if (buf.error().kind() != ErrorKind::BinaryUnsupported) {
-            if (logger_)
-                logger_.warn("extraction.process_failed",
-                             {{"canId", static_cast<std::uint64_t>(id_value)},
-                              {"error", buf.error().message()}});
+            logger_.warn("extraction.process_failed",
+                         {{"canId", static_cast<std::uint64_t>(id_value)},
+                          {"error", buf.error().message()}});
             return std::nullopt;
         }
         // BinaryUnsupported: fall through to JSON path.
@@ -1065,18 +1028,14 @@ auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const
     try {
         resp = backend_->extract_signals_binary(state_, id, dlc, data);
     } catch (const std::exception& e) {
-        if (logger_)
-            logger_.warn("extraction.process_failed",
-                         {{"canId", static_cast<std::uint64_t>(id_value)},
-                          {"error", std::string_view{e.what()}}});
+        logger_.warn("extraction.process_failed", {{"canId", static_cast<std::uint64_t>(id_value)},
+                                                   {"error", std::string_view{e.what()}}});
         return std::nullopt;
     }
     auto result = detail::parse_extraction(resp);
     if (!result.has_value()) {
-        if (logger_)
-            logger_.warn("extraction.parse_failed",
-                         {{"canId", static_cast<std::uint64_t>(id_value)},
-                          {"error", result.error().message()}});
+        logger_.warn("extraction.parse_failed", {{"canId", static_cast<std::uint64_t>(id_value)},
+                                                 {"error", result.error().message()}});
         return std::nullopt;
     }
     return std::move(*result);

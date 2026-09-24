@@ -1,0 +1,218 @@
+Two call replacements the scalar one could not make, each under its own name
+so a report reads which answer survived. The scalar replacement's constant
+truncates to false on a call returning bool, so every bool-returning call was
+mutated to a predicate answering no and never to one answering yes:
+cxx_replace_bool_call_true is the other answer. A call returning a pointer had
+no replacement at all: cxx_replace_pointer_call_null answers it with the null
+pointer of its type. The junk detector matches each against the call
+expression of the return kind it names, and cxx_calls carries both names so a
+configuration naming that group is unchanged. The IR half is in
+tools/mull/libirm-call-replacement-header.patch.
+diff --git a/include/mull/JunkDetection/CXX/Visitors/ReplaceCallVisitor.h b/include/mull/JunkDetection/CXX/Visitors/ReplaceCallVisitor.h
+index f070371..dbab4ec 100644
+--- a/include/mull/JunkDetection/CXX/Visitors/ReplaceCallVisitor.h
++++ b/include/mull/JunkDetection/CXX/Visitors/ReplaceCallVisitor.h
+@@ -9,7 +9,11 @@ namespace mull {
+ 
+ class ReplaceCallVisitor : public clang::RecursiveASTVisitor<ReplaceCallVisitor> {
+ public:
+-  ReplaceCallVisitor(const VisitorParameters &parameters);
++  /// What the call the mutant replaces returns: a real type (float, double,
++  /// long double, integer, bool included), a bool alone, or a pointer.
++  enum class Returns { Real, Bool, Pointer };
++
++  ReplaceCallVisitor(const VisitorParameters &parameters, Returns returns);
+ 
+   bool VisitCallExpr(clang::CallExpr *callExpression);
+   bool VisitCXXMemberCallExpr(clang::CXXMemberCallExpr *callExpression);
+@@ -19,6 +23,7 @@ public:
+ 
+ private:
+   InstructionRangeVisitor visitor;
++  Returns returns;
+ };
+ 
+ } // namespace mull
+diff --git a/include/mull/Mutators/CXX/CallMutators.h b/include/mull/Mutators/CXX/CallMutators.h
+index b1b5fc6..712fa1f 100644
+--- a/include/mull/Mutators/CXX/CallMutators.h
++++ b/include/mull/Mutators/CXX/CallMutators.h
+@@ -26,5 +26,21 @@ public:
+   ReplaceScalarCall();
+ };
+ 
++/// The scalar replacement's constant truncates to false on a call returning
++/// bool, so that mutant stands for a predicate answering no and never one
++/// answering yes.  This one is the other answer.
++class ReplaceBoolCallTrue : public TrivialCXXMutator {
++public:
++  static std::string ID();
++  ReplaceBoolCallTrue();
++};
++
++/// A call returning a pointer, answered by the null pointer instead.
++class ReplacePointerCallNull : public TrivialCXXMutator {
++public:
++  static std::string ID();
++  ReplacePointerCallNull();
++};
++
+ } // namespace cxx
+ } // namespace mull
+diff --git a/include/mull/Mutators/MutatorKind.h b/include/mull/Mutators/MutatorKind.h
+index 33f1db7..6e643de 100644
+--- a/include/mull/Mutators/MutatorKind.h
++++ b/include/mull/Mutators/MutatorKind.h
+@@ -15,6 +15,8 @@ enum class MutatorKind {
+   CXX_RemoveVoidCall,
+   CXX_RemoveImplicitDestructor,
+   CXX_ReplaceScalarCall,
++  CXX_ReplaceBoolCallTrue,
++  CXX_ReplacePointerCallNull,
+ 
+   CXX_AddToSub,
+   CXX_AddAssignToSubAssign,
+diff --git a/lib/JunkDetection/CXX/CXXJunkDetector.cpp b/lib/JunkDetection/CXX/CXXJunkDetector.cpp
+index 73afcac..476125a 100644
+--- a/lib/JunkDetection/CXX/CXXJunkDetector.cpp
++++ b/lib/JunkDetection/CXX/CXXJunkDetector.cpp
+@@ -27,7 +27,17 @@ static const clang::Stmt *findMutantExpression(MutationPoint *point,
+     return visitor.foundMutant();
+   }
+   case MutatorKind::CXX_ReplaceScalarCall: {
+-    ReplaceCallVisitor visitor(visitorParameters);
++    ReplaceCallVisitor visitor(visitorParameters, ReplaceCallVisitor::Returns::Real);
++    visitor.TraverseDecl(decl);
++    return visitor.foundMutant();
++  }
++  case MutatorKind::CXX_ReplaceBoolCallTrue: {
++    ReplaceCallVisitor visitor(visitorParameters, ReplaceCallVisitor::Returns::Bool);
++    visitor.TraverseDecl(decl);
++    return visitor.foundMutant();
++  }
++  case MutatorKind::CXX_ReplacePointerCallNull: {
++    ReplaceCallVisitor visitor(visitorParameters, ReplaceCallVisitor::Returns::Pointer);
+     visitor.TraverseDecl(decl);
+     return visitor.foundMutant();
+   }
+diff --git a/lib/JunkDetection/CXX/Visitors/ReplaceCallVisitor.cpp b/lib/JunkDetection/CXX/Visitors/ReplaceCallVisitor.cpp
+index ad76010..ea05263 100644
+--- a/lib/JunkDetection/CXX/Visitors/ReplaceCallVisitor.cpp
++++ b/lib/JunkDetection/CXX/Visitors/ReplaceCallVisitor.cpp
+@@ -2,7 +2,8 @@
+ 
+ using namespace mull;
+ 
+-ReplaceCallVisitor::ReplaceCallVisitor(const VisitorParameters &parameters) : visitor(parameters) {}
++ReplaceCallVisitor::ReplaceCallVisitor(const VisitorParameters &parameters, Returns returns)
++    : visitor(parameters), returns(returns) {}
+ 
+ bool ReplaceCallVisitor::VisitCallExpr(clang::CallExpr *callExpression) {
+   handleCallExpr(callExpression);
+@@ -21,8 +22,14 @@ bool ReplaceCallVisitor::VisitCXXOperatorCallExpr(clang::CXXOperatorCallExpr *ca
+ 
+ void ReplaceCallVisitor::handleCallExpr(clang::CallExpr *callExpression) {
+   auto *type = callExpression->getType().getTypePtrOrNull();
++  if (!type) {
++    return;
++  }
+   /// Real Type = float, double, long double, integer
+-  if (type && type->isRealType()) {
++  const bool matches = returns == Returns::Real      ? type->isRealType()
++                       : returns == Returns::Bool    ? type->isBooleanType()
++                                                     : type->isPointerType();
++  if (matches) {
+     visitor.visitRangeWithASTExpr(callExpression);
+   }
+ }
+diff --git a/lib/Mutators/CXX/CallMutators.cpp b/lib/Mutators/CXX/CallMutators.cpp
+index 64552e3..34373e9 100644
+--- a/lib/Mutators/CXX/CallMutators.cpp
++++ b/lib/Mutators/CXX/CallMutators.cpp
+@@ -51,3 +51,34 @@ ReplaceScalarCall::ReplaceScalarCall()
+     : TrivialCXXMutator(getReplaceScalarCall(), MutatorKind::CXX_ReplaceScalarCall,
+                         ReplaceScalarCall::ID(), "Replaces call to a function with 42", "42",
+                         "Replaced call to a function with 42") {}
++
++static std::vector<std::unique_ptr<irm::IRMutation>> getReplaceBoolCallTrue() {
++  std::vector<std::unique_ptr<irm::IRMutation>> mutators;
++  mutators.push_back(std::make_unique<irm::BoolCallReplacement>(true));
++  return mutators;
++}
++
++std::string ReplaceBoolCallTrue::ID() {
++  return "cxx_replace_bool_call_true";
++}
++
++ReplaceBoolCallTrue::ReplaceBoolCallTrue()
++    : TrivialCXXMutator(getReplaceBoolCallTrue(), MutatorKind::CXX_ReplaceBoolCallTrue,
++                        ReplaceBoolCallTrue::ID(), "Replaces call to a function returning bool with true",
++                        "true", "Replaced call to a function returning bool with true") {}
++
++static std::vector<std::unique_ptr<irm::IRMutation>> getReplacePointerCallNull() {
++  std::vector<std::unique_ptr<irm::IRMutation>> mutators;
++  mutators.push_back(std::make_unique<irm::PointerCallReplacement>());
++  return mutators;
++}
++
++std::string ReplacePointerCallNull::ID() {
++  return "cxx_replace_pointer_call_null";
++}
++
++ReplacePointerCallNull::ReplacePointerCallNull()
++    : TrivialCXXMutator(getReplacePointerCallNull(), MutatorKind::CXX_ReplacePointerCallNull,
++                        ReplacePointerCallNull::ID(),
++                        "Replaces call to a function returning a pointer with nullptr", "nullptr",
++                        "Replaced call to a function returning a pointer with nullptr") {}
+diff --git a/lib/Mutators/MutatorKind.cpp b/lib/Mutators/MutatorKind.cpp
+index 3e848e2..c85aaf1 100644
+--- a/lib/Mutators/MutatorKind.cpp
++++ b/lib/Mutators/MutatorKind.cpp
+@@ -20,6 +20,12 @@ std::string MutationKindToString(MutatorKind mutatorKind) {
+   case MutatorKind::CXX_ReplaceScalarCall: {
+     return "Replace Call";
+   }
++  case MutatorKind::CXX_ReplaceBoolCallTrue: {
++    return "Replace Bool Call With True";
++  }
++  case MutatorKind::CXX_ReplacePointerCallNull: {
++    return "Replace Pointer Call With Null";
++  }
+   case MutatorKind::CXX_AddToSub: {
+     return "Add to Sub";
+   }
+diff --git a/lib/Mutators/MutatorsFactory.cpp b/lib/Mutators/MutatorsFactory.cpp
+index 9048d13..660c5f0 100644
+--- a/lib/Mutators/MutatorsFactory.cpp
++++ b/lib/Mutators/MutatorsFactory.cpp
+@@ -28,6 +28,8 @@ void MutatorsFactory::init() {
+   addMutator<cxx::RemoveVoidCall>(mutatorsMapping);
+   addMutator<cxx::RemoveImplicitDestructor>(mutatorsMapping);
+   addMutator<cxx::ReplaceScalarCall>(mutatorsMapping);
++  addMutator<cxx::ReplaceBoolCallTrue>(mutatorsMapping);
++  addMutator<cxx::ReplacePointerCallNull>(mutatorsMapping);
+ 
+   addMutator<cxx::NumberAssignConst>(mutatorsMapping);
+   addMutator<cxx::NumberInitConst>(mutatorsMapping);
+diff --git a/rust/mull-filters/src/mutator_groups.rs b/rust/mull-filters/src/mutator_groups.rs
+index 2205db3..3050629 100644
+--- a/rust/mull-filters/src/mutator_groups.rs
++++ b/rust/mull-filters/src/mutator_groups.rs
+@@ -30,7 +30,7 @@ pub fn get_group_definitions() -> Vec<(String, String)> {
+         ("cxx_logical", "cxx_remove_negation"),
+         ("cxx_comparison", "cxx_eq_to_ne, cxx_ne_to_eq, cxx_le_to_gt, cxx_lt_to_ge, cxx_ge_to_lt, cxx_gt_to_le"),
+         ("cxx_boundary", "cxx_le_to_lt, cxx_lt_to_le, cxx_ge_to_gt, cxx_gt_to_ge"),
+-        ("cxx_calls", "cxx_remove_void_call, cxx_remove_implicit_destructor, cxx_replace_scalar_call"),
++        ("cxx_calls", "cxx_remove_void_call, cxx_remove_implicit_destructor, cxx_replace_scalar_call, cxx_replace_bool_call_true, cxx_replace_pointer_call_null"),
+         ("experimental", "negate_mutator, cxx_logical"),
+     ];
+ 
+@@ -75,6 +75,8 @@ fn expand_group(group: &str, result: &mut HashSet<String>) {
+             result.insert("cxx_remove_void_call".to_string());
+             result.insert("cxx_remove_implicit_destructor".to_string());
+             result.insert("cxx_replace_scalar_call".to_string());
++            result.insert("cxx_replace_bool_call_true".to_string());
++            result.insert("cxx_replace_pointer_call_null".to_string());
+         }
+         "cxx_const_assignment" => {
+             result.insert("cxx_assign_const".to_string());

@@ -1,0 +1,135 @@
+A call through a pointer, a virtual dispatch or a function pointer, has no
+callee to read, and the scalar-call replacement refused every such call as
+indirect. On the tree this was written against the whole FFI boundary is such
+calls, so no mutant ever made the kernel answer something else. The refusal is
+lifted: inline asm stays out, since it is not a call, and the intrinsic test
+reads the callee only where there is one. An integer return is also taken by
+its width, bounded by the two limits the header adds, so that a one-bit
+return, which is a bool, can have a replacement of its own. And a replacement
+can ask that null be an answer the caller reads, which is where the call is
+through a function pointer, the code it names being outside the program, or
+where its result reaches a comparison with null in the calling function: a
+string's data, an exception's message or a virtual call never answers null,
+and replacing those would measure the language's undefined behaviour rather
+than the program.
+--- a/lib/CallReplacement.cpp
++++ b/lib/CallReplacement.cpp
+@@ -15,13 +15,74 @@
+ //
+ 
+ #include "irm/Mutations/CallReplacement.h"
++#include <llvm/IR/Constants.h>
+ #include <llvm/IR/Instructions.h>
+ 
+ using namespace irm;
+ 
+ CallReplacement::CallReplacement(ConstValueConstructor *constConstructor,
+-                                 llvm::Type::TypeID returnTypeId)
+-    : constConstructor(constConstructor), returnTypeId(returnTypeId) {}
++                                 llvm::Type::TypeID returnTypeId, unsigned minBitWidth,
++                                 unsigned maxBitWidth, bool onlyWhereNullIsRead)
++    : constConstructor(constConstructor), returnTypeId(returnTypeId), minBitWidth(minBitWidth),
++      maxBitWidth(maxBitWidth), onlyWhereNullIsRead(onlyWhereNullIsRead) {}
++
++/// Whether an indirect call is a virtual dispatch: under the Itanium ABI at
++/// -O0 the callee is loaded from a vtable slot, which is a pointer loaded from
++/// the object, either directly for the first slot or through an index into
++/// the table.  A call through a function pointer loads the callee from a
++/// member of a struct or from a stack slot instead.
++static bool isVirtualDispatch(llvm::CallBase *call) {
++  auto *callee = llvm::dyn_cast<llvm::LoadInst>(call->getCalledOperand());
++  if (!callee) {
++    return false;
++  }
++  llvm::Value *slot = callee->getPointerOperand();
++  if (auto *index = llvm::dyn_cast<llvm::GetElementPtrInst>(slot)) {
++    if (!index->getSourceElementType()->isPointerTy()) {
++      return false;
++    }
++    slot = index->getPointerOperand();
++  }
++  return llvm::isa<llvm::LoadInst>(slot);
++}
++
++/// Whether the value reaches a comparison with null in its function.  At -O0
++/// a call's result is stored to a stack slot and loaded again before it is
++/// compared, so the stores to a slot are followed through that slot's loads;
++/// a phi or a select forwards the value too.  The depth bound ends a cycle.
++static bool reachesNullComparison(llvm::Value *value, unsigned depth) {
++  if (depth == 0) {
++    return false;
++  }
++  for (llvm::User *user : value->users()) {
++    if (auto *compare = llvm::dyn_cast<llvm::ICmpInst>(user)) {
++      if (llvm::isa<llvm::ConstantPointerNull>(compare->getOperand(0)) ||
++          llvm::isa<llvm::ConstantPointerNull>(compare->getOperand(1))) {
++        return true;
++      }
++      continue;
++    }
++    if (auto *store = llvm::dyn_cast<llvm::StoreInst>(user)) {
++      if (store->getValueOperand() != value) {
++        continue;
++      }
++      if (auto *slot = llvm::dyn_cast<llvm::AllocaInst>(store->getPointerOperand())) {
++        for (llvm::User *slotUser : slot->users()) {
++          if (llvm::isa<llvm::LoadInst>(slotUser) && reachesNullComparison(slotUser, depth - 1)) {
++            return true;
++          }
++        }
++      }
++      continue;
++    }
++    if (llvm::isa<llvm::PHINode>(user) || llvm::isa<llvm::SelectInst>(user)) {
++      if (reachesNullComparison(user, depth - 1)) {
++        return true;
++      }
++    }
++  }
++  return false;
++}
+ 
+ bool CallReplacement::canMutate(llvm::Instruction *instruction) {
+   assert(instruction);
+@@ -38,12 +99,15 @@
+     return false;
+   }
+ 
+-  /// Do not touch indirect calls
+-  if (!call->getCalledFunction()) {
++  /// A call through a pointer, a virtual dispatch or a function pointer, has
++  /// no callee to read, and it is still a call whose answer the program uses:
++  /// refusing it left every such call unreplaced.  Inline asm is not a call.
++  if (call->isInlineAsm()) {
+     return false;
+   }
+   /// Do not touch intrinsics
+-  if (call->getCalledFunction()->getIntrinsicID() != llvm::Intrinsic::ID(0)) {
++  if (auto *callee = call->getCalledFunction();
++      callee && callee->getIntrinsicID() != llvm::Intrinsic::ID(0)) {
+     return false;
+   }
+   assert(call->getFunctionType());
+@@ -52,6 +116,22 @@
+   if (returnType->getTypeID() != returnTypeId) {
+     return false;
+   }
++  /// An integer return is taken by its width, so that a one-bit return can
++  /// have a replacement of its own and the others can leave it alone.
++  if (returnType->isIntegerTy()) {
++    const unsigned width = returnType->getIntegerBitWidth();
++    if (width < minBitWidth || (maxBitWidth != 0 && width > maxBitWidth)) {
++      return false;
++    }
++  }
++  /// Null is an answer the caller reads where the call is through a function
++  /// pointer, since the code it names is outside the program and can answer
++  /// it, or where the result reaches a comparison with null.  A virtual call
++  /// is not that: what it answers is an override the tests reach.
++  if (onlyWhereNullIsRead && (call->getCalledFunction() || isVirtualDispatch(call)) &&
++      !reachesNullComparison(call, 8)) {
++    return false;
++  }
+ 
+   return true;
+ }

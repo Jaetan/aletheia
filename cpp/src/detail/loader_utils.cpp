@@ -206,9 +206,6 @@ auto validate_loader_path(const std::filesystem::path& path, std::string_view ki
                                              "Could not stat " + std::string(kind) +
                                                  " file: " + path.string() + ": " + ec.message()});
     }
-    if (!std::filesystem::exists(status))
-        return std::unexpected(AletheiaError{
-            ErrorKind::Validation, std::string(kind) + " file not found: " + path.string()});
     if (std::filesystem::is_symlink(status))
         return std::unexpected(AletheiaError{
             ErrorKind::Validation,
@@ -312,9 +309,6 @@ auto validate_output_parent_dir(const std::filesystem::path& path) -> Result<voi
                                              "Could not stat parent directory: " + parent.string() +
                                                  ": " + ec.message()});
     }
-    if (!std::filesystem::exists(status))
-        return std::unexpected(AletheiaError{
-            ErrorKind::Validation, "Parent directory does not exist: " + parent.string()});
     if (!std::filesystem::is_directory(status))
         return std::unexpected(AletheiaError{ErrorKind::Validation,
                                              "Parent path is not a directory: " + parent.string()});

@@ -91,13 +91,9 @@ public:
         return *this;
     }
 
-    [[nodiscard]] auto to_formula() const -> std::optional<LtlFormula> {
-        if (!formula_)
-            return std::nullopt;
-        return ltl::clone(*formula_);
-    }
+    [[nodiscard]] auto to_formula() const -> LtlFormula { return ltl::clone(formula_); }
 
-    [[nodiscard]] auto formula() const -> const std::optional<LtlFormula>& { return formula_; }
+    [[nodiscard]] auto formula() const -> const LtlFormula& { return formula_; }
 
     [[nodiscard]] auto name() const -> const std::string& { return name_; }
     [[nodiscard]] auto check_severity() const -> const std::string& { return check_severity_; }
@@ -114,7 +110,7 @@ public:
     }
 
 private:
-    std::optional<LtlFormula> formula_;
+    LtlFormula formula_;
     std::string name_;
     std::string check_severity_;
     std::string signal_name_;

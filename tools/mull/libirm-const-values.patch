@@ -1,0 +1,12 @@
+The null pointer of the pointer type asked for, which the pointer-call
+replacement in tools/mull/libirm-call-replacement-header.patch constructs.
+--- a/lib/ConstValueConstructor.cpp
++++ b/lib/ConstValueConstructor.cpp
+@@ -35,3 +35,7 @@
+ #endif
+   return llvm::ConstantInt::get(type, intValue);
+ }
++
++llvm::Value *NullPointerConstructor::constructValue(llvm::Type *type) {
++  return llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(type));
++}
