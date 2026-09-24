@@ -23,26 +23,39 @@ the graph stays correct.  It checks two properties:
 The oracle is *behavioral* (does the edit reach the artifact? was it relinked?),
 never bit-identical — an incremental build differs benignly from a from-scratch one.
 
-Crash behaviour: every edited *source* is restored (atexit + SIGINT/SIGTERM), so
-an interrupt never leaves a mutated Agda source.  The ``.so`` artifact is NOT
-transactional, though — an interrupt after an edit-build can leave
-``build/libaletheia-ffi.so`` carrying a probe sentinel; the next normal build
-restores it, and this gate refuses to run against such a leftover (its startup
-check asserts a clean baseline first).  Run this isolated from any other ``.so``
-consumer (it transiently mutates the shared artifact).
+Crash behaviour: every edited source is restored on exit, on SIGINT and on
+SIGTERM.  SIGKILL bypasses that.  A killed run leaves its marker in the two
+sources and leaves its build child running, and that child relinks the ``.so``
+with the marker in it.  So the marker names the run that wrote it, by pid and
+start time, and the startup check refuses on one, saying which run left it,
+whether that run still lives, and the edit that restores the file.  The check
+also refuses while a build still holds Shake's lock, naming the process, since
+that is what an interrupted run's child looks like from outside.  Two runs
+cannot overlap: the gate holds the repo-wide Agda lock for its whole body, and a
+second run reports the lock as held.  A marker left in the ``.so`` clears on the
+next build over restored sources, and this gate refuses to run against one.
+Run this isolated from any other ``.so`` consumer (it transiently mutates the
+shared artifact).
 
 Run: ``python -m tools.check_build_incremental``  (exit 0 = pass, 1 = fail).
 """
 
 from __future__ import annotations
 
+import fcntl
+import os
+import re
+import struct
 import sys
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, NamedTuple
 
 from tools._common import (
+    agda_tree_lock,
     emit,
     find_executable,
     install_restore_handlers,
+    process_alive,
     run_capture,
     track_inflight,
     untrack_inflight,
@@ -61,9 +74,75 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _SO = REPO_ROOT / "build" / "libaletheia-ffi.so"
+_SHAKE_LOCK = REPO_ROOT / "build" / ".shake.lock"
+
+# A marker is the token this gate splices into a runtime string literal.  It
+# names the run that wrote it, so a leftover can say which run was killed and
+# whether that run still lives; the unnamed form is what an older gate wrote.
+MARKER_PREFIX = "ALETHEIA_STALE_PROBE_"
+_MARKER = re.compile(rb"ALETHEIA_STALE_PROBE_([A-Z]+)(?:_pid(\d+)_(\d{8}T\d{6}Z))?")
+_RUN_ID = f"pid{os.getpid()}_{datetime.now(UTC):%Y%m%dT%H%M%SZ}"
+
+# Linux x86_64 ``struct flock``: l_type, l_whence, l_start, l_len, l_pid.
+_FLOCK = "hhqqi"
 
 
-class _Probe(NamedTuple):
+class RunMarker(NamedTuple):
+    """One marker found in a source or in the ``.so``, and the run it names."""
+
+    text: str  # the whole token as found
+    tag: str  # which probe wrote it
+    pid: int | None  # the writing process, or None for the unnamed form
+    started: str | None  # the run's UTC start, or None for the unnamed form
+
+
+def markers_in(data: str | bytes) -> list[RunMarker]:
+    """Every marker in ``data``, in order of appearance."""
+    raw = data.encode() if isinstance(data, str) else data
+    found: list[RunMarker] = []
+    for match in _MARKER.finditer(raw):
+        pid = match.group(2)
+        started = match.group(3)
+        found.append(
+            RunMarker(
+                text=match.group(0).decode(),
+                tag=match.group(1).decode(),
+                pid=int(pid) if pid else None,
+                started=started.decode() if started else None,
+            )
+        )
+    return found
+
+
+def describe_run(marker: RunMarker) -> str:
+    """Say which run wrote ``marker`` and whether it still lives."""
+    if marker.pid is None:
+        return "an unnamed run, from a gate older than this one"
+    state = "still alive" if process_alive(marker.pid) else "gone"
+    return f"pid {marker.pid}, started {marker.started}, {state}"
+
+
+def shake_lock_holder(lock: Path) -> int | None:
+    """Return the pid holding Shake's lock on ``lock``, or None when nobody does.
+
+    Shake takes a POSIX record lock on the file for the whole build, and the
+    kernel releases it when the holder exits however it exits, so the file's
+    existence says nothing and only F_GETLK does.  A lock this process holds
+    reads as free, which is fine: the gate asks before it builds.
+    """
+    if not lock.exists():
+        return None
+    fd = os.open(lock, os.O_RDONLY)
+    try:
+        query = struct.pack(_FLOCK, fcntl.F_WRLCK, os.SEEK_SET, 0, 0, 0)
+        answer = fcntl.fcntl(fd, fcntl.F_GETLK, query)
+    finally:
+        os.close(fd)
+    kind, _, _, _, pid = struct.unpack(_FLOCK, answer[: struct.calcsize(_FLOCK)])
+    return None if kind == fcntl.F_UNLCK else int(pid)
+
+
+class Probe(NamedTuple):
     """One runtime-string edit site, in a distinct module, that must reach the .so."""
 
     file: Path
@@ -72,10 +151,10 @@ class _Probe(NamedTuple):
     token: bytes  # distinctive bytes present in the .so iff the edit propagated
 
 
-def _probe(rel: str, anchor_inner: str, tag: str) -> _Probe:
+def _probe(rel: str, anchor_inner: str, tag: str) -> Probe:
     """Build a probe from a repo-relative file, the inner literal text, and a unique tag."""
-    token = f"ALETHEIA_STALE_PROBE_{tag}"
-    return _Probe(
+    token = f"{MARKER_PREFIX}{tag}_{_RUN_ID}"
+    return Probe(
         file=REPO_ROOT / rel,
         anchor=f'"{anchor_inner}"',
         sentinel=f'"{anchor_inner}_{token}"',
@@ -92,7 +171,7 @@ def _probe(rel: str, anchor_inner: str, tag: str) -> _Probe:
 # check); repoint it at a current runtime literal the .so actually contains.  Note
 # a spec-only module (e.g. LTL/JSON/Format) is NOT in the runtime closure even if
 # its string also appears in the .so via a sibling — its edit won't propagate.
-_PROBES: tuple[_Probe, ...] = (
+_PROBES: tuple[Probe, ...] = (
     _probe("src/Aletheia/Protocol/ResponseFormat.agda", "uncached_atom", "RF"),
     _probe("src/Aletheia/DBC/Formatter.agda", "little_endian", "DBC"),
 )
@@ -116,18 +195,53 @@ def _fail(msg: str) -> None:
     emit(f"build-incremental gate: FAIL — {msg}")
 
 
+def _rel(path: Path) -> str:
+    """Spell ``path`` relative to the repository root, for messages."""
+    return str(path.relative_to(REPO_ROOT)) if path.is_relative_to(REPO_ROOT) else str(path)
+
+
+def _check_no_leftovers() -> bool:
+    """Refuse on what a killed run leaves behind, before anything is built or captured.
+
+    Runs before the baseline build on purpose: a build over a marked source
+    relinks the marker into the ``.so``, and capturing the marked text as the
+    original would write it back as the restore.
+    """
+    clean = True
+    for probe in _PROBES:
+        for marker in markers_in(probe.file.read_text(encoding="utf-8")):
+            clean = False
+            _fail(
+                f"{_rel(probe.file)} carries the marker of an interrupted gate run "
+                + f"({describe_run(marker)}): the run was killed after editing the "
+                + "file and before restoring it"
+            )
+            left = f'"{probe.anchor[1:-1]}_{marker.text}"'
+            emit(f"  restore it by replacing {left} with {probe.anchor}")
+    holder = shake_lock_holder(_SHAKE_LOCK)
+    if holder is not None:
+        clean = False
+        _fail(
+            f"a build (pid {holder}) holds {_rel(_SHAKE_LOCK)}; wait for it to finish. "
+            + "A gate run killed mid-build leaves its build running, and the .so that "
+            + "build writes carries the run's marker until the next build over restored sources"
+        )
+    return clean
+
+
 def _check_baseline() -> dict[Path, str] | None:
     """Establish a clean baseline; return each probe file's original text, or None on failure."""
     _build()  # a no-op ~0.1s when already built
     if not _SO.exists():
         _fail(f"{_SO} was not produced")
         return None
-    so_bytes = _SO.read_bytes()
+    for marker in markers_in(_SO.read_bytes()):
+        _fail(
+            f"the .so carries the marker {marker.text!r} of an earlier run ({describe_run(marker)})"
+        )
+        return None
     originals: dict[Path, str] = {}
     for probe in _PROBES:
-        if probe.token in so_bytes:
-            _fail(f"stale sentinel {probe.token!r} left in .so by a prior run")
-            return None
         text = probe.file.read_text(encoding="utf-8")
         if probe.anchor not in text:
             _fail(f"anchor {probe.anchor} not found in {probe.file}")
@@ -174,8 +288,10 @@ def _check_incremental() -> bool:
     return True
 
 
-def main() -> int:
+def _run() -> int:
     """Run the staleness + incrementality checks; restore every edited source always."""
+    if not _check_no_leftovers():
+        return 1
     originals = _check_baseline()
     if originals is None:
         return 1
@@ -216,6 +332,12 @@ def main() -> int:
 
     emit("=== build-incremental gate: PASS — edits/reverts reach the .so; no-op is incremental ===")
     return 0
+
+
+def main() -> int:
+    """Hold the repo-wide Agda lock, so two runs cannot overlap, and run the checks."""
+    with agda_tree_lock():
+        return _run()
 
 
 if __name__ == "__main__":

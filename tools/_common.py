@@ -370,7 +370,7 @@ def _agda_lock_path() -> Path:
     return git_toplevel() / _AGDA_LOCK_NAME
 
 
-def _process_alive(pid: int) -> bool:
+def process_alive(pid: int) -> bool:
     """Return True if `pid` names a live process (signal-0 probe)."""
     if pid <= 0:
         return False
@@ -414,7 +414,7 @@ def _acquire_agda_lock(*, wait: bool) -> int | None:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         holder = _read_lock_pid(fd)
-        liveness = "alive" if _process_alive(holder) else "stale?"
+        liveness = "alive" if process_alive(holder) else "stale?"
         if wait:
             _ = sys.stderr.write(
                 f"waiting for {_AGDA_LOCK_NAME}, held by another Agda tool "

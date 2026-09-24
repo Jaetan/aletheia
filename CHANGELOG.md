@@ -771,6 +771,25 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A gate run killed mid-probe leaves a leftover that names itself.**
+  `tools/check_build_incremental.py` restores the two sources it edits on exit,
+  on SIGINT and on SIGTERM, which SIGKILL bypasses. A killed run left its
+  markers in two Agda sources and its build child running; that child held
+  Shake's lock, a record lock the kernel frees with its holder, so the next
+  build was refused by a live process rather than a stale file, and the next
+  gate run refused on the markers, neither saying a run had been killed. The
+  marker now carries the pid and start time of the run that wrote it. The gate
+  refuses on a marker before it builds or captures a source, naming the run,
+  whether it still lives, and the edit that restores the file, and refuses
+  while a build holds Shake's lock, naming that process. Two runs cannot
+  overlap: the gate holds the repo-wide Agda lock, and a second run reports it
+  as held. The clang-tidy probe that injects a discarded return into three C++
+  sources had the same shape: a killed run left its injection behind, and a
+  second run started over the first captured the injected text as its own
+  original. Its injection now names its run, a leftover refuses the next run,
+  and a lock under `cpp/build` refuses a second. Tests and probes hold each
+  refusal.
+
 - **A binding that ran but reports no number for a baseline lane fails the
   benchmark gate.** `tools/benchmark_gate.py` walked the baseline's lanes and
   skipped any the run did not carry, one rule for two cases: a binding with no

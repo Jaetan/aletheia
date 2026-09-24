@@ -96,8 +96,15 @@ distant modules, rebuilds, and checks two properties:
    put).  A regression back to the sledgehammer would pass property 1 but fail
    here.
 
-Every edited source is restored on exit (including on SIGINT/SIGTERM), so an
-interrupt never leaves a mutated Agda source.
+Every edited source is restored on exit, on SIGINT and on SIGTERM.  SIGKILL
+bypasses that: a killed run leaves its marker in the two sources and its build
+child running, and that child holds Shake's lock until it finishes.  The marker
+names the run that wrote it, so the next gate run refuses before it builds and
+says which run was interrupted, whether it still lives, and the edit that
+restores the file; it also refuses while a build holds Shake's lock, naming
+that process.  The gate holds the repo-wide Agda lock for its whole body, so a
+second run started over a first reports the lock as held instead of capturing
+the first run's edit as its own original.
 
 The IWYU gate (`tools/iwyu.py --check --diff`) runs on the set
 of `.agda` files modified vs `main` (`git diff main...HEAD -- src/`; empty
