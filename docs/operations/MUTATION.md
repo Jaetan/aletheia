@@ -121,7 +121,7 @@ independently.
 |---|---|---|
 | Python | `mutmut` 3.x | `aletheia/client/_client.py`, `aletheia/dbc/_converter.py`, `aletheia/yaml_loader.py`, `aletheia/codes/_issue.py`, `aletheia/types.py` |
 | Go | `gremlins` | `aletheia/client.go`, `dbc.go`, `json.go`¹, `ffi.go`, `ffi_nocgo.go`, `enrich.go`²; the stringer outputs are held out by `go/.gremlins.yaml` |
-| C++ | `Mull` 0.34.1 (LLVM 23, from source) | `cpp/src/*.cpp` less `mock_backend.cpp` / `types.cpp` (test-only / type-defs) and `rational_renderer.cpp`, with the exact mutated set enumerated in `docs/MUTATION_BENCH.yaml`; the mutator set (`cxx_default` plus the two call mutators), what each class of mutant stands for, and the held-out paths (vendored, system, `cpp/tests` and the test double under `cpp/src/detail`) are `cpp/mull.yml`; the build records each unit's command line so that Mull's junk detector can re-parse it, without which it drops every mutant of a unit it cannot parse |
+| C++ | `Mull` 0.34.1 (LLVM 23, from source) | `cpp/src/*.cpp` less `mock_backend.cpp` / `types.cpp` (test-only / type-defs) and `rational_renderer.cpp`, with the exact mutated set enumerated in `docs/MUTATION_BENCH.yaml`; the mutator set (`cxx_default`, the decrement, assignment, bitwise and negation groups, and the four call mutators), what each class of mutant stands for, and the held-out paths (vendored, system, `cpp/tests` and the test double under `cpp/src/detail`) are `cpp/mull.yml`; the build records each unit's command line so that Mull's junk detector can re-parse it, without which it drops every mutant of a unit it cannot parse |
 
 AGENTS.md cat 14(g) names `gomut` / `go-mutesting` / `mutate` for Go.  We use
 **`gremlins`** (`github.com/go-gremlins/gremlins`) instead because both
@@ -159,6 +159,16 @@ floor and CI resolving to the ceiling measure different populations, and the
 survivor CI reports cannot be reproduced locally at all.  A baseline that is a
 measured count cannot float its generator.  Bumping the pin is deliberate and
 re-measures the Python row of `docs/MUTATION_BENCH.yaml`.
+
+mutmut's operator table is fixed in the package and takes no configuration,
+so what it cannot mutate is a refusal the lane carries whole: a `return`, a
+`raise`, a condition that is a bare name or call, an f-string, a `for` or a
+`with`, and any function under a decorator other than `staticmethod` or
+`classmethod`, which it skips entire. A defect in one of those is one the
+Python lane cannot see, and the probe
+`probes/python_pyproject.toml--mutmut-has-no-operator-for-these-constructs.sh`
+holds the pinned version to that list, so a release that gains an operator
+re-opens the row rather than counting silently.
 
 ### Go — `gremlins`
 
@@ -199,7 +209,20 @@ call mutators the `invoke` instruction
 call that can throw is an `invoke`, a different opcode, so as shipped neither
 mutator ever reached a call the source writes that can throw, and the void-call
 mutator reached only the implicit destructors of temporaries, which are
-`noexcept`. Those destructors are a mutator of their own,
+`noexcept`. The same build lets both call mutators reach a call through a
+function pointer, which libirm refused as indirect
+(`tools/mull/libirm-call-replacement-indirect.patch`,
+`tools/mull/libirm-void-call-indirect.patch`): the backend calls every kernel
+entry through one, so before it no mutant dropped a kernel call or made the
+kernel answer something else. And it adds two replacements the scalar one
+could not make (`tools/mull/mull-call-replacement-kinds.patch`): the scalar
+constant truncates to false on a call returning `bool`, so
+`cxx_replace_bool_call_true` is the other answer, and
+`cxx_replace_pointer_call_null` answers a pointer-returning call with null,
+made only where null is an answer the caller reads, a call through a function
+pointer or a result compared with null, since a string's data or an
+exception's message never answers null and replacing it would measure the
+language's undefined behaviour. Those destructors are a mutator of their own,
 `cxx_remove_implicit_destructor` (`tools/mull/mull-implicit-destructor-mutator.patch`),
 which `cpp/mull.yml` leaves out of the swept set: it removes a call the
 compiler emits and the source never writes, and on this tree every one it
@@ -307,8 +330,9 @@ cd go && gremlins unleash ./aletheia
 # reads a destructor removal that leaks, the address tree a value read after
 # what held it has gone, and the plain tree carries the allocation-fault
 # sweeps, which no sanitizer tree can carry because a sanitizer defines the
-# allocation functions they replace.  The address tree drops the two mutators
-# over calls, whose mutants there are the sanitizer's own inserted checks.
+# allocation functions they replace.  The address tree drops the mutators
+# over calls and over constant stores, whose mutants there are the
+# sanitizer's own inserted checks and stores.
 cd cpp
 cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
       -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
@@ -322,7 +346,7 @@ cmake -B build-mutation-plain -DALETHEIA_MUTATION=ON \
 cmake --build build-mutation-plain --target unit_tests
 mull-runner-23 --minimum-timeout=600000 ./build-mutation-plain/unit_tests -- --order decl
 # The address tree builds under a configuration the lane generates beside it,
-# which is `cpp/mull.yml` without the two call mutators; the runner is given
+# which is `cpp/mull.yml` without the call and constant-store mutators; the runner is given
 # the same file, so the tree and the sweep read one mutator set.
 python/.venv/bin/python -c 'from pathlib import Path
 from tools.mutation_cpp import CppLeg, CppTree, leg_config

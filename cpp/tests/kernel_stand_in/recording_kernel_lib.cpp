@@ -9,6 +9,7 @@
 // signatures, and its runtime entry is a no-op: the runtime is brought up
 // once per process by the first backend the suite builds, on the real
 // library, and never by this one.
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -44,7 +45,14 @@ auto aletheia_init() -> void* {
     return &state;
 }
 
+// Closes are counted so a test can read that the state it opened was closed,
+// which the real kernel acknowledges without reading.
+std::atomic<int> closes{0};
 void aletheia_close(void* /*state*/) {
+    ++closes;
+}
+auto aletheia_test_close_count() -> int {
+    return closes.load();
 }
 
 void aletheia_free_str(char* p) {

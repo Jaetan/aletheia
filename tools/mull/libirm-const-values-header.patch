@@ -1,0 +1,15 @@
+The declaration for tools/mull/libirm-const-values.patch.
+--- a/include/irm/ConstValues/ConstValueConstructor.h
++++ b/include/irm/ConstValues/ConstValueConstructor.h
+@@ -47,4 +47,10 @@
+   int constantValue;
+ };
+ 
++/// The null pointer of the pointer type it is asked for.
++class NullPointerConstructor : public ConstValueConstructor {
++public:
++  llvm::Value *constructValue(llvm::Type *type) override;
++};
++
+ } // namespace irm
+\ No newline at end of file

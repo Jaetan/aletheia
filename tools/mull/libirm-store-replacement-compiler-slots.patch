@@ -1,0 +1,47 @@
+A store the compiler wrote is not a store the source wrote, and the
+constant-store replacements reported one against the source line it borrows:
+the landing pad's exception selector, stored at the declaration whose
+destructor the unwind runs, survived as six mutants of one line on the tree
+this was written against, each a mutation of the exception dispatch and not
+of the program. Two shapes are refused: a store of a value taken from a
+landingpad's result, and a store into a stack slot the debug information does
+not name, which under -g is a slot the compiler made for itself, a cleanup
+destination or a temporary, since every variable the source declares is named.
+--- a/lib/StoreValueReplacement.cpp
++++ b/lib/StoreValueReplacement.cpp
+@@ -15,6 +15,7 @@
+ //
+ 
+ #include "irm/Mutations/StoreValueReplacement.h"
++#include <llvm/IR/DebugInfo.h>
+ #include <llvm/IR/Instructions.h>
+ 
+ using namespace irm;
+@@ -31,7 +32,26 @@
+   }
+   assert(store->getValueOperand());
+   assert(store->getValueOperand()->getType());
+-  return store->getValueOperand()->getType()->getTypeID() == typeID;
++  if (store->getValueOperand()->getType()->getTypeID() != typeID) {
++    return false;
++  }
++  /// A store the compiler wrote is not a store the source wrote, and it is
++  /// reported against the source line it borrows.  Two shapes: the landing
++  /// pad's exception pointer and selector, taken from the landingpad's
++  /// result, and a stack slot the debug information does not name, which is
++  /// the compiler's own (a cleanup destination, a temporary), since -g names
++  /// every variable the source declares.
++  if (auto *extracted = llvm::dyn_cast<llvm::ExtractValueInst>(store->getValueOperand())) {
++    if (llvm::isa<llvm::LandingPadInst>(extracted->getAggregateOperand())) {
++      return false;
++    }
++  }
++  if (auto *slot = llvm::dyn_cast<llvm::AllocaInst>(store->getPointerOperand())) {
++    if (llvm::findDVRDeclares(slot).empty()) {
++      return false;
++    }
++  }
++  return true;
+ }
+ 
+ void StoreValueReplacement::mutate(llvm::Instruction *instruction) {

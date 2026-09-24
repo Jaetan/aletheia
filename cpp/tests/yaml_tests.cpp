@@ -17,6 +17,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <ios>
@@ -42,9 +43,8 @@ checks:
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    auto formula = (*result)[0].to_formula();
-    REQUIRE(formula.has_value());
-    CHECK(format_formula(*formula) == "always(VehicleSpeed <= 220)");
+    auto const formula = (*result)[0].to_formula();
+    CHECK(format_formula(formula) == "always(VehicleSpeed <= 220)");
 }
 
 TEST_CASE("yaml: never_below", "[yaml][simple]") {
@@ -56,9 +56,8 @@ checks:
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    auto formula = (*result)[0].to_formula();
-    REQUIRE(formula.has_value());
-    CHECK(format_formula(*formula) == "always(BatteryVoltage >= 11.5)");
+    auto const formula = (*result)[0].to_formula();
+    CHECK(format_formula(formula) == "always(BatteryVoltage >= 11.5)");
 }
 
 TEST_CASE("yaml: stays_between", "[yaml][simple]") {
@@ -71,9 +70,8 @@ checks:
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    auto formula = (*result)[0].to_formula();
-    REQUIRE(formula.has_value());
-    CHECK(format_formula(*formula) == "always(11.5 <= BatteryVoltage <= 14.5)");
+    auto const formula = (*result)[0].to_formula();
+    CHECK(format_formula(formula) == "always(11.5 <= BatteryVoltage <= 14.5)");
 }
 
 TEST_CASE("yaml: never_equals", "[yaml][simple]") {
@@ -85,9 +83,8 @@ checks:
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    auto formula = (*result)[0].to_formula();
-    REQUIRE(formula.has_value());
-    CHECK(format_formula(*formula) == "never ErrorCode = 99");
+    auto const formula = (*result)[0].to_formula();
+    CHECK(format_formula(formula) == "never ErrorCode = 99");
 }
 
 TEST_CASE("yaml: equals always", "[yaml][simple]") {
@@ -99,9 +96,8 @@ checks:
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    auto formula = (*result)[0].to_formula();
-    REQUIRE(formula.has_value());
-    CHECK(format_formula(*formula) == "always(ParkingBrake = 0)");
+    auto const formula = (*result)[0].to_formula();
+    CHECK(format_formula(formula) == "always(ParkingBrake = 0)");
 }
 
 TEST_CASE("yaml: settles_between", "[yaml][simple]") {
@@ -115,9 +111,8 @@ checks:
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    auto formula = (*result)[0].to_formula();
-    REQUIRE(formula.has_value());
-    CHECK(format_formula(*formula) == "always within 5s (85 <= CoolantTemp <= 95)");
+    auto const formula = (*result)[0].to_formula();
+    CHECK(format_formula(formula) == "always within 5s (85 <= CoolantTemp <= 95)");
 }
 
 // ===========================================================================
@@ -139,9 +134,8 @@ checks:
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    auto formula = (*result)[0].to_formula();
-    REQUIRE(formula.has_value());
-    CHECK(format_formula(*formula) ==
+    auto const formula = (*result)[0].to_formula();
+    CHECK(format_formula(formula) ==
           "always(not(BrakePedal > 50) or eventually within 100ms (BrakeLight = 1))");
 }
 
@@ -160,9 +154,8 @@ checks:
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    auto formula = (*result)[0].to_formula();
-    REQUIRE(formula.has_value());
-    CHECK(format_formula(*formula) ==
+    auto const formula = (*result)[0].to_formula();
+    CHECK(format_formula(formula) ==
           "always(not(GearSelector = 1) or eventually within 200ms (ReverseLight > 0))");
 }
 
@@ -182,9 +175,8 @@ checks:
 )");
     REQUIRE(result.has_value());
     REQUIRE(result->size() == 1);
-    auto formula = (*result)[0].to_formula();
-    REQUIRE(formula.has_value());
-    CHECK(format_formula(*formula) ==
+    auto const formula = (*result)[0].to_formula();
+    CHECK(format_formula(formula) ==
           "always(not(FuelLevel < 10) or eventually within 500ms (1 <= FuelWarning <= 1))");
 }
 
@@ -753,3 +745,74 @@ checks:
     aletheia::test::alloc_fault::expect_balanced([] { return load_checks_from_yaml_string(doc); });
 }
 #endif
+
+TEST_CASE("yaml: a field of the wrong node kind is refused by the kind it expected",
+          "[yaml][error]") {
+    struct Row {
+        std::string_view text;
+        std::string_view wording;
+    };
+    constexpr std::array rows = {
+        Row{.text = R"(
+checks:
+  - signal: [VehicleSpeed]
+    condition: never_exceeds
+    value: 220
+)",
+            .wording = "missing or invalid 'signal' (expected string)"},
+        Row{.text = R"(
+checks:
+  - signal: VehicleSpeed
+    condition: never_exceeds
+    value: [220]
+)",
+            .wording = "missing or invalid 'value' (expected number)"},
+        Row{.text = R"(
+checks:
+  - signal: Coolant
+    condition: settles_between
+    min: 85
+    max: 95
+    within_ms: [5000]
+)",
+            .wording = "missing or invalid 'within_ms' (expected integer)"},
+        Row{.text = R"(
+checks:
+  - when: 5
+    then:
+      signal: BrakeLight
+      condition: equals
+      value: 1
+    within_ms: 100
+)",
+            .wording = "missing or invalid 'when' (expected mapping)"},
+    };
+    for (auto const& row : rows) {
+        auto const result = load_checks_from_yaml_string(row.text);
+        REQUIRE_FALSE(result.has_value());
+        CHECK_THAT(std::string{result.error().message()},
+                   ContainsSubstring(std::string{row.wording}));
+    }
+}
+
+TEST_CASE("yaml: a name or severity that is not a scalar is read as absent", "[yaml][error]") {
+    auto const result = load_checks_from_yaml_string(R"(
+checks:
+  - name: [not, a, name]
+    severity: [not, a, level]
+    signal: VehicleSpeed
+    condition: never_exceeds
+    value: 220
+)");
+    REQUIRE(result.has_value());
+    REQUIRE(result->size() == 1);
+    CHECK((*result)[0].name().empty());
+    CHECK((*result)[0].check_severity().empty());
+    auto const malformed = load_checks_from_yaml_string(R"(
+checks:
+  - name: [not, a, name]
+    signal: VehicleSpeed
+)");
+    REQUIRE_FALSE(malformed.has_value());
+    CHECK_THAT(std::string{malformed.error().message()}, ContainsSubstring("Check '<unnamed>'"));
+}

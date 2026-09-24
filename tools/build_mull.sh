@@ -31,7 +31,21 @@
 # (tools/mull/mull-unique-mutant-ids.patch), where Mull named two mutations
 # of one statement, a temporary's destructor on the normal path and in the
 # exception-cleanup landing pad, or two instantiations of one template, by
-# one name and ran only the last it registered.
+# one name and ran only the last it registered.  Both call mutators reach a
+# call through a pointer, a virtual dispatch or a function pointer, which
+# libirm refused as indirect (tools/mull/libirm-call-replacement-indirect.patch
+# and libirm-void-call-indirect.patch, with their declarations in
+# libirm-call-replacement-header.patch and libirm-const-values-header.patch
+# and the null pointer in libirm-const-values.patch), and two replacements the
+# scalar one could not make have names of their own
+# (tools/mull/mull-call-replacement-kinds.patch): a bool-returning call
+# answered true, where the scalar constant truncates to false, and a
+# pointer-returning call answered null.  The constant-store replacements
+# leave alone a store the compiler wrote, the landing pad's selector or a
+# slot the debug information does not name
+# (tools/mull/libirm-store-replacement-compiler-slots.patch), and a store of
+# the literal true, which 42 leaves true in the byte a bool occupies
+# (tools/mull/mull-const-store-true-literal.patch).
 #
 # Needs clang-<version>, /usr/lib/llvm-<version> (the llvm-<version>-dev and
 # libclang-<version>-dev packages), git and curl.  bazelisk is fetched into the
@@ -68,6 +82,12 @@ git clone --quiet --depth 1 --branch "$mull_tag" --recursive \
 cp "$(dirname "$0")/mull/libirm-void-call-mutator.patch" "$src/"
 cp "$(dirname "$0")/mull/libirm-void-call-mutator-header.patch" "$src/"
 cp "$(dirname "$0")/mull/libirm-scalar-call-invoke.patch" "$src/"
+cp "$(dirname "$0")/mull/libirm-call-replacement-indirect.patch" "$src/"
+cp "$(dirname "$0")/mull/libirm-call-replacement-header.patch" "$src/"
+cp "$(dirname "$0")/mull/libirm-void-call-indirect.patch" "$src/"
+cp "$(dirname "$0")/mull/libirm-const-values.patch" "$src/"
+cp "$(dirname "$0")/mull/libirm-const-values-header.patch" "$src/"
+cp "$(dirname "$0")/mull/libirm-store-replacement-compiler-slots.patch" "$src/"
 git -C "$src" apply - <<'PATCH'
 diff --git a/MODULE.bazel b/MODULE.bazel
 index 2d6bf93..02e30f1 100644
@@ -123,7 +143,7 @@ index 004ef56..15137ef 100644
 diff --git a/mull_deps.bzl b/mull_deps.bzl
 --- a/mull_deps.bzl
 +++ b/mull_deps.bzl
-@@ -153,10 +153,20 @@ def _mull_deps_extension(module_ctx):
+@@ -153,10 +153,26 @@ def _mull_deps_extension(module_ctx):
                  )
                  http_archive(
                      name = irm_repo_name,
@@ -138,6 +158,12 @@ diff --git a/mull_deps.bzl b/mull_deps.bzl
 +                        "//:libirm-void-call-mutator.patch",
 +                        "//:libirm-void-call-mutator-header.patch",
 +                        "//:libirm-scalar-call-invoke.patch",
++                        "//:libirm-call-replacement-indirect.patch",
++                        "//:libirm-call-replacement-header.patch",
++                        "//:libirm-void-call-indirect.patch",
++                        "//:libirm-const-values.patch",
++                        "//:libirm-const-values-header.patch",
++                        "//:libirm-store-replacement-compiler-slots.patch",
 +                    ],
 +                    patch_args = ["-p1"],
 +                    patch_cmds = [
@@ -150,6 +176,8 @@ diff --git a/mull_deps.bzl b/mull_deps.bzl
 PATCH
 git -C "$src" apply "$(cd "$(dirname "$0")" && pwd)/mull/mull-unique-mutant-ids.patch"
 git -C "$src" apply "$(cd "$(dirname "$0")" && pwd)/mull/mull-implicit-destructor-mutator.patch"
+git -C "$src" apply "$(cd "$(dirname "$0")" && pwd)/mull/mull-call-replacement-kinds.patch"
+git -C "$src" apply "$(cd "$(dirname "$0")" && pwd)/mull/mull-const-store-true-literal.patch"
 (cd "$src" && "$bazel" build \
     "//rust/mull-tools:mull-runner-$llvm" \
     "//rust/mull-tools:mull-reporter-$llvm" \

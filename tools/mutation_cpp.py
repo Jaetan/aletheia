@@ -298,25 +298,35 @@ class CppTree(StrEnum):
     def dropped_mutators(self) -> tuple[str, ...]:
         """The mutators this tree cannot read, dropped from the configuration it builds under.
 
-        AddressSanitizer instruments the program by inserting its own calls,
-        each at the source location of the statement it guards, so a mutator
-        over calls mutates those checks rather than the program's own calls:
-        measured on this tree, 1185 mutants against the 1037 the other trees
-        carry, and 153 of them surviving, every one the removal of a check.
-        Without the call mutators the tree carries 310 mutants, the ones the
-        other trees carry under the same identifiers, none of them surviving,
-        and it keeps what it is for: 21 of the 29 kills it alone reads are a
-        flipped comparison that then reads memory the program does not own.
+        AddressSanitizer instruments the program by inserting its own calls
+        and stores, each at the source location of the statement it guards,
+        so a mutator over calls or over constant stores mutates those rather
+        than the program's own: measured with the call mutators on, the tree
+        carried more mutants than the other trees and every extra one
+        survived, each the removal of a check; with the constant-store
+        mutators on, it carried three identifiers the other trees do not,
+        two of them surviving, each a store the sanitizer wrote. Without
+        them the tree carries the mutants the other trees carry under the
+        same identifiers, and it keeps what it is for: a flipped comparison
+        that then reads memory the program does not own is what it alone
+        reads, 22 kills on the recorded sweep.
         """
-        return _CPP_CALL_MUTATORS if self is CppTree.ADDRESS else ()
+        return _CPP_CALL_MUTATORS + _CPP_STORE_MUTATORS if self is CppTree.ADDRESS else ()
 
 
 # Where each tree is configured. The names are the ones the documented recipes
 # and the build-tree ignore rules already carry, so a tree a reader configures
 # by hand is the tree the lane sweeps.
-# The two mutators over calls. Named here rather than inside the property that
-# drops them, so the set a tree cannot read is one list a reader can find.
-_CPP_CALL_MUTATORS: tuple[str, ...] = ("cxx_remove_void_call", "cxx_replace_scalar_call")
+# The mutators over calls, and the two over constant stores. Named here rather
+# than inside the property that drops them, so the set a tree cannot read is
+# one list a reader can find.
+_CPP_CALL_MUTATORS: tuple[str, ...] = (
+    "cxx_remove_void_call",
+    "cxx_replace_scalar_call",
+    "cxx_replace_bool_call_true",
+    "cxx_replace_pointer_call_null",
+)
+_CPP_STORE_MUTATORS: tuple[str, ...] = ("cxx_const_assignment",)
 
 _CPP_TREE_DIRECTORIES: dict[CppTree, str] = {
     CppTree.LEAK: "build-mutation",

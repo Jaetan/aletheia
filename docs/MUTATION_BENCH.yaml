@@ -151,14 +151,16 @@ bindings:
       # crash on: a kill is a test failing, a panic the test reported
       # included. Two mutators reach one operator at one site, negating it
       # and moving its boundary, and the two are told apart by the same
-      # input a test uses to tell the original from either.
+      # input a test uses to tell the original from either. The eleven
+      # mutators are the five gremlins turns on by default and the six
+      # go/.gremlins.yaml turns on, which gremlins ships off.
       survivors: 0
-      generated: 651
-      not_covered: 32
+      generated: 762
+      not_covered: 39
       timeouts: 2
-      total_mutants: 617
+      total_mutants: 721
       score_pct: 100
-      run_at: "2026-09-19"
+      run_at: "2026-09-24"
       # The lane refuses a sweep with more than this many timed out, because a
       # mutant that times out is neither killed nor lived and a sweep that
       # timed out on nearly all of them reports no survivors and full efficacy.
@@ -270,17 +272,23 @@ bindings:
       # anything it drops is seen. A mutant is a survivor only where both
       # lanes let it survive.
       #
-      # What the survivors are, each a row of the ledger below: none. Every
-      # call the source writes is either killed or gone: the named-call
-      # mutators reach a call that can throw, the capacity hints and the ack
-      # fast path are held by allocation counts, the loaders' guards by a
-      # document missing each key, the event timestamps and bus bits by a
-      # kernel stand-in that quotes what it was handed, the loaders' cleanup
-      # paths by allocation-fault sweeps that fail only the project's own
-      # allocations, and a temporary the code made for nothing is gone with
-      # its destructor. The destructors the compiler emits for the temporaries
-      # the language mandates are a mutator the swept set leaves out, for the
-      # reason cpp/mull.yml gives.
+      # What the survivors are, each a row of the ledger below, in the three
+      # classes the ledger's own comments name: a refusal of an input no call
+      # can build, an out-parameter its callee writes, and the state a process
+      # holds once, whose guards the fresh-process binaries exercise. Every other guard the widened mutator set reached has a test
+      # feeding the input that fires it, or went with the redundancy it
+      # guarded: the logger's own gate, one table lookup per loader word, one
+      # symbol loop in the renderer, the factories' own refusals.
+      # Every call the source writes under the older mutators is killed: the
+      # named-call mutators reach a call that can throw, the capacity hints
+      # and the ack fast path are held by allocation counts, the loaders'
+      # guards by a document missing each key, the event timestamps and bus
+      # bits by a kernel stand-in that quotes what it was handed, the
+      # loaders' cleanup paths by allocation-fault sweeps that fail only the
+      # project's own allocations, and a temporary the code made for nothing
+      # is gone with its destructor. The destructors the compiler emits for
+      # the temporaries the language mandates are a mutator the swept set
+      # leaves out, for the reason cpp/mull.yml gives.
       #
       # A timeout is a kill by another route: the runner counts it against
       # the total, not as a survivor. The cap per mutant is ten minutes, set
@@ -331,23 +339,24 @@ bindings:
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
-      survivors: 0
-      total_mutants: 1044
+      survivors: 8
+      total_mutants: 1476
       # What each tree carries, which is not one number: the address tree drops
-      # the two mutators over calls, since a sanitizer inserts its own checks at
+      # the mutators over calls, since a sanitizer inserts its own checks at
       # the source location of the statement they guard and a mutator over calls
       # mutates those rather than the program's own. Each tree is held to its own
       # figure, and the merge judges a mutant only over the trees carrying it.
       mutants_by_tree:
-        leak: 1044
-        plain: 1044
-        address: 312
+        leak: 1476
+        plain: 1476
+        address: 337
       # Mutants per file, which is what the sweep's slices are cut on: a CI
       # leg builds one slice of the surface, and a slice is a set of files
       # whose recorded counts add up to about a third of this total. The
       # counts stand for the sweep's cost because the cost of a mutant hardly
-      # varies, 4.6 seconds over the recorded run, and the files that depart
-      # from that are the ones carrying a handful.
+      # varies, 5.6 seconds on the plain tree and 3.3 on the leak tree over
+      # the recorded run, and the files that depart from that are the ones
+      # carrying a handful.
       #
       # They are a measurement and they age in one direction: adding code adds
       # mutants, nothing refuses that, and the slices drift out of balance
@@ -361,44 +370,90 @@ bindings:
       mutants_by_file:
         cpp/benchmarks/measure.hpp: 7
         cpp/include/aletheia/backend.hpp: 2
-        cpp/include/aletheia/check.hpp: 14
-        cpp/include/aletheia/client.hpp: 2
-        cpp/include/aletheia/detail/cache_keys.hpp: 11
+        cpp/include/aletheia/check.hpp: 16
+        cpp/include/aletheia/client.hpp: 3
+        cpp/include/aletheia/detail/cache_keys.hpp: 16
         cpp/include/aletheia/detail/rational_renderer.hpp: 2
-        cpp/include/aletheia/log.hpp: 10
-        cpp/include/aletheia/ltl.hpp: 1
-        cpp/include/aletheia/response.hpp: 5
-        cpp/include/aletheia/types.hpp: 57
-        cpp/src/backend.cpp: 16
-        cpp/src/client.cpp: 280
-        cpp/src/dbc.cpp: 32
-        cpp/src/detail/ffi_logic.cpp: 14
-        cpp/src/detail/loader_utils.cpp: 74
-        cpp/src/detail/loader_utils.hpp: 23
-        cpp/src/enrich.cpp: 9
-        cpp/src/excel.cpp: 123
-        cpp/src/ffi_backend.cpp: 57
-        cpp/src/json_parse.cpp: 196
-        cpp/src/json_serialize.cpp: 40
-        cpp/src/rational_renderer.cpp: 20
-        cpp/src/yaml.cpp: 49
+        cpp/include/aletheia/log.hpp: 17
+        cpp/include/aletheia/ltl.hpp: 2
+        cpp/include/aletheia/response.hpp: 9
+        cpp/include/aletheia/types.hpp: 41
+        cpp/src/backend.cpp: 18
+        cpp/src/client.cpp: 356
+        cpp/src/dbc.cpp: 49
+        cpp/src/detail/ffi_logic.cpp: 18
+        cpp/src/detail/loader_utils.cpp: 101
+        cpp/src/detail/loader_utils.hpp: 31
+        cpp/src/enrich.cpp: 12
+        cpp/src/excel.cpp: 185
+        cpp/src/ffi_backend.cpp: 105
+        cpp/src/json_parse.cpp: 313
+        cpp/src/json_serialize.cpp: 48
+        cpp/src/rational_renderer.cpp: 35
+        cpp/src/yaml.cpp: 90
       timeouts: 0
-      score_pct: 100
-      run_at: "2026-09-23"
+      score_pct: 99.5
+      run_at: "2026-09-24"
       kill_routes:
-        test: 945
-        leak: 0
+        test: 1296
+        leak: 3
         address: 22
         kernel: 2
-        check: 70
-        fault: 5
+        check: 122
+        fault: 23
         timeout: 0
+        survived: 8
       # Every survivor, by mutator, repository-relative file, the text of its
       # source line and how many mutants share that line. The lane refuses a
       # survivor not named here even at an unchanged count, and reports a row
       # that no longer survives as stale; the change that kills or removes one
       # deletes its row here.
-      survivors_ledger: []
+      survivors_ledger:
+        # refusal of an input no call can build, 3 mutants:
+        # SignalInjection::create refuses arrays of unequal length and a count
+        # past the wire's 32 bits; injection() hands it three arrays of one
+        # resolution, whose count the message bound keeps under a thousand.
+        # The guard stands for a direct caller of the factory, which the tests
+        # reach through it; behind injection() nothing can fire it.
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (!block)
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (!inj)
+          count: 2
+        # out-parameter the callee writes, 2 mutants: A start value the callee
+        # overwrites on success and nothing reads on failure: from_chars
+        # writes its result, the kernel its output size. The alternative is an
+        # object left indeterminate, which the guidelines refuse.
+        - mutator: cxx_init_const
+          file: cpp/src/excel.cpp
+          text: std::uint32_t result = 0;
+          count: 1
+        - mutator: cxx_init_const
+          file: cpp/src/ffi_backend.cpp
+          text: std::uint32_t out_size = 0;
+          count: 1
+        # state a process holds once, 3 mutants: The runtime initialises once
+        # per process and the renderer loads once, so the guard on the first
+        # load, the guard on an uninitialised runtime and the environment
+        # override read at that load are exercised by the binaries of their
+        # own that start a fresh process (rts_params_tests,
+        # rts_init_renderer_uninitialized_tests), which the mutation binary
+        # cannot fold in.
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/rational_renderer.cpp
+          text: if (!loaded) {
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/rational_renderer.cpp
+          text: if (!rts_initialized())
+          count: 1
+        - mutator: cxx_replace_pointer_call_null
+          file: cpp/src/ffi_backend.cpp
+          text: const char* override_env = std::getenv(std::string{detail::rts_override_env}.c_str());
+          count: 1
       # Every kill no test observes by behaviour, by mutator, repository-relative
       # file, the text of its source line, the route it took and what refused
       # it: the invariant of the standard library's check, or the class the
@@ -440,6 +495,18 @@ bindings:
       # each of the nine invariants the rows name is present in the headers of
       # both versions.
       unobserved_ledger:
+        - mutator: cxx_add_assign_to_sub_assign
+          file: cpp/src/client.cpp
+          text: off += (std::size_t{nerrs} * k_error_record_bytes) +
+          route: check
+          refused: __offset <= size()
+          count: 1
+        - mutator: cxx_add_assign_to_sub_assign
+          file: cpp/src/client.cpp
+          text: off += std::size_t{nvals} * k_value_record_bytes;
+          route: check
+          refused: __offset <= size()
+          count: 1
         - mutator: cxx_add_to_sub
           file: cpp/src/client.cpp
           text: ((std::size_t{nerrs} + 1) * k_offset_bytes) + std::size_t{reason_bytes};
@@ -488,6 +555,18 @@ bindings:
           route: check
           refused: attempt to subscript container with out-of-bounds index
           count: 3
+        - mutator: cxx_init_const
+          file: cpp/src/client.cpp
+          text: auto off = k_header_bytes;
+          route: check
+          refused: __offset <= size()
+          count: 1
+        - mutator: cxx_init_const
+          file: cpp/src/ffi_backend.cpp
+          text: auto argc = static_cast<int>(rts_argv_ptrs.size());
+          route: fault
+          refused: ''
+          count: 1
         - mutator: cxx_lt_to_le
           file: cpp/src/client.cpp
           text: 'return idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};'
@@ -542,6 +621,12 @@ bindings:
           route: address
           refused: SEGV
           count: 1
+        - mutator: cxx_remove_negation
+          file: cpp/src/client.cpp
+          text: while (!bytes.empty()) {
+          route: check
+          refused: '!empty()'
+          count: 1
         - mutator: cxx_remove_void_call
           file: cpp/src/excel.cpp
           text: doc.create(path.string(), OpenXLSX::XLForceOverwrite);
@@ -555,11 +640,263 @@ bindings:
           refused: ''
           count: 2
         - mutator: cxx_remove_void_call
+          file: cpp/src/ffi_backend.cpp
+          text: auto const deleter = [this](char* p) { free_str_fn_(p); };
+          route: leak
+          refused: ''
+          count: 1
+        - mutator: cxx_remove_void_call
+          file: cpp/src/ffi_backend.cpp
+          text: hs_init(&argc, &argv);
+          route: fault
+          refused: ''
+          count: 1
+        - mutator: cxx_remove_void_call
+          file: cpp/src/rational_renderer.cpp
+          text: auto const deleter = [&s](char* p) { s.free_fn(p); };
+          route: leak
+          refused: ''
+          count: 2
+        - mutator: cxx_remove_void_call
           file: cpp/src/rational_renderer.cpp
           text: ensure_loaded();
           route: fault
           refused: ''
           count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/include/aletheia/ltl.hpp
+          text: 'return p ? std::make_unique<LtlFormula>(clone(*p)) : nullptr;'
+          route: check
+          refused: get() != pointer()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/backend.cpp
+          text: if (auto refusal = detail::wire_count_refusal(indices.size()))
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (!bin_result) {
+          route: check
+          refused: _M_has_value
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (!errors)
+          route: check
+          refused: _M_has_value
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (!extraction.has_value())
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (!extraction.has_value()) {
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (!lead)
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (!r.has_value()) {
+          route: check
+          refused: _M_has_value
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (!rat_or_err)
+          route: check
+          refused: _M_has_value
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (!resolved) {
+          route: check
+          refused: _M_has_value
+          count: 2
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (!result.has_value())
+          route: check
+          refused: _M_has_value
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (!result.has_value()) {
+          route: check
+          refused: _M_has_value
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (!sv)
+          route: check
+          refused: _M_has_value
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (auto rts = backend_->rts_mismatch_info(); rts) {
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (buf)
+          route: check
+          refused: _M_has_value
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (buf) {
+          route: check
+          refused: _M_has_value
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/client.cpp
+          text: if (result.has_value()) {
+          route: check
+          refused: _M_has_value
+          count: 3
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/dbc.cpp
+          text: if (!idx || *idx >= items.size() || !matches(items[*idx]))
+          route: check
+          refused: this->_M_is_engaged()
+          count: 3
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/detail/loader_utils.cpp
+          text: if (!eocd)
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/detail/loader_utils.cpp
+          text: if (!total)
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/excel.cpp
+          text: if (!slots)
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/excel.cpp
+          text: if (s.starts_with('-'))
+          route: check
+          refused: this->_M_len >= __n
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/ffi_backend.cpp
+          text: if (!b.has_value())
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/ffi_backend.cpp
+          text: if (auto err = detail::ffi_error_from_status(status, err_str, free_str_fn_))
+          route: check
+          refused: this->_M_is_engaged()
+          count: 3
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/ffi_backend.cpp
+          text: if (auto err = payload_bound_error(data))
+          route: check
+          refused: this->_M_is_engaged()
+          count: 4
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/ffi_backend.cpp
+          text: if (auto refusal = detail::json_input_bound_error(input.size()))
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/ffi_backend.cpp
+          text: if (opened == nullptr)
+          route: fault
+          refused: ''
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/ffi_backend.cpp
+          text: '} else if (auto mismatch = detail::rts_cores_mismatch(rts_cores, rts.cores)) {'
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/json_parse.cpp
+          text: if (!bo)
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/json_parse.cpp
+          text: if (!dlc_result)
+          route: check
+          refused: _M_has_value
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/json_parse.cpp
+          text: if (!entry)
+          route: check
+          refused: _M_has_value
+          count: 4
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/json_parse.cpp
+          text: if (!result)
+          route: check
+          refused: _M_has_value
+          count: 2
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/json_parse.cpp
+          text: if (!severity)
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/json_parse.cpp
+          text: if (!verdict)
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/json_parse.cpp
+          text: if (auto scope = lookup(attr_scope_table, s))
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/rational_renderer.cpp
+          text: if (!sym)
+          route: check
+          refused: _M_has_value
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/rational_renderer.cpp
+          text: if (opened == nullptr)
+          route: fault
+          refused: ''
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/yaml.cpp
+          text: if (!slots)
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_pointer_call_null
+          file: cpp/src/ffi_backend.cpp
+          text: auto* sym = dlsym(handle, name);
+          route: fault
+          refused: ''
+          count: 14
         - mutator: cxx_replace_scalar_call
           file: cpp/include/aletheia/ltl.hpp
           text: 'return p ? std::make_unique<LtlFormula>(clone(*p)) : nullptr;'
@@ -620,6 +957,12 @@ bindings:
           route: check
           refused: '!_M_has_value'
           count: 2
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/client.cpp
+          text: if (!result.has_value()) {
+          route: check
+          refused: '!_M_has_value'
+          count: 1
         - mutator: cxx_replace_scalar_call
           file: cpp/src/client.cpp
           text: if (!sv)
@@ -796,25 +1139,13 @@ bindings:
           count: 2
         - mutator: cxx_replace_scalar_call
           file: cpp/src/rational_renderer.cpp
-          text: if (!fmt_sym)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/rational_renderer.cpp
-          text: if (!free_sym)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/rational_renderer.cpp
           text: if (!loaded) {
           route: check
           refused: '!_M_has_value'
           count: 1
         - mutator: cxx_replace_scalar_call
           file: cpp/src/rational_renderer.cpp
-          text: if (!parse_decimal_sym)
+          text: if (!sym)
           route: check
           refused: '!_M_has_value'
           count: 1
@@ -841,12 +1172,6 @@ bindings:
           text: if (auto v = detail::validate_loader_path(path, "YAML"); !v)
           route: check
           refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_sub_to_add
-          file: cpp/include/aletheia/types.hpp
-          text: return *Dlc::create(static_cast<std::uint8_t>(found - detail::k_dlc_bytes.begin()));
-          route: check
-          refused: _M_has_value
           count: 1
         - mutator: cxx_sub_to_add
           file: cpp/src/client.cpp

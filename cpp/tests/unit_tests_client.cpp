@@ -1184,3 +1184,56 @@ TEST_CASE("hash_combine mixes the seed and the hash through every term", "[clien
     CHECK(detail::hash_combine(4, 7) == 0x9e377ac5U);
     CHECK(detail::hash_combine(0x1234, 0xabcd) == 0x9e3ca527U);
 }
+
+// ---------------------------------------------------------------------------
+// The guards a client keeps around its backend, each fed the one answer that
+// fires it.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A backend whose init answers no state at all.
+class NullStateBackend : public MockBackend {
+public:
+    auto init() -> BackendState override { return BackendState{*this, nullptr}; }
+};
+
+} // namespace
+
+TEST_CASE("a client refuses a backend whose init returns no state, by name", "[client][mock]") {
+    REQUIRE_THROWS_WITH(AletheiaClient(std::make_unique<NullStateBackend>()),
+                        ContainsSubstring("returned null state"));
+}
+
+TEST_CASE("set_properties answers the backend's error and stops there", "[client][mock]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(
+        R"({"status": "error", "code": "handler_validation_failed", "message": "bad"})");
+    AletheiaClient client(std::move(mock));
+    auto const result = client.set_properties(std::stop_token{}, std::span<const LtlFormula>{});
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().message() == "bad");
+}
+
+TEST_CASE("a stream that fails to start or end logs neither event", "[client][mock][log]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(
+        R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
+    mock->queue_response(
+        R"({"status": "error", "code": "handler_validation_failed", "message": "no"})");
+    std::vector<std::string> events;
+    const Logger logger([&](const LogRecord& r) { events.emplace_back(r.event); });
+    AletheiaClient client(std::move(mock), logger);
+    CHECK_FALSE(client.start_stream(std::stop_token{}).has_value());
+    CHECK_FALSE(client.end_stream(std::stop_token{}).has_value());
+    CHECK(
+        std::ranges::none_of(events, [](std::string_view e) { return e.starts_with("stream."); }));
+}
+
+TEST_CASE("an extraction has errors exactly when its error list is not empty", "[client]") {
+    const ExtractionResult none;
+    CHECK_FALSE(none.has_errors());
+    ExtractionResult some;
+    some.errors.push_back(SignalError{.name = SignalName{"S"}, .reason = "r"});
+    CHECK(some.has_errors());
+}

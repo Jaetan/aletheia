@@ -10,6 +10,7 @@
 #include <OpenXLSX.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <charconv>
 #include <chrono>
@@ -461,12 +462,13 @@ static auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
     auto const ctx_str = row_ctx(row_num);
 
     auto const byte_order_str = get_str(cells, "Byte Order", ctx_str);
-    ByteOrder byte_order{};
-    if (byte_order_str == "little_endian")
-        byte_order = ByteOrder::LittleEndian;
-    else if (byte_order_str == "big_endian")
-        byte_order = ByteOrder::BigEndian;
-    else
+    constexpr auto byte_orders = std::to_array<std::pair<std::string_view, ByteOrder>>({
+        {"little_endian", ByteOrder::LittleEndian},
+        {"big_endian", ByteOrder::BigEndian},
+    });
+    auto const* const byte_order =
+        std::ranges::find(byte_orders, byte_order_str, [](auto const& row) { return row.first; });
+    if (byte_order == byte_orders.end())
         throw std::runtime_error(ctx_str +
                                  ": 'Byte Order' must be 'little_endian' or 'big_endian'");
 
@@ -503,7 +505,7 @@ static auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
         .name = SignalName{get_str(cells, "Signal", ctx_str)},
         .start_bit = BitPosition{start_bit_val},
         .bit_length = BitLength{bit_length_val},
-        .byte_order = byte_order,
+        .byte_order = byte_order->second,
         .is_signed = get_bool(cells, "Signed", ctx_str),
         .factor = RationalFactor{get_decimal(cells, "Factor", ctx_str)},
         .offset = RationalOffset{get_decimal(cells, "Offset", ctx_str)},
@@ -648,6 +650,11 @@ static auto build_message_from_group(const MessageKeyExt& key,
         return parse_dbc_signal(data_rows[idx].cells, data_rows[idx].number);
     });
     auto [msg_id, msg_name, dlc, extended] = key;
+    // A standard id is created from the 16 bits it fits in; a wider value is
+    // refused here rather than truncated into the factory's range.
+    if (!extended && !std::in_range<std::uint16_t>(msg_id))
+        return std::unexpected(
+            AletheiaError{ErrorKind::Validation, "Invalid CAN ID: " + std::to_string(msg_id)});
     auto can_id_result =
         extended
             ? ExtendedId::create(msg_id).transform([](auto eid) -> CanId { return CanId{eid}; })
@@ -656,14 +663,18 @@ static auto build_message_from_group(const MessageKeyExt& key,
     if (!can_id_result.has_value())
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "Invalid CAN ID: " + std::to_string(msg_id)});
-    if (dlc < 0 || dlc > 15)
+    // The DLC factory refuses past 15; a value its byte cannot hold is refused
+    // here rather than truncated into its range, with the same wording.
+    auto const dlc_refused = [&] {
         return std::unexpected(AletheiaError{
             ErrorKind::Validation, row_ctx(data_rows[indices[0]].number) +
                                        ": DLC out of range [0, 15]: " + std::to_string(dlc)});
+    };
+    if (!std::in_range<std::uint8_t>(dlc))
+        return dlc_refused();
     auto dlc_result = Dlc::create(static_cast<std::uint8_t>(dlc));
     if (!dlc_result.has_value())
-        return std::unexpected(
-            AletheiaError{ErrorKind::Validation, "Invalid DLC: " + std::to_string(dlc)});
+        return dlc_refused();
     return DbcMessage{
         .id = can_id_result.value(),
         .name = MessageName{msg_name},

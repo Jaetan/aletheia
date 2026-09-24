@@ -48,9 +48,7 @@ TEST_CASE("dispatch_then reads the slot its word names", "[loader_utils]") {
     auto const nine = PhysicalValue{Rational{9, 1}};
 
     auto const rendered = [](aletheia::CheckResult const& result) {
-        auto const formula = result.to_formula();
-        REQUIRE(formula);
-        return aletheia::format_formula(*formula);
+        return aletheia::format_formula(result.to_formula());
     };
     CHECK(
         rendered(aletheia::detail::dispatch_then(builder, "equals", {{"value", five}}, k_within)) ==
@@ -338,4 +336,34 @@ TEST_CASE("the archive walker admits an uncompressed total at the cap", "[loader
     z.eocd(1, cd_size, 0);
     z.write(f.path);
     CHECK(check_xlsx_uncompressed_bound(f.path).has_value());
+}
+
+TEST_CASE("a directory is refused as a loader path, and a file as an output parent, by name",
+          "[loader][path]") {
+    auto const loader = validate_loader_path(std::filesystem::temp_directory_path(), "YAML");
+    REQUIRE_FALSE(loader.has_value());
+    CHECK_THAT(std::string{loader.error().message()}, ContainsSubstring("not a regular file"));
+    const TempPath file("loader_parent_is_a_file.txt", "x");
+    auto const parent = validate_output_parent_dir(file.path / "out.xlsx");
+    REQUIRE_FALSE(parent.has_value());
+    CHECK_THAT(std::string{parent.error().message()},
+               ContainsSubstring("Parent path is not a directory"));
+}
+
+TEST_CASE("the archive walker steps over a name longer than a byte holds", "[loader][zip]") {
+    // A name length past 255 sets the high byte of its 16-bit field, which a
+    // reader assembling the field from the low byte alone would misplace the
+    // entry after it by.
+    TempPath f("loader_long_name.xlsx");
+    ZipImage z;
+    constexpr auto half = static_cast<std::uint32_t>(max_dbc_text_bytes / 2);
+    z.cd_entry(half + 1, 300, 0, 0);
+    z.cd_entry(half, 0, 0, 0);
+    auto const cd_size = static_cast<std::uint32_t>(z.bytes.size());
+    z.eocd(2, cd_size, 0);
+    z.write(f.path);
+    auto const r = check_xlsx_uncompressed_bound(f.path);
+    REQUIRE_FALSE(r.has_value());
+    REQUIRE(r.error().bound_info().has_value());
+    CHECK(r.error().bound_info()->observed == (std::uint64_t{half} * 2) + 1);
 }

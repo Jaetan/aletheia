@@ -124,11 +124,21 @@ jobs:
           # first that swept them: 15.1, 11.0 and 14.5 minutes of wall, against
           # leak's 18.1, 14.3 and 24.1 and plain's 28.3, 28.2 and 33.6.  The
           # address tree is the cheapest of the three, carrying 310 mutants
-          # against the others' 1037, where the local ratio this figure was
-          # first taken from said it would be the dearest: that ratio scaled the
-          # sweep, and a leg's wall is mostly the setup and the tree build,
-          # which every tree pays alike.  Slowest leg 15.1 plus the 33.3 cold
-          # allowance is 48.4, rounded up to 50.
+          # against the others' 1037 on that run, where the local ratio this
+          # figure was first taken from said it would be the dearest: that
+          # ratio scaled the sweep, and a leg's wall is mostly the setup and
+          # the tree build, which every tree pays alike.  Slowest leg 15.1
+          # plus the 33.3 cold allowance is 48.4, rounded up to 50.
+          # The surface then grew, from 1037 mutants to 1476 on the leak and
+          # plain trees and from 310 to 337 on the address tree, when the
+          # mutator set widened (cpp/mull.yml), and no run of the new surface
+          # is recorded yet: the C++ budgets below are the recorded legs with
+          # their sweep part scaled by that growth, 1.42 and 1.09, pending the
+          # first run's own figure.  Leak: the slowest leg's 19.1 less its
+          # 11.1 of sweep, plus 17.8 times 1.42, plus 33.3, is 66.6.  Plain:
+          # 23.9 less 15.2, plus 26.8 times 1.42, plus 33.3, is 80.1.
+          # Address: 15.1, whose sweep part is unrecorded, times 1.09, plus
+          # 33.3, is 49.8.  Each rounded up.
           # Each budget is the slowest run recorded, so a faster one leaves it
           # where it is.  A budget is a measurement of the
           # surface it was read from: it is re-taken when the mutation surface
@@ -154,7 +164,7 @@ jobs:
             binding: cpp
             stage: leak
             slice: '1'
-            timeout: 60
+            timeout: 70
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -162,7 +172,7 @@ jobs:
             binding: cpp
             stage: leak
             slice: '2'
-            timeout: 60
+            timeout: 70
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -170,7 +180,7 @@ jobs:
             binding: cpp
             stage: leak
             slice: '3'
-            timeout: 60
+            timeout: 70
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -178,7 +188,7 @@ jobs:
             binding: cpp
             stage: plain
             slice: '1'
-            timeout: 70
+            timeout: 85
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -186,7 +196,7 @@ jobs:
             binding: cpp
             stage: plain
             slice: '2'
-            timeout: 70
+            timeout: 85
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
@@ -194,7 +204,7 @@ jobs:
             binding: cpp
             stage: plain
             slice: '3'
-            timeout: 70
+            timeout: 85
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''

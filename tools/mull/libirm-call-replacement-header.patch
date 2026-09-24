@@ -1,0 +1,58 @@
+The class declarations for tools/mull/libirm-call-replacement-indirect.patch:
+the width bounds on an integer return, a replacement of a bool-returning call
+by a value of its own (the integer replacement's constant truncates to false on
+one bit, so true needs a mutation of its own), and a replacement of a
+pointer-returning call by the null pointer of its type where null is an answer
+the caller reads.
+--- a/include/irm/Mutations/CallReplacement.h
++++ b/include/irm/Mutations/CallReplacement.h
+@@ -25,13 +25,23 @@
+ 
+ class CallReplacement : public IRMutation {
+ public:
+-  CallReplacement(ConstValueConstructor *constConstructor, llvm::Type::TypeID returnTypeId);
++  /// The widths bound an integer return alone: a minimum of zero and a maximum
++  /// of zero take every width.
++  /// With onlyWhereNullIsRead, a call is taken only where null is an answer
++  /// the caller reads: the call is through a function pointer, or its result
++  /// reaches a comparison with null in the calling function.
++  CallReplacement(ConstValueConstructor *constConstructor, llvm::Type::TypeID returnTypeId,
++                  unsigned minBitWidth = 0, unsigned maxBitWidth = 0,
++                  bool onlyWhereNullIsRead = false);
+   bool canMutate(llvm::Instruction *instruction) override;
+   void mutate(llvm::Instruction *instruction) override;
+ 
+ private:
+   std::unique_ptr<ConstValueConstructor> constConstructor;
+   llvm::Type::TypeID returnTypeId;
++  unsigned minBitWidth;
++  unsigned maxBitWidth;
++  bool onlyWhereNullIsRead;
+ };
+ 
+ class IntCallReplacement : public CallReplacement {
+@@ -52,4 +62,24 @@
+       : CallReplacement(new FloatingValueConstructor(value), llvm::Type::DoubleTyID) {}
+ };
+ 
++/// A call returning one bit, which is a bool: the integer replacement's
++/// constant truncates to false on it, so the other answer needs a replacement
++/// of its own.
++class BoolCallReplacement : public CallReplacement {
++public:
++  explicit BoolCallReplacement(bool value)
++      : CallReplacement(new IntValueConstructor(value ? 1 : 0), llvm::Type::IntegerTyID, 1, 1) {}
++};
++
++/// A call returning a pointer, replaced by the null pointer of its type where
++/// null is an answer the caller reads.  A call whose result is never compared
++/// with null, a string's data or an exception's message, does not answer null,
++/// and replacing it would measure the language's undefined behaviour rather
++/// than the program.
++class PointerCallReplacement : public CallReplacement {
++public:
++  PointerCallReplacement()
++      : CallReplacement(new NullPointerConstructor(), llvm::Type::PointerTyID, 0, 0, true) {}
++};
++
+ } // namespace irm

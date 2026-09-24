@@ -15,6 +15,7 @@
 #include <aletheia/error.hpp>
 #include <aletheia/types.hpp>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -125,61 +126,80 @@ inline constexpr std::string_view k_drops_below = "drops_below";
 // ---------------------------------------------------------------------------
 
 /// Apply a simple single-signal, single-value condition (never_exceeds/below/equals).
+// Each dispatcher is a table from the word to the builder it names, read by
+// one lookup, so the one refusal each carries is the refusal of a word the
+// table does not hold, and no arm is the "else" of the arms before it.
+template<typename Table>
+[[nodiscard]] auto arm_for(const Table& table, std::string_view condition, std::string_view kind) {
+    auto const found =
+        std::ranges::find(table, condition, [](auto const& arm) { return arm.first; });
+    if (found == table.end())
+        throw std::runtime_error("Unknown " + std::string{kind} +
+                                 " condition: " + std::string{condition});
+    return found->second;
+}
+
+using SimpleArm = CheckResult (*)(std::string_view, PhysicalValue);
+inline constexpr std::array<std::pair<std::string_view, SimpleArm>, 3> k_simple_arms{{
+    {k_never_exceeds,
+     [](std::string_view s, PhysicalValue v) {
+         return check::signal(std::string{s}).never_exceeds(v);
+     }},
+    {k_never_below, [](std::string_view s,
+                       PhysicalValue v) { return check::signal(std::string{s}).never_below(v); }},
+    {k_never_equals, [](std::string_view s,
+                        PhysicalValue v) { return check::signal(std::string{s}).never_equals(v); }},
+}};
+
 [[nodiscard]] inline auto dispatch_simple(std::string_view signal, std::string_view condition,
                                           PhysicalValue value) -> CheckResult {
-    if (condition == k_never_exceeds)
-        return check::signal(std::string{signal}).never_exceeds(value);
-    if (condition == k_never_below)
-        return check::signal(std::string{signal}).never_below(value);
-    if (condition == k_never_equals)
-        return check::signal(std::string{signal}).never_equals(value);
-    // The caller holds the word to the vocabulary first, so this is the path a
-    // word added to the vocabulary and to no builder takes. It is a runtime_error
-    // because that is what both loaders catch and turn into a typed refusal; a
-    // logic_error would escape them and end the process.
-    throw std::runtime_error("Unknown simple condition: " + std::string{condition});
+    return arm_for(k_simple_arms, condition, "simple")(signal, value);
 }
 
-/// Apply a when-condition to a WhenSignal builder.
+using WhenArm = WhenCondition (*)(WhenSignal const&, PhysicalValue);
+inline constexpr std::array<std::pair<std::string_view, WhenArm>, 3> k_when_arms{{
+    {k_exceeds, [](WhenSignal const& b, PhysicalValue v) { return b.exceeds(v); }},
+    {k_equals, [](WhenSignal const& b, PhysicalValue v) { return b.equals(v); }},
+    {k_drops_below, [](WhenSignal const& b, PhysicalValue v) { return b.drops_below(v); }},
+}};
+
 [[nodiscard]] inline auto dispatch_when(WhenSignal const& builder, std::string_view condition,
                                         PhysicalValue value) -> WhenCondition {
-    if (condition == k_exceeds)
-        return builder.exceeds(value);
-    if (condition == k_equals)
-        return builder.equals(value);
-    if (condition == k_drops_below)
-        return builder.drops_below(value);
-    throw std::runtime_error("Unknown when condition: " + std::string{condition});
+    return arm_for(k_when_arms, condition, "when")(builder, value);
 }
 
-/// The values a loader read for an obligation, keyed by the slot each fills:
-/// `value` for the one-value obligations, `lo` and `hi` for the range.
 using ThenSlotValues = std::map<std::string_view, PhysicalValue>;
 
-/// Build the obligation a word names, from the slots the table says it reads.
-/// The loader hands over the slots its obligation reads and no others, so
-/// there is no filler for a slot nobody looks at: a slot this reads and the
-/// loader did not pass is refused by name rather than read as zero. A word
-/// outside the table is refused here rather than built as whichever branch
-/// came last, which is what both loaders used to do.
+// The slot a then arm reads, or the refusal of one the loader did not pass.
+[[nodiscard]] inline auto then_slot(const ThenSlotValues& slots, std::string_view condition,
+                                    std::string_view name) -> PhysicalValue {
+    auto const found = slots.find(name);
+    if (found == slots.end())
+        throw std::runtime_error("then condition '" + std::string{condition} + "' reads slot '" +
+                                 std::string{name} + "', which the loader did not pass");
+    return found->second;
+}
+
+using ThenArm = CheckResult (*)(const ThenSignal&, const ThenSlotValues&, std::string_view,
+                                std::chrono::milliseconds);
+inline constexpr std::array<std::pair<std::string_view, ThenArm>, 3> k_then_arms{{
+    {k_equals,
+     [](const ThenSignal& b, const ThenSlotValues& s, std::string_view c,
+        std::chrono::milliseconds w) { return b.equals(then_slot(s, c, "value")).within(w); }},
+    {k_exceeds,
+     [](const ThenSignal& b, const ThenSlotValues& s, std::string_view c,
+        std::chrono::milliseconds w) { return b.exceeds(then_slot(s, c, "value")).within(w); }},
+    {k_stays_between,
+     [](const ThenSignal& b, const ThenSlotValues& s, std::string_view c,
+        std::chrono::milliseconds w) {
+         return b.stays_between(then_slot(s, c, "lo"), then_slot(s, c, "hi")).within(w);
+     }},
+}};
+
 [[nodiscard]] inline auto dispatch_then(const ThenSignal& builder, std::string_view condition,
                                         const ThenSlotValues& slots,
                                         std::chrono::milliseconds within) -> CheckResult {
-    auto const slot = [&](std::string_view name) -> PhysicalValue {
-        auto const found = slots.find(name);
-        if (found == slots.end())
-            throw std::runtime_error("then condition '" + std::string{condition} +
-                                     "' reads slot '" + std::string{name} +
-                                     "', which the loader did not pass");
-        return found->second;
-    };
-    if (condition == k_equals)
-        return builder.equals(slot("value")).within(within);
-    if (condition == k_exceeds)
-        return builder.exceeds(slot("value")).within(within);
-    if (condition == k_stays_between)
-        return builder.stays_between(slot("lo"), slot("hi")).within(within);
-    throw std::runtime_error("Unknown then condition: " + std::string{condition});
+    return arm_for(k_then_arms, condition, "then")(builder, slots, condition, within);
 }
 
 // ---------------------------------------------------------------------------

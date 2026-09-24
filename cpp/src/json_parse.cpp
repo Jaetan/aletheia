@@ -353,7 +353,9 @@ auto decode_decimal_response(std::string_view raw) -> Rational {
             make_error(ErrorKind::Protocol,
                        std::string{"aletheia_parse_decimal: malformed response: "} + e.what()));
     }
-    if (j.contains("status") && j.at("status") == "error")
+    // A success is the bare {numerator, denominator} pair and carries no
+    // status; only the error envelope does, so its presence is the refusal.
+    if (j.contains("status"))
         throw AletheiaException(make_error(
             ErrorKind::Validation, j.value("message", std::string{"invalid decimal literal"})));
     auto [num, den] = parse_rational_dict(j);
@@ -369,7 +371,8 @@ auto decode_decimal_response(std::string_view raw) -> Rational {
 static auto parse_rational(const Json& j) -> Rational {
     if (j.is_number_integer())
         return Rational{require_int<std::int64_t>(j, "rational integer"), std::int64_t{1}};
-    if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
+    // contains() answers false on anything but an object, so it is the one test.
+    if (j.contains("numerator") && j.contains("denominator")) {
         auto [num, den] = parse_rational_dict(j);
         return Rational{num, den};
     }
@@ -418,18 +421,17 @@ static auto parse_issue_code(std::string_view s) -> IssueCode {
 // validate-response and parsed-DBC-warnings decoders.
 static auto parse_issue_entry(const Json& issue) -> Result<ValidationIssue> {
     auto const sev_str = issue.value("severity", "");
-    IssueSeverity severity{};
-    if (sev_str == "error") {
-        severity = IssueSeverity::Error;
-    } else if (sev_str == "warning") {
-        severity = IssueSeverity::Warning;
-    } else {
+    constexpr auto severities = std::to_array<std::pair<std::string_view, IssueSeverity>>({
+        {"error", IssueSeverity::Error},
+        {"warning", IssueSeverity::Warning},
+    });
+    auto const severity = lookup(severities, sev_str);
+    if (!severity)
         return std::unexpected(
             make_error(ErrorKind::Protocol, "Unknown validation severity: " + sev_str));
-    }
     auto const code_str = issue.value("code", "");
     return ValidationIssue{
-        .severity = severity,
+        .severity = *severity,
         .code = parse_issue_code(code_str),
         .code_raw = code_str,
         .detail = issue.value("detail", ""),
@@ -494,12 +496,12 @@ static auto parse_value_entry(const Json& j, std::string_view context) -> DbcVal
 
 static auto parse_signal_def(const Json& j) -> DbcSignal {
     auto const bo_str = j.value("byteOrder", "little_endian");
-    ByteOrder bo{};
-    if (bo_str == "little_endian")
-        bo = ByteOrder::LittleEndian;
-    else if (bo_str == "big_endian")
-        bo = ByteOrder::BigEndian;
-    else
+    constexpr auto byte_orders = std::to_array<std::pair<std::string_view, ByteOrder>>({
+        {"little_endian", ByteOrder::LittleEndian},
+        {"big_endian", ByteOrder::BigEndian},
+    });
+    auto const bo = lookup(byte_orders, bo_str);
+    if (!bo)
         throw std::runtime_error("Unrecognized byteOrder: " + bo_str);
 
     auto presence = parse_signal_presence(j);
@@ -523,7 +525,7 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
         .name = SignalName{j.at("name").get<std::string>()},
         .start_bit = BitPosition{static_cast<std::uint16_t>(start_bit_raw)},
         .bit_length = BitLength{static_cast<std::uint16_t>(length_raw)},
-        .byte_order = bo,
+        .byte_order = *bo,
         .is_signed = j.value("signed", false),
         .factor = RationalFactor{parse_rational(j.at("factor"))},
         .offset = RationalOffset{parse_rational(j.at("offset"))},
@@ -548,9 +550,11 @@ static auto json_to_can_id(std::uint32_t id_val, bool extended) -> CanId {
                                      result.error());
         return CanId{*result};
     }
-    if (id_val > 0x7FFU)
+    // The factory takes the 16 bits a standard id fits in and refuses past 11;
+    // a wider value is refused here rather than truncated into its range.
+    if (!std::in_range<std::uint16_t>(id_val))
         throw std::runtime_error("Standard CAN ID value " + std::to_string(id_val) +
-                                 " exceeds 11-bit standard-frame range (max 2047)");
+                                 " exceeds 16 bits");
     auto result = StandardId::create(static_cast<std::uint16_t>(id_val));
     if (!result)
         throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) + ": " +
@@ -934,14 +938,13 @@ auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
 // StreamResult path (parse_stream_result).
 static auto parse_property_result_entry(const Json& r) -> PropertyResult {
     auto const entry_status = r.value("status", "");
-    Verdict verdict{};
-    if (entry_status == "holds")
-        verdict = Verdict::Holds;
-    else if (entry_status == "fails")
-        verdict = Verdict::Fails;
-    else if (entry_status == "unresolved")
-        verdict = Verdict::Unresolved;
-    else
+    constexpr auto verdicts = std::to_array<std::pair<std::string_view, Verdict>>({
+        {"holds", Verdict::Holds},
+        {"fails", Verdict::Fails},
+        {"unresolved", Verdict::Unresolved},
+    });
+    auto const verdict = lookup(verdicts, entry_status);
+    if (!verdict)
         throw std::runtime_error("Unknown verdict status: " + entry_status);
     auto idx = parse_rational_as_int(r.at("property_index"));
     if (idx < 0)
@@ -961,7 +964,7 @@ static auto parse_property_result_entry(const Json& r) -> PropertyResult {
 
     return PropertyResult{
         .property_index = PropertyIndex{static_cast<std::size_t>(idx)},
-        .verdict = verdict,
+        .verdict = *verdict,
         .timestamp = ts,
         .reason = std::move(reason),
     };

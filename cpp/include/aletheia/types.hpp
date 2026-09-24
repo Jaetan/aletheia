@@ -93,30 +93,28 @@ public:
     // free from their `int64`-typed rationals; this brings C++ to the same bar.
     template<std::integral N, std::integral D>
         requires(!std::same_as<N, bool> && !std::same_as<D, bool>)
-    constexpr Rational(N n, D d) {
-        // Validate representability BEFORE narrowing: a wide/unsigned integral
-        // outside the int64 range (e.g. a uint64_t > INT64_MAX) would otherwise
-        // wrap silently, and a bare static_cast also suppresses the
-        // -Wconversion / -Wsign-conversion diagnostic the int64_t-typed signature
-        // gave for free.  std::in_range does the signed/unsigned comparison
-        // correctly; a plain `int` literal (the common case) is always in range.
-        if (!std::in_range<std::int64_t>(n) || !std::in_range<std::int64_t>(d)) {
+    constexpr Rational(N n, D d) : Rational(narrowed(n), narrowed(d), Narrowed{}) {}
+
+    [[nodiscard]] constexpr auto numerator() const -> std::int64_t { return num_; }
+
+private:
+    // Every integral pair narrows to this one constructor, so the range check
+    // and the stores are written once rather than once per instantiation.
+    struct Narrowed {};
+    template<std::integral I>
+    static constexpr auto narrowed(I v) -> std::int64_t {
+        if (!std::in_range<std::int64_t>(v))
             throw std::invalid_argument("Rational: numerator/denominator out of int64 range");
-        }
-        num_ = static_cast<std::int64_t>(n);
-        den_ = static_cast<std::int64_t>(d);
-        // The bare `assert` would disappear under -DNDEBUG (the default Release
-        // CMake mode); throwing keeps the invariant enforced at every callsite
-        // so a Release-build hot-path call cannot silently accept den == 0 or
-        // den < 0.  Use Rational::make for fallible (returns std::expected)
-        // construction in untrusted-input contexts.
+        return static_cast<std::int64_t>(v);
+    }
+    constexpr Rational(std::int64_t n, std::int64_t d, Narrowed /*narrowed*/) : num_(n), den_(d) {
         if (den_ <= 0) {
             throw std::invalid_argument("Rational: denominator must be positive (was " +
                                         std::to_string(den_) + ")");
         }
     }
 
-    [[nodiscard]] constexpr auto numerator() const -> std::int64_t { return num_; }
+public:
     [[nodiscard]] constexpr auto denominator() const -> std::int64_t { return den_; }
 
     // Cross-multiply comparison (avoids floating-point).

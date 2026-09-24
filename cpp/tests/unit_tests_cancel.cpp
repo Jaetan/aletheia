@@ -16,6 +16,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -124,8 +125,20 @@ public:
 
     auto init() -> BackendState override { return BackendState{*this, &sentinel}; }
 
-    // Blocks until process() has entered the FFI (deterministic rendezvous).
-    void wait_until_entered() { entered_.wait(false, std::memory_order_acquire); }
+    // Waits until process() has entered the FFI (deterministic rendezvous),
+    // or until the deadline: a client that refuses the call before the backend
+    // never enters, and a wait with no deadline would then hold the process
+    // open past the run's end, with the worker joined and the suite reported.
+    // Polled, since an atomic_flag has no timed wait.
+    [[nodiscard]] auto wait_until_entered(std::chrono::milliseconds deadline) -> bool {
+        auto const until = std::chrono::steady_clock::now() + deadline;
+        while (!entered_.test(std::memory_order_acquire)) {
+            if (std::chrono::steady_clock::now() >= until)
+                return false;
+            std::this_thread::sleep_for(std::chrono::milliseconds{1});
+        }
+        return true;
+    }
     // Unblocks the in-flight process() call.
     void release() {
         proceed_.test_and_set(std::memory_order_release);
@@ -229,8 +242,9 @@ TEST_CASE("Client cancellation: in-flight FFI runs to completion", "[cancellatio
 
     // Deterministically wait until process() has entered the FFI. The entered_
     // flag's release and acquire establish happens-before, so reading
-    // call_count() here is race-free.
-    backend->wait_until_entered();
+    // call_count() here is race-free. A call the client refused before the
+    // backend never enters, and that is a failure to report, not a wait.
+    REQUIRE(backend->wait_until_entered(std::chrono::seconds{5}));
     REQUIRE(backend->call_count() == 1);
 
     // Fire cancellation while the FFI is in flight, then release it. Releasing

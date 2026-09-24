@@ -12,3 +12,24 @@
 unleash:
   exclude-files:
     - '_string\.go$'
+#
+# The six mutators gremlins ships off by default are on. An inverted
+# assignment operator stands for an accumulation running the wrong way, an
+# inverted bitwise operator or bitwise assignment for a mask the wrong way
+# round, an inverted logical operator for a condition read backwards, an
+# inverted loop control for a loop that stops where it should skip, and a
+# removed self-assignment for a statement that did nothing. What the sweep
+# counts under them is docs/MUTATION_BENCH.yaml's record.
+mutants:
+  invert-assignments:
+    enabled: true
+  invert-bitwise:
+    enabled: true
+  invert-bwassign:
+    enabled: true
+  invert-logical:
+    enabled: true
+  invert-loopctrl:
+    enabled: true
+  remove-self-assignments:
+    enabled: true

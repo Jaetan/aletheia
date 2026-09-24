@@ -67,6 +67,56 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (C++): a check always carries its formula.** `CheckResult::formula()`
+  returns the formula itself rather than an optional of it, and `to_formula()`
+  a formula rather than an optional: every constructor set it, so the empty
+  case was a branch no call could take, and the guards on it were mutants no
+  test could kill. `add_checks` copies each check's formula without a refusal
+  it could not reach.
+
+- **The survivors the widened mutator set found are worked down.** The
+  logger's own `enabled` is the one gate on a log event, so the guards around
+  every call site went, measured at no cost on the C++ throughput benchmark.
+  The loaders' condition words dispatch through one table lookup per
+  dispatcher, with one refusal each; the renderer resolves its three kernel
+  entries in one loop with one refusal; a standard CAN id and a DLC read from
+  JSON or a workbook reach their factories' refusals, with a value the
+  factory's argument cannot hold refused before the narrowing; a decimal
+  response with any `status` is the error envelope, since a success carries
+  none; `Rational`'s integral pairs narrow into one constructor; the UTF-8
+  lead byte names its length and bits or nothing; an enriched reason is the
+  rendered one or the formula's, with no flag between; the stand-in kernel
+  counts its closes. Every remaining guard has a test feeding the input that
+  fires it, asserting the refusal's own wording.
+
+- **The mutation lanes make the mutants they refused.** For each lane, the
+  constructs its tool refused were counted from the tree and each lifted or
+  justified. C++: Mull's two call mutators refused every call through a
+  function pointer as indirect, and the backend calls every kernel entry
+  through one, so no mutant ever dropped a kernel call or made the kernel
+  answer something else; libirm now reaches them
+  (`tools/mull/libirm-call-replacement-indirect.patch`,
+  `tools/mull/libirm-void-call-indirect.patch`). The scalar replacement's
+  constant truncates to false on a call returning `bool`, so every guard was
+  tested for not firing alone; `cxx_replace_bool_call_true` is the other
+  answer. A pointer-returning call had no replacement at all;
+  `cxx_replace_pointer_call_null` answers it with null, made only where null
+  is an answer the caller reads, a call through a function pointer or a
+  result compared with null, since a string's data or an exception's message
+  never answers null (`tools/mull/mull-call-replacement-kinds.patch`, both
+  sides). `cpp/mull.yml` names the decrement, assignment, bitwise and negation
+  groups beside `cxx_default`, which leaves them out, and names the assignment
+  group by its members so the address tree can drop the constant stores alone,
+  a sanitizer writing stores of its own at a statement's location as it
+  inserts calls. Go: the six mutators
+  gremlins ships off by default are on in `go/.gremlins.yaml`. Python:
+  mutmut's operator table is fixed, and what it cannot mutate is pinned by a
+  probe rather than counted as swept. Each lift is swept and the baselines
+  re-taken; the probes under `probes/` hold each lift and each refusal. The
+  widened set also found a test that waited with no deadline for a backend
+  call the client had refused, holding the process open past the run's end
+  under the mutant; the wait now has one and the test fails fast.
+
 - **The FFI-name gate refuses a name it cannot read.** A wrapper that spells an
   export only inside a comment, or a MAlonzo module that lost the definition,
   used to warn and pass; each is now a build error. The shim's own call to

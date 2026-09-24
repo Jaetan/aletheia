@@ -469,3 +469,33 @@ TEST_CASE("the FFI backend hands the kernel the timestamp and bus bits it was gi
                                          std::nullopt, std::nullopt)),
                ContainsSubstring("brs=0/0 esi=0/0"));
 }
+
+TEST_CASE("the FFI backend closes the kernel state it opened", "[ffi][marshal]") {
+    // The stand-in counts its closes, which is the one way to read a release
+    // the real kernel acknowledges without reading.
+    if (find_ffi_library().empty())
+        SKIP("no kernel library holds the process, so the stand-in must not be its first backend");
+    const std::filesystem::path stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
+    const aletheia::test::LoadedLibrary handle{dlopen(stand_in.c_str(), RTLD_NOW)};
+    REQUIRE(handle != nullptr);
+    using CountFn = int (*)();
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    auto* const count = reinterpret_cast<CountFn>(dlsym(handle.get(), "aletheia_test_close_count"));
+    REQUIRE(count != nullptr);
+    auto const before = count();
+    { const AletheiaClient client(make_ffi_backend(stand_in)); }
+    CHECK(count() == before + 1);
+}
+
+TEST_CASE("the renderer's default library path is the first one registered", "[ffi][renderer]") {
+    // The backend registers the library it loaded as the renderer's default,
+    // first write wins; a later registration of another library, here one that
+    // exists but carries no entry, changes nothing the lookup answers. With the
+    // environment unset the lookup reads the default, which is what is compared.
+    const ScopedAletheiaLib unset(nullptr);
+    auto const before = find_ffi_library();
+    REQUIRE_FALSE(before.empty());
+    aletheia::detail::register_default_lib_path(
+        std::filesystem::path{ALETHEIA_TEST_SYMBOLLESS_LIB});
+    CHECK(find_ffi_library() == before);
+}

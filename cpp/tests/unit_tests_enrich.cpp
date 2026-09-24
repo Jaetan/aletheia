@@ -215,6 +215,8 @@ TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
     REQUIRE(v != nullptr);
     REQUIRE(v->enrichment.has_value());
     CHECK(v->enrichment->signals.size() == 2);
+    CHECK_THAT(v->enrichment->enriched_reason,
+               ContainsSubstring("Speed = 245, RPM = 3000 (formula:"));
     CHECK_THAT(v->enrichment->enriched_reason, ContainsSubstring("Speed = 245"));
     CHECK_THAT(v->enrichment->enriched_reason, ContainsSubstring("RPM = 3000"));
 }
