@@ -1,3 +1,5 @@
+//go:build cgo && linux
+
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
@@ -16,6 +18,8 @@ import (
 // states: the client never races or panics, a call on the closed client
 // returns a state error, the session is freed once, and the last Close still
 // returns nil. The race detector is the judge, so the suite runs under -race.
+// A call that reaches the backend renders its check's diagnostic through the
+// kernel, so the test needs the kernel as -race needs cgo.
 func TestClient_Concurrent(t *testing.T) {
 	ctx := bounded(t)
 	const workers = 8
