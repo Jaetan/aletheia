@@ -158,6 +158,44 @@ def run_capture(
     return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, check=check, env=env)
 
 
+def run_guarded(
+    cmd: list[str],
+    *,
+    cwd: Path | None = None,
+    grace_seconds: float = 10.0,
+) -> subprocess.CompletedProcess[str]:
+    """Run ``cmd`` as ``run_capture`` does, stopping it when this process dies.
+
+    ``cmd`` runs under ``tools/_guarded_run.py`` in a process group of its own,
+    which the guard interrupts once this process closes the pipe's write end or
+    dies, SIGKILL included (see that script).  An exception here, such as the
+    ``SystemExit`` a restore handler raises on SIGINT or SIGTERM, closes the
+    write end and waits for the group to stop before it propagates.
+    ``grace_seconds`` is how long an interrupted command has to exit before
+    its group gets SIGKILL.
+    """
+    guard = Path(__file__).with_name("_guarded_run.py")
+    watch_read, watch_write = os.pipe()
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, str(guard), str(watch_read), str(grace_seconds), *cmd],
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            pass_fds=(watch_read,),
+            process_group=0,
+        )
+    finally:
+        os.close(watch_read)
+    with proc:  # leaving the block waits for the guard, and so for the group
+        try:
+            stdout, stderr = proc.communicate()
+        finally:
+            os.close(watch_write)  # end-of-file for the guard: stop the group if it runs
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+
+
 def run_streaming(
     cmd: list[str],
     *,
@@ -402,6 +440,21 @@ def _read_lock_pid(fd: int) -> int:
         return -1
 
 
+def _describe_lock_holder(pid: int) -> str:
+    """Name the holder of a lock this process failed to take.
+
+    A held flock has a live holder by construction, so a recorded pid that is
+    not running is never a stale lock: the holder may be a process the recorded
+    one handed its descriptor to, or a holder that has taken the lock and not
+    yet written its pid.
+    """
+    if pid <= 0:
+        return "held by a live process; no pid recorded"
+    if process_alive(pid):
+        return f"pid {pid}, alive"
+    return f"held by a live process; the recorded pid {pid} is not running"
+
+
 def _acquire_agda_lock(*, wait: bool) -> int | None:
     """Acquire the repo-wide Agda lock via flock.
 
@@ -419,19 +472,17 @@ def _acquire_agda_lock(*, wait: bool) -> int | None:
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
-        holder = _read_lock_pid(fd)
-        liveness = "alive" if process_alive(holder) else "stale?"
+        holder = _describe_lock_holder(_read_lock_pid(fd))
         if wait:
             _ = sys.stderr.write(
-                f"waiting for {_AGDA_LOCK_NAME}, held by another Agda tool "
-                + f"(pid {holder}, {liveness})...\n"
+                f"waiting for {_AGDA_LOCK_NAME}, held by another Agda tool ({holder})...\n"
             )
             sys.stderr.flush()
             fcntl.flock(fd, fcntl.LOCK_EX)
         else:
             os.close(fd)
             message = (
-                f"another Agda tool holds {_AGDA_LOCK_NAME} (pid {holder}, {liveness}); "
+                f"another Agda tool holds {_AGDA_LOCK_NAME} ({holder}); "
                 + "refusing to start a concurrent Agda op -- wait for it to finish "
                 + "(this guards the read-during-write prune race)."
             )

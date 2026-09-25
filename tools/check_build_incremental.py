@@ -24,13 +24,14 @@ The oracle is *behavioral* (does the edit reach the artifact? was it relinked?),
 never bit-identical — an incremental build differs benignly from a from-scratch one.
 
 Crash behaviour: every edited source is restored on exit, on SIGINT and on
-SIGTERM.  SIGKILL bypasses that.  A killed run leaves its marker in the two
-sources and leaves its build child running, and that child relinks the ``.so``
-with the marker in it.  So the marker names the run that wrote it, by pid and
-start time, and the startup check refuses on one, saying which run left it,
-whether that run still lives, and the edit that restores the file.  The check
-also refuses while a build still holds Shake's lock, naming the process, since
-that is what an interrupted run's child looks like from outside.  Two runs
+SIGTERM.  SIGKILL bypasses that and leaves the run's marker in the two sources.
+The build runs under ``run_guarded``, so it stops when the run dies, SIGKILL
+included, rather than relinking the ``.so`` with the marker in it.  The marker
+names the run that wrote it, by pid and start time, and the startup check
+refuses on one, saying which run left it, whether that run still lives, and the
+edit that restores the file.  The check also refuses while a build still holds
+Shake's lock, naming the process, since a build nothing stopped looks like that
+from outside.  Two runs
 cannot overlap: the gate holds the repo-wide Agda lock for its whole body, and a
 second run reports the lock as held.  A marker left in the ``.so`` clears on the
 next build over restored sources, and this gate refuses to run against one.
@@ -56,7 +57,7 @@ from tools._common import (
     find_executable,
     install_restore_handlers,
     process_alive,
-    run_capture,
+    run_guarded,
     track_inflight,
     untrack_inflight,
 )
@@ -178,8 +179,8 @@ _PROBES: tuple[Probe, ...] = (
 
 
 def _build() -> None:
-    """Run ``cabal run shake -- build``; raise (echoing output) on a non-zero exit."""
-    result = run_capture(
+    """Run ``cabal run shake -- build`` under ``run_guarded``; raise, echoing output, on failure."""
+    result = run_guarded(
         [find_executable("cabal"), "run", "shake", "--", "build"],
         cwd=REPO_ROOT,
     )
@@ -223,8 +224,8 @@ def _check_no_leftovers() -> bool:
         clean = False
         _fail(
             f"a build (pid {holder}) holds {_rel(_SHAKE_LOCK)}; wait for it to finish. "
-            + "A gate run killed mid-build leaves its build running, and the .so that "
-            + "build writes carries the run's marker until the next build over restored sources"
+            + "This gate edits sources the build reads and rebuilds the .so, so it does not "
+            + "run beside another build"
         )
     return clean
 
