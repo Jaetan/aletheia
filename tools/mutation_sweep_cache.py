@@ -31,14 +31,8 @@ import tempfile
 from pathlib import Path
 
 from tools._common import emit
-from tools.mutation_cpp import (
-    CPP_LEG_REPORT_SUFFIXES,
-    REPO_ROOT,
-    CppLeg,
-    CppTree,
-    cpp_lane_command,
-    leg_config,
-)
+from tools.mutation_cpp import CPP_LEG_REPORT_SUFFIXES, REPO_ROOT, cpp_lane_command, leg_config
+from tools.mutation_cpp_legs import CppLeg, CppTree
 
 # Where the sweeps are kept: inside the tree, beside the build trees the
 # .gitignore already holds out, because a probe reads no path outside it.

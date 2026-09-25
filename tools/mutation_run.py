@@ -120,7 +120,8 @@ from tools._common import (
     short_sha,
     write_and_report_summary,
 )
-from tools.mutation_cpp import cpp_survivor_rows, cpp_unobserved_rows, is_cpp_leg, run_cpp
+from tools.mutation_cpp import cpp_survivor_rows, cpp_unobserved_rows, run_cpp
+from tools.mutation_cpp_legs import is_cpp_leg
 from tools.mutation_report import (
     SPEC_PATH,
     Baseline,

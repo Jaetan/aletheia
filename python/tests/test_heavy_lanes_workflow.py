@@ -18,7 +18,7 @@ from typing import cast
 
 import yaml
 
-from tools.mutation_cpp import (
+from tools.mutation_cpp_legs import (
     CPP_LEGS_ENV,
     CPP_MERGE_STAGE,
     CPP_SLICE_ENV,

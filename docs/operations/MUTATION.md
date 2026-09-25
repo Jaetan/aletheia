@@ -21,6 +21,8 @@ docs/MUTATION_BENCH.yaml           SSOT — per-binding tool, hot-path module li
 tools/check_mutation_setup.py      Static gate (offline, ~1 sec)
 tools/mutation_run.py              Dynamic runner (opt-in, ~30 min - 2 hours)
 tools/mutation_cpp.py              The C++ lane: Mull over the trees, in stages
+tools/mutation_cpp_legs.py         The C++ lane's trees, legs and stage variables
+tools/mutation_cpp_slices.py       The C++ surface's partition into slices
 tools/mutation_report.py           The report and baseline shapes the lanes share
 tools/mutation_routes.py           The C++ kill-route census
 benchmarks/mutation/<short-sha>/   Per-commit JSON + raw tool logs (gitignored)
@@ -349,7 +351,8 @@ mull-runner-23 --minimum-timeout=600000 ./build-mutation-plain/unit_tests -- --o
 # which is `cpp/mull.yml` without the call and constant-store mutators; the runner is given
 # the same file, so the tree and the sweep read one mutator set.
 python/.venv/bin/python -c 'from pathlib import Path
-from tools.mutation_cpp import CppLeg, CppTree, leg_config
+from tools.mutation_cpp import leg_config
+from tools.mutation_cpp_legs import CppLeg, CppTree
 print(leg_config(CppLeg(CppTree.ADDRESS), Path("cpp/build-mutation-asan")))'
 cmake -B build-mutation-asan -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=address \
       -DALETHEIA_MULL_CONFIG="$PWD/build-mutation-asan/mull-config.yml" \

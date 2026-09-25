@@ -20,11 +20,10 @@ from pathlib import Path
 from tools.mutation_cpp import (
     CPP_BUILD_JOBS_CAP,
     CPP_MUTANT_CAP_MS,
-    CppLeg,
-    CppTree,
     cpp_build_command,
     cpp_lane_command,
 )
+from tools.mutation_cpp_legs import CppLeg, CppTree
 
 
 def _command() -> list[str]:
