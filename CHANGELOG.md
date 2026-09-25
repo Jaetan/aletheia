@@ -829,6 +829,12 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The CAN-log reader's docstrings name the frame tuple's own fields.**
+  `load_can_log` and `iter_can_log` described their tuples as
+  `(timestamp_us, arbitration_id, ...)`, where `CANFrameTuple` names its
+  first two fields `timestamp` and `can_id`. Both docstrings now give the
+  tuple's field list, and a test holds each to `CANFrameTuple._fields`.
+
 - **A test run whose scratch directory a peer is sweeping waits for the peer
   instead of giving up.** Each C++ test binary reaps the scratch directories
   of dead runs before creating its own, and a killed run leaves one under a

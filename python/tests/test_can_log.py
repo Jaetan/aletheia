@@ -12,13 +12,15 @@ Tests cover:
 - Lazy iteration: iter_can_log matches load_can_log
 """
 
+import inspect
+import re
 from pathlib import Path
 from typing import TypedDict, Unpack
 
 import can
 import pytest
 
-from aletheia import ValidationError
+from aletheia import CANFrameTuple, ValidationError
 from aletheia.can_log import (
     convert_message,
     effective_extension,
@@ -509,3 +511,18 @@ class TestIterCanLog:
             if count >= 5:
                 break
         assert count == 5
+
+
+# ============================================================================
+# Docstrings
+# ============================================================================
+
+
+@pytest.mark.parametrize("reader", [load_can_log, iter_can_log])
+def test_docstring_names_the_tuple_fields(reader: object) -> None:
+    """The field list a reader's docstring gives is the tuple's own, in order."""
+    doc = inspect.getdoc(reader) or ""
+    stated = re.search(r"``CANFrameTuple`` \(([^)]*)\)", doc)
+    assert stated is not None
+    fields = [f.strip() for f in stated.group(1).split(",")]
+    assert fields == list(CANFrameTuple._fields)
