@@ -30,7 +30,7 @@ class SignalOverrides(TypedDict, total=False):
 
     Public so sibling test modules that wrap :func:`signal` with their own
     defaults can type their forwarding ``**kwargs`` as ``Unpack[SignalOverrides]``
-    (e.g. ``test_dbc_validator._make_signal``).
+    (e.g. ``_validator_helpers.make_signal``).
     """
 
     start_bit: int
