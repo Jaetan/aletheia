@@ -26,7 +26,6 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <thread>
 #include <utility>
 
 #include <sys/file.h>
@@ -39,6 +38,9 @@ namespace aletheia::test {
 /// once for the process that makes one and the sweep that clears the rest.
 inline constexpr std::string_view scratch_prefix = "aletheia-cpp-tests-";
 
+/// Whether a lock attempt answers at once or after the holder lets go.
+enum class LockWait { No, UntilFree };
+
 /// An attempt on a scratch directory's exclusive lock, held for this object's
 /// scope.  The lock is what tells a directory whose owner is still running
 /// from one whose owner is gone: the kernel drops a `flock` however its holder
@@ -48,12 +50,14 @@ inline constexpr std::string_view scratch_prefix = "aletheia-cpp-tests-";
 /// from its own sweep as from anyone else's.
 class ScratchLock {
 public:
-    /// Opens `dir` and tries its lock; `owns` reports the outcome.  A read
-    /// mode stream is what opens a directory without a variadic call, and the
-    /// descriptor behind it is all this uses.
-    explicit ScratchLock(const std::filesystem::path& dir)
+    /// Opens `dir` and takes its lock, at once or once the holder lets go as
+    /// `wait` says; `owns` reports the outcome.  A read mode stream is what
+    /// opens a directory without a variadic call, and the descriptor behind
+    /// it is all this uses.
+    explicit ScratchLock(const std::filesystem::path& dir, LockWait wait = LockWait::No)
         : file_(std::fopen(dir.c_str(), "re"))
-        , held_(file_ != nullptr && ::flock(::fileno(file_), LOCK_EX | LOCK_NB) == 0) {}
+        , held_(file_ != nullptr &&
+                ::flock(::fileno(file_), LOCK_EX | (wait == LockWait::No ? LOCK_NB : 0)) == 0) {}
 
     ~ScratchLock() {
         if (file_ != nullptr)
@@ -112,6 +116,39 @@ inline void reap_dead_scratch_dirs() {
     }
 }
 
+/// One try at owning `dir`: creates it and takes its lock into `lock`,
+/// answering whether the lock it took is the directory still at that path.
+/// A peer sweeping the dead directories can hold this one, having taken it
+/// between its creation here and the lock, and holds it for exactly the
+/// removal, tens of milliseconds for a populated directory; the try then
+/// waits on that lock rather than on time, and answers false once the peer
+/// lets go, so that the next try creates the directory afresh.
+inline auto take_scratch_dir(const std::filesystem::path& dir, std::optional<ScratchLock>& lock)
+    -> bool {
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    if (ec)
+        throw std::runtime_error("cannot create " + dir.string() + ": " + ec.message());
+    lock.emplace(dir);
+    if (lock->owns(dir))
+        return true;
+    lock.emplace(dir, LockWait::UntilFree);
+    lock.reset();
+    return false;
+}
+
+/// Creates `dir` and holds its lock in `lock`, trying again each time a peer's
+/// removal took the directory from under a try; the first try that holds is
+/// the last.  Throws when the directory cannot be created, or when the tries
+/// run out, which takes a fresh peer removal per try.
+inline void hold_scratch_dir(const std::filesystem::path& dir, std::optional<ScratchLock>& lock) {
+    constexpr int tries = 64;
+    if (std::ranges::any_of(std::views::repeat(0, tries),
+                            [&](auto) { return take_scratch_dir(dir, lock); }))
+        return;
+    throw std::runtime_error("cannot hold " + dir.string());
+}
+
 /// The scratch directory of this process, created on first use and removed
 /// when the process ends, or by the next run when this one is killed before it
 /// can.  A sweep that runs the suite once per mutant would otherwise leave one
@@ -128,30 +165,7 @@ inline void reap_dead_scratch_dirs() {
             // creating one more is the operation that fails.  A directory this
             // process id left behind is among them, nothing holding its lock.
             reap_dead_scratch_dirs();
-            // A peer sweeping the dead directories can take this one between
-            // its creation and its lock, in which case the lock names an inode
-            // no path reaches and the attempt starts over.  The peer holds its
-            // lock only for the removal, so yielding to it is what the tries
-            // are for, and the first that holds is the last.
-            constexpr int tries = 64;
-            if (std::ranges::any_of(std::views::repeat(0, tries), [this](auto) { return take(); }))
-                return;
-            throw std::runtime_error("cannot hold " + dir.string());
-        }
-
-        /// One try at owning `dir`: creates it and takes its lock, answering
-        /// whether the lock it took is the directory still at that path.
-        auto take() -> bool {
-            std::error_code ec;
-            std::filesystem::create_directories(dir, ec);
-            if (ec)
-                throw std::runtime_error("cannot create " + dir.string() + ": " + ec.message());
-            lock.emplace(dir);
-            if (lock->owns(dir))
-                return true;
-            lock.reset();
-            std::this_thread::yield();
-            return false;
+            hold_scratch_dir(dir, lock);
         }
 
         ~Owned() {
