@@ -5371,3 +5371,17 @@ retroactively documented here. Tag history (`git tag -l`): `v1.1.1`,
 `v1.0.0`, `v0.3.2`, `v0.3.1-beta`, `v0.3.0-alpha`,
 `v0.1.0-proof-research`, `v0.1.0-alpha`. Use `git log <tag>` for the
 historical record.
+- **A test run whose scratch directory a peer is sweeping waits for the peer
+  instead of giving up.** Each C++ test binary reaps the scratch directories
+  of dead runs before creating its own, and a killed run leaves one under a
+  process id a later run can reuse: that run then finds a peer removing its
+  directory between creating it and locking it. The fixture yielded 64 times
+  and threw, which outlasts an empty directory's removal and not a populated
+  one's, measured at about 45 ms for 20000 files, and the throw came out of a
+  fixture constructor, read under the mutation lane as a kill of whatever
+  mutant was running. The fixture now waits on the peer's lock, which the
+  peer holds for exactly the removal, and takes the directory afresh once it
+  is gone; no physical time enters. A suite case stages the peer as a thread
+  of the same process over a populated directory, and a probe drives the
+  first `scratch_dir()` call of a fresh process the same way.
+

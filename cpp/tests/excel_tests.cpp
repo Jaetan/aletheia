@@ -20,11 +20,14 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <latch>
+#include <optional>
 #include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <variant>
 #include <vector>
 
@@ -1045,6 +1048,14 @@ TEST_CASE("excel: demo workbook DBC loads as standard messages", "[excel][dbc][p
         CHECK(std::holds_alternative<StandardId>(msg.id));
 }
 
+// A directory name of the scratch shape under this process id, which no run
+// makes and the sweep reads as any other, so a case can plant one.
+static auto planted(std::string_view fate) -> std::filesystem::path {
+    return std::filesystem::temp_directory_path() /
+           (std::string(aletheia::test::scratch_prefix) + std::to_string(::getpid()) + "-" +
+            std::string(fate));
+}
+
 TEST_CASE("temp path: every shape is removed when its scope ends", "[excel][temp]") {
     // The three suites that share this type rely on the removal, and nothing
     // else asserts it: a destructor that stopped removing would leave scratch
@@ -1084,10 +1095,6 @@ TEST_CASE("temp path: a scratch directory outlives its owner only while the owne
     // directory whose lock it can take, the lock being the liveness test a
     // process id is not, since an id is reused, and a timestamp is not.
     auto const root = std::filesystem::temp_directory_path();
-    auto const planted = [&root](std::string_view fate) {
-        return root / (std::string(aletheia::test::scratch_prefix) + std::to_string(::getpid()) +
-                       "-" + std::string(fate));
-    };
 
     SECTION("one whose lock is free is removed, contents and all") {
         auto const dead = planted("dead");
@@ -1100,10 +1107,10 @@ TEST_CASE("temp path: a scratch directory outlives its owner only while the owne
 
     SECTION("one whose owner holds its lock is kept, and goes once the lock does") {
         auto const live = planted("live");
-        std::filesystem::create_directories(live);
         {
-            const aletheia::test::ScratchLock holder{live};
-            REQUIRE(holder.owns(live));
+            std::optional<aletheia::test::ScratchLock> holder;
+            aletheia::test::hold_scratch_dir(live, holder);
+            REQUIRE(holder->owns(live));
             aletheia::test::reap_dead_scratch_dirs();
             CHECK(std::filesystem::is_directory(live));
         }
@@ -1132,6 +1139,60 @@ TEST_CASE("temp path: a scratch directory outlives its owner only while the owne
         CHECK(std::filesystem::is_directory(scratch_dir()));
         CHECK(std::filesystem::exists(keeper.path));
     }
+}
+
+TEST_CASE("temp path: a lock outlived by its directory's removal owns nothing at that path",
+          "[excel][temp]") {
+    // Ownership is the lock and the inode together: a lock taken on a
+    // directory a sweep then removed is held on an inode no path reaches, and
+    // a directory created under the same name afterwards is another inode.
+    // Both are the false arm of the comparison, which nothing else drives.
+    auto const dir = planted("orphan");
+    std::optional<aletheia::test::ScratchLock> lock;
+    aletheia::test::hold_scratch_dir(dir, lock);
+    REQUIRE(lock->owns(dir));
+    std::filesystem::remove_all(dir);
+    CHECK_FALSE(lock->owns(dir));
+    std::filesystem::create_directories(dir);
+    CHECK_FALSE(lock->owns(dir));
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
+TEST_CASE("temp path: a scratch directory a peer is sweeping is held once the peer is done",
+          "[excel][temp]") {
+    // A run whose process id a killed run's directory carries can find a peer
+    // removing that directory between its own creation of it and its lock.
+    // The peer holds the lock for the whole removal, tens of milliseconds for
+    // a populated directory, and a thread of this process stands in for it
+    // because flock is per open file description.  Populated under the peer's
+    // lock, since a test binary starting beside this one sweeps any directory
+    // of this shape it finds unlocked, and populated so that a fixture waiting
+    // on time rather than on the lock would read red: an empty directory's
+    // removal takes microseconds, a populated one's tens of milliseconds.
+    auto const dir = planted("contested");
+    std::latch held{1};
+    bool peer_held = false;
+    std::jthread peer{[&] {
+        std::optional<aletheia::test::ScratchLock> peer_lock;
+        aletheia::test::hold_scratch_dir(dir, peer_lock);
+        peer_held = peer_lock->owns(dir);
+        std::ranges::for_each(std::views::iota(0, 20000),
+                              [&dir](int i) { std::ofstream{dir / std::to_string(i)} << "x"; });
+        held.count_down();
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }};
+    held.wait();
+    std::optional<aletheia::test::ScratchLock> lock;
+    aletheia::test::hold_scratch_dir(dir, lock);
+    peer.join();
+    REQUIRE(peer_held);
+    REQUIRE(lock.has_value());
+    CHECK(lock->owns(dir));
+    CHECK(std::filesystem::is_directory(dir));
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
 }
 
 // ===========================================================================
