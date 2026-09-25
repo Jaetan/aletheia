@@ -332,12 +332,14 @@ inline constexpr std::array<std::size_t, 16> k_dlc_bytes = {0, 1,  2,  3,  4,  5
 
 // Payload byte count to DLC code: the inverse of dlc_to_bytes over the same
 // table, or an error for a byte count no DLC code denotes.  The search is the
-// table's own, so the codes it can return are exactly the ones it holds.
+// table's own, so the codes it can return are exactly the ones it holds; the
+// factory's answer is returned as it is, so a code outside the table would be
+// its error, read by every caller, and not an assertion inside a dereference.
 [[nodiscard]] inline auto bytes_to_dlc(std::size_t byte_count) -> std::expected<Dlc, std::string> {
     auto const* const found = std::ranges::find(detail::k_dlc_bytes, byte_count);
     if (found == detail::k_dlc_bytes.end())
         return std::unexpected("invalid DLC byte count: " + std::to_string(byte_count));
-    return *Dlc::create(static_cast<std::uint8_t>(found - detail::k_dlc_bytes.begin()));
+    return Dlc::create(static_cast<std::uint8_t>(found - detail::k_dlc_bytes.begin()));
 }
 
 // ---------------------------------------------------------------------------
