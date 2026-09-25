@@ -258,11 +258,17 @@ def git_ls_files(repo: Path, *patterns: str) -> list[RelPath]:
 def git_toplevel(start: Path | None = None) -> Path:
     """Return the git work-tree root containing ``start`` (default: this file).
 
+    The root is discovered from ``start``'s path alone.  A hook runs with
+    ``GIT_DIR`` exported, and git then takes the directory it runs in as the
+    work tree, so neither that variable nor ``GIT_WORK_TREE`` reaches the child.
+
     Raises ``RuntimeError`` if ``start`` is not inside a git work tree.
     """
     anchor = start if start is not None else Path(__file__).resolve().parent
+    env = {k: v for k, v in os.environ.items() if k not in {"GIT_DIR", "GIT_WORK_TREE"}}
     result = run_capture(
         [find_executable("git"), "-C", str(anchor), "rev-parse", "--show-toplevel"],
+        env=env,
     )
     if result.returncode != 0:
         message = f"not inside a git work tree: {anchor}"
