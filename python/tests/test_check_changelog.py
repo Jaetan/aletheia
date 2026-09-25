@@ -21,8 +21,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from _git_repo import commit, git
 
-from tools._common import RelPath, find_executable, run_capture
+from tools._common import RelPath
 from tools.check_changelog import main, watched_files
 
 if TYPE_CHECKING:
@@ -85,37 +86,14 @@ def test_mixed_set_reports_only_watched() -> None:
 # ── Hermetic end-to-end of main() in a throwaway git repo ──────────────────
 
 
-def _git(repo: Path, *args: str) -> None:
-    """Run a git command in ``repo``, asserting success (for test setup)."""
-    result = run_capture([find_executable("git"), "-C", str(repo), *args])
-    assert result.returncode == 0, f"git {' '.join(args)} failed: {result.stderr}"
-
-
-def _commit(repo: Path, message: str) -> None:
-    """Stage everything and commit, with a local identity and signing off."""
-    _git(repo, "add", "-A")
-    _git(
-        repo,
-        "-c",
-        "user.email=test@example.com",
-        "-c",
-        "user.name=Test",
-        "-c",
-        "commit.gpgsign=false",
-        "commit",
-        "-m",
-        message,
-    )
-
-
 def _make_repo(tmp_path: Path) -> Path:
     """Init a repo with a ``main`` branch carrying a baseline commit."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    _git(repo, "init", "-b", "main")
+    git(repo, "init", "-b", "main")
     (repo / "README.md").write_text("# base\n", encoding="utf-8")
     (repo / "CHANGELOG.md").write_text("# Changelog\n\n## [Unreleased]\n", encoding="utf-8")
-    _commit(repo, "base")
+    commit(repo, "base")
     return repo
 
 
@@ -132,10 +110,10 @@ def test_e2e_watched_change_without_changelog_fails(
 ) -> None:
     """A tooling change with no CHANGELOG edit fails the gate."""
     repo = _make_repo(tmp_path)
-    _git(repo, "checkout", "-b", "feature")
+    git(repo, "checkout", "-b", "feature")
     (repo / "tools").mkdir()
     (repo / "tools" / "thing.py").write_text("x = 1\n", encoding="utf-8")
-    _commit(repo, "touch tooling")
+    commit(repo, "touch tooling")
     assert _run_gate(repo, monkeypatch) == 1
 
 
@@ -145,14 +123,14 @@ def test_e2e_watched_change_with_changelog_passes(
 ) -> None:
     """The same tooling change passes once CHANGELOG.md is also edited."""
     repo = _make_repo(tmp_path)
-    _git(repo, "checkout", "-b", "feature")
+    git(repo, "checkout", "-b", "feature")
     (repo / "tools").mkdir()
     (repo / "tools" / "thing.py").write_text("x = 1\n", encoding="utf-8")
     (repo / "CHANGELOG.md").write_text(
         "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- internal — no behavior change\n",
         encoding="utf-8",
     )
-    _commit(repo, "touch tooling + changelog")
+    commit(repo, "touch tooling + changelog")
     assert _run_gate(repo, monkeypatch) == 0
 
 
@@ -162,10 +140,10 @@ def test_e2e_doc_only_change_passes(
 ) -> None:
     """A docs-only change never trips the gate, even with no CHANGELOG edit."""
     repo = _make_repo(tmp_path)
-    _git(repo, "checkout", "-b", "feature")
+    git(repo, "checkout", "-b", "feature")
     (repo / "docs").mkdir()
     (repo / "docs" / "GUIDE.md").write_text("hello\n", encoding="utf-8")
-    _commit(repo, "doc only")
+    commit(repo, "doc only")
     assert _run_gate(repo, monkeypatch) == 0
 
 
@@ -176,13 +154,13 @@ def test_e2e_a_repeated_category_header_fails(
 ) -> None:
     """Two ``### Changed`` under Unreleased fail, whatever the diff holds."""
     repo = _make_repo(tmp_path)
-    _git(repo, "checkout", "-b", "feature")
+    git(repo, "checkout", "-b", "feature")
     (repo / "CHANGELOG.md").write_text(
         "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- one\n\n### Fixed\n\n- two\n\n"
         + "### Changed\n\n- three\n\n## [1.0.0]\n\n### Changed\n\n- released\n",
         encoding="utf-8",
     )
-    _commit(repo, "split the header")
+    commit(repo, "split the header")
     assert _run_gate(repo, monkeypatch) == 1
     assert "### Changed" in capsys.readouterr().err
 
@@ -194,13 +172,13 @@ def test_e2e_a_header_outside_the_categories_fails(
 ) -> None:
     """A ``### Improved`` under Unreleased is refused and named."""
     repo = _make_repo(tmp_path)
-    _git(repo, "checkout", "-b", "feature")
+    git(repo, "checkout", "-b", "feature")
     (repo / "CHANGELOG.md").write_text(
         "# Changelog\n\n## [Unreleased]\n\n### Improved\n\n- one\n\n"
         + "## [1.0.0]\n\n### Changed\n\n- x\n",
         encoding="utf-8",
     )
-    _commit(repo, "a header of its own")
+    commit(repo, "a header of its own")
     assert _run_gate(repo, monkeypatch) == 1
     assert "### Improved" in capsys.readouterr().err
 
@@ -211,11 +189,11 @@ def test_e2e_one_header_per_category_passes(
 ) -> None:
     """A header repeated only in a released section is not the Unreleased one."""
     repo = _make_repo(tmp_path)
-    _git(repo, "checkout", "-b", "feature")
+    git(repo, "checkout", "-b", "feature")
     (repo / "CHANGELOG.md").write_text(
         "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- one\n\n### Fixed\n\n- two\n\n"
         + "## [1.0.0]\n\n### Changed\n\n- released\n",
         encoding="utf-8",
     )
-    _commit(repo, "one header each")
+    commit(repo, "one header each")
     assert _run_gate(repo, monkeypatch) == 0

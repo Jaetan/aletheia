@@ -25,19 +25,16 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tools import mutation_cpp, mutation_run
-from tools.mutation_cpp import (
+from tools.mutation_cpp import elements_counts, merge_elements, run_cpp, union_slices
+from tools.mutation_cpp_legs import (
     CPP_LEGS_ENV,
     CPP_MERGE_STAGE,
     CPP_SLICE_ENV,
     CPP_STAGE_ENV,
     CppLeg,
     CppTree,
-    elements_counts,
     is_cpp_leg,
-    merge_elements,
-    run_cpp,
     sliced_legs,
-    union_slices,
 )
 from tools.mutation_cpp_slices import CPP_SLICES
 

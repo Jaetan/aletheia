@@ -67,6 +67,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (Python): `aletheia.dbc` no longer exports
+  `dbc_and_warnings_from_response`.** The package's docstring said every name in
+  its `__all__` was also public at the top level, and that one name was not: it
+  is the helper the command line and the converter share to read a parse
+  response, and only the package and its tests called it. It stays in
+  `aletheia.dbc._converter`, and the top level now builds its `__all__` from
+  `aletheia.dbc.__all__` rather than spelling the names a second time, so the
+  two surfaces cannot drift apart again. The top-level surface is unchanged.
+
 - **`bytes_to_dlc` returns the factory's answer rather than dereferencing it.**
   The dereference was a conversion the return type already performs, and it
   put the one mutant of that line behind a library assertion: a mutated index
@@ -828,6 +837,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   in the install prefix.
 
 ### Fixed
+
+- **The pylint gate fails on any message, not on a rounded score.** The step
+  grepped pylint's output for a 10.00 score, and the score rounds a few messages
+  over the tree's statement count away: the tree carried eleven, two modules over
+  the 1000-line cap among them, and the gate read 10.00 and passed. The step now
+  takes pylint's exit status, and `python/pyproject.toml` sets `fail-on` to every
+  category, so any message makes it non-zero whatever the score threshold, and
+  scores one point per message, so the printed score reads what the run found.
+  The eleven are fixed, one approved `noqa` aside, rather than silenced:
+  `tools/mutation_cpp.py` gives its trees, legs and stage variables to
+  `tools/mutation_cpp_legs.py`, the validator tests split the frame-layout
+  checks into `test_dbc_validator_layout.py`, the two prose-scanning gates share
+  one tracked-tree walk and the two workflow gates one workflow locator in
+  `tools/_common.py`, `tools/run_ci.py` groups its three opt-in lanes, dropping
+  two helpers nothing called, and the top-level `aletheia` package re-exports
+  `aletheia.dbc` through one star import rather than a second copy of its
+  names.
 
 - **The C++ merge judges a mutant only a later tree carries.** The trees do not
   all carry one surface, and `merge_elements` in `tools/mutation_cpp.py` copied

@@ -19,7 +19,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tools.mutation_cpp import CppLeg, CppTree, cpp_kill_routes, sliced_legs
+from tools.mutation_cpp import cpp_kill_routes
+from tools.mutation_cpp_legs import CppLeg, CppTree, sliced_legs
 from tools.mutation_routes import (
     KILL_ROUTES,
     MULL_PASSED,

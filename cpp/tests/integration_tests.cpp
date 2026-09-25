@@ -2386,7 +2386,7 @@ TEST_CASE(
     // BE signal: start_bit=7 (MSB of byte 0), length=33, dlc=4 → 32 bits of
     // frame.  The entry gate refuses the SUBMITTED length against the frame
     // capacity (33 ≤ 32 fails), before any start-bit conversion.
-    // Mirrors python/tests/test_dbc_validator.py::test_big_endian_signal_exceeds_dlc.
+    // Mirrors python/tests/test_dbc_validator_layout.py::test_big_endian_signal_exceeds_dlc.
     auto const dbc = make_single_be_signal_dbc(/*start_bit=*/7, /*bit_length=*/33, /*dlc_bytes=*/4);
 
     auto result = client.parse_dbc(std::stop_token{}, dbc);

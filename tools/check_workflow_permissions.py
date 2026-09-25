@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING, cast
 import yaml
 from yaml.error import YAMLError
 
-from tools._common import emit, git_toplevel
+from tools._common import emit, git_toplevel, workflow_files
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -112,23 +112,18 @@ def main() -> int:
         _ = sys.stderr.write("check-workflow-permissions: not inside a git repo\n")
         return 2
 
-    workflows_dir = repo_root / ".github" / "workflows"
-    if not workflows_dir.is_dir():
-        _ = sys.stderr.write(
-            f"check-workflow-permissions: FAIL — {workflows_dir} does not exist.\n"
-            + "This gate certifies least-privilege permissions; with no workflows to read\n"
-            + "it cannot certify anything, and passing here would report a policy that was\n"
-            + "never applied.  Restore the directory, or drop this gate deliberately.\n",
-        )
+    workflows = workflow_files(
+        "check-workflow-permissions", "least-privilege permissions", repo_root
+    )
+    if workflows is None:
         return 2
 
-    violations: list[str] = []
-    checked = 0
-    for workflow in sorted(workflows_dir.glob("*.y*ml")):
-        checked += 1
-        v = _check_workflow(workflow)
-        if v is not None:
-            violations.append(f"  {workflow.relative_to(repo_root)}: {v}")
+    checked = len(workflows)
+    violations = [
+        f"  {workflow.relative_to(repo_root)}: {v}"
+        for workflow in workflows
+        if (v := _check_workflow(workflow)) is not None
+    ]
 
     if violations:
         _ = sys.stderr.write(
@@ -158,7 +153,7 @@ def main() -> int:
     if checked == 0:
         _ = sys.stderr.write(
             "check-workflow-permissions: FAIL — zero workflow files read from "
-            + f"{workflows_dir}.\n\n"
+            + f"{repo_root / '.github' / 'workflows'}.\n\n"
             + "An empty result is how this gate spells 'clean', so it cannot tell a\n"
             + "compliant repo from one whose workflows moved out from under the glob\n"
             + "(`*.y*ml`).  A repo with CI has workflows; zero means the gate lost its\n"

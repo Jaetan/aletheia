@@ -43,7 +43,6 @@ from aletheia.client._types import (
 )
 from aletheia.codes import IssueSeverity, ValidationIssue
 from aletheia.dbc import (
-    dbc_and_warnings_from_response,
     is_multiplexed,
     message_by_id,
     message_by_name,
@@ -51,6 +50,7 @@ from aletheia.dbc import (
     mux_values,
     signals_for_mux_value,
 )
+from aletheia.dbc._converter import dbc_and_warnings_from_response
 from aletheia.types import (
     DBCDefinition,
     DBCMessage,

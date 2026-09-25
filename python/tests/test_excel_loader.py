@@ -566,6 +566,67 @@ class TestLoadErrors:
         with pytest.raises(ValidationError, match="missing or invalid 'Value'"):
             load_checks_from_excel(p)
 
+    def test_stays_between_missing_min(self, tmp_path: Path) -> None:
+        """Verify stays between missing min."""
+        p = make_checks_workbook(
+            tmp_path,
+            [
+                [None, "Voltage", "stays_between", None, None, "14.5", None, None],
+            ],
+        )
+        with pytest.raises(ValidationError, match="requires 'Min' and 'Max'"):
+            load_checks_from_excel(p)
+
+    def test_settles_between_missing_time(self, tmp_path: Path) -> None:
+        """Verify settles between missing time."""
+        p = make_checks_workbook(
+            tmp_path,
+            [
+                [None, "Temp", "settles_between", None, 80, 100, None, None],
+            ],
+        )
+        with pytest.raises(ValidationError, match="requires 'Time \\(ms\\)'"):
+            load_checks_from_excel(p)
+
+    def test_unknown_when_condition(self, tmp_path: Path) -> None:
+        """Verify unknown when condition."""
+        p = make_when_then_workbook(tmp_path, [UNKNOWN_WHEN_WT_ROW])
+        with pytest.raises(ValidationError, match="unknown when condition 'bogus'"):
+            load_checks_from_excel(p)
+
+    def test_unknown_then_condition(self, tmp_path: Path) -> None:
+        """Verify unknown then condition."""
+        p = make_when_then_workbook(tmp_path, [UNKNOWN_THEN_WT_ROW])
+        with pytest.raises(ValidationError, match="unknown then condition 'bogus'"):
+            load_checks_from_excel(p)
+
+    def test_invalid_byte_order(self, tmp_path: Path) -> None:
+        """Verify invalid byte order."""
+        p = make_dbc_workbook(tmp_path, [INVALID_BYTE_ORDER_ROW])
+        with pytest.raises(ValidationError, match="Byte Order"):
+            load_dbc_from_excel(p)
+
+    def test_invalid_message_id(self, tmp_path: Path) -> None:
+        """Verify invalid message id."""
+        p = make_dbc_workbook(tmp_path, [INVALID_MESSAGE_ID_ROW])
+        with pytest.raises(ValidationError, match="invalid 'Message ID'"):
+            load_dbc_from_excel(p)
+
+    def test_dbc_empty_data(self, tmp_path: Path) -> None:
+        """DBC sheet with only header row raises ValidationError."""
+        wb = openpyxl.Workbook()
+        ws = active_sheet(wb)
+        ws.title = "DBC"
+        ws.append(DBC_HEADERS)
+        p = tmp_path / "empty.xlsx"
+        wb.save(str(p))
+        with pytest.raises(ValidationError, match="at least one data row"):
+            load_dbc_from_excel(p)
+
+
+class TestLoadCellTypes:
+    """Exact values come from TEXT cells, never NUMBER cells; integer fields take whole numbers."""
+
     def test_value_as_text_accepted(self, tmp_path: Path) -> None:
         """All-text contract: a Value stored as TEXT ("220") parses exactly."""
         p = make_checks_workbook(
@@ -671,63 +732,6 @@ class TestLoadErrors:
         )
         with pytest.raises(ValidationError, match="must be a whole number"):
             load_checks_from_excel(p)
-
-    def test_stays_between_missing_min(self, tmp_path: Path) -> None:
-        """Verify stays between missing min."""
-        p = make_checks_workbook(
-            tmp_path,
-            [
-                [None, "Voltage", "stays_between", None, None, "14.5", None, None],
-            ],
-        )
-        with pytest.raises(ValidationError, match="requires 'Min' and 'Max'"):
-            load_checks_from_excel(p)
-
-    def test_settles_between_missing_time(self, tmp_path: Path) -> None:
-        """Verify settles between missing time."""
-        p = make_checks_workbook(
-            tmp_path,
-            [
-                [None, "Temp", "settles_between", None, 80, 100, None, None],
-            ],
-        )
-        with pytest.raises(ValidationError, match="requires 'Time \\(ms\\)'"):
-            load_checks_from_excel(p)
-
-    def test_unknown_when_condition(self, tmp_path: Path) -> None:
-        """Verify unknown when condition."""
-        p = make_when_then_workbook(tmp_path, [UNKNOWN_WHEN_WT_ROW])
-        with pytest.raises(ValidationError, match="unknown when condition 'bogus'"):
-            load_checks_from_excel(p)
-
-    def test_unknown_then_condition(self, tmp_path: Path) -> None:
-        """Verify unknown then condition."""
-        p = make_when_then_workbook(tmp_path, [UNKNOWN_THEN_WT_ROW])
-        with pytest.raises(ValidationError, match="unknown then condition 'bogus'"):
-            load_checks_from_excel(p)
-
-    def test_invalid_byte_order(self, tmp_path: Path) -> None:
-        """Verify invalid byte order."""
-        p = make_dbc_workbook(tmp_path, [INVALID_BYTE_ORDER_ROW])
-        with pytest.raises(ValidationError, match="Byte Order"):
-            load_dbc_from_excel(p)
-
-    def test_invalid_message_id(self, tmp_path: Path) -> None:
-        """Verify invalid message id."""
-        p = make_dbc_workbook(tmp_path, [INVALID_MESSAGE_ID_ROW])
-        with pytest.raises(ValidationError, match="invalid 'Message ID'"):
-            load_dbc_from_excel(p)
-
-    def test_dbc_empty_data(self, tmp_path: Path) -> None:
-        """DBC sheet with only header row raises ValidationError."""
-        wb = openpyxl.Workbook()
-        ws = active_sheet(wb)
-        ws.title = "DBC"
-        ws.append(DBC_HEADERS)
-        p = tmp_path / "empty.xlsx"
-        wb.save(str(p))
-        with pytest.raises(ValidationError, match="at least one data row"):
-            load_dbc_from_excel(p)
 
 
 # ============================================================================

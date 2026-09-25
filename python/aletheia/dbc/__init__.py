@@ -19,7 +19,6 @@ for convenience; ``from aletheia.dbc import dbc_to_json`` and
 
 from aletheia.dbc._converter import (
     convert_dbc_file,
-    dbc_and_warnings_from_response,
     dbc_to_json,
     dbc_to_text,
 )
@@ -38,7 +37,6 @@ from aletheia.dbc._queries import (
 __all__ = [
     "always_present_signals",
     "convert_dbc_file",
-    "dbc_and_warnings_from_response",
     "dbc_to_json",
     "dbc_to_text",
     "is_multiplexed",

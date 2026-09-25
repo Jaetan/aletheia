@@ -18,7 +18,7 @@ from typing import cast
 
 import yaml
 
-from tools.mutation_cpp import (
+from tools.mutation_cpp_legs import (
     CPP_LEGS_ENV,
     CPP_MERGE_STAGE,
     CPP_SLICE_ENV,
@@ -131,7 +131,7 @@ def test_the_cpp_legs_keep_a_compiler_cache_of_their_own() -> None:
     ]
     # One restore and one save, both the C++ lanes' alone.
     assert len(caches) == 2
-    assert {str(step["uses"]).split("@")[0] for step in caches} == {
+    assert {str(step["uses"]).split("@", maxsplit=1)[0] for step in caches} == {
         "actions/cache/restore",
         "actions/cache/save",
     }

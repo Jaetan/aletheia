@@ -408,17 +408,17 @@ def _run_lints(runner: Runner) -> None:
         cwd=runner.repo_root / "python",
     )
 
-    # pylint SCORE-based gate — a 10.00 score is mandatory (AGENTS.md, Python lint).
-    # Covers aletheia/ tests/ benchmarks/ + ../tools/ (the repo-root gate scripts,
-    # held to the same 10.00 bar as the package); ``..`` is on
-    # the path via python/pyproject's pylint init-hook so tools' imports resolve.
-    pylint_cmd = (
-        f"{shlex.quote(runner.python)} -m pylint aletheia/ tests/ benchmarks/ ../tools/ "
-        "> /tmp/aletheia-pylint.out 2>&1; "
-        "rc=$?; cat /tmp/aletheia-pylint.out; "
-        "grep -q 'rated at 10\\.00/10' /tmp/aletheia-pylint.out"
+    # pylint gate: any message fails it (AGENTS.md, Python lint).  The verdict is
+    # pylint's exit status, which ``fail-on`` in python/pyproject.toml sets on
+    # any message; the printed score is not read.  Covers aletheia/ tests/
+    # benchmarks/ + ../tools/ (the repo-root gate scripts, held to the same bar
+    # as the package); ``..`` is on the path via python/pyproject's pylint
+    # init-hook so tools' imports resolve.
+    runner.step(
+        "pylint",
+        [runner.python, "-m", "pylint", "aletheia/", "tests/", "benchmarks/", "../tools/"],
+        cwd=runner.repo_root / "python",
     )
-    runner.step("pylint", pylint_cmd, cwd=runner.repo_root / "python")
 
     # gofmt -l (LIST mode): stdout non-empty == files need reformatting. `gofmt -l .`
     # walks every .go file under go/ (it ignores module boundaries, so the excel
@@ -721,7 +721,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
     )
 
     # Opt-in: reproducible-build gate ────────────────────────────
-    if opts.repro:
+    if opts.lanes.repro:
         runner.step(
             "check-reproducible-build",
             [runner.python, "-m", "tools.check_reproducible_build"],
@@ -735,7 +735,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
 
     # Opt-in: long-run stability bench ───────────────────────────
     # Agda cat 16 + Python cat 25 + C++ cat 26 + Go cat 27.
-    if opts.stability:
+    if opts.lanes.stability:
         runner.step(
             "stability bench",
             [runner.python, "-m", "tools.stability_run"],
@@ -751,7 +751,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
     # Cat 14g.  AGENTS.md: "Mutation testing runs as a separate CI lane
     # (cost is high) — once per PR is sufficient; per-commit is overkill."
     # Default OFF.  See docs/operations/MUTATION.md.
-    if opts.mutation:
+    if opts.lanes.mutation:
         runner.step(
             "mutation testing",
             [runner.python, "-m", "tools.mutation_run"],
