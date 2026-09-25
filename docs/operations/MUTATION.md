@@ -402,8 +402,8 @@ A baseline regression (observed > baseline) MUST be addressed by:
    survivor the ledger does not name even at an unchanged count, and reports
    a row that no longer survives as stale. The lane's `cpp-mull.json` artifact
    is Mull's Elements report of each tree, merged by
-   `tools.mutation_cpp.merge_elements` so a mutant either tree killed is
-   killed, and `tools.mutation_cpp.elements_survivor_rows`
+   `tools.mutation_cpp.merge_elements` over the union of the trees' mutants,
+   so a mutant any tree carrying it killed is killed, and `tools.mutation_cpp.elements_survivor_rows`
    renders what is left in the ledger's row shape. The probe
    `probes/docs_MUTATION_BENCH.yaml--every-cpp-survivor-is-a-recorded-one.sh`
    holds the ledger exact in both directions. Beside each lane's Elements

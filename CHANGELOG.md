@@ -829,6 +829,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The C++ merge judges a mutant only a later tree carries.** The trees do not
+  all carry one surface, and `merge_elements` in `tools/mutation_cpp.py` copied
+  the first tree's Elements report and flipped its survivors where another tree
+  killed them, so a mutant absent from the first report was neither a survivor
+  nor a kill in the merged census while the kill-route census, which unions the
+  lanes, counted it. The merge now unions the reports, each mutant's row taken
+  from the first report carrying it and judged over every tree carrying it, so
+  the two censuses count the same survivors; a test hands the merge a surviving
+  mutant only a later tree carries.
 - **A killed staleness gate stops the build it started, and a held tree lock
   is never called stale.** `tools/check_build_incremental.py` ran
   `cabal run shake -- build` as a plain child, so a gate killed mid-build left

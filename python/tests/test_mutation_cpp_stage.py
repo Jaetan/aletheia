@@ -433,6 +433,24 @@ def test_a_tree_that_does_not_carry_a_mutant_says_nothing_about_it() -> None:
     assert elements_counts(merge_elements([carried_by_both, killed_there])) == (2, 1)
 
 
+def test_a_mutant_only_a_later_tree_carries_is_judged() -> None:
+    """A mutant absent from the first report is judged over the trees carrying it.
+
+    The trees do not all carry one surface, and a report the merge starts from
+    has no row for a mutant only another tree read: taking the first report's
+    shape would drop that mutant from the merged census, neither a survivor
+    nor a kill, while the kill-route census, which unions the lanes, counts it.
+    """
+    first = _elements(("m1",), set())
+    later = _elements(("m1", "m2", "m3"), {"m2"})
+    merged = merge_elements([first, later])
+    assert elements_counts(merged) == (3, 1)
+
+    # Carried by two later trees, it survives only where both let it live.
+    killed_there = _elements(("m2",), set())
+    assert elements_counts(merge_elements([first, later, killed_there])) == (3, 0)
+
+
 def test_a_merged_report_carries_the_score_of_its_own_mutants() -> None:
     """A merge produces a report no sweep did, so the score must follow the merge.
 
