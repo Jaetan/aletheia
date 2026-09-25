@@ -66,12 +66,12 @@ all = ["aletheia[can,yaml,excel]"]
 dev = [
     "aletheia[all]",
     # Upper bounds guard against the next major — AGENTS.md hard-gates the
-    # review cycle on pylint 10.00/10 and basedpyright 0/0/0, so a breaking
+    # review cycle on pylint reporting no message and basedpyright 0/0/0, so a breaking
     # major release would silently regress CI.  Bump the upper bound
     # (and re-verify the gates) on a new major rather than floating.
     #
     # Gate mapping (which upper bound protects which CI check):
-    #   pylint<5              — protects the ``pylint aletheia/`` 10.00/10 gate
+    #   pylint<5              — protects the ``pylint aletheia/`` no-message gate
     #   basedpyright<2        — protects the ``basedpyright aletheia/`` 0/0/0 gate
     #   ruff<0.16             — protects the ``ruff check`` / ``ruff format`` (select=ALL)
     #                           gate; ruff is pre-1.0 so new lint rules land in minor
@@ -198,13 +198,13 @@ root = "../examples/demo"
 extraPaths = ["."]
 
 [tool.pylint.main]
-# Match AGENTS.md Python gate: pylint 10.00/10 on the ``aletheia/`` /
-# ``tests/`` / ``benchmarks/`` packages (orchestrator runs all three).
+# Match AGENTS.md Python gate: pylint reports no message on ``aletheia/`` /
+# ``tests/`` / ``benchmarks/`` and ``../tools/`` (the orchestrator runs all four).
 # Line length follows PEP 8 Black-ish; existing code uses up to 100 chars.
 max-line-length = 100
 # Parallelise across all cores — pylint walks 20+ modules on every run.
 jobs = 0
-# ``tests/`` and ``benchmarks/`` are both held to the same 10.00 bar as the
+# ``tests/`` and ``benchmarks/`` are both held to the same bar as the
 # package — a lint standard that exempts the tests is an asymmetry, not a
 # standard.  Stubs / .venv / build remain ignored: they are vendored or generated.
 ignore = ["stubs", ".venv", "build"]
@@ -225,6 +225,13 @@ init-hook = 'import sys; sys.path.insert(0, "tests"); sys.path.insert(0, "..")'
 # gains complete type stubs — at that point pylint can infer members directly
 # and this allow-list becomes dead weight.
 extension-pkg-allow-list = ["ctypes"]
+# Any message fails the run, whatever the score: the exit status is the gate's
+# verdict, and fail-on makes it so without resting on fail-under's default.
+fail-on = ["C", "R", "W", "E", "F"]
+# One point per message (five per error), where the default formula divides by
+# the tree's statement count and a two-decimal score rounds several messages
+# over this tree back to 10.00; the printed score now reads what the run found.
+evaluation = "max(0, 0 if fatal else 10.0 - (5 * error + warning + refactor + convention))"
 
 [tool.pylint.format]
 max-line-length = 100

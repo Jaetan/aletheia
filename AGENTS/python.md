@@ -3,10 +3,10 @@
 Scope: ALL source files in `python/aletheia/`, test files in `python/tests/`, benchmark scripts in `python/benchmarks/`, the repo-root `conftest.py`, and developer tooling in `tools/`. The Python binding is the original and most mature. Review with the same rigor as Go and C++.
 
 **Tooling gates (hard requirements):**
-- `pylint` score must stay **10.00/10**. Any score drop is a blocking finding.
+- `pylint` must report **no message** (exit status 0). Any message is a blocking finding. `python/pyproject.toml` sets `fail-on` to every category, so any message fails the run, and scores one point per message, so 10.00/10 means none; pylint's default formula divides by the statement count and rounds several messages over this tree back to 10.00.
 - `basedpyright` must produce **zero errors and zero warnings**. Any new diagnostic is a blocking finding.
 - **Adding any suppression annotation** (`# type: ignore`, `# pylint: disable`, `# noqa`, `# pyright: ignore`) **requires user approval**. Propose the annotation with justification; do not add it without explicit permission.
-- **`tools/` is in scope, same bar, no exceptions** (user directive 2026-05-26): every `tools/*.py` gate/helper script must reach pylint 10.00 / basedpyright 0/0/0 **by FIXING the code, never by suppressing or ignoring what the linters report**. The suppression rule above applies in full; for `tools/` the standing answer is fix-don't-suppress. Existing debt is NOT grandfathered — it gets fixed (remove any `# pylint: disable=...`, then fix the underlying issue), not waived. Worked example: the IWYU stack (`iwyu.py` / `_iwyu.py` / `_warm.py` / `warm_check_properties.py`) all sit at 10.00 / 0/0/0 with zero suppressions.
+- **`tools/` is in scope, same bar, no exceptions** (user directive 2026-05-26): every `tools/*.py` gate/helper script must reach pylint with no message / basedpyright 0/0/0 **by FIXING the code, never by suppressing or ignoring what the linters report**. The suppression rule above applies in full; for `tools/` the standing answer is fix-don't-suppress. Existing debt is NOT grandfathered — it gets fixed (remove any `# pylint: disable=...`, then fix the underlying issue), not waived. Worked example: the IWYU stack (`iwyu.py` / `_iwyu.py` / `_warm.py` / `warm_check_properties.py`) all sit at no pylint message / 0/0/0 with zero suppressions.
 
 ### Hygiene/Style (6)
 
@@ -97,9 +97,9 @@ cd python && python3 -X dev -m pytest tests/ -v
 cd python && python3 -m pytest tests/ --random-order --random-order-bucket=package
 cd python && basedpyright aletheia/ benchmarks/  # benchmarks/ joined the gate 2026-05-09 per feedback_no_subsumption_asymmetry
 cd python && pylint aletheia/
-cd python && pylint tests/ ../conftest.py  # same 10.00/10 gate applies (feedback_pylint_10_mandatory); conftest.py lives at repo root
-cd python && pylint benchmarks/  # same 10.00/10 gate applies; benchmarks/ joined the gate 2026-05-09 per feedback_no_subsumption_asymmetry
-pylint tools/ && basedpyright tools/  # tools/*.py — same 10.00 / 0/0/0 gate, fix-don't-suppress (user directive 2026-05-26); run from repo root
+cd python && pylint tests/ ../conftest.py  # same no-message gate applies (feedback_pylint_10_mandatory); conftest.py lives at repo root
+cd python && pylint benchmarks/  # same no-message gate applies; benchmarks/ joined the gate 2026-05-09 per feedback_no_subsumption_asymmetry
+pylint tools/ && basedpyright tools/  # tools/*.py — same no-message / 0/0/0 gate, fix-don't-suppress (user directive 2026-05-26); run from repo root
 # Cat 32 doc-example harness — runs every ``python`` fence across the
 # user-facing docs against the real FFI. Must be run from the repo root
 # so pytest picks up the repo-root ``conftest.py`` (which provides the

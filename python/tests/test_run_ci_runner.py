@@ -12,6 +12,8 @@ level (the lane scheduler itself is covered by test_scheduler.py).
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tools._ci_steps import (
@@ -40,8 +42,6 @@ from tools.run_ci import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     import pytest
 
 # The Agda-gate fan-in folds every cabal-shake gate into one `cabal run shake
@@ -128,7 +128,9 @@ def test_heavy_limit_non_positive_clamped_to_one(monkeypatch: pytest.MonkeyPatch
     assert parse_args(["--ci-heavy-limit", "-3"]).heavy_limit == 1
 
 
-def _runner(tmp_path: Path, *, parallel: bool = False, fast: bool = False) -> Runner:
+def _runner(
+    tmp_path: Path, *, parallel: bool = False, fast: bool = False, python: str = "python3"
+) -> Runner:
     """Build a Runner writing to a temp log, with all opt-in lanes off.
 
     ``tmp_path`` becomes a git repository, since the sweep digests the build
@@ -141,7 +143,7 @@ def _runner(tmp_path: Path, *, parallel: bool = False, fast: bool = False) -> Ru
         branch="test",
         commit="0000000",
         log_path=tmp_path / "ci.log",
-        python="python3",
+        python=python,
         sources=sources_digest_of_worktree(tmp_path),
     )
     opts = OptInOptions(
@@ -390,3 +392,57 @@ def test_a_sweep_whose_sources_moved_under_it_fails(
     log = (tmp_path / "ci.log").read_text(encoding="utf-8")
     assert "build sources moved during the sweep" in log
     assert evidence_for(runner.ctx.sources, log_dir=tmp_path, environ={}) is None
+
+
+def _one_message_tree(root: Path, python_dir: Path) -> None:
+    """Lay out the pylint step's four paths: 2100 clean statements, one missing docstring."""
+    for package in ("aletheia", "tests", "benchmarks"):
+        clean = "".join(f"{package.upper()}_{n} = {n}\n" for n in range(700))
+        (python_dir / package).mkdir(parents=True)
+        _ = (python_dir / package / "constants.py").write_text(
+            '"""Constants."""\n' + clean, encoding="utf-8"
+        )
+    (root / "tools").mkdir()
+    _ = (root / "tools" / "undocumented.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+
+def _scratch_pylint_home(root: Path) -> dict[str, str]:
+    """Return the environment with pylint's stored scores kept under ``root``."""
+    return os.environ | {"PYLINTHOME": str(root / "pylint-home")}
+
+
+def test_pylint_step_fails_on_a_message_the_score_rounds_away(tmp_path: Path) -> None:
+    """The pylint step fails on one message even where the score reads 10.00.
+
+    pylint's score rounds a few messages over the tree's statement count to
+    10.00, so a step that read the score passed a tree carrying messages.  The
+    scratch tree holds 2100 clean statements and one module without a
+    docstring: the score still prints 10.00, and the step has to fail.
+    """
+    runner = _runner(tmp_path, python=sys.executable)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    (step,) = (entry for entry in runner.registered_steps if entry.name == "pylint")
+    assert step.cwd is not None
+    _one_message_tree(tmp_path, step.cwd)
+    argv = ["/bin/sh", "-c", step.cmd] if isinstance(step.cmd, str) else list(step.cmd)
+    result = run_capture(argv, cwd=step.cwd, env=_scratch_pylint_home(tmp_path))
+    assert "rated at 10.00/10" in result.stdout, result.stdout
+    assert result.returncode != 0, result.stdout
+
+
+def test_pylint_config_fails_any_message_and_scores_it(tmp_path: Path) -> None:
+    """Under the repository's pylint config one message fails the run and costs a point.
+
+    ``fail-on`` makes the exit status non-zero on any message even with the
+    score threshold lowered to 0, and ``evaluation`` scores per message rather
+    than per statement, so the scratch tree the default formula rates 10.00
+    reads 9.00.
+    """
+    python_dir = tmp_path / "python"
+    _one_message_tree(tmp_path, python_dir)
+    rcfile = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    argv = [sys.executable, "-m", "pylint", f"--rcfile={rcfile}", "--fail-under=0"]
+    argv += ["aletheia/", "tests/", "benchmarks/", "../tools/"]
+    result = run_capture(argv, cwd=python_dir, env=_scratch_pylint_home(tmp_path))
+    assert "rated at 9.00/10" in result.stdout, result.stdout
+    assert result.returncode != 0, result.stdout

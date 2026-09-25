@@ -408,17 +408,17 @@ def _run_lints(runner: Runner) -> None:
         cwd=runner.repo_root / "python",
     )
 
-    # pylint SCORE-based gate — a 10.00 score is mandatory (AGENTS.md, Python lint).
-    # Covers aletheia/ tests/ benchmarks/ + ../tools/ (the repo-root gate scripts,
-    # held to the same 10.00 bar as the package); ``..`` is on
-    # the path via python/pyproject's pylint init-hook so tools' imports resolve.
-    pylint_cmd = (
-        f"{shlex.quote(runner.python)} -m pylint aletheia/ tests/ benchmarks/ ../tools/ "
-        "> /tmp/aletheia-pylint.out 2>&1; "
-        "rc=$?; cat /tmp/aletheia-pylint.out; "
-        "grep -q 'rated at 10\\.00/10' /tmp/aletheia-pylint.out"
+    # pylint gate: any message fails it (AGENTS.md, Python lint).  The verdict is
+    # pylint's exit status, which ``fail-on`` in python/pyproject.toml sets on
+    # any message; the printed score is not read.  Covers aletheia/ tests/
+    # benchmarks/ + ../tools/ (the repo-root gate scripts, held to the same bar
+    # as the package); ``..`` is on the path via python/pyproject's pylint
+    # init-hook so tools' imports resolve.
+    runner.step(
+        "pylint",
+        [runner.python, "-m", "pylint", "aletheia/", "tests/", "benchmarks/", "../tools/"],
+        cwd=runner.repo_root / "python",
     )
-    runner.step("pylint", pylint_cmd, cwd=runner.repo_root / "python")
 
     # gofmt -l (LIST mode): stdout non-empty == files need reformatting. `gofmt -l .`
     # walks every .go file under go/ (it ignores module boundaries, so the excel
