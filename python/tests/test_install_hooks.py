@@ -13,9 +13,13 @@ rendered bodies here.
 from __future__ import annotations
 
 import importlib.util
+import os
+import stat
 import subprocess
+import sys
 from typing import TYPE_CHECKING, cast
 
+from tools._common import find_executable
 from tools.install_hooks import PRE_COMMIT_BODY, PRE_PUSH_BODY
 
 if TYPE_CHECKING:
@@ -137,3 +141,118 @@ def test_pre_commit_iwyu_gate_passes_a_clean_run(
 def test_pre_commit_iwyu_gate_queues_behind_the_agda_lock() -> None:
     """The hook's IWYU command carries the wait flag: a sweep delays a commit, never fails it."""
     assert '"--check", "--wait-lock"' in PRE_COMMIT_BODY
+
+
+_GIT_ENV = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+
+def _git(repo: Path, *args: str) -> str:
+    """Run git in *repo* with the caller's global config shut out, returning stdout.
+
+    The global config could sign every commit and would then hang the test
+    repository's commit on a passphrase prompt.
+    """
+    return subprocess.run(
+        [find_executable("git"), *args],
+        cwd=repo,
+        env=_GIT_ENV,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
+_NOTES_BASE = "l1\nl2\nl3\nl4\nl5\nl6\n"
+_NOTES_STAGED = "l1\nL2\nl3\nl4\nl5\nl6\n"
+_NOTES_WORKTREE = "l1\nL2\nL3\nl4\nl5\nl6\n"
+
+
+def _hooked_repo(tmp_path: Path) -> Path:
+    """Build a repository with the rendered pre-commit hook installed and a gate stub.
+
+    The stub `tools/run_ci.py` passes at once, so the commit exercises the
+    hook's stash and restore around a gate that finds nothing. It is committed
+    in the base, because an untracked stub would be parked with the rest, and
+    the bytecode its run writes is ignored so the status read back is the
+    change the test made.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.name", "hook test")
+    _git(repo, "config", "user.email", "hook@test")
+    (repo / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+    (repo / "tools").mkdir()
+    (repo / "tools" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "tools" / "run_ci.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+    (repo / "notes.txt").write_text(_NOTES_BASE, encoding="utf-8")
+    (repo / "gone.txt").write_text("gone\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "base")
+    hook = repo / ".git" / "hooks" / "pre-commit"
+    body = PRE_COMMIT_BODY.split("\n", 1)[1]
+    hook.write_text("#!" + sys.executable + "\n" + body, encoding="utf-8")
+    hook.chmod(hook.stat().st_mode | stat.S_IXUSR)
+    return repo
+
+
+def test_pre_commit_writes_a_file_staged_in_part_back_whole(tmp_path: Path) -> None:
+    """A commit of half a file's hunks lands the half, and the tree comes back whole.
+
+    The index holds one hunk of the file and the worktree holds two, the
+    shape a commit from a patch leaves. The hook parks the unstaged hunk, an
+    unstaged deletion and an untracked file while its gates run, and writes
+    them back file by file: a merge of the parked tree against the partial
+    index stops unmerged on the shared region, after the gates have passed.
+    """
+    repo = _hooked_repo(tmp_path)
+    (repo / "notes.txt").write_text(_NOTES_STAGED, encoding="utf-8")
+    _git(repo, "add", "notes.txt")
+    (repo / "notes.txt").write_text(_NOTES_WORKTREE, encoding="utf-8")
+    (repo / "gone.txt").unlink()
+    (repo / "scratch.txt").write_text("scratch\n", encoding="utf-8")
+    staged = _git(repo, "diff", "--cached")
+
+    _git(repo, "commit", "-q", "-m", "half")
+
+    assert _git(repo, "show", "HEAD:notes.txt") == _NOTES_STAGED
+    assert _git(repo, "diff", "HEAD~1", "HEAD") == staged
+    assert (repo / "notes.txt").read_text(encoding="utf-8") == _NOTES_WORKTREE
+    assert not (repo / "gone.txt").exists()
+    assert (repo / "scratch.txt").read_text(encoding="utf-8") == "scratch\n"
+    assert _git(repo, "status", "--porcelain") == " D gone.txt\n M notes.txt\n?? scratch.txt\n"
+    assert _git(repo, "stash", "list") == ""
+
+
+def test_pre_commit_restore_failure_keeps_the_stash_and_prints_the_recipe(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A restore that fails leaves the stash in place and prints the commands that write it back."""
+    hook = _load_pre_commit(tmp_path)
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    git_calls: list[list[str]] = []
+
+    def fake_run(args: list[str], cwd: object = None) -> subprocess.CompletedProcess[str]:
+        del cwd
+        git_calls.append(args)
+        listing = "stash@{0} " + sha + "\n" if args[:3] == ["git", "stash", "list"] else ""
+        return subprocess.CompletedProcess(args, 0, listing, "")
+
+    def fake_restore(root: object, source: str, paths: str) -> subprocess.CompletedProcess[str]:
+        del root
+        return subprocess.CompletedProcess([source, paths], 1, "", "boom\n")
+
+    def fake_stash_paths(root: object, sha: str) -> tuple[str, str]:
+        del root, sha
+        return ("notes.txt\0", "")
+
+    hook["_run"] = fake_run
+    hook["_stash_paths"] = fake_stash_paths
+    hook["_restore_worktree"] = fake_restore
+    cast("Callable[[Path, str], None]", hook["_restore_stash"])(tmp_path, sha)
+    err = capsys.readouterr().err
+    assert "SAFE in stash commit " + sha in err
+    assert "git restore --source=" + sha + " --worktree" in err
+    assert "git restore --source=" + sha + "^3 --worktree" in err
+    assert "boom" in err
+    assert ["git", "stash", "drop", "stash@{0}"] not in git_calls
