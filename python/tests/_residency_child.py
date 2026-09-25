@@ -21,6 +21,8 @@ import time
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
+from _dbc_helpers import signal
+
 from aletheia import AletheiaClient, Signal
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.types import DLCByteCount, DLCCode
@@ -40,20 +42,7 @@ def peak_kib() -> int:
 
 def _signal(name: str, start_bit: int) -> DBCSignal:
     """Build one 16-bit unsigned little-endian signal definition."""
-    return {
-        "name": name,
-        "startBit": start_bit,
-        "length": 16,
-        "byteOrder": "little_endian",
-        "signed": False,
-        "factor": Fraction(1, 10),
-        "offset": Fraction(0),
-        "minimum": Fraction(0),
-        "maximum": Fraction(6000),
-        "unit": "",
-        "presence": "always",
-        "receivers": [],
-    }
+    return signal(name, start_bit=start_bit, factor=Fraction(1, 10), maximum=6000)
 
 
 def build_dbc(shape: str) -> DBCDefinition:

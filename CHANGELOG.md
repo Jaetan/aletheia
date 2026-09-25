@@ -67,6 +67,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (Python): `aletheia.dbc` no longer exports
+  `dbc_and_warnings_from_response`.** The package's docstring said every name in
+  its `__all__` was also public at the top level, and that one name was not: it
+  is the helper the command line and the converter share to read a parse
+  response, and only the package and its tests called it. It stays in
+  `aletheia.dbc._converter`, and the top level now builds its `__all__` from
+  `aletheia.dbc.__all__` rather than spelling the names a second time, so the
+  two surfaces cannot drift apart again. The top-level surface is unchanged.
+
 - **`bytes_to_dlc` returns the factory's answer rather than dereferencing it.**
   The dereference was a conversion the return type already performs, and it
   put the one mutant of that line behind a library assertion: a mutated index

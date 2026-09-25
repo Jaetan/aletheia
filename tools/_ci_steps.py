@@ -721,7 +721,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
     )
 
     # Opt-in: reproducible-build gate ────────────────────────────
-    if opts.repro:
+    if opts.lanes.repro:
         runner.step(
             "check-reproducible-build",
             [runner.python, "-m", "tools.check_reproducible_build"],
@@ -735,7 +735,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
 
     # Opt-in: long-run stability bench ───────────────────────────
     # Agda cat 16 + Python cat 25 + C++ cat 26 + Go cat 27.
-    if opts.stability:
+    if opts.lanes.stability:
         runner.step(
             "stability bench",
             [runner.python, "-m", "tools.stability_run"],
@@ -751,7 +751,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
     # Cat 14g.  AGENTS.md: "Mutation testing runs as a separate CI lane
     # (cost is high) — once per PR is sufficient; per-commit is overkill."
     # Default OFF.  See docs/operations/MUTATION.md.
-    if opts.mutation:
+    if opts.lanes.mutation:
         runner.step(
             "mutation testing",
             [runner.python, "-m", "tools.mutation_run"],

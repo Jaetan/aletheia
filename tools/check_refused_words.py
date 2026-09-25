@@ -37,7 +37,7 @@ import re
 import sys
 from pathlib import Path
 
-from tools._common import BINARY_SUFFIXES, emit, git_ls_files, prose_lines
+from tools._common import emit, prose_lines, scan_tracked_tree
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -73,23 +73,9 @@ def scan_text(rel: str, text: str) -> list[str]:
     return findings
 
 
-def scan_file(rel: str) -> list[str]:
-    """Return findings for one tracked file (empty = clean)."""
-    try:
-        text = (REPO / rel).read_text(encoding="utf-8", errors="replace")
-    except OSError, ValueError:
-        return []
-    return scan_text(rel, text)
-
-
 def check_tree() -> list[str]:
     """Return every refused word across the tracked, non-exempt tree."""
-    findings: list[str] = []
-    for rel in git_ls_files(REPO):
-        if is_exempt(rel) or Path(rel).suffix in BINARY_SUFFIXES:
-            continue
-        findings.extend(scan_file(rel))
-    return findings
+    return scan_tracked_tree(REPO, is_exempt, scan_text)
 
 
 def main() -> int:

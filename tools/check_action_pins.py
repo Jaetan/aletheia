@@ -32,7 +32,7 @@ from __future__ import annotations
 import re
 import sys
 
-from tools._common import emit, git_toplevel
+from tools._common import emit, git_toplevel, workflow_files
 
 USES_RE = re.compile(r"uses:\s*(\S+?)@(\S+)")
 SHA_RE = re.compile(r"^[a-f0-9]{40}$")
@@ -76,20 +76,14 @@ def main() -> int:
         _ = sys.stderr.write("check-action-pins: not inside a git repo\n")
         return 2
 
-    workflows_dir = repo_root / ".github" / "workflows"
-    if not workflows_dir.is_dir():
-        _ = sys.stderr.write(
-            f"check-action-pins: FAIL — {workflows_dir} does not exist.\n"
-            + "This gate certifies the action-pin policy; with no workflows to read it\n"
-            + "cannot certify anything, and passing here would report a policy that was\n"
-            + "never applied.  Restore the directory, or drop this gate deliberately.\n",
-        )
+    workflows = workflow_files("check-action-pins", "the action-pin policy", repo_root)
+    if workflows is None:
         return 2
 
     violations: list[str] = []
     checked = 0
 
-    for workflow in sorted(workflows_dir.glob("*.y*ml")):
+    for workflow in workflows:
         for line in workflow.read_text(encoding="utf-8").splitlines():
             m = USES_RE.search(line)
             if not m:
@@ -123,8 +117,8 @@ def main() -> int:
     if checked == 0:
         _ = sys.stderr.write(
             "check-action-pins: FAIL — no `uses:` reference matched in any workflow.\n"
-            + f"Read {len(list(workflows_dir.glob('*.y*ml')))} workflow file(s) under "
-            + f"{workflows_dir.name}/ and matched zero action refs.\n\n"
+            + f"Read {len(workflows)} workflow file(s) under "
+            + "workflows/ and matched zero action refs.\n\n"
             + "An empty result is how this gate spells 'clean', so it cannot tell a\n"
             + "compliant repo from a matcher that lost its grip on the input.  Either\n"
             + "the workflows genuinely reference no actions (then this gate is obsolete)\n"

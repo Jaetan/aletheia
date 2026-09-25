@@ -27,8 +27,9 @@ filtered kernel and confirmed byte-identical.
 from __future__ import annotations
 
 import json
-from fractions import Fraction
 from typing import TYPE_CHECKING
+
+from _dbc_helpers import signal
 
 from aletheia import AletheiaClient, Signal
 from aletheia._dbc_types import empty_dbc_tier2
@@ -44,20 +45,7 @@ _DLC = 8
 
 def _sig(name: str, start_bit: int) -> DBCSignal:
     """Build a 16-bit unsigned little-endian signal (factor 1, wide range)."""
-    return {
-        "name": name,
-        "startBit": start_bit,
-        "length": 16,
-        "byteOrder": "little_endian",
-        "signed": False,
-        "factor": Fraction(1),
-        "offset": Fraction(0),
-        "minimum": Fraction(0),
-        "maximum": Fraction(65535),
-        "unit": "",
-        "presence": "always",
-        "receivers": [],
-    }
+    return signal(name, start_bit=start_bit)
 
 
 def _dbc() -> DBCDefinition:

@@ -21,10 +21,10 @@ from _dbc_helpers import dbc, message, signal
 from aletheia import AletheiaClient, DBCValidationFailedError, ValidationError
 from aletheia.dbc import (
     convert_dbc_file,
-    dbc_and_warnings_from_response,
     dbc_to_json,
     dbc_to_text,
 )
+from aletheia.dbc._converter import dbc_and_warnings_from_response
 
 if TYPE_CHECKING:
     from pathlib import Path

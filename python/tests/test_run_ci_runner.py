@@ -32,6 +32,7 @@ from tools.check_gate_claim import (
     sources_digest_of_worktree,
 )
 from tools.run_ci import (
+    OptInLanes,
     OptInOptions,
     RunContext,
     Runner,
@@ -143,7 +144,11 @@ def _runner(tmp_path: Path, *, parallel: bool = False, fast: bool = False) -> Ru
         python="python3",
         sources=sources_digest_of_worktree(tmp_path),
     )
-    opts = OptInOptions(repro=False, stability=False, mutation=False, parallel=parallel, fast=fast)
+    opts = OptInOptions(
+        lanes=OptInLanes(repro=False, stability=False, mutation=False),
+        parallel=parallel,
+        fast=fast,
+    )
     return Runner(opts, ctx)
 
 

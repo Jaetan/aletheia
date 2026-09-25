@@ -21,7 +21,8 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-from tools._common import find_executable, run_capture
+from _git_repo import commit, git
+
 from tools.check_gate_claim import (
     LOG_DIR,
     PASSED_LINE,
@@ -42,40 +43,14 @@ if TYPE_CHECKING:
 CLAIM = "feat: widen the parser\n\nAll gates clean.\n"
 
 
-def _git(repo: Path, *args: str) -> str:
-    """Run a git command in ``repo``, asserting success (for test setup)."""
-    result = run_capture([find_executable("git"), "-C", str(repo), *args])
-    assert result.returncode == 0, f"git {' '.join(args)} failed: {result.stderr}"
-    return result.stdout
-
-
-def _commit(repo: Path, message: str) -> str:
-    """Stage everything, commit with a local identity, return the commit hash."""
-    _git(repo, "add", "-A")
-    _git(
-        repo,
-        "-c",
-        "user.email=test@example.com",
-        "-c",
-        "user.name=Test",
-        "-c",
-        "commit.gpgsign=false",
-        "commit",
-        "-q",
-        "-m",
-        message,
-    )
-    return _git(repo, "rev-parse", "HEAD").strip()
-
-
 def _make_repo(tmp_path: Path) -> Path:
     """Init a repo carrying one Agda module and one document, committed."""
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
     (repo / "src" / "A.agda").write_text("module A where\n", encoding="utf-8")
     (repo / "README.md").write_text("# base\n", encoding="utf-8")
-    _git(repo, "init", "-q", "-b", "main")
-    _ = _commit(repo, "base")
+    git(repo, "init", "-q", "-b", "main")
+    _ = commit(repo, "base")
     return repo
 
 
@@ -156,7 +131,7 @@ def test_the_digest_is_over_build_relevant_paths_only(tmp_path: Path) -> None:
     repo = _make_repo(tmp_path)
     parent = sources_digest_of_revision("HEAD", repo=repo)
     (repo / "README.md").write_text("# more\n", encoding="utf-8")
-    _ = _commit(repo, "docs only")
+    _ = commit(repo, "docs only")
     assert sources_digest_of_revision("HEAD", repo=repo) == parent
 
 
@@ -196,7 +171,7 @@ def test_e2e_no_claim_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     """A build-relevant commit whose message claims nothing is not checked."""
     repo = _make_repo(tmp_path)
     (repo / "src" / "A.agda").write_text("module A where\n-- x\n", encoding="utf-8")
-    _ = _commit(repo, "feat: no claim here")
+    _ = commit(repo, "feat: no claim here")
     assert _run_gate(repo, monkeypatch) == 0
 
 
@@ -204,7 +179,7 @@ def test_e2e_claim_over_docs_only_passes(tmp_path: Path, monkeypatch: pytest.Mon
     """A claim over a commit that touches no build source needs no record."""
     repo = _make_repo(tmp_path)
     (repo / "README.md").write_text("# more\n", encoding="utf-8")
-    _ = _commit(repo, CLAIM)
+    _ = commit(repo, CLAIM)
     assert _run_gate(repo, monkeypatch) == 0
 
 
@@ -216,7 +191,7 @@ def test_e2e_claim_without_a_record_fails_and_names_the_digest(
     """No sweep running and no log: the claim is refused with its digest."""
     repo = _make_repo(tmp_path)
     (repo / "src" / "A.agda").write_text("module A where\n-- x\n", encoding="utf-8")
-    _ = _commit(repo, CLAIM)
+    _ = commit(repo, CLAIM)
     assert _run_gate(repo, monkeypatch) == 1
     err = capsys.readouterr().err
     assert sources_digest_of_revision("HEAD", repo=repo) in err
@@ -231,7 +206,7 @@ def test_e2e_the_running_sweep_vouches_when_it_observes_the_commit(
     """Inside a sweep over this tree the claim passes with no log at all."""
     repo = _make_repo(tmp_path)
     (repo / "src" / "A.agda").write_text("module A where\n-- x\n", encoding="utf-8")
-    _ = _commit(repo, CLAIM)
+    _ = commit(repo, CLAIM)
     assert _run_gate(repo, monkeypatch) == 1
     monkeypatch.setenv(SOURCES_ENV, sources_digest_of_worktree(repo))
     monkeypatch.setattr("sys.argv", ["check_gate_claim", "HEAD"])
@@ -246,7 +221,7 @@ def test_e2e_a_sweep_over_another_tree_does_not_vouch(
     """A sweep whose tree carries an uncommitted build edit is not evidence."""
     repo = _make_repo(tmp_path)
     (repo / "src" / "A.agda").write_text("module A where\n-- x\n", encoding="utf-8")
-    _ = _commit(repo, CLAIM)
+    _ = commit(repo, CLAIM)
     (repo / "src" / "A.agda").write_text("module A where\n-- y\n", encoding="utf-8")
     monkeypatch.chdir(repo)
     monkeypatch.setenv(SOURCES_ENV, sources_digest_of_worktree(repo))
@@ -262,7 +237,7 @@ def test_e2e_a_passed_log_vouches_whatever_the_mtimes_say(
     """A finished passing log over the commit's sources is the evidence."""
     repo = _make_repo(tmp_path)
     (repo / "src" / "A.agda").write_text("module A where\n-- x\n", encoding="utf-8")
-    _ = _commit(repo, CLAIM)
+    _ = commit(repo, CLAIM)
     _write_log(repo, "ci-main.log", sources_digest_of_revision("HEAD", repo=repo), passed=True)
     later = (repo / "src" / "A.agda").stat().st_mtime + 3600
     os.utime(repo / "src" / "A.agda", (later, later))
@@ -276,7 +251,7 @@ def test_e2e_a_failed_or_fast_log_does_not_vouch(
     """A failed sweep, and a fast-tier sweep that passed, leave the claim unbacked."""
     repo = _make_repo(tmp_path)
     (repo / "src" / "A.agda").write_text("module A where\n-- x\n", encoding="utf-8")
-    _ = _commit(repo, CLAIM)
+    _ = commit(repo, CLAIM)
     _write_log(repo, "failed.log", sources_digest_of_revision("HEAD", repo=repo), passed=False)
     _write_log(repo, "fast.log", SOURCES_UNRECORDED, passed=True)
     assert _run_gate(repo, monkeypatch) == 1
@@ -289,10 +264,10 @@ def test_e2e_audit_mode_reads_the_named_commit(
     """An older commit is audited against its own sources, not HEAD's."""
     repo = _make_repo(tmp_path)
     (repo / "src" / "A.agda").write_text("module A where\n-- x\n", encoding="utf-8")
-    audited = _commit(repo, CLAIM)
+    audited = commit(repo, CLAIM)
     _write_log(repo, "ci-main.log", sources_digest_of_revision(audited, repo=repo), passed=True)
     (repo / "src" / "A.agda").write_text("module A where\n-- y\n", encoding="utf-8")
-    _ = _commit(repo, "feat: later, no claim")
+    _ = commit(repo, "feat: later, no claim")
     assert _run_gate(repo, monkeypatch, mode=audited) == 0
     assert _run_gate(repo, monkeypatch, mode="HEAD") == 0, "HEAD claims nothing"
 
@@ -309,6 +284,6 @@ def test_e2e_a_root_commit_is_diffed_against_nothing_not_skipped(
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
     (repo / "src" / "A.agda").write_text("module A where\n", encoding="utf-8")
-    _git(repo, "init", "-q", "-b", "main")
-    _ = _commit(repo, CLAIM)
+    git(repo, "init", "-q", "-b", "main")
+    _ = commit(repo, CLAIM)
     assert _run_gate(repo, monkeypatch) == 1

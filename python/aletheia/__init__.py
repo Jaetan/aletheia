@@ -53,6 +53,7 @@ Use the fluent Signal interface to build properties:
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
+from aletheia import dbc
 from aletheia.checks import CheckResult
 
 # pylint: disable=cyclic-import
@@ -101,20 +102,10 @@ from aletheia.client._types import (
     dlc_to_bytes,
 )
 from aletheia.codes import ErrorCode, IssueCode, ValidationIssue
-from aletheia.dbc import (
-    always_present_signals,
-    convert_dbc_file,
-    dbc_to_json,
-    dbc_to_text,
-    is_multiplexed,
-    message_by_id,
-    message_by_name,
-    multiplexed_signals,
-    multiplexor_names,
-    mux_values,
-    signal_by_name,
-    signals_for_mux_value,
-)
+
+# The whole of ``aletheia.dbc``'s surface, named once in its own ``__all__``
+# and added to this one below; ruff cannot see a star import's names.
+from aletheia.dbc import *  # noqa: F403
 from aletheia.dsl import Predicate, Property, Signal, eventually_always, infinitely_often, never
 from aletheia.types import (
     DBCDefinition,
@@ -193,28 +184,18 @@ __all__ = [
     "TextRoundTripFailedError",
     "ValidationError",
     "ValidationIssue",
-    "always_present_signals",
     "bytes_to_dlc",
-    "convert_dbc_file",
     "create_template",  # pip install aletheia[excel]
-    "dbc_to_json",
-    "dbc_to_text",
     "dlc_to_bytes",
     "eventually_always",
     "from_decimal",
     "infinitely_often",
-    "is_multiplexed",
     "iter_can_log",  # pip install aletheia[can]
     "load_can_log",  # pip install aletheia[can]
     "load_checks",  # pip install aletheia[yaml]
     "load_checks_from_excel",  # pip install aletheia[excel]
     "load_dbc_from_excel",  # pip install aletheia[excel]
-    "message_by_id",
-    "message_by_name",
-    "multiplexed_signals",
-    "multiplexor_names",
-    "mux_values",
     "never",
-    "signal_by_name",
-    "signals_for_mux_value",
 ]
+# ``aletheia.dbc`` names its own public surface; every name in it is public here too.
+__all__ += dbc.__all__

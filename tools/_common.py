@@ -577,3 +577,43 @@ def prose_lines(rel: str, text: str) -> list[tuple[int, str]]:
             continue
         out.append((lineno, _INLINE_CODE.sub("", line) if is_markdown else line))
     return out
+
+
+def scan_tracked_tree(
+    repo: Path,
+    is_exempt: Callable[[str], bool],
+    scan_text: Callable[[str, str], list[str]],
+) -> list[str]:
+    """Return ``scan_text``'s findings over every tracked file of ``repo`` a gate reads.
+
+    A file ``is_exempt`` names, or one of the binary shapes, is skipped; a file
+    that cannot be read contributes no finding.
+    """
+    findings: list[str] = []
+    for rel in git_ls_files(repo):
+        if is_exempt(rel) or Path(rel).suffix in BINARY_SUFFIXES:
+            continue
+        try:
+            text = (repo / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError, ValueError:
+            continue
+        findings.extend(scan_text(rel, text))
+    return findings
+
+
+def workflow_files(gate: str, policy: str, repo_root: Path) -> list[Path] | None:
+    """Return the workflow files under ``repo_root``, or None once the gate said there are none.
+
+    A gate certifying ``policy`` over the workflows certifies nothing with no
+    workflows to read, so a missing directory is the caller's could-not-check.
+    """
+    directory = repo_root / ".github" / "workflows"
+    if not directory.is_dir():
+        _ = sys.stderr.write(
+            f"{gate}: FAIL — {directory} does not exist.\n"
+            + f"This gate certifies {policy}; with no workflows to read it cannot certify\n"
+            + "anything, and passing here would report a policy that was never applied.\n"
+            + "Restore the directory, or drop this gate deliberately.\n",
+        )
+        return None
+    return sorted(directory.glob("*.y*ml"))

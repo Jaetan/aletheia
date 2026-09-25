@@ -208,17 +208,23 @@ def _git_value(repo_root: Path, *args: str) -> str:
 
 
 @dataclass
-class OptInOptions:
-    """Resolved opt-in lane state.  CLI > env > default-off precedence."""
+class OptInLanes:
+    """The opt-in lanes, each adding its steps to the sweep when enabled."""
 
     repro: bool
     stability: bool
     mutation: bool
+
+
+@dataclass
+class OptInOptions:
+    """Resolved opt-in state.  CLI > env > default-off precedence."""
+
+    lanes: OptInLanes
     # Mode flag, NOT a timing lane: switches the IWYU gate (step 9) from
     # `--diff` (branch-scoped, fast — local pre-push-hook parity) to `--all`
     # (whole-tree, airtight against cross-file deadness — the server-side
-    # merge gate).  Deliberately excluded from any_enabled / enabled_count:
-    # it adds no step and does not change total_steps.
+    # merge gate).  It adds no step and does not change total_steps.
     iwyu_all: bool = False
     # Lane-parallel gate execution + the heavy-step concurrency cap.  Default
     # serial (run_lanes serial=True): exit-code-identical to today.  --parallel
@@ -238,15 +244,6 @@ class OptInOptions:
     # runs the full sweep.  A no-op subset filter, so it never changes a step's
     # command — no gate drift between commit-time and push-time definitions.
     fast: bool = False
-
-    @property
-    def any_enabled(self) -> bool:
-        """Report whether at least one opt-in lane is enabled."""
-        return self.repro or self.stability or self.mutation
-
-    def enabled_count(self) -> int:
-        """Count how many opt-in lanes are enabled."""
-        return sum([self.repro, self.stability, self.mutation])
 
 
 def _resolve_flag(*, cli_value: bool | None, env_var: str) -> bool:
@@ -413,9 +410,11 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
                 setattr(args, lane, True)
 
     return OptInOptions(
-        repro=_resolve_flag(cli_value=args.repro, env_var="ALETHEIA_REPRO_CHECK"),
-        stability=_resolve_flag(cli_value=args.stability, env_var="ALETHEIA_STABILITY_CHECK"),
-        mutation=_resolve_flag(cli_value=args.mutation, env_var="ALETHEIA_MUTATION_CHECK"),
+        lanes=OptInLanes(
+            repro=_resolve_flag(cli_value=args.repro, env_var="ALETHEIA_REPRO_CHECK"),
+            stability=_resolve_flag(cli_value=args.stability, env_var="ALETHEIA_STABILITY_CHECK"),
+            mutation=_resolve_flag(cli_value=args.mutation, env_var="ALETHEIA_MUTATION_CHECK"),
+        ),
         iwyu_all=args.iwyu_all or os.environ.get("ALETHEIA_IWYU_ALL") == "1",
         parallel=_resolve_flag(cli_value=args.parallel, env_var="ALETHEIA_CI_PARALLEL"),
         heavy_limit=_resolve_heavy_limit(args.ci_heavy_limit),
@@ -531,9 +530,9 @@ class Runner:
         opt_in = " ".join(
             f"+{name}" if enabled else f"-{name}"
             for name, enabled in (
-                ("repro", self.opts.repro),
-                ("stability", self.opts.stability),
-                ("mutation", self.opts.mutation),
+                ("repro", self.opts.lanes.repro),
+                ("stability", self.opts.lanes.stability),
+                ("mutation", self.opts.lanes.mutation),
             )
         )
         mode = (
