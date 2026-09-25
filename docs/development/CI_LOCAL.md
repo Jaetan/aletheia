@@ -97,8 +97,9 @@ distant modules, rebuilds, and checks two properties:
    here.
 
 Every edited source is restored on exit, on SIGINT and on SIGTERM.  SIGKILL
-bypasses that: a killed run leaves its marker in the two sources and its build
-child running, and that child holds Shake's lock until it finishes.  The marker
+bypasses that and leaves the run's marker in the two sources.  The build runs
+in a process group of its own under a guard that interrupts it when the gate
+dies, however it dies, so a killed run leaves no build behind.  The marker
 names the run that wrote it, so the next gate run refuses before it builds and
 says which run was interrupted, whether it still lives, and the edit that
 restores the file; it also refuses while a build holds Shake's lock, naming

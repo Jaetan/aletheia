@@ -829,6 +829,27 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A killed staleness gate stops the build it started, and a held tree lock
+  is never called stale.** `tools/check_build_incremental.py` ran
+  `cabal run shake -- build` as a plain child, so a gate killed mid-build left
+  the build running: it kept Shake's lock and relinked the `.so` with the
+  killed run's marker in it. The build now runs under `run_guarded` in
+  `tools/_common.py`, which starts it through `tools/_guarded_run.py` in a
+  process group of its own. The guard holds the read end of a pipe only the
+  gate writes to, reads end-of-file when the gate closes it or dies however it
+  dies, and then sends the group the SIGINT a terminal's Ctrl-C would, on which
+  Shake stops the agda it runs in a group of its own; what is left once the
+  command exits gets SIGKILL. A gate SIGKILLed mid-build left no cabal, shake
+  or agda behind and Shake's lock free 0.15s later, where before the build ran
+  to the end. The Agda tree lock's contention message read a held lock whose
+  recorded pid had exited as `stale?`, inviting a delete of a lock a live
+  process holds; a held flock has a live holder by construction, and the
+  message now says so. Tests cover the killed and the interrupted caller, a
+  command that ignores the interrupt, a guard outside a group of its own, the
+  pipe's descriptors and both lock messages; one probe SIGKILLs the gate's
+  build step over a stand-in build, and one shows the lock's descriptor never
+  reaches a process a tool starts.
+
 - **A gate run by a hook in a linked worktree finds the worktree's root.**
   Git exports `GIT_DIR` to a hook there, and with it set git takes the
   directory it runs in as the work tree, so `git_toplevel` in
