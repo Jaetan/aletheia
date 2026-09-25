@@ -829,6 +829,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A gate run by a hook in a linked worktree finds the worktree's root.**
+  Git exports `GIT_DIR` to a hook there, and with it set git takes the
+  directory it runs in as the work tree, so `git_toplevel` in
+  `tools/_common.py`, which asks from the `tools` directory, answered that
+  directory, and the pre-commit hook's SPDX gate failed with
+  `LICENSE.md not found` on every commit made in a worktree. The lookup now
+  runs git without `GIT_DIR` or `GIT_WORK_TREE`, so the root comes from the
+  path asked about. A test sets each variable in turn, and a probe commits in
+  a detached worktree through a hook that runs the SPDX gate.
+
 - **The CAN-log reader's docstrings name the frame tuple's own fields.**
   `load_can_log` and `iter_can_log` described their tuples as
   `(timestamp_us, arbitration_id, ...)`, where `CANFrameTuple` names its
