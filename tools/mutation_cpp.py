@@ -670,7 +670,10 @@ def merge_elements(reports: list[Mapping[str, object]]) -> dict[str, object]:
     instrument read it.  A tree that drops a mutator carries none of that
     mutator's mutants, and a lane that never read a mutant says nothing about
     it: judging on the intersection alone would read its absence as a kill,
-    which is the one direction a merge must not invent.
+    which is the one direction a merge must not invent.  The merged census is
+    the union, each mutant's row taken from the first report carrying it, so
+    a mutant only a later tree read is judged too and the kill-route census,
+    which unions the lanes the same way, counts the same survivors.
     """
     carried: list[set[str]] = []
     survivors: list[set[str]] = []
@@ -684,7 +687,19 @@ def merge_elements(reports: list[Mapping[str, object]]) -> dict[str, object]:
         carried.append({str(mutant["id"]) for mutant in mutants})
         survivors.append({str(m["id"]) for m in mutants if m.get("status") == "Survived"})
     merged = copy.deepcopy(dict(reports[0]))
-    files = cast("dict[str, dict[str, object]]", merged.get("files", {}))
+    files = cast("dict[str, dict[str, object]]", merged.setdefault("files", {}))
+    seen = set(carried[0])
+    for report in reports[1:]:
+        entries = cast("Mapping[str, Mapping[str, object]]", report.get("files", {}))
+        for path, entry in entries.items():
+            mutants = cast("list[Mapping[str, object]]", entry.get("mutants", []))
+            unseen = [copy.deepcopy(dict(m)) for m in mutants if str(m["id"]) not in seen]
+            if not unseen:
+                continue
+            seen.update(str(m["id"]) for m in unseen)
+            if path not in files:
+                files[path] = {**copy.deepcopy(dict(entry)), "mutants": []}
+            cast("list[object]", files[path]["mutants"]).extend(unseen)
     for entry in files.values():
         for mutant in cast("list[dict[str, object]]", entry.get("mutants", [])):
             if mutant.get("status") != "Survived":
