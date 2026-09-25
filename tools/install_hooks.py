@@ -127,10 +127,10 @@ later at pre-push.  The full sweep still runs at pre-push.
 
 Staged-content isolation: unstaged + untracked changes are stashed
 (`--keep-index --include-untracked`) so the gates see exactly what is being
-committed, then restored in a `finally`.  The stash is named; if a restore
-ever fails, the message says where the work is (recoverable via `git stash`).
-Every FAST gate is non-mutating (`--check` / `--dry-run`), so the pop never
-conflicts with the check itself.
+committed, then written back file by file in a `finally`, from the stash's
+own trees and never through a merge, so a file staged in part comes back
+whole.  The stash is named; if a restore ever fails, the message says where
+the work is and the commands that write it back.
 
 Then runs the `.agda` IWYU import gate (`tools/iwyu.py --check`) on the
 staged `.agda` files and BLOCKS on any finding, and on a run that never
@@ -241,18 +241,73 @@ def _create_stash(root):
     return sha or None
 
 
+def _stash_paths(root, sha):
+    # The paths the stash *sha* changed, NUL-separated, one list per tree the
+    # restore reads: the tracked paths whose worktree content differed from
+    # the index (the stash commit's tree against its index parent, every
+    # status, so a deletion is listed too), and the untracked files, which sit
+    # in a third parent git makes only when there were any.
+    tracked = _run(
+        ["git", "diff", "--name-only", "--no-renames", "-z", sha + "^2", sha], cwd=root
+    ).stdout
+    untracked = ""
+    if _run(["git", "rev-parse", "-q", "--verify", sha + "^3"], cwd=root).returncode == 0:
+        untracked = _run(
+            ["git", "ls-tree", "-r", "-z", "--name-only", sha + "^3"], cwd=root
+        ).stdout
+    return tracked, untracked
+
+
+def _restore_worktree(root, source, paths):
+    # Write the worktree files under *paths* from the tree *source*, file by
+    # file: a path the tree lacks is removed. The index is not touched, since
+    # the commit reads it after the hook. The pathspecs go in on stdin, not
+    # argv, because a stash can carry a whole build tree.
+    if not paths:
+        return None
+    return subprocess.run(
+        [
+            "git",
+            "restore",
+            "--source=" + source,
+            "--worktree",
+            "--pathspec-from-file=-",
+            "--pathspec-file-nul",
+        ],
+        input=paths,
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=root,
+    )
+
+
 def _restore_stash(root, sha):
-    # Restore exactly the stash commit *sha* — NOT `git stash pop`, which pops the
-    # top of the stack (a stash created concurrently during the hook could shift
-    # it).  Apply by sha, then drop the matching entry by locating its ref.
-    app = _run(["git", "stash", "apply", sha], cwd=root)
-    if app.returncode != 0:
-        sys.stderr.write(
-            "\\npre-commit: FAILED to restore your unstaged changes!\\n"
-            "pre-commit: they are SAFE in stash commit " + sha + " — recover with:\\n"
-            "pre-commit:   git stash apply " + sha + "\\n" + app.stderr
-        )
-        return
+    # Write the stash commit *sha*'s worktree back file by file, never merging:
+    # `git stash apply` merges the stash three ways against HEAD, and a file
+    # staged in part has the index's version and the stash's whole version
+    # changing one region, so the apply stops unmerged after the gates passed.
+    # Tracked changes come from the stash's own tree, untracked files from its
+    # third parent, and a path the stash records as deleted is removed, since
+    # a restore from a tree that lacks the path removes it. Then drop the entry
+    # by locating its ref, NOT `git stash pop`, whose top a stash created
+    # concurrently during the hook could shift.
+    tracked, untracked = _stash_paths(root, sha)
+    for source, paths in ((sha, tracked), (sha + "^3", untracked)):
+        res = _restore_worktree(root, source, paths)
+        if res is not None and res.returncode != 0:
+            sys.stderr.write(
+                "\\npre-commit: FAILED to restore your unstaged changes!\\n"
+                "pre-commit: they are SAFE in stash commit " + sha + " -- write them back with:\\n"
+                "pre-commit:   git diff --name-only --no-renames -z " + sha + "^2 " + sha
+                + " | git restore --source=" + sha
+                + " --worktree --pathspec-from-file=- --pathspec-file-nul\\n"
+                "pre-commit:   git ls-tree -r -z --name-only " + sha + "^3"
+                + " | git restore --source=" + sha
+                + "^3 --worktree --pathspec-from-file=- --pathspec-file-nul\\n"
+                + res.stderr
+            )
+            return
     listing = _run(["git", "stash", "list", "--format=%gd %H"], cwd=root).stdout
     for line in listing.splitlines():
         parts = line.split()

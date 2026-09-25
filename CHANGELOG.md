@@ -821,6 +821,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The pre-commit hook writes a file staged in part back whole.** The hook
+  parks unstaged and untracked changes while its gates run, and wrote them
+  back with `git stash apply`, a three-way merge against `HEAD`: a file whose
+  index held some of its hunks and whose worktree held them all changed one
+  region on both sides, and the merge stopped unmerged after the gates had
+  passed, failing the commit and leaving the tree half applied. The restore
+  now writes the stash's own trees back file by file, the tracked changes
+  from the stash commit, the untracked files from its third parent, a deleted
+  path removed, and never touches the index.
+
 - **A probe edits a scratch copy of the tree, never the tree.** Seven probes
   in the store appended a fixture to a tracked source, or drifted a header or a
   record, and restored it on exit, so between the two the file read as the
