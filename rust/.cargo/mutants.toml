@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# The mutation lane's configuration, read by cargo-mutants from the crate it
+# examines, so a sweep at the terminal and the lane's sweep make one set.
+#
+# The files are the hot path the Rust coding standard names: the response
+# decoder, the DBC model, the domain types and the FFI backend.  Every
+# feature is on, as the suite is run everywhere else, so the async client's
+# tests are among the ones a mutant has to get past.
+#
+# The sweep runs in place (tools/mutation_run.py passes `--in-place`): the
+# suite includes the DBC corpus and the parity snapshots under python/ at
+# compile time, and the documents under docs/ at run time, so a copy of the
+# crate alone does not build.  In place, one mutant runs at a time.
+examine_globs = ["src/response.rs", "src/dbc.rs", "src/types.rs", "src/backend.rs"]
+all_features = true
+# A function returning Result gets an Err mutant only from a value named here:
+# without one, cargo-mutants can offer it only Ok of a default, and a Result
+# whose error type has no default yields nothing viable at all.  Any variant
+# serves, a test that expects Ok failing on every one of them; Protocol is the
+# one the decoders themselves raise, so a test asserting on the message text
+# still tells the mutant from the code's own refusal.
+error_values = ["crate::Error::Protocol(String::new())"]

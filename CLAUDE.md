@@ -26,6 +26,7 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
   - **Python**: `mutmut` 3.x via `python/.venv/bin/pip install -e 'python/.[mutation]'` (the `[mutation]` extras pin mutmut exactly, because a mutation baseline is a measured count and its generator cannot float).
   - **Go**: `gremlins` via `go install github.com/go-gremlins/gremlins/cmd/gremlins@latest` (lands in `~/go/bin/`; gremlins substitutes for AGENTS.md cat 14(g) `go-mutesting` because the named tool is unmaintained since 2021 and panics on Go 1.26's `go/types` internals).
   - **C++**: `Mull` 0.34.1 (LLVM-23), built from source by `tools/build_mull.sh` against system LLVM-23 (Bazel; `clang-23` + `llvm-23-dev`; the script carries the patch Mull needs to see LLVM 23) into `~/.local/bin/` as `mull-{runner,reporter,ir-frontend}-23`. Procedure: [docs/operations/MUTATION.md § C++](docs/operations/MUTATION.md); CI caches it (`.github/workflows/pr-heavy-lanes.yml`). The `ALETHEIA_MUTATION` build folds the real-`.so` integration tests into `unit_tests` so FfiBackend is on the mutation surface.
+  - **Rust**: `cargo-mutants` at the version `docs/MUTATION_BENCH.yaml` pins (`cargo install cargo-mutants --version <pin> --locked`); the runner refuses any other, and sweeps the crate in place (`rust/.cargo/mutants.toml`).
   Each tool's absence is auto-detected by the mutation runner (per-binding skip-with-precise-error); the orchestrator's static gate `tools/check_mutation_setup.py` runs always-on regardless of tool install state.
 
 **Type-check command** (always cap heap):

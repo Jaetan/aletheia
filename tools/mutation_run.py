@@ -3,7 +3,8 @@
 """Dynamic mutation-testing runner.
 
 Drives each binding's mutation tool in turn (mutmut for Python, gremlins for
-Go, Mull for C++ in ``tools/mutation_cpp.py``), parses tool-specific output
+Go, Mull for C++ in ``tools/mutation_cpp.py``, cargo-mutants for Rust in
+``tools/mutation_rust.py``), parses tool-specific output
 into a normalized ``MutationReport`` shape (``tools/mutation_report.py``), and
 archives per-binding JSON to ``benchmarks/mutation/<short_sha>/``.
 
@@ -45,6 +46,7 @@ Optional per-binding skip (useful for partial runs in CI lanes):
   - ALETHEIA_MUTATION_SKIP_PYTHON=1
   - ALETHEIA_MUTATION_SKIP_GO=1
   - ALETHEIA_MUTATION_SKIP_CPP=1
+  - ALETHEIA_MUTATION_SKIP_RUST=1
 
 The C++ lane in stages, so CI can sweep its two trees on two machines:
 
@@ -76,6 +78,11 @@ Artifacts written:
     python.json    {tool, total_mutants, killed, survived, score_pct, raw_log}
     go.json        same shape
     cpp.json       same shape
+    rust.json      same shape
+    rust/mutants.out/
+                   cargo-mutants' own report directory: outcomes.json, every
+                   Rust mutant with its bucket and its site, which the ledger
+                   check reads, and a log per mutant
     cpp-leak.json, cpp-plain.json
                    one leg's census where the run is one leg of the C++
                    lane (ALETHEIA_MUTATION_CPP_STAGE); recorded, not gated
@@ -142,6 +149,7 @@ from tools.mutation_report import (
     unobserved_ledger_to_rows,
     unobserved_rows_to_ledger,
 )
+from tools.mutation_rust import run_rust, rust_survivor_rows
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -417,10 +425,11 @@ def go_not_covered_rows(raw: str, repo_root: Path = REPO_ROOT) -> dict[SurvivorK
 # mutation-config-only edit can raise a binding's survivor count.  Under-scoping
 # a binding is a correctness bug (a real regression skipped); over-scoping only
 # costs time — so per-binding we scope generously.
-_BINDING_DIRS: dict[str, str] = {
+BINDING_DIRS: dict[str, str] = {
     "python": "python/",
     "go": "go/",
     "cpp": "cpp/",
+    "rust": "rust/",
 }
 
 # A change under any of these can alter the shared ``.so`` every binding dlopens,
@@ -482,7 +491,7 @@ def bindings_in_scope(
     function.
     """
     if binding_dirs is None:
-        binding_dirs = _BINDING_DIRS
+        binding_dirs = BINDING_DIRS
     if os.environ.get(no_scope_env) == "1":
         return None
     try:
@@ -511,6 +520,7 @@ RUNNERS: list[tuple[str, str, Callable[[Path], MutationReport]]] = [
     ("python", "ALETHEIA_MUTATION_SKIP_PYTHON", run_python),
     ("go", "ALETHEIA_MUTATION_SKIP_GO", run_go),
     ("cpp", "ALETHEIA_MUTATION_SKIP_CPP", run_cpp),
+    ("rust", "ALETHEIA_MUTATION_SKIP_RUST", run_rust),
 ]
 
 
@@ -535,7 +545,7 @@ def _run_enabled_bindings(
             continue
         if in_scope is not None and name not in in_scope:
             _ = sys.stderr.write(
-                f"[mutation] skip {name}: no change under {_BINDING_DIRS[name]} (diff-scoped)\n"
+                f"[mutation] skip {name}: no change under {BINDING_DIRS[name]} (diff-scoped)\n"
             )
             continue
         started = time.monotonic()
@@ -720,6 +730,8 @@ def main() -> int:
     for rep in reports:
         is_cpp = rep.binding == "cpp"
         rows = cpp_survivor_rows(artifact_dir) if is_cpp else None
+        if rep.binding == "rust":
+            rows = rust_survivor_rows(artifact_dir)
         unobserved = cpp_unobserved_rows(artifact_dir) if is_cpp else None
         not_covered = go_not_covered_rows(rep.raw_log) if rep.binding == "go" else None
         drift[rep.binding] = drift_for(rep, bindings, rows, unobserved, not_covered)

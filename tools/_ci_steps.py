@@ -758,7 +758,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
             "set ALETHEIA_STABILITY_CHECK=1 or pass --stability to enable",
         )
 
-    # Opt-in: mutation testing across all 3 bindings ─────────────
+    # Opt-in: mutation testing across all 4 bindings ─────────────
     # Cat 14g.  AGENTS.md: "Mutation testing runs as a separate CI lane
     # (cost is high) — once per PR is sufficient; per-commit is overkill."
     # Default OFF.  See docs/operations/MUTATION.md.

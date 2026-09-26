@@ -59,11 +59,14 @@ def _fake_diff(monkeypatch: pytest.MonkeyPatch, *, files: list[str], returncode:
         (["go/aletheia/check.go"], {"go"}),
         (["python/aletheia/checks.py"], {"python"}),
         (["cpp/src/client.cpp"], {"cpp"}),
+        (["rust/src/backend.rs"], {"rust"}),
         # per-binding TESTS — the under-scoping regression witnesses
         (["python/tests/test_checks.py"], {"python"}),
         (["cpp/tests/test_client.cpp"], {"cpp"}),
+        (["rust/tests/frame_ops.rs"], {"rust"}),
         # per-binding config (changes what gets mutated / how tests build)
         (["python/pyproject.toml"], {"python"}),
+        (["rust/.cargo/mutants.toml"], {"rust"}),
         (["cpp/CMakeLists.txt"], {"cpp"}),
         # multiple bindings
         (["go/aletheia/check.go", "python/aletheia/checks.py"], {"go", "python"}),

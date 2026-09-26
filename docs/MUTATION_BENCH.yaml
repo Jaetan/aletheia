@@ -1237,3 +1237,85 @@ bindings:
           route: check
           refused: __count <= size()
           count: 1
+
+  rust:
+    tool: cargo-mutants
+    # Pinned exactly, for the reason mutmut is: two releases generate different
+    # mutant sets, and a baseline is a count of one set.  The runner refuses
+    # any other version; the workflow installs and caches this one.
+    version: "27.1.0"
+    install: |
+      cargo install cargo-mutants --version 27.1.0 --locked
+    hot_path:
+      # The cat 14(g) Rust list: the response decoder, the DBC model, the
+      # domain types and the FFI backend.  These are the files
+      # rust/.cargo/mutants.toml names, so the static gate's list and the
+      # tool's are one; a file added there is added here.
+      - rust/src/response.rs
+      - rust/src/dbc.rs
+      - rust/src/types.rs
+      - rust/src/backend.rs
+    config:
+      # cargo-mutants reads this from the crate it examines: the files above
+      # and every feature on, as the suite is run everywhere else.
+      examine: rust/.cargo/mutants.toml
+    invocation: |
+      # In place, because the suite includes the DBC corpus and the parity
+      # snapshots from above the crate at compile time and reads the documents
+      # under docs/ at run time, so a copy of the crate alone does not build
+      # (the probe over rust/ holds that).  One mutant runs at a time; the
+      # file is restored after each and on an interrupt, and a process killed
+      # outright leaves the mutant where `git diff rust/src` shows it.
+      cd rust && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so cargo mutants --in-place
+    report: |
+      # cargo-mutants writes every mutant's bucket and site to
+      # mutants.out/outcomes.json under the directory --output names; the
+      # console prints only what was missed.  The runner reads the file:
+      # caught is killed, missed is survived, timed out is neither and is held
+      # to the ceiling below, and unviable is a mutant that did not build.
+    baseline:
+      # The record is a measurement of the surface under the pinned tool: the
+      # mutants generated and the unviable among them are properties of the
+      # source and the tool, the survivors of the source and its tests, and
+      # the probe over this file re-sweeps and compares all three.
+      #
+      # What the set is made of: for every function, its body replaced by
+      # each value of its return type the tool can name (an empty or a
+      # one-element vector, zero, one, the empty string, a nonsense string,
+      # Ok of those, the unit, and Err of the error value the configuration
+      # names), and every binary operator swapped for its neighbours (an
+      # arithmetic operator for each other, a comparison for its boundary
+      # and its negation).  A mutant that does not build is unviable, and
+      # the tool counts it apart: a Result's Ok of a default where the
+      # value type has no default, a type with no default to hand back, a
+      # reference to a leaked default of a type that has none, the named
+      # error value where the Result is the formatter's rather than the
+      # crate's, and an arithmetic swap the compiler refuses on a constant.
+      # A kill is a test failing, a panic included.
+      #
+      # The two survivors are the Drop impls that return memory to the kernel:
+      # the response string's and the backend handle's.  Removing either frees
+      # nothing, which no test observes without a leak checker, and the lane
+      # runs on the stable toolchain, whose sanitizers are nightly-only.  They
+      # are recorded rather than justified in the source; a nightly leak leg
+      # would kill both and retire the rows.
+      survivors: 2
+      generated: 369
+      unviable: 57
+      timeouts: 0
+      total_mutants: 312
+      score_pct: 99
+      run_at: "2026-09-26"
+      # A quiet host on a warm target directory times out on none; the auto-set
+      # timeout is twenty seconds against a suite that runs in about one.  A
+      # loaded host that timed out on a tenth of the set is refused.
+      timeout_ceiling: 30
+      survivors_ledger:
+        - mutator: replace <impl Drop for FfiBackend>::drop with ()
+          file: rust/src/backend.rs
+          text: if let Ok(syms) = symbols() {
+          count: 1
+        - mutator: replace <impl Drop for Response>::drop with ()
+          file: rust/src/backend.rs
+          text: unsafe { (self.free_str)(self.ptr) };
+          count: 1

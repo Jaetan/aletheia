@@ -3,7 +3,7 @@
 """A mutation lane installs what its own sweep needs, and asks the runner which that is.
 
 ``tools.mutation_scope`` answers, for one binding, the question
-``tools.mutation_run`` answers for all three, and it answers it from that same
+``tools.mutation_run`` answers for every binding, and it answers it from that same
 function rather than from a second reading of the diff.  The heavy-lanes
 workflow puts the question ahead of its toolchain steps and gates them on the
 answer, so a lane whose binding no change touched installs nothing.
@@ -175,5 +175,5 @@ def test_the_answer_is_written_where_the_workflow_reads_it(
 def test_a_binding_no_runner_has_is_refused() -> None:
     """A lane naming an unknown binding must fail, not quietly skip its own toolchain."""
     with pytest.raises(SystemExit) as refusal:
-        _ = mutation_scope.main(["--binding", "rust"])
+        _ = mutation_scope.main(["--binding", "haskell"])
     assert refusal.value.code == 2

@@ -627,7 +627,7 @@ After successful build:
 
 This section lists the third-party software Aletheia depends on, its licences, and the resulting obligations when distributing Aletheia. Versions are not repeated here: each layer's pins live in the build file the layer names below, and the [Prerequisites](#prerequisites) carry the toolchain versions.
 
-**Optional opt-in tooling not listed below**: `actionlint` (MIT), `act` (MIT) for the GHA meta-checks described in [CI_LOCAL.md](CI_LOCAL.md); `mutmut` (BSD-3), `gremlins` (Apache-2.0), `Mull` (MIT) for the mutation-testing lane described in [MUTATION.md](../operations/MUTATION.md). These are dev-only and are NOT linked into `libaletheia-ffi.so`, so they create no distribution obligation.
+**Optional opt-in tooling not listed below**: `actionlint` (MIT), `act` (MIT) for the GHA meta-checks described in [CI_LOCAL.md](CI_LOCAL.md); `mutmut` (BSD-3), `gremlins` (Apache-2.0), `Mull` (MIT), `cargo-mutants` (MIT) for the mutation-testing lane described in [MUTATION.md](../operations/MUTATION.md). These are dev-only and are NOT linked into `libaletheia-ffi.so`, so they create no distribution obligation.
 
 Aletheia itself is licensed under **BSD-2-Clause** (see [LICENSE.md](../../LICENSE.md)).
 

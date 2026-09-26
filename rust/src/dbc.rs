@@ -1127,7 +1127,7 @@ impl Dbc {
 
 #[cfg(test)]
 mod tests {
-    use super::{AttrTarget, AttrType, AttrValue, Attribute, Dbc, Presence};
+    use super::{AttrTarget, AttrType, AttrValue, Attribute, CommentTarget, Dbc, Presence};
     use crate::types::{CanId, Rational};
     use serde_json::{json, Value};
 
@@ -1201,6 +1201,90 @@ mod tests {
         );
         assert_eq!(m.multiplexor_names(), vec!["Mode"]);
         assert_eq!(m.multiplex_values("Mode"), vec![0_u64, 1, 2]);
+    }
+
+    #[test]
+    fn message_signals_split_by_presence() {
+        let d = decode(snapshot!("multiplexing"));
+        let m = d
+            .message_by_id(CanId::standard(100).expect("valid id"))
+            .expect("message 100");
+        fn names(signals: Vec<&super::DbcSignal>) -> Vec<&str> {
+            signals.iter().map(|s| s.name.as_str()).collect()
+        }
+        assert_eq!(
+            names(m.always_present_signals()),
+            vec!["Mode", "CommonCounter"]
+        );
+        assert_eq!(
+            names(m.multiplexed_signals()),
+            vec!["PayloadA", "PayloadB", "PayloadC"]
+        );
+        // A message with no multiplexor: every signal always present, none multiplexed.
+        let plain = decode(snapshot!("minimal"));
+        let engine = plain.message_by_name("EngineStatus").expect("EngineStatus");
+        assert!(!engine.is_multiplexed());
+        assert_eq!(engine.always_present_signals().len(), engine.signals.len());
+        assert!(engine.multiplexed_signals().is_empty());
+    }
+
+    #[test]
+    fn message_by_name_finds_the_named_message_only() {
+        let d = decode(snapshot!("minimal"));
+        assert_eq!(
+            d.message_by_name("BrakeStatus").map(|m| m.id),
+            Some(512),
+            "the second message, so a lookup that stops at the first is caught"
+        );
+        assert!(d.message_by_name("NoSuchMessage").is_none());
+    }
+
+    #[test]
+    fn multiplex_value_at_the_u32_maximum_is_accepted() {
+        // The kernel's selector values are u32; the decoder refuses a value past
+        // the maximum and accepts the maximum itself.
+        let mut v: Value = serde_json::from_str(snapshot!("multiplexing")).expect("valid JSON");
+        v["messages"][0]["signals"][1]["multiplex_values"] = json!([u32::MAX]);
+        let d = Dbc::from_value(&v).expect("u32::MAX is a valid selector value");
+        assert_eq!(
+            d.messages[0].signals[1].presence,
+            Presence::Multiplexed {
+                multiplexor: "Mode".to_string(),
+                values: vec![u64::from(u32::MAX)]
+            }
+        );
+        v["messages"][0]["signals"][1]["multiplex_values"] = json!([u64::from(u32::MAX) + 1]);
+        assert!(Dbc::from_value(&v).is_err());
+    }
+
+    #[test]
+    fn comment_target_extended_flag_defaults_to_standard() {
+        // The corpus writes no `extended` key on its message and signal comment
+        // targets, so each decodes as a standard id; the key set true is read.
+        let d = decode(snapshot!("comments_groups"));
+        let on_ids: Vec<bool> = d
+            .comments
+            .iter()
+            .filter_map(|c| match c.target {
+                CommentTarget::Message { extended, .. }
+                | CommentTarget::Signal { extended, .. } => Some(extended),
+                _ => None,
+            })
+            .collect();
+        assert!(!on_ids.is_empty() && on_ids.iter().all(|e| !e));
+        let mut v: Value = serde_json::from_str(snapshot!("comments_groups")).expect("valid JSON");
+        let target = v["comments"]
+            .as_array_mut()
+            .expect("comments")
+            .iter_mut()
+            .find(|c| c["target"]["kind"] == "message")
+            .expect("a message comment");
+        target["target"]["extended"] = json!(true);
+        let d = Dbc::from_value(&v).expect("decodes");
+        assert!(d
+            .comments
+            .iter()
+            .any(|c| matches!(c.target, CommentTarget::Message { extended: true, .. })));
     }
 
     #[test]

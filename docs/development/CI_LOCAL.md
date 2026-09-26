@@ -149,7 +149,7 @@ Each opt-in lane has a CLI flag, an env-var fallback, and a paired
 |---|---|---|---|
 | `--repro` | `ALETHEIA_REPRO_CHECK=1` | ~10 min | Two-clean-build sha256 verification |
 | `--stability` | `ALETHEIA_STABILITY_CHECK=1` | ~5 min | Long-run leak detection across 3 bindings + GHC RTS heap profile |
-| `--mutation` | `ALETHEIA_MUTATION_CHECK=1` | ~30 min - 2 hrs | Per-binding mutation testing — mutmut / gremlins / Mull |
+| `--mutation` | `ALETHEIA_MUTATION_CHECK=1` | ~30 min - 2 hrs | Per-binding mutation testing — mutmut / gremlins / Mull / cargo-mutants |
 | `--coverage` | `ALETHEIA_COVERAGE_CHECK=1` | ~3 min | Per-binding coverage floors — coverage.py / `go test -cover` / llvm-cov / cargo-llvm-cov |
 
 Precedence: **CLI flag > env var > default-off**.  `--full` enables every
@@ -208,7 +208,7 @@ harnesses use stdlib facilities only.  Install via:
 cd python && .venv/bin/pip install -e '.[dev]'
 ```
 
-**Mutation lane (`--mutation`)** — needs three tools (one per binding).
+**Mutation lane (`--mutation`)** — needs four tools (one per binding).
 See [`docs/operations/MUTATION.md`](../operations/MUTATION.md) for the
 full procedure including baseline-management; quick install:
 
@@ -226,8 +226,12 @@ go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
 # stops at LLVM 22, so the script carries the patch).  The procedure, apt deps
 # included, is in docs/operations/MUTATION.md § C++.
 
-# Verify all three are discoverable
-which mutmut gremlins mull-runner-23  # mutmut is in python/.venv/bin/
+# Rust: cargo-mutants at the version docs/MUTATION_BENCH.yaml pins, which the
+# runner refuses at any other.
+cargo install cargo-mutants --version 27.1.0 --locked
+
+# Verify all four are discoverable
+which mutmut gremlins mull-runner-23 cargo-mutants  # mutmut is in python/.venv/bin/
 ```
 
 **Coverage lane (`--coverage`)** — coverage.py comes with the `[dev]` extras
@@ -246,7 +250,7 @@ tool measures and how the record is re-taken.
 Each tool's absence is detected by the mutation runner and surfaces
 as a precise error in the per-binding JSON report; the orchestrator marks
 the lane as failed but doesn't crash, so a partial install (e.g.
-mutmut+gremlins without Mull) still gets you 2 of 3 binding reports.
+mutmut+gremlins without Mull) still gets you the other bindings' reports.
 
 ## Push-time meta-gates — `.github/workflows/`
 

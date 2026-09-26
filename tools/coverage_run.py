@@ -68,7 +68,7 @@ from tools._common import (
     short_sha,
     write_workflow_line,
 )
-from tools.mutation_run import KERNEL_PATHS, bindings_in_scope
+from tools.mutation_run import BINDING_DIRS, KERNEL_PATHS, bindings_in_scope
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
@@ -88,13 +88,8 @@ SPEC_ERROR_EXIT = 2
 MEASURES_VAR = "LANE_MEASURES"
 
 # This lane's scope tables.  A binding's figure moves when its sources or its
-# tests move, so the whole directory is the prefix, as the mutation lane's is.
-_BINDING_DIRS: dict[str, str] = {
-    "python": "python/",
-    "go": "go/",
-    "cpp": "cpp/",
-    "rust": "rust/",
-}
+# tests move, so the whole directory is the prefix, which is the mutation
+# lane's table, read from it.
 # A change here can move every binding's figure: the kernel every suite loads,
 # the build that makes it, this runner, and the record it reads.
 _GLOBAL_COVERAGE_PATHS: tuple[str, ...] = (
@@ -619,7 +614,7 @@ def coverage_scope(repo_root: Path) -> set[str] | None:
     """Decide which bindings this branch's diff could move, by this lane's tables."""
     return bindings_in_scope(
         repo_root,
-        binding_dirs=_BINDING_DIRS,
+        binding_dirs=BINDING_DIRS,
         global_paths=_GLOBAL_COVERAGE_PATHS,
         no_scope_env=_NO_DIFF_SCOPE_ENV,
     )

@@ -31,7 +31,12 @@ Always-on invariants, checked without running the mutation tools (which take
    ``.github/workflows`` through ``parents[2]``, found nothing under
    ``mutants/`` and failed the lane on its own assertion.)
 
-4. **Every ledger row still names a line of the tree.** The survivors, the
+4. **The record has one block per binding the runner drives, and no other.**
+   A binding the runner can sweep with no block is a lane with no baseline,
+   whose first run reports ``first_run`` and gates nothing; a block for a
+   binding the runner does not know is a record nothing reads.
+
+5. **Every ledger row still names a line of the tree.** The survivors, the
    unobserved kills and the Go lane's not-covered mutants are each recorded by
    mutator, file and the text of the
    source line, keyed on that text rather than on the line's number so that an
@@ -47,13 +52,16 @@ survivor counts.
 Usage:
   python3 tools/check_mutation_setup.py
 
-Exits 0 if both invariants hold, 1 otherwise (with a precise diagnostic naming
+Exits 0 if every invariant holds, 1 otherwise (with a precise diagnostic naming
 the offending entries).
 
 Forward-revert verified 2026-05-09 (invariant 1): rename one hot-path entry in
 the YAML to a non-existent path -> this gate fires; restore the path -> exit 0.
 Forward-revert verified 2026-06-20 (invariant 2): drop the
 ``test_check_changelog.py`` ignore -> this gate fires; restore it -> exit 0.
+Forward-revert verified 2026-09-26 (invariant 4): rename the Rust block to a
+binding no runner has -> this gate fires twice, by name; restore it -> exit 0
+(``probes/tools_check_mutation_setup.py--a-binding-without-a-block-is-caught.sh``).
 """
 
 from __future__ import annotations
@@ -68,6 +76,7 @@ import yaml
 
 from tools._common import RelPath, emit
 from tools.mutation_cpp_slices import partition, slice_domain
+from tools.mutation_run import RUNNERS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SPEC_PATH = REPO_ROOT / "docs" / "MUTATION_BENCH.yaml"
@@ -248,6 +257,19 @@ def cpp_slice_weights_are_of_the_domain(bindings: dict[str, object]) -> list[str
     return failures
 
 
+def every_runner_has_a_block(bindings: dict[str, object]) -> list[str]:
+    """Hold the record to one block per binding the runner drives, and no other."""
+    known = {name for name, _skip_var, _runner in RUNNERS}
+    return [
+        f"[bindings] no block for {name}, which the runner sweeps: its first run would "
+        + "report first_run and gate nothing"
+        for name in sorted(known - set(bindings))
+    ] + [
+        f"[bindings/{name}] the runner has no such binding, so nothing reads this block"
+        for name in sorted(set(bindings) - known)
+    ]
+
+
 def ledger_rows_still_name_their_line(bindings: dict[str, object]) -> list[str]:
     """Hold every recorded ledger row to a file and a line the tree still has.
 
@@ -334,6 +356,7 @@ def main() -> int:
     failures += _tools_importing_tests_unignored()
     failures += _above_tree_tests_unignored()
     failures += cpp_slice_weights_are_of_the_domain(bindings)
+    failures += every_runner_has_a_block(bindings)
     failures += ledger_rows_still_name_their_line(bindings)
 
     if failures:
@@ -355,6 +378,7 @@ def main() -> int:
         + f"{len(bindings)} bindings, {total} hot-path sources all present; "
         + "every test the mutated tree cannot satisfy is mutmut-ignored; "
         + "every recorded C++ slice weight is a file the partition claims; "
+        + "one block per binding the runner drives; "
         + f"each of {_ledger_rows(bindings)} ledger rows names a line the tree holds.",
     )
     return 0

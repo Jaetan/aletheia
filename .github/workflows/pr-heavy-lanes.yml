@@ -67,8 +67,8 @@ jobs:
   # ── mutation testing (REQUIRED; once per PR) ───────────────────────────────
   # The drift gate (tools/mutation_run.py) fails on a collection crash OR
   # observed survivors > the docs/MUTATION_BENCH.yaml baseline.  It runs once
-  # per binding, in parallel: the three tools cost wildly different amounts and
-  # a single job charges the slowest of them against a clock the other two have
+  # per binding, in parallel: the four tools cost wildly different amounts and
+  # a single job charges the slowest of them against a clock the others have
   # already spent.  The C++ binding is nine legs, each one tree carrying one
   # slice of the surface's mutants, and the `mutation cpp` job below unions
   # each tree's slices and intersects the trees into the one C++ verdict; a
@@ -90,7 +90,7 @@ jobs:
           # Each lane names the bindings it skips, rather than deriving them
           # from its own name: the derivation would rest on how GitHub casts
           # the string it yields, and the failure it casts wrong is a lane that
-          # skips all three, runs nothing and reports success.  `lane` is the
+          # skips every binding, runs nothing and reports success.  `lane` is the
           # job's name and its artifact's; `stage` is what the C++ runner is
           # told (tools/mutation_cpp.py `CppStage`), empty for the other two.
           #
@@ -137,6 +137,12 @@ jobs:
           # and 33.8, address 20.1, 21.9 and 25.3.  Slowest leg plus the
           # 33.3 cold allowance: leak 69.0, plain 76.3, address 58.6, each
           # rounded up.
+          # The Rust lane's budget is a local measurement, the lane not having
+          # run yet: the lane at 369 mutants took 5m49s in place on a warm
+          # target directory, and a cold one pays the crate's own build and
+          # cargo-mutants' install on a cache miss, about a minute and three
+          # minutes; with the 33.3 cold allowance, 43.1, rounded up.  Re-taken
+          # from `elapsed_s` of its first run.
           # Each budget is the slowest run recorded, so a faster one leaves it
           # where it is.  A budget is a measurement of the
           # surface it was read from: it is re-taken when the mutation surface
@@ -150,6 +156,7 @@ jobs:
             skip_python: ''
             skip_go: '1'
             skip_cpp: '1'
+            skip_rust: '1'
           - lane: go
             binding: go
             stage: ''
@@ -158,6 +165,16 @@ jobs:
             skip_python: '1'
             skip_go: ''
             skip_cpp: '1'
+            skip_rust: '1'
+          - lane: rust
+            binding: rust
+            stage: ''
+            slice: ''
+            timeout: 45
+            skip_python: '1'
+            skip_go: '1'
+            skip_cpp: '1'
+            skip_rust: ''
           - lane: cpp-leak-1
             binding: cpp
             stage: leak
@@ -166,6 +183,7 @@ jobs:
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
+            skip_rust: '1'
           - lane: cpp-leak-2
             binding: cpp
             stage: leak
@@ -174,6 +192,7 @@ jobs:
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
+            skip_rust: '1'
           - lane: cpp-leak-3
             binding: cpp
             stage: leak
@@ -182,6 +201,7 @@ jobs:
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
+            skip_rust: '1'
           - lane: cpp-plain-1
             binding: cpp
             stage: plain
@@ -190,6 +210,7 @@ jobs:
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
+            skip_rust: '1'
           - lane: cpp-plain-2
             binding: cpp
             stage: plain
@@ -198,6 +219,7 @@ jobs:
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
+            skip_rust: '1'
           - lane: cpp-plain-3
             binding: cpp
             stage: plain
@@ -206,6 +228,7 @@ jobs:
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
+            skip_rust: '1'
           - lane: cpp-address-1
             binding: cpp
             stage: address
@@ -214,6 +237,7 @@ jobs:
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
+            skip_rust: '1'
           - lane: cpp-address-2
             binding: cpp
             stage: address
@@ -222,6 +246,7 @@ jobs:
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
+            skip_rust: '1'
           - lane: cpp-address-3
             binding: cpp
             stage: address
@@ -230,6 +255,7 @@ jobs:
             skip_python: '1'
             skip_go: '1'
             skip_cpp: ''
+            skip_rust: '1'
     # Runs on every PR commit-state (so the required result reflects the latest
     # commit) AND on push:main (to seed the build caches — see the header).
     # cancel-in-progress collapses rapid PR iteration to ~one run on the settled
@@ -357,6 +383,27 @@ jobs:
           set -euo pipefail
           go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
           echo "${HOME}/go/bin" >> "${GITHUB_PATH}"
+
+      # cargo-mutants is pinned to the version docs/MUTATION_BENCH.yaml
+      # records, which the runner refuses to run under any other, and cached
+      # by that version, as the coverage lane caches cargo-llvm-cov.
+      - name: Set up Rust (stable)
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'rust'
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustc --version && cargo --version
+      - name: Cache cargo-mutants
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'rust'
+        id: cargo-mutants
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-mutants
+          key: cargo-mutants-27.1.0-${{ runner.os }}
+      - name: Install cargo-mutants (cache miss)
+        if: env.LANE_SWEEPS != '0' && matrix.binding == 'rust' && steps.cargo-mutants.outputs.cache-hit != 'true'
+        run: cargo install cargo-mutants --version 27.1.0 --locked
 
       - name: Cache clang-23 + LLVM-23-dev .debs (large download)
         if: env.LANE_SWEEPS != '0' && matrix.binding == 'cpp'
@@ -528,7 +575,7 @@ jobs:
           restore-keys: |
             build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
 
-      - name: Build the FFI library (needed by mutmut / Mull / gremlins lanes)
+      - name: Build the FFI library (needed by every lane's suite)
         if: env.LANE_SWEEPS != '0'
         run: cabal run shake -- build
 
@@ -540,6 +587,7 @@ jobs:
           ALETHEIA_MUTATION_SKIP_PYTHON: ${{ matrix.skip_python }}
           ALETHEIA_MUTATION_SKIP_GO: ${{ matrix.skip_go }}
           ALETHEIA_MUTATION_SKIP_CPP: ${{ matrix.skip_cpp }}
+          ALETHEIA_MUTATION_SKIP_RUST: ${{ matrix.skip_rust }}
           # Which C++ tree this lane sweeps, and which slice of the surface it
           # carries mutants for. Empty means the whole lane, which no lane here
           # runs, since each tree is three legs and each leg one slice.
@@ -584,7 +632,7 @@ jobs:
   # their own.  This job downloads both legs' reports and merges them, which
   # is where the survivors are counted against the baseline and the ledger
   # (tools/mutation_cpp.py, stage `merge`).  It runs whatever the lanes'
-  # results, so a Python or Go failure does not erase the C++ verdict; its own
+  # results, so another lane's failure does not erase the C++ verdict; its own
   # pass needs both legs' complete report sets from this commit, and a leg its
   # clock killed uploaded no Elements report, which the merge refuses.
   mutation-cpp:
@@ -631,6 +679,7 @@ jobs:
           ALETHEIA_MUTATION_CHECK: '1'
           ALETHEIA_MUTATION_SKIP_PYTHON: '1'
           ALETHEIA_MUTATION_SKIP_GO: '1'
+          ALETHEIA_MUTATION_SKIP_RUST: '1'
           ALETHEIA_MUTATION_CPP_STAGE: merge
           ALETHEIA_MUTATION_CPP_LEGS: mutation-legs
         run: python/.venv/bin/python3 -m tools.mutation_run

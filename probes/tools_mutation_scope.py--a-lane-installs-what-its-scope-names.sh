@@ -31,7 +31,7 @@ from pathlib import Path
 sys.path.insert(0, ".")
 from tools.mutation_scope import lane_sweeps
 
-BINDINGS = ("python", "go", "cpp")
+BINDINGS = ("python", "go", "cpp", "rust")
 
 
 def repo(changed: list[str]) -> Path:
@@ -57,15 +57,17 @@ def repo(changed: list[str]) -> Path:
 
 cases: list[tuple[str, list[str], dict[str, bool]]] = [
     ("a documentation-only branch", ["docs/DESIGN.md", "README.md"],
-     {"python": False, "go": False, "cpp": False}),
+     {"python": False, "go": False, "cpp": False, "rust": False}),
     ("a Python-only branch", ["python/aletheia/checks.py"],
-     {"python": True, "go": False, "cpp": False}),
+     {"python": True, "go": False, "cpp": False, "rust": False}),
     ("a C++ test-only branch", ["cpp/tests/client_tests.cpp"],
-     {"python": False, "go": False, "cpp": True}),
+     {"python": False, "go": False, "cpp": True, "rust": False}),
+    ("a Rust config-only branch", ["rust/.cargo/mutants.toml"],
+     {"python": False, "go": False, "cpp": False, "rust": True}),
     ("a branch touching the shared kernel", ["src/Aletheia/Main.agda"],
-     {"python": True, "go": True, "cpp": True}),
+     {"python": True, "go": True, "cpp": True, "rust": True}),
     ("a branch level with main", [],
-     {"python": True, "go": True, "cpp": True}),
+     {"python": True, "go": True, "cpp": True, "rust": True}),
 ]
 
 bad: list[str] = []
