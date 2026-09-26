@@ -838,6 +838,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **A prose gate that could not read a tracked file no longer passes the tree.**
+  The walk `tools/check_refused_words.py` and `tools/check_no_review_marks.py`
+  share skipped a tracked file whose read raised, so a file deleted from the
+  worktree but still in the index, or one the runner may not read, left either
+  gate passing a tree it had not read whole. The walk in `tools/_common.py` now
+  returns what it found and what it could not read together, every gate over it
+  names each unreadable file and exits 2, with 2 taking precedence over 1 as
+  `tools/check_no_memory_citations.py` already did, and that gate now runs on
+  the same walk rather than a louder copy of it. The walk catches `OSError`
+  alone: a replace-mode read decodes anything, and a path git lists carries no
+  NUL, so the `ValueError` arm guarded nothing.
+
 - **The pylint gate fails on any message, not on a rounded score.** The step
   grepped pylint's output for a 10.00 score, and the score rounds a few messages
   over the tree's statement count away: the tree carried eleven, two modules over

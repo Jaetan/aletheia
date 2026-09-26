@@ -31,12 +31,13 @@ import shutil
 import signal
 import subprocess
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, NewType
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Mapping
+    from collections.abc import Callable, Generator, Iterable, Mapping
     from typing import IO
 
 # A path relative to the repository root, spelled as git prints it: `git ls-files`
@@ -591,26 +592,93 @@ def prose_lines(rel: str, text: str) -> list[tuple[int, str]]:
     return out
 
 
+def is_prose_file(rel: str, is_exempt: Callable[[str], bool]) -> bool:
+    """Return True when a prose gate reads tracked file ``rel``: not exempt, not a binary shape."""
+    return not is_exempt(rel) and Path(rel).suffix not in BINARY_SUFFIXES
+
+
+@dataclass(frozen=True)
+class TreeScan:
+    """What a walk over the tracked tree found, and what it could not read.
+
+    ``unreadable`` holds one ``<path>: <reason>`` line per tracked file whose
+    read raised, so a gate can name them; a scan with one is incomplete and
+    vouches for nothing, whatever ``findings`` holds.
+    """
+
+    findings: list[str]
+    unreadable: list[str]
+
+
+def pattern_findings(
+    rel: str, lines: Iterable[tuple[int, str]], patterns: Iterable[tuple[re.Pattern[str], str]]
+) -> list[str]:
+    """Return one ``<rel>:<lineno>: <why> -> <match>`` finding per pattern hit in ``lines``."""
+    return [
+        f"{rel}:{lineno}: {why} -> {match.group(0)!r}"
+        for lineno, line in lines
+        for pattern, why in patterns
+        for match in pattern.finditer(line)
+    ]
+
+
 def scan_tracked_tree(
     repo: Path,
     is_exempt: Callable[[str], bool],
     scan_text: Callable[[str, str], list[str]],
-) -> list[str]:
-    """Return ``scan_text``'s findings over every tracked file of ``repo`` a gate reads.
+) -> TreeScan:
+    """Run ``scan_text`` over every tracked file of ``repo`` a prose gate reads.
 
-    A file ``is_exempt`` names, or one of the binary shapes, is skipped; a file
-    that cannot be read contributes no finding.
+    A file the read fails on (permissions, a path the index lists and the
+    worktree lacks) is recorded rather than skipped. Decoding never raises:
+    the read replaces undecodable bytes, and a path git can list holds no NUL.
     """
     findings: list[str] = []
+    unreadable: list[str] = []
     for rel in git_ls_files(repo):
-        if is_exempt(rel) or Path(rel).suffix in BINARY_SUFFIXES:
+        if not is_prose_file(rel, is_exempt):
             continue
         try:
             text = (repo / rel).read_text(encoding="utf-8", errors="replace")
-        except OSError, ValueError:
+        except OSError as exc:
+            unreadable.append(f"{rel}: {exc.strerror or exc}")
             continue
         findings.extend(scan_text(rel, text))
-    return findings
+    return TreeScan(findings, unreadable)
+
+
+def tree_scan_exit_code(scan: TreeScan) -> int:
+    """Resolve a prose gate's exit status: 2 could-not-check, 1 findings, 0 clean.
+
+    2 dominates 1: an unreadable file means the scan is incomplete, so the
+    findings cannot be trusted as exhaustive, and the stronger signal wins.
+    """
+    if scan.unreadable:
+        return 2
+    return 1 if scan.findings else 0
+
+
+def report_tree_scan(
+    gate: str, scan: TreeScan, *, found: str, found_lines: list[str], clean: str
+) -> int:
+    """Print a prose gate's report for ``scan`` and return its exit status.
+
+    Findings come first, under ``found`` and one ``found_lines`` entry per line,
+    reported even when the scan is incomplete. Each unreadable file is then
+    named on stderr and counted on stdout; ``clean`` is printed only when there
+    was neither.
+    """
+    if scan.findings:
+        emit(f"{gate}: {found}")
+        for line in found_lines:
+            emit(f"  {line}")
+    for entry in scan.unreadable:
+        _ = sys.stderr.write(f"{gate}: cannot read {entry}\n")
+    if scan.unreadable:
+        emit(f"{gate}: COULD NOT CHECK: {len(scan.unreadable)} tracked file(s) could not be read.")
+    elif not scan.findings:
+        emit(f"{gate}: {clean}")
+    return tree_scan_exit_code(scan)
 
 
 def workflow_files(gate: str, policy: str, repo_root: Path) -> list[Path] | None:

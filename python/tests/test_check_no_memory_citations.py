@@ -15,9 +15,16 @@ look-alike does NOT fire.
 
 from __future__ import annotations
 
-import pytest
+from typing import TYPE_CHECKING
 
-from tools.check_no_memory_citations import exit_code, in_scope, is_exempt, scan_text
+import pytest
+from _git_repo import tracked_but_absent
+
+from tools._common import TreeScan, tree_scan_exit_code
+from tools.check_no_memory_citations import in_scope, is_exempt, main, scan_text
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _SRC = "src/Aletheia/Foo.agda"  # a representative in-scope file
 
@@ -90,10 +97,10 @@ def test_subword_slug_is_not_flagged() -> None:
 
 def test_exit_code_contract() -> None:
     """The 0/1/2 contract: exit 2 (could-not-check) dominates exit 1 (violation)."""
-    assert exit_code([], could_not_check=False) == 0  # clean
-    assert exit_code(["x"], could_not_check=False) == 1  # citations found, scan complete
-    assert exit_code([], could_not_check=True) == 2  # scan incomplete
-    assert exit_code(["x"], could_not_check=True) == 2  # both — could-not-check dominates
+    assert tree_scan_exit_code(TreeScan([], [])) == 0  # clean
+    assert tree_scan_exit_code(TreeScan(["x"], [])) == 1  # citations found, scan complete
+    assert tree_scan_exit_code(TreeScan([], ["f: gone"])) == 2  # scan incomplete
+    assert tree_scan_exit_code(TreeScan(["x"], ["f: gone"])) == 2  # both: could-not-check dominates
 
 
 def test_citation_in_non_excluded_file_still_trips() -> None:
@@ -177,3 +184,12 @@ def test_gated_files_are_in_scope(rel: str) -> None:
 def test_out_of_scope_files_are_skipped(rel: str) -> None:
     """Binaries and exempt files are not scanned."""
     assert not in_scope(rel)
+
+
+def test_a_tracked_file_that_cannot_be_read_is_not_clean(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A tracked file the gate cannot read exits 2 and is named, through the shared walk."""
+    repo, rel = tracked_but_absent(tmp_path)
+    assert main([], repo=repo) == 2
+    assert rel in capsys.readouterr().err

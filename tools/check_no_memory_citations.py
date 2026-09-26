@@ -70,7 +70,13 @@ import re
 import sys
 from pathlib import Path
 
-from tools._common import BINARY_SUFFIXES, emit, git_ls_files
+from tools._common import (
+    TreeScan,
+    is_prose_file,
+    pattern_findings,
+    report_tree_scan,
+    scan_tracked_tree,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -127,7 +133,7 @@ def in_scope(rel: str) -> bool:
     Markdown is scanned too (the AI-process-infra docs that may cite the store are
     exempted by name), so a bare ``[[slug]]`` in a product ``.md`` doc is caught.
     """
-    return not is_exempt(rel) and Path(rel).suffix not in BINARY_SUFFIXES
+    return is_prose_file(rel, is_exempt)
 
 
 def scan_text(rel: str, text: str) -> list[str]:
@@ -136,67 +142,27 @@ def scan_text(rel: str, text: str) -> list[str]:
     The pure core of the scan — no filesystem — so the detector is unit-testable
     on synthetic input (``python/tests/test_check_no_memory_citations.py``).
     """
-    findings: list[str] = []
-    for lineno, line in enumerate(text.splitlines(), start=1):
-        for pat, why in _PATTERNS:
-            findings.extend(f"{rel}:{lineno}: {why} -> {m.group(0)!r}" for m in pat.finditer(line))
-    return findings
+    return pattern_findings(rel, enumerate(text.splitlines(), start=1), _PATTERNS)
 
 
-def scan_file(rel: str) -> tuple[list[str], bool]:
-    """Scan one tracked file: return ``(findings, could_not_read)``.
-
-    A tracked file that cannot be read is reported as could-not-check (the caller
-    turns it into exit 2) — never silently treated as clean.
-    """
-    try:
-        text = (REPO / rel).read_text(encoding="utf-8", errors="replace")
-    except OSError as exc:
-        _ = sys.stderr.write(f"check_no_memory_citations: cannot read {rel}: {exc}\n")
-        return [], True
-    return scan_text(rel, text), False
+def check_tree(repo: Path = REPO) -> TreeScan:
+    """Scan every in-scope tracked file of ``repo`` for agent-store citations."""
+    return scan_tracked_tree(repo, is_exempt, scan_text)
 
 
-def check_tree() -> tuple[list[str], bool]:
-    """Scan every in-scope tracked file: return ``(findings, could_not_check)``."""
-    findings: list[str] = []
-    could_not_check = False
-    for rel in git_ls_files(REPO):
-        if not in_scope(rel):
-            continue
-        file_findings, unread = scan_file(rel)
-        findings.extend(file_findings)
-        could_not_check = could_not_check or unread
-    return findings, could_not_check
-
-
-def exit_code(findings: list[str], *, could_not_check: bool) -> int:
-    """Resolve the gate's exit status (pure, so the 0/1/2 contract is unit-testable).
-
-    2 (could-not-check) DOMINATES 1 (citations found): an unreadable file means the
-    scan is INCOMPLETE, so the findings list cannot be trusted as exhaustive — the
-    stronger signal wins. 1 if citations found on a complete scan, else 0.
-    """
-    if could_not_check:
-        return 2
-    return 1 if findings else 0
-
-
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, repo: Path = REPO) -> int:
     """Scan the gated tree; 2 if a file was unreadable, 1 if citations found, else 0."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.parse_args(argv)  # no options; --help only
 
-    findings, could_not_check = check_tree()
-    if findings:  # always report what was found, even alongside an incomplete scan
-        emit(f"check_no_memory_citations: {len(findings)} agent-store citation(s):")
-        for f in findings:
-            emit(f"  {f}")
-    if could_not_check:
-        emit("check_no_memory_citations: COULD NOT CHECK — a file was unreadable.")
-    elif not findings:
-        emit("check_no_memory_citations: no agent-store citations in the gated tree.")
-    return exit_code(findings, could_not_check=could_not_check)
+    scan = check_tree(repo)
+    return report_tree_scan(
+        "check_no_memory_citations",
+        scan,
+        found=f"{len(scan.findings)} agent-store citation(s):",
+        found_lines=scan.findings,
+        clean="no agent-store citations in the gated tree.",
+    )
 
 
 if __name__ == "__main__":
