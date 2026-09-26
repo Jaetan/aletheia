@@ -864,6 +864,26 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   from the first report carrying it and judged over every tree carrying it, so
   the two censuses count the same survivors; a test hands the merge a surviving
   mutant only a later tree carries.
+- **A killed CI sweep or reproducible-build gate stops the build it started.**
+  `tools/run_ci.py`'s steps and `tools/check_reproducible_build.py`'s
+  `shake clean` and `shake build` ran as plain children, so a sweep or gate
+  killed mid-build left the build running, holding Shake's lock against the next
+  one. Every step the scheduler in `tools/_scheduler.py` runs, and both commands
+  of each reproducible build, now run under `run_guarded`, which merges a
+  command's stderr into its stdout and gives the command no input, since a
+  process group that is not the terminal's foreground job stops when it reads
+  the terminal. A step in a group of its own no longer sees the Ctrl-C a
+  terminal sends the sweep, so the guard also watches a pipe the parallel
+  scheduler closes whenever it leaves, an interrupt included, which stops every
+  running step before the interrupt propagates. Probes SIGKILL the sweep, the sweep running the
+  staleness gate's guarded build, and the gate, each over a stand-in build, each
+  red before the change and reading the build gone and its lock free 0.05s
+  after. Two more interrupt a sweep's process group: a parallel sweep, which a
+  guard without the scheduler's pipe leaves running past the bound, and a
+  serial one, the way the sweep runs its build step. Tests cover the merged and
+  the file output, the closed input, the stop pipe, a step's stderr, the
+  parallel sweep's descriptors and the interrupted sweep.
+
 - **A killed staleness gate stops the build it started, and a held tree lock
   is never called stale.** `tools/check_build_incremental.py` ran
   `cabal run shake -- build` as a plain child, so a gate killed mid-build left

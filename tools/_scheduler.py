@@ -17,21 +17,28 @@ Aggregation is **fail-loud**, the property a gate orchestrator must never get
 wrong (a swallowed failure is a false green):
 
 * every executed step yields a :class:`StepResult` with its real return code;
-* a signal death — negative ``returncode``, e.g. ``-9`` from the OOM killer —
-  is a failure like any other (``returncode != 0``);
+* a signal death — ``returncode`` 128 plus the signal, e.g. ``137`` from the
+  OOM killer's SIGKILL — is a failure like any other (``returncode != 0``);
 * a lane stops at its first failing step (later steps depend on it), but every
   *other* lane still runs to completion, so one run surfaces all failures;
 * a lane task that raises propagates out of :func:`run_lanes` (never dropped).
+
+Every step runs under ``run_guarded``, in a process group of its own, so a
+step stops when the sweep dies, SIGKILL included, rather than outliving it
+holding a lock the next run waits on.  An interrupt of the sweep, Ctrl-C
+included, stops every running step before :func:`run_lanes` re-raises it.
 """
 
 from __future__ import annotations
 
-import subprocess
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from tools._common import run_guarded
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -87,6 +94,7 @@ def _run_one(
     step: Step,
     heavy_sem: threading.Semaphore,
     progress: Callable[[StepEvent], None] | None,
+    stop_fd: int | None,
 ) -> StepResult:
     """Execute one step, capturing combined output; honour the memory semaphore.
 
@@ -102,14 +110,7 @@ def _run_one(
             progress(StepEvent("start", step.name))
         argv: Sequence[str]
         argv = [_POSIX_SHELL, "-c", step.cmd] if isinstance(step.cmd, str) else step.cmd
-        proc = subprocess.run(
-            list(argv),
-            cwd=step.cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            check=False,
-        )
+        proc = run_guarded(list(argv), cwd=step.cwd, stop_fd=stop_fd)
     finally:
         if step.heavy:
             heavy_sem.release()
@@ -123,11 +124,12 @@ def _run_lane(
     lane: Sequence[Step],
     heavy_sem: threading.Semaphore,
     progress: Callable[[StepEvent], None] | None,
+    stop_fd: int | None,
 ) -> list[StepResult]:
     """Run a lane's steps serially, stopping at the first failure (deps follow)."""
     results: list[StepResult] = []
     for step in lane:
-        result = _run_one(step, heavy_sem, progress)
+        result = _run_one(step, heavy_sem, progress, stop_fd)
         results.append(result)
         if result.returncode != 0:
             break  # later steps in THIS lane depend on the failed one; skip them
@@ -160,11 +162,26 @@ def run_lanes(
     if serial:
         out: list[StepResult] = []
         for lane in lanes:
-            out.extend(_run_lane(lane, heavy_sem, progress))
+            out.extend(_run_lane(lane, heavy_sem, progress, None))
         return out
-    with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
-        futures = [executor.submit(_run_lane, lane, heavy_sem, progress) for lane in lanes]
-        per_lane = [future.result() for future in futures]
+    # An interrupt reaches this thread only, while the workers wait on steps in
+    # groups of their own; closing the write end stops those steps, and every
+    # step a worker starts afterwards, so leaving the executor does not wait
+    # for a build to finish on its own.  An exception a lane raised, once this
+    # thread reads it, stops the lanes still running the same way.
+    stop_read, stop_write = os.pipe()
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
+            try:
+                futures = [
+                    executor.submit(_run_lane, lane, heavy_sem, progress, stop_read)
+                    for lane in lanes
+                ]
+                per_lane = [future.result() for future in futures]
+            finally:
+                os.close(stop_write)
+    finally:
+        os.close(stop_read)
     return [result for lane_results in per_lane for result in lane_results]
 
 

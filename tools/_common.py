@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, NewType
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Mapping
+    from typing import IO
 
 # A path relative to the repository root, spelled as git prints it: `git ls-files`
 # and `git diff --name-only` both use this spelling, and only a git listing mints one.
@@ -162,38 +163,49 @@ def run_guarded(
     cmd: list[str],
     *,
     cwd: Path | None = None,
+    output: int | IO[str] = subprocess.PIPE,
+    stop_fd: int | None = None,
     grace_seconds: float = 10.0,
 ) -> subprocess.CompletedProcess[str]:
-    """Run ``cmd`` as ``run_capture`` does, stopping it when this process dies.
+    """Run ``cmd``, its stderr merged into its stdout, stopping it when this process dies.
 
     ``cmd`` runs under ``tools/_guarded_run.py`` in a process group of its own,
     which the guard interrupts once this process closes the pipe's write end or
     dies, SIGKILL included (see that script).  An exception here, such as the
     ``SystemExit`` a restore handler raises on SIGINT or SIGTERM, closes the
     write end and waits for the group to stop before it propagates.
+    ``stop_fd``, the read end of a pipe whose write end the caller holds,
+    stops the command too once that write end is closed: how a caller stops
+    commands other threads are waiting on.  The merged output goes to
+    ``output``, a file or the default pipe, whose text comes back as the
+    result's ``stdout`` with ``stderr`` empty, as ``run_streaming`` returns
+    it.  The command reads no input, since a process group that is not the
+    terminal's foreground job stops when it reads the terminal.
     ``grace_seconds`` is how long an interrupted command has to exit before
     its group gets SIGKILL.
     """
     guard = Path(__file__).with_name("_guarded_run.py")
     watch_read, watch_write = os.pipe()
+    watched = (watch_read,) if stop_fd is None else (watch_read, stop_fd)
     try:
         proc = subprocess.Popen(
-            [sys.executable, str(guard), str(watch_read), str(grace_seconds), *cmd],
+            [sys.executable, str(guard), ",".join(map(str, watched)), str(grace_seconds), *cmd],
             cwd=cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
+            stdout=output,
+            stderr=subprocess.STDOUT,
             text=True,
-            pass_fds=(watch_read,),
+            pass_fds=watched,
             process_group=0,
         )
     finally:
         os.close(watch_read)
     with proc:  # leaving the block waits for the guard, and so for the group
         try:
-            stdout, stderr = proc.communicate()
+            collected: str | None = proc.communicate()[0]
         finally:
             os.close(watch_write)  # end-of-file for the guard: stop the group if it runs
-    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+    return subprocess.CompletedProcess(cmd, proc.returncode, collected or "", "")
 
 
 def run_streaming(

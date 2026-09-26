@@ -114,10 +114,50 @@ def _started(
                 os.kill(watched, signal.SIGKILL)
 
 
-def test_the_status_and_output_pass_through() -> None:
-    """Exit status, stdout and stderr come back as ``run_capture`` returns them."""
-    result = _common.run_guarded(["sh", "-c", "echo out; echo err >&2; exit 3"])
-    assert (result.returncode, result.stdout, result.stderr) == (3, "out\n", "err\n")
+def test_the_status_and_the_merged_output_pass_through() -> None:
+    """The exit status comes back, and stdout and stderr in the order written, as ``stdout``."""
+    result = _common.run_guarded(["sh", "-c", "echo one; echo two >&2; echo three; exit 3"])
+    assert (result.returncode, result.stdout, result.stderr) == (3, "one\ntwo\nthree\n", "")
+
+
+def test_output_sent_to_a_file_lands_in_the_file(tmp_path: Path) -> None:
+    """A file handle given as ``output`` receives both streams, and the result carries none."""
+    log = tmp_path / "out.log"
+    with log.open("w") as logf:
+        result = _common.run_guarded(["sh", "-c", "echo out; echo err >&2"], output=logf)
+    assert (result.returncode, result.stdout) == (0, "")
+    assert log.read_text() == "out\nerr\n"
+
+
+def test_the_command_reads_no_input() -> None:
+    """The command's input is empty even where the caller's is a pipe left open.
+
+    A command in a process group that is not the terminal's foreground job
+    stops when it reads the terminal; an open pipe stands in for it here,
+    since the command would wait on it as long.
+    """
+    script = "from tools import _common; _common.run_guarded(['cat'])"
+    with subprocess.Popen(
+        [sys.executable, "-c", script], cwd=REPO_ROOT, stdin=subprocess.PIPE
+    ) as driver:
+        try:
+            assert driver.wait(BOUND_SECONDS) == 0
+        finally:
+            driver.kill()
+
+
+def test_closing_the_stop_descriptor_stops_the_command() -> None:
+    """A closed write end behind ``stop_fd`` interrupts the command as the caller's death does."""
+    stop_read, stop_write = os.pipe()
+    os.close(stop_write)
+    try:
+        started = time.monotonic()
+        result = _common.run_guarded(["sleep", "60"], stop_fd=stop_read)
+    finally:
+        os.close(stop_read)
+    # A guard that stops its group ends in that group's SIGKILL, itself included.
+    assert result.returncode == -signal.SIGKILL
+    assert time.monotonic() - started < BOUND_SECONDS
 
 
 def test_no_descriptor_is_left_open() -> None:

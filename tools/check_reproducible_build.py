@@ -11,6 +11,9 @@ Drift indicates build-time non-determinism (timestamp embedding via
 ordering variance, Shake target ordering, GHC ``-fllvm`` cache pollution)
 that must be tracked down — never accepted as flake.
 
+Both commands of each build run under ``run_guarded``, so a build stops when
+the gate dies, SIGKILL included, rather than holding Shake's lock after it.
+
 Wall-clock cost: ~10-25 minutes (two cold builds back-to-back).  Not
 wired into the default ``tools/run_ci.py`` battery; opt in via
 ``ALETHEIA_REPRO_CHECK=1 tools/run_ci.py``.
@@ -29,12 +32,18 @@ import argparse
 import datetime
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-from tools._common import emit, find_executable, git_toplevel, now_iso, sha256_file
+from tools._common import (
+    emit,
+    find_executable,
+    git_toplevel,
+    now_iso,
+    run_guarded,
+    sha256_file,
+)
 
 ARTIFACT = Path("build/libaletheia-ffi.so")
 MAX_DIFF_BYTES = 20
@@ -57,24 +66,14 @@ def _run_clean_build(label: int, work_dir: Path, copy_to: Path) -> str:
     build_log = work_dir / f"build-{label}.log"
 
     with clean_log.open("w") as logf:
-        rc = subprocess.run(
-            [cabal, "run", "shake", "--", "clean"],
-            stdout=logf,
-            stderr=subprocess.STDOUT,
-            check=False,
-        ).returncode
+        rc = run_guarded([cabal, "run", "shake", "--", "clean"], output=logf).returncode
     if rc != 0:
         _ = sys.stderr.write(f"check-reproducible-build: shake clean failed (build {label})\n")
         _ = sys.stderr.write(f"  log: {clean_log}\n")
         sys.exit(2)
 
     with build_log.open("w") as logf:
-        rc = subprocess.run(
-            [cabal, "run", "shake", "--", "build"],
-            stdout=logf,
-            stderr=subprocess.STDOUT,
-            check=False,
-        ).returncode
+        rc = run_guarded([cabal, "run", "shake", "--", "build"], output=logf).returncode
     if rc != 0:
         _ = sys.stderr.write(f"check-reproducible-build: shake build failed (build {label})\n")
         _ = sys.stderr.write(f"  log: {build_log}\n")

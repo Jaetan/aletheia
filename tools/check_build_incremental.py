@@ -186,7 +186,6 @@ def _build() -> None:
     )
     if result.returncode != 0:
         emit(result.stdout)
-        emit(result.stderr)
         message = f"`cabal run shake -- build` failed (exit {result.returncode})"
         raise RuntimeError(message)
 
