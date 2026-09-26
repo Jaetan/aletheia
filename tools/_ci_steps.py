@@ -75,6 +75,8 @@ HEAVY_STEPS: frozenset[str] = frozenset(
         "check-reproducible-build",
         "stability bench",
         "mutation testing",
+        "coverage cpp",
+        "coverage rust",
     }
 )
 
@@ -522,6 +524,15 @@ def _run_lints(runner: Runner) -> None:
     # writes, so it runs in the cpp lane after that step; from the repository
     # root its cwd would infer "misc" and it could run before the build tree
     # exists.
+    # The coverage record (docs/COVERAGE_BENCH.yaml) held to its shape without
+    # running a suite: its scope paths exist, its recorded figures are over
+    # the floors, and the Rust tool it pins is the one the workflow installs.
+    runner.step(
+        "check-coverage-setup",
+        [runner.python, "-m", "tools.check_coverage_setup"],
+        cwd=runner.repo_root,
+        lane="misc",
+    )
     runner.step(
         "check-clang-tidy-coverage",
         [runner.python, "-m", "tools.check_clang_tidy_coverage"],
@@ -675,7 +686,7 @@ def _run_gha_checks(runner: Runner) -> None:
 
 
 def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
-    """Run the always-on UBSan lane then the enabled repro / stability / mutation lanes."""
+    """Run the sanitizer lanes, then the enabled repro, stability, mutation and coverage lanes."""
     # ─── Opt-in lanes (off by default) ──────────────────────────
     # The opt-in lanes share the same step counter as the always-on steps and are
     # tallied by main()'s counting pass too (step() runs in both passes), so
@@ -761,6 +772,28 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
         runner.announce_skip(
             "mutation testing",
             "set ALETHEIA_MUTATION_CHECK=1 or pass --mutation to enable",
+        )
+
+    # Opt-in: the coverage floors, one step per binding ─────────
+    # AGENTS.md § Universal Rules: each binding's suite covers 80 percent of
+    # its lines and 60 percent of its branches by its own tool.  One step per
+    # binding in that binding's lane, so each runs beside its own suite and
+    # the four run concurrently under --parallel; the C++ step builds an
+    # instrumented tree of its own (cpp/build-coverage) and the Rust step
+    # rebuilds under cargo-llvm-cov's target directory, which is why the lane
+    # is opt-in rather than always-on.  See docs/operations/COVERAGE.md.
+    if opts.lanes.coverage:
+        for binding in ("python", "go", "cpp", "rust"):
+            runner.step(
+                f"coverage {binding}",
+                [runner.python, "-m", "tools.coverage_run", "--binding", binding],
+                cwd=runner.repo_root,
+                lane=binding,
+            )
+    else:
+        runner.announce_skip(
+            "coverage floors",
+            "set ALETHEIA_COVERAGE_CHECK=1 or pass --coverage to enable",
         )
 
 

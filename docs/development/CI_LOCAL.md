@@ -16,7 +16,7 @@ minutes.
 | Layer | Lives in | Triggered by | Coverage |
 |---|---|---|---|
 | Pre-commit gate | `tools/run_ci.py --fast` + `tools/iwyu.py --check --wait-lock` (via pre-commit hook) | `git commit` | The compile-free FAST tier on the staged content, then the IWYU `.agdai`-reader scan (named + wildcard) on staged `.agda` files; blocks on any failure or finding |
-| Offline correctness sweep | `tools/run_ci.py` (via pre-push hook) | `git push` | **The always-on gate sweep** — Agda gates (the proof/invariant/erasure/fidelity/export checks fold into one `cabal run shake` call; build is a separate prereq; + the IWYU gate + its self-test on branch-modified files), offline enforcers, binding tests, lints, GHA meta-checks (+ 3 opt-in lanes) |
+| Offline correctness sweep | `tools/run_ci.py` (via pre-push hook) | `git push` | **The always-on gate sweep** — Agda gates (the proof/invariant/erasure/fidelity/export checks fold into one `cabal run shake` call; build is a separate prereq; + the IWYU gate + its self-test on branch-modified files), offline enforcers, binding tests, lints, GHA meta-checks (+ 4 opt-in lanes) |
 | Push-time meta-gates | `.github/workflows/*.yml` | `git push origin <branch>` to GitHub | Action-pin / workflow-permissions / actionlint — verifies the GHA infrastructure itself |
 | Local GHA-replay | `act` + `.actrc` | manual `act <event>` | Run the GHA workflows offline before push to catch breakage before consuming Actions minutes |
 
@@ -54,8 +54,8 @@ depth-bound test — ship undetected; the IWYU gate + its self-test is the
 dead-import gate).
 `run_ci` prints each step as `[i/N]` at runtime, so the live count is
 authoritative.
-Plus 3 opt-in lanes (reproducible build, stability bench, mutation
-testing) that can be enabled individually via CLI flags or env vars,
+Plus 4 opt-in lanes (reproducible build, stability bench, mutation
+testing, coverage floors) that can be enabled individually via CLI flags or env vars,
 or all at once via `--full`.  Logs to
 `tools/ci-output/ci-<branch>-<timestamp>.log`.  The log's header records a
 digest of the build sources the sweep observed (the Agda sources, the
@@ -150,6 +150,7 @@ Each opt-in lane has a CLI flag, an env-var fallback, and a paired
 | `--repro` | `ALETHEIA_REPRO_CHECK=1` | ~10 min | Two-clean-build sha256 verification |
 | `--stability` | `ALETHEIA_STABILITY_CHECK=1` | ~5 min | Long-run leak detection across 3 bindings + GHC RTS heap profile |
 | `--mutation` | `ALETHEIA_MUTATION_CHECK=1` | ~30 min - 2 hrs | Per-binding mutation testing — mutmut / gremlins / Mull |
+| `--coverage` | `ALETHEIA_COVERAGE_CHECK=1` | ~3 min | Per-binding coverage floors — coverage.py / `go test -cover` / llvm-cov / cargo-llvm-cov |
 
 Precedence: **CLI flag > env var > default-off**.  `--full` enables every
 opt-in lane; `--no-<lane>` always wins (e.g. `--full --no-mutation` runs
@@ -173,7 +174,7 @@ ALETHEIA_REPRO_CHECK=1 tools/run_ci.py
 ```
 
 The mutation lane is most expensive and is per-PR not per-commit; the
-other two are per-push-friendly when developers want extra coverage.
+other three are per-push-friendly when developers want extra coverage.
 
 ### Installing dev tools
 
@@ -228,6 +229,19 @@ go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
 # Verify all three are discoverable
 which mutmut gremlins mull-runner-23  # mutmut is in python/.venv/bin/
 ```
+
+**Coverage lane (`--coverage`)** — coverage.py comes with the `[dev]` extras
+and Go's tool with Go; the other two are `llvm-profdata-23` and `llvm-cov-23`,
+which the clang-23 package carries, and `cargo-llvm-cov` at the version
+`docs/COVERAGE_BENCH.yaml` pins, which the runner refuses at any other:
+
+```bash
+rustup component add llvm-tools-preview
+cargo install cargo-llvm-cov --version 0.8.7 --locked
+```
+
+See [`docs/operations/COVERAGE.md`](../operations/COVERAGE.md) for what each
+tool measures and how the record is re-taken.
 
 Each tool's absence is detected by the mutation runner and surfaces
 as a precise error in the per-binding JSON report; the orchestrator marks

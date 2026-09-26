@@ -141,10 +141,12 @@ bindings:
       # killed: the seven blocks that differ are all in that one function, and
       # recording those counts would hold the lane to a run it does not make.
       #
-      # So the three numbers a later run is compared against are survivors,
-      # generated and not_covered, each a property of the source, its tests and
-      # the kernel being present; the killed and timeout counts are what the
-      # recorded run produced.
+      # So the numbers a later run is held to are survivors and not_covered,
+      # each a property of the source, its tests and the kernel being present:
+      # the lane fails on more of either than recorded, and on a not-covered
+      # mutant the ledger below does not name.  generated is the whole set the
+      # source yields; the killed and timeout counts are what the recorded run
+      # produced.
       #
       # Every mutant gremlins makes is on code this package wrote, the
       # generated files being held out, and Go has no undefined behaviour to
@@ -155,12 +157,12 @@ bindings:
       # mutators are the five gremlins turns on by default and the six
       # go/.gremlins.yaml turns on, which gremlins ships off.
       survivors: 0
-      generated: 762
-      not_covered: 39
+      generated: 761
+      not_covered: 12
       timeouts: 2
-      total_mutants: 721
+      total_mutants: 747
       score_pct: 100
-      run_at: "2026-09-24"
+      run_at: "2026-09-26"
       # The lane refuses a sweep with more than this many timed out, because a
       # mutant that times out is neither killed nor lived and a sweep that
       # timed out on nearly all of them reports no survivors and full efficacy.
@@ -170,6 +172,62 @@ bindings:
       # gave 632. This sits far enough above the first not to flake and far
       # enough below the others to fail hard.
       timeout_ceiling: 50
+      # Every not-covered mutant, by mutator, repository-relative file, the
+      # text of its source line and how many share it, as the survivors are
+      # recorded for C++. The lane refuses one not named here at any count,
+      # and reports a row the sweep no longer produces as stale; the change
+      # that reaches a line deletes its row.
+      #
+      # What is left is package-level constants alone. Go's cover profile
+      # marks statements, and a constant declaration is not one, so no test
+      # executes these lines and none can; gremlins runs no test against a
+      # mutant on a line its profile never marks, so the mutants are counted
+      # here and never tried. The values themselves are held elsewhere: the
+      # limits by the parity test over the resource budgets, the two
+      # identifier maxima by the constructors' range tests, and the map-key
+      # flag by the lookups that tell a standard identifier from an extended
+      # one of the same value.
+      not_covered_ledger:
+        - mutator: ARITHMETIC_BASE
+          file: go/aletheia/limits.go
+          text: MaxDBCTextBytes = 64 * 1024 * 1024
+          count: 2
+        - mutator: ARITHMETIC_BASE
+          file: go/aletheia/limits.go
+          text: MaxJSONBytes = 64 * 1024 * 1024
+          count: 2
+        - mutator: ARITHMETIC_BASE
+          file: go/aletheia/limits.go
+          text: MaxStringLengthBytes = 64 * 1024
+          count: 1
+        - mutator: ARITHMETIC_BASE
+          file: go/aletheia/types.go
+          text: const MaxStandardID = 1<<11 - 1
+          count: 1
+        - mutator: INVERT_BITWISE
+          file: go/aletheia/types.go
+          text: const MaxStandardID = 1<<11 - 1
+          count: 1
+        - mutator: INVERT_NEGATIVES
+          file: go/aletheia/types.go
+          text: const MaxStandardID = 1<<11 - 1
+          count: 1
+        - mutator: ARITHMETIC_BASE
+          file: go/aletheia/types.go
+          text: const MaxExtendedID = 1<<29 - 1
+          count: 1
+        - mutator: INVERT_BITWISE
+          file: go/aletheia/types.go
+          text: const MaxExtendedID = 1<<29 - 1
+          count: 1
+        - mutator: INVERT_NEGATIVES
+          file: go/aletheia/types.go
+          text: const MaxExtendedID = 1<<29 - 1
+          count: 1
+        - mutator: INVERT_BITWISE
+          file: go/aletheia/dbc.go
+          text: const extendedIDFlag = 1 << 32 // bit 32 distinguishes extended from standard IDs in map keys
+          count: 1
 
   cpp:
     tool: mull

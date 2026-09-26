@@ -92,6 +92,18 @@ Two-tier per advisor 2026-05-09:
   observes by behaviour: what each changes, a guard for most of them and the
   value an index is computed from for the rest, leads straight to an operation
   the language does not define.
+- **The not-covered ledger (Go, gated)**: gremlins puts a mutant on a line no
+  test executes in a bucket of its own, neither killed nor lived, and the Go
+  baseline records the count as `not_covered` and each such mutant as a row of
+  `not_covered_ledger`, by mutator, repository-relative file, source-line text
+  and the count sharing the line. The lane fails on more of them than the
+  record and on a row the ledger does not name, at any count, since either is
+  a line that lost its test; a row the sweep no longer produces is reported as
+  stale and lowers the record. What the ledger names is package-level
+  constants, whose declarations Go's cover profile does not mark as statements,
+  so no test executes them and gremlins never tries their mutants; the values
+  are held by the tests that read them. The coverage lane
+  ([COVERAGE.md](COVERAGE.md)) is the same gap seen from the suite's side.
 - **The unobserved ledger (C++, gated)**: those kills are recorded in the C++
   baseline as `unobserved_ledger`, a row per mutator, repository-relative file,
   source-line text, route and refused invariant, with the count of mutants

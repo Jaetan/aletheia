@@ -25,11 +25,14 @@ would otherwise skip its own toolchain and fail at its sweep.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
-from pathlib import Path
+from typing import TYPE_CHECKING
 
+from tools._common import write_workflow_line
 from tools.mutation_run import REPO_ROOT, RUNNERS, bindings_in_scope
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # The variable a lane's steps read.  Their condition is `!= '0'`, never
 # `== '1'`: an answer that did not arrive must install, because installing what
@@ -71,13 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         if sweeps
         else f"[mutation] scope: no change under {binding}, so this lane installs nothing\n"
     )
-    line = f"{SWEEPS_VAR}={'1' if sweeps else '0'}"
-    github_env = os.environ.get("GITHUB_ENV")
-    if github_env:
-        with Path(github_env).open("a", encoding="utf-8") as handle:
-            _ = handle.write(f"{line}\n")
-    else:
-        _ = sys.stdout.write(f"{line}\n")
+    write_workflow_line(f"{SWEEPS_VAR}={'1' if sweeps else '0'}")
     return 0
 
 

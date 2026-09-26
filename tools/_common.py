@@ -116,6 +116,22 @@ def emit(message: str = "") -> None:
     sys.stdout.flush()
 
 
+def write_workflow_line(line: str) -> None:
+    """Write one ``NAME=value`` line where a workflow's later steps read it.
+
+    Appended to the file ``GITHUB_ENV`` names, so a step's condition can read
+    it; written to stdout where the environment names none, so a reader at a
+    terminal sees the same line.  The scope questions the lanes ask ahead of
+    their toolchains answer through this.
+    """
+    github_env = os.environ.get("GITHUB_ENV")
+    if github_env:
+        with Path(github_env).open("a", encoding="utf-8") as handle:
+            _ = handle.write(f"{line}\n")
+    else:
+        _ = sys.stdout.write(f"{line}\n")
+
+
 def sha256_file(path: Path) -> str:
     """Return the hex SHA-256 of ``path``, read in fixed-size chunks."""
     digest = hashlib.sha256()

@@ -1,11 +1,13 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# The two heavy lanes no required check reports: reproducible-build (two clean
-# builds of libaletheia-ffi.so, sha256 compared) and the stability bench
-# (advisory, because it is genuinely timing-flaky).  Both build the whole tree
-# and measure it, and both are skipped on a change that touches only
-# documentation.  That skip is what puts them in a file of their own: a path
+# The heavy lanes no required check reports: reproducible-build (two clean
+# builds of libaletheia-ffi.so, sha256 compared), the stability bench
+# (advisory, because it is genuinely timing-flaky) and the coverage floors
+# (each binding's suite under its own coverage tool, held to the floors
+# docs/COVERAGE_BENCH.yaml records).  Each builds the whole tree and measures
+# it, and each is skipped on a change that touches only documentation.  That
+# skip is what puts them in a file of their own: a path
 # filter is a property of the workflow and skips every job in it, and
 # pr-heavy-lanes.yml carries `mutation testing`, the context the main ruleset
 # requires, which must report on every pull request.  A required context whose
@@ -362,3 +364,197 @@ jobs:
           name: stability-variance-attempt1
           path: stability-attempt1/
           if-no-files-found: ignore
+
+  # ── coverage floors (ADVISORY until the ruleset names it; once per PR) ─────
+  # tools/coverage_run.py runs each binding's suite under its own coverage
+  # tool and fails a binding under a floor.  One job rather than one per
+  # binding: every binding's suite loads the kernel, so a job per binding is
+  # the Agda toolchain and the kernel four times over for four measurements
+  # that together take a few minutes.  The runner scopes itself to the
+  # bindings the diff vs `main` could move, and the same question is asked
+  # here ahead of the toolchain steps (`--scope`), so a change reaching no
+  # binding installs nothing and the measure step still runs and reports.
+  coverage:
+    name: coverage floors
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    concurrency:
+      group: heavy-coverage-${{ github.event.pull_request.number || github.ref }}
+      # push:main is exempt — a seeding run must not be cancelled before it saves.
+      cancel-in-progress: ${{ github.event_name != 'push' }}
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Ensure a local `main` ref for `git diff main...HEAD`
+        run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Create the dev venv (python/.venv)
+        run: |
+          set -euo pipefail
+          python3.14 -m venv python/.venv
+          python/.venv/bin/pip install --upgrade pip
+          python/.venv/bin/pip install -e 'python/.[dev]'
+
+      - name: Does any binding measure on this diff?
+        run: python/.venv/bin/python3 -m tools.coverage_run --scope
+
+      - name: Set up GHC + cabal
+        if: env.LANE_MEASURES != '0'
+        run: |
+          set -euo pipefail
+          echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
+          export CABAL_DIR="${HOME}/.cabal"
+          sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
+          ghcup install ghc "${GHC_VERSION}" --set
+          ghcup install cabal 3.16.1.0 --set
+          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
+          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
+
+      - name: Restore cabal store (Agda library + executable + deps)
+        if: env.LANE_MEASURES != '0'
+        id: cabal-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Update cabal package index (only on a cabal-store cache miss)
+        if: env.LANE_MEASURES != '0' && steps.cabal-cache.outputs.cache-hit != 'true'
+        run: cabal update
+
+      - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
+        if: env.LANE_MEASURES != '0'
+        run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
+
+      - name: Save cabal store (only on a cache miss)
+        if: env.LANE_MEASURES != '0' && steps.cabal-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cabal/store
+            ~/.cabal/packages
+            ~/.cabal/bin
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+
+      - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
+        if: env.LANE_MEASURES != '0'
+        uses: actions/cache@v6
+        with:
+          path: ~/.agda/agda-stdlib
+          key: agda-stdlib-${{ env.STDLIB_VERSION }}
+
+      - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
+        if: env.LANE_MEASURES != '0'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.agda
+          if [ ! -d ~/.agda/agda-stdlib/.git ]; then
+            git clone --depth 1 --branch "${STDLIB_VERSION}" \
+              https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib
+          fi
+          echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
+          echo "standard-library" > ~/.agda/defaults
+
+      - name: Set up Go
+        if: env.LANE_MEASURES != '0'
+        uses: actions/setup-go@v7
+        with:
+          go-version: 'stable'
+          cache-dependency-path: |
+            go/go.sum
+            go/excel/go.sum
+
+      # cargo-llvm-cov reads the profiles through the toolchain's own
+      # llvm-tools, which the minimal profile does not carry.  The tool is
+      # pinned to the version docs/COVERAGE_BENCH.yaml records, which the
+      # runner refuses to run under any other, and cached by that version.
+      - name: Set up Rust (stable + llvm-tools)
+        if: env.LANE_MEASURES != '0'
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal --component llvm-tools-preview --no-self-update
+          rustup default stable
+          rustc --version && cargo --version
+      - name: Cache cargo-llvm-cov
+        if: env.LANE_MEASURES != '0'
+        id: cargo-llvm-cov
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-llvm-cov
+          key: cargo-llvm-cov-0.8.7-${{ runner.os }}
+      - name: Install cargo-llvm-cov (cache miss)
+        if: env.LANE_MEASURES != '0' && steps.cargo-llvm-cov.outputs.cache-hit != 'true'
+        run: cargo install cargo-llvm-cov --version 0.8.7 --locked
+
+      - name: Cache clang-23 .debs (Clang is a large download)
+        if: env.LANE_MEASURES != '0'
+        uses: actions/cache@v6
+        with:
+          path: ~/llvm-cache
+          key: clang23-libstdcxx15-noble-v1
+      # ubuntu-24.04 pre-installs only clang ≤19; install clang-23 (the supported
+      # toolchain) from apt.llvm.org, whose package carries llvm-profdata-23 and
+      # llvm-cov-23 beside the compiler.
+      - name: Install C++ toolchain (clang-23 from apt.llvm.org)
+        if: env.LANE_MEASURES != '0'
+        run: |
+          set -euo pipefail
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm23.list >/dev/null
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          mkdir -p ~/llvm-cache
+          if [ -z "$(ls -A ~/llvm-cache 2>/dev/null)" ]; then
+            sudo apt-get install -y --download-only \
+              -o Dir::Cache::archives="${HOME}/llvm-cache" \
+              clang-23 clang-tidy-23 libstdc++-15-dev
+            sudo chown -R "$(id -u):$(id -g)" ~/llvm-cache
+          fi
+          sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
+
+      # The kernel every suite loads.  Restore-only: pr-full-ci is the one
+      # saver, and `cabal run shake -- build` no-ops on a hit.
+      - name: Restore incremental build tree (build/ + _build/ + dist-newstyle/)
+        if: env.LANE_MEASURES != '0'
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            build
+            _build
+            dist-newstyle
+            haskell-shim/dist-newstyle
+          key: build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-${{ github.sha }}
+          restore-keys: |
+            build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
+
+      - name: Build the FFI library
+        if: env.LANE_MEASURES != '0'
+        run: cabal run shake -- build
+
+      # Never gated: a lane with nothing in scope runs the runner, which
+      # measures nothing, reports so and passes.
+      - name: Coverage floors (every binding in scope)
+        env:
+          ALETHEIA_COVERAGE_CHECK: '1'
+        run: python/.venv/bin/python3 -m tools.coverage_run
+
+      - name: Upload the coverage reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-reports
+          path: benchmarks/coverage/
+          if-no-files-found: warn

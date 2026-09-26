@@ -12,6 +12,47 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **A coverage lane, each binding's suite under its own coverage tool, held to
+  floors.** `tools/coverage_run.py` runs the Python suite under coverage.py, the
+  Go modules under `go test -cover`, the C++ suites on an instrumented tree
+  (`-DALETHEIA_COVERAGE=ON`, read back with llvm-cov over every executable
+  ctest runs and every shared library of the tree) and both Rust crates under
+  cargo-llvm-cov, reads each tool's report into one shape, archives it under
+  `benchmarks/coverage/` by commit and fails a binding under the floors
+  `docs/COVERAGE_BENCH.yaml` records: 80 percent of lines and 60 percent of the
+  binding's second figure, which the record names per binding because two of
+  the tools count no branches. Go's profile counts blocks, and cargo-llvm-cov on
+  a stable toolchain counts regions; the record says so rather than calling
+  either a branch. `tools/check_coverage_setup.py` holds the record to its
+  shape in the always-on sweep, `tools/run_ci.py --coverage` runs the lane, and
+  the `coverage floors` job of `pr-build-lanes.yml` runs it on every pull
+  request that could move a figure. The first run read every binding over both
+  floors; the record carries the figures.
+
+- **The Go mutation lane holds the lines no test executes to a ledger.**
+  gremlins counts a mutant on such a line as neither killed nor lived, and the
+  record carried the count with nothing reading it. The runner now reads the
+  count and keys each such mutant on its source line as a survivor is, and the
+  Go verdict fails on more of them than recorded or on one the record's
+  `not_covered_ledger` does not name, a row the sweep no longer produces being
+  reported as stale. Twenty of the lines the record counted are reached by new
+  tests, each feeding the input its line refuses or answers: the invalid-UTF-8
+  refusals and a definition's marshal, the refusal message's rational, the
+  library search with its registered path and its working directory read once,
+  a backend and the standalone loaders refusing a library with none of the
+  kernel's symbols and a file that is not one, a kernel answering null
+  everywhere (a stand-in under `go/aletheia/testdata/kernel_stand_in/`, compiled
+  by the suite), the end-of-stream merge's standard-before-extended order read
+  off a definition carrying one identifier value under both kinds, the batch's
+  satisfactions and the indexed definition constructor. What the ledger names is
+  package-level constants, which no test can execute.
+
+- **The Python coverage configuration measures the FFI loader.** It was omitted
+  as not reachable from tests, where the suite runs it against the built
+  kernel on every run; the omit and its reason are gone, and the one file still
+  held out is the install receipt `shake install` generates, which no checkout
+  carries.
+
 - **The FFI-name gate runs on demand and reads a wrapper it is given.**
   `cabal run shake -- check-ffi-names` runs the check the Main.hs build rule
   runs inline, against the wrapper named by `ALETHEIA_FFI_WRAPPER` or, unset,

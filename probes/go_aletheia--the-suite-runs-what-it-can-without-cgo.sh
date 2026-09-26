@@ -24,7 +24,7 @@
 set -u
 cd "$(dirname "$0")/../go" || exit 2
 command -v go > /dev/null || exit 2
-expected=84
+expected=89
 
 work=$(mktemp -d) || exit 2
 trap 'rm -rf "$work"' EXIT

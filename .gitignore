@@ -7,6 +7,7 @@ build-tsan/
 build-fuzz/
 build-mutation/
 build-mutation-*/
+build-coverage/
 # The sweeps the probe store shares (tools/mutation_sweep_cache.py): reports of
 # a run, keyed on the trees that produced them, not sources.
 cpp/mutation-sweeps/
@@ -100,6 +101,8 @@ benchmarks/stability/
 # per-binding survivor JSON + raw tool logs; the spec lives in
 # docs/MUTATION_BENCH.yaml.
 benchmarks/mutation/
+# benchmarks/coverage/<short-sha>/ artifacts (the coverage lane, tools/coverage_run.py).
+benchmarks/coverage/
 # mutmut 3.x writes its trampoline cache + per-mutant artifacts to
 # python/mutants/ (or .mutmut-cache); both are large and regenerated.
 python/mutants/

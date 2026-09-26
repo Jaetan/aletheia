@@ -26,6 +26,13 @@ fails the lane, because a line whose mutation runs into an operation the
 language does not define, with no test saying so, is a gap somebody has to
 look at rather than a number to carry.
 
+A ``not_covered`` count and a ``not_covered_ledger`` are held for the Go
+lane, whose tool reports the mutants on lines no test executes: a run with
+more of them than the record fails, and each one is keyed on its source line
+as a survivor is and must be a recorded row, the rows being the lines coverage
+cannot attribute to a test, a package-level constant being the case.  A line
+that lost its test is then a finding of this lane, not a number that drifted.
+
 Per-binding env contract:
 
   - ALETHEIA_MUTATION_CHECK    set to anything truthy by run_ci.py to enable
@@ -137,7 +144,7 @@ from tools.mutation_report import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ARTIFACT_BASE = REPO_ROOT / "benchmarks" / "mutation"
@@ -368,6 +375,34 @@ def parse_gremlins_summary(raw: str, where: str) -> MutationReport:
     )
 
 
+# One mutant gremlins made on a line no test executes, as its log names it.
+_NOT_COVERED_RE = re.compile(r"NOT COVERED (\w+) at ([\w.]+\.go):(\d+):\d+")
+
+
+def go_not_covered_rows(raw: str, repo_root: Path = REPO_ROOT) -> dict[SurvivorKey, int]:
+    """Key a gremlins run's not-covered mutants on their source lines, as survivors are.
+
+    gremlins names each by mutator, file and position; the position is turned
+    into the text of the line it names, read from the tree the sweep ran on,
+    so the row survives an edit above it and not an edit of it.  A file the
+    tree no longer has, or a line past its end, keeps the position as text, so
+    the row still fails to match a recorded one rather than vanishing.
+    """
+    rows: dict[SurvivorKey, int] = collections.Counter()
+    lines_of: dict[str, list[str]] = {}
+    for mutator, file, line in _NOT_COVERED_RE.findall(raw):
+        rel = f"go/aletheia/{file}"
+        if rel not in lines_of:
+            source = repo_root / rel
+            lines_of[rel] = (
+                source.read_text(encoding="utf-8").split("\n") if source.is_file() else []
+            )
+        index = int(line) - 1
+        text = lines_of[rel][index].strip() if 0 <= index < len(lines_of[rel]) else f"line {line}"
+        rows[(mutator, rel, text)] += 1
+    return rows
+
+
 # ── Diff-scope ──────────────────────────────────────────────────────────────
 # A binding's mutation result can only change if its own source, tests, or
 # mutation config changed — OR if a shared artifact every binding depends on
@@ -392,12 +427,17 @@ _BINDING_DIRS: dict[str, str] = {
 # or this harness / the baselines themselves — so it forces ALL bindings.  This
 # set IS precision-sensitive: a miss here under-scopes (the dangerous direction),
 # unlike the generous per-binding dirs above.
-_GLOBAL_MUTATION_PATHS: tuple[str, ...] = (
+# What makes the kernel every binding loads: a change here moves every
+# binding's result in this lane and in the coverage lane alike.
+KERNEL_PATHS: tuple[str, ...] = (
     "src/",  # Agda → MAlonzo → libaletheia-ffi.so (every binding dlopens it)
     "haskell-shim/",  # FFI shim → .so
     "Shakefile.hs",  # build graph → .so
     "shake.cabal",
     "aletheia.agda-lib",
+)
+_GLOBAL_MUTATION_PATHS: tuple[str, ...] = (
+    *KERNEL_PATHS,
     # The harness, every module of it: the runner, the scope question a lane
     # asks before installing a toolchain, the C++ lane, its report shapes, its
     # kill-route census and its slice partition.  A prefix rather than a list,
@@ -415,7 +455,13 @@ _GLOBAL_MUTATION_PATHS: tuple[str, ...] = (
 _NO_DIFF_SCOPE_ENV = "ALETHEIA_MUTATION_NO_DIFF_SCOPE"
 
 
-def bindings_in_scope(repo_root: Path) -> set[str] | None:
+def bindings_in_scope(
+    repo_root: Path,
+    *,
+    binding_dirs: Mapping[str, str] | None = None,
+    global_paths: tuple[str, ...] = _GLOBAL_MUTATION_PATHS,
+    no_scope_env: str = _NO_DIFF_SCOPE_ENV,
+) -> set[str] | None:
     """Bindings whose mutation result the branch diff vs ``main`` could change.
 
     Returns ``None`` — meaning "run ALL bindings", the fail-SAFE answer — when:
@@ -429,8 +475,15 @@ def bindings_in_scope(repo_root: Path) -> set[str] | None:
 
     Otherwise returns the set of bindings whose directory the diff touched —
     possibly empty (e.g. a docs-only PR), meaning "run NONE".
+
+    The tables default to this lane's; the coverage lane
+    (``tools/coverage_run.py``) passes its own, so one reading of the diff
+    serves both and a fourth binding is one more row rather than a second
+    function.
     """
-    if os.environ.get(_NO_DIFF_SCOPE_ENV) == "1":
+    if binding_dirs is None:
+        binding_dirs = _BINDING_DIRS
+    if os.environ.get(no_scope_env) == "1":
         return None
     try:
         git = find_executable("git")
@@ -444,11 +497,11 @@ def bindings_in_scope(repo_root: Path) -> set[str] | None:
     changed = [line for line in result.stdout.splitlines() if line]
     if not changed:
         return None  # push:main / no diff — run the full backstop
-    if any(line.startswith(_GLOBAL_MUTATION_PATHS) for line in changed):
+    if any(line.startswith(global_paths) for line in changed):
         return None
     return {
         binding
-        for binding, prefix in _BINDING_DIRS.items()
+        for binding, prefix in binding_dirs.items()
         if any(line.startswith(prefix) for line in changed)
     }
 
@@ -513,6 +566,7 @@ def drift_for(
     bindings: dict[str, BindingSpec],
     survivor_rows: dict[SurvivorKey, int] | None = None,
     unobserved_rows: dict[UnobservedKey, int] | None = None,
+    not_covered_rows: dict[SurvivorKey, int] | None = None,
 ) -> DriftEntry:
     """Compute one binding's drift verdict against its YAML baseline.
 
@@ -522,7 +576,9 @@ def drift_for(
     behaviour, held to an ``unobserved_ledger`` the same way: a row the record
     does not name fails the lane, because a line whose mutation runs into an
     operation the language does not define, with no test saying so, is a gap
-    somebody has to look at rather than a number to carry.
+    somebody has to look at rather than a number to carry.  ``not_covered_rows``
+    are the mutants on lines no test executes, held to a ``not_covered`` count
+    and a ``not_covered_ledger`` the same way again.
     """
     ungated = _ungated(rep)
     if ungated is not None:
@@ -555,6 +611,7 @@ def drift_for(
         "observed_survivors": rep.survived,
         "baseline_survivors": baseline,
     }
+    _judge_not_covered(entry, spec_baseline, not_covered_rows)
     _judge_unobserved(entry, spec_baseline, unobserved_rows)
     ledger = spec_baseline.get("survivors_ledger")
     if ledger is None or survivor_rows is None:
@@ -569,6 +626,40 @@ def drift_for(
         entry["status"] = "regression"
         entry["unrecorded_survivors"] = unrecorded
     return entry
+
+
+def _judge_not_covered(
+    entry: DriftEntry,
+    spec_baseline: Baseline,
+    not_covered_rows: dict[SurvivorKey, int] | None,
+) -> None:
+    """Hold the run's not-covered mutants to the record, by count and by row.
+
+    The count is the rows' sum, one per mutant the tool named.  More of them
+    than recorded is a line that lost its test and fails the lane; so does a
+    row the ledger does not name, at any count.  A recorded row the run no
+    longer produces is reported and does not fail, a line that gained a test
+    being an improvement the record follows.
+    """
+    recorded_count = spec_baseline.get("not_covered")
+    if recorded_count is not None and not_covered_rows is not None:
+        observed_count = sum(not_covered_rows.values())
+        entry["observed_not_covered"] = observed_count
+        entry["baseline_not_covered"] = recorded_count
+        if observed_count > recorded_count:
+            entry["status"] = "regression"
+    ledger = spec_baseline.get("not_covered_ledger")
+    if ledger is None or not_covered_rows is None:
+        return
+    recorded = collections.Counter(ledger_to_rows(ledger))
+    observed = collections.Counter(not_covered_rows)
+    stale = rows_to_ledger(dict(recorded - observed))
+    unrecorded = rows_to_ledger(dict(observed - recorded))
+    if stale:
+        entry["stale_not_covered_ledger"] = stale
+    if unrecorded:
+        entry["status"] = "regression"
+        entry["unrecorded_not_covered"] = unrecorded
 
 
 def _judge_unobserved(
@@ -630,7 +721,8 @@ def main() -> int:
         is_cpp = rep.binding == "cpp"
         rows = cpp_survivor_rows(artifact_dir) if is_cpp else None
         unobserved = cpp_unobserved_rows(artifact_dir) if is_cpp else None
-        drift[rep.binding] = drift_for(rep, bindings, rows, unobserved)
+        not_covered = go_not_covered_rows(rep.raw_log) if rep.binding == "go" else None
+        drift[rep.binding] = drift_for(rep, bindings, rows, unobserved, not_covered)
     any_drift = any(entry["status"] in ("error", "regression") for entry in drift.values())
 
     summary = {
