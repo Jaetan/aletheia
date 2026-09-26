@@ -10,9 +10,15 @@ flagged in the live tree — the same arrangement ``test_check_docs.py`` uses fo
 
 from __future__ import annotations
 
-import pytest
+from typing import TYPE_CHECKING
 
-from tools.check_no_review_marks import is_exempt, scan_text
+import pytest
+from _git_repo import tracked_but_absent
+
+from tools.check_no_review_marks import is_exempt, main, scan_text
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.mark.parametrize(
@@ -103,3 +109,13 @@ def test_exempt_files_are_exempt(rel: str) -> None:
 def test_live_files_are_not_exempt(rel: str) -> None:
     """Ordinary tracked files are in scope for the gate."""
     assert not is_exempt(rel)
+
+
+@pytest.mark.parametrize("argv", [[], ["--summary"]])
+def test_a_tracked_file_that_cannot_be_read_is_not_clean(
+    argv: list[str], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A tracked file the gate cannot read exits 2 and is named, in either report shape."""
+    repo, rel = tracked_but_absent(tmp_path)
+    assert main(argv, repo=repo) == 2
+    assert rel in capsys.readouterr().err

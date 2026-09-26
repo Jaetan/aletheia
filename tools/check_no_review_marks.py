@@ -41,8 +41,10 @@ they are handled by the one-time human-guided sweep, not a standing regex.
   renamed by a repo change.
 * GitHub PR references (``#171``) — kept by design.
 
-Run ``python -m tools.check_no_review_marks`` from the repo root. Its parsers are
-unit-tested by ``python/tests/test_check_no_review_marks.py``.
+Run ``python -m tools.check_no_review_marks`` from the repo root. Exit 0 = clean,
+1 = mark found, 2 = could-not-check (a tracked file was unreadable, never
+reported as clean). Its parsers are unit-tested by
+``python/tests/test_check_no_review_marks.py``.
 """
 
 from __future__ import annotations
@@ -54,7 +56,13 @@ from collections import Counter
 from pathlib import Path
 from typing import cast
 
-from tools._common import emit, prose_lines, scan_tracked_tree
+from tools._common import (
+    TreeScan,
+    pattern_findings,
+    prose_lines,
+    report_tree_scan,
+    scan_tracked_tree,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -123,20 +131,16 @@ def scan_text(rel: str, text: str) -> list[str]:
     The pure core of the scan — no filesystem — so the detector is unit-testable
     on synthetic input (``python/tests/test_check_no_review_marks.py``).
     """
-    findings: list[str] = []
-    for lineno, line in scannable_lines(rel, text):
-        for pat, why in _PATTERNS:
-            findings.extend(f"{rel}:{lineno}: {why} -> {m.group(0)!r}" for m in pat.finditer(line))
-    return findings
+    return pattern_findings(rel, scannable_lines(rel, text), _PATTERNS)
 
 
-def check_tree() -> list[str]:
-    """Return every review-mark finding across the tracked, non-exempt tree."""
-    return scan_tracked_tree(REPO, is_exempt, scan_text)
+def check_tree(repo: Path = REPO) -> TreeScan:
+    """Scan the tracked, non-exempt tree of ``repo`` for review marks."""
+    return scan_tracked_tree(repo, is_exempt, scan_text)
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Scan the tracked tree; return 1 (and list the marks) if any are found, else 0."""
+def main(argv: list[str] | None = None, *, repo: Path = REPO) -> int:
+    """Scan the tracked tree; 2 if a file was unreadable, 1 (listing the marks) if any, else 0."""
     parser = argparse.ArgumentParser(description=__doc__)
     _ = parser.add_argument(
         "--summary",
@@ -146,20 +150,22 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     summary = cast("bool", args.summary)
 
-    findings = check_tree()
-    if findings:
-        if summary:
-            per_file = Counter(f.split(":", 1)[0] for f in findings)
-            emit(f"check_no_review_marks: {len(findings)} mark(s) in {len(per_file)} file(s):")
-            for rel, n in sorted(per_file.items(), key=lambda kv: -kv[1]):
-                emit(f"  {n:>4}  {rel}")
-        else:
-            emit(f"check_no_review_marks: {len(findings)} review-process mark(s):")
-            for f in findings:
-                emit(f"  {f}")
-        return 1
-    emit("check_no_review_marks: no internal review-process marks in the live tree.")
-    return 0
+    scan = check_tree(repo)
+    found = f"{len(scan.findings)} review-process mark(s):"
+    found_lines = scan.findings
+    if summary:
+        per_file = Counter(f.split(":", 1)[0] for f in scan.findings)
+        found = f"{len(scan.findings)} mark(s) in {len(per_file)} file(s):"
+        found_lines = [
+            f"{n:>4}  {rel}" for rel, n in sorted(per_file.items(), key=lambda kv: -kv[1])
+        ]
+    return report_tree_scan(
+        "check_no_review_marks",
+        scan,
+        found=found,
+        found_lines=found_lines,
+        clean="no internal review-process marks in the live tree.",
+    )
 
 
 if __name__ == "__main__":

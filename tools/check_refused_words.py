@@ -27,8 +27,10 @@ the reason it is refused and what carries the meaning honestly.
   documentation, not the project speaking.
 * Untracked files and the vendored trees, which ``git ls-files`` never lists.
 
-Run ``python -m tools.check_refused_words`` from the repository root. Its
-parser is unit-tested by ``python/tests/test_check_refused_words.py``.
+Run ``python -m tools.check_refused_words`` from the repository root. Exit 0 =
+clean, 1 = refused word found, 2 = could-not-check (a tracked file was
+unreadable, never reported as clean). Its parser is unit-tested by
+``python/tests/test_check_refused_words.py``.
 """
 
 from __future__ import annotations
@@ -37,7 +39,7 @@ import re
 import sys
 from pathlib import Path
 
-from tools._common import emit, prose_lines, scan_tracked_tree
+from tools._common import TreeScan, prose_lines, report_tree_scan, scan_tracked_tree
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -73,21 +75,21 @@ def scan_text(rel: str, text: str) -> list[str]:
     return findings
 
 
-def check_tree() -> list[str]:
-    """Return every refused word across the tracked, non-exempt tree."""
-    return scan_tracked_tree(REPO, is_exempt, scan_text)
+def check_tree(repo: Path = REPO) -> TreeScan:
+    """Scan the tracked, non-exempt tree of ``repo`` for refused words."""
+    return scan_tracked_tree(repo, is_exempt, scan_text)
 
 
-def main() -> int:
-    """Report every refused word in the tracked tree; non-zero when any is found."""
-    findings = check_tree()
-    if findings:
-        emit(f"check_refused_words: {len(findings)} refused word(s):")
-        for finding in findings:
-            emit(f"  {finding}")
-        return 1
-    emit(f"check_refused_words: none of the {len(_REFUSED)} refused word(s) in the tracked tree.")
-    return 0
+def main(*, repo: Path = REPO) -> int:
+    """Report every refused word in the tracked tree; 2 if a file was unreadable, 1 if any found."""
+    scan = check_tree(repo)
+    return report_tree_scan(
+        "check_refused_words",
+        scan,
+        found=f"{len(scan.findings)} refused word(s):",
+        found_lines=scan.findings,
+        clean=f"none of the {len(_REFUSED)} refused word(s) in the tracked tree.",
+    )
 
 
 if __name__ == "__main__":
