@@ -137,12 +137,11 @@ jobs:
           # and 33.8, address 20.1, 21.9 and 25.3.  Slowest leg plus the
           # 33.3 cold allowance: leak 69.0, plain 76.3, address 58.6, each
           # rounded up.
-          # The Rust lane's budget is a local measurement, the lane not having
-          # run yet: the lane at 369 mutants took 5m49s in place on a warm
-          # target directory, and a cold one pays the crate's own build and
-          # cargo-mutants' install on a cache miss, about a minute and three
-          # minutes; with the 33.3 cold allowance, 43.1, rounded up.  Re-taken
-          # from `elapsed_s` of its first run.
+          # The Rust lane's budget is its first run's, 36228427884: 16.7
+          # minutes of wall, of which the sweep at 369 mutants took 12.2
+          # (`elapsed_s`) on the runner's four cores, against 5.8 locally on
+          # twenty, and cargo-mutants' install from cold 1.2, its cache
+          # missing on that run; plus the 33.3 cold allowance, 50.0.
           # Each budget is the slowest run recorded, so a faster one leaves it
           # where it is.  A budget is a measurement of the
           # surface it was read from: it is re-taken when the mutation surface
@@ -170,7 +169,7 @@ jobs:
             binding: rust
             stage: ''
             slice: ''
-            timeout: 45
+            timeout: 50
             skip_python: '1'
             skip_go: '1'
             skip_cpp: '1'
