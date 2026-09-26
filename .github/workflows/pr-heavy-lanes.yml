@@ -7,9 +7,9 @@
 # --mutation`, which would redundantly re-run the whole ~36-min base sweep
 # already covered by pr-full-ci.yml).
 #
-# The two lanes no required check reports, reproducible-build and the stability
-# bench, are in pr-build-lanes.yml, where a documentation path filter skips
-# them.  This file cannot carry that filter: it applies to a whole workflow,
+# The lanes no required check reports, reproducible-build, the stability
+# bench and the coverage floors, are in pr-build-lanes.yml, where a
+# documentation path filter skips them.  This file cannot carry that filter: it applies to a whole workflow,
 # and `mutation testing` below is the context the main branch ruleset requires,
 # which must report on every pull request.
 #

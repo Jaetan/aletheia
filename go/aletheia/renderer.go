@@ -88,11 +88,14 @@ func findFFILibrary() string {
 		"../build/libaletheia-ffi.so",
 		"build/libaletheia-ffi.so",
 	}
+	// The working directory is read once: it is the one thing that can fail
+	// here, and it fails for every candidate alike.
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
 	for _, c := range candidates {
-		abs, err := filepath.Abs(c)
-		if err != nil {
-			continue
-		}
+		abs := filepath.Join(cwd, c)
 		if _, err := os.Stat(abs); err == nil {
 			return abs
 		}

@@ -220,6 +220,32 @@ elseif(ALETHEIA_SANITIZER)
         "use one of: address, undefined, thread (or unset).")
 endif()
 
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+# Opt-in via -DALETHEIA_COVERAGE=ON: clang's source-based coverage, which
+# tools/coverage_run.py reads back with llvm-cov after ctest has run under
+# LLVM_PROFILE_FILE.  The flags go on every target of the tree, the suites
+# and the fixture libraries included: llvm-cov counts a source only through
+# the objects it is handed, and a header instantiated in a test binary alone
+# is counted only if that binary carries the mapping.  The export holds the
+# suites, harnesses, fuzz targets and fetched libraries out by path.  Its own
+# tree, since the instrumentation changes every object:
+#
+#   cmake -B build-coverage -DALETHEIA_COVERAGE=ON \
+#         -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
+option(ALETHEIA_COVERAGE "Instrument the whole tree for llvm-cov (tools/coverage_run.py)" OFF)
+if(ALETHEIA_COVERAGE)
+    if(ALETHEIA_SANITIZER OR ALETHEIA_MUTATION)
+        message(FATAL_ERROR
+            "ALETHEIA_COVERAGE measures the plain tree: a sanitizer's inserted "
+            "checks and Mull's mutants would be counted as the tree's own code")
+    endif()
+    message(STATUS "Coverage lane: -fprofile-instr-generate -fcoverage-mapping (whole tree)")
+    add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
+    add_link_options(-fprofile-instr-generate)
+endif()
+
 if(ALETHEIA_SANITIZER_FLAGS)
     message(STATUS "Sanitizer lane: ${ALETHEIA_SANITIZER}")
     # Apply a sanitizer ignorelist so vendored third-party UB (zippy.hpp
@@ -360,9 +386,12 @@ endif()
 # NOT applied when ALETHEIA_MUTATION=ON: the Mull IR plugin resolves the mapped
 # source path relative to the compiler's working directory and crashes clang
 # (exit 139) when it does not exist there, as in any build directory (the probe
-# under probes/ pins this).  The mutation lane is dev-only, never shipped, so
-# reproducibility does not apply to it.
-if(NOT ALETHEIA_MUTATION)
+# under probes/ pins this).  Nor when ALETHEIA_COVERAGE=ON: llvm-cov names a
+# source by the path its mapping recorded, so a header the library compiled
+# under the mapped path and a test compiled under the real one would be two
+# files, each counted.  Neither tree is shipped, so reproducibility does not
+# apply to them.
+if(NOT ALETHEIA_MUTATION AND NOT ALETHEIA_COVERAGE)
     target_compile_options(aletheia-cpp PRIVATE
         "-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")
 endif()

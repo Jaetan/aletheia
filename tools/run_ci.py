@@ -99,8 +99,9 @@ running in a context where one lane is too slow).
   --repro        ALETHEIA_REPRO_CHECK=1        ~10m  check-reproducible-build
   --stability    ALETHEIA_STABILITY_CHECK=1    ~5m   stability bench
   --mutation     ALETHEIA_MUTATION_CHECK=1     ~30m+ mutation testing lane
+  --coverage     ALETHEIA_COVERAGE_CHECK=1     ~3m   coverage floors, per binding
   ──────────────────────────────────────────────────────────────────────
-  --full         (all three above)             ~45m+ all opt-ins
+  --full         (all four above)              ~45m+ all opt-ins
 
 Total wall-time: ~22-27 min always-on (incl. the two sanitizer ctest
 lanes, which run concurrently with each other and the cpp lane), plus
@@ -131,6 +132,7 @@ rather than silently skipping.
   - docs/development/CI_LOCAL.md       — three-layer CI architecture
   - docs/operations/STABILITY.md       — opt-in stability lane
   - docs/operations/MUTATION.md        — opt-in mutation lane
+  - docs/operations/COVERAGE.md        — opt-in coverage lane
 """
 
 from __future__ import annotations
@@ -214,6 +216,7 @@ class OptInLanes:
     repro: bool
     stability: bool
     mutation: bool
+    coverage: bool
 
 
 @dataclass
@@ -332,13 +335,18 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
         "ALETHEIA_MUTATION_CHECK",
         "mutation testing across 3 bindings (~30 min+)",
     )
+    _add_lane(
+        "coverage",
+        "ALETHEIA_COVERAGE_CHECK",
+        "coverage floors across 4 bindings (~3 min)",
+    )
 
     parser.add_argument(
         "--full",
         action="store_true",
         help=(
             "Enable every opt-in lane (equivalent to --repro --stability "
-            "--mutation).  Individual --no-<lane> flags can still subtract from "
+            "--mutation --coverage).  Individual --no-<lane> flags can still subtract from "
             "the --full set (e.g. --full --no-mutation runs everything except "
             "mutation testing)."
         ),
@@ -405,7 +413,7 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
     # The order matters: apply --full BEFORE _resolve_flag so the env var still
     # gets to enable a lane that --full + --no-<other> didn't touch.
     if args.full:
-        for lane in ("repro", "stability", "mutation"):
+        for lane in ("repro", "stability", "mutation", "coverage"):
             if getattr(args, lane) is None:
                 setattr(args, lane, True)
 
@@ -414,6 +422,7 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
             repro=_resolve_flag(cli_value=args.repro, env_var="ALETHEIA_REPRO_CHECK"),
             stability=_resolve_flag(cli_value=args.stability, env_var="ALETHEIA_STABILITY_CHECK"),
             mutation=_resolve_flag(cli_value=args.mutation, env_var="ALETHEIA_MUTATION_CHECK"),
+            coverage=_resolve_flag(cli_value=args.coverage, env_var="ALETHEIA_COVERAGE_CHECK"),
         ),
         iwyu_all=args.iwyu_all or os.environ.get("ALETHEIA_IWYU_ALL") == "1",
         parallel=_resolve_flag(cli_value=args.parallel, env_var="ALETHEIA_CI_PARALLEL"),
@@ -533,6 +542,7 @@ class Runner:
                 ("repro", self.opts.lanes.repro),
                 ("stability", self.opts.lanes.stability),
                 ("mutation", self.opts.lanes.mutation),
+                ("coverage", self.opts.lanes.coverage),
             )
         )
         mode = (

@@ -29,7 +29,7 @@ _REQUIRED_CONTEXTS = frozenset({"tools/run_ci.py (all gates)", "mutation testing
 
 # The lanes that own no required context, by job name.  Each one builds the
 # whole tree and measures it, which a documentation change cannot move.
-_EXEMPT_LANES = frozenset({"reproducible-build", "stability bench (advisory)"})
+_EXEMPT_LANES = frozenset({"reproducible-build", "stability bench (advisory)", "coverage floors"})
 
 # workflow_dispatch takes no path filter and is not asked for one: a manual run
 # is the escape hatch that reaches a lane whatever the diff.

@@ -31,8 +31,9 @@ Always-on invariants, checked without running the mutation tools (which take
    ``.github/workflows`` through ``parents[2]``, found nothing under
    ``mutants/`` and failed the lane on its own assertion.)
 
-4. **Every ledger row still names a line of the tree.** The survivors and
-   the unobserved kills are both recorded by mutator, file and the text of the
+4. **Every ledger row still names a line of the tree.** The survivors, the
+   unobserved kills and the Go lane's not-covered mutants are each recorded by
+   mutator, file and the text of the
    source line, keyed on that text rather than on the line's number so that an
    edit above the site does not move a row and an edit of the site does.  What
    moves one, then, is a rename or a rewording, which nothing else notices: the
@@ -250,7 +251,7 @@ def cpp_slice_weights_are_of_the_domain(bindings: dict[str, object]) -> list[str
 def ledger_rows_still_name_their_line(bindings: dict[str, object]) -> list[str]:
     """Hold every recorded ledger row to a file and a line the tree still has.
 
-    Both ledgers key a row on the text of its source line rather than on the
+    Every ledger keys a row on the text of its source line rather than on the
     line's number, so that an edit above the site does not move it and an edit
     of the site does.  What moves it, then, is exactly what nothing else
     notices: the line is reworded, or its file is renamed, and the row goes on
@@ -266,7 +267,7 @@ def ledger_rows_still_name_their_line(bindings: dict[str, object]) -> list[str]:
             continue
         spec = cast("dict[str, object]", binding_spec)
         baseline = cast("dict[str, object]", spec.get("baseline", {}))
-        for name in ("survivors_ledger", "unobserved_ledger"):
+        for name in ("survivors_ledger", "unobserved_ledger", "not_covered_ledger"):
             rows = baseline.get(name, [])
             if not isinstance(rows, list):
                 failures.append(f"[{binding_name}/{name}] must be a list of rows")
@@ -300,14 +301,14 @@ def _row_names_its_line(binding_name: str, ledger: str, row: dict[str, object]) 
 
 
 def _ledger_rows(bindings: dict[str, object]) -> int:
-    """Count the ledger rows the record carries, over every binding and both ledgers."""
+    """Count the ledger rows the record carries, over every binding and every ledger."""
     total = 0
     for binding_spec in bindings.values():
         if not isinstance(binding_spec, dict):
             continue
         spec = cast("dict[str, object]", binding_spec)
         baseline = cast("dict[str, object]", spec.get("baseline", {}))
-        for name in ("survivors_ledger", "unobserved_ledger"):
+        for name in ("survivors_ledger", "unobserved_ledger", "not_covered_ledger"):
             rows = baseline.get(name, [])
             if isinstance(rows, list):
                 total += len(cast("list[object]", rows))

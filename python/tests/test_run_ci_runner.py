@@ -147,7 +147,7 @@ def _runner(
         sources=sources_digest_of_worktree(tmp_path),
     )
     opts = OptInOptions(
-        lanes=OptInLanes(repro=False, stability=False, mutation=False),
+        lanes=OptInLanes(repro=False, stability=False, mutation=False, coverage=False),
         parallel=parallel,
         fast=fast,
     )

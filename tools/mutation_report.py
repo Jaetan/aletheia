@@ -68,6 +68,12 @@ class Baseline(TypedDict):
     run_at: NotRequired[str]
     survivors_ledger: NotRequired[list[LedgerRow]]
     unobserved_ledger: NotRequired[list[UnobservedRow]]
+    # Mutants on lines no test executes, where the tool has that bucket: the
+    # count, and a ledger of the lines coverage cannot attribute to a test, a
+    # package-level constant being the case.  A run's not-covered mutant the
+    # ledger does not name is a line that lost its test.
+    not_covered: NotRequired[int]
+    not_covered_ledger: NotRequired[list[LedgerRow]]
 
 
 class BindingSpec(TypedDict):
@@ -108,6 +114,10 @@ class DriftEntry(TypedDict):
     stale_ledger: NotRequired[list[LedgerRow]]
     unrecorded_unobserved_kills: NotRequired[list[UnobservedRow]]
     stale_unobserved_ledger: NotRequired[list[UnobservedRow]]
+    observed_not_covered: NotRequired[int]
+    baseline_not_covered: NotRequired[int]
+    unrecorded_not_covered: NotRequired[list[LedgerRow]]
+    stale_not_covered_ledger: NotRequired[list[LedgerRow]]
 
 
 # A survivor's identity in the ledger: mutator, repository-relative file and

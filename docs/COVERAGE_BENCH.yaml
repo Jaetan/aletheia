@@ -1,0 +1,153 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# The coverage lane, per binding: which tool measures it, what the measurement
+# covers, the floors it is held to, and what the last recorded run produced.
+#
+# AGENTS.md § Universal Rules: every API binding's suite covers at least 80
+# percent of its lines and 60 percent of its branches, measured by the
+# binding's own coverage tool, beside its mutation lane.  tools/coverage_run.py
+# runs each suite under that tool, archives the tool's report under
+# benchmarks/coverage/ by commit, and fails a binding whose figure is under a
+# floor.  tools/check_coverage_setup.py holds this file to its shape in the
+# always-on sweep: every path a scope names exists, every recorded figure is
+# over its floor, and the pinned tool is the one the workflow installs.
+#
+# Two figures per binding.  Lines everywhere.  The second figure is the finest
+# unit the binding's own tool counts short of a line, and each binding's entry
+# names it: a branch arc, a branch, a block or a region.  A block and a region
+# are not a branch, and the entry says so where that is what the tool has.
+#
+# The floors gate; the baseline is a measurement.  A run over the floor and
+# under the baseline passes and prints its distance; the baseline is re-taken
+# from the run's own baseline-<binding>.yaml fragment when a change moves it.
+
+floors:
+  lines_pct: 80
+  branches_pct: 60
+
+bindings:
+
+  python:
+    tool: coverage.py, run through pytest-cov
+    # The dev extras pin both to a major: a coverage tool's count moves little
+    # between minors, and the floor, not the count, is the gate.
+    version: "coverage 7.14.1, pytest-cov 7.1.0"
+    scope:
+      # The package, its CLI included; `[tool.coverage.run]` in
+      # python/pyproject.toml omits the file `shake install` generates.
+      - python/aletheia
+    second:
+      unit: branches
+      # coverage.py's branch arcs: every conditional jump the bytecode can
+      # take, counted as taken or not.
+    invocation: |
+      cd python && .venv/bin/python -m pytest tests/ --ignore=tests/test_cli_parity.py \
+        --cov=aletheia --cov-branch --cov-report=json:<artifact>/python-coverage.json
+    # coverage.py measures under sys.monitoring on this interpreter (its
+    # `core: SysMonitor`), so the run costs the suite little over an
+    # uninstrumented one.  The cross-CLI parity harness is left out here as it
+    # is in every python-lane pytest step: it drives the C++ CLI binary.
+    baseline:
+      lines_pct: 89.30
+      lines_covered: 3398
+      lines_total: 3805
+      second_pct: 81.05
+      second_covered: 864
+      second_total: 1066
+      run_at: "2026-09-26"
+
+  go:
+    tool: go test -cover
+    version: "the go in PATH (go.mod pins the language version)"
+    scope:
+      # The core module's packages and the excel module, whose go.mod `./...`
+      # from go/ stops at.  go/benchmarks is the harness, not the binding, and
+      # is held out of the count.
+      - go/aletheia
+      - go/cmd/aletheia
+      - go/excel
+    second:
+      unit: blocks
+      # Go's own tool has no branch metric.  Its profile counts blocks, and a
+      # block is one arm's body: the statements between two points where
+      # control can diverge.  The runner reads the profile itself: the
+      # statement figure is `go tool cover -func`'s total, the block figure is
+      # the share of the profile's blocks any test reached.
+    invocation: |
+      cd go && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so \
+        go test ./... -count=1 -covermode=atomic -coverprofile=<artifact>/go-core.cover
+      cd go/excel && ALETHEIA_LIB=$PWD/../../build/libaletheia-ffi.so \
+        go test ./... -count=1 -covermode=atomic -coverprofile=<artifact>/go-excel.cover
+    baseline:
+      lines_pct: 87.75
+      lines_covered: 2829
+      lines_total: 3224
+      second_pct: 81.89
+      second_covered: 1954
+      second_total: 2386
+      run_at: "2026-09-26"
+
+  cpp:
+    tool: llvm-cov, over clang's source-based instrumentation
+    version: "LLVM 23 (clang-23, llvm-profdata-23, llvm-cov-23)"
+    scope:
+      # The library and the CLI, headers included; the suites, the benchmark
+      # harnesses, the fuzz targets and the fetched libraries are held out of
+      # the export by path.
+      - cpp/src
+      - cpp/include
+    second:
+      unit: branches
+      # llvm-cov's branch regions: each condition's true and false outcome.
+    build: |
+      cmake -S cpp -B cpp/build-coverage -DALETHEIA_COVERAGE=ON \
+        -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
+    invocation: |
+      LLVM_PROFILE_FILE=<artifact>/cpp-profraw/%p-%m.profraw ALETHEIA_LIB=build/libaletheia-ffi.so \
+        ctest --test-dir cpp/build-coverage
+      llvm-profdata-23 merge -sparse <artifact>/cpp-profraw/*.profraw -o <artifact>/cpp.profdata
+      llvm-cov-23 export --summary-only -instr-profile=<artifact>/cpp.profdata \
+        <every ctest executable, from ctest --show-only=json-v1> -object <every .so of the tree> \
+        -ignore-filename-regex='/(tests|benchmarks|fuzz|_deps)/'
+    # The export is handed every executable ctest runs and every shared
+    # library of the tree, read from ctest's own listing: a source linked into
+    # one binary alone is absent from a summary that names the others.
+    baseline:
+      lines_pct: 96.33
+      lines_covered: 4432
+      lines_total: 4601
+      second_pct: 92.01
+      second_covered: 1290
+      second_total: 1402
+      run_at: "2026-09-26"
+
+  rust:
+    tool: cargo-llvm-cov
+    # Pinned exactly and refused by the runner at any other version, the way
+    # the mutation lane pins mutmut: the workflow installs this version.
+    version: "0.8.7"
+    scope:
+      # Both crates, the excel one having a manifest of its own; the runner
+      # sums the two crates' counts into one figure of the binding.
+      - rust/src
+      - rust/excel/src
+    second:
+      unit: regions
+      # llvm-cov's code regions, as cargo-llvm-cov reports them on a stable
+      # toolchain.  Branch instrumentation is nightly-only there (`--branch`
+      # on stable reports no branches at all), and a region is finer than a
+      # line but is not a branch: it is a span of code with one execution
+      # count, of which a branch's arm is one kind.
+    invocation: |
+      cd rust && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so \
+        cargo llvm-cov --all-features --json --summary-only --output-path <artifact>/rust-core.json
+      cd rust/excel && ALETHEIA_LIB=$PWD/../../build/libaletheia-ffi.so \
+        cargo llvm-cov --json --summary-only --output-path <artifact>/rust-excel.json
+    baseline:
+      lines_pct: 88.01
+      lines_covered: 4593
+      lines_total: 5219
+      second_pct: 85.05
+      second_covered: 7197
+      second_total: 8462
+      run_at: "2026-09-26"
