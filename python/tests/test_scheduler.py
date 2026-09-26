@@ -11,7 +11,18 @@ output capture, and deterministic result ordering.
 
 from __future__ import annotations
 
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from tools import _scheduler
 from tools._scheduler import Step, StepEvent, all_passed, run_lanes
+
+REPO_ROOT = Path(_scheduler.__file__).resolve().parents[1]
+BOUND_SECONDS = 5.0
 
 
 def _step(name: str, sh: str, *, heavy: bool = False) -> Step:
@@ -61,7 +72,38 @@ def test_signal_death_counts_as_failure() -> None:
     lanes = [[_step("oom", "kill -9 $$")]]
     results = run_lanes(lanes, max_workers=1, heavy_limit=1)
     assert not all_passed(results)
-    assert results[0].returncode < 0  # negative returncode == died by signal
+    assert results[0].returncode == 128 + signal.SIGKILL  # the shell's status for a signal death
+
+
+def test_an_interrupted_parallel_sweep_stops_its_steps(tmp_path: Path) -> None:
+    """Ctrl-C, SIGINT to the sweep's process group, ends a parallel sweep within the bound.
+
+    Each step runs in a process group of its own, which the interrupt does
+    not reach, so a sweep that only waited on its workers would run until
+    the step finished on its own.
+    """
+    started = tmp_path / "started"
+    script = (
+        "from tools._scheduler import Step, run_lanes; "
+        f"run_lanes([[Step('slow', 'touch \"{started}\"; exec sleep 60')], "
+        "[Step('other', 'true')]], max_workers=2, heavy_limit=1)"
+    )
+    with subprocess.Popen(
+        [sys.executable, "-c", script],
+        cwd=REPO_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        process_group=0,
+    ) as sweep:
+        try:
+            deadline = time.monotonic() + BOUND_SECONDS
+            while not started.exists():
+                assert time.monotonic() < deadline, "the step never started"
+                time.sleep(0.02)
+            os.killpg(sweep.pid, signal.SIGINT)
+            assert sweep.wait(BOUND_SECONDS) != 0
+        finally:
+            sweep.kill()
 
 
 def test_output_is_captured() -> None:
@@ -69,6 +111,13 @@ def test_output_is_captured() -> None:
     lanes = [[_step("noisy", "echo MARKER_42; exit 0")]]
     results = run_lanes(lanes, max_workers=1, heavy_limit=1)
     assert "MARKER_42" in results[0].output
+
+
+def test_stderr_is_captured_in_order_with_stdout() -> None:
+    """A step's stderr lands in its output, interleaved with stdout as written."""
+    lanes = [[_step("mixed", "echo one; echo two >&2; echo three")]]
+    results = run_lanes(lanes, max_workers=1, heavy_limit=1)
+    assert results[0].output == "one\ntwo\nthree\n"
 
 
 def test_serial_mode_runs_every_lane() -> None:
@@ -124,3 +173,11 @@ def test_progress_none_is_supported() -> None:
     lanes = [[_step("quiet", "exit 0")]]
     results = run_lanes(lanes, max_workers=1, heavy_limit=1)
     assert all_passed(results)
+
+
+def test_a_parallel_sweep_leaves_no_descriptor_open() -> None:
+    """Both ends of the parallel sweep's stop pipe are closed once it returns."""
+    fds = Path("/proc/self/fd")
+    before = sorted(fds.iterdir())
+    _ = run_lanes([[_step("a", "true")], [_step("b", "true")]], max_workers=2, heavy_limit=1)
+    assert sorted(fds.iterdir()) == before

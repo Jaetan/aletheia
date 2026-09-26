@@ -65,6 +65,9 @@ re-measures it: a sweep whose build sources moved while it ran fails rather
 than vouch for a tree no step is known to have observed.  A passed log is the
 falsifiable evidence behind a "gates clean" claim, and `tools/check_gate_claim.py`
 reads it by that digest.  A `--fast` sweep runs a subset and records no digest.
+Every step runs in a process group of its own under a guard that interrupts it
+when the sweep dies, however it dies, and Ctrl-C stops the running steps before
+the sweep exits, so an ended sweep leaves no build holding Shake's lock.
 
 ### The build prerequisite and the staleness gate
 
