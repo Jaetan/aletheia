@@ -269,4 +269,47 @@ mod tests {
         assert!(Dlc::from_bytes(9).is_err());
         assert!(Dlc::from_bytes(65).is_err());
     }
+
+    #[test]
+    fn can_id_ranges_are_inclusive_at_the_top() {
+        use super::{CanId, MAX_EXTENDED_ID, MAX_STANDARD_ID};
+        // The maximum of each width is a valid identifier; one past it is not.
+        assert_eq!(
+            CanId::standard(MAX_STANDARD_ID)
+                .expect("the 11-bit maximum")
+                .value(),
+            u32::from(MAX_STANDARD_ID)
+        );
+        assert!(CanId::standard(MAX_STANDARD_ID + 1).is_err());
+        assert_eq!(
+            CanId::extended(MAX_EXTENDED_ID)
+                .expect("the 29-bit maximum")
+                .value(),
+            MAX_EXTENDED_ID
+        );
+        assert!(CanId::extended(MAX_EXTENDED_ID + 1).is_err());
+    }
+
+    #[test]
+    fn rational_le_cross_multiplies() {
+        use super::Rational;
+        let r = |n, d| Rational::new(n, d).expect("valid rational");
+        // Each row is chosen so that a comparison by sum or by quotient of the
+        // cross terms answers differently from the product: 2/3 <= 1/2 is
+        // false (4 > 3), where 2+2 <= 1+3 holds; 2/4 <= 1/2 is true (4 <= 4),
+        // where 2/2 <= 1/4 does not.
+        assert!(!r(2, 3).le(r(1, 2)));
+        assert!(r(2, 4).le(r(1, 2)));
+        assert!(r(1, 3).le(r(1, 2)));
+        assert!(!r(3, 2).le(r(2, 3)));
+        // Unreduced against reduced: equal values compare as equal.
+        assert!(r(1, 2).le(r(2, 4)) && r(2, 4).le(r(1, 2)));
+    }
+
+    #[test]
+    fn timestamp_and_time_bound_read_back_their_micros() {
+        use super::{TimeBound, Timestamp};
+        assert_eq!(Timestamp(1_234_567).micros(), 1_234_567);
+        assert_eq!(TimeBound(89).micros(), 89);
+    }
 }

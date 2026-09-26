@@ -12,6 +12,29 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **A Rust mutation lane, cargo-mutants over the crate's hot path.**
+  `tools/mutation_rust.py` sweeps the response decoder, the DBC model, the
+  domain types and the FFI backend, named by `rust/.cargo/mutants.toml`, reads
+  every mutant's bucket from the tool's `outcomes.json`, keys each survivor on
+  its mutation and source line as the C++ ledger does, and refuses a
+  cargo-mutants other than the version `docs/MUTATION_BENCH.yaml` pins. The
+  sweep runs in place, because the suite includes the DBC corpus and the
+  parity snapshots from above the crate at compile time and a copy of the
+  crate alone does not build; a probe holds that reason. The configuration
+  names an error value, so every function returning a `Result` gets an `Err`
+  mutant beside its `Ok` ones, and every one of those dies. The lane joins the
+  runner, its diff scope, the static gate, which now refuses a record with no
+  block for a binding the runner sweeps, and the heavy-lanes workflow as a lane
+  of its own. The first sweep left 56 of 305 mutants alive; 54 are killed by
+  tests at the boundaries they sit on (the identifier and payload maxima, the
+  rational comparison's cross terms, the extraction buffer's plausibility cap
+  and its null and empty-reason cases, the bus-bit encoding, the error and
+  remote frame acknowledgements, the RTS core-count warning with both specs,
+  the DBC message helpers and the comment target's flag), the buffer cap
+  having moved into a function a test can hand a buffer to. The two the
+  record carries are the `Drop` impls that return memory to the kernel, which
+  no test observes without a leak checker.
+
 - **A coverage lane, each binding's suite under its own coverage tool, held to
   floors.** `tools/coverage_run.py` runs the Python suite under coverage.py, the
   Go modules under `go test -cover`, the C++ suites on an instrumented tree

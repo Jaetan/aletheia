@@ -300,3 +300,25 @@ fn payload_length_must_match_dlc() {
         "update_frame must reject a length/DLC mismatch"
     );
 }
+
+#[test]
+fn error_and_remote_events_are_acknowledged_by_the_core() {
+    // Neither event carries a payload; each is a distinct kernel entry point,
+    // and the client accepts only an acknowledgement in answer to it.
+    let c = client();
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
+    let id = CanId::standard(256).expect("id");
+    assert!(dbc.message_by_id(id).is_some(), "EngineStatus");
+    let prop = Formula::Always(Box::new(Formula::Atomic(Predicate::LessThan {
+        signal: "EngineSpeed".to_string(),
+        value: Rational::integer(1000),
+    })));
+    c.set_properties(&[prop]).expect("set properties");
+    c.start_stream().expect("start stream");
+    c.send_error(Timestamp(10))
+        .expect("an error event is acknowledged");
+    c.send_remote(Timestamp(20), id)
+        .expect("a remote frame event is acknowledged");
+    let result = c.end_stream().expect("end stream");
+    assert_eq!(result.results.len(), 1, "the one property reports");
+}

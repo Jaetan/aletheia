@@ -683,6 +683,62 @@ fn frame_len(data: &[u8]) -> Result<u8, Error> {
     Ok(data.len() as u8) // guarded above: <= 64 fits u8
 }
 
+/// A plausibility cap on the size the core reports for an extraction buffer,
+/// not the wire's theoretical maximum (whose u32-length reason blob would admit
+/// a multi-GiB copy from a corrupt size report): the 10-byte header, the
+/// maximum u16 count of each fixed-stride section (values 18 B, errors 3 B,
+/// absent 2 B), the (nErrors + 1) x u32 reason-offsets table, and a generous
+/// per-entry reason budget. Kernel-minted reasons are short (bounded signal
+/// names + bounded decimal renderings + fixed text, well under 512 B each), so
+/// any honest buffer sits far below this cap. Layout:
+/// `response::decode_extraction_bin` (canonical source: `Aletheia.Main.Binary`,
+/// processExtractBin).
+const MAX_REASON_BYTES_PER_ENTRY: usize = 512;
+const MAX_EXTRACT_BUF: usize = 10
+    + (18 + 3 + 2) * (u16::MAX as usize)
+    + 4 * (u16::MAX as usize + 1)
+    + MAX_REASON_BYTES_PER_ENTRY * (u16::MAX as usize);
+
+/// Copy the extraction buffer the core returned and hand it back to the core.
+///
+/// The wire always carries at least the 10-byte header, so a null buffer paired
+/// with a non-zero size is a protocol violation, NOT an empty result: it is
+/// surfaced rather than silently dropping data. (A null buffer with size 0
+/// yields an empty Vec, which `decode_extraction_bin` then rejects as too
+/// short, a truthful error rather than a silent success.) A reported size past
+/// [`MAX_EXTRACT_BUF`] is corruption and is rejected, after freeing, instead of
+/// copying an implausible span. `free` is called exactly once on every non-null
+/// buffer, whichever way the call ends.
+///
+/// # Safety
+/// A non-null `out_buf` must point to `out_size` readable bytes that `free`
+/// releases; a null `out_buf` is never dereferenced and never freed.
+unsafe fn take_extraction_buffer(
+    out_buf: *mut u8,
+    out_size: u32,
+    free: impl FnOnce(*mut u8),
+) -> Result<Vec<u8>, Error> {
+    if out_buf.is_null() {
+        if out_size != 0 {
+            return Err(Error::Protocol(format!(
+                "extract_signals_bin: null buffer with non-zero size {out_size}"
+            )));
+        }
+        return Ok(Vec::new());
+    }
+    if out_size as usize > MAX_EXTRACT_BUF {
+        free(out_buf);
+        return Err(Error::Protocol(format!(
+            "extract_signals_bin: buffer size {out_size} exceeds wire maximum {MAX_EXTRACT_BUF}"
+        )));
+    }
+    // SAFETY: the caller guarantees `out_size` readable bytes at `out_buf`,
+    // bounded above; copy them out before the buffer goes back to its owner.
+    let bytes = unsafe { std::slice::from_raw_parts(out_buf, out_size as usize) }.to_vec();
+    free(out_buf);
+    Ok(bytes)
+}
+
 /// Null pointer for an empty slice (the FFI must not deref a zero-length array),
 /// else the slice's data pointer.
 fn slice_ptr<T>(s: &[T]) -> *const T {
@@ -874,50 +930,9 @@ impl Backend for FfiBackend {
             )
         };
         check_buffer_status(status, out_err, &syms.free_str, "extract_signals_bin")?;
-        // On success the core returns a buffer of exactly `out_size` bytes. The
-        // wire always carries at least the 10-byte header, so a null buffer paired
-        // with a non-zero size is a protocol violation, NOT an empty result —
-        // surface it rather than silently dropping data. (A null buffer with size
-        // 0 yields an empty Vec, which decode_extraction_bin then rejects as too
-        // short — a truthful error, not a silent success.)
-        if out_buf.is_null() {
-            if out_size != 0 {
-                return Err(Error::Protocol(format!(
-                    "extract_signals_bin: null buffer with non-zero size {out_size}"
-                )));
-            }
-            return Ok(Vec::new());
-        }
-        // Sanity-cap the core-reported size before copying — a PLAUSIBILITY
-        // bound, not the wire's theoretical maximum (whose u32-length reason
-        // blob would admit a multi-GiB copy from a corrupt size report): the
-        // 10-byte header, the maximum u16 count of each fixed-stride section
-        // (values 18 B, errors 3 B, absent 2 B), the (nErrors + 1) x u32
-        // reason-offsets table, and a generous per-entry reason budget.
-        // Kernel-minted reasons are short (bounded signal names + bounded
-        // decimal renderings + fixed text — well under 512 B each), so any
-        // honest buffer sits far below this cap; a larger reported size is
-        // corruption — reject (after freeing) instead of copying an
-        // implausible span. Layout: `response::decode_extraction_bin`
-        // (canonical source: `Aletheia.Main.Binary`, processExtractBin).
-        const MAX_REASON_BYTES_PER_ENTRY: usize = 512;
-        const MAX_EXTRACT_BUF: usize = 10
-            + (18 + 3 + 2) * (u16::MAX as usize)
-            + 4 * (u16::MAX as usize + 1)
-            + MAX_REASON_BYTES_PER_ENTRY * (u16::MAX as usize);
-        if out_size as usize > MAX_EXTRACT_BUF {
-            // SAFETY: `out_buf` was allocated by the core; free it before erroring.
-            unsafe { (syms.free_buf)(out_buf) };
-            return Err(Error::Protocol(format!(
-                "extract_signals_bin: buffer size {out_size} exceeds wire maximum {MAX_EXTRACT_BUF}"
-            )));
-        }
-        // SAFETY: the core set `out_buf` to an `out_size`-byte buffer it allocated
-        // (bounded above); copy it out, then return it to the core's allocator.
-        let bytes = unsafe { std::slice::from_raw_parts(out_buf, out_size as usize) }.to_vec();
-        // SAFETY: `out_buf` was allocated by the core; free it with its allocator.
-        unsafe { (syms.free_buf)(out_buf) };
-        Ok(bytes)
+        // SAFETY: on success the core set `out_buf` to an `out_size`-byte buffer
+        // it allocated, and `free_buf` is its deallocator.
+        unsafe { take_extraction_buffer(out_buf, out_size, |buf| (syms.free_buf)(buf)) }
     }
 
     fn build_frame_bin(
@@ -1086,5 +1101,130 @@ mod rts_params {
                 "-RTS"
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod codec_tests {
+    //! The pure halves of the binary path, driven without the core: the codecs
+    //! the FFI arguments and results pass through, at their boundaries.
+
+    use std::cell::Cell;
+
+    use super::{
+        check_buffer_status, encode_opt_bool, frame_len, symbols, take_extraction_buffer, Backend,
+        MAX_EXTRACT_BUF, MAX_FRAME_BYTES,
+    };
+    use crate::error::Error;
+    use crate::mock::MockBackend;
+    use crate::types::{CanId, Dlc};
+
+    #[test]
+    fn opt_bool_encodes_presence_then_value() {
+        assert_eq!(encode_opt_bool(None), (0, 0));
+        assert_eq!(encode_opt_bool(Some(false)), (1, 0));
+        assert_eq!(encode_opt_bool(Some(true)), (1, 1));
+    }
+
+    #[test]
+    fn frame_len_admits_the_can_fd_maximum_and_refuses_one_more() {
+        assert_eq!(frame_len(&[]).expect("empty"), 0);
+        assert_eq!(frame_len(&[0u8; MAX_FRAME_BYTES]).expect("64 bytes"), 64);
+        assert!(matches!(
+            frame_len(&[0u8; MAX_FRAME_BYTES + 1]),
+            Err(Error::Validation(_))
+        ));
+    }
+
+    #[test]
+    fn buffer_status_zero_is_success_and_nonzero_without_a_message_is_a_protocol_fault() {
+        let syms = symbols().expect("load libaletheia-ffi.so for test (is ALETHEIA_LIB set?)");
+        assert!(check_buffer_status(0, std::ptr::null_mut(), &syms.free_str, "op").is_ok());
+        let err = check_buffer_status(1, std::ptr::null_mut(), &syms.free_str, "op").unwrap_err();
+        assert!(
+            matches!(&err, Error::Protocol(m) if m.contains("null error message")),
+            "got: {err}"
+        );
+    }
+
+    /// Run `take_extraction_buffer` over `ptr` reported as `size` long, counting
+    /// the frees.
+    ///
+    /// # Safety
+    /// `ptr` is null or points to at least `size` readable bytes.
+    unsafe fn take(ptr: *mut u8, size: u32) -> (Result<Vec<u8>, Error>, usize) {
+        let frees = Cell::new(0);
+        // SAFETY: the caller's contract, and the free only counts.
+        let result = unsafe { take_extraction_buffer(ptr, size, |_| frees.set(frees.get() + 1)) };
+        (result, frees.get())
+    }
+
+    /// `take` over the test's own buffer, which must cover the reported size.
+    fn take_from(bytes: &mut [u8], size: u32) -> (Result<Vec<u8>, Error>, usize) {
+        assert!(
+            bytes.len() >= size as usize,
+            "the test's own buffer must cover the size"
+        );
+        // SAFETY: `bytes` holds at least `size` bytes.
+        unsafe { take(bytes.as_mut_ptr(), size) }
+    }
+
+    #[test]
+    fn a_null_buffer_is_empty_at_size_zero_and_a_fault_otherwise() {
+        // SAFETY: a null pointer is never read.
+        let (result, frees) = unsafe { take(std::ptr::null_mut(), 0) };
+        assert_eq!(result.expect("empty"), Vec::<u8>::new());
+        assert_eq!(frees, 0);
+        // SAFETY: a null pointer is never read.
+        let (result, frees) = unsafe { take(std::ptr::null_mut(), 3) };
+        assert!(matches!(result, Err(Error::Protocol(_))));
+        assert_eq!(frees, 0);
+    }
+
+    #[test]
+    fn a_buffer_is_copied_out_and_freed_once() {
+        let (result, frees) = take_from(&mut [1, 2, 3, 4, 5], 5);
+        assert_eq!(result.expect("copied"), vec![1, 2, 3, 4, 5]);
+        assert_eq!(frees, 1);
+    }
+
+    #[test]
+    fn the_size_cap_is_inclusive_and_a_refused_buffer_is_still_freed() {
+        // The cap is the wire's plausible maximum, a number the constants
+        // above derive: the header, three u16-counted sections at their
+        // strides, the offsets table and 512 bytes of reason per error.
+        assert_eq!(MAX_EXTRACT_BUF, 35_323_379);
+        let cap = u32::try_from(MAX_EXTRACT_BUF).expect("fits u32");
+        let mut at_cap = vec![7u8; MAX_EXTRACT_BUF];
+        let (result, frees) = take_from(&mut at_cap, cap);
+        assert_eq!(
+            result.expect("the cap itself is admitted").len(),
+            MAX_EXTRACT_BUF
+        );
+        assert_eq!(frees, 1);
+        let mut past_cap = vec![7u8; MAX_EXTRACT_BUF + 1];
+        let (result, frees) = take_from(&mut past_cap, cap + 1);
+        assert!(
+            matches!(&result, Err(Error::Protocol(m)) if m.contains("exceeds wire maximum")),
+            "got: {result:?}"
+        );
+        assert_eq!(frees, 1);
+    }
+
+    #[test]
+    fn the_binary_extraction_default_reports_the_path_unsupported() {
+        // A backend that does not override the binary path answers with the
+        // variant the client falls back to the JSON path on.
+        let mock = MockBackend::new();
+        let result = mock.extract_signals_bin(
+            CanId::standard(1).expect("id"),
+            Dlc::new(8).expect("dlc"),
+            &[0u8; 8],
+        );
+        assert!(
+            matches!(result, Err(Error::BinaryPathUnsupported)),
+            "got: {result:?}"
+        );
+        assert!(mock.captured().is_empty(), "the default records nothing");
     }
 }

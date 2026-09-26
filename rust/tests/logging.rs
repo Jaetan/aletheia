@@ -97,3 +97,42 @@ fn min_level_filters_below_threshold() {
         "Info event must be filtered at min_level=Warn, got: {names:?}"
     );
 }
+
+#[test]
+fn a_second_core_count_is_warned_about_with_both_specs() {
+    // The first client's core count latches the RTS for the process; a later
+    // client asking for another count keeps the latched one and says so at
+    // Warn, naming what it asked for and what is running.  The first client
+    // here asks for the default, so the latch is the default whichever test
+    // in this binary ran first.
+    let _first = Client::builder()
+        .build()
+        .expect("init client — is ALETHEIA_LIB set to a built libaletheia-ffi.so?");
+    // Each record is rendered as one line: the event, then `key=value` per field.
+    let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&captured);
+    let _second = Client::builder()
+        .rts_cores(2)
+        .min_level(aletheia::LogLevel::Warn)
+        .logger(move |rec: &LogRecord| {
+            let fields: Vec<String> = rec
+                .fields
+                .iter()
+                .map(|f| format!("{}={:?}", f.key, f.value))
+                .collect();
+            sink.lock()
+                .expect("lock")
+                .push(format!("{} {}", rec.event, fields.join(" ")));
+        })
+        .build()
+        .expect("a second client builds against the latched RTS");
+    let records = captured.lock().expect("lock").clone();
+    let expected = format!(
+        "{} requested=Str(\"-N2\") active=Str(\"default\")",
+        events::RTS_CORES_MISMATCH
+    );
+    assert!(
+        records.contains(&expected),
+        "expected {expected:?} among {records:?}"
+    );
+}

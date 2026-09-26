@@ -1,9 +1,10 @@
 # Mutation Testing — operations guide
 
-Mutation testing runs across all three bindings.
+Mutation testing runs across all four bindings.
 The actual tools are: **Python** via `mutmut`, **Go** via `gremlins`
 (substituted for the AGENTS.md cat 14(g)–named `go-mutesting`, which is
-unmaintained — see § Per-binding sub-checks), **C++** via `Mull`.  This doc
+unmaintained — see § Per-binding sub-checks), **C++** via `Mull`, **Rust**
+via `cargo-mutants`.  This doc
 explains the threshold model, the per-binding sub-checks, the env-var
 contract, the install procedure, and the forward-revert verification
 protocol.
@@ -23,6 +24,7 @@ tools/mutation_run.py              Dynamic runner (opt-in, ~30 min - 2 hours)
 tools/mutation_cpp.py              The C++ lane: Mull over the trees, in stages
 tools/mutation_cpp_legs.py         The C++ lane's trees, legs and stage variables
 tools/mutation_cpp_slices.py       The C++ surface's partition into slices
+tools/mutation_rust.py             The Rust lane: cargo-mutants over the crate, in place
 tools/mutation_report.py           The report and baseline shapes the lanes share
 tools/mutation_routes.py           The C++ kill-route census
 benchmarks/mutation/<short-sha>/   Per-commit JSON + raw tool logs (gitignored)
@@ -34,9 +36,9 @@ source file is renamed or deleted without updating the YAML.  The dynamic runner
 `ALETHEIA_MUTATION_CHECK=1` or `tools/run_ci.py --mutation`.
 
 In CI the runner is invoked once per binding, in parallel lanes with their own
-budgets, each told to skip the other two (`ALETHEIA_MUTATION_SKIP_PYTHON` /
-`_GO` / `_CPP`), because the three tools cost wildly different amounts and one
-job charges the slowest against a clock the others have already spent.  The
+budgets, each told to skip the others (`ALETHEIA_MUTATION_SKIP_PYTHON` /
+`_GO` / `_CPP` / `_RUST`), because the four tools cost wildly different amounts
+and one job charges the slowest against a clock the others have already spent.  The
 C++ lane is nine legs and a merge: a leg sweeps one slice of one mutation tree
 (`ALETHEIA_MUTATION_CPP_STAGE=leak`, `plain` or `address`,
 `ALETHEIA_MUTATION_CPP_SLICE` the slice), reports as the binding `cpp-leak-1`
@@ -135,6 +137,7 @@ independently.
 |---|---|---|
 | Python | `mutmut` 3.x | `aletheia/client/_client.py`, `aletheia/dbc/_converter.py`, `aletheia/yaml_loader.py`, `aletheia/codes/_issue.py`, `aletheia/types.py` |
 | Go | `gremlins` | `aletheia/client.go`, `dbc.go`, `json.go`¹, `ffi.go`, `ffi_nocgo.go`, `enrich.go`²; the stringer outputs are held out by `go/.gremlins.yaml` |
+| Rust | `cargo-mutants`, pinned in `docs/MUTATION_BENCH.yaml` | `src/response.rs`, `src/dbc.rs`, `src/types.rs`, `src/backend.rs`, named by `rust/.cargo/mutants.toml`, which the tool reads from the crate; swept in place, because the suite includes the DBC corpus and the parity snapshots from above the crate at compile time |
 | C++ | `Mull` 0.34.1 (LLVM 23, from source) | `cpp/src/*.cpp` less `mock_backend.cpp` / `types.cpp` (test-only / type-defs) and `rational_renderer.cpp`, with the exact mutated set enumerated in `docs/MUTATION_BENCH.yaml`; the mutator set (`cxx_default`, the decrement, assignment, bitwise and negation groups, and the four call mutators), what each class of mutant stands for, and the held-out paths (vendored, system, `cpp/tests` and the test double under `cpp/src/detail`) are `cpp/mull.yml`; the build records each unit's command line so that Mull's junk detector can re-parse it, without which it drops every mutant of a unit it cannot parse |
 
 AGENTS.md cat 14(g) names `gomut` / `go-mutesting` / `mutate` for Go.  We use
@@ -195,6 +198,28 @@ which gremlins    # expect: ~/go/bin/gremlins
 
 (Per the table above, `gremlins` substitutes for the AGENTS.md-named
 `go-mutesting`; both reach the same operator set.)
+
+### Rust — `cargo-mutants`
+
+```bash
+cargo install cargo-mutants --version 27.1.0 --locked
+cargo mutants --version    # expect the version docs/MUTATION_BENCH.yaml records
+```
+
+The record pins the version exactly and the runner refuses any other, for the
+reason mutmut is pinned: two releases generate different mutant sets, and a
+baseline is a count of one set.  Bumping the pin re-measures the Rust row.
+
+The sweep runs in the source tree (`--in-place`) rather than in the copy
+cargo-mutants makes by default, because the crate's suite includes the DBC
+corpus and the parity snapshots under `python/` at compile time and reads the
+documents under `docs/` at run time, so a copy of the crate alone does not
+build.  In place, one mutant runs at a time; cargo-mutants restores the file
+after each mutant and on an interrupt, and a process killed outright leaves
+the mutant in the tree, where `git diff rust/src` shows it.  Nothing else may
+build or test the crate while a sweep runs.  What is mutated and with which
+features is `rust/.cargo/mutants.toml`, read from the crate, so a sweep at the
+terminal and the lane's sweep make one set.
 
 ### C++ — `Mull`
 
@@ -311,7 +336,7 @@ sweep needs: the lane asks `tools/mutation_scope.py`, which reads that same
 scope, ahead of its install steps rather than after them. A change under the
 Agda kernel, the FFI shim, any module of this harness or the recorded
 baselines is every binding's change, and a push to `main`, whose diff is
-empty, sweeps all three.
+empty, sweeps every binding.
 Set `ALETHEIA_MUTATION_NO_DIFF_SCOPE=1` to sweep everything regardless.
 
 ## Running the lane
@@ -336,6 +361,10 @@ cd python && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so .venv/bin/mutmut run
 
 # Go
 cd go && gremlins unleash ./aletheia
+
+# Rust (needs build/libaletheia-ffi.so, which the suite loads through
+# ALETHEIA_LIB).  In place: nothing else may build or test the crate meanwhile.
+cd rust && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so cargo mutants --in-place
 
 # C++ (needs build/libaletheia-ffi.so — the ALETHEIA_MUTATION build folds the
 # real-.so integration tests into unit_tests to cover FfiBackend, so run
@@ -380,6 +409,7 @@ Per-binding skip env vars (useful for partial runs):
 ALETHEIA_MUTATION_SKIP_PYTHON=1   # skip Python lane only
 ALETHEIA_MUTATION_SKIP_GO=1       # skip Go lane only
 ALETHEIA_MUTATION_SKIP_CPP=1      # skip C++ lane only
+ALETHEIA_MUTATION_SKIP_RUST=1     # skip Rust lane only
 ```
 
 The C++ lane in stages, as CI runs it (unset, the runner sweeps every tree in
@@ -415,7 +445,10 @@ A baseline regression (observed > baseline) MUST be addressed by:
    `docs/MUTATION_BENCH.yaml`, by mutator, repository-relative file, the text
    of its source line and how many share that line; the lane refuses a
    survivor the ledger does not name even at an unchanged count, and reports
-   a row that no longer survives as stale. The lane's `cpp-mull.json` artifact
+   a row that no longer survives as stale. The Rust lane keys its rows the
+   same way, the mutator being the mutation cargo-mutants names less its
+   position, read from `mutants.out/outcomes.json` under the lane's `rust/`
+   artifact directory. The lane's `cpp-mull.json` artifact
    is Mull's Elements report of each tree, merged by
    `tools.mutation_cpp.merge_elements` over the union of the trees' mutants,
    so a mutant any tree carrying it killed is killed, and `tools.mutation_cpp.elements_survivor_rows`
@@ -443,13 +476,13 @@ fires with a precise diagnostic.
 # Inject violation: rename a hot-path entry in YAML to a non-existent path.
 sed -i 's|aletheia/client/_client.py|aletheia/client/_NONEXISTENT.py|' \
     docs/MUTATION_BENCH.yaml
-python3 tools/check_mutation_setup.py
+python/.venv/bin/python -m tools.check_mutation_setup
 # Expect: exit 1 with diagnostic naming the missing path.
 
 # Restore.
 git checkout docs/MUTATION_BENCH.yaml
-python3 tools/check_mutation_setup.py
-# Expect: exit 0 with "20 hot-path sources all present".
+python/.venv/bin/python -m tools.check_mutation_setup
+# Expect: exit 0, naming every hot-path source present.
 ```
 
 ### Drift gate (per binding)
@@ -549,7 +582,7 @@ needed.
 
 ## See also
 
-- `AGENTS.md` cat 14(g) (Python / Go / C++) — canonical hot-path lists
+- `AGENTS.md` cat 14(g) (Python / Go / C++ / Rust) — canonical hot-path lists
 - `docs/MUTATION_BENCH.yaml` — actual on-disk paths, baseline numbers
 - `tools/check_mutation_setup.py` — static gate (always-on)
 - `tools/mutation_run.py` — dynamic runner (opt-in)

@@ -56,7 +56,7 @@ For deployment and on-call:
 
 - **[Operations Runbook](operations/RUNBOOK.md)** - Symptom → cause → action for every structured log event and every documented failure mode (build, runtime, cancellation, input bounds, OOM, validation rejection)
 - **[Long-Run Stability Bench](operations/STABILITY.md)** - Per-binding harnesses for RSS / FD / handle-count drift detection across ≥ 1M frames; spec at `docs/STABILITY_BENCH.yaml`, gated by `tools/check_stability_bench.py` (static) + `tools/stability_run.py` (dynamic, opt-in via `ALETHEIA_STABILITY_CHECK=1`)
-- **[Mutation Testing](operations/MUTATION.md)** - Per-binding mutation testing infrastructure (Python `mutmut`, Go `gremlins`, C++ `Mull`); threshold model, install procedure, forward-revert verification protocol
+- **[Mutation Testing](operations/MUTATION.md)** - Per-binding mutation testing infrastructure (Python `mutmut`, Go `gremlins`, C++ `Mull`, Rust `cargo-mutants`); threshold model, install procedure, forward-revert verification protocol
 - **[Coverage Floors](operations/COVERAGE.md)** - Each binding's suite under its own coverage tool (coverage.py, `go test -cover`, llvm-cov, cargo-llvm-cov), held to the floors in `docs/COVERAGE_BENCH.yaml`; what each tool's second figure is, how to re-take the record
 
 ---

@@ -1287,6 +1287,58 @@ mod tests {
     }
 
     #[test]
+    fn decode_bin_names_what_a_short_buffer_lacks() {
+        // Nine bytes cannot hold the header; ten hold it and nothing else, and
+        // the smallest well-formed buffer is fourteen (the header plus the one
+        // offset a zero-error section still carries), so ten is refused for
+        // its total length, not for its header.
+        let header = decode_extraction_bin(&[0u8; 9], &names())
+            .unwrap_err()
+            .to_string();
+        assert!(header.contains("header"), "got: {header}");
+        let total = decode_extraction_bin(&[0u8; 10], &names())
+            .unwrap_err()
+            .to_string();
+        assert!(total.contains("length 10 != expected 14"), "got: {total}");
+    }
+
+    #[test]
+    fn decode_bin_accepts_an_empty_reason() {
+        // Two errors whose first reason is empty: consecutive equal offsets are
+        // non-decreasing and decode to an empty string, not a refusal.
+        let reason_b = "signal 'Speed' not found in message";
+        let mut buf = bin_header(0, 2, 0, reason_b.len() as u32);
+        push_error(&mut buf, 1, 1);
+        push_error(&mut buf, 0, 0);
+        push_offsets(&mut buf, &[0, 0, reason_b.len() as u32]);
+        buf.extend_from_slice(reason_b.as_bytes());
+        let r = decode_extraction_bin(&buf, &names()).expect("well-formed");
+        assert_eq!(
+            r.errors
+                .iter()
+                .map(|e| e.reason.as_str())
+                .collect::<Vec<_>>(),
+            vec!["", reason_b]
+        );
+    }
+
+    #[test]
+    fn severity_and_code_display_their_wire_strings() {
+        assert_eq!(IssueSeverity::Error.as_str(), "error");
+        assert_eq!(IssueSeverity::Warning.as_str(), "warning");
+        assert_eq!(IssueSeverity::Error.to_string(), "error");
+        assert_eq!(IssueSeverity::Warning.to_string(), "warning");
+        assert_eq!(
+            IssueCode::AttributeEnumDefaultUnstable.to_string(),
+            "attribute_enum_default_unstable"
+        );
+        assert_eq!(
+            IssueCode::Unknown("later_code".into()).to_string(),
+            "later_code"
+        );
+    }
+
+    #[test]
     fn decode_bin_transports_every_code_reason_is_authoritative() {
         // The u8 code never selects the reason — the wire string does. All eight
         // kernel codes plus an out-of-vocabulary one (99) decode fine, each
