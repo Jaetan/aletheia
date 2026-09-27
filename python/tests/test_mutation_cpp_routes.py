@@ -14,6 +14,7 @@ instrument. The rows the mutants attributed to a check or a fault become are
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from typing import TYPE_CHECKING
 
@@ -147,11 +148,14 @@ def test_an_ending_carries_what_the_check_refused(tmp_path: Path) -> None:
 
 
 def _write_lane(path: Path, rows: list[tuple[str, int, str, str]]) -> None:
-    with sqlite3.connect(path) as conn:
+    # closing() closes the connection; sqlite3's own context manager only
+    # commits, which would leave the file open until a collection.
+    with contextlib.closing(sqlite3.connect(path)) as conn:
         _ = conn.execute(
             "CREATE TABLE mutant (mutant_id TEXT, execution_status INT, stdout TEXT, stderr TEXT)"
         )
         _ = conn.executemany("INSERT INTO mutant VALUES (?, ?, ?, ?)", rows)
+        conn.commit()
 
 
 def test_the_census_reads_every_leg_report(tmp_path: Path) -> None:

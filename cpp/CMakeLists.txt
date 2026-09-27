@@ -531,6 +531,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         tests/unit_tests_cancel.cpp
         tests/unit_tests_input_bounds.cpp
         tests/unit_tests_property.cpp
+        tests/unit_tests_ffi_abi.cpp
         tests/unit_tests_ffi_logic.cpp
         tests/unit_tests_decimal.cpp
         tests/unit_tests_loader_utils.cpp
@@ -578,9 +579,38 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     add_library(aletheia_test_recording_kernel SHARED
         tests/kernel_stand_in/recording_kernel_lib.cpp)
     target_compile_features(aletheia_test_recording_kernel PRIVATE cxx_std_23)
+    # The stand-in takes the backend's mirror of the kernel's structures; the
+    # unit tests hold that mirror to the kernel's own header.
+    target_include_directories(aletheia_test_recording_kernel PRIVATE src)
+    set(ALETHEIA_KERNEL_HEADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../haskell-shim/include")
+    target_include_directories(unit_tests PRIVATE ${ALETHEIA_KERNEL_HEADER_DIR})
     target_compile_definitions(unit_tests PRIVATE
         ALETHEIA_TEST_RECORDING_KERNEL="$<TARGET_FILE:aletheia_test_recording_kernel>")
     add_dependencies(unit_tests aletheia_test_recording_kernel)
+    # A library at an ABI version no binding was written against, exporting
+    # that version alone: the backend must refuse it before anything else.
+    # The source is the one every binding's suite compiles, and it is C that
+    # the header keeps valid C++.
+    set(ALETHEIA_STALE_ABI_SOURCE
+        "${CMAKE_CURRENT_SOURCE_DIR}/../haskell-shim/test/stale_abi_kernel.c")
+    set_source_files_properties(${ALETHEIA_STALE_ABI_SOURCE} PROPERTIES LANGUAGE CXX)
+    add_library(aletheia_test_stale_abi_kernel SHARED ${ALETHEIA_STALE_ABI_SOURCE})
+    target_compile_features(aletheia_test_stale_abi_kernel PRIVATE cxx_std_23)
+    target_include_directories(aletheia_test_stale_abi_kernel PRIVATE ${ALETHEIA_KERNEL_HEADER_DIR})
+    target_compile_definitions(unit_tests PRIVATE
+        ALETHEIA_TEST_STALE_ABI_KERNEL="$<TARGET_FILE:aletheia_test_stale_abi_kernel>")
+    add_dependencies(unit_tests aletheia_test_stale_abi_kernel)
+    # A library at this ABI version exporting the version alone: the loaders
+    # pass the check and must refuse at their first entry missing.
+    set(ALETHEIA_ABI_ONLY_SOURCE
+        "${CMAKE_CURRENT_SOURCE_DIR}/../haskell-shim/test/abi_only_kernel.c")
+    set_source_files_properties(${ALETHEIA_ABI_ONLY_SOURCE} PROPERTIES LANGUAGE CXX)
+    add_library(aletheia_test_abi_only SHARED ${ALETHEIA_ABI_ONLY_SOURCE})
+    target_compile_features(aletheia_test_abi_only PRIVATE cxx_std_23)
+    target_include_directories(aletheia_test_abi_only PRIVATE ${ALETHEIA_KERNEL_HEADER_DIR})
+    target_compile_definitions(unit_tests PRIVATE
+        ALETHEIA_TEST_ABI_ONLY_LIB="$<TARGET_FILE:aletheia_test_abi_only>")
+    add_dependencies(unit_tests aletheia_test_abi_only)
     # The allocation-fault sweeps replace the program's allocation functions,
     # which every sanitizer runtime defines as well: the two carry the same
     # symbols and cannot be linked together, so the sweeps build in the lanes
@@ -598,6 +628,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     add_executable(integration_tests tests/integration_tests.cpp)
     target_link_libraries(integration_tests
         PRIVATE aletheia-cpp Threads::Threads Catch2::Catch2WithMain)
+    target_include_directories(integration_tests PRIVATE ${ALETHEIA_KERNEL_HEADER_DIR})
     add_test(NAME integration_tests COMMAND integration_tests)
     set_tests_properties(integration_tests PROPERTIES
         ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")

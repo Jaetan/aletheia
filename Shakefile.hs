@@ -798,6 +798,12 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         putInfo "Running MAlonzo constructor-fidelity test..."
         cmd_ (Cwd "haskell-shim") "cabal" "test" "constructor-fidelity"
              "--test-show-details=direct"
+        -- The structures the C entries take cross by pointer and are read at
+        -- fixed offsets; this pins every offset against the C compiler's
+        -- layout of haskell-shim/include/aletheia.h.
+        putInfo "Running ABI layout test..."
+        cmd_ (Cwd "haskell-shim") "cabal" "test" "abi-layout"
+             "--test-show-details=direct"
 
     phony "check-erasure" $ do
         -- Guard the FFI marshaling assumptions about MAlonzo output shape.
@@ -1383,7 +1389,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 putWarn "strip not found — keeping debug symbols."
 
         -- Copy C header
-        cmd_ "cp" "include/aletheia.h" distInclude
+        cmd_ "cp" "haskell-shim/include/aletheia.h" distInclude
 
         -- Stage the four language bindings' LIBRARY files from HEAD (tracked
         -- files only, via `git archive` — deterministic, and it naturally
@@ -1980,6 +1986,9 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         need [ "haskell-shim/src/AletheiaFFI.hs"
              , "haskell-shim/src/AletheiaFFI/Marshal.hs"
              , "haskell-shim/src/AletheiaFFI/BinaryOutput.hs"
+             , "haskell-shim/src/AletheiaFFI/Wire.hsc"
+             , "haskell-shim/include/aletheia.h"
+             , "haskell-shim/cbits/abi_version.c"
              , "haskell-shim/test/ConstructorTest.hs"
              , "haskell-shim/aletheia.cabal"
              ]
@@ -2126,7 +2135,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         let includeDir = prefix </> "include" </> "aletheia"
         liftIO $ createDirectoryIfMissing True includeDir
         putInfo "Copying C header..."
-        cmd_ "cp" "include/aletheia.h" includeDir
+        cmd_ "cp" "haskell-shim/include/aletheia.h" includeDir
 
         -- Create Python venv
         putInfo "Creating Python virtual environment..."

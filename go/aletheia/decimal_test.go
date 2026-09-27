@@ -13,6 +13,7 @@ package aletheia
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -70,5 +71,34 @@ func TestFromDecimalRefusals(t *testing.T) {
 				t.Errorf("%s: FromDecimal(%q): expected ErrValidation, got %v", group, in, err)
 			}
 		}
+	}
+}
+
+// The parser's refusal envelope reaches the caller as a validation error with
+// the kernel's reason, a default reason when the envelope carries none, and a
+// protocol error when it is not an envelope at all; a rational over a
+// non-positive denominator is refused as the malfunction it would be.
+func TestDecimalAnswersTheKernelNeverGives(t *testing.T) {
+	var aErr *Error
+	err := decimalRefusal(`{"status":"error","code":"decimal_parse_failed","message":"not a decimal"}`)
+	if !errors.As(err, &aErr) || aErr.Kind != ErrValidation || !strings.Contains(err.Error(), "not a decimal") {
+		t.Errorf("an envelope with a reason: %v", err)
+	}
+	err = decimalRefusal(`{"status":"error"}`)
+	if !errors.As(err, &aErr) || aErr.Kind != ErrValidation || !strings.Contains(err.Error(), "invalid decimal literal") {
+		t.Errorf("an envelope without a reason: %v", err)
+	}
+	err = decimalRefusal("not json")
+	if !errors.As(err, &aErr) || aErr.Kind != ErrProtocol {
+		t.Errorf("a malformed envelope: %v", err)
+	}
+	for _, den := range []int64{0, -1} {
+		_, err := decimalValue(1, den)
+		if !errors.As(err, &aErr) || aErr.Kind != ErrProtocol {
+			t.Errorf("decimalValue(1, %d): %v", den, err)
+		}
+	}
+	if r, err := decimalValue(1, 2); err != nil || r != (Rational{Numerator: 1, Denominator: 2}) {
+		t.Errorf("decimalValue(1, 2) = %v, %v", r, err)
 	}
 }

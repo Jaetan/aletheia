@@ -645,19 +645,14 @@ The `warnings` array carries non-fatal end-of-stream diagnostics — see [§ End
 
 ### aletheia_send_frame
 
-Send a CAN data frame for LTL analysis. This is the high-performance streaming entry point — frame components are passed as binary C values, bypassing JSON parsing on input.
+Send a CAN data frame for LTL analysis. This is the high-performance streaming entry point: the frame crosses as one C structure, bypassing JSON parsing on input.
 
-**C signature** (see `aletheia.h`):
+**C signature** (see `aletheia.h`, which also fixes the structure's layout):
 ```c
-char *aletheia_send_frame(void *state, unsigned long long timestamp,
-                          unsigned int can_id, unsigned char extended,
-                          unsigned char dlc, const unsigned char *data,
-                          unsigned char data_len,
-                          unsigned char brs_present, unsigned char brs_value,
-                          unsigned char esi_present, unsigned char esi_value);
+char *aletheia_send_frame(void *state, const struct aletheia_frame *frame);
 ```
 
-**Parameters**:
+**Frame fields** (`struct aletheia_frame`, every one read by this entry; a NULL frame is refused):
 - `timestamp`: Frame timestamp in microseconds
 - `can_id`: CAN message ID (must match a message in the loaded DBC)
 - `extended`: 0 for standard 11-bit ID, 1 for extended 29-bit ID
@@ -707,12 +702,13 @@ empty-list-is-unreachable invariant (frames with no events return Ack).
 ### aletheia_send_error and aletheia_send_remote
 
 Error frames and remote frames are non-data trace events. Both are exposed
-as their own binary entry points in `aletheia.h`, alongside `aletheia_send_frame`:
+as their own binary entry points in `aletheia.h`, alongside `aletheia_send_frame`,
+and take the same `struct aletheia_frame`: a remote frame reads its `timestamp`,
+`can_id` and `extended`, an error frame its `timestamp` alone.
 
 ```c
-char *aletheia_send_error(void *state, unsigned long long timestamp);
-char *aletheia_send_remote(void *state, unsigned long long timestamp,
-                           unsigned int can_id, unsigned char extended);
+char *aletheia_send_error(void *state, const struct aletheia_frame *frame);
+char *aletheia_send_remote(void *state, const struct aletheia_frame *frame);
 ```
 
 #### Trace event taxonomy
@@ -1202,16 +1198,15 @@ Used in responses for exact representation.
 
 ### 4. Send Data Frames (via `aletheia_send_frame`)
 
-High-throughput streaming hot path; the 4 trailing `0, 0, 0, 0` bytes encode
-absent CAN-FD BRS / ESI metadata:
+High-throughput streaming hot path. Each call passes a `struct aletheia_frame` with `can_id` 256, `extended` 0, `dlc` 8 and `data_len` 8; its BRS / ESI fields, left zero, encode absent CAN-FD metadata:
 ```
->>> aletheia_send_frame(state, 100, 256, 0, 8, [0xE8,0x03,0,0,0,0,0,0], 8, 0, 0, 0, 0)
+>>> aletheia_send_frame(state, &{timestamp: 100, data: [0xE8,0x03,0,0,0,0,0,0], ...})
 <<< {"status": "ack"}
 
->>> aletheia_send_frame(state, 200, 256, 0, 8, [0xD0,0x07,0,0,0,0,0,0], 8, 0, 0, 0, 0)
+>>> aletheia_send_frame(state, &{timestamp: 200, data: [0xD0,0x07,0,0,0,0,0,0], ...})
 <<< {"status": "ack"}
 
->>> aletheia_send_frame(state, 300, 256, 0, 8, [0x28,0x0A,0,0,0,0,0,0], 8, 0, 0, 0, 0)
+>>> aletheia_send_frame(state, &{timestamp: 300, data: [0x28,0x0A,0,0,0,0,0,0], ...})
 <<< {"type": "property_batch", "results": [{"type": "property", "status": "fails", "property_index": {"numerator": 0, "denominator": 1}, "timestamp": {"numerator": 300, "denominator": 1}, "reason": "Always violated"}]}
 ```
 
@@ -1444,9 +1439,9 @@ syntactic failures.
 
 ### FFI Entry Points
 - **Commands**: JSON string via `aletheia_process(state, json_string)` — all non-data-frame operations
-- **Data frames**: Binary via `aletheia_send_frame(state, timestamp, can_id, ...)` — streaming hot path
-- **Error frames**: Binary via `aletheia_send_error(state, timestamp)` — bus-error events
-- **Remote frames**: Binary via `aletheia_send_remote(state, timestamp, can_id, extended)` — remote frames
+- **Data frames**: Binary via `aletheia_send_frame(state, &frame)` — streaming hot path
+- **Error frames**: Binary via `aletheia_send_error(state, &frame)`, reading its timestamp — bus-error events
+- **Remote frames**: Binary via `aletheia_send_remote(state, &frame)`, reading its timestamp and identifier — remote frames
 - All four return a JSON response string (freed with `aletheia_free_str`)
 - No newline delimiters needed — each FFI call is one complete message
 - State is managed via `StablePtr (IORef StreamState)` on the Haskell side

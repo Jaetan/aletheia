@@ -170,10 +170,12 @@ MAlonzo mangles names (e.g., `processJSONLine` → `d_processJSONLine_4`). Build
 
 ### Haskell FFI Layer
 
-Three files, no business logic:
+Four Haskell files and one C file, no business logic:
 - **AletheiaFFI.hs**: `foreign export ccall` wrappers around `processJSONLine` (JSON commands) and `processFrameDirect` (binary frames via `aletheia_send_frame`).
 - **AletheiaFFI/Marshal.hs**: Agda type construction helpers.
 - **AletheiaFFI/BinaryOutput.hs**: binary response encoding.
+- **AletheiaFFI/Wire.hsc**: hsc2hs `Storable` reads of the header's structs.
+- **cbits/abi_version.c**: the ABI version, readable before the runtime starts.
 
 State managed via `StablePtr (IORef StreamState)`. All bindings load `.so` via ctypes/dlopen — no subprocess overhead.
 
@@ -214,7 +216,7 @@ Build-time issues are catalogued in [BUILDING.md § Troubleshooting](docs/develo
 - **Type-checking OOM / runaway elaboration**: always cap the heap `+RTS -M16G -RTS`.
 - **`hs_init` failure / `aletheia_init() returned null`**: `.so` built against different GHC than loaded. Rebuild (`cabal run shake -- build`); ensure no stale copy in `$LD_LIBRARY_PATH`.
 - **`.so` load failure**: loader checks `_install_config.LIBRARY_PATH` → `LD_LIBRARY_PATH` → `/usr/local/lib`. Regen via `cabal run shake -- install` or set `ALETHEIA_FFI_PATH`.
-- **ctypes signature mismatch (Python)**: `.so` and Python package versions drifted. Compare `python -m aletheia --version` vs `strings libaletheia-ffi.so | grep aletheia-ffi-`.
+- **`library implements ABI version N`**: `.so` and binding differ in C ABI; rebuild and reinstall both (RUNBOOK.md).
 - **DBC validation rejection**: check `ValidationIssue.code` enum — table in [PROTOCOL.md § Error Code Reference](docs/architecture/PROTOCOL.md#error-code-reference). `aletheia validate --dbc <file>` to see all issues.
 - **Property formula parse error**: JSON schema is strict (`"operator"` lowercase, predicates under `{"operator": "atomic", "predicate": {...}}`). Compare against `Signal("X").equals(1).to_dict()` output.
 

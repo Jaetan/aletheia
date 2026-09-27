@@ -18,6 +18,7 @@ mutated by none.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 from typing import TYPE_CHECKING
@@ -89,10 +90,13 @@ def _write_leg_reports(artifact_dir: Path, leg: CppLeg) -> Mapping[str, object]:
     elements = _elements(_leg_mutants(leg), _SURVIVORS[leg.tree])
     _ = (artifact_dir / f"{leg.report_name}.json").write_text(json.dumps(elements))
     _ = (artifact_dir / f"{leg.report_name}.txt").write_text("[info] Mutation score: 66%\n")
-    with sqlite3.connect(artifact_dir / f"{leg.report_name}.sqlite") as conn:
+    # closing() closes the connection; sqlite3's own context manager only
+    # commits, which would leave the file open until a collection.
+    with contextlib.closing(sqlite3.connect(artifact_dir / f"{leg.report_name}.sqlite")) as conn:
         _ = conn.execute(
             "CREATE TABLE mutant (mutant_id TEXT, execution_status INT, stdout TEXT, stderr TEXT)"
         )
+        conn.commit()
     return elements
 
 

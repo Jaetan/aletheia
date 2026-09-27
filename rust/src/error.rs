@@ -27,6 +27,10 @@ pub enum Error {
     SymbolMissing(String),
     /// `aletheia_init` returned a null handle (the RTS did not initialise correctly).
     InitFailed,
+    /// The library implements an ABI version other than the one this crate lays
+    /// its structures out for, so it is refused before any other entry is
+    /// resolved or its runtime is started.
+    AbiMismatch { library: u32, binding: u32 },
     /// The GHC RTS has not been initialised: a render (a check description, a
     /// formula, or an observed value) was attempted before any `FfiBackend` /
     /// `Client` brought the runtime up. The renderer is *vocal* — it never
@@ -150,6 +154,10 @@ impl fmt::Display for Error {
             Error::LibraryLoad { path, source } => write!(f, "failed to load {path}: {source}"),
             Error::SymbolMissing(name) => write!(f, "missing FFI symbol: {name}"),
             Error::InitFailed => write!(f, "aletheia_init returned null"),
+            Error::AbiMismatch { library, binding } => write!(
+                f,
+                "the library implements ABI version {library}, and this binding needs {binding}"
+            ),
             Error::RtsNotInitialized => write!(
                 f,
                 "GHC runtime not initialized: create a Client (FfiBackend) before rendering"

@@ -11,6 +11,7 @@
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/limits.hpp>
 
+#include "detail/ffi_abi.hpp"
 #include "detail/ffi_logic.hpp"
 #include "detail/rts_init.hpp"
 #include "detail/rts_params.hpp"
@@ -29,6 +30,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -40,42 +42,26 @@ namespace {
 // change at that surface reaches this one.
 constexpr auto max_can_fd_payload_bytes = static_cast<std::size_t>(aletheia::max_frame_byte_count);
 
-// The (value, extended-flag) pair every FFI signature takes for a CAN id.
-struct WireCanId {
-    std::uint32_t value;
-    std::uint8_t extended;
-};
-
+using AletheiaAbiVersionFn = std::uint32_t (*)();
 using HsInitFn = void (*)(int*, char***);
 using AletheiaInitFn = void* (*)();
 using AletheiaProcessFn = char* (*)(void*, const char*);
-using AletheiaSendFrameFn = char* (*)(void*, std::uint64_t, std::uint32_t, std::uint8_t,
-                                      std::uint8_t, const std::uint8_t*, std::uint8_t, std::uint8_t,
-                                      std::uint8_t, std::uint8_t, std::uint8_t);
+using AletheiaSendFrameFn = char* (*)(void*, const detail::FfiFrame*);
 using AletheiaFreeStrFn = void (*)(char*);
 using AletheiaCloseFn = void (*)(void*);
 
 // CAN error/remote event endpoints.
-using AletheiaSendErrorFn = char* (*)(void*, std::uint64_t);
-using AletheiaSendRemoteFn = char* (*)(void*, std::uint64_t, std::uint32_t, std::uint8_t);
+using AletheiaSendErrorFn = char* (*)(void*, const detail::FfiFrame*);
+using AletheiaSendRemoteFn = char* (*)(void*, const detail::FfiFrame*);
 
 // Binary FFI endpoints (no JSON input serialization).
 using AletheiaNoArgFn = char* (*)(void*);
-using AletheiaExtractFn = char* (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
-                                    const std::uint8_t*, std::uint8_t);
+using AletheiaExtractFn = char* (*)(void*, const detail::FfiFrame*);
 
-// Binary output endpoints (return status code, write bytes to caller buffer).
-using AletheiaBuildFrameBinFn = std::int8_t (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
-                                                std::uint32_t, const std::uint32_t*,
-                                                const std::int64_t*, const std::int64_t*,
-                                                std::uint8_t*, char**);
-using AletheiaUpdateFrameBinFn = std::int8_t (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
-                                                 const std::uint8_t*, std::uint8_t, std::uint32_t,
-                                                 const std::uint32_t*, const std::int64_t*,
-                                                 const std::int64_t*, std::uint8_t*, char**);
-using AletheiaExtractBinFn = std::int8_t (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
-                                             const std::uint8_t*, std::uint8_t, std::uint8_t**,
-                                             std::uint32_t*, char**);
+// Binary output endpoints (return a status code, write into the buffer).
+using AletheiaFrameBinFn = std::int8_t (*)(void*, const detail::FfiFrame*,
+                                           const detail::FfiSignalValues*, detail::FfiBuffer*);
+using AletheiaExtractBinFn = std::int8_t (*)(void*, const detail::FfiFrame*, detail::FfiBuffer*);
 using AletheiaFreeBufFn = void (*)(std::uint8_t*);
 } // namespace
 
@@ -104,9 +90,51 @@ static auto as_byte(const std::uint8_t* p) -> const std::byte* {
     return reinterpret_cast<const std::byte*>(p);
 }
 
-static auto wire_can_id(const CanId& id) -> WireCanId {
-    return {.value = can_id_value(id),
-            .extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0)};
+// A trace event without payload: a remote frame's timestamp and identifier, or
+// an error frame's timestamp alone.
+static auto event_frame(Timestamp ts, std::uint32_t can_id, std::uint8_t extended)
+    -> detail::FfiFrame {
+    return {.timestamp = static_cast<std::uint64_t>(ts.count()),
+            .data = nullptr,
+            .can_id = can_id,
+            .extended = extended,
+            .dlc = 0,
+            .data_len = 0,
+            .brs_present = 0,
+            .brs_value = 0,
+            .esi_present = 0,
+            .esi_value = 0};
+}
+
+// A frame carrying identifier and DLC only, for the entry that reads no payload.
+static auto header_frame(const CanId& id, Dlc dlc) -> detail::FfiFrame {
+    return {.timestamp = 0,
+            .data = nullptr,
+            .can_id = can_id_value(id),
+            .extended = static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0),
+            .dlc = dlc.value(),
+            .data_len = 0,
+            .brs_present = 0,
+            .brs_value = 0,
+            .esi_present = 0,
+            .esi_value = 0};
+}
+
+// A frame carrying identifier, DLC and payload; the caller has bounded the
+// payload, so its length fits the byte.
+static auto payload_frame(const CanId& id, Dlc dlc, std::span<const std::byte> data)
+    -> detail::FfiFrame {
+    auto frame = header_frame(id, dlc);
+    frame.data = as_u8(data.data());
+    frame.data_len = static_cast<std::uint8_t>(data.size());
+    return frame;
+}
+
+static auto signal_values(const SignalInjection& signals) -> detail::FfiSignalValues {
+    return {.indices = signals.indices().data(),
+            .numerators = signals.numerators().data(),
+            .denominators = signals.denominators().data(),
+            .count = signals.count()};
 }
 
 // CAN-FD's largest payload is 64 bytes; tighten the FFI bound so a malformed
@@ -141,8 +169,8 @@ class FfiBackend : public IBackend {
     AletheiaNoArgFn end_stream_fn_ = nullptr;
     AletheiaNoArgFn format_dbc_fn_ = nullptr;
     AletheiaExtractFn extract_signals_fn_ = nullptr;
-    AletheiaBuildFrameBinFn build_frame_bin_fn_ = nullptr;
-    AletheiaUpdateFrameBinFn update_frame_bin_fn_ = nullptr;
+    AletheiaFrameBinFn build_frame_bin_fn_ = nullptr;
+    AletheiaFrameBinFn update_frame_bin_fn_ = nullptr;
     AletheiaExtractBinFn extract_signals_bin_fn_ = nullptr;
     AletheiaFreeBufFn free_buf_fn_ = nullptr;
     // Populated when the backend detects that the GHC RTS was already
@@ -157,10 +185,7 @@ class FfiBackend : public IBackend {
         if (sym == nullptr)
             throw AletheiaException(AletheiaError{ErrorKind::Ffi, std::string("dlsym failed for ") +
                                                                       name + ": " + dlerror()});
-        // dlsym returns void*; POSIX guarantees round-tripping through void*
-        // preserves function pointers on all platforms with dlopen support.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        return reinterpret_cast<Fn>(sym);
+        return detail::symbol_as<Fn>(sym);
     }
 
     // Wrap an FFI char* result with the standard null-check + RAII deleter
@@ -208,6 +233,12 @@ public:
                 AletheiaError{ErrorKind::Ffi, std::string("dlopen failed: ") + dlerror()});
         auto* const handle = opened.get();
 
+        // The version first: a library laid out for another ABI is refused
+        // before any other entry is resolved or its runtime is started.
+        if (auto refusal = detail::abi_version_refusal(
+                load_sym<AletheiaAbiVersionFn>(handle, "aletheia_abi_version")()))
+            throw AletheiaException(AletheiaError{ErrorKind::Ffi, std::move(*refusal)});
+
         auto hs_init = load_sym<HsInitFn>(handle, std::string{detail::rts_init_symbol}.c_str());
         init_fn_ = load_sym<AletheiaInitFn>(handle, "aletheia_init");
         process_fn_ = load_sym<AletheiaProcessFn>(handle, "aletheia_process");
@@ -220,9 +251,8 @@ public:
         end_stream_fn_ = load_sym<AletheiaNoArgFn>(handle, "aletheia_end_stream");
         format_dbc_fn_ = load_sym<AletheiaNoArgFn>(handle, "aletheia_format_dbc");
         extract_signals_fn_ = load_sym<AletheiaExtractFn>(handle, "aletheia_extract_signals");
-        build_frame_bin_fn_ = load_sym<AletheiaBuildFrameBinFn>(handle, "aletheia_build_frame_bin");
-        update_frame_bin_fn_ =
-            load_sym<AletheiaUpdateFrameBinFn>(handle, "aletheia_update_frame_bin");
+        build_frame_bin_fn_ = load_sym<AletheiaFrameBinFn>(handle, "aletheia_build_frame_bin");
+        update_frame_bin_fn_ = load_sym<AletheiaFrameBinFn>(handle, "aletheia_update_frame_bin");
         extract_signals_bin_fn_ =
             load_sym<AletheiaExtractBinFn>(handle, "aletheia_extract_signals_bin");
         free_buf_fn_ = load_sym<AletheiaFreeBufFn>(handle, "aletheia_free_buf");
@@ -288,12 +318,8 @@ public:
     auto send_frame_binary(const BackendState& state, Timestamp ts, const CanId& id, Dlc dlc,
                            std::span<const std::byte> data, std::optional<bool> brs,
                            std::optional<bool> esi) -> std::string override {
-        auto const timestamp = static_cast<std::uint64_t>(ts.count());
-        auto const [can_id, extended] = wire_can_id(id);
-        auto const dlc_val = dlc.value();
         if (auto err = payload_bound_error(data))
             throw AletheiaException(*err);
-        auto const data_len = static_cast<std::uint8_t>(data.size());
 
         // Encode optional<bool> as (present, value) byte pairs — inverse
         // of the Haskell shim's mkMaybeBool.
@@ -302,26 +328,26 @@ public:
                 return {0, 0};
             return {1, static_cast<std::uint8_t>(*b ? 1 : 0)};
         };
-        auto const [brs_p, brs_v] = encode(brs);
-        auto const [esi_p, esi_v] = encode(esi);
+        auto frame = payload_frame(id, dlc, data);
+        frame.timestamp = static_cast<std::uint64_t>(ts.count());
+        std::tie(frame.brs_present, frame.brs_value) = encode(brs);
+        std::tie(frame.esi_present, frame.esi_value) = encode(esi);
 
-        return wrap_str_result(send_frame_fn_(state.get(), timestamp, can_id, extended, dlc_val,
-                                              as_u8(data.data()), data_len, brs_p, brs_v, esi_p,
-                                              esi_v),
+        return wrap_str_result(send_frame_fn_(state.get(), &frame),
                                "aletheia_send_frame returned null");
     }
 
     auto send_error_binary(const BackendState& state, Timestamp ts) -> std::string override {
-        auto const timestamp = static_cast<std::uint64_t>(ts.count());
-        return wrap_str_result(send_error_fn_(state.get(), timestamp),
+        auto const frame = event_frame(ts, 0, 0);
+        return wrap_str_result(send_error_fn_(state.get(), &frame),
                                "aletheia_send_error returned null");
     }
 
     auto send_remote_binary(const BackendState& state, Timestamp ts, const CanId& id)
         -> std::string override {
-        auto const timestamp = static_cast<std::uint64_t>(ts.count());
-        auto const [can_id, extended] = wire_can_id(id);
-        return wrap_str_result(send_remote_fn_(state.get(), timestamp, can_id, extended),
+        auto const frame = event_frame(ts, can_id_value(id),
+                                       static_cast<std::uint8_t>(can_id_is_extended(id) ? 1 : 0));
+        return wrap_str_result(send_remote_fn_(state.get(), &frame),
                                "aletheia_send_remote returned null");
     }
 
@@ -340,30 +366,26 @@ public:
 
     auto extract_signals_binary(const BackendState& state, const CanId& id, Dlc dlc,
                                 std::span<const std::byte> data) -> std::string override {
-        auto const [can_id, extended] = wire_can_id(id);
-        auto const dlc_val = dlc.value();
         if (auto err = payload_bound_error(data))
             throw AletheiaException(*err);
-        auto const data_len = static_cast<std::uint8_t>(data.size());
-
-        return wrap_str_result(extract_signals_fn_(state.get(), can_id, extended, dlc_val,
-                                                   as_u8(data.data()), data_len),
+        auto const frame = payload_frame(id, dlc, data);
+        return wrap_str_result(extract_signals_fn_(state.get(), &frame),
                                "aletheia_extract_signals returned null");
     }
 
     auto build_frame_bin(const BackendState& state, const CanId& id, Dlc dlc,
                          SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
-        auto const [can_id, extended] = wire_can_id(id);
-
+        auto const frame = header_frame(id, dlc);
+        auto const values = signal_values(signals);
         std::vector<std::byte> buf(expected_bytes);
-        char* err_str = nullptr;
-        auto const status =
-            build_frame_bin_fn_(state.get(), can_id, extended, dlc.value(), signals.count(),
-                                signals.indices().data(), signals.numerators().data(),
-                                signals.denominators().data(), as_u8(buf.data()), &err_str);
-        if (auto err = detail::ffi_error_from_status(status, err_str, free_str_fn_))
+        detail::FfiBuffer out{.data = as_u8(buf.data()),
+                              .err = nullptr,
+                              .size = static_cast<std::uint32_t>(buf.size())};
+        auto const status = build_frame_bin_fn_(state.get(), &frame, &values, &out);
+        if (auto err = detail::ffi_error_from_status(status, out.err, free_str_fn_))
             return std::unexpected(*err);
+        buf.resize(out.size);
         return buf;
     }
 
@@ -373,17 +395,16 @@ public:
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         if (auto err = payload_bound_error(data))
             return std::unexpected(*err);
-        auto const [can_id, extended] = wire_can_id(id);
-        auto const data_len = static_cast<std::uint8_t>(data.size());
-
+        auto const frame = payload_frame(id, dlc, data);
+        auto const values = signal_values(signals);
         std::vector<std::byte> buf(expected_bytes);
-        char* err_str = nullptr;
-        auto const status = update_frame_bin_fn_(
-            state.get(), can_id, extended, dlc.value(), as_u8(data.data()), data_len,
-            signals.count(), signals.indices().data(), signals.numerators().data(),
-            signals.denominators().data(), as_u8(buf.data()), &err_str);
-        if (auto err = detail::ffi_error_from_status(status, err_str, free_str_fn_))
+        detail::FfiBuffer out{.data = as_u8(buf.data()),
+                              .err = nullptr,
+                              .size = static_cast<std::uint32_t>(buf.size())};
+        auto const status = update_frame_bin_fn_(state.get(), &frame, &values, &out);
+        if (auto err = detail::ffi_error_from_status(status, out.err, free_str_fn_))
             return std::unexpected(*err);
+        buf.resize(out.size);
         return buf;
     }
 
@@ -392,29 +413,23 @@ public:
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         if (auto err = payload_bound_error(data))
             return std::unexpected(*err);
-        auto const [can_id, extended] = wire_can_id(id);
-        auto const data_len = static_cast<std::uint8_t>(data.size());
-
-        std::uint8_t* out_buf = nullptr;
-        std::uint32_t out_size = 0;
-        char* err_str = nullptr;
-        auto const status =
-            extract_signals_bin_fn_(state.get(), can_id, extended, dlc.value(), as_u8(data.data()),
-                                    data_len, &out_buf, &out_size, &err_str);
-        if (auto err = detail::ffi_error_from_status(status, err_str, free_str_fn_))
+        auto const frame = payload_frame(id, dlc, data);
+        detail::FfiBuffer out{.data = nullptr, .err = nullptr, .size = 0};
+        auto const status = extract_signals_bin_fn_(state.get(), &frame, &out);
+        if (auto err = detail::ffi_error_from_status(status, out.err, free_str_fn_))
             return std::unexpected(*err);
         // RAII-owned so a throwing std::vector construction (e.g. bad_alloc on
         // copy) still frees the Haskell-allocated buffer. A bare free call
         // after the copy would leak on that path.
-        const std::unique_ptr<std::uint8_t, AletheiaFreeBufFn> out_guard(out_buf, free_buf_fn_);
+        const std::unique_ptr<std::uint8_t, AletheiaFreeBufFn> out_guard(out.data, free_buf_fn_);
         // Guard against the degenerate case where the backend signalled
         // success but produced a null buffer: constructing std::span from a
         // null pointer with non-zero size is undefined behaviour
         // ([span.cons]/3). A zero-length extraction is a legal successful
         // response — return an empty payload instead of reading through null.
-        if (out_buf == nullptr)
+        if (out.data == nullptr)
             return std::vector<std::byte>{};
-        const std::span<const std::byte> out_bytes(as_byte(out_buf), out_size);
+        const std::span<const std::byte> out_bytes(as_byte(out.data), out.size);
         return std::vector<std::byte>(out_bytes.begin(), out_bytes.end());
     }
 

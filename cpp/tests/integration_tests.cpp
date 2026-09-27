@@ -11,6 +11,8 @@
 #include <aletheia/aletheia.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
 
+#include "aletheia.h"
+
 #include <algorithm>
 #include <array>
 #include <barrier>
@@ -815,10 +817,8 @@ TEST_CASE("the kernel refuses a DLC code past 15 on the binary build entry", "[i
     auto const state = backend->init();
     const aletheia::test::LoadedLibrary handle{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
     REQUIRE(handle != nullptr);
-    using BuildFn = std::int8_t (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t, std::uint32_t,
-                                    const std::uint32_t*, const std::int64_t*, const std::int64_t*,
-                                    std::uint8_t*, char**);
-    using FreeFn = void (*)(char*);
+    using BuildFn = decltype(&aletheia_build_frame_bin);
+    using FreeFn = decltype(&aletheia_free_str);
     // dlsym returns void*; POSIX guarantees the round trip through void*
     // preserves function pointers wherever dlopen exists.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -828,14 +828,19 @@ TEST_CASE("the kernel refuses a DLC code past 15 on the binary build entry", "[i
     REQUIRE(build != nullptr);
     REQUIRE(free_str != nullptr);
 
-    std::array<std::uint8_t, 64> out{};
-    char* raw_error = nullptr;
-    auto const status =
-        build(state.get(), 0x100, 0, 42, 0, nullptr, nullptr, nullptr, out.data(), &raw_error);
+    aletheia_frame frame{};
+    frame.can_id = 0x100;
+    frame.dlc = 42;
+    const aletheia_signal_values values{};
+    std::array<std::uint8_t, 64> out_bytes{};
+    aletheia_buffer out{.data = out_bytes.data(),
+                        .err = nullptr,
+                        .size = static_cast<std::uint32_t>(out_bytes.size())};
+    auto const status = build(state.get(), &frame, &values, &out);
     // The kernel allocated the message; it is released by the kernel's own
     // free, from a destructor rather than from a line this test must reach.
     auto const release = [free_str](char* message) { free_str(message); };
-    const std::unique_ptr<char, decltype(release)> error{raw_error, release};
+    const std::unique_ptr<char, decltype(release)> error{out.err, release};
     CHECK(status == 1);
     REQUIRE(error != nullptr);
     CHECK(std::string_view{error.get()}.contains("DLC 42 exceeds maximum (15)"));
@@ -897,6 +902,72 @@ TEST_CASE("a frame built at a DLC the message outgrows is refused", "[integratio
     auto const built = client.build_frame(std::stop_token{}, id, Dlc::create(4).value(), speed);
     REQUIRE(built.has_value());
     CHECK(built->size() == 4);
+}
+
+// The client sizes the result buffer from the DLC, and a CAN-FD frame is
+// longer than any buffer a wrong size could still cover: sixty-four bytes come
+// back from both the build and the update.
+TEST_CASE("a CAN-FD frame is built and updated at its full length", "[integration]") {
+    AletheiaClient client(make_ffi_backend(find_lib()));
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(15).value();
+    const std::vector<SignalValue> speed{
+        {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}}};
+
+    auto const built = client.build_frame(std::stop_token{}, id, dlc, speed);
+    REQUIRE(built.has_value());
+    CHECK(built->size() == 64);
+    auto const updated = client.update_frame(std::stop_token{}, id, dlc, *built, speed);
+    REQUIRE(updated.has_value());
+    CHECK(updated->size() == 64);
+}
+
+// The result buffer is the caller's: the kernel refuses one too short for the
+// frame before writing into it, and hands back how much it wrote into one
+// longer than the frame, which the backend trims the result to.
+TEST_CASE("the FFI backend's result buffer holds the frame the DLC sizes", "[integration]") {
+    auto backend = make_ffi_backend(find_lib());
+    auto const state = backend->init();
+    REQUIRE(backend
+                ->process(state, R"({"type":"command","command":"parseDBC","dbc":{)"
+                                 R"("version":"1.0","messages":[{"id":256,"name":"M","dlc":8,)"
+                                 R"("sender":"ECU","signals":[{"name":"Speed","startBit":0,)"
+                                 R"("length":16,"byteOrder":"little_endian","signed":false,)"
+                                 R"("factor":1,"offset":0,"minimum":0,"maximum":65535,)"
+                                 R"("unit":"","presence":"always","receivers":[]}]}]}})")
+                .contains(R"("status": "success")"));
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    const std::vector<std::byte> data(8, std::byte{0});
+    const std::vector<std::uint32_t> indices{0};
+    const std::vector<std::int64_t> numerators{1000};
+    const std::vector<std::int64_t> denominators{1};
+    auto const injection = SignalInjection::create(indices, numerators, denominators).value();
+
+    SECTION("a buffer shorter than the frame is refused") {
+        auto const built = backend->build_frame_bin(state, id, dlc, injection, 4);
+        REQUIRE_FALSE(built.has_value());
+        CHECK_THAT(std::string{built.error().message()},
+                   Catch::Matchers::ContainsSubstring("out size 4 < dlcToBytes 8"));
+        auto const updated = backend->update_frame_bin(state, id, dlc, data, injection, 4);
+        REQUIRE_FALSE(updated.has_value());
+        CHECK_THAT(std::string{updated.error().message()},
+                   Catch::Matchers::ContainsSubstring("out size 4 < dlcToBytes 8"));
+    }
+    SECTION("a buffer longer than the frame comes back at the frame's length") {
+        const std::vector<std::byte> speed{std::byte{0xE8}, std::byte{0x03}};
+        auto const built = backend->build_frame_bin(state, id, dlc, injection, 64);
+        REQUIRE(built.has_value());
+        REQUIRE(built->size() == 8);
+        CHECK(std::ranges::equal(std::span{*built}.first(2), speed));
+        auto const updated = backend->update_frame_bin(state, id, dlc, data, injection, 64);
+        REQUIRE(updated.has_value());
+        REQUIRE(updated->size() == 8);
+        CHECK(std::ranges::equal(std::span{*updated}.first(2), speed));
+    }
 }
 
 // Every binding prints an observed value through the kernel's own rational

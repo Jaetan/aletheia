@@ -12,7 +12,7 @@ import threading
 from pathlib import Path
 
 from aletheia.client._log import LogEvent, log_event
-from aletheia.client._types import ProtocolError
+from aletheia.client._types import FFIError, ProtocolError
 from aletheia.types import JSONValue, is_str_dict
 
 
@@ -160,6 +160,93 @@ def hs_initialized() -> bool:
     return RTSState.initialized
 
 
+# ``ALETHEIA_ABI_VERSION``: the version of the structures and signatures this
+# binding lays out, which ``test_ffi_abi_layout.py`` holds to the header's.
+ABI_VERSION = 1
+
+
+def check_abi_version(lib: ctypes.CDLL) -> None:
+    """Refuse a library whose ABI version is not this binding's.
+
+    Called before any other entry is resolved and before the GHC runtime
+    starts, so a library laid out for another version runs nothing.  A library
+    older than the version export lacks the symbol and is refused for that.
+    """
+    try:
+        entry = lib.aletheia_abi_version
+    except AttributeError as exc:
+        msg = "the library has no aletheia_abi_version: it predates the versioned ABI"
+        raise FFIError(msg) from exc
+    entry.argtypes = []
+    entry.restype = ctypes.c_uint32
+    found: int = entry()
+    if found != ABI_VERSION:
+        msg = f"the library implements ABI version {found}, and this binding needs {ABI_VERSION}"
+        raise FFIError(msg)
+
+
+class AletheiaFrame(ctypes.Structure):  # pylint: disable=too-few-public-methods
+    """``struct aletheia_frame``: one CAN frame, passed by pointer.
+
+    The layout is ``haskell-shim/include/aletheia.h``'s; ``test_ffi_abi_layout.py`` pins
+    every offset and the size against the table there.
+    """
+
+    _fields_ = (
+        ("timestamp", ctypes.c_uint64),
+        ("data", ctypes.POINTER(ctypes.c_uint8)),
+        ("can_id", ctypes.c_uint32),
+        ("extended", ctypes.c_uint8),
+        ("dlc", ctypes.c_uint8),
+        ("data_len", ctypes.c_uint8),
+        ("brs_present", ctypes.c_uint8),
+        ("brs_value", ctypes.c_uint8),
+        ("esi_present", ctypes.c_uint8),
+        ("esi_value", ctypes.c_uint8),
+    )
+
+
+class AletheiaSignalValues(ctypes.Structure):  # pylint: disable=too-few-public-methods
+    """``struct aletheia_signal_values``: parallel signal indices and rationals."""
+
+    _fields_ = (
+        ("indices", ctypes.POINTER(ctypes.c_uint32)),
+        ("numerators", ctypes.POINTER(ctypes.c_int64)),
+        ("denominators", ctypes.POINTER(ctypes.c_int64)),
+        ("count", ctypes.c_uint32),
+    )
+
+
+class AletheiaBuffer(ctypes.Structure):  # pylint: disable=too-few-public-methods
+    """``struct aletheia_buffer``: a binary result and its error message."""
+
+    _fields_ = (
+        ("data", ctypes.POINTER(ctypes.c_uint8)),
+        # A raw address, not ``c_char_p``, so the string can be freed after reading.
+        ("err", ctypes.c_void_p),
+        ("size", ctypes.c_uint32),
+    )
+
+
+class AletheiaRational(ctypes.Structure):  # pylint: disable=too-few-public-methods
+    """``struct aletheia_rational``: an exact rational."""
+
+    _fields_ = (
+        ("numerator", ctypes.c_int64),
+        ("denominator", ctypes.c_int64),
+    )
+
+
+class AletheiaDecimal(ctypes.Structure):  # pylint: disable=too-few-public-methods
+    """``struct aletheia_decimal``: a parsed decimal, or the error the parser set."""
+
+    _fields_ = (
+        ("value", AletheiaRational),
+        # A raw address, not ``c_char_p``, so the string can be freed after reading.
+        ("err", ctypes.c_void_p),
+    )
+
+
 def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     """Configure ``argtypes``/``restype`` for every Aletheia FFI entry point.
 
@@ -177,24 +264,14 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     lib.aletheia_close.argtypes = [ctypes.c_void_p]
     lib.aletheia_close.restype = None
 
-    # Binary frame endpoint (hot path — bypasses JSON serialization on input).
-    # The 4 trailing u8 args encode the optional CAN-FD BRS / ESI bits as
-    # (present, value) pairs — `present=0` means the bit is absent (CAN 2.0B
-    # frame), `present!=0` means present with `value!=0` for True.  See
-    # `Aletheia.Trace.CANTrace.TimedFrame` + ISO 11898-1:2015 §10.4.2 / §10.4.3.
-    lib.aletheia_send_frame.argtypes = [
-        ctypes.c_void_p,  # state
-        ctypes.c_uint64,  # timestamp
-        ctypes.c_uint32,  # can_id
-        ctypes.c_uint8,  # extended (0 or 1)
-        ctypes.c_uint8,  # dlc
-        ctypes.POINTER(ctypes.c_uint8),  # data pointer
-        ctypes.c_uint8,  # data_len
-        ctypes.c_uint8,  # brs_present (0 or 1)
-        ctypes.c_uint8,  # brs_value   (0 or 1)
-        ctypes.c_uint8,  # esi_present (0 or 1)
-        ctypes.c_uint8,  # esi_value   (0 or 1)
-    ]
+    # Binary frame endpoint (hot path: no JSON on input).  The frame crosses
+    # as one ``struct aletheia_frame``; its CAN-FD BRS / ESI bits are
+    # (present, value) byte pairs, present 0 for a CAN 2.0B frame
+    # (ISO 11898-1:2015 section 10.4.2 / 10.4.3).
+    frame_ptr = ctypes.POINTER(AletheiaFrame)
+    values_ptr = ctypes.POINTER(AletheiaSignalValues)
+    buffer_ptr = ctypes.POINTER(AletheiaBuffer)
+    lib.aletheia_send_frame.argtypes = [ctypes.c_void_p, frame_ptr]
     lib.aletheia_send_frame.restype = ctypes.c_void_p
 
     # Binary entry points (no JSON parsing on input)
@@ -204,70 +281,21 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     lib.aletheia_end_stream.restype = ctypes.c_void_p
     lib.aletheia_format_dbc.argtypes = [ctypes.c_void_p]
     lib.aletheia_format_dbc.restype = ctypes.c_void_p
-    lib.aletheia_extract_signals.argtypes = [
-        ctypes.c_void_p,  # state
-        ctypes.c_uint32,  # can_id
-        ctypes.c_uint8,  # extended
-        ctypes.c_uint8,  # dlc
-        ctypes.POINTER(ctypes.c_uint8),  # data pointer
-        ctypes.c_uint8,  # data_len
-    ]
+    lib.aletheia_extract_signals.argtypes = [ctypes.c_void_p, frame_ptr]
     lib.aletheia_extract_signals.restype = ctypes.c_void_p
 
     # CAN error/remote event endpoints (acknowledged without LTL evaluation)
-    lib.aletheia_send_error.argtypes = [
-        ctypes.c_void_p,  # state
-        ctypes.c_uint64,  # timestamp
-    ]
+    lib.aletheia_send_error.argtypes = [ctypes.c_void_p, frame_ptr]
     lib.aletheia_send_error.restype = ctypes.c_void_p
-    lib.aletheia_send_remote.argtypes = [
-        ctypes.c_void_p,  # state
-        ctypes.c_uint64,  # timestamp
-        ctypes.c_uint32,  # can_id
-        ctypes.c_uint8,  # extended (0 or 1)
-    ]
+    lib.aletheia_send_remote.argtypes = [ctypes.c_void_p, frame_ptr]
     lib.aletheia_send_remote.restype = ctypes.c_void_p
 
     # Binary output entry points (no JSON on output either)
-    lib.aletheia_build_frame_bin.argtypes = [
-        ctypes.c_void_p,  # state
-        ctypes.c_uint32,  # can_id
-        ctypes.c_uint8,  # extended
-        ctypes.c_uint8,  # dlc
-        ctypes.c_uint32,  # numSignals
-        ctypes.POINTER(ctypes.c_uint32),  # indices
-        ctypes.POINTER(ctypes.c_int64),  # numerators
-        ctypes.POINTER(ctypes.c_int64),  # denominators
-        ctypes.POINTER(ctypes.c_uint8),  # out_buf
-        ctypes.POINTER(ctypes.c_char_p),  # out_err
-    ]
+    lib.aletheia_build_frame_bin.argtypes = [ctypes.c_void_p, frame_ptr, values_ptr, buffer_ptr]
     lib.aletheia_build_frame_bin.restype = ctypes.c_int8
-    lib.aletheia_update_frame_bin.argtypes = [
-        ctypes.c_void_p,  # state
-        ctypes.c_uint32,  # can_id
-        ctypes.c_uint8,  # extended
-        ctypes.c_uint8,  # dlc
-        ctypes.POINTER(ctypes.c_uint8),  # data pointer
-        ctypes.c_uint8,  # data_len
-        ctypes.c_uint32,  # numSignals
-        ctypes.POINTER(ctypes.c_uint32),  # indices
-        ctypes.POINTER(ctypes.c_int64),  # numerators
-        ctypes.POINTER(ctypes.c_int64),  # denominators
-        ctypes.POINTER(ctypes.c_uint8),  # out_buf
-        ctypes.POINTER(ctypes.c_char_p),  # out_err
-    ]
+    lib.aletheia_update_frame_bin.argtypes = [ctypes.c_void_p, frame_ptr, values_ptr, buffer_ptr]
     lib.aletheia_update_frame_bin.restype = ctypes.c_int8
-    lib.aletheia_extract_signals_bin.argtypes = [
-        ctypes.c_void_p,  # state
-        ctypes.c_uint32,  # can_id
-        ctypes.c_uint8,  # extended
-        ctypes.c_uint8,  # dlc
-        ctypes.POINTER(ctypes.c_uint8),  # data pointer
-        ctypes.c_uint8,  # data_len
-        ctypes.POINTER(ctypes.POINTER(ctypes.c_uint8)),  # out_buf
-        ctypes.POINTER(ctypes.c_uint32),  # out_size
-        ctypes.POINTER(ctypes.c_char_p),  # out_err
-    ]
+    lib.aletheia_extract_signals_bin.argtypes = [ctypes.c_void_p, frame_ptr, buffer_ptr]
     lib.aletheia_extract_signals_bin.restype = ctypes.c_int8
     lib.aletheia_free_buf.argtypes = [ctypes.POINTER(ctypes.c_uint8)]
     lib.aletheia_free_buf.restype = None
@@ -276,20 +304,19 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     # Returns a CString that the caller must free via ``aletheia_free_str``.
     # Display path only — bindings call this to render predicate values for
     # human-readable diagnostics.
-    lib.aletheia_format_rational.argtypes = [
-        ctypes.c_int64,  # numerator
-        ctypes.c_int64,  # denominator (sign normalisation handled in shim)
-    ]
+    # The rational crosses as one ``struct aletheia_rational``; the shim moves
+    # a negative denominator's sign to the numerator.
+    lib.aletheia_format_rational.argtypes = [ctypes.POINTER(AletheiaRational)]
     lib.aletheia_format_rational.restype = ctypes.c_void_p
 
     # Cross-binding decimal → exact rational SSOT (the float principle).
-    # Takes a decimal string, returns an owned CString (free via
-    # ``aletheia_free_str``): a bare ``{"numerator","denominator"}`` wire
-    # rational on success, or a ``{"status":"error",...}`` envelope on a parse
-    # failure / Int64 overflow.  Consumed by
+    # Takes a decimal string and writes a ``struct aletheia_decimal``: the
+    # rational on success (status 0), or on a parse failure / Int64 overflow
+    # a ``{"status":"error",...}`` envelope in ``err`` (status 1), freed via
+    # ``aletheia_free_str``.  Consumed by
     # ``aletheia.client._helpers.rational.from_decimal``.
-    lib.aletheia_parse_decimal.argtypes = [ctypes.c_char_p]
-    lib.aletheia_parse_decimal.restype = ctypes.c_void_p
+    lib.aletheia_parse_decimal.argtypes = [ctypes.c_char_p, ctypes.POINTER(AletheiaDecimal)]
+    lib.aletheia_parse_decimal.restype = ctypes.c_int8
 
 
 def _validate_lib_path(p: Path, source: str) -> None:

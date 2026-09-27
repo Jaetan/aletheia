@@ -20,12 +20,16 @@ package aletheia
 #cgo LDFLAGS: -ldl
 
 #include <dlfcn.h>
+#include "aletheia_abi.h"
 #include <stdint.h>
 #include <stdlib.h>
 
 // Cgo trampolines local to this file.
-static char* renderer_call_format_rational(void *fn, int64_t num, int64_t denom) {
-    return ((char* (*)(int64_t, int64_t))fn)(num, denom);
+static char* renderer_call_format_rational(void *fn, struct aletheia_rational value) {
+    return ((char* (*)(const struct aletheia_rational*))fn)(&value);
+}
+static uint32_t renderer_call_abi_version(void *fn) {
+    return ((uint32_t (*)(void))fn)();
 }
 static void renderer_call_free_str(void *fn, char *ptr) {
     ((void (*)(char*))fn)(ptr);
@@ -131,9 +135,19 @@ func loadStandaloneSymbols(what string, names ...string) ([]unsafe.Pointer, erro
 		return nil, ffiError(what + " dlopen failed: " + C.GoString(C.dlerror()))
 	}
 
+	// The version first, as the backend reads it: a library laid out for
+	// another ABI is refused before the entries it would lay out differently.
+	abiVersionFn, err := rendererDlsym(handle, what, "aletheia_abi_version")
+	if err != nil {
+		return nil, err
+	}
+	if err := abiVersionError(uint32(C.renderer_call_abi_version(abiVersionFn))); err != nil {
+		return nil, err
+	}
+
 	resolved := make([]unsafe.Pointer, 0, len(names))
 	for _, name := range names {
-		sym, err := rendererDlsym(handle, name)
+		sym, err := rendererDlsym(handle, what, name)
 		if err != nil {
 			return nil, err
 		}
@@ -151,15 +165,16 @@ func loadRendererFFI() error {
 	return nil
 }
 
-// rendererDlsym resolves one symbol, reporting the loader's own message. The
-// caller has pinned the thread, dlerror being per thread.
-func rendererDlsym(handle unsafe.Pointer, name string) (unsafe.Pointer, error) {
+// rendererDlsym resolves one symbol for the consumer what names, reporting
+// the loader's own message. The caller has pinned the thread, dlerror being
+// per thread.
+func rendererDlsym(handle unsafe.Pointer, what, name string) (unsafe.Pointer, error) {
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))
 	C.dlerror() // clear previous errors
 	sym := C.dlsym(handle, cName)
 	if e := C.dlerror(); e != nil {
-		return nil, ffiError("renderer dlsym " + name + ": " + C.GoString(e))
+		return nil, ffiError(what + " dlsym " + name + ": " + C.GoString(e))
 	}
 	return sym, nil
 }
@@ -184,7 +199,8 @@ func formatRationalFFI(num, denom int64) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	raw := C.renderer_call_format_rational(rendererFormatFn, C.int64_t(num), C.int64_t(denom))
+	raw := C.renderer_call_format_rational(rendererFormatFn,
+		C.struct_aletheia_rational{numerator: C.int64_t(num), denominator: C.int64_t(denom)})
 	if raw == nil {
 		// A null is the kernel or the boundary malfunctioning, never an answer
 		// about the number: a zero in its place would read as a rendered value.

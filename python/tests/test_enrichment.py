@@ -407,7 +407,7 @@ class TestRendererVocalWhenRTSDown:
         class _NullLib:
             """Renderer-lib stub whose ``aletheia_format_rational`` returns null."""
 
-            def aletheia_format_rational(self, _num: object, _den: object) -> None:
+            def aletheia_format_rational(self, _value: object) -> None:
                 """Return None to simulate the catastrophic null-pointer return."""
 
             def aletheia_free_str(self, _ptr: object) -> None:

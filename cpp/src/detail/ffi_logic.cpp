@@ -5,6 +5,7 @@
 // for the testability rationale.
 
 #include "ffi_logic.hpp"
+#include "ffi_abi.hpp"
 
 #include "rts_params.hpp"
 
@@ -68,6 +69,20 @@ auto wire_count_refusal(std::size_t count) -> std::optional<std::string> {
         return std::nullopt;
     return std::format("signal injection carries {} values, more than the wire's count holds",
                        count);
+}
+
+auto decimal_denominator_refusal(std::int64_t denominator) -> std::optional<std::string> {
+    if (denominator > 0)
+        return std::nullopt;
+    return std::format("aletheia_parse_decimal answered a non-positive denominator {}",
+                       denominator);
+}
+
+auto abi_version_refusal(std::uint32_t found) -> std::optional<std::string> {
+    if (found == abi_version)
+        return std::nullopt;
+    return std::format("the library implements ABI version {}, and this binding needs {}", found,
+                       abi_version);
 }
 
 auto json_input_bound_error(std::size_t input_bytes) -> std::optional<std::string> {

@@ -9,6 +9,7 @@
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include "detail/ffi_abi.hpp"
 #include "detail/mock_backend.hpp"
 #include "loaded_library.hpp"
 #include "temp_path.hpp"
@@ -25,6 +26,7 @@
 #include <optional>
 #include <stop_token>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -281,6 +283,24 @@ TEST_CASE("a refused construction leaves the library it opened unloaded", "[ffi]
     CHECK(still_mapped == nullptr);
 }
 
+// A library laid out for another ABI version is refused by the version it
+// reports, the first thing the backend reads, and left unloaded.
+TEST_CASE("a library at another ABI version is refused and left unloaded", "[ffi][validation]") {
+    const std::filesystem::path lib{ALETHEIA_TEST_STALE_ABI_KERNEL};
+    REQUIRE(std::filesystem::exists(lib));
+    try {
+        std::ignore = make_ffi_backend(lib);
+        FAIL("a library at another ABI version was accepted");
+    } catch (const AletheiaException& e) {
+        CHECK(e.error().kind() == ErrorKind::Ffi);
+        CHECK_THAT(std::string{e.what()},
+                   ContainsSubstring("the library implements ABI version " +
+                                     std::to_string(aletheia::detail::abi_version + 1)));
+    }
+    const aletheia::test::LoadedLibrary still_mapped{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
+    CHECK(still_mapped == nullptr);
+}
+
 namespace {
 // Save/restore ALETHEIA_LIB around a test. Catch2 runs test cases sequentially,
 // so mutating the process environment is safe as long as it is restored.
@@ -412,9 +432,24 @@ TEST_CASE("the renderer names why a library will not serve it", "[ffi][renderer]
     }
     SECTION("a library without the renderer's entries, closed again") {
         CHECK_THAT(renderer_load_error(ALETHEIA_TEST_SYMBOLLESS_LIB),
-                   ContainsSubstring("renderer dlsym aletheia_format_rational"));
+                   ContainsSubstring("renderer dlsym aletheia_abi_version"));
         const aletheia::test::LoadedLibrary still_mapped{
             dlopen(ALETHEIA_TEST_SYMBOLLESS_LIB, RTLD_NOW | RTLD_NOLOAD)};
+        CHECK(still_mapped == nullptr);
+    }
+    SECTION("a library at this ABI version without the renderer's entries, closed again") {
+        CHECK_THAT(renderer_load_error(ALETHEIA_TEST_ABI_ONLY_LIB),
+                   ContainsSubstring("renderer dlsym aletheia_format_rational"));
+        const aletheia::test::LoadedLibrary still_mapped{
+            dlopen(ALETHEIA_TEST_ABI_ONLY_LIB, RTLD_NOW | RTLD_NOLOAD)};
+        CHECK(still_mapped == nullptr);
+    }
+    SECTION("a library at another ABI version, closed again") {
+        CHECK_THAT(renderer_load_error(ALETHEIA_TEST_STALE_ABI_KERNEL),
+                   ContainsSubstring("renderer: the library implements ABI version " +
+                                     std::to_string(aletheia::detail::abi_version + 1)));
+        const aletheia::test::LoadedLibrary still_mapped{
+            dlopen(ALETHEIA_TEST_STALE_ABI_KERNEL, RTLD_NOW | RTLD_NOLOAD)};
         CHECK(still_mapped == nullptr);
     }
     SECTION("the kernel library itself, which serves") {
@@ -460,6 +495,9 @@ TEST_CASE("the FFI backend hands the kernel the timestamp and bus bits it was gi
                                  std::to_string(can_id_value(extended)) + " extended=1"));
 
     auto const standard = CanId{StandardId::create(0x100).value()};
+    CHECK_THAT(message(client.send_remote(std::stop_token{}, Timestamp{7891}, standard)),
+               ContainsSubstring("send_remote ts=7891 id=256 extended=0"));
+
     auto const dlc = Dlc::create(2).value();
     const FramePayload data{std::byte{1}, std::byte{2}};
     CHECK_THAT(message(client.send_frame(std::stop_token{}, Timestamp{99}, standard, dlc, data,

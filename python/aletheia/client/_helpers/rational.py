@@ -9,7 +9,7 @@ from fractions import Fraction
 from typing import TYPE_CHECKING, TypeGuard
 
 from aletheia.client._enrichment import get_renderer_lib
-from aletheia.client._ffi import hs_initialized, parse_json_object
+from aletheia.client._ffi import AletheiaDecimal, hs_initialized, parse_json_object
 from aletheia.client._types import FFIError, ProtocolError, ValidationError
 from aletheia.types import is_str_dict
 
@@ -75,28 +75,29 @@ def from_decimal(s: str) -> Fraction:
         )
         raise FFIError(msg)
     lib = get_renderer_lib()
-    raw = lib.aletheia_parse_decimal(s.encode())  # str.encode defaults to utf-8
-    if not raw:
-        msg = "aletheia_parse_decimal returned a null pointer"
-        raise FFIError(msg)
-    try:
-        decoded = ctypes.cast(raw, ctypes.c_char_p).value
-    finally:
-        lib.aletheia_free_str(raw)
-    if decoded is None:
-        msg = "aletheia_parse_decimal returned a null pointer"
-        raise FFIError(msg)
-    response = parse_json_object(decoded.decode())
-    # Branch on the error envelope BEFORE handing the value to the wire
-    # decoder: otherwise ``decode_wire_rational`` reports an opaque "missing
-    # numerator" and masks the precise decimal_parse_failed / decimal_overflow
-    # reason.  A failure is user-input (ValidationError), not a wire fault.
-    if response.get("status") == "error":
-        message = response.get("message", "invalid decimal literal")
+    out = AletheiaDecimal()
+    if lib.aletheia_parse_decimal(s.encode(), ctypes.byref(out)) != 0:  # utf-8 by default
+        err: int | None = out.err
+        if err is None:
+            msg = "aletheia_parse_decimal failed without an error"
+            raise FFIError(msg)
+        try:
+            envelope = ctypes.string_at(err).decode()
+        finally:
+            lib.aletheia_free_str(err)
+        # A failure is user input (ValidationError), not a wire fault: the
+        # envelope names the decimal_parse_failed / decimal_overflow reason.
+        message = parse_json_object(envelope).get("message", "invalid decimal literal")
         raise ValidationError(str(message))
-    # Success envelope is the bare {"numerator", "denominator"} wire shape that
-    # the shared wire decoder consumes — no reimplemented denom > 0 check.
-    return decode_wire_rational(response)
+    numerator: int = out.value.numerator
+    denominator: int = out.value.denominator
+    # The kernel answers lowest terms over a positive denominator; anything
+    # else is the ABI or the kernel malfunctioning, which Fraction would hide
+    # by moving the sign.
+    if denominator <= 0:
+        msg = f"aletheia_parse_decimal answered a non-positive denominator {denominator}"
+        raise ProtocolError(msg)
+    return Fraction(numerator, denominator)
 
 
 def to_exact_fraction(value: int | Fraction) -> Fraction:

@@ -33,7 +33,7 @@ fn loadable_library_without_exports_names_the_missing_symbol() {
     };
     match err {
         Error::SymbolMissing(name) => assert_eq!(
-            name, "aletheia_process",
+            name, "aletheia_abi_version",
             "the error must name the first export the resolver looks up"
         ),
         other => panic!("expected Error::SymbolMissing; got: {other:?}"),

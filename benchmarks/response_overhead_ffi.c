@@ -8,7 +8,7 @@
  * frame dispatch + response serialization + CString allocation cost.
  *
  * Build:
- *   gcc -O2 -o response_overhead_ffi benchmarks/response_overhead_ffi.c -ldl
+ *   gcc -O2 -Ihaskell-shim/include -o response_overhead_ffi benchmarks/response_overhead_ffi.c -ldl
  *
  * Run:
  *   LD_LIBRARY_PATH=build ./response_overhead_ffi
@@ -21,12 +21,13 @@
 #include <time.h>
 #include <stdint.h>
 
+#include "aletheia.h"
+
 /* Function pointer types matching aletheia.h */
 typedef void  (*hs_init_t)(int *, char ***);
 typedef void *(*init_t)(void);
 typedef char *(*process_t)(void *, const char *);
-typedef char *(*send_frame_t)(void *, uint64_t, uint32_t, uint8_t, uint8_t,
-                              const uint8_t *, uint8_t);
+typedef __typeof__(&aletheia_send_frame) send_frame_t;
 typedef void  (*free_str_t)(char *);
 typedef void  (*close_t)(void *);
 typedef char *(*noarg_t)(void *);
@@ -109,17 +110,20 @@ static bench_result run_bench(void *state, int frames, const uint8_t *data,
     bench_result r = {0};
     struct timespec t0, t1;
 
+    struct aletheia_frame frame = {
+        .data = data, .can_id = 256, .dlc = 8, .data_len = data_len};
+
     /* Warmup: 1000 frames */
     for (int i = 0; i < 1000; i++) {
-        char *resp = fn_send_frame(state, (uint64_t)i * 1000, 256, 0, 8,
-                                   data, data_len);
+        frame.timestamp = (uint64_t)i * 1000;
+        char *resp = fn_send_frame(state, &frame);
         fn_free_str(resp);
     }
 
     clock_gettime(CLOCK_MONOTONIC, &t0);
     for (int i = 0; i < frames; i++) {
-        char *resp = fn_send_frame(state, (uint64_t)(1000 + i) * 1000, 256, 0,
-                                   8, data, data_len);
+        frame.timestamp = (uint64_t)(1000 + i) * 1000;
+        char *resp = fn_send_frame(state, &frame);
         /* {"status": "ack"} — check byte 12 for 'a' */
         if (resp[12] == 'a')
             r.ack_count++;

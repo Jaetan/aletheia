@@ -11,7 +11,7 @@ This file covers the binding's structural plumbing — the encoding
 helper, the ``CANFrameTuple`` shape, and the python-can lift in
 ``can_log.convert_message``.  End-to-end FFI round-trip lives in
 ``test_unified_client_canfd_mux.py`` so the real library has to
-accept the new 11-arg ``aletheia_send_frame`` signature.
+read the BRS / ESI fields of the frame ``aletheia_send_frame`` takes.
 """
 
 from __future__ import annotations

@@ -363,19 +363,24 @@ into the configured library path, or set `ALETHEIA_FFI_PATH` /
 `LD_LIBRARY_PATH` to the directory containing the build artifact.
 See [BUILDING.md § Python Can't Find Shared Library](../development/BUILDING.md#python-cant-find-shared-library).
 
-#### ctypes signature mismatch (Python)
+#### A library at another ABI version (every binding)
 
-**Symptom:** Segfault or `OSError` on the first FFI call against an
-otherwise-loadable `.so`.
+**Symptom:** Client construction, or the first rendered value, fails
+with `the library implements ABI version N, and this binding needs M`
+(`FFIError` in Python, `ErrFFI` in Go, `ErrorKind::Ffi` in C++,
+`Error::AbiMismatch` in Rust), or with a missing
+`aletheia_abi_version` symbol.
 
-**Cause:** The Python `aletheia` package and the loaded
-`libaletheia-ffi.so` were built from different commits — function
-signatures (argtypes / restype) drifted relative to the kernel
-exports.
+**Cause:** The loaded `libaletheia-ffi.so` and the binding were built
+from commits whose C ABI differs. Every loader reads the library's
+`aletheia_abi_version()` before any other entry and refuses a number
+other than its own; a library without that export predates the
+versioned ABI.
 
-**Action:** Compare `python -m aletheia --version` against
-`strings libaletheia-ffi.so | grep aletheia-ffi-`. Reinstall the
-matching pair: `cabal run shake -- build && pip install -e python`.
+**Action:** Rebuild and reinstall the matching pair from one commit:
+`cabal run shake -- build`, then `cabal run shake -- install` where the
+installed copy is the one loaded, and reinstall the binding from the
+same checkout.
 
 #### MAlonzo name mismatch (`d_<fn>_<NN>` rename drift)
 

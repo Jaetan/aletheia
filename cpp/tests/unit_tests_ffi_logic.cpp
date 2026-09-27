@@ -13,6 +13,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "detail/ffi_abi.hpp"
 #include "detail/ffi_logic.hpp"
 #include "detail/rts_params.hpp"
 
@@ -156,4 +157,23 @@ TEST_CASE("wire_count_refusal admits the wire's width and refuses one past it, b
     REQUIRE(refusal.has_value());
     CHECK(*refusal ==
           "signal injection carries 4294967296 values, more than the wire's count holds");
+}
+
+TEST_CASE("abi_version_refusal admits the backend's version and names any other", "[ffi][logic]") {
+    CHECK_FALSE(detail::abi_version_refusal(detail::abi_version).has_value());
+    auto const newer = detail::abi_version_refusal(detail::abi_version + 1);
+    REQUIRE(newer.has_value());
+    CHECK(*newer == "the library implements ABI version " +
+                        std::to_string(detail::abi_version + 1) + ", and this binding needs " +
+                        std::to_string(detail::abi_version));
+    CHECK(detail::abi_version_refusal(detail::abi_version - 1).has_value());
+}
+
+TEST_CASE("decimal_denominator_refusal admits a positive denominator and names any other",
+          "[ffi][logic]") {
+    CHECK_FALSE(detail::decimal_denominator_refusal(1).has_value());
+    auto const zero = detail::decimal_denominator_refusal(0);
+    REQUIRE(zero.has_value());
+    CHECK(*zero == "aletheia_parse_decimal answered a non-positive denominator 0");
+    CHECK(detail::decimal_denominator_refusal(-1).has_value());
 }

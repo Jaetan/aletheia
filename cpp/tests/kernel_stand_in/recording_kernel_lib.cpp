@@ -6,9 +6,13 @@
 // entries whose arguments the real kernel acknowledges without reading: the
 // timestamp of an error or remote event, and the CAN-FD bus bits of a frame.
 // It carries every symbol the backend resolves, at the kernel's own
-// signatures, and its runtime entry is a no-op: the runtime is brought up
-// once per process by the first backend the suite builds, on the real
-// library, and never by this one.
+// signatures, its structures the backend's own mirror of the kernel's (so the
+// undefined-behaviour sanitizer's function-type check holds every entry to the
+// type the backend calls it through), and its runtime entry is a no-op: the
+// runtime is brought up once per process by the first backend the suite
+// builds, on the real library, and never by this one.
+#include "detail/ffi_abi.hpp"
+
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
@@ -35,7 +39,17 @@ static auto u(std::uint64_t v) -> std::string {
     return std::to_string(v);
 }
 
+using aletheia::detail::FfiBuffer;
+using aletheia::detail::FfiDecimal;
+using aletheia::detail::FfiFrame;
+using aletheia::detail::FfiRational;
+using aletheia::detail::FfiSignalValues;
+
 extern "C" {
+
+auto aletheia_abi_version() -> std::uint32_t {
+    return aletheia::detail::abi_version;
+}
 
 void hs_init_with_rtsopts(int* /*argc*/, char*** /*argv*/) {
 }
@@ -78,66 +92,55 @@ auto aletheia_format_dbc(void* /*state*/) -> char* {
     return refusal("format_dbc");
 }
 
-auto aletheia_send_error(void* /*state*/, std::uint64_t ts) -> char* {
-    return refusal("send_error ts=" + u(ts));
+auto aletheia_send_error(void* /*state*/, const FfiFrame* frame) -> char* {
+    return refusal("send_error ts=" + u(frame->timestamp));
 }
 
-auto aletheia_send_remote(void* /*state*/, std::uint64_t ts, std::uint32_t id,
-                          std::uint8_t extended) -> char* {
-    return refusal("send_remote ts=" + u(ts) + " id=" + u(id) + " extended=" + u(extended));
+auto aletheia_send_remote(void* /*state*/, const FfiFrame* frame) -> char* {
+    return refusal("send_remote ts=" + u(frame->timestamp) + " id=" + u(frame->can_id) +
+                   " extended=" + u(frame->extended));
 }
 
-auto aletheia_send_frame(void* /*state*/, std::uint64_t ts, std::uint32_t id, std::uint8_t extended,
-                         std::uint8_t dlc, const std::uint8_t* /*data*/, std::uint8_t len,
-                         std::uint8_t brs_present, std::uint8_t brs_value, std::uint8_t esi_present,
-                         std::uint8_t esi_value) -> char* {
-    return refusal("send_frame ts=" + u(ts) + " id=" + u(id) + " extended=" + u(extended) +
-                   " dlc=" + u(dlc) + " len=" + u(len) + " brs=" + u(brs_present) + "/" +
-                   u(brs_value) + " esi=" + u(esi_present) + "/" + u(esi_value));
+auto aletheia_send_frame(void* /*state*/, const FfiFrame* frame) -> char* {
+    return refusal("send_frame ts=" + u(frame->timestamp) + " id=" + u(frame->can_id) +
+                   " extended=" + u(frame->extended) + " dlc=" + u(frame->dlc) +
+                   " len=" + u(frame->data_len) + " brs=" + u(frame->brs_present) + "/" +
+                   u(frame->brs_value) + " esi=" + u(frame->esi_present) + "/" +
+                   u(frame->esi_value));
 }
 
 // The renderer's three entries, so the stand-in serves it too: what the
 // backend hands the kernel is the question, and a render answers nothing.
-auto aletheia_format_rational(std::int64_t num, std::int64_t den) -> char* {
-    return handed_back(u(static_cast<std::uint64_t>(num)) + "/" +
-                       u(static_cast<std::uint64_t>(den)));
+auto aletheia_format_rational(const FfiRational* value) -> char* {
+    return handed_back(u(static_cast<std::uint64_t>(value->numerator)) + "/" +
+                       u(static_cast<std::uint64_t>(value->denominator)));
 }
 
-auto aletheia_parse_decimal(const char* /*input*/) -> char* {
-    return refusal("parse_decimal");
+auto aletheia_parse_decimal(const char* /*input*/, FfiDecimal* out) -> std::int8_t {
+    out->err = refusal("parse_decimal");
+    return 1;
 }
 
-auto aletheia_extract_signals(void* /*state*/, std::uint32_t /*id*/, std::uint8_t /*extended*/,
-                              std::uint8_t /*dlc*/, const std::uint8_t* /*data*/,
-                              std::uint8_t /*len*/) -> char* {
+auto aletheia_extract_signals(void* /*state*/, const FfiFrame* /*frame*/) -> char* {
     return refusal("extract_signals");
 }
 
 // The three binary entries refuse with the bare message, as the kernel's do.
-auto aletheia_build_frame_bin(void* /*state*/, std::uint32_t /*id*/, std::uint8_t /*extended*/,
-                              std::uint8_t /*dlc*/, std::uint32_t /*count*/,
-                              const std::uint32_t* /*indices*/, const std::int64_t* /*nums*/,
-                              const std::int64_t* /*dens*/, std::uint8_t* /*out*/, char** err)
-    -> std::int8_t {
-    *err = handed_back("build_frame_bin");
+auto aletheia_build_frame_bin(void* /*state*/, const FfiFrame* /*frame*/,
+                              const FfiSignalValues* /*values*/, FfiBuffer* out) -> std::int8_t {
+    out->err = handed_back("build_frame_bin");
     return 1;
 }
 
-auto aletheia_update_frame_bin(void* /*state*/, std::uint32_t /*id*/, std::uint8_t /*extended*/,
-                               std::uint8_t /*dlc*/, const std::uint8_t* /*data*/,
-                               std::uint8_t /*len*/, std::uint32_t /*count*/,
-                               const std::uint32_t* /*indices*/, const std::int64_t* /*nums*/,
-                               const std::int64_t* /*dens*/, std::uint8_t* /*out*/, char** err)
-    -> std::int8_t {
-    *err = handed_back("update_frame_bin");
+auto aletheia_update_frame_bin(void* /*state*/, const FfiFrame* /*frame*/,
+                               const FfiSignalValues* /*values*/, FfiBuffer* out) -> std::int8_t {
+    out->err = handed_back("update_frame_bin");
     return 1;
 }
 
-auto aletheia_extract_signals_bin(void* /*state*/, std::uint32_t /*id*/, std::uint8_t /*extended*/,
-                                  std::uint8_t /*dlc*/, const std::uint8_t* /*data*/,
-                                  std::uint8_t /*len*/, std::uint8_t** /*out*/,
-                                  std::uint32_t* /*out_size*/, char** err) -> std::int8_t {
-    *err = handed_back("extract_signals_bin");
+auto aletheia_extract_signals_bin(void* /*state*/, const FfiFrame* /*frame*/, FfiBuffer* out)
+    -> std::int8_t {
+    out->err = handed_back("extract_signals_bin");
     return 1;
 }
 

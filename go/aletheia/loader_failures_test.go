@@ -22,17 +22,23 @@ import (
 // exists only in a fresh process.
 const loaderScenarioEnv = "ALETHEIA_TEST_LOADER_SCENARIO"
 
-// buildStandIn compiles one of the C stand-ins under testdata into a shared
-// library in a temporary directory, with the C compiler cgo already needs.
+// buildStandIn compiles a C stand-in into a shared library in a temporary
+// directory, with the C compiler cgo already needs: one under testdata named
+// by its file, or one the bindings share named by its path.
 func buildStandIn(t *testing.T, source string) string {
 	t.Helper()
 	cc := os.Getenv("CC")
 	if cc == "" {
 		cc = "cc"
 	}
-	out := filepath.Join(t.TempDir(), strings.TrimSuffix(source, ".c")+".so")
-	src := filepath.Join("testdata", "kernel_stand_in", source)
-	cmd := exec.Command(cc, "-shared", "-fPIC", "-o", out, src)
+	out := filepath.Join(t.TempDir(), strings.TrimSuffix(filepath.Base(source), ".c")+".so")
+	src := source
+	if filepath.Base(source) == source {
+		src = filepath.Join("testdata", "kernel_stand_in", source)
+	}
+	// The kernel's header, which holds the stand-in to the kernel's signatures.
+	header := filepath.Join("..", "..", "haskell-shim", "include")
+	cmd := exec.Command(cc, "-shared", "-fPIC", "-I", header, "-o", out, src)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%s %s: %v\n%s", cc, src, err, output)
 	}
@@ -84,6 +90,8 @@ func TestLoaderFailuresAreVocal(t *testing.T) {
 		"symbolless":    buildStandIn(t, "symbolless.c"),
 		"not-a-library": notALibrary,
 		"null-kernel":   buildStandIn(t, "null_kernel.c"),
+		"stale-abi":     buildStandIn(t, filepath.Join("..", "..", "haskell-shim", "test", "stale_abi_kernel.c")),
+		"abi-only":      buildStandIn(t, filepath.Join("..", "..", "haskell-shim", "test", "abi_only_kernel.c")),
 		"search":        "",
 	}
 	for scenario, lib := range scenarios {
@@ -132,15 +140,35 @@ func runLoaderScenario(scenario string) {
 	half := Rational{Numerator: 1, Denominator: 2}
 	switch scenario {
 	case "symbolless":
-		// The backend resolves the runtime entry first and reports it by
+		// The backend resolves the ABI version first and reports it by
 		// name; the renderer and the parser each ask for their own.
 		_, err := NewFFIBackend(lib)
-		expect(err, "dlsym failed for "+rtsInitSymbol, 10)
+		expect(err, "dlsym failed for aletheia_abi_version", 10)
 		expectKind(err, ErrFFI, 11)
 		_, err = formatRational(half)
-		expect(err, "dlsym aletheia_format_rational", 12)
+		expect(err, "renderer dlsym aletheia_abi_version", 12)
 		_, err = FromDecimal("0.1")
-		expect(err, "dlsym aletheia_parse_decimal", 13)
+		expect(err, "decimal dlsym aletheia_abi_version", 13)
+	case "stale-abi":
+		// A library laid out for another ABI is refused by the version it
+		// reports, before any other entry is resolved.
+		_, err := NewFFIBackend(lib)
+		stale := fmt.Sprintf("the library implements ABI version %d, and this binding needs %d", abiVersion+1, abiVersion)
+		expect(err, stale, 15)
+		expectKind(err, ErrFFI, 16)
+		_, err = formatRational(half)
+		expect(err, stale, 17)
+		_, err = FromDecimal("0.1")
+		expect(err, stale, 18)
+	case "abi-only":
+		// A library at this ABI version with nothing else passes the version
+		// check, and each consumer refuses at the first entry it asks for.
+		_, err := NewFFIBackend(lib)
+		expect(err, "dlsym failed for "+rtsInitSymbol, 40)
+		_, err = formatRational(half)
+		expect(err, "renderer dlsym aletheia_format_rational", 41)
+		_, err = FromDecimal("0.1")
+		expect(err, "decimal dlsym aletheia_parse_decimal", 42)
 	case "not-a-library":
 		_, err := NewFFIBackend(lib)
 		expect(err, "dlopen failed", 20)
@@ -167,7 +195,7 @@ func runLoaderScenario(scenario string) {
 		_, err = formatRational(half)
 		expect(err, "aletheia_format_rational returned a null pointer", 34)
 		_, err = FromDecimal("0.1")
-		expect(err, "aletheia_parse_decimal returned a null pointer", 35)
+		expect(err, "aletheia_parse_decimal failed without an error", 35)
 		expectKind(err, ErrProtocol, 36)
 		// With the renderer refusing, the enrichment falls back to the
 		// formula alone and the refusal message's rational to a bare form.

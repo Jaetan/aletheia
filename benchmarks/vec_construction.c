@@ -15,7 +15,7 @@
  * so the delta between sizes is purely frame construction cost.
  *
  * Build:
- *   gcc -O2 -o vec_construction benchmarks/vec_construction.c -ldl
+ *   gcc -O2 -Ihaskell-shim/include -o vec_construction benchmarks/vec_construction.c -ldl
  *
  * Run:
  *   LD_LIBRARY_PATH=build ./vec_construction
@@ -28,11 +28,12 @@
 #include <time.h>
 #include <stdint.h>
 
+#include "aletheia.h"
+
 typedef void  (*hs_init_t)(int *, char ***);
 typedef void *(*init_t)(void);
 typedef char *(*process_t)(void *, const char *);
-typedef char *(*send_frame_t)(void *, uint64_t, uint32_t, uint8_t, uint8_t,
-                              const uint8_t *, uint8_t);
+typedef __typeof__(&aletheia_send_frame) send_frame_t;
 typedef void  (*free_str_t)(char *);
 typedef void  (*close_t)(void *);
 typedef char *(*noarg_t)(void *);
@@ -106,20 +107,23 @@ static double bench_payload(void *state, uint8_t dlc, uint8_t data_len,
     uint8_t data[64];
     memset(data, 0x42, sizeof(data));
 
+    struct aletheia_frame frame = {
+        .data = data, .can_id = 0x999, .dlc = dlc, .data_len = data_len};
+
     double best = 1e18;
     for (int r = 0; r < runs; r++) {
         /* Warmup */
         for (int i = 0; i < 2000; i++) {
-            char *resp = fn_send_frame(state, (uint64_t)i * 1000,
-                                       0x999, 0, dlc, data, data_len);
+            frame.timestamp = (uint64_t)i * 1000;
+            char *resp = fn_send_frame(state, &frame);
             fn_free_str(resp);
         }
 
         struct timespec t0, t1;
         clock_gettime(CLOCK_MONOTONIC, &t0);
         for (int i = 0; i < frames; i++) {
-            char *resp = fn_send_frame(state, (uint64_t)(2000 + i) * 1000,
-                                       0x999, 0, dlc, data, data_len);
+            frame.timestamp = (uint64_t)(2000 + i) * 1000;
+            char *resp = fn_send_frame(state, &frame);
             fn_free_str(resp);
         }
         clock_gettime(CLOCK_MONOTONIC, &t1);
