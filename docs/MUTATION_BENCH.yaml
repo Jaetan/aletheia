@@ -157,10 +157,10 @@ bindings:
       # mutators are the five gremlins turns on by default and the six
       # go/.gremlins.yaml turns on, which gremlins ships off.
       survivors: 0
-      generated: 761
+      generated: 763
       not_covered: 12
-      timeouts: 2
-      total_mutants: 747
+      timeouts: 0
+      total_mutants: 751
       score_pct: 100
       run_at: "2026-09-26"
       # The lane refuses a sweep with more than this many timed out, because a
@@ -398,23 +398,23 @@ bindings:
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
       survivors: 8
-      total_mutants: 1476
+      total_mutants: 1483
       # What each tree carries, which is not one number: the address tree drops
       # the mutators over calls, since a sanitizer inserts its own checks at
       # the source location of the statement they guard and a mutator over calls
       # mutates those rather than the program's own. Each tree is held to its own
       # figure, and the merge judges a mutant only over the trees carrying it.
       mutants_by_tree:
-        leak: 1476
-        plain: 1476
-        address: 337
+        leak: 1483
+        plain: 1483
+        address: 338
       # Mutants per file, which is what the sweep's slices are cut on: a CI
       # leg builds one slice of the surface, and a slice is a set of files
       # whose recorded counts add up to about a third of this total. The
       # counts stand for the sweep's cost because the cost of a mutant hardly
       # varies, 5.6 seconds on the plain tree and 3.3 on the leak tree over
-      # the recorded run, and the files that depart from that are the ones
-      # carrying a handful.
+      # the run of 2026-09-24, and the files that depart from that are the
+      # ones carrying a handful.
       #
       # They are a measurement and they age in one direction: adding code adds
       # mutants, nothing refuses that, and the slices drift out of balance
@@ -439,26 +439,27 @@ bindings:
         cpp/src/backend.cpp: 18
         cpp/src/client.cpp: 356
         cpp/src/dbc.cpp: 49
-        cpp/src/detail/ffi_logic.cpp: 18
+        cpp/src/detail/ffi_logic.cpp: 21
         cpp/src/detail/loader_utils.cpp: 101
         cpp/src/detail/loader_utils.hpp: 31
         cpp/src/enrich.cpp: 12
         cpp/src/excel.cpp: 185
-        cpp/src/ffi_backend.cpp: 105
-        cpp/src/json_parse.cpp: 313
+        cpp/src/ffi_backend.cpp: 101
+        cpp/src/json_parse.cpp: 311
         cpp/src/json_serialize.cpp: 48
-        cpp/src/rational_renderer.cpp: 35
+        cpp/src/rational_renderer.cpp: 43
+        cpp/src/types.cpp: 2
         cpp/src/yaml.cpp: 90
       timeouts: 0
       score_pct: 99.5
-      run_at: "2026-09-24"
+      run_at: "2026-09-27"
       kill_routes:
-        test: 1296
+        test: 1301
         leak: 3
-        address: 22
+        address: 19
         kernel: 2
-        check: 122
-        fault: 23
+        check: 129
+        fault: 21
         timeout: 0
         survived: 8
       # Every survivor, by mutator, repository-relative file, the text of its
@@ -481,25 +482,24 @@ bindings:
           file: cpp/src/client.cpp
           text: if (!inj)
           count: 2
-        # out-parameter the callee writes, 2 mutants: A start value the callee
+        # out-parameter the callee writes, 1 mutant: A start value the callee
         # overwrites on success and nothing reads on failure: from_chars
-        # writes its result, the kernel its output size. The alternative is an
-        # object left indeterminate, which the guidelines refuse.
+        # writes its result. The alternative is an object left indeterminate,
+        # which the guidelines refuse.
         - mutator: cxx_init_const
           file: cpp/src/excel.cpp
           text: std::uint32_t result = 0;
           count: 1
-        - mutator: cxx_init_const
-          file: cpp/src/ffi_backend.cpp
-          text: std::uint32_t out_size = 0;
-          count: 1
-        # state a process holds once, 3 mutants: The runtime initialises once
+        # state a process holds once, 4 mutants: The runtime initialises once
         # per process and the renderer loads once, so the guard on the first
         # load, the guard on an uninitialised runtime and the environment
         # override read at that load are exercised by the binaries of their
         # own that start a fresh process (rts_params_tests,
         # rts_init_renderer_uninitialized_tests), which the mutation binary
-        # cannot fold in.
+        # cannot fold in. The refusal of a non-positive denominator from the
+        # decimal parser fires only under a kernel that answers one, which the
+        # renderer, bound once to the real library, is never given in that
+        # binary; the helper it calls is tested at 0, -1 and 1.
         - mutator: cxx_replace_bool_call_true
           file: cpp/src/rational_renderer.cpp
           text: if (!loaded) {
@@ -511,6 +511,10 @@ bindings:
         - mutator: cxx_replace_pointer_call_null
           file: cpp/src/ffi_backend.cpp
           text: const char* override_env = std::getenv(std::string{detail::rts_override_env}.c_str());
+          count: 1
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/rational_renderer.cpp
+          text: if (auto refusal = decimal_denominator_refusal(out.value.denominator))
           count: 1
       # Every kill no test observes by behaviour, by mutator, repository-relative
       # file, the text of its source line, the route it took and what refused
@@ -600,7 +604,7 @@ bindings:
           text: if (sym == nullptr)
           route: address
           refused: SEGV
-          count: 14
+          count: 11
         - mutator: cxx_ge_to_gt
           file: cpp/src/client.cpp
           text: if (idx >= diags_.size()) {
@@ -861,7 +865,7 @@ bindings:
           count: 1
         - mutator: cxx_replace_bool_call_true
           file: cpp/src/ffi_backend.cpp
-          text: if (auto err = detail::ffi_error_from_status(status, err_str, free_str_fn_))
+          text: if (auto err = detail::ffi_error_from_status(status, out.err, free_str_fn_))
           route: check
           refused: this->_M_is_engaged()
           count: 3
@@ -871,6 +875,12 @@ bindings:
           route: check
           refused: this->_M_is_engaged()
           count: 4
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/ffi_backend.cpp
+          text: if (auto refusal = detail::abi_version_refusal(
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
         - mutator: cxx_replace_bool_call_true
           file: cpp/src/ffi_backend.cpp
           text: if (auto refusal = detail::json_input_bound_error(input.size()))
@@ -933,15 +943,39 @@ bindings:
           count: 1
         - mutator: cxx_replace_bool_call_true
           file: cpp/src/rational_renderer.cpp
+          text: if (!abi_version)
+          route: check
+          refused: _M_has_value
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/rational_renderer.cpp
           text: if (!sym)
           route: check
           refused: _M_has_value
           count: 1
         - mutator: cxx_replace_bool_call_true
           file: cpp/src/rational_renderer.cpp
+          text: if (auto refusal =
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/rational_renderer.cpp
+          text: if (auto refusal = decimal_denominator_refusal(out.value.denominator))
+          route: check
+          refused: this->_M_is_engaged()
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/rational_renderer.cpp
           text: if (opened == nullptr)
           route: fault
           refused: ''
+          count: 1
+        - mutator: cxx_replace_bool_call_true
+          file: cpp/src/types.cpp
+          text: if (!answer)
+          route: check
+          refused: _M_has_value
           count: 1
         - mutator: cxx_replace_bool_call_true
           file: cpp/src/yaml.cpp
@@ -954,7 +988,13 @@ bindings:
           text: auto* sym = dlsym(handle, name);
           route: fault
           refused: ''
-          count: 14
+          count: 11
+        - mutator: cxx_replace_pointer_call_null
+          file: cpp/src/rational_renderer.cpp
+          text: if (const char* err = dlerror(); err != nullptr)
+          route: fault
+          refused: ''
+          count: 1
         - mutator: cxx_replace_scalar_call
           file: cpp/include/aletheia/ltl.hpp
           text: 'return p ? std::make_unique<LtlFormula>(clone(*p)) : nullptr;'
@@ -1197,6 +1237,12 @@ bindings:
           count: 2
         - mutator: cxx_replace_scalar_call
           file: cpp/src/rational_renderer.cpp
+          text: if (!abi_version)
+          route: check
+          refused: '!_M_has_value'
+          count: 1
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/rational_renderer.cpp
           text: if (!loaded) {
           route: check
           refused: '!_M_has_value'
@@ -1210,6 +1256,12 @@ bindings:
         - mutator: cxx_replace_scalar_call
           file: cpp/src/rational_renderer.cpp
           text: 'return loaded ? std::string{} : loaded.error();'
+          route: check
+          refused: '!_M_has_value'
+          count: 1
+        - mutator: cxx_replace_scalar_call
+          file: cpp/src/types.cpp
+          text: if (!answer)
           route: check
           refused: '!_M_has_value'
           count: 1
@@ -1300,10 +1352,10 @@ bindings:
       # are recorded rather than justified in the source; a nightly leak leg
       # would kill both and retire the rows.
       survivors: 2
-      generated: 369
-      unviable: 57
+      generated: 374
+      unviable: 58
       timeouts: 0
-      total_mutants: 312
+      total_mutants: 316
       score_pct: 99
       run_at: "2026-09-26"
       # A quiet host on a warm target directory times out on none; the auto-set

@@ -76,26 +76,24 @@ mkDecimalErrorJson code msg input =
     ++ ",\"input\":" ++ jsonString input
     ++ "}"
 
--- | Render the result of `parseDecimal` as the FFI wire string.  Success is
--- the bare `{"numerator":N,"denominator":D}` shape the bindings'
--- `decode_wire_rational` consumes; the pair is already in lowest terms with a
--- positive denominator (the `DecRat` canonical invariant; `toℚ` gives
--- denominator `2^a·5^b ≥ 1`).  `nothing` → a parse-failure envelope; a
--- numerator/denominator outside the Int64 wire range → an overflow envelope.
--- Int64 is the wire bound; the kernel rational is unbounded, so the bound
--- check lives here at the marshaling boundary (mirrors `mkAgdaRational`).
-decimalResultJson :: String -> Maybe AgdaRational.T_ℚ_6 -> String
-decimalResultJson input Nothing =
-    mkDecimalErrorJson "decimal_parse_failed"
+-- | The result of `parseDecimal` as the wire carries it: the numerator and
+-- denominator, already in lowest terms with a positive denominator (the
+-- `DecRat` canonical invariant; `toℚ` gives denominator `2^a·5^b ≥ 1`), or
+-- the error envelope.  `nothing` is a parse failure; a numerator or
+-- denominator outside the Int64 wire range is an overflow.  Int64 is the wire
+-- bound; the kernel rational is unbounded, so the bound check lives here at
+-- the marshaling boundary (mirrors `mkAgdaRational`).
+decimalResult :: String -> Maybe AgdaRational.T_ℚ_6 -> Either String (Int64, Int64)
+decimalResult input Nothing =
+    Left $ mkDecimalErrorJson "decimal_parse_failed"
         "not a valid decimal literal: expected -?digits or -?digits.digits+ (at least one digit after '.'; no '+' sign, no leading '.', no exponent)"
         input
-decimalResultJson input (Just q) =
+decimalResult input (Just q) =
     let num = AgdaRational.d_numerator_14 q
         den = AgdaRational.d_denominatorℕ_20 q
     in case (toIntegralSized num :: Maybe Int64, toIntegralSized den :: Maybe Int64) of
-        (Just n, Just d) ->
-            "{\"numerator\":" ++ show n ++ ",\"denominator\":" ++ show d ++ "}"
-        _ -> mkDecimalErrorJson "decimal_overflow"
+        (Just n, Just d) -> Right (n, d)
+        _ -> Left $ mkDecimalErrorJson "decimal_overflow"
                 "decimal numerator or denominator exceeds the Int64 wire range"
                 input
 

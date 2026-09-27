@@ -76,7 +76,7 @@ extractSumVec result =
          AgdaSum.C_inj'8322'_42 vecAny -> (st, Right (unsafeCoerce vecAny :: AgdaVec.T_Vec_28))
 
 -- | Extract (state, Either Text PartitionedResults). Highest-risk path:
--- mirrors aletheia_extract_signals_bin (AletheiaFFI.hs lines 218-224).
+-- mirrors aletheia_extract_signals_bin in AletheiaFFI.hs.
 extractSumIER :: AgdaSigma.T_Σ_14
               -> (AgdaState.T_StreamState_32, Either T.Text AgdaBatch.T_PartitionedResults_10)
 extractSumIER result =

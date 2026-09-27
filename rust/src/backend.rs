@@ -28,7 +28,6 @@ use serde_json::Value;
 
 use crate::error::Error;
 use crate::log::{events, LogField, LogLevel, LogRecord, LogValue, Logger};
-use crate::response::rational_from_value;
 use crate::types::{CanId, Dlc, Rational, Timestamp};
 
 /// Opaque pointer to the `StreamState` owned by the core (from `aletheia_init`).
@@ -91,75 +90,125 @@ fn build_rts_argv(cores: Option<u32>, override_opts: &str) -> Vec<String> {
 
 // --- FFI signatures (binary fast path) ------------------------------------
 
-type SendFrameFn = unsafe extern "C" fn(
-    StateHandle,
-    u64, // timestamp µs
-    u32, // canId
-    u8,  // extended
-    u8,  // dlc
-    *const u8,
-    u8, // data len
-    u8, // brs present
-    u8, // brs value
-    u8, // esi present
-    u8, // esi value
-) -> *mut c_char;
-type SendErrorFn = unsafe extern "C" fn(StateHandle, u64) -> *mut c_char;
-type SendRemoteFn = unsafe extern "C" fn(StateHandle, u64, u32, u8) -> *mut c_char;
+/// `struct aletheia_frame` (`haskell-shim/include/aletheia.h`): one CAN frame, passed by
+/// pointer. The `abi_layout` tests hold its layout to the header's.
+#[repr(C)]
+struct FfiFrame {
+    timestamp: u64,
+    data: *const u8,
+    can_id: u32,
+    extended: u8,
+    dlc: u8,
+    data_len: u8,
+    brs_present: u8,
+    brs_value: u8,
+    esi_present: u8,
+    esi_value: u8,
+}
+
+impl FfiFrame {
+    /// A trace event without payload: a remote frame's timestamp and
+    /// identifier, or an error frame's timestamp alone.
+    fn event(ts: Timestamp, can_id: u32, extended: bool) -> Self {
+        FfiFrame {
+            timestamp: ts.micros(),
+            data: std::ptr::null(),
+            can_id,
+            extended: u8::from(extended),
+            dlc: 0,
+            data_len: 0,
+            brs_present: 0,
+            brs_value: 0,
+            esi_present: 0,
+            esi_value: 0,
+        }
+    }
+
+    /// A frame carrying identifier, DLC and payload, with no timestamp and
+    /// no bus bits: what every entry but `aletheia_send_frame` reads.
+    fn new(can_id: u32, extended: bool, dlc: Dlc, data: &[u8]) -> Result<Self, Error> {
+        Ok(FfiFrame {
+            timestamp: 0,
+            data: slice_ptr(data),
+            can_id,
+            extended: u8::from(extended),
+            dlc: dlc.value(),
+            data_len: frame_len(data)?,
+            brs_present: 0,
+            brs_value: 0,
+            esi_present: 0,
+            esi_value: 0,
+        })
+    }
+}
+
+/// `struct aletheia_signal_values`: parallel signal indices and rationals.
+#[repr(C)]
+struct FfiSignalValues {
+    indices: *const u32,
+    numerators: *const i64,
+    denominators: *const i64,
+    count: u32,
+}
+
+/// `struct aletheia_buffer`: a binary result and the error the core set.
+/// Build and update write into the caller's `data` (`size` bytes, set to the
+/// count written); extraction allocates `data` for the caller to free with
+/// `aletheia_free_buf`. On failure `err` is a GHC-allocated C string the
+/// caller frees with `aletheia_free_str`.
+#[repr(C)]
+struct FfiBuffer {
+    data: *mut u8,
+    err: *mut c_char,
+    size: u32,
+}
+
+/// `struct aletheia_rational`: an exact rational.
+#[repr(C)]
+struct FfiRational {
+    numerator: i64,
+    denominator: i64,
+}
+
+/// `struct aletheia_decimal`: a parsed decimal, or on failure a GHC-allocated
+/// JSON error envelope the caller frees with `aletheia_free_str`.
+#[repr(C)]
+struct FfiDecimal {
+    value: FfiRational,
+    err: *mut c_char,
+}
+
+type SendFrameFn = unsafe extern "C" fn(StateHandle, *const FfiFrame) -> *mut c_char;
+type SendErrorFn = unsafe extern "C" fn(StateHandle, *const FfiFrame) -> *mut c_char;
+type SendRemoteFn = unsafe extern "C" fn(StateHandle, *const FfiFrame) -> *mut c_char;
 type StreamLifecycleFn = unsafe extern "C" fn(StateHandle) -> *mut c_char;
-type ExtractFn = unsafe extern "C" fn(StateHandle, u32, u8, u8, *const u8, u8) -> *mut c_char;
-// Binary extraction (the hot path): the core allocates the response buffer and
-// returns it via `out_buf` / `out_size`; the caller copies it out and frees it
-// with `aletheia_free_buf`. Status/`out_err` follow the build_frame convention.
-type ExtractBinFn = unsafe extern "C" fn(
-    StateHandle,
-    u32,              // canId
-    u8,               // extended
-    u8,               // dlc
-    *const u8,        // data
-    u8,               // dataLen
-    *mut *mut u8,     // out_buf (callee-allocated)
-    *mut u32,         // out_size
-    *mut *mut c_char, // out_err
-) -> i8;
+type ExtractFn = unsafe extern "C" fn(StateHandle, *const FfiFrame) -> *mut c_char;
+// Binary extraction (the hot path): the core allocates the response buffer
+// into the `FfiBuffer`; the caller copies it out and frees it with
+// `aletheia_free_buf`. The `i8` status follows the build/update convention.
+type ExtractBinFn = unsafe extern "C" fn(StateHandle, *const FfiFrame, *mut FfiBuffer) -> i8;
 type FreeBufFn = unsafe extern "C" fn(*mut u8);
 type ProcessFn = unsafe extern "C" fn(StateHandle, *const c_char) -> *mut c_char;
 type FormatDbcFn = unsafe extern "C" fn(StateHandle) -> *mut c_char;
-type FormatRationalFn = unsafe extern "C" fn(i64, i64) -> *mut c_char;
-type ParseDecimalFn = unsafe extern "C" fn(*const c_char) -> *mut c_char;
+type FormatRationalFn = unsafe extern "C" fn(*const FfiRational) -> *mut c_char;
+type ParseDecimalFn = unsafe extern "C" fn(*const c_char, *mut FfiDecimal) -> i8;
 type InitFn = unsafe extern "C" fn() -> StateHandle;
 type CloseFn = unsafe extern "C" fn(StateHandle);
 type FreeStrFn = unsafe extern "C" fn(*mut c_char);
 type HsInitFn = unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char);
-// Build/update use an output-buffer convention: the caller allocates `out_buf`
-// (`dlc` bytes), passes the parallel (indices, nums, dens) signal arrays, and
-// reads an `i8` status — nonzero means failure, with the message in `out_err`
-// (a GHC-allocated CString the caller frees via `aletheia_free_str`).
-type BuildFrameFn = unsafe extern "C" fn(
+type AbiVersionFn = unsafe extern "C" fn() -> u32;
+
+/// `ALETHEIA_ABI_VERSION`: the version of the structures and signatures this
+/// crate lays out, which the `abi_layout` tests hold to the header's.
+const ABI_VERSION: u32 = 1;
+// Build and update share one shape: the caller allocates the output (`dlc`
+// bytes) in the `FfiBuffer` and reads an `i8` status, nonzero meaning failure
+// with the message in the buffer's `err`.
+type FrameBinFn = unsafe extern "C" fn(
     StateHandle,
-    u32, // canId
-    u8,  // extended
-    u8,  // dlc
-    u32, // numSignals
-    *const u32,
-    *const i64,
-    *const i64,
-    *mut u8,          // out_buf (dlc bytes)
-    *mut *mut c_char, // out_err
-) -> i8;
-type UpdateFrameFn = unsafe extern "C" fn(
-    StateHandle,
-    u32,
-    u8,
-    u8,
-    *const u8, // existing frame
-    u8,        // frame len
-    u32,
-    *const u32,
-    *const i64,
-    *const i64,
-    *mut u8,
-    *mut *mut c_char,
+    *const FfiFrame,
+    *const FfiSignalValues,
+    *mut FfiBuffer,
 ) -> i8;
 
 /// The FFI-boundary abstraction injected into a [`Client`](crate::Client).
@@ -354,8 +403,8 @@ pub(crate) struct Symbols {
     extract_signals: Symbol<'static, ExtractFn>,
     extract_signals_bin: Symbol<'static, ExtractBinFn>,
     free_buf: Symbol<'static, FreeBufFn>,
-    build_frame: Symbol<'static, BuildFrameFn>,
-    update_frame: Symbol<'static, UpdateFrameFn>,
+    build_frame: Symbol<'static, FrameBinFn>,
+    update_frame: Symbol<'static, FrameBinFn>,
     format_rational: Symbol<'static, FormatRationalFn>,
     parse_decimal: Symbol<'static, ParseDecimalFn>,
     init: Symbol<'static, InitFn>,
@@ -369,8 +418,19 @@ impl Symbols {
     /// `.so` lacks one — at construction, not on the Nth call against a stale
     /// library (the exports move together; `check-ffi-exports` pins the set).
     fn resolve(lib: &'static Library) -> Result<Self, Error> {
+        // The version first: a library laid out for another ABI is refused
+        // before any other entry is resolved or its runtime is started.
+        // SAFETY: `aletheia_abi_version` is `uint32_t aletheia_abi_version(void)`,
+        // plain C that needs no runtime.
+        let library = unsafe { symbol::<AbiVersionFn>(lib, b"aletheia_abi_version\0")?() };
+        if library != ABI_VERSION {
+            return Err(Error::AbiMismatch {
+                library,
+                binding: ABI_VERSION,
+            });
+        }
         // SAFETY: each type argument is that export's exact C ABI signature,
-        // matching haskell-shim/src/AletheiaFFI.hs (see the aliases above).
+        // matching haskell-shim/include/aletheia.h (see the aliases above).
         unsafe {
             Ok(Symbols {
                 process: symbol::<ProcessFn>(lib, b"aletheia_process\0")?,
@@ -386,8 +446,8 @@ impl Symbols {
                     b"aletheia_extract_signals_bin\0",
                 )?,
                 free_buf: symbol::<FreeBufFn>(lib, b"aletheia_free_buf\0")?,
-                build_frame: symbol::<BuildFrameFn>(lib, b"aletheia_build_frame_bin\0")?,
-                update_frame: symbol::<UpdateFrameFn>(lib, b"aletheia_update_frame_bin\0")?,
+                build_frame: symbol::<FrameBinFn>(lib, b"aletheia_build_frame_bin\0")?,
+                update_frame: symbol::<FrameBinFn>(lib, b"aletheia_update_frame_bin\0")?,
                 format_rational: symbol::<FormatRationalFn>(lib, b"aletheia_format_rational\0")?,
                 parse_decimal: symbol::<ParseDecimalFn>(lib, b"aletheia_parse_decimal\0")?,
                 init: symbol::<InitFn>(lib, b"aletheia_init\0")?,
@@ -507,9 +567,13 @@ pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
         Some(Ok(())) => {}
     }
     let syms = symbols()?;
-    // SAFETY: numerator/denominator are plain `i64` the kernel renders; the returned
-    // pointer is a GHC-allocated CString released by the `Response` guard.
-    let ptr = unsafe { (syms.format_rational)(r.numerator(), r.denominator()) };
+    let value = FfiRational {
+        numerator: r.numerator(),
+        denominator: r.denominator(),
+    };
+    // SAFETY: `value` outlives the call; the returned pointer is a GHC-allocated
+    // CString released by the `Response` guard.
+    let ptr = unsafe { (syms.format_rational)(&value) };
     if ptr.is_null() {
         // Unreachable for a well-formed rational (the kernel never returns null and
         // the denominator is positive by construction). Surface a typed error rather
@@ -557,41 +621,52 @@ pub(crate) fn parse_decimal(s: &str) -> Result<Rational, Error> {
     let syms = symbols()?;
     let input = CString::new(s)
         .map_err(|_| Error::Validation("decimal literal contains an interior NUL".to_string()))?;
+    let mut out = FfiDecimal {
+        value: FfiRational {
+            numerator: 0,
+            denominator: 0,
+        },
+        err: std::ptr::null_mut(),
+    };
     // SAFETY: `input` is a valid NUL-terminated C string held alive across the
-    // call; the returned pointer is a GHC-allocated CString freed by `Response`.
-    let ptr = unsafe { (syms.parse_decimal)(input.as_ptr()) };
-    if ptr.is_null() {
-        return Err(Error::Protocol(
-            "aletheia_parse_decimal returned a null pointer".to_string(),
-        ));
-    }
-    decode_decimal_response(
-        &Response {
-            ptr,
+    // call; `out` is an out-param the kernel writes.
+    let status = unsafe { (syms.parse_decimal)(input.as_ptr(), &mut out) };
+    if status != 0 {
+        if out.err.is_null() {
+            return Err(Error::Protocol(
+                "aletheia_parse_decimal failed without an error".to_string(),
+            ));
+        }
+        let envelope = Response {
+            ptr: out.err,
             free_str: syms.free_str.clone(),
         }
-        .into_string(),
-    )
+        .into_string();
+        return Err(decimal_refusal(&envelope));
+    }
+    // The kernel answers lowest terms over a positive denominator; `new` refuses
+    // anything else, which would be the ABI or the kernel malfunctioning.
+    Rational::new(out.value.numerator, out.value.denominator).map_err(|e| {
+        Error::Protocol(format!(
+            "aletheia_parse_decimal answered an invalid rational: {e}"
+        ))
+    })
 }
 
-/// Decode the `aletheia_parse_decimal` wire envelope: a bare
-/// `{"numerator","denominator"}` on success, or a `{"status":"error",...}`
-/// envelope on failure. Branch on `status` BEFORE handing the value to the wire
-/// decoder — otherwise the decoder reports an opaque "missing numerator" and
-/// masks the precise `decimal_parse_failed` / `decimal_overflow` reason. Maps the
-/// error to [`Error::Validation`] (user input), reusing the shared wire decoder
-/// [`rational_from_value`] on success (no reimplemented denominator check).
-fn decode_decimal_response(json: &str) -> Result<Rational, Error> {
-    let value: Value = serde_json::from_str(json)
-        .map_err(|e| Error::Protocol(format!("aletheia_parse_decimal: malformed response: {e}")))?;
-    if value.get("status").and_then(Value::as_str) == Some("error") {
-        let msg = value
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or("invalid decimal literal");
-        return Err(Error::Validation(msg.to_string()));
+/// Read the `aletheia_parse_decimal` error envelope, mapping its reason to
+/// [`Error::Validation`]: a refused literal (`decimal_parse_failed` /
+/// `decimal_overflow`) is user input, not a wire fault.
+fn decimal_refusal(json: &str) -> Error {
+    match serde_json::from_str::<Value>(json) {
+        Ok(value) => Error::Validation(
+            value
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("invalid decimal literal")
+                .to_string(),
+        ),
+        Err(e) => Error::Protocol(format!("aletheia_parse_decimal: malformed response: {e}")),
     }
-    rational_from_value(&value)
 }
 
 /// Human spec for the RTS core count (`default` or `-N<k>`).
@@ -840,38 +915,28 @@ impl Backend for FfiBackend {
         brs: Option<bool>,
         esi: Option<bool>,
     ) -> Result<String, Error> {
-        let len = frame_len(data)?;
-        let ext = u8::from(id.is_extended());
-        let (brs_p, brs_v) = encode_opt_bool(brs);
-        let (esi_p, esi_v) = encode_opt_bool(esi);
-        // SAFETY: `handle` is the live StreamState this backend owns; `data`
-        // is valid for `len` bytes (validated ≤ 64 by `frame_len`).
-        self.invoke(|syms| unsafe {
-            (syms.send_frame)(
-                self.handle,
-                ts.micros(),
-                id.value(),
-                ext,
-                dlc.value(),
-                data.as_ptr(),
-                len,
-                brs_p,
-                brs_v,
-                esi_p,
-                esi_v,
-            )
-        })
+        let mut frame = FfiFrame::new(id.value(), id.is_extended(), dlc, data)?;
+        frame.timestamp = ts.micros();
+        (frame.brs_present, frame.brs_value) = encode_opt_bool(brs);
+        (frame.esi_present, frame.esi_value) = encode_opt_bool(esi);
+        // SAFETY: `handle` is the live StreamState this backend owns; `frame`
+        // points at `data`, valid for `data_len` bytes (validated <= 64 by
+        // `frame_len`), and both outlive the call.
+        self.invoke(|syms| unsafe { (syms.send_frame)(self.handle, &frame) })
     }
 
     fn send_error_binary(&self, ts: Timestamp) -> Result<String, Error> {
-        // SAFETY: `handle` is the live StreamState this backend owns.
-        self.invoke(|syms| unsafe { (syms.send_error)(self.handle, ts.micros()) })
+        let frame = FfiFrame::event(ts, 0, false);
+        // SAFETY: `handle` is the live StreamState this backend owns; `frame`
+        // outlives the call.
+        self.invoke(|syms| unsafe { (syms.send_error)(self.handle, &frame) })
     }
 
     fn send_remote_binary(&self, ts: Timestamp, id: CanId) -> Result<String, Error> {
-        let ext = u8::from(id.is_extended());
-        // SAFETY: `handle` is the live StreamState this backend owns.
-        self.invoke(|syms| unsafe { (syms.send_remote)(self.handle, ts.micros(), id.value(), ext) })
+        let frame = FfiFrame::event(ts, id.value(), id.is_extended());
+        // SAFETY: `handle` is the live StreamState this backend owns; `frame`
+        // outlives the call.
+        self.invoke(|syms| unsafe { (syms.send_remote)(self.handle, &frame) })
     }
 
     fn start_stream_binary(&self) -> Result<String, Error> {
@@ -890,49 +955,29 @@ impl Backend for FfiBackend {
     }
 
     fn extract_signals_binary(&self, id: CanId, dlc: Dlc, data: &[u8]) -> Result<String, Error> {
-        let len = frame_len(data)?;
-        let ext = u8::from(id.is_extended());
-        // SAFETY: `handle` is the live StreamState this backend owns; `data`
-        // is valid for `len` bytes (validated ≤ 64 by `frame_len`).
-        self.invoke(|syms| unsafe {
-            (syms.extract_signals)(
-                self.handle,
-                id.value(),
-                ext,
-                dlc.value(),
-                data.as_ptr(),
-                len,
-            )
-        })
+        let frame = FfiFrame::new(id.value(), id.is_extended(), dlc, data)?;
+        // SAFETY: `handle` is the live StreamState this backend owns; `frame`
+        // points at `data`, valid for `data_len` bytes (validated <= 64 by
+        // `frame_len`), and both outlive the call.
+        self.invoke(|syms| unsafe { (syms.extract_signals)(self.handle, &frame) })
     }
 
     fn extract_signals_bin(&self, id: CanId, dlc: Dlc, data: &[u8]) -> Result<Vec<u8>, Error> {
-        let len = frame_len(data)?;
-        let ext = u8::from(id.is_extended());
+        let frame = FfiFrame::new(id.value(), id.is_extended(), dlc, data)?;
         let syms = symbols()?;
-        let mut out_buf: *mut u8 = std::ptr::null_mut();
-        let mut out_size: u32 = 0;
-        let mut out_err: *mut c_char = std::ptr::null_mut();
-        // SAFETY: `handle` is the live StreamState this backend owns; `data` is
-        // valid for `len` bytes (validated ≤ 64 by `frame_len`); out_buf/out_size/
-        // out_err are out-params the core writes.
-        let status = unsafe {
-            (syms.extract_signals_bin)(
-                self.handle,
-                id.value(),
-                ext,
-                dlc.value(),
-                data.as_ptr(),
-                len,
-                &mut out_buf,
-                &mut out_size,
-                &mut out_err,
-            )
+        let mut out = FfiBuffer {
+            data: std::ptr::null_mut(),
+            err: std::ptr::null_mut(),
+            size: 0,
         };
-        check_buffer_status(status, out_err, &syms.free_str, "extract_signals_bin")?;
-        // SAFETY: on success the core set `out_buf` to an `out_size`-byte buffer
-        // it allocated, and `free_buf` is its deallocator.
-        unsafe { take_extraction_buffer(out_buf, out_size, |buf| (syms.free_buf)(buf)) }
+        // SAFETY: `handle` is the live StreamState this backend owns; `frame`
+        // points at `data`, valid for `data_len` bytes (validated <= 64 by
+        // `frame_len`); `out` is an out-param the core writes.
+        let status = unsafe { (syms.extract_signals_bin)(self.handle, &frame, &mut out) };
+        check_buffer_status(status, out.err, &syms.free_str, "extract_signals_bin")?;
+        // SAFETY: on success the core set `out.data` to an `out.size`-byte
+        // buffer it allocated, and `free_buf` is its deallocator.
+        unsafe { take_extraction_buffer(out.data, out.size, |buf| (syms.free_buf)(buf)) }
     }
 
     fn build_frame_bin(
@@ -942,34 +987,9 @@ impl Backend for FfiBackend {
         dlc: Dlc,
         signals: SignalInjection<'_>,
     ) -> Result<Vec<u8>, Error> {
-        let num_signals = u32::try_from(signals.indices.len())
-            .map_err(|_| Error::Validation("too many signal injections".to_string()))?;
-        let mut out = vec![0u8; dlc.to_bytes()];
+        let frame = FfiFrame::new(id, extended, dlc, &[])?;
         let syms = symbols()?;
-        let mut out_err: *mut c_char = std::ptr::null_mut();
-        let out_ptr = if out.is_empty() {
-            std::ptr::null_mut()
-        } else {
-            out.as_mut_ptr()
-        };
-        // SAFETY: `out` is `dlc.to_bytes()` long (what the core writes); the
-        // parallel arrays all share `indices.len()`; `out_err` is an out-param.
-        let status = unsafe {
-            (syms.build_frame)(
-                self.handle,
-                id,
-                u8::from(extended),
-                dlc.value(),
-                num_signals,
-                slice_ptr(signals.indices),
-                slice_ptr(signals.nums),
-                slice_ptr(signals.dens),
-                out_ptr,
-                &mut out_err,
-            )
-        };
-        check_buffer_status(status, out_err, &syms.free_str, "build_frame")?;
-        Ok(out)
+        self.frame_bin(&syms.build_frame, &frame, dlc, signals, "build_frame")
     }
 
     fn update_frame_bin(
@@ -980,36 +1000,50 @@ impl Backend for FfiBackend {
         frame: &[u8],
         signals: SignalInjection<'_>,
     ) -> Result<Vec<u8>, Error> {
-        let frame_n = frame_len(frame)?;
-        let num_signals = u32::try_from(signals.indices.len())
-            .map_err(|_| Error::Validation("too many signal injections".to_string()))?;
-        let mut out = vec![0u8; dlc.to_bytes()];
+        let frame = FfiFrame::new(id, extended, dlc, frame)?;
         let syms = symbols()?;
-        let mut out_err: *mut c_char = std::ptr::null_mut();
-        let out_ptr = if out.is_empty() {
-            std::ptr::null_mut()
-        } else {
-            out.as_mut_ptr()
+        self.frame_bin(&syms.update_frame, &frame, dlc, signals, "update_frame")
+    }
+}
+
+impl FfiBackend {
+    /// Run build or update, which differ only in the payload `frame` carries,
+    /// and answer the payload the core wrote.
+    fn frame_bin(
+        &self,
+        entry: &Symbol<'static, FrameBinFn>,
+        frame: &FfiFrame,
+        dlc: Dlc,
+        signals: SignalInjection<'_>,
+        op: &str,
+    ) -> Result<Vec<u8>, Error> {
+        let count = u32::try_from(signals.indices.len())
+            .map_err(|_| Error::Validation("too many signal injections".to_string()))?;
+        let values = FfiSignalValues {
+            indices: slice_ptr(signals.indices),
+            numerators: slice_ptr(signals.nums),
+            denominators: slice_ptr(signals.dens),
+            count,
         };
-        // SAFETY: as `build_frame_bin`, plus `frame`/`frame_n` describe the input bytes.
-        let status = unsafe {
-            (syms.update_frame)(
-                self.handle,
-                id,
-                u8::from(extended),
-                dlc.value(),
-                slice_ptr(frame),
-                frame_n,
-                num_signals,
-                slice_ptr(signals.indices),
-                slice_ptr(signals.nums),
-                slice_ptr(signals.dens),
-                out_ptr,
-                &mut out_err,
-            )
+        let mut payload = vec![0u8; dlc.to_bytes()];
+        let mut out = FfiBuffer {
+            data: if payload.is_empty() {
+                std::ptr::null_mut()
+            } else {
+                payload.as_mut_ptr()
+            },
+            err: std::ptr::null_mut(),
+            // A DLC's byte count is at most 64.
+            size: payload.len() as u32,
         };
-        check_buffer_status(status, out_err, &syms.free_str, "update_frame")?;
-        Ok(out)
+        let syms = symbols()?;
+        // SAFETY: `out.data` holds `out.size` bytes, the DLC's count (what the
+        // core writes); the parallel arrays all share `indices.len()`;
+        // `frame`'s payload is valid for its `data_len` bytes.
+        let status = unsafe { entry(self.handle, frame, &values, &mut out) };
+        check_buffer_status(status, out.err, &syms.free_str, op)?;
+        payload.truncate(out.size as usize);
+        Ok(payload)
     }
 }
 
@@ -1100,6 +1134,131 @@ mod rts_params {
                 "-hT",
                 "-RTS"
             ]
+        );
+    }
+}
+
+#[cfg(test)]
+mod abi_layout {
+    //! The `#[repr(C)]` mirrors lay out as `haskell-shim/include/aletheia.h` fixes them. The
+    //! expected sizes and offsets are read from the header's own
+    //! `static_assert` lines, which the C compiler holds to the real layout, so
+    //! a field moved on either side fails here rather than misreading across
+    //! the ABI.
+
+    use std::mem::{offset_of, size_of};
+    use std::path::Path;
+
+    use super::{FfiBuffer, FfiDecimal, FfiFrame, FfiRational, FfiSignalValues, ABI_VERSION};
+
+    /// The size and the fields, in order, the header asserts for `name`.
+    fn asserted(name: &str) -> (usize, Vec<(String, usize)>) {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../haskell-shim/include/aletheia.h");
+        let text = std::fs::read_to_string(&path).expect("read haskell-shim/include/aletheia.h");
+        let number = |s: &str| -> usize {
+            let digits: String = s.chars().take_while(char::is_ascii_digit).collect();
+            digits.parse().expect("an asserted number")
+        };
+        let size_prefix = format!("static_assert(sizeof(struct {name}) == ");
+        let offset_prefix = format!("static_assert(offsetof(struct {name}, ");
+        let mut size = None;
+        let mut fields = Vec::new();
+        for line in text.lines() {
+            if let Some(rest) = line.strip_prefix(&size_prefix) {
+                size = Some(number(rest));
+            } else if let Some(rest) = line.strip_prefix(&offset_prefix) {
+                let (field, value) = rest.split_once(") == ").expect("an offset assertion");
+                fields.push((field.to_string(), number(value)));
+            }
+        }
+        (size.expect("a size assertion"), fields)
+    }
+
+    fn owned(fields: &[(&str, usize)]) -> Vec<(String, usize)> {
+        fields.iter().map(|&(f, o)| (f.to_string(), o)).collect()
+    }
+
+    #[test]
+    fn abi_version_is_the_headers() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../haskell-shim/include/aletheia.h");
+        let text = std::fs::read_to_string(&path).expect("read haskell-shim/include/aletheia.h");
+        let prefix = "enum { ALETHEIA_ABI_VERSION = ";
+        let line = text
+            .lines()
+            .find_map(|line| line.strip_prefix(prefix))
+            .expect("the header defines ALETHEIA_ABI_VERSION");
+        let digits: String = line.chars().take_while(char::is_ascii_digit).collect();
+        assert_eq!(
+            digits.parse::<u32>().expect("a version number"),
+            ABI_VERSION
+        );
+    }
+
+    #[test]
+    fn frame_matches_header() {
+        let mirror = owned(&[
+            ("timestamp", offset_of!(FfiFrame, timestamp)),
+            ("data", offset_of!(FfiFrame, data)),
+            ("can_id", offset_of!(FfiFrame, can_id)),
+            ("extended", offset_of!(FfiFrame, extended)),
+            ("dlc", offset_of!(FfiFrame, dlc)),
+            ("data_len", offset_of!(FfiFrame, data_len)),
+            ("brs_present", offset_of!(FfiFrame, brs_present)),
+            ("brs_value", offset_of!(FfiFrame, brs_value)),
+            ("esi_present", offset_of!(FfiFrame, esi_present)),
+            ("esi_value", offset_of!(FfiFrame, esi_value)),
+        ]);
+        assert_eq!(asserted("aletheia_frame"), (size_of::<FfiFrame>(), mirror));
+    }
+
+    #[test]
+    fn signal_values_match_header() {
+        let mirror = owned(&[
+            ("indices", offset_of!(FfiSignalValues, indices)),
+            ("numerators", offset_of!(FfiSignalValues, numerators)),
+            ("denominators", offset_of!(FfiSignalValues, denominators)),
+            ("count", offset_of!(FfiSignalValues, count)),
+        ]);
+        assert_eq!(
+            asserted("aletheia_signal_values"),
+            (size_of::<FfiSignalValues>(), mirror)
+        );
+    }
+
+    #[test]
+    fn rational_matches_header() {
+        let mirror = owned(&[
+            ("numerator", offset_of!(FfiRational, numerator)),
+            ("denominator", offset_of!(FfiRational, denominator)),
+        ]);
+        assert_eq!(
+            asserted("aletheia_rational"),
+            (size_of::<FfiRational>(), mirror)
+        );
+    }
+
+    #[test]
+    fn decimal_matches_header() {
+        let mirror = owned(&[
+            ("value", offset_of!(FfiDecimal, value)),
+            ("err", offset_of!(FfiDecimal, err)),
+        ]);
+        assert_eq!(
+            asserted("aletheia_decimal"),
+            (size_of::<FfiDecimal>(), mirror)
+        );
+    }
+
+    #[test]
+    fn buffer_matches_header() {
+        let mirror = owned(&[
+            ("data", offset_of!(FfiBuffer, data)),
+            ("err", offset_of!(FfiBuffer, err)),
+            ("size", offset_of!(FfiBuffer, size)),
+        ]);
+        assert_eq!(
+            asserted("aletheia_buffer"),
+            (size_of::<FfiBuffer>(), mirror)
         );
     }
 }

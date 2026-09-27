@@ -26,6 +26,8 @@ import ctypes
 import json
 import sys
 
+from aletheia.client._ffi import AletheiaBuffer, AletheiaFrame, AletheiaSignalValues
+
 lib = ctypes.CDLL(sys.argv[1])
 argc = ctypes.c_int(1)
 argv = (ctypes.c_char_p * 2)(ctypes.c_char_p(b"probe"), None)
@@ -60,13 +62,15 @@ if b'"status": "success"' not in loaded:
 build = lib.aletheia_build_frame_bin
 build.restype = ctypes.c_int8
 build.argtypes = [
-    ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint8, ctypes.c_uint8, ctypes.c_uint32,
-    ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_int64), ctypes.POINTER(ctypes.c_int64),
-    ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_char_p),
+    ctypes.c_void_p, ctypes.POINTER(AletheiaFrame), ctypes.POINTER(AletheiaSignalValues),
+    ctypes.POINTER(AletheiaBuffer),
 ]
-indices = (ctypes.c_uint32 * 2)(0, 1)
-numerators = (ctypes.c_int64 * 2)(1000, 3000)
-denominators = (ctypes.c_int64 * 2)(1, 1)
+values = AletheiaSignalValues(
+    indices=(ctypes.c_uint32 * 2)(0, 1),
+    numerators=(ctypes.c_int64 * 2)(1000, 3000),
+    denominators=(ctypes.c_int64 * 2)(1, 1),
+    count=2,
+)
 
 # The two signals occupy bits 0 to 31, so four bytes hold them and three do
 # not. The buffer is longer than any frame and every byte is set, so a write
@@ -77,9 +81,10 @@ HOLDS_THEM = 4
 failures = []
 for dlc in range(0, 9):
     out = (ctypes.c_uint8 * BUFFER)(*([SET] * BUFFER))
-    err = ctypes.c_char_p()
-    status = build(state, 256, 0, dlc, 2, indices, numerators, denominators, out, ctypes.byref(err))
-    message = err.value.decode() if err.value else ""
+    buffer = AletheiaBuffer(data=out, size=BUFFER)
+    frame = AletheiaFrame(can_id=256, dlc=dlc)
+    status = build(state, ctypes.byref(frame), ctypes.byref(values), ctypes.byref(buffer))
+    message = ctypes.string_at(buffer.err).decode() if buffer.err else ""
     # The length of what was written: the first index from which every byte
     # is still set. An untouched buffer answers zero.
     raw = bytes(out)

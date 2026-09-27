@@ -19,6 +19,7 @@ foreign-library aletheia-ffi
     other-modules:    AletheiaFFI
                       AletheiaFFI.Marshal
                       AletheiaFFI.BinaryOutput
+                      AletheiaFFI.Wire
                       -- BEGIN GENERATED MALONZO MODULES (regenerate: cabal run shake -- gen-ffi-modules)
                       MAlonzo.Code.Agda.Builtin.Bool
                       MAlonzo.Code.Agda.Builtin.Char
@@ -472,6 +473,10 @@ foreign-library aletheia-ffi
                       MAlonzo.RTE.Float
                       -- END GENERATED MALONZO MODULES
     hs-source-dirs:   src, .
+    -- AletheiaFFI.Wire is hsc2hs source that reads its layouts from the
+    -- header, and the ABI version export is C that returns the header's.
+    include-dirs:     include
+    c-sources:        cbits/abi_version.c
     build-depends:
         base >= 4.14 && < 5,
         text >= 1.2
@@ -507,3 +512,18 @@ test-suite constructor-fidelity
         -Wno-missing-signatures
         -Wno-unused-matches
         -Wno-missing-home-modules
+
+-- Pins AletheiaFFI.Wire's Storable offsets and sizes against the C compiler's
+-- layout of include/aletheia.h: C fills each structure and Haskell peeks it,
+-- Haskell pokes each and C reads it back.
+test-suite abi-layout
+    type:             exitcode-stdio-1.0
+    main-is:          AbiLayoutTest.hs
+    hs-source-dirs:   test, src
+    other-modules:    AletheiaFFI.Wire
+    c-sources:        test/abi_layout.c
+    include-dirs:     include
+    build-depends:
+        base >= 4.14 && < 5
+    default-language: Haskell2010
+    ghc-options:      -Wall -Wcompat

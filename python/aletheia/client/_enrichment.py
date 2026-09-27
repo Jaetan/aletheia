@@ -16,7 +16,13 @@ import threading
 from typing import TYPE_CHECKING
 
 from aletheia._time_units import MICROSECONDS_PER_MILLISECOND, MICROSECONDS_PER_SECOND
-from aletheia.client._ffi import configure_ffi_signatures, find_ffi_library, hs_initialized
+from aletheia.client._ffi import (
+    AletheiaRational,
+    check_abi_version,
+    configure_ffi_signatures,
+    find_ffi_library,
+    hs_initialized,
+)
 from aletheia.client._types import FFIError, PropertyDiagnostic, ValidationError
 from aletheia.limits import MAX_NESTING_DEPTH
 
@@ -192,6 +198,9 @@ def get_renderer_lib() -> ctypes.CDLL:
         if lib is None:
             path = find_ffi_library()
             lib = ctypes.CDLL(str(path))
+            # The version first, as the backend reads it: a library laid out
+            # for another ABI is refused before its entries are resolved.
+            check_abi_version(lib)
             # Load the symbols only — do NOT call ``hs_init`` here.  The GHC
             # RTS is one-shot per process and owned by ``FFIBackend`` (it
             # carries the bus-count ``-N``); self-initialising would latch a
@@ -225,10 +234,8 @@ def format_rational(value: Fraction) -> str:
         )
         raise FFIError(msg)
     lib = get_renderer_lib()
-    raw = lib.aletheia_format_rational(
-        ctypes.c_int64(value.numerator),
-        ctypes.c_int64(value.denominator),
-    )
+    rational = AletheiaRational(numerator=value.numerator, denominator=value.denominator)
+    raw = lib.aletheia_format_rational(ctypes.byref(rational))
     if not raw:
         msg = "aletheia_format_rational returned a null pointer"
         raise FFIError(msg)

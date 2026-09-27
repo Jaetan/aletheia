@@ -14,13 +14,15 @@ module AletheiaFFI.BinaryOutput where
 import Foreign.C.String (CString, newCString)
 import Foreign.Marshal.Alloc (mallocBytes)
 import Foreign.Ptr (Ptr, plusPtr, castPtr)
-import Foreign.Storable (poke)
+import Foreign.Storable (peek, poke)
 import Data.Bits (toIntegralSized)
 import Data.Int (Int8, Int64)
 import Data.Word (Word8, Word16, Word32)
 import qualified Data.Text as T
 import qualified Data.Text.Foreign as TF
 import Unsafe.Coerce (unsafeCoerce)
+
+import AletheiaFFI.Wire (Buffer, bufData, pokeBufferErr, pokeBufferSize)
 
 import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
 import qualified MAlonzo.Code.Aletheia.CAN.BatchExtraction as AgdaBatch
@@ -33,24 +35,29 @@ import qualified MAlonzo.Code.Data.Vec.Base as AgdaVec
 --   Sum:  C_inj'8321'_38 (inj₁), C_inj'8322'_42 (inj₂)
 -- The Shakefile's check-erasure phony verifies these against MAlonzo output.
 
--- | Walk MAlonzo Vec Byte, writing each byte to a contiguous buffer.
-agdaVecToBuffer :: AgdaVec.T_Vec_28 -> Ptr Word8 -> IO ()
-agdaVecToBuffer AgdaVec.C_'91''93'_32 _ = return ()
-agdaVecToBuffer (AgdaVec.C__'8759'__38 x xs) ptr = do
-    poke ptr (fromIntegral (unsafeCoerce x :: Integer) :: Word8)
-    agdaVecToBuffer xs (ptr `plusPtr` 1)
+-- | Walk MAlonzo Vec Byte, writing each byte to a contiguous buffer, and
+-- answer the count written.
+agdaVecToBuffer :: AgdaVec.T_Vec_28 -> Ptr Word8 -> IO Word32
+agdaVecToBuffer = go 0
+  where
+    go n AgdaVec.C_'91''93'_32 _ = return n
+    go n (AgdaVec.C__'8759'__38 x xs) ptr = do
+        poke ptr (fromIntegral (unsafeCoerce x :: Integer) :: Word8)
+        go (n + 1) xs (ptr `plusPtr` 1)
 
--- | Dispatch on MAlonzo String ⊎ Vec Byte: write bytes (success) or set
--- error CString in out_err (failure). Used by build_frame_bin / update_frame_bin.
-dispatchSumResult :: AgdaSum.T__'8846'__30 -> Ptr Word8 -> Ptr CString -> IO Int8
-dispatchSumResult (AgdaSum.C_inj'8321'_38 errAny) _ outErr = do
+-- | Dispatch on MAlonzo String ⊎ Vec Byte: write the bytes into the caller's
+-- buffer and set its size to the count written (success), or set its error
+-- (failure). Used by build_frame_bin / update_frame_bin, which have checked
+-- the buffer holds the frame before the kernel runs.
+dispatchSumResult :: AgdaSum.T__'8846'__30 -> Ptr Buffer -> IO Int8
+dispatchSumResult (AgdaSum.C_inj'8321'_38 errAny) out = do
     let errText = unsafeCoerce errAny :: T.Text
-    errStr <- newCString (T.unpack errText)
-    poke outErr errStr
+    newCString (T.unpack errText) >>= pokeBufferErr out
     return 1
-dispatchSumResult (AgdaSum.C_inj'8322'_42 vecAny) outBuf _ = do
+dispatchSumResult (AgdaSum.C_inj'8322'_42 vecAny) out = do
     let vec = unsafeCoerce vecAny :: AgdaVec.T_Vec_28
-    agdaVecToBuffer vec outBuf
+    buf <- peek out
+    agdaVecToBuffer vec (bufData buf) >>= pokeBufferSize out
     return 0
 
 -- | u8 wire value for the encoder guard's reroute, pulled from the kernel

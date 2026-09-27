@@ -28,7 +28,7 @@ from typing import cast
 import pytest
 from _decimal_cases import OVERFLOW_CASES, PARSE_FAIL_CASES, SUCCESS_CASES
 
-from aletheia.client._ffi import find_ffi_library
+from aletheia.client._ffi import AletheiaDecimal, configure_ffi_signatures, find_ffi_library
 
 # The parser MAlonzo code needs a live GHC RTS; the module-scoped fixture brings
 # it up (idempotent, refcounted) for every test here.  Loading the .so below
@@ -36,26 +36,25 @@ from aletheia.client._ffi import find_ffi_library
 # in the test bodies, where the fixture has run.
 pytestmark = pytest.mark.usefixtures("rts_up")
 
-# dlopen the built .so once and pin the signatures.  The result is an owned
-# char* freed via aletheia_free_str.
+# dlopen the built .so once and pin the signatures.  A failure's error is an
+# owned char* freed via aletheia_free_str.
 _LIB = ctypes.CDLL(str(find_ffi_library()))
-_LIB.aletheia_parse_decimal.restype = ctypes.c_void_p
-_LIB.aletheia_parse_decimal.argtypes = [ctypes.c_char_p]
-_LIB.aletheia_free_str.restype = None
-_LIB.aletheia_free_str.argtypes = [ctypes.c_void_p]
+configure_ffi_signatures(_LIB)
 
 
 def _parse_decimal(text: str) -> dict[str, object]:
-    """Call the FFI on *text*, free the returned string, return the parsed JSON."""
-    ptr = _LIB.aletheia_parse_decimal(text.encode())
+    """Call the FFI on *text*: the rational as a dict, or the error envelope, freed."""
+    out = AletheiaDecimal()
+    if _LIB.aletheia_parse_decimal(text.encode(), ctypes.byref(out)) == 0:
+        return {"numerator": out.value.numerator, "denominator": out.value.denominator}
+    err: int | None = out.err
+    assert err is not None
     try:
-        raw = ctypes.cast(ptr, ctypes.c_char_p).value
-        assert raw is not None
-        parsed = json.loads(raw.decode())
+        parsed = json.loads(ctypes.string_at(err).decode())
         assert isinstance(parsed, dict)
         return cast("dict[str, object]", parsed)
     finally:
-        _LIB.aletheia_free_str(ptr)
+        _LIB.aletheia_free_str(err)
 
 
 @pytest.mark.parametrize(("text", "numerator", "denominator"), SUCCESS_CASES)

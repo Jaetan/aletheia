@@ -26,7 +26,15 @@ from collections import deque
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from aletheia.client._enrichment import set_renderer_lib
-from aletheia.client._ffi import RTSState, configure_ffi_signatures, find_ffi_library
+from aletheia.client._ffi import (
+    AletheiaBuffer,
+    AletheiaFrame,
+    AletheiaSignalValues,
+    RTSState,
+    check_abi_version,
+    configure_ffi_signatures,
+    find_ffi_library,
+)
 from aletheia.client._types import (
     AletheiaError,
     FFIError,
@@ -220,24 +228,53 @@ def _decode_and_free_response(lib: ctypes.CDLL, ptr: int) -> bytes:
 
 def _decode_out_err(
     lib: ctypes.CDLL,
-    out_err: ctypes.c_char_p,
+    out: AletheiaBuffer,
     prefix: str,
 ) -> ProtocolError:
-    """Decode an ``out_err`` C-string and return a :class:`ProtocolError`.
+    """Decode a failed buffer's ``err`` C-string and return a :class:`ProtocolError`.
 
-    Free's the ``out_err`` buffer.  The caller raises the returned
+    Frees the ``err`` string.  The caller raises the returned
     exception (kept as a return value rather than ``NoReturn``-style raise
     so the call sites read linearly under pylint's ``too-many-statements``
     budget).
     """
-    # ctypes.cast narrows to bytes|None correctly for pylint (direct
-    # out_err.value flags .decode as no-member).
-    raw_err = ctypes.cast(out_err, ctypes.c_char_p).value
-    if raw_err is None:
+    err: int | None = out.err
+    if err is None:
         return ProtocolError(f"{prefix}: Unknown error")
-    err_msg = raw_err.decode("utf-8")
-    lib.aletheia_free_str(out_err)
+    err_msg = ctypes.string_at(err).decode("utf-8")
+    lib.aletheia_free_str(err)
     return ProtocolError(f"{prefix}: {err_msg}")
+
+
+def _payload_frame(
+    *, can_id: int, extended: bool, dlc: int, data: bytes | bytearray
+) -> AletheiaFrame:
+    """Carry identifier, DLC and a copy of ``data`` in a frame with no timestamp or bus bits."""
+    # `from_buffer_copy` is a single C-level memcpy; the frame keeps the
+    # array alive for as long as the frame lives.
+    data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
+    return AletheiaFrame(
+        data=data_array,
+        can_id=can_id,
+        extended=1 if extended else 0,
+        dlc=dlc,
+        data_len=len(data),
+    )
+
+
+def _signal_values(
+    indices: tuple[int, ...],
+    numerators: tuple[int, ...],
+    denominators: tuple[int, ...],
+) -> AletheiaSignalValues:
+    """Pack the parallel signal arrays into one ``struct aletheia_signal_values``."""
+    n = len(indices)
+    return AletheiaSignalValues(
+        indices=(ctypes.c_uint32 * n)(*indices),
+        numerators=(ctypes.c_int64 * n)(*numerators),
+        denominators=(ctypes.c_int64 * n)(*denominators),
+        count=n,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +325,7 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         """
         path = lib_path if lib_path is not None else find_ffi_library()
         self._lib: ctypes.CDLL = ctypes.CDLL(str(path))
+        check_abi_version(self._lib)
         configure_ffi_signatures(self._lib)
         RTSState.acquire(self._lib, rts_cores)
         self._rts_cores = rts_cores
@@ -341,27 +379,25 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
         brs_pres, brs_val = encode_maybe_bool(b=brs)
         esi_pres, esi_val = encode_maybe_bool(b=esi)
-        result_ptr = self._lib.aletheia_send_frame(
-            ctypes.c_void_p(state),
-            ctypes.c_uint64(timestamp),
-            ctypes.c_uint32(can_id),
-            ctypes.c_uint8(1 if extended else 0),
-            ctypes.c_uint8(dlc),
-            data_array,
-            ctypes.c_uint8(len(data)),
-            ctypes.c_uint8(brs_pres),
-            ctypes.c_uint8(brs_val),
-            ctypes.c_uint8(esi_pres),
-            ctypes.c_uint8(esi_val),
+        frame = AletheiaFrame(
+            timestamp=timestamp,
+            data=data_array,
+            can_id=can_id,
+            extended=1 if extended else 0,
+            dlc=dlc,
+            data_len=len(data),
+            brs_present=brs_pres,
+            brs_value=brs_val,
+            esi_present=esi_pres,
+            esi_value=esi_val,
         )
+        result_ptr = self._lib.aletheia_send_frame(ctypes.c_void_p(state), ctypes.byref(frame))
         return _decode_and_free_response(self._lib, result_ptr)
 
     def send_error_binary(self, state: int, timestamp: int) -> bytes:
         """Send a CAN error event; returns the JSON response bytes."""
-        result_ptr = self._lib.aletheia_send_error(
-            ctypes.c_void_p(state),
-            ctypes.c_uint64(timestamp),
-        )
+        frame = AletheiaFrame(timestamp=timestamp)
+        result_ptr = self._lib.aletheia_send_error(ctypes.c_void_p(state), ctypes.byref(frame))
         return _decode_and_free_response(self._lib, result_ptr)
 
     def send_remote_binary(
@@ -373,12 +409,8 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         extended: bool,
     ) -> bytes:
         """Send a CAN remote frame; returns the JSON response bytes."""
-        result_ptr = self._lib.aletheia_send_remote(
-            ctypes.c_void_p(state),
-            ctypes.c_uint64(timestamp),
-            ctypes.c_uint32(can_id),
-            ctypes.c_uint8(1 if extended else 0),
-        )
+        frame = AletheiaFrame(timestamp=timestamp, can_id=can_id, extended=1 if extended else 0)
+        result_ptr = self._lib.aletheia_send_remote(ctypes.c_void_p(state), ctypes.byref(frame))
         return _decode_and_free_response(self._lib, result_ptr)
 
     def start_stream_binary(self, state: int) -> bytes:
@@ -412,15 +444,8 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         data: bytes | bytearray,
     ) -> bytes:
         """Extract signals via the JSON-out path (no JSON on input)."""
-        data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
-        result_ptr = self._lib.aletheia_extract_signals(
-            ctypes.c_void_p(state),
-            ctypes.c_uint32(can_id),
-            ctypes.c_uint8(1 if extended else 0),
-            ctypes.c_uint8(dlc),
-            data_array,
-            ctypes.c_uint8(len(data)),
-        )
+        frame = _payload_frame(can_id=can_id, extended=extended, dlc=dlc, data=data)
+        result_ptr = self._lib.aletheia_extract_signals(ctypes.c_void_p(state), ctypes.byref(frame))
         return _decode_and_free_response(self._lib, result_ptr)
 
     def build_frame_bin(  # pylint: disable=too-many-arguments,too-many-locals  # noqa: PLR0913
@@ -436,24 +461,19 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         expected_bytes: int,
     ) -> bytes:
         """Build a CAN frame from signal values; returns the packed payload bytes."""
+        frame = AletheiaFrame(can_id=can_id, extended=1 if extended else 0, dlc=dlc)
+        values = _signal_values(indices, numerators, denominators)
         out_buf = (ctypes.c_uint8 * expected_bytes)()
-        out_err = ctypes.c_char_p()
-        n = len(indices)
+        out = AletheiaBuffer(data=out_buf, size=expected_bytes)
         status = self._lib.aletheia_build_frame_bin(
             ctypes.c_void_p(state),
-            ctypes.c_uint32(can_id),
-            ctypes.c_uint8(1 if extended else 0),
-            ctypes.c_uint8(dlc),
-            ctypes.c_uint32(n),
-            (ctypes.c_uint32 * n)(*indices),
-            (ctypes.c_int64 * n)(*numerators),
-            (ctypes.c_int64 * n)(*denominators),
-            out_buf,
-            ctypes.byref(out_err),
+            ctypes.byref(frame),
+            ctypes.byref(values),
+            ctypes.byref(out),
         )
         if status != 0:
-            raise _decode_out_err(self._lib, out_err, "build_frame failed")
-        return bytes(out_buf)
+            raise _decode_out_err(self._lib, out, "build_frame failed")
+        return ctypes.string_at(out_buf, out.size)
 
     def update_frame_bin(  # pylint: disable=too-many-arguments,too-many-locals  # noqa: PLR0913
         self,
@@ -469,27 +489,19 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         expected_bytes: int,
     ) -> bytes:
         """Update specified signals in ``data``; returns the new packed frame bytes."""
-        frame_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
+        frame = _payload_frame(can_id=can_id, extended=extended, dlc=dlc, data=data)
+        values = _signal_values(indices, numerators, denominators)
         out_buf = (ctypes.c_uint8 * expected_bytes)()
-        out_err = ctypes.c_char_p()
-        n = len(indices)
+        out = AletheiaBuffer(data=out_buf, size=expected_bytes)
         status = self._lib.aletheia_update_frame_bin(
             ctypes.c_void_p(state),
-            ctypes.c_uint32(can_id),
-            ctypes.c_uint8(1 if extended else 0),
-            ctypes.c_uint8(dlc),
-            frame_array,
-            ctypes.c_uint8(len(data)),
-            ctypes.c_uint32(n),
-            (ctypes.c_uint32 * n)(*indices),
-            (ctypes.c_int64 * n)(*numerators),
-            (ctypes.c_int64 * n)(*denominators),
-            out_buf,
-            ctypes.byref(out_err),
+            ctypes.byref(frame),
+            ctypes.byref(values),
+            ctypes.byref(out),
         )
         if status != 0:
-            raise _decode_out_err(self._lib, out_err, "update_frame failed")
-        return bytes(out_buf)
+            raise _decode_out_err(self._lib, out, "update_frame failed")
+        return ctypes.string_at(out_buf, out.size)
 
     def extract_signals_bin(  # pylint: disable=too-many-arguments
         self,
@@ -501,32 +513,19 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         data: bytes | bytearray,
     ) -> bytes:
         """Extract signals via the binary path; returns the packed-binary buffer."""
-        data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
-        out_buf = ctypes.POINTER(ctypes.c_uint8)()
-        out_size = ctypes.c_uint32(0)
-        out_err = ctypes.c_char_p()
+        frame = _payload_frame(can_id=can_id, extended=extended, dlc=dlc, data=data)
+        out = AletheiaBuffer()
         status = self._lib.aletheia_extract_signals_bin(
             ctypes.c_void_p(state),
-            ctypes.c_uint32(can_id),
-            ctypes.c_uint8(1 if extended else 0),
-            ctypes.c_uint8(dlc),
-            data_array,
-            ctypes.c_uint8(len(data)),
-            ctypes.byref(out_buf),
-            ctypes.byref(out_size),
-            ctypes.byref(out_err),
+            ctypes.byref(frame),
+            ctypes.byref(out),
         )
         if status != 0:
-            raise _decode_out_err(self._lib, out_err, "extract_signals failed")
+            raise _decode_out_err(self._lib, out, "extract_signals failed")
         try:
-            return bytes(
-                ctypes.cast(
-                    out_buf,
-                    ctypes.POINTER(ctypes.c_uint8 * out_size.value),
-                ).contents
-            )
+            return ctypes.string_at(out.data, out.size)
         finally:
-            self._lib.aletheia_free_buf(out_buf)
+            self._lib.aletheia_free_buf(out.data)
 
 
 # ---------------------------------------------------------------------------

@@ -5,12 +5,19 @@
 // null string, a null render. It carries every symbol the backend resolves,
 // at the kernel's own signatures, so the backend opens it and the suite can
 // read what the binding does with a null where the real kernel never hands
-// one. Its runtime entry is a no-op, so a process that opens it reads the
-// runtime as up without a runtime, which is what lets the renderer and the
-// decimal parser reach their null answers. The suite compiles it into a
-// temporary directory with the C compiler cgo already requires.
+// one. The kernel's header holds each entry to the kernel's signature. Its
+// runtime entry is a no-op, so a process that opens it reads the runtime as
+// up without a runtime, which is what lets the renderer and the decimal
+// parser reach their null answers. The suite compiles it into a temporary
+// directory with the C compiler cgo already requires.
+#include "aletheia.h"
+
 #include <stdint.h>
 #include <stdlib.h>
+
+uint32_t aletheia_abi_version(void) {
+    return ALETHEIA_ABI_VERSION;
+}
 
 void hs_init_with_rtsopts(int *argc, char ***argv) {
     (void)argc;
@@ -54,105 +61,65 @@ char *aletheia_format_dbc(void *state) {
     return NULL;
 }
 
-char *aletheia_send_error(void *state, uint64_t ts) {
+char *aletheia_send_error(void *state, const struct aletheia_frame *frame) {
     (void)state;
-    (void)ts;
+    (void)frame;
     return NULL;
 }
 
-char *aletheia_send_remote(void *state, uint64_t ts, uint32_t id, uint8_t extended) {
+char *aletheia_send_remote(void *state, const struct aletheia_frame *frame) {
     (void)state;
-    (void)ts;
-    (void)id;
-    (void)extended;
+    (void)frame;
     return NULL;
 }
 
-char *aletheia_send_frame(void *state, uint64_t ts, uint32_t id, uint8_t extended, uint8_t dlc,
-                          const uint8_t *data, uint8_t len, uint8_t brs_present,
-                          uint8_t brs_value, uint8_t esi_present, uint8_t esi_value) {
+char *aletheia_send_frame(void *state, const struct aletheia_frame *frame) {
     (void)state;
-    (void)ts;
-    (void)id;
-    (void)extended;
-    (void)dlc;
-    (void)data;
-    (void)len;
-    (void)brs_present;
-    (void)brs_value;
-    (void)esi_present;
-    (void)esi_value;
+    (void)frame;
     return NULL;
 }
 
-char *aletheia_format_rational(int64_t num, int64_t den) {
-    (void)num;
-    (void)den;
+char *aletheia_format_rational(const struct aletheia_rational *value) {
+    (void)value;
     return NULL;
 }
 
-char *aletheia_parse_decimal(const char *input) {
+int8_t aletheia_parse_decimal(const char *input, struct aletheia_decimal *out) {
     (void)input;
-    return NULL;
-}
-
-char *aletheia_extract_signals(void *state, uint32_t id, uint8_t extended, uint8_t dlc,
-                               const uint8_t *data, uint8_t len) {
-    (void)state;
-    (void)id;
-    (void)extended;
-    (void)dlc;
-    (void)data;
-    (void)len;
-    return NULL;
-}
-
-int8_t aletheia_build_frame_bin(void *state, uint32_t id, uint8_t extended, uint8_t dlc,
-                                uint32_t count, const uint32_t *indices, const int64_t *nums,
-                                const int64_t *dens, uint8_t *out, char **err) {
-    (void)state;
-    (void)id;
-    (void)extended;
-    (void)dlc;
-    (void)count;
-    (void)indices;
-    (void)nums;
-    (void)dens;
-    (void)out;
-    *err = NULL;
+    out->err = NULL;
     return 1;
 }
 
-int8_t aletheia_update_frame_bin(void *state, uint32_t id, uint8_t extended, uint8_t dlc,
-                                 const uint8_t *data, uint8_t len, uint32_t count,
-                                 const uint32_t *indices, const int64_t *nums, const int64_t *dens,
-                                 uint8_t *out, char **err) {
+char *aletheia_extract_signals(void *state, const struct aletheia_frame *frame) {
     (void)state;
-    (void)id;
-    (void)extended;
-    (void)dlc;
-    (void)data;
-    (void)len;
-    (void)count;
-    (void)indices;
-    (void)nums;
-    (void)dens;
-    (void)out;
-    *err = NULL;
+    (void)frame;
+    return NULL;
+}
+
+int8_t aletheia_build_frame_bin(void *state, const struct aletheia_frame *frame,
+                                const struct aletheia_signal_values *values,
+                                struct aletheia_buffer *out) {
+    (void)state;
+    (void)frame;
+    (void)values;
+    out->err = NULL;
     return 1;
 }
 
-int8_t aletheia_extract_signals_bin(void *state, uint32_t id, uint8_t extended, uint8_t dlc,
-                                    const uint8_t *data, uint8_t len, uint8_t **out,
-                                    uint32_t *out_size, char **err) {
+int8_t aletheia_update_frame_bin(void *state, const struct aletheia_frame *frame,
+                                 const struct aletheia_signal_values *values,
+                                 struct aletheia_buffer *out) {
     (void)state;
-    (void)id;
-    (void)extended;
-    (void)dlc;
-    (void)data;
-    (void)len;
-    (void)out;
-    (void)out_size;
-    *err = NULL;
+    (void)frame;
+    (void)values;
+    out->err = NULL;
+    return 1;
+}
+
+int8_t aletheia_extract_signals_bin(void *state, const struct aletheia_frame *frame,
+                                    struct aletheia_buffer *out) {
+    (void)state;
+    (void)frame;
+    out->err = NULL;
     return 1;
 }

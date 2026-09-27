@@ -56,10 +56,12 @@ F: Agda/Builtin/Sigma:d_snd_30
 # Every C_*_NN tag that the Haskell shim constructs or pattern-matches via
 # `unsafeCoerce` is pinned here so a MAlonzo renumber surfaces as a Shake
 # gate failure before it can corrupt the FFI binary.  Sites:
-#   * AletheiaFFI.hs lines 98, 101, 110, 119 (CANTrace ctors)
+#   * AletheiaFFI.hs aletheia_send_frame / aletheia_send_error /
+#     aletheia_send_remote (CANTrace ctors)
 #   * AletheiaFFI/Marshal.hs C_Standard_12 / C_Extended_16 / C_mkDLC_28 /
 #     C_mkℚ_24 / C_'91''93'_32 / C__'8759'__38 / C__'44'__32
-#   * AletheiaFFI/BinaryOutput.hs + AletheiaFFI.hs (lines 228, 230)
+#   * AletheiaFFI/BinaryOutput.hs dispatchSumResult + AletheiaFFI.hs
+#     runBinDispatch / aletheia_extract_signals_bin
 #     C_inj'8321'_38 / C_inj'8322'_42 (Sum branches)
 #   * AletheiaFFI/BinaryOutput.hs C_ValueExceedsWireRange_148 (the
 #     encoder guard's reroute code, fed to extractionErrorCodeToℕ)

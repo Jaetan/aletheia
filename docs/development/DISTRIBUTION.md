@@ -280,7 +280,7 @@ int main(void) {
 }
 ```
 
-`aletheia_process()` handles JSON commands (parseDBC, setProperties, startStream, etc.). To send CAN data frames during streaming, use `aletheia_send_frame()` — a separate binary entry point that passes frame components as C values. See `aletheia.h` for the full signature and [PROTOCOL.md](../architecture/PROTOCOL.md) for details.
+`aletheia_process()` handles JSON commands (parseDBC, setProperties, startStream, etc.). To send CAN data frames during streaming, use `aletheia_send_frame()` — a separate binary entry point that takes the frame as one `struct aletheia_frame`. See `aletheia.h` for the full signature and the structure's layout and [PROTOCOL.md](../architecture/PROTOCOL.md) for details. Before any other call, compare `aletheia_abi_version()` with the header's `ALETHEIA_ABI_VERSION`, as every binding does: a library built from a commit whose C ABI differs reports another number.
 
 ### C++ (with the aletheia-cpp binding)
 

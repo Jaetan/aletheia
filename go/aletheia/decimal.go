@@ -17,10 +17,11 @@ package aletheia
 #cgo LDFLAGS: -ldl
 
 #include <dlfcn.h>
+#include "aletheia_abi.h"
 #include <stdlib.h>
 
-static char* decimal_call_parse(void *fn, const char *s) {
-    return ((char* (*)(const char*))fn)(s);
+static int8_t decimal_call_parse(void *fn, const char *s, struct aletheia_decimal *out) {
+    return ((int8_t (*)(const char*, struct aletheia_decimal*))fn)(s, out);
 }
 // The renderer's file carries the same three lines: a cgo preamble is visible
 // to its own file alone, so the two consumers of the shared free function each
@@ -32,6 +33,7 @@ static void decimal_call_free_str(void *fn, char *ptr) {
 import "C"
 
 import (
+	"fmt"
 	"runtime"
 	"sync"
 	"unsafe"
@@ -88,29 +90,36 @@ func FromDecimal(s string) (Rational, error) {
 
 	cStr := C.CString(s)
 	defer C.free(unsafe.Pointer(cStr))
-	raw := C.decimal_call_parse(decimalParseFn, cStr)
-	if raw == nil {
-		return Rational{}, protocolError("aletheia_parse_decimal returned a null pointer")
+	var out C.struct_aletheia_decimal
+	if C.decimal_call_parse(decimalParseFn, cStr, &out) != 0 {
+		if out.err == nil {
+			return Rational{}, protocolError("aletheia_parse_decimal failed without an error")
+		}
+		defer C.decimal_call_free_str(decimalFreeFn, out.err)
+		return Rational{}, decimalRefusal(C.GoString(out.err))
 	}
-	defer C.decimal_call_free_str(decimalFreeFn, raw)
-	return decodeDecimalResponse(C.GoString(raw))
+	return decimalValue(int64(out.value.numerator), int64(out.value.denominator))
 }
 
-// decodeDecimalResponse reads the parser's envelope: a bare numerator and
-// denominator object on success, a status error envelope on failure. The
-// status is read first, so the kernel's reason reaches the caller as a
-// validation error instead of the rational decoder's missing-field one.
-func decodeDecimalResponse(raw string) (Rational, error) {
-	m, err := parseResponse(raw)
+// decimalRefusal reads the parser's error envelope, so the kernel's reason
+// reaches the caller as a validation error: a refused literal is user input.
+func decimalRefusal(envelope string) error {
+	m, err := parseResponse(envelope)
 	if err != nil {
-		return Rational{}, err
+		return err
 	}
-	if getString(m, "status") == "error" {
-		msg := getString(m, "message")
-		if msg == "" {
-			msg = "invalid decimal literal"
-		}
-		return Rational{}, NewValidationError(msg)
+	msg := getString(m, "message")
+	if msg == "" {
+		msg = "invalid decimal literal"
 	}
-	return parseRational(m)
+	return NewValidationError(msg)
+}
+
+// decimalValue is the parsed rational, whose denominator the kernel answers
+// positive; any other is the ABI or the kernel malfunctioning.
+func decimalValue(numerator, denominator int64) (Rational, error) {
+	if denominator <= 0 {
+		return Rational{}, protocolError(fmt.Sprintf("aletheia_parse_decimal answered a non-positive denominator %d", denominator))
+	}
+	return Rational{Numerator: numerator, Denominator: denominator}, nil
 }

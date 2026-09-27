@@ -24,6 +24,8 @@ import ctypes
 import json
 import sys
 
+from aletheia.client._ffi import AletheiaFrame
+
 lib = ctypes.CDLL(sys.argv[1])
 argc = ctypes.c_int(1)
 argv = (ctypes.c_char_p * 2)(ctypes.c_char_p(b"probe"), None)
@@ -57,10 +59,7 @@ if b'"status": "success"' not in loaded:
 
 extract = lib.aletheia_extract_signals
 extract.restype = ctypes.c_char_p
-extract.argtypes = [
-    ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint8, ctypes.c_uint8,
-    ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint8,
-]
+extract.argtypes = [ctypes.c_void_p, ctypes.POINTER(AletheiaFrame)]
 
 # Speed occupies bits 0 to 15 and Rpm bits 16 to 31, so four bytes carry both,
 # two carry only Speed, and one carries neither.
@@ -69,7 +68,8 @@ PAYLOAD = [0xE8, 0x03, 0xB8, 0x0B, 0, 0, 0, 0]
 failures = []
 for dlc, carried in sorted(CARRIES.items()):
     data = (ctypes.c_uint8 * dlc)(*PAYLOAD[:dlc]) if dlc else None
-    answer = json.loads(extract(state, 256, 0, dlc, data, dlc).decode())
+    frame = AletheiaFrame(data=data, can_id=256, dlc=dlc, data_len=dlc)
+    answer = json.loads(extract(state, ctypes.byref(frame)).decode())
     read = {v["name"] for v in answer.get("values", [])}
     refused = {e["name"]: e["error"] for e in answer.get("errors", [])}
     if read != set(carried):

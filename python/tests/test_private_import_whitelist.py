@@ -197,6 +197,8 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         # test resolves the .so via ``find_ffi_library`` and calls the symbol
         # directly through ctypes to cover the shim marshaling path.
         ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "find_ffi_library"),
+        ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "AletheiaDecimal"),
+        ("test_parse_decimal_ffi.py", "aletheia.client._ffi", "configure_ffi_signatures"),
         # Demo-script gate: runs every examples/demo/*.py as a subprocess and
         # resolves the .so the same way the binding does, passing it through as
         # ALETHEIA_LIB — the public surface is ``AletheiaClient`` (which the demos
@@ -237,6 +239,21 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_rts_runtime_parity.py", "aletheia.client._ffi", "RTS_INIT_SYMBOL"),
         ("test_rts_runtime_parity.py", "aletheia.client._ffi", "RTS_OVERRIDE_ENV"),
         ("test_rts_runtime_parity.py", "aletheia.client._ffi", "find_ffi_library"),
+        # The ctypes mirrors of the kernel's C structures: the layout test holds
+        # them to haskell-shim/include/aletheia.h, and the entry test calls the kernel raw
+        # with a NULL or undersized structure no binding ever passes.
+        ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaBuffer"),
+        ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaDecimal"),
+        ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaRational"),
+        ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaFrame"),
+        ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaSignalValues"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaBuffer"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaFrame"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaSignalValues"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "configure_ffi_signatures"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "find_ffi_library"),
+        # The binding's ABI version, which the version test holds to the header's.
+        ("test_ffi_abi_version.py", "aletheia.client._ffi", "ABI_VERSION"),
     )
 )
 

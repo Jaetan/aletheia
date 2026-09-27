@@ -18,6 +18,8 @@
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/error.hpp>
 
+#include "detail/ffi_abi.hpp"
+#include "detail/ffi_logic.hpp"
 #include "detail/rts_init.hpp"
 
 #include <dlfcn.h>
@@ -33,14 +35,15 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <utility>
 
 namespace aletheia::detail {
 
 namespace {
 
-using FormatRationalFn = char* (*)(std::int64_t, std::int64_t);
+using FormatRationalFn = char* (*)(const FfiRational*);
 using FreeStrFn = void (*)(char*);
-using ParseDecimalFn = char* (*)(const char*);
+using ParseDecimalFn = std::int8_t (*)(const char*, FfiDecimal*);
 
 struct RendererState {
     std::once_flag init;
@@ -157,6 +160,14 @@ static auto load_renderer(const std::filesystem::path& lib_path)
             return std::unexpected(std::string{"renderer dlsym "} + name + ": " + err);
         return sym;
     };
+    // The version first, as the backend reads it: a library laid out for
+    // another ABI is refused before the entries it would lay out differently.
+    auto const abi_version = load_sym("aletheia_abi_version");
+    if (!abi_version)
+        return std::unexpected(abi_version.error());
+    if (auto refusal =
+            detail::abi_version_refusal(detail::symbol_as<std::uint32_t (*)()>(*abi_version)()))
+        return std::unexpected("renderer: " + *refusal);
     // The three entries the renderer needs, resolved by one loop with one
     // refusal, so a library missing any of them is refused at the first.
     constexpr std::array names{"aletheia_format_rational", "aletheia_free_str",
@@ -170,12 +181,9 @@ static auto load_renderer(const std::filesystem::path& lib_path)
     }
     std::ignore = opened.release();
     return RendererSymbols{
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        .format_fn = reinterpret_cast<FormatRationalFn>(syms[0]),
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        .free_fn = reinterpret_cast<FreeStrFn>(syms[1]),
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        .parse_decimal_fn = reinterpret_cast<ParseDecimalFn>(syms[2]),
+        .format_fn = detail::symbol_as<FormatRationalFn>(syms[0]),
+        .free_fn = detail::symbol_as<FreeStrFn>(syms[1]),
+        .parse_decimal_fn = detail::symbol_as<ParseDecimalFn>(syms[2]),
     };
 }
 
@@ -237,28 +245,41 @@ static auto kernel_string(Call call, std::string_view whats_down, std::string_vi
 }
 
 auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string {
-    return kernel_string([&](RendererState& s) { return s.format_fn(num, denom); }, "rendering",
-                         "aletheia_format_rational");
-}
-
-auto parse_decimal_ffi(std::string_view input) -> std::string {
     return kernel_string(
         [&](RendererState& s) {
-            // Reject an interior NUL before marshaling: the kernel takes a
-            // NUL-terminated C string, so a NUL inside the input would silently
-            // truncate the literal ("1\0xyz" -> "1") and accept a value the
-            // caller did not intend. A NUL is not in the decimal grammar, so
-            // this is a user-input fault (Validation), mirroring Rust's
-            // CString::new rejection. It sits inside the call, after the
-            // runtime gate, because Rust refuses a runtime-down call before it
-            // looks at the literal and the two bindings answer alike.
-            if (input.contains('\0'))
-                throw AletheiaException(AletheiaError{
-                    ErrorKind::Validation, "decimal literal contains an interior NUL byte"});
-            const std::string buf{input};
-            return s.parse_decimal_fn(buf.c_str());
+            const FfiRational value{.numerator = num, .denominator = denom};
+            return s.format_fn(&value);
         },
-        "parsing decimals", "aletheia_parse_decimal");
+        "rendering", "aletheia_format_rational");
+}
+
+auto parse_decimal_ffi(std::string_view input) -> std::expected<Rational, std::string> {
+    auto& s = loaded_state("parsing decimals");
+    // Reject an interior NUL before marshaling: the kernel takes a
+    // NUL-terminated C string, so a NUL inside the input would silently
+    // truncate the literal ("1\0xyz" -> "1") and accept a value the caller did
+    // not intend. A NUL is not in the decimal grammar, so this is a user-input
+    // fault (Validation), mirroring Rust's CString::new rejection. It comes
+    // after the runtime gate, because Rust refuses a runtime-down call before it
+    // looks at the literal and the two bindings answer alike.
+    if (input.contains('\0'))
+        throw AletheiaException(
+            AletheiaError{ErrorKind::Validation, "decimal literal contains an interior NUL byte"});
+    const std::string buf{input};
+    FfiDecimal out{.value = {.numerator = 0, .denominator = 0}, .err = nullptr};
+    if (s.parse_decimal_fn(buf.c_str(), &out) != 0) {
+        if (out.err == nullptr)
+            throw AletheiaException(AletheiaError{
+                ErrorKind::Protocol, "aletheia_parse_decimal failed without an error"});
+        auto const deleter = [&s](char* p) { s.free_fn(p); };
+        const std::unique_ptr<char, decltype(deleter)> guard{out.err, deleter};
+        return std::unexpected(std::string{out.err});
+    }
+    // Checked before Rational sees it, which would report it as a caller's
+    // argument rather than a malfunction.
+    if (auto refusal = decimal_denominator_refusal(out.value.denominator))
+        throw AletheiaException(AletheiaError{ErrorKind::Protocol, std::move(*refusal)});
+    return Rational{out.value.numerator, out.value.denominator};
 }
 
 void register_default_lib_path(const std::filesystem::path& lib_path) {

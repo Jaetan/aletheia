@@ -342,24 +342,18 @@ static auto parse_rational_dict(const Json& j) -> std::pair<std::int64_t, std::i
 // Throws AletheiaException — NOT a bare AletheiaError — because AletheiaError is
 // not a std::exception, and the YAML / Excel loaders catch `std::runtime_error`
 // (which AletheiaException subclasses); a bare throw would escape them entirely.
-auto decode_decimal_response(std::string_view raw) -> Rational {
+auto decimal_refusal(std::string_view envelope) -> AletheiaError {
     Json j;
     try {
-        j = parse_bounded(raw);
+        j = parse_bounded(envelope);
     } catch (const std::exception& e) {
         // Unreachable for the kernel's own output; an unparsable envelope is an
         // ABI/kernel malfunction, so report it as Protocol (mirrors Rust).
-        throw AletheiaException(
-            make_error(ErrorKind::Protocol,
-                       std::string{"aletheia_parse_decimal: malformed response: "} + e.what()));
+        return make_error(ErrorKind::Protocol,
+                          std::string{"aletheia_parse_decimal: malformed response: "} + e.what());
     }
-    // A success is the bare {numerator, denominator} pair and carries no
-    // status; only the error envelope does, so its presence is the refusal.
-    if (j.contains("status"))
-        throw AletheiaException(make_error(
-            ErrorKind::Validation, j.value("message", std::string{"invalid decimal literal"})));
-    auto [num, den] = parse_rational_dict(j);
-    return Rational{num, den};
+    return make_error(ErrorKind::Validation,
+                      j.value("message", std::string{"invalid decimal literal"}));
 }
 
 // Agda emits an exact rational as an integer or as

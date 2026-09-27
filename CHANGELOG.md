@@ -131,6 +131,45 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **BREAKING (C ABI): the kernel's entries take structures, not lists of
+  parameters, and the library reports the ABI version it implements.** Every
+  entry carrying more than one value takes it as one structure by pointer: the
+  three trace events (`aletheia_send_frame`, `aletheia_send_remote`,
+  `aletheia_send_error`), `aletheia_extract_signals` and the three binary
+  entries take `struct aletheia_frame`, reading the fields each needs; the
+  binary entries take their signal values as `struct aletheia_signal_values`
+  and write their result, with its error, into `struct aletheia_buffer`;
+  `aletheia_format_rational` takes `struct aletheia_rational`; and
+  `aletheia_parse_decimal` writes the rational into `struct aletheia_decimal`
+  instead of answering a JSON string, its error the same JSON envelope as
+  before. The header moves to `haskell-shim/include/aletheia.h` (release
+  bundles still ship it as `include/aletheia.h`), declares every export, and
+  fixes the five layouts with compile-time assertions. The Haskell shim reads
+  and writes the structures through `Storable` instances hsc2hs generates from
+  the header, so the shim carries no offset of its own, and the new
+  `abi-layout` test suite, run by `check-fidelity`, has C fill each structure
+  and check it back field by field. Each binding's mirror is held to the header
+  by a test of its own (a ctypes `Structure`, a `#[repr(C)]` struct, a C++
+  struct, and for Go one package header every cgo preamble includes). The Go
+  binding keeps Go pointers out of Go memory handed to C by filling each
+  structure's pointers inside its C trampoline. `aletheia_abi_version()`
+  returns the header's `ALETHEIA_ABI_VERSION` from plain C, callable before the
+  GHC runtime starts; every loader of every binding, the backend's and the
+  rational renderer's and decimal parser's alike, reads it before any other
+  entry and refuses a library at another version with both numbers named
+  (Rust's new `Error::AbiMismatch`, the FFI error kind elsewhere), and a
+  library older than the export is refused for lacking it. A stand-in library
+  at a version no binding was written against, shared by the four suites,
+  holds each refusal. The C++ symbol casts go through one helper, so the FFI
+  loaders carry one suppression instead of four. The Go kernel stand-in
+  includes the header, so a signature that drifts from the kernel's stops
+  compiling; the C++ stand-in takes the backend's mirror, which the sanitizer
+  lane's function-type check holds it to, and its parameter-count override is
+  gone. Build and update now refuse a result buffer smaller than the DLC's byte
+  count before writing, and report the count they wrote; every
+  structure-taking entry refuses a NULL structure cleanly. The wire formats the
+  kernel writes are unchanged.
+
 - **BREAKING (Python): `aletheia.dbc` no longer exports
   `dbc_and_warnings_from_response`.** The package's docstring said every name in
   its `__all__` was also public at the top level, and that one name was not: it
@@ -901,6 +940,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   in the install prefix.
 
 ### Fixed
+
+- **The two C micro-benchmarks call `aletheia_send_frame` at its real
+  signature.** `benchmarks/response_overhead_ffi.c` and
+  `benchmarks/vec_construction.c` declared the entry with the seven parameters
+  it had before the CAN-FD bus bits, so the kernel read the four bus-bit
+  arguments from stack slots the call never set. Both now include `aletheia.h`
+  and take the entry's type from its declaration.
 
 - **A prose gate that could not read a tracked file no longer passes the tree.**
   The walk `tools/check_refused_words.py` and `tools/check_no_review_marks.py`

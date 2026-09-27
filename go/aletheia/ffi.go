@@ -18,9 +18,17 @@ package aletheia
 // #include <stdlib.h>
 // #include <string.h>
 //
-// // cgo cannot call through a C function pointer, so each entry point gets a
-// // typed trampoline.
+// #include "aletheia_abi.h"
 //
+// // cgo cannot call through a C function pointer, so each entry point gets a
+// // typed trampoline. Go memory handed to C may hold no Go pointer, so a
+// // structure crosses from Go with its pointer fields empty and the Go
+// // pointers beside it; the trampoline fills a copy on its own stack, which
+// // lives only for the call.
+//
+// static uint32_t call_abi_version(void *fn) {
+//     return ((uint32_t (*)(void))fn)();
+// }
 // static void* call_init(void *fn) {
 //     return ((void* (*)(void))fn)();
 // }
@@ -33,22 +41,16 @@ package aletheia
 // static void call_close(void *fn, void *state) {
 //     ((void (*)(void*))fn)(state);
 // }
-// static char* call_send_frame(void *fn, void *state, uint64_t ts,
-//     uint32_t id, uint8_t ext, uint8_t dlc, uint8_t *data, uint8_t len,
-//     uint8_t brs_present, uint8_t brs_value,
-//     uint8_t esi_present, uint8_t esi_value) {
-//     return ((char* (*)(void*, uint64_t, uint32_t, uint8_t, uint8_t,
-//                         uint8_t*, uint8_t,
-//                         uint8_t, uint8_t, uint8_t, uint8_t))fn)(
-//         state, ts, id, ext, dlc, data, len,
-//         brs_present, brs_value, esi_present, esi_value);
+// static char* call_send_frame(void *fn, void *state, struct aletheia_frame frame,
+//     const uint8_t *data) {
+//     frame.data = data;
+//     return ((char* (*)(void*, const struct aletheia_frame*))fn)(state, &frame);
 // }
-// static char* call_send_error(void *fn, void *state, uint64_t ts) {
-//     return ((char* (*)(void*, uint64_t))fn)(state, ts);
+// static char* call_send_error(void *fn, void *state, struct aletheia_frame frame) {
+//     return ((char* (*)(void*, const struct aletheia_frame*))fn)(state, &frame);
 // }
-// static char* call_send_remote(void *fn, void *state, uint64_t ts,
-//     uint32_t id, uint8_t ext) {
-//     return ((char* (*)(void*, uint64_t, uint32_t, uint8_t))fn)(state, ts, id, ext);
+// static char* call_send_remote(void *fn, void *state, struct aletheia_frame frame) {
+//     return ((char* (*)(void*, const struct aletheia_frame*))fn)(state, &frame);
 // }
 // static char* call_start_stream(void *fn, void *state) {
 //     return ((char* (*)(void*))fn)(state);
@@ -59,40 +61,36 @@ package aletheia
 // static char* call_format_dbc(void *fn, void *state) {
 //     return ((char* (*)(void*))fn)(state);
 // }
-// static char* call_extract_signals(void *fn, void *state,
-//     uint32_t id, uint8_t ext, uint8_t dlc, uint8_t *data, uint8_t len) {
-//     return ((char* (*)(void*, uint32_t, uint8_t, uint8_t,
-//                         uint8_t*, uint8_t))fn)(state, id, ext, dlc, data, len);
+// static char* call_extract_signals(void *fn, void *state, struct aletheia_frame frame,
+//     const uint8_t *data) {
+//     frame.data = data;
+//     return ((char* (*)(void*, const struct aletheia_frame*))fn)(state, &frame);
 // }
-// static int8_t call_build_frame_bin(void *fn, void *state,
-//     uint32_t id, uint8_t ext, uint8_t dlc,
-//     uint32_t numSignals, uint32_t *indices, int64_t *nums, int64_t *dens,
-//     uint8_t *outBuf, char **outErr) {
-//     return ((int8_t (*)(void*, uint32_t, uint8_t, uint8_t,
-//                          uint32_t, uint32_t*, int64_t*, int64_t*,
-//                          uint8_t*, char**))fn)(
-//         state, id, ext, dlc, numSignals, indices, nums, dens, outBuf, outErr);
+// // build_frame_bin and update_frame_bin share one shape. The kernel writes
+// // into the Go buffer outData through the trampoline's copy of out, and only
+// // the error and the count written travel back into out.
+// static int8_t call_frame_bin(void *fn, void *state, struct aletheia_frame frame,
+//     const uint8_t *data, struct aletheia_signal_values values,
+//     const uint32_t *indices, const int64_t *nums, const int64_t *dens,
+//     struct aletheia_buffer *out, uint8_t *outData) {
+//     frame.data = data;
+//     values.indices = indices;
+//     values.numerators = nums;
+//     values.denominators = dens;
+//     struct aletheia_buffer buf = {outData, NULL, out->size};
+//     int8_t status = ((int8_t (*)(void*, const struct aletheia_frame*,
+//                                  const struct aletheia_signal_values*,
+//                                  struct aletheia_buffer*))fn)(state, &frame, &values, &buf);
+//     out->err = buf.err;
+//     out->size = buf.size;
+//     return status;
 // }
-// static int8_t call_update_frame_bin(void *fn, void *state,
-//     uint32_t id, uint8_t ext, uint8_t dlc,
-//     uint8_t *data, uint8_t dataLen,
-//     uint32_t numSignals, uint32_t *indices, int64_t *nums, int64_t *dens,
-//     uint8_t *outBuf, char **outErr) {
-//     return ((int8_t (*)(void*, uint32_t, uint8_t, uint8_t,
-//                          uint8_t*, uint8_t,
-//                          uint32_t, uint32_t*, int64_t*, int64_t*,
-//                          uint8_t*, char**))fn)(
-//         state, id, ext, dlc, data, dataLen, numSignals, indices, nums, dens, outBuf, outErr);
-// }
-//
-// static int8_t call_extract_signals_bin(void *fn, void *state,
-//     uint32_t id, uint8_t ext, uint8_t dlc,
-//     uint8_t *data, uint8_t dataLen,
-//     uint8_t **outBuf, uint32_t *outSize, char **outErr) {
-//     return ((int8_t (*)(void*, uint32_t, uint8_t, uint8_t,
-//                          uint8_t*, uint8_t,
-//                          uint8_t**, uint32_t*, char**))fn)(
-//         state, id, ext, dlc, data, dataLen, outBuf, outSize, outErr);
+// // The kernel allocates the result in C memory, so out is written directly.
+// static int8_t call_extract_signals_bin(void *fn, void *state, struct aletheia_frame frame,
+//     const uint8_t *data, struct aletheia_buffer *out) {
+//     frame.data = data;
+//     return ((int8_t (*)(void*, const struct aletheia_frame*,
+//                         struct aletheia_buffer*))fn)(state, &frame, out);
 // }
 // static void call_free_buf(void *fn, uint8_t *ptr) {
 //     ((void (*)(uint8_t*))fn)(ptr);
@@ -246,6 +244,16 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		}
 	}()
 
+	// The version first: a library laid out for another ABI is refused
+	// before any other entry is resolved or its runtime is started.
+	abiVersionFn, err := loadSym(handle, "aletheia_abi_version")
+	if err != nil {
+		return nil, err
+	}
+	if err := abiVersionError(uint32(C.call_abi_version(abiVersionFn))); err != nil {
+		return nil, err
+	}
+
 	// aletheia_format_rational is deliberately not among these: the renderer
 	// loads it lazily in renderer.go, so a test that never builds a backend
 	// still renders through the kernel.
@@ -374,6 +382,89 @@ func extFlag(id CANID) C.uint8_t {
 	return 0
 }
 
+// abiVersion is ALETHEIA_ABI_VERSION: the version of the structures and
+// signatures this binding lays out, which the header test holds to the
+// header's.
+const abiVersion = 1
+
+// abiVersionError refuses a library whose ABI version is not abiVersion.
+func abiVersionError(found uint32) error {
+	if found == abiVersion {
+		return nil
+	}
+	return ffiError(fmt.Sprintf("the library implements ABI version %d, and this binding needs %d", found, abiVersion))
+}
+
+// abiField is one field of a structure the preamble declares, at its offset.
+type abiField struct {
+	name   string
+	offset uintptr
+}
+
+// abiLayout answers the size and the fields, in declaration order, of each
+// structure the preamble declares, for the test that holds them to the
+// kernel's header.
+func abiLayout() (sizes map[string]uintptr, fields map[string][]abiField) {
+	var f C.struct_aletheia_frame
+	var v C.struct_aletheia_signal_values
+	var b C.struct_aletheia_buffer
+	var r C.struct_aletheia_rational
+	var d C.struct_aletheia_decimal
+	sizes = map[string]uintptr{
+		"aletheia_frame":         unsafe.Sizeof(f),
+		"aletheia_signal_values": unsafe.Sizeof(v),
+		"aletheia_buffer":        unsafe.Sizeof(b),
+		"aletheia_rational":      unsafe.Sizeof(r),
+		"aletheia_decimal":       unsafe.Sizeof(d),
+	}
+	fields = map[string][]abiField{
+		"aletheia_frame": {
+			{"timestamp", unsafe.Offsetof(f.timestamp)},
+			{"data", unsafe.Offsetof(f.data)},
+			{"can_id", unsafe.Offsetof(f.can_id)},
+			{"extended", unsafe.Offsetof(f.extended)},
+			{"dlc", unsafe.Offsetof(f.dlc)},
+			{"data_len", unsafe.Offsetof(f.data_len)},
+			{"brs_present", unsafe.Offsetof(f.brs_present)},
+			{"brs_value", unsafe.Offsetof(f.brs_value)},
+			{"esi_present", unsafe.Offsetof(f.esi_present)},
+			{"esi_value", unsafe.Offsetof(f.esi_value)},
+		},
+		"aletheia_signal_values": {
+			{"indices", unsafe.Offsetof(v.indices)},
+			{"numerators", unsafe.Offsetof(v.numerators)},
+			{"denominators", unsafe.Offsetof(v.denominators)},
+			{"count", unsafe.Offsetof(v.count)},
+		},
+		"aletheia_buffer": {
+			{"data", unsafe.Offsetof(b.data)},
+			{"err", unsafe.Offsetof(b.err)},
+			{"size", unsafe.Offsetof(b.size)},
+		},
+		"aletheia_rational": {
+			{"numerator", unsafe.Offsetof(r.numerator)},
+			{"denominator", unsafe.Offsetof(r.denominator)},
+		},
+		"aletheia_decimal": {
+			{"value", unsafe.Offsetof(d.value)},
+			{"err", unsafe.Offsetof(d.err)},
+		},
+	}
+	return sizes, fields
+}
+
+// wireFrame is the frame's identifier, DLC and payload length, its pointer
+// left empty for the trampoline to fill. The caller has bounded the payload,
+// so its length fits the byte.
+func wireFrame(id CANID, dlc DLC, data []byte) C.struct_aletheia_frame {
+	return C.struct_aletheia_frame{
+		can_id:   C.uint32_t(id.Value()),
+		extended: extFlag(id),
+		dlc:      C.uint8_t(dlc.Value()),
+		data_len: C.uint8_t(len(data)),
+	}
+}
+
 // framePayloadPtr bounds a payload at the CAN-FD maximum and returns the
 // pointer the call takes, nil for an empty payload. The caller keeps the
 // slice alive across the call.
@@ -497,18 +588,11 @@ func (b *FFIBackend) SendFrameBinary(
 	brsPresent, brsValue := encodeMaybeBool(brs)
 	esiPresent, esiValue := encodeMaybeBool(esi)
 
-	// The length cast cannot truncate: the bound above is below 256.
-	result := C.call_send_frame(
-		b.sendFrameFn, state,
-		C.uint64_t(ts.Microseconds),
-		C.uint32_t(id.Value()),
-		extFlag(id),
-		C.uint8_t(dlc.Value()),
-		dataPtr,
-		C.uint8_t(len(data)),
-		brsPresent, brsValue,
-		esiPresent, esiValue,
-	)
+	frame := wireFrame(id, dlc, data)
+	frame.timestamp = C.uint64_t(ts.Microseconds)
+	frame.brs_present, frame.brs_value = brsPresent, brsValue
+	frame.esi_present, frame.esi_value = esiPresent, esiValue
+	result := C.call_send_frame(b.sendFrameFn, state, frame, dataPtr)
 	runtime.KeepAlive(data)
 	return b.stringResult("aletheia_send_frame", result)
 }
@@ -535,7 +619,7 @@ func (b *FFIBackend) SendErrorBinary(state unsafe.Pointer, ts Timestamp) (string
 		return "", validationError("timestamp must be non-negative")
 	}
 	return b.stringResult("aletheia_send_error",
-		C.call_send_error(b.sendErrorFn, state, C.uint64_t(ts.Microseconds)))
+		C.call_send_error(b.sendErrorFn, state, C.struct_aletheia_frame{timestamp: C.uint64_t(ts.Microseconds)}))
 }
 
 // SendRemoteBinary sends a CAN remote frame event.
@@ -547,7 +631,11 @@ func (b *FFIBackend) SendRemoteBinary(state unsafe.Pointer, ts Timestamp, id CAN
 		return "", validationError("timestamp must be non-negative")
 	}
 	return b.stringResult("aletheia_send_remote",
-		C.call_send_remote(b.sendRemoteFn, state, C.uint64_t(ts.Microseconds), C.uint32_t(id.Value()), extFlag(id)))
+		C.call_send_remote(b.sendRemoteFn, state, C.struct_aletheia_frame{
+			timestamp: C.uint64_t(ts.Microseconds),
+			can_id:    C.uint32_t(id.Value()),
+			extended:  extFlag(id),
+		}))
 }
 
 // StartStreamBinary begins streaming mode.
@@ -583,14 +671,7 @@ func (b *FFIBackend) ExtractSignalsBinary(state unsafe.Pointer, id CANID, dlc DL
 	if err != nil {
 		return "", err
 	}
-	result := C.call_extract_signals(
-		b.extractSignalsFn, state,
-		C.uint32_t(id.Value()),
-		extFlag(id),
-		C.uint8_t(dlc.Value()),
-		dataPtr,
-		C.uint8_t(len(data)),
-	)
+	result := C.call_extract_signals(b.extractSignalsFn, state, wireFrame(id, dlc, data), dataPtr)
 	runtime.KeepAlive(data)
 	return b.stringResult("aletheia_extract_signals", result)
 }
@@ -601,27 +682,27 @@ func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, sign
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
+	return b.frameBin("build_frame_bin", b.buildFrameBinFn, state, wireFrame(id, dlc, nil), nil, dlc, signals)
+}
+
+// frameBin runs build_frame_bin or update_frame_bin, which differ only in the
+// payload the frame carries, and answers the payload the kernel wrote.
+func (b *FFIBackend) frameBin(
+	symbol string, fn, state unsafe.Pointer,
+	frame C.struct_aletheia_frame, dataPtr *C.uint8_t, dlc DLC, signals []SignalInjection,
+) ([]byte, error) {
 	indices, nums, dens := signalArrays(signals)
 	indicesPtr, numsPtr, densPtr := signalArrayPtrs(indices, nums, dens)
+	values := C.struct_aletheia_signal_values{count: C.uint32_t(len(signals))}
 	outBuf := make([]byte, dlc.ToBytes())
 	var outBufPtr *C.uint8_t
 	if len(outBuf) > 0 {
 		outBufPtr = (*C.uint8_t)(unsafe.Pointer(&outBuf[0]))
 	}
-	var outErr *C.char
+	out := C.struct_aletheia_buffer{size: C.uint32_t(len(outBuf))}
 
-	status := C.call_build_frame_bin(
-		b.buildFrameBinFn, state,
-		C.uint32_t(id.Value()),
-		extFlag(id),
-		C.uint8_t(dlc.Value()),
-		C.uint32_t(len(signals)),
-		indicesPtr,
-		numsPtr,
-		densPtr,
-		outBufPtr,
-		&outErr,
-	)
+	status := C.call_frame_bin(fn, state, frame, dataPtr, values,
+		indicesPtr, numsPtr, densPtr, &out, outBufPtr)
 	// Every slice whose pointer crossed stays alive until the call returns:
 	// nothing in Go refers to them after the pointers are taken, so the
 	// collector could otherwise reclaim one while the kernel reads it.
@@ -630,9 +711,9 @@ func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, sign
 	runtime.KeepAlive(dens)
 	runtime.KeepAlive(outBuf)
 	if status != 0 {
-		return nil, b.binaryStatusError("build_frame_bin", status, outErr)
+		return nil, b.binaryStatusError(symbol, status, out.err)
 	}
-	return outBuf, nil
+	return outBuf[:int(out.size)], nil
 }
 
 // UpdateFrameBin rewrites signals in an existing payload, answering raw
@@ -645,38 +726,9 @@ func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CANID, dlc DLC, dat
 	if err != nil {
 		return nil, err
 	}
-	indices, nums, dens := signalArrays(signals)
-	indicesPtr, numsPtr, densPtr := signalArrayPtrs(indices, nums, dens)
-	outBuf := make([]byte, dlc.ToBytes())
-	var outBufPtr *C.uint8_t
-	if len(outBuf) > 0 {
-		outBufPtr = (*C.uint8_t)(unsafe.Pointer(&outBuf[0]))
-	}
-	var outErr *C.char
-
-	status := C.call_update_frame_bin(
-		b.updateFrameBinFn, state,
-		C.uint32_t(id.Value()),
-		extFlag(id),
-		C.uint8_t(dlc.Value()),
-		dataPtr,
-		C.uint8_t(len(data)),
-		C.uint32_t(len(signals)),
-		indicesPtr,
-		numsPtr,
-		densPtr,
-		outBufPtr,
-		&outErr,
-	)
+	result, err := b.frameBin("update_frame_bin", b.updateFrameBinFn, state, wireFrame(id, dlc, data), dataPtr, dlc, signals)
 	runtime.KeepAlive(data)
-	runtime.KeepAlive(indices)
-	runtime.KeepAlive(nums)
-	runtime.KeepAlive(dens)
-	runtime.KeepAlive(outBuf)
-	if status != 0 {
-		return nil, b.binaryStatusError("update_frame_bin", status, outErr)
-	}
-	return outBuf, nil
+	return result, err
 }
 
 // ExtractSignalsBin extracts signals as the packed binary the caller parses,
@@ -689,25 +741,13 @@ func (b *FFIBackend) ExtractSignalsBin(state unsafe.Pointer, id CANID, dlc DLC, 
 	if err != nil {
 		return nil, err
 	}
-	var outBuf *C.uint8_t
-	var outSize C.uint32_t
-	var outErr *C.char
-
-	status := C.call_extract_signals_bin(
-		b.extractSignalsBinFn, state,
-		C.uint32_t(id.Value()),
-		extFlag(id),
-		C.uint8_t(dlc.Value()),
-		dataPtr,
-		C.uint8_t(len(data)),
-		&outBuf,
-		&outSize,
-		&outErr,
-	)
+	var out C.struct_aletheia_buffer
+	status := C.call_extract_signals_bin(b.extractSignalsBinFn, state, wireFrame(id, dlc, data), dataPtr, &out)
 	runtime.KeepAlive(data)
 	if status != 0 {
-		return nil, b.binaryStatusError("extract_signals_bin", status, outErr)
+		return nil, b.binaryStatusError("extract_signals_bin", status, out.err)
 	}
+	outBuf, outSize := out.data, out.size
 	// The copy below takes a C int, which cannot hold every uint32.
 	if outSize > math.MaxInt32 {
 		C.call_free_buf(b.freeBufFn, outBuf)

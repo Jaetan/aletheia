@@ -66,4 +66,14 @@ namespace aletheia::detail {
 // memory than a test can allocate, so the check is held on the count alone.
 [[nodiscard]] auto wire_count_refusal(std::size_t count) -> std::optional<std::string>;
 
+// The refusal of a rational the decimal parser answered over `denominator`, or
+// nullopt for a positive one: the kernel answers lowest terms over a positive
+// denominator, so any other is the ABI or the kernel malfunctioning.
+[[nodiscard]] auto decimal_denominator_refusal(std::int64_t denominator)
+    -> std::optional<std::string>;
+
+// The refusal of a library whose ABI version is `found` rather than this
+// backend's `abi_version`, or nullopt for a library at that version.
+[[nodiscard]] auto abi_version_refusal(std::uint32_t found) -> std::optional<std::string>;
+
 } // namespace aletheia::detail
