@@ -24,7 +24,7 @@ tools/mutation_run.py              Dynamic runner (opt-in, ~30 min - 2 hours)
 tools/mutation_cpp.py              The C++ lane: Mull over the trees, in stages
 tools/mutation_cpp_legs.py         The C++ lane's trees, legs and stage variables
 tools/mutation_cpp_slices.py       The C++ surface's partition into slices
-tools/mutation_rust.py             The Rust lane: cargo-mutants over the crate, in place
+tools/mutation_rust.py             The Rust lane: cargo-mutants over a scratch copy of the tree
 tools/mutation_report.py           The report and baseline shapes the lanes share
 tools/mutation_routes.py           The C++ kill-route census
 benchmarks/mutation/<short-sha>/   Per-commit JSON + raw tool logs (gitignored)
@@ -137,7 +137,7 @@ independently.
 |---|---|---|
 | Python | `mutmut` 3.x | `aletheia/client/_client.py`, `aletheia/dbc/_converter.py`, `aletheia/yaml_loader.py`, `aletheia/codes/_issue.py`, `aletheia/types.py` |
 | Go | `gremlins` | `aletheia/client.go`, `dbc.go`, `json.go`¹, `ffi.go`, `ffi_nocgo.go`, `enrich.go`²; the stringer outputs are held out by `go/.gremlins.yaml` |
-| Rust | `cargo-mutants`, pinned in `docs/MUTATION_BENCH.yaml` | `src/response.rs`, `src/dbc.rs`, `src/types.rs`, `src/backend.rs`, named by `rust/.cargo/mutants.toml`, which the tool reads from the crate; swept in place, because the suite includes the DBC corpus and the parity snapshots from above the crate at compile time |
+| Rust | `cargo-mutants`, pinned in `docs/MUTATION_BENCH.yaml` | `src/response.rs`, `src/dbc.rs`, `src/types.rs`, `src/backend.rs`, named by `rust/.cargo/mutants.toml`, which the tool reads from the crate; swept in a scratch copy of the whole tree, because the suite includes the DBC corpus and the parity snapshots from above the crate at compile time |
 | C++ | `Mull` 0.34.1 (LLVM 23, from source) | `cpp/src/*.cpp` less `mock_backend.cpp` / `types.cpp` (test-only / type-defs) and `rational_renderer.cpp`, with the exact mutated set enumerated in `docs/MUTATION_BENCH.yaml`; the mutator set (`cxx_default`, the decrement, assignment, bitwise and negation groups, and the four call mutators), what each class of mutant stands for, and the held-out paths (vendored, system, `cpp/tests` and the test double under `cpp/src/detail`) are `cpp/mull.yml`; the build records each unit's command line so that Mull's junk detector can re-parse it, without which it drops every mutant of a unit it cannot parse |
 
 AGENTS.md cat 14(g) names `gomut` / `go-mutesting` / `mutate` for Go.  We use
@@ -210,16 +210,20 @@ The record pins the version exactly and the runner refuses any other, for the
 reason mutmut is pinned: two releases generate different mutant sets, and a
 baseline is a count of one set.  Bumping the pin re-measures the Rust row.
 
-The sweep runs in the source tree (`--in-place`) rather than in the copy
-cargo-mutants makes by default, because the crate's suite includes the DBC
-corpus and the parity snapshots under `python/` at compile time and reads the
+The sweep mutates a scratch copy of the whole tree: `HEAD` with the
+uncommitted diff to the tracked files applied (an untracked file is not
+carried), as a detached worktree under the system's temporary directory, with
+cargo-mutants run `--in-place` inside it.  The copy cargo-mutants makes by
+default holds the crate alone, and the crate's suite includes the DBC corpus
+and the parity snapshots under `python/` at compile time and reads the
 documents under `docs/` at run time, so a copy of the crate alone does not
-build.  In place, one mutant runs at a time; cargo-mutants restores the file
-after each mutant and on an interrupt, and a process killed outright leaves
-the mutant in the tree, where `git diff rust/src` shows it.  Nothing else may
-build or test the crate while a sweep runs.  What is mutated and with which
-features is `rust/.cargo/mutants.toml`, read from the crate, so a sweep at the
-terminal and the lane's sweep make one set.
+build.  One mutant runs at a time.  The tree itself never holds a mutant, so a
+test run or a commit may go on beside a sweep; the suite loads the tree's own
+`build/libaletheia-ffi.so`, so the kernel is not rebuilt while a sweep runs.
+A sweep killed outright leaves its copy behind, where `git worktree list`
+shows it and `git worktree remove --force <path>` clears it.  What is mutated
+and with which features is `rust/.cargo/mutants.toml`, read from the crate, so
+every sweep makes one set.
 
 ### C++ — `Mull`
 
@@ -363,8 +367,9 @@ cd python && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so .venv/bin/mutmut run
 cd go && gremlins unleash ./aletheia
 
 # Rust (needs build/libaletheia-ffi.so, which the suite loads through
-# ALETHEIA_LIB).  In place: nothing else may build or test the crate meanwhile.
-cd rust && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so cargo mutants --in-place
+# ALETHEIA_LIB).  The lane's own tool, which sweeps a scratch copy of the tree.
+ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_GO=1 ALETHEIA_MUTATION_SKIP_CPP=1 \
+  python/.venv/bin/python -m tools.mutation_run
 
 # C++ (needs build/libaletheia-ffi.so — the ALETHEIA_MUTATION build folds the
 # real-.so integration tests into unit_tests to cover FfiBackend, so run

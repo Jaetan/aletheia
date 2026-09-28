@@ -1,22 +1,24 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""The Rust lane: cargo-mutants over the crate's hot path, swept in place.
+"""The Rust lane: cargo-mutants over the crate's hot path, in a scratch copy of the tree.
 
 cargo-mutants rewrites one function at a time, builds the crate's tests and
 runs them, and writes each mutant's verdict to ``mutants.out/outcomes.json``
 under the directory ``--output`` names; the lane reads that file rather than
 the console, which prints only what was missed.  Which files it mutates and
 which features it turns on are ``rust/.cargo/mutants.toml``, read from the
-crate, so a sweep at the terminal and the lane's sweep make one set.
+crate, so every sweep makes one set.
 
-The sweep runs in the source tree (``--in-place``) rather than in the copy
-cargo-mutants makes by default: the suite includes the DBC corpus and the
-parity snapshots under ``python/`` at compile time and reads the documents
-under ``docs/`` at run time, so a copy of the crate alone does not build.  In
-place, one mutant runs at a time, cargo-mutants restores the file after each
-and on an interrupt, and a process killed outright leaves the mutant in the
-tree, where ``git diff rust/src`` shows it.  Nothing else may build or test
-the crate while a sweep runs.
+The sweep mutates a scratch copy of the whole tree, ``HEAD`` with the
+uncommitted diff applied (``scratch_worktree``), and runs ``--in-place``
+within it, one mutant at a time.  The copy cargo-mutants would make itself
+holds the crate alone, and the suite includes the DBC corpus and the parity
+snapshots under ``python/`` at compile time and reads the documents under
+``docs/`` at run time, so a copy of the crate alone does not build.  The
+tree itself never holds a mutant: a hook, a probe run or a build reading it
+while a sweep runs sees the sources as they stand.  The suite loads the
+tree's own ``build/libaletheia-ffi.so``, which the copy does not carry, so
+the kernel is not rebuilt while a sweep runs.
 
 The tool is pinned to the version ``docs/MUTATION_BENCH.yaml`` records and
 refused at any other, because two releases generate different mutant sets
@@ -30,13 +32,14 @@ line the mutation starts on.
 from __future__ import annotations
 
 import collections
+import contextlib
 import json
 import os
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from tools._common import find_executable, run_capture, run_streaming
+from tools._common import find_executable, run_capture, run_streaming, scratch_worktree
 from tools.mutation_report import MutationReport, load_spec
 
 if TYPE_CHECKING:
@@ -45,7 +48,8 @@ if TYPE_CHECKING:
     from tools.mutation_report import SurvivorKey
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CRATE = REPO_ROOT / "rust"
+# The crate, relative to the root of a tree: the sweep's is the scratch copy's.
+CRATE = Path("rust")
 
 # Where the sweep's own report directory lands under the run's artifact
 # directory: ``<artifact_dir>/rust/mutants.out/``.
@@ -91,25 +95,32 @@ def _pinned_version() -> str | None:
 
 
 def run_rust(artifact_dir: Path) -> MutationReport:
-    """Sweep the crate's hot path with cargo-mutants and read its outcomes."""
+    """Sweep the crate's hot path with cargo-mutants in a scratch copy of the tree."""
     checked = _check_rust_tools(_pinned_version())
     if isinstance(checked, str):
         return MutationReport("rust", "cargo-mutants", 0, 0, "", error=checked)
     cargo, lib = checked
     # The suite loads the kernel through ALETHEIA_LIB, as every other run of it
     # does; the path is absolute because cargo-mutants runs the tests from
-    # the crate.
+    # the scratch copy's crate, and the copy carries no build.
     env = dict(os.environ)
     env["ALETHEIA_LIB"] = str(lib)
     output = artifact_dir / RUST_OUTPUT_DIR
     output.mkdir(parents=True, exist_ok=True)
-    # Streams, so a sweep killed by a wall clock still leaves the log of how
-    # far it got.  Colours off, so the archived log is the text it printed.
-    proc = run_streaming(
-        [cargo, "mutants", "--in-place", "--colors", "never", "--output", str(output)],
-        cwd=CRATE,
-        env=env,
-    )
+    with contextlib.ExitStack() as stack:
+        try:
+            tree = stack.enter_context(scratch_worktree(REPO_ROOT))
+        except RuntimeError as exc:
+            return MutationReport(
+                "rust", "cargo-mutants", 0, 0, "", error=f"no scratch copy of the tree: {exc}"
+            )
+        # Streams, so a sweep killed by a wall clock still leaves the log of how
+        # far it got.  Colours off, so the archived log is the text it printed.
+        proc = run_streaming(
+            [cargo, "mutants", "--in-place", "--colors", "never", "--output", str(output)],
+            cwd=tree / CRATE,
+            env=env,
+        )
     raw = proc.stdout
     (artifact_dir / "rust.raw.txt").write_text(raw)
     outcomes_path = artifact_dir / OUTCOMES

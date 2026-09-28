@@ -18,9 +18,10 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   every mutant's bucket from the tool's `outcomes.json`, keys each survivor on
   its mutation and source line as the C++ ledger does, and refuses a
   cargo-mutants other than the version `docs/MUTATION_BENCH.yaml` pins. The
-  sweep runs in place, because the suite includes the DBC corpus and the
-  parity snapshots from above the crate at compile time and a copy of the
-  crate alone does not build; a probe holds that reason. The configuration
+  sweep mutates a scratch copy of the whole tree and runs cargo-mutants in
+  place within it, because the suite includes the DBC corpus and the parity
+  snapshots from above the crate at compile time and a copy of the crate alone
+  does not build; a probe holds that reason. The configuration
   names an error value, so every function returning a `Result` gets an `Err`
   mutant beside its `Ok` ones, and every one of those dies. The lane joins the
   runner, its diff scope, the static gate, which now refuses a record with no
@@ -940,6 +941,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   in the install prefix.
 
 ### Fixed
+
+- **The Rust mutation sweep never writes the tree, and the probe over the store
+  reads a tool that would.** The Rust lane and the probe over its baseline ran
+  cargo-mutants in place in the tree, so for as long as a sweep ran a mutant
+  sat in `rust/src`, where a hook, a build or a commit reading the tree took it
+  for the source, and the probe runner failed that probe on every run for the
+  four sources it moved and restored. `tools/_common.py` gains
+  `scratch_worktree`, a detached worktree of `HEAD` with the uncommitted diff
+  applied, whose git commands run clear of the variables a hook exports; the
+  lane sweeps there, and the probe calls the lane's own tool instead of
+  spelling the sweep a second time. The probe over the store now also reads
+  each probe for a tool whose contract is to write what it is pointed at
+  (`cargo mutants --in-place`, `cargo fmt`, `clang-format -i`, `ruff format`,
+  `ruff check --fix`, `gofmt -w`) and refuses one run on the tree rather than
+  under a directory the probe made with `mktemp`; it reads red over the Rust
+  probe as it was.
 
 - **The two C micro-benchmarks call `aletheia_send_frame` at its real
   signature.** `benchmarks/response_overhead_ffi.c` and
