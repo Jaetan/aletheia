@@ -4,23 +4,29 @@
 
 cargo-mutants puts every mutant in one of four buckets and writes them to
 ``outcomes.json``; the console prints only what was missed.  What is held
-here: the counts are read from the file, a survivor is keyed on the mutation
-and its source line the way the C++ ledger keys one, a sweep that reached no
-mutant is an error rather than a clean run of nothing, the tool's version is
-read off its banner, and the verdict refuses a survivor the record does not
-name.
+here: the sweep mutates a scratch copy of the tree as it stands and never
+the tree, the counts are read from the file, a survivor is keyed on the
+mutation and its source line the way the C++ ledger keys one, a sweep that
+reached no mutant is an error rather than a clean run of nothing, the tool's
+version is read off its banner, and the verdict refuses a survivor the record
+does not name.
 """
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
+
+from _git_repo import commit, git
 
 from tools import mutation_run, mutation_rust
 from tools.mutation_report import MutationReport
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
+
+    import pytest
 
     from tools.mutation_report import BindingSpec
 
@@ -157,3 +163,83 @@ def test_the_timeout_ceiling_is_read_before_the_count() -> None:
     entry = mutation_run.drift_for(rep, _spec(survivors=0, timeout_ceiling=20))
     assert entry["status"] == "regression"
     assert entry.get("observed_timeouts") == 300
+
+
+# A stand-in for cargo-mutants: it records the directory it ran in and the
+# source it found there, writes a mutant into that source as the real tool
+# does, and reports one caught mutant.
+_FAKE_CARGO = """\
+import json
+import sys
+from pathlib import Path
+
+out = Path(sys.argv[sys.argv.index("--output") + 1])
+source = Path.cwd() / "src" / "lib.rs"
+seen = source.read_text(encoding="utf-8")
+_ = source.write_text("mutant\\n", encoding="utf-8")
+(out / "mutants.out").mkdir(parents=True, exist_ok=True)
+_ = (out / "ran_in.txt").write_text(f"{Path.cwd()}\\n{seen}", encoding="utf-8")
+counts = {"caught": 1, "missed": 0, "timeout": 0, "unviable": 0, "total_mutants": 1}
+_ = (out / "mutants.out" / "outcomes.json").write_text(json.dumps({"outcomes": [], **counts}))
+"""
+
+
+def _crate_repo(root: Path) -> Path:
+    """Build a repository whose crate source is committed, then edited and not committed."""
+    source = root / "rust" / "src" / "lib.rs"
+    source.parent.mkdir(parents=True)
+    _ = source.write_text("committed\n", encoding="utf-8")
+    _ = git(root, "init", "-q")
+    _ = commit(root, "base")
+    _ = source.write_text("uncommitted edit\n", encoding="utf-8")
+    return root.resolve()
+
+
+def test_the_sweep_mutates_a_copy_of_the_tree_as_it_stands(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tool runs in a copy carrying the uncommitted edit; the tree keeps its source."""
+    repo = _crate_repo(tmp_path / "repo")
+    cargo = tmp_path / "cargo"
+    _ = cargo.write_text(f"#!{sys.executable}\n{_FAKE_CARGO}", encoding="utf-8")
+    cargo.chmod(0o755)
+    lib = tmp_path / "libaletheia-ffi.so"
+
+    def tools_found(_pinned: str | None) -> tuple[str, Path]:
+        return str(cargo), lib
+
+    monkeypatch.setattr(mutation_rust, "REPO_ROOT", repo)
+    monkeypatch.setattr(mutation_rust, "_check_rust_tools", tools_found)
+    artifacts = tmp_path / "artifacts"
+    report = mutation_rust.run_rust(artifacts)
+    assert report.error is None
+    ran_in, seen = (artifacts / "rust" / "ran_in.txt").read_text(encoding="utf-8").split("\n", 1)
+    assert Path(ran_in).name == "rust"
+    assert not Path(ran_in).is_relative_to(repo)
+    assert seen == "uncommitted edit\n"
+    assert (repo / "rust" / "src" / "lib.rs").read_text(encoding="utf-8") == "uncommitted edit\n"
+    assert not Path(ran_in).exists()
+
+
+def test_a_tree_that_cannot_be_copied_is_a_refusal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no scratch copy there is no sweep: the report says why, and the tool never ran."""
+    cargo = tmp_path / "cargo"
+    _ = cargo.write_text(f"#!{sys.executable}\n{_FAKE_CARGO}", encoding="utf-8")
+    cargo.chmod(0o755)
+
+    def tools_found(_pinned: str | None) -> tuple[str, Path]:
+        return str(cargo), tmp_path / "libaletheia-ffi.so"
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.setattr(mutation_rust, "REPO_ROOT", outside)
+    monkeypatch.setattr(mutation_rust, "_check_rust_tools", tools_found)
+    artifacts = tmp_path / "artifacts"
+    report = mutation_rust.run_rust(artifacts)
+    assert report.error is not None
+    assert report.error.startswith("no scratch copy of the tree: git worktree add")
+    assert not (artifacts / "rust" / "ran_in.txt").exists()

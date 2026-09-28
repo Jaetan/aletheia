@@ -6,15 +6,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tools._common import find_executable, run_capture
+from tools._common import find_executable, git_clean_env, run_capture
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
 def git(repo: Path, *args: str) -> str:
-    """Run a git command in ``repo``, asserting success, and return its stdout."""
-    result = run_capture([find_executable("git"), "-C", str(repo), *args])
+    """Run a git command in ``repo``, asserting success, and return its stdout.
+
+    Git runs clear of the variables a hook exports, so a suite run from a hook
+    sets up its throwaway repository rather than the hook's own.
+    """
+    result = run_capture([find_executable("git"), "-C", str(repo), *args], env=git_clean_env())
     assert result.returncode == 0, f"git {' '.join(args)} failed: {result.stderr}"
     return result.stdout
 

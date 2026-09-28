@@ -31,6 +31,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -322,20 +323,32 @@ def git_ls_files(repo: Path, *patterns: str) -> list[RelPath]:
     return [RelPath(path) for path in listed.stdout.split()]
 
 
+# Git's own variables, which a hook exports and which point a git command at
+# the hook's repository whatever directory it runs in: under GIT_DIR git takes
+# the directory it runs in as that repository's work tree, under GIT_WORK_TREE
+# it reads another directory as the work tree, and under GIT_INDEX_FILE a
+# scratch copy's `apply --index` would stage its patch in the hook's index.
+_GIT_HOOK_VARS = frozenset({"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"})
+
+
+def git_clean_env() -> dict[str, str]:
+    """Return this process's environment less the git variables a hook exports."""
+    return {k: v for k, v in os.environ.items() if k not in _GIT_HOOK_VARS}
+
+
 def git_toplevel(start: Path | None = None) -> Path:
     """Return the git work-tree root containing ``start`` (default: this file).
 
-    The root is discovered from ``start``'s path alone.  A hook runs with
-    ``GIT_DIR`` exported, and git then takes the directory it runs in as the
-    work tree, so neither that variable nor ``GIT_WORK_TREE`` reaches the child.
+    The root is discovered from ``start``'s path alone, git running under
+    ``git_clean_env``: a hook's exported ``GIT_DIR`` would otherwise make git
+    take the directory it runs in as the work tree.
 
     Raises ``RuntimeError`` if ``start`` is not inside a git work tree.
     """
     anchor = start if start is not None else Path(__file__).resolve().parent
-    env = {k: v for k, v in os.environ.items() if k not in {"GIT_DIR", "GIT_WORK_TREE"}}
     result = run_capture(
         [find_executable("git"), "-C", str(anchor), "rev-parse", "--show-toplevel"],
-        env=env,
+        env=git_clean_env(),
     )
     if result.returncode != 0:
         message = f"not inside a git work tree: {anchor}"
@@ -351,6 +364,57 @@ def short_sha(repo_root: Path | None = None) -> str:
         check=True,
     )
     return result.stdout.strip()
+
+
+def _git_in(repo: Path, *args: str, stdin: bytes | None = None) -> bytes:
+    """Run ``git -C repo <args>`` under ``git_clean_env``; return its stdout."""
+    result = subprocess.run(
+        [find_executable("git"), "-C", str(repo), *args],
+        input=stdin,
+        capture_output=True,
+        env=git_clean_env(),
+        check=False,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.decode(errors="replace").strip()
+        message = f"git {' '.join(args)} failed in {repo}: {stderr}"
+        raise RuntimeError(message)
+    return result.stdout
+
+
+@contextlib.contextmanager
+def scratch_worktree(repo_root: Path) -> Generator[Path]:
+    """Yield a scratch copy of the work tree at ``repo_root``, removed on exit.
+
+    The copy is a detached worktree of ``HEAD`` with the uncommitted diff to
+    the tracked files applied, so it reads as the tree stands; an untracked
+    file is not carried.  A tool that edits the sources it examines runs
+    there, so a hook, a probe run or a commit reading the tree meanwhile never
+    sees the edit.  The copy lives under the system's temporary directory; a
+    process killed outright leaves it there and registered, where
+    ``git worktree list`` shows it and ``git worktree remove --force`` clears
+    it.  Raises ``RuntimeError`` naming the git step that failed.
+    """
+    work = Path(tempfile.mkdtemp(prefix="aletheia-scratch-"))
+    tree = work / "tree"
+    try:
+        _ = _git_in(repo_root, "worktree", "add", "-q", "--detach", str(tree), "HEAD")
+        diff = _git_in(
+            repo_root,
+            "diff",
+            "--no-ext-diff",
+            "--no-color",
+            "--binary",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            "HEAD",
+        )
+        _ = _git_in(tree, "apply", "--index", "--allow-empty", stdin=diff)
+        yield tree
+    finally:
+        with contextlib.suppress(RuntimeError):
+            _ = _git_in(repo_root, "worktree", "remove", "--force", str(tree))
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def prepare_artifact_dir(base: Path, sha: str) -> Path:
@@ -375,10 +439,11 @@ def write_and_report_summary(artifact_dir: Path, summary: Mapping[str, object]) 
 
 
 # --- crash-safe in-flight source restore ------------------------------------
-# Shared by the warm-process tools that rewrite a source file in place to probe
-# it (dead-import confirmation, IWYU narrowing) and must restore it even on an
-# interrupt: track the original before each rewrite, untrack after restoring,
-# and install handlers so SIGINT/SIGTERM/atexit restore anything still in flight.
+# Shared by the tools that write a tracked source and must restore it even on
+# an interrupt (the staleness gate's edit-and-revert checks, and IWYU's
+# `--apply`, which restores a rewrite that does not type-check): track the
+# original before each write, untrack after restoring, and install handlers so
+# SIGINT/SIGTERM/atexit restore anything still in flight.
 
 _inflight: dict[str, str] = {}  # path -> original content
 _restore_handlers_installed: list[bool] = []  # sentinel (mutated, not rebound)
@@ -420,13 +485,12 @@ def install_restore_handlers() -> None:
 
 # --- repo-wide single-Agda lock ---------------------------------------------
 # Every Agda-invoking tool acquires this one exclusive lock before it touches
-# Agda over the source tree -- the read-only check-properties driver and the
-# tools that rewrite-and-restore files in place to probe them (warm prune, the
-# cold prune driver, warm dead-imports, warm IWYU) alike.  It enforces the
-# project's standing "one agda -M16G at a time" rule and, more importantly,
-# closes the read-during-write race: a second Agda op must not observe a file
-# mid-prune-rewrite and draw a false verdict (the confound that corrupted an
-# earlier prune validation run).
+# Agda over the source tree: the check-properties driver, the warm IWYU
+# process (whose `--apply` rewrites sources) and the staleness gate (which
+# edits and reverts them).  It enforces the project's standing
+# "one agda -M16G at a time" rule and closes the read-during-write race: a
+# second Agda operation must not read a file another holds rewritten and draw
+# a verdict from it.
 #
 # Crash-safe BY CONSTRUCTION: the lock is an `flock` on an open fd, which the
 # kernel releases when the holder exits for ANY reason -- including SIGKILL or a

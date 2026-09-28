@@ -17,8 +17,14 @@
 # loop over a tuple; a target that resolves to a path git tracks is the
 # finding. A path that reaches the write through an argument list or a
 # computed name is outside the lens, which is why a probe spells every write
-# under its scratch variable. The lens is first run over a scratch store of
-# probes written in each shape, so a lens that reported nothing could not pass.
+# under its scratch variable. A tool whose contract is to write what it is
+# pointed at (cargo mutants --in-place, cargo fmt, clang-format -i, ruff
+# format, ruff check --fix, gofmt -w) writes the directory it runs in or the
+# paths it names, and is a finding unless the probe changed into, or pointed
+# it at, a path under a variable the probe assigns from mktemp; a tool run
+# from inside a Python body is outside the lens. The lens is first run over a
+# scratch store of probes written in each shape, so a lens that reported
+# nothing could not pass.
 # Non-zero exit: a probe writes a tracked path in place, or the lens misses
 # one of the shapes it is written to see, or reports a scratch write.
 set -u
@@ -70,6 +76,24 @@ header=cpp/benchmarks/measure.hpp
 cp "$work/header" "$header" 2> /dev/null
 sed -i 's/a/b/' "$header" > /dev/null 2>&1
 SH
+cat > "$work/store/i--sweeps-the-crate-in-place.sh" <<'SH'
+work=$(mktemp -d) || exit 2
+(cd rust && ALETHEIA_LIB="$OLDPWD/build/libaletheia-ffi.so" \
+	cargo mutants --in-place --colors never --output "$work") > "$work/sweep.txt" 2>&1
+(cd "$work" && true)
+cargo fmt
+SH
+cat > "$work/store/j--formats-in-place.sh" <<'SH'
+cargo fmt --manifest-path rust/Cargo.toml
+ruff format tools/_common.py
+ruff check --fix tools
+gofmt -w go/aletheia/client.go
+cd cpp || exit 2
+clang-format-22 -i src/client.cpp
+SH
+cat > "$work/store/k--formats-through-xargs.sh" <<'SH'
+git ls-files -z '*.cpp' | xargs -0 -r clang-format-22 -i
+SH
 cat > "$work/store/g--writes-only-scratch.sh" <<'SH'
 work=$(mktemp -d)
 tree=$work/tree
@@ -91,6 +115,16 @@ header.write_text("", encoding="utf-8")
 open(f"{tree}/program.rs", "w", encoding="utf-8").write("")
 PY
 echo "PASS" > "$work/out.txt" 2>&1
+(cd "$tree/rust" && ALETHEIA_LIB="$OLDPWD/build/libaletheia-ffi.so" \
+	cargo mutants --in-place --colors never --output "$work") > "$work/sweep.txt" 2>&1
+cargo fmt --manifest-path "$tree/rust/Cargo.toml"
+clang-format-22 -i "$tree/cpp/src/client.cpp"
+ruff format --check tools
+cargo mutants --list
+cd "$tree" || exit 2
+ruff check --fix tools
+gofmt -w go/aletheia/client.go
+git ls-files -z | xargs -0 -r clang-format-22 -i
 SH
 
 "$py" - "$work/store" probes <<'PY'
@@ -114,6 +148,24 @@ PY_WRITE = re.compile(r"(?:(\w+)|Path\(\"([^\"]+)\"\))\.(?:write_text|write_byte
 PY_PATH_OP = re.compile(r"(?:(\w+)|Path\(\"([^\"]+)\"\))\.(?:unlink|touch|rename|replace)\(")
 PY_OPEN = re.compile(r"(?<![\w.])open\(\s*(?:\"([^\"]+)\"|(\w+))\s*,\s*[\"'][wax]")
 PY_MODULE = re.compile(r"(?:shutil\.(?:copy|copy2|copyfile|move)|os\.(?:remove|unlink|replace|rename))\(([^)]*)\)")
+# A tool that writes what it is pointed at: its label, its name, how many
+# leading words name it (a subcommand included), whether its words make it
+# write, and whether it writes the directory it runs in rather than the
+# operands it names.
+IN_PLACE_TOOLS = (
+    ("cargo mutants --in-place", "cargo", 2, lambda w: w[1:2] == ["mutants"] and "--in-place" in w, True),
+    ("cargo fmt", "cargo", 2, lambda w: w[1:2] == ["fmt"] and "--check" not in w, True),
+    ("clang-format -i", "clang-format", 1, lambda w: "-i" in w, False),
+    ("ruff format", "ruff", 2, lambda w: w[1:2] == ["format"] and not {"--check", "--diff"} & set(w), False),
+    ("ruff check --fix", "ruff", 2, lambda w: w[1:2] == ["check"] and "--fix" in w, False),
+    ("gofmt -w", "gofmt", 1, lambda w: "-w" in w, False),
+)
+TOOL_NAMES = {name for _, name, _, _, _ in IN_PLACE_TOOLS}
+# Words that run the command after them, and the flags that point a tool at
+# a directory other than the one it runs in.
+WRAPPERS = {"xargs", "env", "taskset", "nice", "timeout", "command", "exec", "time"}
+DIR_FLAGS = {"--manifest-path", "-d", "--dir", "-C"}
+MKTEMP = re.compile(r"\$\(\s*mktemp\b")
 
 
 def is_tracked(path: str) -> bool:
@@ -180,6 +232,97 @@ def python_writes(body: str) -> list[tuple[str, str]]:
     return found
 
 
+def scratch_names(lines: list[str]) -> set[str]:
+    """The variables a probe assigns from mktemp, or from one of those."""
+    names: set[str] = set()
+    grew = True
+    while grew:
+        grew = False
+        for line in lines:
+            m = ASSIGN.match(line)
+            if not m or m.group(1) in names:
+                continue
+            value = m.group(2).strip().strip('"')
+            if MKTEMP.search(value) or any(re.match(rf"^\$\{{?{n}\b", value) for n in names):
+                names.add(m.group(1))
+                grew = True
+    return names
+
+
+def tool_name(word: str) -> str:
+    """A command word's tool: its basename, less a version suffix."""
+    return re.sub(r"-\d+$", "", Path(word).name)
+
+
+def in_place_findings(name: str, shell: list[str]) -> list[str]:
+    """The in-place tools a probe runs on the tree rather than on a scratch copy."""
+    scratch = scratch_names(shell)
+
+    def is_scratch(word: str) -> bool:
+        m = re.match(r"^\$\{?(\w+)", word)
+        return bool(m) and m.group(1) in scratch
+
+    lines, pending = [], ""
+    for line in shell:
+        if line.rstrip().endswith("\\"):
+            pending += line.rstrip()[:-1] + " "
+        else:
+            lines.append(pending + line)
+            pending = ""
+    found = []
+    top = False  # a probe starts at the repository root, which is the tree
+    for line in lines:
+        if line.lstrip().startswith("#"):
+            continue
+        lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        try:
+            tokens = list(lexer)
+        except ValueError:
+            continue
+        here, depth, words, skip = top, 0, [], False
+        for token in tokens + [";"]:
+            if skip:
+                skip = False
+                continue
+            if token in REDIRECTS:
+                if words and words[-1].isdigit():
+                    words.pop()
+                skip = True
+                continue
+            if token not in SEPARATORS:
+                words.append(token)
+                continue
+            while words and re.match(r"^\w+=", words[0]):
+                words.pop(0)
+            if words[:1] == ["cd"]:
+                here = len(words) > 1 and is_scratch(words[1])
+                if depth == 0:
+                    top = here
+            elif words:
+                start = 0
+                if tool_name(words[0]) in WRAPPERS:
+                    start = next((i for i, w in enumerate(words) if tool_name(w) in TOOL_NAMES), len(words))
+                tail = words[start:]
+                for label, tool, lead, writes, runs_in_cwd in IN_PLACE_TOOLS:
+                    if not tail or tool_name(tail[0]) != tool or not writes(tail):
+                        continue
+                    pointed = [tail[i + 1] for i in range(len(tail) - 1) if tail[i] in DIR_FLAGS]
+                    operands = [w for w in tail[lead:] if not w.startswith("-")]
+                    targets = pointed if runs_in_cwd else operands
+                    safe = all(
+                        is_scratch(t) or (here and not t.startswith(("/", "$"))) for t in targets
+                    ) if targets else here
+                    if not safe:
+                        found.append(f"{name}: {label} runs on the tree")
+            if token == "(":
+                depth += 1
+            elif token == ")":
+                depth -= 1
+            words = []
+    return found
+
+
 def scan(probe: Path) -> list[str]:
     lines = probe.read_text(encoding="utf-8").splitlines()
     findings = []
@@ -236,6 +379,7 @@ def scan(probe: Path) -> list[str]:
                     findings.append(f"{probe.name}: {token} writes {path}")
             else:
                 command.append(token)
+    findings.extend(in_place_findings(probe.name, shell))
     return findings
 
 
@@ -257,6 +401,14 @@ expected = {
     "f--prints-into-a-variable.sh: > writes docs/CPP_INDEX_LOOPS.yaml",
     "h--silences-the-write.sh: cp writes cpp/benchmarks/measure.hpp",
     "h--silences-the-write.sh: sed writes cpp/benchmarks/measure.hpp",
+    "i--sweeps-the-crate-in-place.sh: cargo mutants --in-place runs on the tree",
+    "i--sweeps-the-crate-in-place.sh: cargo fmt runs on the tree",
+    "j--formats-in-place.sh: cargo fmt runs on the tree",
+    "j--formats-in-place.sh: ruff format runs on the tree",
+    "j--formats-in-place.sh: ruff check --fix runs on the tree",
+    "j--formats-in-place.sh: gofmt -w runs on the tree",
+    "j--formats-in-place.sh: clang-format -i runs on the tree",
+    "k--formats-through-xargs.sh: clang-format -i runs on the tree",
 }
 rehearsal = set(store(sys.argv[1], set()))
 if rehearsal != expected:

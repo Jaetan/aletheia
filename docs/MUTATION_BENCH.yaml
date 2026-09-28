@@ -1312,13 +1312,15 @@ bindings:
       # and every feature on, as the suite is run everywhere else.
       examine: rust/.cargo/mutants.toml
     invocation: |
-      # In place, because the suite includes the DBC corpus and the parity
-      # snapshots from above the crate at compile time and reads the documents
-      # under docs/ at run time, so a copy of the crate alone does not build
-      # (the probe over rust/ holds that).  One mutant runs at a time; the
-      # file is restored after each and on an interrupt, and a process killed
-      # outright leaves the mutant where `git diff rust/src` shows it.
-      cd rust && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so cargo mutants --in-place
+      # tools/mutation_rust.py sweeps a scratch copy of the whole tree, HEAD
+      # with the uncommitted diff applied, and runs cargo-mutants --in-place
+      # inside it, one mutant at a time: the suite includes the DBC corpus and
+      # the parity snapshots from above the crate at compile time and reads
+      # the documents under docs/ at run time, so a copy of the crate alone
+      # does not build (the probe over rust/ holds that).  The tree itself
+      # never holds a mutant.
+      ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_GO=1 ALETHEIA_MUTATION_SKIP_CPP=1 \
+        python/.venv/bin/python -m tools.mutation_run
     report: |
       # cargo-mutants writes every mutant's bucket and site to
       # mutants.out/outcomes.json under the directory --output names; the
