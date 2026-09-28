@@ -20,7 +20,7 @@ inline constexpr int cli_exit_error = 2;
 // noexcept: every failure (including an unexpected exception) is converted to
 // `cli_exit_error`, so callers, the aletheia-cli binary and the CLI tests,
 // never observe a throw. Subcommands mirror the Python `python -m aletheia` surface:
-// validate, extract, signals, format-dbc, mux-query. There is no `check`
+// validate, extract, signals, format-dbc, mux-query, template. There is no `check`
 // subcommand: the binding has no CAN-log reader. Behavior lives in
 // cpp/src/cli/cli.cpp.
 [[nodiscard]] auto run_cli(std::span<const std::string> args) noexcept -> int;

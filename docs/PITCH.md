@@ -357,7 +357,7 @@ Phases 1 through 5.1 are complete and Phase 6 is in progress. All four binding s
 - DBC validator with formal proof: its error-class checks are **sound and complete**, so passing them certifies the DBC is well-formed, which is the precondition the decode proof relies on
 - Python, C++, Go, and Rust APIs with signal operations (in-process shared library, no subprocess)
 - Four-tier interface: Check API, YAML, Excel, DSL
-- **CLI ships today**: the Python CLI has six subcommands (`python3 -m aletheia {check,validate,extract,signals,format-dbc,mux-query}`); the C++ and Go host CLIs ship five of those, `check` being deferred for want of a verified CAN-log reader; Rust has a typed client and no CLI.
+- **CLI ships today**: the Python CLI's subcommands are `python3 -m aletheia {check,validate,extract,signals,format-dbc,mux-query,template}`; the C++ and Go host CLIs ship all of them but `check`, deferred for want of a verified CAN-log reader; Rust has a typed client and no CLI.
 - CAN log reader (ASC, BLF, CSV, DB, candump .log, MF4, TRC via python-can)
 - Enriched violation diagnostics (signal name, value, condition)
 - Automated test suites across all four bindings: unit and cross-binding parity everywhere, property-based and doc-example harnesses in Python, C++ and Go

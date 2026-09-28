@@ -558,6 +558,12 @@ client.add_checks(check_list)
 
 ### Create an Excel template
 
+```bash
+aletheia template vehicle_checks.xlsx
+```
+
+or from Python:
+
 ```python
 from aletheia import create_template
 create_template("vehicle_checks.xlsx")
@@ -644,13 +650,13 @@ More causes and fixes: [Building Guide § Troubleshooting](../development/BUILDI
 
 ### `error: no such subcommand 'messages'`
 
-The CLI has exactly six subcommands: `check`, `validate`, `extract`, `signals`,
-`format-dbc`, `mux-query`. There is no `messages`, `decode`, or `run`. To list
-what a DBC defines use `signals`; to decode a single frame use `extract`; to
-inspect multiplexing use `mux-query`. Full reference:
-[CLI Reference](../reference/CLI.md). (The C++ and Go host CLIs ship five of the
-six — `check` is deferred there, pending a verified CAN-log reader — and the
-Rust binding has a typed client but no CLI yet.)
+The CLI's subcommands are `check`, `validate`, `extract`, `signals`,
+`format-dbc`, `mux-query` and `template`. There is no `messages`, `decode`, or
+`run`. To list what a DBC defines use `signals`; to decode a single frame use
+`extract`; to inspect multiplexing use `mux-query`. Full reference:
+[CLI Reference](../reference/CLI.md). (The C++ and Go host CLIs ship all of them
+but `check`, deferred there pending a verified CAN-log reader, and the Rust
+binding has a typed client but no CLI yet.)
 
 ---
 

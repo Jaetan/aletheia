@@ -228,7 +228,7 @@ Build-time issues are catalogued in [BUILDING.md § Troubleshooting](docs/develo
 
 ## Implementation Phases
 
-[PROJECT_STATUS.md](PROJECT_STATUS.md). Current state: Phase 5.1 complete (binary FFI 4.3× CAN 2.0B / 9.1× CAN-FD; CAN-FD; C++/Go bindings; cross-language benchmarks; four-tier check interface with full parity); the parity plan is complete (matrix gates / DBC text parser / cancellation / doc harness / VAL_ promotion). **Phase 6 (Extensions & New Protocols) is the active track**: shipped so far are the installable distribution (v4.0.0, hardened by v5.0.0), C++/Go CLI parity and the Rust binding; open are the `aletheia template` CLI, the Go CAN-log reader, and the candidate tracks (native Haskell binding, python-can replacement, GHC native bignum, SOME/IP, which is designed but not scheduled).
+[PROJECT_STATUS.md](PROJECT_STATUS.md). Current state: Phase 5.1 complete (binary FFI 4.3× CAN 2.0B / 9.1× CAN-FD; CAN-FD; C++/Go bindings; cross-language benchmarks; four-tier check interface with full parity); the parity plan is complete (matrix gates / DBC text parser / cancellation / doc harness / VAL_ promotion). **Phase 6 (Extensions & New Protocols) is the active track**: shipped so far are the installable distribution (v4.0.0, hardened by v5.0.0), C++/Go CLI parity, the Rust binding and `aletheia template`; open are the Go CAN-log reader and the candidate tracks (native Haskell binding, python-can replacement, GHC native bignum, SOME/IP, which is designed but not scheduled).
 
 ---
 

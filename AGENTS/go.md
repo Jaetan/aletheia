@@ -1,6 +1,6 @@
 ## Go (33 categories)
 
-Scope: every Go source and test file of the module, which is the binding in `go/aletheia/`, the host interface in `go/cmd/aletheia/`, the two benchmark binaries under `go/benchmarks/`, and the spreadsheet loader, which is a module of its own in `go/excel/`. A category names the binding where it is about the binding.
+Scope: every Go source and test file of the workspace `go/go.work`, which is the binding in `go/aletheia/`, the two benchmark binaries under `go/benchmarks/`, and two modules of their own, the host interface in `go/cmd/aletheia/` and the spreadsheet loader in `go/excel/`. A category names the binding where it is about the binding.
 
 ### Hygiene/Style (6)
 
@@ -85,8 +85,9 @@ Scope: every Go source and test file of the module, which is the binding in `go/
 cd go && gofmt -l ./aletheia/
 cd go && go test ./aletheia/ -v -count=1 -race
 cd go && go test ./aletheia/ -shuffle=on -count=1 -race
-cd go && go vet ./...
-cd go && CGO_ENABLED=0 go build ./... && (cd excel && CGO_ENABLED=0 go build ./...)
+# Every module of the workspace, since ./... stops at a module's edge:
+cd go && for m in $(go list -m -f '{{.Dir}}'); do (cd "$m" && go vet ./...); done
+cd go && for m in $(go list -m -f '{{.Dir}}'); do (cd "$m" && CGO_ENABLED=0 go build -o /dev/null ./...); done
 # Cat 33 dynamic-analysis lanes (opt-in via build tags or extended runs):
 cd go && go test ./aletheia/ -fuzz=Fuzz -fuzztime=60s -run='^$'   # one target at a time; iterate
 cd go && go test ./aletheia/ -run CrossBinding -v                  # cross-binding integration

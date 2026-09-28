@@ -462,8 +462,9 @@ install(FILES
 # CLI host binary (aletheia-cli)
 # ---------------------------------------------------------------------------
 # aletheia::run_cli (src/cli/cli.cpp) holds the CLI logic — validate / extract
-# / signals / format-dbc / mux-query dispatching to AletheiaClient (`check` is
-# deferred, needs a verified CAN-log reader). Built as a static lib so the
+# / signals / format-dbc / mux-query dispatching to AletheiaClient, and template
+# writing the Excel workbook (`check` is deferred, needs a verified CAN-log
+# reader). Built as a static lib so the
 # aletheia-cli binary (a thin argv wrapper) and cli_tests share one
 # compilation. nlohmann_json is linked PRIVATE (used only inside cli.cpp);
 # aletheia-cpp is PUBLIC so its include dirs reach main.cpp and the tests.

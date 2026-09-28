@@ -6,7 +6,9 @@
 // and the CLI tests call run_cli directly. It mirrors the Python
 // `python -m aletheia` subcommand surface — validate, extract, signals,
 // format-dbc, mux-query — by dispatching to the real verified Agda core
-// through the dlopen client (no analysis logic is reimplemented here).
+// through the dlopen client (no analysis logic is reimplemented here), and
+// `template` writes the blank Excel workbook through the binding's own loader
+// module, without the core.
 //
 // There is no `check` subcommand (LTL over a CAN log file): it needs a
 // CAN-log reader the C++ binding does not provide. DBC sources are `.dbc`
@@ -23,6 +25,7 @@
 #include <aletheia/client.hpp>
 #include <aletheia/dbc.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
+#include <aletheia/excel.hpp>
 #include <aletheia/types.hpp>
 #include <aletheia/validation.hpp>
 
@@ -590,6 +593,18 @@ static auto cmd_mux_query(const Args& a) -> int {
     return mux_selector(*msg, a.opts.at("mux"), value, a.flags.contains("json"));
 }
 
+// Writes the blank workbook the Excel loaders read; a path that exists is
+// refused and left as it was.
+static auto cmd_template(const Args& a) -> int {
+    if (a.positionals.size() != 1)
+        return die("template requires one <path> positional argument");
+    auto const& path = a.positionals.front();
+    if (auto made = aletheia::create_excel_template(path); !made)
+        return die(made.error().message());
+    std::cout << "Template written to " << path << '\n';
+    return std::cout ? cli_exit_ok : cli_exit_error;
+}
+
 constexpr std::string_view k_usage =
     "aletheia: formally verified CAN signal analysis (C++ CLI)\n\n"
     "Usage: aletheia-cli <command> [flags] [args]\n\n"
@@ -598,7 +613,8 @@ constexpr std::string_view k_usage =
     "  extract     decode signals from a single CAN frame\n"
     "  signals     list signals defined in a DBC file\n"
     "  format-dbc  re-export a DBC as canonical JSON via the Agda core\n"
-    "  mux-query   inspect multiplexor structure of a DBC message\n\n"
+    "  mux-query   inspect multiplexor structure of a DBC message\n"
+    "  template    write a blank Excel workbook to fill in with a DBC and checks\n\n"
     "DBC source: --dbc <file>.dbc (verified text parser). Flags may go before or after "
     "positionals.\n"
     "Library path: $ALETHEIA_LIB or a build/install default.";
@@ -628,6 +644,12 @@ static auto dispatch(const std::string& cmd, std::span<const std::string> rest) 
         if (!parsed)
             return die(parsed.error());
         return cmd_mux_query(*parsed);
+    }
+    if (cmd == "template") {
+        auto parsed = parse_args(rest, {}, {});
+        if (!parsed)
+            return die(parsed.error());
+        return cmd_template(*parsed);
     }
     if (cmd == "check") {
         std::cerr << "Error: 'check' is not available in the C++ CLI: it needs a CAN-log reader "

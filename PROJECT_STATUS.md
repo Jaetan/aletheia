@@ -14,8 +14,8 @@ that changes continuously lives in dedicated surfaces, not here:
 ## Phases
 
 Phases 1 through 5.1 are ✅ complete; all provable correctness properties are
-proven. Phase 6 is in progress: one of its three adoption prerequisites has
-shipped, across two releases, and two are open.
+proven. Phase 6 is in progress: two of its three adoption prerequisites have
+shipped and one is open.
 
 | Phase | Title | Status | Key deliverables |
 |---|---|---|---|
@@ -90,9 +90,12 @@ cannot honestly advertise capabilities it does not yet have.
        covered only the visibility flip). The dispatch dry-run
        (`gh workflow run release.yml`) — the whole pipeline minus its publish
        steps — caught the Python one; the real tag caught the GHCR one.
-2. **`aletheia template <file>.xlsx` CLI subcommand.** A true no-code way to obtain
-   the Excel template (today it needs a Python one-liner), so the non-programmer
-   on-ramp is real.
+2. **✅ `aletheia template <file>.xlsx` CLI subcommand (2026-09-29).** A true
+   no-code way to obtain the Excel template, in the Python, C++ and Go CLIs, so
+   the non-programmer's spreadsheet route starts from the command line. The Go
+   CLI is a module of its own in the `go/` workspace, since the template is
+   written through the Excel module and the core module stays free of
+   excelize.
 3. **Go CAN-log reader.** Bring the `aletheia check … <log>` streaming command to
    Go for full CLI parity (it is Python-only today).
 

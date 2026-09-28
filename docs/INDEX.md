@@ -34,7 +34,7 @@ Complete API documentation:
 - **[C++ API Guide](reference/CPP_API.md)** - `AletheiaClient`, Check API, and the `ltl::` DSL
 - **[Go API Guide](reference/GO_API.md)** - `Client`, Check API, and the LTL DSL
 - **[Rust API Guide](reference/RUST_API.md)** - `Client`, Check API, the typed DBC model, and the async client
-- **[CLI Reference](reference/CLI.md)** - `python3 -m aletheia` subcommands: check, validate, extract, signals, format-dbc, mux-query
+- **[CLI Reference](reference/CLI.md)** - `python3 -m aletheia` subcommands: check, validate, extract, signals, format-dbc, mux-query, template
 
 ---
 

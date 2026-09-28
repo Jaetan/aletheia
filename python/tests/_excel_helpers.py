@@ -117,6 +117,25 @@ def make_dbc_workbook(
     return p
 
 
+def append_rows(path: Path, title: str, rows: list[list[CellValue]]) -> None:
+    """Append rows to one sheet of an existing workbook (numerics written as text)."""
+    wb = openpyxl.load_workbook(path)
+    ws = wb[title]
+    for row in rows:
+        ws.append(_as_text_cells(row))
+    wb.save(str(path))
+    wb.close()
+
+
+def sheet_headers(path: Path) -> dict[str, list[CellValue]]:
+    """Return each sheet's first row, by sheet name, in the workbook's own order."""
+    wb = openpyxl.load_workbook(path)
+    try:
+        return {name: [cell.value for cell in wb[name][1]] for name in wb.sheetnames}
+    finally:
+        wb.close()
+
+
 def make_number_cell_workbook(
     tmp_path: Path,
     title: str,

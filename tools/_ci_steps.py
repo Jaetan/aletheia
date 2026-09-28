@@ -68,7 +68,6 @@ HEAVY_STEPS: frozenset[str] = frozenset(
         AGDA_GATES_STEP,
         "pytest",
         "go test -race",
-        "go test -race (excel module)",
         "ctest",
         "ubsan ctest",
         "asan ctest",
@@ -112,6 +111,26 @@ FAST_STEPS: frozenset[str] = frozenset(
         "pylint",
     }
 )
+
+
+# The cgo-free build of every package, keeping nothing: a module holding one
+# main package, the command line, would otherwise write its executable into
+# the tree.
+GO_BUILD_NO_CGO = "CGO_ENABLED=0 go build -o /dev/null ./..."
+
+
+def in_every_go_module(cmd: str) -> str:
+    """Return a ``/bin/sh`` command running ``cmd`` in every module of the Go workspace.
+
+    ``./...`` stops at a module's edge, so a command run from ``go/`` reaches the
+    core module alone.  The list is the workspace's own, ``go list -m`` read from
+    ``go/go.work``, so a module the workspace adds is gated the day it is added.
+    An empty or failed listing fails the step, as does the first module that fails.
+    """
+    return (
+        "mods=$(go list -m -f '{{.Dir}}') && test -n \"$mods\" || exit 1; "
+        + f'for m in $mods; do (cd "$m" && {cmd}) || exit 1; done'
+    )
 
 
 def build_prereq_cmd(python: str) -> list[str]:
@@ -306,9 +325,8 @@ def _run_binding_tests(runner: Runner) -> None:
         ],
         cwd=runner.repo_root / "python",
     )
-    # Cover EVERY Go package, not just ./aletheia/: the core module's packages
-    # (aletheia + cmd/aletheia) AND the separate excel module (its own go.mod, so
-    # `./...` from go/ stops at the module boundary — it needs its own run).
+    # Cover EVERY Go package, not just ./aletheia/: every module of the workspace,
+    # the core, the command line and the excel loader, each with its own go.mod.
     # ALETHEIA_LIB pins the .so explicitly so no package depends on
     # findFFILibrary's relative probe: cmd/aletheia's test cwd is too deep for it
     # (its `../../build` resolves to go/build, not the repo root), and setting the
@@ -316,13 +334,8 @@ def _run_binding_tests(runner: Runner) -> None:
     go_lib = shlex.quote(str(runner.repo_root / "build" / "libaletheia-ffi.so"))
     runner.step(
         "go test -race",
-        f"ALETHEIA_LIB={go_lib} go test ./... -count=1 -race",
+        in_every_go_module(f"ALETHEIA_LIB={go_lib} go test ./... -count=1 -race"),
         cwd=runner.repo_root / "go",
-    )
-    runner.step(
-        "go test -race (excel module)",
-        f"ALETHEIA_LIB={go_lib} go test ./... -count=1 -race",
-        cwd=runner.repo_root / "go" / "excel",
     )
     # ALETHEIA_LIB pins the .so explicitly so no test depends on the renderer's
     # cwd-relative probe (`../../build/...` from cpp/build) — uniform, cwd-
@@ -423,9 +436,9 @@ def _run_lints(runner: Runner) -> None:
     )
 
     # gofmt -l (LIST mode): stdout non-empty == files need reformatting. `gofmt -l .`
-    # walks every .go file under go/ (it ignores module boundaries, so the excel
-    # submodule is covered too); `go vet` does respect them, so excel needs its own
-    # invocation alongside the core module's `./...`.
+    # walks every .go file under go/ (it ignores module boundaries, so every
+    # workspace module is covered too); `go vet` does respect them, so it runs in
+    # each module.
     # Split into a compile-free format check ("gofmt", eligible for the pre-commit
     # FAST tier) and the type-checking "go vet" (needs the Go toolchain to compile,
     # so it stays a pre-push-only step).  Both keep their original commands verbatim.
@@ -438,12 +451,12 @@ def _run_lints(runner: Runner) -> None:
         'test "$rc" -eq 0 && test "$n" -eq 0'
     )
     runner.step("gofmt", gofmt_cmd, cwd=runner.repo_root / "go")
-    runner.step("go vet", "go vet ./... && (cd excel && go vet ./...)", cwd=runner.repo_root / "go")
+    runner.step("go vet", in_every_go_module("go vet ./..."), cwd=runner.repo_root / "go")
 
     # The binding keeps a second implementation for builds without cgo, which
     # the binding's own verification list names and which nothing here compiled:
     # a developer running that list caught a drift and this did not.  Building
-    # both modules with cgo off compiles the stub against every consumer in the
+    # every module with cgo off compiles the stub against every consumer in the
     # tree, the commands and the two benchmark binaries included, so a symbol it
     # stops declaring fails here.  It costs a compile of a small module: 2.6s
     # cold and 0.1s warm on the reference host.  A signature that drifts while
@@ -451,7 +464,7 @@ def _run_lints(runner: Runner) -> None:
     # for; it stays a probe.
     runner.step(
         "go build (no cgo)",
-        "CGO_ENABLED=0 go build ./... && (cd excel && CGO_ENABLED=0 go build ./...)",
+        in_every_go_module(GO_BUILD_NO_CGO),
         cwd=runner.repo_root / "go",
     )
 

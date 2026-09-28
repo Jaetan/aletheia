@@ -82,5 +82,5 @@ Plain-language definitions of the CAN, DBC, and verification terms used across t
 
 - **[Cookbook](guides/COOKBOOK.md)** — problem-driven recipes
 - **[Quick Start](guides/QUICKSTART.md)** — 5-minute tutorial
-- **[CLI Reference](reference/CLI.md)** — the `aletheia` command and its six subcommands
+- **[CLI Reference](reference/CLI.md)** — the `aletheia` command and its subcommands
 - **[Protocol Reference](architecture/PROTOCOL.md)** — the wire format and error codes

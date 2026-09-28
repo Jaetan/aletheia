@@ -309,9 +309,16 @@ def run_go(artifact_dir: Path) -> CoverageReport:
         rep.error = str(exc)
         return rep
     blocks: list[GoBlock] = []
-    # The core module and the excel module, which has a go.mod of its own that
-    # `./...` from go/ stops at.
-    for name, module in (("core", REPO_ROOT / "go"), ("excel", REPO_ROOT / "go" / "excel")):
+    # Every module of the workspace, each with a go.mod of its own that `./...`
+    # stops at, read from the workspace so a module it adds is measured too.
+    listing = run_capture([go, "list", "-m", "-f", "{{.Dir}}"], cwd=REPO_ROOT / "go")
+    modules = [Path(line) for line in listing.stdout.splitlines() if line]
+    if listing.returncode != 0 or not modules:
+        rep.error = f"go list -m exited {listing.returncode} listing {len(modules)} modules"
+        return rep
+    for module in modules:
+        rel = module.relative_to(REPO_ROOT / "go").as_posix()
+        name = "core" if rel == "." else rel.replace("/", "-")
         profile = artifact_dir / f"go-{name}.cover"
         cmd = [go, "test", "./...", "-count=1", "-covermode=atomic", f"-coverprofile={profile}"]
         rep.error = _run(cmd, cwd=module, label=f"coverage go ({name})")

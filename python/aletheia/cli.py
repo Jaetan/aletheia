@@ -9,6 +9,7 @@ Subcommands:
     signals    — list all signals defined in a DBC file
     format-dbc — re-export a DBC as canonical JSON via the Agda core
     mux-query  — inspect multiplexor structure of a DBC message
+    template   — write a blank Excel workbook to fill in with a DBC and checks
 
 Usage:
     python -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
@@ -17,6 +18,7 @@ Usage:
     python -m aletheia format-dbc --dbc vehicle.dbc
     python -m aletheia mux-query --dbc vehicle.dbc 0x100
     python -m aletheia mux-query --dbc vehicle.dbc 0x100 --mux Mode --value 5
+    python -m aletheia template checks.xlsx
 """
 
 from __future__ import annotations
@@ -81,6 +83,11 @@ def _lazy_load_dbc_from_excel() -> Callable[[str | Path], DBCDefinition]:
 def _lazy_load_checks_from_excel() -> Callable[[str | Path], list[CheckResult]]:
     mod = importlib.import_module(".excel_loader", __package__)
     return cast("Callable[[str | Path], list[CheckResult]]", mod.load_checks_from_excel)
+
+
+def _lazy_create_template() -> Callable[[str | Path], None]:
+    mod = importlib.import_module(".excel_loader", __package__)
+    return cast("Callable[[str | Path], None]", mod.create_template)
 
 
 def _lazy_load_yaml_checks() -> Callable[[str | Path], list[CheckResult]]:
@@ -804,6 +811,14 @@ def _cmd_mux_query(args: argparse.Namespace) -> int:
     return _EXIT_OK
 
 
+def _cmd_template(args: argparse.Namespace) -> int:
+    """Write a blank Excel workbook, refusing a path that already exists."""
+    path: str = args.path
+    _lazy_create_template()(path)
+    _emit(f"Template written to {path}")
+    return _EXIT_OK
+
+
 # ============================================================================
 # Argument parser
 # ============================================================================
@@ -902,6 +917,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_mux.add_argument("--json", action="store_true", help="output as JSON")
 
+    # -- template ------------------------------------------------------------
+    p_template = subparsers.add_parser(
+        "template",
+        help="write a blank Excel workbook to fill in with a DBC and checks",
+    )
+    p_template.add_argument("path", help=".xlsx file to create; an existing file is refused")
+
     return parser
 
 
@@ -915,7 +937,17 @@ _COMMANDS = {
     "format-dbc": _cmd_format_dbc,
     "mux-query": _cmd_mux_query,
     "signals": _cmd_signals,
+    "template": _cmd_template,
     "validate": _cmd_validate,
+}
+
+# The optional extras a subcommand can reach, keyed by the module a missing
+# extra fails to import: the distribution that provides it, and the extra
+# that installs it.
+_OPTIONAL_EXTRAS = {
+    "can": ("python-can", "can"),
+    "openpyxl": ("openpyxl", "excel"),
+    "yaml": ("PyYAML", "yaml"),
 }
 
 
@@ -929,6 +961,16 @@ def main(argv: list[str] | None = None) -> int:
         return handler(args)
     except SystemExit as e:
         return e.code if isinstance(e.code, int) else _EXIT_ERROR
-    except (AletheiaError, FileNotFoundError, ValueError) as e:
+    except (AletheiaError, OSError, ValueError) as e:
         sys.stderr.write(f"Error: {e}\n")
+        return _EXIT_ERROR
+    except ImportError as e:
+        missing = _OPTIONAL_EXTRAS.get((e.name or "").split(".", 1)[0])
+        if missing is None:
+            raise
+        distribution, extra = missing
+        sys.stderr.write(
+            f"Error: {distribution} is not installed; install it with "
+            + f"pip install 'aletheia[{extra}]'\n"
+        )
         return _EXIT_ERROR

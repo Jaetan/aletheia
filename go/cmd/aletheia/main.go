@@ -5,7 +5,8 @@
 // verification core. It carries the subcommands `python -m aletheia` carries,
 // validate, extract, signals, format-dbc and mux-query, and dispatches each to
 // the verified Agda core through the cgo client. No analysis is reimplemented
-// here; the CLI is plumbing.
+// here; the CLI is plumbing. The template subcommand writes the blank Excel
+// workbook through the Excel module, without the core.
 //
 // There is no `check` subcommand, which evaluates a formula over a CAN log
 // file: it needs a CAN-log reader the Go binding does not provide. A DBC source
@@ -32,6 +33,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Jaetan/aletheia/go/excel"
 	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
@@ -62,6 +64,8 @@ func run(argv []string) int {
 		return cmdFormatDBC(rest)
 	case "mux-query":
 		return cmdMuxQuery(rest)
+	case "template":
+		return cmdTemplate(rest)
 	case "check":
 		fmt.Fprintln(os.Stderr, "Error: 'check' is not available in the Go CLI: it needs a CAN-log reader "+
 			"the binding does not provide. Use the Python CLI for log-file checking.")
@@ -85,6 +89,7 @@ Commands:
   signals     list signals defined in a DBC file
   format-dbc  re-export a DBC as canonical JSON via the Agda core
   mux-query   inspect multiplexor structure of a DBC message
+  template    write a blank Excel workbook to fill in with a DBC and checks
 
 DBC source: --dbc <file>.dbc (verified text parser). Flags may go before or after positionals.
 Library path: $ALETHEIA_LIB or a build/install default.`
@@ -516,6 +521,28 @@ func cmdFormatDBC(argv []string) int {
 		return die(err.Error())
 	}
 	return emitJSON(canonical) // canonical via DBCDefinition.MarshalJSON
+}
+
+// --- template -------------------------------------------------------------
+
+// cmdTemplate writes the blank workbook the Excel loaders read; a path that
+// exists is refused and left as it was.
+func cmdTemplate(argv []string) int {
+	fs := newFlagSet("template")
+	if err := fs.Parse(argv); err != nil {
+		return exitError
+	}
+	if fs.NArg() != 1 {
+		return die("template requires one <path> positional argument")
+	}
+	path := fs.Arg(0)
+	if err := excel.CreateTemplate(path); err != nil {
+		return die(err.Error())
+	}
+	if _, err := fmt.Printf("Template written to %s\n", path); err != nil {
+		return die(fmt.Sprintf("writing the report: %v", err))
+	}
+	return exitOK
 }
 
 // --- mux-query ------------------------------------------------------------

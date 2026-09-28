@@ -485,6 +485,12 @@ from aletheia import load_checks_from_excel, load_dbc_from_excel, create_templat
 
 **1. Create a template:**
 
+```bash
+aletheia template vehicle_checks.xlsx
+```
+
+or from Python:
+
 ```python
 from aletheia import create_template
 create_template("vehicle_checks.xlsx")

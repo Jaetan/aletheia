@@ -20,11 +20,15 @@ core. Missing prerequisites skip loudly:
 
 A subcommand-coverage tripwire asserts every ``meta.subcommands`` entry has at
 least one scenario and appears in each CLI's ``--help`` output, so a new
-subcommand cannot ship uncovered and a CLI cannot silently drop one.
+subcommand cannot ship uncovered and a CLI cannot silently drop one. No run may
+change its fixture, and a workbook a scenario says a run writes is held to the
+sheets and header rows the Python Excel loader reads, so the three CLIs write
+one template.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -36,7 +40,10 @@ from typing import NamedTuple, cast
 import pytest
 import yaml
 from _cli_check_helpers import run_captured
+from _excel_helpers import sheet_headers
 from _yaml_shape import as_str_object_dict
+
+from aletheia.excel_loader import CHECKS_HEADERS, DBC_HEADERS, WHEN_THEN_HEADERS
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCENARIOS_PATH = _REPO_ROOT / "docs" / "CLI_SCENARIOS.yaml"
@@ -53,6 +60,14 @@ _RUN_TIMEOUT_S = 120  # each call brings up the GHC RTS; empirically ~1 s
 _BUILD_TIMEOUT_S = 300
 
 _CLI_NAMES: tuple[str, ...] = ("python", "go", "cpp")
+
+# The workbook the Python Excel loader reads: its sheets, in order, each with
+# its header row.
+_TEMPLATE_SHEETS: dict[str, list[str]] = {
+    "DBC": DBC_HEADERS,
+    "Checks": CHECKS_HEADERS,
+    "When-Then": WHEN_THEN_HEADERS,
+}
 
 
 class CliUnderTest(NamedTuple):
@@ -172,9 +187,12 @@ def _run_cli(argv: list[str], env: dict[str, str]) -> subprocess.CompletedProces
 # ---------------------------------------------------------------------------
 
 
-def _resolve_fixture(scenario: dict[str, object]) -> Path:
-    """Resolve the scenario's fixture path and check its declared existence."""
+def _resolve_fixture(scenario: dict[str, object]) -> Path | None:
+    """Resolve the scenario's fixture path, if it names one, and check its declared existence."""
     sid = _scenario_str(scenario, "id")
+    if "fixture" not in scenario:
+        assert "fixture_exists" not in scenario, f"{sid}: fixture_exists without a fixture"
+        return None
     fixture_path = _FIXTURES_DIR / _scenario_str(scenario, "fixture")
     exists_flag: object = scenario.get("fixture_exists", True)
     assert isinstance(exists_flag, bool), f"{sid}: fixture_exists must be a bool"
@@ -185,6 +203,21 @@ def _resolve_fixture(scenario: dict[str, object]) -> Path:
             f"{sid}: fixture declared fixture_exists:false but exists: {fixture_path}"
         )
     return fixture_path
+
+
+def _substitute(arg: str, fixture_path: Path | None, tmp_path: Path, sid: str) -> str:
+    """Replace the ``{dbc}`` and ``{tmp}`` placeholders of one argument."""
+    if "{dbc}" in arg:
+        assert fixture_path is not None, f"{sid}: an argument names {{dbc}} and there is no fixture"
+        arg = arg.replace("{dbc}", str(fixture_path))
+    return arg.replace("{tmp}", str(tmp_path))
+
+
+def _digest(path: Path | None) -> str | None:
+    """Return the SHA-256 of the file at ``path``, or None where there is none."""
+    if path is None or not path.is_file():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _effective(scenario: dict[str, object], cli_name: str, key: str) -> object:
@@ -266,37 +299,61 @@ def _failure_report(argv: list[str], result: subprocess.CompletedProcess[str]) -
 
 
 @pytest.mark.parametrize("scenario", _SCENARIOS, ids=_SCENARIO_IDS)
-def test_scenario(cli: CliUnderTest, scenario: dict[str, object], cli_env: dict[str, str]) -> None:
-    """Every contract scenario holds on every CLI (exit code, streams, JSON)."""
+def test_scenario(
+    cli: CliUnderTest, scenario: dict[str, object], cli_env: dict[str, str], tmp_path: Path
+) -> None:
+    """Every contract scenario holds on every CLI (exit code, streams, JSON, files)."""
     sid = _scenario_str(scenario, "id")
     fixture_path = _resolve_fixture(scenario)
+    fixture_before = _digest(fixture_path)
     args = _str_list(_effective(scenario, cli.name, "args"), f"{sid}.args")
     argv = [
         *cli.argv,
         _scenario_str(scenario, "subcommand"),
-        *(arg.replace("{dbc}", str(fixture_path)) for arg in args),
+        *(_substitute(arg, fixture_path, tmp_path, sid) for arg in args),
     ]
     result = _run_cli(argv, cli_env)
-
+    assert _digest(fixture_path) == fixture_before, (
+        f"{sid} on {cli.name}: the run changed its fixture\n{_failure_report(argv, result)}"
+    )
     expect = as_str_object_dict(_effective(scenario, cli.name, "expect"), f"{sid}.expect")
+    _assert_expect(expect, argv, result, sid, cli.name)
+    if "writes_template" in expect:
+        written_arg = expect["writes_template"]
+        assert isinstance(written_arg, str), f"{sid}.expect.writes_template must be a string"
+        written = Path(_substitute(written_arg, fixture_path, tmp_path, sid))
+        assert written.is_file(), f"{sid} on {cli.name}: no workbook at {written}"
+        assert sheet_headers(written) == _TEMPLATE_SHEETS, (
+            f"{sid} on {cli.name}: the workbook's sheets and header rows are not the loader's"
+        )
+
+
+def _assert_expect(
+    expect: dict[str, object],
+    argv: list[str],
+    result: subprocess.CompletedProcess[str],
+    sid: str,
+    cli_name: str,
+) -> None:
+    """Assert a run's exit code, stream substrings and JSON pins against ``expect``."""
     expected_exit: object = expect.get("exit")
     assert isinstance(expected_exit, int), f"{sid}.expect.exit must be an int"
     assert result.returncode == expected_exit, (
-        f"{sid} on {cli.name}: expected exit {expected_exit}\n{_failure_report(argv, result)}"
+        f"{sid} on {cli_name}: expected exit {expected_exit}\n{_failure_report(argv, result)}"
     )
     if "stdout_contains" in expect:
         for needle in _str_list(expect["stdout_contains"], f"{sid}.expect.stdout_contains"):
             assert needle in result.stdout, (
-                f"{sid} on {cli.name}: stdout missing {needle!r}\n{_failure_report(argv, result)}"
+                f"{sid} on {cli_name}: stdout missing {needle!r}\n{_failure_report(argv, result)}"
             )
     if "stderr_contains" in expect:
         for needle in _str_list(expect["stderr_contains"], f"{sid}.expect.stderr_contains"):
             assert needle in result.stderr, (
-                f"{sid} on {cli.name}: stderr missing {needle!r}\n{_failure_report(argv, result)}"
+                f"{sid} on {cli_name}: stderr missing {needle!r}\n{_failure_report(argv, result)}"
             )
     if "json" in expect:
         pins = as_str_object_dict(expect["json"], f"{sid}.expect.json")
-        _assert_json_pins(result.stdout, pins, f"{sid} on {cli.name}")
+        _assert_json_pins(result.stdout, pins, f"{sid} on {cli_name}")
 
 
 # ---------------------------------------------------------------------------

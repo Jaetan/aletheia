@@ -17,7 +17,7 @@ aletheia <subcommand> [options]
 > If the `aletheia` command isn't on your `PATH` (e.g. a virtualenv that isn't
 > activated), the exact equivalent is `python3 -m aletheia <subcommand> [options]`.
 
-Six subcommands: `check`, `validate`, `extract`, `signals`, `format-dbc`, `mux-query`.
+Subcommands: `check`, `validate`, `extract`, `signals`, `format-dbc`, `mux-query`, `template`.
 
 **Exit codes** (all subcommands):
 - `0` — success (or all checks passed)
@@ -449,6 +449,30 @@ Message 0x200 EngineStatus (DLC 8)
 
 ---
 
+## template
+
+Write a blank Excel workbook to fill in with a DBC and checks, the first step of the spreadsheet route.
+
+```
+aletheia template PATH
+```
+
+**Arguments**:
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `PATH` | yes | .xlsx file to create |
+
+The workbook has three sheets, **DBC**, **Checks** and **When-Then**, each with its header row in bold; the columns are the ones the Excel loader reads ([Interface Guide](INTERFACES.md#excel-loader)). Filled in, it is the workbook `check --excel` takes. A path that already exists is refused and left as it was, and so is a path whose directory does not exist: both exit 2. The command needs the `[excel]` extra (`pip install 'aletheia[excel]'`); without it the error names that install.
+
+**Text output**:
+```
+$ aletheia template checks.xlsx
+Template written to checks.xlsx
+```
+
+---
+
 ## Common Options
 
 Error frames and remote frames are skipped by default. Frame data is normalized to match the DLC byte count (padded or truncated as needed).
@@ -469,8 +493,8 @@ Error frames and remote frames are skipped by default. Frame data is normalized 
 
 The C++ and Go bindings ship the **same subcommand surface** as a thin host
 binary over their client — `validate`, `extract`, `signals`, `format-dbc`,
-`mux-query` — with identical exit codes and JSON output shapes. Two scope
-differences from the Python CLI above:
+`mux-query`, `template` — with identical exit codes and JSON output shapes. Two
+scope differences from the Python CLI above:
 
 - **`check` is not yet available** in the C++/Go CLIs: it needs a verified
   CAN-log reader (a Phase 6 item). Use the Python CLI for log-file checking.
@@ -494,7 +518,8 @@ ALETHEIA_LIB=build/libaletheia-ffi.so cpp/build/aletheia-cli validate --dbc vehi
 
 ```bash
 ALETHEIA_LIB=build/libaletheia-ffi.so go run ./cmd/aletheia signals --dbc vehicle.dbc
-# or build a standalone binary: (cd go && go build -o aletheia ./cmd/aletheia)
+# or build a standalone binary: (cd go && go build -o aletheia-cli ./cmd/aletheia)
+# cmd/aletheia is a module of its own in the go/ workspace, so both run from go/
 ```
 
 The **Rust** binding ships a typed client library but no CLI yet (a Phase 6

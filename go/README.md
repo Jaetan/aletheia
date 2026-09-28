@@ -16,6 +16,7 @@ cd go && go test ./aletheia/ -count=1 -race
 
 - `go/aletheia/` — main binding (cgo + dlopen; FFI trampolines for Haskell RTS)
 - `go/excel/` — separate Go module pulling `xuri/excelize` for the Excel loader; depend on it only when needed
+- `go/cmd/aletheia/` — the command line, a module of its own because its `template` subcommand writes through the Excel loader; built from the workspace, `go/go.work`
 
 ## Usage
 

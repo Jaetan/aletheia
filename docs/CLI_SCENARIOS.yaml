@@ -19,7 +19,7 @@
 #
 # Schema:
 #   meta:
-#     subcommands: all five subcommands every CLI must expose; the harness
+#     subcommands: the subcommands every CLI must expose; the harness
 #       asserts each has >= 1 scenario below AND appears in each CLI's
 #       --help/usage output.
 #   scenarios[]:
@@ -27,8 +27,11 @@
 #     subcommand: one of meta.subcommands
 #     args:       argv list appended after the subcommand; every entry is a
 #                 string; the literal "{dbc}" placeholder is replaced with the
-#                 absolute path of `fixture`
-#     fixture:    path relative to python/tests/fixtures/
+#                 absolute path of `fixture`, and "{tmp}" with a fresh empty
+#                 directory the run may write into
+#     fixture:    optional path relative to python/tests/fixtures/, required
+#                 where an argument names "{dbc}"; no run may change it, and
+#                 the harness compares its bytes before and after
 #     fixture_exists: optional, default true. Set false ONLY for scenarios
 #                 that exercise missing-file handling; the harness asserts
 #                 existence (or intentional absence) either way, so a typo'd
@@ -45,6 +48,9 @@
 #                        of partial objects, each of which must subset-match
 #                        (all given keys equal) at least one element of the
 #                        actual list.
+#       writes_template: optional path, placeholders as in `args`, of a
+#                        workbook the run must write: its sheets and their
+#                        header rows are the Python Excel loader's, in order.
 #     overrides:  optional per-CLI divergence, keyed "python" / "go" / "cpp";
 #                 each entry may replace `args` and/or `expect` wholesale for
 #                 that CLI. Allowed ONLY where a divergence has been ratified
@@ -69,6 +75,7 @@ meta:
     - signals
     - format-dbc
     - mux-query
+    - template
 
 scenarios:
   # -- validate --------------------------------------------------------------
@@ -210,3 +217,39 @@ scenarios:
       stdout_contains:
         - "BasicMux"
         - "Mode:"
+
+  # -- template --------------------------------------------------------------
+
+  # The blank workbook every CLI writes is one template: the sheets and header
+  # rows the Python Excel loader reads. It is written through each binding's
+  # own loader module, not the core.
+  - id: template-writes
+    subcommand: template
+    args: ["{tmp}/checks.xlsx"]
+    expect:
+      exit: 0
+      stdout_contains:
+        - "Template written to "
+      writes_template: "{tmp}/checks.xlsx"
+
+  # A path that exists is refused: an operational error naming it, the file
+  # left as it was. The fixture stands in for the existing file. Go's error
+  # spells the sentence in lower case, so the shared tail is what is pinned.
+  - id: template-existing-path
+    subcommand: template
+    args: ["{dbc}"]
+    fixture: dbc_corpus/minimal.dbc
+    expect:
+      exit: 2
+      stderr_contains:
+        - "Error:"
+        - "already exists"
+
+  # A parent directory that does not exist is an operational error.
+  - id: template-missing-parent
+    subcommand: template
+    args: ["{tmp}/missing/checks.xlsx"]
+    expect:
+      exit: 2
+      stderr_contains:
+        - "Error:"

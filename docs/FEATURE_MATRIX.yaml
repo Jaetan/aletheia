@@ -638,11 +638,11 @@ features:
       cpp:
         status: implemented
         entry: "aletheia/cli.hpp#run_cli"
-        notes: "Phase 6 (2026-06-12): aletheia-cli host binary — validate/extract/signals/format-dbc/mux-query dispatching to AletheiaClient. 'check' is deferred (needs the can_log_reader row); --dbc reads .dbc text via the verified parser (JSON/.xlsx input deferred)."
+        notes: "Phase 6 (2026-06-12): aletheia-cli host binary — validate/extract/signals/format-dbc/mux-query dispatching to AletheiaClient, and template writing the Excel workbook through the binding's loader. 'check' is deferred (needs the can_log_reader row); --dbc reads .dbc text via the verified parser (JSON/.xlsx input deferred)."
       go:
         status: implemented
         entry: cmd/aletheia:run
-        notes: "Phase 6 (2026-06-12): go/cmd/aletheia host binary — validate/extract/signals/format-dbc/mux-query dispatching to Client. 'check' is deferred (needs the can_log_reader row); --dbc reads .dbc text via the verified parser (JSON/.xlsx input deferred)."
+        notes: "Phase 6 (2026-06-12): go/cmd/aletheia host binary, a module of its own in the go/ workspace — validate/extract/signals/format-dbc/mux-query dispatching to Client, and template writing the Excel workbook through the excel module. 'check' is deferred (needs the can_log_reader row); --dbc reads .dbc text via the verified parser (JSON/.xlsx input deferred)."
       rust: { status: planned, notes: "Phase 6 — Rust host CLI, scheduled with the python-can replacement / host-surface work (see can_log_reader); a Phase 6 host-surface item, beyond the completed Rust parity work." }
 
   - id: can_log_reader

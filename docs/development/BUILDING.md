@@ -315,7 +315,8 @@ cd ../cpp && cmake -B build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=cla
 
 # Go tests (requires cgo)
 cd ../go && go test ./aletheia/ -v -count=1 -race
-# The optional Excel loader is the separate go/excel module: cd excel && go test ./...
+# The command line and the optional Excel loader are modules of their own:
+# (cd cmd/aletheia && go test ./...) and (cd excel && go test ./...)
 
 # Rust tests (default `yaml` feature; opt-in `async`)
 cd ../rust && ALETHEIA_LIB=../build/libaletheia-ffi.so cargo test

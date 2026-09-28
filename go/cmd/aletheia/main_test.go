@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Jaetan/aletheia/go/excel"
 	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
@@ -59,13 +60,25 @@ func silenceStdout(t *testing.T) {
 // wrote, so a test can assert the CLI's text output (not just its exit code).
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
+	return capture(t, &os.Stdout, fn)
+}
+
+// captureStderr is captureStdout for the error line.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	return capture(t, &os.Stderr, fn)
+}
+
+// capture runs fn with *stream redirected to a pipe and returns what it wrote.
+func capture(t *testing.T, stream **os.File, fn func()) string {
+	t.Helper()
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("os.Pipe: %v", err)
 	}
-	old := os.Stdout
-	os.Stdout = w
-	defer func() { os.Stdout = old }() // restore even if fn panics
+	old := *stream
+	*stream = w
+	defer func() { *stream = old }() // restore even if fn panics
 
 	// Drained as it is written, so a large write cannot fill the pipe and wait.
 	done := make(chan string, 1)
@@ -245,6 +258,92 @@ func TestCLICheckDeferred(t *testing.T) {
 	// The interface does not carry check, and says so rather than succeeding.
 	if code := run([]string{"check"}); code != exitError {
 		t.Errorf("run([check]) = %d, want %d", code, exitError)
+	}
+}
+
+// TestCLITemplateWritesTheWorkbookTheLoadersRead: the file written is the
+// workbook the Excel module reads, its sheets present and headed, nothing under
+// the headers. Writing it goes through the Excel module, not the core, so the
+// test needs no library.
+func TestCLITemplateWritesTheWorkbookTheLoadersRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "checks.xlsx")
+	var code int
+	out := captureStdout(t, func() { code = run([]string{"template", path}) })
+	if code != exitOK {
+		t.Fatalf("run([template %s]) = %d, want %d", path, code, exitOK)
+	}
+	if want := "Template written to " + path + "\n"; out != want {
+		t.Errorf("stdout = %q, want %q", out, want)
+	}
+	checks, err := excel.LoadChecks(path)
+	if err != nil {
+		t.Fatalf("LoadChecks on the template: %v", err)
+	}
+	if len(checks) != 0 {
+		t.Errorf("LoadChecks on the template = %d checks, want none", len(checks))
+	}
+	if _, err := excel.LoadDbc(path); err == nil || !strings.Contains(err.Error(), "at least one data row") {
+		t.Errorf("LoadDbc on the template: err = %v, want the DBC sheet's empty-rows refusal", err)
+	}
+}
+
+// TestCLITemplateRefusesAnExistingPath: a path that exists exits 2 naming it,
+// and its bytes are not touched.
+func TestCLITemplateRefusesAnExistingPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "checks.xlsx")
+	if err := os.WriteFile(path, []byte("not a workbook"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var code int
+	errOut := captureStderr(t, func() { code = run([]string{"template", path}) })
+	if code != exitError {
+		t.Errorf("run([template existing]) = %d, want %d", code, exitError)
+	}
+	if want := "Error: aletheia validation error: file already exists: " + path + "\n"; errOut != want {
+		t.Errorf("stderr = %q, want %q", errOut, want)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "not a workbook" {
+		t.Errorf("existing file after refusal = %q (%v), want it unchanged", got, err)
+	}
+}
+
+// TestCLITemplateOperationalErrors: a missing parent directory, a wrong
+// argument count, a flag the command does not take, and a report that cannot
+// be written each exit 2.
+func TestCLITemplateOperationalErrors(t *testing.T) {
+	dir := t.TempDir()
+	for _, argv := range [][]string{
+		{"template", filepath.Join(dir, "missing", "checks.xlsx")},
+		{"template"},
+		{"template", filepath.Join(dir, "a.xlsx"), filepath.Join(dir, "b.xlsx")},
+		{"template", "--json", filepath.Join(dir, "a.xlsx")},
+	} {
+		var code int
+		_ = captureStderr(t, func() { code = run(argv) })
+		if code != exitError {
+			t.Errorf("run(%q) = %d, want %d", argv, code, exitError)
+		}
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+		t.Errorf("refused runs left %v (%v) behind, want nothing", entries, err)
+	}
+
+	// Standard output opened read-only refuses the report's write.
+	readOnly, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readOnly.Close()
+	var code int
+	_ = captureStderr(t, func() {
+		old := os.Stdout
+		os.Stdout = readOnly
+		defer func() { os.Stdout = old }() // restore even if run panics
+		code = run([]string{"template", filepath.Join(dir, "unreported.xlsx")})
+	})
+	if code != exitError {
+		t.Errorf("run([template]) with an unwritable stdout = %d, want %d", code, exitError)
 	}
 }
 
