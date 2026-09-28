@@ -22,6 +22,7 @@ from tools._ci_steps import (
     FAST_STEPS,
     HEAVY_STEPS,
     build_prereq_cmd,
+    in_every_go_module,
     register_all_steps,
     should_run_staleness,
 )
@@ -446,3 +447,42 @@ def test_pylint_config_fails_any_message_and_scores_it(tmp_path: Path) -> None:
     result = run_capture(argv, cwd=python_dir, env=_scratch_pylint_home(tmp_path))
     assert "rated at 9.00/10" in result.stdout, result.stdout
     assert result.returncode != 0, result.stdout
+
+
+def _go_loop(tmp_path: Path, listing: list[str], cmd: str, *, list_status: int = 0) -> int:
+    """Run :func:`in_every_go_module` over ``cmd`` with a ``go`` that lists ``listing``."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    go = bin_dir / "go"
+    lines = "".join(f"{entry}\n" for entry in listing)
+    _ = go.write_text(f"#!/bin/sh\nprintf '%s' '{lines}'\nexit {list_status}\n", encoding="utf-8")
+    go.chmod(0o755)
+    sh = find_executable("sh")
+    env = os.environ | {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+    return run_capture([sh, "-c", in_every_go_module(cmd)], cwd=tmp_path, env=env).returncode
+
+
+def test_the_go_module_loop_runs_the_command_in_every_listed_module(tmp_path: Path) -> None:
+    """Every module ``go list -m`` names gets the command, and the step passes."""
+    modules = [tmp_path / name for name in ("core", "cli", "excel")]
+    for module in modules:
+        module.mkdir()
+    assert _go_loop(tmp_path, [str(m) for m in modules], "touch ran") == 0
+    assert all((m / "ran").exists() for m in modules)
+
+
+def test_the_go_module_loop_fails_when_one_module_fails(tmp_path: Path) -> None:
+    """A module whose command fails fails the step, wherever it sits in the list."""
+    modules = [tmp_path / name for name in ("core", "cli", "excel")]
+    for module in modules:
+        module.mkdir()
+    listing = [str(m) for m in modules]
+    assert _go_loop(tmp_path, listing, 'test "$(basename "$PWD")" != cli') == 1
+
+
+def test_the_go_module_loop_fails_when_the_listing_fails_or_is_empty(tmp_path: Path) -> None:
+    """A workspace go cannot list, or one listing nothing, is a failure, never a pass."""
+    (tmp_path / "failed").mkdir()
+    (tmp_path / "empty").mkdir()
+    assert _go_loop(tmp_path / "failed", [], "true", list_status=1) == 1
+    assert _go_loop(tmp_path / "empty", [], "true") == 1

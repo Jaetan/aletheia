@@ -58,7 +58,7 @@ aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
 - **exit 1**: violations found, each printed with the exact microsecond timestamp
 - **exit 2**: an error, such as a bad DBC or an unreadable log
 
-The sample `drive.log` speeds past its 120 kph limit, so this run reports a timestamped `VehicleSpeed` violation and exits 1. The three shipped assets, `vehicle.dbc`, `vehicle_checks.yaml` and the candump `drive.log`, are a matched set. The trace argument takes any format the reader supports: `.asc`, `.blf`, `.csv`, `.db`, `.mf4`, `.trc` and candump `.log`. Full subcommand and flag reference: **[CLI Guide](docs/reference/CLI.md)**, six subcommands, `check`, `validate`, `extract`, `signals`, `format-dbc` and `mux-query`:
+The sample `drive.log` speeds past its 120 kph limit, so this run reports a timestamped `VehicleSpeed` violation and exits 1. The three shipped assets, `vehicle.dbc`, `vehicle_checks.yaml` and the candump `drive.log`, are a matched set. The trace argument takes any format the reader supports: `.asc`, `.blf`, `.csv`, `.db`, `.mf4`, `.trc` and candump `.log`. Full subcommand and flag reference: **[CLI Guide](docs/reference/CLI.md)**, the subcommands being `check`, `validate`, `extract`, `signals`, `format-dbc`, `mux-query` and `template`:
 
 ```bash
 # Validate a DBC and list every issue (errors and warnings)
@@ -69,6 +69,7 @@ aletheia signals --dbc vehicle.dbc
 
 # Code-free from a spreadsheet: one .xlsx workbook holding both the DBC and the
 # checks, the technician path (a filled-in template: examples/demo/demo_workbook.xlsx)
+aletheia template workbook.xlsx
 aletheia check --excel workbook.xlsx trace.log
 ```
 
@@ -196,9 +197,9 @@ Python is the **reference binding**. C++, Go, and Rust are **API-compatible port
 
 | Language | Start here | Host CLI |
 |---|---|---|
-| **Python** (reference) | [Python API Guide](docs/reference/PYTHON_API.md) | ✅ all 6 subcommands |
-| **C++** | [C++ API Guide](docs/reference/CPP_API.md) | ✅ 5, `check` deferred for want of a verified CAN-log reader |
-| **Go** | [Go API Guide](docs/reference/GO_API.md) | ✅ 5, `check` deferred for want of a verified CAN-log reader |
+| **Python** (reference) | [Python API Guide](docs/reference/PYTHON_API.md) | ✅ every subcommand |
+| **C++** | [C++ API Guide](docs/reference/CPP_API.md) | ✅ all but `check`, deferred for want of a verified CAN-log reader |
+| **Go** | [Go API Guide](docs/reference/GO_API.md) | ✅ all but `check`, deferred for want of a verified CAN-log reader |
 | **Rust** | [Rust API Guide](docs/reference/RUST_API.md) | typed client today; CLI is a Phase 6 goal |
 
 Linking the library into a C++, Go, or Rust project, the `add_subdirectory` / `go mod -replace` / `path`-dependency recipes plus where the release artifacts live, is in the [Distribution Guide § Wire it into your language](docs/development/DISTRIBUTION.md#2-wire-it-into-your-language).

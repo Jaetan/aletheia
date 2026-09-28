@@ -24,8 +24,10 @@ Define checks in a spreadsheet, run them from the command line. No Python coding
 
 ### Step 1: Create a Template
 
+The spreadsheet route needs the `[excel]` extra (`pip install 'aletheia[excel]'`, or `[all]`); without it the command names that install.
+
 ```bash
-python3 -c "from aletheia import create_template; create_template('checks.xlsx')"
+aletheia template checks.xlsx
 ```
 
 This creates an Excel workbook with three sheets: **DBC**, **Checks**, **When-Then**.
@@ -530,7 +532,7 @@ On any failure, read `error().kind()` / `error().code()` / `error().message()`; 
 
 ### CLI Boundary
 
-The `aletheia-cli` host binary carries the subcommands `python -m aletheia` carries, except `check`: `validate`, `extract`, `signals`, `format-dbc` and `mux-query`. It refuses `check` by name, which needs a CAN-log reader the binding does not provide. Verify through the streaming API above, or run `check` on the Python interface:
+The `aletheia-cli` host binary carries the subcommands `python -m aletheia` carries, except `check`: `validate`, `extract`, `signals`, `format-dbc`, `mux-query` and `template`. It refuses `check` by name, which needs a CAN-log reader the binding does not provide. Verify through the streaming API above, or run `check` on the Python interface:
 
 ```bash
 cmake -S cpp -B cpp/build && cmake --build cpp/build --target aletheia-cli
@@ -650,13 +652,13 @@ On failure, `errors.As` a returned error into the typed `*aletheia.Error` (`Kind
 
 ### CLI Boundary
 
-The `cmd/aletheia` host binary carries the subcommands `python -m aletheia` carries, except `check`: `validate`, `extract`, `signals`, `format-dbc` and `mux-query`. It refuses `check` by name, which needs a CAN-log reader the binding does not provide. Verify through the streaming API above, or run `check` on the Python interface:
+The `cmd/aletheia` host binary carries the subcommands `python -m aletheia` carries, except `check`: `validate`, `extract`, `signals`, `format-dbc`, `mux-query` and `template`. It refuses `check` by name, which needs a CAN-log reader the binding does not provide. Verify through the streaming API above, or run `check` on the Python interface:
 
 ```bash
-# From the go/ directory, where the module is; the interface finds the built
+# From the go/ directory, where the workspace is; the interface finds the built
 # library from there, and ALETHEIA_LIB points it elsewhere.
 go run ./cmd/aletheia signals --dbc ../examples/example.dbc
-# Or build the binary once: go build -o aletheia ./cmd/aletheia
+# Or build the binary once: go build -o aletheia-cli ./cmd/aletheia
 # The Go interface does not carry check; the Python one does:
 aletheia check --dbc examples/demo/vehicle.dbc --checks examples/demo/vehicle_checks.yaml examples/demo/drive.log
 ```

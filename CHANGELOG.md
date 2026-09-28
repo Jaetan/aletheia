@@ -12,6 +12,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **`aletheia template <file>.xlsx`, in the Python, C++ and Go CLIs.** It
+  writes the blank workbook the Excel loaders read, the DBC, Checks and
+  When-Then sheets under bold header rows, so the spreadsheet route starts from
+  the command line rather than a Python one-liner. A path that exists is
+  refused and left as it was, and so is a path whose directory does not exist:
+  both exit 2. The cross-CLI contract holds the three to one template, its
+  sheets and header rows being the Python loader's, and checks that no run
+  changes its fixture.
 - **`tools/build_python.sh` builds CPython from source with every Linux
   module.** It verifies the python.org tarball's Sigstore signature, builds
   with clang-23 using PGO, LTO, the tail-calling interpreter and BOLT, and links
@@ -141,6 +149,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The Go CLI is a module of its own, `go/cmd/aletheia`,** in the `go/`
+  workspace beside the core and Excel modules: `template` writes through the
+  Excel module, and the core module stays free of excelize. The CI's Go steps,
+  the coverage lane and the Go probes read the modules from the workspace with
+  `go list -m`, so a module the workspace adds is gated the day it is added.
 - **BREAKING (C ABI): the kernel's entries take structures, not lists of
   parameters, and the library reports the ABI version it implements.** Every
   entry carrying more than one value takes it as one structure by pointer: the
@@ -951,6 +964,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The Python CLI exits 2 with one `Error:` line on an operating-system error
+  and on a missing optional extra,** where it ended in a traceback: a directory
+  that cannot be written, a file that cannot be read, or an install without
+  the `[excel]`, `[yaml]` or `[can]` extra, the message naming the
+  `pip install` that brings it.
 - **The Rust mutation sweep never writes the tree, and the probe over the store
   reads a tool that would.** The Rust lane and the probe over its baseline ran
   cargo-mutants in place in the tree, so for as long as a sweep ran a mutant

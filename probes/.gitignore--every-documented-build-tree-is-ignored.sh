@@ -4,10 +4,11 @@
 #
 # Probes .gitignore.
 # Claim: every build directory the C++ build file tells a reader to create is
-# ignored, and the single-venv rule ignores only the sanctioned venv so a
-# stray one shows up in git status. Non-zero exit: a documented build tree
-# would be left untracked, the sanctioned venv is visible, or a venv outside
-# it is hidden.
+# ignored, so is every Go command-line binary a document tells a reader to
+# build from go/, and the single-venv rule ignores only the sanctioned venv so
+# a stray one shows up in git status. Non-zero exit: a documented build tree or
+# binary would be left untracked, the sanctioned venv is visible, or a venv
+# outside it is hidden.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 status=0
@@ -18,6 +19,16 @@ trees=$(grep -oE 'cmake -B [A-Za-z0-9_.-]+' cpp/CMakeLists.txt | awk '{print $3}
 for tree in $trees; do
     git check-ignore -q "cpp/$tree/probe" || {
         echo "a documented build tree is not ignored: cpp/$tree"
+        status=1
+    }
+done
+
+# Every `go build -o <name> ./cmd/aletheia` the documents print, run from go/.
+bins=$(git grep -hoE 'go build -o [A-Za-z0-9_.-]+ \./cmd/aletheia' -- '*.md' | awk '{print $4}' | sort -u)
+[ -n "$bins" ] || { echo "no document prints a build of the Go command line"; exit 2; }
+for bin in $bins; do
+    git check-ignore -q "go/$bin" || {
+        echo "a documented Go build output is not ignored: go/$bin"
         status=1
     }
 done

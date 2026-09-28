@@ -220,7 +220,7 @@ Every `AletheiaClient` operation takes a `std::stop_token` as its first paramete
 
 ## Command-line interface
 
-The `aletheia-cli` binary is a thin host CLI over `AletheiaClient`, mirroring the Python `aletheia` subcommands `validate`, `extract`, `signals`, `format-dbc`, `mux-query` (`check` is deferred; it needs a verified CAN-log reader). The logic lives in `aletheia::run_cli` (`aletheia/cli.hpp`), so it is unit-testable without spawning a process.
+The `aletheia-cli` binary is a thin host CLI over `AletheiaClient`, mirroring the Python `aletheia` subcommands `validate`, `extract`, `signals`, `format-dbc`, `mux-query`, `template` (`check` is deferred; it needs a verified CAN-log reader). The logic lives in `aletheia::run_cli` (`aletheia/cli.hpp`), so it is unit-testable without spawning a process.
 
 ```bash
 cmake -S cpp -B cpp/build && cmake --build cpp/build --target aletheia-cli

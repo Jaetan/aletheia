@@ -1,27 +1,31 @@
-// The workspace the two Aletheia Go modules are developed in.
+// The workspace the Aletheia Go modules are developed in.
 //
 // The loader that reads spreadsheets is a module of its own, ./excel, so that
 // excelize and what it brings with it are optional to a consumer who wants the
-// core binding alone.
+// core binding alone. The command line, ./cmd/aletheia, is a module of its own
+// for the same reason: its template command writes through the loader.
 //
-// The replace below is what lets a change to the core module reach the Excel
-// module without a release. The use directive alone does not: it registers the
-// module for the workspace and leaves version resolution to the require, which
-// names the last release, so Go would go looking for it on the network. The
-// replace is written here rather than in that module's own file because a
-// relative path written there would travel with the module. It names the same
-// version the require does, a version-specific replace matching nothing when
-// the two drift apart.
+// The replaces below are what let a change to one module reach the modules
+// that require it without a release. The use directive alone does not: it
+// registers the module for the workspace and leaves version resolution to the
+// require, which names a version no tag in this tree carries, so Go would go
+// looking for it on the network. Each replace is written here rather than in
+// the requiring module's own file because a relative path written there would
+// travel with the module. Each names the same version the requires do, a
+// version-specific replace matching nothing when the two drift apart.
 //
 // This file is not part of the bundle a release builds, which carries the core
-// module's files alone, and a consumer of either module never sees it.
+// module's files alone, and a consumer of any module never sees it.
 go 1.24.0
 
 toolchain go1.24.6
 
 use (
 	.
+	./cmd/aletheia
 	./excel
 )
 
 replace github.com/Jaetan/aletheia/go/v5 v5.0.0 => ./
+
+replace github.com/Jaetan/aletheia/go/excel v0.0.0 => ./excel

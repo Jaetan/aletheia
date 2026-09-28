@@ -48,21 +48,21 @@ bindings:
     # uninstrumented one.  The cross-CLI parity harness is left out here as it
     # is in every python-lane pytest step: it drives the C++ CLI binary.
     baseline:
-      lines_pct: 89.30
-      lines_covered: 3398
-      lines_total: 3805
-      second_pct: 81.05
-      second_covered: 864
-      second_total: 1066
-      run_at: "2026-09-26"
+      lines_pct: 89.44
+      lines_covered: 3454
+      lines_total: 3862
+      second_pct: 81.12
+      second_covered: 868
+      second_total: 1070
+      run_at: "2026-09-29"
 
   go:
     tool: go test -cover
     version: "the go in PATH (go.mod pins the language version)"
     scope:
-      # The core module's packages and the excel module, whose go.mod `./...`
-      # from go/ stops at.  go/benchmarks is the harness, not the binding, and
-      # is held out of the count.
+      # Every module of the workspace, each with a go.mod `./...` stops at:
+      # the core, the command line and the excel loader.  go/benchmarks is the
+      # harness, not the binding, and is held out of the count.
       - go/aletheia
       - go/cmd/aletheia
       - go/excel
@@ -74,18 +74,18 @@ bindings:
       # statement figure is `go tool cover -func`'s total, the block figure is
       # the share of the profile's blocks any test reached.
     invocation: |
-      cd go && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so \
-        go test ./... -count=1 -covermode=atomic -coverprofile=<artifact>/go-core.cover
-      cd go/excel && ALETHEIA_LIB=$PWD/../../build/libaletheia-ffi.so \
-        go test ./... -count=1 -covermode=atomic -coverprofile=<artifact>/go-excel.cover
+      # once per module `cd go && go list -m -f '{{.Dir}}'` prints, <name> being
+      # core for go/ itself and the module's path under go/ otherwise
+      cd <module> && ALETHEIA_LIB=<repo>/build/libaletheia-ffi.so \
+        go test ./... -count=1 -covermode=atomic -coverprofile=<artifact>/go-<name>.cover
     baseline:
-      lines_pct: 87.75
-      lines_covered: 2829
-      lines_total: 3224
-      second_pct: 81.89
-      second_covered: 1954
-      second_total: 2386
-      run_at: "2026-09-26"
+      lines_pct: 88.13
+      lines_covered: 2867
+      lines_total: 3253
+      second_pct: 82.40
+      second_covered: 1985
+      second_total: 2409
+      run_at: "2026-09-29"
 
   cpp:
     tool: llvm-cov, over clang's source-based instrumentation
@@ -113,13 +113,13 @@ bindings:
     # library of the tree, read from ctest's own listing: a source linked into
     # one binary alone is absent from a summary that names the others.
     baseline:
-      lines_pct: 96.33
-      lines_covered: 4432
-      lines_total: 4601
-      second_pct: 92.01
-      second_covered: 1290
-      second_total: 1402
-      run_at: "2026-09-26"
+      lines_pct: 96.38
+      lines_covered: 4505
+      lines_total: 4674
+      second_pct: 92.10
+      second_covered: 1317
+      second_total: 1430
+      run_at: "2026-09-29"
 
   rust:
     tool: cargo-llvm-cov

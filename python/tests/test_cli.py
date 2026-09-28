@@ -14,6 +14,7 @@ Tests cover:
 """
 
 import json
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -259,6 +260,16 @@ class TestSignalsCommand:
         """Verify missing dbc file."""
         code = main(["signals", "--dbc", "/nonexistent/file.dbc"])
         assert code == 2
+
+    @pytest.mark.skipif(os.geteuid() == 0, reason="root reads through a mode of 000")
+    def test_unreadable_dbc_file(self, dbc_file: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        """A .dbc the user may not read exits 2 with one error line, never a traceback."""
+        dbc_file.chmod(0)
+        try:
+            assert main(["signals", "--dbc", str(dbc_file)]) == 2
+            assert "Permission denied" in capsys.readouterr().err
+        finally:
+            dbc_file.chmod(0o600)
 
     def test_no_dbc_specified(self) -> None:
         """Verify no dbc specified."""

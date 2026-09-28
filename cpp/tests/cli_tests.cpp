@@ -2,13 +2,15 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 // Functional tests for the C++ CLI (aletheia::run_cli) — the counterpart of
-// go/cmd/aletheia/main_test.go. Each subcommand is exercised against a .dbc
-// fixture through the real verified FFI core (never a stub); the suite skips
-// when libaletheia-ffi.so is unavailable, mirroring the other integration
-// tests. ALETHEIA_REPO_ROOT (fixtures) and ALETHEIA_LIB (the .so, consumed by
+// go/cmd/aletheia/main_test.go. Each subcommand but template is exercised
+// against a .dbc fixture through the real verified FFI core (never a stub),
+// and those cases skip when libaletheia-ffi.so is unavailable, mirroring the
+// other integration tests; template writes through the Excel loader and needs
+// no library. ALETHEIA_REPO_ROOT (fixtures) and ALETHEIA_LIB (the .so, consumed by
 // run_cli's own resolver) are supplied by ctest via set_tests_properties.
 
 #include <aletheia/cli.hpp>
+#include <aletheia/excel.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
@@ -52,6 +54,15 @@ static auto run_capture(std::vector<std::string> args) -> std::pair<int, std::st
     auto* old = std::cout.rdbuf(oss.rdbuf());
     auto const code = aletheia::run_cli(std::move(args));
     std::cout.rdbuf(old);
+    return {code, std::move(oss).str()};
+}
+
+// The same, capturing stderr, so a test can assert the error line itself.
+static auto run_capture_err(std::vector<std::string> args) -> std::pair<int, std::string> {
+    std::ostringstream oss;
+    auto* old = std::cerr.rdbuf(oss.rdbuf());
+    auto const code = aletheia::run_cli(std::move(args));
+    std::cerr.rdbuf(old);
     return {code, std::move(oss).str()};
 }
 
@@ -215,4 +226,46 @@ TEST_CASE("CLI rejects unknown command, deferred check, and empty args", "[cli]"
     CHECK(run({"check"}) == 2); // deferred — needs a verified CAN-log reader
     CHECK(run({"bogus"}) == 2);
     CHECK(run({}) == 2); // no subcommand
+}
+
+TEST_CASE("template writes the workbook the Excel loaders read", "[cli][template]") {
+    // Writing the workbook goes through the binding's loader module, not the core.
+    const TempPath out{"aletheia_cli_template.xlsx"};
+    auto const [code, text] = run_capture({"template", out.string()});
+    CHECK(code == 0);
+    CHECK(text == "Template written to " + out.string() + "\n");
+    auto const checks = aletheia::load_checks_from_excel(out.path);
+    REQUIRE(checks.has_value());
+    CHECK(checks->empty());
+    // The DBC sheet is there with its header row and nothing under it.
+    auto const dbc = aletheia::load_dbc_from_excel(out.path);
+    REQUIRE_FALSE(dbc.has_value());
+    CHECK(dbc.error().message() == "DBC sheet has no data rows");
+}
+
+TEST_CASE("template refuses a path that exists and leaves it as it was", "[cli][template]") {
+    const TempPath existing{"aletheia_cli_template_existing.xlsx", "not a workbook\n"};
+    auto const [code, err] = run_capture_err({"template", existing.string()});
+    CHECK(code == 2);
+    CHECK(err == "Error: File already exists: " + existing.string() + "\n");
+    CHECK(read_text_file(existing.path) == "not a workbook\n");
+}
+
+TEST_CASE("template exits 2 on a missing parent and on a wrong argument count", "[cli][template]") {
+    const TempPath parent{"aletheia_cli_template_missing_parent"};
+    auto const target = parent.path / "checks.xlsx";
+    CHECK(run({"template", target.string()}) == 2);
+    CHECK_FALSE(std::filesystem::exists(parent.path));
+    CHECK(run({"template"}) == 2);
+    CHECK(run({"template", "a.xlsx", "b.xlsx"}) == 2);
+    CHECK(run({"template", "--json", "a.xlsx"}) == 2);
+    CHECK_FALSE(std::filesystem::exists("a.xlsx"));
+}
+
+TEST_CASE("template whose report cannot be written is not a success", "[cli][template]") {
+    const TempPath out{"aletheia_cli_template_unreported.xlsx"};
+    std::cout.setstate(std::ios_base::badbit);
+    auto const code = run({"template", out.string()});
+    std::cout.clear();
+    CHECK(code == 2);
 }
