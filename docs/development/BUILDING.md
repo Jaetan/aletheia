@@ -47,6 +47,17 @@ brew install gmp                                  # macOS
 
 A missing `libgmp` surfaces as `ld: cannot find -lgmp` at link time (see [Troubleshooting](#missing-libgmp-ld-cannot-find--lgmp)).
 
+### Python interpreter from source
+
+`tools/build_python.sh <version> <prefix>` builds CPython from the python.org source release and installs it into `<prefix>` with `make altinstall`. uv's prebuilt CPython lacks `os.pidfd_open`, which CPython compiles only where the build's kernel headers define that syscall, and its Tk has no Xft, so it draws only core X fonts; this build has neither gap. The script verifies the tarball's Sigstore signature against the release manager's identity, builds with clang-23 using PGO, LTO, the tail-calling interpreter and BOLT, fails when any stdlib module a Linux build can have is missing or does not import, and links tkinter against the system Tk 9.0. Its build dependencies as Debian packages, beyond the [system libraries](#system-libraries), with `cosign` on `PATH`:
+
+```bash
+sudo apt-get install build-essential pkg-config clang-23 llvm-23 llvm-23-linker-tools bolt-23 \
+  libbz2-dev libffi-dev libgdbm-dev libgdbm-compat-dev libdb-dev liblzma-dev libzstd-dev zlib1g-dev \
+  libreadline-dev libsqlite3-dev libssl-dev uuid-dev libexpat1-dev libmpdec-dev libbluetooth-dev \
+  systemtap-sdt-dev tcl9.0-dev tk9.0-dev libtommath-dev
+```
+
 ### GHC (Glasgow Haskell Compiler)
 
 **Version**: 9.8.x recommended (9.8.4 known-good)

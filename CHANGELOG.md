@@ -12,6 +12,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **`tools/build_python.sh` builds CPython from source with every Linux
+  module.** It verifies the python.org tarball's Sigstore signature, builds
+  with clang-23 using PGO, LTO, the tail-calling interpreter and BOLT, and links
+  tkinter against the system Tk 9.0 on Xft; CPython's own module check fails
+  the build when a stdlib module a Linux build can have is missing or does not
+  import. uv's prebuilt CPython lacks `os.pidfd_open`, and its Tk has no Xft.
+  The profile runs leave out the tests that overflow the stack of LLVM 23's
+  BOLT-instrumented interpreter, and the finished interpreter runs their files
+  whole. BUILDING.md lists the build dependencies.
 - **A Rust mutation lane, cargo-mutants over the crate's hot path.**
   `tools/mutation_rust.py` sweeps the response decoder, the DBC model, the
   domain types and the FFI backend, named by `rust/.cargo/mutants.toml`, reads
