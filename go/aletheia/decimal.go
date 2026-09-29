@@ -20,8 +20,8 @@ package aletheia
 #include "aletheia_abi.h"
 #include <stdlib.h>
 
-static int8_t decimal_call_parse(void *fn, const char *s, struct aletheia_decimal *out) {
-    return ((int8_t (*)(const char*, struct aletheia_decimal*))fn)(s, out);
+static int8_t decimal_call_parse(void *fn, const struct aletheia_text *s, struct aletheia_decimal *out) {
+    return ((int8_t (*)(const struct aletheia_text*, struct aletheia_decimal*))fn)(s, out);
 }
 // The renderer's file carries the same three lines: a cgo preamble is visible
 // to its own file alone, so the two consumers of the shared free function each
@@ -90,8 +90,9 @@ func FromDecimal(s string) (Rational, error) {
 
 	cStr := C.CString(s)
 	defer C.free(unsafe.Pointer(cStr))
+	text := C.struct_aletheia_text{data: cStr, size: C.size_t(len(s))}
 	var out C.struct_aletheia_decimal
-	if C.decimal_call_parse(decimalParseFn, cStr, &out) != 0 {
+	if C.decimal_call_parse(decimalParseFn, &text, &out) != 0 {
 		if out.err == nil {
 			return Rational{}, protocolError("aletheia_parse_decimal failed without an error")
 		}

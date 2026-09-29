@@ -24,7 +24,7 @@ import ctypes
 import json
 import sys
 
-from aletheia.client._ffi import AletheiaFrame
+from aletheia.client._ffi import AletheiaFrame, AletheiaText
 
 lib = ctypes.CDLL(sys.argv[1])
 argc = ctypes.c_int(1)
@@ -33,7 +33,7 @@ lib.hs_init(ctypes.byref(argc), ctypes.byref(ctypes.cast(argv, ctypes.POINTER(ct
 lib.aletheia_init.restype = ctypes.c_void_p
 state = lib.aletheia_init()
 lib.aletheia_process.restype = ctypes.c_char_p
-lib.aletheia_process.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+lib.aletheia_process.argtypes = [ctypes.c_void_p, ctypes.POINTER(AletheiaText)]
 
 
 def signal(name, start):
@@ -52,7 +52,8 @@ dbc = {
     }],
     "environmentVars": [],
 }
-loaded = lib.aletheia_process(state, json.dumps({"type": "command", "command": "parseDBC", "dbc": dbc}).encode())
+command = json.dumps({"type": "command", "command": "parseDBC", "dbc": dbc}).encode()
+loaded = lib.aletheia_process(state, ctypes.byref(AletheiaText(command, len(command))))
 if b'"status": "success"' not in loaded:
     print(f"the DBC did not load: {loaded[:120]!r}")
     sys.exit(1)

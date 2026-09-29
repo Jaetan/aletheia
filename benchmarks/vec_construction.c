@@ -32,7 +32,7 @@
 
 typedef void  (*hs_init_t)(int *, char ***);
 typedef void *(*init_t)(void);
-typedef char *(*process_t)(void *, const char *);
+typedef char *(*process_t)(void *, const struct aletheia_text *);
 typedef __typeof__(&aletheia_send_frame) send_frame_t;
 typedef void  (*free_str_t)(char *);
 typedef void  (*close_t)(void *);
@@ -134,6 +134,12 @@ static double bench_payload(void *state, uint8_t dlc, uint8_t data_len,
     return best;
 }
 
+/* Send a JSON command; the caller frees the response. */
+static char *process_json(void *state, const char *json) {
+    const struct aletheia_text text = {.data = json, .size = strlen(json)};
+    return fn_process(state, &text);
+}
+
 int main(void) {
     void *lib = load_lib("build/libaletheia-ffi.so");
 
@@ -152,13 +158,13 @@ int main(void) {
     /* Set up one session for all tests */
     void *state = fn_init();
     char *r;
-    r = fn_process(state, DBC_JSON);
+    r = process_json(state, DBC_JSON);
     if (!strstr(r, "success")) {
         fprintf(stderr, "parseDBC failed: %s\n", r);
         return 1;
     }
     fn_free_str(r);
-    r = fn_process(state, PROP_NONE);
+    r = process_json(state, PROP_NONE);
     fn_free_str(r);
     r = fn_start_stream(state);
     fn_free_str(r);

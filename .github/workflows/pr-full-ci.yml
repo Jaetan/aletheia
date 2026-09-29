@@ -299,8 +299,8 @@ jobs:
       # build/+dist-newstyle/+haskell-shim/dist-newstyle/+src/ and `cabal run
       # shake -- build` still no-ops in 0.05s with an unchanged .so md5.  The
       # build's own staleness gate (tools/check_build_incremental.py) is the
-      # backstop — a stale .so fails the run, so a partial/odd cache self-heals,
-      # never ships.
+      # backstop: a restored tree the build cannot bring up to date fails the
+      # run rather than ships a stale .so.
       #
       # Scope: a re-push to the SAME branch restores its own prior cache
       # immediately (this is what makes a 2nd push fast).  A brand-new PR can

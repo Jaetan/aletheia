@@ -21,10 +21,14 @@ extern "C" {
 /*
  * Structures
  *
- * A frame, a set of signal values, a binary result, a rational and a parsed
- * decimal each cross the ABI as one structure passed by pointer. The layout is fixed for LP64 targets
+ * A text, a frame, a set of signal values, a binary result, a rational and a
+ * parsed decimal each cross the ABI as one structure passed by pointer. The layout is fixed for LP64 targets
  * (x86_64, ARM64); every binding mirrors it, and each mirror is pinned
  * against the offsets asserted below.
+ *
+ *   struct aletheia_text            size 16
+ *     data         const char *      0
+ *     size         size_t            8
  *
  *   struct aletheia_frame           size 32
  *     timestamp    uint64_t          0
@@ -57,6 +61,18 @@ extern "C" {
  *     value        struct aletheia_rational  0
  *     err          char *           16
  */
+
+/*
+ * Text the caller passes: size bytes of UTF-8 from data, with no terminating
+ * NUL. data may be NULL only when size is 0, the empty text. An entry taking
+ * one refuses, in this order: a NULL text, a NULL data with a non-zero size
+ * or a size past what the library can index, bytes that are not UTF-8, and a
+ * NUL among the bytes. The locale of the calling process plays no part.
+ */
+struct aletheia_text {
+    const char *data;
+    size_t size;
+};
 
 /*
  * One CAN frame.
@@ -145,6 +161,9 @@ struct aletheia_decimal {
     char *err;
 };
 
+static_assert(sizeof(struct aletheia_text) == 16, "aletheia_text size");
+static_assert(offsetof(struct aletheia_text, data) == 0, "aletheia_text.data");
+static_assert(offsetof(struct aletheia_text, size) == 8, "aletheia_text.size");
 static_assert(sizeof(struct aletheia_frame) == 32, "aletheia_frame size");
 static_assert(offsetof(struct aletheia_frame, timestamp) == 0, "aletheia_frame.timestamp");
 static_assert(offsetof(struct aletheia_frame, data) == 8, "aletheia_frame.data");
@@ -179,7 +198,7 @@ static_assert(offsetof(struct aletheia_decimal, err) == 16, "aletheia_decimal.er
  * whose number is not the one it was written against, rather than calling an
  * entry whose arguments it would lay out differently.
  */
-enum { ALETHEIA_ABI_VERSION = 1 };
+enum { ALETHEIA_ABI_VERSION = 2 };
 
 /*
  * GHC Runtime System initialization.
@@ -214,7 +233,8 @@ void *aletheia_init(void);
  * Process a JSON command and return the response.
  *
  * @param state   Handle from aletheia_init(). Must not be NULL.
- * @param input   UTF-8 encoded, null-terminated JSON string.
+ * @param input   The JSON command. A text struct aletheia_text refuses is
+ *                answered with an ffi_validation_error response.
  * @return        UTF-8 encoded, null-terminated JSON response.
  *                The caller MUST free the returned string with
  *                aletheia_free_str(). Returns NULL only on allocation failure.
@@ -224,7 +244,7 @@ void *aletheia_init(void);
  *
  * See the Aletheia JSON protocol documentation for command/response formats.
  */
-char *aletheia_process(void *state, const char *input);
+char *aletheia_process(void *state, const struct aletheia_text *input);
 
 /*
  * Send a binary CAN frame for LTL analysis (streaming hot path).
@@ -312,10 +332,11 @@ char *aletheia_format_rational(const struct aletheia_rational *value);
 /*
  * Parse a decimal string into the exact rational it denotes (see
  * struct aletheia_decimal).
- * @return  0 on success, 1 on failure with out->err set. A NULL input is such
- *          a failure; a NULL out returns 1 with nothing written.
+ * @return  0 on success, 1 on failure with out->err set. A text struct
+ *          aletheia_text refuses is such a failure, code decimal_parse_failed
+ *          and an empty input echoed; a NULL out returns 1 with nothing written.
  */
-int8_t aletheia_parse_decimal(const char *input, struct aletheia_decimal *out);
+int8_t aletheia_parse_decimal(const struct aletheia_text *input, struct aletheia_decimal *out);
 
 /*
  * Free a string returned by any aletheia_* function that returns char*, or

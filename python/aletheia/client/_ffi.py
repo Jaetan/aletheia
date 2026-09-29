@@ -162,7 +162,7 @@ def hs_initialized() -> bool:
 
 # ``ALETHEIA_ABI_VERSION``: the version of the structures and signatures this
 # binding lays out, which ``test_ffi_abi_layout.py`` holds to the header's.
-ABI_VERSION = 1
+ABI_VERSION = 2
 
 
 def check_abi_version(lib: ctypes.CDLL) -> None:
@@ -183,6 +183,15 @@ def check_abi_version(lib: ctypes.CDLL) -> None:
     if found != ABI_VERSION:
         msg = f"the library implements ABI version {found}, and this binding needs {ABI_VERSION}"
         raise FFIError(msg)
+
+
+class AletheiaText(ctypes.Structure):  # pylint: disable=too-few-public-methods
+    """``struct aletheia_text``: ``size`` bytes of UTF-8 from ``data``, no NUL after them."""
+
+    _fields_ = (
+        ("data", ctypes.c_char_p),
+        ("size", ctypes.c_size_t),
+    )
 
 
 class AletheiaFrame(ctypes.Structure):  # pylint: disable=too-few-public-methods
@@ -257,7 +266,7 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     # Core lifecycle + JSON command endpoint
     lib.aletheia_init.argtypes = []
     lib.aletheia_init.restype = ctypes.c_void_p
-    lib.aletheia_process.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    lib.aletheia_process.argtypes = [ctypes.c_void_p, ctypes.POINTER(AletheiaText)]
     lib.aletheia_process.restype = ctypes.c_void_p
     lib.aletheia_free_str.argtypes = [ctypes.c_void_p]
     lib.aletheia_free_str.restype = None
@@ -315,7 +324,10 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
     # a ``{"status":"error",...}`` envelope in ``err`` (status 1), freed via
     # ``aletheia_free_str``.  Consumed by
     # ``aletheia.client._helpers.rational.from_decimal``.
-    lib.aletheia_parse_decimal.argtypes = [ctypes.c_char_p, ctypes.POINTER(AletheiaDecimal)]
+    lib.aletheia_parse_decimal.argtypes = [
+        ctypes.POINTER(AletheiaText),
+        ctypes.POINTER(AletheiaDecimal),
+    ]
     lib.aletheia_parse_decimal.restype = ctypes.c_int8
 
 

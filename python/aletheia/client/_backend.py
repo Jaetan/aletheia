@@ -30,6 +30,7 @@ from aletheia.client._ffi import (
     AletheiaBuffer,
     AletheiaFrame,
     AletheiaSignalValues,
+    AletheiaText,
     RTSState,
     check_abi_version,
     configure_ffi_signatures,
@@ -358,7 +359,8 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
 
     def process(self, state: int, input_bytes: bytes) -> bytes:
         """Send a JSON command string and return the JSON response bytes."""
-        result_ptr = self._lib.aletheia_process(ctypes.c_void_p(state), input_bytes)
+        text = AletheiaText(input_bytes, len(input_bytes))
+        result_ptr = self._lib.aletheia_process(ctypes.c_void_p(state), ctypes.byref(text))
         return _decode_and_free_response(self._lib, result_ptr)
 
     def send_frame_binary(  # pylint: disable=too-many-arguments,too-many-locals  # noqa: PLR0913

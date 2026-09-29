@@ -90,7 +90,8 @@ depends on `--build-staleness {auto,always,never}` (default `auto`):
 The staleness gate is a *behavioral* regression test that the honest dependency
 graph (see [BUILDING.md → Incremental Builds](BUILDING.md#incremental-builds))
 stays correct.  It mutates real runtime string literals in two structurally
-distant modules, rebuilds, and checks two properties:
+distant modules and the ABI version in the C header, whose observable is what
+`aletheia_abi_version()` answers, rebuilds, and checks two properties:
 
 1. **Never stale** — an edit to a runtime literal must REACH the `.so` (and a
    revert must too).  This is the failure the old `rm -rf` sledgehammer masked by

@@ -38,8 +38,6 @@ pub enum Error {
     /// bus-count). Distinct from [`Error::Protocol`] (a wire/ABI malfunction) so
     /// callers can tell a local precondition failure from an actual core problem.
     RtsNotInitialized,
-    /// A string crossing the C boundary contained an interior NUL byte.
-    NulInString,
     /// The core returned a null response pointer.
     NullResponse,
     /// Caller-supplied input was structurally invalid before it reached the core
@@ -162,7 +160,6 @@ impl fmt::Display for Error {
                 f,
                 "GHC runtime not initialized: create a Client (FfiBackend) before rendering"
             ),
-            Error::NulInString => write!(f, "string contained an interior NUL byte"),
             Error::NullResponse => write!(f, "core returned a null response"),
             Error::Validation(msg) => write!(f, "validation error: {msg}"),
             Error::Protocol(msg) => write!(f, "protocol error: {msg}"),

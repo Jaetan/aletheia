@@ -794,6 +794,15 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     set_tests_properties(cross_binding_integration_tests PROPERTIES
         ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
+    # The kernel's strings under the C locale. The GHC runtime reads the
+    # locale once, when it starts, so the checks run in a process of their own
+    # that ctest starts with LC_ALL=C; the test fails under any other locale.
+    add_executable(locale_tests tests/test_locale.cpp)
+    target_link_libraries(locale_tests PRIVATE aletheia-cpp Catch2::Catch2WithMain)
+    add_test(NAME locale_tests COMMAND locale_tests)
+    set_tests_properties(locale_tests PROPERTIES
+        ENVIRONMENT "LC_ALL=C;${ALETHEIA_TEST_LIB}")
+
     # Doc-example harness.
     #
     # Mirror of python/tests/test_doc_examples_harness.py + repo-root

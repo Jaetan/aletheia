@@ -11,12 +11,23 @@
 -- surface — no marshaling, no validation, no error formatting.
 module AletheiaFFI.Marshal where
 
+import Control.Exception (IOException, try)
 import Data.Bits (toIntegralSized)
 import Data.Char (ord)
 import Data.Int (Int64)
 import Data.Word (Word8, Word32)
+import Foreign.C.String (CString)
+import Foreign.Marshal.Alloc (mallocBytes)
+import Foreign.Ptr (Ptr, castPtr, nullPtr)
+import Foreign.Storable (peek, pokeByteOff)
+import qualified Data.Text as T
+import qualified Data.Text.Foreign as TF
+import qualified GHC.Foreign as GF
+import GHC.IO.Encoding (utf8)
 import Numeric (showHex)
 import Unsafe.Coerce (unsafeCoerce)
+
+import AletheiaFFI.Wire (WireText (..))
 
 import qualified MAlonzo.Code.Aletheia.CAN.Constants as AgdaCANConst
 import qualified MAlonzo.Code.Aletheia.CAN.DLC as AgdaDLC
@@ -24,6 +35,39 @@ import qualified MAlonzo.Code.Aletheia.CAN.Frame as AgdaFrame
 import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
 import qualified MAlonzo.Code.Data.Rational.Base as AgdaRational
 import qualified MAlonzo.Code.Data.Vec.Base as AgdaVec
+
+-- | The caller's text decoded as UTF-8, whatever the process locale, or the
+-- reason it is refused, in the order `aletheia.h` states for
+-- `struct aletheia_text`.  The kernel reads every byte the caller sent or
+-- none of them: no byte is dropped, replaced or cut off at a NUL.
+peekText :: Ptr WireText -> IO (Either String String)
+peekText p
+    | p == nullPtr = pure (Left nullInput)
+    | otherwise = do
+        WireText bytes size <- peek p
+        case toIntegralSized size :: Maybe Int of
+            Nothing -> pure (Left "input size is out of range")
+            Just 0 -> pure (Right "")
+            Just n
+                | bytes == nullPtr -> pure (Left nullInput)
+                | otherwise -> checked <$> decoded (bytes, n)
+  where
+    nullInput = "null input"
+    decoded cs = try (GF.peekCStringLen utf8 cs) :: IO (Either IOException String)
+    checked (Left _) = Left "input is not valid UTF-8"
+    checked (Right s)
+        | '\NUL' `elem` s = Left "input contains a NUL byte"
+        | otherwise = Right s
+
+-- | A NUL-terminated UTF-8 copy of the text, whatever the process locale, in
+-- memory the caller frees with `aletheia_free_str`.
+newUtf8 :: T.Text -> IO CString
+newUtf8 t = do
+    let n = TF.lengthWord8 t
+    p <- mallocBytes (n + 1) :: IO (Ptr Word8)
+    TF.unsafeCopyToPtr t p
+    pokeByteOff p n (0 :: Word8)
+    pure (castPtr p)
 
 -- | Encode a String as a JSON string literal (RFC 8259).  Haskell `show` is
 -- NOT a JSON encoder: for a non-ASCII or control character it emits a `\NNN`

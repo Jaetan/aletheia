@@ -43,7 +43,7 @@ namespace {
 
 using FormatRationalFn = char* (*)(const FfiRational*);
 using FreeStrFn = void (*)(char*);
-using ParseDecimalFn = std::int8_t (*)(const char*, FfiDecimal*);
+using ParseDecimalFn = std::int8_t (*)(const FfiText*, FfiDecimal*);
 
 struct RendererState {
     std::once_flag init;
@@ -255,19 +255,9 @@ auto format_rational_ffi(std::int64_t num, std::int64_t denom) -> std::string {
 
 auto parse_decimal_ffi(std::string_view input) -> std::expected<Rational, std::string> {
     auto& s = loaded_state("parsing decimals");
-    // Reject an interior NUL before marshaling: the kernel takes a
-    // NUL-terminated C string, so a NUL inside the input would silently
-    // truncate the literal ("1\0xyz" -> "1") and accept a value the caller did
-    // not intend. A NUL is not in the decimal grammar, so this is a user-input
-    // fault (Validation), mirroring Rust's CString::new rejection. It comes
-    // after the runtime gate, because Rust refuses a runtime-down call before it
-    // looks at the literal and the two bindings answer alike.
-    if (input.contains('\0'))
-        throw AletheiaException(
-            AletheiaError{ErrorKind::Validation, "decimal literal contains an interior NUL byte"});
-    const std::string buf{input};
+    auto const text = ffi_text(input);
     FfiDecimal out{.value = {.numerator = 0, .denominator = 0}, .err = nullptr};
-    if (s.parse_decimal_fn(buf.c_str(), &out) != 0) {
+    if (s.parse_decimal_fn(&text, &out) != 0) {
         if (out.err == nullptr)
             throw AletheiaException(AletheiaError{
                 ErrorKind::Protocol, "aletheia_parse_decimal failed without an error"});

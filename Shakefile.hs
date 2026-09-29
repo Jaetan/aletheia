@@ -583,6 +583,11 @@ proofModules =
     , "Aletheia/LTL/SignalPredicate/Evaluation/Properties.agda"
     ]
 
+-- | Written by the rule that deletes what the C header feeds, and needed by the
+-- library's rule, so the deletion happens before cabal runs.
+shimHeaderStamp :: FilePath
+shimHeaderStamp = "build/shim-header.stamp"
+
 main :: IO ()
 main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=ChangeModtimeAndDigest} $ do
 
@@ -1969,6 +1974,28 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 putInfo $ "Updated " ++ cabalPath ++ " ("
                         ++ show (length modules) ++ " MAlonzo modules listed)."
 
+    -- What the C header feeds is rebuilt when the header changes.  cabal re-runs
+    -- when `include/aletheia.h` changes, the .cabal listing it among its
+    -- extra-source-files, but it recompiles a C source only when the .c file
+    -- changed and re-runs hsc2hs only when the .hsc did: an edit to the header
+    -- alone would link the old ABI version and the old structure layouts.  So
+    -- when the header's content changes this rule deletes every output built
+    -- from it, the objects of the shim's C sources and the modules hsc2hs
+    -- writes, and cabal builds them again.  The stamp lists what was deleted.
+    shimHeaderStamp %> \out -> do
+        need ["haskell-shim/include/aletheia.h"]
+        cSources <- getDirectoryFiles "haskell-shim" ["cbits/*.c", "test/*.c"]
+        hscSources <- getDirectoryFiles "haskell-shim/src" ["//*.hsc"]
+        let built = [takeFileName c -<.> ext | c <- cSources, ext <- ["o", "dyn_o"]]
+                 ++ [h -<.> "hs" | h <- hscSources]
+            tree = "haskell-shim/dist-newstyle"
+        treeExists <- liftIO $ SysDir.doesDirectoryExist tree
+        derived <- if treeExists
+            then liftIO $ getDirectoryFilesIO tree (map ("//" ++) built)
+            else pure []
+        liftIO $ mapM_ (SysDir.removeFile . (tree </>)) derived
+        writeFileChanged out (unlines derived)
+
     "build/libaletheia-ffi.so" %> \out -> do
         -- HONEST DEPENDENCY GRAPH.
         -- The .so's TRUE inputs are the Agda SOURCES (the MAlonzo .hs are a pure
@@ -1983,7 +2010,8 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         need (map ("src" </>) agdaSources)
         need ["aletheia.agda-lib"]       -- toolchain inputs (mirror build-agda) so a
         _ <- askOracle (AgdaVersion ())  -- stdlib/flag/agda-version bump re-fires the .so
-        need [ "haskell-shim/src/AletheiaFFI.hs"
+        need [ shimHeaderStamp
+             , "haskell-shim/src/AletheiaFFI.hs"
              , "haskell-shim/src/AletheiaFFI/Marshal.hs"
              , "haskell-shim/src/AletheiaFFI/BinaryOutput.hs"
              , "haskell-shim/src/AletheiaFFI/Wire.hsc"

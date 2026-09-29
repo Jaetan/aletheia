@@ -26,7 +26,7 @@
 /* Function pointer types matching aletheia.h */
 typedef void  (*hs_init_t)(int *, char ***);
 typedef void *(*init_t)(void);
-typedef char *(*process_t)(void *, const char *);
+typedef char *(*process_t)(void *, const struct aletheia_text *);
 typedef __typeof__(&aletheia_send_frame) send_frame_t;
 typedef void  (*free_str_t)(char *);
 typedef void  (*close_t)(void *);
@@ -65,8 +65,8 @@ static void *load_lib(const char *path) {
 
 /* Send a JSON command, free response, return it (caller must not use after next call) */
 static char *cmd(void *state, const char *json) {
-    char *resp = fn_process(state, json);
-    return resp; /* caller frees */
+    const struct aletheia_text text = {.data = json, .size = strlen(json)};
+    return fn_process(state, &text); /* caller frees */
 }
 
 /* Simple DBC with one message, one signal */

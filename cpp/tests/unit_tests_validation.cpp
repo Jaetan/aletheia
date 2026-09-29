@@ -26,6 +26,7 @@
 #include <optional>
 #include <stop_token>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 #include <variant>
@@ -506,6 +507,17 @@ TEST_CASE("the FFI backend hands the kernel the timestamp and bus bits it was gi
     CHECK_THAT(message(client.send_frame(std::stop_token{}, Timestamp{99}, standard, dlc, data,
                                          std::nullopt, std::nullopt)),
                ContainsSubstring("brs=0/0 esi=0/0"));
+}
+
+TEST_CASE("the FFI backend hands the kernel every byte of a command", "[ffi][marshal]") {
+    // The kernel reads a command's text by its size, so a NUL inside it is
+    // the kernel's to refuse rather than the end of the command.
+    if (find_ffi_library().empty())
+        SKIP("no kernel library holds the process, so the stand-in must not be its first backend");
+    auto backend = make_ffi_backend(std::filesystem::path{ALETHEIA_TEST_RECORDING_KERNEL});
+    auto const state = backend->init();
+    using namespace std::string_view_literals;
+    CHECK_THAT(backend->process(state, "{}\0{}"sv), ContainsSubstring("process size=5"));
 }
 
 TEST_CASE("the FFI backend closes the kernel state it opened", "[ffi][marshal]") {

@@ -13,6 +13,10 @@ author:             Aletheia Team
 maintainer:         aletheia@example.com
 category:           Verification
 build-type:         Simple
+-- Listed so cabal rebuilds when the header changes; what the header feeds
+-- is deleted beforehand by the Shakefile, cabal tracking only the .c and
+-- .hsc files themselves.
+extra-source-files: include/aletheia.h
 
 foreign-library aletheia-ffi
     type:             native-shared

@@ -263,14 +263,15 @@ See `aletheia.h` for complete function documentation. For the JSON command/respo
 ```c
 #include "aletheia.h"
 #include <stdio.h>
-#include <stdlib.h>
+#include <string.h>
 
 int main(void) {
     hs_init(NULL, NULL);  /* GHC RTS init — once per process, before any aletheia_* call */
 
     void *session = aletheia_init();
-    char *response = aletheia_process(session,
-        "{\"type\":\"command\",\"command\":\"parseDBC\",\"dbc\":{\"messages\":[]}}");
+    const char *command = "{\"type\":\"command\",\"command\":\"parseDBC\",\"dbc\":{\"messages\":[]}}";
+    const struct aletheia_text input = {.data = command, .size = strlen(command)};
+    char *response = aletheia_process(session, &input);
     printf("%s\n", response);
 
     aletheia_free_str(response);
@@ -280,7 +281,7 @@ int main(void) {
 }
 ```
 
-`aletheia_process()` handles JSON commands (parseDBC, setProperties, startStream, etc.). To send CAN data frames during streaming, use `aletheia_send_frame()` — a separate binary entry point that takes the frame as one `struct aletheia_frame`. See `aletheia.h` for the full signature and the structure's layout and [PROTOCOL.md](../architecture/PROTOCOL.md) for details. Before any other call, compare `aletheia_abi_version()` with the header's `ALETHEIA_ABI_VERSION`, as every binding does: a library built from a commit whose C ABI differs reports another number.
+`aletheia_process()` handles JSON commands (parseDBC, setProperties, startStream, etc.), each passed as one `struct aletheia_text`: its UTF-8 bytes and their count, with no terminating NUL. To send CAN data frames during streaming, use `aletheia_send_frame()`, a separate binary entry point that takes the frame as one `struct aletheia_frame`. See `aletheia.h` for the full signature and the structure's layout and [PROTOCOL.md](../architecture/PROTOCOL.md) for details. Before any other call, compare `aletheia_abi_version()` with the header's `ALETHEIA_ABI_VERSION`, as every binding does: a library built from a commit whose C ABI differs reports another number.
 
 ### C++ (with the aletheia-cpp binding)
 

@@ -52,12 +52,17 @@ func TestFromDecimalSuccess(t *testing.T) {
 // outside the grammar (an optional minus, digits, optionally a point and
 // digits, consumed whole), a rational past int64, and a non-ASCII byte, whose
 // echo in the error envelope must still be valid JSON for the refusal to
-// arrive as a validation error rather than a protocol one.
+// arrive as a validation error rather than a protocol one. An interior NUL and
+// bytes that are not UTF-8 each surround digits that are a literal without
+// them, so dropping them, or reading the literal only up to the NUL, would
+// accept it.
 func TestFromDecimalRefusals(t *testing.T) {
 	groups := map[string][]string{
-		"malformed": {"3.14xyz", "1e3", ".5", "+1", "1/2", "1.", "1 ", " 1", "", "-"},
-		"overflow":  {"99999999999999999999.5", "0.0000000000000000001"},
-		"non-ascii": {"1.5€"},
+		"malformed":    {"3.14xyz", "1e3", ".5", "+1", "1/2", "1.", "1 ", " 1", "", "-"},
+		"overflow":     {"99999999999999999999.5", "0.0000000000000000001"},
+		"non-ascii":    {"1.5€"},
+		"interior-nul": {"1\x00xyz"},
+		"not-utf8":     {"1.5\xff", "1\xe2\x82.5", "1\xed\xa0\x805", "\xc0\x801"},
 	}
 	for group, inputs := range groups {
 		for _, in := range inputs {

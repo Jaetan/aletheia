@@ -19,11 +19,13 @@ from aletheia.client._ffi import (
     AletheiaFrame,
     AletheiaRational,
     AletheiaSignalValues,
+    AletheiaText,
 )
 
 _HEADER = Path(__file__).resolve().parents[2] / "haskell-shim" / "include" / "aletheia.h"
 
 _MIRRORS: dict[str, type[ctypes.Structure]] = {
+    "aletheia_text": AletheiaText,
     "aletheia_frame": AletheiaFrame,
     "aletheia_signal_values": AletheiaSignalValues,
     "aletheia_buffer": AletheiaBuffer,
