@@ -1,0 +1,3809 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# Every imprecise Python type hint the tree holds, and the ratchet that keeps the
+# list from growing. AGENTS/python.md cat 8: a hint is universally quantified, so
+# `str`, `list[float]` or `dict[str, X]` claims the code handles any string, any
+# list of floats, any key, which it does not. tools/check_precise_hints.py refuses
+# an imprecise hint this file does not name, and refuses a row naming more hints
+# than the file holds, because such a row is standing permission to write one back.
+#
+# A hint is imprecise when it holds `Any` or `object`, or a generic given no
+# parameters; `str`, `int`, `float` or `bytes` anywhere, alone, in a union, inside
+# a container or as a key; or three or more nested subscripts. A type alias is
+# read by its right side and keyed as `type NAME = RIGHT`, however it is spelled,
+# and a NewType over a shape by that shape, keyed by its own call; the type a
+# cast names is read like any hint. The files read are every tracked Python file
+# outside .archive/ and the Python each probe hands an interpreter.
+#
+# A row leaves this file by the change that types its hints. Adding a row needs
+# user approval, on the same footing as a NOLINT suppression, and a row a foreign
+# interface forces carries a `reason:`.
+#
+# Rows are keyed by file and by the hint's own text, as `ast.unparse` spells it,
+# rather than by a line number, so an edit elsewhere in the file does not move
+# them; `count` is how many hints in that file share the text.
+
+hints:
+  - file: benchmarks/compare.py
+    text: "Callable[[dict[str, F]], None]"
+    count: 1
+  - file: benchmarks/compare.py
+    text: "Callable[[str, F, F], None]"
+    count: 1
+  - file: benchmarks/compare.py
+    text: "Iterable[str]"
+    count: 1
+  - file: benchmarks/compare.py
+    text: "NotRequired[str]"
+    count: 3
+  - file: benchmarks/compare.py
+    text: "dict[str, _LatencyFile]"
+    count: 1
+  - file: benchmarks/compare.py
+    text: "dict[str, _ScalingFile]"
+    count: 2
+  - file: benchmarks/compare.py
+    text: "dict[str, _ThroughputFile]"
+    count: 1
+  - file: benchmarks/compare.py
+    text: "dict[str, dict[str, tuple[str, _ResultFile]]]"
+    count: 2
+  - file: benchmarks/compare.py
+    text: "dict[str, tuple[str, F]]"
+    count: 2
+  - file: benchmarks/compare.py
+    text: "dict[str, tuple[str, _LatencyFile]]"
+    count: 1
+  - file: benchmarks/compare.py
+    text: "dict[str, tuple[str, _ScalingFile]]"
+    count: 1
+  - file: benchmarks/compare.py
+    text: "dict[str, tuple[str, _ThroughputFile]]"
+    count: 1
+  - file: benchmarks/compare.py
+    text: "float"
+    count: 8
+  - file: benchmarks/compare.py
+    text: "float | None"
+    count: 1
+  - file: benchmarks/compare.py
+    text: "int"
+    count: 3
+  - file: benchmarks/compare.py
+    text: "list[dict[str, object]]"
+    count: 2
+  - file: benchmarks/compare.py
+    text: "list[object]"
+    count: 1
+  - file: benchmarks/compare.py
+    text: "list[str]"
+    count: 3
+  - file: benchmarks/compare.py
+    text: "list[tuple[str, F, F]]"
+    count: 2
+  - file: benchmarks/compare.py
+    text: "list[tuple[str, str, str]]"
+    count: 1
+  - file: benchmarks/compare.py
+    text: "object"
+    count: 2
+  - file: benchmarks/compare.py
+    text: "str"
+    count: 17
+  - file: benchmarks/compare.py
+    text: "tuple[str, str]"
+    count: 1
+  - file: benchmarks/profile_extraction.py
+    text: "bytes"
+    count: 1
+  - file: benchmarks/profile_extraction.py
+    text: "int"
+    count: 13
+  - file: benchmarks/profile_extraction.py
+    text: "list[object]"
+    count: 3
+  - file: benchmarks/profile_extraction.py
+    text: "str"
+    count: 2
+  - file: benchmarks/response_overhead.py
+    text: "Callable[[], object]"
+    count: 1
+  - file: benchmarks/response_overhead.py
+    text: "dict[str, str]"
+    count: 1
+  - file: benchmarks/response_overhead.py
+    text: "dict[str, str] | None"
+    count: 2
+  - file: benchmarks/response_overhead.py
+    text: "float"
+    count: 1
+  - file: benchmarks/response_overhead.py
+    text: "int"
+    count: 2
+  - file: benchmarks/response_overhead.py
+    text: "object"
+    count: 4
+  - file: benchmarks/response_overhead.py
+    text: "str"
+    count: 2
+  - file: conftest.py
+    text: "Callable[..., str]"
+    count: 1
+  - file: conftest.py
+    text: "bytes"
+    count: 2
+  - file: conftest.py
+    text: "int"
+    count: 5
+  - file: conftest.py
+    text: "str"
+    count: 3
+  - file: examples/demo/dbc_validation.py
+    text: "str"
+    count: 1
+  - file: examples/demo/dbc_validation.py
+    text: "str | None"
+    count: 1
+  - file: examples/demo/demo_ltl_bug.py
+    text: "int"
+    count: 1
+  - file: examples/demo/drive_log.py
+    text: "float"
+    count: 2
+  - file: examples/demo/drive_log.py
+    text: "int"
+    count: 4
+  - file: examples/demo/drive_log.py
+    text: "str"
+    count: 1
+  - file: examples/demo/engine_ecu_sim.py
+    text: "float"
+    count: 2
+  - file: examples/demo/engine_ecu_sim.py
+    text: "int"
+    count: 6
+  - file: examples/demo/frame_injection.py
+    text: "float"
+    count: 1
+  - file: examples/demo/frame_injection.py
+    text: "int"
+    count: 5
+  - file: examples/demo/frame_injection.py
+    text: "int | None"
+    count: 1
+  - file: examples/demo/frame_injection.py
+    text: "str | None"
+    count: 1
+  - file: examples/simple_verification.py
+    text: "int"
+    count: 1
+  - file: probes/benchmarks--every-harness-aborts-on-a-failed-warmup.sh
+    text: "int"
+    count: 4
+  - file: probes/benchmarks--every-harness-aborts-on-a-failed-warmup.sh
+    text: "list[str]"
+    count: 1
+  - file: probes/benchmarks--every-harness-aborts-on-a-failed-warmup.sh
+    text: "re.Match[str]"
+    count: 1
+  - file: probes/benchmarks--every-harness-aborts-on-a-failed-warmup.sh
+    text: "str"
+    count: 13
+  - file: probes/benchmarks--every-harness-aborts-on-a-failed-warmup.sh
+    text: "str | None"
+    count: 1
+  - file: probes/cpp_.clang-tidy--the-gate-fails-on-a-discarded-return.sh
+    text: "str"
+    count: 1
+  - file: probes/cpp_.clang-tidy--the-gate-fails-on-a-discarded-return.sh
+    text: "subprocess.CompletedProcess[str]"
+    count: 1
+  - file: probes/cpp_CMakeLists.txt--the-coverage-tree-names-every-source-once.sh
+    text: "dict[str, str]"
+    count: 1
+  - file: probes/cpp_CMakeLists.txt--the-coverage-tree-names-every-source-once.sh
+    text: "str"
+    count: 1
+  - file: probes/cpp_tests--a-generated-alternative-holds-nothing-by-reference.sh
+    text: "int"
+    count: 2
+  - file: probes/cpp_tests--a-generated-alternative-holds-nothing-by-reference.sh
+    text: "str"
+    count: 3
+  - file: probes/probes--no-probe-writes-a-tracked-file-in-place.sh
+    text: "list[str]"
+    count: 8
+  - file: probes/probes--no-probe-writes-a-tracked-file-in-place.sh
+    text: "list[tuple[str, str]]"
+    count: 1
+  - file: probes/probes--no-probe-writes-a-tracked-file-in-place.sh
+    text: "set[str]"
+    count: 3
+  - file: probes/probes--no-probe-writes-a-tracked-file-in-place.sh
+    text: "str"
+    count: 11
+  - file: probes/probes--no-probe-writes-a-tracked-file-in-place.sh
+    text: "str | None"
+    count: 2
+  - file: probes/review--no-line-the-round-wrote-carries-an-em-dash.sh
+    text: "dict[str, set[str]]"
+    count: 1
+  - file: probes/review--no-line-the-round-wrote-carries-an-em-dash.sh
+    text: "list[str]"
+    count: 1
+  - file: probes/review--no-line-the-round-wrote-carries-an-em-dash.sh
+    text: "str"
+    count: 1
+  - file: probes/tools__scheduler.py--a-killed-sweep-stops-a-guarded-step-and-its-build.sh
+    text: "int"
+    count: 1
+  - file: probes/tools__scheduler.py--a-killed-sweep-stops-its-step.sh
+    text: "int"
+    count: 1
+  - file: probes/tools__scheduler.py--an-interrupted-serial-sweep-stops-its-step.sh
+    text: "int"
+    count: 1
+  - file: probes/tools__scheduler.py--an-interrupted-sweep-stops-its-step.sh
+    text: "int"
+    count: 1
+  - file: probes/tools_check_build_incremental.py--a-killed-gate-stops-its-build.sh
+    text: "int"
+    count: 1
+  - file: probes/tools_check_reproducible_build.py--a-killed-gate-stops-its-build.sh
+    text: "int"
+    count: 1
+  - file: probes/tools_coverage_run.py--a-figure-under-a-floor-fails-the-lane.sh
+    text: "str"
+    count: 1
+  - file: probes/tools_coverage_run.py--a-figure-under-a-floor-fails-the-lane.sh
+    text: "tuple[int, int]"
+    count: 4
+  - file: probes/tools_coverage_run.py--the-cpp-export-reads-every-object-ctest-runs.sh
+    text: "list[list[str]]"
+    count: 1
+  - file: probes/tools_coverage_run.py--the-cpp-export-reads-every-object-ctest-runs.sh
+    text: "list[str]"
+    count: 1
+  - file: probes/tools_coverage_run.py--the-cpp-export-reads-every-object-ctest-runs.sh
+    text: "object"
+    count: 1
+  - file: probes/tools_coverage_run.py--the-cpp-export-reads-every-object-ctest-runs.sh
+    text: "subprocess.CompletedProcess[str]"
+    count: 1
+  - file: probes/tools_mutation_cpp.py--the-verdict-does-not-depend-on-the-test-order.sh
+    text: "set[str]"
+    count: 1
+  - file: probes/tools_mutation_cpp_slices.py--the-sliced-union-is-the-unsliced-census.sh
+    text: "list[str]"
+    count: 1
+  - file: probes/tools_mutation_cpp_slices.py--the-sliced-union-is-the-unsliced-census.sh
+    text: "str"
+    count: 1
+  - file: probes/tools_mutation_scope.py--a-lane-installs-what-its-scope-names.sh
+    text: "list[str]"
+    count: 2
+  - file: probes/tools_mutation_scope.py--a-lane-installs-what-its-scope-names.sh
+    text: "list[tuple[str, list[str], dict[str, bool]]]"
+    count: 1
+  - file: python/aletheia/__init__.py
+    text: "str"
+    count: 1
+  - file: python/aletheia/_check_conditions.py
+    text: "Final[Mapping[str, ThenSlots]]"
+    count: 1
+  - file: python/aletheia/_check_conditions.py
+    text: "Mapping[str, int | Fraction]"
+    count: 1
+  - file: python/aletheia/_check_conditions.py
+    text: "int | Fraction"
+    count: 2
+  - file: python/aletheia/_check_conditions.py
+    text: "str"
+    count: 4
+  - file: python/aletheia/_dbc_types.py
+    text: "NotRequired[list[str]]"
+    count: 3
+  - file: python/aletheia/_dbc_types.py
+    text: "int"
+    count: 20
+  - file: python/aletheia/_dbc_types.py
+    text: "list[int]"
+    count: 1
+  - file: python/aletheia/_dbc_types.py
+    text: "list[str]"
+    count: 2
+  - file: python/aletheia/_dbc_types.py
+    text: "str"
+    count: 28
+  - file: python/aletheia/_loader_utils.py
+    text: "Mapping[str, JSONValue | Fraction]"
+    count: 1
+  - file: python/aletheia/_loader_utils.py
+    text: "Mapping[str, JSONValue]"
+    count: 7
+  - file: python/aletheia/_loader_utils.py
+    text: "TypeGuard[str]"
+    count: 1
+  - file: python/aletheia/_loader_utils.py
+    text: "int"
+    count: 2
+  - file: python/aletheia/_loader_utils.py
+    text: "object"
+    count: 1
+  - file: python/aletheia/_loader_utils.py
+    text: "str"
+    count: 17
+  - file: python/aletheia/_time_units.py
+    text: "Final[int]"
+    count: 2
+  - file: python/aletheia/asyncio/_client.py
+    text: "Mapping[str, int | Fraction]"
+    count: 2
+  - file: python/aletheia/asyncio/_client.py
+    text: "bytes | bytearray"
+    count: 3
+  - file: python/aletheia/asyncio/_client.py
+    text: "int"
+    count: 9
+  - file: python/aletheia/asyncio/_client.py
+    text: "str"
+    count: 2
+  - file: python/aletheia/asyncio/testing.py
+    text: "bytes"
+    count: 12
+  - file: python/aletheia/asyncio/testing.py
+    text: "bytes | bytearray"
+    count: 4
+  - file: python/aletheia/asyncio/testing.py
+    text: "int"
+    count: 32
+  - file: python/aletheia/asyncio/testing.py
+    text: "tuple[int, ...]"
+    count: 6
+  - file: python/aletheia/can_log.py
+    text: "float"
+    count: 1
+  - file: python/aletheia/can_log.py
+    text: "frozenset[str]"
+    count: 1
+  - file: python/aletheia/can_log.py
+    text: "int"
+    count: 2
+  - file: python/aletheia/can_log.py
+    text: "str"
+    count: 1
+  - file: python/aletheia/can_log.py
+    text: "str | Path"
+    count: 2
+  - file: python/aletheia/checks.py
+    text: "int"
+    count: 2
+  - file: python/aletheia/checks.py
+    text: "int | Fraction"
+    count: 22
+  - file: python/aletheia/checks.py
+    text: "str"
+    count: 18
+  - file: python/aletheia/checks.py
+    text: "type _DescPart = str | Fraction"
+    count: 1
+  - file: python/aletheia/checks_runner.py
+    text: "Callable[[str | Path], Iterator[CANFrameTuple]]"
+    count: 2
+  - file: python/aletheia/checks_runner.py
+    text: "int"
+    count: 4
+  - file: python/aletheia/checks_runner.py
+    text: "str"
+    count: 8
+  - file: python/aletheia/checks_runner.py
+    text: "tuple[list[Violation], int]"
+    count: 1
+  - file: python/aletheia/checks_runner.py
+    text: "tuple[str, str]"
+    count: 1
+  - file: python/aletheia/cli.py
+    text: "Callable[[str | Path], DBCDefinition]"
+    count: 2
+  - file: python/aletheia/cli.py
+    text: "Callable[[str | Path], None]"
+    count: 2
+  - file: python/aletheia/cli.py
+    text: "Callable[[str | Path], list[CheckResult]]"
+    count: 4
+  - file: python/aletheia/cli.py
+    text: "int"
+    count: 16
+  - file: python/aletheia/cli.py
+    text: "int | None"
+    count: 1
+  - file: python/aletheia/cli.py
+    text: "list[str] | None"
+    count: 1
+  - file: python/aletheia/cli.py
+    text: "str"
+    count: 14
+  - file: python/aletheia/cli.py
+    text: "str | None"
+    count: 6
+  - file: python/aletheia/cli.py
+    text: "type SignalUnitMap = dict[str, str]"
+    count: 1
+  - file: python/aletheia/client/_backend.py
+    text: "bytes"
+    count: 40
+  - file: python/aletheia/client/_backend.py
+    text: "bytes | bytearray"
+    count: 13
+  - file: python/aletheia/client/_backend.py
+    text: "deque[bytes]"
+    count: 1
+  - file: python/aletheia/client/_backend.py
+    text: "int"
+    count: 93
+  - file: python/aletheia/client/_backend.py
+    text: "int | None"
+    count: 1
+  - file: python/aletheia/client/_backend.py
+    text: "list[bytes]"
+    count: 2
+  - file: python/aletheia/client/_backend.py
+    text: "list[bytes] | None"
+    count: 1
+  - file: python/aletheia/client/_backend.py
+    text: "str"
+    count: 1
+  - file: python/aletheia/client/_backend.py
+    text: "str | None"
+    count: 1
+  - file: python/aletheia/client/_backend.py
+    text: "tuple[int, ...]"
+    count: 21
+  - file: python/aletheia/client/_client.py
+    text: "Callable[..., bytes]"
+    count: 1
+  - file: python/aletheia/client/_client.py
+    text: "Mapping[str, int | Fraction]"
+    count: 1
+  - file: python/aletheia/client/_client.py
+    text: "bytes"
+    count: 1
+  - file: python/aletheia/client/_client.py
+    text: "dict[int, PropertyDiagnostic]"
+    count: 1
+  - file: python/aletheia/client/_client.py
+    text: "dict[str, int]"
+    count: 1
+  - file: python/aletheia/client/_client.py
+    text: "dict[str, object]"
+    count: 1
+  - file: python/aletheia/client/_client.py
+    text: "dict[tuple[int, bool], SignalLookup]"
+    count: 1
+  - file: python/aletheia/client/_client.py
+    text: "int"
+    count: 2
+  - file: python/aletheia/client/_client.py
+    text: "int | None"
+    count: 1
+  - file: python/aletheia/client/_client.py
+    text: "list[int]"
+    count: 3
+  - file: python/aletheia/client/_client.py
+    text: "list[object]"
+    count: 1
+  - file: python/aletheia/client/_client.py
+    text: "list[str]"
+    count: 1
+  - file: python/aletheia/client/_client.py
+    text: "object"
+    count: 3
+  - file: python/aletheia/client/_client.py
+    text: "str"
+    count: 4
+  - file: python/aletheia/client/_client.py
+    text: "tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]"
+    count: 1
+  - file: python/aletheia/client/_client_bin.py
+    text: "Sequence[str]"
+    count: 5
+  - file: python/aletheia/client/_client_bin.py
+    text: "bytes"
+    count: 5
+  - file: python/aletheia/client/_client_bin.py
+    text: "dict[str, Fraction]"
+    count: 1
+  - file: python/aletheia/client/_client_bin.py
+    text: "dict[str, str]"
+    count: 1
+  - file: python/aletheia/client/_client_bin.py
+    text: "int"
+    count: 11
+  - file: python/aletheia/client/_client_bin.py
+    text: "list[str]"
+    count: 3
+  - file: python/aletheia/client/_client_bin.py
+    text: "str"
+    count: 1
+  - file: python/aletheia/client/_client_bin.py
+    text: "tuple[dict[str, Fraction], int]"
+    count: 1
+  - file: python/aletheia/client/_client_bin.py
+    text: "tuple[int, ...]"
+    count: 3
+  - file: python/aletheia/client/_client_bin.py
+    text: "tuple[list[str], int]"
+    count: 3
+  - file: python/aletheia/client/_enrichment.py
+    text: "dict[str, Fraction | None]"
+    count: 1
+  - file: python/aletheia/client/_enrichment.py
+    text: "dict[str, str]"
+    count: 5
+  - file: python/aletheia/client/_enrichment.py
+    text: "int"
+    count: 6
+  - file: python/aletheia/client/_enrichment.py
+    text: "list[str]"
+    count: 3
+  - file: python/aletheia/client/_enrichment.py
+    text: "set[str]"
+    count: 1
+  - file: python/aletheia/client/_enrichment.py
+    text: "str"
+    count: 9
+  - file: python/aletheia/client/_enrichment.py
+    text: "str | None"
+    count: 2
+  - file: python/aletheia/client/_ffi.py
+    text: "dict[str, JSONValue]"
+    count: 1
+  - file: python/aletheia/client/_ffi.py
+    text: "int"
+    count: 4
+  - file: python/aletheia/client/_ffi.py
+    text: "list[bytes]"
+    count: 1
+  - file: python/aletheia/client/_ffi.py
+    text: "object"
+    count: 1
+  - file: python/aletheia/client/_ffi.py
+    text: "str"
+    count: 2
+  - file: python/aletheia/client/_helpers/dbc_normalize.py
+    text: "Callable[[Mapping[str, JSONValue]], T]"
+    count: 1
+  - file: python/aletheia/client/_helpers/dbc_normalize.py
+    text: "Mapping[str, JSONValue]"
+    count: 22
+  - file: python/aletheia/client/_helpers/dbc_normalize.py
+    text: "Mapping[str, object]"
+    count: 3
+  - file: python/aletheia/client/_helpers/dbc_normalize.py
+    text: "dict[str, object]"
+    count: 20
+  - file: python/aletheia/client/_helpers/dbc_normalize.py
+    text: "frozenset[str]"
+    count: 1
+  - file: python/aletheia/client/_helpers/dbc_normalize.py
+    text: "int"
+    count: 1
+  - file: python/aletheia/client/_helpers/dbc_normalize.py
+    text: "list[dict[str, object]]"
+    count: 2
+  - file: python/aletheia/client/_helpers/dbc_normalize.py
+    text: "list[object]"
+    count: 3
+  - file: python/aletheia/client/_helpers/dbc_normalize.py
+    text: "list[str]"
+    count: 2
+  - file: python/aletheia/client/_helpers/dbc_normalize.py
+    text: "object"
+    count: 4
+  - file: python/aletheia/client/_helpers/dbc_normalize.py
+    text: "str"
+    count: 9
+  - file: python/aletheia/client/_helpers/json_codec.py
+    text: "Sequence[object]"
+    count: 3
+  - file: python/aletheia/client/_helpers/json_codec.py
+    text: "dict[str, Fraction]"
+    count: 2
+  - file: python/aletheia/client/_helpers/json_codec.py
+    text: "dict[str, str]"
+    count: 2
+  - file: python/aletheia/client/_helpers/json_codec.py
+    text: "list[str]"
+    count: 2
+  - file: python/aletheia/client/_helpers/rational.py
+    text: "Mapping[str, JSONValue]"
+    count: 1
+  - file: python/aletheia/client/_helpers/rational.py
+    text: "TypeGuard[int]"
+    count: 1
+  - file: python/aletheia/client/_helpers/rational.py
+    text: "int"
+    count: 3
+  - file: python/aletheia/client/_helpers/rational.py
+    text: "int | Fraction"
+    count: 1
+  - file: python/aletheia/client/_helpers/rational.py
+    text: "int | None"
+    count: 1
+  - file: python/aletheia/client/_helpers/rational.py
+    text: "object"
+    count: 4
+  - file: python/aletheia/client/_helpers/rational.py
+    text: "str"
+    count: 4
+  - file: python/aletheia/client/_helpers/rational.py
+    text: "tuple[int, int]"
+    count: 2
+  - file: python/aletheia/client/_log.py
+    text: "Final[frozenset[str]]"
+    count: 1
+  - file: python/aletheia/client/_log.py
+    text: "dict[str, object]"
+    count: 2
+  - file: python/aletheia/client/_log.py
+    text: "int"
+    count: 1
+  - file: python/aletheia/client/_log.py
+    text: "object"
+    count: 1
+  - file: python/aletheia/client/_log.py
+    text: "str"
+    count: 1
+  - file: python/aletheia/client/_response_parsers.py
+    text: "dict[str, object]"
+    count: 2
+  - file: python/aletheia/client/_response_parsers.py
+    text: "int"
+    count: 1
+  - file: python/aletheia/client/_response_parsers.py
+    text: "list[dict[str, object]]"
+    count: 1
+  - file: python/aletheia/client/_response_parsers.py
+    text: "str"
+    count: 6
+  - file: python/aletheia/client/_response_parsers.py
+    text: "tuple[str, int, int] | None"
+    count: 2
+  - file: python/aletheia/client/_signal_ops.py
+    text: "Mapping[str, int | Fraction]"
+    count: 3
+  - file: python/aletheia/client/_signal_ops.py
+    text: "bytes | bytearray"
+    count: 2
+  - file: python/aletheia/client/_signal_ops.py
+    text: "dict[tuple[int, bool], SignalLookup]"
+    count: 1
+  - file: python/aletheia/client/_signal_ops.py
+    text: "int"
+    count: 4
+  - file: python/aletheia/client/_signal_ops.py
+    text: "int | None"
+    count: 1
+  - file: python/aletheia/client/_signal_ops.py
+    text: "str"
+    count: 2
+  - file: python/aletheia/client/_signal_ops.py
+    text: "tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]"
+    count: 1
+  - file: python/aletheia/client/_streaming.py
+    text: "Callable[..., bytes]"
+    count: 1
+  - file: python/aletheia/client/_streaming.py
+    text: "bytes | bytearray"
+    count: 4
+  - file: python/aletheia/client/_streaming.py
+    text: "dict[int, PropertyDiagnostic]"
+    count: 1
+  - file: python/aletheia/client/_streaming.py
+    text: "dict[str, Fraction | None]"
+    count: 2
+  - file: python/aletheia/client/_streaming.py
+    text: "dict[str, Fraction]"
+    count: 2
+  - file: python/aletheia/client/_streaming.py
+    text: "int"
+    count: 7
+  - file: python/aletheia/client/_streaming.py
+    text: "int | None"
+    count: 1
+  - file: python/aletheia/client/_streaming.py
+    text: "set[str]"
+    count: 2
+  - file: python/aletheia/client/_types.py
+    text: "Mapping[str, Fraction]"
+    count: 1
+  - file: python/aletheia/client/_types.py
+    text: "Mapping[str, str]"
+    count: 1
+  - file: python/aletheia/client/_types.py
+    text: "bytes | bytearray"
+    count: 2
+  - file: python/aletheia/client/_types.py
+    text: "dict[int, int]"
+    count: 2
+  - file: python/aletheia/client/_types.py
+    text: "dict[str, Fraction]"
+    count: 1
+  - file: python/aletheia/client/_types.py
+    text: "dict[str, int]"
+    count: 1
+  - file: python/aletheia/client/_types.py
+    text: "dict[str, str]"
+    count: 1
+  - file: python/aletheia/client/_types.py
+    text: "int"
+    count: 18
+  - file: python/aletheia/client/_types.py
+    text: "str"
+    count: 8
+  - file: python/aletheia/client/_types.py
+    text: "str | None"
+    count: 5
+  - file: python/aletheia/client/_types.py
+    text: "tuple[int, int]"
+    count: 1
+  - file: python/aletheia/client/_types.py
+    text: "tuple[str, ...]"
+    count: 4
+  - file: python/aletheia/client/_types.py
+    text: "type FrameKey = tuple[int, bool, bytes]"
+    count: 1
+  - file: python/aletheia/client/_types.py
+    text: "type LastFrameKey = tuple[int, bool]"
+    count: 1
+  - file: python/aletheia/codes/_issue.py
+    text: "str"
+    count: 1
+  - file: python/aletheia/dbc/_converter.py
+    text: "str"
+    count: 3
+  - file: python/aletheia/dbc/_converter.py
+    text: "str | Path"
+    count: 2
+  - file: python/aletheia/dbc/_converter.py
+    text: "str | Path | None"
+    count: 1
+  - file: python/aletheia/dbc/_queries.py
+    text: "int"
+    count: 2
+  - file: python/aletheia/dbc/_queries.py
+    text: "list[int]"
+    count: 2
+  - file: python/aletheia/dbc/_queries.py
+    text: "list[str]"
+    count: 2
+  - file: python/aletheia/dbc/_queries.py
+    text: "set[int]"
+    count: 1
+  - file: python/aletheia/dbc/_queries.py
+    text: "set[str]"
+    count: 1
+  - file: python/aletheia/dbc/_queries.py
+    text: "str"
+    count: 4
+  - file: python/aletheia/dsl.py
+    text: "int"
+    count: 5
+  - file: python/aletheia/dsl.py
+    text: "str"
+    count: 2
+  - file: python/aletheia/dsl.py
+    text: "type _RationalInput = int | Fraction"
+    count: 1
+  - file: python/aletheia/excel_loader.py
+    text: "Mapping[str, CellValue]"
+    count: 5
+  - file: python/aletheia/excel_loader.py
+    text: "dict[_MessageKey, list[int]]"
+    count: 1
+  - file: python/aletheia/excel_loader.py
+    text: "dict[str, CellValue]"
+    count: 1
+  - file: python/aletheia/excel_loader.py
+    text: "dict[str, int | Fraction]"
+    count: 1
+  - file: python/aletheia/excel_loader.py
+    text: "int"
+    count: 8
+  - file: python/aletheia/excel_loader.py
+    text: "list[dict[str, CellValue]]"
+    count: 1
+  - file: python/aletheia/excel_loader.py
+    text: "list[str]"
+    count: 3
+  - file: python/aletheia/excel_loader.py
+    text: "str"
+    count: 7
+  - file: python/aletheia/excel_loader.py
+    text: "str | Path"
+    count: 3
+  - file: python/aletheia/excel_loader.py
+    text: "type CellValue = str | int | float | bool | None"
+    count: 1
+  - file: python/aletheia/limits.py
+    text: "Final[int]"
+    count: 13
+  - file: python/aletheia/limits.py
+    text: "Final[str]"
+    count: 9
+  - file: python/aletheia/types.py
+    text: "NotRequired[int]"
+    count: 3
+  - file: python/aletheia/types.py
+    text: "NotRequired[str]"
+    count: 3
+  - file: python/aletheia/types.py
+    text: "TypeGuard[dict[str, JSONValue]]"
+    count: 1
+  - file: python/aletheia/types.py
+    text: "TypeGuard[list[object]]"
+    count: 1
+  - file: python/aletheia/types.py
+    text: "dict[object, object]"
+    count: 1
+  - file: python/aletheia/types.py
+    text: "dict[str, Fraction | None]"
+    count: 1
+  - file: python/aletheia/types.py
+    text: "int"
+    count: 6
+  - file: python/aletheia/types.py
+    text: "int | None"
+    count: 1
+  - file: python/aletheia/types.py
+    text: "list[str]"
+    count: 1
+  - file: python/aletheia/types.py
+    text: "object"
+    count: 5
+  - file: python/aletheia/types.py
+    text: "str"
+    count: 21
+  - file: python/aletheia/types.py
+    text: "type JSONValue = str | int | float | bool | list[JSONValue] | dict[str, JSONValue] | None"
+    count: 1
+  - file: python/aletheia/yaml_loader.py
+    text: "Mapping[str, JSONValue]"
+    count: 9
+  - file: python/aletheia/yaml_loader.py
+    text: "dict[str, int | Fraction]"
+    count: 1
+  - file: python/aletheia/yaml_loader.py
+    text: "object"
+    count: 2
+  - file: python/aletheia/yaml_loader.py
+    text: "str"
+    count: 15
+  - file: python/aletheia/yaml_loader.py
+    text: "str | Path"
+    count: 2
+  - file: python/aletheia/yaml_loader.py
+    text: "str | TextIO"
+    count: 1
+  - file: python/benchmarks/_common.py
+    text: "bytes"
+    count: 3
+  - file: python/benchmarks/_common.py
+    text: "dict[str, int | Fraction]"
+    count: 3
+  - file: python/benchmarks/_common.py
+    text: "dict[str, object]"
+    count: 1
+  - file: python/benchmarks/_common.py
+    text: "float"
+    count: 2
+  - file: python/benchmarks/_common.py
+    text: "int"
+    count: 8
+  - file: python/benchmarks/_common.py
+    text: "object"
+    count: 1
+  - file: python/benchmarks/_common.py
+    text: "str"
+    count: 1
+  - file: python/benchmarks/_common.py
+    text: "tuple[float, float]"
+    count: 1
+  - file: python/benchmarks/latency.py
+    text: "IO[str]"
+    count: 2
+  - file: python/benchmarks/latency.py
+    text: "IO[str] | None"
+    count: 1
+  - file: python/benchmarks/latency.py
+    text: "float"
+    count: 16
+  - file: python/benchmarks/latency.py
+    text: "int"
+    count: 8
+  - file: python/benchmarks/latency.py
+    text: "list[float]"
+    count: 8
+  - file: python/benchmarks/latency.py
+    text: "str"
+    count: 5
+  - file: python/benchmarks/scaling.py
+    text: "IO[str]"
+    count: 1
+  - file: python/benchmarks/scaling.py
+    text: "IO[str] | None"
+    count: 4
+  - file: python/benchmarks/scaling.py
+    text: "float"
+    count: 8
+  - file: python/benchmarks/scaling.py
+    text: "float | None"
+    count: 3
+  - file: python/benchmarks/scaling.py
+    text: "int"
+    count: 11
+  - file: python/benchmarks/scaling.py
+    text: "list[int]"
+    count: 2
+  - file: python/benchmarks/scaling.py
+    text: "str"
+    count: 2
+  - file: python/benchmarks/scaling.py
+    text: "tuple[float, float]"
+    count: 2
+  - file: python/benchmarks/simplification.py
+    text: "IO[str]"
+    count: 1
+  - file: python/benchmarks/simplification.py
+    text: "dict[str, float]"
+    count: 1
+  - file: python/benchmarks/simplification.py
+    text: "float"
+    count: 3
+  - file: python/benchmarks/simplification.py
+    text: "int"
+    count: 2
+  - file: python/benchmarks/simplification.py
+    text: "list[int]"
+    count: 2
+  - file: python/benchmarks/simplification.py
+    text: "str"
+    count: 3
+  - file: python/benchmarks/stability.py
+    text: "dict[str, int]"
+    count: 3
+  - file: python/benchmarks/stability.py
+    text: "int"
+    count: 3
+  - file: python/benchmarks/stability.py
+    text: "list[dict[str, object]]"
+    count: 1
+  - file: python/benchmarks/sysinfo.py
+    text: "float"
+    count: 11
+  - file: python/benchmarks/sysinfo.py
+    text: "int"
+    count: 1
+  - file: python/benchmarks/throughput.py
+    text: "Callable[[int], float]"
+    count: 2
+  - file: python/benchmarks/throughput.py
+    text: "float"
+    count: 12
+  - file: python/benchmarks/throughput.py
+    text: "int"
+    count: 8
+  - file: python/benchmarks/throughput.py
+    text: "list[float]"
+    count: 1
+  - file: python/benchmarks/throughput.py
+    text: "list[tuple[str, Callable[[int], float]]]"
+    count: 1
+  - file: python/benchmarks/throughput.py
+    text: "str"
+    count: 4
+  - file: python/benchmarks/violations.py
+    text: "Callable[[], float]"
+    count: 1
+  - file: python/benchmarks/violations.py
+    text: "dict[str, Callable[[AletheiaClient, int], float]]"
+    count: 1
+  - file: python/benchmarks/violations.py
+    text: "float"
+    count: 11
+  - file: python/benchmarks/violations.py
+    text: "int"
+    count: 17
+  - file: python/benchmarks/violations.py
+    text: "list[float]"
+    count: 1
+  - file: python/benchmarks/violations.py
+    text: "list[str]"
+    count: 1
+  - file: python/benchmarks/violations.py
+    text: "str"
+    count: 14
+  - file: python/benchmarks/violations.py
+    text: "tuple[float, int]"
+    count: 1
+  - file: python/benchmarks/violations.py
+    text: "tuple[list[_BenchResult], list[str]]"
+    count: 1
+  - file: python/tests/_canonical_dbc.py
+    text: "int"
+    count: 1
+  - file: python/tests/_canonical_dbc.py
+    text: "str"
+    count: 1
+  - file: python/tests/_check_asserts.py
+    text: "str"
+    count: 1
+  - file: python/tests/_cli_check_helpers.py
+    text: "dict[str, str]"
+    count: 1
+  - file: python/tests/_cli_check_helpers.py
+    text: "int"
+    count: 2
+  - file: python/tests/_cli_check_helpers.py
+    text: "list[str]"
+    count: 2
+  - file: python/tests/_cli_check_helpers.py
+    text: "str"
+    count: 9
+  - file: python/tests/_cli_check_helpers.py
+    text: "subprocess.CompletedProcess[str]"
+    count: 3
+  - file: python/tests/_dbc_helpers.py
+    text: "int"
+    count: 6
+  - file: python/tests/_dbc_helpers.py
+    text: "int | Fraction"
+    count: 8
+  - file: python/tests/_dbc_helpers.py
+    text: "list[int]"
+    count: 1
+  - file: python/tests/_dbc_helpers.py
+    text: "list[str]"
+    count: 3
+  - file: python/tests/_dbc_helpers.py
+    text: "str"
+    count: 9
+  - file: python/tests/_excel_helpers.py
+    text: "dict[str, list[CellValue]]"
+    count: 1
+  - file: python/tests/_excel_helpers.py
+    text: "list[str]"
+    count: 1
+  - file: python/tests/_excel_helpers.py
+    text: "str"
+    count: 6
+  - file: python/tests/_git_repo.py
+    text: "str"
+    count: 4
+  - file: python/tests/_git_repo.py
+    text: "tuple[Path, str]"
+    count: 1
+  - file: python/tests/_residency_child.py
+    text: "int"
+    count: 3
+  - file: python/tests/_residency_child.py
+    text: "str"
+    count: 2
+  - file: python/tests/_sbom_fixtures.py
+    text: "dict[str, str]"
+    count: 1
+  - file: python/tests/_stream_helpers.py
+    text: "bytes | bytearray"
+    count: 1
+  - file: python/tests/_stream_helpers.py
+    text: "bytes | bytearray | list[int]"
+    count: 1
+  - file: python/tests/_stream_helpers.py
+    text: "int"
+    count: 3
+  - file: python/tests/_validator_helpers.py
+    text: "int"
+    count: 6
+  - file: python/tests/_validator_helpers.py
+    text: "str"
+    count: 5
+  - file: python/tests/_yaml_shape.py
+    text: "dict[object, object]"
+    count: 2
+  - file: python/tests/_yaml_shape.py
+    text: "dict[str, object]"
+    count: 2
+  - file: python/tests/_yaml_shape.py
+    text: "object"
+    count: 1
+  - file: python/tests/_yaml_shape.py
+    text: "str"
+    count: 1
+  - file: python/tests/conftest.py
+    text: "int"
+    count: 3
+  - file: python/tests/fuzz/_atheris_runner.py
+    text: "Callable[[bytes], None]"
+    count: 1
+  - file: python/tests/fuzz/fuzz_dbc_to_json.py
+    text: "bytes"
+    count: 1
+  - file: python/tests/fuzz/fuzz_iter_can_log.py
+    text: "bytes"
+    count: 1
+  - file: python/tests/fuzz/fuzz_parse_response.py
+    text: "bytes"
+    count: 1
+  - file: python/tests/test_agda_open_grammar.py
+    text: "frozenset[str]"
+    count: 2
+  - file: python/tests/test_agda_open_grammar.py
+    text: "set[str]"
+    count: 2
+  - file: python/tests/test_agda_open_grammar.py
+    text: "str"
+    count: 11
+  - file: python/tests/test_agda_open_grammar_generated.py
+    text: "Iterator[tuple[str, ...]]"
+    count: 1
+  - file: python/tests/test_agda_open_grammar_generated.py
+    text: "dict[str, str]"
+    count: 2
+  - file: python/tests/test_agda_open_grammar_generated.py
+    text: "frozenset[str]"
+    count: 2
+  - file: python/tests/test_agda_open_grammar_generated.py
+    text: "list[tuple[str, ...]]"
+    count: 1
+  - file: python/tests/test_agda_open_grammar_generated.py
+    text: "set[str]"
+    count: 1
+  - file: python/tests/test_agda_open_grammar_generated.py
+    text: "str"
+    count: 11
+  - file: python/tests/test_agda_open_grammar_generated.py
+    text: "tuple[str, ...]"
+    count: 2
+  - file: python/tests/test_agda_tree_lock.py
+    text: "int"
+    count: 4
+  - file: python/tests/test_agda_tree_lock.py
+    text: "pytest.CaptureFixture[str]"
+    count: 1
+  - file: python/tests/test_agda_tree_lock.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_backend_protocol.py
+    text: "bytes"
+    count: 1
+  - file: python/tests/test_benchmark_gate.py
+    text: "dict[str, dict[str, float]]"
+    count: 3
+  - file: python/tests/test_benchmark_gate.py
+    text: "dict[str, dict[str, list[str]]]"
+    count: 1
+  - file: python/tests/test_benchmark_gate.py
+    text: "dict[str, list[str]]"
+    count: 1
+  - file: python/tests/test_benchmark_gate.py
+    text: "dict[str, object]"
+    count: 2
+  - file: python/tests/test_benchmark_gate.py
+    text: "float"
+    count: 2
+  - file: python/tests/test_benchmark_gate.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_benchmark_gate.py
+    text: "list[str]"
+    count: 1
+  - file: python/tests/test_benchmark_gate.py
+    text: "pytest.CaptureFixture[str]"
+    count: 2
+  - file: python/tests/test_benchmark_gate.py
+    text: "set[str]"
+    count: 1
+  - file: python/tests/test_benchmark_gate.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_binary_extraction.py
+    text: "Sequence[int]"
+    count: 1
+  - file: python/tests/test_binary_extraction.py
+    text: "Sequence[tuple[int, int, int]]"
+    count: 1
+  - file: python/tests/test_binary_extraction.py
+    text: "Sequence[tuple[int, int, str]]"
+    count: 1
+  - file: python/tests/test_binary_extraction.py
+    text: "bytes"
+    count: 2
+  - file: python/tests/test_binary_extraction.py
+    text: "bytes | bytearray"
+    count: 1
+  - file: python/tests/test_binary_extraction.py
+    text: "int"
+    count: 3
+  - file: python/tests/test_binary_extraction.py
+    text: "list[str]"
+    count: 2
+  - file: python/tests/test_build_tree_cache_guard.py
+    text: "dict[str, dict[str, object]]"
+    count: 2
+  - file: python/tests/test_build_tree_cache_guard.py
+    text: "dict[str, object]"
+    count: 5
+  - file: python/tests/test_build_tree_cache_guard.py
+    text: "list[str]"
+    count: 1
+  - file: python/tests/test_build_tree_cache_guard.py
+    text: "list[tuple[Path, str, Step, list[Step]]]"
+    count: 2
+  - file: python/tests/test_build_tree_cache_guard.py
+    text: "list[tuple[Path, str, Step]]"
+    count: 1
+  - file: python/tests/test_build_tree_cache_guard.py
+    text: "type Step = dict[str, object]"
+    count: 1
+  - file: python/tests/test_bundle_validate.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_cache_prune_workflow.py
+    text: "Mapping"
+    count: 6
+  - file: python/tests/test_cache_prune_workflow.py
+    text: "dict[object, object]"
+    count: 1
+  - file: python/tests/test_cache_prune_workflow.py
+    text: "dict[str, Mapping]"
+    count: 1
+  - file: python/tests/test_cache_prune_workflow.py
+    text: "dict[str, str]"
+    count: 1
+  - file: python/tests/test_cache_prune_workflow.py
+    text: "list[Mapping]"
+    count: 3
+  - file: python/tests/test_cache_prune_workflow.py
+    text: "list[str]"
+    count: 1
+  - file: python/tests/test_cache_prune_workflow.py
+    text: "type Mapping = dict[str, object]"
+    count: 1
+  - file: python/tests/test_can_log.py
+    text: "float"
+    count: 1
+  - file: python/tests/test_can_log.py
+    text: "int"
+    count: 2
+  - file: python/tests/test_can_log.py
+    text: "object"
+    count: 1
+  - file: python/tests/test_can_log.py
+    text: "str"
+    count: 3
+  - file: python/tests/test_cancellation.py
+    text: "int"
+    count: 5
+  - file: python/tests/test_cancellation.py
+    text: "list[int]"
+    count: 1
+  - file: python/tests/test_cancellation.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_canfd_brs_esi.py
+    text: "object"
+    count: 1
+  - file: python/tests/test_check_action_pins.py
+    text: "str | None"
+    count: 1
+  - file: python/tests/test_check_build_incremental.py
+    text: "Iterator[tuple[Path, int]]"
+    count: 1
+  - file: python/tests/test_check_build_incremental.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_check_build_incremental.py
+    text: "pytest.CaptureFixture[str]"
+    count: 3
+  - file: python/tests/test_check_build_incremental.py
+    text: "tuple[Path, int]"
+    count: 2
+  - file: python/tests/test_check_changelog.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_check_changelog.py
+    text: "pytest.CaptureFixture[str]"
+    count: 2
+  - file: python/tests/test_check_clang_tidy_coverage.py
+    text: "list[str]"
+    count: 1
+  - file: python/tests/test_check_clang_tidy_coverage.py
+    text: "pytest.CaptureFixture[str]"
+    count: 1
+  - file: python/tests/test_check_coverage_setup.py
+    text: "dict[str, dict[str, object]]"
+    count: 2
+  - file: python/tests/test_check_coverage_setup.py
+    text: "dict[str, object]"
+    count: 2
+  - file: python/tests/test_check_coverage_setup.py
+    text: "list[str]"
+    count: 1
+  - file: python/tests/test_check_coverage_setup.py
+    text: "object"
+    count: 1
+  - file: python/tests/test_check_coverage_setup.py
+    text: "pytest.CaptureFixture[str]"
+    count: 1
+  - file: python/tests/test_check_cpp_restated_types.py
+    text: "object"
+    count: 2
+  - file: python/tests/test_check_cpp_restated_types.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_check_cpp_restated_types.py
+    text: "subprocess.CompletedProcess[str]"
+    count: 1
+  - file: python/tests/test_check_dist_staging.py
+    text: "dict[str, str]"
+    count: 2
+  - file: python/tests/test_check_dist_staging.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_check_dist_staging.py
+    text: "pytest.CaptureFixture[str]"
+    count: 12
+  - file: python/tests/test_check_dist_staging.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_check_dist_staging.py
+    text: "tuple[str, ...]"
+    count: 1
+  - file: python/tests/test_check_gate_claim.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_check_gate_claim.py
+    text: "pytest.CaptureFixture[str]"
+    count: 2
+  - file: python/tests/test_check_gate_claim.py
+    text: "str"
+    count: 3
+  - file: python/tests/test_check_install_freshness.py
+    text: "bytes"
+    count: 6
+  - file: python/tests/test_check_install_freshness.py
+    text: "int"
+    count: 6
+  - file: python/tests/test_check_install_freshness.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_check_install_freshness.py
+    text: "tuple[bytes, str]"
+    count: 1
+  - file: python/tests/test_check_mutation_slices.py
+    text: "dict[str, int]"
+    count: 1
+  - file: python/tests/test_check_mutation_slices.py
+    text: "dict[str, object]"
+    count: 2
+  - file: python/tests/test_check_mutation_slices.py
+    text: "int"
+    count: 2
+  - file: python/tests/test_check_no_memory_citations.py
+    text: "pytest.CaptureFixture[str]"
+    count: 1
+  - file: python/tests/test_check_no_memory_citations.py
+    text: "str"
+    count: 6
+  - file: python/tests/test_check_no_review_marks.py
+    text: "list[str]"
+    count: 1
+  - file: python/tests/test_check_no_review_marks.py
+    text: "pytest.CaptureFixture[str]"
+    count: 1
+  - file: python/tests/test_check_no_review_marks.py
+    text: "str"
+    count: 4
+  - file: python/tests/test_check_proof_coverage.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_check_proof_coverage.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_check_refused_words.py
+    text: "pytest.CaptureFixture[str]"
+    count: 2
+  - file: python/tests/test_check_refused_words.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_check_runtime_closure.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_check_runtime_closure.py
+    text: "list[str]"
+    count: 1
+  - file: python/tests/test_check_runtime_closure.py
+    text: "pytest.CaptureFixture[str]"
+    count: 2
+  - file: python/tests/test_check_runtime_closure.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_check_sbom_coverage.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_check_sbom_coverage.py
+    text: "pytest.CaptureFixture[str]"
+    count: 6
+  - file: python/tests/test_check_wire_codes.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_check_wire_codes.py
+    text: "pytest.CaptureFixture[str]"
+    count: 4
+  - file: python/tests/test_check_wire_codes.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_checks.py
+    text: "object"
+    count: 1
+  - file: python/tests/test_checks.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_cli.py
+    text: "pytest.CaptureFixture[str]"
+    count: 25
+  - file: python/tests/test_cli.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_cli_parity.py
+    text: "dict[object, object]"
+    count: 1
+  - file: python/tests/test_cli_parity.py
+    text: "dict[str, list[str]]"
+    count: 1
+  - file: python/tests/test_cli_parity.py
+    text: "dict[str, object]"
+    count: 7
+  - file: python/tests/test_cli_parity.py
+    text: "dict[str, str]"
+    count: 4
+  - file: python/tests/test_cli_parity.py
+    text: "list[dict[str, object]]"
+    count: 2
+  - file: python/tests/test_cli_parity.py
+    text: "list[object]"
+    count: 4
+  - file: python/tests/test_cli_parity.py
+    text: "list[str]"
+    count: 9
+  - file: python/tests/test_cli_parity.py
+    text: "object"
+    count: 14
+  - file: python/tests/test_cli_parity.py
+    text: "str"
+    count: 17
+  - file: python/tests/test_cli_parity.py
+    text: "str | None"
+    count: 1
+  - file: python/tests/test_cli_parity.py
+    text: "subprocess.CompletedProcess[str]"
+    count: 3
+  - file: python/tests/test_cli_parity.py
+    text: "tuple[list[str], list[dict[str, object]]]"
+    count: 1
+  - file: python/tests/test_cli_parity.py
+    text: "tuple[str, ...]"
+    count: 1
+  - file: python/tests/test_cli_template.py
+    text: "pytest.CaptureFixture[str]"
+    count: 6
+  - file: python/tests/test_cli_template.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_cli_template.py
+    text: "str | Path"
+    count: 2
+  - file: python/tests/test_client_lifecycle.py
+    text: "bytes"
+    count: 1
+  - file: python/tests/test_client_lifecycle.py
+    text: "dict[str, JSONValue]"
+    count: 1
+  - file: python/tests/test_client_lifecycle.py
+    text: "int"
+    count: 3
+  - file: python/tests/test_client_lifecycle.py
+    text: "list[int]"
+    count: 1
+  - file: python/tests/test_client_protocol_errors.py
+    text: "bytes"
+    count: 1
+  - file: python/tests/test_client_protocol_errors.py
+    text: "dict[str, JSONValue]"
+    count: 1
+  - file: python/tests/test_coverage_run.py
+    text: "dict[str, object]"
+    count: 3
+  - file: python/tests/test_coverage_run.py
+    text: "float"
+    count: 2
+  - file: python/tests/test_coverage_run.py
+    text: "float | None"
+    count: 1
+  - file: python/tests/test_coverage_run.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_coverage_run.py
+    text: "list[str]"
+    count: 5
+  - file: python/tests/test_coverage_run.py
+    text: "object"
+    count: 4
+  - file: python/tests/test_coverage_run.py
+    text: "pytest.CaptureFixture[str]"
+    count: 2
+  - file: python/tests/test_coverage_run.py
+    text: "set[str] | None"
+    count: 1
+  - file: python/tests/test_coverage_run.py
+    text: "str"
+    count: 8
+  - file: python/tests/test_coverage_run.py
+    text: "str | None"
+    count: 1
+  - file: python/tests/test_coverage_run.py
+    text: "subprocess.CompletedProcess[str]"
+    count: 3
+  - file: python/tests/test_coverage_run.py
+    text: "tuple[int, int]"
+    count: 4
+  - file: python/tests/test_coverage_run.py
+    text: "tuple[list[str], str | None, str]"
+    count: 1
+  - file: python/tests/test_cross_binding_integration.py
+    text: "dict[str, str]"
+    count: 1
+  - file: python/tests/test_cross_binding_integration.py
+    text: "frozenset[str]"
+    count: 4
+  - file: python/tests/test_dbc_corpus_parity.py
+    text: "object"
+    count: 1
+  - file: python/tests/test_dbc_corpus_parity.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_dbc_decode_validation.py
+    text: "dict[str, JSONValue]"
+    count: 6
+  - file: python/tests/test_dbc_metadata_tier2.py
+    text: "list[str]"
+    count: 2
+  - file: python/tests/test_dbc_metadata_tier2.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_dbc_validator.py
+    text: "list[int]"
+    count: 2
+  - file: python/tests/test_dbc_validator_layout.py
+    text: "dict[str, object]"
+    count: 1
+  - file: python/tests/test_dbc_validator_layout.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_default_checks.py
+    text: "int"
+    count: 2
+  - file: python/tests/test_doc_examples_harness.py
+    text: "Iterator[tuple[int, str]]"
+    count: 1
+  - file: python/tests/test_doc_examples_harness.py
+    text: "list[tuple[int, str]]"
+    count: 1
+  - file: python/tests/test_doc_examples_harness.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_doc_examples_harness.py
+    text: "tuple[str, ...]"
+    count: 1
+  - file: python/tests/test_doc_only_path_exemption.py
+    text: "dict[str, dict[str, object]]"
+    count: 1
+  - file: python/tests/test_doc_only_path_exemption.py
+    text: "dict[str, list[str]]"
+    count: 1
+  - file: python/tests/test_doc_only_path_exemption.py
+    text: "list[str]"
+    count: 1
+  - file: python/tests/test_doc_only_path_exemption.py
+    text: "set[str]"
+    count: 1
+  - file: python/tests/test_doc_only_path_exemption.py
+    text: "type Events = dict[str, dict[str, object] | None]"
+    count: 1
+  - file: python/tests/test_doc_only_path_exemption.py
+    text: "type Workflow = dict[str | bool, object]"
+    count: 1
+  - file: python/tests/test_enrichment.py
+    text: "dict[str, Fraction | None]"
+    count: 7
+  - file: python/tests/test_enrichment.py
+    text: "object"
+    count: 2
+  - file: python/tests/test_enrichment.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_eos_extract_once.py
+    text: "bytes"
+    count: 3
+  - file: python/tests/test_eos_extract_once.py
+    text: "dict[str, JSONValue]"
+    count: 1
+  - file: python/tests/test_eos_extract_once.py
+    text: "dict[str, int]"
+    count: 1
+  - file: python/tests/test_eos_extract_once.py
+    text: "int"
+    count: 2
+  - file: python/tests/test_feature_matrix_parity.py
+    text: "dict[str, object]"
+    count: 6
+  - file: python/tests/test_feature_matrix_parity.py
+    text: "frozenset[str]"
+    count: 1
+  - file: python/tests/test_feature_matrix_parity.py
+    text: "list[dict[str, object]]"
+    count: 4
+  - file: python/tests/test_feature_matrix_parity.py
+    text: "list[object]"
+    count: 2
+  - file: python/tests/test_feature_matrix_parity.py
+    text: "list[str]"
+    count: 2
+  - file: python/tests/test_feature_matrix_parity.py
+    text: "object"
+    count: 10
+  - file: python/tests/test_feature_matrix_parity.py
+    text: "str"
+    count: 4
+  - file: python/tests/test_feature_matrix_parity.py
+    text: "str | None"
+    count: 1
+  - file: python/tests/test_feature_matrix_parity.py
+    text: "tuple[str, ...]"
+    count: 1
+  - file: python/tests/test_ffi_abi_layout.py
+    text: "dict[str, dict[str, int]]"
+    count: 1
+  - file: python/tests/test_ffi_abi_layout.py
+    text: "dict[str, int]"
+    count: 1
+  - file: python/tests/test_ffi_abi_layout.py
+    text: "dict[str, type[ctypes.Structure]]"
+    count: 1
+  - file: python/tests/test_ffi_abi_layout.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_ffi_abi_layout.py
+    text: "tuple[dict[str, int], dict[str, dict[str, int]]]"
+    count: 1
+  - file: python/tests/test_ffi_struct_entries.py
+    text: "Iterator[int]"
+    count: 1
+  - file: python/tests/test_ffi_struct_entries.py
+    text: "int"
+    count: 8
+  - file: python/tests/test_ffi_struct_entries.py
+    text: "int | None"
+    count: 1
+  - file: python/tests/test_ffi_struct_entries.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_from_decimal.py
+    text: "int"
+    count: 2
+  - file: python/tests/test_from_decimal.py
+    text: "str"
+    count: 3
+  - file: python/tests/test_heavy_lanes_workflow.py
+    text: "dict[str, Job]"
+    count: 2
+  - file: python/tests/test_heavy_lanes_workflow.py
+    text: "dict[str, object]"
+    count: 3
+  - file: python/tests/test_heavy_lanes_workflow.py
+    text: "dict[str, str]"
+    count: 4
+  - file: python/tests/test_heavy_lanes_workflow.py
+    text: "list[str]"
+    count: 1
+  - file: python/tests/test_heavy_lanes_workflow.py
+    text: "str"
+    count: 3
+  - file: python/tests/test_heavy_lanes_workflow.py
+    text: "type Job = dict[str, object]"
+    count: 1
+  - file: python/tests/test_heavy_lanes_workflow.py
+    text: "type MatrixEntry = dict[str, str | int]"
+    count: 1
+  - file: python/tests/test_heavy_lanes_workflow.py
+    text: "type Step = dict[str, object]"
+    count: 1
+  - file: python/tests/test_input_bounds.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_input_bounds.py
+    text: "object"
+    count: 1
+  - file: python/tests/test_install_hooks.py
+    text: "Callable[[Path, str], None]"
+    count: 1
+  - file: python/tests/test_install_hooks.py
+    text: "Callable[[Path], int]"
+    count: 1
+  - file: python/tests/test_install_hooks.py
+    text: "dict[str, object]"
+    count: 1
+  - file: python/tests/test_install_hooks.py
+    text: "list[list[str]]"
+    count: 1
+  - file: python/tests/test_install_hooks.py
+    text: "list[str]"
+    count: 4
+  - file: python/tests/test_install_hooks.py
+    text: "object"
+    count: 5
+  - file: python/tests/test_install_hooks.py
+    text: "pytest.CaptureFixture[str]"
+    count: 5
+  - file: python/tests/test_install_hooks.py
+    text: "str"
+    count: 5
+  - file: python/tests/test_install_hooks.py
+    text: "subprocess.CompletedProcess[str]"
+    count: 5
+  - file: python/tests/test_install_hooks.py
+    text: "tuple[int, str, list[str]]"
+    count: 1
+  - file: python/tests/test_install_hooks.py
+    text: "tuple[str, str]"
+    count: 1
+  - file: python/tests/test_lazy_import_boundary.py
+    text: "list[str]"
+    count: 1
+  - file: python/tests/test_lazy_import_boundary.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_log_events_parity.py
+    text: "dict[str, object]"
+    count: 2
+  - file: python/tests/test_log_events_parity.py
+    text: "frozenset[str]"
+    count: 1
+  - file: python/tests/test_log_events_parity.py
+    text: "list[dict[str, object]]"
+    count: 3
+  - file: python/tests/test_log_events_parity.py
+    text: "list[object]"
+    count: 2
+  - file: python/tests/test_log_events_parity.py
+    text: "object"
+    count: 5
+  - file: python/tests/test_log_events_parity.py
+    text: "set[str]"
+    count: 1
+  - file: python/tests/test_log_events_parity.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_mutation_cpp_counts.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_mutation_cpp_order.py
+    text: "list[str]"
+    count: 1
+  - file: python/tests/test_mutation_cpp_routes.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_mutation_cpp_routes.py
+    text: "list[tuple[str, int, str, str]]"
+    count: 1
+  - file: python/tests/test_mutation_cpp_routes.py
+    text: "str"
+    count: 3
+  - file: python/tests/test_mutation_cpp_stage.py
+    text: "Mapping[CppTree, set[str]]"
+    count: 1
+  - file: python/tests/test_mutation_cpp_stage.py
+    text: "Mapping[int, tuple[str, ...]]"
+    count: 1
+  - file: python/tests/test_mutation_cpp_stage.py
+    text: "Mapping[str, object]"
+    count: 1
+  - file: python/tests/test_mutation_cpp_stage.py
+    text: "Sequence[str]"
+    count: 1
+  - file: python/tests/test_mutation_cpp_stage.py
+    text: "dict[str, mutation_run.BindingSpec]"
+    count: 1
+  - file: python/tests/test_mutation_cpp_stage.py
+    text: "dict[str, object]"
+    count: 1
+  - file: python/tests/test_mutation_cpp_stage.py
+    text: "float"
+    count: 2
+  - file: python/tests/test_mutation_cpp_stage.py
+    text: "int"
+    count: 2
+  - file: python/tests/test_mutation_cpp_stage.py
+    text: "list[str]"
+    count: 3
+  - file: python/tests/test_mutation_cpp_stage.py
+    text: "set[str]"
+    count: 1
+  - file: python/tests/test_mutation_cpp_stage.py
+    text: "str"
+    count: 7
+  - file: python/tests/test_mutation_cpp_stage.py
+    text: "str | None"
+    count: 1
+  - file: python/tests/test_mutation_cpp_stage.py
+    text: "tuple[str, ...]"
+    count: 1
+  - file: python/tests/test_mutation_cpp_stage.py
+    text: "tuple[str, Mapping[str, object]]"
+    count: 1
+  - file: python/tests/test_mutation_cpp_weight_drift.py
+    text: "dict[RelPath, int]"
+    count: 1
+  - file: python/tests/test_mutation_lane_scope.py
+    text: "Callable[[Path], set[str] | None]"
+    count: 1
+  - file: python/tests/test_mutation_lane_scope.py
+    text: "dict[str, dict[str, object]]"
+    count: 1
+  - file: python/tests/test_mutation_lane_scope.py
+    text: "dict[str, object]"
+    count: 1
+  - file: python/tests/test_mutation_lane_scope.py
+    text: "list[tuple[set[str] | None, bool]]"
+    count: 1
+  - file: python/tests/test_mutation_lane_scope.py
+    text: "list[tuple[set[str] | None, str]]"
+    count: 1
+  - file: python/tests/test_mutation_lane_scope.py
+    text: "list[tuple[str, Step]]"
+    count: 1
+  - file: python/tests/test_mutation_lane_scope.py
+    text: "set[str] | None"
+    count: 4
+  - file: python/tests/test_mutation_lane_scope.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_mutation_lane_scope.py
+    text: "type Step = dict[str, object]"
+    count: 1
+  - file: python/tests/test_mutation_run_gremlins.py
+    text: "dict[mutation_run.SurvivorKey, int]"
+    count: 1
+  - file: python/tests/test_mutation_run_gremlins.py
+    text: "dict[str, BindingSpec]"
+    count: 1
+  - file: python/tests/test_mutation_run_gremlins.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_mutation_run_gremlins.py
+    text: "object"
+    count: 1
+  - file: python/tests/test_mutation_run_ledger.py
+    text: "dict[SurvivorKey, int] | None"
+    count: 1
+  - file: python/tests/test_mutation_run_ledger.py
+    text: "dict[str, BindingSpec]"
+    count: 1
+  - file: python/tests/test_mutation_run_rust.py
+    text: "Callable[[str, int], str]"
+    count: 1
+  - file: python/tests/test_mutation_run_rust.py
+    text: "dict[str, BindingSpec]"
+    count: 1
+  - file: python/tests/test_mutation_run_rust.py
+    text: "dict[str, object]"
+    count: 3
+  - file: python/tests/test_mutation_run_rust.py
+    text: "int"
+    count: 3
+  - file: python/tests/test_mutation_run_rust.py
+    text: "object"
+    count: 1
+  - file: python/tests/test_mutation_run_rust.py
+    text: "str"
+    count: 5
+  - file: python/tests/test_mutation_run_rust.py
+    text: "str | None"
+    count: 2
+  - file: python/tests/test_mutation_run_rust.py
+    text: "tuple[str, Path]"
+    count: 2
+  - file: python/tests/test_mutation_run_scope.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_mutation_run_scope.py
+    text: "list[str]"
+    count: 10
+  - file: python/tests/test_mutation_run_scope.py
+    text: "list[tuple[str, str, Callable[[Path], mutation_run.MutationReport]]]"
+    count: 1
+  - file: python/tests/test_mutation_run_scope.py
+    text: "object"
+    count: 2
+  - file: python/tests/test_mutation_run_scope.py
+    text: "set[str]"
+    count: 1
+  - file: python/tests/test_mutation_run_scope.py
+    text: "str"
+    count: 4
+  - file: python/tests/test_mutation_run_scope.py
+    text: "subprocess.CompletedProcess[str]"
+    count: 2
+  - file: python/tests/test_mutation_sweep_cache.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_mutation_sweep_cache.py
+    text: "list[str]"
+    count: 1
+  - file: python/tests/test_mutation_sweep_cache.py
+    text: "set[int]"
+    count: 1
+  - file: python/tests/test_mutation_sweep_cache.py
+    text: "str"
+    count: 3
+  - file: python/tests/test_mutation_unobserved_ledger.py
+    text: "dict[UnobservedKey, int] | None"
+    count: 1
+  - file: python/tests/test_mutation_unobserved_ledger.py
+    text: "dict[str, BindingSpec]"
+    count: 1
+  - file: python/tests/test_mutation_unobserved_ledger.py
+    text: "dict[str, object]"
+    count: 3
+  - file: python/tests/test_mutation_unobserved_ledger.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_mutation_unobserved_ledger.py
+    text: "str"
+    count: 4
+  - file: python/tests/test_parse_dbc_text.py
+    text: "int"
+    count: 4
+  - file: python/tests/test_parse_dbc_text.py
+    text: "str"
+    count: 5
+  - file: python/tests/test_parse_decimal_ffi.py
+    text: "dict[str, object]"
+    count: 2
+  - file: python/tests/test_parse_decimal_ffi.py
+    text: "int"
+    count: 2
+  - file: python/tests/test_parse_decimal_ffi.py
+    text: "int | None"
+    count: 1
+  - file: python/tests/test_parse_decimal_ffi.py
+    text: "str"
+    count: 4
+  - file: python/tests/test_predicate_sync.py
+    text: "set[str]"
+    count: 1
+  - file: python/tests/test_private_import_whitelist.py
+    text: "str"
+    count: 3
+  - file: python/tests/test_property_hypothesis.py
+    text: "int"
+    count: 9
+  - file: python/tests/test_property_hypothesis.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_prune_actions_cache.py
+    text: "dict[str, object]"
+    count: 1
+  - file: python/tests/test_prune_actions_cache.py
+    text: "dict[str, str]"
+    count: 1
+  - file: python/tests/test_prune_actions_cache.py
+    text: "int"
+    count: 3
+  - file: python/tests/test_prune_actions_cache.py
+    text: "list[dict[str, object]]"
+    count: 1
+  - file: python/tests/test_prune_actions_cache.py
+    text: "list[list[str]]"
+    count: 1
+  - file: python/tests/test_prune_actions_cache.py
+    text: "list[str]"
+    count: 4
+  - file: python/tests/test_prune_actions_cache.py
+    text: "pytest.CaptureFixture[str]"
+    count: 1
+  - file: python/tests/test_prune_actions_cache.py
+    text: "str"
+    count: 6
+  - file: python/tests/test_prune_actions_cache.py
+    text: "subprocess.CompletedProcess[str]"
+    count: 3
+  - file: python/tests/test_prune_actions_cache.py
+    text: "tuple[set[int], set[int]]"
+    count: 1
+  - file: python/tests/test_ratchet.py
+    text: "str"
+    count: 4
+  - file: python/tests/test_readable_filter_semantics.py
+    text: "dict[str, object]"
+    count: 1
+  - file: python/tests/test_readable_filter_semantics.py
+    text: "dict[str, str]"
+    count: 1
+  - file: python/tests/test_readable_filter_semantics.py
+    text: "int"
+    count: 5
+  - file: python/tests/test_readable_filter_semantics.py
+    text: "list[object]"
+    count: 3
+  - file: python/tests/test_readable_filter_semantics.py
+    text: "object"
+    count: 2
+  - file: python/tests/test_readable_filter_semantics.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_reject_floats.py
+    text: "dict[str, object]"
+    count: 5
+  - file: python/tests/test_reject_floats.py
+    text: "float"
+    count: 1
+  - file: python/tests/test_reject_floats.py
+    text: "list[int]"
+    count: 1
+  - file: python/tests/test_reject_floats.py
+    text: "object"
+    count: 1
+  - file: python/tests/test_reject_floats.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_response_parsers.py
+    text: "dict[str, object]"
+    count: 2
+  - file: python/tests/test_rts_runtime_parity.py
+    text: "dict[str, object]"
+    count: 1
+  - file: python/tests/test_rts_runtime_parity.py
+    text: "dict[str, str]"
+    count: 1
+  - file: python/tests/test_rts_runtime_parity.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_rts_runtime_parity.py
+    text: "object"
+    count: 1
+  - file: python/tests/test_rts_runtime_parity.py
+    text: "subprocess.CompletedProcess[str]"
+    count: 1
+  - file: python/tests/test_run_ci_runner.py
+    text: "dict[str, str]"
+    count: 1
+  - file: python/tests/test_run_ci_runner.py
+    text: "int"
+    count: 2
+  - file: python/tests/test_run_ci_runner.py
+    text: "list[str]"
+    count: 1
+  - file: python/tests/test_run_ci_runner.py
+    text: "pytest.CaptureFixture[str]"
+    count: 1
+  - file: python/tests/test_run_ci_runner.py
+    text: "str"
+    count: 4
+  - file: python/tests/test_run_guarded.py
+    text: "float"
+    count: 2
+  - file: python/tests/test_run_guarded.py
+    text: "int"
+    count: 2
+  - file: python/tests/test_run_guarded.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_run_guarded.py
+    text: "subprocess.Popen[str]"
+    count: 1
+  - file: python/tests/test_run_streaming.py
+    text: "int"
+    count: 2
+  - file: python/tests/test_run_streaming.py
+    text: "int | None"
+    count: 1
+  - file: python/tests/test_run_streaming.py
+    text: "list[str]"
+    count: 8
+  - file: python/tests/test_run_streaming.py
+    text: "str"
+    count: 3
+  - file: python/tests/test_run_streaming.py
+    text: "tuple[str, ...]"
+    count: 1
+  - file: python/tests/test_sbom_generate.py
+    text: "dict[str, Component]"
+    count: 1
+  - file: python/tests/test_sbom_generate.py
+    text: "dict[str, object]"
+    count: 1
+  - file: python/tests/test_sbom_generate.py
+    text: "dict[str, str]"
+    count: 1
+  - file: python/tests/test_sbom_generate.py
+    text: "int"
+    count: 1
+  - file: python/tests/test_sbom_generate.py
+    text: "list[dict[str, object]]"
+    count: 1
+  - file: python/tests/test_sbom_generate.py
+    text: "pytest.CaptureFixture[str]"
+    count: 1
+  - file: python/tests/test_scheduler.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_short_circuit_cache_differential.py
+    text: "dict[str, object]"
+    count: 1
+  - file: python/tests/test_short_circuit_cache_differential.py
+    text: "int"
+    count: 3
+  - file: python/tests/test_short_circuit_cache_differential.py
+    text: "list[object]"
+    count: 3
+  - file: python/tests/test_short_circuit_cache_differential.py
+    text: "object"
+    count: 2
+  - file: python/tests/test_streaming_residency.py
+    text: "dict[str, float]"
+    count: 2
+  - file: python/tests/test_streaming_residency.py
+    text: "int"
+    count: 2
+  - file: python/tests/test_streaming_residency.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_types_and_conditions.py
+    text: "int"
+    count: 5
+  - file: python/tests/test_unified_client.py
+    text: "dict[str, str | None]"
+    count: 1
+  - file: python/tests/test_unified_client.py
+    text: "int"
+    count: 2
+  - file: python/tests/test_unified_client.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_warm_changed_files.py
+    text: "list[list[str]]"
+    count: 2
+  - file: python/tests/test_warm_changed_files.py
+    text: "list[str]"
+    count: 2
+  - file: python/tests/test_warm_changed_files.py
+    text: "object"
+    count: 2
+  - file: python/tests/test_warm_changed_files.py
+    text: "pytest.CaptureFixture[str]"
+    count: 1
+  - file: python/tests/test_warm_changed_files.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_warm_load.py
+    text: "Iterator[str]"
+    count: 1
+  - file: python/tests/test_warm_load.py
+    text: "dict[str, object]"
+    count: 1
+  - file: python/tests/test_warm_load.py
+    text: "str | None"
+    count: 1
+  - file: python/tests/test_wire_codes_parity.py
+    text: "dict[str, object]"
+    count: 1
+  - file: python/tests/test_wire_codes_parity.py
+    text: "list[dict[str, object]]"
+    count: 4
+  - file: python/tests/test_wire_codes_parity.py
+    text: "list[object]"
+    count: 2
+  - file: python/tests/test_wire_codes_parity.py
+    text: "object"
+    count: 4
+  - file: python/tests/test_wire_codes_parity.py
+    text: "set[str]"
+    count: 2
+  - file: python/tests/test_wire_codes_parity.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_wire_rational_decode_reject.py
+    text: "dict[str, object]"
+    count: 1
+  - file: python/tests/test_wire_rational_decode_reject.py
+    text: "str"
+    count: 1
+  - file: python/tests/test_yaml_loader_errors.py
+    text: "str"
+    count: 2
+  - file: python/tests/test_yaml_no_float_resolver.py
+    text: "str"
+    count: 1
+  - file: tools/_agda_opens.py
+    text: "int"
+    count: 9
+  - file: tools/_agda_opens.py
+    text: "list[int]"
+    count: 3
+  - file: tools/_agda_opens.py
+    text: "list[str]"
+    count: 5
+  - file: tools/_agda_opens.py
+    text: "re.Match[str]"
+    count: 1
+  - file: tools/_agda_opens.py
+    text: "str"
+    count: 10
+  - file: tools/_agda_opens.py
+    text: "tuple[str, int]"
+    count: 1
+  - file: tools/_agda_opens.py
+    text: "type CharRange = tuple[int, int]"
+    count: 1
+  - file: tools/_agda_opens.py
+    text: "type ModulePath = str"
+    count: 1
+  - file: tools/_agda_opens.py
+    text: "type Name = str"
+    count: 1
+  - file: tools/_ci_steps.py
+    text: "frozenset[str]"
+    count: 2
+  - file: tools/_ci_steps.py
+    text: "list[str]"
+    count: 4
+  - file: tools/_ci_steps.py
+    text: "str"
+    count: 8
+  - file: tools/_ci_steps.py
+    text: "tuple[str, ...]"
+    count: 2
+  - file: tools/_common.py
+    text: "Callable[[str, str], list[str]]"
+    count: 1
+  - file: tools/_common.py
+    text: "Callable[[str], bool]"
+    count: 2
+  - file: tools/_common.py
+    text: "Callable[[str], object] | None"
+    count: 1
+  - file: tools/_common.py
+    text: "Iterable[tuple[int, str]]"
+    count: 1
+  - file: tools/_common.py
+    text: "Iterable[tuple[re.Pattern[str], str]]"
+    count: 1
+  - file: tools/_common.py
+    text: "Mapping[str, object]"
+    count: 1
+  - file: tools/_common.py
+    text: "bytes"
+    count: 1
+  - file: tools/_common.py
+    text: "bytes | None"
+    count: 1
+  - file: tools/_common.py
+    text: "dict[str, str]"
+    count: 2
+  - file: tools/_common.py
+    text: "dict[str, str] | None"
+    count: 2
+  - file: tools/_common.py
+    text: "float"
+    count: 1
+  - file: tools/_common.py
+    text: "frozenset[str]"
+    count: 2
+  - file: tools/_common.py
+    text: "int"
+    count: 9
+  - file: tools/_common.py
+    text: "int | IO[str]"
+    count: 1
+  - file: tools/_common.py
+    text: "int | None"
+    count: 2
+  - file: tools/_common.py
+    text: "list[str]"
+    count: 13
+  - file: tools/_common.py
+    text: "list[tuple[int, str]]"
+    count: 2
+  - file: tools/_common.py
+    text: "object"
+    count: 1
+  - file: tools/_common.py
+    text: "str"
+    count: 27
+  - file: tools/_common.py
+    text: "str | None"
+    count: 2
+  - file: tools/_common.py
+    text: "subprocess.CompletedProcess[str]"
+    count: 3
+  - file: tools/_guarded_run.py
+    text: "float"
+    count: 1
+  - file: tools/_guarded_run.py
+    text: "int"
+    count: 3
+  - file: tools/_guarded_run.py
+    text: "list[int]"
+    count: 1
+  - file: tools/_guarded_run.py
+    text: "list[str]"
+    count: 1
+  - file: tools/_guarded_run.py
+    text: "subprocess.Popen[bytes]"
+    count: 1
+  - file: tools/_iwyu.py
+    text: "int"
+    count: 3
+  - file: tools/_iwyu.py
+    text: "list[tuple[NameQuery, int]]"
+    count: 1
+  - file: tools/_iwyu.py
+    text: "str"
+    count: 11
+  - file: tools/_iwyu.py
+    text: "tuple[int, int]"
+    count: 1
+  - file: tools/_iwyu.py
+    text: "type AgdaiPath = str"
+    count: 1
+  - file: tools/_iwyu.py
+    text: "type IncludeDir = str"
+    count: 1
+  - file: tools/_iwyu.py
+    text: "type OutputLine = str"
+    count: 1
+  - file: tools/_iwyu.py
+    text: "type QueryLine = str"
+    count: 1
+  - file: tools/_iwyu.py
+    text: "type Verdict = str"
+    count: 1
+  - file: tools/_iwyu.py
+    text: "type WildcardKind = str"
+    count: 1
+  - file: tools/_ratchet.py
+    text: "RatchetRows | str"
+    count: 1
+  - file: tools/_ratchet.py
+    text: "Row | str"
+    count: 1
+  - file: tools/_ratchet.py
+    text: "dict[str, object]"
+    count: 2
+  - file: tools/_ratchet.py
+    text: "int"
+    count: 2
+  - file: tools/_ratchet.py
+    text: "list[object]"
+    count: 1
+  - file: tools/_ratchet.py
+    text: "object"
+    count: 2
+  - file: tools/_ratchet.py
+    text: "str"
+    count: 2
+  - file: tools/_ratchet.py
+    text: "type RatchetRows = dict[RowKey, int]"
+    count: 1
+  - file: tools/_resources.py
+    text: "int"
+    count: 3
+  - file: tools/_resources.py
+    text: "int | None"
+    count: 1
+  - file: tools/_scheduler.py
+    text: "Sequence[str]"
+    count: 1
+  - file: tools/_scheduler.py
+    text: "Sequence[str] | str"
+    count: 1
+  - file: tools/_scheduler.py
+    text: "float"
+    count: 1
+  - file: tools/_scheduler.py
+    text: "int"
+    count: 3
+  - file: tools/_scheduler.py
+    text: "int | None"
+    count: 2
+  - file: tools/_scheduler.py
+    text: "str"
+    count: 6
+  - file: tools/_warm.py
+    text: "Callable[[WarmAgda, list[RelPath]], int]"
+    count: 1
+  - file: tools/_warm.py
+    text: "Callable[[], str | None]"
+    count: 1
+  - file: tools/_warm.py
+    text: "dict[tuple[int, ...], Token]"
+    count: 1
+  - file: tools/_warm.py
+    text: "float"
+    count: 2
+  - file: tools/_warm.py
+    text: "int"
+    count: 2
+  - file: tools/_warm.py
+    text: "list[int]"
+    count: 1
+  - file: tools/_warm.py
+    text: "list[str]"
+    count: 5
+  - file: tools/_warm.py
+    text: "object"
+    count: 1
+  - file: tools/_warm.py
+    text: "queue.Queue[str | None]"
+    count: 1
+  - file: tools/_warm.py
+    text: "str"
+    count: 11
+  - file: tools/_warm.py
+    text: "str | None"
+    count: 1
+  - file: tools/_warm.py
+    text: "subprocess.Popen[str]"
+    count: 2
+  - file: tools/_warm.py
+    text: "type Name = str"
+    count: 1
+  - file: tools/_warm.py
+    text: "type RelPath = str"
+    count: 1
+  - file: tools/benchmark_gate.py
+    text: "float"
+    count: 3
+  - file: tools/benchmark_gate.py
+    text: "int"
+    count: 1
+  - file: tools/benchmark_gate.py
+    text: "list[str]"
+    count: 2
+  - file: tools/benchmark_gate.py
+    text: "list[str] | None"
+    count: 2
+  - file: tools/benchmark_gate.py
+    text: "str"
+    count: 5
+  - file: tools/benchmark_gate.py
+    text: "tuple[list[str], list[str]]"
+    count: 1
+  - file: tools/benchmark_gate.py
+    text: "tuple[str, Path, Path, float]"
+    count: 1
+  - file: tools/benchmark_gate.py
+    text: "type Baseline = dict[str, dict[str, float]]"
+    count: 1
+  - file: tools/bundle_validate.py
+    text: "Mapping[str, str] | None"
+    count: 1
+  - file: tools/bundle_validate.py
+    text: "dict[str, Callable[[Path, list[str], Path, Config], None]]"
+    count: 1
+  - file: tools/bundle_validate.py
+    text: "dict[str, list[str]]"
+    count: 7
+  - file: tools/bundle_validate.py
+    text: "dict[str, str]"
+    count: 2
+  - file: tools/bundle_validate.py
+    text: "dict[str, tuple[str, ...]]"
+    count: 1
+  - file: tools/bundle_validate.py
+    text: "dict[str, tuple[str, str]]"
+    count: 1
+  - file: tools/bundle_validate.py
+    text: "dict[str, tuple[tuple[str, str], ...]]"
+    count: 1
+  - file: tools/bundle_validate.py
+    text: "frozenset[str]"
+    count: 1
+  - file: tools/bundle_validate.py
+    text: "int"
+    count: 4
+  - file: tools/bundle_validate.py
+    text: "list[str]"
+    count: 12
+  - file: tools/bundle_validate.py
+    text: "list[str] | None"
+    count: 2
+  - file: tools/bundle_validate.py
+    text: "str"
+    count: 24
+  - file: tools/bundle_validate.py
+    text: "str | None"
+    count: 3
+  - file: tools/bundle_validate.py
+    text: "subprocess.CompletedProcess[str]"
+    count: 1
+  - file: tools/bundle_validate.py
+    text: "tuple[str, ...]"
+    count: 5
+  - file: tools/bundle_validate.py
+    text: "tuple[tuple[str, Callable[[Path], None], tuple[str, ...]], ...]"
+    count: 1
+  - file: tools/check_action_pins.py
+    text: "int"
+    count: 1
+  - file: tools/check_action_pins.py
+    text: "list[str]"
+    count: 1
+  - file: tools/check_action_pins.py
+    text: "str"
+    count: 2
+  - file: tools/check_action_pins.py
+    text: "str | None"
+    count: 1
+  - file: tools/check_bench_schema.py
+    text: "dict[object, object]"
+    count: 15
+  - file: tools/check_bench_schema.py
+    text: "dict[str, list[str]]"
+    count: 1
+  - file: tools/check_bench_schema.py
+    text: "dict[str, str]"
+    count: 1
+  - file: tools/check_bench_schema.py
+    text: "int"
+    count: 4
+  - file: tools/check_bench_schema.py
+    text: "list[object]"
+    count: 4
+  - file: tools/check_bench_schema.py
+    text: "list[str]"
+    count: 18
+  - file: tools/check_bench_schema.py
+    text: "list[tuple[str, object]]"
+    count: 1
+  - file: tools/check_bench_schema.py
+    text: "object"
+    count: 8
+  - file: tools/check_bench_schema.py
+    text: "set[object]"
+    count: 2
+  - file: tools/check_bench_schema.py
+    text: "set[object] | None"
+    count: 1
+  - file: tools/check_bench_schema.py
+    text: "str"
+    count: 10
+  - file: tools/check_bench_schema.py
+    text: "tuple[list[str], list[str]]"
+    count: 1
+  - file: tools/check_bound_enforcement.py
+    text: "dict[Path, int]"
+    count: 2
+  - file: tools/check_bound_enforcement.py
+    text: "dict[str, int]"
+    count: 1
+  - file: tools/check_bound_enforcement.py
+    text: "int"
+    count: 1
+  - file: tools/check_bound_enforcement.py
+    text: "list[str]"
+    count: 3
+  - file: tools/check_bound_enforcement.py
+    text: "str"
+    count: 1
+  - file: tools/check_build_incremental.py
+    text: "bytes"
+    count: 1
+  - file: tools/check_build_incremental.py
+    text: "dict[Path, str]"
+    count: 2
+  - file: tools/check_build_incremental.py
+    text: "dict[Path, str] | None"
+    count: 1
+  - file: tools/check_build_incremental.py
+    text: "int"
+    count: 2
+  - file: tools/check_build_incremental.py
+    text: "int | None"
+    count: 2
+  - file: tools/check_build_incremental.py
+    text: "str"
+    count: 10
+  - file: tools/check_build_incremental.py
+    text: "str | None"
+    count: 1
+  - file: tools/check_build_incremental.py
+    text: "str | bytes"
+    count: 1
+  - file: tools/check_changelog.py
+    text: "int"
+    count: 1
+  - file: tools/check_changelog.py
+    text: "list[str]"
+    count: 2
+  - file: tools/check_changelog.py
+    text: "str"
+    count: 4
+  - file: tools/check_clang_tidy_coverage.py
+    text: "int"
+    count: 1
+  - file: tools/check_clang_tidy_coverage.py
+    text: "list[dict[str, object]]"
+    count: 1
+  - file: tools/check_clang_tidy_coverage.py
+    text: "list[str]"
+    count: 1
+  - file: tools/check_clang_tidy_coverage.py
+    text: "set[str]"
+    count: 4
+  - file: tools/check_coverage_setup.py
+    text: "dict[str, dict[str, object]]"
+    count: 4
+  - file: tools/check_coverage_setup.py
+    text: "dict[str, float]"
+    count: 1
+  - file: tools/check_coverage_setup.py
+    text: "dict[str, object]"
+    count: 4
+  - file: tools/check_coverage_setup.py
+    text: "int"
+    count: 1
+  - file: tools/check_coverage_setup.py
+    text: "list[object]"
+    count: 1
+  - file: tools/check_coverage_setup.py
+    text: "list[str]"
+    count: 10
+  - file: tools/check_coverage_setup.py
+    text: "object"
+    count: 2
+  - file: tools/check_coverage_setup.py
+    text: "type Spec = dict[str, object]"
+    count: 1
+  - file: tools/check_cpp_index_loops.py
+    text: "int"
+    count: 8
+  - file: tools/check_cpp_index_loops.py
+    text: "list[str]"
+    count: 1
+  - file: tools/check_cpp_index_loops.py
+    text: "set[int]"
+    count: 1
+  - file: tools/check_cpp_index_loops.py
+    text: "str"
+    count: 24
+  - file: tools/check_cpp_index_loops.py
+    text: "str | None"
+    count: 1
+  - file: tools/check_cpp_restated_types.py
+    text: "RatchetRows | str"
+    count: 1
+  - file: tools/check_cpp_restated_types.py
+    text: "dict[str, object]"
+    count: 1
+  - file: tools/check_cpp_restated_types.py
+    text: "int"
+    count: 3
+  - file: tools/check_cpp_restated_types.py
+    text: "list[Hit] | str"
+    count: 2
+  - file: tools/check_cpp_restated_types.py
+    text: "list[UnitPath] | str"
+    count: 1
+  - file: tools/check_cpp_restated_types.py
+    text: "list[object]"
+    count: 1
+  - file: tools/check_cpp_restated_types.py
+    text: "object"
+    count: 1
+  - file: tools/check_cpp_restated_types.py
+    text: "str"
+    count: 2
+  - file: tools/check_dist_staging.py
+    text: "frozenset[str]"
+    count: 1
+  - file: tools/check_dist_staging.py
+    text: "int"
+    count: 4
+  - file: tools/check_dist_staging.py
+    text: "list[str]"
+    count: 13
+  - file: tools/check_dist_staging.py
+    text: "list[str] | None"
+    count: 1
+  - file: tools/check_dist_staging.py
+    text: "str"
+    count: 10
+  - file: tools/check_dist_staging.py
+    text: "str | None"
+    count: 3
+  - file: tools/check_dist_staging.py
+    text: "tuple[str, ...]"
+    count: 5
+  - file: tools/check_docs.py
+    text: "dict[Path, set[str]]"
+    count: 1
+  - file: tools/check_docs.py
+    text: "dict[str, int]"
+    count: 1
+  - file: tools/check_docs.py
+    text: "int"
+    count: 1
+  - file: tools/check_docs.py
+    text: "list[str]"
+    count: 7
+  - file: tools/check_docs.py
+    text: "list[str] | None"
+    count: 1
+  - file: tools/check_docs.py
+    text: "set[str]"
+    count: 2
+  - file: tools/check_docs.py
+    text: "str"
+    count: 7
+  - file: tools/check_docs.py
+    text: "str | None"
+    count: 1
+  - file: tools/check_gate_claim.py
+    text: "dict[str, str]"
+    count: 1
+  - file: tools/check_gate_claim.py
+    text: "int"
+    count: 1
+  - file: tools/check_gate_claim.py
+    text: "list[str]"
+    count: 2
+  - file: tools/check_gate_claim.py
+    text: "list[tuple[str, str]]"
+    count: 2
+  - file: tools/check_gate_claim.py
+    text: "set[str]"
+    count: 2
+  - file: tools/check_gate_claim.py
+    text: "str"
+    count: 7
+  - file: tools/check_gate_claim.py
+    text: "str | None"
+    count: 2
+  - file: tools/check_gate_claim.py
+    text: "tuple[int, str]"
+    count: 1
+  - file: tools/check_gate_claim.py
+    text: "tuple[str, list[str]]"
+    count: 1
+  - file: tools/check_install_freshness.py
+    text: "bytes"
+    count: 2
+  - file: tools/check_install_freshness.py
+    text: "int"
+    count: 5
+  - file: tools/check_install_freshness.py
+    text: "list[str]"
+    count: 6
+  - file: tools/check_install_freshness.py
+    text: "list[str] | None"
+    count: 1
+  - file: tools/check_install_freshness.py
+    text: "str"
+    count: 6
+  - file: tools/check_install_freshness.py
+    text: "str | None"
+    count: 2
+  - file: tools/check_limits_parity.py
+    text: "dict[str, int]"
+    count: 7
+  - file: tools/check_limits_parity.py
+    text: "dict[str, str]"
+    count: 11
+  - file: tools/check_limits_parity.py
+    text: "dict[str, tuple[str, str]]"
+    count: 4
+  - file: tools/check_limits_parity.py
+    text: "dict[type[ast.operator], Callable[[float, float], float]]"
+    count: 1
+  - file: tools/check_limits_parity.py
+    text: "dict[type[ast.unaryop], Callable[[float], float]]"
+    count: 1
+  - file: tools/check_limits_parity.py
+    text: "float"
+    count: 1
+  - file: tools/check_limits_parity.py
+    text: "int"
+    count: 1
+  - file: tools/check_limits_parity.py
+    text: "int | None"
+    count: 1
+  - file: tools/check_limits_parity.py
+    text: "list[str]"
+    count: 7
+  - file: tools/check_limits_parity.py
+    text: "str"
+    count: 14
+  - file: tools/check_limits_parity.py
+    text: "tuple[dict[str, int], dict[str, str]]"
+    count: 4
+  - file: tools/check_mutation_setup.py
+    text: "dict[str, int]"
+    count: 1
+  - file: tools/check_mutation_setup.py
+    text: "dict[str, object]"
+    count: 20
+  - file: tools/check_mutation_setup.py
+    text: "int"
+    count: 3
+  - file: tools/check_mutation_setup.py
+    text: "list[object]"
+    count: 5
+  - file: tools/check_mutation_setup.py
+    text: "list[str]"
+    count: 11
+  - file: tools/check_mutation_setup.py
+    text: "object"
+    count: 1
+  - file: tools/check_mutation_setup.py
+    text: "set[str]"
+    count: 2
+  - file: tools/check_mutation_setup.py
+    text: "str"
+    count: 2
+  - file: tools/check_no_memory_citations.py
+    text: "int"
+    count: 1
+  - file: tools/check_no_memory_citations.py
+    text: "list[str]"
+    count: 1
+  - file: tools/check_no_memory_citations.py
+    text: "list[str] | None"
+    count: 1
+  - file: tools/check_no_memory_citations.py
+    text: "list[tuple[re.Pattern[str], str]]"
+    count: 1
+  - file: tools/check_no_memory_citations.py
+    text: "str"
+    count: 4
+  - file: tools/check_no_review_marks.py
+    text: "int"
+    count: 1
+  - file: tools/check_no_review_marks.py
+    text: "list[str]"
+    count: 1
+  - file: tools/check_no_review_marks.py
+    text: "list[str] | None"
+    count: 1
+  - file: tools/check_no_review_marks.py
+    text: "list[tuple[int, str]]"
+    count: 1
+  - file: tools/check_no_review_marks.py
+    text: "list[tuple[re.Pattern[str], str]]"
+    count: 1
+  - file: tools/check_no_review_marks.py
+    text: "str"
+    count: 7
+  - file: tools/check_proof_coverage.py
+    text: "dict[str, set[str]]"
+    count: 2
+  - file: tools/check_proof_coverage.py
+    text: "int"
+    count: 1
+  - file: tools/check_proof_coverage.py
+    text: "list[str]"
+    count: 2
+  - file: tools/check_proof_coverage.py
+    text: "re.Pattern[str]"
+    count: 1
+  - file: tools/check_proof_coverage.py
+    text: "set[str]"
+    count: 3
+  - file: tools/check_proof_coverage.py
+    text: "str"
+    count: 3
+  - file: tools/check_refused_words.py
+    text: "int"
+    count: 1
+  - file: tools/check_refused_words.py
+    text: "list[str]"
+    count: 2
+  - file: tools/check_refused_words.py
+    text: "list[tuple[re.Pattern[str], str]]"
+    count: 1
+  - file: tools/check_refused_words.py
+    text: "str"
+    count: 3
+  - file: tools/check_reproducible_build.py
+    text: "int"
+    count: 2
+  - file: tools/check_reproducible_build.py
+    text: "str"
+    count: 3
+  - file: tools/check_reproducible_build.py
+    text: "tuple[str, str]"
+    count: 2
+  - file: tools/check_rts_runtime.py
+    text: "dict[object, object]"
+    count: 4
+  - file: tools/check_rts_runtime.py
+    text: "int"
+    count: 2
+  - file: tools/check_rts_runtime.py
+    text: "list[str]"
+    count: 3
+  - file: tools/check_rts_runtime.py
+    text: "object"
+    count: 1
+  - file: tools/check_rts_runtime.py
+    text: "re.Pattern[str]"
+    count: 5
+  - file: tools/check_rts_runtime.py
+    text: "str"
+    count: 5
+  - file: tools/check_rts_runtime.py
+    text: "str | None"
+    count: 1
+  - file: tools/check_runbook_coverage.py
+    text: "dict[str, object]"
+    count: 2
+  - file: tools/check_runbook_coverage.py
+    text: "int"
+    count: 1
+  - file: tools/check_runbook_coverage.py
+    text: "list[object]"
+    count: 1
+  - file: tools/check_runbook_coverage.py
+    text: "list[str]"
+    count: 3
+  - file: tools/check_runbook_coverage.py
+    text: "object"
+    count: 1
+  - file: tools/check_runbook_coverage.py
+    text: "set[str]"
+    count: 2
+  - file: tools/check_runtime_closure.py
+    text: "int"
+    count: 2
+  - file: tools/check_runtime_closure.py
+    text: "list[str]"
+    count: 6
+  - file: tools/check_runtime_closure.py
+    text: "list[str] | int"
+    count: 1
+  - file: tools/check_runtime_closure.py
+    text: "str"
+    count: 2
+  - file: tools/check_runtime_closure.py
+    text: "tuple[list[str], list[str]]"
+    count: 1
+  - file: tools/check_sbom_coverage.py
+    text: "dict[str, list[dict[str, object]]]"
+    count: 2
+  - file: tools/check_sbom_coverage.py
+    text: "dict[str, list[dict[str, object]]] | int"
+    count: 1
+  - file: tools/check_sbom_coverage.py
+    text: "dict[str, object]"
+    count: 4
+  - file: tools/check_sbom_coverage.py
+    text: "int"
+    count: 1
+  - file: tools/check_sbom_coverage.py
+    text: "list[dict[str, object]]"
+    count: 5
+  - file: tools/check_sbom_coverage.py
+    text: "list[object]"
+    count: 2
+  - file: tools/check_sbom_coverage.py
+    text: "list[str]"
+    count: 4
+  - file: tools/check_sbom_coverage.py
+    text: "object"
+    count: 1
+  - file: tools/check_sbom_coverage.py
+    text: "set[str]"
+    count: 1
+  - file: tools/check_sbom_coverage.py
+    text: "set[tuple[str, object, object]]"
+    count: 1
+  - file: tools/check_sbom_coverage.py
+    text: "str"
+    count: 1
+  - file: tools/check_sbom_coverage.py
+    text: "str | None"
+    count: 1
+  - file: tools/check_spdx_headers.py
+    text: "Iterator[tuple[Path, str]]"
+    count: 1
+  - file: tools/check_spdx_headers.py
+    text: "dict[str, str]"
+    count: 2
+  - file: tools/check_spdx_headers.py
+    text: "int"
+    count: 3
+  - file: tools/check_spdx_headers.py
+    text: "list[str]"
+    count: 8
+  - file: tools/check_spdx_headers.py
+    text: "list[tuple[Path, str]]"
+    count: 1
+  - file: tools/check_spdx_headers.py
+    text: "str"
+    count: 5
+  - file: tools/check_spdx_headers.py
+    text: "str | None"
+    count: 2
+  - file: tools/check_spdx_headers.py
+    text: "tuple[list[Path], list[tuple[Path, str]], list[Path]]"
+    count: 1
+  - file: tools/check_spdx_headers.py
+    text: "tuple[str, ...]"
+    count: 2
+  - file: tools/check_spdx_headers.py
+    text: "tuple[str, str]"
+    count: 1
+  - file: tools/check_stability_bench.py
+    text: "dict[str, object]"
+    count: 7
+  - file: tools/check_stability_bench.py
+    text: "int"
+    count: 1
+  - file: tools/check_stability_bench.py
+    text: "list[object]"
+    count: 2
+  - file: tools/check_stability_bench.py
+    text: "list[str]"
+    count: 4
+  - file: tools/check_stability_bench.py
+    text: "object"
+    count: 1
+  - file: tools/check_stability_bench.py
+    text: "str"
+    count: 1
+  - file: tools/check_venv_convention.py
+    text: "int"
+    count: 1
+  - file: tools/check_venv_convention.py
+    text: "list[str]"
+    count: 7
+  - file: tools/check_venv_convention.py
+    text: "list[tuple[int, str]]"
+    count: 2
+  - file: tools/check_venv_convention.py
+    text: "str"
+    count: 12
+  - file: tools/check_wire_codes.py
+    text: "dict[object, object]"
+    count: 3
+  - file: tools/check_wire_codes.py
+    text: "dict[str, list[dict[str, str]]]"
+    count: 2
+  - file: tools/check_wire_codes.py
+    text: "int"
+    count: 1
+  - file: tools/check_wire_codes.py
+    text: "list[dict[str, str]]"
+    count: 1
+  - file: tools/check_wire_codes.py
+    text: "list[object]"
+    count: 1
+  - file: tools/check_wire_codes.py
+    text: "list[str]"
+    count: 7
+  - file: tools/check_wire_codes.py
+    text: "object"
+    count: 1
+  - file: tools/check_wire_codes.py
+    text: "set[str]"
+    count: 1
+  - file: tools/check_wire_codes.py
+    text: "str"
+    count: 6
+  - file: tools/check_wire_codes.py
+    text: "tuple[str, ...]"
+    count: 4
+  - file: tools/check_workflow_permissions.py
+    text: "dict[object, object]"
+    count: 3
+  - file: tools/check_workflow_permissions.py
+    text: "int"
+    count: 1
+  - file: tools/check_workflow_permissions.py
+    text: "object"
+    count: 3
+  - file: tools/check_workflow_permissions.py
+    text: "str | None"
+    count: 3
+  - file: tools/coverage_run.py
+    text: "Mapping[str, Mapping[str, float]]"
+    count: 1
+  - file: tools/coverage_run.py
+    text: "Mapping[str, Mapping[str, int]]"
+    count: 1
+  - file: tools/coverage_run.py
+    text: "Mapping[str, Mapping[str, object]]"
+    count: 1
+  - file: tools/coverage_run.py
+    text: "Mapping[str, Spec]"
+    count: 2
+  - file: tools/coverage_run.py
+    text: "Mapping[str, float]"
+    count: 1
+  - file: tools/coverage_run.py
+    text: "Mapping[str, int]"
+    count: 2
+  - file: tools/coverage_run.py
+    text: "Mapping[str, object]"
+    count: 9
+  - file: tools/coverage_run.py
+    text: "dict[str, Verdict]"
+    count: 1
+  - file: tools/coverage_run.py
+    text: "dict[str, dict[str, float]]"
+    count: 3
+  - file: tools/coverage_run.py
+    text: "dict[str, list[int]]"
+    count: 1
+  - file: tools/coverage_run.py
+    text: "dict[str, object]"
+    count: 5
+  - file: tools/coverage_run.py
+    text: "dict[str, str]"
+    count: 1
+  - file: tools/coverage_run.py
+    text: "dict[str, str] | None"
+    count: 1
+  - file: tools/coverage_run.py
+    text: "dict[tuple[str, str], GoBlock]"
+    count: 1
+  - file: tools/coverage_run.py
+    text: "float"
+    count: 3
+  - file: tools/coverage_run.py
+    text: "int"
+    count: 5
+  - file: tools/coverage_run.py
+    text: "list[Mapping[str, object]]"
+    count: 3
+  - file: tools/coverage_run.py
+    text: "list[str]"
+    count: 5
+  - file: tools/coverage_run.py
+    text: "list[str] | None"
+    count: 4
+  - file: tools/coverage_run.py
+    text: "list[tuple[str, Callable[[Path, Spec], CoverageReport]]]"
+    count: 1
+  - file: tools/coverage_run.py
+    text: "object"
+    count: 1
+  - file: tools/coverage_run.py
+    text: "set[str] | None"
+    count: 2
+  - file: tools/coverage_run.py
+    text: "str"
+    count: 18
+  - file: tools/coverage_run.py
+    text: "str | None"
+    count: 6
+  - file: tools/coverage_run.py
+    text: "tuple[Figure, Figure, dict[str, dict[str, float]]]"
+    count: 4
+  - file: tools/coverage_run.py
+    text: "tuple[list[CoverageReport], dict[str, Verdict]]"
+    count: 1
+  - file: tools/coverage_run.py
+    text: "tuple[str, ...]"
+    count: 1
+  - file: tools/coverage_run.py
+    text: "tuple[tuple[str, Path, list[str]], ...]"
+    count: 1
+  - file: tools/coverage_run.py
+    text: "type Spec = dict[str, object]"
+    count: 1
+  - file: tools/coverage_run.py
+    text: "type Verdict = dict[str, object]"
+    count: 1
+  - file: tools/cpp_scratch.py
+    text: "int"
+    count: 1
+  - file: tools/install_hooks.py
+    text: "int"
+    count: 1
+  - file: tools/install_hooks.py
+    text: "str"
+    count: 4
+  - file: tools/iwyu.py
+    text: "dict[AliasKey, int]"
+    count: 2
+  - file: tools/iwyu.py
+    text: "frozenset[str]"
+    count: 1
+  - file: tools/iwyu.py
+    text: "int"
+    count: 7
+  - file: tools/iwyu.py
+    text: "list[str]"
+    count: 2
+  - file: tools/iwyu.py
+    text: "str"
+    count: 9
+  - file: tools/mutation_cpp.py
+    text: "Callable[[str, int], str]"
+    count: 2
+  - file: tools/mutation_cpp.py
+    text: "LegReports | str"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "Mapping[RelPath, int]"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "Mapping[str, Mapping[str, int]]"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "Mapping[str, Mapping[str, object]]"
+    count: 6
+  - file: tools/mutation_cpp.py
+    text: "Mapping[str, float]"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "Mapping[str, int]"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "Mapping[str, object]"
+    count: 10
+  - file: tools/mutation_cpp.py
+    text: "Sequence[Mapping[str, Ending]]"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "Sequence[Mapping[str, object]]"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "dict[CppLeg, float]"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "dict[CppLeg, float] | str"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "dict[RelPath, int]"
+    count: 3
+  - file: tools/mutation_cpp.py
+    text: "dict[SurvivorKey, int]"
+    count: 2
+  - file: tools/mutation_cpp.py
+    text: "dict[SurvivorKey, int] | None"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "dict[UnobservedKey, int]"
+    count: 2
+  - file: tools/mutation_cpp.py
+    text: "dict[UnobservedKey, int] | None"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "dict[str, dict[str, object]]"
+    count: 2
+  - file: tools/mutation_cpp.py
+    text: "dict[str, int]"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "dict[str, int] | None"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "dict[str, object]"
+    count: 4
+  - file: tools/mutation_cpp.py
+    text: "dict[str, object] | str"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "frozenset[str]"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "int"
+    count: 6
+  - file: tools/mutation_cpp.py
+    text: "int | None"
+    count: 2
+  - file: tools/mutation_cpp.py
+    text: "list[Mapping[str, object]]"
+    count: 13
+  - file: tools/mutation_cpp.py
+    text: "list[dict[str, Ending]] | None"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "list[dict[str, object]]"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "list[object]"
+    count: 2
+  - file: tools/mutation_cpp.py
+    text: "list[set[str]]"
+    count: 2
+  - file: tools/mutation_cpp.py
+    text: "list[str]"
+    count: 2
+  - file: tools/mutation_cpp.py
+    text: "str"
+    count: 14
+  - file: tools/mutation_cpp.py
+    text: "str | MutationReport"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "str | None"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "tuple[int, int] | None"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "tuple[str, ...]"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "tuple[str, Mapping[str, object] | str]"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "tuple[str, list[Mapping[str, object]] | str]"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "tuple[str, str]"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "tuple[str, str] | str"
+    count: 1
+  - file: tools/mutation_cpp.py
+    text: "tuple[str, tuple[int, int] | None]"
+    count: 1
+  - file: tools/mutation_cpp_legs.py
+    text: "dict[CppTree, str]"
+    count: 1
+  - file: tools/mutation_cpp_legs.py
+    text: "int | None"
+    count: 2
+  - file: tools/mutation_cpp_legs.py
+    text: "str"
+    count: 9
+  - file: tools/mutation_cpp_legs.py
+    text: "tuple[str, ...]"
+    count: 3
+  - file: tools/mutation_cpp_slices.py
+    text: "Sequence[str]"
+    count: 3
+  - file: tools/mutation_cpp_slices.py
+    text: "dict[str, object]"
+    count: 2
+  - file: tools/mutation_cpp_slices.py
+    text: "int"
+    count: 3
+  - file: tools/mutation_cpp_slices.py
+    text: "list[object]"
+    count: 1
+  - file: tools/mutation_cpp_slices.py
+    text: "list[str]"
+    count: 2
+  - file: tools/mutation_cpp_slices.py
+    text: "str"
+    count: 6
+  - file: tools/mutation_cpp_slices.py
+    text: "tuple[str, ...]"
+    count: 1
+  - file: tools/mutation_cpp_slices.py
+    text: "type MutantCounts = Mapping[RelPath, int]"
+    count: 1
+  - file: tools/mutation_report.py
+    text: "NotRequired[dict[RelPath, int]]"
+    count: 1
+  - file: tools/mutation_report.py
+    text: "NotRequired[dict[str, BindingSpec]]"
+    count: 1
+  - file: tools/mutation_report.py
+    text: "NotRequired[int]"
+    count: 12
+  - file: tools/mutation_report.py
+    text: "NotRequired[str]"
+    count: 3
+  - file: tools/mutation_report.py
+    text: "dict[UnobservedKey, int]"
+    count: 3
+  - file: tools/mutation_report.py
+    text: "dict[str, object]"
+    count: 1
+  - file: tools/mutation_report.py
+    text: "float"
+    count: 1
+  - file: tools/mutation_report.py
+    text: "int"
+    count: 5
+  - file: tools/mutation_report.py
+    text: "int | None"
+    count: 1
+  - file: tools/mutation_report.py
+    text: "str"
+    count: 12
+  - file: tools/mutation_report.py
+    text: "str | None"
+    count: 1
+  - file: tools/mutation_report.py
+    text: "type SurvivorKey = tuple[str, str, str]"
+    count: 1
+  - file: tools/mutation_report.py
+    text: "type UnobservedKey = tuple[str, str, str, str, str]"
+    count: 1
+  - file: tools/mutation_routes.py
+    text: "dict[str, Ending]"
+    count: 1
+  - file: tools/mutation_routes.py
+    text: "dict[str, int]"
+    count: 3
+  - file: tools/mutation_routes.py
+    text: "dict[str, str]"
+    count: 1
+  - file: tools/mutation_routes.py
+    text: "int"
+    count: 2
+  - file: tools/mutation_routes.py
+    text: "list[dict[str, Ending]]"
+    count: 1
+  - file: tools/mutation_routes.py
+    text: "list[dict[str, str]]"
+    count: 1
+  - file: tools/mutation_routes.py
+    text: "str"
+    count: 7
+  - file: tools/mutation_routes.py
+    text: "tuple[str, ...]"
+    count: 1
+  - file: tools/mutation_routes.py
+    text: "tuple[tuple[str, str], ...]"
+    count: 1
+  - file: tools/mutation_run.py
+    text: "Mapping[str, str] | None"
+    count: 1
+  - file: tools/mutation_run.py
+    text: "dict[SurvivorKey, int]"
+    count: 5
+  - file: tools/mutation_run.py
+    text: "dict[SurvivorKey, int] | None"
+    count: 3
+  - file: tools/mutation_run.py
+    text: "dict[UnobservedKey, int] | None"
+    count: 2
+  - file: tools/mutation_run.py
+    text: "dict[str, BindingSpec]"
+    count: 1
+  - file: tools/mutation_run.py
+    text: "dict[str, DriftEntry]"
+    count: 1
+  - file: tools/mutation_run.py
+    text: "dict[str, float]"
+    count: 1
+  - file: tools/mutation_run.py
+    text: "dict[str, list[str]]"
+    count: 1
+  - file: tools/mutation_run.py
+    text: "dict[str, str]"
+    count: 1
+  - file: tools/mutation_run.py
+    text: "int"
+    count: 6
+  - file: tools/mutation_run.py
+    text: "list[tuple[str, str, Callable[[Path], MutationReport]]]"
+    count: 1
+  - file: tools/mutation_run.py
+    text: "set[str] | None"
+    count: 2
+  - file: tools/mutation_run.py
+    text: "str"
+    count: 5
+  - file: tools/mutation_run.py
+    text: "tuple[Path, Path] | str"
+    count: 1
+  - file: tools/mutation_run.py
+    text: "tuple[list[MutationReport], dict[str, float]]"
+    count: 1
+  - file: tools/mutation_run.py
+    text: "tuple[str, ...]"
+    count: 3
+  - file: tools/mutation_rust.py
+    text: "Callable[[str, int], str]"
+    count: 1
+  - file: tools/mutation_rust.py
+    text: "Mapping[str, Mapping[str, int]]"
+    count: 1
+  - file: tools/mutation_rust.py
+    text: "Mapping[str, Mapping[str, object]]"
+    count: 1
+  - file: tools/mutation_rust.py
+    text: "Mapping[str, object]"
+    count: 5
+  - file: tools/mutation_rust.py
+    text: "dict[SurvivorKey, int]"
+    count: 2
+  - file: tools/mutation_rust.py
+    text: "dict[SurvivorKey, int] | None"
+    count: 1
+  - file: tools/mutation_rust.py
+    text: "int"
+    count: 2
+  - file: tools/mutation_rust.py
+    text: "list[Mapping[str, object]]"
+    count: 1
+  - file: tools/mutation_rust.py
+    text: "str"
+    count: 5
+  - file: tools/mutation_rust.py
+    text: "str | None"
+    count: 3
+  - file: tools/mutation_rust.py
+    text: "tuple[str, Path] | str"
+    count: 1
+  - file: tools/mutation_scope.py
+    text: "int"
+    count: 1
+  - file: tools/mutation_scope.py
+    text: "list[str]"
+    count: 1
+  - file: tools/mutation_scope.py
+    text: "list[str] | None"
+    count: 1
+  - file: tools/mutation_scope.py
+    text: "str"
+    count: 1
+  - file: tools/mutation_sweep_cache.py
+    text: "Path | str"
+    count: 1
+  - file: tools/mutation_sweep_cache.py
+    text: "int"
+    count: 1
+  - file: tools/mutation_sweep_cache.py
+    text: "list[str]"
+    count: 4
+  - file: tools/mutation_sweep_cache.py
+    text: "str"
+    count: 2
+  - file: tools/mutation_sweep_cache.py
+    text: "str | None"
+    count: 1
+  - file: tools/prune_actions_cache.py
+    text: "dict[str, list[Entry]]"
+    count: 1
+  - file: tools/prune_actions_cache.py
+    text: "int"
+    count: 6
+  - file: tools/prune_actions_cache.py
+    text: "int | None"
+    count: 1
+  - file: tools/prune_actions_cache.py
+    text: "list[str]"
+    count: 1
+  - file: tools/prune_actions_cache.py
+    text: "list[str] | None"
+    count: 1
+  - file: tools/prune_actions_cache.py
+    text: "list[tuple[Entry, str]]"
+    count: 3
+  - file: tools/prune_actions_cache.py
+    text: "set[int]"
+    count: 5
+  - file: tools/prune_actions_cache.py
+    text: "str"
+    count: 7
+  - file: tools/prune_actions_cache.py
+    text: "str | None"
+    count: 2
+  - file: tools/prune_actions_cache.py
+    text: "subprocess.CompletedProcess[str]"
+    count: 1
+  - file: tools/prune_actions_cache.py
+    text: "tuple[set[int], set[int]]"
+    count: 1
+  - file: tools/review_db.py
+    text: "NotRequired[int | None]"
+    count: 2
+  - file: tools/review_db.py
+    text: "NotRequired[list[str] | None]"
+    count: 2
+  - file: tools/review_db.py
+    text: "NotRequired[str | None]"
+    count: 11
+  - file: tools/review_db.py
+    text: "dict[str, Callable[..., ReportResult]]"
+    count: 1
+  - file: tools/review_db.py
+    text: "dict[str, dict[str, int]]"
+    count: 2
+  - file: tools/review_db.py
+    text: "dict[str, object]"
+    count: 5
+  - file: tools/review_db.py
+    text: "dict[tuple[str, int, str], dict[str, int]]"
+    count: 1
+  - file: tools/review_db.py
+    text: "dict[tuple[str, int], _CategoryTally]"
+    count: 1
+  - file: tools/review_db.py
+    text: "int"
+    count: 9
+  - file: tools/review_db.py
+    text: "int | None"
+    count: 2
+  - file: tools/review_db.py
+    text: "list[str]"
+    count: 3
+  - file: tools/review_db.py
+    text: "list[tuple[object, ...]]"
+    count: 9
+  - file: tools/review_db.py
+    text: "list[tuple[str, ...]]"
+    count: 1
+  - file: tools/review_db.py
+    text: "object"
+    count: 11
+  - file: tools/review_db.py
+    text: "str"
+    count: 22
+  - file: tools/review_db.py
+    text: "str | None"
+    count: 5
+  - file: tools/review_db.py
+    text: "tuple[str, ...]"
+    count: 1
+  - file: tools/review_db.py
+    text: "tuple[str, int, int, int]"
+    count: 1
+  - file: tools/review_db.py
+    text: "tuple[str, int, str, str, int]"
+    count: 1
+  - file: tools/review_db.py
+    text: "tuple[str, int, str, str, str]"
+    count: 1
+  - file: tools/review_db.py
+    text: "tuple[str, object]"
+    count: 1
+  - file: tools/review_db.py
+    text: "tuple[str, str, int]"
+    count: 2
+  - file: tools/review_db.py
+    text: "tuple[str]"
+    count: 1
+  - file: tools/review_db.py
+    text: "type ReportResult = tuple[list[tuple[object, ...]], list[str]]"
+    count: 1
+  - file: tools/run_ci.py
+    text: "Sequence[str] | str"
+    count: 1
+  - file: tools/run_ci.py
+    text: "dict[str, list[Step]]"
+    count: 1
+  - file: tools/run_ci.py
+    text: "dict[str, str]"
+    count: 1
+  - file: tools/run_ci.py
+    text: "float"
+    count: 1
+  - file: tools/run_ci.py
+    text: "frozenset[str]"
+    count: 1
+  - file: tools/run_ci.py
+    text: "int"
+    count: 8
+  - file: tools/run_ci.py
+    text: "int | None"
+    count: 1
+  - file: tools/run_ci.py
+    text: "list[str]"
+    count: 1
+  - file: tools/run_ci.py
+    text: "list[str] | None"
+    count: 2
+  - file: tools/run_ci.py
+    text: "list[tuple[str, str]]"
+    count: 1
+  - file: tools/run_ci.py
+    text: "str"
+    count: 20
+  - file: tools/run_ci.py
+    text: "str | None"
+    count: 1
+  - file: tools/run_ci.py
+    text: "tuple[str, ...]"
+    count: 1
+  - file: tools/sbom_generate.py
+    text: "dict[str, list[Component]]"
+    count: 1
+  - file: tools/sbom_generate.py
+    text: "dict[str, list[_LockPackage]]"
+    count: 2
+  - file: tools/sbom_generate.py
+    text: "dict[str, object]"
+    count: 8
+  - file: tools/sbom_generate.py
+    text: "dict[tuple[str, str], set[str]]"
+    count: 1
+  - file: tools/sbom_generate.py
+    text: "dict[tuple[str, str], str]"
+    count: 2
+  - file: tools/sbom_generate.py
+    text: "frozenset[str]"
+    count: 1
+  - file: tools/sbom_generate.py
+    text: "int"
+    count: 2
+  - file: tools/sbom_generate.py
+    text: "int | None"
+    count: 2
+  - file: tools/sbom_generate.py
+    text: "list[object]"
+    count: 2
+  - file: tools/sbom_generate.py
+    text: "list[str]"
+    count: 3
+  - file: tools/sbom_generate.py
+    text: "list[tuple[str, str]]"
+    count: 2
+  - file: tools/sbom_generate.py
+    text: "object"
+    count: 4
+  - file: tools/sbom_generate.py
+    text: "set[str]"
+    count: 4
+  - file: tools/sbom_generate.py
+    text: "set[tuple[str, str]]"
+    count: 1
+  - file: tools/sbom_generate.py
+    text: "str"
+    count: 41
+  - file: tools/sbom_generate.py
+    text: "str | None"
+    count: 5
+  - file: tools/sbom_generate.py
+    text: "tuple[list[Component], set[tuple[str, str]]]"
+    count: 1
+  - file: tools/sbom_generate.py
+    text: "tuple[re.Pattern[str], ...]"
+    count: 1
+  - file: tools/sbom_generate.py
+    text: "tuple[str, ...]"
+    count: 1
+  - file: tools/sbom_generate.py
+    text: "tuple[str, bool]"
+    count: 1
+  - file: tools/sbom_generate.py
+    text: "tuple[str, str]"
+    count: 1
+  - file: tools/sbom_generate.py
+    text: "tuple[tuple[str, Callable[[Path], list[Component]]], ...]"
+    count: 1
+  - file: tools/stability_run.py
+    text: "dict[str, object]"
+    count: 1
+  - file: tools/stability_run.py
+    text: "dict[str, str]"
+    count: 3
+  - file: tools/stability_run.py
+    text: "int"
+    count: 1
+  - file: tools/stability_run.py
+    text: "str"
+    count: 4
+  - file: tools/stability_run.py
+    text: "str | None"
+    count: 1
+  - file: tools/stability_run.py
+    text: "subprocess.CompletedProcess[str]"
+    count: 1
+  - file: tools/warm_check_properties.py
+    text: "int"
+    count: 1
+  - file: tools/warm_check_properties.py
+    text: "list[tuple[str, str]]"
+    count: 1

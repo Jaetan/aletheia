@@ -67,6 +67,7 @@ its ``.so`` / ``.agdai``), then the lanes run serially (default) or concurrently
       tools/: tools examples python conftest.py)
     - basedpyright (Python — aletheia/ benchmarks/ tests/ + ../tools/)
     - pylint 10/10 (Python — SCORE gate per AGENTS.md L611; + ../tools/)
+    - check-precise-hints (Python type hints held to docs/PYTHON_IMPRECISE_HINTS.yaml)
     - gofmt -l + go vet (Go)
     - clang-format --dry-run --Werror (C++)
     - clang-tidy -p build (C++ — mandatory per AGENTS.md L494)

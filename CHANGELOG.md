@@ -12,6 +12,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **A ratchet on imprecise Python type hints, `tools/check_precise_hints.py`.**
+  Every hint is universally quantified, so `str`, `list[float]` or
+  `dict[str, X]` claims the code handles any string, any list of floats, any
+  key, which it does not; ruff, pylint and basedpyright in strict mode all pass
+  such a hint. The gate reads every tracked Python file outside `.archive/`,
+  and the Python each probe hands an interpreter, and refuses `Any` or
+  `object` or a generic given no parameters, a `str`, `int`, `float` or
+  `bytes` anywhere in a hint, three or more nested subscripts, and a type
+  alias or a `NewType` over a shape holding any of these, in an annotation
+  or in the type a `cast` names, unless
+  `docs/PYTHON_IMPRECISE_HINTS.yaml` names it; a row naming more hints than
+  its file holds fails too. The record holds the hints the tree has today and
+  only shrinks. Prose is `aletheia.common_types.Prose`, a `NewType` the gate
+  reads as precise, in a new standard-library-only module the library and
+  `tools/` share with `ExitStatus`; `tools/__init__.py` puts the library's
+  source on the path of the pre-commit hook's bare interpreter. The gate runs
+  in `run_ci` and in its pre-commit tier; `--root DIR --record FILE` holds
+  another tree, every tracked file under DIR, to a record of its own.
 - **`aletheia template <file>.xlsx`, in the Python, C++ and Go CLIs.** It
   writes the blank workbook the Excel loaders read, the DBC, Checks and
   When-Then sheets under bold header rows, so the spreadsheet route starts from

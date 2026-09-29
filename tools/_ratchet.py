@@ -1,16 +1,17 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""The record a C++ ratchet gate compares its tree against.
+"""The record a ratchet gate compares its tree against.
 
-Two gates keep one: ``tools/check_cpp_index_loops.py`` over the counting loops
-AGENTS/cpp.md cat 27 refuses, and ``tools/check_cpp_restated_types.py`` over
-the declarations cat 34 refuses.  Reading the record is the same work for both,
-so it is written once.
+Three gates keep one: ``tools/check_cpp_index_loops.py`` over the counting
+loops AGENTS/cpp.md cat 27 refuses, ``tools/check_cpp_restated_types.py`` over
+the declarations cat 34 refuses, and ``tools/check_precise_hints.py`` over the
+Python type hints AGENTS/python.md cat 8 refuses.  Reading the record is the
+same work for each, so it is written once.
 
 It lives here rather than in ``tools/_common.py`` because it needs PyYAML, and
 ``_common`` is imported by the pre-commit hook under an interpreter that has no
-third-party packages.  Only the two gates import this module, and they run
-under the project's virtual environment.
+third-party packages.  Only the three gates and their tests import this module,
+and they run under the project's virtual environment.
 """
 
 from __future__ import annotations
