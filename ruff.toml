@@ -61,6 +61,13 @@ ban-relative-imports = "all"
 # tools demand different orderings and I001 / C0411 cannot both be satisfied.
 # This is a classification hint, NOT a suppression: I001 stays fully enforced.
 known-first-party = ["aletheia"]
+# The repo-root `tools` package is a section of its own, between third-party
+# and first-party, for the same reason: pylint places it with third-party code,
+# before the library, so a module importing both satisfies both checks.
+section-order = ["future", "standard-library", "third-party", "tools", "first-party", "local-folder"]
+
+[lint.isort.sections]
+tools = ["tools"]
 
 [lint.per-file-ignores]
 # pytest's bare `assert` is the only idiom for test assertions; rewriting to
