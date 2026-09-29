@@ -11,8 +11,6 @@ captured inputs, init/close lifecycle).
 
 from __future__ import annotations
 
-from typing import cast
-
 import pytest
 from _dbc_helpers import dbc, message, signal
 
@@ -48,15 +46,14 @@ def test_ffibackend_satisfies_backend_protocol() -> None:
 
 
 def test_ffibackend_null_handles_yield_clean_error_not_segfault() -> None:
-    """The FFI boundary must turn a NULL state/payload into a clean error, never a SIGSEGV.
+    """The FFI boundary must turn a NULL state into a clean error, never a SIGSEGV.
 
-    A binding holds the state as an opaque handle and builds payloads per call,
-    so a correct one never passes NULL.  But the ``.so`` is the shared trust
-    boundary for every binding, and a NULL handle/payload from a buggy caller
-    would deref NULL and crash the GHC runtime.  We pass NULL deliberately
-    (``0`` → NULL ``c_void_p`` state; ``None`` → NULL ``c_char_p`` payload) and
-    assert a clean error response comes back.  A missing guard would SIGSEGV the
-    pytest worker — itself the loud failure this test exists to catch.
+    A binding holds the state as an opaque handle, so a correct one never passes
+    NULL.  But the ``.so`` is the shared trust boundary for every binding, and a
+    NULL handle from a buggy caller would deref NULL and crash the GHC runtime.
+    We pass ``0`` deliberately and assert a clean error response comes back.  A
+    missing guard would SIGSEGV the pytest worker, itself the loud failure this
+    test exists to catch.  A NULL text takes a raw call: ``test_ffi_struct_entries``.
     """
     backend = FFIBackend()
     state = backend.init()
@@ -65,9 +62,6 @@ def test_ffibackend_null_handles_yield_clean_error_not_segfault() -> None:
         assert b"null state handle" in backend.process(0, b'{"command":"validateDBC","dbc":""}')
         # … and via a second entry point (aletheia_format_dbc → runJSON).
         assert b"null state handle" in backend.format_dbc_binary(0)
-        # NULL payload, caught by the aletheia_process CString guard.  None is
-        # deliberate adversarial input, hence the cast past the bytes annotation.
-        assert b"null input string" in backend.process(state, cast("bytes", None))
     finally:
         backend.close(state)
 

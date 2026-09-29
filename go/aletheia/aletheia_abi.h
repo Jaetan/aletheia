@@ -8,7 +8,13 @@
 #ifndef ALETHEIA_GO_ABI_H
 #define ALETHEIA_GO_ABI_H
 
+#include <stddef.h>
 #include <stdint.h>
+
+struct aletheia_text {
+    const char *data;
+    size_t size;
+};
 
 struct aletheia_frame {
     uint64_t timestamp;

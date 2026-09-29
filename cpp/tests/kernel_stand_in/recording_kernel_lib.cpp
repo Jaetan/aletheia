@@ -4,7 +4,8 @@
 // A kernel stand-in that answers every call with a refusal quoting what it
 // was handed, so a test can read what the backend marshals to the kernel
 // entries whose arguments the real kernel acknowledges without reading: the
-// timestamp of an error or remote event, and the CAN-FD bus bits of a frame.
+// timestamp of an error or remote event, the CAN-FD bus bits of a frame, and
+// the size of a command's text.
 // It carries every symbol the backend resolves, at the kernel's own
 // signatures, its structures the backend's own mirror of the kernel's (so the
 // undefined-behaviour sanitizer's function-type check holds every entry to the
@@ -44,6 +45,7 @@ using aletheia::detail::FfiDecimal;
 using aletheia::detail::FfiFrame;
 using aletheia::detail::FfiRational;
 using aletheia::detail::FfiSignalValues;
+using aletheia::detail::FfiText;
 
 extern "C" {
 
@@ -76,8 +78,8 @@ void aletheia_free_str(char* p) {
 void aletheia_free_buf(std::uint8_t* /*buf*/) {
 }
 
-auto aletheia_process(void* /*state*/, const char* /*input*/) -> char* {
-    return refusal("process");
+auto aletheia_process(void* /*state*/, const FfiText* input) -> char* {
+    return refusal("process size=" + u(input->size));
 }
 
 auto aletheia_start_stream(void* /*state*/) -> char* {
@@ -116,7 +118,7 @@ auto aletheia_format_rational(const FfiRational* value) -> char* {
                        u(static_cast<std::uint64_t>(value->denominator)));
 }
 
-auto aletheia_parse_decimal(const char* /*input*/, FfiDecimal* out) -> std::int8_t {
+auto aletheia_parse_decimal(const FfiText* /*input*/, FfiDecimal* out) -> std::int8_t {
     out->err = refusal("parse_decimal");
     return 1;
 }

@@ -9,7 +9,7 @@ from fractions import Fraction
 from typing import TYPE_CHECKING, TypeGuard
 
 from aletheia.client._enrichment import get_renderer_lib
-from aletheia.client._ffi import AletheiaDecimal, hs_initialized, parse_json_object
+from aletheia.client._ffi import AletheiaDecimal, AletheiaText, hs_initialized, parse_json_object
 from aletheia.client._types import FFIError, ProtocolError, ValidationError
 from aletheia.types import is_str_dict
 
@@ -76,7 +76,9 @@ def from_decimal(s: str) -> Fraction:
         raise FFIError(msg)
     lib = get_renderer_lib()
     out = AletheiaDecimal()
-    if lib.aletheia_parse_decimal(s.encode(), ctypes.byref(out)) != 0:  # utf-8 by default
+    raw = s.encode()
+    text = AletheiaText(raw, len(raw))
+    if lib.aletheia_parse_decimal(ctypes.byref(text), ctypes.byref(out)) != 0:
         err: int | None = out.err
         if err is None:
             msg = "aletheia_parse_decimal failed without an error"

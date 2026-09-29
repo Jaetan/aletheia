@@ -69,6 +69,12 @@ def test_from_decimal_rejects_non_ascii() -> None:
         from_decimal("1.5€")  # 1.5€
 
 
+def test_from_decimal_rejects_interior_nul() -> None:
+    """An interior NUL is refused, not read as the end of the literal."""
+    with pytest.raises(ValidationError, match="input contains a NUL byte"):
+        from_decimal("1\x00xyz")
+
+
 def test_from_decimal_vocal_when_rts_down(monkeypatch: pytest.MonkeyPatch) -> None:
     """Vocal contract: with the RTS down, raise FFIError before the FFI call.
 

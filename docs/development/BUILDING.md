@@ -574,6 +574,8 @@ cabal run shake -- gen-ffi-modules
 
 `aletheia.cabal`'s `foreign-library` lists every MAlonzo module between `-- BEGIN/END GENERATED MALONZO MODULES` markers so cabal tracks the real `.hs → .so` graph (otherwise its up-to-date check skips GHC and ships a stale `.so`). Drift is caught at build time, by GHC's `-Werror=missing-home-modules` (a module added but not listed) or cabal's "module not found" (a listed module removed), so a forgotten regen fails loudly; it never silently ships stale.
 
+**What the C header feeds is rebuilt when it changes.** cabal recompiles a C source only when the `.c` file changed and re-runs hsc2hs only when the `.hsc` did, so an edit to `haskell-shim/include/aletheia.h` alone would link the old ABI version and the old structure layouts. The `.cabal` lists the header among its `extra-source-files`, so cabal re-runs when it changes, and the Shakefile deletes every output built from it beforehand, the objects of the shim's C sources and the modules hsc2hs writes.
+
 **Import analysis without a rebuild.** `cabal run shake -- iwyu` regenerates the relevant `.agdai` interfaces via Agda's interface cache and runs the import (IWYU) analysis with no `.hs`/`.so` rebuild. The IWYU gate is described in [`CI_LOCAL.md`](CI_LOCAL.md).
 
 **The build's incrementality is itself gated.** `tools/check_build_incremental.py` is a behavioral regression test that the build rebuilds what changed, only that, and never ships stale; it runs as `run_ci`'s `build` prerequisite. Its mechanics (when it runs, the `--build-staleness` modes) are documented in [`CI_LOCAL.md`](CI_LOCAL.md).

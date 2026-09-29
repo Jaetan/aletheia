@@ -19,8 +19,12 @@ import Foreign.Ptr (Ptr)
 import Foreign.Storable (Storable (..))
 import System.Exit (exitFailure)
 
-import AletheiaFFI.Wire (Buffer, Decimal, Frame, SignalValues, WireRational)
+import AletheiaFFI.Wire (Buffer, Decimal, Frame, SignalValues, WireRational, WireText)
 
+foreign import ccall unsafe "abi_text_size" cTextSize :: IO CSize
+foreign import ccall unsafe "abi_text_align" cTextAlign :: IO CSize
+foreign import ccall unsafe "abi_fill_text" cFillText :: Ptr WireText -> IO ()
+foreign import ccall unsafe "abi_check_text" cCheckText :: Ptr WireText -> IO CUInt
 foreign import ccall unsafe "abi_frame_size" cFrameSize :: IO CSize
 foreign import ccall unsafe "abi_frame_align" cFrameAlign :: IO CSize
 foreign import ccall unsafe "abi_values_size" cValuesSize :: IO CSize
@@ -69,6 +73,8 @@ pin failures name proxy cSize cAlign cFill cCheck = do
 main :: IO ()
 main = do
     failures <- newIORef []
+    pin failures "aletheia_text" (undefined :: WireText)
+        cTextSize cTextAlign cFillText cCheckText
     pin failures "aletheia_frame" (undefined :: Frame)
         cFrameSize cFrameAlign cFillFrame cCheckFrame
     pin failures "aletheia_signal_values" (undefined :: SignalValues)

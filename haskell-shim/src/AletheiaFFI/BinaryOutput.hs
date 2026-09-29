@@ -11,7 +11,7 @@
 -- (canonical source) and mirrored across all language bindings.
 module AletheiaFFI.BinaryOutput where
 
-import Foreign.C.String (CString, newCString)
+import Foreign.C.String (CString)
 import Foreign.Marshal.Alloc (mallocBytes)
 import Foreign.Ptr (Ptr, plusPtr, castPtr)
 import Foreign.Storable (peek, poke)
@@ -22,6 +22,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Foreign as TF
 import Unsafe.Coerce (unsafeCoerce)
 
+import AletheiaFFI.Marshal (newUtf8)
 import AletheiaFFI.Wire (Buffer, bufData, pokeBufferErr, pokeBufferSize)
 
 import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
@@ -52,7 +53,7 @@ agdaVecToBuffer = go 0
 dispatchSumResult :: AgdaSum.T__'8846'__30 -> Ptr Buffer -> IO Int8
 dispatchSumResult (AgdaSum.C_inj'8321'_38 errAny) out = do
     let errText = unsafeCoerce errAny :: T.Text
-    newCString (T.unpack errText) >>= pokeBufferErr out
+    newUtf8 errText >>= pokeBufferErr out
     return 1
 dispatchSumResult (AgdaSum.C_inj'8322'_42 vecAny) out = do
     let vec = unsafeCoerce vecAny :: AgdaVec.T_Vec_28

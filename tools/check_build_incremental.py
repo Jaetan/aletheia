@@ -13,7 +13,10 @@ the graph stays correct.  It checks two properties:
    sledgehammer masked by always full-rebuilding.  Probed at TWO structurally
    distant modules (Protocol/ResponseFormat and DBC/Formatter) so a graph bug that
    breaks propagation for only one subtree is caught: both edits land in one build,
-   and BOTH distinct tokens must appear in the ``.so``.
+   and BOTH distinct tokens must appear in the ``.so``.  The C header is probed
+   too, through the one value of it the library reports: an edit to
+   ``ALETHEIA_ABI_VERSION`` must change what ``aletheia_abi_version()`` answers,
+   which holds only if the build rebuilds what the header feeds.
 
 2. **Incremental** — a no-op build (nothing changed) must NOT relink the ``.so``
    (its mtime stays put).  A regression back to the always-full-rebuild
@@ -47,9 +50,10 @@ import fcntl
 import os
 import re
 import struct
+import subprocess
 import sys
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, NewType
 
 from tools._common import (
     agda_tree_lock,
@@ -75,6 +79,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _SO = REPO_ROOT / "build" / "libaletheia-ffi.so"
+_HEADER = REPO_ROOT / "haskell-shim" / "include" / "aletheia.h"
 _SHAKE_LOCK = REPO_ROOT / "build" / ".shake.lock"
 
 # A marker is the token this gate splices into a runtime string literal.  It
@@ -178,6 +183,52 @@ _PROBES: tuple[Probe, ...] = (
 )
 
 
+# The header arm.  The ABI version is the one value of the header the library
+# reports: cbits/abi_version.c returns it, and a build that did not rebuild what
+# the header feeds answers the old number.  The edit carries the run's marker in
+# a comment, so the leftovers check catches a run killed before it restored the
+# header, as it does for the source probes.
+AbiVersion = NewType("AbiVersion", int)
+HeaderText = NewType("HeaderText", str)
+_VERSION_LINE = re.compile(r"enum \{ ALETHEIA_ABI_VERSION = (\d+) \};")
+# Far from any version the header will reach, so a reading of it is the probe's.
+_VERSION_OFFSET = 100_000
+_HEADER_TOKEN = f"{MARKER_PREFIX}HDR_{_RUN_ID}"
+
+
+def _header_version(text: HeaderText) -> AbiVersion | None:
+    """Return the ABI version the header text defines, or None when it defines none."""
+    match = _VERSION_LINE.search(text)
+    return AbiVersion(int(match[1])) if match else None
+
+
+def _edited_header(text: HeaderText, version: AbiVersion) -> HeaderText:
+    """Return the header with its ABI version moved by the offset, the run's marker beside it."""
+    probe = version + _VERSION_OFFSET
+    return HeaderText(
+        _VERSION_LINE.sub(
+            f"enum {{ ALETHEIA_ABI_VERSION = {probe} }}; /* {_HEADER_TOKEN} */", text, count=1
+        )
+    )
+
+
+def _library_version() -> AbiVersion | None:
+    """Return the ABI version the built library answers, read in a process of its own."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import ctypes, sys; print(ctypes.CDLL(sys.argv[1]).aletheia_abi_version())",
+            str(_SO),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    answer = result.stdout.strip()
+    return AbiVersion(int(answer)) if result.returncode == 0 and answer.isdigit() else None
+
+
 def _build() -> None:
     """Run ``cabal run shake -- build`` under ``run_guarded``; raise, echoing output, on failure."""
     result = run_guarded(
@@ -208,6 +259,13 @@ def _check_no_leftovers() -> bool:
     original would write it back as the restore.
     """
     clean = True
+    for marker in markers_in(_HEADER.read_text(encoding="utf-8")):
+        clean = False
+        _fail(
+            f"{_rel(_HEADER)} carries the marker of an interrupted gate run "
+            + f"({describe_run(marker)}): restore its ALETHEIA_ABI_VERSION line, "
+            + "the version less the probe's offset and no comment after it"
+        )
     for probe in _PROBES:
         for marker in markers_in(probe.file.read_text(encoding="utf-8")):
             clean = False
@@ -248,6 +306,15 @@ def _check_baseline() -> dict[Path, str] | None:
             emit("  (the probe string moved; point it at a current runtime string literal)")
             return None
         originals[probe.file] = text
+    header = HeaderText(_HEADER.read_text(encoding="utf-8"))
+    version = _header_version(header)
+    if version is None:
+        _fail(f"{_rel(_HEADER)} defines no ALETHEIA_ABI_VERSION the gate can read")
+        return None
+    if _library_version() != version:
+        _fail(f"the baseline .so does not answer the header's ABI version {version} (STALE)")
+        return None
+    originals[_HEADER] = header
     return originals
 
 
@@ -257,7 +324,17 @@ def _check_edits_and_reverts(originals: dict[Path, str]) -> bool:
     for probe in _PROBES:
         edited = originals[probe.file].replace(probe.anchor, probe.sentinel)
         _ = probe.file.write_text(edited, encoding="utf-8")
+    header = HeaderText(originals[_HEADER])
+    version = _header_version(header)
+    if version is None:
+        _fail(f"{_rel(_HEADER)} lost its ALETHEIA_ABI_VERSION after the baseline read it")
+        return False
+    _ = _HEADER.write_text(_edited_header(header, version), encoding="utf-8")
     _build()
+    if _library_version() != version + _VERSION_OFFSET:
+        _fail(f"an edit to {_HEADER.name} did not reach the .so (STALE)")
+        return False
+    emit(f"  edit to {_HEADER.name} reached the .so ✓")
     so_bytes = _SO.read_bytes()
     for probe in _PROBES:
         if probe.token not in so_bytes:
@@ -267,7 +344,12 @@ def _check_edits_and_reverts(originals: dict[Path, str]) -> bool:
     # 2. revert ALL → one build: every revert MUST reach the .so too.
     for probe in _PROBES:
         _ = probe.file.write_text(originals[probe.file], encoding="utf-8")
+    _ = _HEADER.write_text(originals[_HEADER], encoding="utf-8")
     _build()
+    if _library_version() != version:
+        _fail(f"a revert of {_HEADER.name} did not reach the .so (STALE)")
+        return False
+    emit(f"  revert of {_HEADER.name} reached the .so ✓")
     so_bytes = _SO.read_bytes()
     for probe in _PROBES:
         if probe.token in so_bytes:
@@ -311,17 +393,17 @@ def _run() -> int:
     cert_file.unlink(missing_ok=True)
 
     install_restore_handlers()
-    for probe in _PROBES:
-        track_inflight(str(probe.file), originals[probe.file])
+    for path in (*(probe.file for probe in _PROBES), _HEADER):
+        track_inflight(str(path), originals[path])
     try:
         if not _check_edits_and_reverts(originals):
             return 1
         if not _check_incremental():
             return 1
     finally:
-        for probe in _PROBES:
-            _ = probe.file.write_text(originals[probe.file], encoding="utf-8")
-            untrack_inflight(str(probe.file))
+        for path in (*(probe.file for probe in _PROBES), _HEADER):
+            _ = path.write_text(originals[path], encoding="utf-8")
+            untrack_inflight(str(path))
 
     post_probe_id = gnu_build_id(_SO)
     if baseline_id and post_probe_id is not None and post_probe_id != baseline_id:

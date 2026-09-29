@@ -14,7 +14,7 @@
 -- via aletheia_free_str; binary buffers via aletheia_free_buf.
 module AletheiaFFI where
 
-import Foreign.C.String (CString, newCString, peekCString)
+import Foreign.C.String (CString)
 import Foreign.StablePtr (StablePtr, newStablePtr, deRefStablePtr, freeStablePtr, castStablePtrToPtr)
 import Foreign.Marshal.Alloc (free)
 import Foreign.Ptr (Ptr, nullPtr)
@@ -58,18 +58,18 @@ runJSON statePtr f
       state <- readIORef ref
       let result = f state
       writeIORef ref (unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_32)
-      newCString (T.unpack (unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text))
+      newUtf8 (unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text)
 
 -- | Return a JSON error response without calling Agda.
 errorJSON :: String -> IO CString
-errorJSON = newCString . mkErrorJson
+errorJSON = newUtf8 . T.pack . mkErrorJson
 
 -- | Return a JSON error response from a typed FFIError.  Dispatches the
 -- legacy free-form `FFIStringError` to `mkErrorJson` and the structured
 -- `FFIBoundExceeded` to the bound-payload
 -- envelope produced by `formatFFIError`.
 errorJSONFor :: FFIError -> IO CString
-errorJSONFor = newCString . formatFFIError
+errorJSONFor = newUtf8 . T.pack . formatFFIError
 
 -- ============================================================================
 -- NULL-POINTER GUARDS (trust-boundary hardening)
@@ -104,13 +104,14 @@ foreign export ccall aletheia_init :: IO StateHandle
 aletheia_init :: IO StateHandle
 aletheia_init = newIORef AgdaState.d_initialState_50 >>= newStablePtr
 
-foreign export ccall aletheia_process :: StateHandle -> CString -> IO CString
-aletheia_process :: StateHandle -> CString -> IO CString
-aletheia_process statePtr inputCStr
-  | inputCStr == nullPtr = errorJSON "null input string"
-  | otherwise = do
-      inputStr <- peekCString inputCStr
-      runJSON statePtr (\s -> AgdaJSON.d_processJSONLine_74 s (T.pack inputStr))
+foreign export ccall aletheia_process :: StateHandle -> Ptr WireText -> IO CString
+aletheia_process :: StateHandle -> Ptr WireText -> IO CString
+aletheia_process statePtr inputPtr = do
+    input <- peekText inputPtr
+    case input of
+      Left reason -> errorJSON reason
+      Right inputStr ->
+        runJSON statePtr (\s -> AgdaJSON.d_processJSONLine_74 s (T.pack inputStr))
 
 -- ============================================================================
 -- BINARY-INPUT JSON ENTRY POINTS (binary in, JSON out)
@@ -232,7 +233,7 @@ runBinDispatch statePtr f out
 
 -- | Set the buffer's error to a freshly-allocated CString and return 1.
 errorOut :: String -> Ptr Buffer -> IO Int8
-errorOut err out = newCString err >>= pokeBufferErr out >> return 1
+errorOut err out = newUtf8 (T.pack err) >>= pokeBufferErr out >> return 1
 
 -- | Read the signal values the caller passed, refusing NULL, as the three
 -- parallel arrays.
@@ -400,7 +401,7 @@ aletheia_format_rational valuePtr
       let (n, d) | denom < 0 = (-num, -denom)
                  | otherwise = (num, denom)
           result = AgdaRR.d_formatRational_166 (toInteger n) (toInteger d)
-      newCString (T.unpack (unsafeCoerce result :: T.Text))
+      newUtf8 (unsafeCoerce result :: T.Text)
 
 -- ============================================================================
 -- DECIMAL → EXACT RATIONAL (kernel SSOT for decimal parsing)
@@ -418,21 +419,22 @@ aletheia_format_rational valuePtr
 -- Int64-wire bound is enforced here at the marshaling boundary (mirrors
 -- `mkAgdaRational`).  The rational is written into `out`; a failure sets its
 -- error to a JSON envelope the caller frees via `aletheia_free_str`.
-foreign export ccall aletheia_parse_decimal :: CString -> Ptr Decimal -> IO Int8
-aletheia_parse_decimal :: CString -> Ptr Decimal -> IO Int8
-aletheia_parse_decimal inputCStr out
+foreign export ccall aletheia_parse_decimal :: Ptr WireText -> Ptr Decimal -> IO Int8
+aletheia_parse_decimal :: Ptr WireText -> Ptr Decimal -> IO Int8
+aletheia_parse_decimal inputPtr out
   | out == nullPtr = pure 1
-  | inputCStr == nullPtr =
-      refuse (mkDecimalErrorJson "decimal_parse_failed" "null input string" "")
   | otherwise = do
-      s <- peekCString inputCStr
-      let result = unsafeCoerce (AgdaDE.d_parseDecimal_16 (T.pack s))
-                     :: Maybe AgdaRational.T_ℚ_6
-      case decimalResult s result of
-        Left envelope -> refuse envelope
-        Right (n, d) -> pokeDecimalValue out (WireRational n d) >> pure 0
+      input <- peekText inputPtr
+      case input of
+        Left reason -> refuse (mkDecimalErrorJson "decimal_parse_failed" reason "")
+        Right s -> do
+          let result = unsafeCoerce (AgdaDE.d_parseDecimal_16 (T.pack s))
+                         :: Maybe AgdaRational.T_ℚ_6
+          case decimalResult s result of
+            Left envelope -> refuse envelope
+            Right (n, d) -> pokeDecimalValue out (WireRational n d) >> pure 0
   where
-    refuse envelope = newCString envelope >>= pokeDecimalErr out >> pure 1
+    refuse envelope = newUtf8 (T.pack envelope) >>= pokeDecimalErr out >> pure 1
 
 foreign export ccall aletheia_free_buf :: Ptr Word8 -> IO ()
 aletheia_free_buf :: Ptr Word8 -> IO ()

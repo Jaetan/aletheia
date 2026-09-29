@@ -32,8 +32,8 @@ package aletheia
 // static void* call_init(void *fn) {
 //     return ((void* (*)(void))fn)();
 // }
-// static char* call_process(void *fn, void *state, const char *input) {
-//     return ((char* (*)(void*, const char*))fn)(state, input);
+// static char* call_process(void *fn, void *state, const struct aletheia_text *input) {
+//     return ((char* (*)(void*, const struct aletheia_text*))fn)(state, input);
 // }
 // static void call_free_str(void *fn, char *ptr) {
 //     ((void (*)(char*))fn)(ptr);
@@ -385,7 +385,7 @@ func extFlag(id CANID) C.uint8_t {
 // abiVersion is ALETHEIA_ABI_VERSION: the version of the structures and
 // signatures this binding lays out, which the header test holds to the
 // header's.
-const abiVersion = 1
+const abiVersion = 2
 
 // abiVersionError refuses a library whose ABI version is not abiVersion.
 func abiVersionError(found uint32) error {
@@ -405,12 +405,14 @@ type abiField struct {
 // structure the preamble declares, for the test that holds them to the
 // kernel's header.
 func abiLayout() (sizes map[string]uintptr, fields map[string][]abiField) {
+	var t C.struct_aletheia_text
 	var f C.struct_aletheia_frame
 	var v C.struct_aletheia_signal_values
 	var b C.struct_aletheia_buffer
 	var r C.struct_aletheia_rational
 	var d C.struct_aletheia_decimal
 	sizes = map[string]uintptr{
+		"aletheia_text":          unsafe.Sizeof(t),
 		"aletheia_frame":         unsafe.Sizeof(f),
 		"aletheia_signal_values": unsafe.Sizeof(v),
 		"aletheia_buffer":        unsafe.Sizeof(b),
@@ -418,6 +420,10 @@ func abiLayout() (sizes map[string]uintptr, fields map[string][]abiField) {
 		"aletheia_decimal":       unsafe.Sizeof(d),
 	}
 	fields = map[string][]abiField{
+		"aletheia_text": {
+			{"data", unsafe.Offsetof(t.data)},
+			{"size", unsafe.Offsetof(t.size)},
+		},
 		"aletheia_frame": {
 			{"timestamp", unsafe.Offsetof(f.timestamp)},
 			{"data", unsafe.Offsetof(f.data)},
@@ -542,9 +548,8 @@ func (b *FFIBackend) Init() (unsafe.Pointer, error) {
 
 // Process sends one JSON command and returns the JSON response. A payload
 // past MaxJSONBytes is refused here, before it is copied across the boundary;
-// the kernel bounds it too. A NUL byte is refused because the kernel's parser
-// reads bytes while a C string stops at the NUL, which would truncate the
-// command without either side noticing.
+// the kernel bounds it too. The kernel reads every byte of input, and answers a
+// NUL or bytes that are not UTF-8 with an ffi_validation_error response.
 func (b *FFIBackend) Process(state unsafe.Pointer, input string) (string, error) {
 	if len(input) > MaxJSONBytes {
 		return "", newInputBoundExceededError(
@@ -554,17 +559,14 @@ func (b *FFIBackend) Process(state unsafe.Pointer, input string) (string, error)
 			CodeInputBoundExceeded,
 		)
 	}
-	if strings.IndexByte(input, 0) >= 0 {
-		return "", validationError("input contains NUL byte")
-	}
-
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	cInput := C.CString(input)
 	defer C.free(unsafe.Pointer(cInput))
+	text := C.struct_aletheia_text{data: cInput, size: C.size_t(len(input))}
 
-	return b.stringResult("aletheia_process", C.call_process(b.processFn, state, cInput))
+	return b.stringResult("aletheia_process", C.call_process(b.processFn, state, &text))
 }
 
 // SendFrameBinary sends a CAN frame without serialising it to JSON. The

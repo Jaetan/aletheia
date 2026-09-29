@@ -8,14 +8,16 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 namespace aletheia::detail {
 
 // ALETHEIA_ABI_VERSION: the version of the structures and signatures this
 // binding lays out. The backend and the renderer refuse a library reporting any
 // other.
-inline constexpr std::uint32_t abi_version = 1;
+inline constexpr std::uint32_t abi_version = 2;
 
 // The entry `dlsym` resolved, as the function type the kernel exports it at.
 // dlsym answers void*, and POSIX guarantees a function pointer survives the
@@ -25,6 +27,18 @@ template<typename Fn>
 [[nodiscard]] auto symbol_as(void* sym) -> Fn {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     return reinterpret_cast<Fn>(sym);
+}
+
+// struct aletheia_text: size bytes of UTF-8 from data, with no terminating NUL.
+struct FfiText {
+    const char* data;
+    std::size_t size;
+};
+
+// The text a view spans, which the kernel reads whole: a NUL among its bytes
+// is the kernel's to refuse, not the end of the text.
+[[nodiscard]] constexpr auto ffi_text(std::string_view s) noexcept -> FfiText {
+    return {.data = s.data(), .size = s.size()};
 }
 
 // struct aletheia_frame: one CAN frame.

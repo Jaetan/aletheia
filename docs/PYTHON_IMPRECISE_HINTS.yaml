@@ -1170,9 +1170,6 @@ hints:
   - file: python/tests/test_agda_tree_lock.py
     text: "str"
     count: 2
-  - file: python/tests/test_backend_protocol.py
-    text: "bytes"
-    count: 1
   - file: python/tests/test_benchmark_gate.py
     text: "dict[str, dict[str, float]]"
     count: 3
@@ -1684,11 +1681,8 @@ hints:
     text: "tuple[dict[str, int], dict[str, dict[str, int]]]"
     count: 1
   - file: python/tests/test_ffi_struct_entries.py
-    text: "Iterator[int]"
-    count: 1
-  - file: python/tests/test_ffi_struct_entries.py
     text: "int"
-    count: 8
+    count: 2
   - file: python/tests/test_ffi_struct_entries.py
     text: "int | None"
     count: 1

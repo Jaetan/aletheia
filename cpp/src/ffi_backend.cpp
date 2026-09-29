@@ -45,7 +45,7 @@ constexpr auto max_can_fd_payload_bytes = static_cast<std::size_t>(aletheia::max
 using AletheiaAbiVersionFn = std::uint32_t (*)();
 using HsInitFn = void (*)(int*, char***);
 using AletheiaInitFn = void* (*)();
-using AletheiaProcessFn = char* (*)(void*, const char*);
+using AletheiaProcessFn = char* (*)(void*, const detail::FfiText*);
 using AletheiaSendFrameFn = char* (*)(void*, const detail::FfiFrame*);
 using AletheiaFreeStrFn = void (*)(char*);
 using AletheiaCloseFn = void (*)(void*);
@@ -309,10 +309,8 @@ public:
     auto process(const BackendState& state, std::string_view input) -> std::string override {
         if (auto refusal = detail::json_input_bound_error(input.size()))
             return std::move(*refusal);
-        // The Agda core expects a null-terminated string.
-        const std::string input_str{input};
-        return wrap_str_result(process_fn_(state.get(), input_str.c_str()),
-                               "aletheia_process returned null");
+        auto const text = detail::ffi_text(input);
+        return wrap_str_result(process_fn_(state.get(), &text), "aletheia_process returned null");
     }
 
     auto send_frame_binary(const BackendState& state, Timestamp ts, const CanId& id, Dlc dlc,

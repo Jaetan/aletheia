@@ -239,24 +239,15 @@ fn build_with_backend_applies_logger_and_ignores_rts_cores() {
     );
 }
 
-/// The interior-NUL rejection is part of the public `Client::process` contract
-/// (enforced independently of the backend) and is also honored by the mock at
-/// the `Backend` level — matching `FfiBackend`, where a NUL cannot cross the C ABI.
+/// A NUL inside a command reaches the backend whole: no layer ends the command
+/// there, the core being the one that refuses it.
 #[test]
-fn interior_nul_in_process_is_rejected_at_both_layers() {
-    // Client layer: rejected before the backend is consulted (no queued response
-    // needed), so the guarantee holds for every backend.
+fn a_nul_inside_a_command_reaches_the_backend_whole() {
     let m = MockBackend::new();
+    m.respond_json(r#"{"status":"error"}"#);
     let c = Client::with_backend(Box::new(m.clone()));
-    assert!(matches!(c.process("a\0b"), Err(Error::NulInString)));
-    assert!(
-        m.captured().is_empty(),
-        "a NUL-rejected command must not reach (or be recorded by) the backend"
-    );
-
-    // Backend layer: the mock itself errors and records nothing, like FfiBackend.
-    assert!(matches!(m.process("x\0y"), Err(Error::NulInString)));
-    assert!(m.captured().is_empty());
+    c.process("a\0b").expect("the mock answers");
+    assert_eq!(m.captured(), vec!["a\0b".to_string()]);
 }
 
 /// A verdict carrying an out-of-range `property_index` is left un-enriched and

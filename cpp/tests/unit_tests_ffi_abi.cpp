@@ -19,8 +19,14 @@ using aletheia::detail::FfiDecimal;
 using aletheia::detail::FfiFrame;
 using aletheia::detail::FfiRational;
 using aletheia::detail::FfiSignalValues;
+using aletheia::detail::FfiText;
 
 static_assert(abi_version == ALETHEIA_ABI_VERSION);
+
+static_assert(sizeof(FfiText) == sizeof(aletheia_text));
+static_assert(alignof(FfiText) == alignof(aletheia_text));
+static_assert(offsetof(FfiText, data) == offsetof(aletheia_text, data));
+static_assert(offsetof(FfiText, size) == offsetof(aletheia_text, size));
 
 static_assert(sizeof(FfiFrame) == sizeof(aletheia_frame));
 static_assert(alignof(FfiFrame) == alignof(aletheia_frame));

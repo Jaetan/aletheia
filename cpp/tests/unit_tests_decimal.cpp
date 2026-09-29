@@ -18,7 +18,9 @@
 
 #include <array>
 #include <cstdint>
+#include <format>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 
 using namespace aletheia;
@@ -109,9 +111,8 @@ TEST_CASE("Rational::from_decimal rejects int64-overflowing literals as Validati
 
 TEST_CASE("Rational::from_decimal rejects an interior NUL byte (cross-binding parity)",
           "[types][decimal]") {
-    // An interior NUL would silently truncate a C string at the marshal boundary
-    // ("1\0xyz" -> "1"), accepting a value the caller never wrote. Reject it as a
-    // user-input Validation error, mirroring Rust's CString::new guard. Not in the
+    // The kernel reads the literal whole and refuses the NUL, rather than reading
+    // "1\0xyz" as "1", a value the caller never wrote. Not in the
     // Python-mirrored set above (which uses string literals), so it is its own
     // case using an explicit embedded NUL.
     using namespace std::string_view_literals;
@@ -148,4 +149,38 @@ TEST_CASE("Rational::from_decimal rejects a non-ASCII literal as a Validation er
     // a Protocol failure about the response rather than the Validation error
     // about the literal. A UTF-8 literal must reach the caller as the latter.
     expect_validation_throw("1.5\xe2\x82\xac");
+}
+
+// The input as its section is named, a byte outside printable ASCII spelled as
+// an escape: a report carrying bytes that are not UTF-8 is not text, and the
+// mutation lane's runner keeps no report that is not.
+static auto escaped(std::string_view bytes) -> std::string {
+    std::string out;
+    for (auto const c : bytes) {
+        if (c >= ' ' && c <= '~')
+            out += c;
+        else
+            out += std::format("\\x{:02x}", static_cast<unsigned char>(c));
+    }
+    return out;
+}
+
+TEST_CASE("Rational::from_decimal rejects bytes that are not UTF-8 as Validation errors",
+          "[types][decimal]") {
+    // Each surrounds digits that are a literal without it (a stray byte, a
+    // truncated sequence, an encoded surrogate, an overlong NUL), so a kernel
+    // that dropped what it could not decode would accept the literal.
+    constexpr std::array<std::string_view, 4> not_utf8{{
+        "1.5\xff",
+        "1\xe2\x82.5",
+        "1\xed\xa0\x80"
+        "5",
+        "\xc0\x80"
+        "1",
+    }};
+    for (auto const input : not_utf8) {
+        DYNAMIC_SECTION("input=[" << escaped(input) << "]") {
+            expect_validation_throw(input);
+        }
+    }
 }

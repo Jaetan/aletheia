@@ -161,13 +161,6 @@ impl MockBackend {
 
 impl Backend for MockBackend {
     fn process(&self, input: &str) -> Result<String, Error> {
-        // Match FfiBackend's fidelity: an interior NUL cannot cross the C ABI, so
-        // reject it before recording (FfiBackend errors at CString::new, before
-        // any side effect) — a test driving the mock directly then sees the same
-        // error the real backend would raise.
-        if input.contains('\0') {
-            return Err(Error::NulInString);
-        }
         self.record(input);
         self.pop_json("process")
     }

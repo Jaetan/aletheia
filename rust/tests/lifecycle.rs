@@ -24,3 +24,18 @@ fn rts_lifecycle_round_trip() {
     );
     // Client::drop closes the StreamState handle.
 }
+
+/// The core reads a command whole and refuses a NUL inside it, rather than
+/// ending the command there and running what came before.
+#[test]
+fn a_nul_inside_a_command_is_refused_by_the_core() {
+    let client =
+        Client::new().expect("init client: is ALETHEIA_LIB set to a built libaletheia-ffi.so?");
+    let cmd = "{\"type\":\"command\",\"command\":\"validateDBC\"}\0{}";
+    let resp = client.process(cmd).expect("process round-trip");
+    assert!(
+        resp.contains("\"code\":\"ffi_validation_error\"")
+            && resp.contains("input contains a NUL byte"),
+        "expected the core to refuse the NUL, got: {resp}"
+    );
+}

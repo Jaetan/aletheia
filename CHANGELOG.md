@@ -211,6 +211,28 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   structure-taking entry refuses a NULL structure cleanly. The wire formats the
   kernel writes are unchanged.
 
+- **BREAKING (C ABI 2): the two text entries take their text as a structure,
+  and read it as UTF-8 whatever the locale.** `aletheia_process` and
+  `aletheia_parse_decimal` take a `const struct aletheia_text *`, the text's
+  bytes and their count with no terminating NUL, where they took a
+  NUL-terminated string, and `ALETHEIA_ABI_VERSION` is 2. The shim decoded a C
+  string with the calling process's locale and dropped what it could not
+  decode: under `LC_ALL=C` the decimal `1.5€` was read as `1.5` and a unit `°C`
+  came back as `C`, and under every locale a byte that is not UTF-8 was dropped,
+  so `1.5\xff` was read as 3/2. It now reads and answers UTF-8 whatever the
+  locale, and refuses the whole text, in the order the header states, when the
+  text is NULL, when its data is NULL under a non-zero size or its size is past
+  what the library can index, when its bytes are not UTF-8, and when they hold
+  a NUL: `aletheia_process` answers `ffi_validation_error`,
+  `aletheia_parse_decimal` `decimal_parse_failed` with an empty input echoed. A
+  NUL no longer ends a text early: Go and Python read `from_decimal("1\x00xyz")`
+  as 1, and the C++ and Python `process` cut a command at its NUL. The bindings
+  pass the text with its length and leave the NUL to the kernel, so Rust's
+  `Error::NulInString` is removed (BREAKING Rust). Each binding runs a child
+  process under `LC_ALL=C` that refuses `1.5€` and reads a `°C` unit back whole,
+  and a test holds the shim to taking nothing from `Foreign.C.String` but its
+  types.
+
 - **BREAKING (Python): `aletheia.dbc` no longer exports
   `dbc_and_warnings_from_response`.** The package's docstring said every name in
   its `__all__` was also public at the top level, and that one name was not: it
@@ -1004,6 +1026,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   in the install prefix.
 
 ### Fixed
+
+- **A change to the C header alone reaches the library.** cabal recompiles a C
+  source only when the `.c` file changed and re-runs hsc2hs only when the
+  `.hsc` did, so an edit to `haskell-shim/include/aletheia.h` alone linked the
+  old ABI version and structure layouts, locally and from the build tree CI
+  restores. The Shakefile deletes every output built from the header when its
+  content changes, the `.cabal` lists the header so cabal re-runs, and
+  `tools/check_build_incremental.py` edits the header's ABI version and
+  requires the rebuilt library to answer it.
 
 - **The bundle validator compiles the C++ consumer on the CPUs it was given.**
   It started one compile per CPU of the machine, so run under `taskset` or a

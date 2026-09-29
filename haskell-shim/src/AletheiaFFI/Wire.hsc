@@ -8,7 +8,8 @@
 -- this module holds no number of its own; the Haskell FFI passes no structure
 -- by value, so each crosses as a `Ptr` and is read with `peek`.
 module AletheiaFFI.Wire
-    ( Frame (..)
+    ( WireText (..)
+    , Frame (..)
     , SignalValues (..)
     , Buffer (..)
     , pokeBufferData
@@ -21,12 +22,29 @@ module AletheiaFFI.Wire
     ) where
 
 import Foreign.C.String (CString)
+import Foreign.C.Types (CSize)
 import Foreign.Ptr (Ptr)
 import Foreign.Storable (Storable (..))
 import Data.Int (Int64)
 import Data.Word (Word8, Word32, Word64)
 
 #include "aletheia.h"
+
+-- | `struct aletheia_text`.
+data WireText = WireText
+    { textData :: !CString
+    , textSize :: !CSize
+    } deriving (Eq, Show)
+
+instance Storable WireText where
+    sizeOf _ = #{size struct aletheia_text}
+    alignment _ = #{alignment struct aletheia_text}
+    peek p = WireText
+        <$> #{peek struct aletheia_text, data} p
+        <*> #{peek struct aletheia_text, size} p
+    poke p t = do
+        #{poke struct aletheia_text, data} p (textData t)
+        #{poke struct aletheia_text, size} p (textSize t)
 
 -- | `struct aletheia_frame`.
 data Frame = Frame

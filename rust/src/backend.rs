@@ -170,6 +170,25 @@ struct FfiRational {
     denominator: i64,
 }
 
+/// `struct aletheia_text`: `size` bytes of UTF-8 from `data`, with no
+/// terminating NUL.
+#[repr(C)]
+struct FfiText {
+    data: *const c_char,
+    size: usize,
+}
+
+impl FfiText {
+    /// The text `s` spans, which the kernel reads whole: a NUL among its bytes
+    /// is the kernel's to refuse, not the end of the text.
+    fn of(s: &str) -> Self {
+        Self {
+            data: s.as_ptr().cast(),
+            size: s.len(),
+        }
+    }
+}
+
 /// `struct aletheia_decimal`: a parsed decimal, or on failure a GHC-allocated
 /// JSON error envelope the caller frees with `aletheia_free_str`.
 #[repr(C)]
@@ -188,10 +207,10 @@ type ExtractFn = unsafe extern "C" fn(StateHandle, *const FfiFrame) -> *mut c_ch
 // `aletheia_free_buf`. The `i8` status follows the build/update convention.
 type ExtractBinFn = unsafe extern "C" fn(StateHandle, *const FfiFrame, *mut FfiBuffer) -> i8;
 type FreeBufFn = unsafe extern "C" fn(*mut u8);
-type ProcessFn = unsafe extern "C" fn(StateHandle, *const c_char) -> *mut c_char;
+type ProcessFn = unsafe extern "C" fn(StateHandle, *const FfiText) -> *mut c_char;
 type FormatDbcFn = unsafe extern "C" fn(StateHandle) -> *mut c_char;
 type FormatRationalFn = unsafe extern "C" fn(*const FfiRational) -> *mut c_char;
-type ParseDecimalFn = unsafe extern "C" fn(*const c_char, *mut FfiDecimal) -> i8;
+type ParseDecimalFn = unsafe extern "C" fn(*const FfiText, *mut FfiDecimal) -> i8;
 type InitFn = unsafe extern "C" fn() -> StateHandle;
 type CloseFn = unsafe extern "C" fn(StateHandle);
 type FreeStrFn = unsafe extern "C" fn(*mut c_char);
@@ -200,7 +219,7 @@ type AbiVersionFn = unsafe extern "C" fn() -> u32;
 
 /// `ALETHEIA_ABI_VERSION`: the version of the structures and signatures this
 /// crate lays out, which the `abi_layout` tests hold to the header's.
-const ABI_VERSION: u32 = 1;
+const ABI_VERSION: u32 = 2;
 // Build and update share one shape: the caller allocates the output (`dlc`
 // bytes) in the `FfiBuffer` and reads an `i8` status, nonzero meaning failure
 // with the message in the buffer's `err`.
@@ -228,8 +247,7 @@ pub trait Backend {
     /// Send one raw JSON command line and return the raw JSON response.
     ///
     /// # Errors
-    /// Backend-specific: a transport failure, an interior NUL in `input`, or a
-    /// null response from the core.
+    /// Backend-specific: a transport failure or a null response from the core.
     fn process(&self, input: &str) -> Result<String, Error>;
 
     /// Send one CAN frame via the binary fast path; return the core's JSON
@@ -619,8 +637,7 @@ pub(crate) fn parse_decimal(s: &str) -> Result<Rational, Error> {
         Some(Ok(())) => {}
     }
     let syms = symbols()?;
-    let input = CString::new(s)
-        .map_err(|_| Error::Validation("decimal literal contains an interior NUL".to_string()))?;
+    let input = FfiText::of(s);
     let mut out = FfiDecimal {
         value: FfiRational {
             numerator: 0,
@@ -628,9 +645,9 @@ pub(crate) fn parse_decimal(s: &str) -> Result<Rational, Error> {
         },
         err: std::ptr::null_mut(),
     };
-    // SAFETY: `input` is a valid NUL-terminated C string held alive across the
-    // call; `out` is an out-param the kernel writes.
-    let status = unsafe { (syms.parse_decimal)(input.as_ptr(), &mut out) };
+    // SAFETY: `input` borrows `s`, which outlives the call, and the kernel reads
+    // exactly `input.size` bytes of it; `out` is an out-param the kernel writes.
+    let status = unsafe { (syms.parse_decimal)(&input, &mut out) };
     if status != 0 {
         if out.err.is_null() {
             return Err(Error::Protocol(
@@ -900,10 +917,11 @@ impl FfiBackend {
 
 impl Backend for FfiBackend {
     fn process(&self, input: &str) -> Result<String, Error> {
-        let c_cmd = CString::new(input).map_err(|_| Error::NulInString)?;
-        // SAFETY: `handle` is the live StreamState this backend owns; `c_cmd`
-        // is a valid NUL-terminated C string held alive across the call.
-        self.invoke(|syms| unsafe { (syms.process)(self.handle, c_cmd.as_ptr()) })
+        let text = FfiText::of(input);
+        // SAFETY: `handle` is the live StreamState this backend owns; `text`
+        // borrows `input`, which outlives the call, and the kernel reads exactly
+        // `text.size` bytes of it.
+        self.invoke(|syms| unsafe { (syms.process)(self.handle, &text) })
     }
 
     fn send_frame_binary(
@@ -1149,7 +1167,9 @@ mod abi_layout {
     use std::mem::{offset_of, size_of};
     use std::path::Path;
 
-    use super::{FfiBuffer, FfiDecimal, FfiFrame, FfiRational, FfiSignalValues, ABI_VERSION};
+    use super::{
+        FfiBuffer, FfiDecimal, FfiFrame, FfiRational, FfiSignalValues, FfiText, ABI_VERSION,
+    };
 
     /// The size and the fields, in order, the header asserts for `name`.
     fn asserted(name: &str) -> (usize, Vec<(String, usize)>) {
@@ -1192,6 +1212,15 @@ mod abi_layout {
             digits.parse::<u32>().expect("a version number"),
             ABI_VERSION
         );
+    }
+
+    #[test]
+    fn text_matches_header() {
+        let mirror = owned(&[
+            ("data", offset_of!(FfiText, data)),
+            ("size", offset_of!(FfiText, size)),
+        ]);
+        assert_eq!(asserted("aletheia_text"), (size_of::<FfiText>(), mirror));
     }
 
     #[test]

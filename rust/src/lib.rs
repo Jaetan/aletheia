@@ -568,16 +568,10 @@ impl Client {
     /// response. The low-level escape hatch beneath the typed methods.
     ///
     /// # Errors
-    /// Returns [`Error`] if the command contains an interior NUL, a required
-    /// symbol is missing, or the core returns a null response.
+    /// Returns [`Error`] if a required symbol is missing or the core returns a
+    /// null response. The core reads every byte of `command`, and answers a NUL
+    /// among them with an `ffi_validation_error` response.
     pub fn process(&self, command: &str) -> Result<String, Error> {
-        // The interior-NUL rejection is part of this public contract, not the
-        // backend's: the FFI boundary cannot carry a NUL, so enforce it here so
-        // it holds for every `Backend` (incl. a mock or custom double), not just
-        // `FfiBackend`.
-        if command.contains('\0') {
-            return Err(Error::NulInString);
-        }
         self.backend.process(command)
     }
 

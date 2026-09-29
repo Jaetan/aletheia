@@ -40,7 +40,7 @@ void aletheia_free_buf(uint8_t *buf) {
     free(buf);
 }
 
-char *aletheia_process(void *state, const char *input) {
+char *aletheia_process(void *state, const struct aletheia_text *input) {
     (void)state;
     (void)input;
     return NULL;
@@ -84,7 +84,7 @@ char *aletheia_format_rational(const struct aletheia_rational *value) {
     return NULL;
 }
 
-int8_t aletheia_parse_decimal(const char *input, struct aletheia_decimal *out) {
+int8_t aletheia_parse_decimal(const struct aletheia_text *input, struct aletheia_decimal *out) {
     (void)input;
     out->err = NULL;
     return 1;

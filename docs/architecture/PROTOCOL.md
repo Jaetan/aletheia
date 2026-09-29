@@ -1438,7 +1438,7 @@ syntactic failures.
 ## Implementation Notes
 
 ### FFI Entry Points
-- **Commands**: JSON string via `aletheia_process(state, json_string)` — all non-data-frame operations
+- **Commands**: JSON text via `aletheia_process(state, &text)` for every operation but the data frames, the text being its UTF-8 bytes and their count in one `struct aletheia_text`
 - **Data frames**: Binary via `aletheia_send_frame(state, &frame)` — streaming hot path
 - **Error frames**: Binary via `aletheia_send_error(state, &frame)`, reading its timestamp — bus-error events
 - **Remote frames**: Binary via `aletheia_send_remote(state, &frame)`, reading its timestamp and identifier — remote frames

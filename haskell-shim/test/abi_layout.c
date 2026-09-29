@@ -11,6 +11,11 @@
 #include <stdint.h>
 #include <string.h>
 
+static const struct aletheia_text text_sample = {
+    .data = (const char *)(uintptr_t)0xC1C2C3C4C5C6C7C8u,
+    .size = 0xD1D2D3D4D5D6D7D8u,
+};
+
 static const struct aletheia_frame frame_sample = {
     .timestamp = 0x0102030405060708u,
     .data = (const uint8_t *)(uintptr_t)0x1112131415161718u,
@@ -47,6 +52,8 @@ static const struct aletheia_decimal decimal_sample = {
     .err = (char *)(uintptr_t)0x4142434445464748u,
 };
 
+size_t abi_text_size(void) { return sizeof(struct aletheia_text); }
+size_t abi_text_align(void) { return _Alignof(struct aletheia_text); }
 size_t abi_frame_size(void) { return sizeof(struct aletheia_frame); }
 size_t abi_frame_align(void) { return _Alignof(struct aletheia_frame); }
 size_t abi_values_size(void) { return sizeof(struct aletheia_signal_values); }
@@ -61,12 +68,18 @@ size_t abi_decimal_align(void) { return _Alignof(struct aletheia_decimal); }
 
 void abi_fill_rational(struct aletheia_rational *r) { *r = rational_sample; }
 void abi_fill_decimal(struct aletheia_decimal *d) { *d = decimal_sample; }
+void abi_fill_text(struct aletheia_text *t) { *t = text_sample; }
 void abi_fill_frame(struct aletheia_frame *f) { *f = frame_sample; }
 void abi_fill_values(struct aletheia_signal_values *v) { *v = values_sample; }
 void abi_fill_buffer(struct aletheia_buffer *b) { *b = buffer_sample; }
 
 /* Each check answers a bit per field that differs from the sample, 0 when
  * the copy is exact. */
+unsigned abi_check_text(const struct aletheia_text *t) {
+    return (unsigned)(t->data != text_sample.data) << 0 |
+           (unsigned)(t->size != text_sample.size) << 1;
+}
+
 unsigned abi_check_frame(const struct aletheia_frame *f) {
     const struct aletheia_frame *s = &frame_sample;
     return (unsigned)(f->timestamp != s->timestamp) << 0 |
