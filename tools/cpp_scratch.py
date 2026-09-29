@@ -33,6 +33,15 @@ from pathlib import Path
 SCRATCH_PREFIX = "aletheia-cpp-tests-"
 
 
+def scratch_root() -> Path:
+    """Name the directory the test binaries make their scratch in: this process's temp directory.
+
+    A sweep hands it to the binaries as TMPDIR, so the reaper and the runs it
+    reaps after read one directory whatever the caller's environment named.
+    """
+    return Path(tempfile.gettempdir())
+
+
 def reap_dead_scratch_dirs() -> int:
     """Remove every scratch directory whose owning process is gone, and count them.
 
@@ -41,7 +50,7 @@ def reap_dead_scratch_dirs() -> int:
     already.
     """
     removed = 0
-    for candidate in sorted(Path(tempfile.gettempdir()).glob(f"{SCRATCH_PREFIX}*")):
+    for candidate in sorted(scratch_root().glob(f"{SCRATCH_PREFIX}*")):
         # The symlink is refused rather than resolved: the system temp
         # directory is world writable, and a link planted under this name
         # would otherwise be read as the directory it points at.

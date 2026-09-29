@@ -5,35 +5,77 @@
 Several probes each state a claim about one sweep: that the recorded census is
 what a sweep produces, that the recorded routes are, that every survivor and
 every unobserved kill is a recorded one.  Written to sweep for themselves they
-re-measure one run once per claim, which on three trees is over an hour of the
-same work.  This runs the sweep once and keys it on what could change its
-outcome, so the second reader pays nothing and each probe still runs alone.
+re-measure one run once per claim: four of them on three trees took 674, 650,
+622 and 648 seconds.  This runs the sweep once and keys it on what could change
+its outcome, so the second reader pays nothing and each probe still runs alone.
 
-The key is the content of every tree's test binary and the argv the lane
-sweeps with.  A rebuild of any tree changes its binary and so the key; so does
-a change to the runner's arguments, the pinned order among them.  Nothing else
-decides what a sweep reads, the order being pinned and the cap explicit, which
-is why the same key may be served rather than swept again.
+The key is the content of every file a sweep reads from the tree or the fact
+that the file is absent, the argv the lane sweeps with, its paths taken within
+the tree, and the environment it sweeps under, which names where the tree
+is.  A trace of the lane's own command finds the files: each tree's test binary
+and the test kernels built beside it, which the binary loads by path; the
+configuration the runner is given; the kernel library, at every path in the
+tree the tests look for it; the fixture a test reads; the source files the
+binary's mutants point at, which the runner copies into its report; the
+libraries the binary needs, which the runner looks for by name in the
+directory it runs in; and every file the loader can open in a directory in the
+tree that a file the sweep loads searches, followed from library to
+library.  The environment is the sweep's own, taking nothing of the caller's
+but its search path and temp directory; the order among the tests is pinned
+and the cap is on the argv; so nothing else in the tree decides what a sweep
+reports, which is why the same key may be served rather than swept again.  What
+a sweep reads from outside the tree is not keyed: the runner, the system's and
+GHC's runtime libraries, and the one library path the tests look at above the
+repository.
 
-The reports land under a directory named by that key, and a sweep writes into
-a temporary neighbour that is renamed into place when every report is there:
-a run interrupted halfway leaves no directory a later reader would trust.
+A tree has to have been built under the configuration it would be given now,
+and every search path a loaded library records has to be one the key can
+follow, or the reason is reported and nothing is swept: the cache reads the
+trees and never removes one.  The key is read again when the sweep ends, and a
+sweep of a tree that changed meanwhile is not kept.
+
+The reports land under a directory named by the key, and a sweep writes into a
+temporary neighbour, locked while it runs, that is renamed into place when
+every report is there: a run interrupted halfway leaves no directory a later
+reader would trust, and a later sweep removes it once its lock is free.  Once a
+sweep is in place every other kept sweep is removed, so only the sweep of the
+tree as it stands is kept; a refresh sweeps again and replaces the kept sweep
+only with a complete one.
 """
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
+import mmap
 import os
+import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
+from enum import IntEnum
 from pathlib import Path
+from typing import TYPE_CHECKING, BinaryIO, NamedTuple, NewType
 
 from tools._common import emit
 from tools._resources import polite_cpu_list
-from tools.mutation_cpp import CPP_LEG_REPORT_SUFFIXES, REPO_ROOT, cpp_lane_command, leg_config
+from tools.cpp_scratch import reap_dead_scratch_dirs
+from tools.mutation_cpp import (
+    CPP_LEG_REPORT_SUFFIXES,
+    REPO_ROOT,
+    cpp_lane_command,
+    cpp_sweep_directory,
+    cpp_sweep_environment,
+)
+from tools.mutation_cpp_config import built_under_config, leg_config_path
 from tools.mutation_cpp_legs import CppLeg, CppTree
+
+from aletheia.common_types import ExitStatus, Prose
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 # Where the sweeps are kept: inside the tree, beside the build trees the
 # .gitignore already holds out, because a probe reads no path outside it.
@@ -42,6 +84,126 @@ CACHE_ROOT = REPO_ROOT / "cpp" / "mutation-sweeps"
 # The runner the lane names. Read here rather than searched for, so a reader
 # without it is told what is missing instead of sweeping with another one.
 MULL_RUNNER = "mull-runner-23"
+
+# The kernel library, at every path in the tree the tests look for it from the
+# root the sweep passes and the directory it runs in, cpp/: the integration
+# tests try build/ and then dist/, the renderer and the test binary's runtime
+# listener build/ and then cpp/build/. Which of them a run loads depends on all
+# of them, so each is keyed.
+_LIBRARY_PATHS = (
+    Path("build/libaletheia-ffi.so"),
+    Path("dist/aletheia/lib/libaletheia-ffi.so"),
+    Path("cpp/build/libaletheia-ffi.so"),
+)
+
+# The fixtures the tests read from the tree.
+_FIXTURES = (Path("examples/demo/demo_workbook.xlsx"),)
+
+# How a mutant is named inside the binary that carries it: its mutator, the
+# absolute path of its source file, its span, a hash and an ordinal. The runner
+# enables a mutant by that name and copies each named file into its report.
+_MUTANT = re.compile(rb"[a-z][a-z_]*:(/[^\x00:\n]+):\d+:\d+:\d+:\d+:[0-9a-f]+\.\d+")
+
+# A kept sweep's directory, named by its key, and the prefix of the directory a
+# sweep writes into until every report is there.
+_KEPT = re.compile(r"[0-9a-f]{16}")
+_STAGING_PREFIX = "sweeping-"
+
+# The one substitution the loader makes in a search path that the file itself
+# decides: $ORIGIN, braced or bare, a bare one ending where no name character
+# follows. Any other, $LIB or $PLATFORM, takes the loader's value.
+_ORIGIN = re.compile(r"\$(?:\{ORIGIN\}|ORIGIN(?![A-Za-z0-9_]))")
+
+# What the linking reader reads of an ELF64 little-endian file: its
+# identification; the header's e_phoff, e_phentsize and e_phnum; each program
+# header's p_type, p_offset, p_vaddr and p_filesz; each dynamic entry's tag
+# and value; at most this many bytes of a name; at most these many bytes of
+# program headers, past which a file is not one the reader takes; and at most
+# these many bytes of dynamic section, past which its entries are not read.
+_ELF64_LITTLE_ENDIAN = b"\x7fELF\x02\x01"
+_ELF_HEADER = struct.Struct("<32xQ14xHH")
+_SEGMENT = struct.Struct("<I4xQQ8xQ")
+_DYNAMIC_ENTRY = struct.Struct("<qQ")
+_LONGEST_NAME = 4096
+_LONGEST_TABLE = 1 << 16
+_LONGEST_DYNAMIC = 1 << 20
+
+# A kept sweep's key, and a file's digest as the key spells it.
+SweepKey = NewType("SweepKey", str)
+_FileDigest = NewType("_FileDigest", str)
+
+# A name as the string table holds it; a library's file name, as a binary
+# records it; a library search path as a binary records it, $ORIGIN and all.
+_RawName = NewType("_RawName", bytes)
+_LibraryName = NewType("_LibraryName", str)
+_SearchPath = NewType("_SearchPath", str)
+
+# Places in an ELF file, kept apart so that one is never read as another: a
+# byte's offset in the file, the address it loads at, a count of bytes, and a
+# name's offset in the string table.
+_FileOffset = NewType("_FileOffset", int)
+_Address = NewType("_Address", int)
+_Length = NewType("_Length", int)
+_NameOffset = NewType("_NameOffset", int)
+
+
+class _SegmentType(IntEnum):
+    """The program header types the reader keeps."""
+
+    LOAD = 1
+    DYNAMIC = 2
+
+
+class _DynamicTag(IntEnum):
+    """The dynamic tags the reader keeps: the end, a needed library, the strings, a search path."""
+
+    NULL = 0
+    NEEDED = 1
+    STRTAB = 5
+    RPATH = 15
+    RUNPATH = 29
+
+
+class _Span(NamedTuple):
+    """A run of bytes in the file."""
+
+    offset: _FileOffset
+    length: _Length
+
+
+class _Loadable(NamedTuple):
+    """A loadable segment: its bytes in the file, and the address the first of them loads at."""
+
+    span: _Span
+    address: _Address
+
+    def locate(self, address: _Address) -> _FileOffset | None:
+        """Name the file offset of the byte loaded at ``address``, if this segment holds it."""
+        if self.address <= address < self.address + self.span.length:
+            return _FileOffset(self.span.offset + address - self.address)
+        return None
+
+
+class _Segments(NamedTuple):
+    """What the reader keeps of a file's program headers."""
+
+    loadable: list[_Loadable]
+    dynamic: _Span | None
+
+
+class _Dynamic(NamedTuple):
+    """What the reader keeps of the dynamic section: where its strings load, and each name."""
+
+    strings: _Address | None
+    needed: list[_NameOffset]
+    searched: list[_NameOffset]
+
+
+class _Linked(NamedTuple):
+    """What an ELF file records about its linking: the libraries it needs, and where to look."""
+
+    needed: list[_LibraryName]
+    searched: list[_SearchPath]
 
 
 def polite(argv: list[str]) -> list[str]:
@@ -59,28 +221,219 @@ def polite(argv: list[str]) -> list[str]:
     return ["taskset", "-c", polite_cpu_list(), *argv]
 
 
-def _binary(tree: CppTree) -> Path:
-    """Name the test binary of one tree, which is what a sweep reads."""
-    return REPO_ROOT / "cpp" / tree.directory / "unit_tests"
+def leg_build_dir(leg: CppLeg) -> Path:
+    """Name the directory one leg's tree is built in."""
+    return cpp_sweep_directory() / leg.directory
 
 
-def _digest(path: Path) -> str:
+def tree_build_dir(tree: CppTree) -> Path:
+    """Name the directory one whole tree is built in."""
+    return leg_build_dir(CppLeg(tree))
+
+
+def tree_binary(tree: CppTree) -> Path:
+    """Name the test binary of one tree, which the runner runs once per mutant."""
+    return tree_build_dir(tree) / "unit_tests"
+
+
+def _digest(path: Path) -> _FileDigest:
     """Digest a file, read in blocks so a 100 MB binary costs no memory."""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1 << 20), b""):
             digest.update(block)
-    return digest.hexdigest()
+    return _FileDigest(digest.hexdigest())
 
 
-def sweep_key() -> str:
-    """Name what a sweep of today's trees would read: every binary, and the argv."""
-    parts: list[str] = []
+def _segments(handle: BinaryIO, size: _Length) -> _Segments:
+    """Read an ELF64 little-endian file's loadable and dynamic segments; none from another file."""
+    header = handle.read(_ELF_HEADER.size)
+    if len(header) < _ELF_HEADER.size or not header.startswith(_ELF64_LITTLE_ENDIAN):
+        return _Segments([], None)
+    phoff, phentsize, phnum = _ELF_HEADER.unpack(header)
+    if phentsize < _SEGMENT.size or phentsize * phnum > _LONGEST_TABLE or phoff >= size:
+        return _Segments([], None)
+    _ = handle.seek(phoff)
+    table = handle.read(phentsize * phnum)
+    loadable: list[_Loadable] = []
+    dynamic: _Span | None = None
+    for at in range(len(table) // phentsize):
+        kind, offset, address, length = _SEGMENT.unpack_from(table, at * phentsize)
+        span = _Span(_FileOffset(offset), _Length(length))
+        if kind == _SegmentType.LOAD:
+            loadable.append(_Loadable(span, _Address(address)))
+        elif kind == _SegmentType.DYNAMIC:
+            dynamic = span
+    return _Segments(loadable, dynamic)
+
+
+def _dynamic(handle: BinaryIO, span: _Span, size: _Length) -> _Dynamic:
+    """Read the dynamic section's entries up to the one that ends them; none past the file's end."""
+    if span.offset >= size:
+        return _Dynamic(None, [], [])
+    _ = handle.seek(span.offset)
+    section = handle.read(min(span.length, _LONGEST_DYNAMIC))
+    strings: _Address | None = None
+    needed: list[_NameOffset] = []
+    searched: list[_NameOffset] = []
+    whole = section[: len(section) - len(section) % _DYNAMIC_ENTRY.size]
+    for tag, value in _DYNAMIC_ENTRY.iter_unpack(whole):
+        if tag == _DynamicTag.NULL:
+            break
+        if tag == _DynamicTag.STRTAB:
+            strings = _Address(value)
+        elif tag == _DynamicTag.NEEDED:
+            needed.append(_NameOffset(value))
+        elif tag in (_DynamicTag.RPATH, _DynamicTag.RUNPATH):
+            searched.append(_NameOffset(value))
+    return _Dynamic(strings, needed, searched)
+
+
+def _linked(binary: Path) -> _Linked:
+    """Read what an ELF64 little-endian file records about its linking; nothing from another file.
+
+    The dynamic section holds each name as an offset into the string table,
+    whose address maps to a file offset through the loadable segment that
+    holds it.  An offset past the file's end reads as nothing, and so does an
+    empty name.
+    """
+    with binary.open("rb") as handle:
+        size = _Length(os.fstat(handle.fileno()).st_size)
+        segments = _segments(handle, size)
+        if segments.dynamic is None:
+            return _Linked([], [])
+        dynamic = _dynamic(handle, segments.dynamic, size)
+        strings = dynamic.strings
+        if strings is None:
+            return _Linked([], [])
+        placed = [segment.locate(strings) for segment in segments.loadable]
+        table = next((offset for offset in placed if offset is not None), None)
+        if table is None:
+            return _Linked([], [])
+
+        def name_at(offset: _NameOffset) -> _RawName:
+            if table + offset >= size:
+                return _RawName(b"")
+            _ = handle.seek(table + offset)
+            return _RawName(handle.read(_LONGEST_NAME).split(b"\0", 1)[0])
+
+        needed = [_LibraryName(os.fsdecode(name_at(offset))) for offset in dynamic.needed]
+        searched = [_SearchPath(os.fsdecode(name_at(offset))) for offset in dynamic.searched]
+        return _Linked([name for name in needed if name], [path for path in searched if path])
+
+
+def binary_sources(binary: Path) -> set[Path]:
+    """Name the source files the mutants a binary carries point at, which the runner reads."""
+    with binary.open("rb") as handle:
+        if os.fstat(handle.fileno()).st_size == 0:
+            return set()
+        with mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as mapped:
+            return {Path(os.fsdecode(path)) for path in _MUTANT.findall(mapped)}
+
+
+class _Reach(NamedTuple):
+    """What the loader can open in the tree for the files a sweep loads, and what it cannot follow.
+
+    The files are every file of every directory in the tree that one of those
+    files searches, and every file a name it needs points at directly.  A
+    search path the key cannot follow names a substitution whose value is the
+    loader's rather than the file's.
+    """
+
+    files: set[Path]
+    unfollowed: list[_SearchPath]
+
+
+def _loaded() -> list[Path]:
+    """Name the ELF files a sweep loads from the tree, whether they are there or not.
+
+    The kernel library at every path the tests look for it, each tree's test
+    binary, and the test kernels built beside it, which the binary names by
+    path and is not relinked for, so its digest cannot stand for theirs.
+    """
+    loaded = [REPO_ROOT / path for path in _LIBRARY_PATHS]
+    for tree in CppTree:
+        loaded.append(tree_binary(tree))
+        loaded.extend(sorted(tree_build_dir(tree).glob("libaletheia_test_*.so")))
+    return loaded
+
+
+def _searched_files(directory: Path) -> set[Path]:
+    """Name the files the loader can open in a directory it searches, glibc-hwcaps ones included."""
+    if not directory.is_dir():
+        return set()
+    candidates = (*directory.iterdir(), *directory.glob("glibc-hwcaps/*/*"))
+    return {path for path in candidates if path.is_file()}
+
+
+def _reach(loaded: Iterable[Path]) -> _Reach:
+    """Follow what the loader can open in the tree, from the given files through each file found.
+
+    A search path entry takes $ORIGIN as the directory of the file recording
+    it, and one that is relative, or empty, as the directory the sweep runs
+    in.  A name holding a slash is a path the loader opens as it stands, from
+    that same directory when it is relative.
+    """
+    files: set[Path] = set()
+    unfollowed: list[_SearchPath] = []
+    seen: set[Path] = set()
+    pending = [path for path in loaded if path.is_file()]
+    while pending:
+        elf = pending.pop()
+        if elf in seen:
+            continue
+        seen.add(elf)
+        linked = _linked(elf)
+        reached: set[Path] = set()
+        for searched in linked.searched:
+            for entry in searched.split(":"):
+                # A replacement string reads a backslash as an escape.
+                expanded = _ORIGIN.sub(str(elf.parent).replace("\\", "\\\\"), entry)
+                if "$" in expanded:
+                    unfollowed.append(_SearchPath(entry))
+                    continue
+                directory = Path(os.path.normpath(cpp_sweep_directory() / expanded))
+                if directory.is_relative_to(REPO_ROOT):
+                    reached |= _searched_files(directory)
+        for name in linked.needed:
+            if "/" in name:
+                path = Path(os.path.normpath(cpp_sweep_directory() / name))
+                if path.is_relative_to(REPO_ROOT):
+                    files.add(path)
+                    reached |= {path} if path.is_file() else set()
+        files |= reached
+        pending.extend(sorted(reached - seen))
+    return _Reach(files, unfollowed)
+
+
+def key_inputs() -> list[Path]:
+    """Name every file a sweep of today's trees reads from the tree, whether it is there or not."""
+    loaded = _loaded()
+    paths = {*loaded, *(REPO_ROOT / path for path in _FIXTURES), *_reach(loaded).files}
+    for tree in CppTree:
+        build_dir, binary = tree_build_dir(tree), tree_binary(tree)
+        paths.add(leg_config_path(CppLeg(tree), build_dir))
+        if binary.is_file():
+            # The runner looks each library the binary needs up by name in the
+            # directory it runs in; a name holding a slash is followed above.
+            needed = [name for name in _linked(binary).needed if "/" not in name]
+            paths.update(cpp_sweep_directory() / name for name in needed)
+            paths.update(path for path in binary_sources(binary) if path.is_relative_to(REPO_ROOT))
+    return sorted(paths)
+
+
+def sweep_key() -> SweepKey:
+    """Name what a sweep of today's trees would read: their files, argv and environment."""
+    parts = [
+        f"{path.relative_to(REPO_ROOT)}:{_digest(path) if path.is_file() else 'absent'}"
+        for path in key_inputs()
+    ]
     for tree in CppTree:
         leg = CppLeg(tree)
-        parts.append(f"{tree.value}:{_digest(_binary(tree))}")
         parts.append(" ".join(cpp_lane_command(MULL_RUNNER, Path(tree.directory), Path(), leg)))
-    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:16]
+        variables = cpp_sweep_environment(leg, tree_build_dir(tree)).variables()
+        parts.append(" ".join(f"{name}={variables[name]}" for name in sorted(variables)))
+    return SweepKey(hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:16])
 
 
 def _reports_present(directory: Path) -> bool:
@@ -92,75 +445,140 @@ def _reports_present(directory: Path) -> bool:
     )
 
 
-def _sweep_into(directory: Path) -> str | None:
-    """Sweep every tree into the directory, or say what stopped it.
+def run_leg(leg: CppLeg, report_dir: Path, *, dry_run: bool = False) -> None:
+    """Run the lane's command for one leg into ``report_dir``, where and as the lane runs it.
 
-    The environment is the lane's: the repository root, which the folded
-    integration tests read, and the configuration each tree was built under,
-    which the runner reads its own cap from.  ALETHEIA_LIB is dropped, since
-    with it set the library lookup returns before it reads the root and the
-    mutants of that read go uncovered.
+    The runner exits non-zero whenever a mutant survives, which is a property
+    of the surface rather than of the run, so the reports are what says
+    whether it ran.
     """
+    build_dir = leg_build_dir(leg)
+    _ = subprocess.run(
+        polite(cpp_lane_command(MULL_RUNNER, build_dir, report_dir, leg, dry_run=dry_run)),
+        cwd=cpp_sweep_directory(),
+        env=cpp_sweep_environment(leg, build_dir).variables(),
+        check=False,
+        capture_output=True,
+    )
+
+
+def dry_run_report(leg: CppLeg, report_dir: Path) -> Path | Prose:
+    """Run the lane's command over one leg as a dry run, and name the Elements report it wrote."""
+    run_leg(leg, report_dir, dry_run=True)
+    report = report_dir / f"{leg.report_name}.json"
+    if report.is_file():
+        return report
+    return Prose(f"the dry run of the {leg} leg wrote no {report.name}")
+
+
+def _sweep_into(directory: Path) -> Prose | None:
+    """Sweep every tree into the directory, as the lane runs each, or say what stopped it."""
     for tree in CppTree:
         leg = CppLeg(tree)
-        build_dir = REPO_ROOT / "cpp" / tree.directory
-        env = os.environ | {
-            "ALETHEIA_REPO_ROOT": str(REPO_ROOT),
-            "MULL_CONFIG": str(leg_config(leg, build_dir)),
-        }
-        env.pop("ALETHEIA_LIB", None)
-        # The runner exits non-zero whenever a mutant survives, which is a
-        # property of the surface rather than of the sweep, so the reports are
-        # what says whether it ran.
-        _ = subprocess.run(
-            polite(cpp_lane_command(MULL_RUNNER, build_dir, directory, leg)),
-            cwd=REPO_ROOT / "cpp",
-            env=env,
-            check=False,
-            capture_output=True,
-        )
+        run_leg(leg, directory)
+        _ = reap_dead_scratch_dirs()
         missing = [
             suffix
             for suffix in CPP_LEG_REPORT_SUFFIXES
             if not (directory / f"{leg.report_name}{suffix}").is_file()
         ]
         if missing:
-            return f"the sweep of the {tree.value} tree wrote no {leg.report_name}{missing[0]}"
+            return Prose(
+                f"the sweep of the {tree.value} tree wrote no {leg.report_name}{missing[0]}"
+            )
     return None
 
 
-def sweep_directory(*, refresh: bool = False) -> Path | str:
-    """Return the directory holding a sweep of today's trees, sweeping where there is none."""
+def _abandoned(staging: Path) -> bool:
+    """Say whether the sweep writing into ``staging`` has gone, its lock free to take.
+
+    A sweep holds a ``flock`` on its directory for as long as it runs, which
+    the kernel drops however the process ends, the way the test binaries'
+    scratch directories are told live from dead.
+    """
+    try:
+        handle = os.open(staging, os.O_RDONLY | os.O_CLOEXEC)
+    except OSError:
+        return False
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    finally:
+        os.close(handle)
+    return True
+
+
+def _forget_other_sweeps(kept: Path) -> None:
+    """Remove every kept sweep but ``kept``, and every sweep whose process has gone."""
+    for entry in CACHE_ROOT.iterdir():
+        if entry == kept or entry.is_symlink() or not entry.is_dir():
+            continue
+        if _KEPT.fullmatch(entry.name) or (
+            entry.name.startswith(_STAGING_PREFIX) and _abandoned(entry)
+        ):
+            shutil.rmtree(entry)
+
+
+def _refusal() -> Prose | None:
+    """Say why today's trees cannot be swept as they stand, if they cannot."""
     for tree in CppTree:
-        if not os.access(_binary(tree), os.X_OK):
-            return f"the {tree.value} mutation tree is not built"
+        if not os.access(tree_binary(tree), os.X_OK):
+            return Prose(f"the {tree.value} mutation tree is not built")
     if shutil.which(MULL_RUNNER) is None:
-        return f"{MULL_RUNNER} is not installed"
-    wanted = CACHE_ROOT / sweep_key()
-    if refresh and wanted.is_dir():
-        shutil.rmtree(wanted)
-    if _reports_present(wanted):
+        return Prose(f"{MULL_RUNNER} is not installed")
+    for tree in CppTree:
+        if not built_under_config(CppLeg(tree), tree_build_dir(tree)):
+            return Prose(
+                f"the {tree.value} mutation tree was built under another configuration than"
+                + " cpp/mull.yml gives it now; rebuild it with the lane before sweeping"
+            )
+    unfollowed = _reach(_loaded()).unfollowed
+    if unfollowed:
+        return Prose(
+            f"a library a sweep loads searches {unfollowed[0]}, whose substitution the key"
+            + " cannot follow, so no kept sweep could say what it read"
+        )
+    return None
+
+
+def sweep_directory(*, refresh: bool = False) -> Path | Prose:
+    """Return the directory holding a sweep of today's trees, sweeping where there is none."""
+    refusal = _refusal()
+    if refusal is not None:
+        return refusal
+    key = sweep_key()
+    wanted = CACHE_ROOT / key
+    if not refresh and _reports_present(wanted):
         return wanted
     CACHE_ROOT.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(dir=CACHE_ROOT, prefix="sweeping-"))
-    failure = _sweep_into(staging)
-    if failure is not None:
+    staging = Path(tempfile.mkdtemp(dir=CACHE_ROOT, prefix=_STAGING_PREFIX))
+    lock = os.open(staging, os.O_RDONLY | os.O_CLOEXEC)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        failure = _sweep_into(staging)
+        if failure is None and sweep_key() != key:
+            failure = Prose("the trees changed while they were swept; the sweep was not kept")
+        if failure is not None:
+            return failure
+        if wanted.is_dir():
+            shutil.rmtree(wanted)
+        staging.rename(wanted)
+    finally:
+        os.close(lock)
         shutil.rmtree(staging, ignore_errors=True)
-        return failure
-    if wanted.is_dir():
-        shutil.rmtree(wanted)
-    staging.rename(wanted)
+    _forget_other_sweeps(wanted)
     return wanted
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str]) -> ExitStatus:
     """Print the directory of a sweep of today's trees, or the reason there is none."""
     result = sweep_directory(refresh="--refresh" in argv)
-    if isinstance(result, str):
-        emit(result)
-        return 1
-    emit(str(result))
-    return 0
+    if isinstance(result, Path):
+        emit(str(result))
+        return ExitStatus(0)
+    emit(result)
+    return ExitStatus(1)
 
 
 if __name__ == "__main__":

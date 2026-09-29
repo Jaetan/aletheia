@@ -276,9 +276,6 @@ hints:
   - file: probes/tools_mutation_cpp_slices.py--the-sliced-union-is-the-unsliced-census.sh
     text: "list[str]"
     count: 1
-  - file: probes/tools_mutation_cpp_slices.py--the-sliced-union-is-the-unsliced-census.sh
-    text: "str"
-    count: 1
   - file: probes/tools_mutation_scope.py--a-lane-installs-what-its-scope-names.sh
     text: "list[str]"
     count: 2
@@ -3278,7 +3275,7 @@ hints:
     count: 1
   - file: tools/mutation_cpp.py
     text: "dict[RelPath, int]"
-    count: 3
+    count: 2
   - file: tools/mutation_cpp.py
     text: "dict[SurvivorKey, int]"
     count: 2
@@ -3306,6 +3303,10 @@ hints:
   - file: tools/mutation_cpp.py
     text: "dict[str, object] | str"
     count: 1
+  - file: tools/mutation_cpp.py
+    text: "dict[str, str]"
+    count: 1
+    reason: "subprocess and run_streaming take an environment as dict[str, str]; SweepEnvironment.variables() is the one place the named environment is spelled so"
   - file: tools/mutation_cpp.py
     text: "frozenset[str]"
     count: 1
@@ -3559,20 +3560,8 @@ hints:
     text: "str"
     count: 1
   - file: tools/mutation_sweep_cache.py
-    text: "Path | str"
-    count: 1
-  - file: tools/mutation_sweep_cache.py
-    text: "int"
-    count: 1
-  - file: tools/mutation_sweep_cache.py
     text: "list[str]"
-    count: 4
-  - file: tools/mutation_sweep_cache.py
-    text: "str"
-    count: 2
-  - file: tools/mutation_sweep_cache.py
-    text: "str | None"
-    count: 1
+    count: 3
   - file: tools/prune_actions_cache.py
     text: "dict[str, list[Entry]]"
     count: 1

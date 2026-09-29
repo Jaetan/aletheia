@@ -9,7 +9,7 @@ build-mutation/
 build-mutation-*/
 build-coverage/
 # The sweeps the probe store shares (tools/mutation_sweep_cache.py): reports of
-# a run, keyed on the trees that produced them, not sources.
+# a sweep, keyed on every file it reads from the tree; generated, not sources.
 cpp/mutation-sweeps/
 _build/
 dist/

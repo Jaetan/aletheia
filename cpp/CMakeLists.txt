@@ -45,15 +45,18 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 #   cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
 #         -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 #   cmake --build build-mutation --target unit_tests
-#   mull-runner-23 ./build-mutation/unit_tests
+#
+# and sweep it the way the lane does (docs/operations/MUTATION.md § Running
+# the lane).
 #
 # A CI leg sweeps one slice of the surface instead of a whole tree, which is
 # the same build given a generated configuration holding the other slices'
-# files out (tools/mutation_cpp_slices.py writes it, tools/mutation_cpp.py
-# puts it in place).  Its tree is the tree's directory and the slice's number:
+# files out (tools/mutation_cpp_slices.py writes it,
+# tools/mutation_cpp_config.py puts it in place).  Its tree is the tree's
+# directory and the slice's number:
 #
 #   cmake -B build-mutation-plain-1 -DALETHEIA_MUTATION=ON \
-#         -DALETHEIA_MULL_CONFIG=$PWD/build-mutation-plain-1/mull-slice.yml \
+#         -DALETHEIA_MULL_CONFIG=$PWD/build-mutation-plain-1/mull-config.yml \
 #         -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 #
 # Requires Mull-23 (LLVM 23), which tools/build_mull.sh builds from source (see

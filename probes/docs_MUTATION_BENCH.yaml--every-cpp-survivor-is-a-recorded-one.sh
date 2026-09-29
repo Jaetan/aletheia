@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 #
 # Probes docs/MUTATION_BENCH.yaml.
-# Claim: the C++ baseline's survivors_ledger is exactly what the two
+# Claim: the C++ baseline's survivors_ledger is exactly what the
 # configured trees leave surviving between them: every survivor is a ledger row, by
 # mutator, repository-relative file and source-line text, up to the count
 # the row records, and every row still survives. The lane refuses a survivor
@@ -11,7 +11,7 @@
 # survives, which the lane reports as stale and lets pass, so the record is
 # lowered by the change that made it stale. Non-zero exit: the ledger and the
 # sweep disagree; the diff names each row. Exits 0 with a note when Mull or
-# either mutation tree is not available, since the claim is untestable then.
+# any mutation tree is not available, since the claim is untestable then.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v mull-runner-23 > /dev/null || { echo "Mull not installed, claim untestable"; exit 0; }
@@ -33,18 +33,15 @@ done
 # that leaks, the address tree a value read after what held it has gone, and
 # the plain tree carries the allocation-fault sweeps, which no sanitizer tree
 # can carry because a sanitizer defines the allocation functions they replace.
-# The runner's argv is the lane's own, built by tools/mutation_cpp.py, so the
-# cap per mutant and the pinned order have one owner; only where the reports
-# land is this probe's. Both matter to this claim: a mutant the runner ends at
-# its cap is neither killed nor surviving, so it would leave the ledger's
+# The cap per mutant and the pinned order both matter to this claim: a mutant
+# the runner ends at its cap is neither killed nor surviving, so it would leave the ledger's
 # candidates without being read, and an unpinned order decides which test
 # reports before a dying process stops.
 # One sweep serves every probe that reads one: tools/mutation_sweep_cache.py
-# runs it once, keyed on each tree's test binary and the lane's own argv, so a
-# second reader pays nothing and a rebuilt tree is swept again. The lane's
-# environment and the runner's arguments are the lane's own, built by
-# tools/mutation_cpp.py, so the cap per mutant and the pinned order have one
-# owner.
+# runs it once with the lane's own argv, environment and directory, all built
+# by tools/mutation_cpp.py, so the cap per mutant and the pinned order have one
+# owner, and keys it on every file a sweep reads from the tree, so a second
+# reader pays nothing and a changed tree is swept again.
 dir=$("$py" -m tools.mutation_sweep_cache) || {
     echo "no sweep of the mutation trees could be had"
     exit 2

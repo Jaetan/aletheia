@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 #
 # Probes docs/MUTATION_BENCH.yaml.
-# Claim: the C++ baseline's kill routes record a run exactly. Sweeping the two
+# Claim: the C++ baseline's kill routes record a run exactly. Sweeping the
 # configured trees under the order the lane pins, and reading each mutant's
 # route the way the lane does, gives every route the recorded count, and the
 # routes add up to the recorded total. There is no tolerance: Catch2 shuffles
@@ -14,13 +14,13 @@
 # route, a skipped lookup guard reading a string past a map's end; the trees
 # now compile under libstdc++'s debug mode, which ends such a read at the
 # check, and two sweeps of each tree then moved nothing.
-# A timeout is the exception, and it is not absorbed: one mutant runs close to
-# the cap of ten times the unmutated baseline, so an oversubscribed machine
-# times it out where an idle one reads the route it dies by. A sweep with any
+# A timeout is the exception, and it is not absorbed: the cap per mutant on the
+# lane's argv is a wall clock, so an oversubscribed machine times out a mutant
+# an idle one lets run to the route it dies by. A sweep with any
 # timeout is a census taken under load, which this reports as untestable
 # rather than as a finding.
 # Non-zero exit: a route differs from the recorded one, or the routes do not
-# add up. Exits 0 with a note when Mull or either tree is absent, and 2 when
+# add up. Exits 0 with a note when Mull or any tree is absent, and 2 when
 # the machine was too loaded to measure.
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -39,11 +39,10 @@ print(CppTree(sys.argv[1]).directory)' "$lane") || exit 2
         { echo "the $lane mutation tree is not built, claim untestable"; exit 0; }
 done
 # One sweep serves every probe that reads one: tools/mutation_sweep_cache.py
-# runs it once, keyed on each tree's test binary and the lane's own argv, so a
-# second reader pays nothing and a rebuilt tree is swept again. The lane's
-# environment and the runner's arguments are the lane's own, built by
-# tools/mutation_cpp.py, so the cap per mutant and the pinned order have one
-# owner.
+# runs it once with the lane's own argv, environment and directory, all built
+# by tools/mutation_cpp.py, so the cap per mutant and the pinned order have one
+# owner, and keys it on every file a sweep reads from the tree, so a second
+# reader pays nothing and a changed tree is swept again.
 dir=$("$py" -m tools.mutation_sweep_cache) || {
     echo "no sweep of the mutation trees could be had"
     exit 2
@@ -60,7 +59,8 @@ baseline = yaml.safe_load(Path("docs/MUTATION_BENCH.yaml").read_text(encoding="u
 recorded = baseline["bindings"]["cpp"]["baseline"]
 routes = recorded["kill_routes"]
 # The trees swept whole above, which is how this census was recorded: a
-# sliced run reads the same mutants through six reports instead of two.
+# sliced run reads the same mutants through a report per slice instead of one
+# per tree.
 observed = cpp_kill_routes(Path(sys.argv[1]), [CppLeg(tree) for tree in CppTree])
 if observed is None:
     print("no census could be read from the sweeps")

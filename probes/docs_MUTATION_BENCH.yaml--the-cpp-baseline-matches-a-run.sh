@@ -6,13 +6,13 @@
 # Claim: the C++ baseline records a run, not a target. The recorded survivor
 # count and mutant total are what sweeps of every configured tree produce,
 # merged the way the lane merges them, under the order the lane pins, and the
-# sweep times nothing out. A timeout is a kill by another route, and one
-# mutant runs close to the cap of ten times the unmutated baseline, so an
-# oversubscribed machine times it out where an idle one reads the route it
-# dies by: that is a property of the machine rather than of the code, so a
+# sweep times nothing out. A timeout is a kill by another route, and the cap
+# per mutant on the lane's argv is a wall clock, so an oversubscribed machine
+# times out a mutant an idle one lets run to the route it dies by: that is a
+# property of the machine rather than of the code, so a
 # sweep with any timeout is a census taken under load and is reported as
 # untestable instead of tolerated. Non-zero exit: the record and the sweep
-# disagree. Exits 0 with a note when Mull or either mutation tree is not
+# disagree. Exits 0 with a note when Mull or any mutation tree is not
 # available, since the claim is untestable then, and 2 when the machine was
 # too loaded to measure.
 set -u
@@ -31,10 +31,6 @@ print(CppTree(sys.argv[1]).directory)' "$lane") || exit 2
     [ -x "cpp/$built/unit_tests" ] ||
         { echo "the $lane mutation tree is not built, claim untestable"; exit 0; }
 done
-# ALETHEIA_LIB is unset for the sweep, not merely left alone: with it set the
-# integration suite's library lookup returns before it reads the repository
-# root, and the two mutants of that read go uncovered, so the same tree scores
-# differently for a developer who has sourced the environment script.
 # The runner's exit code is not the signal: it exits non-zero when any mutant
 # survives, which a baseline above zero guarantees. A sweep that could not run
 # leaves no report, and that is what is checked.
@@ -43,15 +39,11 @@ done
 # that leaks, the address tree a value read after what held it has gone, and
 # the plain tree carries the allocation-fault sweeps, which no sanitizer tree
 # can carry because a sanitizer defines the allocation functions they replace.
-# The runner's argv is the lane's own, built by tools/mutation_cpp.py, so the
-# cap per mutant and the pinned order have one owner; only where the reports
-# land is this probe's.
 # One sweep serves every probe that reads one: tools/mutation_sweep_cache.py
-# runs it once, keyed on each tree's test binary and the lane's own argv, so a
-# second reader pays nothing and a rebuilt tree is swept again. The lane's
-# environment and the runner's arguments are the lane's own, built by
-# tools/mutation_cpp.py, so the cap per mutant and the pinned order have one
-# owner.
+# runs it once with the lane's own argv, environment and directory, all built
+# by tools/mutation_cpp.py, so the cap per mutant and the pinned order have one
+# owner, and keys it on every file a sweep reads from the tree, so a second
+# reader pays nothing and a changed tree is swept again.
 dir=$("$py" -m tools.mutation_sweep_cache) || {
     echo "no sweep of the mutation trees could be had"
     exit 2

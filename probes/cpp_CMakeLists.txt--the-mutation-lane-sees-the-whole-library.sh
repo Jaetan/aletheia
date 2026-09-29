@@ -7,9 +7,13 @@
 # discovers mutants in the test executable and a shared library hides most of
 # them. With the library shared the sweep found 14 mutants where the same
 # sources yield 62 statically, and reported a clean score over a quarter of the
-# surface, which is a gate that cannot fail on what it does not see.
-# Non-zero exit: the mutation configuration no longer pins the static form, or
-# the count it produces has fallen away from the recorded baseline.
+# surface, which is a gate that cannot fail on what it does not see. The count
+# is read through a dry run of the leak tree with the lane's own command, in
+# the lane's environment and directory, its report in scratch: a dry run lists
+# every mutant the binary carries without running one.
+# Non-zero exit: the mutation configuration no longer pins the static form,
+# the census records no count for the leak tree, the leak tree carries fewer
+# mutants than the census records for it, or the dry run writes no report.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 cmake=cpp/CMakeLists.txt
@@ -24,36 +28,37 @@ grep -q 'add_library(aletheia-cpp ${ALETHEIA_CPP_LINKAGE}' "$cmake" || {
     exit 1
 }
 
-# The count itself, against the recorded baseline, when the lane is built.
-report=cpp/build-mutation/probe-linkage.json
-if [ -x cpp/build-mutation/unit_tests ] && command -v mull-runner-23 > /dev/null; then
-    # The runner's exit code is not the signal here: it exits non-zero when a
-    # mutant survives, and this probe asks how many mutants the lane can see
-    # rather than how many it kills, which is the C++ baseline's question. A
-    # sweep that genuinely could not run leaves no report, which is what is
-    # checked instead.
-    (cd cpp/build-mutation &&
-        ALETHEIA_REPO_ROOT="$OLDPWD" mull-runner-23 ./unit_tests \
-            --report-name=probe-linkage --reporters=Elements > /dev/null 2>&1) || true
-    [ -s "$report" ] || {
-        echo "FAIL: the sweep produced no report"
-        exit 1
-    }
-    py=python/.venv/bin/python
-    [ -x "$py" ] || py=python3
-    "$py" - "$report" <<'PY'
+# The count itself, against the recorded census, when the lane is built.
+py=python/.venv/bin/python
+[ -x "$py" ] || exit 2
+exec "$py" - <<'PY'
 import json
+import os
+import shutil
 import sys
+import tempfile
+from pathlib import Path
 
-report = json.load(open(sys.argv[1], encoding="utf-8"))
-total = sum(len(f.get("mutants", [])) for f in report["files"].values())
-# The floor is the recorded baseline less a small margin, because the surface
-# moves with the compiler; a collapse to a fraction is what this catches.
-if total < 50:
-    print(f"FAIL: the lane sees {total} mutants, far below the recorded baseline")
-    raise SystemExit(1)
-print(f"PASS: the lane sees {total} mutants")
+from tools.mutation_cpp import recorded_total_mutants
+from tools.mutation_cpp_legs import CppLeg, CppTree
+from tools.mutation_sweep_cache import MULL_RUNNER, dry_run_report, tree_binary
+
+if shutil.which(MULL_RUNNER) is None or not os.access(tree_binary(CppTree.LEAK), os.X_OK):
+    print("PASS: the mutation lane pins the static link form (lane not built, count not checked)")
+    sys.exit(0)
+recorded = recorded_total_mutants(CppTree.LEAK)
+if recorded is None:
+    print("FAIL: the census records no mutant count for the leak tree")
+    sys.exit(1)
+with tempfile.TemporaryDirectory(prefix="dry-run-") as scratch:
+    report = dry_run_report(CppLeg(CppTree.LEAK), Path(scratch))
+    if isinstance(report, str):
+        print(f"FAIL: {report}")
+        sys.exit(1)
+    files = json.loads(report.read_text(encoding="utf-8"))["files"]
+total = sum(len(entry.get("mutants", [])) for entry in files.values())
+if total < recorded:
+    print(f"FAIL: the lane sees {total} mutants, the census records {recorded} for the leak tree")
+    sys.exit(1)
+print(f"PASS: the lane sees {total} mutants, the census records {recorded}")
 PY
-    exit $?
-fi
-echo "PASS: the mutation lane pins the static link form (lane not built, count not checked)"

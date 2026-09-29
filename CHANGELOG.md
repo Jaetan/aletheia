@@ -403,16 +403,38 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   invent. The census floor is per tree for the same reason, and
   `docs/MUTATION_BENCH.yaml` records what each tree carries.
 
-- **One sweep of the mutation trees, shared by every probe that reads one.** Four
-  probes each state a claim about one sweep, and written to sweep for themselves
-  they re-measured the same run once per claim: with a third tree that was 44
-  minutes of the store's clock, measured at 674, 650, 622 and 648 seconds.
-  `tools/mutation_sweep_cache.py` runs the sweep once, keyed on every tree's test
-  binary and the lane's own argv, so a rebuilt tree is swept again and an
-  unchanged one is served; the four probes read it and the last three now take a
-  second between them. The sweep runs on every CPU it was given but one, and on
-  none it was not, because the machine it runs on is somebody's to use while it
-  does.
+- **One sweep of the mutation trees, shared by every probe that reads one.**
+  Four probes each state a claim about one sweep, and written to sweep for
+  themselves they re-measured the same run once per claim: with a third tree
+  that was 43 minutes of the store's clock, measured at 674, 650, 622 and 648
+  seconds. `tools/mutation_sweep_cache.py` runs the sweep once and keys it on
+  every file a sweep reads from the tree, or its absence, and on the argv and
+  the environment the lane sweeps with: each tree's test binary and the test
+  kernels built beside it, the runner's configuration, the kernel library at
+  every path in the tree the tests look for it, the fixture a test reads, the
+  sources the binary's mutants name, which the runner copies into its report,
+  the libraries the binary needs, which the runner looks up by name in the
+  directory it runs in, and every file the loader can open in a directory of the
+  tree that a loaded library searches. The lane and the cache sweep under one
+  environment of their own, built from the caller's search path and temp
+  directory with the locale pinned, so a caller's library override, sanitizer
+  options or locale no longer change what a sweep reports, and every probe that
+  runs the runner now runs it the same way, its reports in scratch. Every tree
+  is stamped with the configuration it was built under, so the lane rebuilds a
+  tree whose configuration moved and the cache reports it rather than sweeping
+  it; a tree built before the stamps is rebuilt by the lane once, and refused by
+  the cache until then. A rebuilt tree or library, a library removed or an
+  edited source is swept again and an unchanged tree is served; a search path
+  the key cannot follow is reported and not swept, a sweep of a tree that
+  changed while it ran is not kept, a refresh replaces the kept sweep only with
+  a complete one, and filing a sweep removes the ones before it and any a dead
+  process left. A probe traces a dry run of each tree and fails on a file the
+  key leaves out, and another holds every file the key names to moving it. The
+  four probes read the kept sweep and the last three now take a second between
+  them. The mutation lane now runs on a change to any module its harness loads,
+  and a test checks its list of them against what the harness imports. The sweep
+  runs on every CPU it was given but one, and on none it was not, because the
+  machine it runs on is somebody's to use while it does.
 
 - **The C++ mutation trees run libstdc++'s debug mode, and a kill by the
   library's own check is its own route.** A mutant that skips a lookup's guard

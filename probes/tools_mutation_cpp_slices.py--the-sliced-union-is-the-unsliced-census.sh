@@ -15,82 +15,78 @@
 # by the plugin's own regular-expression engine, so an escape either side spells
 # differently is a file not held out at all.
 # The plain tree alone, because the claim is about slicing and not about the
-# instrument the tree is read with, and a tree costs a build.
-# Non-zero exit: a slice shares an identifier with another, or the union is not
-# the unsliced census. Exits 0 with a note when Mull or clang-23 is absent.
+# instrument the tree is read with, and a tree costs a build. Each leg, the
+# unsliced tree and every slice, is configured, built and read as the lane
+# does it: its configuration put in place by the lane's own code, which also
+# discards a tree built under other content, the lane's own build, and a dry
+# run of the lane's own command in the lane's environment and directory, the
+# reports and build logs in scratch.
+# Non-zero exit: a leg does not build, a dry run writes no report, a slice
+# shares an identifier with another, or the union is not the unsliced census.
+# Exits 0 with a note when Mull, clang-23, clang++-23, the plugin or cmake is
+# absent.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v mull-runner-23 > /dev/null || { echo "Mull not installed, claim untestable"; exit 0; }
+command -v clang-23 > /dev/null || { echo "clang-23 not installed, claim untestable"; exit 0; }
 command -v clang++-23 > /dev/null || { echo "clang++-23 not installed, claim untestable"; exit 0; }
 [ -x "$HOME/.local/bin/mull-ir-frontend-23" ] || { echo "plugin not installed, claim untestable"; exit 0; }
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
 
-reports=$(mktemp -d) || exit 2
-trap 'rm -rf "$reports"' EXIT
-root=$PWD
-slices=$("$py" -c 'from tools.mutation_cpp_slices import CPP_SLICES; print(CPP_SLICES)') || exit 2
-
-# Each slice's configuration, put in place by the lane's own code, so this
-# reads what a leg builds under and not a second spelling of it. That call is
-# also what discards a tree whose objects were built under other content.
-"$py" - <<'PYEOF' || exit 1
-import sys
-from pathlib import Path
-
-from tools.mutation_cpp import CppLeg, CppTree, leg_config, leg_files
-from tools.mutation_cpp_slices import CPP_SLICES
-
-root = Path.cwd()
-for number in range(1, CPP_SLICES + 1):
-    leg = CppLeg(CppTree.PLAIN, number)
-    _ = leg_config(leg, root / "cpp" / leg.directory)
-    _, held_out = leg_files(leg)
-    sys.stderr.write(f"slice {number}: {len(held_out)} of the domain's files held out\n")
-PYEOF
-
-# The unsliced tree is the oracle; the slices are what is checked against it.
-build() { # <directory> <configuration>
-    cmake -S cpp -B "cpp/$1" -DALETHEIA_MUTATION=ON "-DALETHEIA_MULL_CONFIG=$2" \
-        -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > "$reports/$1.log" 2>&1 &&
-        cmake --build "cpp/$1" --target unit_tests --parallel 8 >> "$reports/$1.log" 2>&1
-}
-census() { # <directory> <configuration> <report name>
-    env -u ALETHEIA_LIB ALETHEIA_REPO_ROOT="$root" MULL_CONFIG="$2" \
-        mull-runner-23 "./cpp/$1/unit_tests" --dry-run --reporters=Elements \
-        --report-dir="$reports" --report-name="$3" -- --order decl > /dev/null 2>&1
-}
-build build-mutation-plain "$root/cpp/mull.yml" ||
-    { echo "the unsliced tree did not build, see $reports"; cp "$reports"/*.log /tmp 2>/dev/null; exit 1; }
-census build-mutation-plain "$root/cpp/mull.yml" whole ||
-    { echo "the unsliced tree's dry run failed"; exit 1; }
-number=1
-while [ "$number" -le "$slices" ]; do
-    config="$root/cpp/build-mutation-plain-$number/$("$py" -c 'from tools.mutation_cpp import CPP_GENERATED_CONFIG; print(CPP_GENERATED_CONFIG)')"
-    build "build-mutation-plain-$number" "$config" ||
-        { echo "slice $number did not build"; exit 1; }
-    census "build-mutation-plain-$number" "$config" "slice-$number" ||
-        { echo "slice $number's dry run failed"; exit 1; }
-    number=$((number + 1))
-done
-
-"$py" - "$reports" "$slices" <<'PYEOF'
+exec "$py" - <<'PY'
+import contextlib
 import itertools
 import json
+import shutil
 import sys
+import tempfile
+from pathlib import Path
 
-reports, slices = sys.argv[1], int(sys.argv[2])
+from tools.mutation_cpp import LegPaths, build_cpp_mutation_tree, cpp_sweep_directory
+from tools.mutation_cpp_config import leg_config, leg_files
+from tools.mutation_cpp_legs import CppLeg, CppTree
+from tools.mutation_cpp_slices import CPP_SLICES
+from tools.mutation_sweep_cache import dry_run_report, leg_build_dir
+
+cmake = shutil.which("cmake")
+if cmake is None:
+    print("cmake not installed, claim untestable")
+    sys.exit(0)
 
 
-def identifiers(name: str) -> list[str]:
+def identifiers(report: Path) -> list[str]:
     """Every mutant identifier one dry run reported, in the order it reported them."""
-    with open(f"{reports}/{name}.json", encoding="utf-8") as report:
-        files = json.load(report)["files"]
+    files = json.loads(report.read_text(encoding="utf-8"))["files"]
     return [str(mutant["id"]) for entry in files.values() for mutant in entry["mutants"]]
 
 
-whole = identifiers("whole")
-parts = {number: identifiers(f"slice-{number}") for number in range(1, slices + 1)}
+unsliced = CppLeg(CppTree.PLAIN)
+slices = [CppLeg(CppTree.PLAIN, number) for number in range(1, CPP_SLICES + 1)]
+found = {}
+with tempfile.TemporaryDirectory(prefix="slices-") as scratch:
+    for leg in (unsliced, *slices):
+        build_dir = leg_build_dir(leg)
+        config = leg_config(leg, build_dir)
+        if leg.slice_no is not None:
+            _, held_out = leg_files(leg)
+            sys.stderr.write(f"slice {leg.slice_no}: {len(held_out)} of the domain's files held out\n")
+        log = Path(scratch) / f"{leg}.log"
+        with log.open("w", encoding="utf-8") as sink, contextlib.redirect_stderr(sink):
+            paths = LegPaths(cpp_sweep_directory(), build_dir, Path(scratch), config)
+            built = build_cpp_mutation_tree(cmake, paths, leg)
+        if not isinstance(built, str):
+            print(f"the {leg} leg did not build: {built.error}")
+            print(log.read_text(encoding="utf-8")[-2000:])
+            sys.exit(1)
+        report = dry_run_report(leg, Path(scratch))
+        if isinstance(report, str):
+            print(report)
+            sys.exit(1)
+        found[leg] = identifiers(report)
+
+whole = found[unsliced]
+parts = {leg.slice_no: found[leg] for leg in slices}
 status = 0
 for left, right in itertools.combinations(parts, 2):
     shared = set(parts[left]) & set(parts[right])
@@ -111,4 +107,4 @@ sizes = ", ".join(str(len(part)) for _, part in sorted(parts.items()))
 if status == 0:
     print(f"PASS: slices of {sizes} union to the unsliced tree's {len(whole)} mutants, disjoint")
 sys.exit(status)
-PYEOF
+PY
