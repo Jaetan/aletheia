@@ -9,7 +9,7 @@
 # and the lane tests must fail against it and pass against the tracked
 # source; the tracked file is not written.
 # Non-zero exit: the tests pass with the abort taken out, or fail with it in
-# place. Exits 2 without Go.
+# place. Exits 2 without Go or the venv.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v go > /dev/null || exit 2
@@ -23,7 +23,7 @@ sed "s#$arm#fmt.Fprintf(out, \"  Warmup error: %v\\\\n\", err)#" "$src" > "$work
 grep -q 'Warmup error' "$work/main.go" || { echo "the mutation did not land"; exit 2; }
 printf '{"Replace": {"%s": "%s"}}\n' "$src" "$work/main.go" > "$work/overlay.json"
 
-cpus="0-$(($(nproc) - 2))"
+cpus=$(python/.venv/bin/python -c 'from tools._resources import polite_cpu_list; print(polite_cpu_list())') || exit 2
 cd go || exit 2
 if ! taskset -c "$cpus" go test ./benchmarks -run TestThroughputLane -count=1 > "$work/intact.txt" 2>&1; then
 	echo "the lane tests fail against the tracked source:"

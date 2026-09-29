@@ -13,7 +13,8 @@
 # tracked file is not written. The copy also imports errors, so the build
 # exits 2 rather than 1 should the harness come to import it itself.
 # Non-zero exit: the benchmark exited zero, died without naming the warmup
-# pass, or reached a measured run. Exits 2 without Go or a built kernel.
+# pass, or reached a measured run. Exits 2 without Go, the venv or a built
+# kernel.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v go > /dev/null || exit 2
@@ -28,7 +29,7 @@ sed -e '/^func throughputLane(/a\
 	run = func(int) (float64, error) { return 0, errors.New("injected warmup failure") }' \
 	-e 's#^\t"encoding/json"$#\t"encoding/json"\n\t"errors"#' "$src" > "$work/main.go"
 printf '{"Replace": {"%s": "%s"}}\n' "$src" "$work/main.go" > "$work/overlay.json"
-cpus="0-$(($(nproc) - 2))"
+cpus=$(python/.venv/bin/python -c 'from tools._resources import polite_cpu_list; print(polite_cpu_list())') || exit 2
 (cd go && taskset -c "$cpus" go build -overlay "$work/overlay.json" -o "$work/benchmark" ./benchmarks) || exit 2
 
 export ALETHEIA_LIB=$lib LD_LIBRARY_PATH=$PWD/build

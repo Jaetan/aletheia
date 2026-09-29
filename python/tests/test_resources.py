@@ -10,6 +10,7 @@ is asserted deterministically regardless of the host actually running the suite.
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 from tools import _resources
@@ -44,9 +45,17 @@ def test_is_ci_false_locally(monkeypatch: pytest.MonkeyPatch) -> None:
     assert is_ci() is False
 
 
-def test_detect_cpus_at_least_one() -> None:
-    """The usable CPU count is always a positive integer."""
-    assert detect_cpus() >= 1
+def test_detect_cpus_counts_the_process_not_the_machine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A run narrowed by ``taskset`` or a cpuset counts the CPUs it was given."""
+    monkeypatch.setattr(os, "cpu_count", lambda: 24)
+    monkeypatch.setattr(os, "process_cpu_count", lambda: 3)
+    assert detect_cpus() == 3
+
+
+def test_detect_cpus_is_one_where_the_count_is_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A platform that cannot say still yields a usable count."""
+    monkeypatch.setattr(os, "process_cpu_count", lambda: None)
+    assert detect_cpus() == 1
 
 
 def test_cpu_budget_uses_full_count_on_ci(monkeypatch: pytest.MonkeyPatch) -> None:

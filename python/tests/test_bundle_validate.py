@@ -14,17 +14,20 @@ configure, none of which belong in the unit-test suite.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
 from tools.bundle_validate import (
     BINDINGS,
+    FIXTURE_DIR,
     BundleValidationError,
     assert_consumer_ok,
     corrupt_go_mod,
     corrupt_missing_so,
     corrupt_rust_lib,
+    cpp_consumer_build_command,
     extract_recipes,
     go_recipe_module_problem,
     parity_problems,
@@ -342,3 +345,30 @@ class TestGoModuleFromTheBundle:
         assert problem is not None
         assert "github.com/a/b/v5/aletheia" in problem
         assert "github.com/c/d/v6" in problem
+
+
+class TestCppConsumerBuild:
+    """The C++ consumer compiles on the CPUs the validator was given."""
+
+    def test_the_build_counts_the_process_not_the_machine(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A validator given three CPUs of the machine's 24 runs three compiles."""
+        monkeypatch.setattr(os, "cpu_count", lambda: 24)
+        monkeypatch.setattr(os, "process_cpu_count", lambda: 3)
+        argv = cpp_consumer_build_command("cmake", tmp_path)
+        assert argv == [
+            "cmake",
+            "--build",
+            str(tmp_path),
+            "--parallel",
+            "3",
+            "--target",
+            "your_app",
+        ]
+
+    def test_the_target_is_the_executable_the_fixture_declares(self, tmp_path: Path) -> None:
+        """The name is spelled in the tool and in the fixture, so a rename of one is caught."""
+        target = cpp_consumer_build_command("cmake", tmp_path)[-1]
+        cmake_lists = (FIXTURE_DIR / "consumer_cpp" / "CMakeLists.txt").read_text()
+        assert f"add_executable({target} " in cmake_lists

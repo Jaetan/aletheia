@@ -392,8 +392,9 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   `tools/mutation_sweep_cache.py` runs the sweep once, keyed on every tree's test
   binary and the lane's own argv, so a rebuilt tree is swept again and an
   unchanged one is served; the four probes read it and the last three now take a
-  second between them. The sweep runs on every core but one, because the machine
-  it runs on is somebody's to use while it does.
+  second between them. The sweep runs on every CPU it was given but one, and on
+  none it was not, because the machine it runs on is somebody's to use while it
+  does.
 
 - **The C++ mutation trees run libstdc++'s debug mode, and a kill by the
   library's own check is its own route.** A mutant that skips a lookup's guard
@@ -523,8 +524,8 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   Every lane's `timeout-minutes` is now its slowest recorded wall clock plus
   the measured cost of its caches missing, the arithmetic beside each in the
   workflow, and every lane uploads its reports whatever ended it. The mutation
-  build compiles several units at once, bounded by a measured memory cost,
-  where it compiled one at a time and took 8 minutes of a leg. The C++ lane
+  build compiles one unit per CPU it was given, bounded by a measured memory
+  cost, where it compiled one at a time and took 8 minutes of a leg. The C++ lane
   and the report shapes moved out of `tools/mutation_run.py` into
   `tools/mutation_cpp.py` and `tools/mutation_report.py`.
 - **A Python type hint carries the shape of the data, as faithfully as the
@@ -964,6 +965,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The bundle validator compiles the C++ consumer on the CPUs it was given.**
+  It started one compile per CPU of the machine, so run under `taskset` or a
+  cgroup cpuset it ran them all at once on the few it had. It now counts with
+  `detect_cpus` in `tools/_resources.py`, which reads `os.process_cpu_count`,
+  the process's affinity, where `os.cpu_count` reads the machine. A probe
+  refuses a CPU count under `tools/` taken from the machine, and a pinned CPU
+  list under `tools/` or `probes/` counted up from CPU zero.
 - **The Python CLI exits 2 with one `Error:` line on an operating-system error
   and on a missing optional extra,** where it ended in a traceback: a directory
   that cannot be written, a file that cannot be read, or an install without

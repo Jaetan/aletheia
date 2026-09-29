@@ -16,14 +16,21 @@ The budgets are **CI-aware** and **WSL2-safe**:
   the host RAM so WSL2 never balloons into the OOM crash-and-restart that kills
   the session.
 
-``detect_cpus`` uses ``sched_getaffinity`` where available, so a host-side
-``.wslconfig`` ``processors=`` cap is honoured automatically.
+The CPU count and the list a pinned run takes read the CPUs the process was
+given rather than the machine's, so a run narrowed by ``taskset`` or a cgroup
+cpuset stays inside them.
 """
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import NewType
+
+# A logical CPU as the kernel numbers it: what an affinity holds.
+Cpu = NewType("Cpu", int)
+# CPUs as ``taskset -c`` reads them, their numbers joined by commas.
+CpuList = NewType("CpuList", str)
 
 # Cores held back locally so the WSL2 host stays interactive (the
 # all-cores-100 % freeze hazard).  CI runners need no reserve.
@@ -49,15 +56,19 @@ def is_ci() -> bool:
 
 
 def detect_cpus() -> int:
-    """Return the usable CPU count, honouring cgroup / affinity caps.
+    """Return how many CPUs the process was given, where ``os.cpu_count`` counts the machine."""
+    return os.process_cpu_count() or 1
 
-    ``sched_getaffinity`` reflects ``taskset`` and the WSL2 ``.wslconfig``
-    ``processors=`` limit; ``os.cpu_count`` is the portable fallback.
+
+def polite_cpu_list() -> CpuList:
+    """Name every CPU the process was given but its highest, as ``taskset -c`` reads them.
+
+    A pinned run keeps one CPU free so the machine stays usable while it
+    lasts, and names none it was not given: ``taskset -c`` widens an affinity
+    as readily as it narrows one.  A process given one CPU keeps it.
     """
-    try:
-        return max(1, len(os.sched_getaffinity(0)))
-    except AttributeError:  # non-Linux: sched_getaffinity is absent
-        return max(1, os.cpu_count() or 1)
+    given = sorted(Cpu(cpu) for cpu in os.sched_getaffinity(0))
+    return CpuList(",".join(map(str, given[:-1] or given)))
 
 
 def cpu_budget() -> int:
