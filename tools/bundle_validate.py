@@ -60,6 +60,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tools._common import emit, find_executable
+from tools._resources import detect_cpus
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -326,6 +327,11 @@ def assert_consumer_ok(binding: str, stdout: str) -> None:
         raise BundleValidationError(message)
 
 
+def cpp_consumer_build_command(cmake: str, build: Path) -> list[str]:
+    """Build the C++ consumer, one compile per CPU the validator was given."""
+    return [cmake, "--build", str(build), "--parallel", str(detect_cpus()), "--target", "your_app"]
+
+
 def run_cpp_consumer(work: Path, recipe: list[str], lib: Path, cfg: Config) -> None:
     """Build + run the C++ consumer via the printed CMake recipe lines."""
     src = work / "consumer_cpp"
@@ -347,9 +353,7 @@ def run_cpp_consumer(work: Path, recipe: list[str], lib: Path, cfg: Config) -> N
     if cfg.fetchcontent_cache is not None:
         configure.append(f"-DFETCHCONTENT_BASE_DIR={cfg.fetchcontent_cache.resolve()}")
     _ = _run_step("cpp: cmake configure", configure)
-    jobs = str(os.cpu_count() or 1)
-    build_cmd = [cmake, "--build", str(build), "--parallel", jobs, "--target", "your_app"]
-    _ = _run_step("cpp: cmake build", build_cmd)
+    _ = _run_step("cpp: cmake build", cpp_consumer_build_command(cmake, build))
     scenario = _run_step(
         "cpp: scenario", [str(build / "your_app"), str(cfg.dbc)], env=_consumer_env(lib)
     )

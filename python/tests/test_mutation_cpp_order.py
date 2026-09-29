@@ -15,7 +15,9 @@ separate property, which a probe sweeps several orders to hold.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tools.mutation_cpp import (
     CPP_BUILD_JOBS_CAP,
@@ -24,6 +26,9 @@ from tools.mutation_cpp import (
     cpp_lane_command,
 )
 from tools.mutation_cpp_legs import CppLeg, CppTree
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _command() -> list[str]:
@@ -62,3 +67,12 @@ def test_the_mutation_build_compiles_several_units_at_once(tmp_path: Path) -> No
     assert argv[:5] == ["cmake", "--build", str(tmp_path), "--target", "unit_tests"]
     assert argv[5] == "--parallel"
     assert 1 <= int(argv[6]) <= CPP_BUILD_JOBS_CAP
+
+
+def test_the_mutation_build_counts_the_cpus_it_was_given(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Under the cap, a build given three CPUs of the machine's 24 runs three compiles."""
+    monkeypatch.setattr(os, "cpu_count", lambda: 24)
+    monkeypatch.setattr(os, "process_cpu_count", lambda: 3)
+    assert cpp_build_command("cmake", tmp_path)[5:7] == ["--parallel", "3"]

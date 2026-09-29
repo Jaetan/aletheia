@@ -31,6 +31,7 @@ import tempfile
 from pathlib import Path
 
 from tools._common import emit
+from tools._resources import polite_cpu_list
 from tools.mutation_cpp import CPP_LEG_REPORT_SUFFIXES, REPO_ROOT, cpp_lane_command, leg_config
 from tools.mutation_cpp_legs import CppLeg, CppTree
 
@@ -42,25 +43,20 @@ CACHE_ROOT = REPO_ROOT / "cpp" / "mutation-sweeps"
 # without it is told what is missing instead of sweeping with another one.
 MULL_RUNNER = "mull-runner-23"
 
-# Below this many cores there is no core to leave, so the sweep takes what
-# there is.
-_CORES_TO_SHARE = 2
 
-
-def _polite(argv: list[str]) -> list[str]:
-    """Run the sweep on every core but one, so the machine stays usable while it does.
+def polite(argv: list[str]) -> list[str]:
+    """Run the sweep on every CPU it was given but one, so the machine stays usable while it does.
 
     Mull decides its own worker count from the machine, and a sweep that takes
     every core makes the desktop it runs on unusable for the minutes it lasts.
     The affinity is set outside the runner rather than by an argument, because
     the argument is part of what the lane sweeps with and this is not: it
     changes when the mutants run, never which of them run or what each reads.
-    A machine with one core, or without the tool, is left alone.
+    A host without the tool is left alone.
     """
-    cores = os.cpu_count() or 1
-    if cores < _CORES_TO_SHARE or shutil.which("taskset") is None:
+    if shutil.which("taskset") is None:
         return argv
-    return ["taskset", "-c", f"0-{cores - 2}", *argv]
+    return ["taskset", "-c", polite_cpu_list(), *argv]
 
 
 def _binary(tree: CppTree) -> Path:
@@ -117,7 +113,7 @@ def _sweep_into(directory: Path) -> str | None:
         # property of the surface rather than of the sweep, so the reports are
         # what says whether it ran.
         _ = subprocess.run(
-            _polite(cpp_lane_command(MULL_RUNNER, build_dir, directory, leg)),
+            polite(cpp_lane_command(MULL_RUNNER, build_dir, directory, leg)),
             cwd=REPO_ROOT / "cpp",
             env=env,
             check=False,

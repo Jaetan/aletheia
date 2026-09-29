@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, cast
 
 from tools._common import RelPath, run_streaming, short_sha
+from tools._resources import detect_cpus
 from tools.cpp_scratch import reap_dead_scratch_dirs
 from tools.mutation_cpp_legs import (
     CPP_ELEMENTS_REPORT,
@@ -268,7 +269,7 @@ CPP_BUILD_JOBS_CAP = 8
 
 def cpp_build_command(cmake: str, build_dir: Path) -> list[str]:
     """Build the mutation tree's test binary, several units at a time."""
-    jobs = min(os.cpu_count() or 1, CPP_BUILD_JOBS_CAP)
+    jobs = min(detect_cpus(), CPP_BUILD_JOBS_CAP)
     return [cmake, "--build", str(build_dir), "--target", "unit_tests", "--parallel", str(jobs)]
 
 
