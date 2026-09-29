@@ -14,62 +14,70 @@
 # only the verdict is compared.
 # Two stages: the unmutated suite under several orders, which costs seconds,
 # then the mutant verdicts under three orders, which sweeps the tree three
-# times and costs about ten minutes.
+# times and costs about ten minutes. Both run the plain tree as the lane does,
+# in the lane's environment and directory, and the sweeps with the lane's own
+# argv, only the order behind the separator varied, each order's reports in
+# scratch, and the scratch its runs leave reaped after each sweep, as the lane
+# reaps it.
 # Non-zero exit: the suite fails under some order, or a mutant's verdict
 # depends on it. Exits 0 with a note when Mull or the tree is absent, the
 # claim being untestable then.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-tree=cpp/build-mutation-plain
-[ -x "$tree/unit_tests" ] || { echo "the plain mutation tree is not built, claim untestable"; exit 0; }
-
-# Stage one: the suite itself, unmutated, under orders that share no structure.
-# The lane's environment, since this binary folds in the tests that read the
-# repository root, and the library lookup must reach it the way the lane does.
-suite() { (cd "$tree" && env -u ALETHEIA_LIB ALETHEIA_REPO_ROOT="$OLDPWD" \
-    ./unit_tests "$@" > /dev/null 2>&1); }
-for order in decl lex; do
-    suite --order "$order" || { echo "the unmutated suite fails under --order $order"; exit 1; }
-done
-for seed in 7 8191; do
-    suite --order rand --rng-seed "$seed" ||
-        { echo "the unmutated suite fails under --order rand --rng-seed $seed"; exit 1; }
-done
-
-command -v mull-runner-23 > /dev/null || { echo "Mull not installed, the mutant half is untestable"; exit 0; }
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
-dir=$(mktemp -d) || exit 2
-trap 'rm -rf "$dir"' EXIT
 
-# The runner's half of the argv is the lane's own, built by tools/mutation_cpp.py,
-# so the cap per mutant has one owner; what follows the separator is the order
-# this probe varies, each order's reports in a directory of its own. The whole
-# command line is built here, at the repository root, because the interpreter
-# that builds it is named relative to the root and the sweep runs from cpp/.
-sweep() { # report name, then the binary's own argv behind the separator
-    local name=$1; shift
-    local argv
-    argv=$("$py" -c 'import shlex, sys
-from pathlib import Path
-from tools.mutation_cpp import CppLeg, CppTree, cpp_lane_command
-leg = CppLeg(CppTree.PLAIN)
-argv = cpp_lane_command("mull-runner-23", Path("cpp", leg.directory).resolve(), Path(sys.argv[1]), leg)
-print(shlex.join(argv[: argv.index("--") + 1] + sys.argv[2:]))' "$dir/$name" "$@") || return 1
-    (cd cpp && unset ALETHEIA_LIB && ALETHEIA_REPO_ROOT="$OLDPWD" eval "$argv" > /dev/null 2>&1) || true
-    [ -f "$dir/$name/cpp-mull-plain.sqlite" ] || { echo "the sweep under $name wrote no report"; return 1; }
-}
-sweep decl --order decl || exit 1
-sweep lex --order lex || exit 1
-sweep rand --order rand --rng-seed 4919 || exit 1
-
-"$py" - "$dir" <<'PY'
+exec "$py" - <<'PY'
+import os
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
+from tools.cpp_scratch import reap_dead_scratch_dirs
+from tools.mutation_cpp import cpp_lane_command, cpp_sweep_directory, cpp_sweep_environment
+from tools.mutation_cpp_legs import CppLeg, CppTree
 from tools.mutation_routes import lane_routes
+from tools.mutation_sweep_cache import MULL_RUNNER, polite, tree_binary, tree_build_dir
 
-runs = {p.parent.name: lane_routes(p) for p in sorted(Path(sys.argv[1]).glob("*/cpp-mull-plain.sqlite"))}
+leg = CppLeg(CppTree.PLAIN)
+build_dir = tree_build_dir(leg.tree)
+binary = tree_binary(leg.tree)
+if not os.access(binary, os.X_OK):
+    print("the plain mutation tree is not built, claim untestable")
+    sys.exit(0)
+env = cpp_sweep_environment(leg, build_dir).variables()
+
+# Stage one: the suite itself, unmutated, under orders that share no structure.
+for order in (["decl"], ["lex"], ["rand", "--rng-seed", "7"], ["rand", "--rng-seed", "8191"]):
+    suite = subprocess.run(
+        [str(binary), "--order", *order], cwd=cpp_sweep_directory(), env=env, capture_output=True, check=False
+    )
+    if suite.returncode != 0:
+        print(f"the unmutated suite fails under --order {' '.join(order)}")
+        sys.exit(1)
+
+if shutil.which(MULL_RUNNER) is None:
+    print("Mull not installed, the mutant half is untestable")
+    sys.exit(0)
+
+# Stage two: the mutants, one sweep per order.
+with tempfile.TemporaryDirectory(prefix="orders-") as scratch:
+    runs = {}
+    for name, order in (("decl", ["decl"]), ("lex", ["lex"]), ("rand", ["rand", "--rng-seed", "4919"])):
+        report_dir = Path(scratch) / name
+        report_dir.mkdir()
+        argv = cpp_lane_command(MULL_RUNNER, build_dir, report_dir, leg)
+        argv = [*argv[: argv.index("--") + 1], "--order", *order]
+        _ = subprocess.run(polite(argv), cwd=cpp_sweep_directory(), env=env, capture_output=True, check=False)
+        _ = reap_dead_scratch_dirs()
+        sqlite = report_dir / f"{leg.report_name}.sqlite"
+        if not sqlite.is_file():
+            print(f"the sweep under {name} wrote no report")
+            sys.exit(1)
+        runs[name] = lane_routes(sqlite)
+
 verdicts = {name: {m: r == "survived" for m, r in routes.items()} for name, routes in runs.items()}
 names = sorted(verdicts)
 base = names[0]

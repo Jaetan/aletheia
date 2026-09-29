@@ -94,9 +94,8 @@ excludePaths:
 # the baseline, may take before it refuses the tree as one whose tests fail.
 # Mull's default is three seconds, under the plain tree's five under debug
 # mode and under what a loaded machine makes of the leak tree's two. Mull
-# deprecates this key in favour of the runner's --timeout, and it stays here
-# because every invocation that finds this file inherits it, the probes' dry
-# runs included, where a flag is one each would have to carry. It caps no
-# mutant's run: that cap is ten times the baseline unless the runner is given
-# more, which the lane does (tools/mutation_cpp.py).
+# deprecates this key in favour of the runner's --timeout; every runner is
+# given this file, or one generated from it, as MULL_CONFIG, so the key reaches
+# each of them. It caps no mutant's run: that cap is ten times the baseline
+# unless the runner is given more, which the lane does (tools/mutation_cpp.py).
 timeout: 60000

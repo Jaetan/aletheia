@@ -23,6 +23,7 @@ tools/check_mutation_setup.py      Static gate (offline, ~1 sec)
 tools/mutation_run.py              Dynamic runner (opt-in, ~30 min - 2 hours)
 tools/mutation_cpp.py              The C++ lane: Mull over the trees, in stages
 tools/mutation_cpp_legs.py         The C++ lane's trees, legs and stage variables
+tools/mutation_cpp_config.py       The configuration a C++ leg is built and swept under, and its stamp
 tools/mutation_cpp_slices.py       The C++ surface's partition into slices
 tools/mutation_rust.py             The Rust lane: cargo-mutants over a scratch copy of the tree
 tools/mutation_report.py           The report and baseline shapes the lanes share
@@ -381,31 +382,13 @@ ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_GO=1 ALETHEIA_MUTATION_SK
 # allocation functions they replace.  The address tree drops the mutators
 # over calls and over constant stores, whose mutants there are the
 # sanitizer's own inserted checks and stores.
-cd cpp
-cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
-      -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
-cmake --build build-mutation --target unit_tests
-# The lane's own flags: the cap per mutant, since Mull's default of ten times
-# the baseline ends the slow mutants under debug mode, and the pinned order.
-# The cap on the runner's runs of the unmutated binary is cpp/mull.yml's.
-mull-runner-23 --minimum-timeout=600000 ./build-mutation/unit_tests -- --order decl
-cmake -B build-mutation-plain -DALETHEIA_MUTATION=ON \
-      -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
-cmake --build build-mutation-plain --target unit_tests
-mull-runner-23 --minimum-timeout=600000 ./build-mutation-plain/unit_tests -- --order decl
-# The address tree builds under a configuration the lane generates beside it,
-# which is `cpp/mull.yml` without the call and constant-store mutators; the runner is given
-# the same file, so the tree and the sweep read one mutator set.
-python/.venv/bin/python -c 'from pathlib import Path
-from tools.mutation_cpp import leg_config
-from tools.mutation_cpp_legs import CppLeg, CppTree
-print(leg_config(CppLeg(CppTree.ADDRESS), Path("cpp/build-mutation-asan")))'
-cmake -B build-mutation-asan -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=address \
-      -DALETHEIA_MULL_CONFIG="$PWD/build-mutation-asan/mull-config.yml" \
-      -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
-cmake --build build-mutation-asan --target unit_tests
-MULL_CONFIG="$PWD/build-mutation-asan/mull-config.yml" \
-  mull-runner-23 --minimum-timeout=600000 ./build-mutation-asan/unit_tests -- --order decl
+# The lane's own tool, which builds every tree through the lane's own build and
+# sweeps it in the lane's environment with the lane's argv.
+ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_GO=1 ALETHEIA_MUTATION_SKIP_RUST=1 \
+  python/.venv/bin/python -m tools.mutation_run
+# The kept sweep the probes read, of the trees as built, in the same
+# environment and with the same argv; it prints the directory holding it.
+python/.venv/bin/python -m tools.mutation_sweep_cache
 ```
 
 Per-binding skip env vars (useful for partial runs):
@@ -591,7 +574,8 @@ needed.
 - `docs/MUTATION_BENCH.yaml` — actual on-disk paths, baseline numbers
 - `tools/check_mutation_setup.py` — static gate (always-on)
 - `tools/mutation_run.py` — dynamic runner (opt-in)
-- `tools/mutation_cpp.py`, `tools/mutation_report.py`, `tools/mutation_routes.py`:
-  the C++ lane, the shapes the lanes share, the kill-route census
+- `tools/mutation_cpp.py`, `tools/mutation_cpp_config.py`, `tools/mutation_report.py`,
+  `tools/mutation_routes.py`: the C++ lane, the configuration its legs are built
+  under, the shapes the lanes share, the kill-route census
 - `docs/operations/STABILITY.md` — sibling opt-in lane
 - `docs/development/CI_LOCAL.md` — three-layer CI architecture

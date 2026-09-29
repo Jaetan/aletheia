@@ -449,6 +449,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_mutation_cpp_order.py",
     "--ignore=tests/test_mutation_cpp_weight_drift.py",
     "--ignore=tests/test_mutation_sweep_cache.py",
+    "--ignore=tests/test_mutation_cpp_config.py",
     "--ignore=tests/test_check_cpp_index_loops.py",
     "--ignore=tests/test_check_cpp_restated_types.py",
     "--ignore=tests/test_check_precise_hints.py",

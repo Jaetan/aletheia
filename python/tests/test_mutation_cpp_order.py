@@ -50,6 +50,18 @@ def test_every_runner_option_stays_ahead_of_the_separator() -> None:
     assert "--order" not in argv[:separator]
 
 
+def test_a_dry_run_is_the_lane_s_argv_with_the_runner_told_to_run_no_mutant() -> None:
+    """The one runner option a dry run adds sits ahead of the separator; nothing else moves."""
+    leg = CppLeg(CppTree.PLAIN, 1)
+    dry = cpp_lane_command(
+        "mull-runner-23", Path("cpp") / leg.directory, Path("artifacts"), leg, dry_run=True
+    )
+    assert "--dry-run" not in _command()
+    assert dry.index("--dry-run") < dry.index("--")
+    dry.remove("--dry-run")
+    assert dry == _command()
+
+
 def test_the_cap_per_mutant_is_the_runner_s_minimum_timeout() -> None:
     """The knob that raises Mull's ten-times-the-baseline, ahead of the separator.
 

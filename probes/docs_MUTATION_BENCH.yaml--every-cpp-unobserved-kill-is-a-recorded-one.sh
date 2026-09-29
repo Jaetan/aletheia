@@ -4,7 +4,7 @@
 #
 # Probes docs/MUTATION_BENCH.yaml.
 # Claim: the C++ baseline's unobserved_ledger is exactly the set of kills the
-# two configured trees leave to the standard library's own check or to a bare
+# configured trees leave to the standard library's own check or to a bare
 # signal, by mutator, repository-relative file, source-line text, route and
 # the invariant refused, up to the count each row records. Both directions
 # are refused here: the lane refuses a kill the ledger does not name and only
@@ -14,12 +14,12 @@
 # The static gate (tools/check_mutation_setup.py) holds each row to a line the
 # tree still has and needs no sweep; this holds the rows to what a sweep
 # actually reads, which is the half no file comparison can answer.
-# The runner's argv is the lane's own, so the cap per mutant and the pinned
-# order have one owner: an unpinned order moves which test reports before a
+# The cap per mutant and the pinned order both matter to this claim: an
+# unpinned order moves which test reports before a
 # dying process stops, and a mutant the runner ends at its cap is neither
 # killed nor surviving and would leave the ledger's candidates unread.
 # Non-zero exit: the ledger and the sweep disagree; the diff names each row.
-# Exits 0 with a note when Mull or either mutation tree is not available,
+# Exits 0 with a note when Mull or any mutation tree is not available,
 # since the claim is untestable then.
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -38,11 +38,10 @@ print(CppTree(sys.argv[1]).directory)' "$lane") || exit 2
         { echo "the $lane mutation tree is not built, claim untestable"; exit 0; }
 done
 # One sweep serves every probe that reads one: tools/mutation_sweep_cache.py
-# runs it once, keyed on each tree's test binary and the lane's own argv, so a
-# second reader pays nothing and a rebuilt tree is swept again. The lane's
-# environment and the runner's arguments are the lane's own, built by
-# tools/mutation_cpp.py, so the cap per mutant and the pinned order have one
-# owner.
+# runs it once with the lane's own argv, environment and directory, all built
+# by tools/mutation_cpp.py, so the cap per mutant and the pinned order have one
+# owner, and keys it on every file a sweep reads from the tree, so a second
+# reader pays nothing and a changed tree is swept again.
 dir=$("$py" -m tools.mutation_sweep_cache) || {
     echo "no sweep of the mutation trees could be had"
     exit 2

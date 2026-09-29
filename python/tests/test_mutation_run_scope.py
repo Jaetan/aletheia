@@ -25,16 +25,17 @@ orchestration is covered through a ``main`` end-to-end with monkeypatched runner
 from __future__ import annotations
 
 import subprocess
+import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
 from tools import mutation_run
-from tools._common import git_ls_files
+from tools._common import RelPath, git_ls_files
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
 
 def _fake_diff(monkeypatch: pytest.MonkeyPatch, *, files: list[str], returncode: int = 0) -> None:
@@ -106,6 +107,40 @@ def test_global_paths_force_all_bindings(monkeypatch: pytest.MonkeyPatch, files:
     """A change to the shared .so / harness / baselines forces the full run."""
     _fake_diff(monkeypatch, files=files)
     assert mutation_run.bindings_in_scope(mutation_run.REPO_ROOT) is None
+
+
+# Prints the file of every module of the tools package the harness loads.
+_HARNESS_MODULES = """import sys
+import tools.mutation_run
+import tools.mutation_scope
+for name, module in sorted(sys.modules.items()):
+    if (name == "tools" or name.startswith("tools.")) and getattr(module, "__file__", None):
+        print(module.__file__)
+"""
+
+
+def _forces_all(monkeypatch: pytest.MonkeyPatch, relative: RelPath) -> bool:
+    """Say whether a diff touching only ``relative`` runs every binding's lane."""
+    _fake_diff(monkeypatch, files=[relative])
+    return mutation_run.bindings_in_scope(mutation_run.REPO_ROOT) is None
+
+
+def test_every_module_the_harness_loads_forces_all_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The global paths cover every module the harness runs on, read from what it imports."""
+    loaded = subprocess.run(
+        [sys.executable, "-c", _HARNESS_MODULES],
+        cwd=mutation_run.REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    relatives = [
+        RelPath(Path(path).relative_to(mutation_run.REPO_ROOT).as_posix()) for path in loaded
+    ]
+    assert RelPath("tools/mutation_run.py") in relatives
+    assert not [relative for relative in relatives if not _forces_all(monkeypatch, relative)]
 
 
 def test_every_tracked_harness_module_forces_all_bindings(monkeypatch: pytest.MonkeyPatch) -> None:

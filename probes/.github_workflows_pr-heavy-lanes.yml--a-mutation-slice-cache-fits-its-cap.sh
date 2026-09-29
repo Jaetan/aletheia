@@ -52,7 +52,9 @@ for sanitizer in leak plain address; do
 import sys
 from pathlib import Path
 
-from tools.mutation_cpp import CppLeg, CppTree, LegPaths, REPO_ROOT, _build_cpp_mutation_tree, leg_config
+from tools.mutation_cpp import LegPaths, build_cpp_mutation_tree, cpp_sweep_directory
+from tools.mutation_cpp_config import leg_config
+from tools.mutation_cpp_legs import CppLeg, CppTree
 
 sanitizer, build, scratch = sys.argv[1:]
 leg = CppLeg(CppTree(sanitizer), 1)
@@ -60,7 +62,7 @@ build_dir = Path(build)
 artifact = Path(scratch) / f"artifact-{sanitizer}"
 artifact.mkdir(exist_ok=True)
 config = leg_config(leg, build_dir)
-built = _build_cpp_mutation_tree("cmake", LegPaths(REPO_ROOT / "cpp", build_dir, artifact, config), leg)
+built = build_cpp_mutation_tree("cmake", LegPaths(cpp_sweep_directory(), build_dir, artifact, config), leg)
 if not isinstance(built, str):
     sys.stdout.write(built.raw_log[-2000:])
     sys.exit(1)

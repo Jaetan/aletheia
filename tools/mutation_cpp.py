@@ -27,17 +27,17 @@ from __future__ import annotations
 
 import collections
 import copy
-import hashlib
 import json
 import os
 import re
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, cast
+from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, cast
 
 from tools._common import RelPath, run_streaming, short_sha
 from tools._resources import detect_cpus
-from tools.cpp_scratch import reap_dead_scratch_dirs
+from tools.cpp_scratch import reap_dead_scratch_dirs, scratch_root
+from tools.mutation_cpp_config import leg_config, leg_config_path, recorded_mutant_counts
 from tools.mutation_cpp_legs import (
     CPP_ELEMENTS_REPORT,
     CPP_LEGS_ENV,
@@ -49,13 +49,7 @@ from tools.mutation_cpp_legs import (
     leg_of_binding,
     sliced_legs,
 )
-from tools.mutation_cpp_slices import (
-    CPP_SLICES,
-    partition,
-    slice_config_text,
-    slice_domain,
-    tree_config_text,
-)
+from tools.mutation_cpp_slices import CPP_SLICES, partition, slice_domain
 from tools.mutation_report import (
     MutationReport,
     SurvivorKey,
@@ -207,7 +201,7 @@ class LegPaths(NamedTuple):
     config: Path
 
 
-def _build_cpp_mutation_tree(
+def build_cpp_mutation_tree(
     cmake: str,
     paths: LegPaths,
     leg: CppLeg,
@@ -297,35 +291,6 @@ CPP_MUTANT_CAP_MS = 600_000
 # the recorded slice weights are re-taken from when the review of the balance
 # falls due (docs/operations/MUTATION.md).
 CPP_FILES_REPORT = "cpp-files.json"
-
-
-def recorded_mutant_counts() -> dict[RelPath, int]:
-    """Read the mutants each file carried when the census was last taken.
-
-    The weights the partition balances on.  They are a measurement and they
-    age: a file that grows carries more mutants than the record knows, which
-    costs the balance of the slices and never their coverage, and the review
-    that re-takes them is scheduled rather than triggered, because growth is
-    ordinary work and nothing about it goes red.
-    """
-    baseline = load_spec().get("bindings", {}).get("cpp", {}).get("baseline", {})
-    counts = baseline.get("mutants_by_file", {})
-    return {RelPath(path): int(count) for path, count in counts.items()}
-
-
-def leg_files(leg: CppLeg) -> tuple[list[RelPath], list[RelPath]]:
-    """Give the files a leg carries mutants for, and the domain files it holds out.
-
-    Computed from the tree and the recorded counts rather than read from a
-    list, so a file added to the library is in the partition the moment it is
-    tracked; every leg of a run computes the same partition from the same
-    commit.
-    """
-    domain = slice_domain(REPO_ROOT, REPO_ROOT / "cpp" / "mull.yml")
-    if leg.slice_no is None:
-        return domain, []
-    claimed = partition(domain, recorded_mutant_counts())[leg.slice_no - 1]
-    return list(claimed), [path for path in domain if path not in set(claimed)]
 
 
 class ElementsCounts(NamedTuple):
@@ -547,12 +512,18 @@ def merge_elements(reports: list[Mapping[str, object]]) -> dict[str, object]:
 
 
 def cpp_lane_command(
-    mull_runner: str, build_dir: Path, artifact_dir: Path, leg: CppLeg
+    mull_runner: str, build_dir: Path, artifact_dir: Path, leg: CppLeg, *, dry_run: bool = False
 ) -> list[str]:
-    """Build the runner's argv for one leg, the test binary's own argv behind ``--``."""
+    """Build the runner's argv for one leg, the test binary's own argv behind ``--``.
+
+    A dry run runs the unmutated binary once and reports every mutant the
+    binary carries without running one, which is how a probe reads the
+    surface a sweep would cover.
+    """
     return [
         mull_runner,
         str(build_dir / "unit_tests"),
+        *(["--dry-run"] if dry_run else []),
         "--reporters=IDE",
         "--reporters=Elements",
         # The SQLite report keeps each mutant's exit status and the test
@@ -585,34 +556,16 @@ def _run_cpp_lane(
     leg: CppLeg,
 ) -> tuple[str, tuple[int, int] | None]:
     """Run one built tree under mull-runner, returning its log and its (killed, survived)."""
-    # The mutation binary folds in the real-FFI integration tests, which read
-    # the repository root from the environment the way ctest passes it.  Mull
-    # runs the binary directly, so nothing would set it and every mutant would
-    # read killed because the test died at setup.
-    #
-    # ALETHEIA_LIB is dropped for the same reason in reverse: with it set the
-    # library lookup returns before it reads the repository root, leaving that
-    # read's mutants uncovered, so the same tree would score differently for a
-    # caller who had sourced the environment script.
-    #
-    # The configuration is named to the runner as it was to the build, because
-    # the runner reads the cap on its unmutated runs from it: left to find one
-    # from its working directory upward, a sliced leg would run under the
-    # tree's own rather than the one its objects were compiled against. The
-    # cap per mutant is not in it; that is on the command line, for the
-    # reason at CPP_MUTANT_CAP_MS.
-    mull_env = os.environ | {
-        "ALETHEIA_REPO_ROOT": str(REPO_ROOT),
-        "MULL_CONFIG": str(paths.config),
-    }
-    mull_env.pop("ALETHEIA_LIB", None)
-    # The IDE reporter prints the summary the counts are read from; the
-    # Elements reporter writes every mutant with its status and site, which
-    # is what the ledger is checked against.
+    # The runner is given the sweep's own environment, nothing of the caller's
+    # but its search path and temp directory; SweepEnvironment says what it
+    # holds and why. The IDE reporter
+    # prints the summary the counts are read from; the Elements reporter
+    # writes every mutant with its status and site, which is what the ledger
+    # is checked against.
     runner_proc = run_streaming(
         cpp_lane_command(mull_runner, paths.build_dir, paths.artifact_dir, leg),
         cwd=paths.cpp_root,
-        env=mull_env,
+        env=cpp_sweep_environment(leg, paths.build_dir).variables(),
     )
     raw = f"=== mull-runner-23 ({leg}) ===\n" + runner_proc.stdout + "\n"
     reaped = reap_dead_scratch_dirs()
@@ -626,50 +579,66 @@ def _run_cpp_lane(
     return raw, mull_counts(raw)
 
 
-# Where a slice's tree records the configuration its objects were built
-# under, so a tree built for another slice is discarded rather than reused.
-CPP_CONFIG_STAMP = ".mull-config.sha256"
+# A search path, as PATH holds it.
+SearchPath = NewType("SearchPath", str)
 
-# What a generated configuration is written as, beside the tree it configures:
-# a slice's, a tree's narrowed mutator set, or both at once.
-CPP_GENERATED_CONFIG = "mull-config.yml"
+# The locale every sweep runs under, a UTF-8 one whatever the caller's. The
+# kernel's FFI decodes the text it is handed with the process's locale, and
+# under C or POSIX a test of non-ASCII input reads another verdict.
+CPP_SWEEP_LOCALE: Literal["C.UTF-8"] = "C.UTF-8"
 
 
-def leg_config(leg: CppLeg, build_dir: Path) -> Path:
-    """Put the configuration the leg builds and sweeps under in place, and name it.
+class SweepEnvironment(NamedTuple):
+    """The whole environment a leg's runner is given: of the caller's, its search path and temp dir.
 
-    A whole tree reads the configuration the tree itself states.  A slice gets
-    one written beside its build tree: that configuration with the files of the
-    other slices held out, so the build carries this slice's mutants alone.
-
-    A tree whose objects were built under different content is removed first.
-    Nothing in the build knows an object depends on this file: CMake compiles
-    a source when the source is newer, the configuration is not a source, and
-    a tree left from another slice would answer a rebuild by doing nothing and
-    sweeping the mutants of that other slice.  Measured: with the tree kept,
-    holding a file out of the other slices changed the configuration and the
-    census did not move.  The stamp is the content's digest and not its time,
-    so an identical configuration keeps the tree it built, and the compiler
-    cache turns the rebuild after a real change into cache reads.
+    The search path finds the runner, and taskset where a sweep is pinned, and
+    the locale is pinned.  The temp directory is the one the scratch reaper sweeps, so
+    what a run a fault ended leaves behind is where the reaper looks.  The
+    repository root is where the folded integration tests read their fixtures
+    and the kernel library: Mull runs the binary directly, where ctest would
+    pass the root, and without it every mutant would read killed, the tests
+    dying at setup.  The configuration is the one the tree
+    was built under, named because the runner reads the cap on its unmutated
+    runs from it and, left to find one from its working directory upward, a
+    sliced leg would run under the tree's own; the cap per mutant is on the
+    command line, for the reason at CPP_MUTANT_CAP_MS.  Anything else the
+    caller had set would change what a sweep reports with nothing in the sweep
+    saying so: with ALETHEIA_LIB the library lookup returns before it reads
+    the repository root, leaving that read's mutants uncovered, and a
+    sanitizer's or the GHC runtime's options change how a run ends.
+    PYTHONUNBUFFERED is the one variable that says nothing of the sweep:
+    run_streaming gives it to every child it starts, the lane's runner
+    included, and it is spelled here so every runner gets the same.
     """
-    config = REPO_ROOT / "cpp" / "mull.yml"
-    dropped = leg.tree.dropped_mutators
-    if leg.slice_no is None and not dropped:
-        return config
-    if leg.slice_no is None:
-        text = tree_config_text(config, dropped)
-    else:
-        _, held_out = leg_files(leg)
-        text = slice_config_text(config, held_out, leg.slice_no, CPP_SLICES, dropped)
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    stamp = build_dir / CPP_CONFIG_STAMP
-    if build_dir.is_dir() and (not stamp.is_file() or stamp.read_text(encoding="utf-8") != digest):
-        shutil.rmtree(build_dir)
-    build_dir.mkdir(parents=True, exist_ok=True)
-    written = build_dir / CPP_GENERATED_CONFIG
-    written.write_text(text, encoding="utf-8")
-    stamp.write_text(digest, encoding="utf-8")
-    return written
+
+    search_path: SearchPath
+    locale: Literal["C.UTF-8"]
+    temp_dir: Path
+    repo_root: Path
+    config: Path
+
+    def variables(self) -> dict[str, str]:
+        """Spell the environment as subprocess takes it, which is the one place it is spelled so."""
+        return {
+            "PATH": self.search_path,
+            "LC_ALL": self.locale,
+            "TMPDIR": str(self.temp_dir),
+            "ALETHEIA_REPO_ROOT": str(self.repo_root),
+            "MULL_CONFIG": str(self.config),
+            "PYTHONUNBUFFERED": "1",
+        }
+
+
+def cpp_sweep_directory() -> Path:
+    """Name the directory every leg's runner is started in."""
+    return REPO_ROOT / "cpp"
+
+
+def cpp_sweep_environment(leg: CppLeg, build_dir: Path) -> SweepEnvironment:
+    """Build a leg's sweep environment from the caller's search path and temp directory."""
+    search_path = SearchPath(os.environ.get("PATH") or os.defpath)
+    config = leg_config_path(leg, build_dir)
+    return SweepEnvironment(search_path, CPP_SWEEP_LOCALE, scratch_root(), REPO_ROOT, config)
 
 
 def _sweep_cpp_lane(
@@ -683,8 +652,8 @@ def _sweep_cpp_lane(
     raw = f"=== {leg} leg ===\n"
     config = leg_config(leg, build_dir)
     raw += f"configuration: {config}\n"
-    paths = LegPaths(build_dir.parent, build_dir, artifact_dir, config)
-    built = _build_cpp_mutation_tree(cmake, paths, leg)
+    paths = LegPaths(cpp_sweep_directory(), build_dir, artifact_dir, config)
+    built = build_cpp_mutation_tree(cmake, paths, leg)
     if isinstance(built, MutationReport):
         return raw + built.raw_log, built.error or f"the {leg} leg did not build"
     raw += built
@@ -741,12 +710,11 @@ def _sweep_legs(
     what it reached.
     """
     cmake, mull_runner = cpp_tools
-    cpp_root = REPO_ROOT / "cpp"
     raw = ""
     reports: list[Mapping[str, object]] = []
     for leg in legs:
         lane_raw, outcome = _sweep_cpp_lane(
-            cmake, mull_runner, cpp_root / leg.directory, artifact_dir, leg
+            cmake, mull_runner, cpp_sweep_directory() / leg.directory, artifact_dir, leg
         )
         raw += lane_raw
         (artifact_dir / "cpp.raw.txt").write_text(raw)

@@ -456,6 +456,8 @@ _GLOBAL_MUTATION_PATHS: tuple[str, ...] = (
     "tools/mutation_",
     "tools/cpp_scratch.py",  # the C++ lane's scratch-directory reaping
     "tools/_common.py",  # the harness's shared helpers
+    "tools/_resources.py",  # the CPU budget the C++ lane builds with
+    "tools/__init__.py",  # the package every harness module is imported through
     "docs/MUTATION_BENCH.yaml",  # the per-binding baselines the drift gate reads
     ".github/workflows/pr-heavy-lanes.yml",  # the lane definition
 )

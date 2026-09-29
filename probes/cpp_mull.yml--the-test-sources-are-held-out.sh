@@ -8,34 +8,45 @@
 # and one in a fixture's write loop ran until the runner killed the process,
 # leaving a multi-gigabyte file behind each time; a library header compiled
 # only through a test, such as the loaders' dispatcher through its unit test,
-# is library code and keeps its mutants. Non-zero exit: a dry run over the
-# mutation tree lists a mutant under cpp/tests, or none in
-# cpp/src/detail/loader_utils.hpp. Exits 0 with a note when Mull or the
-# mutation tree is not available, since the claim is untestable then.
+# is library code and keeps its mutants. The leak tree is read through a dry
+# run of the lane's own command, in the lane's environment and directory, its
+# report in scratch. Non-zero exit: the dry run lists a mutant under
+# cpp/tests, or none in cpp/src/detail/loader_utils.hpp, or writes no report.
+# Exits 0 with a note when Mull or the mutation tree is not available, since
+# the claim is untestable then.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-command -v mull-runner-23 > /dev/null || { echo "Mull not installed, claim untestable"; exit 0; }
-[ -x cpp/build-mutation/unit_tests ] || { echo "no mutation tree built, claim untestable"; exit 0; }
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
-report=cpp/build-mutation/probe-held-out.json
-(cd cpp/build-mutation &&
-    env -u ALETHEIA_LIB ALETHEIA_REPO_ROOT="$OLDPWD" mull-runner-23 ./unit_tests --dry-run \
-        --report-name=probe-held-out --reporters=Elements > /dev/null 2>&1) || {
-    echo "the dry run did not run"
-    exit 1
-}
-"$py" - "$report" <<'PY'
-import json
-import sys
 
-report = json.load(open(sys.argv[1], encoding="utf-8"))
-in_tests = {
-    path for path, entry in report["files"].items()
-    if "/cpp/tests/" in path and entry.get("mutants")
-}
+exec "$py" - <<'PY'
+import json
+import os
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+
+from tools.mutation_cpp_legs import CppLeg, CppTree
+from tools.mutation_sweep_cache import MULL_RUNNER, dry_run_report, tree_binary
+
+if shutil.which(MULL_RUNNER) is None:
+    print("Mull not installed, claim untestable")
+    sys.exit(0)
+if not os.access(tree_binary(CppTree.LEAK), os.X_OK):
+    print("no mutation tree built, claim untestable")
+    sys.exit(0)
+with tempfile.TemporaryDirectory(prefix="dry-run-") as scratch:
+    report = dry_run_report(CppLeg(CppTree.LEAK), Path(scratch))
+    if isinstance(report, str):
+        print(report)
+        sys.exit(1)
+    files = json.loads(report.read_text(encoding="utf-8"))["files"]
+
+in_tests = {path for path, entry in files.items() if "/cpp/tests/" in path and entry.get("mutants")}
 header = sum(
-    len(entry.get("mutants", [])) for path, entry in report["files"].items()
+    len(entry.get("mutants", []))
+    for path, entry in files.items()
     if path.endswith("/cpp/src/detail/loader_utils.hpp")
 )
 bad = False
