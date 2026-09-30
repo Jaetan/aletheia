@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -42,6 +43,11 @@ _SCRIPTS = sorted(
 _SCRIPT_IDS = [p.relative_to(_EXAMPLES_DIR).as_posix() for p in _SCRIPTS]
 
 
+def _examples_state() -> dict[Path, os.stat_result]:
+    """Every file under ``examples/`` with its stat, taken either side of a script run."""
+    return {path: path.stat() for path in _EXAMPLES_DIR.rglob("*") if path.is_file()}
+
+
 def test_demo_dir_is_populated() -> None:
     """Guard against the glob silently matching nothing (a vacuous gate)."""
     assert _SCRIPTS, f"no example scripts found under {_EXAMPLES_DIR}"
@@ -49,9 +55,12 @@ def test_demo_dir_is_populated() -> None:
 
 @pytest.mark.parametrize("script", _SCRIPTS, ids=_SCRIPT_IDS)
 def test_demo_script_runs(script: Path) -> None:
-    """Each example script executes cleanly (exit 0) against the built ``.so``."""
+    """Each example exits 0 against the built ``.so`` and writes nothing under ``examples/``."""
     env = dict(os.environ)
     env["ALETHEIA_LIB"] = str(find_ffi_library())
+    # The sibling imports would otherwise write bytecode into examples/demo/__pycache__.
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    before = _examples_state()
     result = subprocess.run(
         [sys.executable, script.name],
         cwd=script.parent,
@@ -66,6 +75,16 @@ def test_demo_script_runs(script: Path) -> None:
         f"--- stdout (tail) ---\n{result.stdout[-2000:]}\n"
         f"--- stderr (tail) ---\n{result.stderr[-2000:]}"
     )
+    # A run that rewrites a tracked fixture, even with the same bytes, moves its mtime.
+    after = _examples_state()
+    written = sorted(
+        path.relative_to(_EXAMPLES_DIR).as_posix()
+        for path in before.keys() | after.keys()
+        if path not in before
+        or path not in after
+        or before[path].st_mtime_ns != after[path].st_mtime_ns
+    )
+    assert not written, f"example {script.name!r} wrote under examples/: {written}"
     # Guard the vacuous-gate class: a demo that swallows a failure and still exits
     # 0.  returncode alone let a demo print "0/4 tests passed" (after catching the
     # exception) and pass.  Scan stdout AND stderr (a demo may print to either),
@@ -94,3 +113,39 @@ def test_demo_script_runs(script: Path) -> None:
         assert marker not in combined, (
             f"example {script.name!r} printed {marker!r} but exited 0:\n{combined[-2000:]}"
         )
+
+
+def test_drive_log_refuses_a_drifted_fixture(tmp_path: Path) -> None:
+    """``drive_log.py`` exits 1 on a ``drive.log`` its generators do not make, leaving it intact."""
+    _ = shutil.copy(_DEMO_DIR / "drive_log.py", tmp_path)
+    fixture = tmp_path / "drive.log"
+    drifted = (_DEMO_DIR / "drive.log").read_bytes() + b"\n"
+    _ = fixture.write_bytes(drifted)
+    result = subprocess.run(
+        [sys.executable, "drive_log.py"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 1, f"drift read as a match:\n{result.stdout}{result.stderr}"
+    assert "--update" in result.stderr
+    assert fixture.read_bytes() == drifted
+
+
+def test_drive_log_update_rewrites_the_fixture(tmp_path: Path) -> None:
+    """``drive_log.py --update`` writes the tracked ``drive.log``'s bytes over a drifted copy."""
+    _ = shutil.copy(_DEMO_DIR / "drive_log.py", tmp_path)
+    fixture = tmp_path / "drive.log"
+    _ = fixture.write_bytes(b"")
+    result = subprocess.run(
+        [sys.executable, "drive_log.py", "--update"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, f"--update failed:\n{result.stdout}{result.stderr}"
+    assert fixture.read_bytes() == (_DEMO_DIR / "drive.log").read_bytes()

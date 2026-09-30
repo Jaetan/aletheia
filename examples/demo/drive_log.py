@@ -191,10 +191,21 @@ COMBINED_DRIVE = generate_combined_drive()
 
 
 if __name__ == "__main__":
-    # Regenerate the shipped flagship fixture `drive.log` (a single monotonic
-    # normal-then-overspeed trace). Run: `python3 drive_log.py`.
+    # The shipped flagship fixture `drive.log` (a single monotonic
+    # normal-then-overspeed trace) is COMBINED_DRIVE in candump form. A plain
+    # run checks it and writes nothing, exiting 1 on drift; `--update` rewrites it.
+    import argparse
+    import sys
     from pathlib import Path
 
+    parser = argparse.ArgumentParser(description="Check drive.log against the generators.")
+    _ = parser.add_argument("--update", action="store_true", help="rewrite drive.log instead")
     out = Path(__file__).resolve().parent / "drive.log"
-    out.write_text(to_candump(COMBINED_DRIVE), encoding="utf-8")
-    print(f"wrote {out} ({len(COMBINED_DRIVE)} frames)")
+    trace = to_candump(COMBINED_DRIVE).encode("utf-8")
+    if parser.parse_args().update:
+        _ = out.write_bytes(trace)
+        print(f"wrote {out} ({len(COMBINED_DRIVE)} frames)")
+    elif out.is_file() and out.read_bytes() == trace:
+        print(f"{out} matches the generators ({len(COMBINED_DRIVE)} frames)")
+    else:
+        sys.exit(f"{out} is not the generators' trace; rewrite it with `drive_log.py --update`")
