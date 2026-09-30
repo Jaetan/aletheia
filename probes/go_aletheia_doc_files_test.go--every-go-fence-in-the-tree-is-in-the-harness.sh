@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Probes go/aletheia/doc_examples_test.go.
+# Probes go/aletheia/doc_files_test.go.
 # Claim: every tracked Markdown file that carries a Go fence is in the
 # harness's docFiles list, so no Go example in the documentation escapes
 # compilation and execution, and every listed file exists. CHANGELOG.md is
@@ -11,7 +11,8 @@
 set -u
 cd "$(dirname "$0")/.." || exit 2
 status=0
-listed=$(grep -o '"\.\./[^"]*\.md"' go/aletheia/doc_examples_test.go | tr -d '"' | sed 's|^\.\./\.\./||; s|^\.\./|go/|' | sort)
+listed=$(awk '/^var docFiles = \[\]string\{$/{on=1; next} on && /^\}$/{exit} on' go/aletheia/doc_files_test.go \
+    | grep -o '"\.\./[^"]*\.md"' | tr -d '"' | sed 's|^\.\./\.\./||; s|^\.\./|go/|' | sort)
 [ -n "$listed" ] || { echo "no docFiles entries found"; exit 1; }
 for f in $listed; do
     git ls-files --error-unmatch "$f" > /dev/null 2>&1 || { echo "$f is listed and not tracked"; status=1; }

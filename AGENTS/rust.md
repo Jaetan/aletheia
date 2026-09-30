@@ -93,6 +93,19 @@ cd rust && cargo test --features async               # async client surface
 cd rust && cargo doc --no-deps                        # rustdoc warnings are findings
 ```
 
+The `cargo test` battery includes the doc-example harness
+(`rust/tests/doc_examples.rs`): every ```rust fence of the documents
+`DOC_FILES` lists is written as a binary of one scratch crate under the
+target's temporary directory, built by a cargo of its own with none of a
+coverage run's instrumentation, and run against the kernel. A fence declaring
+`fn main` is a program as it stands; any other runs inside a synthesised
+`main` returning `Result<(), aletheia::Error>` under `use aletheia::*`, with
+`client` (the minimal corpus DBC parsed), `ts`, `id`, `dlc` and `data`
+predeclared. A fence that cannot run takes the `text` info string.
+`DOC_FILES` names every tracked Markdown file carrying a Rust fence, less the
+ones `UNRUN_DOCS` names with its reason, and two structural gates hold it to
+the tree both ways, the way the Python harness's list is held.
+
 `rust/tests/feature_matrix.rs` is the cross-binding parity gate: it parses
 `docs/FEATURE_MATRIX.yaml` and, for every row marked `implemented` on the `rust`
 binding, verifies the stated entry resolves as a whole-word symbol over

@@ -12,6 +12,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **A doc-example harness for the Rust binding, `rust/tests/doc_examples.rs`.**
+  `cargo test` builds every Rust fence of every tracked Markdown file carrying
+  one, `CHANGELOG.md` and the Tutorial aside, as a binary of one scratch crate
+  and runs it against the kernel: a fence declaring `fn main` as it stands, any
+  other inside a synthesised `main` with a client and one frame's `ts`, `id`,
+  `dlc` and `data` predeclared. The five Rust fences of `docs/PITCH.md`,
+  `docs/development/DISTRIBUTION.md` and `docs/reference/INTERFACES.md` were
+  read by nothing, and the ten of `docs/reference/RUST_API.md` compiled only by
+  a probe. Two structural gates hold the harness's list to the tree both ways,
+  as the Python harness's is held. The pitch's Rust frame loop sent a frame on
+  a stream it never started, which the kernel refuses; it now starts it.
 - **A ratchet on imprecise Python type hints, `tools/check_precise_hints.py`.**
   Every hint is universally quantified, so `str`, `list[float]` or
   `dict[str, X]` claims the code handles any string, any list of floats, any
@@ -167,6 +178,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The C++ and Go doc-example harnesses hold their document lists to the tree
+  both ways, as the Python one does:** a tracked Markdown file carrying a fence
+  in the binding's language is listed, and a listed one is tracked and carries
+  one, as the harness's own extractor reads it. The C++ list named `README.md`
+  and `docs/architecture/CANCELLATION.md`, which carry no C++ fence, and missed
+  `cpp/README.md`, whose program only a probe compiled; the Go list named
+  `README.md`, which carries no Go fence, and was held one way, by a probe. The
+  C++ harness skipped a listed document that did not exist, so a rename shrank
+  the run silently; it now fails. The Go list and extractor moved to
+  `go/aletheia/doc_files_test.go`, which builds without cgo, so its list gates,
+  and the notest and floor gates beside them, run in the no-cgo build too.
 - **The doc-example harness, its structural test and the command
   AGENTS/python.md prints read one list of documents,** `DOC_EXAMPLE_DOCS` in
   `tools/_ci_steps.py`: every tracked Markdown file carrying a Python fence,

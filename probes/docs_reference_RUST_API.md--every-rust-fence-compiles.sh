@@ -4,13 +4,7 @@
 #
 # Probes docs/reference/RUST_API.md.
 # Claim: every Rust fence in the guide compiles against the crate, and each one
-# that is a whole program also runs against the built kernel. No harness read
-# this document: the C++ guide's fences are compiled by the doc-example tests
-# and the Python guide's are run by pytest, and the Rust guide's were read by
-# nobody. It took a parse result apart as a pair where it answers one value with
-# two fields, and its DBC text was refused at its second line for want of the
-# sections the verified parser requires; both had been so since the guide was
-# written.
+# that is a whole program also runs against the built kernel.
 # A fence of bare statements is a program with its wrapper left out, so it is
 # given one and compiled. It is not run: several call into the kernel, which
 # answers RtsNotInitialized until a client has loaded the library, and that is

@@ -1,5 +1,3 @@
-//go:build cgo && linux
-
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
@@ -42,7 +40,7 @@ func TestNoNotestGoFences(t *testing.T) {
 }
 
 // minFences is the floor under the number of Go fences across the listed
-// files; a single file may carry none.
+// files.
 const minFences = 8
 
 func TestEveryDocFileHasAtLeastOneGoFenceCollectively(t *testing.T) {

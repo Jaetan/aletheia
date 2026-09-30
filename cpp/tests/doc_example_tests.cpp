@@ -6,13 +6,14 @@
 // repo-root conftest.py) and Go's TestDocExamples
 // (go/aletheia/doc_examples_test.go).
 //
-// Every ```cpp fence in the tracked user-facing markdown files is
-// extracted, wrapped, compiled by ${CMAKE_CXX_COMPILER}, and executed
-// end-to-end. A failing fence (compile or runtime) is a test failure
-// reported with `file:Lline` precision. Non-runnable fences (signature
-// sketches, illustrative pseudocode referencing undefined symbols)
-// must use the `text` info string; the structural gate at the foot of this
-// file enforces that, as TestNoNotestGoFences does for Go.
+// Every ```cpp fence of the documents k_doc_files lists is extracted,
+// wrapped, compiled by ${CMAKE_CXX_COMPILER}, and executed end-to-end. A
+// failing fence (compile or runtime) is a test failure reported with
+// `file:Lline` precision. Non-runnable fences (signature sketches,
+// illustrative pseudocode referencing undefined symbols) must use the `text`
+// info string. The structural gates at the foot of this file hold the list
+// to the tree both ways, refuse the notest annotation as TestNoNotestGoFences
+// does for Go, and keep a collective fence floor.
 //
 // Path substitutions (parallel python/conftest.py loader fakes):
 //
@@ -28,7 +29,8 @@
 //      with predeclared globals (`backend`, `client`, `ts`, `can_id`, `dlc`,
 //      `data_storage`, `data`, `frames`, `dbc`) under `using namespace aletheia;`.
 //
-// Skipped automatically when `libaletheia-ffi.so` is not findable.
+// The harness case skips when `libaletheia-ffi.so` is not findable; the
+// structural gates need no library.
 
 #include <algorithm>
 #include <array>
@@ -38,6 +40,7 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <ranges>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
@@ -64,14 +67,22 @@ using aletheia::test::read_text_file;
 
 namespace fs = std::filesystem;
 
-// Tracked markdown files (mirror Go/Python lists).
-constexpr std::array<std::string_view, 6> k_doc_files = {
-    "README.md",
+// Every tracked Markdown file carrying a C++ fence, less those k_unrun_docs
+// names; the structural gates below hold the list to the tree both ways.
+constexpr std::array<std::string_view, 5> k_doc_files = {
+    "cpp/README.md",
     "docs/PITCH.md",
-    "docs/architecture/CANCELLATION.md",
     "docs/reference/INTERFACES.md",
     "docs/reference/CPP_API.md",
     "docs/development/DISTRIBUTION.md",
+};
+
+// The tracked documents whose C++ fences the harness does not run: the
+// changelog's describe past releases, and the Tutorial's C++ path is one
+// program cut into steps, which its probe in probes/ compiles whole.
+constexpr std::array<std::string_view, 2> k_unrun_docs = {
+    "CHANGELOG.md",
+    "docs/guides/TUTORIAL.md",
 };
 
 namespace {
@@ -413,10 +424,7 @@ static auto fence_cache() -> const std::vector<CppFence>& {
         std::vector<CppFence> out;
         auto const root = repo_root();
         for (auto const rel : k_doc_files) {
-            auto const path = root / rel;
-            if (!fs::exists(path))
-                continue;
-            auto fs_list = extract_cpp_fences(path, rel);
+            auto fs_list = extract_cpp_fences(root / rel, rel);
             out.insert(out.end(), fs_list.begin(), fs_list.end());
         }
         return out;
@@ -489,7 +497,7 @@ TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-exa
 }
 
 // ---------------------------------------------------------------------------
-// Structural gates (mirror go/aletheia/doc_no_notest_test.go)
+// Structural gates (Go's: go/aletheia/doc_files_test.go, doc_no_notest_test.go)
 // ---------------------------------------------------------------------------
 
 TEST_CASE("doc-example structural gate: no `<!-- cpp notest -->` annotations",
@@ -500,10 +508,7 @@ TEST_CASE("doc-example structural gate: no `<!-- cpp notest -->` annotations",
     static const std::regex notest_re(R"(<!--\s*cpp\b[^>]*\bnotest\b[^>]*-->)");
     auto const root = repo_root();
     for (auto const rel : k_doc_files) {
-        auto const path = root / rel;
-        if (!fs::exists(path))
-            continue;
-        auto body = read_text_file(path);
+        auto body = read_text_file(root / rel);
         std::vector<int> offenders;
         auto const begin = std::sregex_iterator(body.begin(), body.end(), notest_re);
         auto const end = std::sregex_iterator{};
@@ -529,12 +534,54 @@ TEST_CASE("doc-example structural gate: no `<!-- cpp notest -->` annotations",
     }
 }
 
+// Every tracked Markdown file, as git lists it: the set a fresh checkout holds,
+// so an untracked file in the working tree is never read.
+static auto tracked_markdown(const fs::path& root) -> std::vector<std::string> {
+    auto const [rc, out] =
+        run_capture("git -C " + sh_quote(root.string()) + " ls-files -z -- '*.md' '*.mdx' '*.svx'");
+    if (rc != 0) {
+        FAIL("git ls-files exited " << rc << ": " << out);
+    }
+    std::vector<std::string> paths;
+    for (auto const part : std::views::split(out, '\0')) {
+        if (!part.empty())
+            paths.emplace_back(std::string_view{part});
+    }
+    return paths;
+}
+
+TEST_CASE("doc-example structural gate: every tracked ```cpp fence is in a listed document",
+          "[doc-examples][gate]") {
+    auto const root = repo_root();
+    std::vector<std::string> unlisted;
+    for (auto const& doc : tracked_markdown(root)) {
+        if (std::ranges::contains(k_unrun_docs, doc) || std::ranges::contains(k_doc_files, doc))
+            continue;
+        if (!extract_cpp_fences(root / doc, doc).empty())
+            unlisted.push_back(doc);
+    }
+    CAPTURE(unlisted);
+    CHECK(unlisted.empty());
+}
+
+TEST_CASE(
+    "doc-example structural gate: every listed document is tracked and carries a ```cpp fence",
+    "[doc-examples][gate]") {
+    auto const root = repo_root();
+    auto const tracked = tracked_markdown(root);
+    for (auto const [i, doc] : std::views::enumerate(k_doc_files)) {
+        INFO(doc << " is listed");
+        CHECK_FALSE(std::ranges::contains(k_doc_files | std::views::take(i), doc));
+        CHECK(std::ranges::contains(tracked, doc));
+        CHECK_FALSE(extract_cpp_fences(root / doc, doc).empty());
+    }
+}
+
 TEST_CASE("doc-example structural gate: at least one ```cpp fence collectively",
           "[doc-examples][gate]") {
     // Mirror of Go's TestEveryDocFileHasAtLeastOneGoFenceCollectively: guards
-    // against a mass rename emptying the doc-example surface. We don't require
-    // every individual file to ship a fence — some are prose-heavy — but the
-    // collective set must exceed the floor.
+    // against a mass rename emptying the doc-example surface, the listed files
+    // together reaching the floor.
     constexpr std::size_t k_min_fences = 6;
     REQUIRE(fence_cache().size() >= k_min_fences);
 }
