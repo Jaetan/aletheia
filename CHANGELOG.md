@@ -1058,6 +1058,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The demo-script test writes nothing under `examples/`.** The test
+  runs every example as a script, and `examples/demo/drive_log.py` rewrote the
+  tracked `drive.log` on each run, so a change to its generators would have
+  replaced the shipped fixture during a test run instead of failing one. A
+  plain run of `drive_log.py` now checks the file and exits 1 on drift, and
+  `--update` rewrites it; the test refuses an example run that creates,
+  deletes or rewrites any file under `examples/`.
+
 - **A change to the C header alone reaches the library.** cabal recompiles a C
   source only when the `.c` file changed and re-runs hsc2hs only when the
   `.hsc` did, so an edit to `haskell-shim/include/aletheia.h` alone linked the

@@ -28,7 +28,7 @@ This directory contains example DBC files and verification scripts demonstrating
 - `vehicle.dbc` - DBC file for streaming demos and the flagship `aletheia check` example
 - `vehicle_checks.yaml` - YAML checks matched to `vehicle.dbc` (VehicleSpeed / BrakePressure / Acceleration); companion to `drive.log`
 - `drive.log` - Recorded candump trace (a ~6.6-second drive that speeds past its limit); the flagship `check` example streams it and reports a `VehicleSpeed` violation
-- `drive_log.py` - Sample CAN frame generators (normal + overspeed drives) that produce `drive.log`
+- `drive_log.py` - Sample CAN frame generators (normal + overspeed drives) that produce `drive.log`; `python3 drive_log.py` checks the file against them and `--update` rewrites it
 - `engine_ecu_sim.py` - Engine-ECU frame simulator (with an intentional staleness bug) shared by `demo_ltl_bug.py` and `test_engine_naive.py`
 - `demo_checks.yaml` - YAML check definitions (companion to the Check-API / YAML demos; targets a richer signal set than `vehicle.dbc`)
 - `demo_workbook.xlsx` - Persistent Excel workbook for live demos
