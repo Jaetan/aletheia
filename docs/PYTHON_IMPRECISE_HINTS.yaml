@@ -1780,14 +1780,8 @@ hints:
     text: "list[str]"
     count: 1
   - file: python/tests/test_mutation_cpp_routes.py
-    text: "int"
-    count: 1
-  - file: python/tests/test_mutation_cpp_routes.py
-    text: "list[tuple[str, int, str, str]]"
-    count: 1
-  - file: python/tests/test_mutation_cpp_routes.py
     text: "str"
-    count: 3
+    count: 1
   - file: python/tests/test_mutation_cpp_stage.py
     text: "Mapping[CppTree, set[str]]"
     count: 1
@@ -3432,7 +3426,7 @@ hints:
     count: 1
   - file: tools/mutation_routes.py
     text: "int"
-    count: 2
+    count: 1
   - file: tools/mutation_routes.py
     text: "list[dict[str, Ending]]"
     count: 1
@@ -3441,7 +3435,7 @@ hints:
     count: 1
   - file: tools/mutation_routes.py
     text: "str"
-    count: 7
+    count: 5
   - file: tools/mutation_routes.py
     text: "tuple[str, ...]"
     count: 1

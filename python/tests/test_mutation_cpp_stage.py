@@ -94,7 +94,8 @@ def _write_leg_reports(artifact_dir: Path, leg: CppLeg) -> Mapping[str, object]:
     # commits, which would leave the file open until a collection.
     with contextlib.closing(sqlite3.connect(artifact_dir / f"{leg.report_name}.sqlite")) as conn:
         _ = conn.execute(
-            "CREATE TABLE mutant (mutant_id TEXT, execution_status INT, stdout TEXT, stderr TEXT)"
+            "CREATE TABLE mutant (mutant_id TEXT, execution_status INT, exit_status INT,"
+            + " stdout TEXT, stderr TEXT)"
         )
         conn.commit()
     return elements
