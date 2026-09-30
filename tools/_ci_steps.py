@@ -418,7 +418,9 @@ def _run_lints(runner: Runner) -> None:
     # cached run silently passes file-mode rules like EXE001 ("shebang present
     # but file not executable") that a fresh CI run catches — making the local
     # sweep / pre-push hook give a false green.  ruff is sub-second, so running
-    # cache-free here costs nothing and keeps local == CI.
+    # cache-free here costs nothing and keeps local == CI.  Under WSL ruff skips
+    # its EXE rules whatever the cache, so a test in test_run_ci_runner.py reads
+    # the executable bits git records instead.
     ruff_paths = shlex.join(str(p) for p in (Path("python"), *ROOT_PYTHON))
     ruff_cmd = (
         f"{shlex.quote(runner.python)} -m ruff check --no-cache {ruff_paths} "

@@ -217,6 +217,25 @@ def test_every_tracked_python_file_is_read_by_all_three_linters(tmp_path: Path) 
     assert not unlinted, f"tracked Python no linter reads: {unlinted}"
 
 
+def test_a_tracked_python_file_has_a_shebang_exactly_when_git_marks_it_executable() -> None:
+    """A tracked Python file outside ``.archive/`` is executable iff it has a shebang.
+
+    ruff's EXE001 and EXE002 hold this in CI, but ruff skips both under WSL,
+    where file modes are unreliable, so a local sweep there passes what CI
+    fails.  This reads the modes git records, the ones CI checks out.
+    """
+    repo = Path(__file__).resolve().parents[2]
+    listed = run_capture([find_executable("git"), "-C", str(repo), "ls-files", "-s", "--", "*.py"])
+    assert listed.returncode == 0, listed.stderr
+    mismatched = [
+        path
+        for meta, path in (line.split("\t", 1) for line in listed.stdout.splitlines())
+        if not path.startswith(".archive/")
+        and meta.startswith("100755") != (repo / path).read_bytes().startswith(b"#!")
+    ]
+    assert not mismatched, f"shebang and executable bit disagree: {mismatched}"
+
+
 def test_each_sanitizer_lane_owns_its_tree_and_its_lane(tmp_path: Path) -> None:
     """The two sanitizer ctest steps share neither a build tree nor a lane.
 
