@@ -27,6 +27,8 @@ from benchmarks._common import (
     CAN20_SPEC,
     CANFD_SPEC,
     FrameSpec,
+    RunCount,
+    ScalingParameters,
     emit_json_report,
     load_canfd_dbc,
     load_dbc,
@@ -384,7 +386,8 @@ def main() -> int:
     print("=" * 70, file=out)
 
     if args.json:
-        emit_json_report("scaling", results)
+        parameters: ScalingParameters = {"runs": RunCount(args.runs), "quick": args.quick}
+        emit_json_report("scaling", parameters, results)
 
     return 0
 

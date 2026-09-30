@@ -28,7 +28,10 @@ from benchmarks._common import (
     DEFAULT_CAN20_PROPERTIES,
     DEFAULT_CANFD_PROPERTIES,
     BenchmarkConfig,
+    FrameCount,
     FrameSpec,
+    RunCount,
+    ThroughputParameters,
     emit_json_report,
     load_canfd_dbc,
     load_dbc,
@@ -259,7 +262,12 @@ def main() -> int:
     _print_summary(results, out)
 
     if cfg.json_output:
-        emit_json_report("throughput", [_to_json_payload(r) for r in results])
+        parameters: ThroughputParameters = {
+            "frames": FrameCount(cfg.num_frames),
+            "runs": RunCount(cfg.num_runs),
+            "warmup": RunCount(cfg.warmup_runs),
+        }
+        emit_json_report("throughput", parameters, [_to_json_payload(r) for r in results])
 
     return 0
 

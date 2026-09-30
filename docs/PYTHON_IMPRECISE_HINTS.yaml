@@ -137,7 +137,7 @@ hints:
     count: 5
   - file: conftest.py
     text: "str"
-    count: 3
+    count: 2
   - file: examples/demo/dbc_validation.py
     text: "str"
     count: 1
@@ -2564,7 +2564,7 @@ hints:
     count: 4
   - file: tools/check_bench_schema.py
     text: "list[str]"
-    count: 18
+    count: 17
   - file: tools/check_bench_schema.py
     text: "list[tuple[str, object]]"
     count: 1

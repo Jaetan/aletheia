@@ -9,17 +9,29 @@
 # matches this schema for each mode: identical CLI flag set, identical `results`
 # container, identical per-row key sets, and byte-identical human label strings
 # in the same order. tools/check_bench_schema.py enforces this against every
-# binding on every CI run (structure + labels + types + per-sweep row counts —
-# never the measured values, which are host-dependent).
+# binding on every CI run (structure + labels + types + per-sweep row counts +
+# the parameters it ran with — never the measured values, which are
+# host-dependent).
 #
 # This file is authority. To change a lane name, a row key, or a sweep, edit
 # HERE first, then update all four harnesses; the gate fails until they agree.
 
 envelope:
   # Every mode, every binding wraps its payload in this object.
-  top_keys: [benchmark, language, timestamp, system, results]
+  top_keys: [benchmark, language, timestamp, system, parameters, results]
   languages: [python, cpp, go, rust]
   benchmarks: [throughput, latency, scaling]
+  # `system` names the machine and the toolchain that measured the report:
+  # every binding its runtime's version, and C++ its compiler and build type.
+  system_keys:
+    python: [cpu, cores, platform, python]
+    cpp: [cpu, cores, platform, build_type, compiler]
+    go: [cpu, cores, platform, go]
+    rust: [cpu, cores, platform, rust]
+  # `parameters` records every flag of the mode's `flags` but --json, under the
+  # flag's name without its dashes, at the value the run read: a count, or
+  # true or false for a switch. `warmup` counts untimed passes in throughput
+  # and untimed operations in latency.
 
 modes:
 

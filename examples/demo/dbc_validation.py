@@ -257,11 +257,10 @@ def check_dbc(
         with AletheiaClient() as client:
             response = client.parse_dbc(dbc)
 
-            valid = response.get("status") == "success"
-            warnings = response.get("warnings", [])
-            warned = expect_warning is None or any(
-                isinstance(warning, dict) and warning.get("code") == expect_warning
-                for warning in warnings
+            valid = response["status"] == "success"
+            warned = expect_warning is None or (
+                response["status"] == "success"
+                and any(warning["code"] == expect_warning for warning in response["warnings"])
             )
             passed = valid == expect_valid and warned
             status = "VALID" if valid else "INVALID"

@@ -12,8 +12,9 @@ level (the lane scheduler itself is covered by test_scheduler.py).
 from __future__ import annotations
 
 import os
+import shlex
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 from tools._ci_steps import (
@@ -21,12 +22,13 @@ from tools._ci_steps import (
     AGDA_SHAKE_TARGETS,
     FAST_STEPS,
     HEAVY_STEPS,
+    ROOT_PYTHON,
     build_prereq_cmd,
     in_every_go_module,
     register_all_steps,
     should_run_staleness,
 )
-from tools._common import find_executable, run_capture
+from tools._common import find_executable, git_ls_files, run_capture
 from tools.check_gate_claim import (
     SOURCES_ENV,
     SOURCES_LINE,
@@ -177,6 +179,42 @@ def test_register_all_steps_populates_the_catalog(tmp_path: Path) -> None:
     # AGDA_GATES_STEP (not the "agda gates" literal) so a label change can't go stale.
     assert {"build", AGDA_GATES_STEP, "pytest", "ruff", "ubsan ctest", "asan ctest"} <= set(names)
     assert len(names) == len(set(names))  # a duplicate name would mask a dropped step
+
+
+def test_every_tracked_python_file_is_read_by_all_three_linters(tmp_path: Path) -> None:
+    """ruff, basedpyright and pylint each read every tracked Python file.
+
+    ``.archive/`` aside: ruff reads ``python/`` whole and the other two its
+    ``aletheia/``, ``tests/`` and ``benchmarks/``, and all three read every
+    entry of ``ROOT_PYTHON``.  A file none of those covers is linted by none of
+    the three, and one linter reading less than its peers is the asymmetry the
+    shared list exists to prevent.
+    """
+    runner = _runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    steps = {step.name: step for step in runner.registered_steps}
+    ruff_cmd = steps["ruff"].cmd
+    assert isinstance(ruff_cmd, str)
+    ruff_args = shlex.split(ruff_cmd)
+    package = ["aletheia/", "tests/", "benchmarks/"]
+    for root in ROOT_PYTHON:
+        # check and format --check each name the list once.
+        assert ruff_args.count(str(root)) == 2, f"ruff does not read {root}"
+    assert ruff_args.count("python") == 2
+    for linter in ("basedpyright", "pylint"):
+        args = list(steps[linter].cmd)
+        missing = [p for p in [*package, *(str(".." / p) for p in ROOT_PYTHON)] if p not in args]
+        assert not missing, f"{linter} does not read {missing}"
+    repo = Path(__file__).resolve().parents[2]
+    under_package = [PurePosixPath("python", p) for p in package]
+    under_root = [PurePosixPath(p) for p in ROOT_PYTHON]
+    unlinted = [
+        rel
+        for rel in git_ls_files(repo, "*.py")
+        if not rel.startswith(".archive/")
+        and not any(PurePosixPath(rel).is_relative_to(d) for d in (*under_package, *under_root))
+    ]
+    assert not unlinted, f"tracked Python no linter reads: {unlinted}"
 
 
 def test_each_sanitizer_lane_owns_its_tree_and_its_lane(tmp_path: Path) -> None:
@@ -396,14 +434,21 @@ def test_a_sweep_whose_sources_moved_under_it_fails(
 
 
 def _one_message_tree(root: Path, python_dir: Path) -> None:
-    """Lay out the pylint step's four paths: 2100 clean statements, one missing docstring."""
+    """Lay out every path the pylint step reads: 2100 clean statements, one missing docstring.
+
+    The package's three directories hold the statements, each entry of
+    ``ROOT_PYTHON`` a clean module of its own, and ``tools/`` the one message.
+    """
     for package in ("aletheia", "tests", "benchmarks"):
         clean = "".join(f"{package.upper()}_{n} = {n}\n" for n in range(700))
         (python_dir / package).mkdir(parents=True)
         _ = (python_dir / package / "constants.py").write_text(
             '"""Constants."""\n' + clean, encoding="utf-8"
         )
-    (root / "tools").mkdir()
+    for entry in ROOT_PYTHON:
+        module = root / entry if entry.suffix == ".py" else root / entry / f"{entry.name}_clean.py"
+        module.parent.mkdir(parents=True, exist_ok=True)
+        _ = module.write_text('"""Clean."""\n', encoding="utf-8")
     _ = (root / "tools" / "undocumented.py").write_text("VALUE = 1\n", encoding="utf-8")
 
 

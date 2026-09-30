@@ -843,21 +843,41 @@ func runScaling(backend *aletheia.FFIBackend, out *os.File, numRuns int, quick b
 	}
 }
 
-type jsonOutput struct {
-	Benchmark string     `json:"benchmark"`
-	Language  string     `json:"language"`
-	Timestamp string     `json:"timestamp"`
-	System    systemInfo `json:"system"`
-	Results   any        `json:"results"`
+// The flags each mode read, --json aside, under the flag's name, so a report
+// states the run that produced it (parameters in benchmarks/SCHEMA.yaml).
+type throughputParameters struct {
+	Frames int `json:"frames"`
+	Runs   int `json:"runs"`
+	Warmup int `json:"warmup"`
 }
 
-func emitJSON(benchmark string, results any) {
+type latencyParameters struct {
+	Ops    int `json:"ops"`
+	Warmup int `json:"warmup"`
+}
+
+type scalingParameters struct {
+	Runs  int  `json:"runs"`
+	Quick bool `json:"quick"`
+}
+
+type jsonOutput struct {
+	Benchmark  string     `json:"benchmark"`
+	Language   string     `json:"language"`
+	Timestamp  string     `json:"timestamp"`
+	System     systemInfo `json:"system"`
+	Parameters any        `json:"parameters"`
+	Results    any        `json:"results"`
+}
+
+func emitJSON(benchmark string, parameters, results any) {
 	out := jsonOutput{
-		Benchmark: benchmark,
-		Language:  "go",
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		System:    getSystemInfo(),
-		Results:   results,
+		Benchmark:  benchmark,
+		Language:   "go",
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		System:     getSystemInfo(),
+		Parameters: parameters,
+		Results:    results,
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -866,11 +886,20 @@ func emitJSON(benchmark string, results any) {
 	}
 }
 
+// A mode run without --warmup warms as the other bindings' harnesses do: two
+// untimed passes before a throughput lane, five hundred untimed operations
+// before a latency lane.
+const (
+	throughputWarmupRuns = 2
+	latencyWarmupOps     = 500
+)
+
 func main() {
 	fs := flag.NewFlagSet("bench", flag.ExitOnError)
 	frames := fs.Int("frames", 10000, "Frames per run")
 	runs := fs.Int("runs", 5, "Number of runs")
-	warmup := fs.Int("warmup", 2, "Warmup runs (throughput) / warmup ops (latency)")
+	warmup := fs.Int("warmup", throughputWarmupRuns,
+		fmt.Sprintf("Warmup runs (throughput) / warmup ops (latency, default %d)", latencyWarmupOps))
 	ops := fs.Int("ops", 5000, "Operations to measure (latency)")
 	quick := fs.Bool("quick", false, "Fewer iterations (scaling)")
 	jsonFlag := fs.Bool("json", false, "Emit JSON to stdout")
@@ -883,6 +912,11 @@ func main() {
 		args = args[1:]
 	}
 	fs.Parse(args)
+	warmupGiven := false
+	fs.Visit(func(f *flag.Flag) { warmupGiven = warmupGiven || f.Name == "warmup" })
+	if mode == "latency" && !warmupGiven {
+		*warmup = latencyWarmupOps
+	}
 
 	// A count of zero measures nothing, and a row computed from nothing reads as
 	// a rate of zero rather than as a failure. Each is checked whichever mode is
@@ -923,7 +957,7 @@ func main() {
 		fmt.Fprintf(out, "Warmup runs: %d\n", *warmup)
 		results := runThroughput(backend, out, *frames, *runs, *warmup)
 		if *jsonFlag {
-			emitJSON("throughput", results)
+			emitJSON("throughput", throughputParameters{Frames: *frames, Runs: *runs, Warmup: *warmup}, results)
 		}
 
 	case "latency":
@@ -931,7 +965,7 @@ func main() {
 		fmt.Fprintf(out, "Warmup: %d\n", *warmup)
 		results := runLatency(backend, out, *ops, *warmup)
 		if *jsonFlag {
-			emitJSON("latency", results)
+			emitJSON("latency", latencyParameters{Ops: *ops, Warmup: *warmup}, results)
 		}
 
 	case "scaling":
@@ -939,7 +973,7 @@ func main() {
 		fmt.Fprintf(out, "Quick: %v\n", *quick)
 		results := runScaling(backend, out, *runs, *quick)
 		if *jsonFlag {
-			emitJSON("scaling", results)
+			emitJSON("scaling", scalingParameters{Runs: *runs, Quick: *quick}, results)
 		}
 
 	default:

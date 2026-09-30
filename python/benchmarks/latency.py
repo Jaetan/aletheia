@@ -26,6 +26,8 @@ from benchmarks._common import (
     DEFAULT_CAN20_PROPERTIES,
     DEFAULT_CANFD_PROPERTIES,
     FrameSpec,
+    LatencyParameters,
+    OperationCount,
     emit_json_report,
     load_canfd_dbc,
     load_dbc,
@@ -297,7 +299,11 @@ def main() -> int:
     _print_summary(all_stats, out)
 
     if args.json:
-        emit_json_report("latency", [_to_json_payload(n, s) for n, s in all_stats])
+        parameters: LatencyParameters = {
+            "ops": OperationCount(args.ops),
+            "warmup": OperationCount(args.warmup),
+        }
+        emit_json_report("latency", parameters, [_to_json_payload(n, s) for n, s in all_stats])
 
     return 0
 

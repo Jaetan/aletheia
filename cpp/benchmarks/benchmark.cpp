@@ -96,6 +96,10 @@ constexpr auto k_build_type = "Release";
 constexpr auto k_build_type = "Debug";
 #endif
 
+// The compiler that built this binary, as it names itself: the toolchain the
+// report names, where the other bindings name their runtime's version.
+constexpr auto k_compiler = __VERSION__;
+
 static void check_release_build() {
 #ifndef NDEBUG
     std::print(stderr,
@@ -109,10 +113,9 @@ static void check_release_build() {
 
 static auto get_system_info() -> Json {
     return {
-        {"cpu", get_cpu_model()},
-        {"cores", static_cast<int>(std::thread::hardware_concurrency())},
-        {"platform", "Linux"},
-        {"build_type", k_build_type},
+        {"cpu", get_cpu_model()}, {"cores", static_cast<int>(std::thread::hardware_concurrency())},
+        {"platform", "Linux"},    {"build_type", k_build_type},
+        {"compiler", k_compiler},
     };
 }
 
@@ -682,8 +685,11 @@ static void run_throughput(const fs::path& lib, int num_frames, int num_runs, in
             });
         }
         const Json output = {
-            {"benchmark", "throughput"},    {"language", "cpp"},
-            {"timestamp", iso_timestamp()}, {"system", get_system_info()},
+            {"benchmark", "throughput"},
+            {"language", "cpp"},
+            {"timestamp", iso_timestamp()},
+            {"system", get_system_info()},
+            {"parameters", {{"frames", num_frames}, {"runs", num_runs}, {"warmup", warmup}}},
             {"results", json_results},
         };
         std::println("{}", output.dump(2));
@@ -816,8 +822,11 @@ static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json
             });
         }
         const Json output = {
-            {"benchmark", "latency"},       {"language", "cpp"},
-            {"timestamp", iso_timestamp()}, {"system", get_system_info()},
+            {"benchmark", "latency"},
+            {"language", "cpp"},
+            {"timestamp", iso_timestamp()},
+            {"system", get_system_info()},
+            {"parameters", {{"ops", ops}, {"warmup", warmup}}},
             {"results", json_results},
         };
         std::println("{}", output.dump(2));
@@ -966,7 +975,8 @@ static auto complexity_levels() -> std::vector<std::pair<std::string, std::vecto
 // The scaling payload. Written through ordered_json rather than the default,
 // because the schema pins the sub-benchmark key order and the whole document
 // has to preserve insertion order end to end.
-static void emit_scaling_json(const std::vector<TraceSizeRow>& trace_can20,
+static void emit_scaling_json(int num_runs, bool quick,
+                              const std::vector<TraceSizeRow>& trace_can20,
                               const std::vector<TraceSizeRow>& trace_canfd,
                               const std::vector<PropCountRow>& prop_count,
                               const std::vector<ComplexityRow>& complexity) {
@@ -1015,6 +1025,7 @@ static void emit_scaling_json(const std::vector<TraceSizeRow>& trace_can20,
     output["language"] = "cpp";
     output["timestamp"] = iso_timestamp();
     output["system"] = get_system_info();
+    output["parameters"] = {{"runs", num_runs}, {"quick", quick}};
     output["results"] = results;
 
     std::println("{}", output.dump(2));
@@ -1130,7 +1141,7 @@ static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit
     std::println(out_file(), "{}", k_rule_heavy);
 
     if (emit_json)
-        emit_scaling_json(trace_can20, trace_canfd, prop_count, complexity);
+        emit_scaling_json(num_runs, quick, trace_can20, trace_canfd, prop_count, complexity);
 }
 
 // ---------------------------------------------------------------------------

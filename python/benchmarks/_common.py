@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NewType, TypedDict
 
 from aletheia import AletheiaClient, Signal
 from aletheia.dbc import dbc_to_json
@@ -175,6 +175,50 @@ class BenchmarkConfig:
 
 
 # ============================================================================
+# Report parameters — every flag a mode read, --json aside, under the flag's
+# name, so a report states the run that produced it (``parameters`` in
+# benchmarks/SCHEMA.yaml).
+# ============================================================================
+
+FrameCount = NewType("FrameCount", int)
+RunCount = NewType("RunCount", int)
+OperationCount = NewType("OperationCount", int)
+
+
+class ThroughputParameters(TypedDict):
+    """Throughput's flags: frames per pass, timed passes, untimed warmup passes."""
+
+    frames: FrameCount
+    runs: RunCount
+    warmup: RunCount
+
+
+class LatencyParameters(TypedDict):
+    """Latency's flags: timed operations and untimed warmup operations."""
+
+    ops: OperationCount
+    warmup: OperationCount
+
+
+class ScalingParameters(TypedDict):
+    """Scaling's flags: passes averaged per sweep point, and the quick sweep."""
+
+    runs: RunCount
+    quick: bool
+
+
+class SimplificationParameters(TypedDict):
+    """Simplification's one flag: the quick sweep."""
+
+    quick: bool
+
+
+ReportParameters = (
+    ThroughputParameters | LatencyParameters | ScalingParameters | SimplificationParameters
+)
+
+
+# ============================================================================
 # Shared streaming-loop helpers — extracted from throughput / scaling /
 # simplification (R0801 duplicate-code).  Caller owns Client lifecycle
 # (parse_dbc / set_properties / start_stream / end_stream); these only
@@ -229,19 +273,20 @@ def run_streaming_benchmark(
     return num_frames / elapsed, elapsed
 
 
-def emit_json_report(name: str, results: object) -> None:
+def emit_json_report(name: str, parameters: ReportParameters, results: object) -> None:
     """Print the canonical Aletheia benchmark JSON envelope to stdout.
 
-    Schema (frozen by ``benchmarks/run_all.sh`` consumers and the cross-
-    language baseline diff tooling): ``{benchmark, language, timestamp,
-    system, results}`` — each benchmark's caller passes its own ``results``
-    payload (dict or list) verbatim under the ``results`` key.
+    Schema (``benchmarks/SCHEMA.yaml``, which ``tools/check_bench_schema.py``
+    holds every harness to): ``{benchmark, language, timestamp, system,
+    parameters, results}`` — each benchmark's caller passes the flags it read
+    and its own ``results`` payload (dict or list) verbatim.
     """
     output = {
         "benchmark": name,
         "language": "python",
         "timestamp": datetime.now(UTC).isoformat(),
         "system": get_system_info(),
+        "parameters": parameters,
         "results": results,
     }
     print(json.dumps(output, indent=2))
