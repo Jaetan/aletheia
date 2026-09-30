@@ -8,7 +8,7 @@ each run, so that a kill by a test's assertion is told from one by a leak
 the sanitizer reported, a read of memory the program does not own that the
 address sanitizer reported, the kernel ending the process, a check the
 standard library runs in the mutation build (debug mode's iterator and bounds
-checks, and its assertions), or a fault: a signal the process died by. A
+checks, and its assertions), or a fault: an end none of those names. A
 mutant several lanes killed is attributed to the first of those routes it
 took in any lane.
 """
@@ -20,15 +20,27 @@ import re
 import sqlite3
 from typing import TYPE_CHECKING, NamedTuple
 
+from aletheia.common_types import ExitStatus
+
 if TYPE_CHECKING:
     from pathlib import Path
 
 # Mull's execution statuses, as its SQLite report numbers them: a run whose
 # tests all passed, and one the runner ended at the timeout. Either is the
-# route by itself; every other status is read from the captured output.
+# route by itself; every other status is read from the exit status and the
+# captured output.
 MULL_PASSED = 2
 MULL_TIMEDOUT = 3
 _ROUTE_BY_STATUS = {MULL_PASSED: "survived", MULL_TIMEDOUT: "timeout"}
+
+# Catch2's exit when an assertion failed and the run reached its end. A fatal
+# signal inside a test case is raised again once Catch2 has reported it, so
+# the process dies by the signal, which Mull records as no exit status (-1),
+# and a sanitizer ends a run with its own. The exit is the test's verdict
+# where Mull kept none of the output: it reads each stream as UTF-8 and keeps
+# nothing of one holding a byte that is not, so a failure report quoting raw
+# input reaches the report empty.
+CATCH2_TEST_FAILED = ExitStatus(42)
 
 # Catch2 reports each failure as a block opened at the site's line and closed
 # by the next block or rule. A fatal signal inside a test case is reported the
@@ -91,30 +103,46 @@ KILL_ROUTES: tuple[str, ...] = (
 )
 
 
-def kill_route(execution_status: int, stdout: str, stderr: str) -> str:
+class MutantRun(NamedTuple):
+    """What Mull's report keeps of one lane's run of one mutant.
+
+    The runner's execution status, the process's exit status, and what the
+    test binary wrote to each stream.
+    """
+
+    execution_status: int
+    exit_status: ExitStatus
+    stdout: str
+    stderr: str
+
+
+def kill_route(run: MutantRun) -> str:
     """Read what ended one lane's run of one mutant.
 
-    ``test``: an assertion failed, whatever ended the process after it;
+    ``test``: an assertion failed, whatever ended the process after it, and
+    Catch2's failure exit says so where the output is gone;
     ``leak``: LeakSanitizer reported a leak; ``address``: AddressSanitizer
     reported a read or a write of memory the program does not own;
     ``kernel``: the kernel ended the process from its own error path;
     ``check``: a check the standard library runs in the mutation build ended
-    it, at the read or the subscript it refused; ``fault``: the process died
-    another way, by a signal;
+    it, at the read or the subscript it refused; ``fault``: nothing above
+    named what ended the process;
     ``timeout``: the runner ended it; ``survived``: every test passed. A block
     Catch2 reports for an exception a test did not expect is an assertion's
     kill here: the behaviour is defined and the test reported it.
     """
-    if execution_status in _ROUTE_BY_STATUS:
-        return _ROUTE_BY_STATUS[execution_status]
-    if any(_FATAL_CONDITION not in block for block in _FAILED_BLOCK.findall(stdout)):
+    if run.execution_status in _ROUTE_BY_STATUS:
+        return _ROUTE_BY_STATUS[run.execution_status]
+    if run.exit_status == CATCH2_TEST_FAILED or any(
+        _FATAL_CONDITION not in block for block in _FAILED_BLOCK.findall(run.stdout)
+    ):
         return "test"
-    reported = next((route for marker, route in _SANITIZER_REPORTS if marker in stderr), "")
+    reported = next((route for marker, route in _SANITIZER_REPORTS if marker in run.stderr), "")
     if reported:
         return reported
-    if _KERNEL_ENDED.search(stderr):
+    if _KERNEL_ENDED.search(run.stderr):
         return "kernel"
-    if _LIBSTDCXX_CHECK.search(stderr):
+    if _LIBSTDCXX_CHECK.search(run.stderr):
         return "check"
     return "fault"
 
@@ -136,21 +164,27 @@ class Ending(NamedTuple):
 def lane_endings(sqlite_path: Path) -> dict[str, Ending]:
     """Read each mutant's ending from one lane's SQLite report."""
     with contextlib.closing(sqlite3.connect(sqlite_path)) as conn:
-        rows = conn.execute("SELECT mutant_id, execution_status, stdout, stderr FROM mutant")
+        rows = conn.execute(
+            "SELECT mutant_id, execution_status, exit_status, stdout, stderr FROM mutant"
+        )
         return {
-            str(mutant_id): _ending(int(status), str(stdout or ""), str(stderr or ""))
-            for mutant_id, status, stdout, stderr in rows
+            str(mutant_id): _ending(
+                MutantRun(
+                    int(status), ExitStatus(int(exit_status)), str(stdout or ""), str(stderr or "")
+                )
+            )
+            for mutant_id, status, exit_status, stdout, stderr in rows
         }
 
 
-def _ending(execution_status: int, stdout: str, stderr: str) -> Ending:
-    route = kill_route(execution_status, stdout, stderr)
+def _ending(run: MutantRun) -> Ending:
+    route = kill_route(run)
     if route == "address":
-        kind = _ADDRESS_KIND.search(stderr)
+        kind = _ADDRESS_KIND.search(run.stderr)
         return Ending(route, kind.group(1) if kind else "")
     if route != "check":
         return Ending(route, "")
-    check = _LIBSTDCXX_CHECK.search(stderr)
+    check = _LIBSTDCXX_CHECK.search(run.stderr)
     refused = (check.group(1) or check.group(2) or "") if check else ""
     return Ending(route, _CHECK_VALUES.sub("", " ".join(refused.split())))
 

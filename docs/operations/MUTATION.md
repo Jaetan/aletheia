@@ -82,16 +82,19 @@ Two-tier per advisor 2026-05-09:
   such bucket.
 - **Kill routes (C++, recorded, not gated)**: Mull's SQLite report keeps each
   mutant's exit status and the test binary's output, and the runner reads
-  from them what ended every run: a test's assertion, a leak the sanitizer
+  from them what ended every run: a test's assertion, which Catch2's failure
+  exit names where Mull kept none of the output (it keeps nothing of a stream
+  holding a byte that is not UTF-8), a leak the sanitizer reported, a read or
+  write of memory the program does not own that the address sanitizer
   reported, the kernel ending the process, a check the standard library runs
   in the mutation build (the trees compile under libstdc++'s debug mode, so a
   read past a container's end or an out-of-range subscript ends the run at that
-  step, with its message), or a fault (a signal).  A mutant several lanes
-  killed is attributed in that order.  The counts land in `cpp-routes.json`
-  beside `cpp.json` and in the C++ baseline; a probe holds them equal to the
-  record, which the pinned test order and the debug-mode checks make exact, and
-  a sweep with any timeout is reported as a census taken under load rather than
-  compared.  The mutants attributed to a check or a fault are the ones no test
+  step, with its message), or a fault (an end none of those names).  A mutant
+  several lanes killed is attributed in that order.  The counts land in
+  `cpp-routes.json` beside `cpp.json` and in the C++ baseline; a probe holds
+  them equal to the record, which the pinned test order and the debug-mode
+  checks make exact, and a sweep with any timeout is reported as a census taken
+  under load rather than compared.  The mutants attributed to a check or a fault are the ones no test
   observes by behaviour: what each changes, a guard for most of them and the
   value an index is computed from for the rest, leads straight to an operation
   the language does not define.

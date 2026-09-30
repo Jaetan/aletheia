@@ -1058,6 +1058,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The C++ mutation lane reads a failed test as the test's kill when Mull
+  kept none of its output.** Mull reads a test binary's output as UTF-8 and
+  keeps nothing of a stream holding a byte that is not, so a failure report
+  quoting raw input reached the kill-route census as an empty stdout, and the
+  census, which read the output alone, called the run a fault: the kill moved
+  from `test` to `fault` with nothing saying so, and the lane failed on
+  unobserved kills no one had recorded. The census now reads the exit status
+  Mull records beside the output, and Catch2's failure exit, 42, returned only
+  once an assertion failed and the run reached its end, is the test's kill
+  whatever was kept. `tools/mutation_routes.py` reads each run as a
+  `MutantRun`: its execution status, its exit status and both streams. Every
+  mutant of the recorded sweep reads the route it read before.
+
 - **The demo-script test writes nothing under `examples/`.** The test
   runs every example as a script, and `examples/demo/drive_log.py` rewrote the
   tracked `drive.log` on each run, so a change to its generators would have

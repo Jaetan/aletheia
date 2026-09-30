@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for ``tools.mutation_routes``, the kill-route census of the C++ lane.
 
-Mull's SQLite report keeps, per mutant and per lane, the execution status
-and the test binary's own output. The census reads what ended each run: a
-test's assertion, a leak the sanitizer reported, the kernel ending the
-process, a check the standard library runs in the mutation build, or a
-fault, and attributes a mutant several lanes killed to the first of those
+Mull's SQLite report keeps, per mutant and per lane, the execution status,
+the exit status and the test binary's own output. The census reads what
+ended each run: a test's assertion, a leak the sanitizer reported, a read or
+a write the address sanitizer reported, the kernel ending the process, a
+check the standard library runs in the mutation build, or a fault, and
+attributes a mutant several lanes killed to the first of those
 routes, since a test's assertion is the one kill the suite gives without any
 instrument. The rows the mutants attributed to a check or a fault become are
 ``test_mutation_unobserved_ledger``'s subject; here the reading is the route.
@@ -16,7 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NewType
 
 import pytest
 
@@ -27,15 +28,31 @@ from tools.mutation_routes import (
     MULL_PASSED,
     MULL_TIMEDOUT,
     Ending,
+    MutantRun,
     kill_route,
     lane_endings,
     merge_routes,
 )
 
+from aletheia.common_types import ExitStatus
+
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
+# The identifier Mull names a mutant by.
+_Mutant = NewType("_Mutant", str)
+
 _FAILED = 1
+# The exit statuses the lanes' runs end with, as Mull records them: 0 where
+# the tests passed, Catch2's after a failed assertion, -1 where a signal ended
+# the process and left none, LeakSanitizer's where it ended the run, and the
+# kernel's where its error path did.
+_PASSED = ExitStatus(0)
+_TEST_FAILED = ExitStatus(42)
+_BY_SIGNAL = ExitStatus(-1)
+_LEAK_SANITIZER = ExitStatus(23)
+_KERNEL_ENDED = ExitStatus(1)
 _RULE = "-" * 79 + "\n"
 _SUMMARY_FAILED = "=" * 79 + "\ntest cases:  562 |  557 passed | 5 failed\n"
 _SUMMARY_PASSED = "All tests passed (6008 assertions in 562 test cases)\n"
@@ -72,26 +89,41 @@ _SIGNAL = "LeakSanitizer:DEADLYSIGNAL\n==1==ERROR: LeakSanitizer: SEGV on unknow
 
 
 @pytest.mark.parametrize(
-    ("status", "stdout", "stderr", "route"),
+    ("run", "route"),
     [
-        (MULL_PASSED, _SUMMARY_PASSED, "", "survived"),
-        (MULL_TIMEDOUT, "", "", "timeout"),
-        (_FAILED, _ASSERTION + _RULE + _SUMMARY_FAILED, "", "test"),
-        (_FAILED, _ASSERTION, "aletheia: x\n", "test"),
-        (_FAILED, _FATAL + _SUMMARY_FAILED, _LIBSTDCXX_ASSERTION, "check"),
-        (_FAILED, _FATAL + _SUMMARY_FAILED, _DEBUG_MODE, "check"),
-        (_FAILED, _ASSERTION + _RULE + _FATAL + _SUMMARY_FAILED, _DEBUG_MODE, "test"),
-        (_FAILED, _ASSERTION + _RULE + _FATAL + _SUMMARY_FAILED, "", "test"),
-        (_FAILED, _FATAL + _RULE + _ASSERTION + _SUMMARY_FAILED, "", "test"),
-        (_FAILED, "", "==1==ERROR: LeakSanitizer: detected memory leaks\n", "leak"),
-        (_FAILED, "", "aletheia: aletheia_process: Return code (4) not ok\n", "kernel"),
-        (_FAILED, _FATAL + _SUMMARY_FAILED, _SIGNAL, "fault"),
-        (_FAILED, "", _SIGNAL, "fault"),
-        (_FAILED, "", "", "fault"),
+        (MutantRun(MULL_PASSED, _PASSED, _SUMMARY_PASSED, ""), "survived"),
+        (MutantRun(MULL_TIMEDOUT, _BY_SIGNAL, "", ""), "timeout"),
+        (MutantRun(_FAILED, _TEST_FAILED, _ASSERTION + _RULE + _SUMMARY_FAILED, ""), "test"),
+        (MutantRun(_FAILED, _KERNEL_ENDED, _ASSERTION, "aletheia: x\n"), "test"),
+        (MutantRun(_FAILED, _BY_SIGNAL, _FATAL + _SUMMARY_FAILED, _LIBSTDCXX_ASSERTION), "check"),
+        (MutantRun(_FAILED, _BY_SIGNAL, _FATAL + _SUMMARY_FAILED, _DEBUG_MODE), "check"),
+        (
+            MutantRun(
+                _FAILED, _BY_SIGNAL, _ASSERTION + _RULE + _FATAL + _SUMMARY_FAILED, _DEBUG_MODE
+            ),
+            "test",
+        ),
+        (MutantRun(_FAILED, _BY_SIGNAL, _ASSERTION + _RULE + _FATAL + _SUMMARY_FAILED, ""), "test"),
+        (MutantRun(_FAILED, _BY_SIGNAL, _FATAL + _RULE + _ASSERTION + _SUMMARY_FAILED, ""), "test"),
+        (
+            MutantRun(
+                _FAILED, _LEAK_SANITIZER, "", "==1==ERROR: LeakSanitizer: detected memory leaks\n"
+            ),
+            "leak",
+        ),
+        (
+            MutantRun(
+                _FAILED, _KERNEL_ENDED, "", "aletheia: aletheia_process: Return code (4) not ok\n"
+            ),
+            "kernel",
+        ),
+        (MutantRun(_FAILED, _LEAK_SANITIZER, _FATAL + _SUMMARY_FAILED, _SIGNAL), "fault"),
+        (MutantRun(_FAILED, _LEAK_SANITIZER, "", _SIGNAL), "fault"),
+        (MutantRun(_FAILED, _BY_SIGNAL, "", ""), "fault"),
     ],
 )
-def test_a_run_is_read_by_what_ended_it(status: int, stdout: str, stderr: str, route: str) -> None:
-    """The status is read first, then the test output, then the error output.
+def test_a_run_is_read_by_what_ended_it(run: MutantRun, route: str) -> None:
+    """The status is read first, then the exit status, the test output and the error output.
 
     A failure Catch2 reports for a fatal signal is not an assertion, so a run
     whose only failed blocks name a fatal condition died by whatever the error
@@ -99,7 +131,27 @@ def test_a_run_is_read_by_what_ended_it(status: int, stdout: str, stderr: str, r
     One assertion anywhere in the output makes the kill the test's, whichever
     came first, and whatever ended the process after it.
     """
-    assert kill_route(status, stdout, stderr) == route
+    assert kill_route(run) == route
+
+
+def test_a_failed_test_mull_kept_no_output_for_is_read_by_its_exit(tmp_path: Path) -> None:
+    """Catch2's failure exit is the test's kill where the report kept no output.
+
+    Mull keeps nothing of a stream holding a byte that is not UTF-8, so a
+    failure report quoting raw input reaches the report empty. A signal ends
+    the process with no exit status, so the same empty output there is a fault.
+    """
+    _write_lane(
+        tmp_path / "lane.sqlite",
+        {
+            _Mutant("failed"): MutantRun(_FAILED, _TEST_FAILED, "", ""),
+            _Mutant("signalled"): MutantRun(_FAILED, _BY_SIGNAL, "", ""),
+        },
+    )
+    assert lane_endings(tmp_path / "lane.sqlite") == {
+        "failed": Ending("test", ""),
+        "signalled": Ending("fault", ""),
+    }
 
 
 def test_a_mutant_several_lanes_killed_takes_the_first_route() -> None:
@@ -130,13 +182,15 @@ def test_an_ending_carries_what_the_check_refused(tmp_path: Path) -> None:
     """
     _write_lane(
         tmp_path / "lane.sqlite",
-        [
-            ("debug", _FAILED, _FATAL, _DEBUG_MODE),
-            ("wrapped", _FAILED, _FATAL, _DEBUG_MODE_WRAPPED),
-            ("assertion", _FAILED, _FATAL, _LIBSTDCXX_ASSERTION),
-            ("signal", _FAILED, _FATAL, _SIGNAL),
-            ("test", _FAILED, _ASSERTION + _SUMMARY_FAILED, _DEBUG_MODE),
-        ],
+        {
+            _Mutant("debug"): MutantRun(_FAILED, _BY_SIGNAL, _FATAL, _DEBUG_MODE),
+            _Mutant("wrapped"): MutantRun(_FAILED, _BY_SIGNAL, _FATAL, _DEBUG_MODE_WRAPPED),
+            _Mutant("assertion"): MutantRun(_FAILED, _BY_SIGNAL, _FATAL, _LIBSTDCXX_ASSERTION),
+            _Mutant("signal"): MutantRun(_FAILED, _LEAK_SANITIZER, _FATAL, _SIGNAL),
+            _Mutant("test"): MutantRun(
+                _FAILED, _BY_SIGNAL, _ASSERTION + _SUMMARY_FAILED, _DEBUG_MODE
+            ),
+        },
     )
     assert lane_endings(tmp_path / "lane.sqlite") == {
         "debug": Ending("check", "attempt to dereference a past-the-end iterator."),
@@ -147,14 +201,18 @@ def test_an_ending_carries_what_the_check_refused(tmp_path: Path) -> None:
     }
 
 
-def _write_lane(path: Path, rows: list[tuple[str, int, str, str]]) -> None:
+def _write_lane(path: Path, runs: Mapping[_Mutant, MutantRun]) -> None:
     # closing() closes the connection; sqlite3's own context manager only
     # commits, which would leave the file open until a collection.
     with contextlib.closing(sqlite3.connect(path)) as conn:
         _ = conn.execute(
-            "CREATE TABLE mutant (mutant_id TEXT, execution_status INT, stdout TEXT, stderr TEXT)"
+            "CREATE TABLE mutant (mutant_id TEXT, execution_status INT, exit_status INT,"
+            + " stdout TEXT, stderr TEXT)"
         )
-        _ = conn.executemany("INSERT INTO mutant VALUES (?, ?, ?, ?)", rows)
+        _ = conn.executemany(
+            "INSERT INTO mutant VALUES (?, ?, ?, ?, ?)",
+            [(mutant, *run) for mutant, run in runs.items()],
+        )
         conn.commit()
 
 
@@ -168,11 +226,14 @@ def test_the_census_reads_every_leg_report(tmp_path: Path) -> None:
     for leg in legs:
         # Two mutants per slice, named for the slice, so no two legs of a tree
         # carry one identifier: that is what the partition guarantees.
-        killed, survived = f"k{leg}", f"s{leg}"
+        killed, survived = _Mutant(f"k{leg}"), _Mutant(f"s{leg}")
         stdout = _ASSERTION + _SUMMARY_FAILED if leg.tree is CppTree.PLAIN else ""
         _write_lane(
             tmp_path / f"{leg.report_name}.sqlite",
-            [(killed, _FAILED, stdout, ""), (survived, MULL_PASSED, _SUMMARY_PASSED, "")],
+            {
+                killed: MutantRun(_FAILED, _TEST_FAILED, stdout, ""),
+                survived: MutantRun(MULL_PASSED, _PASSED, _SUMMARY_PASSED, ""),
+            },
         )
     routes = cpp_kill_routes(tmp_path, legs)
     assert routes is not None
@@ -185,7 +246,10 @@ def test_the_census_reads_every_leg_report(tmp_path: Path) -> None:
 def test_a_leg_without_a_report_leaves_no_census(tmp_path: Path) -> None:
     """Part of a census would misattribute every mutant the missing leg killed."""
     legs = sliced_legs()
-    _write_lane(tmp_path / f"{legs[0].report_name}.sqlite", [("m1", _FAILED, "", "")])
+    _write_lane(
+        tmp_path / f"{legs[0].report_name}.sqlite",
+        {_Mutant("m1"): MutantRun(_FAILED, _TEST_FAILED, "", "")},
+    )
     assert cpp_kill_routes(tmp_path, legs) is None
 
 
@@ -195,7 +259,7 @@ def test_a_whole_tree_sweep_is_read_by_its_own_legs(tmp_path: Path) -> None:
     for leg in legs:
         _write_lane(
             tmp_path / f"{leg.report_name}.sqlite",
-            [("m1", _FAILED, _ASSERTION + _SUMMARY_FAILED, "")],
+            {_Mutant("m1"): MutantRun(_FAILED, _TEST_FAILED, _ASSERTION + _SUMMARY_FAILED, "")},
         )
     routes = cpp_kill_routes(tmp_path, legs)
     assert routes is not None
