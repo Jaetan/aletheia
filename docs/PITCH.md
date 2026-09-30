@@ -244,9 +244,10 @@ with AletheiaClient() as client:
     client.end_stream()
 ```
 
-In Rust the same loop reads verdicts by matching on the frame response: `FrameResponse::Ack` for an accepted frame with no verdict yet, `FrameResponse::Verdicts(Vec<PropertyResult>)` when a frame closes one or more checks:
+In Rust, once the stream is started, the same loop reads verdicts by matching on the frame response: `FrameResponse::Ack` for an accepted frame with no verdict yet, `FrameResponse::Verdicts(Vec<PropertyResult>)` when a frame closes one or more checks:
 
 ```rust
+client.start_stream()?;
 match client.send_frame(ts, id, dlc, &data, None, None)? {
     FrameResponse::Ack => {}                       // frame accepted, no verdict yet
     FrameResponse::Verdicts(results) => {          // Vec<PropertyResult>
@@ -360,7 +361,7 @@ Phases 1 through 5.1 are complete and Phase 6 is in progress. All four binding s
 - **CLI ships today**: the Python CLI's subcommands are `python3 -m aletheia {check,validate,extract,signals,format-dbc,mux-query,template}`; the C++ and Go host CLIs ship all of them but `check`, deferred for want of a verified CAN-log reader; Rust has a typed client and no CLI.
 - CAN log reader (ASC, BLF, CSV, DB, candump .log, MF4, TRC via python-can)
 - Enriched violation diagnostics (signal name, value, condition)
-- Automated test suites across all four bindings: unit and cross-binding parity everywhere, property-based and doc-example harnesses in Python, C++ and Go
+- Automated test suites across all four bindings: unit, cross-binding parity and doc-example harnesses everywhere, property-based harnesses in Python, C++ and Go
 - High-throughput streaming via binary FFI across all four bindings (see [BENCHMARKS.md](development/BENCHMARKS.md#canonical-results) for current benchmarks)
 
 ---

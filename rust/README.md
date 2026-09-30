@@ -45,9 +45,9 @@ pointer (closing it on `Drop`), so `Client` is intentionally `!Send + !Sync`; fo
 unit tests, inject a `MockBackend` (or any double) via `Client::with_backend` /
 `ClientBuilder::build_with_backend` to exercise the client without loading the
 `.so`. The typed DBC document model, the Check DSL, client-side violation
-enrichment, the async client, and this backend/mock test seam are all
-implemented; the host CLI (plus the python-can log reader and the doc-example
-gate) is tracked as `planned` (Phase 6) in the `rust` column of
+enrichment, the async client, this backend/mock test seam and the doc-example
+harness (`tests/doc_examples.rs`) are all implemented; the host CLI (plus the
+python-can log reader) is tracked as `planned` (Phase 6) in the `rust` column of
 [`docs/FEATURE_MATRIX.yaml`](../docs/FEATURE_MATRIX.yaml); a Rust parity gate
 (`tests/feature_matrix.rs`) keeps that column honest.
 

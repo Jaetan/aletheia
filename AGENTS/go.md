@@ -97,16 +97,20 @@ cd go && CGO_CFLAGS="-fsanitize=address" CGO_LDFLAGS="-fsanitize=address" go tes
 
 The `go test ./aletheia/` battery includes the doc-example
 harness (`TestDocExamples`): every ```go fence in the files `docFiles`
-lists in `go/aletheia/doc_examples_test.go` (the Go README among them)
+lists in `go/aletheia/doc_files_test.go` (the Go README among them)
 is wrapped as `package main` in a per-fence tempdir (with a
 `replace`-directive go.mod pointing at the local repo) and executed via
 `go run`. The companion structural gate `TestNoNotestGoFences` rejects
 `<!-- go notest -->` annotations: non-runnable fences must use the
 `text` info string, mirroring the Python `python notest` ban
-(`python/tests/test_doc_examples_harness.py`). Adding a new user-facing
-markdown file means adding it to the `docFiles` list in
-`go/aletheia/doc_examples_test.go`. Skipped automatically when
-`libaletheia-ffi.so` is missing (run `cabal run shake -- build` first).
+(`python/tests/test_doc_examples_harness.py`). `docFiles` names every
+tracked Markdown file carrying a Go fence, CHANGELOG.md aside, and two more
+structural gates beside it hold it to the tree both ways, the way the Python
+harness's list is held: a document that gains a Go fence fails the suite
+until it is listed, and a listed one that is untracked or carries none fails
+it too. The harness skips itself when `libaletheia-ffi.so` is missing (run
+`cabal run shake -- build` first); the structural gates need neither the
+library nor cgo.
 
 ---
 

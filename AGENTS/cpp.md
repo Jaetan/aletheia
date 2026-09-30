@@ -128,10 +128,14 @@ library, so the link carries an `-Wl,-rpath` to the directory holding it and
 the fence can load it. The companion structural gates ban
 `<!-- cpp notest -->` annotations and hold a collective fence floor, so a
 non-runnable fence uses the `text` info string, mirroring the Python and Go
-ban. Adding a user-facing markdown file means adding it to `k_doc_files` in
-`cpp/tests/doc_example_tests.cpp`, which is the list this paragraph defers to
-rather than repeating. The harness skips itself when
-`libaletheia-ffi.so` is missing (run `cabal run shake -- build` first).
+ban. `k_doc_files` in `cpp/tests/doc_example_tests.cpp` names every tracked
+Markdown file carrying a C++ fence, less the ones `k_unrun_docs` names with
+its reason, and two more structural gates hold it to the tree both ways, the
+way the Python harness's list is held: a document that gains a C++ fence fails
+the suite until it is listed, and a listed one that is untracked or carries
+none fails it too. The harness skips itself when `libaletheia-ffi.so` is
+missing (run `cabal run shake -- build` first); the structural gates need no
+library.
 
 ---
 

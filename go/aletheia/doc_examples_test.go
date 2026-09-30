@@ -4,8 +4,9 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 // The doc-example harness, the Go counterpart of the Python one under
-// pytest --markdown-docs: every Go fence in the listed Markdown files is
-// extracted, wrapped as a program, compiled and run through go run, and a
+// pytest --markdown-docs: every Go fence of the documents docFiles lists
+// (doc_files_test.go, which holds that list to the tree) is extracted,
+// wrapped as a program, compiled and run through go run, and a
 // fence that fails to build or to run fails the test under its file and
 // line. Three literals are rewritten to fixtures first: the installed
 // library path to the built library, checks.yaml to the test fixture, and
@@ -20,7 +21,6 @@
 package aletheia_test
 
 import (
-	"bufio"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -35,89 +35,6 @@ import (
 
 	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
-
-// docFiles is every user-facing Markdown file with Go fences, relative to
-// this directory; a tracked file with a Go fence that is not listed is what
-// the probe over this file catches. CHANGELOG.md stays out on purpose.
-var docFiles = []string{
-	"../README.md",
-	"../../README.md",
-	"../../docs/PITCH.md",
-	"../../docs/architecture/CANCELLATION.md",
-	"../../docs/reference/INTERFACES.md",
-	"../../docs/reference/GO_API.md",
-	"../../docs/development/DISTRIBUTION.md",
-	"../../docs/guides/TUTORIAL.md",
-}
-
-// goFence is one Go fence of a listed file.
-type goFence struct {
-	file    string // repo-relative path
-	line    int    // 1-based line number of the opening ```go
-	content string // body between fences (no surrounding ``` lines)
-}
-
-func (f goFence) name() string {
-	// subtest names are repository-relative
-	name := strings.TrimPrefix(f.file, "../../")
-	if strings.HasPrefix(name, "../") {
-		name = "go/" + strings.TrimPrefix(name, "../")
-	}
-	return fmt.Sprintf("%s:L%d", name, f.line)
-}
-
-// extractGoFences returns every Go fence of one file: an opening line whose
-// info string is exactly go, closed by a line that is exactly the fence.
-func extractGoFences(t *testing.T, file string) []goFence {
-	t.Helper()
-	data, err := os.ReadFile(file)
-	if err != nil {
-		t.Fatalf("read %s: %v", file, err)
-	}
-	var fences []goFence
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-	var (
-		inFence    bool
-		fenceStart int
-		fenceBody  strings.Builder
-		lineno     int
-	)
-	for scanner.Scan() {
-		lineno++
-		line := scanner.Text()
-		trim := strings.TrimLeft(line, " \t")
-		if !inFence {
-			if strings.HasPrefix(trim, "```go") {
-				rest := strings.TrimPrefix(trim, "```go")
-				if rest == "" || rest[0] == ' ' || rest[0] == '\t' {
-					inFence = true
-					fenceStart = lineno
-					fenceBody.Reset()
-				}
-			}
-			continue
-		}
-		if strings.TrimSpace(line) == "```" {
-			fences = append(fences, goFence{
-				file:    file,
-				line:    fenceStart,
-				content: fenceBody.String(),
-			})
-			inFence = false
-			continue
-		}
-		fenceBody.WriteString(line)
-		fenceBody.WriteByte('\n')
-	}
-	if err := scanner.Err(); err != nil {
-		t.Fatalf("scan %s: %v", file, err)
-	}
-	if inFence {
-		t.Fatalf("%s: unterminated ```go fence opened at line %d", file, fenceStart)
-	}
-	return fences
-}
 
 // findFFILibForDocs is the binding's library search (ALETHEIA_LIB, then
 // the build tree relative to the package), repeated here because the

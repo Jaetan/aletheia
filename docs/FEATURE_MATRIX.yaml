@@ -672,9 +672,12 @@ features:
       cpp:
         status: implemented
         entry: "aletheia/client.hpp#AletheiaClient"
-        notes: "2026-05-04 — Catch2 harness in cpp/tests/doc_example_tests.cpp walks tracked markdown, wraps each fence (3 shapes: full int main / #include + decls / body fragment with using-namespace globals), shells out to ${CMAKE_CXX_COMPILER} per fence, links against $<TARGET_FILE:aletheia-cpp> + yaml-cpp + OpenXLSX statics, and runs the binary. Companion structural gates ban `<!-- cpp notest -->` escapes and enforce a ≥6 collective minimum. The `AletheiaClient` entry parallels Python's `aletheia.AletheiaClient` and Go's `Client`."
+        notes: "2026-05-04 — Catch2 harness in cpp/tests/doc_example_tests.cpp reads every tracked Markdown file carrying a C++ fence (k_doc_files, held to the tree both ways; CHANGELOG.md and the Tutorial aside), wraps each fence (3 shapes: full int main / #include + decls / body fragment with using-namespace globals), shells out to ${CMAKE_CXX_COMPILER} per fence, links against $<TARGET_FILE:aletheia-cpp> + yaml-cpp + OpenXLSX statics, and runs the binary. Companion structural gates ban `<!-- cpp notest -->` escapes and enforce a ≥6 collective minimum. The `AletheiaClient` entry parallels Python's `aletheia.AletheiaClient` and Go's `Client`."
       go:
         status: implemented
         entry: Client
-        notes: "2026-05-04 — TestDocExamples in go/aletheia/doc_examples_test.go walks tracked markdown, wraps each fence as `package main` in a per-fence tempdir (with `replace`-directive go.mod), runs via `go run` with t.Parallel. Companion structural gate TestNoNotestGoFences bans `<!-- go notest -->` escapes — non-runnable fences must use the `text` info string. The `Client` entry parallels Python's `aletheia.AletheiaClient` — the runtime class doc fences exercise."
-      rust: { status: planned, notes: "Phase 6 — Rust doc-example gate, scheduled with the python-can replacement / host-surface work; a Phase 6 host-surface item, beyond the completed Rust parity work." }
+        notes: "2026-05-04 — TestDocExamples in go/aletheia/doc_examples_test.go reads every tracked Markdown file carrying a Go fence (docFiles in doc_files_test.go, held to the tree both ways; CHANGELOG.md aside), wraps each fence as `package main` in a per-fence tempdir (with `replace`-directive go.mod), runs via `go run` with t.Parallel. Companion structural gate TestNoNotestGoFences bans `<!-- go notest -->` escapes — non-runnable fences must use the `text` info string. The `Client` entry parallels Python's `aletheia.AletheiaClient` — the runtime class doc fences exercise."
+      rust:
+        status: implemented
+        entry: Client
+        notes: "rust/tests/doc_examples.rs builds every Rust fence of every tracked Markdown file carrying one (DOC_FILES, held to the tree both ways; CHANGELOG.md and the Tutorial aside) as a binary of one scratch crate and runs it against the kernel: a fence declaring fn main as it stands, any other inside a synthesised main under `use aletheia::*` with client, ts, id, dlc and data predeclared. The `Client` entry parallels Go's `Client`."

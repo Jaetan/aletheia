@@ -810,8 +810,8 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # in the tracked user-facing markdown files is extracted, wrapped,
     # compiled by ${CMAKE_CXX_COMPILER}, and executed end-to-end. Failing
     # fences (compile or runtime) report `file:Lline` precision through
-    # Catch2's DYNAMIC_SECTION. Skipped automatically when libaletheia-ffi.so
-    # is missing.
+    # Catch2's DYNAMIC_SECTION. The harness case skips when libaletheia-ffi.so
+    # is missing; the structural gates beside it need no library.
     #
     # The harness shells out to ${CMAKE_CXX_COMPILER} per fence rather than
     # treating fences as additional sources of this target — each fence
