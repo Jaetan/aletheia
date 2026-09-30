@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Repo-root conftest — harness for `pytest --markdown-docs`.
 
-Doc-example harness per AGENTS.md § Python Cat 32. Every ```python fence
-across the user-facing docs (README, docs/**, python/README.md,
-examples/README.md) is collected and executed end-to-end against the
-real FFI.
+Doc-example harness per AGENTS/python.md cat 32. Every Python fence of the
+documents ``DOC_EXAMPLE_DOCS`` names in ``tools/_ci_steps.py`` is collected
+and executed end-to-end against the real FFI.
 
 The fakes below paper over fake-path references (``vehicle.dbc``,
 ``drive.blf``, ``highway.asc``, ``vehicle_checks.xlsx``, ``checks.yaml``)

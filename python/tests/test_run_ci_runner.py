@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 from tools._ci_steps import (
     AGDA_GATES_STEP,
     AGDA_SHAKE_TARGETS,
+    DOC_EXAMPLE_DOCS,
     FAST_STEPS,
     HEAVY_STEPS,
     ROOT_PYTHON,
@@ -215,6 +216,24 @@ def test_every_tracked_python_file_is_read_by_all_three_linters(tmp_path: Path) 
         and not any(PurePosixPath(rel).is_relative_to(d) for d in (*under_package, *under_root))
     ]
     assert not unlinted, f"tracked Python no linter reads: {unlinted}"
+
+
+def test_the_doc_example_step_reads_exactly_the_harness_documents(tmp_path: Path) -> None:
+    """The doc-example step's document arguments are ``DOC_EXAMPLE_DOCS``, all of them and last.
+
+    A directory given beside the list, or a document spelled into the step
+    rather than into the list, runs fences the structural tests and the
+    documented command do not read.
+    """
+    runner = _runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    steps = {step.name: step for step in runner.registered_steps}
+    cmd = list(steps["pytest --markdown-docs"].cmd)
+    documents = [str(doc) for doc in DOC_EXAMPLE_DOCS]
+    assert cmd[-len(documents) :] == documents
+    # The argument before the documents is the last option's value, so nothing
+    # else is collected.
+    assert cmd[-len(documents) - 1] == "pythonpath=python/tests"
 
 
 def test_a_tracked_python_file_has_a_shebang_exactly_when_git_marks_it_executable() -> None:

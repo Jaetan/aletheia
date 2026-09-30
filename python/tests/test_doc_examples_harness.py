@@ -1,114 +1,90 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Cat 32 gate: every ``python`` fence in the published docs must run.
+"""Cat 32 gate: the doc-example harness runs every Python fence the docs carry.
 
-Per AGENTS.md § Python Cat 32 and the doc-example harness in the repo-root
-``conftest.py``, every ``python`` fenced code block across README plus the
-user-facing ``docs/**`` files is harvested by ``pytest --markdown-docs``
-and executed end-to-end against the real FFI. Pseudo-signatures and
-design-sketch fences (class-body shape, JSON return-value examples, etc.)
-must use the ``text`` fence language tag so they are invisible to the
-harness.
+``pytest --markdown-docs`` runs each Python fence of the documents
+``DOC_EXAMPLE_DOCS`` names (``tools/_ci_steps.py``) against the real FFI, with
+the repo-root ``conftest.py`` supplying the globals.  The CI step, the command
+AGENTS/python.md prints and these tests read that one list, and these tests
+hold it to the tree: every tracked Markdown file with a Python fence is on it,
+CHANGELOG.md aside, and every document on it is tracked, carries a Python fence
+and has every one of them run.
 
-This test is a structural invariant guard: it rejects ``python notest``
-tags anywhere in the documented surface, which would silently skip a
-doc example from the harness while still *looking* like a Python code
-block to a reader. If a fence is genuinely non-runnable, the contributor
-must change the language tag from ``python`` to ``text`` (or add a
-``continuation`` / ``fixture:<name>`` tag so it chains into a preceding
-runnable fence). The gate fails loudly on the first ``notest`` it finds.
-
-The companion invariant — that every runnable ``python`` fence actually
-passes — is enforced by ``pytest --markdown-docs`` itself; running that
-command is part of the AGENTS.md Python verification block.
+A fence that is not runnable is tagged ``text``: the plugin skips a
+``python notest`` fence while a reader still sees Python.  Whether a fence runs
+is the plugin's own call, ``extract_fence_tests`` over the parser it collects
+with, so a fence it skips for any reason fails here.
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import NewType
 
 import pytest
+from pytest_markdown_docs.plugin import extract_fence_tests, pytest_markdown_docs_markdown_it
 
-if TYPE_CHECKING:
-    from collections.abc import Iterator
+from tools._ci_steps import DOC_EXAMPLE_DOCS
+from tools._common import git_ls_files
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Canonical list of user-facing docs whose ``python`` fences run under
-# the markdown-docs harness. Keep this in sync with the list in AGENTS.md
-# § Python Cat 32 Verification. Adding a new user-facing doc means adding
-# it here AND to the AGENTS.md verification command line.
-DOC_FILES: tuple[str, ...] = (
-    "README.md",
-    "docs/PITCH.md",
-    "docs/guides/QUICKSTART.md",
-    "docs/guides/COOKBOOK.md",
-    "docs/reference/CLI.md",
-    "docs/architecture/CANCELLATION.md",
-    "docs/architecture/DESIGN.md",
-    "docs/architecture/PROTOCOL.md",
-    "docs/reference/PYTHON_API.md",
-    "docs/reference/INTERFACES.md",
-    "python/README.md",
-    "examples/README.md",
-)
+# The line a fence opens on, as the plugin numbers it.
+FenceLine = NewType("FenceLine", int)
 
-# Matches an opening fence whose info string starts with ``python``.
-# Captures (indent, options_after_python) so we can inspect the option
-# line — e.g. ``python notest`` → options == " notest".
-_PYTHON_FENCE_RE = re.compile(r"^(\s*)```python\b(.*)$")
+# The fence languages the plugin runs as Python, and the suffixes it reads as Markdown.
+_PYTHON_LANGUAGES = frozenset({"py", "python", "python3"})
+_MARKDOWN_PATHSPECS = ("*.md", "*.mdx", "*.svx")
+# Its fences describe past releases.
+_CHANGELOG = Path("CHANGELOG.md")
 
 
-def _iter_python_fences(text: str) -> Iterator[tuple[int, str]]:
-    """Yield ``(lineno, options)`` for every ``python`` opening fence.
-
-    ``options`` is the trailing portion of the info string after
-    ``python`` with leading/trailing whitespace stripped.
-    """
-    for lineno, line in enumerate(text.splitlines(), start=1):
-        m = _PYTHON_FENCE_RE.match(line)
-        if m:
-            yield lineno, m.group(2).strip()
-
-
-@pytest.mark.parametrize("doc_path", DOC_FILES)
-def test_no_notest_python_fences(doc_path: str) -> None:
-    """``python notest`` is banned — use ``text`` for non-runnable fences.
-
-    The harness sees every ``python`` fence; adding ``notest`` would
-    silently opt out without changing what a human reader perceives.
-    Pseudocode and class-body-shape fences must use ``text`` instead so
-    the intent (not runnable) is unambiguous in both harness and prose.
-    """
-    file = REPO_ROOT / doc_path
-    assert file.is_file(), f"doc file missing: {doc_path}"
-    offenders: list[tuple[int, str]] = []
-    for lineno, options in _iter_python_fences(file.read_text(encoding="utf-8")):
-        if re.search(r"\bnotest\b", options):
-            offenders.append((lineno, options))
-    assert not offenders, (
-        f"{doc_path} has ``python notest`` fences — switch the language tag to "
-        f"``text`` (or drop ``notest`` so the harness runs the block): "
-        f"{offenders!r}"
-    )
+def _python_fences(doc: Path) -> set[FenceLine]:
+    """Return the opening line of every fence in ``doc`` a reader takes for Python."""
+    tokens = pytest_markdown_docs_markdown_it().parse((REPO_ROOT / doc).read_text(encoding="utf-8"))
+    return {
+        FenceLine(token.map[0] + 1)
+        for token in tokens
+        if token.type == "fence"
+        and token.map
+        and (token.info.split() or [""])[0] in _PYTHON_LANGUAGES
+    }
 
 
-def test_every_doc_file_has_at_least_one_python_fence() -> None:
-    """Sanity: at least one of the tracked docs must ship a ``python`` fence.
+def _run_fences(doc: Path) -> set[FenceLine]:
+    """Return the opening line of every fence in ``doc`` the harness runs."""
+    return {
+        FenceLine(fence.start_line)
+        for fence in extract_fence_tests(
+            pytest_markdown_docs_markdown_it(),
+            (REPO_ROOT / doc).read_text(encoding="utf-8"),
+            start_line_offset=0,
+            source_path=REPO_ROOT / doc,
+            markdown_type=doc.suffix.removeprefix("."),
+        )
+    }
 
-    This guards against a mass rename (e.g. someone converting every
-    ``python`` to ``text`` during a refactor) that would silently remove
-    the doc-example surface. We don't require every individual file to
-    carry a fence — some docs are prose-heavy — but the collective set
-    must have live examples.
-    """
-    total = 0
-    for doc_path in DOC_FILES:
-        text = (REPO_ROOT / doc_path).read_text(encoding="utf-8")
-        total += sum(1 for _ in _iter_python_fences(text))
-    assert total >= 10, (
-        f"expected the doc-example harness to cover ≥10 ``python`` fences "
-        f"across the tracked docs, saw {total}"
+
+def test_every_tracked_python_fence_is_in_a_harness_document() -> None:
+    """Every tracked Markdown file with a Python fence is listed, CHANGELOG.md aside."""
+    listed = set(DOC_EXAMPLE_DOCS)
+    assert len(listed) == len(DOC_EXAMPLE_DOCS), "a document is listed twice"
+    unlisted = [
+        doc
+        for doc in map(Path, git_ls_files(REPO_ROOT, *_MARKDOWN_PATHSPECS))
+        if doc != _CHANGELOG and doc not in listed and _python_fences(doc)
+    ]
+    assert not unlisted, f"Python fences the harness does not run: {unlisted}"
+
+
+@pytest.mark.parametrize("doc", DOC_EXAMPLE_DOCS, ids=str)
+def test_the_harness_runs_every_python_fence_of_the_document(doc: Path) -> None:
+    """``doc`` is tracked and carries a Python fence, and the harness skips none of them."""
+    assert git_ls_files(REPO_ROOT, str(doc)) == [str(doc)], f"{doc} is listed and not tracked"
+    fences = _python_fences(doc)
+    assert fences, f"{doc} carries no Python fence, so the harness runs nothing in it"
+    skipped = sorted(fences - _run_fences(doc))
+    assert not skipped, (
+        f"{doc}: the harness skips the Python fences opening on lines {skipped}; "
+        "tag a fence that is not runnable ``text``"
     )
