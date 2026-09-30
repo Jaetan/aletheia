@@ -107,9 +107,9 @@ Consistency matters more than personal preference.
 After your initial build (see [BUILDING.md](docs/development/BUILDING.md)),
 run:
 
-```bash
+~~~bash
 tools/install_hooks.py
-```
+~~~
 
 This installs a blocking pre-commit gate (the FAST static tier plus the
 IWYU import gate on staged `.agda` files) and the correctness-blocking

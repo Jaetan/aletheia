@@ -37,7 +37,7 @@ This directory contains example DBC files and verification scripts demonstrating
 
 See [Building Guide](../docs/development/BUILDING.md) for build instructions.
 
-```bash
+~~~bash
 # Activate venv
 source python/.venv/bin/activate.fish  # fish
 # source python/.venv/bin/activate      # bash/zsh
@@ -52,7 +52,7 @@ python3 examples/demo/demo_all_interfaces.py
 
 # Streaming demos import sibling modules, so run them from examples/demo/
 cd examples/demo && python3 demo.py
-```
+~~~
 
 ## Example DBC Structure
 

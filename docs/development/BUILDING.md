@@ -38,12 +38,12 @@ Aletheia is built and tested against the **latest stable** compilers, currently 
 
 The build links against `libgmp` (arbitrary-precision arithmetic, through GHC's `ghc-bignum`; the Agda rationals lean on it heavily), and GHC needs `libncurses` / `libtinfo`. Install them before the language toolchains:
 
-```bash
+~~~bash
 sudo apt-get install libgmp-dev libncurses-dev   # Debian/Ubuntu (some releases also need libtinfo-dev)
 sudo dnf install gmp-devel ncurses-devel         # Fedora/RHEL
 sudo pacman -S gmp ncurses                        # Arch
 brew install gmp                                  # macOS
-```
+~~~
 
 A missing `libgmp` surfaces as `ld: cannot find -lgmp` at link time (see [Troubleshooting](#missing-libgmp-ld-cannot-find--lgmp)).
 
@@ -51,18 +51,18 @@ A missing `libgmp` surfaces as `ld: cannot find -lgmp` at link time (see [Troubl
 
 `tools/build_python.sh <version> <prefix>` builds CPython from the python.org source release and installs it into `<prefix>` with `make altinstall`. uv's prebuilt CPython lacks `os.pidfd_open`, which CPython compiles only where the build's kernel headers define that syscall, and its Tk has no Xft, so it draws only core X fonts; this build has neither gap. The script verifies the tarball's Sigstore signature against the release manager's identity, builds with clang-23 using PGO, LTO, the tail-calling interpreter and BOLT, fails when any stdlib module a Linux build can have is missing or does not import, and links tkinter against the system Tk 9.0. Its build dependencies as Debian packages, beyond the [system libraries](#system-libraries), with `cosign` on `PATH`:
 
-```bash
+~~~bash
 sudo apt-get install build-essential pkg-config clang-23 llvm-23 llvm-23-linker-tools bolt-23 \
   libbz2-dev libffi-dev libgdbm-dev libgdbm-compat-dev libdb-dev liblzma-dev libzstd-dev zlib1g-dev \
   libreadline-dev libsqlite3-dev libssl-dev uuid-dev libexpat1-dev libmpdec-dev libbluetooth-dev \
   systemtap-sdt-dev tcl9.0-dev tk9.0-dev libtommath-dev
-```
+~~~
 
 ### GHC (Glasgow Haskell Compiler)
 
 **Version**: 9.8.x recommended (9.8.4 known-good)
 
-```bash
+~~~bash
 # Using ghcup (recommended); 9.8.4 is the tested version, other 9.8.x should work
 curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
 ghcup install ghc 9.8.4
@@ -70,13 +70,13 @@ ghcup set ghc 9.8.4
 
 # Verify installation
 ghc --version
-```
+~~~
 
 ### Cabal
 
 **Version**: 3.16.1.0 (recommended)
 
-```bash
+~~~bash
 # Usually installed with ghcup
 ghcup install cabal 3.16.1.0
 ghcup set cabal 3.16.1.0
@@ -87,13 +87,13 @@ cabal update
 # Verify installation
 cabal --version
 # Should output: cabal-install version 3.16.1.0
-```
+~~~
 
 ### Agda
 
 **Version**: 2.8.0 (exact version required; MAlonzo code generation changed between versions, and the standard library 2.4 targets this release)
 
-```bash
+~~~bash
 # Install via cabal
 cabal install Agda-2.8.0
 
@@ -103,24 +103,24 @@ agda --version
 
 # Verify Agda is in PATH
 which agda
-```
+~~~
 
 **Note**: After installation, ensure `~/.cabal/bin` is in your PATH:
 
-```bash
+~~~bash
 # bash/zsh: Add to ~/.bashrc or ~/.zshrc
 export PATH="$HOME/.cabal/bin:$PATH"
 source ~/.bashrc  # or source ~/.zshrc
 
 # fish: Add to ~/.config/fish/config.fish
 fish_add_path ~/.cabal/bin
-```
+~~~
 
 ### Agda standard library
 
 **Version**: 2.4 (exact version required)
 
-```bash
+~~~bash
 # Clone the standard library
 mkdir -p ~/.agda
 cd ~/.agda
@@ -131,11 +131,11 @@ git checkout v2.4
 # Register the library with Agda
 echo "$HOME/.agda/agda-stdlib/standard-library.agda-lib" >> ~/.agda/libraries
 echo "standard-library" >> ~/.agda/defaults
-```
+~~~
 
 **Verify installation**:
 
-```bash
+~~~bash
 # Create test file
 cat > /tmp/test.agda <<EOF
 module test where
@@ -148,7 +148,7 @@ EOF
 cd /tmp
 agda test.agda
 # Should succeed with no errors
-```
+~~~
 
 **Troubleshooting Agda stdlib**:
 
@@ -159,32 +159,32 @@ agda test.agda
 
 **Minimum version: 3.14** (required by `python/pyproject.toml`: `requires-python = ">=3.14"`). The build tooling invokes `python3.14` for the dev venv, and the project uses 3.14-only syntax (PEP 758).
 
-```bash
+~~~bash
 # Check if Python is installed (must be 3.14+)
 python3.14 --version
 # Should output: Python 3.14.0 or higher
-```
+~~~
 
 **Installing Python 3.14 on Ubuntu 26.04+** (in apt, no PPA needed):
 
-```bash
+~~~bash
 sudo apt-get update
 sudo apt-get install python3.14 python3.14-venv python3.14-dev
-```
+~~~
 
 **Installing Python 3.14 on Ubuntu 24.04/22.04** (deadsnakes PPA required):
 
-```bash
+~~~bash
 sudo apt-get update
 sudo apt-get install software-properties-common
 sudo add-apt-repository ppa:deadsnakes/ppa
 sudo apt-get update
 sudo apt-get install python3.14 python3.14-venv python3.14-dev
-```
+~~~
 
 **Installing Python 3.14 on macOS**:
 
-```bash
+~~~bash
 # Using Homebrew
 brew install python@3.14
 
@@ -192,7 +192,7 @@ brew install python@3.14
 brew install pyenv
 pyenv install 3.14
 pyenv global 3.14
-```
+~~~
 
 On other systems, download from python.org.
 
@@ -200,10 +200,10 @@ On other systems, download from python.org.
 
 **Version**: 3.25+ required
 
-```bash
+~~~bash
 cmake --version
 # Should output: cmake version 3.25 or higher
-```
+~~~
 
 Only needed if building the C++ binding (`cpp/`). Not required for Agda/Python development.
 
@@ -211,10 +211,10 @@ Only needed if building the C++ binding (`cpp/`). Not required for Agda/Python d
 
 **Version**: 1.24+ required (the `go.mod` floor; the project tracks the latest stable Go, currently 1.26, per the [toolchain support policy](#toolchain-support-policy))
 
-```bash
+~~~bash
 go version
 # Should output: go version go1.24 or higher
-```
+~~~
 
 Only needed if building/testing the Go binding (`go/`). Not required for Agda/Python/C++ development.
 
@@ -222,9 +222,9 @@ Only needed if building/testing the Go binding (`go/`). Not required for Agda/Py
 
 **Version**: a Rust 2021-edition toolchain (`rustc` / `cargo`); CI runs the latest stable Rust.
 
-```bash
+~~~bash
 rustc --version && cargo --version
-```
+~~~
 
 Only needed if building/testing the Rust binding (`rust/`). Not required for Agda/Python/C++/Go development.
 
@@ -232,16 +232,16 @@ Only needed if building/testing the Rust binding (`rust/`). Not required for Agd
 
 ### Clone the repository
 
-```bash
+~~~bash
 git clone <repository-url>
 cd aletheia
-```
+~~~
 
 ### Set up the Python virtual environment
 
 Always use a virtual environment to avoid conflicts with system Python packages, and create it under `python/`: `run_ci.py`, the mutation/stability runners, and basedpyright's `venvPath` all resolve `python/.venv`.
 
-```bash
+~~~bash
 cd python
 python3.14 -m venv .venv
 
@@ -255,7 +255,7 @@ which python3
 # Upgrade pip in the virtual environment
 pip install --upgrade pip setuptools wheel
 cd ..  # back to the project root for the build steps below
-```
+~~~
 
 You need to activate the virtual environment every time you work on the project (`source python/.venv/bin/activate` from the project root; fish: `activate.fish`), and `deactivate` leaves it. **If you see `ModuleNotFoundError: No module named 'aletheia'`** when running tests or `python3 -m aletheia`, you likely forgot to activate the venv. When adding Python packages, update `python/pyproject.toml`; the `.venv/` directory is gitignored and never committed.
 
@@ -263,7 +263,7 @@ You need to activate the virtual environment every time you work on the project 
 
 The project uses [Shake](https://shakebuild.com/) as its build system. Shake is declared as a Cabal dependency in `shake.cabal` at the project root, so **no separate installation is needed**: `cabal run shake` fetches and builds Shake automatically on first use.
 
-```bash
+~~~bash
 # Ensure you're in the project root directory
 cd /path/to/aletheia
 
@@ -273,23 +273,23 @@ cabal run shake -- build
 # This will:
 # 1. Compile Agda sources to Haskell (MAlonzo)
 # 2. Build shared library via Cabal → build/libaletheia-ffi.so
-```
+~~~
 
 The build is incremental: how long a cold, a no-op and a one-module build take, and why the dependency graph makes that honest, is under [Incremental Builds](#incremental-builds) below.
 
 ### Verify the build
 
-```bash
+~~~bash
 # Verify the shared library was built
 ls -la build/libaletheia-ffi.so
 # Should show the shared library file
-```
+~~~
 
 ### Install the Python package
 
 With the virtual environment active:
 
-```bash
+~~~bash
 # Install Python package using Shake
 cabal run shake -- install-python
 
@@ -300,11 +300,11 @@ cd ..
 
 # Verify installation: prints the version python/pyproject.toml declares
 python3 -c "import aletheia; print(aletheia.__version__)"
-```
+~~~
 
 ### Run the tests
 
-```bash
+~~~bash
 # Python tests
 source python/.venv/bin/activate   # fish: source python/.venv/bin/activate.fish
 cd python && pip install -e ".[dev]"
@@ -324,7 +324,7 @@ cd ../rust && ALETHEIA_LIB=../build/libaletheia-ffi.so cargo test
 # Try an example
 cd ..
 python3 examples/simple_verification.py
-```
+~~~
 
 > **`ALETHEIA_LIB`** points a binding at the shared library when it is not on the loader path: required for the Rust `cargo test` above, and read first by the C++ real-FFI ctests and the Go tests, which otherwise fall back to the build tree (the Go tests skip the FFI cases when neither is found). Point it at `build/libaletheia-ffi.so`.
 
@@ -336,13 +336,13 @@ For deployment outside the git repository (Docker, CI/CD, shared servers), Aleth
 
 `patchelf` is required to patch the shared libraries' RPATH:
 
-```bash
+~~~bash
 sudo apt install patchelf      # Ubuntu/Debian
 # brew install patchelf        # macOS
 # sudo dnf install patchelf    # Fedora
-```
+~~~
 
-```bash
+~~~bash
 # Install to ~/.local (default)
 cabal run shake -- install
 
@@ -351,11 +351,11 @@ PREFIX=/opt/aletheia cabal run shake -- install
 
 # Install + add shell alias for activating the venv
 CONFIGURE_SHELL=1 cabal run shake -- install
-```
+~~~
 
 Installed layout:
 
-```
+~~~
 $PREFIX/
 ├── lib/aletheia/
 │   ├── libaletheia-ffi.so              # patched RPATH=$ORIGIN
@@ -364,11 +364,11 @@ $PREFIX/
 │   └── manifest.txt                    # for uninstall
 ├── share/doc/aletheia/                 # documentation
 └── share/aletheia/examples/            # example scripts
-```
+~~~
 
 Activate and use:
 
-```bash
+~~~bash
 # bash/zsh
 source ~/.local/lib/aletheia/venv/bin/activate
 python3 -c "from aletheia import AletheiaClient; print('OK')"
@@ -378,14 +378,14 @@ deactivate
 source ~/.local/lib/aletheia/venv/bin/activate.fish
 python3 -c "from aletheia import AletheiaClient; print('OK')"
 deactivate
-```
+~~~
 
 If you installed with `CONFIGURE_SHELL=1`, the `aletheia-env` alias activates the venv. Uninstall with the same prefix:
 
-```bash
+~~~bash
 cabal run shake -- uninstall                          # default prefix
 PREFIX=/opt/aletheia cabal run shake -- uninstall     # custom prefix
-```
+~~~
 
 For Docker deployment (Dockerfile, build commands, runtime image), see [DISTRIBUTION.md](DISTRIBUTION.md#docker).
 
@@ -393,9 +393,9 @@ For Docker deployment (Dockerfile, build commands, runtime image), see [DISTRIBU
 
 Aletheia's CI is local-first: a pre-push hook runs the full offline correctness sweep before allowing push (`tools/run_ci.py`), and a pre-commit hook runs the compile-free FAST gate tier on the staged content and the IWYU import gate on staged `.agda` files, refusing the commit on any failure. Install both with:
 
-```bash
+~~~bash
 tools/install_hooks.py
-```
+~~~
 
 Idempotent (safe to re-run; preserves any existing hooks by backing them up). After install:
 
@@ -406,16 +406,16 @@ Idempotent (safe to re-run; preserves any existing hooks by backing them up). Af
 
 Bypass either hook with `--no-verify` when needed (e.g. doc-only fixes that don't affect gates):
 
-```bash
+~~~bash
 git commit --no-verify   # skip the pre-commit FAST tier + IWYU gate
 git push   --no-verify   # skip pre-push CI sweep
-```
+~~~
 
 Both hooks are optional; the project is fully functional without them. They are strongly recommended for contributors because they catch many issues before they reach the maintainer's review. The sweep's gates, the IWYU gate among them, are described in [CI_LOCAL.md](CI_LOCAL.md).
 
 ## Common Build Commands
 
-```bash
+~~~bash
 # Always ensure you're in the project root
 cd /path/to/aletheia
 
@@ -434,7 +434,7 @@ cabal run shake -- docker             # Build Docker runtime image (requires dis
 cabal run shake -- clean              # Remove build artifacts, the Agda interfaces under _build/ included
 cabal run shake -- install            # System install (default: ~/.local)
 cabal run shake -- uninstall          # Remove system install
-```
+~~~
 
 ## Troubleshooting
 
@@ -444,7 +444,7 @@ cabal run shake -- uninstall          # Remove system install
 
 **Solution**: Recreate the venv with a supported Python version (3.14+):
 
-```bash
+~~~bash
 deactivate  # if already active
 cd python
 rm -rf .venv
@@ -453,17 +453,17 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install -e '.[all,dev]'
 cd ..
-```
+~~~
 
 **Error**: Python packages installed in wrong location
 
 **Solution**: Verify virtual environment is active:
 
-```bash
+~~~bash
 which python3
 # Should show: .../aletheia/python/.venv/bin/python3
 # NOT: /usr/bin/python3 or similar system path
-```
+~~~
 
 ### Agda Compilation Fails
 
@@ -471,10 +471,10 @@ which python3
 
 **Solution**: Ensure agda-stdlib is correctly registered:
 
-```bash
+~~~bash
 cat ~/.agda/libraries  # Should list path to standard-library.agda-lib
 cat ~/.agda/defaults   # Should contain "standard-library"
-```
+~~~
 
 ### Haskell Compilation Fails
 
@@ -482,10 +482,10 @@ cat ~/.agda/defaults   # Should contain "standard-library"
 
 **Solution**: Ensure Agda compilation succeeded first:
 
-```bash
+~~~bash
 cabal run shake -- build-agda
 ls build/MAlonzo/Code/Aletheia/Main.hs  # Should exist
-```
+~~~
 
 ### Python Can't Find Shared Library
 
@@ -493,10 +493,10 @@ ls build/MAlonzo/Code/Aletheia/Main.hs  # Should exist
 
 **Solution**: Build with Shake (produces `build/libaletheia-ffi.so`), then check what the loader resolves:
 
-```bash
+~~~bash
 cabal run shake -- build
 python3 -c "from aletheia.client._ffi import find_ffi_library; print(find_ffi_library())"
-```
+~~~
 
 ### Shake Module Not Found
 
@@ -516,10 +516,10 @@ python3 -c "from aletheia.client._ffi import find_ffi_library; print(find_ffi_li
 
 **Solution**: The C++ binding supports the **latest stable Clang only** (currently 23; see [Toolchain support policy](#toolchain-support-policy)), and g++ is not supported (the sanitizer lanes need clang's `-fsanitize-ignorelist`). It also needs a libstdc++/libc++ that provides C++23 (`<expected>`); older Clang may work but is unsupported. Check with:
 
-```bash
+~~~bash
 clang++-23 --version   # expect 23.x (latest stable)
 cmake -B cpp/build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
-```
+~~~
 
 **Error**: `cmake` reports missing `nlohmann/json` or `Catch2`
 
@@ -539,10 +539,10 @@ cmake -B cpp/build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 
 **Solution**: Point `ALETHEIA_LIB` at the built library:
 
-```bash
+~~~bash
 export ALETHEIA_LIB=/path/to/aletheia/build/libaletheia-ffi.so
 cd go && go test ./aletheia/ -v -count=1 -race
-```
+~~~
 
 ### MAlonzo Symbol Not Found at FFI Load Time
 
@@ -568,9 +568,9 @@ cd go && go test ./aletheia/ -v -count=1 -race
 
 **After adding or removing an Agda module**, regenerate the foreign library's MAlonzo module list and commit `aletheia.cabal`:
 
-```bash
+~~~bash
 cabal run shake -- gen-ffi-modules
-```
+~~~
 
 `aletheia.cabal`'s `foreign-library` lists every MAlonzo module between `-- BEGIN/END GENERATED MALONZO MODULES` markers so cabal tracks the real `.hs → .so` graph (otherwise its up-to-date check skips GHC and ships a stale `.so`). Drift is caught at build time, by GHC's `-Werror=missing-home-modules` (a module added but not listed) or cabal's "module not found" (a listed module removed), so a forgotten regen fails loudly; it never silently ships stale.
 
@@ -584,29 +584,29 @@ cabal run shake -- gen-ffi-modules
 
 For faster iteration when developing Agda code, type-check one module, with everything it imports, without generating Haskell:
 
-```bash
+~~~bash
 cd src
 agda +RTS -M16G -RTS Aletheia/Main.agda              # Check Main and all dependencies
 agda +RTS -M16G -RTS Aletheia/Protocol/Message.agda  # Check just Message module
-```
+~~~
 
 **Important**: Always use `+RTS -M16G -RTS` for ad-hoc type-checking. `-M16G` caps the heap and doubles as a runaway-elaboration tripwire on the memory-limited WSL2 host: without it a runaway elaboration OOM-kills the host instead of failing the build. The `16G` figure is a ceiling to size to your machine, not a constant: set it to what the host can spare, **no more than half of available RAM** is a good rule, so a runaway trips the cap and fails the build cleanly while the other half stays free for the OS. `-N` (parallel GHC) is optional: it gives no measured single-module speedup, even the heaviest modules (`StreamState.agda`, `Main.agda`) type-check in a few seconds at `-N1` and marginally slower at higher `-N`, so parallelism belongs at the whole-build level (Shake's `shakeThreads=0`), not per-module invocations. See AGENTS.md § Agda > Verification for the review-tightening (`-M4G`) variant.
 
 ### Verbose Build Output
 
-```bash
+~~~bash
 cabal run shake -- build -V   # Verbose output
 cabal run shake -- build -VV  # Very verbose (shows all commands)
-```
+~~~
 
 ### Clean Builds
 
 If you encounter strange errors, try a clean rebuild:
 
-```bash
+~~~bash
 cabal run shake -- clean
 cabal run shake -- build
-```
+~~~
 
 ## Platform-Specific Notes
 

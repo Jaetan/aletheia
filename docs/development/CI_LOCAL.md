@@ -126,9 +126,9 @@ edit in an UNCHANGED file) is caught by the periodic whole-tree
 
 Install both hooks (pre-commit + pre-push):
 
-```bash
+~~~bash
 tools/install_hooks.py
-```
+~~~
 
 Idempotent (safe to re-run; preserves any existing hooks by backing them
 up).  After install, every `git commit` runs the FAST tier and the IWYU
@@ -136,10 +136,10 @@ gate on the staged content, and every `git push` runs the full always-on
 sweep; all of it blocking.
 Bypass either hook with `--no-verify`:
 
-```bash
+~~~bash
 git commit --no-verify   # skip the pre-commit FAST tier + IWYU gate
 git push   --no-verify   # skip pre-push CI sweep (for incident response)
-```
+~~~
 
 ### Opt-in lanes
 
@@ -157,7 +157,7 @@ Precedence: **CLI flag > env var > default-off**.  `--full` enables every
 opt-in lane; `--no-<lane>` always wins (e.g. `--full --no-mutation` runs
 everything except mutation testing).
 
-```bash
+~~~bash
 # Always-on steps only (default; ~22-30 min, incl. both sanitizer ctest lanes)
 tools/run_ci.py
 
@@ -172,7 +172,7 @@ tools/run_ci.py --full --no-mutation
 
 # Legacy env-var trigger (still supported for back-compat)
 ALETHEIA_REPRO_CHECK=1 tools/run_ci.py
-```
+~~~
 
 The mutation lane is most expensive and is per-PR not per-commit; the
 other three are per-push-friendly when developers want extra coverage.
@@ -205,15 +205,15 @@ two clean Shake builds and `sha256sum`s the result).
 in the project's `[dev]` extras) for the Python harness; Go and C++
 harnesses use stdlib facilities only.  Install via:
 
-```bash
+~~~bash
 cd python && .venv/bin/pip install -e '.[dev]'
-```
+~~~
 
 **Mutation lane (`--mutation`)** — needs four tools (one per binding).
 See [`docs/operations/MUTATION.md`](../operations/MUTATION.md) for the
 full procedure including baseline-management; quick install:
 
-```bash
+~~~bash
 # Python: mutmut (~250 KB, pip-installable into the venv)
 cd python && .venv/bin/pip install -e '.[mutation]'
 
@@ -233,17 +233,17 @@ cargo install cargo-mutants --version 27.1.0 --locked
 
 # Verify all four are discoverable
 which mutmut gremlins mull-runner-23 cargo-mutants  # mutmut is in python/.venv/bin/
-```
+~~~
 
 **Coverage lane (`--coverage`)** — coverage.py comes with the `[dev]` extras
 and Go's tool with Go; the other two are `llvm-profdata-23` and `llvm-cov-23`,
 which the clang-23 package carries, and `cargo-llvm-cov` at the version
 `docs/COVERAGE_BENCH.yaml` pins, which the runner refuses at any other:
 
-```bash
+~~~bash
 rustup component add llvm-tools-preview
 cargo install cargo-llvm-cov --version 0.8.7 --locked
-```
+~~~
 
 See [`docs/operations/COVERAGE.md`](../operations/COVERAGE.md) for what each
 tool measures and how the record is re-taken.
@@ -279,7 +279,7 @@ permissions issues without consuming Actions minutes.
 
 ### Install
 
-```bash
+~~~bash
 # Linux / WSL
 curl -fsSL https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
 
@@ -288,7 +288,7 @@ brew install act
 
 # Verify
 act --version
-```
+~~~
 
 `act` requires Docker; verify with `docker run --rm hello-world`.
 
@@ -297,10 +297,10 @@ act --version
 `/home/nicolas/dev/agda/aletheia/.actrc` (committed) pins the runner image
 and architecture:
 
-```
+~~~
 -P ubuntu-latest=catthehacker/ubuntu:act-latest
 --container-architecture linux/amd64
-```
+~~~
 
 The `catthehacker/ubuntu:act-latest` image (~5 GB) is the act project's
 curated "medium" image — includes most common build tools without the
@@ -308,7 +308,7 @@ overhead of the "full" 18-GB image.
 
 ### Usage
 
-```bash
+~~~bash
 # Replay a push event on the current branch
 act push
 
@@ -323,7 +323,7 @@ act --dryrun
 
 # Specific workflow + job
 act -W .github/workflows/lint-actions.yml -j actionlint
-```
+~~~
 
 First run downloads the runner image (~5 GB); subsequent runs reuse it.
 
@@ -336,10 +336,10 @@ provides; treat `act` as an opt-in workflow-development tool.
 
 For a CI-style local replay, run both:
 
-```bash
+~~~bash
 tools/run_ci.py    # correctness gates (always-on sweep, ~22-30 min warm)
 act push           # GHA meta-gates (workflows, ~1-2 min)
-```
+~~~
 
 ## Troubleshooting
 
@@ -347,9 +347,9 @@ act push           # GHA meta-gates (workflows, ~1-2 min)
 
 Pull the image manually:
 
-```bash
+~~~bash
 docker pull catthehacker/ubuntu:act-latest
-```
+~~~
 
 ### `act` runs but a step fails with "command not found"
 
@@ -371,9 +371,9 @@ The pre-push hook runs the full always-on sweep (~22-30 min warm). If you need t
 push iteratively (e.g., a doc-only fix that doesn't affect gates), bypass
 with:
 
-```bash
+~~~bash
 git push --no-verify
-```
+~~~
 
 Only bypass when you understand why — the hook is the principal correctness
 gate. The gate-claim-integrity enforcer (`tools/check_gate_claim.py`) still

@@ -262,13 +262,13 @@ A cancelled context is observed at a frame boundary: the frames already processe
 
 The `cmd/aletheia` package is a host interface over `Client`, carrying the subcommands `python -m aletheia` carries: `validate`, `extract`, `signals`, `format-dbc`, `mux-query` and `template`. It is a module of its own in the `go/` workspace, since `template` writes through the Excel module and the core module stays free of excelize. It refuses `check` by name, which needs a CAN-log reader the binding does not provide. The dispatch is `run` in package `main`, exercised by `cmd/aletheia/main_test.go`.
 
-```bash
+~~~bash
 # From the go/ directory, which is where the workspace is:
 go run ./cmd/aletheia signals --dbc ../examples/example.dbc
 # The interface finds the built library from there. To point it elsewhere:
 ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so go run ./cmd/aletheia signals --dbc vehicle.dbc
 # Or build the binary once: go build -o aletheia-cli ./cmd/aletheia
-```
+~~~
 
 The `--dbc` and `--json` flags, and `$ALETHEIA_LIB` ahead of the build tree, are what every binding's interface does. The subcommands are documented in the [CLI Reference](CLI.md), and godoc carries every symbol: `go doc github.com/Jaetan/aletheia/go/v5/aletheia`.
 

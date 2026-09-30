@@ -126,13 +126,13 @@ In other words: Aletheia eliminates the class of bugs where "the signal extracti
 
 Aletheia uses a three-layer architecture:
 
-```
+~~~
 Python / C++ / Go / Rust (user-facing APIs, in-process)
    ↓ shared library, loaded in-process (no subprocess, no IPC)
 Haskell (thin FFI wrapper → libaletheia-ffi.so)
    ↓
 Agda (all logic + proofs, compiled via the MAlonzo backend)
-```
+~~~
 
 **Why these technologies?**
 
@@ -400,7 +400,7 @@ Phases 1 through 5.1 are complete and Phase 6 is in progress. All four binding s
 A release carries a signed bundle and native packages, which is the quickest way in; from source, start with a one-time build. Either way, the lowest-effort way to *use* Aletheia needs no code at all.
 
 **Step 1, build once from source:**
-```bash
+~~~bash
 git clone <repository>
 cd aletheia
 cabal run shake -- build            # one-time: compiles the verified core → libaletheia-ffi.so
@@ -409,20 +409,20 @@ python3 -m venv .venv
 source .venv/bin/activate        # fish: source .venv/bin/activate.fish
 pip install -e '.[can]'          # editable from source — there is no published wheel yet
 cd ..
-```
+~~~
 
 **Step 2, no code to write, just the CLI.** A matched sample set ships in `examples/demo/` (vehicle.dbc, vehicle_checks.yaml, drive.log), so this runs straight through:
-```bash
+~~~bash
 cd examples/demo
 aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
 # The sample drive speeds past its limit, so it exits 1.
 # exit 0 = all checks passed · 1 = violations (with timestamps) · 2 = error
-```
+~~~
 
 **Or script it in Python:**
-```bash
+~~~bash
 python3 examples/simple_verification.py
-```
+~~~
 
 See [BUILDING.md](development/BUILDING.md) for detailed instructions.
 

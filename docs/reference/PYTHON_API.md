@@ -639,9 +639,9 @@ Send a CAN frame for incremental checking.
 - `esi`: CAN-FD Error State Indicator (`None` on CAN 2.0B frames)
 
 **Returns** (acknowledged):
-```text
+~~~text
 {"status": "ack"}
-```
+~~~
 
 **Returns** (verdicts): A `property_batch` response — `{"type": "property_batch", "results": [...]}` — where each entry carries `status` (`fails`/`holds`/`unresolved`), `property_index`, `timestamp`, and (when checks are registered via `add_checks()`) an `enrichment` block with signal values and formula descriptions. See [Enriched Violations](#enriched-violations) for the full response schema.
 
@@ -713,9 +713,9 @@ warnings = response["warnings"]    # non-fatal diagnostics (usually empty)
 
 The `warnings` list carries non-fatal kernel diagnostics. The only kind today is `uncached_atom` — emitted when a property references a signal that never appeared in the trace, so it could not be evaluated against that signal:
 
-```text
+~~~text
 {"kind": "uncached_atom", "property_index": 2, "detail": "Speed"}
-```
+~~~
 
 New warning kinds are additive on the wire, so treat `kind` as an open string.
 
@@ -894,7 +894,7 @@ See [BENCHMARKS.md](../development/BENCHMARKS.md) for the benchmark suite (cross
 
 ### Signal
 
-```text
+~~~text
 # Numeric params are `int | Fraction` and REJECT float (the float principle).
 # For an exact decimal, pass `from_decimal("11.5")` or `Fraction("11.5")`.
 class Signal:
@@ -913,11 +913,11 @@ class Signal:
 
     # Stability (magnitude tolerance)
     def stable_within(self, tolerance: int | Fraction) -> Predicate
-```
+~~~
 
 ### Predicate
 
-```text
+~~~text
 class Predicate:
     # Temporal operators
     def always(self) -> Property        # G(p)
@@ -932,11 +932,11 @@ class Predicate:
     def or_(self, other: Predicate) -> Predicate
     def not_(self) -> Predicate
     def implies(self, other: Union[Property, Predicate]) -> Property
-```
+~~~
 
 ### Property
 
-```text
+~~~text
 class Property:
     # Logical operators
     def and_(self, other: Property) -> Property
@@ -955,7 +955,7 @@ class Property:
 
     # Serialization
     def to_dict(self) -> LTLFormula
-```
+~~~
 <!-- Pseudo-signatures above are intentionally class-body-shape, not runnable Python;
      see CLAUDE.md § Doc-example harness. -->
 
@@ -1061,7 +1061,7 @@ All Aletheia exceptions inherit from a common base class.  The kind hierarchy
 mirrors Go's `ErrorKind`, C++'s `ErrorKind`, and Rust's `Error` enum so callers
 can branch on the same conceptual error categories across all four bindings:
 
-```
+~~~
 AletheiaError (base)
 ├── FFIError                  # Library load / hs_init / FFI null pointer
 ├── StateError                # Wrong client lifecycle state (not initialized, no DBC, not streaming)
@@ -1069,7 +1069,7 @@ AletheiaError (base)
 ├── ValidationError           # Caller-supplied bad input (unknown signal, payload length, malformed CAN ID)
 ├── InputBoundExceededError   # Adversarial-input bound exceeded at a parser surface
 └── BatchError                # send_frames stopped mid-batch; carries .partial_results
-```
+~~~
 
 ```python
 from aletheia import (

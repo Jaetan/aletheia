@@ -201,10 +201,12 @@ extraPaths = ["."]
 
 # The doc-example harness ``../conftest.py`` imports the suite's canonical
 # signal from ``tests/`` (the harness runs with pytest's ``pythonpath`` set to
-# it), so its environment is that one file, with ``tests`` on the path.
+# it) and the parser it collects fences with from the repo-root ``tools``
+# package, so its environment is that one file, with ``tests`` and the repo root
+# on the path.
 [[tool.basedpyright.executionEnvironments]]
 root = "../conftest.py"
-extraPaths = [".", "tests"]
+extraPaths = [".", "tests", ".."]
 
 [tool.pylint.main]
 # Match AGENTS.md Python gate: pylint reports no message on ``aletheia/`` /
@@ -436,6 +438,7 @@ pytest_add_cli_args = [
     "--ignore=tests/test_check_docs.py",
     "--ignore=tests/test_check_no_review_marks.py",
     "--ignore=tests/test_check_refused_words.py",
+    "--ignore=tests/test_check_fence_marks.py",
     "--ignore=tests/test_check_no_memory_citations.py",
     "--ignore=tests/test_run_streaming.py",
     "--ignore=tests/test_run_guarded.py",

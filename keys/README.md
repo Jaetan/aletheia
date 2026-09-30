@@ -12,7 +12,7 @@ Per CICD-5.9: the tool the entire release-verification chain trusts must
 itself be fetched verifiably — sigstore publishes a signed
 `cosign_checksums.txt` alongside each release.
 
-```bash
+~~~bash
 COSIGN_VERSION=2.4.1
 COSIGN_SHA256=8b24b946dd5809c6bd93de08033bcf6bc0ed7d336b7785787c080f574b89249b
 curl -fsSLo /tmp/cosign \
@@ -20,7 +20,7 @@ curl -fsSLo /tmp/cosign \
 echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum -c -
 install -m 755 /tmp/cosign ~/.local/bin/cosign
 rm /tmp/cosign
-```
+~~~
 
 Refresh both `COSIGN_VERSION` and `COSIGN_SHA256` on version bumps; the
 canonical hash for each platform lives in upstream's
@@ -28,13 +28,13 @@ canonical hash for each platform lives in upstream's
 
 Then verify against the committed public key:
 
-```bash
+~~~bash
 cosign verify-blob \
   --key keys/cosign.pub \
   --signature dist/aletheia.tar.gz.sig \
   dist/aletheia.tar.gz
 # => Verified OK
-```
+~~~
 
 A non-zero exit means the tarball does **not** match the signature —
 treat that as supply-chain compromise, not a bug.
@@ -44,11 +44,11 @@ treat that as supply-chain compromise, not a bug.
 1. Back up the outgoing key, then generate a fresh keypair on the release
    host. **Choose a passphrase when prompted** — a passphrase-less key can
    sign from the file alone, so never generate one:
-   ```bash
+   ~~~bash
    cd ~/.config/aletheia
    mv cosign.key cosign.key.legacy && mv cosign.pub cosign.pub.legacy
    cosign generate-key-pair          # prompts for a passphrase (twice)
-   ```
+   ~~~
 2. Replace `keys/cosign.pub` in this repo with the new public key.
 3. Document the rotation in `CHANGELOG.md` under `### Security` and in the
    "Key history" section below.

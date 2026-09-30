@@ -190,7 +190,7 @@ Agent D must concretely:
 
 Each agent emits findings as one `## Category N: Name` section per category that has at least one finding, plus a single consolidated `## Coverage` section at the end listing every assigned category as `N covered` or `N skipped: <reason>`. Empty `## Category N: No findings.` blocks are no longer required (and are a token-efficiency violation if produced); silence on a category is interpreted as `covered, no findings` and is verified against the `## Coverage` table.
 
-```
+~~~
 ## Category N: Name
 Finding N.1: [file:line] description
 Finding N.2: [file:line] description
@@ -204,7 +204,7 @@ Finding G.1: [file:line] description
 - 3 covered
 - 4 covered (graduated; see memory/feedback_graduated_categories.md)
 - ...
-```
+~~~
 
 A `## Coverage` section that omits an assigned category is a procedure violation. A category listed as `skipped` must carry a reason (typically `graduated`, with a pointer to the graduated-set registry).
 

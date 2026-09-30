@@ -17,7 +17,7 @@ mutation lane is a per-PR signal, not per-commit (cost is high — 30 min to
 
 ## Architecture
 
-```
+~~~
 docs/MUTATION_BENCH.yaml           SSOT — per-binding tool, hot-path module list, baseline
 tools/check_mutation_setup.py      Static gate (offline, ~1 sec)
 tools/mutation_run.py              Dynamic runner (opt-in, ~30 min - 2 hours)
@@ -29,7 +29,7 @@ tools/mutation_rust.py             The Rust lane: cargo-mutants over a scratch c
 tools/mutation_report.py           The report and baseline shapes the lanes share
 tools/mutation_routes.py           The C++ kill-route census
 benchmarks/mutation/<short-sha>/   Per-commit JSON + raw tool logs (gitignored)
-```
+~~~
 
 The static gate (`tools/check_mutation_setup.py`) runs always-on
 (`check-mutation-setup`) in `tools/run_ci.py`; it fires when a hot-path
@@ -166,11 +166,11 @@ default `[dev]` extras.  Install once:
 
 ### Python — `mutmut`
 
-```bash
+~~~bash
 cd python
 .venv/bin/pip install -e '.[mutation]'
 .venv/bin/mutmut --version    # expect the version pyproject.toml pins
-```
+~~~
 
 The `[mutation]` extras section in `pyproject.toml` pins mutmut to one exact
 version, and that pin is the only place the version is written.  A range is
@@ -193,10 +193,10 @@ re-opens the row rather than counting silently.
 
 ### Go — `gremlins`
 
-```bash
+~~~bash
 go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
 which gremlins    # expect: ~/go/bin/gremlins
-```
+~~~
 
 `~/go/bin` should already be in `$PATH` — verify with `echo $PATH`.
 
@@ -205,10 +205,10 @@ which gremlins    # expect: ~/go/bin/gremlins
 
 ### Rust — `cargo-mutants`
 
-```bash
+~~~bash
 cargo install cargo-mutants --version 27.1.0 --locked
 cargo mutants --version    # expect the version docs/MUTATION_BENCH.yaml records
-```
+~~~
 
 The record pins the version exactly and the runner refuses any other, for the
 reason mutmut is pinned: two releases generate different mutant sets, and a
@@ -310,7 +310,7 @@ leaving a destructor ends the program. The probe
 `probes/cpp_tests_alloc_fault.cpp--the-json-document-cleanup-cannot-take-a-failed-allocation.sh`
 holds both halves of that.
 
-```bash
+~~~bash
 # System LLVM-23 + clang-23 (one-time; apt.llvm.org on Ubuntu, the archive on Debian).
 sudo apt install clang-23 llvm-23-dev libclang-23-dev
 
@@ -321,7 +321,7 @@ tools/build_mull.sh
 
 # Verify: a from-source build prints the unstamped banner.
 mull-runner-23 --version    # mull-runner {STABLE_MULL_VERSION}
-```
+~~~
 
 `mull-runner` / `mull-reporter` are Rust binaries; `mull-ir-frontend-23` is a
 C++ clang plugin `.so`.  The standard build (`cmake -B build`) also requires
@@ -351,18 +351,18 @@ Set `ALETHEIA_MUTATION_NO_DIFF_SCOPE=1` to sweep everything regardless.
 
 ### Via the orchestrator (recommended)
 
-```bash
+~~~bash
 tools/run_ci.py --mutation                 # always-on steps + mutation lane
 tools/run_ci.py --full                     # everything (san + repro + stability + mutation)
 ALETHEIA_MUTATION_CHECK=1 tools/run_ci.py  # legacy env-var trigger (still supported)
-```
+~~~
 
 Exit code 0 = lane clean; exit code 1 = drift gate failed (see
 `benchmarks/mutation/<short-sha>/summary.json` for the diagnostic).
 
 ### Per-binding directly
 
-```bash
+~~~bash
 # Python
 cd python && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so .venv/bin/mutmut run
 .venv/bin/mutmut results
@@ -392,38 +392,38 @@ ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_GO=1 ALETHEIA_MUTATION_SK
 # The kept sweep the probes read, of the trees as built, in the same
 # environment and with the same argv; it prints the directory holding it.
 python/.venv/bin/python -m tools.mutation_sweep_cache
-```
+~~~
 
 Per-binding skip env vars (useful for partial runs):
 
-```bash
+~~~bash
 ALETHEIA_MUTATION_SKIP_PYTHON=1   # skip Python lane only
 ALETHEIA_MUTATION_SKIP_GO=1       # skip Go lane only
 ALETHEIA_MUTATION_SKIP_CPP=1      # skip C++ lane only
 ALETHEIA_MUTATION_SKIP_RUST=1     # skip Rust lane only
-```
+~~~
 
 The C++ lane in stages, as CI runs it (unset, the runner sweeps every tree in
 one process and merges them itself):
 
-```bash
+~~~bash
 ALETHEIA_MUTATION_CPP_STAGE=leak    # sweep the leak tree alone; reports as cpp-leak, judges nothing
 ALETHEIA_MUTATION_CPP_STAGE=plain   # the plain tree likewise, as cpp-plain
 ALETHEIA_MUTATION_CPP_STAGE=address # the address tree likewise, as cpp-address
 ALETHEIA_MUTATION_CPP_STAGE=merge \
 ALETHEIA_MUTATION_CPP_LEGS=<dir>    # sweep nothing; merge the legs' reports found under <dir>
-```
+~~~
 
 ## Setting / updating a baseline
 
 After a clean run on `main`:
 
-```bash
+~~~bash
 ALETHEIA_MUTATION_CHECK=1 tools/run_ci.py
 cat benchmarks/mutation/<short-sha>/summary.json
 # Edit docs/MUTATION_BENCH.yaml: replace `survivors: null` with the observed count
 # Commit the YAML edit with rationale ("baseline established at <sha>; <N> survivors")
-```
+~~~
 
 A baseline regression (observed > baseline) MUST be addressed by:
 
@@ -463,7 +463,7 @@ fires with a precise diagnostic.
 
 ### Static gate (`tools/check_mutation_setup.py`)
 
-```bash
+~~~bash
 # Inject violation: rename a hot-path entry in YAML to a non-existent path.
 sed -i 's|aletheia/client/_client.py|aletheia/client/_NONEXISTENT.py|' \
     docs/MUTATION_BENCH.yaml
@@ -474,11 +474,11 @@ python/.venv/bin/python -m tools.check_mutation_setup
 git checkout docs/MUTATION_BENCH.yaml
 python/.venv/bin/python -m tools.check_mutation_setup
 # Expect: exit 0, naming every hot-path source present.
-```
+~~~
 
 ### Drift gate (per binding)
 
-```bash
+~~~bash
 # Set baseline to 0 in YAML for one binding.
 # Inject a survivor by replacing an assertion with a tautology
 # (e.g. `assert x == 1` -> `assert x == x`).
@@ -490,7 +490,7 @@ ALETHEIA_MUTATION_CHECK=1 tools/run_ci.py
 git checkout python/aletheia/client/_client.py docs/MUTATION_BENCH.yaml
 ALETHEIA_MUTATION_CHECK=1 tools/run_ci.py
 # Expect: exit 0.
-```
+~~~
 
 ## CI wiring
 

@@ -84,14 +84,14 @@ their Go/C++ counterparts.
 
 ### Verification
 
-```bash
+~~~bash
 cd rust && cargo fmt --check
 cd rust && cargo clippy --all-targets -- -D warnings
 cd rust && cargo test
 cd rust && cargo test --no-default-features          # yaml/async features off
 cd rust && cargo test --features async               # async client surface
 cd rust && cargo doc --no-deps                        # rustdoc warnings are findings
-```
+~~~
 
 The `cargo test` battery includes the doc-example harness
 (`rust/tests/doc_examples.rs`): every ```rust fence of the documents
@@ -101,10 +101,15 @@ coverage run's instrumentation, and run against the kernel. A fence declaring
 `fn main` is a program as it stands; any other runs inside a synthesised
 `main` returning `Result<(), aletheia::Error>` under `use aletheia::*`, with
 `client` (the minimal corpus DBC parsed), `ts`, `id`, `dlc` and `data`
-predeclared. A fence that cannot run takes the `text` info string.
+predeclared. The Rust fences of a document `PATH_DOCS` lists (the Tutorial's
+Rust path) are one program cut into steps, joined in order and run whole. A
+fence that cannot run opens with tildes, which the extractor does not read.
 `DOC_FILES` names every tracked Markdown file carrying a Rust fence, less the
-ones `UNRUN_DOCS` names with its reason, and two structural gates hold it to
-the tree both ways, the way the Python harness's list is held.
+ones `PATH_DOCS` names, and two structural gates hold the lists to the tree
+both ways, the way the Python harness's list is held. A third refuses
+a Rust fence hidden behind a suffixed info word (`rust,ignore`, which a reader
+takes for Rust and the extractor neither runs nor counts), and a fourth holds a
+floor under the number of Rust fences the listed documents carry together.
 
 `rust/tests/feature_matrix.rs` is the cross-binding parity gate: it parses
 `docs/FEATURE_MATRIX.yaml` and, for every row marked `implemented` on the `rust`

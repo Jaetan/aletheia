@@ -16,11 +16,11 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - **Single Python venv**: exactly one, at `python/.venv` (Python 3.14). Run every Python gate via `python/.venv/bin/...` (never system `python3`). Never create a second venv (e.g. a repo-root `.venv`). Enforced by `tools/check_venv_convention.py` (a `run_ci.py` gate); the rule's canonical statement is in [AGENTS.md § Universal Rules](AGENTS.md#universal-rules-all-languages).
 - **Optional GHA toolchain** (for `tools/run_ci.py` GHA meta-checks + local `act` pairing — see [docs/development/CI_LOCAL.md](docs/development/CI_LOCAL.md)):
   - `actionlint` — workflow YAML lint. Install:
-    ```bash
+    ~~~bash
     ACTIONLINT_VERSION=1.7.7
     curl -fsSLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
     sudo tar xzf "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" -C /usr/local/bin actionlint
-    ```
+    ~~~
   - `act` — local GHA replay. Install: `curl -fsSL https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash`. Requires Docker.
 - **Optional mutation-testing toolchain** (for `tools/run_ci.py --mutation` / `ALETHEIA_MUTATION_CHECK=1` — see [docs/operations/MUTATION.md](docs/operations/MUTATION.md)):
   - **Python**: `mutmut` 3.x via `python/.venv/bin/pip install -e 'python/.[mutation]'` (the `[mutation]` extras pin mutmut exactly, because a mutation baseline is a measured count and its generator cannot float).
@@ -30,9 +30,9 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
   Each tool's absence is auto-detected by the mutation runner (per-binding skip-with-precise-error); the orchestrator's static gate `tools/check_mutation_setup.py` runs always-on regardless of tool install state.
 
 **Type-check command** (always cap heap):
-```bash
+~~~bash
 /home/nicolas/.cabal/bin/agda +RTS -M16G -RTS src/Aletheia/YourModule.agda
-```
+~~~
 - `-M16G`: heap cap; prevents runaway elaboration on the memory-limited WSL2 host. Doubles as a tripwire — bump only when a specific module legitimately needs it. This is the load-bearing flag.
 - `-N` (parallel GHC) is optional and gives no measured single-module speedup — even the heaviest modules (Protocol/StreamState.agda, Main.agda) type-check in a few seconds at `-N1`, slightly slower at higher `-N`. Parallelism pays off at the whole-build level (Shake's `shakeThreads=0`), not per module.
 - First build compiles stdlib (~20s, cached thereafter).
@@ -74,9 +74,9 @@ When the user's message is just `REL` (case-insensitive, no other content), inte
 ### Agda Module Requirements (MANDATORY)
 
 Every Agda module MUST start with:
-```agda
+~~~agda
 {-# OPTIONS --safe --without-K #-}
-```
+~~~
 
 - `--safe`: no postulates, no unsafe primitives, no non-terminating recursion.
 - `--without-K`: HoTT compatibility (no Streicher's K).
@@ -96,7 +96,7 @@ No modules require `--sized-types`. Run `cabal run shake -- count-modules` for t
 
 See [Building Guide](docs/development/BUILDING.md). Quick reference:
 
-```bash
+~~~bash
 # Type-check a single module
 cd src && agda +RTS -M16G -RTS Aletheia/YourModule.agda
 
@@ -125,7 +125,7 @@ cd go && go test ./aletheia/ -v -count=1 -race
 bash benchmarks/run_all.sh --frames 10000 --runs 10 --bench throughput
 bash benchmarks/run_all.sh --frames 10000 --warmup 500 --bench latency
 bash benchmarks/run_all.sh --runs 10 --bench scaling
-```
+~~~
 
 ## Architecture
 
@@ -196,14 +196,14 @@ When stdlib operators clash, use **subscript suffix** for consistency:
 - List: `_++ₗ_`
 - Rational: `_+ᵣ_`, `_*ᵣ_`, `_-ᵣ_`, `_≤ᵣ_`
 
-```agda
+~~~agda
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.List using (List) renaming (_++_ to _++ₗ_)
 open import Data.Rational using () renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_)
 
 result   = "hello" ++ₛ "world"
 combined = list1 ++ₗ list2
-```
+~~~
 
 Underscores are invisible in infix usage but remain when passing operators as parameters (e.g., `foldr _++ₛ_ ""`).
 

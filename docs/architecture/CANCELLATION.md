@@ -65,12 +65,12 @@ The two clients share the same underlying `StablePtr` to the Agda `StreamState`,
 
 Go's cancellation idiom is `context.Context`, and Aletheia threads it through every operation method on the `Client`. The convention follows the standard library: `ctx context.Context` is the first parameter of every method that does work.
 
-```text
+~~~text
 func (c *Client) SendFrame(ctx context.Context,
                             ts Timestamp, id CANID, dlc DLC, data FramePayload,
                             brs, esi *bool,
                           ) (FrameResponse, error)
-```
+~~~
 
 `brs` and `esi` carry the CAN-FD Bit Rate Switch and Error State Indicator
 (ISO 11898-1:2015 §10.4.2/3); pass `nil` for both on CAN 2.0B frames.
@@ -87,13 +87,13 @@ Errors from cancellation are wrapped with caller context: `fmt.Errorf("send_fram
 
 C++'s cancellation idiom is `std::stop_token` (paired with `std::stop_source` and, when threading is in play, `std::jthread`). Aletheia threads `std::stop_token` through every operation method on `AletheiaClient`, as the first parameter:
 
-```text
+~~~text
 auto send_frame(std::stop_token stop,
                 Timestamp ts, CanId id, Dlc dlc,
                 std::span<const std::byte> data,
                 std::optional<bool> brs = std::nullopt,
                 std::optional<bool> esi = std::nullopt) -> Result<FrameResponse>;
-```
+~~~
 
 `brs` and `esi` carry the CAN-FD Bit Rate Switch and Error State Indicator
 (ISO 11898-1:2015 §10.4.2/3); default to `std::nullopt` for CAN 2.0B frames.
@@ -265,7 +265,7 @@ What the contract guarantees here:
 
 A worker thread that streams frames from a producer queue, cancellable from outside via the `std::jthread` interface. Sketch — references `FrameProducer`, `properties_path`, `handle_error`, and `log_committed_count` as caller-supplied surface; not a self-contained runnable example.
 
-```text
+~~~text
 #include <stop_token>
 #include <thread>
 #include <queue>
@@ -309,7 +309,7 @@ std::jthread worker(streaming_worker, std::ref(client), std::ref(producer));
 // ...later, to cancel:
 worker.request_stop();    // sets the stop_token; thread cleans up at next checkpoint
 worker.join();
-```
+~~~
 
 What the contract guarantees here:
 

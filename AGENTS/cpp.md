@@ -99,7 +99,7 @@ Scope: ALL source files, headers, and test files in `cpp/`.
 
 ### Verification
 
-```bash
+~~~bash
 cd cpp && cmake -B build && cmake --build build && ctest --test-dir build
 cd cpp && ctest --test-dir build --schedule-random --output-on-failure
 # The format gate lists tracked sources from the repository root, because two
@@ -115,7 +115,7 @@ cd cpp && cmake -B build-asan -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-fsa
 # there rather than copying it, because a second copy drifts from the flags.
 
 cd cpp && cmake --build build --target cross_binding_integration_tests && ctest --test-dir build -R cross_binding
-```
+~~~
 
 The `ctest` battery includes the doc-example harness
 (`doc_example_tests`). It extracts every ```cpp fence from the documents
@@ -125,12 +125,15 @@ an `#include` block with declarations, or a body fragment under
 `data` and `frames` predeclared), compiles it with `${CMAKE_CXX_COMPILER}`
 against `$<TARGET_FILE:aletheia-cpp>`, and runs it. That target is a shared
 library, so the link carries an `-Wl,-rpath` to the directory holding it and
-the fence can load it. The companion structural gates ban
-`<!-- cpp notest -->` annotations and hold a collective fence floor, so a
-non-runnable fence uses the `text` info string, mirroring the Python and Go
-ban. `k_doc_files` in `cpp/tests/doc_example_tests.cpp` names every tracked
-Markdown file carrying a C++ fence, less the ones `k_unrun_docs` names with
-its reason, and two more structural gates hold it to the tree both ways, the
+the fence can load it. The C++ fences of a document `k_path_docs` lists (the
+Tutorial's C++ path) are one program cut into steps, joined in order, compiled
+and run whole. The companion structural gates refuse a C++ fence hidden behind
+a suffixed info word (`cpp,x`, which a reader takes for C++ and the extractor
+neither runs nor counts) and hold a collective fence floor; a fence that
+cannot run opens with tildes, which the extractor does not read, as in the
+other three bindings. `k_doc_files` in `cpp/tests/doc_example_tests.cpp` names
+every tracked Markdown file carrying a C++ fence, less the ones `k_path_docs`
+names, and two more structural gates hold the lists to the tree both ways, the
 way the Python harness's list is held: a document that gains a C++ fence fails
 the suite until it is listed, and a listed one that is untracked or carries
 none fails it too. The harness skips itself when `libaletheia-ffi.so` is

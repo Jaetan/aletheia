@@ -135,11 +135,11 @@ code, so it cannot live in this repo.
 Configure the rules in the UI (the rules payload is verbose over the API), then
 flip enforcement on the existing `main` ruleset:
 
-```sh
+~~~sh
 gh api repos/Jaetan/aletheia/rulesets            # list → note the `main` ruleset id
 gh api -X PUT repos/Jaetan/aletheia/rulesets/<id> \
   -H "Accept: application/vnd.github+json" -f enforcement=active
-```
+~~~
 
 The rulesets-API value `active` is what the UI labels **Enabled** (`disabled` =
 **Disabled**; a third API value `evaluate` — dry-run / log-only — exists but is

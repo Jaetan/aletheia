@@ -63,10 +63,10 @@ Read the accumulated `## [Unreleased]` notes and pick `X.Y.Z` by
 `main` is protected (the ruleset requires `tools/run_ci.py (all gates)` +
 `mutation testing`), so the version bump **cannot** be committed straight to
 `main`. Branch first:
-```bash
+~~~bash
 git switch main && git fetch origin main && git merge --ff-only origin/main
 git switch -c chore/prepare-vX.Y.Z
-```
+~~~
 **Gate:** on a fresh branch off an up-to-date `main`.
 
 ### 2. Bump every version stamp
@@ -75,7 +75,7 @@ Hand-edit the version in the package-metadata files, then refresh the
 `Cargo.lock` local-package entries (`rust/` and `rust/excel/`, below). These
 package files, plus the doc strings noted just below, are the version mentions
 you hand-edit; everything else derives from them.
-```bash
+~~~bash
 # 3-part "X.Y.Z":
 #   python/pyproject.toml      version = "X.Y.Z"
 #   cpp/CMakeLists.txt         project(aletheia-cpp VERSION X.Y.Z ...)
@@ -86,7 +86,7 @@ you hand-edit; everything else derives from them.
 #   shake.cabal                    version: X.Y.Z.0
 cargo update -p aletheia --manifest-path rust/Cargo.toml
 cargo update -p aletheia -p aletheia-excel --manifest-path rust/excel/Cargo.toml
-```
+~~~
 Also bump the version strings in the docs: the `**Version**:` field and
 `**Last Updated**:` in [`DISTRIBUTION.md`](DISTRIBUTION.md), its native-package
 example, and the `# Should output: X.Y.Z` line in [`BUILDING.md`](BUILDING.md).
@@ -97,9 +97,9 @@ CycloneDX SBOM read the version from `haskell-shim/aletheia.cabal`; the
 Python's `aletheia.__version__` reads the installed package metadata (pyproject);
 Go derives its version from the git tag. Confirm nothing was missed with the
 **previous** version string:
-```bash
+~~~bash
 rg -n -e '<old X.Y.Z>' -e '\bv<old X>\b'   # expect only CHANGELOG history + intentional prose
-```
+~~~
 **Gate:** no stray occurrence of the previous version outside `CHANGELOG.md`
 history and deliberate prose.
 
@@ -120,7 +120,7 @@ diff of the old vs new section.
 The version bump rebuilds `libaletheia-ffi.so` with the new version string, which
 stales any prior `~/.local/lib/aletheia/` install and `dist/` tree — the pre-push
 `check-install-freshness` gate fails until they are refreshed:
-```bash
+~~~bash
 cabal run shake -- build      # -> "Shared library created ... (from aletheia-X.Y.Z.0)"
 cabal run shake -- install
 cabal run shake -- dist
@@ -128,7 +128,7 @@ cabal run shake -- dist
 python/.venv/bin/pip install -e python/. --quiet
 python/.venv/bin/python3 -c 'import aletheia; print(aletheia.__version__)'   # X.Y.Z
 python/.venv/bin/python3 -m aletheia --version                              # aletheia X.Y.Z
-```
+~~~
 **Gate:** `.so` reports `aletheia-X.Y.Z.0`; `__version__` and the CLI report `X.Y.Z`.
 
 ### 5. Run the release gates
@@ -161,11 +161,11 @@ Run the release workflow WITHOUT publishing. This is the cheapest insurance for 
 release, and it is **not optional**: `release.yml`'s `dist → sign → self-verify →
 bundle-validate → package → smoke → image` path runs **only** on a tag push or a
 `workflow_dispatch`, so a fully-green PR can still hide a broken release pipeline.
-```bash
+~~~bash
 gh workflow run release.yml --ref main
 gh run watch "$(gh run list --workflow=release.yml --branch main \
   --event workflow_dispatch -L1 --json databaseId -q '.[0].databaseId')" --exit-status
-```
+~~~
 Only its publish steps are `if: github.event_name == 'push'`-guarded, so a
 dispatch executes the entire pipeline minus publish — a faithful dry-run. Fix any
 failure and **re-dispatch until green** (each dispatch also exercises steps a
@@ -179,11 +179,11 @@ inherent to a first release).
 
 Tag the **squashed `main` commit** from step 6 (not the pre-merge branch tip),
 signed; tag creation is admin-only (an admin bypass line on push is expected):
-```bash
+~~~bash
 git tag -s vX.Y.Z -m "Aletheia vX.Y.Z"
 git tag -s go/vX.Y.Z -m "Aletheia Go module vX.Y.Z"
 git push origin vX.Y.Z go/vX.Y.Z
-```
+~~~
 The second tag is what makes the Go module fetchable at that version: the
 module lives in `go/`, and Go looks for a tag carrying that directory's prefix,
 so a consumer requiring `github.com/Jaetan/aletheia/go/v5 vX.Y.Z` resolves
@@ -208,7 +208,7 @@ still succeeded and is recoverable.)
 Before flipping public, download the DRAFT's **actual** assets and verify them
 exactly as a downloader would — integrity + keyless provenance against the tag
 identity (this is the first exercise of the `@refs/tags/vX.Y.Z` identity):
-```bash
+~~~bash
 gh release download vX.Y.Z --pattern 'aletheia.tar.gz*'
 sha256sum -c aletheia.tar.gz.sha256
 cosign verify-blob --certificate aletheia.tar.gz.crt --signature aletheia.tar.gz.sig \
@@ -216,7 +216,7 @@ cosign verify-blob --certificate aletheia.tar.gz.crt --signature aletheia.tar.gz
     '^https://github\.com/Jaetan/aletheia/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   aletheia.tar.gz
-```
+~~~
 Do the same for the `.deb`/`.rpm`, and `cosign verify` the image (see
 [Verifying release artifacts](#verifying-release-artifacts-consumer-side)).
 Optionally set the Release notes from the `[X.Y.Z]` CHANGELOG section
@@ -260,7 +260,7 @@ line existed before step 9.
 
 ### CI release (default) — push a tag
 
-```bash
+~~~bash
 # After bumping versions + CHANGELOG (see the checklist), tag and push:
 git tag -s vX.Y.Z -m "Aletheia vX.Y.Z"
 git push origin vX.Y.Z
@@ -269,11 +269,11 @@ git push origin vX.Y.Z
 #
 # Dry-run the whole pipeline WITHOUT publishing (build + sign + self-verify):
 #   gh workflow run release.yml     # or the Actions tab → Release → Run workflow
-```
+~~~
 
 ### Local release (fallback) — cut by hand
 
-```bash
+~~~bash
 # Cut a signed release distribution (~2 min cold):
 export ALETHEIA_COSIGN_KEY=$HOME/.config/aletheia/cosign.key
 export COSIGN_PASSWORD=...                       # from your keyring / secret-manager
@@ -293,7 +293,7 @@ cosign verify-blob \
   --key keys/cosign.pub \
   --signature dist/aletheia.tar.gz.sig \
   dist/aletheia.tar.gz
-```
+~~~
 
 ## Release-path bundle validation
 
@@ -390,13 +390,13 @@ passed.
 
 Consumers verify the image against the workflow identity:
 
-```bash
+~~~bash
 cosign verify \
   --certificate-identity-regexp \
     '^https://github\.com/Jaetan/aletheia/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   ghcr.io/jaetan/aletheia:X.Y.Z
-```
+~~~
 
 `cosign verify` resolves the tag to its digest and verifies the signature
 over that digest; pin the digest in your own `FROM`/`COPY --from`
@@ -419,12 +419,12 @@ the rule in AGENTS.md § Universal Rules.
 The gate is **not in the default `tools/run_ci.py` battery** because
 it costs two cold builds (~10 min wall-clock).  Run it on demand:
 
-```bash
+~~~bash
 tools/check_reproducible_build.py
 
 # Or with --keep-artifacts to retain the temp dir for forensic diff:
 tools/check_reproducible_build.py --keep-artifacts
-```
+~~~
 
 Empirically verified: same-host `libaletheia-ffi.so` is bit-identical
 across two clean builds without any reproducibility flags (sha256
@@ -464,7 +464,7 @@ short-lived cert is only verifiable via its log entry).
 
 Consumers verify against the **workflow identity**, not a public key:
 
-```bash
+~~~bash
 cosign verify-blob \
   --certificate aletheia.tar.gz.crt \
   --signature aletheia.tar.gz.sig \
@@ -472,7 +472,7 @@ cosign verify-blob \
     '^https://github\.com/Jaetan/aletheia/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   aletheia.tar.gz
-```
+~~~
 
 The exact command for any given artifact is embedded in its `MANIFEST.txt`
 (the `shake dist` mode-aware verify block), so it always matches how that
@@ -486,21 +486,21 @@ The key-based path below is the **local fallback** (see "Release paths").
 
 The cosign keypair lives outside the repo.  Canonical paths:
 
-```bash
+~~~bash
 mkdir -p ~/.config/aletheia
 cd ~/.config/aletheia
 COSIGN_PASSWORD="<choose a passphrase>" cosign generate-key-pair
 
 cp cosign.pub /path/to/aletheia/keys/cosign.pub   # commit to repo
 # cosign.key stays at ~/.config/aletheia/cosign.key, never committed
-```
+~~~
 
 Set environment variables persistently (e.g., `~/.config/fish/conf.d/aletheia.fish`):
 
-```fish
+~~~fish
 set -gx ALETHEIA_COSIGN_KEY $HOME/.config/aletheia/cosign.key
 # Set COSIGN_PASSWORD via your secret-manager of choice — never hard-code.
-```
+~~~
 
 ### Per-release sign+verify
 
@@ -510,13 +510,13 @@ behaviour skips Rekor tlog upload (`--tlog-upload=false`) so dev
 iteration doesn't push every artifact hash to a public log.  For an
 actual release, opt back in:
 
-```bash
+~~~bash
 ALETHEIA_COSIGN_TLOG=1 cabal run shake -- dist
-```
+~~~
 
 Verify:
 
-```bash
+~~~bash
 # Local dev (signed without tlog → consumer must skip tlog check):
 cosign verify-blob \
   --insecure-ignore-tlog \
@@ -529,7 +529,7 @@ cosign verify-blob \
   --key keys/cosign.pub \
   --signature dist/aletheia.tar.gz.sig \
   dist/aletheia.tar.gz
-```
+~~~
 
 A non-zero exit means the tarball does **not** match the signature —
 treat that as supply-chain compromise, not a tooling bug.
@@ -540,7 +540,7 @@ Single Go binary; no system package needed.  Per CICD-5.9, the tool the
 release-verification chain trusts must itself be fetched verifiably —
 sigstore publishes a signed `cosign_checksums.txt` alongside each release:
 
-```bash
+~~~bash
 COSIGN_VERSION=2.4.1
 COSIGN_SHA256=8b24b946dd5809c6bd93de08033bcf6bc0ed7d336b7785787c080f574b89249b
 curl -fsSLo /tmp/cosign \
@@ -548,7 +548,7 @@ curl -fsSLo /tmp/cosign \
 echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum -c -
 install -m 755 /tmp/cosign ~/.local/bin/cosign
 rm /tmp/cosign
-```
+~~~
 
 Pin matches `keys/README.md`.  Refresh both files together when bumping
 cosign — the canonical hash for each platform lives in upstream's
@@ -580,7 +580,7 @@ Output path inside the tarball: `aletheia/aletheia-sbom.cdx.json`.
 
 ## Verifying release artifacts (consumer side)
 
-```bash
+~~~bash
 # 1. Fetch the tarball + sidecars from the GitHub Release.  Replace vX.Y.Z with
 #    the tag (or use .../releases/latest/download/<file> for the newest).
 BASE=https://github.com/Jaetan/aletheia/releases/download/vX.Y.Z
@@ -616,7 +616,7 @@ tar -xOzf aletheia.tar.gz aletheia/aletheia-sbom.cdx.json | jq .
 
 # 5. Inspect the toolchain manifest
 tar -xOzf aletheia.tar.gz aletheia/MANIFEST.txt
-```
+~~~
 
 The native packages verify with the **same recipe** — substitute the
 package file name for `aletheia.tar.gz` (each has its own `.sha256`,

@@ -19,7 +19,7 @@ import glob, json, re, sys
 
 doc = "docs/development/BENCHMARKS.md"
 text = open(doc, encoding="utf-8").read()
-prose = re.sub(r"```.*?```", "", text, flags=re.S)
+prose = re.sub(r"(```|~~~).*?\1", "", text, flags=re.S)
 prose = re.sub(r"`[^`]*`", "", prose)
 bad = []
 if "`system` object" not in text:

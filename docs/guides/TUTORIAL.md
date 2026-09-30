@@ -26,9 +26,9 @@ Define checks in a spreadsheet, run them from the command line. No Python coding
 
 The spreadsheet route needs the `[excel]` extra (`pip install 'aletheia[excel]'`, or `[all]`); without it the command names that install.
 
-```bash
+~~~bash
 aletheia template checks.xlsx
-```
+~~~
 
 This creates an Excel workbook with three sheets: **DBC**, **Checks**, **When-Then**.
 
@@ -68,20 +68,20 @@ For causal checks like "when X happens, Y must follow within T ms":
 
 The `--excel` flag loads DBC, Checks, and When-Then from the same workbook:
 
-```bash
+~~~bash
 aletheia check --excel checks.xlsx drive.log
-```
+~~~
 
 To see a full violating run end-to-end without authoring a workbook first, the repository ships the equivalent split out into a plain `.dbc` plus a YAML checks file, so that trio can be run as it ships:
 
-```bash
+~~~bash
 cd examples/demo
 aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
-```
+~~~
 
 ### Step 6: Read Results
 
-```
+~~~
 Aletheia — CAN Signal Verification
 
 DBC:    vehicle.dbc
@@ -98,7 +98,7 @@ RESULT: 18 violations found
   ... (18 violations total)
 
 Summary: 18 violations, 0 unresolved in 3 checks, 134 frames processed
-```
+~~~
 
 The overspeed segment of `drive.log` breaks the 120 kph `VehicleSpeed` limit, so the run reports 18 timestamped violations and exits `1`.
 
@@ -114,7 +114,7 @@ Write checks in version-controllable YAML. Integrate into CI/CD.
 
 Create `checks.yaml`:
 
-```yaml
+~~~yaml
 checks:
   # Simple signal bounds
   - name: "Speed limit"
@@ -159,7 +159,7 @@ checks:
       value: 1
     within_ms: 100
     severity: safety
-```
+~~~
 
 These checks name only the four signals in `examples/demo/vehicle.dbc` (`VehicleSpeed`, `BrakePressure`, `Acceleration`, `BrakeActive`), so the whole path runs end-to-end against the shipped demo.
 
@@ -169,19 +169,19 @@ Get the `.dbc` file from your customer or ECU vendor. Alternatively, define DBC 
 
 ### Step 3: Run Checks
 
-```bash
+~~~bash
 aletheia check --dbc vehicle.dbc --checks checks.yaml drive.log
-```
+~~~
 
 The demo ships `examples/demo/vehicle.dbc` and `examples/demo/drive.log`; drop your `checks.yaml` beside them (or use the shipped `vehicle_checks.yaml`) and run from that directory.
 
 ### Step 4: JSON Output for CI/CD
 
-```bash
+~~~bash
 aletheia check --dbc vehicle.dbc --checks checks.yaml drive.log --json
-```
+~~~
 
-```json
+~~~json
 {
   "status": "violations",
   "total_frames": 134,
@@ -201,27 +201,27 @@ aletheia check --dbc vehicle.dbc --checks checks.yaml drive.log --json
   ],
   "unresolved": []
 }
-```
+~~~
 
 The `violations` array is abridged above to one of its 18 entries. This run exits `1`, the overspeed frames breaking the speed limit; a clean recording exits `0` with `"status": "pass"` and an empty `violations` array.
 
 Use exit codes in CI: `0` = pass, `1` = violations, `2` = error.
 
-```bash
+~~~bash
 # In CI script:
 aletheia check --dbc vehicle.dbc --checks checks.yaml drive.log --json > results.json
 if [ $? -ne 0 ]; then echo "Verification failed"; exit 1; fi
-```
+~~~
 
 ### Step 5: List Signals (Debugging)
 
-```bash
+~~~bash
 # See what signals are available in the DBC
 aletheia signals --dbc vehicle.dbc
 
 # Decode a single frame
 aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
-```
+~~~
 
 ---
 
@@ -489,7 +489,7 @@ BO_ 256 Engine: 8 ECU
  SG_ Speed : 0|16@1+ (0.1,0) [0|6553.5] "km/h" ECU
 )";
     if (!client.parse_dbc_text(stop, dbc))
-        return 0;
+        return 1;
 ```
 
 ### Step 3: Register a Check
@@ -500,7 +500,7 @@ Build a check with the fluent `check::signal(...)` API and register it. Numeric 
     std::vector<CheckResult> checks;  // CheckResult is move-only
     checks.push_back(check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
     if (!client.add_checks(stop, std::move(checks)))
-        return 0;
+        return 1;
 ```
 
 ### Step 4: Stream a Frame
@@ -509,12 +509,13 @@ Open the stream, then send frames. A real application pulls frames from a CAN lo
 
 ```cpp
     if (!client.start_stream(stop))
-        return 0;
+        return 1;
 
     std::array<std::byte, 8> payload{};
     auto sent = client.send_frame(stop, Timestamp{1000},
         CanId{StandardId::create(0x100).value()}, Dlc::create(8).value(), payload);
-    (void)sent;
+    if (!sent)
+        return 1;
 ```
 
 ### Step 5: Read the Verdict
@@ -523,9 +524,10 @@ Close the stream. `end_stream` returns a `Result<StreamResult>`; on success, `re
 
 ```cpp
     auto result = client.end_stream(stop);  // Result<StreamResult>
-    if (result) {
-        // result->results carries one finalization verdict per registered check
-    }
+    if (!result)
+        return 1;
+    // result->results carries one finalization verdict per registered check
+}
 ```
 
 On any failure, read `error().kind()` / `error().code()` / `error().message()`; `ErrorCode` mirrors the kernel's `IssueCode` enum ([PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
@@ -534,12 +536,12 @@ On any failure, read `error().kind()` / `error().code()` / `error().message()`; 
 
 The `aletheia-cli` host binary carries the subcommands `python -m aletheia` carries, except `check`: `validate`, `extract`, `signals`, `format-dbc`, `mux-query` and `template`. It refuses `check` by name, which needs a CAN-log reader the binding does not provide. Verify through the streaming API above, or run `check` on the Python interface:
 
-```bash
+~~~bash
 cmake -S cpp -B cpp/build && cmake --build cpp/build --target aletheia-cli
 ALETHEIA_LIB=build/libaletheia-ffi.so cpp/build/aletheia-cli validate --dbc vehicle.dbc
 # The C++ interface does not carry check; the Python one does:
 aletheia check --dbc examples/demo/vehicle.dbc --checks examples/demo/vehicle_checks.yaml examples/demo/drive.log
-```
+~~~
 
 ---
 
@@ -654,14 +656,14 @@ On failure, `errors.As` a returned error into the typed `*aletheia.Error` (`Kind
 
 The `cmd/aletheia` host binary carries the subcommands `python -m aletheia` carries, except `check`: `validate`, `extract`, `signals`, `format-dbc`, `mux-query` and `template`. It refuses `check` by name, which needs a CAN-log reader the binding does not provide. Verify through the streaming API above, or run `check` on the Python interface:
 
-```bash
+~~~bash
 # From the go/ directory, where the workspace is; the interface finds the built
 # library from there, and ALETHEIA_LIB points it elsewhere.
 go run ./cmd/aletheia signals --dbc ../examples/example.dbc
 # Or build the binary once: go build -o aletheia-cli ./cmd/aletheia
 # The Go interface does not carry check; the Python one does:
 aletheia check --dbc examples/demo/vehicle.dbc --checks examples/demo/vehicle_checks.yaml examples/demo/drive.log
-```
+~~~
 
 ---
 
@@ -673,11 +675,11 @@ Wrap the verified core in Rust through `Client`. Every fallible operation return
 
 Add the crate as a path/git dependency (it is not published to crates.io), build `libaletheia-ffi.so`, and point the binding at it with the `ALETHEIA_LIB` environment variable:
 
-```toml
+~~~toml
 # Cargo.toml
 [dependencies]
 aletheia = { path = "…" }
-```
+~~~
 
 `Client::new()` loads the default library and returns a ready client (for RTS cores / a logger use `Client::builder()`; for tests, `Client::with_backend(Box::new(MockBackend::new()))` needs no `.so`):
 
@@ -755,9 +757,9 @@ On failure, `Error` is an enum you `match` directly, and `Error::Core { code, me
 
 Rust ships a typed `Client` and no host interface. Feed frames from your own source, or from `python-can` across a process boundary, and verify through the streaming API above; or run `check` on the Python interface:
 
-```bash
+~~~bash
 aletheia check --dbc examples/demo/vehicle.dbc --checks examples/demo/vehicle_checks.yaml examples/demo/drive.log
-```
+~~~
 
 ---
 

@@ -58,12 +58,12 @@ variable (the same discovery the C++ and Python harnesses use). Build the core
 first (`cabal run shake -- build` from the repo root produces
 `build/libaletheia-ffi.so`), then:
 
-```sh
+~~~sh
 cd rust
 ALETHEIA_LIB=../build/libaletheia-ffi.so cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
-```
+~~~
 
 `tools/run_ci.py` runs exactly these as a required lane.
 
