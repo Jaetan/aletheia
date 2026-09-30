@@ -167,6 +167,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The doc-example harness, its structural test and the command
+  AGENTS/python.md prints read one list of documents,** `DOC_EXAMPLE_DOCS` in
+  `tools/_ci_steps.py`: every tracked Markdown file carrying a Python fence,
+  `CHANGELOG.md` aside. CI ran every Markdown file under `docs/`, while the
+  documented command and the test named a subset that missed the Tutorial's 10
+  Python fences and listed three documents carrying none; the directory form
+  also collected untracked Markdown under `docs/` on a local run. The test
+  holds the list to the tree both ways, and fails on a Python fence the harness
+  skips in any spelling the plugin runs, `py`, `python3` and tilde fences
+  included, where it matched a backtick `python` fence alone.
 - **The README's Install section names every route a release is published
   by:** the bundle, the `.deb` and `.rpm` packages, and the GHCR container
   image, each linked to its section of the Distribution Guide, which keeps the

@@ -76,7 +76,7 @@ Scope: ALL source files in `python/aletheia/`, test files in `python/tests/`, be
 
 30. **Determinism & reproducibility** -- no reliance on `dict`/`set` iteration order where output is user-visible, stable sort keys, no timestamp-dependent output in library code, explicit `random.Random(seed)` rather than module-level `random`, no `datetime.now()` in serialization paths.
 31. **Packaging hygiene** -- `pyproject.toml` version pin policy (minimum versions, not exact pins for library code), entry points declared correctly, optional dependency groups (`[project.optional-dependencies]`), wheel/sdist symmetry, `[tool.*]` section consistency (pylint, basedpyright, pytest all configured here).
-32. **Doctest & example validity** -- docstring `>>>` examples actually run (`pytest --doctest-modules`), README snippets type-check and execute, tutorial code in `docs/` stays in sync with the actual API, no stale imports or removed symbols in examples. **Doc-example harness (runtime gate)**: every ```python fence across the user-facing docs (`README.md`, `docs/PITCH.md`, `docs/guides/{QUICKSTART,COOKBOOK}.md`, `docs/reference/{CLI,PYTHON_API,INTERFACES}.md`, `docs/architecture/{CANCELLATION,DESIGN,PROTOCOL}.md`, `python/README.md`, `examples/README.md`) must execute end-to-end under `pytest --markdown-docs` against the real FFI. The repo-root `conftest.py` injects globals (pre-built `dbc`, entered `client`, loader fakes for `dbc_to_json`/`iter_can_log`/`load_checks`/`load_checks_from_excel`/`load_dbc_from_excel`/`create_template`) so doc prose stays readable while still exercising live code. Fence tagging conventions: use ```text (not ```python) for pseudo-signatures, JSON return-value shapes, and class-body-shape sketches; use ```python continuation for fences that chain onto a prior runnable fence's namespace; never use ```python notest (the structural gate test `python/tests/test_doc_examples_harness.py` rejects this tag so the "skipped" state is unambiguous). **Structural gate (static)**: `python/tests/test_doc_examples_harness.py` parametrises over the doc-file list above and fails on any `python notest` fence — this runs inside the default `pytest tests/` battery. **Runtime gate (executes the fences)**: the markdown-docs invocation below exercises every live `python` fence against the real FFI. Both cross-binding mirrors are in place: Go via `go/aletheia/doc_examples_test.go` (2026-05-04 — see Go § Verification) and C++ via `cpp/tests/doc_example_tests.cpp` (2026-05-04 — see C++ § Verification).
+32. **Doctest & example validity** -- docstring `>>>` examples actually run (`pytest --doctest-modules`), README snippets type-check and execute, tutorial code in `docs/` stays in sync with the actual API, no stale imports or removed symbols in examples. **Doc-example harness (runtime gate)**: every Python fence of the documents `DOC_EXAMPLE_DOCS` names in `tools/_ci_steps.py`, every tracked Markdown file carrying one with `CHANGELOG.md` aside, must execute end-to-end under `pytest --markdown-docs` against the real FFI. The repo-root `conftest.py` injects globals (pre-built `dbc`, entered `client`, loader fakes for `dbc_to_json`/`iter_can_log`/`load_checks`/`load_checks_from_excel`/`load_dbc_from_excel`/`create_template`) so doc prose stays readable while still exercising live code. Fence tagging conventions: use ```text (not ```python) for pseudo-signatures, JSON return-value shapes, and class-body-shape sketches; use ```python continuation for fences that chain onto a prior runnable fence's namespace; never use ```python notest (the structural gate fails on it, so the "skipped" state is unambiguous). **Structural gate (static)**: `python/tests/test_doc_examples_harness.py` holds `DOC_EXAMPLE_DOCS` to the tree, every tracked Markdown file with a Python fence on it and every document on it tracked and carrying one, and fails on a Python fence (`py`, `python` or `python3`) the harness skips; it runs inside the default `pytest tests/` battery. **Runtime gate (executes the fences)**: the `run_ci` step and the invocation below both read `DOC_EXAMPLE_DOCS` and run every live Python fence against the real FFI. Both cross-binding mirrors are in place: Go via `go/aletheia/doc_examples_test.go` (see Go § Verification) and C++ via `cpp/tests/doc_example_tests.cpp` (see C++ § Verification).
 
 ### Command-line Interface (1)
 
@@ -102,19 +102,16 @@ cd python && basedpyright aletheia/ tests/ benchmarks/ ../tools ../benchmarks ..
 cd python && pylint aletheia/ tests/ benchmarks/ ../tools ../benchmarks ../examples ../conftest.py
 ruff check --no-cache python tools benchmarks examples conftest.py  # from the repo root, so ruff.toml is the config
 ruff format --check python tools benchmarks examples conftest.py
-# Cat 32 doc-example harness — runs every ``python`` fence across the
-# user-facing docs against the real FFI. Must be run from the repo root
-# so pytest picks up the repo-root ``conftest.py`` (which provides the
-# harness globals and loader fakes) instead of the ``python/pyproject.toml``
-# rootdir that the ``cd python`` commands above use; ``pythonpath`` lets that
-# conftest import the suite's canonical signal from python/tests.
+# Cat 32 doc-example harness: runs every Python fence of the documents
+# DOC_EXAMPLE_DOCS in tools/_ci_steps.py names, the list the run_ci step reads,
+# against the real FFI. Must be run from the repo root so pytest picks up the
+# repo-root ``conftest.py`` (which provides the harness globals and loader
+# fakes) instead of the ``python/pyproject.toml`` rootdir that the
+# ``cd python`` commands above use; ``pythonpath`` lets that conftest import
+# the suite's canonical signal from python/tests.
 cd "$(git rev-parse --show-toplevel)" && python3 -m pytest --markdown-docs \
   --rootdir="$(pwd)" -o pythonpath=python/tests \
-  README.md docs/PITCH.md \
-  docs/guides/QUICKSTART.md docs/guides/COOKBOOK.md \
-  docs/reference/CLI.md docs/reference/PYTHON_API.md docs/reference/INTERFACES.md \
-  docs/architecture/CANCELLATION.md docs/architecture/DESIGN.md docs/architecture/PROTOCOL.md \
-  python/README.md examples/README.md
+  $(python3 -c 'from tools._ci_steps import DOC_EXAMPLE_DOCS; print(*DOC_EXAMPLE_DOCS, sep="\n")')
 ```
 
 ---

@@ -668,7 +668,7 @@ features:
       python:
         status: implemented
         entry: "aletheia.AletheiaClient"
-        notes: "pytest --markdown-docs with repo-root conftest.py; 103 fence runs."
+        notes: "pytest --markdown-docs with repo-root conftest.py, over every tracked Markdown file with a Python fence (DOC_EXAMPLE_DOCS in tools/_ci_steps.py), CHANGELOG.md aside."
       cpp:
         status: implemented
         entry: "aletheia/client.hpp#AletheiaClient"

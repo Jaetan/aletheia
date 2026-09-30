@@ -133,6 +133,24 @@ ROOT_PYTHON: tuple[Path, ...] = (
 )
 
 
+# The documents whose Python fences the doc-example harness runs: every tracked
+# Markdown file carrying one, CHANGELOG.md aside, whose fences describe past
+# releases.  The harness step, the command AGENTS/python.md prints and the
+# structural tests all read this one list, and the tests hold it to the tree.
+DOC_EXAMPLE_DOCS: tuple[Path, ...] = (
+    Path("README.md"),
+    Path("docs/PITCH.md"),
+    Path("docs/guides/QUICKSTART.md"),
+    Path("docs/guides/TUTORIAL.md"),
+    Path("docs/guides/COOKBOOK.md"),
+    Path("docs/reference/PYTHON_API.md"),
+    Path("docs/reference/INTERFACES.md"),
+    Path("docs/architecture/CANCELLATION.md"),
+    Path("python/README.md"),
+    Path("examples/README.md"),
+)
+
+
 def in_every_go_module(cmd: str) -> str:
     """Return a ``/bin/sh`` command running ``cmd`` in every module of the Go workspace.
 
@@ -307,10 +325,7 @@ def _run_binding_tests(runner: Runner) -> None:
             str(runner.repo_root),
             "-o",
             "pythonpath=python/tests",
-            "README.md",
-            "docs/",
-            "python/README.md",
-            "examples/README.md",
+            *(str(doc) for doc in DOC_EXAMPLE_DOCS),
         ],
         cwd=runner.repo_root,
         lane="python",
