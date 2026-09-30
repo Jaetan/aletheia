@@ -9,10 +9,10 @@
 The CLI is the no-Python-required entry point: install the package, then run
 `aletheia` from any shell. You do **not** need to write Python to use it.
 
-```bash
+~~~bash
 pip install aletheia        # provides the `aletheia` command
 aletheia <subcommand> [options]
-```
+~~~
 
 > If the `aletheia` command isn't on your `PATH` (e.g. a virtualenv that isn't
 > activated), the exact equivalent is `python3 -m aletheia <subcommand> [options]`.
@@ -30,9 +30,9 @@ Subcommands: `check`, `validate`, `extract`, `signals`, `format-dbc`, `mux-query
 
 Run LTL checks against a CAN log file.
 
-```
+~~~
 aletheia check [--dbc FILE] [--checks FILE] [--excel FILE] [--defaults FILE] [--json] LOGFILE
-```
+~~~
 
 **Arguments**:
 
@@ -50,7 +50,7 @@ aletheia check [--dbc FILE] [--checks FILE] [--excel FILE] [--defaults FILE] [--
 **Text output** (from the shipped demo trio — `examples/demo/vehicle.dbc` +
 `vehicle_checks.yaml` + `drive.log`, whose overspeed segment breaks the 120 kph
 `VehicleSpeed` limit):
-```
+~~~
 Aletheia — CAN Signal Verification
 
 DBC:    vehicle.dbc
@@ -67,11 +67,11 @@ RESULT: 18 violations found
   ... (18 violations total)
 
 Summary: 18 violations, 0 unresolved in 3 checks, 134 frames processed
-```
+~~~
 
 **JSON output** (`--json`, same run — the `violations` array is abridged here to
 two of its 18 entries):
-```json
+~~~json
 {
   "status": "violations",
   "total_frames": 134,
@@ -101,7 +101,7 @@ two of its 18 entries):
   ],
   "unresolved": []
 }
-```
+~~~
 
 Enriched fields (`signal_name`, `actual_value`, `condition`) are populated when check diagnostics are available.
 
@@ -112,7 +112,7 @@ Rational fields (e.g. `actual_value`) are never JSON floats: a value whose denom
 A check is **unresolved** when the stream ends with its verdict still `Unknown` — typically because a referenced signal was never observed in the log. Unresolved checks are neither passes nor violations; they are reported separately and do **not** affect the exit code (exit `0`).
 
 Text output (a separate illustrative run — a check whose signal the log never carries; the shipped demo trio above has no unresolved checks):
-```
+~~~
 RESULT: no violations, 1 unresolved
 
 Unresolved (1 — signal never observed or verdict Unknown):
@@ -120,7 +120,7 @@ Unresolved (1 — signal never observed or verdict Unknown):
      Signal never observed
 
 Summary: 0 violations, 1 unresolved in 3 checks, 12450 frames processed
-```
+~~~
 
 In `--json` output the `unresolved` array holds records of the same shape as `violations`, and `total_unresolved` is its length.
 
@@ -130,9 +130,9 @@ In `--json` output the `unresolved` array holds records of the same shape as `vi
 
 Validate a DBC definition for structural issues (overlapping signals, zero-length signals, etc.).
 
-```
+~~~
 aletheia validate [--dbc FILE] [--excel FILE] [--json]
-```
+~~~
 
 **Arguments**:
 
@@ -145,32 +145,32 @@ aletheia validate [--dbc FILE] [--excel FILE] [--json]
 \* At least one of `--dbc` or `--excel` required.
 
 **Text output** (issues found):
-```
+~~~
 Validation FAILED: 2 errors, 1 warnings
 
   1. [ERROR] signal_overlap: Signals 'Speed' and 'RPM' overlap in message 'EngineData'
   2. [ERROR] bit_length_zero: Signal 'Unused' has zero bit length in message 'Status'
   3. [WARNING] empty_message: Message 'Empty' has no signals defined
 
-```
+~~~
 
 **Text output** (warnings only, no errors):
-```
+~~~
 Validation passed with 1 warnings
 
   1. [WARNING] empty_message: Message 'Empty' has no signals defined
 
-```
+~~~
 
 Warnings alone do not fail validation — this case still exits `0`.
 
 **Text output** (no issues):
-```
+~~~
 Validation passed: no issues found
-```
+~~~
 
 **JSON output** (`--json`):
-```json
+~~~json
 {
   "status": "fail",
   "has_errors": true,
@@ -181,7 +181,7 @@ Validation passed: no issues found
     {"severity": "warning", "code": "empty_message", "detail": "Message 'Empty' has no signals defined"}
   ]
 }
-```
+~~~
 
 **Exit codes**:
 - `0` — validation passed (no errors; warnings are OK)
@@ -193,9 +193,9 @@ Validation passed: no issues found
 
 Decode signals from a single CAN frame.
 
-```
+~~~
 aletheia extract --dbc FILE [--extended] [--json] CAN_ID DATA
-```
+~~~
 
 **Arguments**:
 
@@ -208,15 +208,15 @@ aletheia extract --dbc FILE [--extended] [--json] CAN_ID DATA
 | `--extended` | no | Treat CAN ID as 29-bit extended |
 
 **Hex data formats** (all equivalent):
-```
+~~~
 401F7D0000000000
 40 1F 7D 00 00 00 00 00
 40:1F:7D:00:00:00:00:00
 0x401F7D0000000000
-```
+~~~
 
 **Text output**:
-```
+~~~
 CAN ID 0x100 (EngineData):
 
   EngineSpeed          = 2000 rpm
@@ -224,10 +224,10 @@ CAN ID 0x100 (EngineData):
 
 Errors: none
 Absent: none
-```
+~~~
 
 **JSON output** (`--json`):
-```json
+~~~json
 {
   "can_id": 256,
   "extended": false,
@@ -235,7 +235,7 @@ Absent: none
   "errors": {},
   "absent": []
 }
-```
+~~~
 
 ---
 
@@ -243,9 +243,9 @@ Absent: none
 
 List all signals defined in a DBC file.
 
-```
+~~~
 aletheia signals [--dbc FILE] [--excel FILE] [--json]
-```
+~~~
 
 **Arguments**:
 
@@ -258,7 +258,7 @@ aletheia signals [--dbc FILE] [--excel FILE] [--json]
 \* At least one of `--dbc` or `--excel` required.
 
 **Text output**:
-```
+~~~
 Message 0x100 EngineData (DLC 8, sender ECU)
   EngineSpeed          bits[0:16]   LE  unsigned    x0.25 +0     rpm  [0, 8000]
   EngineTemp           bits[16:8]   LE  unsigned    x1 -40         C  [-40, 215]
@@ -267,7 +267,7 @@ Message 0x200 BrakeStatus (DLC 8, sender ECU)
   BrakePressure        bits[0:16]   LE  unsigned    x0.1 +0      bar  [0, 6553.5]
 
 2 messages, 3 signals
-```
+~~~
 
 ---
 
@@ -275,9 +275,9 @@ Message 0x200 BrakeStatus (DLC 8, sender ECU)
 
 Re-export a DBC as canonical JSON via the Agda core. Loads the DBC, parses it through the FFI, then re-exports via `aletheia_format_dbc` — producing a normalized representation where numeric fields are exact rationals matching the Agda core. Equivalent to `AletheiaClient.format_dbc()`.
 
-```
+~~~
 aletheia format-dbc [--dbc FILE] [--excel FILE]
-```
+~~~
 
 **Arguments**:
 
@@ -290,7 +290,7 @@ aletheia format-dbc [--dbc FILE] [--excel FILE]
 
 **Output** (always JSON, pretty-printed):
 
-```json
+~~~json
 {
   "version": "",
   "messages": [
@@ -304,7 +304,7 @@ aletheia format-dbc [--dbc FILE] [--excel FILE]
   ],
   ...
 }
-```
+~~~
 
 ---
 
@@ -330,7 +330,7 @@ All formats carry per-frame timestamps (µs precision or better), arbitration ID
 
 When a simulation exposes CAN on a SocketCAN interface (real `canN` or virtual `vcanN`), capture with `candump` from [`can-utils`](https://github.com/linux-can/can-utils) — the resulting `.log` is a native Aletheia input, so no conversion step is needed.
 
-```bash
+~~~bash
 # One-time: bring up a virtual CAN interface
 sudo modprobe vcan
 sudo ip link add dev vcan0 type vcan
@@ -341,13 +341,13 @@ candump -L vcan0 > drive.log
 
 # Or rotate into timestamped files in the current directory
 candump -l vcan0   # writes candump-YYYY-MM-DD_hhmmss.log
-```
+~~~
 
 Feed the capture straight into Aletheia:
 
-```bash
+~~~bash
 aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
-```
+~~~
 
 Wireshark can also capture from SocketCAN, but it writes `pcap`, which is **not** a supported Aletheia input. Use `candump` when Aletheia is the target.
 
@@ -369,9 +369,9 @@ All formats in the table above carry the timing and metadata Aletheia needs, so 
 
 Inspect the multiplexor structure of a DBC message.
 
-```
+~~~
 aletheia mux-query [--dbc FILE] [--excel FILE] [--extended] [--mux NAME --value N] [--json] MESSAGE
-```
+~~~
 
 `MESSAGE` is a CAN ID (hex `0x100` or decimal `256`) or a message name.
 
@@ -392,7 +392,7 @@ aletheia mux-query [--dbc FILE] [--excel FILE] [--extended] [--mux NAME --value 
 
 **Examples**:
 
-```bash
+~~~bash
 # Show multiplexor structure for message 0x100
 $ aletheia mux-query --dbc vehicle.dbc 0x100
 Message 0x100 EngineCmd (DLC 8)
@@ -445,7 +445,7 @@ $ aletheia mux-query --dbc vehicle.dbc 0x200
 Message 0x200 EngineStatus (DLC 8)
 
   Not multiplexed: all 4 signals are always present.
-```
+~~~
 
 ---
 
@@ -453,9 +453,9 @@ Message 0x200 EngineStatus (DLC 8)
 
 Write a blank Excel workbook to fill in with a DBC and checks, the first step of the spreadsheet route.
 
-```
+~~~
 aletheia template PATH
-```
+~~~
 
 **Arguments**:
 
@@ -466,10 +466,10 @@ aletheia template PATH
 The workbook has three sheets, **DBC**, **Checks** and **When-Then**, each with its header row in bold; the columns are the ones the Excel loader reads ([Interface Guide](INTERFACES.md#excel-loader)). Filled in, it is the workbook `check --excel` takes. A path that already exists is refused and left as it was, and so is a path whose directory does not exist: both exit 2. The command needs the `[excel]` extra (`pip install 'aletheia[excel]'`); without it the error names that install.
 
 **Text output**:
-```
+~~~
 $ aletheia template checks.xlsx
 Template written to checks.xlsx
-```
+~~~
 
 ---
 
@@ -509,18 +509,18 @@ may appear before or after positionals.
 
 **C++** — the `aletheia-cli` binary:
 
-```bash
+~~~bash
 cmake -S cpp -B cpp/build && cmake --build cpp/build --target aletheia-cli
 ALETHEIA_LIB=build/libaletheia-ffi.so cpp/build/aletheia-cli validate --dbc vehicle.dbc
-```
+~~~
 
 **Go** — the `cmd/aletheia` package:
 
-```bash
+~~~bash
 ALETHEIA_LIB=build/libaletheia-ffi.so go run ./cmd/aletheia signals --dbc vehicle.dbc
 # or build a standalone binary: (cd go && go build -o aletheia-cli ./cmd/aletheia)
 # cmd/aletheia is a module of its own in the go/ workspace, so both run from go/
-```
+~~~
 
 The **Rust** binding ships a typed client library but no CLI yet (a Phase 6
 item) — see the [Rust API Guide](RUST_API.md).

@@ -7,10 +7,10 @@ C++23 interface for the Aletheia formally verified CAN frame analyzer.
 See [../docs/development/BUILDING.md](../docs/development/BUILDING.md) and [../docs/development/DISTRIBUTION.md](../docs/development/DISTRIBUTION.md) for build and integration instructions.
 
 Quick start (build the kernel, then configure, build and test the binding):
-```bash
+~~~bash
 cabal run shake -- build      # Build Agda + Haskell + libaletheia-ffi.so
 cd cpp && cmake -B build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 && cmake --build build && ctest --test-dir build
-```
+~~~
 
 ## Compilers
 

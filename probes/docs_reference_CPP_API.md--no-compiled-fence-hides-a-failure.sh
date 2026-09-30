@@ -19,11 +19,13 @@ import sys
 from pathlib import Path
 
 harness = Path("cpp/tests/doc_example_tests.cpp").read_text(encoding="utf-8")
-listing = re.search(r"k_doc_files\s*=\s*\{(.*?)\};", harness, re.S)
-if listing is None:
-    print("the harness's document list could not be read")
-    raise SystemExit(2)
-docs = re.findall(r'"([^"]+)"', listing.group(1))
+docs = []
+for name in ("k_doc_files", "k_path_docs"):
+    listing = re.search(name + r"\s*=\s*\{(.*?)\};", harness, re.S)
+    if listing is None:
+        print(f"the harness's list {name} could not be read")
+        raise SystemExit(2)
+    docs += re.findall(r'"([^"]+)"', listing.group(1))
 if not docs:
     print("the harness lists no document")
     raise SystemExit(2)
@@ -32,7 +34,7 @@ fence = re.compile(r"^```cpp\n(.*?)^```", re.M | re.S)
 shapes = {
     "an error path exiting zero": re.compile(r"\breturn 0;"),
     "an empty catch": re.compile(r"catch\s*\([^)]*\)\s*\{\s*\}"),
-    "a discarded call result": re.compile(r"^\s*\(void\)\s*\w+;"),
+    "a discarded call result": re.compile(r"^\s*\(void\)\s*\w+;", re.M),
 }
 found = []
 for rel in docs:

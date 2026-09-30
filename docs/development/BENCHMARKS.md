@@ -25,7 +25,7 @@ Per-frame C++ latency on CAN 2.0B streaming has a median of 3.2 µs and a mean o
 
 Throughput reads `--frames` and `--runs`, latency reads `--frames` as its operation count and `--warmup`, and scaling reads `--runs` alone. The runner clears the mode's previous results, so a lane that skips or fails contributes nothing rather than its previous numbers, and before clearing them it refuses a zero or non-numeric count, a negative warmup, a mode it does not have, a flag the chosen mode does not read, and a Debug-configured `cpp/build`, for which it prints the reconfigure. A lane is skipped when what it needs is absent, the toolchain for Go and Rust and a configured `cpp/build` for C++; a lane whose build breaks with everything present is a failure. `ALETHEIA_BENCH_RESULTS_DIR` redirects the results directory.
 
-```bash
+~~~bash
 # Prerequisites (one-time)
 cabal run shake -- build                                                # libaletheia-ffi.so
 source python/.venv/bin/activate && (cd python && pip install -e '.[dev]')  # Python binding
@@ -38,7 +38,7 @@ cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang
 # Other modes
 ./benchmarks/run_all.sh --bench latency --warmup 500
 ./benchmarks/run_all.sh --bench scaling
-```
+~~~
 
 ---
 
@@ -50,10 +50,10 @@ Measured on an Intel Core Ultra 9 285K of 24 cores under WSL2, with `clang++-22`
 
 To read a fresh run against its baseline, run `cabal run shake -- build`, since a stale library measures the previous Agda core; run the mode with the counts the baseline records; and give `compare.py` the binding's fresh file and its baseline:
 
-```bash
+~~~bash
 ./benchmarks/run_all.sh --frames 10000 --runs 10
 python/.venv/bin/python benchmarks/compare.py benchmarks/results/cpp_throughput*.json
-```
+~~~
 
 Given a binding's fresh file and its baseline, `compare.py` prints per lane the current mean, the baseline mean, the delta and the current standard deviation, the report shape AGENTS.md asks for; given several bindings it prints them side by side, given several modes a table per mode, and two files that would share a column are refused rather than one replacing the other.
 
@@ -75,11 +75,11 @@ Run as `python3 -m benchmarks.<name>` from `python/`. `throughput`, `latency` an
 
 `cpp/build/benchmark`, `go/benchmarks/benchmark` and `rust/target/release/examples/benchmark` take a mode and the flags `benchmarks/SCHEMA.yaml` pins for it. `tools/check_bench_schema.py` drives all four bindings through all three modes with those flags on every CI run, so a renamed or dropped flag fails instead of falling back on a default.
 
-```bash
+~~~bash
 ./cpp/build/benchmark throughput --frames 10000 --runs 5 --json
 ./cpp/build/benchmark latency    --ops 5000 --json
 ./cpp/build/benchmark scaling    --runs 5 --quick --json
-```
+~~~
 
 `--frames` reaches throughput alone: the binaries accept it on the other two modes, ignore it, and report the default they ran. The C++ binary also aborts unless compiled with `NDEBUG`, and its reports carry `system.build_type`.
 

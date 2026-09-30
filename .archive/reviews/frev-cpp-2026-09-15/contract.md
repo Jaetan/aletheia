@@ -44,7 +44,7 @@ At round start, before the first task: the repository's gate audit over the comp
 
 Every task ends with a report in this shape, in the task's own description, so "reviewed, no change" is auditable point by point. Each numbered line reads `checked` with the evidence, `n/a` with the reason, or `finding` with the commit.
 
-```
+~~~
 REPORT <date> tree <commit> <commit of the fix | NO CHANGE>
 claims: <rows> rows, <rows without a guard> without a guard: <what was added, or none>
 1 line per line: ...
@@ -61,7 +61,7 @@ claims: <rows> rows, <rows without a guard> without a guard: <what was added, or
 sweep: <mutation idents> KILLED | no mutation names this file
 probes: <paths added> | <paths re-run, all green> | none
 decision points: none | appended to the accumulator
-```
+~~~
 
 ### Repeat passes
 

@@ -24,7 +24,7 @@ CAN protocol decisions (extended IDs, multiplexing) were researched during Phase
 
 Aletheia follows a three-layer architecture that maximizes formal verification while providing a practical interface:
 
-```
+~~~
 ┌─────────────────────────────────────────┐
 │ Language Bindings                       │
 │ - Python (python/): ctypes, JSON + binary│
@@ -53,7 +53,7 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 │ - All correctness proofs                │
 │ - All modules use --safe --without-K    │
 └─────────────────────────────────────────┘
-```
+~~~
 
 **Why Haskell as the middle layer?** MAlonzo (Agda's compiler backend) generates Haskell. GHC provides mature shared library output (`foreign-library`), and its FFI supports all major languages via `foreign export ccall`.
 

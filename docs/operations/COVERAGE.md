@@ -21,14 +21,14 @@ The floors gate; the recorded figures are measurements. A run over a floor and u
 
 ## Running the lane
 
-```bash
+~~~bash
 # Every binding the diff vs main could move (the same scoping the mutation lane uses).
 tools/run_ci.py --coverage
 
 # The runner directly: all bindings, or one.
 ALETHEIA_COVERAGE_NO_DIFF_SCOPE=1 python/.venv/bin/python -m tools.coverage_run
 python/.venv/bin/python -m tools.coverage_run --binding go
-```
+~~~
 
 Each suite runs with `ALETHEIA_LIB` naming `build/libaletheia-ffi.so`, so run `cabal run shake -- build` first. The C++ measurement configures and builds its own tree, `cpp/build-coverage`, with `-DALETHEIA_COVERAGE=ON`; the Rust measurement builds under cargo-llvm-cov's own target directory. Both are why the lane is opt-in rather than part of the always-on sweep.
 
@@ -38,10 +38,10 @@ In CI the lane is the `coverage floors` job of `.github/workflows/pr-build-lanes
 
 coverage.py and pytest-cov come with the `[dev]` extras; Go's tool comes with Go; `llvm-profdata-23` and `llvm-cov-23` come with the clang-23 package. cargo-llvm-cov is pinned exactly in the record and refused at any other version, as mutmut is for the mutation lane:
 
-```bash
+~~~bash
 rustup component add llvm-tools-preview
 cargo install cargo-llvm-cov --version 0.8.7 --locked
-```
+~~~
 
 ## Re-taking the record
 

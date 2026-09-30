@@ -51,11 +51,11 @@ Aletheia uses a JSON protocol for communication between language bindings (Pytho
 - No subprocess or IPC — everything runs in-process via `libaletheia-ffi.so`
 
 **State Machine**:
-```
+~~~
 WaitingForDBC → ParseDBC → ReadyToStream → SetProperties → ReadyToStream
                                           → StartStream → Streaming → SendFrame* → Streaming
                                                                      → EndStream → ReadyToStream
-```
+~~~
 
 ---
 
@@ -77,7 +77,7 @@ All messages have a `"type"` field that determines how they are processed.
 Load a DBC (Database CAN) structure from JSON format.
 
 **Request**:
-```json
+~~~json
 {
   "type": "command",
   "command": "parseDBC",
@@ -109,26 +109,26 @@ Load a DBC (Database CAN) structure from JSON format.
     ]
   }
 }
-```
+~~~
 
 **Response** (Success):
-```json
+~~~json
 {
   "status": "success",
   "dbc": { ... },
   "warnings": []
 }
-```
+~~~
 
 The success response echoes the canonical parsed body (`dbc`) plus `warnings` — the warning-severity validation issues, in the same `{severity, code, detail}` element shape as [ValidateDBC](#3-validatedbc)'s `issues`. Warnings never block a load; error-severity issues instead refuse it with `handler_validation_failed` (see [§ Wire shape](#wire-shape)).
 
 **Response** (Error):
-```json
+~~~json
 {
   "status": "error",
   "message": "Missing required field: messages"
 }
-```
+~~~
 
 **Fields**:
 - `dbc.version`: DBC format version (currently "1.0")
@@ -178,26 +178,26 @@ Aletheia supports multiplexed signals (signals that are conditionally present ba
 **Signal Presence Formats**:
 
 #### Always Present
-```json
+~~~json
 {"presence": "always"}
-```
+~~~
 Signal is always present in the frame.
 
 #### Conditional Presence (Multiplexed)
 
 Multiplexed signals use flat `multiplexor` and `multiplex_values` fields instead of `presence`:
 
-```json
+~~~json
 {
   "multiplexor": "MuxSignal",
   "multiplex_values": [1]
 }
-```
+~~~
 
 Signal is only present when the multiplexor signal's value is in the `multiplex_values` array. Single-value mux uses a one-element array (e.g., `[1]`); extended mux (SG_MUL_VAL_) uses multiple values (e.g., `[0, 1, 3]`). The `presence` field is omitted for multiplexed signals.
 
 **Example** (Multiplexed Message):
-```json
+~~~json
 {
   "id": 512,
   "name": "MultiplexedMessage",
@@ -248,7 +248,7 @@ Signal is only present when the multiplexor signal's value is in the `multiplex_
     }
   ]
 }
-```
+~~~
 
 **Behavior**:
 - When `MuxSignal == 0`, only `Signal_Mux0` is extracted
@@ -267,7 +267,7 @@ Signal is only present when the multiplexor signal's value is in the `multiplex_
 Extract all signal values from a CAN frame without streaming.
 
 **Request**:
-```json
+~~~json
 {
   "type": "command",
   "command": "extractAllSignals",
@@ -276,10 +276,10 @@ Extract all signal values from a CAN frame without streaming.
   "extended": false,
   "data": [232, 3, 0, 0, 0, 0, 0, 0]
 }
-```
+~~~
 
 **Response** (Success):
-```json
+~~~json
 {
   "status": "success",
   "values": [
@@ -288,7 +288,7 @@ Extract all signal values from a CAN frame without streaming.
   "errors": [],
   "absent": []
 }
-```
+~~~
 
 **Fields**:
 - `canId`: CAN message ID (integer, must match a message in the loaded DBC)
@@ -307,16 +307,16 @@ Extract all signal values from a CAN frame without streaming.
 Validate a DBC definition for structural correctness. Returns all issues found (not just the first). Does not modify client state.
 
 **Request**:
-```json
+~~~json
 {
   "type": "command",
   "command": "validateDBC",
   "dbc": { ... }
 }
-```
+~~~
 
 **Response**:
-```json
+~~~json
 {
   "status": "validation",
   "has_errors": true,
@@ -325,7 +325,7 @@ Validate a DBC definition for structural correctness. Returns all issues found (
     {"severity": "warning", "code": "empty_message", "detail": "..."}
   ]
 }
-```
+~~~
 
 **Fields**:
 - `dbc`: Complete DBC definition (same schema as `parseDBC`)
@@ -349,15 +349,15 @@ The last two warning codes mirror the [FormatDBCText](#formatdbctext) round-trip
 Export the currently-loaded DBC as JSON.
 
 **Request**:
-```json
+~~~json
 {
   "type": "command",
   "command": "formatDBC"
 }
-```
+~~~
 
 **Response** (Success):
-```json
+~~~json
 {
   "status": "success",
   "dbc": {
@@ -365,15 +365,15 @@ Export the currently-loaded DBC as JSON.
     "messages": [...]
   }
 }
-```
+~~~
 
 **Response** (Error):
-```json
+~~~json
 {
   "status": "error",
   "message": "FormatDBC: No DBC loaded"
 }
-```
+~~~
 
 **Fields**:
 - No input fields — uses the currently-loaded DBC
@@ -390,16 +390,16 @@ Render a DBC definition (JSON wire shape) back to `.dbc` file text via the verif
 **Always strict.** `formatDBCText` returns text **only** when that text provably re-parses to the exact input DBC — `parseDBCText(formatDBCText(d).text)` reproduces `d`. There is no lenient/best-effort mode and no `strict` flag: a flag would imply you might sometimes want text that does *not* round-trip, which contradicts the command's whole purpose (never emit silently-lossy output). A DBC that cannot be expressed as round-tripping `.dbc` text — for example a signal multiplexed on **multiple** selector values, which the JSON model admits but the `.dbc` grammar cannot encode — is **refused** with a typed error rather than emitting text that would quietly lose information. The emitted-text round-trip guarantee is machine-checked (`formatDBCTextResult-sound` in `Aletheia.Protocol.Handlers.Properties.FormatDBCText`), not merely asserted.
 
 **Request**:
-```json
+~~~json
 {
   "type": "command",
   "command": "formatDBCText",
   "dbc": { ... }
 }
-```
+~~~
 
 **Response** (Success — the DBC round-trips):
-```json
+~~~json
 {
   "status": "success",
   "text": "VERSION \"\"\n\nBO_ 256 Engine: 8 ECU\n ...",
@@ -407,10 +407,10 @@ Render a DBC definition (JSON wire shape) back to `.dbc` file text via the verif
     {"severity": "warning", "code": "multi_value_mux_selector", "detail": "..."}
   ]
 }
-```
+~~~
 
 **Response** (Refusal — the DBC does not round-trip):
-```json
+~~~json
 {
   "status": "error",
   "code": "handler_text_roundtrip_failed",
@@ -421,7 +421,7 @@ Render a DBC definition (JSON wire shape) back to `.dbc` file text via the verif
     {"severity": "warning", "code": "multi_value_mux_selector", "detail": "..."}
   ]
 }
-```
+~~~
 
 **Fields**:
 - `dbc`: Complete DBC definition (same schema as `parseDBC` input); absent → `route_missing_dbc_field`.
@@ -454,7 +454,7 @@ Every binding surfaces this as `format_dbc_text(dbc)`: `text` + `issues` on succ
 Define LTL properties to check against the frame stream.
 
 **Request**:
-```json
+~~~json
 {
   "type": "command",
   "command": "setProperties",
@@ -472,23 +472,23 @@ Define LTL properties to check against the frame stream.
     }
   ]
 }
-```
+~~~
 
 **Response** (Success):
-```json
+~~~json
 {
   "status": "success",
   "message": "Properties set successfully"
 }
-```
+~~~
 
 **Response** (Error):
-```json
+~~~json
 {
   "status": "error",
   "message": "Signal 'Speed' not found in DBC"
 }
-```
+~~~
 
 **State Requirements**: Must be in `ReadyToStream` state (after parseDBC)
 **State Transition**: `ReadyToStream` → `ReadyToStream` (idempotent)
@@ -504,28 +504,28 @@ See [LTL Property Format](#ltl-property-format) section below for complete schem
 Begin streaming mode for processing data frames.
 
 **Request**:
-```json
+~~~json
 {
   "type": "command",
   "command": "startStream"
 }
-```
+~~~
 
 **Response** (Success):
-```json
+~~~json
 {
   "status": "success",
   "message": "Streaming started"
 }
-```
+~~~
 
 **Response** (Error):
-```json
+~~~json
 {
   "status": "error",
   "message": "Must call ParseDBC before StartStream"
 }
-```
+~~~
 
 **State Requirements**: Must be in `ReadyToStream` state
 **State Transition**: `ReadyToStream` → `Streaming`
@@ -539,7 +539,7 @@ Begin streaming mode for processing data frames.
 Submit a CAN data frame to the active monitoring stream.
 
 **Request**:
-```json
+~~~json
 {
   "type": "command",
   "command": "sendFrame",
@@ -551,7 +551,7 @@ Submit a CAN data frame to the active monitoring stream.
   "brs": true,
   "esi": false
 }
-```
+~~~
 
 **Fields**:
 - `timestamp`: Frame timestamp in microseconds (non-negative integer).
@@ -579,12 +579,12 @@ consumers.  The response shape never echoes BRS / ESI back per the
 send-only wire-symmetry contract.
 
 **Response** (Ack — no property fired):
-```json
+~~~json
 {"status": "ack"}
-```
+~~~
 
 **Response** (Property Batch):
-```json
+~~~json
 {
   "type": "property_batch",
   "results": [
@@ -592,7 +592,7 @@ send-only wire-symmetry contract.
     {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 1000, "denominator": 1}, "reason": "Always violated"}
   ]
 }
-```
+~~~
 
 A frame may produce zero events (returns `{"status": "ack"}` instead),
 or one-or-more events in `results`.  Mid-stream Satisfactions (a property
@@ -613,15 +613,15 @@ command).
 End streaming mode and return final results.
 
 **Request**:
-```json
+~~~json
 {
   "type": "command",
   "command": "endStream"
 }
-```
+~~~
 
 **Response**:
-```json
+~~~json
 {
   "status": "complete",
   "results": [
@@ -632,7 +632,7 @@ End streaming mode and return final results.
     {"kind": "uncached_atom", "property_index": 2, "detail": "Speed"}
   ]
 }
-```
+~~~
 
 The `warnings` array carries non-fatal end-of-stream diagnostics — see [§ End-of-stream Warnings](#end-of-stream-warnings) for the wire shape and evolution rule. The array is always emitted (empty when no warnings fired).
 
@@ -648,9 +648,9 @@ The `warnings` array carries non-fatal end-of-stream diagnostics — see [§ End
 Send a CAN data frame for LTL analysis. This is the high-performance streaming entry point: the frame crosses as one C structure, bypassing JSON parsing on input.
 
 **C signature** (see `aletheia.h`, which also fixes the structure's layout):
-```c
+~~~c
 char *aletheia_send_frame(void *state, const struct aletheia_frame *frame);
-```
+~~~
 
 **Frame fields** (`struct aletheia_frame`, every one read by this entry; a NULL frame is refused):
 - `timestamp`: Frame timestamp in microseconds
@@ -667,14 +667,14 @@ char *aletheia_send_frame(void *state, const struct aletheia_frame *frame);
   (ISO 11898-1:2015 §10.4.3); same wire encoding as BRS.
 
 **Response** (Acknowledged):
-```json
+~~~json
 {
   "status": "ack"
 }
-```
+~~~
 
 **Response** (Property Batch):
-```json
+~~~json
 {
   "type": "property_batch",
   "results": [
@@ -682,7 +682,7 @@ char *aletheia_send_frame(void *state, const struct aletheia_frame *frame);
     {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 1000, "denominator": 1}, "reason": "Always violated"}
   ]
 }
-```
+~~~
 
 Mirrors the JSON `sendFrame` shape — see § 7 above for the source-order
 contract (Satisfactions first, optional terminal Violation last) and the
@@ -706,10 +706,10 @@ as their own binary entry points in `aletheia.h`, alongside `aletheia_send_frame
 and take the same `struct aletheia_frame`: a remote frame reads its `timestamp`,
 `can_id` and `extended`, an error frame its `timestamp` alone.
 
-```c
+~~~c
 char *aletheia_send_error(void *state, const struct aletheia_frame *frame);
 char *aletheia_send_remote(void *state, const struct aletheia_frame *frame);
-```
+~~~
 
 #### Trace event taxonomy
 
@@ -767,31 +767,31 @@ parse the same response types they use for data frames.
 ## Response Types
 
 ### Success Response
-```json
+~~~json
 {
   "status": "success",
   "message": "Operation completed"
 }
-```
+~~~
 
 ### Error Response
-```json
+~~~json
 {
   "status": "error",
   "message": "Descriptive error message"
 }
-```
+~~~
 
 ### Acknowledgment Response
-```json
+~~~json
 {
   "status": "ack"
 }
-```
+~~~
 Used for data frames when no violation is detected.
 
 ### Property Batch Response
-```json
+~~~json
 {
   "type": "property_batch",
   "results": [
@@ -799,7 +799,7 @@ Used for data frames when no violation is detected.
     {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 300, "denominator": 1}, "reason": "Always violated"}
   ]
 }
-```
+~~~
 
 A streaming frame may produce zero events (returns `{"status": "ack"}`)
 or one-or-more events in `results` in source-order: mid-stream
@@ -816,7 +816,7 @@ if present it is the last entry.  Empty `results` is unreachable.
 - `reason`: human-readable explanation (only present when `status == "fails"`)
 
 ### Complete Response
-```json
+~~~json
 {
   "status": "complete",
   "results": [
@@ -827,7 +827,7 @@ if present it is the last entry.  Empty `results` is unreachable.
     {"kind": "uncached_atom", "property_index": 2, "detail": "Speed"}
   ]
 }
-```
+~~~
 Returned when streaming ends. The `results` array contains per-property finalization verdicts; the `warnings` array carries non-fatal end-of-stream diagnostics (see [§ End-of-stream Warnings](#end-of-stream-warnings)).
 
 #### End-of-stream Warnings
@@ -869,78 +869,78 @@ Removing or renaming a `kind` is a breaking wire change (downstream collectors m
 ### Signal Predicates (Atomic)
 
 #### Equals
-```json
+~~~json
 {
   "predicate": "equals",
   "signal": "Speed",
   "value": 100
 }
-```
+~~~
 
 #### LessThan
-```json
+~~~json
 {
   "predicate": "lessThan",
   "signal": "Speed",
   "value": 250
 }
-```
+~~~
 
 #### GreaterThan
-```json
+~~~json
 {
   "predicate": "greaterThan",
   "signal": "RPM",
   "value": 0
 }
-```
+~~~
 
 #### Between
-```json
+~~~json
 {
   "predicate": "between",
   "signal": "Temperature",
   "min": 60,
   "max": 90
 }
-```
+~~~
 
 #### LessThanOrEqual
-```json
+~~~json
 {
   "predicate": "lessThanOrEqual",
   "signal": "Speed",
   "value": 250
 }
-```
+~~~
 
 #### GreaterThanOrEqual
-```json
+~~~json
 {
   "predicate": "greaterThanOrEqual",
   "signal": "RPM",
   "value": 800
 }
-```
+~~~
 
 #### ChangedBy
-```json
+~~~json
 {
   "predicate": "changedBy",
   "signal": "Speed",
   "delta": -10
 }
-```
+~~~
 Directional change detection. Positive delta: `curr - prev >= delta` (increased by at least delta). Negative delta: `curr - prev <= delta` (decreased by at least |delta|).
 
 #### StableWithin
-```json
+~~~json
 {
   "predicate": "stableWithin",
   "signal": "Temperature",
   "tolerance": 2.0
 }
-```
+~~~
 Magnitude tolerance: `|curr - prev| <= tolerance`. Tests that a signal's value stayed within tolerance of its previous value.
 
 ---
@@ -948,7 +948,7 @@ Magnitude tolerance: `|curr - prev| <= tolerance`. Tests that a signal's value s
 ### LTL Temporal Operators
 
 #### Atomic (wraps a signal predicate)
-```json
+~~~json
 {
   "operator": "atomic",
   "predicate": {
@@ -957,133 +957,133 @@ Magnitude tolerance: `|curr - prev| <= tolerance`. Tests that a signal's value s
     "value": 100
   }
 }
-```
+~~~
 
 #### Not
-```json
+~~~json
 {
   "operator": "not",
   "formula": {...}
 }
-```
+~~~
 
 #### And
-```json
+~~~json
 {
   "operator": "and",
   "left": {...},
   "right": {...}
 }
-```
+~~~
 
 #### Or
-```json
+~~~json
 {
   "operator": "or",
   "left": {...},
   "right": {...}
 }
-```
+~~~
 
 #### Next
-```json
+~~~json
 {
   "operator": "next",
   "formula": {...}
 }
-```
+~~~
 Property must hold in the next frame. Fails at end of stream (no successor).
 
 #### Weak Next
-```json
+~~~json
 {
   "operator": "weakNext",
   "formula": {...}
 }
-```
+~~~
 Property must hold in the next frame, or holds vacuously at end of stream
 (no successor). Use for "if X then next Y" patterns where X may be true on
 the final frame, where strong Next would report a violation the trace's end
 causes rather than the property.
 
 #### Always (Globally)
-```json
+~~~json
 {
   "operator": "always",
   "formula": {...}
 }
-```
+~~~
 Property must hold for all frames in the trace.
 
 #### Eventually (Finally)
-```json
+~~~json
 {
   "operator": "eventually",
   "formula": {...}
 }
-```
+~~~
 Property must hold at some point in the trace.
 
 #### Until
-```json
+~~~json
 {
   "operator": "until",
   "left": {...},
   "right": {...}
 }
-```
+~~~
 `left` must hold until `right` becomes true.
 
 #### Release
-```json
+~~~json
 {
   "operator": "release",
   "left": {...},
   "right": {...}
 }
-```
+~~~
 Dual of Until: `right` must hold until `left` releases it (or `right` holds forever).
 
 #### MetricEventually (Bounded Eventually)
-```json
+~~~json
 {
   "operator": "metricEventually",
   "timebound": 1000,
   "formula": {...}
 }
-```
+~~~
 Property must hold within `timebound` microseconds.
 
 #### MetricAlways (Bounded Always)
-```json
+~~~json
 {
   "operator": "metricAlways",
   "timebound": 5000,
   "formula": {...}
 }
-```
+~~~
 Property must hold for the next `timebound` microseconds.
 
 #### MetricUntil (Bounded Until)
-```json
+~~~json
 {
   "operator": "metricUntil",
   "timebound": 2000,
   "left": {...},
   "right": {...}
 }
-```
+~~~
 `left` must hold until `right` becomes true, within `timebound` microseconds.
 
 #### MetricRelease (Bounded Release)
-```json
+~~~json
 {
   "operator": "metricRelease",
   "timebound": 2000,
   "left": {...},
   "right": {...}
 }
-```
+~~~
 Bounded dual of Until: `right` must hold until `left` releases it, within `timebound` microseconds.
 
 ---
@@ -1130,7 +1130,7 @@ when you need a guaranteed definite verdict. Use unbounded `Eventually`/
 
 **Property**: "Speed must always be less than 250 km/h"
 
-```json
+~~~json
 {
   "operator": "always",
   "formula": {
@@ -1142,7 +1142,7 @@ when you need a guaranteed definite verdict. Use unbounded `Eventually`/
     }
   }
 }
-```
+~~~
 
 ---
 
@@ -1151,15 +1151,15 @@ when you need a guaranteed definite verdict. Use unbounded `Eventually`/
 Rational numbers are represented in two formats:
 
 ### 1. Decimal Format (Input)
-```json
+~~~json
 {"value": 0.25}
-```
+~~~
 Accepted in input, converted to rational internally.
 
 ### 2. Object Format (Output)
-```json
+~~~json
 {"numerator": 1, "denominator": 4}
-```
+~~~
 Used in responses for exact representation.
 
 **Why Two Formats?**
@@ -1179,27 +1179,27 @@ Used in responses for exact representation.
 ## Example Session
 
 ### 1. Parse DBC
-```json
+~~~json
 >>> {"type": "command", "command": "parseDBC", "dbc": {...}}
 <<< {"status": "success", "message": "DBC parsed successfully"}
-```
+~~~
 
 ### 2. Set Properties
-```json
+~~~json
 >>> {"type": "command", "command": "setProperties", "properties": [{...}]}
 <<< {"status": "success", "message": "Properties set successfully"}
-```
+~~~
 
 ### 3. Start Streaming
-```
+~~~
 >>> aletheia_start_stream(state)
 <<< {"status": "success", "message": "Streaming started"}
-```
+~~~
 
 ### 4. Send Data Frames (via `aletheia_send_frame`)
 
 High-throughput streaming hot path. Each call passes a `struct aletheia_frame` with `can_id` 256, `extended` 0, `dlc` 8 and `data_len` 8; its BRS / ESI fields, left zero, encode absent CAN-FD metadata:
-```
+~~~
 >>> aletheia_send_frame(state, &{timestamp: 100, data: [0xE8,0x03,0,0,0,0,0,0], ...})
 <<< {"status": "ack"}
 
@@ -1208,13 +1208,13 @@ High-throughput streaming hot path. Each call passes a `struct aletheia_frame` w
 
 >>> aletheia_send_frame(state, &{timestamp: 300, data: [0x28,0x0A,0,0,0,0,0,0], ...})
 <<< {"type": "property_batch", "results": [{"type": "property", "status": "fails", "property_index": {"numerator": 0, "denominator": 1}, "timestamp": {"numerator": 300, "denominator": 1}, "reason": "Always violated"}]}
-```
+~~~
 
 ### 5. End Streaming
-```
+~~~
 >>> aletheia_end_stream(state)
 <<< {"status": "complete", "results": [{"type": "property", "status": "holds", "property_index": {"numerator": 0, "denominator": 1}}, {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 300, "denominator": 1}, "reason": "Always violated"}]}
-```
+~~~
 
 ---
 
@@ -1257,17 +1257,17 @@ The rational-component bound is measured on the parsed tree like the nesting-dep
 
 The `message` field embeds the kind label, observed value, and limit; the structured `bound_kind` / `observed` / `limit` fields appear on the envelope alongside `code` and `message`. Example:
 
-```
+~~~
 <<< {"status": "error", "code": "input_bound_exceeded", "message": "input length (bytes) 134217728 exceeds limit 67108864", "bound_kind": "input_length_bytes", "observed": 134217728, "limit": 67108864}
-```
+~~~
 
 For the post-parse DBC bounds (`array_cardinality` and `string_length`), all three DBC commands — `parseDBC`, `parseDBCText`, and `validateDBC` — run one shared cascade (kernel `Aletheia.Protocol.Handlers.LoadDBC.checkDBCBounds`), so the `message` names the offending field alongside the command context, e.g. `ParseDBCText: version string: string length 65546 exceeds limit 65536`. `validateDBC` runs the same cascade — an over-cardinality / over-length DBC is rejected with `input_bound_exceeded` *before* validation runs (the structured `bound_kind` / `observed` / `limit` fields are identical across all three routes, so a binding decodes it with the same typed handler it uses for the load routes).
 
 `handler_validation_failed` errors (a `parseDBC` / `parseDBCText` rejected because the DBC has error-level validation issues) carry the **full structured issue list** on the envelope — errors *and* warnings, in the same `{severity, code, detail}` element shape as the `validation` response, plus the same `has_errors` flag (trivially `true` on this path; included so both payloads decode with one issue decoder). The `message` field flattens only the error-level details. Example:
 
-```
+~~~
 <<< {"status": "error", "code": "handler_validation_failed", "message": "ParseDBCText: validation failed: Message 'M': duplicate signal name 'S'", "has_errors": true, "issues": [{"severity": "error", "code": "duplicate_signal_name", "detail": "Message 'M': duplicate signal name 'S'"}, {"severity": "warning", "code": "offset_scale_range", "detail": "..."}]}
-```
+~~~
 
 DBC text parse errors carry **byte-exact failure positions** on the envelope. The parser tracks a *furthest-failure watermark*: the deepest position any parse attempt reached (`<|>` alternatives merge their failed arms' depths; `many` keeps the depth of the element attempt it swallowed), so the reported byte is the first character no grammar rule could accept — not merely the start of the offending statement.
 
@@ -1300,29 +1300,29 @@ Bounds are intentionally generous (commercial automotive DBCs are 1-10 MiB, ~6×
 ### Common Errors
 
 **Invalid JSON**:
-```
+~~~
 <<< {"status": "error", "message": "Failed to parse JSON: unexpected token"}
-```
+~~~
 
 **Missing Required Field**:
-```
+~~~
 <<< {"status": "error", "message": "Missing required field: 'command'"}
-```
+~~~
 
 **Invalid State Transition**:
-```
+~~~
 <<< {"status": "error", "message": "Must call ParseDBC before StartStream"}
-```
+~~~
 
 **Signal Not Found**:
-```
+~~~
 <<< {"status": "error", "message": "Signal 'InvalidSignal' not found in DBC"}
-```
+~~~
 
 **Message ID Not Found**:
-```
+~~~
 <<< {"status": "error", "message": "Message ID 999 not found in DBC"}
-```
+~~~
 
 ### Error Code Reference
 

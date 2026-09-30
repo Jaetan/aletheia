@@ -112,14 +112,20 @@ checks, err := excel.LoadChecks("checks.xlsx")
 _, _ = checks, err
 ```
 
-**Streaming** — feed a frame to the verified core:
+**Streaming** — open the stream, then feed a frame to the verified core:
 ```python
+client.start_stream()
 response = client.send_frame(ts, can_id, dlc, data)
 ```
 ```cpp
+if (auto started = client.start_stream(std::stop_token{}); !started)
+    return 1;
 auto response = client.send_frame(std::stop_token{}, ts, can_id, dlc, data);
 ```
 ```go
+if err := client.StartStream(ctx); err != nil {
+    panic(err)
+}
 response, err := client.SendFrame(ctx, ts, canID, dlc, data, nil, nil)
 _, _ = response, err
 ```
@@ -278,7 +284,7 @@ with AletheiaClient() as client:
 
 ### Check API Reference
 
-```text
+~~~text
 # Module ``aletheia.checks`` — entry-point free functions
 # Numeric params are `int | Fraction` and REJECT float (the float principle).
 # For an exact decimal, pass `from_decimal("11.5")` or `Fraction("11.5")`.
@@ -322,7 +328,7 @@ class CheckResult:
     def to_property(self) -> Property
     name: str
     check_severity: str
-```
+~~~
 
 ---
 
@@ -361,14 +367,14 @@ client.add_checks(checks)
 
 #### Simple Checks
 
-```yaml
+~~~yaml
 checks:
   - name: "Speed limit"           # optional display name
     signal: VehicleSpeed
     condition: never_exceeds       # see condition table below
     value: 220                     # for value-based conditions
     severity: safety               # optional severity level
-```
+~~~
 
 **Value-based conditions** (require `value`):
 
@@ -386,7 +392,7 @@ checks:
 | `stays_between` | G(min <= s <= max) | Signal always in range |
 | `settles_between` | G_{<=t}(min <= s <= max) | Signal in range for duration (also requires `within_ms`) |
 
-```yaml
+~~~yaml
 checks:
   - name: "Battery range"
     signal: BatteryVoltage
@@ -400,11 +406,11 @@ checks:
     min: 80
     max: 100
     within_ms: 5000               # required for settles_between
-```
+~~~
 
 #### When/Then Checks
 
-```yaml
+~~~yaml
 checks:
   - name: "Brake response"
     when:
@@ -417,21 +423,21 @@ checks:
       value: 1
     within_ms: 100                 # response deadline in ms
     severity: safety
-```
+~~~
 
 For `then` condition `stays_between`, use `min` and `max` instead of `value`:
 
-```yaml
+~~~yaml
     then:
       signal: FuelWarning
       condition: stays_between
       min: 1
       max: 1
-```
+~~~
 
 ### Complete Example File
 
-```yaml
+~~~yaml
 checks:
   # Simple checks
   - name: "Speed limit"
@@ -459,17 +465,17 @@ checks:
       value: 1
     within_ms: 100
     severity: safety
-```
+~~~
 
 ### Error Messages
 
 Errors reference the check name (or `<unnamed>` if no name is set):
 
-```
+~~~
 Check 'Speed limit': missing or invalid 'value' (expected number)
 Check '<unnamed>': unknown condition 'bogus'
 Check 'Brake response': when/then checks require 'within_ms'
-```
+~~~
 
 ---
 
@@ -485,9 +491,9 @@ from aletheia import load_checks_from_excel, load_dbc_from_excel, create_templat
 
 **1. Create a template:**
 
-```bash
+~~~bash
 aletheia template vehicle_checks.xlsx
-```
+~~~
 
 or from Python:
 
@@ -607,15 +613,15 @@ multiplexed. If both are empty, the signal is always-present.
 
 Errors reference row numbers (1-indexed, counting from the header):
 
-```
+~~~
 Row 5: unknown condition 'bogus'
 Row 3: condition 'stays_between' requires 'Min' and 'Max'
 Row 7: invalid 'Message ID' — expected integer or hex string (e.g. 0x100)
-```
+~~~
 
 ### API Reference
 
-```text
+~~~text
 def load_checks_from_excel(
     path: str | Path,
     *,
@@ -631,7 +637,7 @@ def load_dbc_from_excel(
 
 def create_template(path: str | Path) -> None
 # Raises FileExistsError if file already exists
-```
+~~~
 
 **Sheet-name parameters**: Override the default sheet names when your workbook uses a different layout.
 
@@ -664,18 +670,18 @@ All four tiers produce identical LTL formulas. This check:
 checks.signal("VehicleSpeed").never_exceeds(220)
 ```
 
-```yaml
+~~~yaml
 # YAML
 checks:
   - signal: VehicleSpeed
     condition: never_exceeds
     value: 220
-```
+~~~
 
-```
+~~~
 # Excel (Checks sheet row)
 | | VehicleSpeed | never_exceeds | 220 | | | | |
-```
+~~~
 
 ```python
 # DSL
@@ -684,7 +690,7 @@ Signal("VehicleSpeed").less_than(220).always()
 
 All produce:
 
-```json
+~~~json
 {
   "operator": "always",
   "formula": {
@@ -696,7 +702,7 @@ All produce:
     }
   }
 }
-```
+~~~
 
 ---
 

@@ -38,6 +38,8 @@ from typing import TYPE_CHECKING, TypedDict
 import pytest
 from _canonical_dbc import CANONICAL_SIGNAL
 
+from tools.check_fence_marks import harness_markdown_it
+
 import aletheia
 import aletheia.can_log
 import aletheia.checks
@@ -65,6 +67,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from types import ModuleType
     from typing import TypeAliasType
+
+    from markdown_it import MarkdownIt
 
     from aletheia import CheckResult, DBCDefinition
     from aletheia.types import DBCMessage, DBCSignalAlways
@@ -312,6 +316,11 @@ def pytest_sessionstart() -> None:
 def pytest_markdown_docs_globals() -> _DocGlobals:
     """pytest-markdown-docs hook — globals merged into every fence's namespace."""
     return _make_globals()
+
+
+def pytest_markdown_docs_markdown_it() -> MarkdownIt:
+    """pytest-markdown-docs hook: the harness collects through a parser that runs no tilde fence."""
+    return harness_markdown_it()
 
 
 @pytest.fixture(autouse=True)

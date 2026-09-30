@@ -222,10 +222,10 @@ Every `AletheiaClient` operation takes a `std::stop_token` as its first paramete
 
 The `aletheia-cli` binary is a thin host CLI over `AletheiaClient`, mirroring the Python `aletheia` subcommands `validate`, `extract`, `signals`, `format-dbc`, `mux-query`, `template` (`check` is deferred; it needs a verified CAN-log reader). The logic lives in `aletheia::run_cli` (`aletheia/cli.hpp`), so it is unit-testable without spawning a process.
 
-```bash
+~~~bash
 cmake -S cpp -B cpp/build && cmake --build cpp/build --target aletheia-cli
 ALETHEIA_LIB=build/libaletheia-ffi.so cpp/build/aletheia-cli validate --dbc vehicle.dbc
-```
+~~~
 
 The `--dbc` / `--json` flags and `$ALETHEIA_LIB` library-path resolution are the shared host-CLI contract; the full subcommand reference lives in the [CLI Reference](CLI.md).
 

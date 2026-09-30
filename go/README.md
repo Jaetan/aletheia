@@ -7,10 +7,10 @@ Go interface for the Aletheia formally verified CAN frame analyzer.
 See [../docs/development/BUILDING.md](../docs/development/BUILDING.md) and [../docs/development/DISTRIBUTION.md](../docs/development/DISTRIBUTION.md) for build and integration instructions.
 
 Quick start:
-```bash
+~~~bash
 cabal run shake -- build       # Build Agda + Haskell + libaletheia-ffi.so
 cd go && go test ./aletheia/ -count=1 -race
-```
+~~~
 
 ## Modules
 
@@ -117,12 +117,12 @@ for the cross-binding contract.
 
 ## Testing
 
-```bash
+~~~bash
 cd go
 go test ./aletheia/ -count=1 -race
 go vet ./...
 gofmt -l .   # expect empty
-```
+~~~
 
 ## See Also
 

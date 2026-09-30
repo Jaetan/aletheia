@@ -15,9 +15,10 @@
 // import block gets package main and an empty main; a body fragment is
 // placed inside a synthesised main with predeclared ctx, client, dbc, ts,
 // canID, dlc, data, frames and libPath, and every name it declares with :=
-// is used once so an unused variable cannot fail it. The companion gate in
-// doc_no_notest_test.go refuses the notest annotation; a fence that cannot
-// run takes the text info string.
+// is used once so an unused variable cannot fail it. The gates in
+// doc_files_test.go hold the list to the tree and refuse a Go fence hidden
+// behind a suffixed info word; a fence that cannot run opens with tildes,
+// which the extractor does not read.
 package aletheia_test
 
 import (

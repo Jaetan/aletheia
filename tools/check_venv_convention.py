@@ -48,6 +48,8 @@ _CREATE_RE = re.compile(r"\bpython[0-9.]*\s+-m\s+venv\s+(?P<target>\S+)")
 _BIN_RE = re.compile(r"(?P<prefix>\S*)\.venv/bin/")
 # A directory change into python/ (scopes a subsequent bare `.venv` correctly).
 _CD_PYTHON_RE = re.compile(r"\bcd\s+\.?/?python\b")
+# A fence line: its run of backticks or tildes, then whatever follows it.
+_FENCE_RUN = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
 
 
 def repo_root() -> Path:
@@ -128,19 +130,23 @@ def _scan_scope(scope: str, lines: list[tuple[int, str]], rel: str) -> list[str]
 
 
 def _scan_markdown(text: str, rel: str) -> list[str]:
-    """Scan a markdown file: each fenced ``` block is one scope; so is each line."""
+    """Scan a markdown file: each fenced block, of backticks or tildes, is a scope; so is a line."""
     findings: list[str] = []
-    in_fence = False
+    fence = ""  # the run that opened the block being read, empty outside one
     block: list[tuple[int, str]] = []
     for lineno, line in enumerate(text.splitlines(), start=1):
-        if line.lstrip().startswith("```"):
-            if in_fence:  # closing fence — analyse the accumulated block
+        run = _FENCE_RUN.match(line)
+        closes = run is not None and run.group(1).startswith(fence) and not run.group(2).strip()
+        if run is not None and (not fence or closes):
+            if fence:  # closing fence — analyse the accumulated block
                 scope = "\n".join(t for _, t in block)
                 findings += _scan_scope(scope, block, rel)
                 block = []
-            in_fence = not in_fence
+                fence = ""
+            else:
+                fence = run.group(1)
             continue
-        if in_fence:
+        if fence:
             block.append((lineno, line))
         else:
             # Prose line (may carry an inline `cd python && ... venv` recipe).

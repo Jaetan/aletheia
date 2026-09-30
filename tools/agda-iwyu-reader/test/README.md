@@ -63,10 +63,10 @@ at all (which should not happen for a real candidate); the tool surfaces it
 
 ## Running the validation
 
-```bash
+~~~bash
 python -m tools.iwyu --self-test
 # -> === iwyu self-test: 31/31 fixtures pass ===   (exit 0; 1 on any mismatch)
-```
+~~~
 
 The self-test type-checks every fixture in a scratch dir (agda runs FROM that dir
 so its no-`.agda-lib` project root is the cwd — else a leaf module fails

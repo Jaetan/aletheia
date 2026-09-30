@@ -9,23 +9,23 @@ allocation behavior is recorded across the long-run window.
 
 ## Quick start
 
-```bash
+~~~bash
 cabal run shake -- build
 cmake --build cpp/build --target stability_bench  # C++ harness binary
 
 # Default: 10 cycles × 100K frames per binding (= 1M total each), ~5-10 min.
 ALETHEIA_STABILITY_CHECK=1 python3 tools/stability_run.py
-```
+~~~
 
 Artifacts land at `benchmarks/stability/<short-sha>/`:
 
-```
+~~~
 python.json      Python harness verdict + delta per sub-check
 go.json          Go harness verdict + delta per sub-check
 cpp.json         C++ harness verdict + delta per sub-check
 aletheia-ffi.hp  GHC RTS heap-typed profile (Agda cat 16)
 summary.json     Aggregated verdict
-```
+~~~
 
 `benchmarks/stability/` is gitignored — these are volatile per-run
 artifacts.  The spec defining what each binding's harness MUST measure
@@ -45,10 +45,10 @@ an always-on offline enforcer in `tools/run_ci.py`) verifies every
 
 Smoke run for harness development (~30s):
 
-```bash
+~~~bash
 ALETHEIA_STABILITY_CYCLES=2 ALETHEIA_STABILITY_FRAMES=1000 \
   python3 tools/stability_run.py
-```
+~~~
 
 > **Note on smoke-run heap profile.**  GHC's `-hT` heap profiler samples at
 > 0.1s wall by default.  Smoke runs that finish under ~10s produce a

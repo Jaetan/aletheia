@@ -87,7 +87,7 @@ size") is **not installed** in this environment, so measure with
 `ru_maxrss` is the child's peak RSS in KiB on Linux (illustrative — the
 `text` tag keeps it out of the doc-example harness, which would try to run it):
 
-```text
+~~~text
 import resource
 import subprocess
 import sys
@@ -102,7 +102,7 @@ subprocess.run(
 )
 peak_kib = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
 print(f"child peak RSS: {peak_kib / 1024:.1f} MiB")
-```
+~~~
 
 For a GHC-specific figure, run the workload once under `ALETHEIA_RTS_OPTS=-s`
 (the RTS statistics summary prints "maximum residency" and "total memory in

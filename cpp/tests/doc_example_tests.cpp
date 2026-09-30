@@ -9,11 +9,14 @@
 // Every ```cpp fence of the documents k_doc_files lists is extracted,
 // wrapped, compiled by ${CMAKE_CXX_COMPILER}, and executed end-to-end. A
 // failing fence (compile or runtime) is a test failure reported with
-// `file:Lline` precision. Non-runnable fences (signature sketches,
-// illustrative pseudocode referencing undefined symbols) must use the `text`
-// info string. The structural gates at the foot of this file hold the list
-// to the tree both ways, refuse the notest annotation as TestNoNotestGoFences
-// does for Go, and keep a collective fence floor.
+// `file:Lline` precision. The C++ fences of a document k_path_docs lists are
+// one program cut into steps, joined in order, compiled and run whole.
+// Non-runnable fences (signature sketches, illustrative pseudocode referencing
+// undefined symbols) open with tildes, which the extractor does not read. The
+// structural gates at the foot of this file hold the list
+// to the tree both ways, refuse a C++ fence hidden behind a suffixed info word
+// as Go's TestNoGoFenceHidesBehindASuffix does, and keep a collective fence
+// floor.
 //
 // Path substitutions (parallel python/conftest.py loader fakes):
 //
@@ -34,6 +37,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -67,8 +72,9 @@ using aletheia::test::read_text_file;
 
 namespace fs = std::filesystem;
 
-// Every tracked Markdown file carrying a C++ fence, less those k_unrun_docs
-// names; the structural gates below hold the list to the tree both ways.
+// Every tracked Markdown file carrying a C++ fence, less those k_path_docs
+// names; the structural gates below hold the lists to the tree both ways. Code
+// no check runs opens with tildes, which the extractor does not read.
 constexpr std::array<std::string_view, 5> k_doc_files = {
     "cpp/README.md",
     "docs/PITCH.md",
@@ -77,11 +83,9 @@ constexpr std::array<std::string_view, 5> k_doc_files = {
     "docs/development/DISTRIBUTION.md",
 };
 
-// The tracked documents whose C++ fences the harness does not run: the
-// changelog's describe past releases, and the Tutorial's C++ path is one
-// program cut into steps, which its probe in probes/ compiles whole.
-constexpr std::array<std::string_view, 2> k_unrun_docs = {
-    "CHANGELOG.md",
+// The tracked documents whose C++ fences, read in order, are one program cut
+// into steps: the Tutorial's C++ path.
+constexpr std::array<std::string_view, 1> k_path_docs = {
     "docs/guides/TUTORIAL.md",
 };
 
@@ -144,6 +148,37 @@ static auto strip_right(std::string_view s) -> std::string_view {
     return s;
 }
 
+namespace {
+// What a line opens, read by the first word of its info string. An info
+// string holding a backtick opens nothing, CommonMark reading the line as
+// inline code.
+enum class FenceOpening : std::uint8_t {
+    // any other line
+    Other,
+    // the harness's reading: leading blanks stripped, then a fence whose info
+    // string's first word is exactly cpp
+    Run,
+    // cpp followed by ASCII punctuation (cpp,x): a reader still takes the
+    // fence for C++, and the harness neither runs nor counts it
+    Hidden,
+};
+} // namespace
+
+static auto cpp_fence_opening(std::string_view line) -> FenceOpening {
+    auto const trim = strip_left(line);
+    if (!trim.starts_with("```cpp"))
+        return FenceOpening::Other;
+    auto const rest = trim.substr(6);
+    if (rest.contains('`'))
+        return FenceOpening::Other;
+    if (rest.empty() || rest.front() == ' ' || rest.front() == '\t')
+        return FenceOpening::Run;
+    auto const next = static_cast<unsigned char>(rest.front());
+    if (std::isalnum(next) != 0 || next == '_' || next >= 0x80)
+        return FenceOpening::Other;
+    return FenceOpening::Hidden;
+}
+
 // Extracts every ```cpp fence from one markdown file.
 static auto extract_cpp_fences(const fs::path& abs_path, std::string_view rel_path)
     -> std::vector<CppFence> {
@@ -159,16 +194,11 @@ static auto extract_cpp_fences(const fs::path& abs_path, std::string_view rel_pa
     std::string body;
     while (std::getline(in, line)) {
         ++lineno;
-        auto const trim = strip_left(line);
         if (!in_fence) {
-            // Opening fence: ```cpp possibly followed by space/info-string.
-            if (trim.starts_with("```cpp")) {
-                auto const rest = trim.substr(6);
-                if (rest.empty() || rest.front() == ' ' || rest.front() == '\t') {
-                    in_fence = true;
-                    fence_start = lineno;
-                    body.clear();
-                }
+            if (cpp_fence_opening(line) == FenceOpening::Run) {
+                in_fence = true;
+                fence_start = lineno;
+                body.clear();
             }
             continue;
         }
@@ -331,7 +361,10 @@ std::string libPath = (env_lib != nullptr) ? env_lib : "";
 auto initial_backend = make_ffi_backend(libPath);
 DbcDefinition dbc = doc_harness_detail::build_doc_dbc();
 AletheiaClient client{std::move(initial_backend)};
-[[maybe_unused]] auto _parse_result = client.parse_dbc(std::stop_token{}, dbc);
+if (auto parsed = client.parse_dbc(std::stop_token{}, dbc); !parsed) {
+    std::cerr << "the harness's DBC does not parse: " << parsed.error().message() << '\n';
+    return 1;
+}
 
 [[maybe_unused]] auto backend = make_ffi_backend(libPath);
 [[maybe_unused]] Timestamp ts{0};
@@ -413,9 +446,6 @@ static auto sh_quote(std::string_view s) -> std::string {
     return out;
 }
 
-// A scratch directory that removes itself, so a failing fence (whose assertion
-// throws out of the loop) cannot leave its wrapper sources behind.
-
 // Cached fence list — extraction is idempotent so we read once and reuse
 // across repeat entries (Catch2 SECTION re-enters the test case body for
 // each section, which would otherwise re-parse the markdown N times).
@@ -432,107 +462,110 @@ static auto fence_cache() -> const std::vector<CppFence>& {
     return cached;
 }
 
+namespace {
+// The fixtures the path substitutions name.
+struct Fixtures {
+    std::string yaml;
+    std::string excel;
+};
+} // namespace
+
+static auto doc_fixtures(const fs::path& root) -> Fixtures {
+    Fixtures fixtures{
+        .yaml = (root / "cpp" / "tests" / "testdata" / "doc_examples" / "checks.yaml").string(),
+        .excel = (root / "examples" / "demo" / "demo_workbook.xlsx").string(),
+    };
+    REQUIRE(fs::exists(fixtures.yaml));
+    REQUIRE(fs::exists(fixtures.excel));
+    return fixtures;
+}
+
+// Compiles one program against the binding and runs it, failing the calling
+// test case on either step.
+static auto compile_and_run(const fs::path& src_path, const fs::path& out_path,
+                            const std::string& lib) -> void {
+    // The library is shared and carries its own dependencies, so a program
+    // links it alone and needs its directory on the run-time search path;
+    // linking by file name gives the linker the path but not the loader.
+    // ALETHEIA_DOC_SANITIZER_FLAG is set by CMake to the active sanitizer flag
+    // (e.g. "-fsanitize=undefined") when the parent build was configured with
+    // -DALETHEIA_SANITIZER=..., so the program's link to the library (which
+    // carries sanitizer-runtime symbols) resolves; it is empty when no
+    // sanitizer is active.
+    auto const lib_dir = std::filesystem::path{ALETHEIA_DOC_LIB_FILE}.parent_path();
+    std::ostringstream cmd;
+    cmd << sh_quote(ALETHEIA_DOC_CXX) << " -std=c++" << ALETHEIA_DOC_CXX_STD << " -I"
+        << sh_quote(doc_include_dir()) << " -o " << sh_quote(out_path.string()) << " "
+        << sh_quote(src_path.string()) << " " << sh_quote(ALETHEIA_DOC_LIB_FILE) << " -Wl,-rpath,"
+        << sh_quote(lib_dir.string()) << " -ldl -lpthread -lstdc++fs "
+        << ALETHEIA_DOC_SANITIZER_FLAG;
+    auto const compile_cmd = cmd.str();
+
+    auto [compile_rc, compile_out] = run_capture(compile_cmd);
+    INFO("Wrapper source: " << src_path);
+    INFO("Compile command: " << compile_cmd);
+    INFO("Compile output:\n" << compile_out);
+    REQUIRE(compile_rc == 0);
+
+    std::ostringstream run_cmd;
+    run_cmd << "ALETHEIA_LIB=" << sh_quote(lib) << " " << sh_quote(out_path.string());
+    auto [run_rc, run_out] = run_capture(run_cmd.str());
+    INFO("Run output:\n" << run_out);
+    REQUIRE(run_rc == 0);
+}
+
 TEST_CASE("doc-example harness: every ```cpp fence compiles and runs", "[doc-examples]") {
     auto const lib = find_ffi_lib();
     if (lib.empty()) {
         SKIP("libaletheia-ffi.so not found — run `cabal run shake -- build` first");
     }
-
-    auto const root = repo_root();
-    auto const yaml_fix =
-        (root / "cpp" / "tests" / "testdata" / "doc_examples" / "checks.yaml").string();
-    REQUIRE(fs::exists(yaml_fix));
-    auto const excel_fix = (root / "examples" / "demo" / "demo_workbook.xlsx").string();
-    REQUIRE(fs::exists(excel_fix));
+    auto const fixtures = doc_fixtures(repo_root());
 
     auto const& fences = fence_cache();
     REQUIRE_FALSE(fences.empty());
 
+    // A scratch directory that removes itself, so a failing fence (whose
+    // assertion throws out of the loop) cannot leave its wrapper sources behind.
     const TempPath scratch{scratch_dir() / "aletheia_doc_harness", AsDirectory{}};
     auto const& workdir = scratch.path;
 
     for (auto const [i, fence] : std::views::enumerate(fences)) {
         DYNAMIC_SECTION("Fence " << fence.display()) {
-            auto body = substitute_paths(fence.content, lib, yaml_fix, excel_fix);
-            auto const src = wrap_fence(std::move(body));
+            auto body = substitute_paths(fence.content, lib, fixtures.yaml, fixtures.excel);
             auto const src_path = workdir / ("fence" + std::to_string(i) + ".cpp");
-            auto const out_path = workdir / ("fence" + std::to_string(i));
-            write_file(src_path, src);
-
-            // Compile.
-            // The library is shared and carries its own dependencies, so a
-            // fence links it alone and needs its directory on the run-time
-            // search path; linking by file name gives the linker the path but
-            // not the loader.
-            // ALETHEIA_DOC_SANITIZER_FLAG is set by CMake to the active
-            // sanitizer flag (e.g. "-fsanitize=undefined") when the parent
-            // build was configured with -DALETHEIA_SANITIZER=...; passes
-            // the flag through to the per-fence compile so the per-fence
-            // binary's link to the library (which carries sanitizer-runtime
-            // symbols) resolves cleanly.  Empty when no sanitizer is active
-            // (the common case).
-            auto const lib_dir = std::filesystem::path{ALETHEIA_DOC_LIB_FILE}.parent_path();
-            std::ostringstream cmd;
-            cmd << sh_quote(ALETHEIA_DOC_CXX) << " -std=c++" << ALETHEIA_DOC_CXX_STD << " -I"
-                << sh_quote(doc_include_dir()) << " -o " << sh_quote(out_path.string()) << " "
-                << sh_quote(src_path.string()) << " " << sh_quote(ALETHEIA_DOC_LIB_FILE)
-                << " -Wl,-rpath," << sh_quote(lib_dir.string()) << " -ldl -lpthread -lstdc++fs "
-                << ALETHEIA_DOC_SANITIZER_FLAG;
-            auto const compile_cmd = cmd.str();
-
-            auto [compile_rc, compile_out] = run_capture(compile_cmd);
-            INFO("Wrapper source: " << src_path);
-            INFO("Compile command: " << compile_cmd);
-            INFO("Compile output:\n" << compile_out);
-            REQUIRE(compile_rc == 0);
-
-            // Run.
-            std::ostringstream run_cmd;
-            run_cmd << "ALETHEIA_LIB=" << sh_quote(lib) << " " << sh_quote(out_path.string());
-            auto [run_rc, run_out] = run_capture(run_cmd.str());
-            INFO("Run output:\n" << run_out);
-            REQUIRE(run_rc == 0);
+            write_file(src_path, wrap_fence(std::move(body)));
+            compile_and_run(src_path, workdir / ("fence" + std::to_string(i)), lib);
         }
     }
 }
 
-// ---------------------------------------------------------------------------
-// Structural gates (Go's: go/aletheia/doc_files_test.go, doc_no_notest_test.go)
-// ---------------------------------------------------------------------------
-
-TEST_CASE("doc-example structural gate: no `<!-- cpp notest -->` annotations",
-          "[doc-examples][gate]") {
-    // Mirror of Go's TestNoNotestGoFences: a non-runnable fence must use
-    // the `text` info string. The HTML-comment escape hatch silently hides
-    // a fence from the harness while still rendering as cpp in prose.
-    static const std::regex notest_re(R"(<!--\s*cpp\b[^>]*\bnotest\b[^>]*-->)");
+TEST_CASE("doc-example harness: every path document's ```cpp fences run as one program",
+          "[doc-examples]") {
+    auto const lib = find_ffi_lib();
+    if (lib.empty()) {
+        SKIP("libaletheia-ffi.so not found; run `cabal run shake -- build` first");
+    }
     auto const root = repo_root();
-    for (auto const rel : k_doc_files) {
-        auto body = read_text_file(root / rel);
-        std::vector<int> offenders;
-        auto const begin = std::sregex_iterator(body.begin(), body.end(), notest_re);
-        auto const end = std::sregex_iterator{};
-        for (auto const& match : std::ranges::subrange(begin, end)) {
-            auto const line =
-                static_cast<int>(std::count(body.begin(), body.begin() + match.position(), '\n')) +
-                1;
-            offenders.push_back(line);
-        }
-        if (!offenders.empty()) {
-            std::ostringstream lines;
-            lines << '[';
-            for (auto const [i, offender] : std::views::enumerate(offenders)) {
-                if (i != 0)
-                    lines << ", ";
-                lines << "L" << offender;
-            }
-            lines << ']';
-            FAIL(rel << " has `<!-- cpp notest -->` annotations at " << lines.str()
-                     << " — switch the fence info string from `cpp` to `text` (or"
-                     << " drop the annotation so the harness runs the block).");
+    auto const fixtures = doc_fixtures(root);
+
+    const TempPath scratch{scratch_dir() / "aletheia_doc_paths", AsDirectory{}};
+    for (auto const [i, rel] : std::views::enumerate(k_path_docs)) {
+        DYNAMIC_SECTION("Path " << rel) {
+            std::string program;
+            for (auto const& fence : extract_cpp_fences(root / rel, rel))
+                program += fence.content;
+            REQUIRE_FALSE(program.empty());
+            auto const src_path = scratch.path / ("path" + std::to_string(i) + ".cpp");
+            write_file(src_path,
+                       substitute_paths(std::move(program), lib, fixtures.yaml, fixtures.excel));
+            compile_and_run(src_path, scratch.path / ("path" + std::to_string(i)), lib);
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Structural gates (Go's: go/aletheia/doc_files_test.go)
+// ---------------------------------------------------------------------------
 
 // Every tracked Markdown file, as git lists it: the set a fresh checkout holds,
 // so an untracked file in the working tree is never read.
@@ -555,7 +588,7 @@ TEST_CASE("doc-example structural gate: every tracked ```cpp fence is in a liste
     auto const root = repo_root();
     std::vector<std::string> unlisted;
     for (auto const& doc : tracked_markdown(root)) {
-        if (std::ranges::contains(k_unrun_docs, doc) || std::ranges::contains(k_doc_files, doc))
+        if (std::ranges::contains(k_doc_files, doc) || std::ranges::contains(k_path_docs, doc))
             continue;
         if (!extract_cpp_fences(root / doc, doc).empty())
             unlisted.push_back(doc);
@@ -569,11 +602,61 @@ TEST_CASE(
     "[doc-examples][gate]") {
     auto const root = repo_root();
     auto const tracked = tracked_markdown(root);
-    for (auto const [i, doc] : std::views::enumerate(k_doc_files)) {
+    auto const tracked_with_a_fence = [&](std::string_view doc) {
         INFO(doc << " is listed");
-        CHECK_FALSE(std::ranges::contains(k_doc_files | std::views::take(i), doc));
         CHECK(std::ranges::contains(tracked, doc));
         CHECK_FALSE(extract_cpp_fences(root / doc, doc).empty());
+    };
+    for (auto const [i, doc] : std::views::enumerate(k_doc_files)) {
+        CHECK_FALSE(std::ranges::contains(k_doc_files | std::views::take(i), doc));
+        tracked_with_a_fence(doc);
+    }
+    for (auto const [i, doc] : std::views::enumerate(k_path_docs)) {
+        CHECK_FALSE(std::ranges::contains(k_path_docs | std::views::take(i), doc));
+        CHECK_FALSE(std::ranges::contains(k_doc_files, doc));
+        tracked_with_a_fence(doc);
+    }
+}
+
+TEST_CASE("doc-example structural gate: no ```cpp fence hides behind a suffixed info word",
+          "[doc-examples][gate]") {
+    auto const root = repo_root();
+    std::vector<std::string> hidden;
+    for (auto const& doc : tracked_markdown(root)) {
+        for (auto const [i, line] :
+             std::views::enumerate(std::views::split(read_text_file(root / doc), '\n'))) {
+            if (cpp_fence_opening(std::string_view{line}) == FenceOpening::Hidden)
+                hidden.push_back(doc + ":" + std::to_string(i + 1));
+        }
+    }
+    INFO("write cpp, or open a fence that cannot run with tildes");
+    CAPTURE(hidden);
+    CHECK(hidden.empty());
+}
+
+TEST_CASE("doc-example structural gate: a ```cpp fence is read by its first info word",
+          "[doc-examples][gate]") {
+    struct Row {
+        std::string_view line;
+        FenceOpening want;
+    };
+    for (auto const& [line, want] : std::array{
+             Row{.line = "```cpp", .want = FenceOpening::Run},
+             Row{.line = "   ```cpp", .want = FenceOpening::Run},
+             Row{.line = "```cpp notest", .want = FenceOpening::Run},
+             Row{.line = "```cpp\tx", .want = FenceOpening::Run},
+             Row{.line = "```cpp,x", .want = FenceOpening::Hidden},
+             Row{.line = "```cpp{.x}", .want = FenceOpening::Hidden},
+             Row{.line = "```cpp:main.cpp", .want = FenceOpening::Hidden},
+             Row{.line = "  ```cpp``` / ```go``` block", .want = FenceOpening::Other},
+             Row{.line = "```cpp `x`", .want = FenceOpening::Other},
+             Row{.line = "```cpp20", .want = FenceOpening::Other},
+             Row{.line = "```cppfront", .want = FenceOpening::Other},
+             Row{.line = "```", .want = FenceOpening::Other},
+             Row{.line = "```text", .want = FenceOpening::Other},
+         }) {
+        INFO(line);
+        CHECK(cpp_fence_opening(line) == want);
     }
 }
 

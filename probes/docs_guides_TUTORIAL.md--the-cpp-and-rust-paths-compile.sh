@@ -3,13 +3,12 @@
 # SPDX-License-Identifier: BSD-2-Clause
 #
 # Probes docs/guides/TUTORIAL.md.
-# Claim: the C++ path's fences, read in order and closed, compile against the
-# built binding, and the Rust path's do against the crate. Each path is one
-# program cut into steps, so neither is a fence any harness can run: the Go
-# fences are run by the doc-example harness and the Python ones by pytest, and
-# these two were read by nobody. The Rust path destructured a parse result as a
-# pair when it answers one value with two fields, and had done since it was
-# written.
+# Claim: the C++ path's fences, read in order, compile against the built
+# binding, and the Rust path's do against the crate. Each path is one program
+# cut into steps, which the C++ and Rust doc-example harnesses join and run as
+# a whole; this probe holds the compile on its own. The Rust path destructured a
+# parse result as a pair when it answers one value with two fields, and had
+# done since it was written.
 # Non-zero exit: a path no longer compiles. Exits 0 with a note when a compiler
 # or a built library is missing, the claim being untestable then.
 set -u
@@ -25,8 +24,6 @@ status=0
 if command -v clang++-23 > /dev/null && [ -f cpp/build/libaletheia-cpp.so ]; then
 	awk '/^```cpp$/{flag=1; next} /^```$/{flag=0} flag' "$guide" > "$work/path.cpp"
 	grep -q "int main" "$work/path.cpp" || { echo "the C++ path no longer opens a program"; exit 1; }
-	# The steps leave main open, each being a slice of it.
-	printf '    return 0;\n}\n' >> "$work/path.cpp"
 	if ! clang++-23 -std=c++23 -Icpp/include "$work/path.cpp" cpp/build/libaletheia-cpp.so \
 		-Wl,-rpath,"$root/cpp/build" -ldl -lpthread -o "$work/path" > "$work/cpp.log" 2>&1; then
 		echo "the C++ path does not compile:"

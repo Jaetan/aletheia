@@ -81,7 +81,7 @@ Scope: every Go source and test file of the workspace `go/go.work`, which is the
 
 ### Verification
 
-```bash
+~~~bash
 cd go && gofmt -l ./aletheia/
 cd go && go test ./aletheia/ -v -count=1 -race
 cd go && go test ./aletheia/ -shuffle=on -count=1 -race
@@ -93,19 +93,21 @@ cd go && go test ./aletheia/ -fuzz=Fuzz -fuzztime=60s -run='^$'   # one target a
 cd go && go test ./aletheia/ -run CrossBinding -v                  # cross-binding integration
 # Cat 33 (a) sanitizer lane (when toolchain supports it):
 cd go && CGO_CFLAGS="-fsanitize=address" CGO_LDFLAGS="-fsanitize=address" go test -tags=asan ./aletheia/
-```
+~~~
 
 The `go test ./aletheia/` battery includes the doc-example
 harness (`TestDocExamples`): every ```go fence in the files `docFiles`
 lists in `go/aletheia/doc_files_test.go` (the Go README among them)
 is wrapped as `package main` in a per-fence tempdir (with a
 `replace`-directive go.mod pointing at the local repo) and executed via
-`go run`. The companion structural gate `TestNoNotestGoFences` rejects
-`<!-- go notest -->` annotations: non-runnable fences must use the
-`text` info string, mirroring the Python `python notest` ban
-(`python/tests/test_doc_examples_harness.py`). `docFiles` names every
-tracked Markdown file carrying a Go fence, CHANGELOG.md aside, and two more
-structural gates beside it hold it to the tree both ways, the way the Python
+`go run`. The companion structural gate `TestNoGoFenceHidesBehindASuffix`
+refuses a Go fence hidden behind a suffixed info word (`go,ignore`, which a
+reader takes for Go and the extractor neither runs nor counts): a fence that
+cannot run opens with tildes, which the extractor does not read, as in the
+other three bindings (`tools/check_fence_marks.py` refuses a backtick fence no
+harness runs). `docFiles` names every tracked Markdown file carrying a Go
+fence, and two more structural gates beside it hold it to the tree both ways,
+the way the Python
 harness's list is held: a document that gains a Go fence fails the suite
 until it is listed, and a listed one that is untracked or carries none fails
 it too. The harness skips itself when `libaletheia-ffi.so` is missing (run

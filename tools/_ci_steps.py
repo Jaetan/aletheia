@@ -98,6 +98,7 @@ FAST_STEPS: frozenset[str] = frozenset(
         "check-spdx-headers",
         "check-no-review-marks",
         "check-refused-words",
+        "check-fence-marks",
         "check-no-memory-citations",
         "check-venv-convention",
         "check-cpp-index-loops",
@@ -134,9 +135,9 @@ ROOT_PYTHON: tuple[Path, ...] = (
 
 
 # The documents whose Python fences the doc-example harness runs: every tracked
-# Markdown file carrying one, CHANGELOG.md aside, whose fences describe past
-# releases.  The harness step, the command AGENTS/python.md prints and the
-# structural tests all read this one list, and the tests hold it to the tree.
+# Markdown file carrying one, code no check runs opening with tildes instead.
+# The harness step, the command AGENTS/python.md prints and the structural
+# tests all read this one list, and the tests hold it to the tree.
 DOC_EXAMPLE_DOCS: tuple[Path, ...] = (
     Path("README.md"),
     Path("docs/PITCH.md"),
@@ -675,6 +676,11 @@ def _run_gha_checks(runner: Runner) -> None:
     runner.step(
         "check-refused-words",
         [runner.python, "-m", "tools.check_refused_words"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
+        "check-fence-marks",
+        [runner.python, "-m", "tools.check_fence_marks"],
         cwd=runner.repo_root,
     )
     runner.step(

@@ -41,10 +41,10 @@ closed when output drifts.
 - Agda's wire shape for the parsed DBC body changes (rare — would touch
   `Aletheia/Protocol/ResponseFormat.agda` or `formatDBC` paths).
 
-```bash
+~~~bash
 cd python && ALETHEIA_UPDATE_SNAPSHOTS=1 python3 -m pytest \
   tests/test_dbc_corpus_parity.py::test_corpus_parses_to_parity_snapshot
-```
+~~~
 
 The cantools-baseline `snapshots/` tree was retired together with
 the cantools fallback.

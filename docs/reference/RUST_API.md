@@ -239,11 +239,11 @@ Rust has no dedicated `State` variant, so a call made in the wrong lifecycle sta
 
 The synchronous `Client` is single-threaded and not `Send`. For an async, cancellable client, enable the `async` feature and use `AsyncClient`, which runs the client on a dedicated worker thread and exposes `async` methods resolving on whichever runtime you use. Dropping a pending future or the client cancels in-flight work at a frame boundary under the commit-prefix-and-report contract, so already-processed frames stay committed. The cross-binding cancellation semantics are specified in the [Cancellation Contract](../architecture/CANCELLATION.md).
 
-```toml
+~~~toml
 # Cargo.toml
 [dependencies]
 aletheia = { path = "…", features = ["async"] }
-```
+~~~
 
 ---
 

@@ -202,12 +202,12 @@ mismatch).
 message and signal definitions for the violating CAN ID. Operator
 workflow:
 
-```bash
+~~~bash
 # Python (or via the unified CLI):
 python3 -m aletheia signals --dbc <file>.dbc | grep -i <signal_name>
 # Inspect the message hosting a CAN ID:
 python3 -m aletheia mux-query --dbc <file>.dbc <can_id_hex>
-```
+~~~
 
 If the predicate is correct, the frame is malformed (check the producer's
 DLC + payload bits against the signal's start_bit + bit_length); if

@@ -112,12 +112,12 @@ the Aletheia side.
 
 The canonical sanitizer-lane invocation therefore uses clang:
 
-```
+~~~
 cmake -B build-ubsan -DALETHEIA_SANITIZER=undefined \
     -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23
 cmake --build build-ubsan
 ctest --test-dir build-ubsan
-```
+~~~
 
 `tools/run_ci.py` wires this exactly as an always-on step, not opt-in:
 an opt-in sanitizer lane can let UB — as in `Rational::from_double` —

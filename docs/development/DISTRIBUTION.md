@@ -16,7 +16,7 @@ A GitHub release ships one self-contained tarball — `aletheia.tar.gz` — that
 
 Every release is validated this way before it is published: the release workflow builds one consumer program per compiled binding (C++, Go, Rust) from the exact recipes `install.sh` / `install.fish` print and drives a real verification scenario through the bundle's kernel, alongside a Python smoke test of the same `env.sh` → `ALETHEIA_LIB` chain. A weekly scheduled workflow replays the same validation against both a fresh `shake dist` from the default branch and the latest published release. See [RELEASE.md § Release-path bundle validation](RELEASE.md#release-path-bundle-validation).
 
-```
+~~~
 aletheia/
 ├── lib/libaletheia-ffi.so      # verified Agda kernel + GHC runtime (RPATH=$ORIGIN)
 ├── lib/libHS*.so               # GHC runtime dependencies
@@ -32,7 +32,7 @@ aletheia/
 ├── README.txt                  # consumer entry point
 ├── aletheia-sbom.cdx.json      # CycloneDX 1.5 SBOM
 └── LICENSE.md                  # BSD-2-Clause license text
-```
+~~~
 
 Why source and not just a header + `.so`? For C there is nothing more to ship — `include/aletheia.h` + `lib/libaletheia-ffi.so` is the whole interface. But Python, Go, and Rust have no header/compiled-lib split: their libraries *are* source (a pure-ctypes package, a Go module, a Rust crate). The `bindings/` trees carry each wrapper in its only distributable form — library files only, no tests or benchmarks.
 
@@ -40,14 +40,14 @@ Why source and not just a header + `.so`? For C there is nothing more to ship �
 
 Every binding locates `libaletheia-ffi.so` at runtime through the `ALETHEIA_LIB` environment variable. `env.sh` / `env.fish` set it to an **absolute** path derived from the script's own location, so the value is correct no matter where you unpacked:
 
-```bash
+~~~bash
 # bash / zsh — for this shell, or add the line to ~/.bashrc / ~/.zshrc:
 source /path/to/aletheia/env.sh
-```
-```fish
+~~~
+~~~fish
 # fish — for this shell, or add the line to ~/.config/fish/config.fish:
 source /path/to/aletheia/env.fish
-```
+~~~
 
 Running `./install.sh` (or `./install.fish`) prints exactly these lines for your unpack location plus the per-language recipes below. It does **not** edit your shell startup files — you stay in control.
 
@@ -57,33 +57,33 @@ Each recipe assumes `ALETHEIA_LIB` is set (step 1); `<A>` is the unpack path.
 
 **Python** (requires **Python 3.14+**; no third-party runtime dependencies). The package is pure-Python and imports in place with no build step — the way the C++/Go/Rust bindings are consumed from `bindings/` in place. Point Python at it (this works read-only, including a `/opt` package install):
 
-```bash
+~~~bash
 export PYTHONPATH="<A>/bindings/python${PYTHONPATH:+:$PYTHONPATH}"   # fish: set -gx PYTHONPATH "<A>/bindings/python" $PYTHONPATH
 python -c 'import aletheia; from aletheia import FFIBackend; FFIBackend()'
-```
+~~~
 
 Prefer a pip-managed install (console script on `PATH`, clean uninstall)? `pip install "<A>/bindings/python"` — but pip builds a wheel *in the source directory*, so run it only where `<A>` is **writable**: an unpacked tarball, or a copy, e.g. inside a venv you created. On an externally-managed / [PEP 668](https://peps.python.org/pep-0668/) Python add `--target "$HOME/.local/lib/aletheia"` and put that dir on `PYTHONPATH`. A read-only `/opt` package install cannot be pip-installed in place — use the `PYTHONPATH` recipe above.
 
 **C++** (CMake; fetches nlohmann/json + yaml-cpp + OpenXLSX at configure time, so a network connection is required for the first configure):
 
-```cmake
+~~~cmake
 add_subdirectory("<A>/bindings/cpp" aletheia-cpp)
 target_link_libraries(your_app PRIVATE aletheia::aletheia-cpp)
-```
+~~~
 
 **Go** — the bundled module is standalone: it ships **no** `go.work` (a stray `go.work` would hijack your own module resolution). Add it with a `replace`:
 
-```bash
+~~~bash
 go mod edit -replace "github.com/Jaetan/aletheia/go/v5=<A>/bindings/go"
 go get github.com/Jaetan/aletheia/go/v5/aletheia
-```
+~~~
 
 **Rust**:
 
-```toml
+~~~toml
 [dependencies]
 aletheia = { path = "<A>/bindings/rust" }
-```
+~~~
 
 The per-language **reference** sections below cover each API surface, the explicit `.so`-path constructors, RPATH, and Docker in depth.
 
@@ -95,7 +95,7 @@ The only declared dependency beyond glibc is the GMP runtime: `libgmp10` (deb) /
 
 Download a package with its sidecars from the GitHub Release, verify, install:
 
-```bash
+~~~bash
 BASE=https://github.com/Jaetan/aletheia/releases/download/vX.Y.Z
 PKG=aletheia_<version>_amd64.deb          # rpm: aletheia-<version>-1.x86_64.rpm
 curl -fsSLO "$BASE/$PKG";     curl -fsSLO "$BASE/$PKG.sha256"
@@ -111,22 +111,22 @@ cosign verify-blob \
 
 sudo dpkg -i "$PKG"                              # Debian/Ubuntu
 # sudo rpm -i aletheia-<version>-1.x86_64.rpm    # RPM distros
-```
+~~~
 
 Environment wiring stays **strictly opt-in**: the packages run no maintainer scripts and install no `profile.d` drop-ins. Activate per shell exactly as with the tarball —
 
-```bash
+~~~bash
 source /opt/aletheia/env.sh    # bash/zsh (fish: source /opt/aletheia/env.fish)
-```
+~~~
 
 — then follow [step 2 of the bundle instructions](#2-wire-it-into-your-language) with `<A>` = `/opt/aletheia`.
 
 Uninstall:
 
-```bash
+~~~bash
 sudo dpkg -r aletheia          # Debian/Ubuntu
 # sudo rpm -e aletheia         # RPM distros
-```
+~~~
 
 Before publish, CI install-smokes every release's `.deb` for real — `dpkg -i`, `source /opt/aletheia/env.sh` from a foreign cwd, a kernel load through the packaged Python binding, clean `dpkg -r` — and structurally checks the `.rpm` payload listing; both formats pack the same contents map (`packaging/nfpm.yaml`), so their payloads are identical by construction. See [RELEASE.md § Native packages](RELEASE.md#native-packages-deb--rpm) for the artifact and verification details, including the honest reproducibility scope.
 
@@ -134,14 +134,14 @@ Before publish, CI install-smokes every release's `.deb` for real — `dpkg -i`,
 
 **Prerequisites**: Build Aletheia first following [BUILDING.md](BUILDING.md). The `dist` target requires `patchelf` (see below).
 
-```bash
+~~~bash
 # patchelf is required for RPATH patching
 # Debian/Ubuntu: sudo apt install patchelf
 # Fedora: sudo dnf install patchelf
 # Or download from https://github.com/NixOS/patchelf/releases
 
 cabal run shake -- dist
-```
+~~~
 
 This produces `dist/aletheia/` — the full bundle (verified library, all four `bindings/`, `env.sh`/`env.fish`, `install.sh`/`install.fish`, `MANIFEST.txt`, SBOM; see [Using a release bundle](#using-a-release-bundle) for the layout) — and the reproducible `dist/aletheia.tar.gz` (with `.sha256`, plus `.sig` and `.crt` when the build is signed). The `bindings/` trees are staged straight from `HEAD` via `git archive` (tracked files only — no build junk, no `go.work`, no tests).
 
@@ -164,18 +164,18 @@ If you see `error while loading shared libraries: libgmp.so.10: cannot open shar
 
 Every `.so` in the dist has `RPATH=$ORIGIN`, so dependencies resolve within the same directory. Verify with:
 
-```bash
+~~~bash
 patchelf --print-rpath dist/aletheia/lib/libaletheia-ffi.so
 # Output: $ORIGIN
 
 ldd dist/aletheia/lib/libaletheia-ffi.so | grep "not found"
 # No output = all dependencies resolved
-```
+~~~
 
 If `patchelf` was not installed during `cabal run shake -- dist`, RPATH won't be set and you must use `LD_LIBRARY_PATH` instead:
-```bash
+~~~bash
 LD_LIBRARY_PATH=/path/to/aletheia/lib ./my_app
-```
+~~~
 
 ## Integration Guide
 
@@ -199,14 +199,14 @@ C consumers get the raw JSON/binary FFI surface — higher-level conveniences (C
 
 Unpack the tarball anywhere — no fixed installation path:
 
-```bash
+~~~bash
 tar xzf aletheia.tar.gz -C /opt/
 # Result: /opt/aletheia/lib/ and /opt/aletheia/include/
-```
+~~~
 
 Or vendor it inside your project:
 
-```
+~~~
 my-project/
 ├── third-party/
 │   └── aletheia/
@@ -217,19 +217,19 @@ my-project/
 │           └── aletheia.h
 └── src/
     └── main.c
-```
+~~~
 
 ### C
 
 #### Compile and link
 
-```bash
+~~~bash
 gcc -I/path/to/aletheia/include \
     -L/path/to/aletheia/lib \
     -Wl,-rpath,/path/to/aletheia/lib \
     -laletheia-ffi \
     -o my_app main.c
-```
+~~~
 
 The `-Wl,-rpath` flag embeds the library path in the binary, eliminating `LD_LIBRARY_PATH` at runtime.
 
@@ -237,30 +237,30 @@ The `-Wl,-rpath` flag embeds the library path in the binary, eliminating `LD_LIB
 
 If you ship your binary alongside the library:
 
-```
+~~~
 my-deploy/
 ├── bin/
 │   └── my_app
 └── lib/
     ├── libaletheia-ffi.so
     └── libHS*.so
-```
+~~~
 
 Use `$ORIGIN` to make the `my-deploy/` directory relocatable:
 
-```bash
+~~~bash
 gcc -Ialetheia/include \
     -Laletheia/lib \
     -Wl,-rpath,'$ORIGIN/../lib' \
     -laletheia-ffi \
     -o bin/my_app main.c
-```
+~~~
 
 #### Minimal C example
 
 See `aletheia.h` for complete function documentation. For the JSON command/response format, see the [JSON Protocol](../architecture/PROTOCOL.md).
 
-```c
+~~~c
 #include "aletheia.h"
 #include <stdio.h>
 #include <string.h>
@@ -279,7 +279,7 @@ int main(void) {
     /* Do NOT call hs_exit() — GHC RTS does not support reinitialization */
     return 0;
 }
-```
+~~~
 
 `aletheia_process()` handles JSON commands (parseDBC, setProperties, startStream, etc.), each passed as one `struct aletheia_text`: its UTF-8 bytes and their count, with no terminating NUL. To send CAN data frames during streaming, use `aletheia_send_frame()`, a separate binary entry point that takes the frame as one `struct aletheia_frame`. See `aletheia.h` for the full signature and the structure's layout and [PROTOCOL.md](../architecture/PROTOCOL.md) for details. Before any other call, compare `aletheia_abi_version()` with the header's `ALETHEIA_ABI_VERSION`, as every binding does: a library built from a commit whose C ABI differs reports another number.
 
@@ -289,7 +289,7 @@ The C++ binding (`cpp/` in the Aletheia repository) uses `dlopen` at runtime: pa
 
 #### CMake integration
 
-```cmake
+~~~cmake
 # Option 1: FetchContent (source embedded in your project tree)
 FetchContent_Declare(aletheia-cpp
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/aletheia-cpp)
@@ -299,7 +299,7 @@ target_link_libraries(my_app PRIVATE aletheia-cpp)
 # Option 2: find_package (after cmake --install from the aletheia-cpp build)
 find_package(aletheia-cpp REQUIRED)
 target_link_libraries(my_app PRIVATE aletheia::aletheia-cpp)
-```
+~~~
 
 #### Usage
 
@@ -325,9 +325,9 @@ The Go binding (`go/` in the Aletheia repository) uses `dlopen` at runtime via c
 
 #### Install
 
-```bash
+~~~bash
 go get github.com/Jaetan/aletheia/go/v5/aletheia
-```
+~~~
 
 #### Usage
 
@@ -355,9 +355,9 @@ func main() {
 
 #### Build
 
-```bash
+~~~bash
 CGO_ENABLED=1 go build ./...
-```
+~~~
 
 `CGO_ENABLED=1` is required because the Go binding uses cgo to call `dlopen`/`dlsym` from `<dlfcn.h>`.
 
@@ -374,12 +374,12 @@ full surface.
 
 The crate is not published to crates.io; depend on it by git or path:
 
-```toml
+~~~toml
 [dependencies]
 aletheia = { git = "https://github.com/Jaetan/aletheia", package = "aletheia" }
 # or, for a local checkout:
 # aletheia = { path = "/path/to/aletheia/rust" }
-```
+~~~
 
 #### Usage
 
@@ -401,9 +401,9 @@ fn main() {
 
 #### Build
 
-```bash
+~~~bash
 cargo build --release
-```
+~~~
 
 ### Docker
 
@@ -411,7 +411,7 @@ cargo build --release
 
 Each release pushes a runtime image to GitHub Container Registry, tagged with the release version (`X.Y.Z`, from the `vX.Y.Z` tag) and `latest`, and keyless-signs the image **digest** (tags are movable; the digest is content-addressed):
 
-```bash
+~~~bash
 docker pull ghcr.io/jaetan/aletheia:X.Y.Z
 
 # Verify the signature against the release workflow identity:
@@ -420,14 +420,14 @@ cosign verify \
     '^https://github\.com/Jaetan/aletheia/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   ghcr.io/jaetan/aletheia:X.Y.Z
-```
+~~~
 
 The image carries the full release bundle at `/opt/aletheia` (verified kernel + GHC runtime closure, C header, all four binding sources, env scripts, MANIFEST, SBOM), has the **bundled** Python binding pre-installed — byte-identical to `/opt/aletheia/bindings/python`, never a separate copy — and presets `ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so`. Python needs no further wiring:
 
-```bash
+~~~bash
 docker run --rm ghcr.io/jaetan/aletheia:X.Y.Z python3 -c \
   "from aletheia import AletheiaClient; print('OK')"
-```
+~~~
 
 Every image build is gated by throwaway verify stages: the bundled Rust crate and C++ binding (clang-23, the enforced toolchain) must build, and a Go consumer must build **and run** a real LTL scenario, against the image's own `/opt/aletheia`, or the build fails. The stages ship nothing; the image stays slim.
 
@@ -435,7 +435,7 @@ Every image build is gated by throwaway verify stages: the bundled Rust crate an
 
 The image doubles as a distribution vehicle for compiled-language consumers — `COPY --from` it instead of downloading and unpacking the tarball inside your Dockerfile:
 
-```dockerfile
+~~~dockerfile
 FROM golang:1.26-trixie AS build
 COPY --from=ghcr.io/jaetan/aletheia:X.Y.Z /opt/aletheia /opt/aletheia
 WORKDIR /app
@@ -450,7 +450,7 @@ COPY --from=build /opt/aletheia/lib /opt/aletheia/lib
 COPY --from=build /app/app /usr/local/bin/app
 ENV ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so
 CMD ["app"]
-```
+~~~
 
 The same shape serves C++ (`add_subdirectory(/opt/aletheia/bindings/cpp aletheia-cpp)`) and Rust (`aletheia = { path = "/opt/aletheia/bindings/rust" }`): build against the copied bindings, then carry only `/opt/aletheia/lib` plus your binary into the final stage and set `ALETHEIA_LIB`.
 
@@ -468,7 +468,7 @@ bundle that `Dockerfile.runtime` packages (see [BUILDING.md](BUILDING.md) and th
 command block below — `cabal run shake -- docker` runs `dist` + the image build
 in one step).
 
-```bash
+~~~bash
 # Build runtime image from pre-built dist (fast)
 cabal run shake -- dist
 docker build -t aletheia:runtime -f Dockerfile.runtime .
@@ -479,16 +479,16 @@ cabal run shake -- docker
 # Use as a base image for your project
 docker run --rm aletheia:runtime python3 -c \
   "from aletheia import AletheiaClient; print('OK')"
-```
+~~~
 
 For C/C++/Go/Rust consumers who don't need Python and build from a local checkout, the dist tree with a minimal base image is still the smallest option:
 
-```dockerfile
+~~~dockerfile
 FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends libgmp10 && rm -rf /var/lib/apt/lists/*
 COPY dist/aletheia /opt/aletheia
 ENV ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so
-```
+~~~
 
 ## Library Loading: dlopen vs Link-Time
 

@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 // The documents the doc-example harness runs, the extractor it reads their Go
-// fences with, and the two gates holding that list to the tree the way the
-// Python harness's list is held: a tracked document with a Go fence is listed,
-// and a listed one is tracked and carries one. None of it needs the kernel,
-// so it builds without cgo.
+// fences with, and the gates around them: a tracked document with a Go fence
+// is listed and a listed one is tracked and carries one, the way the Python
+// harness's list is held; no tracked document hides a Go fence from the
+// extractor behind a suffixed info word; and the listed files keep a floor of
+// fences. None of it needs the kernel, so it builds without cgo.
 
 package aletheia_test
 
@@ -18,10 +19,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
-// docFiles is every tracked Markdown file carrying a Go fence, less those
-// unrunDocs names, relative to this directory.
+// docFiles is every tracked Markdown file carrying a Go fence, relative to this
+// directory. Code no check runs opens with tildes, which the extractor does not
+// read.
 var docFiles = []string{
 	"../README.md",
 	"../../docs/PITCH.md",
@@ -30,12 +33,6 @@ var docFiles = []string{
 	"../../docs/reference/GO_API.md",
 	"../../docs/development/DISTRIBUTION.md",
 	"../../docs/guides/TUTORIAL.md",
-}
-
-// unrunDocs is every tracked document whose Go fences the harness does not
-// run: the changelog's describe past releases.
-var unrunDocs = []string{
-	"../../CHANGELOG.md",
 }
 
 // goFence is one Go fence of a listed file.
@@ -55,8 +52,40 @@ func repoRelative(file string) string {
 	return filepath.ToSlash(filepath.Join("go/aletheia", file))
 }
 
-// extractGoFences returns every Go fence of one file: an opening line whose
-// info string is exactly go, closed by a line that is exactly the fence.
+// fenceOpening is what a line opens, read by the first word of its info
+// string. An info string holding a backtick opens nothing, CommonMark reading
+// the line as inline code.
+type fenceOpening int
+
+const (
+	// notAGoFence is any other line.
+	notAGoFence fenceOpening = iota
+	// runGoFence is the harness's reading: leading blanks stripped, then a
+	// fence whose info string's first word is exactly go.
+	runGoFence
+	// hiddenGoFence is go followed by ASCII punctuation (go,ignore): a reader
+	// still takes the fence for Go, and the harness neither runs nor counts
+	// it.
+	hiddenGoFence
+)
+
+func goFenceOpening(line string) fenceOpening {
+	rest, ok := strings.CutPrefix(strings.TrimLeft(line, " \t"), "```go")
+	switch {
+	case !ok || strings.Contains(rest, "`"):
+		return notAGoFence
+	case rest == "" || rest[0] == ' ' || rest[0] == '\t':
+		return runGoFence
+	}
+	if next := rest[0]; next >= utf8.RuneSelf || next == '_' ||
+		'0' <= next && next <= '9' || 'a' <= next && next <= 'z' || 'A' <= next && next <= 'Z' {
+		return notAGoFence
+	}
+	return hiddenGoFence
+}
+
+// extractGoFences returns every Go fence of one file: an opening line the
+// harness runs, closed by a line that is exactly the fence.
 func extractGoFences(t *testing.T, file string) []goFence {
 	t.Helper()
 	data, err := os.ReadFile(file)
@@ -75,15 +104,11 @@ func extractGoFences(t *testing.T, file string) []goFence {
 	for scanner.Scan() {
 		lineno++
 		line := scanner.Text()
-		trim := strings.TrimLeft(line, " \t")
 		if !inFence {
-			if strings.HasPrefix(trim, "```go") {
-				rest := strings.TrimPrefix(trim, "```go")
-				if rest == "" || rest[0] == ' ' || rest[0] == '\t' {
-					inFence = true
-					fenceStart = lineno
-					fenceBody.Reset()
-				}
+			if goFenceOpening(line) == runGoFence {
+				inFence = true
+				fenceStart = lineno
+				fenceBody.Reset()
 			}
 			continue
 		}
@@ -122,7 +147,7 @@ func trackedMarkdown(t *testing.T) []string {
 
 func TestEveryTrackedGoFenceIsInAListedDocument(t *testing.T) {
 	var known []string
-	for _, file := range slices.Concat(docFiles, unrunDocs) {
+	for _, file := range docFiles {
 		known = append(known, repoRelative(file))
 	}
 	var unlisted []string
@@ -149,5 +174,64 @@ func TestEveryListedDocumentIsTrackedAndCarriesAGoFence(t *testing.T) {
 		if len(extractGoFences(t, file)) == 0 {
 			t.Errorf("%s carries no Go fence, so the harness runs nothing in it", doc)
 		}
+	}
+}
+
+func TestNoGoFenceHidesBehindASuffix(t *testing.T) {
+	var hidden []string
+	for _, doc := range trackedMarkdown(t) {
+		data, err := os.ReadFile(filepath.Join("../..", doc))
+		if err != nil {
+			t.Fatalf("read %s: %v", doc, err)
+		}
+		for i, line := range strings.Split(string(data), "\n") {
+			if goFenceOpening(line) == hiddenGoFence {
+				hidden = append(hidden, fmt.Sprintf("%s:%d", doc, i+1))
+			}
+		}
+	}
+	if len(hidden) > 0 {
+		t.Errorf("Go fences the harness neither runs nor counts, a suffix on their info word: %v; "+
+			"write go, or open a fence that cannot run with tildes", hidden)
+	}
+}
+
+func TestAGoFenceIsReadByItsFirstInfoWord(t *testing.T) {
+	for _, c := range []struct {
+		line string
+		want fenceOpening
+	}{
+		{"```go", runGoFence},
+		{"   ```go", runGoFence},
+		{"```go notest", runGoFence},
+		{"```go\tx", runGoFence},
+		{"```go,ignore", hiddenGoFence},
+		{"```go{.x}", hiddenGoFence},
+		{"```go:main.go", hiddenGoFence},
+		{"  ```go``` / ```cpp``` block", notAGoFence},
+		{"```go `x`", notAGoFence},
+		{"```golang", notAGoFence},
+		{"```go_x", notAGoFence},
+		{"```gomod", notAGoFence},
+		{"```", notAGoFence},
+		{"```text", notAGoFence},
+	} {
+		if got := goFenceOpening(c.line); got != c.want {
+			t.Errorf("goFenceOpening(%q) = %d, want %d", c.line, got, c.want)
+		}
+	}
+}
+
+// minFences is the floor under the number of Go fences across the listed
+// files.
+const minFences = 8
+
+func TestEveryDocFileHasAtLeastOneGoFenceCollectively(t *testing.T) {
+	total := 0
+	for _, file := range docFiles {
+		total += len(extractGoFences(t, file))
+	}
+	if total < minFences {
+		t.Fatalf("expected at least %d Go fences across the listed files, saw %d", minFences, total)
 	}
 }

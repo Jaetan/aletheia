@@ -178,6 +178,29 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Each doc-example harness refuses a fence hidden behind a suffixed info
+  word** (`go,ignore`, `cpp,x`, `rust,ignore`, `python,notest`), which a reader
+  takes for code in the binding's language and the harness neither runs nor
+  counts. The Go and C++ harnesses refused an HTML-comment annotation instead,
+  which neither of them reads, so the gate hid nothing it could see; both of
+  those gates are gone.
+- **A fence opened with backticks is one a doc-example harness runs; code no
+  check runs opens with tildes.** `tools/check_fence_marks.py`, a fast-tier
+  gate, refuses a backtick fence whose first info word is not `py`, `python`,
+  `python3`, `go`, `cpp` or `rust`, or whose run is not three backticks. Shell
+  sessions, JSON messages, signature sketches and the changelog's past-release
+  examples moved to tildes, each document rendering as before. The Python
+  harness collects through a parser that reads a tilde fence as code, as the
+  Go, C++ and Rust extractors already did, so the lists of documents whose
+  fences a harness skips are gone. The Python and Rust harnesses gain the
+  floor under their fence count that the Go and C++ ones carry.
+- **The Tutorial's C++ and Rust paths run in their doc-example harnesses.**
+  Each path is one program cut into steps: the harness joins its fences in
+  order and compiles and runs the whole, where before only a probe outside CI
+  compiled them. The C++ steps exited zero when a call failed and dropped the
+  sent frame's answer; a failed step now exits non-zero, and the last step
+  closes `main`. The C++ harness's own prologue exits non-zero on a DBC that
+  does not parse, where it went on with a client holding none.
 - **The C++ and Go doc-example harnesses hold their document lists to the tree
   both ways, as the Python one does:** a tracked Markdown file carrying a fence
   in the binding's language is listed, and a listed one is tracked and carries
@@ -1080,6 +1103,12 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **The streaming example of `docs/reference/INTERFACES.md` sent a frame on a
+  stream it never started, in C++, Go and Python alike.** Each call answered
+  `stream not started`, and each example passed because it kept the answer
+  without reading it. The examples now open the stream first. A probe runs
+  every example that keeps a result it never reads the way its harness runs it,
+  and fails when that result is an error.
 - **The C++ mutation lane reads a failed test as the test's kill when Mull
   kept none of its output.** Mull reads a test binary's output as UTF-8 and
   keeps nothing of a stream holding a byte that is not, so a failure report
@@ -4864,12 +4893,12 @@ rational_to_int` and the internal `validate_integer_rational` are removed
 
 Caller migration:
 
-```python
+~~~python
 # before
 idx = entry["property_index"]["numerator"] // entry["property_index"]["denominator"]
 # after
 idx = entry["property_index"]   # already an int
-```
+~~~
 
 #### BREAKING — Python: `aletheia.protocols` renamed to `aletheia.types`
 
@@ -4884,12 +4913,12 @@ unchanged.
 
 Caller migration:
 
-```python
+~~~python
 # before
 from aletheia.protocols import DBCDefinition, DLCCode, LTLFormula
 # after
 from aletheia.types import DBCDefinition, DLCCode, LTLFormula
-```
+~~~
 
 #### BREAKING — Python: `aletheia.error_codes` + `aletheia.issue_codes` unified into `aletheia.codes`
 
@@ -4903,13 +4932,13 @@ namespace: `ErrorCode` (runtime error codes) and `IssueCode` / `IssueSeverity`
 
 Caller migration:
 
-```python
+~~~python
 # before
 from aletheia.error_codes import ErrorCode
 from aletheia.issue_codes import IssueSeverity, ValidationIssue
 # after
 from aletheia.codes import ErrorCode, IssueSeverity, ValidationIssue
-```
+~~~
 
 #### BREAKING — Python: `aletheia.dbc_converter` + `aletheia.dbc_queries` unified into `aletheia.dbc`
 
@@ -4922,13 +4951,13 @@ import …` no longer resolve. The top-level convenience aliases are unchanged
 
 Caller migration:
 
-```python
+~~~python
 # before
 from aletheia.dbc_converter import dbc_to_json
 from aletheia.dbc_queries import message_by_id
 # after
 from aletheia.dbc import dbc_to_json, message_by_id
-```
+~~~
 
 #### Added — Python: namespace hygiene via `__all__` on public submodules
 
@@ -4954,12 +4983,12 @@ detail and may change between releases.
 
 Caller migration:
 
-```python
+~~~python
 # before
 from aletheia.client import AletheiaClient, AletheiaError, ValidationError
 # after
 from aletheia import AletheiaClient, AletheiaError, ValidationError
-```
+~~~
 
 This closes the long-standing dual public import path — every client name was
 previously reachable from both `aletheia` and `aletheia.client`. Documentation
@@ -4987,7 +5016,7 @@ namespace-level free functions in `aletheia::check` (C++).
 
 Caller migration:
 
-```python
+~~~python
 # Before
 from aletheia import Check
 Check.signal("Speed").never_exceeds(220)
@@ -4997,9 +5026,9 @@ Check.when("Brake").exceeds(50).then("Light").equals(1).within(100)
 from aletheia.checks import signal, when
 signal("Speed").never_exceeds(220)
 when("Brake").exceeds(50).then("Light").equals(1).within(100)
-```
+~~~
 
-```cpp
+~~~cpp
 // Before
 aletheia::Check::signal("Speed").never_exceeds(...);
 aletheia::Check::when("Brake")...;
@@ -5007,7 +5036,7 @@ aletheia::Check::when("Brake")...;
 // After (using namespace aletheia; in scope)
 check::signal("Speed").never_exceeds(...);
 check::when("Brake")...;
-```
+~~~
 
 Go is unaffected — package-level `aletheia.CheckSignal(...)` /
 `aletheia.CheckWhen(...)` already used the free-function shape.
@@ -5031,12 +5060,12 @@ where `signal` is a local).
 
 Caller migration:
 
-```go
+~~~go
 // Before
 payload, err := c.BuildFrame(ctx, id, signals, dlc)
 // After
 payload, err := c.BuildFrame(ctx, id, dlc, signals)
-```
+~~~
 
 Why: `BuildFrame` was the lone outlier placing `signals` before `dlc`.
 `UpdateFrame(ctx, id, dlc, data, signals)` and both other bindings'
@@ -5295,7 +5324,7 @@ symbols. Old `PhysicalValue{Rational{1, 10}}` form continues to compile.
 libstdc++ versions (special-member-function constraints, `in_place_index_t`
 deduction edge cases under derived ctors). The variant is now a member:
 
-```cpp
+~~~cpp
 using LtlFormulaVariant = std::variant<Atomic, Not, And, Or, /* ... 14 total */>;
 struct LtlFormula {
     LtlFormulaVariant value;
@@ -5306,7 +5335,7 @@ struct LtlFormula {
     template<typename Visitor> constexpr auto visit(Visitor&&) const& -> decltype(auto);
     /* + & and && overloads */
 };
-```
+~~~
 
 Existing builder functions (`ltl::atomic`, `ltl::always`, etc.) work
 unchanged thanks to the constrained converting ctor. Consumers that previously
@@ -5328,16 +5357,16 @@ Test scaffolding for deterministic cancellation rendezvous moves from
 monkey-patching `sync_client.send_frame` (via `setattr`) to wrapping the
 Backend via the new public DI seam. Old:
 
-```python
+~~~python
 sync = AletheiaClient()
 with gate_send_frame(sync, after_n=1) as (started, proceed):
     async with AsyncClient(sync_client=sync) as client:
         ...
-```
+~~~
 
 New:
 
-```python
+~~~python
 from aletheia import AletheiaClient, FFIBackend
 from aletheia.asyncio.testing import gated_backend
 
@@ -5345,7 +5374,7 @@ with gated_backend(FFIBackend(), after_n=1) as (backend, started, proceed):
     sync = AletheiaClient(backend=backend)
     async with AsyncClient(sync_client=sync) as client:
         ...
-```
+~~~
 
 Same `(started, proceed)` `threading.Event` rendezvous; same
 deterministic cancellation point between frame `after_n - 1` and frame
@@ -5361,14 +5390,14 @@ matched an existing file path to a file load (path-confusion vector). The dispat
 `str` → inline YAML parse. Callers passing a file path as a bare string
 must wrap in `Path`:
 
-```python
+~~~python
 # before
 checks = load_checks("checks.yaml")
 
 # after
 from pathlib import Path
 checks = load_checks(Path("checks.yaml"))
-```
+~~~
 
 Inline YAML strings continue to work unchanged. Static type checkers
 (pyright/mypy) catch non-(`str`|`Path`) callers at check time.

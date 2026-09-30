@@ -29,11 +29,11 @@ Problem-driven recipes. Each recipe is self-contained: title, code, done.
 checks.signal("VehicleSpeed").never_exceeds(120)
 ```
 
-```yaml
+~~~yaml
 - signal: VehicleSpeed
   condition: never_exceeds
   value: 120
-```
+~~~
 
 ### Signal never drops below a value
 
@@ -41,11 +41,11 @@ checks.signal("VehicleSpeed").never_exceeds(120)
 checks.signal("Acceleration").never_below(-30)
 ```
 
-```yaml
+~~~yaml
 - signal: Acceleration
   condition: never_below
   value: -30.0
-```
+~~~
 
 ### Signal stays in a range
 
@@ -55,12 +55,12 @@ from fractions import Fraction
 checks.signal("BrakePressure").stays_between(Fraction("0"), Fraction("6553.5"))
 ```
 
-```yaml
+~~~yaml
 - signal: BrakePressure
   condition: stays_between
   min: 0.0
   max: 6553.5
-```
+~~~
 
 ### Signal never equals a forbidden value
 
@@ -69,11 +69,11 @@ checks.signal("BrakePressure").stays_between(Fraction("0"), Fraction("6553.5"))
 checks.signal("VehicleSpeed").never_equals(Fraction("655.35"))
 ```
 
-```yaml
+~~~yaml
 - signal: VehicleSpeed
   condition: never_equals
   value: 655.35
-```
+~~~
 
 ### Signal settles into range within time
 
@@ -81,13 +81,13 @@ checks.signal("VehicleSpeed").never_equals(Fraction("655.35"))
 checks.signal("Acceleration").settles_between(-1, 1).within(5000)
 ```
 
-```yaml
+~~~yaml
 - signal: Acceleration
   condition: settles_between
   min: -1.0
   max: 1.0
   within_ms: 5000
-```
+~~~
 
 ---
 
@@ -137,7 +137,7 @@ checks.when("BrakePressure").exceeds(500) \
      .within(100)
 ```
 
-```yaml
+~~~yaml
 - name: "Brake response"
   when:
     signal: BrakePressure
@@ -148,7 +148,7 @@ checks.when("BrakePressure").exceeds(500) \
     condition: equals
     value: 1
   within_ms: 100
-```
+~~~
 
 ### Engine must start within T ms of ignition
 
@@ -177,10 +177,10 @@ checks.when("FuelLevel").drops_below(10) \
 
 ### Read a CAN log and check it (CLI)
 
-```bash
+~~~bash
 cd examples/demo
 aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
-```
+~~~
 
 Aletheia reads `.blf`, `.asc`, `.mf4`, `.csv`, `.db`, `.trc`, and candump `.log`
 recordings — swap `drive.log` for your own capture (see
@@ -226,9 +226,9 @@ For simulations running on Linux with a SocketCAN interface (real `canN` or virt
 
 For the exact `modprobe` / `ip link` / `candump` sequence (and how to rotate captures into timestamped files), see [CLI Reference § Capturing CAN traffic on Linux](../reference/CLI.md#capturing-can-traffic-on-linux). Once you have a `.log`, replay it straight through Aletheia:
 
-```bash
+~~~bash
 aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
-```
+~~~
 
 ### Supported CAN log formats
 
@@ -258,15 +258,15 @@ client.parse_dbc(dbc)
 
 ### List all signals in a DBC (CLI)
 
-```bash
+~~~bash
 aletheia signals --dbc vehicle.dbc
-```
+~~~
 
 ### List signals as JSON
 
-```bash
+~~~bash
 aletheia signals --dbc vehicle.dbc --json
-```
+~~~
 
 ---
 
@@ -274,9 +274,9 @@ aletheia signals --dbc vehicle.dbc --json
 
 ### Check a DBC for structural issues (CLI)
 
-```bash
+~~~bash
 aletheia validate --dbc vehicle.dbc
-```
+~~~
 
 The CLI exits **non-zero** when the DBC contains at least one `error`-severity
 issue, **zero** when only `warning`-severity issues are present, and zero when
@@ -285,17 +285,17 @@ gating step.
 
 ### Interpret validation errors
 
-```bash
+~~~bash
 aletheia validate --dbc vehicle.dbc --json | jq '.issues[]'
-```
+~~~
 
-```json
+~~~json
 {
   "severity": "error",
   "code": "signal_overlap",
   "detail": "EngineSpeed [bits 0:16] overlaps Throttle [bits 8:8] in EngineCmd"
 }
-```
+~~~
 
 The most common codes you'll see:
 
@@ -334,9 +334,9 @@ print(f"Absent: {result.absent}")
 
 ### Extract signals from CLI
 
-```bash
+~~~bash
 aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
-```
+~~~
 
 ### Build a frame from signal values
 
@@ -364,7 +364,7 @@ client.end_stream()
 
 ### Run checks in CI/CD (exit codes + JSON)
 
-```bash
+~~~bash
 aletheia check \
     --dbc vehicle.dbc \
     --checks vehicle_checks.yaml \
@@ -373,7 +373,7 @@ aletheia check \
 
 # Exit code: 0=pass, 1=violations, 2=error
 echo "Exit code: $?"
-```
+~~~
 
 ### Gate a merge on CAN checks (GitHub Actions)
 
@@ -384,7 +384,7 @@ fails the job automatically — so a regression in the recorded CAN behaviour
 blocks the merge. The results are always uploaded, pass or fail, so you can
 open `results.json` from the run's artifacts.
 
-```yaml
+~~~yaml
 name: CAN signal checks
 on: [push, pull_request]
 
@@ -416,26 +416,26 @@ jobs:
         with:
           name: aletheia-results
           path: results.json
-```
+~~~
 
 ### Decode a single frame
 
-```bash
+~~~bash
 aletheia extract --dbc vehicle.dbc 0x100 "40 1F 7D 00 00 00 00 00"
-```
+~~~
 
 ### Use Excel workbook for everything
 
-```bash
+~~~bash
 # DBC + checks from the same .xlsx
 aletheia check --excel vehicle_checks.xlsx drive.log
-```
+~~~
 
 ### Mix DBC from .dbc with checks from .yaml
 
-```bash
+~~~bash
 aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
-```
+~~~
 
 ---
 
@@ -558,9 +558,9 @@ client.add_checks(check_list)
 
 ### Create an Excel template
 
-```bash
+~~~bash
 aletheia template vehicle_checks.xlsx
-```
+~~~
 
 or from Python:
 
@@ -605,10 +605,10 @@ Aletheia works in **exact rationals** — a Python `float` such as `0.1` is not
 exact (it is really `0.1000000000000000055…`), so the API rejects it rather
 than silently rounding your threshold. The message is:
 
-```text
+~~~text
 TypeError: a float is not exact; pass an int, a Fraction, or
 from_decimal('...') for an exact decimal (the float principle)
-```
+~~~
 
 Pass an `int` (already exact) or an exact `Fraction`:
 
@@ -633,18 +633,18 @@ not find or load the verified core. From a PyPI install (`pip install
 aletheia`) the library ships inside the package and this should not happen. From
 a **source checkout** you must build it first:
 
-```bash
+~~~bash
 cabal run shake -- build       # produces build/libaletheia-ffi.so
-```
+~~~
 
 Then either install it (`cabal run shake -- install`) or point every binding at
 it explicitly with `ALETHEIA_LIB` — the same override the C++, Go, and Rust
 bindings honour:
 
-```bash
+~~~bash
 export ALETHEIA_LIB=$PWD/build/libaletheia-ffi.so
 aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
-```
+~~~
 
 More causes and fixes: [Building Guide § Troubleshooting](../development/BUILDING.md#troubleshooting).
 

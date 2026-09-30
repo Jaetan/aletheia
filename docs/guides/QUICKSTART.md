@@ -7,19 +7,19 @@ Get to a working CAN verification in 5 minutes.
 Before the five-minute walkthrough below, the Agda → Haskell shared library needs to exist and the Python package needs to be importable:
 
 1. **Toolchain**: GHC 9.8.x, cabal 3.16.x, Agda 2.8.0, Python ≥ 3.14, `libgmp-dev`. See [Building Guide §1 Prerequisites](../development/BUILDING.md#prerequisites) for the exact versions and the install command for your platform. Quick check that the right versions are on `PATH`:
-   ```bash
+   ~~~bash
    ghc --version       # expect: The Glorious Glasgow Haskell Compilation System, version 9.8.4
    cabal --version     # expect: cabal-install version 3.16.1.0
    agda --version      # expect: Agda version 2.8.0
    python3 --version   # expect: Python 3.14 or newer
-   ```
+   ~~~
    If any of these are missing or older, install the recommended version before continuing — older toolchains have produced library-mismatch failures at FFI load time.
 2. **First build** (~60s the first time, cached after):
-   ```bash
+   ~~~bash
    cabal run shake -- build        # builds libaletheia-ffi.so from Agda
    cd python && python3 -m venv .venv && source .venv/bin/activate
    pip install -e . && cd ..        # editable install of the Python binding
-   ```
+   ~~~
 3. **Verify**: `python3 -c "from aletheia import AletheiaClient"` — no output means the `.so` was found and the binding loaded.
 
 If any of those steps fail, the [Building Guide](../development/BUILDING.md) has a dedicated Troubleshooting section; the commands on this page assume a successful build.
@@ -31,7 +31,7 @@ If any of those steps fail, the [Building Guide](../development/BUILDING.md) has
 The demo ships `examples/demo/vehicle_checks.yaml` — three checks matched to the
 signals in `examples/demo/vehicle.dbc`:
 
-```yaml
+~~~yaml
 checks:
   - name: "Speed limit"
     signal: VehicleSpeed
@@ -52,18 +52,18 @@ checks:
     min: -32.768
     max: 32.767
     severity: warning
-```
+~~~
 
 ## 2. Run Against a CAN Log
 
-```bash
+~~~bash
 cd examples/demo
 aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
-```
+~~~
 
 ## 3. Interpret Results
 
-```
+~~~
 Aletheia — CAN Signal Verification
 
 DBC:    vehicle.dbc
@@ -80,7 +80,7 @@ RESULT: 18 violations found
   ... (18 violations total)
 
 Summary: 18 violations, 0 unresolved in 3 checks, 134 frames processed
-```
+~~~
 
 The overspeed segment of `drive.log` pushes `VehicleSpeed` past the 120 kph
 limit, so the run reports 18 timestamped violations and exits `1`.

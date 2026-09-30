@@ -49,10 +49,10 @@ All three decode CAN with **tested** code: correct on the cases someone thought 
 
 The fastest path writes zero code. Point the `aletheia` CLI, the Python package's console script (see [Install](#install)), at a DBC, a checks file, and a recorded log. Ready-to-run sample assets ship in [`examples/demo/`](examples/demo/) in the source tree, so from a repo clone this runs as-is:
 
-```bash
+~~~bash
 cd examples/demo
 aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
-```
+~~~
 
 - **exit 0**: no violations found (a check whose signal never appeared is reported *unresolved*, and also exits 0)
 - **exit 1**: violations found, each printed with the exact microsecond timestamp
@@ -60,7 +60,7 @@ aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml drive.log
 
 The sample `drive.log` speeds past its 120 kph limit, so this run reports a timestamped `VehicleSpeed` violation and exits 1. The three shipped assets, `vehicle.dbc`, `vehicle_checks.yaml` and the candump `drive.log`, are a matched set. The trace argument takes any format the reader supports: `.asc`, `.blf`, `.csv`, `.db`, `.mf4`, `.trc` and candump `.log`. Full subcommand and flag reference: **[CLI Guide](docs/reference/CLI.md)**, the subcommands being `check`, `validate`, `extract`, `signals`, `format-dbc`, `mux-query` and `template`:
 
-```bash
+~~~bash
 # Validate a DBC and list every issue (errors and warnings)
 aletheia validate --dbc vehicle.dbc
 
@@ -71,16 +71,16 @@ aletheia signals --dbc vehicle.dbc
 # checks, the technician path (a filled-in template: examples/demo/demo_workbook.xlsx)
 aletheia template workbook.xlsx
 aletheia check --excel workbook.xlsx trace.log
-```
+~~~
 
 ### Install
 
 Aletheia separates a **one-time, build-time toolchain** from a **lightweight runtime**:
 
 - **Build once** (from source): Agda + GHC + Cabal compile the verified core into the shared library `libaletheia-ffi.so`. This is where the proofs are checked; it happens once, not at runtime.
-  ```bash
+  ~~~bash
   cabal run shake -- build
-  ```
+  ~~~
 - **Run**: only `libaletheia-ffi.so` plus Python 3.14 (and your binding's own runtime). No Agda, no proof assistant, at runtime.
 
 > **There is no wheel on PyPI, so `pip install aletheia` does not work.** A release is the quickest way in, prebuilt as a signed, self-contained [bundle](docs/development/DISTRIBUTION.md#using-a-release-bundle) with all four bindings over one library, as native [`.deb` and `.rpm` packages](docs/development/DISTRIBUTION.md#installing-from-a-native-package-deb--rpm), and as a [container image](docs/development/DISTRIBUTION.md#pull-the-published-image-ghcr) on GHCR; the **[Distribution Guide](docs/development/DISTRIBUTION.md)** gives the commands for each. Building from source, as above, installs the Python binding from the tree with `pip install -e '.[can]'` inside `python/`. Full setup, prerequisites and troubleshooting: **[Building Guide](docs/development/BUILDING.md)**.
@@ -206,7 +206,7 @@ Linking the library into a C++, Go, or Rust project, the `add_subdirectory` / `g
 
 ## Project Structure
 
-```
+~~~
 aletheia/
 ├── src/Aletheia/        # Agda core (formal verification)
 ├── haskell-shim/        # Minimal I/O layer and the C header (include/aletheia.h)
@@ -224,7 +224,7 @@ aletheia/
 ├── examples/            # Sample DBC files and demos
 ├── .github/             # Continuous-integration workflows
 └── .archive/            # Records of closed work, kept for their measurements
-```
+~~~
 
 ## Documentation
 
