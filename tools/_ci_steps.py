@@ -120,6 +120,19 @@ FAST_STEPS: frozenset[str] = frozenset(
 GO_BUILD_NO_CGO = "CGO_ENABLED=0 go build -o /dev/null ./..."
 
 
+# The Python at the repository root, outside the package's ``python/`` tree: the
+# gate scripts, the shared micro-benchmarks, the examples and the doc-example
+# harness.  ruff, basedpyright and pylint all read this one list, so no linter
+# covers less than its peers.  ``.archive/`` holds the closed review rounds'
+# record and is not linted.
+ROOT_PYTHON: tuple[Path, ...] = (
+    Path("tools"),
+    Path("benchmarks"),
+    Path("examples"),
+    Path("conftest.py"),
+)
+
+
 def in_every_go_module(cmd: str) -> str:
     """Return a ``/bin/sh`` command running ``cmd`` in every module of the Go workspace.
 
@@ -281,6 +294,8 @@ def _run_binding_tests(runner: Runner) -> None:
     # toolchain, so pin it to the "python" lane explicitly to keep all pytest
     # runs serial within one lane (the lane invariant; cwd-based inference can't
     # see that a repo-root `python -m pytest` belongs with the python/ steps).
+    # ``pythonpath`` puts python/tests on the path, where the repo-root
+    # conftest.py imports the suite's canonical signal from.
     runner.step(
         "pytest --markdown-docs",
         [
@@ -290,6 +305,8 @@ def _run_binding_tests(runner: Runner) -> None:
             "--markdown-docs",
             "--rootdir",
             str(runner.repo_root),
+            "-o",
+            "pythonpath=python/tests",
             "README.md",
             "docs/",
             "python/README.md",
@@ -393,26 +410,30 @@ def _run_binding_tests(runner: Runner) -> None:
 def _run_lints(runner: Runner) -> None:
     """Run the Python / Go / C++ / Rust lint gates."""
     # ─── Lints ────────────────────────────────────────────────
-    # ruff (`select=["ALL"]`, config in ruff.toml) over the WHOLE Python tree
-    # INCLUDING tools/ (repo-root gate scripts) — both `check` and
-    # `format --check`.  `python/mutants` (mutmut output) is excluded in
-    # ruff.toml.  Run from the repo root so the root ruff.toml is the config.
+    # ruff (`select=["ALL"]`, config in ruff.toml) over ``python/`` and
+    # ROOT_PYTHON, both `check` and `format --check`.  `python/mutants` (mutmut
+    # output) is excluded in ruff.toml.  Run from the repo root so the root
+    # ruff.toml is the config.
     # `--no-cache`: ruff's result cache is keyed on mtime, not file mode, so a
     # cached run silently passes file-mode rules like EXE001 ("shebang present
     # but file not executable") that a fresh CI run catches — making the local
     # sweep / pre-push hook give a false green.  ruff is sub-second, so running
-    # cache-free here costs nothing and keeps local == CI.
+    # cache-free here costs nothing and keeps local == CI.  Under WSL ruff skips
+    # its EXE rules whatever the cache, so a test in test_run_ci_runner.py reads
+    # the executable bits git records instead.
+    ruff_paths = shlex.join(str(p) for p in (Path("python"), *ROOT_PYTHON))
     ruff_cmd = (
-        f"{shlex.quote(runner.python)} -m ruff check --no-cache tools examples python conftest.py "
-        f"&& {shlex.quote(runner.python)} -m ruff format --check tools examples python conftest.py"
+        f"{shlex.quote(runner.python)} -m ruff check --no-cache {ruff_paths} "
+        f"&& {shlex.quote(runner.python)} -m ruff format --check {ruff_paths}"
     )
     runner.step("ruff", ruff_cmd, cwd=runner.repo_root)
 
-    # ``benchmarks/`` joined the basedpyright gate 2026-05-09, ``tests/`` on
-    # 2026-05-31, and ``../tools/`` on 2026-06-06 (pyproject has a strict
-    # executionEnvironment for ../tools); pylint covers the same set, so the
-    # two stay symmetric — one gate must not cover less than its peer.
-    #
+    # basedpyright and pylint read the package's sources, tests and benchmarks
+    # and ROOT_PYTHON, one set for both, so neither covers less than its peer.
+    # python/pyproject.toml gives the root's files the import paths they need:
+    # basedpyright's executionEnvironments, pylint's init-hook.
+    lint_paths = ["aletheia/", "tests/", "benchmarks/", *(str(".." / p) for p in ROOT_PYTHON)]
+
     # Invoke via ``runner.python -m basedpyright`` (not the bare ``basedpyright``
     # console script) for the same reason as ruff/pylint — CI launches this sweep
     # as ``python/.venv/bin/python3 -m tools.run_ci``, which does NOT activate
@@ -420,19 +441,16 @@ def _run_lints(runner: Runner) -> None:
     # raises FileNotFoundError. ``-m`` runs the venv-installed package directly.
     runner.step(
         "basedpyright",
-        [runner.python, "-m", "basedpyright", "aletheia/", "benchmarks/", "tests/", "../tools/"],
+        [runner.python, "-m", "basedpyright", *lint_paths],
         cwd=runner.repo_root / "python",
     )
 
     # pylint gate: any message fails it (AGENTS.md, Python lint).  The verdict is
     # pylint's exit status, which ``fail-on`` in python/pyproject.toml sets on
-    # any message; the printed score is not read.  Covers aletheia/ tests/
-    # benchmarks/ + ../tools/ (the repo-root gate scripts, held to the same bar
-    # as the package); ``..`` is on the path via python/pyproject's pylint
-    # init-hook so tools' imports resolve.
+    # any message; the printed score is not read.
     runner.step(
         "pylint",
-        [runner.python, "-m", "pylint", "aletheia/", "tests/", "benchmarks/", "../tools/"],
+        [runner.python, "-m", "pylint", *lint_paths],
         cwd=runner.repo_root / "python",
     )
 

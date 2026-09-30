@@ -111,8 +111,8 @@ cabal run shake -- iwyu
 
 # Tests (each from the right cwd)
 cd python && .venv/bin/python -m pytest tests/ -v
-cd python && .venv/bin/basedpyright aletheia/ benchmarks/ tests/
-cd python && .venv/bin/pylint aletheia/ tests/ benchmarks/
+cd python && .venv/bin/basedpyright aletheia/ tests/ benchmarks/ ../tools ../benchmarks ../examples ../conftest.py
+cd python && .venv/bin/pylint aletheia/ tests/ benchmarks/ ../tools ../benchmarks ../examples ../conftest.py
 cd cpp && cmake -B build && cmake --build build && ctest --test-dir build
 cd go && go test ./aletheia/ -v -count=1 -race
 

@@ -63,14 +63,15 @@ its ``.so`` / ``.agdai``), then the lanes run serially (default) or concurrently
     - C++ ctest
     - Rust cargo test (tracer-bullet FFI lifecycle; ALETHEIA_LIB → built .so)
   Lints:
-    - ruff check + format --check (Python — `select=["ALL"]`, whole tree incl
-      tools/: tools examples python conftest.py)
-    - basedpyright (Python — aletheia/ benchmarks/ tests/ + ../tools/)
-    - pylint 10/10 (Python — SCORE gate per AGENTS.md L611; + ../tools/)
+    - ruff check + format --check (Python — `select=["ALL"]`)
+    - basedpyright (Python — zero errors, zero warnings)
+    - pylint (Python — any message fails the run)
+      ruff reads python/ whole, the other two its aletheia/ tests/ benchmarks/;
+      all three read the root's Python, ROOT_PYTHON in _ci_steps.py.
     - check-precise-hints (Python type hints held to docs/PYTHON_IMPRECISE_HINTS.yaml)
     - gofmt -l + go vet (Go)
     - clang-format --dry-run --Werror (C++)
-    - clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
+    - clang-tidy -p build (C++ — mandatory per AGENTS.md § Step 4)
     - Rust cargo fmt --check + clippy -D warnings
   GHA meta-checks:
     - actionlint (workflow YAML lint, skipped if not installed)

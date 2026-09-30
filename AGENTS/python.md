@@ -96,18 +96,20 @@ Scope: ALL source files in `python/aletheia/`, test files in `python/tests/`, be
 cd python && python3 -m pytest tests/ -v
 cd python && python3 -X dev -m pytest tests/ -v
 cd python && python3 -m pytest tests/ --random-order --random-order-bucket=package
-cd python && basedpyright aletheia/ benchmarks/  # benchmarks/ joined the gate 2026-05-09 per feedback_no_subsumption_asymmetry
-cd python && pylint aletheia/
-cd python && pylint tests/ ../conftest.py  # same no-message gate applies (feedback_pylint_10_mandatory); conftest.py lives at repo root
-cd python && pylint benchmarks/  # same no-message gate applies; benchmarks/ joined the gate 2026-05-09 per feedback_no_subsumption_asymmetry
-pylint tools/ && basedpyright tools/  # tools/*.py — same no-message / 0/0/0 gate, fix-don't-suppress (user directive 2026-05-26); run from repo root
+# The three linters read one set: the package's sources, tests and benchmarks,
+# and the repository root's Python (ROOT_PYTHON in tools/_ci_steps.py).
+cd python && basedpyright aletheia/ tests/ benchmarks/ ../tools ../benchmarks ../examples ../conftest.py
+cd python && pylint aletheia/ tests/ benchmarks/ ../tools ../benchmarks ../examples ../conftest.py
+ruff check --no-cache python tools benchmarks examples conftest.py  # from the repo root, so ruff.toml is the config
+ruff format --check python tools benchmarks examples conftest.py
 # Cat 32 doc-example harness — runs every ``python`` fence across the
 # user-facing docs against the real FFI. Must be run from the repo root
 # so pytest picks up the repo-root ``conftest.py`` (which provides the
 # harness globals and loader fakes) instead of the ``python/pyproject.toml``
-# rootdir that the ``cd python`` commands above use.
+# rootdir that the ``cd python`` commands above use; ``pythonpath`` lets that
+# conftest import the suite's canonical signal from python/tests.
 cd "$(git rev-parse --show-toplevel)" && python3 -m pytest --markdown-docs \
-  --rootdir="$(pwd)" \
+  --rootdir="$(pwd)" -o pythonpath=python/tests \
   README.md docs/PITCH.md \
   docs/guides/QUICKSTART.md docs/guides/COOKBOOK.md \
   docs/reference/CLI.md docs/reference/PYTHON_API.md docs/reference/INTERFACES.md \

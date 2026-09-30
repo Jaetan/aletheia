@@ -34,6 +34,7 @@ from typing import IO, TYPE_CHECKING, NamedTuple, TypedDict
 # Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
 from benchmarks._common import (
     CAN20_SPEC,
+    SimplificationParameters,
     emit_json_report,
     get_rss_mb,
     load_dbc,
@@ -348,7 +349,8 @@ def main() -> int:
 
     if args.json:
         report: _SimplificationReport = {"trace_sizes": sizes, "formulas": all_results}
-        emit_json_report("simplification", report)
+        parameters: SimplificationParameters = {"quick": args.quick}
+        emit_json_report("simplification", parameters, report)
 
     return 0
 

@@ -83,7 +83,7 @@ Aletheia separates a **one-time, build-time toolchain** from a **lightweight run
   ```
 - **Run**: only `libaletheia-ffi.so` plus Python 3.14 (and your binding's own runtime). No Agda, no proof assistant, at runtime.
 
-> **There is no wheel on PyPI, so `pip install aletheia` does not work.** A release carries a signed, self-contained bundle with all four bindings over one prebuilt library, and native `.deb` and `.rpm` packages, which is the quickest way in: **[Distribution Guide](docs/development/DISTRIBUTION.md)**. Building from source, as above, installs the Python binding from the tree with `pip install -e '.[can]'` inside `python/`. Full setup, prerequisites and troubleshooting: **[Building Guide](docs/development/BUILDING.md)**.
+> **There is no wheel on PyPI, so `pip install aletheia` does not work.** A release is the quickest way in, prebuilt as a signed, self-contained [bundle](docs/development/DISTRIBUTION.md#using-a-release-bundle) with all four bindings over one library, as native [`.deb` and `.rpm` packages](docs/development/DISTRIBUTION.md#installing-from-a-native-package-deb--rpm), and as a [container image](docs/development/DISTRIBUTION.md#pull-the-published-image-ghcr) on GHCR; the **[Distribution Guide](docs/development/DISTRIBUTION.md)** gives the commands for each. Building from source, as above, installs the Python binding from the tree with `pip install -e '.[can]'` inside `python/`. Full setup, prerequisites and troubleshooting: **[Building Guide](docs/development/BUILDING.md)**.
 
 ### In code: the Python streaming DSL
 

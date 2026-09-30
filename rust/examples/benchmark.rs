@@ -1233,12 +1233,16 @@ fn parse_args() -> Args {
     } else {
         (10_000u64, 5usize, 5000usize)
     };
+    // A mode run without `--warmup` warms as the other bindings' harnesses do:
+    // two untimed passes before a throughput lane, five hundred untimed
+    // operations before a latency lane.
+    let def_warmup = if mode == "latency" { 500 } else { 2 };
 
     Args {
         mode,
         frames: frames.unwrap_or(def_frames),
         runs: runs.unwrap_or(def_runs),
-        warmup: warmup.unwrap_or(2),
+        warmup: warmup.unwrap_or(def_warmup),
         ops: ops.unwrap_or(def_ops),
         json,
         quick,
@@ -1246,12 +1250,15 @@ fn parse_args() -> Args {
 }
 
 /// Emit the JSON report for a list-container mode (throughput / latency).
-fn emit_list_report(mode: &str, results: Vec<Value>) {
+/// `parameters` holds the flags the mode read, `--json` aside, under the
+/// flag's name (`parameters` in `benchmarks/SCHEMA.yaml`).
+fn emit_list_report(mode: &str, parameters: Value, results: Vec<Value>) {
     let output = json!({
         "benchmark": mode,
         "language": "rust",
         "timestamp": iso_timestamp(),
         "system": system_json(),
+        "parameters": parameters,
         "results": results,
     });
     println!(
@@ -1264,7 +1271,7 @@ fn emit_list_report(mode: &str, results: Vec<Value>) {
 /// MUST appear in schema order. `serde_json::Value` objects (a `BTreeMap`
 /// without the `preserve_order` feature) would sort the keys, so the results
 /// object is assembled by hand to pin the sub-benchmark order the gate checks.
-fn emit_scaling_report(mode: &str, sweeps: &[(&str, Value)]) {
+fn emit_scaling_report(mode: &str, parameters: &Value, sweeps: &[(&str, Value)]) {
     let inner: Vec<String> = sweeps
         .iter()
         .map(|(key, rows)| {
@@ -1278,8 +1285,11 @@ fn emit_scaling_report(mode: &str, sweeps: &[(&str, Value)]) {
     let results_body = inner.join(",\n");
     let system = serde_json::to_string_pretty(&system_json()).expect("serialize system info");
     let system_indented = system.replace('\n', "\n  ");
+    let parameters =
+        serde_json::to_string_pretty(parameters).expect("serialize scaling parameters");
+    let parameters_indented = parameters.replace('\n', "\n  ");
     println!(
-        "{{\n  {}: {},\n  {}: {},\n  {}: {},\n  {}: {},\n  {}: {{\n{results_body}\n  }}\n}}",
+        "{{\n  {}: {},\n  {}: {},\n  {}: {},\n  {}: {},\n  {}: {},\n  {}: {{\n{results_body}\n  }}\n}}",
         Value::String("benchmark".to_string()),
         Value::String(mode.to_string()),
         Value::String("language".to_string()),
@@ -1288,6 +1298,8 @@ fn emit_scaling_report(mode: &str, sweeps: &[(&str, Value)]) {
         Value::String(iso_timestamp()),
         Value::String("system".to_string()),
         system_indented,
+        Value::String("parameters".to_string()),
+        parameters_indented,
         Value::String("results".to_string()),
     );
 }
@@ -1307,14 +1319,17 @@ fn main() {
             log_line(args.json, &format!("Runs: {}", args.runs));
             let results = run_throughput(args.frames, args.runs, args.warmup, args.json);
             if args.json {
-                emit_list_report(&args.mode, results);
+                let parameters =
+                    json!({"frames": args.frames, "runs": args.runs, "warmup": args.warmup});
+                emit_list_report(&args.mode, parameters, results);
             }
         }
         "latency" => {
             log_line(args.json, &format!("Operations: {}", args.ops));
             let results = run_latency(args.ops, args.warmup, args.json);
             if args.json {
-                emit_list_report(&args.mode, results);
+                let parameters = json!({"ops": args.ops, "warmup": args.warmup});
+                emit_list_report(&args.mode, parameters, results);
             }
         }
         "scaling" => {
@@ -1322,7 +1337,8 @@ fn main() {
             log_line(args.json, &format!("Quick: {}", args.quick));
             let sweeps = run_scaling(args.runs, args.quick, args.json);
             if args.json {
-                emit_scaling_report(&args.mode, &sweeps);
+                let parameters = json!({"runs": args.runs, "quick": args.quick});
+                emit_scaling_report(&args.mode, &parameters, &sweeps);
             }
         }
         other => {

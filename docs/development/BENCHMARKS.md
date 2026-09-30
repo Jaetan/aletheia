@@ -46,7 +46,7 @@ cmake -S cpp -B cpp/build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang
 
 `benchmarks/results/<binding>_<mode>_baseline.json`, one per binding and mode, is the committed measurement; the runner's own `<binding>_<mode>.json` beside it is ignored by git.
 
-Measured on an Intel Core Ultra 9 285K of 24 cores under WSL2, with `clang++-22` at `-O3`; each file's `system` object records the runtime that measured it, and no file records the C++ compiler. A throughput baseline is 10 runs of 10,000 frames per lane, a latency baseline 10,000 timed operations per lane, and a scaling baseline the full sweep, five trace sizes where `--quick` runs four; the warmup and the scaling run count are not recorded in the files.
+Measured on an Intel Core Ultra 9 285K of 24 cores under WSL2, with `clang++-22` at `-O3`; each file's `system` object records the runtime that measured it. A throughput baseline is 10 runs of 10,000 frames per lane, a latency baseline 10,000 timed operations per lane, and a scaling baseline the full sweep, five trace sizes where `--quick` runs four. A fresh report also records every flag its run read in its `parameters` object, the warmup and the scaling run count among them, and a C++ report names its compiler in `system`; the committed files carry neither, so their warmup and scaling run count are not recorded.
 
 To read a fresh run against its baseline, run `cabal run shake -- build`, since a stale library measures the previous Agda core; run the mode with the counts the baseline records; and give `compare.py` the binding's fresh file and its baseline:
 

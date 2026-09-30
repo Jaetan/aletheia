@@ -167,6 +167,27 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The README's Install section names every route a release is published
+  by:** the bundle, the `.deb` and `.rpm` packages, and the GHCR container
+  image, each linked to its section of the Distribution Guide, which keeps the
+  commands. It named the first two only.
+- **ruff, basedpyright and pylint read one set of Python:** the package's
+  sources, tests and benchmarks, and the repository root's gate scripts, shared
+  micro-benchmarks, examples and doc-example harness (`ROOT_PYTHON` in
+  `tools/_ci_steps.py`). The root's `benchmarks/` was read by no linter, and
+  `examples/` and `conftest.py` by ruff alone; a test now holds every tracked
+  Python file outside `.archive/` to all three. The doc-example harness runs
+  with pytest's `pythonpath` set to `python/tests` and builds its DBC on the
+  suite's `CANONICAL_SIGNAL`, so the default signal is spelled once.
+- **Every benchmark report records the run that produced it:** a `parameters`
+  object carries each flag the mode read, `--json` aside, under the flag's
+  name (throughput `frames`, `runs` and `warmup`, latency `ops` and `warmup`,
+  scaling `runs` and `quick`), and a C++ report names its compiler in
+  `system`. `benchmarks/SCHEMA.yaml` pins both, with each binding's `system`
+  keys, and `tools/check_bench_schema.py` refuses a report whose parameters are
+  not the flags it was given, a count recorded as a switch included. Run
+  without `--warmup`, the Go and Rust latency harnesses now warm for 500
+  operations, as the Python and C++ ones do, where they warmed for 2.
 - **The Go CLI is a module of its own, `go/cmd/aletheia`,** in the `go/`
   workspace beside the core and Excel modules: `template` writes through the
   Excel module, and the core module stays free of excelize. The CI's Go steps,

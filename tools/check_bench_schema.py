@@ -9,7 +9,9 @@ container, per-row key sets, and byte-identical human labels in the same order.
 
 The gate drives each binding with a TINY workload per mode (the schema is
 workload-independent) so it runs in seconds, and validates STRUCTURE ONLY --
-never the measured values, which are host-dependent.
+never the measured values, which are host-dependent.  The one set of values it
+does check is ``parameters``: the flags it passed must come back as the report
+records them, so a report states what it ran.
 
 Binding availability:
   * Python is REQUIRED and always checked (the schema reference; interpreted, so
@@ -35,9 +37,12 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import NamedTuple, cast
+from typing import TYPE_CHECKING, NamedTuple, NewType, cast
 
 import yaml
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 REPO = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = REPO / "benchmarks" / "SCHEMA.yaml"
@@ -51,6 +56,34 @@ MODE_ARGS: dict[str, list[str]] = {
     "latency": ["--ops", "50", "--warmup", "0", "--json"],
     "scaling": ["--quick", "--runs", "1", "--json"],
 }
+
+# A key the schema names, and the count a flag carries.
+SchemaKey = NewType("SchemaKey", str)
+Count = NewType("Count", int)
+
+# Each mode's ``parameters`` as its report must record them: MODE_ARGS read back,
+# every flag but --json under its name without the dashes, a flag followed by a
+# value at that count, and a switch as true.
+MODE_PARAMETERS = {
+    mode: {
+        SchemaKey(flag.removeprefix("--")): (
+            Count(int(args[i + 1]))
+            if i + 1 < len(args) and not args[i + 1].startswith("--")
+            else True
+        )
+        for i, flag in enumerate(args)
+        if flag.startswith("--") and flag != "--json"
+    }
+    for mode, args in MODE_ARGS.items()
+}
+
+
+class Envelope(NamedTuple):
+    """What a report carries beside its results, as the schema and MODE_ARGS pin it."""
+
+    top: frozenset[SchemaKey]
+    system: frozenset[SchemaKey]
+    parameters: Mapping[SchemaKey, Count | bool]
 
 
 class Binding(NamedTuple):
@@ -174,17 +207,30 @@ def _run(binding: Binding, mode: str) -> dict[object, object]:
 
 
 def _check_envelope(
-    payload: dict[object, object], mode: str, name: str, top: list[str]
+    payload: dict[object, object], mode: str, name: str, envelope: Envelope
 ) -> list[str]:
-    """Top-level envelope: key set, benchmark field, language field."""
+    """Top-level envelope: key set, benchmark and language fields, system keys, parameters."""
     keys = sorted(str(k) for k in payload)
-    if keys != sorted(top):
-        return [f"top keys {keys} != {sorted(top)}"]
+    if keys != sorted(envelope.top):
+        return [f"top keys {keys} != {sorted(envelope.top)}"]
     errors: list[str] = []
     if payload.get("benchmark") != mode:
         errors.append(f"benchmark field {payload.get('benchmark')!r} != {mode!r}")
     if payload.get("language") != name:
         errors.append(f"language field {payload.get('language')!r} != {name!r}")
+    system = _row_keys(payload.get("system"))
+    system_keys = None if system is None else sorted(str(k) for k in system)
+    if system_keys != sorted(envelope.system):
+        errors.append(f"system keys {system_keys} != {sorted(envelope.system)}")
+    # Each value is compared with its type: JSON true reads as equal to 1, and a
+    # switch recorded as a count, or a count as a switch, is not what was run.
+    parameters = payload.get("parameters")
+    entries = _obj_map(parameters)
+    recorded = (
+        {str(k): (type(v), v) for k, v in entries.items()} if isinstance(parameters, dict) else None
+    )
+    if recorded != {str(k): (type(v), v) for k, v in envelope.parameters.items()}:
+        errors.append(f"parameters {parameters!r} != {dict(envelope.parameters)!r}")
     return errors
 
 
@@ -258,8 +304,17 @@ def validate(
 ) -> list[str]:
     """Return conformance errors (empty == conformant). Structure only."""
     spec = _obj_map(_obj_map(schema["modes"])[mode])
-    top = _strs(_obj_map(schema["envelope"])["top_keys"])
-    env_errors = _check_envelope(payload, mode, name, top)
+    envelope = _obj_map(schema["envelope"])
+    env_errors = _check_envelope(
+        payload,
+        mode,
+        name,
+        Envelope(
+            top=frozenset(SchemaKey(k) for k in _strs(envelope["top_keys"])),
+            system=frozenset(SchemaKey(k) for k in _strs(_obj_map(envelope["system_keys"])[name])),
+            parameters=MODE_PARAMETERS[mode],
+        ),
+    )
     if env_errors and env_errors[0].startswith("top keys"):
         return [f"[{name} / {mode}] {e}" for e in env_errors]
     results = payload.get("results")
@@ -299,11 +354,14 @@ def _self_test(schema: dict[object, object]) -> int:
     keys = _strs(tp["row_keys"])
     lanes = _strs(tp["lane_names"])
     good_rows: list[object] = [{**dict.fromkeys(keys, 0), "name": n} for n in lanes]
+    system_keys = _strs(_obj_map(_obj_map(schema["envelope"])["system_keys"])["python"])
+    parameters = dict(MODE_PARAMETERS["throughput"])
     good: dict[object, object] = {
         "benchmark": "throughput",
         "language": "python",
         "timestamp": "t",
-        "system": {},
+        "system": dict.fromkeys(system_keys, "x"),
+        "parameters": parameters,
         "results": good_rows,
     }
     if validate("python", "throughput", good, schema):
@@ -311,16 +369,26 @@ def _self_test(schema: dict[object, object]) -> int:
         return 1
     first = cast("dict[object, object]", good_rows[0])
     mutations: list[tuple[str, object]] = [
-        ("renamed lane", [{**first, "name": "WRONG"}, *good_rows[1:]]),
-        ("dropped row key", [dict.fromkeys(["name", "frames"], 0), *good_rows[1:]]),
-        ("wrong container", {"x": 1}),
-        ("reordered lanes", list(reversed(good_rows))),
+        ("renamed lane", {**good, "results": [{**first, "name": "WRONG"}, *good_rows[1:]]}),
+        (
+            "dropped row key",
+            {**good, "results": [dict.fromkeys(["name", "frames"], 0), *good_rows[1:]]},
+        ),
+        ("wrong container", {**good, "results": {"x": 1}}),
+        ("reordered lanes", {**good, "results": list(reversed(good_rows))}),
+        ("dropped system key", {**good, "system": dict.fromkeys(system_keys[1:], "x")}),
+        (
+            "dropped parameter",
+            {**good, "parameters": {k: v for k, v in parameters.items() if k != "warmup"}},
+        ),
+        ("a parameter not the one run", {**good, "parameters": {**parameters, "warmup": 2}}),
+        ("a count recorded as a switch", {**good, "parameters": {**parameters, "runs": True}}),
     ]
     for label, bad in mutations:
-        if not validate("python", "throughput", {**good, "results": bad}, schema):
+        if not validate("python", "throughput", _obj_map(bad), schema):
             _err(f"SELF-TEST FAIL: gate accepted a bad payload ({label})")
             return 1
-    _out("self-test: all 4 injected mutations were rejected -- gate has teeth")
+    _out(f"self-test: all {len(mutations)} injected mutations were rejected -- gate has teeth")
     return 0
 
 
