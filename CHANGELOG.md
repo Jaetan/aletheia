@@ -167,6 +167,10 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The README's Install section names every route a release is published
+  by:** the bundle, the `.deb` and `.rpm` packages, and the GHCR container
+  image, each linked to its section of the Distribution Guide, which keeps the
+  commands. It named the first two only.
 - **ruff, basedpyright and pylint read one set of Python:** the package's
   sources, tests and benchmarks, and the repository root's gate scripts, shared
   micro-benchmarks, examples and doc-example harness (`ROOT_PYTHON` in
