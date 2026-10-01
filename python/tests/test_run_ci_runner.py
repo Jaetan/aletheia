@@ -279,6 +279,25 @@ def test_each_sanitizer_lane_owns_its_tree_and_its_lane(tmp_path: Path) -> None:
         assert step.heavy, f"{name} builds a whole tree and is heavy"
 
 
+def test_full_ci_caches_the_dependencies_of_every_tree_it_configures(tmp_path: Path) -> None:
+    """The full-CI job caches FetchContent's downloads for exactly the trees the sweep configures.
+
+    A tree the cache leaves out downloads every dependency on every run, and a
+    path naming a tree no step configures caches nothing.  The job runs the
+    sweep with no opt-in lane, as the runner here is built.
+    """
+    runner = _runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    commands = [str(step.cmd) for step in runner.registered_steps]
+    trees = {_build_dir(command) for command in commands if "cmake -B " in command}
+    workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "pr-full-ci.yml"
+    lines = workflow.read_text(encoding="utf-8").splitlines()
+    start = lines.index("      - name: Cache C++ FetchContent deps")
+    end = next(i for i in range(start + 1, len(lines)) if lines[i].lstrip().startswith("key:"))
+    cached = {line.strip() for line in lines[start:end] if line.strip().endswith("/_deps")}
+    assert cached == {f"cpp/{tree}/_deps" for tree in trees}
+
+
 def test_each_sanitizer_lane_reads_its_tree_back_before_building(tmp_path: Path) -> None:
     """Each sanitizer step asserts the configured tree carries the sanitizer it asked for.
 

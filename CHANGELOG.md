@@ -268,6 +268,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   far the recorded weights have drifted; the setup gate refuses a tree the
   record weighs nothing for.
 
+- **Full CI caches the dependencies of every C++ tree it configures.** The
+  cache listed a `build-tidy` tree no step configures and left out
+  `build-asan`, so the address-sanitizer tree downloaded every FetchContent
+  dependency on every run, exposed to the source server's transient errors.
+  It now lists the test build and both sanitizer trees, under a new key so
+  the next run saves them, and a test holds the list to the trees the sweep's
+  steps configure.
+
 - **No mutation lane runs its binding's doc-example harness.** A harness
   builds and runs every fence of the documents as a program of its own,
   holding the documents to the binding, and costs its whole run once per

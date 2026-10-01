@@ -254,19 +254,21 @@ jobs:
           sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
 
       # Caches the CMake FetchContent dependencies (json / yaml-cpp / OpenXLSX
-      # / Catch2) for all three C++ build dirs.  Without it, every run
-      # re-downloads each tarball into each build tree — slow and exposed to
-      # transient source-server errors (a 504 fetching OpenXLSX failed the
-      # ctest step on the first real run).  Keyed on CMakeLists.txt, which
-      # pins the dependency versions, so a bump invalidates the cache.
+      # / Catch2) for every C++ tree run_ci configures: the test build and the
+      # two sanitizer trees.  Without it, every run re-downloads each tarball
+      # into each tree, slow and exposed to transient source-server errors (a
+      # 504 fetching OpenXLSX failed the ctest step on the first real run).
+      # Keyed on CMakeLists.txt, which pins the dependency versions, so a bump
+      # invalidates the cache; the suffix moves when the list of trees does,
+      # since the cache saves only on a miss.
       - name: Cache C++ FetchContent deps
         uses: actions/cache@v6
         with:
           path: |
             cpp/build/_deps
-            cpp/build-tidy/_deps
             cpp/build-ubsan/_deps
-          key: cpp-deps-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
+            cpp/build-asan/_deps
+          key: cpp-deps-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}-v2
 
       # ccache persists compiled C++ objects across runs.  cpp/CMakeLists.txt
       # auto-enables it (CMAKE_CXX_COMPILER_LAUNCHER) when ccache is on PATH.  CI
