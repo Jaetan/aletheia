@@ -178,6 +178,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **No mutation lane runs its binding's doc-example harness.** A harness
+  builds and runs every fence of the documents as a program of its own,
+  holding the documents to the binding, and costs its whole run once per
+  mutant: the Rust sweep with it and without it gave the same verdict on
+  every mutant, and the C++ harness alone takes 43 s a run. The Go lane skips
+  `TestDocExamples` through the `GOFLAGS` it hands gremlins, the Rust lane
+  skips its harness in `rust/.cargo/mutants.toml`, and
+  `tools/check_mutation_setup.py` refuses a lane whose per-mutant run reaches
+  one: `--markdown-docs` among the arguments mutmut runs pytest with, a Go or
+  Rust skip that misses its harness or drops another test, the C++ harness's
+  source compiled into the binary the Mull runner runs, or a harness renamed
+  out from under the check.
+
 - **Each doc-example harness refuses a fence hidden behind a suffixed info
   word** (`go,ignore`, `cpp,x`, `rust,ignore`, `python,notest`), which a reader
   takes for code in the binding's language and the harness neither runs nor
@@ -1102,6 +1115,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   in the install prefix.
 
 ### Fixed
+
+- **The Go mutation lane counts a mutant killed only when a test fails on
+  it.** gremlins tests each mutant in a copy of the `go/` module alone, under
+  the system's temporary directory, where the package's tests found neither
+  the kernel nor the documents, corpus and C header they read from the
+  repository: the unmutated suite failed at its first test, every mutant read
+  as killed, and the recorded baseline, 751 killed and none alive, measured
+  nothing. The lane now sweeps a scratch copy of the whole tree, as the Rust
+  lane does, naming it to the tests as `ALETHEIA_REPO_ROOT` and the tree's
+  built kernel as `ALETHEIA_LIB`, and the loader's search scenario runs in a
+  directory laid out as a checkout. The baseline is re-taken from that sweep:
+  684 killed and 63 alive, the survivors not yet examined: each is a finding,
+  recorded as a row of a ledger the lane holds the run to, as the C++ and Rust
+  lanes are held. The enrichment's frame order is
+  tested on its comparator directly: through the merge alone, its kill
+  depended on the order a map yielded two keys in, and two sweeps of one tree
+  disagreed on it.
 
 - **The streaming example of `docs/reference/INTERFACES.md` sent a frame on a
   stream it never started, in C++, Go and Python alike.** Each call answered

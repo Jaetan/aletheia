@@ -4,7 +4,6 @@
 package aletheia
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -984,21 +983,12 @@ func (c *Client) enrichEndOfStream(ctx context.Context, results []PropertyResult
 	}
 	merged := make(map[SignalName]Rational)
 	if len(remaining) > 0 {
-		// Sort map keys for deterministic enrichment output in the
-		// cross-binding order: ascending CAN ID value, then standard before
-		// extended. canIDKey packs the extended flag at bit 32, so a plain
-		// uint64 sort would order (extended, value); decode the two halves
-		// and compare (value, extended) instead.
+		// Sort map keys for deterministic enrichment output.
 		keys := make([]uint64, 0, len(c.lastFrames))
 		for k := range c.lastFrames {
 			keys = append(keys, k)
 		}
-		slices.SortFunc(keys, func(a, b uint64) int {
-			if r := cmp.Compare(a&0xFFFFFFFF, b&0xFFFFFFFF); r != 0 {
-				return r
-			}
-			return cmp.Compare(a&extendedIDFlag, b&extendedIDFlag)
-		})
+		slices.SortFunc(keys, compareFrameKeys)
 		for _, k := range keys {
 			lf := c.lastFrames[k]
 			result := c.extractSignalsLocked(ctx, lf.id, lf.dlc, lf.data)

@@ -15,7 +15,7 @@
 set -u
 cd "$(dirname "$0")/.." || exit 2
 listed=$(awk '$0 == "var docFiles = []string{" {on=1; next} on && /^\}$/ {exit} on' go/aletheia/doc_files_test.go \
-	| grep -o '"\.\./[^"]*\.md"' | tr -d '"' | sed 's|^\.\./\.\./||; s|^\.\./|go/|' | sort)
+	| grep -o '"[^"]*\.md"' | tr -d '"' | sort)
 [ -n "$listed" ] || { echo "no docFiles entries found"; exit 2; }
 status=0
 for f in $listed; do

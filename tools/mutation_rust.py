@@ -32,15 +32,14 @@ line the mutation starts on.
 from __future__ import annotations
 
 import collections
-import contextlib
 import json
 import os
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from tools._common import find_executable, run_capture, run_streaming, scratch_worktree
-from tools.mutation_report import MutationReport, load_spec
+from tools._common import find_executable, run_capture, run_streaming
+from tools.mutation_report import MutationReport, load_spec, scratch_tree_or_report
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -107,13 +106,9 @@ def run_rust(artifact_dir: Path) -> MutationReport:
     env["ALETHEIA_LIB"] = str(lib)
     output = artifact_dir / RUST_OUTPUT_DIR
     output.mkdir(parents=True, exist_ok=True)
-    with contextlib.ExitStack() as stack:
-        try:
-            tree = stack.enter_context(scratch_worktree(REPO_ROOT))
-        except RuntimeError as exc:
-            return MutationReport(
-                "rust", "cargo-mutants", 0, 0, "", error=f"no scratch copy of the tree: {exc}"
-            )
+    with scratch_tree_or_report(REPO_ROOT, "rust", "cargo-mutants") as tree:
+        if isinstance(tree, MutationReport):
+            return tree
         # Streams, so a sweep killed by a wall clock still leaves the log of how
         # far it got.  Colours off, so the archived log is the text it printed.
         proc = run_streaming(

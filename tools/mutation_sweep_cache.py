@@ -64,6 +64,7 @@ from tools._resources import polite_cpu_list
 from tools.cpp_scratch import reap_dead_scratch_dirs
 from tools.mutation_cpp import (
     CPP_LEG_REPORT_SUFFIXES,
+    CPP_TEST_TARGET,
     REPO_ROOT,
     cpp_lane_command,
     cpp_sweep_directory,
@@ -233,7 +234,7 @@ def tree_build_dir(tree: CppTree) -> Path:
 
 def tree_binary(tree: CppTree) -> Path:
     """Name the test binary of one tree, which the runner runs once per mutant."""
-    return tree_build_dir(tree) / "unit_tests"
+    return tree_build_dir(tree) / CPP_TEST_TARGET
 
 
 def _digest(path: Path) -> _FileDigest:

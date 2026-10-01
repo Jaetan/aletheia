@@ -124,7 +124,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, NewType
 
 from tools._common import (
     find_executable,
@@ -146,6 +146,7 @@ from tools.mutation_report import (
     SurvivorKey,
     UnobservedKey,
     load_spec,
+    scratch_tree_or_report,
     unobserved_ledger_to_rows,
     unobserved_rows_to_ledger,
 )
@@ -323,6 +324,17 @@ def run_go(artifact_dir: Path) -> MutationReport:
     is the actively-maintained successor (zimmski's repo is unmaintained
     since 2021 and panics on Go 1.26 internals).  Same operator set, same
     intent, just a different implementation.
+
+    gremlins tests each mutant in a copy of the ``go/`` module alone, under
+    the system's temporary directory, where nothing outside the module is.
+    The package's tests read the documents, the corpus and the kernel's
+    header from the repository, and load the kernel, so the lane names both:
+    ``ALETHEIA_REPO_ROOT`` a scratch copy of the whole tree, which the sweep
+    runs from (``scratch_worktree``), and ``ALETHEIA_LIB`` the tree's own
+    built library, which the copy does not carry.  Without them every test
+    that reads the repository fails in gremlins' copy, and every mutant reads
+    as killed whatever it changed.  The doc-example harness is skipped
+    (``go_sweep_goflags``).
     """
     gremlins = shutil.which("gremlins")
     if gremlins is None:
@@ -336,16 +348,51 @@ def run_go(artifact_dir: Path) -> MutationReport:
             + "`go install github.com/go-gremlins/gremlins/cmd/gremlins@latest`",
         )
 
-    cwd = REPO_ROOT / "go"
-    # gremlins targets the package directory; runs the package's tests
-    # against each mutant.  We pass the canonical aletheia/ subpackage
-    # (the only Go module that holds runtime code; benchmarks and tests
-    # are excluded automatically by virtue of *_test.go convention).
-    proc = run_streaming([gremlins, "unleash", "./aletheia"], cwd=cwd)
+    lib = REPO_ROOT / "build" / "libaletheia-ffi.so"
+    if not lib.is_file():
+        return MutationReport(
+            "go",
+            "gremlins",
+            0,
+            0,
+            "",
+            error=f"libaletheia-ffi.so not found at {lib}; run `cabal run shake -- build` first",
+        )
+    with scratch_tree_or_report(REPO_ROOT, "go", "gremlins") as tree:
+        if isinstance(tree, MutationReport):
+            return tree
+        env = dict(os.environ)
+        env["ALETHEIA_REPO_ROOT"] = str(tree)
+        env["ALETHEIA_LIB"] = str(lib)
+        env["GOFLAGS"] = go_sweep_goflags(GoFlags(env.get("GOFLAGS", "")))
+        # gremlins targets the package directory and runs the package's tests
+        # against each mutant: the canonical aletheia/ subpackage, the only Go
+        # module holding runtime code.
+        proc = run_streaming([gremlins, "unleash", "./aletheia"], cwd=tree / "go", env=env)
     raw = proc.stdout
     (artifact_dir / "go.raw.txt").write_text(raw)
 
     return parse_gremlins_summary(raw, f"exit {proc.returncode}")
+
+
+# The flags the go command reads from its environment, as GOFLAGS spells them.
+GoFlags = NewType("GoFlags", str)
+
+# The Go doc-example harness, which builds and runs every Go fence of the
+# documents as a program of its own: it holds the documents to the package,
+# the unit tests hold the package's behaviour, and the sweep skips it rather
+# than pay its whole run once per mutant.
+GO_DOC_HARNESS = "TestDocExamples"
+
+
+def go_sweep_goflags(caller: GoFlags) -> GoFlags:
+    """Return the caller's ``GOFLAGS`` with the doc-example harness skipped.
+
+    ``go test`` reads ``-skip`` from ``GOFLAGS``, the one route to a test flag
+    gremlins leaves open, and its coverage run and every mutant's run inherit
+    it alike.
+    """
+    return GoFlags(f"{caller} -skip=^{GO_DOC_HARNESS}$".strip())
 
 
 def parse_gremlins_summary(raw: str, where: str) -> MutationReport:
@@ -383,22 +430,28 @@ def parse_gremlins_summary(raw: str, where: str) -> MutationReport:
     )
 
 
-# One mutant gremlins made on a line no test executes, as its log names it.
-_NOT_COVERED_RE = re.compile(r"NOT COVERED (\w+) at ([\w.]+\.go):(\d+):\d+")
+# One mutant gremlins reported, by the verdict its log line opens with.
+_GO_MUTANT_RE = re.compile(r"(NOT COVERED|LIVED) (\w+) at ([\w.]+\.go):(\d+):\d+")
 
 
-def go_not_covered_rows(raw: str, repo_root: Path = REPO_ROOT) -> dict[SurvivorKey, int]:
-    """Key a gremlins run's not-covered mutants on their source lines, as survivors are.
+def go_mutant_rows(
+    raw: str, verdict: Literal["NOT COVERED", "LIVED"], repo_root: Path = REPO_ROOT
+) -> dict[SurvivorKey, int]:
+    """Key a gremlins run's mutants of one verdict on their source lines.
 
-    gremlins names each by mutator, file and position; the position is turned
-    into the text of the line it names, read from the tree the sweep ran on,
-    so the row survives an edit above it and not an edit of it.  A file the
-    tree no longer has, or a line past its end, keeps the position as text, so
-    the row still fails to match a recorded one rather than vanishing.
+    The verdict is the one the log line opens with: ``LIVED`` for a survivor,
+    ``NOT COVERED`` for a mutant on a line no test executes.  gremlins names
+    each by mutator, file and position; the position is turned into the text
+    of the line it names, read from the tree the sweep ran on, so the row
+    survives an edit above it and not an edit of it.  A file the tree no
+    longer has, or a line past its end, keeps the position as text, so the row
+    still fails to match a recorded one rather than vanishing.
     """
     rows: dict[SurvivorKey, int] = collections.Counter()
     lines_of: dict[str, list[str]] = {}
-    for mutator, file, line in _NOT_COVERED_RE.findall(raw):
+    for found, mutator, file, line in _GO_MUTANT_RE.findall(raw):
+        if found != verdict:
+            continue
         rel = f"go/aletheia/{file}"
         if rel not in lines_of:
             source = repo_root / rel
@@ -734,8 +787,10 @@ def main() -> int:
         rows = cpp_survivor_rows(artifact_dir) if is_cpp else None
         if rep.binding == "rust":
             rows = rust_survivor_rows(artifact_dir)
+        if rep.binding == "go":
+            rows = go_mutant_rows(rep.raw_log, "LIVED")
         unobserved = cpp_unobserved_rows(artifact_dir) if is_cpp else None
-        not_covered = go_not_covered_rows(rep.raw_log) if rep.binding == "go" else None
+        not_covered = go_mutant_rows(rep.raw_log, "NOT COVERED") if rep.binding == "go" else None
         drift[rep.binding] = drift_for(rep, bindings, rows, unobserved, not_covered)
     any_drift = any(entry["status"] in ("error", "regression") for entry in drift.values())
 

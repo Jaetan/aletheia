@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from _git_repo import commit, git
+from _git_repo import repo_with_an_uncommitted_edit
 
 from tools import mutation_run, mutation_rust
 from tools.mutation_report import MutationReport
@@ -186,13 +186,7 @@ _ = (out / "mutants.out" / "outcomes.json").write_text(json.dumps({"outcomes": [
 
 def _crate_repo(root: Path) -> Path:
     """Build a repository whose crate source is committed, then edited and not committed."""
-    source = root / "rust" / "src" / "lib.rs"
-    source.parent.mkdir(parents=True)
-    _ = source.write_text("committed\n", encoding="utf-8")
-    _ = git(root, "init", "-q")
-    _ = commit(root, "base")
-    _ = source.write_text("uncommitted edit\n", encoding="utf-8")
-    return root.resolve()
+    return repo_with_an_uncommitted_edit(root, Path("rust/src/lib.rs"))
 
 
 def test_the_sweep_mutates_a_copy_of_the_tree_as_it_stands(

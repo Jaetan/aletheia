@@ -23,3 +23,10 @@ all_features = true
 # one the decoders themselves raise, so a test asserting on the message text
 # still tells the mutant from the code's own refusal.
 error_values = ["crate::Error::Protocol(String::new())"]
+# The doc-example harness builds and runs every Rust fence of the documents as
+# a program of its own.  It holds the documents to the crate, and a sweep with
+# it and one without gave the same verdict on every mutant, so the sweep runs
+# every test but that one.  cargo-mutants appends these to `cargo test`
+# without reading the separator, and the runner passes no test argument of
+# its own, so this `--` is the one that hands `--skip` to the test binaries.
+additional_cargo_test_args = ["--", "--skip", "every_rust_fence_of_the_listed_documents_builds_and_runs"]

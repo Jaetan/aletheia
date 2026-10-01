@@ -45,6 +45,18 @@ Always-on invariants, checked without running the mutation tools (which take
    sweep would, half an hour later and only on the lane.  Each row's file is
    read here for its text.
 
+6. **No lane's per-mutant run reaches its binding's doc-example harness.**
+   A harness builds and runs every fence of the documents as a program of
+   its own, holding the documents to the binding; the unit tests hold the
+   binding's behaviour.  Run per mutant it costs its whole run each time, and
+   the Rust sweep with it and without it gave the same verdict on every
+   mutant.  Python's is the pytest option that collects the fences, absent
+   from what mutmut runs; Go's and Rust's are one test each, which the lane
+   skips by name, and the skip must reach that test and no other; C++'s is its
+   own binary's source, which the binary the Mull runner runs must not
+   compile.  Each harness is first found where it is defined, so a rename is a
+   failure here rather than a check that names nothing.
+
 The dynamic counterpart is ``tools/mutation_run.py``, which actually drives
 each binding's mutation tool against this list and writes per-binding
 survivor counts.
@@ -62,21 +74,29 @@ Forward-revert verified 2026-06-20 (invariant 2): drop the
 Forward-revert verified 2026-09-26 (invariant 4): rename the Rust block to a
 binding no runner has -> this gate fires twice, by name; restore it -> exit 0
 (``probes/tools_check_mutation_setup.py--a-binding-without-a-block-is-caught.sh``).
+Forward-revert verified 2026-10-01 (invariant 6): each lane in turn made to
+reach its harness, to skip another test beside it, or to name a harness
+renamed away -> this gate fires, by binding; restore it -> exit 0
+(``probes/tools_check_mutation_setup.py--a-lane-that-runs-a-doc-harness-is-caught.sh``).
 """
 
 from __future__ import annotations
 
+import collections
 import re
 import sys
 import tomllib
 from pathlib import Path
-from typing import cast
+from typing import Literal, NewType, TypedDict, cast
 
 import yaml
 
 from tools._common import RelPath, emit
+from tools.mutation_cpp import CPP_TEST_TARGET
 from tools.mutation_cpp_slices import partition, slice_domain
-from tools.mutation_run import RUNNERS
+from tools.mutation_run import GO_DOC_HARNESS, RUNNERS, GoFlags, go_sweep_goflags
+
+from aletheia.common_types import Prose
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SPEC_PATH = REPO_ROOT / "docs" / "MUTATION_BENCH.yaml"
@@ -322,6 +342,219 @@ def _row_names_its_line(binding_name: str, ledger: str, row: dict[str, object]) 
     return []
 
 
+# One argument of a command line the lane runs its tests with.
+PytestArg = NewType("PytestArg", str)
+CargoTestArg = NewType("CargoTestArg", str)
+# A test as its runner selects it by name.
+TestName = NewType("TestName", str)
+
+# Each binding's doc-example harness, as the lane that must not run it would
+# name it; Go's is the runner's own ``GO_DOC_HARNESS``.
+PYTHON_DOC_HARNESS = PytestArg("--markdown-docs")
+RUST_DOC_HARNESS = TestName("every_rust_fence_of_the_listed_documents_builds_and_runs")
+CPP_DOC_HARNESS = "tests/doc_example_tests.cpp"
+
+MUTANTS_TOML_PATH = REPO_ROOT / "rust" / ".cargo" / "mutants.toml"
+CMAKE_PATH = REPO_ROOT / "cpp" / "CMakeLists.txt"
+
+# A Go test: a top-level function the go command runs, TestMain excluded by its signature.
+_GO_TEST_RE = re.compile(r"^func (Test\w*)\(\w+ \*testing\.T\)", re.MULTILINE)
+# The pattern of a ``-skip`` flag in GOFLAGS.
+_GO_SKIP_RE = re.compile(r"(?:^|\s)-skip=(\S+)")
+# A Rust test: a function under ``#[test]``, whatever attributes follow it.
+_RUST_TEST_RE = re.compile(r"#\[test\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?fn\s+(\w+)")
+# A CMake command that names a target's sources.
+_CMAKE_SOURCES_RE = re.compile(r"\b(?:add_executable|target_sources)\s*\(([^)]*)\)")
+
+
+class _PytestIni(TypedDict, total=False):
+    addopts: list[PytestArg]
+
+
+class _PytestTool(TypedDict, total=False):
+    ini_options: _PytestIni
+
+
+class _MutmutTool(TypedDict, total=False):
+    pytest_add_cli_args: list[PytestArg]
+    pytest_add_cli_args_test_selection: list[PytestArg]
+
+
+class _Tools(TypedDict, total=False):
+    mutmut: _MutmutTool
+    pytest: _PytestTool
+
+
+class _Pyproject(TypedDict, total=False):
+    tool: _Tools
+
+
+class _MutantsToml(TypedDict, total=False):
+    additional_cargo_test_args: list[CargoTestArg]
+
+
+def no_lane_runs_a_doc_harness() -> list[Prose]:
+    """Hold each lane's per-mutant run to its binding's tests less the doc-example harness."""
+    return [
+        *python_lane_runs_no_doc_harness(),
+        *go_lane_runs_no_doc_harness(),
+        *rust_lane_runs_no_doc_harness(),
+        *cpp_lane_runs_no_doc_harness(),
+    ]
+
+
+def python_lane_runs_no_doc_harness() -> list[Prose]:
+    """Refuse the fence-collecting option among the arguments mutmut runs pytest with.
+
+    mutmut runs pytest with its own arguments and the project's ``addopts``;
+    the harness is the run-ci step that passes the option, found there first.
+    """
+    steps = (REPO_ROOT / "tools" / "_ci_steps.py").read_text(encoding="utf-8")
+    if f'"{PYTHON_DOC_HARNESS}"' not in steps:
+        return [
+            Prose(
+                f"[python/doc-harness] tools/_ci_steps.py passes no {PYTHON_DOC_HARNESS}: the "
+                + "harness is spelled another way now, and this check would name nothing"
+            )
+        ]
+    tool = cast("_Pyproject", tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))).get(
+        "tool", {}
+    )
+    mutmut = tool.get("mutmut", {})
+    runs = [
+        *mutmut.get("pytest_add_cli_args", []),
+        *mutmut.get("pytest_add_cli_args_test_selection", []),
+        *tool.get("pytest", {}).get("ini_options", {}).get("addopts", []),
+    ]
+    if PYTHON_DOC_HARNESS in runs:
+        return [
+            Prose(
+                f"[python/doc-harness] mutmut runs pytest with {PYTHON_DOC_HARNESS}, so every "
+                + "mutant's run collects the documents' fences, which no mutant reaches"
+            )
+        ]
+    return []
+
+
+def go_lane_runs_no_doc_harness() -> list[Prose]:
+    """Hold the Go lane's ``-skip`` to the doc-example harness and nothing else.
+
+    The flag is read from the ``GOFLAGS`` the runner gives gremlins, the last
+    ``-skip`` being the one go keeps, and matched as go matches a top-level
+    test, unanchored; Python's ``re`` reads the pattern's anchors and word
+    characters as RE2 does.
+    """
+    package = REPO_ROOT / "go" / "aletheia"
+    names = [
+        TestName(match.group(1))
+        for path in sorted(package.glob("*_test.go"))
+        for match in _GO_TEST_RE.finditer(path.read_text(encoding="utf-8"))
+    ]
+    skips = [match.group(1) for match in _GO_SKIP_RE.finditer(go_sweep_goflags(GoFlags("")))]
+    if not skips:
+        return [
+            Prose(
+                "[go/doc-harness] the GOFLAGS the runner gives gremlins carry no -skip, so "
+                + f"every mutant's run reaches {GO_DOC_HARNESS}"
+            )
+        ]
+    pattern = re.compile(skips[-1])
+    skipped = [name for name in names if pattern.search(name)]
+    return _skips_the_harness_alone("go", TestName(GO_DOC_HARNESS), names, skipped)
+
+
+def rust_lane_runs_no_doc_harness() -> list[Prose]:
+    """Hold the Rust lane's ``--skip`` filters to the doc-example harness and nothing else.
+
+    cargo-mutants appends the configuration's test arguments to ``cargo
+    test``, where those after ``--`` reach the test binaries; libtest skips a
+    test whose name contains a filter, or equals it under ``--exact``.
+    """
+    config = cast("_MutantsToml", tomllib.loads(MUTANTS_TOML_PATH.read_text(encoding="utf-8")))
+    args = config.get("additional_cargo_test_args", [])
+    binary_args = args[args.index(CargoTestArg("--")) + 1 :] if "--" in args else []
+    filters = [
+        arg.removeprefix("--skip=")
+        for i, arg in enumerate(binary_args)
+        if arg.startswith("--skip=") or (i > 0 and binary_args[i - 1] == "--skip")
+    ]
+    exact = "--exact" in binary_args
+    names = [
+        TestName(match.group(1))
+        for directory in ("src", "tests")
+        for path in sorted((REPO_ROOT / "rust" / directory).rglob("*.rs"))
+        for match in _RUST_TEST_RE.finditer(path.read_text(encoding="utf-8"))
+    ]
+    skipped = [name for name in names if any(name == f if exact else f in name for f in filters)]
+    return _skips_the_harness_alone("rust", RUST_DOC_HARNESS, names, skipped)
+
+
+def _skips_the_harness_alone(
+    binding: Literal["go", "rust"],
+    harness: TestName,
+    names: list[TestName],
+    skipped: list[TestName],
+) -> list[Prose]:
+    """Say why a lane's skip does not drop the harness alone from the tests it runs, or nothing."""
+    defined = names.count(harness)
+    if defined != 1:
+        return [
+            Prose(
+                f"[{binding}/doc-harness] {harness} is defined {defined} times among the "
+                + "binding's tests rather than once: the harness was renamed or duplicated, "
+                + "and the lane's skip is checked against a name the tree does not settle"
+            )
+        ]
+    failures: list[Prose] = []
+    if harness not in skipped:
+        failures.append(
+            Prose(
+                f"[{binding}/doc-harness] every mutant's run reaches {harness}: the lane's "
+                + "skip does not match it"
+            )
+        )
+    failures += [
+        Prose(
+            f"[{binding}/doc-harness] the lane's skip also drops {name}, which is not the "
+            + "doc-example harness, so no mutant is tested against it"
+        )
+        for name in sorted(set(skipped) - {harness})
+    ]
+    return failures
+
+
+def cpp_lane_runs_no_doc_harness() -> list[Prose]:
+    """Refuse the doc-example harness's source among those of the binary the Mull runner runs.
+
+    Every ``add_executable`` and ``target_sources`` of ``cpp/CMakeLists.txt``
+    is read, comments dropped, so a source folded into the test binary under
+    the mutation build counts as the unconditional ones do.
+    """
+    text = "\n".join(
+        line.split("#", 1)[0] for line in CMAKE_PATH.read_text(encoding="utf-8").splitlines()
+    )
+    sources: dict[RelPath, list[RelPath]] = collections.defaultdict(list)
+    for match in _CMAKE_SOURCES_RE.finditer(text):
+        target, *rest = match.group(1).split()
+        sources[RelPath(target)] += [RelPath(word) for word in rest]
+    building = sorted(target for target, words in sources.items() if CPP_DOC_HARNESS in words)
+    if not building:
+        return [
+            Prose(
+                f"[cpp/doc-harness] no target of cpp/CMakeLists.txt compiles {CPP_DOC_HARNESS}: "
+                + "the harness moved, and this check would name nothing"
+            )
+        ]
+    if CPP_TEST_TARGET in building:
+        return [
+            Prose(
+                f"[cpp/doc-harness] {CPP_TEST_TARGET}, the binary the Mull runner runs once per "
+                + f"mutant, compiles {CPP_DOC_HARNESS}"
+            )
+        ]
+    return []
+
+
 def _ledger_rows(bindings: dict[str, object]) -> int:
     """Count the ledger rows the record carries, over every binding and every ledger."""
     total = 0
@@ -358,6 +591,7 @@ def main() -> int:
     failures += cpp_slice_weights_are_of_the_domain(bindings)
     failures += every_runner_has_a_block(bindings)
     failures += ledger_rows_still_name_their_line(bindings)
+    failures += no_lane_runs_a_doc_harness()
 
     if failures:
         _ = sys.stderr.write("Mutation-setup coverage gate FAILED:\n")
@@ -368,7 +602,8 @@ def main() -> int:
             + f"restore it or update {SPEC_PATH.relative_to(REPO_ROOT)} to reflect "
             + "the rename (AGENTS.md cat 14(g) has the canonical lists).  For a "
             + "test that the mutated tree cannot satisfy: add its `--ignore=` to "
-            + "[tool.mutmut], or let it skip.\n",
+            + "[tool.mutmut], or let it skip.  For a doc-example harness a lane "
+            + "reaches: skip it in that lane's per-mutant run, and it alone.\n",
         )
         return 1
 
@@ -379,7 +614,8 @@ def main() -> int:
         + "every test the mutated tree cannot satisfy is mutmut-ignored; "
         + "every recorded C++ slice weight is a file the partition claims; "
         + "one block per binding the runner drives; "
-        + f"each of {_ledger_rows(bindings)} ledger rows names a line the tree holds.",
+        + f"each of {_ledger_rows(bindings)} ledger rows names a line the tree holds; "
+        + "no lane's per-mutant run reaches its doc-example harness.",
     )
     return 0
 

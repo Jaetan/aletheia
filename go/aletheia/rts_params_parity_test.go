@@ -11,7 +11,6 @@ package aletheia
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -34,15 +33,10 @@ type rtsBudgetDoc struct {
 	} `yaml:"runtime"`
 }
 
-// loadRTSBudget reads the document, found from this source file rather than
-// from the working directory.
+// loadRTSBudget reads the document from the repository repoRoot names.
 func loadRTSBudget(t *testing.T) rtsBudgetDoc {
 	t.Helper()
-	_, here, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller(0) failed")
-	}
-	yamlPath := filepath.Join(filepath.Dir(here), "..", "..", "docs", "RESOURCE_BUDGETS.yaml")
+	yamlPath := filepath.Join(repoRoot(t), "docs", "RESOURCE_BUDGETS.yaml")
 	data, err := os.ReadFile(yamlPath)
 	if err != nil {
 		t.Fatalf("read %s: %v", yamlPath, err)
