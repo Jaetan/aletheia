@@ -1375,9 +1375,6 @@ hints:
     text: "tuple[bytes, str]"
     count: 1
   - file: python/tests/test_check_mutation_slices.py
-    text: "dict[str, int]"
-    count: 1
-  - file: python/tests/test_check_mutation_slices.py
     text: "dict[str, object]"
     count: 2
   - file: python/tests/test_check_mutation_slices.py
@@ -1823,9 +1820,6 @@ hints:
     count: 1
   - file: python/tests/test_mutation_cpp_stage.py
     text: "tuple[str, Mapping[str, object]]"
-    count: 1
-  - file: python/tests/test_mutation_cpp_weight_drift.py
-    text: "dict[RelPath, int]"
     count: 1
   - file: python/tests/test_mutation_lane_scope.py
     text: "Callable[[Path], set[str] | None]"
@@ -2812,9 +2806,6 @@ hints:
     text: "tuple[dict[str, int], dict[str, str]]"
     count: 4
   - file: tools/check_mutation_setup.py
-    text: "dict[str, int]"
-    count: 1
-  - file: tools/check_mutation_setup.py
     text: "dict[str, object]"
     count: 20
   - file: tools/check_mutation_setup.py
@@ -3220,14 +3211,11 @@ hints:
     text: "LegReports | str"
     count: 1
   - file: tools/mutation_cpp.py
-    text: "Mapping[RelPath, int]"
-    count: 1
-  - file: tools/mutation_cpp.py
     text: "Mapping[str, Mapping[str, int]]"
     count: 1
   - file: tools/mutation_cpp.py
     text: "Mapping[str, Mapping[str, object]]"
-    count: 6
+    count: 5
   - file: tools/mutation_cpp.py
     text: "Mapping[str, float]"
     count: 1
@@ -3236,7 +3224,7 @@ hints:
     count: 1
   - file: tools/mutation_cpp.py
     text: "Mapping[str, object]"
-    count: 10
+    count: 8
   - file: tools/mutation_cpp.py
     text: "Sequence[Mapping[str, Ending]]"
     count: 1
@@ -3249,9 +3237,6 @@ hints:
   - file: tools/mutation_cpp.py
     text: "dict[CppLeg, float] | str"
     count: 1
-  - file: tools/mutation_cpp.py
-    text: "dict[RelPath, int]"
-    count: 2
   - file: tools/mutation_cpp.py
     text: "dict[SurvivorKey, int]"
     count: 2
@@ -3294,7 +3279,7 @@ hints:
     count: 2
   - file: tools/mutation_cpp.py
     text: "list[Mapping[str, object]]"
-    count: 13
+    count: 12
   - file: tools/mutation_cpp.py
     text: "list[dict[str, Ending]] | None"
     count: 1
@@ -3312,7 +3297,7 @@ hints:
     count: 2
   - file: tools/mutation_cpp.py
     text: "str"
-    count: 14
+    count: 13
   - file: tools/mutation_cpp.py
     text: "str | MutationReport"
     count: 1
@@ -3375,9 +3360,6 @@ hints:
     count: 1
   - file: tools/mutation_cpp_slices.py
     text: "type MutantCounts = Mapping[RelPath, int]"
-    count: 1
-  - file: tools/mutation_report.py
-    text: "NotRequired[dict[RelPath, int]]"
     count: 1
   - file: tools/mutation_report.py
     text: "NotRequired[dict[str, BindingSpec]]"

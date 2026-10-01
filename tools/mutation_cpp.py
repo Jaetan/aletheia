@@ -34,10 +34,10 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, cast
 
-from tools._common import RelPath, run_streaming, short_sha
+from tools._common import run_streaming, short_sha
 from tools._resources import detect_cpus
 from tools.cpp_scratch import reap_dead_scratch_dirs, scratch_root
-from tools.mutation_cpp_config import leg_config, leg_config_path, recorded_mutant_counts
+from tools.mutation_cpp_config import leg_config, leg_config_path
 from tools.mutation_cpp_legs import (
     CPP_ELEMENTS_REPORT,
     CPP_LEGS_ENV,
@@ -49,7 +49,15 @@ from tools.mutation_cpp_legs import (
     leg_of_binding,
     sliced_legs,
 )
-from tools.mutation_cpp_slices import CPP_SLICES, partition, slice_domain
+from tools.mutation_cpp_runs import (
+    CPP_LEG_RUNS_SUFFIX,
+    CPP_RUNS_REPORT,
+    MullLog,
+    leg_runs,
+    tree_runs,
+    weight_drift,
+)
+from tools.mutation_cpp_slices import CPP_SLICES
 from tools.mutation_report import (
     MutationReport,
     SurvivorKey,
@@ -292,11 +300,6 @@ CPP_LEGS_REPORT = "cpp-legs.json"
 # none does today.
 CPP_MUTANT_CAP_MS = 600_000
 
-# The merge stage's census of the surface by file, beside ``cpp.json``: what
-# the recorded slice weights are re-taken from when the review of the balance
-# falls due (docs/operations/MUTATION.md).
-CPP_FILES_REPORT = "cpp-files.json"
-
 
 class ElementsCounts(NamedTuple):
     """How many mutants an Elements report holds, and how many of them survived."""
@@ -357,20 +360,6 @@ def cpp_kill_routes(artifact_dir: Path, legs: Sequence[CppLeg]) -> dict[str, int
     """
     endings = cpp_endings(artifact_dir, legs)
     return None if endings is None else merge_endings(endings)
-
-
-def elements_file_counts(report: Mapping[str, object]) -> dict[RelPath, int]:
-    """Count an Elements report's mutants by repository-relative file.
-
-    The census the recorded slice weights are re-taken from.  A path is made
-    repository-relative at its ``cpp/`` component, as the survivor rows are.
-    """
-    counts: dict[RelPath, int] = collections.Counter()
-    files = cast("Mapping[str, Mapping[str, object]]", report.get("files", {}))
-    for path, entry in files.items():
-        file = RelPath("cpp/" + path.split("/cpp/", 1)[1] if "/cpp/" in path else path)
-        counts[file] += len(cast("list[Mapping[str, object]]", entry.get("mutants", [])))
-    return dict(sorted(counts.items()))
 
 
 def recorded_total_mutants(tree: CppTree | None = None) -> int | None:
@@ -659,7 +648,12 @@ def _sweep_cpp_lane(
     artifact_dir: Path,
     leg: CppLeg,
 ) -> tuple[str, Mapping[str, object] | str]:
-    """Build and sweep one leg, returning its log and its report or the reason it has none."""
+    """Build and sweep one leg, returning its log and its report or the reason it has none.
+
+    Beside Mull's reports the leg writes the suite runs its mutants cost by
+    file, which only its own log can say, since the unmutated run they are
+    counted in is printed there and nowhere else.
+    """
     raw = f"=== {leg} leg ===\n"
     config = leg_config(leg, build_dir)
     raw += f"configuration: {config}\n"
@@ -675,6 +669,11 @@ def _sweep_cpp_lane(
     report_path = artifact_dir / f"{leg.report_name}.json"
     if not report_path.is_file():
         return raw, f"the {leg} leg wrote no {report_path.name}"
+    runs = leg_runs(artifact_dir / f"{leg.report_name}.sqlite", MullLog(lane_raw))
+    if not isinstance(runs, dict):
+        return raw, f"the {leg} leg: {runs}"
+    runs_path = artifact_dir / f"{leg.report_name}{CPP_LEG_RUNS_SUFFIX}"
+    _ = runs_path.write_text(json.dumps(runs, indent=2), encoding="utf-8")
     return raw, cast("Mapping[str, object]", json.loads(report_path.read_text(encoding="utf-8")))
 
 
@@ -738,9 +737,9 @@ def _sweep_legs(
 def _merge_cpp_legs(artifact_dir: Path) -> MutationReport:
     """Merge the legs' reports found under the directory ``CPP_LEGS_ENV`` names.
 
-    Each tree's three reports are wanted exactly once under that directory,
-    wherever the download put them; a tree with a report missing is a leg
-    that did not finish, and the lane has no verdict without it.
+    Each leg's three reports and its runs are wanted exactly once under that
+    directory, wherever the download put them; a leg with one missing did not
+    finish, and the lane has no verdict without it.
     """
     legs = os.environ.get(CPP_LEGS_ENV, "")
     if not legs:
@@ -785,9 +784,9 @@ class LegReports(NamedTuple):
 
 
 def _copy_leg_reports(legs_dir: Path, artifact_dir: Path, leg: CppLeg) -> LegReports | str:
-    """Copy one leg's three reports beside the merge, or say which is not there once."""
+    """Copy one leg's reports and its runs beside the merge, or say which is not there once."""
     log = ""
-    for suffix in CPP_LEG_REPORT_SUFFIXES:
+    for suffix in (*CPP_LEG_REPORT_SUFFIXES, CPP_LEG_RUNS_SUFFIX):
         name = leg.report_name + suffix
         found = sorted(legs_dir.rglob(name))
         if len(found) != 1:
@@ -840,13 +839,9 @@ def _finish_cpp(
         unobserved = unobserved_rows_to_ledger(unobserved_kill_rows(endings, _repo_line))
         (artifact_dir / CPP_UNOBSERVED_REPORT).write_text(json.dumps(unobserved, indent=2))
         raw += unobserved_summary(unobserved)
-    merged = cast(
-        "Mapping[str, object]",
-        json.loads((artifact_dir / CPP_ELEMENTS_REPORT).read_text(encoding="utf-8")),
-    )
-    observed = elements_file_counts(merged)
-    (artifact_dir / CPP_FILES_REPORT).write_text(json.dumps(observed, indent=2))
-    raw += weight_drift(observed)
+    runs = tree_runs(artifact_dir, legs)
+    (artifact_dir / CPP_RUNS_REPORT).write_text(json.dumps(runs, indent=2))
+    raw += weight_drift(runs)
     (artifact_dir / "cpp.raw.txt").write_text(raw)
     return MutationReport("cpp", "mull", total - survived, survived, raw)
 
@@ -873,33 +868,6 @@ def unobserved_summary(unobserved: Sequence[UnobservedRow]) -> str:
         for row in unobserved
     )
     return "\n".join(lines) + "\n"
-
-
-def weight_drift(observed: Mapping[RelPath, int]) -> str:
-    """Say how far the recorded weights have drifted from the surface they balance.
-
-    The slices are cut on the recorded counts, and the surface grows without
-    anything refusing, so the cut goes stale quietly.  This is the number the
-    scheduled review of the weights reads: what the heaviest slice would carry
-    today, against an equal share, if the partition were cut on the recorded
-    counts and run over the surface just swept.
-    """
-    recorded = recorded_mutant_counts()
-    if not recorded:
-        return "weights: none recorded, so the slices are cut on nothing\n"
-    domain = slice_domain(REPO_ROOT, REPO_ROOT / "cpp" / "mull.yml")
-    loads = [
-        sum(observed.get(path, 0) for path in claimed) for claimed in partition(domain, recorded)
-    ]
-    share = sum(loads) / len(loads)
-    over = 100 * (max(loads) / share - 1) if share else 0.0
-    unrecorded = sorted(set(observed) - set(recorded))
-    drift = f"weights: the heaviest slice carries {max(loads)} of {sum(loads)}, {over:.1f}% over an"
-    drift += f" equal share of {share:.1f}\n"
-    if unrecorded:
-        drift += f"weights: {len(unrecorded)} file(s) carry mutants the record does not count: "
-        drift += ", ".join(unrecorded) + "\n"
-    return drift
 
 
 def _merge_cpp_lanes(artifact_dir: Path, reports: list[Mapping[str, object]]) -> ElementsCounts:

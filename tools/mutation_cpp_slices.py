@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """The partition of the C++ mutation surface into the slices a CI job each sweeps.
 
-A tree's sweep costs its runner's wall clock times its mutants, and the lane
-splits that across jobs by holding files out: a slice's Mull configuration is
+A tree's sweep costs the runs of its mutants, and the lane splits that
+across jobs by holding files out: a slice's Mull configuration is
 the tree's own with the files of every other slice added to ``excludePaths``,
 so the slice's build carries its own files' mutants alone and the merge
 unions the slices back into the tree's census.
@@ -21,7 +21,7 @@ report a smaller census as a clean sweep.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NewType, cast
 
 import yaml
 
@@ -31,14 +31,15 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
     from pathlib import Path
 
-# Slices one mutation tree is swept in.  Three, because the partition is even
-# at three over the recorded census, which the merge measures on every run by
-# printing what the heaviest slice carries against an equal share, while the
-# fixed cost each job pays before it sweeps -- the toolchain, the library and
-# the tree's build -- is paid three times per tree rather than more.  Whether
-# three stays right is the scheduled review's question, answered from the
-# per-mutant durations a run's reports carry rather than from any run's
-# print (docs/operations/MUTATION.md).
+# Slices one mutation tree is swept in.  Three, because at three the leak and
+# plain trees' partitions are within half a percent of even over the recorded
+# weights, which the merge measures on every run by printing what the heaviest
+# slice costs against an equal share, while the fixed cost each job pays
+# before it sweeps (the toolchain, the library and the tree's build) is paid
+# three times per tree rather than more.  The address tree's heaviest file
+# alone costs more than a third of that tree, so more slices would not shorten
+# it.  Whether three stays right is the scheduled review's question, answered
+# from that print (docs/operations/MUTATION.md).
 CPP_SLICES = 3
 
 # Where the mutation build compiles the library from, and the benchmarks'
@@ -49,6 +50,14 @@ CPP_SOURCE_TREES: tuple[str, ...] = ("cpp/src", "cpp/include", "cpp/benchmarks")
 
 # Mutants a file carries, as a census counted them.
 type MutantCounts = Mapping[RelPath, int]
+
+# The work a file's mutants cost one tree's sweep, in runs of the unmutated
+# suite (tools/mutation_cpp_runs.py), and one tree's figures by file.
+SuiteRuns = NewType("SuiteRuns", float)
+type TreeRuns = dict[RelPath, SuiteRuns]
+
+# What a partition balances: a tree's suite runs, or a count such as a file's size.
+type SliceWeights = Mapping[RelPath, SuiteRuns] | MutantCounts
 
 # One slice: the files whose mutants its build carries.
 type Slice = tuple[RelPath, ...]
@@ -116,26 +125,23 @@ def slice_domain(repo_root: Path, config_path: Path) -> list[RelPath]:
 
 
 def partition(
-    domain: Sequence[RelPath], weights: MutantCounts, slices: int = CPP_SLICES
+    domain: Sequence[RelPath], weights: SliceWeights, slices: int = CPP_SLICES
 ) -> tuple[Slice, ...]:
-    """Split the domain into slices of near-equal sweep cost, the heaviest file placed first.
+    """Split the domain into slices of near-equal weight, the heaviest file placed first.
 
-    A file weighs the mutants the recorded census counts in it, which stands
-    for its share of the sweep because the cost of a mutant hardly varies:
-    over the recorded run it was 4.6 seconds, and the files that depart from
-    it are the ones carrying a handful of mutants.  Most of the domain carries
-    none and the census does not name it, so an unnamed file weighs nothing,
-    which is right for those and costs a new file only balance, never
-    coverage: the run that adds a file re-takes the census in the same commit,
-    because the merge refuses a union whose total is not the recorded one.
+    A file weighs what the caller recorded of it: for a C++ tree, the suite
+    runs its mutants cost when the weights were last taken, since a mutant's
+    cost varies by file and by tree.  Most of the domain carries no mutant and
+    the record does not name it, so an unnamed file weighs nothing, which is
+    right for those and costs a new file only balance, never coverage.
 
     Longest-processing-time: each file in turn joins the lightest slice so
     far.  Ties break on the path and on the slice's own number, so one domain
-    and one census give one partition whatever order the caller held them in,
-    which is what lets six jobs compute it apart and agree.
+    and one record give one partition whatever order the caller held them in,
+    which is what lets every leg compute it apart and agree.
     """
     claimed: list[list[RelPath]] = [[] for _ in range(slices)]
-    load = [0] * slices
+    load = [0.0] * slices
     for path in sorted(domain, key=lambda path: (-weights.get(path, 0), path)):
         lightest = min(range(slices), key=lambda number: (load[number], number))
         claimed[lightest].append(path)

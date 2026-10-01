@@ -119,6 +119,11 @@ Artifacts written:
                    Mull's SQLite report of one tree: each mutant's exit
                    status and the test binary's output, which the kill-route
                    census (tools/mutation_routes.py) reads
+    cpp-mull-<lane>.runs.json
+                   the suite runs that leg's mutants cost by file, which the
+                   leg writes (tools/mutation_cpp_runs.py)
+    cpp-runs.json  each tree's runs by file, summed over its legs: what the
+                   recorded slice weights are re-taken from
     cpp-routes.json
                    that census: the C++ mutants counted by what killed them
     cpp-unobserved.json

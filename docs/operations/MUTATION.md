@@ -562,26 +562,37 @@ census that grew is ordinary work and passes, and a deliberate removal lowers
 the record in the same commit, the way the survivors baseline is lowered.
 
 **The weights are balance, never coverage, and they are reviewed on a
-schedule.**  The partition is balanced by `mutants_by_file` in
-`docs/MUTATION_BENCH.yaml`, the mutants each file carried when the census was
-last taken, which stands for the sweep's cost because the cost of a mutant
-hardly varies.  A file the record does not name still lands in a slice; it
-simply weighs nothing, which is right for the files that carry no mutants and
-costs a newly added file some balance until the census is re-taken.  Because
-adding code adds mutants and nothing refuses that, these counts age quietly in
-one direction.  So the merge prints, beside its verdict, what the heaviest
-slice would carry today under the recorded weights against an equal share,
-counted in mutants: fresh weights read about nothing there, measured at 0.0
-percent on the run that recorded them, and the figure grows as the surface
-outgrows the record.  The review that re-takes them is scheduled against it
-rather than against a date (AGENTS.md § Universal Rules; the task list carries
-it).  How evenly the cut divides the sweep's *time* is a separate measurement,
-taken from the recorded per-mutant durations rather than printed by any run,
-and is what says whether three slices is still the right number.  Re-take
-by reading `cpp-files.json` from the merge's artifacts into `mutants_by_file`.
+schedule.**  Each tree's partition is balanced by its own figures under
+`runs_by_file` in `docs/MUTATION_BENCH.yaml`: the suite runs each file's
+mutants cost that tree when the weights were last taken, a suite run being a
+mutant's run time divided by its leg's unmutated run.  The unit takes the
+runner out, since the legs of one CI run drew runners whose unmutated suite
+took from 4.9 to 13.9 s, and the trees are weighed apart because a mutant's
+cost varies by file and by tree.  Cut on mutant counts shared by the trees,
+that run's plain slices cost 79, 119 and 271 suite runs; cut on the plain
+tree's own runs, 157, 156 and 156.  A file the record does not name still
+lands in a slice; it simply weighs nothing, which is right for the files that
+carry no mutants and costs a newly added file some balance until the weights
+are re-taken.  Because adding code adds mutants and nothing refuses that, the
+figures age quietly in one direction.  So the merge prints beside its verdict,
+per tree, what the heaviest slice would cost today under the recorded weights
+against an equal share.  On the run the weights were taken from it read 0.0
+percent over for the leak tree, 0.4 for the plain tree and 12.5 for the
+address tree, where `cpp/src/client.cpp` alone costs more than a third; the
+figure grows as the surface outgrows the record, and the review that re-takes
+the weights is scheduled against it rather than against a date (AGENTS.md
+§ Universal Rules; the task list carries it).  The figures are read from a CI
+merge and compared with one: a local whole-tree sweep on another host, its
+mutants twenty at a time against a CI leg's four, read 0.89, 0.66 and 0.71 of
+the CI figures for the leak, plain and address trees, and its drift lines
+13.0, 6.1 and 2.3 percent over against the same record.  Each leg writes its
+figures beside its reports, because only its own log prints its unmutated
+run, and the merge sums each tree's legs into `cpp-runs.json`; re-take by
+copying that file's trees into `runs_by_file` from a CI run's `mutation
+merge` artifact.
 
 Changing the partition changes every slice's configuration, which the compiler
-cache keys on, so the run after such a change rebuilds all six trees.  It is
+cache keys on, so the run after such a change rebuilds every slice's tree.  It is
 also why a slice's build tree records the digest of the configuration it was
 built under and is discarded when that differs: nothing in CMake knows an
 object depends on the Mull configuration, so a tree left from another slice

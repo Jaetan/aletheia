@@ -253,6 +253,21 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   does not name. On four CPUs locally the sweep took 609.0 s whole and 479.4 s
   in four shards, both 316 mutants with 314 killed and 2 surviving, the record.
 
+- **Each C++ mutation tree's slices are cut on what its files cost that
+  tree.** The slices were cut on mutant counts shared by the three trees, and a
+  mutant's cost varies by file and by tree, so the plain tree's slices cost 79,
+  119 and 271 runs of the unmutated suite on one run, its third slice the
+  longest C++ job at 863 s. The record now keeps, per tree, the suite runs each
+  file's mutants cost (`runs_by_file`): a mutant's run time over its leg's
+  unmutated run, which takes out the runner a leg drew, whose unmutated suite
+  took from 4.9 to 13.9 s across that run's legs. Cut on them, the plain tree's
+  slices cost 157, 156 and 156, the leak tree's 248 each, and the address
+  tree's 76, 63 and 63, its `client.cpp` alone more than a third. Each leg
+  writes its figures beside its reports, the merge sums them per tree into
+  `cpp-runs.json`, which the weights are re-taken from, and prints per tree how
+  far the recorded weights have drifted; the setup gate refuses a tree the
+  record weighs nothing for.
+
 - **No mutation lane runs its binding's doc-example harness.** A harness
   builds and runs every fence of the documents as a program of its own,
   holding the documents to the binding, and costs its whole run once per

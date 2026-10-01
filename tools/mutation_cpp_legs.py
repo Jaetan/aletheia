@@ -20,6 +20,9 @@ from tools.mutation_cpp_slices import CPP_SLICES
 # The Elements report the C++ runner asks Mull for, beside ``cpp.json``.
 CPP_ELEMENTS_REPORT = "cpp-mull.json"
 
+# A tree's name as the record keys its figures; a test holds it to CppTree's values.
+CppTreeName = Literal["leak", "plain", "address"]
+
 
 class CppTree(StrEnum):
     """One of the builds the C++ surface is read with, each reading a class the others cannot.
@@ -44,6 +47,11 @@ class CppTree(StrEnum):
     def sanitizer(self) -> str:
         """The sanitizer the tree is built with; the plain tree carries none."""
         return "" if self is CppTree.PLAIN else self.value
+
+    @property
+    def key(self) -> CppTreeName:
+        """The tree's name as the record keys its figures."""
+        return self.value
 
     @property
     def directory(self) -> str:

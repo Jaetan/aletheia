@@ -87,16 +87,21 @@ import re
 import sys
 import tomllib
 from pathlib import Path
-from typing import Literal, NewType, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, NewType, TypedDict, cast
 
 import yaml
 
 from tools._common import RelPath, emit
 from tools.mutation_cpp import CPP_TEST_TARGET
+from tools.mutation_cpp_legs import CppTree
 from tools.mutation_cpp_slices import partition, slice_domain
 from tools.mutation_run import GO_DOC_HARNESS, RUNNERS, GoFlags, go_sweep_goflags
 
 from aletheia.common_types import Prose
+
+if TYPE_CHECKING:
+    from tools.mutation_cpp_legs import CppTreeName
+    from tools.mutation_cpp_slices import TreeRuns
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SPEC_PATH = REPO_ROOT / "docs" / "MUTATION_BENCH.yaml"
@@ -248,10 +253,12 @@ def _above_tree_tests_unignored() -> list[str]:
 
 
 def cpp_slice_weights_are_of_the_domain(bindings: dict[str, object]) -> list[str]:
-    """Hold the recorded per-file census to the files a slice can actually claim.
+    """Hold each tree's recorded weights to the files a slice can actually claim.
 
-    The slices are cut over every tracked file of the library, so no file can
-    be left out of them; what can go wrong is the other direction, a recorded
+    Every tree is cut on weights of its own, so a tree with none is refused:
+    its slices would be cut on nothing, every file weighing the same.  The
+    slices are cut over every tracked file of the library, so no file can be
+    left out of them; what can go wrong is the other direction, a recorded
     weight for a file that has been renamed or held out, which silently stops
     counting toward the balance.  The partition itself is checked here too:
     the whole domain, once each, which is the property every other refusal in
@@ -259,21 +266,33 @@ def cpp_slice_weights_are_of_the_domain(bindings: dict[str, object]) -> list[str
     """
     spec = cast("dict[str, object]", bindings.get("cpp", {}))
     baseline = cast("dict[str, object]", spec.get("baseline", {}))
-    counts = cast("dict[str, int]", baseline.get("mutants_by_file", {}))
-    recorded = {RelPath(path): count for path, count in counts.items()}
+    by_tree = cast("dict[CppTreeName, TreeRuns]", baseline.get("runs_by_file", {}))
     domain = slice_domain(REPO_ROOT, REPO_ROOT / "cpp" / "mull.yml")
     failures = [
-        f"[cpp/slices] {path} carries a recorded mutant count and is not a file a slice can "
-        + "claim: it is untracked, renamed, or held out by cpp/mull.yml, so its weight "
-        + "counts toward no slice"
-        for path in sorted(set(recorded) - set(domain))
+        f"[cpp/slices] runs_by_file names {name}, which is no tree the lane builds"
+        for name in sorted(set(by_tree) - {tree.key for tree in CppTree})
     ]
-    claimed = [path for claims in partition(domain, recorded) for path in claims]
-    if sorted(claimed) != sorted(domain):
-        failures.append(
-            f"[cpp/slices] the partition claims {len(claimed)} of the domain's {len(domain)} "
-            + "files; a file in no slice is mutated by every slice, and one in two is swept twice",
-        )
+    for tree in CppTree:
+        recorded = by_tree.get(tree.key, {})
+        if not recorded:
+            failures.append(
+                f"[cpp/slices] runs_by_file records nothing for the {tree.value} tree, so its "
+                + "slices are cut on nothing: re-take it from a run's cpp-runs.json",
+            )
+            continue
+        failures += [
+            f"[cpp/slices] {path} carries a recorded weight in the {tree.value} tree and is "
+            + "not a file a slice can claim: it is untracked, renamed, or held out by "
+            + "cpp/mull.yml, so its weight counts toward no slice"
+            for path in sorted(set(recorded) - set(domain))
+        ]
+        claimed = [path for claims in partition(domain, recorded) for path in claims]
+        if sorted(claimed) != sorted(domain):
+            failures.append(
+                f"[cpp/slices] the {tree.value} tree's partition claims {len(claimed)} of the "
+                + f"domain's {len(domain)} files; a file in no slice is mutated by every "
+                + "slice, and one in two is swept twice",
+            )
     return failures
 
 
