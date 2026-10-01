@@ -49,12 +49,23 @@ C++ lane is nine legs and a merge: a leg sweeps one slice of one mutation tree
 `ALETHEIA_MUTATION_CPP_SLICE` the slice), reports as the binding `cpp-leak-1`
 and so on, and judges no survivor, since it has read neither the rest of its
 tree nor the other trees, where the mutant it let live may die; the
-`mutation cpp` job downloads every leg's reports, unions each tree's slices
+`mutation merge` job downloads every leg's reports, unions each tree's slices
 and intersects the trees over the mutants each carries
 (`ALETHEIA_MUTATION_CPP_STAGE=merge`, the directory in
 `ALETHEIA_MUTATION_CPP_LEGS`), which is where the C++ survivors meet the
 baseline and the ledger. How the slices are cut, and what the merge refuses,
-is below.  The merge refuses a leg whose reports are missing or
+is below.  The Go lane is two shards and the same merge: a shard
+(`ALETHEIA_MUTATION_GO_STAGE=1` or `2`) sweeps the package's files the
+partition gives it, cut on their sizes in the tree, reports as the binding
+`go-1` or `go-2` and judges no survivor; after its sweep it takes gremlins'
+dry-run census of the whole package, and the merge
+(`ALETHEIA_MUTATION_GO_STAGE=merge`, the directory in
+`ALETHEIA_MUTATION_GO_SHARDS`) holds the shards to it file by file before
+the Go survivors meet the baseline and the ledgers.  The census is taken
+after the sweep because a dry run before it leaves the package compiled for
+the coverage run gremlins sets every mutant's time limit from, and every
+`go test` of the sweep runs with `-count=1` so no run of it is served from
+the test cache (`tools/mutation_go.py`).  The merge refuses a leg whose reports are missing or
 doubled, or whose summary records another commit.  The
 `mutation testing` check the branch ruleset requires reports those lanes and
 the merge: it passes only on the single result meaning every one of them
@@ -521,7 +532,7 @@ The C++ sweep is the slowest of the three, and one CI job per mutation tree
 still charged the clock of a whole tree's sweep against a single runner.  Each
 tree is therefore swept by three jobs, each building the tree under a Mull
 configuration that holds the other slices' files out, so a job carries its own
-slice's mutants alone.  The `mutation cpp` job unions each tree's slices, then
+slice's mutants alone.  The `mutation merge` job unions each tree's slices, then
 intersects the trees, and that union is the verdict the drift gate reads.
 
 **Nothing keeps a list of which file is in which slice.**  The set a slice can

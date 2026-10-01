@@ -213,6 +213,28 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   leaves that library unable to load GHC's runtime. A probe holds every job
   that installs Agda to this one setup of GHC and the store.
 
+- **The Go mutation lane is two shards and a merge.** It set the pull
+  request's wall clock once the C++ legs stopped running whole suites: 1275 s
+  of a 21m56s run, its sweep 1092 s for 763 mutants on four cores. No
+  per-mutant flag moves that, since two thirds of a mutant's 3.5 s of CPU is
+  compiling and linking the cgo test binary (`-vet=off` and `-ldflags=-w`
+  measured no different), so the sweep is cut by file instead: each shard runs
+  gremlins under the package's configuration with the other shard's files held
+  out, the files weighed by their sizes in the tree (399 and 364 mutants over
+  the record, against the census's own best of 382 and 381). After its sweep a
+  shard takes gremlins' dry-run census of the whole package, and the merge,
+  one `mutation merge` job for the C++ legs and the Go shards, holds the
+  shards to it file by file: one census, disjoint files covering the package,
+  and each shard's sweep exactly the census's mutants of its files, so a shard
+  that lost the package's own exclusions or held out too much is refused. The
+  census comes after the sweep, and every `go test` of the sweep runs with
+  `-count=1`, because gremlins stops each mutant at three times its coverage
+  run, and a coverage run the build or test cache had served stopped most of
+  them before their tests ended. Swept locally through the runner, the shards
+  took 84.7 s and 89.2 s and merged to the recorded verdict: the same 763
+  mutants as the last whole sweep on the runner, four of them timing out on
+  the loaded host where the runner killed or kept them.
+
 - **No mutation lane runs its binding's doc-example harness.** A harness
   builds and runs every fence of the documents as a program of its own,
   holding the documents to the binding, and costs its whole run once per

@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""The heavy-lanes workflow carries the C++ mutation lane as a leg per slice and a merge.
+"""The heavy-lanes workflow carries the C++ legs and the Go shards, and one merge of both.
 
 ``.github/workflows/pr-heavy-lanes.yml`` gives every leg ``sliced_legs`` names
-a lane of its own, uploads each one's reports under a name the merge job's
-download pattern reaches, and the required check reports the lanes and the
-merge together.  A slice with no leg, a leg whose artifact the merge cannot
-see, or a required check that reads only one of the two jobs would each pass
-silently on the runner, so the wiring is held here.
+and every Go shard a lane of its own, uploads each one's reports under a name
+the merge job's download patterns reach, and the required check reports the
+lanes and the merge together.  A slice or a shard with no lane, a part whose
+artifact the merge cannot see, or a required check that reads only one of the
+two jobs would each pass silently on the runner, so the wiring is held here.
 """
 
 from __future__ import annotations
@@ -25,10 +25,18 @@ from tools.mutation_cpp_legs import (
     CPP_STAGE_ENV,
     sliced_legs,
 )
+from tools.mutation_go import (
+    GO_MERGE_STAGE,
+    GO_SHARDS,
+    GO_SHARDS_ENV,
+    GO_STAGE_ENV,
+    ShardNumber,
+    shard_binding,
+)
 
 _WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "pr-heavy-lanes.yml"
 _LANE_JOB = "mutation-lane"
-_MERGE_JOB = "mutation-cpp"
+_MERGE_JOB = "mutation-merge"
 _REQUIRED_JOB = "mutation"
 _REQUIRED_CHECK = "mutation testing"
 
@@ -96,6 +104,20 @@ def test_every_slice_of_every_tree_is_one_leg_and_no_lane_sweeps_a_whole_tree() 
             assert entry["slice"] != ""
 
 
+def test_every_go_shard_is_one_lane_and_no_lane_sweeps_the_package_whole() -> None:
+    """One matrix entry per shard, named as the shard reports, and only Go lanes carry one."""
+    entries = _matrix()
+    go = [entry for entry in entries if entry["binding"] == "go"]
+    assert [(entry["lane"], entry["go_shard"]) for entry in go] == [
+        (shard_binding(ShardNumber(n)), str(n)) for n in range(1, GO_SHARDS + 1)
+    ]
+    for entry in go:
+        assert entry["skip_go"] == ""
+    for entry in entries:
+        if entry["binding"] != "go":
+            assert entry["go_shard"] == ""
+
+
 def test_the_sweep_step_hands_each_lane_its_tree_and_its_slice() -> None:
     """The runner reads both from the environment the sweep step sets.
 
@@ -106,6 +128,7 @@ def test_the_sweep_step_hands_each_lane_its_tree_and_its_slice() -> None:
     assert len(sweeps) == 1
     assert _env(sweeps[0])[CPP_STAGE_ENV] == "${{ matrix.stage }}"
     assert _env(sweeps[0])[CPP_SLICE_ENV] == "${{ matrix.slice }}"
+    assert _env(sweeps[0])[GO_STAGE_ENV] == "${{ matrix.go_shard }}"
 
 
 def test_the_cpp_legs_keep_a_compiler_cache_of_their_own() -> None:
@@ -144,30 +167,42 @@ def test_the_cpp_legs_keep_a_compiler_cache_of_their_own() -> None:
         assert "clang23-llvm23dev-libstdcxx15-noble-v1" in key
 
 
-def test_the_merge_reads_every_leg_and_no_other_lane() -> None:
-    """The download pattern reaches each leg's artifact and none of the other lanes'."""
+def test_the_merge_reads_every_part_and_no_other_lane() -> None:
+    """One download per binding reaches each of its parts' artifacts and no other lane's."""
     downloads = [
         step
         for step in _steps(_MERGE_JOB)
         if str(step.get("uses", "")).startswith("actions/download-artifact@")
     ]
-    assert len(downloads) == 1
-    pattern = _with(downloads[0])["pattern"]
-    legs_dir = _with(downloads[0])["path"]
-    for entry in _matrix():
-        name = _artifact_name(str(entry["lane"]))
-        assert fnmatch.fnmatchcase(name, pattern) == (entry["binding"] == "cpp"), name
+    assert len(downloads) == 2
+    reaching = {
+        binding: [
+            _with(step)["path"]
+            for step in downloads
+            if all(
+                fnmatch.fnmatchcase(_artifact_name(str(entry["lane"])), _with(step)["pattern"])
+                == (entry["binding"] == binding)
+                for entry in _matrix()
+            )
+        ]
+        for binding in ("cpp", "go")
+    }
+    assert all(len(found) == 1 for found in reaching.values()), reaching
     merges = [step for step in _steps(_MERGE_JOB) if "tools.mutation_run" in str(step.get("run"))]
     assert len(merges) == 1
     env = _env(merges[0])
     assert env[CPP_STAGE_ENV] == CPP_MERGE_STAGE
-    assert env[CPP_LEGS_ENV] == legs_dir
+    assert env[CPP_LEGS_ENV] == reaching["cpp"][0]
+    assert env[GO_STAGE_ENV] == GO_MERGE_STAGE
+    assert env[GO_SHARDS_ENV] == reaching["go"][0]
     assert env["ALETHEIA_MUTATION_SKIP_PYTHON"] == "1"
-    assert env["ALETHEIA_MUTATION_SKIP_GO"] == "1"
+    assert env["ALETHEIA_MUTATION_SKIP_RUST"] == "1"
+    assert "ALETHEIA_MUTATION_SKIP_GO" not in env
+    assert "ALETHEIA_MUTATION_SKIP_CPP" not in env
 
 
 def test_the_merge_runs_whatever_the_lanes_did() -> None:
-    """A Python or Go failure must not erase the C++ verdict, so the merge always runs."""
+    """A Python or Rust failure must not erase the merged verdicts, so the merge always runs."""
     merge = _jobs()[_MERGE_JOB]
     assert merge["needs"] == [_LANE_JOB]
     assert merge["if"] == "${{ always() }}"
@@ -183,7 +218,7 @@ def test_the_required_check_reads_the_lanes_and_the_merge() -> None:
     assert len(steps) == 1
     env = _env(steps[0])
     assert env["LANES_RESULT"] == f"${{{{ needs.{_LANE_JOB}.result }}}}"
-    assert env["CPP_RESULT"] == f"${{{{ needs.{_MERGE_JOB}.result }}}}"
+    assert env["MERGE_RESULT"] == f"${{{{ needs.{_MERGE_JOB}.result }}}}"
     script = str(steps[0]["run"])
     assert '"${LANES_RESULT}" != "success"' in script
-    assert '"${CPP_RESULT}" != "success"' in script
+    assert '"${MERGE_RESULT}" != "success"' in script

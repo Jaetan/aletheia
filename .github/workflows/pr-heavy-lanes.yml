@@ -70,10 +70,12 @@ jobs:
   # per binding, in parallel: the four tools cost wildly different amounts and
   # a single job charges the slowest of them against a clock the others have
   # already spent.  The C++ binding is nine legs, each one tree carrying one
-  # slice of the surface's mutants, and the `mutation cpp` job below unions
+  # slice of the surface's mutants, and the `mutation merge` job below unions
   # each tree's slices and intersects the trees into the one C++ verdict; a
   # leg judges no survivor, since it has read neither the rest of its own
   # tree nor anything of the others, where the mutant it let live may die.
+  # The Go binding is two shards, each a part of the package's files, which
+  # the same job unions into the one Go verdict.
   # The `mutation testing` job at the end of this file is what the main branch
   # ruleset requires; it is the one that reports these lanes.
   mutation-lane:
@@ -91,8 +93,10 @@ jobs:
           # from its own name: the derivation would rest on how GitHub casts
           # the string it yields, and the failure it casts wrong is a lane that
           # skips every binding, runs nothing and reports success.  `lane` is the
-          # job's name and its artifact's; `stage` is what the C++ runner is
-          # told (tools/mutation_cpp.py `CppStage`), empty for the other two.
+          # job's name and its artifact's; `stage` and `slice` are what the C++
+          # runner is told (tools/mutation_cpp_legs.py `cpp_stage`), `go_shard`
+          # what the Go runner is (tools/mutation_go.py `go_stage`), each empty
+          # for the other lanes.
           #
           # Every budget is read off a measurement: the lane's slowest recorded
           # wall clock plus the allowance for its caches missing, rounded up
@@ -123,6 +127,8 @@ jobs:
           # is its first run against a suite that passes in each mutant's copy,
           # 36801545298: 20m24s of wall, of which the sweep took 16m51s
           # (`elapsed_s`); plus the 27m42s allowance, 48m06s, rounded up.
+          # Each Go shard keeps that budget until a sharded run measures one:
+          # a shard sweeps part of the package that run swept whole.
           # The address legs are budgeted from their own run, 35670441747, the
           # first that swept them: 15.1, 11.0 and 14.5 minutes of wall, against
           # leak's 18.1, 14.3 and 24.1 and plain's 28.3, 28.2 and 33.6.  The
@@ -154,15 +160,27 @@ jobs:
             binding: python
             stage: ''
             slice: ''
+            go_shard: ''
             timeout: 40
             skip_python: ''
             skip_go: '1'
             skip_cpp: '1'
             skip_rust: '1'
-          - lane: go
+          - lane: go-1
             binding: go
             stage: ''
             slice: ''
+            go_shard: '1'
+            timeout: 50
+            skip_python: '1'
+            skip_go: ''
+            skip_cpp: '1'
+            skip_rust: '1'
+          - lane: go-2
+            binding: go
+            stage: ''
+            slice: ''
+            go_shard: '2'
             timeout: 50
             skip_python: '1'
             skip_go: ''
@@ -172,6 +190,7 @@ jobs:
             binding: rust
             stage: ''
             slice: ''
+            go_shard: ''
             timeout: 50
             skip_python: '1'
             skip_go: '1'
@@ -181,6 +200,7 @@ jobs:
             binding: cpp
             stage: leak
             slice: '1'
+            go_shard: ''
             timeout: 70
             skip_python: '1'
             skip_go: '1'
@@ -190,6 +210,7 @@ jobs:
             binding: cpp
             stage: leak
             slice: '2'
+            go_shard: ''
             timeout: 70
             skip_python: '1'
             skip_go: '1'
@@ -199,6 +220,7 @@ jobs:
             binding: cpp
             stage: leak
             slice: '3'
+            go_shard: ''
             timeout: 70
             skip_python: '1'
             skip_go: '1'
@@ -208,6 +230,7 @@ jobs:
             binding: cpp
             stage: plain
             slice: '1'
+            go_shard: ''
             timeout: 80
             skip_python: '1'
             skip_go: '1'
@@ -217,6 +240,7 @@ jobs:
             binding: cpp
             stage: plain
             slice: '2'
+            go_shard: ''
             timeout: 80
             skip_python: '1'
             skip_go: '1'
@@ -226,6 +250,7 @@ jobs:
             binding: cpp
             stage: plain
             slice: '3'
+            go_shard: ''
             timeout: 80
             skip_python: '1'
             skip_go: '1'
@@ -235,6 +260,7 @@ jobs:
             binding: cpp
             stage: address
             slice: '1'
+            go_shard: ''
             timeout: 60
             skip_python: '1'
             skip_go: '1'
@@ -244,6 +270,7 @@ jobs:
             binding: cpp
             stage: address
             slice: '2'
+            go_shard: ''
             timeout: 60
             skip_python: '1'
             skip_go: '1'
@@ -253,6 +280,7 @@ jobs:
             binding: cpp
             stage: address
             slice: '3'
+            go_shard: ''
             timeout: 60
             skip_python: '1'
             skip_go: '1'
@@ -633,11 +661,16 @@ jobs:
           # runs, since each tree is three legs and each leg one slice.
           ALETHEIA_MUTATION_CPP_STAGE: ${{ matrix.stage }}
           ALETHEIA_MUTATION_CPP_SLICE: ${{ matrix.slice }}
+          # Which part of the Go package this lane sweeps: the runner takes a
+          # dry run's census of the package and cuts the files on it, every
+          # shard the same way, and the merge holds the shards to that census.
+          ALETHEIA_MUTATION_GO_STAGE: ${{ matrix.go_shard }}
         run: python/.venv/bin/python3 -m tools.mutation_run
 
       # Every lane's reports leave the runner whatever ended the lane: a C++
-      # leg's reports are what the `mutation cpp` job merges, and a lane its
-      # clock killed leaves the partial directory that says how far it got.
+      # leg's or a Go shard's reports are what the `mutation merge` job
+      # merges, and a lane its clock killed leaves the partial directory that
+      # says how far it got.
       # `overwrite`, because that killed lane is the one a reader re-runs, its
       # first attempt uploaded under this name, and a second upload of a name
       # fails the step rather than the sweep, hiding the result behind it.
@@ -667,22 +700,23 @@ jobs:
           path: ~/.ccache
           key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-${{ github.sha }}
 
-  # ── The C++ verdict ────────────────────────────────────────────────────────
-  # The two C++ legs above each sweep one mutation tree and have no verdict of
-  # their own.  This job downloads both legs' reports and merges them, which
-  # is where the survivors are counted against the baseline and the ledger
-  # (tools/mutation_cpp.py, stage `merge`).  It runs whatever the lanes'
-  # results, so another lane's failure does not erase the C++ verdict; its own
-  # pass needs both legs' complete report sets from this commit, and a leg its
-  # clock killed uploaded no Elements report, which the merge refuses.
-  mutation-cpp:
-    name: mutation cpp
+  # ── The C++ and Go verdicts ─────────────────────────────────────────────────
+  # The C++ legs and the Go shards above each sweep a part of their binding
+  # and have no verdict of their own.  This job downloads their reports and
+  # merges each binding's, which is where the survivors are counted against
+  # the baseline and the ledgers (tools/mutation_cpp.py and
+  # tools/mutation_go.py, each at stage `merge`).  It runs whatever the
+  # lanes' results, so another lane's failure does not erase these verdicts;
+  # each needs its parts' complete reports from this commit, and a part its
+  # clock killed uploaded none, which the merge refuses.
+  mutation-merge:
+    name: mutation merge
     runs-on: ubuntu-24.04
     needs: [mutation-lane]
     if: ${{ always() }}
     timeout-minutes: 15
     concurrency:
-      group: heavy-mutation-cpp-merge-${{ github.event.pull_request.number || github.ref }}
+      group: heavy-mutation-merge-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: ${{ github.event_name != 'push' }}
     steps:
       - name: Checkout (full history)
@@ -714,21 +748,28 @@ jobs:
           pattern: mutation-cpp-*
           path: mutation-legs
 
-      - name: Merge the legs (the C++ drift gate)
+      - name: Download the Go shards' reports
+        uses: actions/download-artifact@v8
+        with:
+          pattern: mutation-go-*
+          path: go-shards
+
+      - name: Merge the C++ legs and the Go shards (the drift gates)
         env:
           ALETHEIA_MUTATION_CHECK: '1'
           ALETHEIA_MUTATION_SKIP_PYTHON: '1'
-          ALETHEIA_MUTATION_SKIP_GO: '1'
           ALETHEIA_MUTATION_SKIP_RUST: '1'
           ALETHEIA_MUTATION_CPP_STAGE: merge
           ALETHEIA_MUTATION_CPP_LEGS: mutation-legs
+          ALETHEIA_MUTATION_GO_STAGE: merge
+          ALETHEIA_MUTATION_GO_SHARDS: go-shards
         run: python/.venv/bin/python3 -m tools.mutation_run
 
       - name: Upload the merged reports
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
-          name: mutation-cpp
+          name: mutation-merge
           path: benchmarks/mutation/
           if-no-files-found: warn
           overwrite: true
@@ -737,14 +778,14 @@ jobs:
   # ── The required check ─────────────────────────────────────────────────────
   # `mutation testing` is the context the main branch ruleset requires, so it
   # must keep that exact name however the work behind it is arranged.  It
-  # reports the lanes and the C++ merge above and adds nothing of its own: it
+  # reports the lanes and the merge above and adds nothing of its own: it
   # passes on the one result meaning every one of them finished clean, and
   # refuses every other, whichever of them the platform uses for a job its own
   # `timeout-minutes` killed.  Silence about a lane is never a pass.
   mutation:
     name: mutation testing
     runs-on: ubuntu-24.04
-    needs: [mutation-lane, mutation-cpp]
+    needs: [mutation-lane, mutation-merge]
     # `always()`, so no arrangement of lane results can leave this job skipped:
     # a skipped job reporting a required context is a context that cannot fail,
     # and a lane killed by its clock is exactly when a narrower condition would
@@ -757,20 +798,20 @@ jobs:
     if: ${{ always() }}
     timeout-minutes: 5
     steps:
-      - name: Every mutation lane and the C++ merge reached a verdict and it was success
+      - name: Every mutation lane and the merge reached a verdict and it was success
         env:
           LANES: ${{ toJSON(needs.mutation-lane) }}
           LANES_RESULT: ${{ needs.mutation-lane.result }}
-          CPP: ${{ toJSON(needs.mutation-cpp) }}
-          CPP_RESULT: ${{ needs.mutation-cpp.result }}
+          MERGE: ${{ toJSON(needs.mutation-merge) }}
+          MERGE_RESULT: ${{ needs.mutation-merge.result }}
         run: |
           set -euo pipefail
           printf 'mutation lanes: %s\n' "${LANES}"
-          printf 'mutation cpp: %s\n' "${CPP}"
-          if [ "${LANES_RESULT}" != "success" ] || [ "${CPP_RESULT}" != "success" ]; then
-            echo "::error::the mutation lanes (${LANES_RESULT}) and the C++ merge" \
-                 "(${CPP_RESULT}) did not all succeed; a job killed by its own" \
+          printf 'mutation merge: %s\n' "${MERGE}"
+          if [ "${LANES_RESULT}" != "success" ] || [ "${MERGE_RESULT}" != "success" ]; then
+            echo "::error::the mutation lanes (${LANES_RESULT}) and the merge" \
+                 "(${MERGE_RESULT}) did not all succeed; a job killed by its own" \
                  "timeout-minutes arrives here as one of these non-success results"
             exit 1
           fi
-          echo "every mutation lane and the C++ merge succeeded"
+          echo "every mutation lane and the merge succeeded"

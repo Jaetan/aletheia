@@ -74,9 +74,9 @@ followed.
    section), so every subsequent PR is gated.
 
 **Mutation testing → required (2026-06-20).** The `mutation testing` check (the
-Python, Go, and C++ drift gate in `pr-heavy-lanes.yml`, the C++ half as nine legs
-merged by the `mutation cpp` job, three per mutation tree; the Rust binding has
-no mutation lane yet) follows the same
+Python, Go, C++ and Rust drift gate in `pr-heavy-lanes.yml`, the C++ lane as nine
+legs, three per mutation tree, and the Go lane as two shards, both merged by the
+`mutation merge` job) follows the same
 advisory-green → required rollout. But because its heavy caches (Mull-from-source,
 the build tree) only seed on `push: main`, adding it to the ruleset is gated on a
 **cache-seeding proof**, not merely a green PR:
