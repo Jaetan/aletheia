@@ -26,10 +26,12 @@ from tools.mutation_cpp_config import (
     leg_config_path,
 )
 from tools.mutation_cpp_legs import CppLeg, CppTree
-from tools.mutation_cpp_slices import CPP_SLICES, held_out_patterns, hold_out_pattern
+from tools.mutation_cpp_slices import CPP_SLICES, SuiteRuns, held_out_patterns, hold_out_pattern
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from tools.mutation_cpp_slices import TreeRuns
 
 # The tree's configuration: a mutator every tree keeps, and a call mutator the
 # address tree drops.
@@ -132,16 +134,18 @@ def test_a_slice_holds_out_the_files_the_other_slices_claim(
     assert built_under_config(leg, build)
 
 
-def test_the_recorded_counts_are_the_census_by_file(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The weights a slice is cut on are what the census recorded for each file."""
-    by_file = {"cpp/src/a.cpp": 3, "cpp/src/b.cpp": 5}
-    spec = {"bindings": {"cpp": {"baseline": {"mutants_by_file": by_file}}}}
+def test_each_tree_reads_its_own_recorded_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The weights a tree's slices are cut on are the figures recorded for that tree alone."""
+    leak = {RelPath("cpp/src/a.cpp"): SuiteRuns(3.5), RelPath("cpp/src/b.cpp"): SuiteRuns(5.0)}
+    plain = {RelPath("cpp/src/a.cpp"): SuiteRuns(9.0)}
+    spec = {"bindings": {"cpp": {"baseline": {"runs_by_file": {"leak": leak, "plain": plain}}}}}
     monkeypatch.setattr(mutation_cpp_config, "load_spec", lambda: spec)
-    expected = {RelPath(path): count for path, count in by_file.items()}
-    assert mutation_cpp_config.recorded_mutant_counts() == expected
+    assert mutation_cpp_config.recorded_runs(CppTree.LEAK) == leak
+    assert mutation_cpp_config.recorded_runs(CppTree.PLAIN) == plain
+    assert mutation_cpp_config.recorded_runs(CppTree.ADDRESS) == {}
 
 
-# A domain of files, each weighing one mutant more than the last.
+# A domain of files, each weighing one suite run more than the last.
 _DOMAIN = [RelPath(f"cpp/src/file_{index}.cpp") for index in range(7)]
 
 
@@ -152,8 +156,12 @@ def test_the_slices_partition_the_domain(monkeypatch: pytest.MonkeyPatch) -> Non
         return list(_DOMAIN)
 
     monkeypatch.setattr(mutation_cpp_config, "slice_domain", domain)
-    weights = {path: index + 1 for index, path in enumerate(_DOMAIN)}
-    monkeypatch.setattr(mutation_cpp_config, "recorded_mutant_counts", lambda: weights)
+    weights: TreeRuns = {path: SuiteRuns(index + 1) for index, path in enumerate(_DOMAIN)}
+
+    def recorded(_tree: CppTree) -> TreeRuns:
+        return weights
+
+    monkeypatch.setattr(mutation_cpp_config, "recorded_runs", recorded)
     assert mutation_cpp_config.leg_files(CppLeg(CppTree.PLAIN)) == (_DOMAIN, [])
     claimed_by_slice: list[list[RelPath]] = []
     for number in range(1, CPP_SLICES + 1):
@@ -162,3 +170,6 @@ def test_the_slices_partition_the_domain(monkeypatch: pytest.MonkeyPatch) -> Non
         assert not set(claimed) & set(held)
         claimed_by_slice.append(claimed)
     assert sorted(path for claimed in claimed_by_slice for path in claimed) == sorted(_DOMAIN)
+    # Cut on the weights: the 28 runs fall 10, 9 and 9, where a cut on names gives 12, 7 and 9.
+    loads = [sum(weights[path] for path in claimed) for claimed in claimed_by_slice]
+    assert sorted(loads) == [9, 9, 10]

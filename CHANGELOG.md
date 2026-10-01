@@ -178,6 +178,104 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **A C++ mutant's run ends at its first failing assertion.** The lane hands
+  the test binary Catch2's `--abort`, where the suite used to run to its end
+  after a test had already killed the mutant: on the runner a killed run cost
+  what a survivor did, 16.4 s against 16.3 s on the slowest leg, which set the
+  pull request's wall clock. Measured locally on that leg, 494 mutants, the
+  sweep fell from 2m44.9s to 45.4s and its summed run time from 2500 s to
+  848 s. The kill-route census reads any failing assertion as the test's kill,
+  whatever ends the process after it, and a run with none goes through the
+  whole suite either way, so no route moves: compared mutant by mutant, the
+  two sweeps read the same route, check and status for every one, and a probe
+  sweeps every tree without the flag to hold that.
+
+- **The cabal store a CI job saves holds the shake executable's dependencies.**
+  Every job that builds the kernel compiled `shake` and the libraries it
+  needs before its first Shake target, because the store was saved right
+  after the Agda install and before anything built them: 43 s of the 44 s
+  FFI step on each job of a heavy-lanes run. A step builds them into the
+  store ahead of the save, the store key carries `shake.cabal`'s hash, and a
+  key that matches nothing restores the newest store under its prefix, so a
+  dependency change builds only the difference. The package index is
+  refreshed only where nothing was restored, so a store restored that way
+  resolves against the index its packages were built from instead of
+  rebuilding Agda against a newer one.
+
+- **CI restores GHC instead of installing it.** `ghcup install ghc` spent 92 s
+  of every job's 104 s toolchain step unpacking and installing the bindist.
+  The directory ghcup installs GHC to, read from `ghcup whereis basedir`, is
+  now cached under a key naming the version and the runner image; a job that
+  finds it skips the install, and every job runs the compiler from that
+  directory, hit or miss. It is cached where ghcup puts it rather than moved,
+  because the kernel library a job restores from the build-tree cache names
+  GHC's library directory in its RUNPATH, so a compiler cached anywhere else
+  leaves that library unable to load GHC's runtime. A probe holds every job
+  that installs Agda to this one setup of GHC and the store.
+
+- **The Go mutation lane is two shards and a merge.** It set the pull
+  request's wall clock once the C++ legs stopped running whole suites: 1275 s
+  of a 21m56s run, its sweep 1092 s for 763 mutants on four cores. No
+  per-mutant flag moves that, since two thirds of a mutant's 3.5 s of CPU is
+  compiling and linking the cgo test binary (`-vet=off` and `-ldflags=-w`
+  measured no different), so the sweep is cut by file instead: each shard runs
+  gremlins under the package's configuration with the other shard's files held
+  out, the files weighed by their sizes in the tree (399 and 364 mutants over
+  the record, against the census's own best of 382 and 381). After its sweep a
+  shard takes gremlins' dry-run census of the whole package, and the merge,
+  one `mutation merge` job for the C++ legs and the Go shards, holds the
+  shards to it file by file: one census, disjoint files covering the package,
+  and each shard's sweep exactly the census's mutants of its files, so a shard
+  that lost the package's own exclusions or held out too much is refused. The
+  census comes after the sweep, and every `go test` of the sweep runs with
+  `-count=1`, because gremlins stops each mutant at three times its coverage
+  run, and a coverage run the build or test cache had served stopped most of
+  them before their tests ended. Swept locally through the runner, the shards
+  took 84.7 s and 89.2 s and merged to the recorded verdict: the same 763
+  mutants as the last whole sweep on the runner, four of them timing out on
+  the loaded host where the runner killed or kept them.
+
+- **Every job that builds the dev venv reuses pip's wheel cache.** The venv is
+  created afresh on every run, and its install fetched every wheel again from
+  the package index: about 20 s in most jobs, 97 s and 255 s in two jobs of
+  one run. Each `actions/setup-python` step ahead of a venv install now
+  caches pip, keyed on `python/pyproject.toml`, as the benchmark workflow
+  already did, and a probe holds every such job to it.
+
+- **The Rust mutation lane sweeps in shards side by side.** It set the pull
+  request's wall clock once the Go lane was sharded: 905 s, its sweep 845 s.
+  A copy of the tree holds one mutant at a time, and a mutant's cost is mostly
+  the incremental build of the test binary, so the runner's other cores sat
+  idle. The runner now sweeps one shard per CPU, up to four, each in a scratch
+  copy of its own with `cargo mutants --shard k/N`, and merges the shards'
+  outcomes into the one `outcomes.json` the survivor ledger reads, refusing a
+  mutant two shards swept, one no shard swept, or one the tool's own listing
+  does not name. On four CPUs locally the sweep took 609.0 s whole and 479.4 s
+  in four shards, both 316 mutants with 314 killed and 2 surviving, the record.
+
+- **Each C++ mutation tree's slices are cut on what its files cost that
+  tree.** The slices were cut on mutant counts shared by the three trees, and a
+  mutant's cost varies by file and by tree, so the plain tree's slices cost 79,
+  119 and 271 runs of the unmutated suite on one run, its third slice the
+  longest C++ job at 863 s. The record now keeps, per tree, the suite runs each
+  file's mutants cost (`runs_by_file`): a mutant's run time over its leg's
+  unmutated run, which takes out the runner a leg drew, whose unmutated suite
+  took from 4.9 to 13.9 s across that run's legs. Cut on them, the plain tree's
+  slices cost 157, 156 and 156, the leak tree's 248 each, and the address
+  tree's 76, 63 and 63, its `client.cpp` alone more than a third. Each leg
+  writes its figures beside its reports, the merge sums them per tree into
+  `cpp-runs.json`, which the weights are re-taken from, and prints per tree how
+  far the recorded weights have drifted; the setup gate refuses a tree the
+  record weighs nothing for.
+
+- **Full CI caches the dependencies of every C++ tree it configures.** The
+  cache listed a `build-tidy` tree no step configures and left out
+  `build-asan`, so the address-sanitizer tree downloaded every FetchContent
+  dependency on every run, exposed to the source server's transient errors.
+  It now lists the test build and both sanitizer trees, under a new key so
+  the next run saves them, and a test holds the list to the trees the sweep's
+  steps configure.
+
 - **No mutation lane runs its binding's doc-example harness.** A harness
   builds and runs every fence of the documents as a program of its own,
   holding the documents to the binding, and costs its whole run once per

@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tools import mutation_cpp, mutation_run
+from tools._common import RelPath
 from tools.mutation_cpp import elements_counts, merge_elements, run_cpp, union_slices
 from tools.mutation_cpp_legs import (
     CPP_LEGS_ENV,
@@ -37,7 +38,8 @@ from tools.mutation_cpp_legs import (
     is_cpp_leg,
     sliced_legs,
 )
-from tools.mutation_cpp_slices import CPP_SLICES
+from tools.mutation_cpp_runs import CPP_LEG_RUNS_SUFFIX, CPP_RUNS_REPORT
+from tools.mutation_cpp_slices import CPP_SLICES, SuiteRuns
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -86,10 +88,16 @@ def _leg_mutants(leg: CppLeg) -> tuple[str, ...]:
 
 
 def _write_leg_reports(artifact_dir: Path, leg: CppLeg) -> Mapping[str, object]:
-    """Write the three reports Mull writes for one leg, and return its Elements report."""
+    """Write the three reports Mull writes for one leg and the runs it writes, return its Elements.
+
+    Every mutant costs one suite run, so a tree's slices sum to what its whole
+    sweep costs.
+    """
     elements = _elements(_leg_mutants(leg), _SURVIVORS[leg.tree])
     _ = (artifact_dir / f"{leg.report_name}.json").write_text(json.dumps(elements))
     _ = (artifact_dir / f"{leg.report_name}.txt").write_text("[info] Mutation score: 66%\n")
+    runs = {RelPath("cpp/src/a.cpp"): SuiteRuns(len(_leg_mutants(leg)))}
+    _ = (artifact_dir / f"{leg.report_name}{CPP_LEG_RUNS_SUFFIX}").write_text(json.dumps(runs))
     # closing() closes the connection; sqlite3's own context manager only
     # commits, which would leave the file open until a collection.
     with contextlib.closing(sqlite3.connect(artifact_dir / f"{leg.report_name}.sqlite")) as conn:
@@ -294,10 +302,12 @@ def test_the_merge_of_the_legs_is_the_one_process_run(
         one_process.total_mutants,
         one_process.survived,
     )
-    for name in ("cpp-mull.json", "cpp-routes.json", "cpp-files.json"):
+    for name in ("cpp-mull.json", "cpp-routes.json", CPP_RUNS_REPORT):
         assert (tmp_path / "out" / name).read_text() == (whole / name).read_text()
     legs = json.loads((tmp_path / "out" / "cpp-legs.json").read_text())
     assert legs == {str(leg): _elapsed_of(leg) for leg in sliced_legs()}
+    runs = json.loads((tmp_path / "out" / CPP_RUNS_REPORT).read_text())
+    assert runs == {tree.value: {"cpp/src/a.cpp": len(_ALL_MUTANTS)} for tree in CppTree}
     assert mutation_run.drift_for(merged, {"cpp": {"baseline": {"survivors": 1}}})["status"] == "ok"
 
 
@@ -308,6 +318,20 @@ def test_the_merge_refuses_a_missing_leg(monkeypatch: pytest.MonkeyPatch, tmp_pa
     missing = sliced_legs()[0]
     assert merged.error is not None
     assert f"0 copies of {missing.report_name}.json" in merged.error
+
+
+def test_the_merge_refuses_a_leg_without_its_runs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A leg whose runs are missing leaves its tree's weights unknowable, and is refused."""
+    legs = sliced_legs()
+    _download(tmp_path / "legs", *legs)
+    runs = f"{legs[0].report_name}{CPP_LEG_RUNS_SUFFIX}"
+    for path in (tmp_path / "legs").rglob(runs):
+        path.unlink()
+    merged = _merge(monkeypatch, tmp_path)
+    assert merged.error is not None
+    assert f"0 copies of {runs}" in merged.error
 
 
 def test_the_merge_refuses_a_doubled_leg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

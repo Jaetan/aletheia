@@ -168,19 +168,34 @@ def test_the_timeout_ceiling_is_read_before_the_count() -> None:
 # A stand-in for cargo-mutants: it records the directory it ran in and the
 # source it found there, writes a mutant into that source as the real tool
 # does, and reports one caught mutant.
-_FAKE_CARGO = """\
+_FAKE_CARGO = """\\
 import json
 import sys
 from pathlib import Path
 
+# Two mutants of the crate, dealt round-robin to the shards as cargo-mutants deals them.
+def mutant(line, name):
+    span = {"start": {"line": line, "column": 1}, "end": {"line": line, "column": 2}}
+    return {"file": "src/lib.rs", "name": f"src/lib.rs:{line}:1: {name}", "span": span}
+
+listed = [mutant(1, "replace a"), mutant(2, "replace b")]
+if "--list" in sys.argv:
+    print(json.dumps(listed))
+    sys.exit(0)
+number, total = (int(part) for part in sys.argv[sys.argv.index("--shard") + 1].split("/"))
 out = Path(sys.argv[sys.argv.index("--output") + 1])
 source = Path.cwd() / "src" / "lib.rs"
 seen = source.read_text(encoding="utf-8")
 _ = source.write_text("mutant\\n", encoding="utf-8")
 (out / "mutants.out").mkdir(parents=True, exist_ok=True)
 _ = (out / "ran_in.txt").write_text(f"{Path.cwd()}\\n{seen}", encoding="utf-8")
-counts = {"caught": 1, "missed": 0, "timeout": 0, "unviable": 0, "total_mutants": 1}
-_ = (out / "mutants.out" / "outcomes.json").write_text(json.dumps({"outcomes": [], **counts}))
+mine = [m for index, m in enumerate(listed) if index % total == number]
+outcomes = [{"scenario": "Baseline", "summary": "Success"}] + [
+    {"scenario": {"Mutant": m}, "summary": "CaughtMutant"} for m in mine
+]
+counts = {"caught": len(mine), "missed": 0, "timeout": 0, "unviable": 0, "success": 0}
+document = {"outcomes": outcomes, "total_mutants": len(mine), **counts}
+_ = (out / "mutants.out" / "outcomes.json").write_text(json.dumps(document))
 """
 
 
@@ -205,15 +220,23 @@ def test_the_sweep_mutates_a_copy_of_the_tree_as_it_stands(
 
     monkeypatch.setattr(mutation_rust, "REPO_ROOT", repo)
     monkeypatch.setattr(mutation_rust, "_check_rust_tools", tools_found)
+    monkeypatch.setattr(mutation_rust, "rust_shards", lambda: mutation_rust.ShardCount(2))
     artifacts = tmp_path / "artifacts"
     report = mutation_rust.run_rust(artifacts)
     assert report.error is None
-    ran_in, seen = (artifacts / "rust" / "ran_in.txt").read_text(encoding="utf-8").split("\n", 1)
-    assert Path(ran_in).name == "rust"
-    assert not Path(ran_in).is_relative_to(repo)
-    assert seen == "uncommitted edit\n"
+    assert (report.killed, report.survived) == (2, 0)
+    copies: set[Path] = set()
+    for number in (0, 1):
+        ran = artifacts / "rust" / f"shard-{number}" / "ran_in.txt"
+        ran_in, seen = ran.read_text(encoding="utf-8").split("\n", 1)
+        assert Path(ran_in).name == "rust"
+        assert not Path(ran_in).is_relative_to(repo)
+        assert seen == "uncommitted edit\n"
+        assert not Path(ran_in).exists()
+        copies.add(Path(ran_in))
+    # Each shard swept a copy of its own: one copy holds one mutant at a time.
+    assert len(copies) == 2
     assert (repo / "rust" / "src" / "lib.rs").read_text(encoding="utf-8") == "uncommitted edit\n"
-    assert not Path(ran_in).exists()
 
 
 def test_a_tree_that_cannot_be_copied_is_a_refusal(
@@ -236,4 +259,4 @@ def test_a_tree_that_cannot_be_copied_is_a_refusal(
     report = mutation_rust.run_rust(artifacts)
     assert report.error is not None
     assert report.error.startswith("no scratch copy of the tree: git worktree add")
-    assert not (artifacts / "rust" / "ran_in.txt").exists()
+    assert not (artifacts / "rust").exists()

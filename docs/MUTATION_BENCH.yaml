@@ -616,49 +616,100 @@ bindings:
         leak: 1482
         plain: 1482
         address: 338
-      # Mutants per file, which is what the sweep's slices are cut on: a CI
-      # leg builds one slice of the surface, and a slice is a set of files
-      # whose recorded counts add up to about a third of this total. The
-      # counts stand for the sweep's cost because the cost of a mutant hardly
-      # varies, 5.6 seconds on the plain tree and 3.3 on the leak tree over
-      # the run of 2026-09-24, and the files that depart from that are the
-      # ones carrying a handful.
+      # Per tree, the suite runs each file's mutants cost, which is what the
+      # tree's slices are cut on: a CI leg builds one slice of one tree, and a
+      # slice is a set of files whose recorded figures add up to about a third
+      # of the tree's.  A suite run is a mutant's run time divided by its leg's
+      # unmutated run, so the figure is the work and not the runner: on heavy
+      # lanes run 36827685901 a leg's unmutated suite took 4.9 to 13.9 s, and a
+      # mutant's cost varies by file and by tree, a killed run ending at its
+      # first failed assertion.  Taken from that run's legs by the merge's own
+      # computation, which writes the same figures to cpp-runs.json.
       #
       # They are a measurement and they age in one direction: adding code adds
       # mutants, nothing refuses that, and the slices drift out of balance
-      # quietly. So the merge prints what the heaviest slice would carry today
-      # under these weights, and the review that re-takes them is scheduled
-      # against that number rather than against a date
+      # quietly.  So the merge prints, per tree, what the heaviest slice would
+      # cost today under these weights, and the review that re-takes them is
+      # scheduled against that number rather than against a date
       # (docs/operations/MUTATION.md, AGENTS.md § Universal Rules). Coverage
       # never depends on them: a file the record does not name still lands in
       # a slice, because the partition is computed over every tracked file of
       # the library and not over this list.
-      mutants_by_file:
-        cpp/benchmarks/measure.hpp: 7
-        cpp/include/aletheia/backend.hpp: 2
-        cpp/include/aletheia/check.hpp: 16
-        cpp/include/aletheia/client.hpp: 3
-        cpp/include/aletheia/detail/cache_keys.hpp: 16
-        cpp/include/aletheia/detail/rational_renderer.hpp: 2
-        cpp/include/aletheia/log.hpp: 17
-        cpp/include/aletheia/ltl.hpp: 2
-        cpp/include/aletheia/response.hpp: 9
-        cpp/include/aletheia/types.hpp: 41
-        cpp/src/backend.cpp: 18
-        cpp/src/client.cpp: 356
-        cpp/src/dbc.cpp: 49
-        cpp/src/detail/ffi_abi.hpp: 1
-        cpp/src/detail/ffi_logic.cpp: 21
-        cpp/src/detail/loader_utils.cpp: 101
-        cpp/src/detail/loader_utils.hpp: 31
-        cpp/src/enrich.cpp: 12
-        cpp/src/excel.cpp: 185
-        cpp/src/ffi_backend.cpp: 101
-        cpp/src/json_parse.cpp: 311
-        cpp/src/json_serialize.cpp: 48
-        cpp/src/rational_renderer.cpp: 41
-        cpp/src/types.cpp: 2
-        cpp/src/yaml.cpp: 90
+      runs_by_file:
+        leak:
+          cpp/benchmarks/measure.hpp: 6.7
+          cpp/include/aletheia/backend.hpp: 0.1
+          cpp/include/aletheia/check.hpp: 0.9
+          cpp/include/aletheia/client.hpp: 0.1
+          cpp/include/aletheia/detail/cache_keys.hpp: 0.9
+          cpp/include/aletheia/detail/rational_renderer.hpp: 0.0
+          cpp/include/aletheia/log.hpp: 0.9
+          cpp/include/aletheia/ltl.hpp: 0.3
+          cpp/include/aletheia/response.hpp: 0.3
+          cpp/include/aletheia/types.hpp: 1.2
+          cpp/src/backend.cpp: 1.1
+          cpp/src/client.cpp: 126.2
+          cpp/src/dbc.cpp: 3.5
+          cpp/src/detail/ffi_abi.hpp: 0.1
+          cpp/src/detail/ffi_logic.cpp: 15.3
+          cpp/src/detail/loader_utils.cpp: 99.4
+          cpp/src/detail/loader_utils.hpp: 33.1
+          cpp/src/enrich.cpp: 0.3
+          cpp/src/excel.cpp: 214.9
+          cpp/src/ffi_backend.cpp: 46.8
+          cpp/src/json_parse.cpp: 15.2
+          cpp/src/json_serialize.cpp: 3.2
+          cpp/src/rational_renderer.cpp: 16.1
+          cpp/src/types.cpp: 2.3
+          cpp/src/yaml.cpp: 156.2
+        plain:
+          cpp/benchmarks/measure.hpp: 4.5
+          cpp/include/aletheia/backend.hpp: 0.0
+          cpp/include/aletheia/check.hpp: 0.3
+          cpp/include/aletheia/client.hpp: 0.1
+          cpp/include/aletheia/detail/cache_keys.hpp: 0.3
+          cpp/include/aletheia/detail/rational_renderer.hpp: 0.0
+          cpp/include/aletheia/log.hpp: 0.4
+          cpp/include/aletheia/ltl.hpp: 0.1
+          cpp/include/aletheia/response.hpp: 0.1
+          cpp/include/aletheia/types.hpp: 0.5
+          cpp/src/backend.cpp: 0.4
+          cpp/src/client.cpp: 65.9
+          cpp/src/dbc.cpp: 1.2
+          cpp/src/detail/ffi_abi.hpp: 0.0
+          cpp/src/detail/ffi_logic.cpp: 9.9
+          cpp/src/detail/loader_utils.cpp: 65.0
+          cpp/src/detail/loader_utils.hpp: 21.5
+          cpp/src/enrich.cpp: 0.1
+          cpp/src/excel.cpp: 147.8
+          cpp/src/ffi_backend.cpp: 30.5
+          cpp/src/json_parse.cpp: 9.3
+          cpp/src/json_serialize.cpp: 1.8
+          cpp/src/rational_renderer.cpp: 11.0
+          cpp/src/types.cpp: 1.4
+          cpp/src/yaml.cpp: 97.1
+        address:
+          cpp/benchmarks/measure.hpp: 2.5
+          cpp/include/aletheia/backend.hpp: 0.0
+          cpp/include/aletheia/check.hpp: 0.3
+          cpp/include/aletheia/client.hpp: 0.1
+          cpp/include/aletheia/detail/cache_keys.hpp: 0.3
+          cpp/include/aletheia/log.hpp: 0.2
+          cpp/include/aletheia/response.hpp: 0.1
+          cpp/include/aletheia/types.hpp: 1.0
+          cpp/src/backend.cpp: 0.3
+          cpp/src/client.cpp: 75.6
+          cpp/src/dbc.cpp: 0.8
+          cpp/src/detail/ffi_logic.cpp: 8.8
+          cpp/src/detail/loader_utils.cpp: 49.8
+          cpp/src/detail/loader_utils.hpp: 3.9
+          cpp/src/enrich.cpp: 0.1
+          cpp/src/excel.cpp: 46.1
+          cpp/src/ffi_backend.cpp: 3.0
+          cpp/src/json_parse.cpp: 1.7
+          cpp/src/json_serialize.cpp: 3.1
+          cpp/src/rational_renderer.cpp: 2.6
+          cpp/src/yaml.cpp: 1.3
       timeouts: 0
       score_pct: 99.5
       run_at: "2026-09-30"
@@ -1521,13 +1572,13 @@ bindings:
       # and every feature on, as the suite is run everywhere else.
       examine: rust/.cargo/mutants.toml
     invocation: |
-      # tools/mutation_rust.py sweeps a scratch copy of the whole tree, HEAD
+      # tools/mutation_rust.py sweeps scratch copies of the whole tree, HEAD
       # with the uncommitted diff applied, and runs cargo-mutants --in-place
-      # inside it, one mutant at a time: the suite includes the DBC corpus and
-      # the parity snapshots from above the crate at compile time and reads
-      # the documents under docs/ at run time, so a copy of the crate alone
-      # does not build (the probe over rust/ holds that).  The tree itself
-      # never holds a mutant.
+      # inside each, one shard of the mutants per copy: the suite includes
+      # the DBC corpus and the parity snapshots from above the crate at
+      # compile time and reads the documents under docs/ at run time, so a
+      # copy of the crate alone does not build (the probe over rust/ holds
+      # that).  The tree itself never holds a mutant.
       ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_GO=1 ALETHEIA_MUTATION_SKIP_CPP=1 \
         python/.venv/bin/python -m tools.mutation_run
     report: |

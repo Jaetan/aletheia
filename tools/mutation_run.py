@@ -64,6 +64,20 @@ The C++ lane in stages, so CI can sweep its two trees on two machines:
                                and gated as the whole lane is.
   - ALETHEIA_MUTATION_CPP_LEGS   that directory, read by the merge stage only.
 
+The Go lane in shards, so CI can sweep the package's files on two machines
+(``tools/mutation_go.py``):
+
+  - ALETHEIA_MUTATION_GO_STAGE   unset: the package is swept whole in this
+                               process.  A shard number: a dry run lists the
+                               package's mutants, the files are cut on that
+                               census and this shard's files alone are swept;
+                               a shard judges no survivor.  ``merge``: nothing
+                               is swept; the shards' records and logs are read
+                               from the directory ALETHEIA_MUTATION_GO_SHARDS
+                               names, held to the census they cut on, and
+                               gated as the whole package is.
+  - ALETHEIA_MUTATION_GO_SHARDS  that directory, read by the merge stage only.
+
 Diff scoping (automatic): on a PR branch only the binding(s) whose directory the
 diff vs ``main`` touches are run; the rest are skipped, since an unchanged
 binding's survivor count is unchanged from its baseline by construction.  A
@@ -77,12 +91,20 @@ Artifacts written:
   benchmarks/mutation/<short_sha>/
     python.json    {tool, total_mutants, killed, survived, score_pct, raw_log}
     go.json        same shape
+    go-1.json, go-1.raw.txt, go-shard-1.json
+                   one shard's census, log and record (the dry run's census,
+                   the domain and the shard's files) where the run is one
+                   shard of the Go lane (ALETHEIA_MUTATION_GO_STAGE); recorded,
+                   not gated
+    go-shards.json each shard's wall clock, written by the merge stage
     cpp.json       same shape
     rust.json      same shape
-    rust/mutants.out/
-                   cargo-mutants' own report directory: outcomes.json, every
-                   Rust mutant with its bucket and its site, which the ledger
-                   check reads, and a log per mutant
+    rust/mutants.out/outcomes.json
+                   the shards' outcomes merged: every Rust mutant with its
+                   bucket and its site, which the ledger check reads
+    rust/shard-<n>/mutants.out/, rust-shard-<n>.raw.txt
+                   one shard's own cargo-mutants report directory, a log per
+                   mutant in it, and the shard's console log
     cpp-leak.json, cpp-plain.json
                    one leg's census where the run is one leg of the C++
                    lane (ALETHEIA_MUTATION_CPP_STAGE); recorded, not gated
@@ -97,6 +119,11 @@ Artifacts written:
                    Mull's SQLite report of one tree: each mutant's exit
                    status and the test binary's output, which the kill-route
                    census (tools/mutation_routes.py) reads
+    cpp-mull-<lane>.runs.json
+                   the suite runs that leg's mutants cost by file, which the
+                   leg writes (tools/mutation_cpp_runs.py)
+    cpp-runs.json  each tree's runs by file, summed over its legs: what the
+                   recorded slice weights are re-taken from
     cpp-routes.json
                    that census: the C++ mutants counted by what killed them
     cpp-unobserved.json
@@ -136,6 +163,24 @@ from tools._common import (
 )
 from tools.mutation_cpp import cpp_survivor_rows, cpp_unobserved_rows, run_cpp
 from tools.mutation_cpp_legs import is_cpp_leg
+from tools.mutation_go import (
+    GO_CONFIG,
+    GO_LANE,
+    GO_MERGE_STAGE,
+    ArtifactName,
+    Binding,
+    GremlinsLog,
+    ShortSha,
+    cut_go_shard,
+    go_refusal,
+    go_stage,
+    is_go_shard,
+    merge_go_shards,
+    parse_gremlins_summary,
+    record_go_shard,
+    shard_binding,
+    shard_log_name,
+)
 from tools.mutation_report import (
     SPEC_PATH,
     Baseline,
@@ -151,6 +196,8 @@ from tools.mutation_report import (
     unobserved_rows_to_ledger,
 )
 from tools.mutation_rust import run_rust, rust_survivor_rows
+
+from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -335,29 +382,22 @@ def run_go(artifact_dir: Path) -> MutationReport:
     that reads the repository fails in gremlins' copy, and every mutant reads
     as killed whatever it changed.  The doc-example harness is skipped
     (``go_sweep_goflags``).
-    """
-    gremlins = shutil.which("gremlins")
-    if gremlins is None:
-        return MutationReport(
-            "go",
-            "gremlins",
-            0,
-            0,
-            "",
-            error="gremlins not in PATH; run "
-            + "`go install github.com/go-gremlins/gremlins/cmd/gremlins@latest`",
-        )
 
-    lib = REPO_ROOT / "build" / "libaletheia-ffi.so"
-    if not lib.is_file():
-        return MutationReport(
-            "go",
-            "gremlins",
-            0,
-            0,
-            "",
-            error=f"libaletheia-ffi.so not found at {lib}; run `cabal run shake -- build` first",
-        )
+    The stage (``go_stage``) selects the whole package, one shard of it, or
+    the merge of the shards' sweeps (``tools/mutation_go.py``).
+    """
+    try:
+        stage = go_stage()
+    except ValueError as exc:
+        return go_refusal(GO_LANE, Prose(str(exc)))
+    if stage == GO_MERGE_STAGE:
+        return merge_go_shards(artifact_dir, ShortSha(short_sha(REPO_ROOT)))
+    binding = GO_LANE if stage is None else shard_binding(stage)
+    tools = _go_tools(binding)
+    if isinstance(tools, MutationReport):
+        return tools
+    gremlins, lib = tools
+    header = Prose("")
     with scratch_tree_or_report(REPO_ROOT, "go", "gremlins") as tree:
         if isinstance(tree, MutationReport):
             return tree
@@ -368,11 +408,51 @@ def run_go(artifact_dir: Path) -> MutationReport:
         # gremlins targets the package directory and runs the package's tests
         # against each mutant: the canonical aletheia/ subpackage, the only Go
         # module holding runtime code.
-        proc = run_streaming([gremlins, "unleash", "./aletheia"], cwd=tree / "go", env=env)
-    raw = proc.stdout
-    (artifact_dir / "go.raw.txt").write_text(raw)
+        cut = None if stage is None else cut_go_shard(tree, stage)
+        proc = run_streaming([str(gremlins), "unleash", "./aletheia"], cwd=tree / "go", env=env)
+        if stage is not None and cut is not None:
+            # The census comes after the sweep, under the package's own
+            # configuration: before it, the dry run would leave the package
+            # compiled for the coverage run gremlins times every mutant by
+            # (tools/mutation_go.py).
+            _ = (tree / GO_CONFIG).write_text(cut.package_config, encoding="utf-8")
+            dry = run_capture(
+                [str(gremlins), "unleash", "--dry-run", "./aletheia"], cwd=tree / "go", env=env
+            )
+            recorded = record_go_shard(stage, cut, GremlinsLog(dry.stdout), artifact_dir)
+            if recorded is None:
+                return go_refusal(
+                    binding,
+                    Prose(f"the dry run listed no mutant (exit {dry.returncode}):\n{dry.stderr}"),
+                    GremlinsLog(proc.stdout),
+                )
+            header = recorded
+    raw = header + proc.stdout
+    _ = (
+        artifact_dir / (ArtifactName("go.raw.txt") if stage is None else shard_log_name(stage))
+    ).write_text(raw)
 
-    return parse_gremlins_summary(raw, f"exit {proc.returncode}")
+    return parse_gremlins_summary(GremlinsLog(raw), Prose(f"exit {proc.returncode}"), binding)
+
+
+def _go_tools(binding: Binding) -> tuple[Path, Path] | MutationReport:
+    """Find gremlins and the built kernel library, or report which of them is missing."""
+    found = shutil.which("gremlins")
+    if found is None:
+        return go_refusal(
+            binding,
+            Prose(
+                "gremlins not in PATH; run "
+                + "`go install github.com/go-gremlins/gremlins/cmd/gremlins@latest`"
+            ),
+        )
+    lib = REPO_ROOT / "build" / "libaletheia-ffi.so"
+    if not lib.is_file():
+        return go_refusal(
+            binding,
+            Prose(f"libaletheia-ffi.so not found at {lib}; run `cabal run shake -- build` first"),
+        )
+    return Path(found), lib
 
 
 # The flags the go command reads from its environment, as GOFLAGS spells them.
@@ -386,48 +466,16 @@ GO_DOC_HARNESS = "TestDocExamples"
 
 
 def go_sweep_goflags(caller: GoFlags) -> GoFlags:
-    """Return the caller's ``GOFLAGS`` with the doc-example harness skipped.
+    """Return the caller's ``GOFLAGS`` with test caching off and the doc-example harness skipped.
 
-    ``go test`` reads ``-skip`` from ``GOFLAGS``, the one route to a test flag
+    ``go test`` reads both from ``GOFLAGS``, the one route to a test flag
     gremlins leaves open, and its coverage run and every mutant's run inherit
-    it alike.
+    them alike.  gremlins times its coverage run and stops each mutant's run
+    at three times that, so a coverage run served from the test cache, as one
+    is after a dry run of the same tree, stops every mutant before its tests
+    end: measured on one shard, 362 of 382 mutants timed out.
     """
-    return GoFlags(f"{caller} -skip=^{GO_DOC_HARNESS}$".strip())
-
-
-def parse_gremlins_summary(raw: str, where: str) -> MutationReport:
-    """Read a gremlins run's tail summary into a report.
-
-    Separate from the run so the drift gate can be shown to refuse a recorded
-    loaded-machine sweep without one having to be reproduced.  The tail is::
-
-        Killed: N, Lived: N, Not covered: N
-        Timed out: N, Not viable: N, Skipped: N
-        Test efficacy: P.PP%
-        Mutator coverage: P.PP%
-    """
-    killed_m = re.search(r"Killed:\s*(\d+)", raw)
-    survived_m = re.search(r"Lived:\s*(\d+)", raw)
-    timeout_m = re.search(r"Timed out:\s*(\d+)", raw)
-    if not (killed_m and survived_m):
-        return MutationReport(
-            "go",
-            "gremlins",
-            0,
-            0,
-            raw,
-            error=(f"could not parse gremlins summary (see go.raw.txt; {where})"),
-        )
-    # gremlins' "Not covered" mutants are on lines no test reaches; they do not
-    # contribute to the killed/lived split, so total_mutants = killed + survived.
-    return MutationReport(
-        "go",
-        "gremlins",
-        int(killed_m.group(1)),
-        int(survived_m.group(1)),
-        raw,
-        timeouts=int(timeout_m.group(1)) if timeout_m else None,
-    )
+    return GoFlags(f"{caller} -count=1 -skip=^{GO_DOC_HARNESS}$".strip())
 
 
 # One mutant gremlins reported, by the verdict its log line opens with.
@@ -616,12 +664,14 @@ def _run_enabled_bindings(
 def _ungated(rep: MutationReport) -> DriftEntry | None:
     """Return the verdict no baseline enters into, or None where one does.
 
-    A leg is one tree: a mutant it let live may die in the other tree, so its
-    count is recorded and the merge is what is gated.
+    A C++ leg is one tree, or one slice of it: a mutant it let live may die
+    in another tree, so its count is recorded and the merge is what is gated.
+    A Go shard is one part of the package, judged with the others by the
+    merge in the same way.
     """
     if rep.error:
         return {"status": "error", "error": rep.error}
-    if is_cpp_leg(rep.binding):
+    if is_cpp_leg(rep.binding) or is_go_shard(Binding(rep.binding)):
         return {"status": "leg", "observed_survivors": rep.survived}
     return None
 

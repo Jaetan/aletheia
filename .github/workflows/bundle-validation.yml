@@ -69,10 +69,40 @@ jobs:
           echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
           export CABAL_DIR="${HOME}/.cabal"
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
-          ghcup install ghc "${GHC_VERSION}" --set
           ghcup install cabal 3.16.1.0 --set
-          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
-          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
+          ghc_dir="$(ghcup whereis basedir)/ghc/${GHC_VERSION}"
+          echo "GHC_DIR=${ghc_dir}" >> "${GITHUB_ENV}"
+          {
+            echo "${HOME}/.cabal/bin"
+            echo "${HOME}/.ghcup/bin"
+            echo "${ghc_dir}/bin"
+          } >> "${GITHUB_PATH}"
+
+      # GHC cached in the directory ghcup installs it to (pr-full-ci.yml says why).
+      - name: Restore GHC ${{ env.GHC_VERSION }}
+        id: ghc-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.GHC_DIR }}
+          key: ghc${{ env.GHC_VERSION }}-noble-v2
+
+      - name: Install GHC ${{ env.GHC_VERSION }} (only on a cache miss)
+        if: steps.ghc-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          ghcup install ghc "${GHC_VERSION}" --set
+          installed="$(ghcup whereis --directory ghc "${GHC_VERSION}")"
+          [ "${installed}" = "${GHC_DIR}/bin" ] || {
+            echo "::error::ghcup installed GHC at ${installed}, not under ${GHC_DIR}, which the cache holds"
+            exit 1
+          }
+
+      - name: Save GHC (only on a cache miss)
+        if: steps.ghc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.GHC_DIR }}
+          key: ghc${{ env.GHC_VERSION }}-noble-v2
 
       - name: Restore cabal store (Agda library + executable + deps)
         id: cabal-cache
@@ -82,14 +112,20 @@ jobs:
             ~/.cabal/store
             ~/.cabal/packages
             ~/.cabal/bin
-          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-${{ hashFiles('shake.cabal') }}-v3
+          restore-keys: |
+            cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-
 
       - name: Update cabal package index (only on a cabal-store cache miss)
-        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        if: steps.cabal-cache.outputs.cache-matched-key == ''
         run: cabal update
 
       - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
         run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
+
+      # The shake executable's dependencies join the store (pr-full-ci.yml says why).
+      - name: Build the shake executable's dependencies into the store
+        run: cabal build --only-dependencies aletheia-build:exe:shake
 
       - name: Save cabal store (only on a cache miss)
         if: steps.cabal-cache.outputs.cache-hit != 'true'
@@ -99,7 +135,7 @@ jobs:
             ~/.cabal/store
             ~/.cabal/packages
             ~/.cabal/bin
-          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-${{ hashFiles('shake.cabal') }}-v3
 
       - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
         uses: actions/cache@v6
@@ -122,6 +158,9 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: '3.14'
+          # pip's wheel cache, keyed on the manifest (pr-full-ci.yml says why).
+          cache: pip
+          cache-dependency-path: python/pyproject.toml
 
       - name: Create the dev venv (python/.venv)
         run: |

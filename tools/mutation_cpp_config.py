@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, NewType
 from tools._common import RelPath
 from tools.mutation_cpp_slices import (
     CPP_SLICES,
+    SuiteRuns,
+    TreeRuns,
     partition,
     slice_config_text,
     slice_domain,
@@ -31,38 +33,38 @@ from tools.mutation_report import REPO_ROOT, load_spec
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from tools.mutation_cpp_legs import CppLeg
+    from tools.mutation_cpp_legs import CppLeg, CppTree
 
-# How many mutants the census recorded a file carrying.
+# A number of mutants: a census's, a bucket's or a file's.
 MutantCount = NewType("MutantCount", int)
 
 
-def recorded_mutant_counts() -> dict[RelPath, MutantCount]:
-    """Read the mutants each file carried when the census was last taken.
+def recorded_runs(tree: CppTree) -> TreeRuns:
+    """Read the suite runs each file's mutants cost the tree when the weights were last taken.
 
-    The weights the partition balances on.  They are a measurement and they
-    age: a file that grows carries more mutants than the record knows, which
-    costs the balance of the slices and never their coverage, and the review
-    that re-takes them is scheduled rather than triggered, because growth is
+    The weights the tree's partition balances on.  They are a measurement and
+    they age: a file that grows costs more than the record knows, which costs
+    the balance of the slices and never their coverage, and the review that
+    re-takes them is scheduled rather than triggered, because growth is
     ordinary work and nothing about it goes red.
     """
     baseline = load_spec().get("bindings", {}).get("cpp", {}).get("baseline", {})
-    counts = baseline.get("mutants_by_file", {})
-    return {RelPath(path): MutantCount(int(count)) for path, count in counts.items()}
+    runs = baseline.get("runs_by_file", {}).get(tree.key, {})
+    return {RelPath(path): SuiteRuns(float(value)) for path, value in runs.items()}
 
 
 def leg_files(leg: CppLeg) -> tuple[list[RelPath], list[RelPath]]:
     """Give the files a leg carries mutants for, and the domain files it holds out.
 
-    Computed from the tree and the recorded counts rather than read from a
-    list, so a file added to the library is in the partition the moment it is
-    tracked; every leg of a run computes the same partition from the same
+    Computed from the tree and the tree's recorded weights rather than read
+    from a list, so a file added to the library is in the partition the moment
+    it is tracked; every leg of a run computes the same partition from the same
     commit.
     """
     domain = slice_domain(REPO_ROOT, REPO_ROOT / "cpp" / "mull.yml")
     if leg.slice_no is None:
         return domain, []
-    claimed = partition(domain, recorded_mutant_counts())[leg.slice_no - 1]
+    claimed = partition(domain, recorded_runs(leg.tree))[leg.slice_no - 1]
     return list(claimed), [path for path in domain if path not in set(claimed)]
 
 

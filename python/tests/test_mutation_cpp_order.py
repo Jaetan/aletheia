@@ -11,6 +11,11 @@ test reports before the run stops. The recorded census is therefore taken
 under a stated order, which is what makes it a measurement rather than one
 sample of a shuffle. That the verdict itself holds under every order is a
 separate property, which a probe sweeps several orders to hold.
+
+A run also ends at its first failing assertion, which moves no route: the
+census reads any failing assertion as the test's kill, and a run with none
+goes through the whole suite either way. A probe sweeps without the flag to
+hold that.
 """
 
 from __future__ import annotations
@@ -38,8 +43,16 @@ def _command() -> list[str]:
 
 
 def test_the_lane_hands_the_binary_a_pinned_order() -> None:
-    """The argv ends with the separator and the declaration order behind it."""
-    assert _command()[-3:] == ["--", "--order", "decl"]
+    """The binary's argv, behind the separator, opens with the declaration order."""
+    argv = _command()
+    separator = argv.index("--")
+    assert argv[separator + 1 : separator + 3] == ["--order", "decl"]
+
+
+def test_a_run_ends_at_its_first_failing_assertion() -> None:
+    """The binary is told to stop at the first failure rather than run the rest of the suite."""
+    argv = _command()
+    assert "--abort" in argv[argv.index("--") + 1 :]
 
 
 def test_every_runner_option_stays_ahead_of_the_separator() -> None:
@@ -48,6 +61,7 @@ def test_every_runner_option_stays_ahead_of_the_separator() -> None:
     separator = argv.index("--")
     assert all(arg.startswith("--") for arg in argv[2:separator])
     assert "--order" not in argv[:separator]
+    assert "--abort" not in argv[:separator]
 
 
 def test_a_dry_run_is_the_lane_s_argv_with_the_runner_told_to_run_no_mutant() -> None:

@@ -75,7 +75,7 @@ arm() {
 }
 
 harness=every_rust_fence_of_the_listed_documents_builds_and_runs
-skip='f"{caller} -skip=^{GO_DOC_HARNESS}$"'
+skip='f"{caller} -count=1 -skip=^{GO_DOC_HARNESS}$"'
 
 arm python/pyproject.toml 'pytest_add_cli_args = [' 'pytest_add_cli_args = ["--markdown-docs",' \
 	"mutmut's own arguments collect the fences" \
@@ -87,13 +87,13 @@ arm tools/_ci_steps.py '"--markdown-docs",' '"--markdown-fences",' \
 	"the harness option spelled another way" \
 	"[python/doc-harness] tools/_ci_steps.py passes no --markdown-docs" || exit 1
 
-arm tools/mutation_run.py "$skip" 'f"{caller}"' \
+arm tools/mutation_run.py "$skip" 'f"{caller} -count=1"' \
 	"GOFLAGS with no -skip" \
 	"[go/doc-harness] the GOFLAGS the runner gives gremlins carry no -skip" || exit 1
-arm tools/mutation_run.py "$skip" 'f"{caller} -skip=^TestDocFences$"' \
+arm tools/mutation_run.py "$skip" 'f"{caller} -count=1 -skip=^TestDocFences$"' \
 	"a -skip matching no test" \
 	"[go/doc-harness] every mutant's run reaches TestDocExamples" || exit 1
-arm tools/mutation_run.py "$skip" 'f"{caller} -skip=^{GO_DOC_HARNESS}"' \
+arm tools/mutation_run.py "$skip" 'f"{caller} -count=1 -skip=^{GO_DOC_HARNESS}"' \
 	"a -skip matching the fixture test too" \
 	"[go/doc-harness] the lane's skip also drops TestDocExamplesFixture_ChecksYAMLLoads" || exit 1
 arm go/aletheia/doc_examples_test.go 'func TestDocExamples(t *testing.T)' 'func TestDocFences(t *testing.T)' \

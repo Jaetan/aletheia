@@ -74,9 +74,9 @@ followed.
    section), so every subsequent PR is gated.
 
 **Mutation testing → required (2026-06-20).** The `mutation testing` check (the
-Python, Go, and C++ drift gate in `pr-heavy-lanes.yml`, the C++ half as nine legs
-merged by the `mutation cpp` job, three per mutation tree; the Rust binding has
-no mutation lane yet) follows the same
+Python, Go, C++ and Rust drift gate in `pr-heavy-lanes.yml`, the C++ lane as nine
+legs, three per mutation tree, and the Go lane as two shards, both merged by the
+`mutation merge` job) follows the same
 advisory-green → required rollout. But because its heavy caches (Mull-from-source,
 the build tree) only seed on `push: main`, adding it to the ruleset is gated on a
 **cache-seeding proof**, not merely a green PR:
@@ -193,7 +193,7 @@ The full sweep lives in
 (it was the v1 draft formerly inlined here). It runs `tools/run_ci.py` (all
 gates) on `pull_request` + `push: main`, installs the toolchain via `ghcup`
 directly (no third-party action to SHA-pin), declares a read-only
-`permissions:` block, and caches the cabal store + agda-stdlib. It passes the
+`permissions:` block, and caches GHC, the cabal store and agda-stdlib. It passes the
 repo's own GHA meta-gates locally (`actionlint`, `check_action_pins`,
 `check_workflow_permissions`) and `check-spdx-headers`. The toolchain steps —
 especially the C++/LLVM lane — are the expected iteration points on the first

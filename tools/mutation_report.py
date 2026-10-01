@@ -26,7 +26,8 @@ from tools._common import scratch_worktree
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from tools._common import RelPath
+    from tools.mutation_cpp_legs import CppTreeName
+    from tools.mutation_cpp_slices import TreeRuns
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SPEC_PATH = REPO_ROOT / "docs" / "MUTATION_BENCH.yaml"
@@ -68,8 +69,9 @@ class Baseline(TypedDict):
     survivors: NotRequired[int]
     timeout_ceiling: NotRequired[int]
     total_mutants: NotRequired[int]
-    # Mutants per repository-relative file, which the C++ slices are cut on.
-    mutants_by_file: NotRequired[dict[RelPath, int]]
+    # Per C++ tree, the suite runs each repository-relative file's mutants
+    # cost, which the tree's slices are cut on.
+    runs_by_file: NotRequired[dict[CppTreeName, TreeRuns]]
     score_pct: NotRequired[int]
     run_at: NotRequired[str]
     survivors_ledger: NotRequired[list[LedgerRow]]
