@@ -246,8 +246,11 @@ idle, so the sweep runs as shards side by side, one per CPU up to four, each
 in a copy of its own: cargo-mutants lists the mutants once (`--list --json`),
 each copy sweeps its `--shard k/N` of them, and the runner merges the shards'
 `outcomes.json` into one, refusing a mutant two shards swept, one no shard
-swept, or one the listing does not name.  On four CPUs the sweep took 609 s
-whole and 479 s in four shards, to one verdict.  The tree itself never holds a
+swept, or one the listing does not name.  The sweep's builds carry no debug
+information, set for the sweep alone (`CARGO_PROFILE_DEV_DEBUG=0`), since a
+mutant's cost is the incremental build of the crate's tests.  On four CPUs the
+sweep took 609 s whole, 479 s in four shards and 361 s in four shards without
+debug information, to one verdict.  The tree itself never holds a
 mutant, so a test run or a commit may go on beside a sweep; the suite loads the
 tree's own `build/libaletheia-ffi.so`, so the kernel is not rebuilt while a
 sweep runs.  A sweep killed outright leaves its copies behind, where `git

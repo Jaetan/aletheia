@@ -276,6 +276,16 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   the next run saves them, and a test holds the list to the trees the sweep's
   steps configure.
 
+- **The Rust mutation sweep builds without debug information.** A mutant's
+  cost is the incremental build of the crate's tests, and debug information is
+  a fifth of it: one mutant's build took 4.77 s against 5.98 s on one CPU,
+  1.45 s against 1.87 s on four. The sweep sets `CARGO_PROFILE_DEV_DEBUG=0`
+  for its own builds alone. Swept in four shards on four CPUs, the lane took
+  360.8 s against 479.4 s, with the same verdict: 316 mutants, 314 killed, 2
+  surviving, 59 unviable. A faster linker was measured and left out: the
+  toolchain already links with `rust-lld`, and mold gained no more than the
+  noise.
+
 - **No mutation lane runs its binding's doc-example harness.** A harness
   builds and runs every fence of the documents as a program of its own,
   holding the documents to the binding, and costs its whole run once per

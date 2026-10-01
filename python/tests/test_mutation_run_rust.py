@@ -170,6 +170,7 @@ def test_the_timeout_ceiling_is_read_before_the_count() -> None:
 # does, and reports one caught mutant.
 _FAKE_CARGO = """\\
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -189,6 +190,7 @@ seen = source.read_text(encoding="utf-8")
 _ = source.write_text("mutant\\n", encoding="utf-8")
 (out / "mutants.out").mkdir(parents=True, exist_ok=True)
 _ = (out / "ran_in.txt").write_text(f"{Path.cwd()}\\n{seen}", encoding="utf-8")
+_ = (out / "debug.txt").write_text(os.environ.get("CARGO_PROFILE_DEV_DEBUG", "unset"))
 mine = [m for index, m in enumerate(listed) if index % total == number]
 outcomes = [{"scenario": "Baseline", "summary": "Success"}] + [
     {"scenario": {"Mutant": m}, "summary": "CaughtMutant"} for m in mine
@@ -234,6 +236,9 @@ def test_the_sweep_mutates_a_copy_of_the_tree_as_it_stands(
         assert seen == "uncommitted edit\n"
         assert not Path(ran_in).exists()
         copies.add(Path(ran_in))
+        # Every shard builds without debug information, the sweep's own profile.
+        debug = (artifacts / "rust" / f"shard-{number}" / "debug.txt").read_text(encoding="utf-8")
+        assert debug == mutation_rust.SWEEP_DEBUG
     # Each shard swept a copy of its own: one copy holds one mutant at a time.
     assert len(copies) == 2
     assert (repo / "rust" / "src" / "lib.rs").read_text(encoding="utf-8") == "uncommitted edit\n"

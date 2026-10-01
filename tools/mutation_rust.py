@@ -71,6 +71,11 @@ OUTCOMES = Path(RUST_OUTPUT_DIR) / "mutants.out" / "outcomes.json"
 # round-robin, so the shards partition the list it would sweep whole.
 RUST_SHARDS_CAP = 4
 
+# The profile setting the sweep builds under: no debug information
+# (``run_rust``).
+SWEEP_DEBUG_VAR = "CARGO_PROFILE_DEV_DEBUG"
+SWEEP_DEBUG = "0"
+
 # One shard of a sweep, numbered from zero as cargo-mutants numbers them, and how many a sweep runs.
 RustShard = NewType("RustShard", int)
 ShardCount = NewType("ShardCount", int)
@@ -214,6 +219,12 @@ def run_rust(artifact_dir: Path) -> MutationReport:
     # the scratch copy's crate, and the copy carries no build.
     env = dict(os.environ)
     env["ALETHEIA_LIB"] = str(lib)
+    # The sweep's builds carry no debug information: a mutant's cost is the
+    # incremental build of the crate's tests, and swept in four shards on four
+    # CPUs the lane took 360.8 s without it against 479.4 s with it, to the
+    # same verdict.  Set for the sweep alone, so every other build of the
+    # crate keeps its profile.
+    env[SWEEP_DEBUG_VAR] = SWEEP_DEBUG
     shards = rust_shards()
     with contextlib.ExitStack() as stack:
         trees: list[Path] = []
