@@ -57,10 +57,39 @@ jobs:
           # disappears and real warnings stay meaningful.  Tolerant: never fail
           # the build over log hygiene if the path differs on a future runner.
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
-          ghcup install ghc "${GHC_VERSION}" --set
           ghcup install cabal 3.16.1.0 --set
-          echo "${HOME}/.cabal/bin" >> "${GITHUB_PATH}"
-          echo "${HOME}/.ghcup/bin" >> "${GITHUB_PATH}"
+          {
+            echo "${HOME}/.cabal/bin"
+            echo "${HOME}/.ghcup/bin"
+            echo "${HOME}/ghc-${GHC_VERSION}/bin"
+          } >> "${GITHUB_PATH}"
+
+      # GHC goes into a directory of its own, cached there: installing the
+      # bindist was 92 s of the 104 s this setup took on every job of run
+      # 36804855030, and the installed directory compresses to 292 MiB
+      # (zstd, measured on the same bindist).  The wrappers in its bin/ name
+      # the directory by absolute path, so it is restored where it was
+      # installed, under $HOME, which is /home/runner on every hosted runner;
+      # hit or miss, its bin/ is first on PATH (set above), so both run one
+      # compiler.  The key names the image, as the toolchain debs' does,
+      # because the bindist links the image's system libraries.
+      - name: Restore GHC ${{ env.GHC_VERSION }}
+        id: ghc-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/ghc-${{ env.GHC_VERSION }}
+          key: ghc${{ env.GHC_VERSION }}-noble-v1
+
+      - name: Install GHC ${{ env.GHC_VERSION }} into its directory (only on a cache miss)
+        if: steps.ghc-cache.outputs.cache-hit != 'true'
+        run: ghcup install ghc "${GHC_VERSION}" --isolate "${HOME}/ghc-${GHC_VERSION}"
+
+      - name: Save GHC (only on a cache miss)
+        if: steps.ghc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/ghc-${{ env.GHC_VERSION }}
+          key: ghc${{ env.GHC_VERSION }}-noble-v1
 
       # Caches the prebuilt Agda library + executable so only the FIRST run
       # builds Agda (~15-20 min on the 4-core runner); later runs restore it
@@ -70,8 +99,8 @@ jobs:
       # save runs right after the build, BEFORE the sweep, so a later gate
       # failure still persists the build; placing it pre-sweep also means it is
       # skipped automatically if `cabal install` itself fails (no broken cache).
-      # Key is -v2: the first run cached an empty store (cabal used the XDG
-      # location before CABAL_DIR was pinned) and cache keys are immutable.
+      # The key carries shake.cabal's hash, for the reason the shake step
+      # below gives.
       - name: Restore cabal store (Agda library + executable + deps)
         id: cabal-cache
         uses: actions/cache/restore@v6
@@ -80,19 +109,32 @@ jobs:
             ~/.cabal/store
             ~/.cabal/packages
             ~/.cabal/bin
-          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-${{ hashFiles('shake.cabal') }}-v3
+          restore-keys: |
+            cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-
 
-      # cabal's package index lives in the restored ~/.cabal/packages, so a
-      # fresh `cabal update` is redundant on a cache hit (it previously ran
-      # unconditionally in "Set up GHC + cabal", BEFORE this restore overwrote
-      # its index with the cached one).  Run it only on a miss, where the
-      # `cabal install Agda` below actually needs a current index.
+      # cabal's package index lives in the restored ~/.cabal/packages, and the
+      # solver picks from what it lists: a store restored under the key or its
+      # prefix keeps the index its packages were resolved against, where a
+      # fresh one could pick newer versions and build Agda again.  So the
+      # index is refreshed only where nothing was restored, which is where
+      # `cabal install Agda` below needs a current one.
       - name: Update cabal package index (only on a cabal-store cache miss)
-        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        if: steps.cabal-cache.outputs.cache-matched-key == ''
         run: cabal update
 
       - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
         run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
+
+      # The shake executable's dependencies (shake.cabal) go into the store
+      # beside Agda's, ahead of the save, so the store holds them and
+      # `cabal run shake` compiles none: built there, they took 43 s of the
+      # 44 s FFI step on every job of run 36804855030.  The store key carries
+      # shake.cabal's hash for that reason; where no store matches it, the
+      # newest under the key's prefix is restored, so only the difference
+      # builds before the new key is saved.
+      - name: Build the shake executable's dependencies into the store
+        run: cabal build --only-dependencies aletheia-build:exe:shake
 
       - name: Save cabal store (persists the Agda build even if a later gate fails)
         if: steps.cabal-cache.outputs.cache-hit != 'true'
@@ -102,7 +144,7 @@ jobs:
             ~/.cabal/store
             ~/.cabal/packages
             ~/.cabal/bin
-          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-v2
+          key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-${{ hashFiles('shake.cabal') }}-v3
 
       - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
         uses: actions/cache@v6

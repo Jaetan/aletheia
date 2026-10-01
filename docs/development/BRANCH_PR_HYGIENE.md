@@ -193,7 +193,7 @@ The full sweep lives in
 (it was the v1 draft formerly inlined here). It runs `tools/run_ci.py` (all
 gates) on `pull_request` + `push: main`, installs the toolchain via `ghcup`
 directly (no third-party action to SHA-pin), declares a read-only
-`permissions:` block, and caches the cabal store + agda-stdlib. It passes the
+`permissions:` block, and caches GHC, the cabal store and agda-stdlib. It passes the
 repo's own GHA meta-gates locally (`actionlint`, `check_action_pins`,
 `check_workflow_permissions`) and `check-spdx-headers`. The toolchain steps —
 especially the C++/LLVM lane — are the expected iteration points on the first

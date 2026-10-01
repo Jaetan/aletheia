@@ -190,6 +190,26 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   two sweeps read the same route, check and status for every one, and a probe
   sweeps every tree without the flag to hold that.
 
+- **The cabal store a CI job saves holds the shake executable's dependencies.**
+  Every job that builds the kernel compiled `shake` and the libraries it
+  needs before its first Shake target, because the store was saved right
+  after the Agda install and before anything built them: 43 s of the 44 s
+  FFI step on each job of a heavy-lanes run. A step builds them into the
+  store ahead of the save, the store key carries `shake.cabal`'s hash, and a
+  key that matches nothing restores the newest store under its prefix, so a
+  dependency change builds only the difference. The package index is
+  refreshed only where nothing was restored, so a store restored that way
+  resolves against the index its packages were built from instead of
+  rebuilding Agda against a newer one.
+
+- **CI restores GHC instead of installing it.** `ghcup install ghc` spent 92 s
+  of every job's 104 s toolchain step unpacking and installing the bindist.
+  GHC now goes into a directory of its own (`ghcup --isolate`), cached under
+  a key naming the version and the runner image; a job that finds it skips
+  the install, and every job runs the compiler from that directory, hit or
+  miss. A probe holds every job that installs Agda to this one setup of GHC
+  and the store.
+
 - **No mutation lane runs its binding's doc-example harness.** A harness
   builds and runs every fence of the documents as a program of its own,
   holding the documents to the binding, and costs its whole run once per
