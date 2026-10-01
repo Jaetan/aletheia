@@ -15,11 +15,14 @@ import os
 import shlex
 import sys
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING
+
+import pytest
 
 from tools._ci_steps import (
     AGDA_GATES_STEP,
     AGDA_SHAKE_TARGETS,
+    CPP_COMPILERS,
+    CPP_LINT_LANE,
     DOC_EXAMPLE_DOCS,
     FAST_STEPS,
     HEAVY_STEPS,
@@ -29,7 +32,7 @@ from tools._ci_steps import (
     register_all_steps,
     should_run_staleness,
 )
-from tools._common import find_executable, git_ls_files, run_capture
+from tools._common import CPP_LINT_TREE, find_executable, git_ls_files, run_capture
 from tools.check_gate_claim import (
     SOURCES_ENV,
     SOURCES_LINE,
@@ -38,15 +41,13 @@ from tools.check_gate_claim import (
     sources_digest_of_worktree,
 )
 from tools.run_ci import (
+    LaneName,
     OptInLanes,
     OptInOptions,
     RunContext,
     Runner,
     parse_args,
 )
-
-if TYPE_CHECKING:
-    import pytest
 
 # The Agda-gate fan-in folds every cabal-shake gate into one `cabal run shake
 # -- <targets>` invocation.  Its hazard is a silently DROPPED gate: a line removed from
@@ -133,7 +134,12 @@ def test_heavy_limit_non_positive_clamped_to_one(monkeypatch: pytest.MonkeyPatch
 
 
 def _runner(
-    tmp_path: Path, *, parallel: bool = False, fast: bool = False, python: str = "python3"
+    tmp_path: Path,
+    *,
+    parallel: bool = False,
+    fast: bool = False,
+    python: str = "python3",
+    only_lanes: tuple[LaneName, ...] = (),
 ) -> Runner:
     """Build a Runner writing to a temp log, with all opt-in lanes off.
 
@@ -154,6 +160,7 @@ def _runner(
         lanes=OptInLanes(repro=False, stability=False, mutation=False, coverage=False),
         parallel=parallel,
         fast=fast,
+        only_lanes=only_lanes,
     )
     return Runner(opts, ctx)
 
@@ -277,6 +284,48 @@ def test_each_sanitizer_lane_owns_its_tree_and_its_lane(tmp_path: Path) -> None:
     for name, step in lanes.items():
         assert f"--test-dir {trees[name]}" in str(step.cmd)
         assert step.heavy, f"{name} builds a whole tree and is heavy"
+
+
+def test_the_compile_database_gates_run_beside_the_test_build(tmp_path: Path) -> None:
+    """clang-tidy and the two checks reading its database share a lane the test build is not in.
+
+    The lane's first step configures the lint tree with the binding's
+    compilers and lints from that tree's database, so the checks after it read
+    a database that exists; the cpp lane, which builds and runs the tests,
+    holds none of them, so none waits for that build.
+    """
+    runner = _runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    gates = ["clang-tidy", "check-clang-tidy-coverage", "check-cpp-restated-types"]
+    lane = [step for step in runner.registered_steps if step.lane == CPP_LINT_LANE]
+    assert [step.name for step in lane] == gates
+    tidy = str(lane[0].cmd)
+    assert _build_dir(tidy) == CPP_LINT_TREE
+    assert CPP_COMPILERS in tidy
+    assert f"run-clang-tidy-23 -quiet -p {CPP_LINT_TREE} " in tidy
+    cpp = [step.name for step in runner.registered_steps if step.lane == "cpp"]
+    assert "ctest" in cpp
+    assert not set(gates) & set(cpp)
+
+
+def test_the_full_ci_parts_split_every_lane_between_them(tmp_path: Path) -> None:
+    """Each lane the sweep registers runs in exactly one part of the full-CI job.
+
+    A lane no part names would run nowhere on a pull request, and one two
+    parts name would run twice.  The parts' lists are read from the workflow;
+    the runner here registers what the job does, with no opt-in lane.
+    """
+    runner = _runner(tmp_path)
+    register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
+    registered = sorted({step.lane for step in runner.registered_steps})
+    workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "pr-full-ci.yml"
+    named = [
+        lane.strip()
+        for line in workflow.read_text(encoding="utf-8").splitlines()
+        if line.strip().startswith("lanes: ")
+        for lane in line.strip().removeprefix("lanes: ").split(",")
+    ]
+    assert sorted(named) == registered
 
 
 def test_full_ci_caches_the_dependencies_of_every_tree_it_configures(tmp_path: Path) -> None:
@@ -472,6 +521,68 @@ def test_a_fast_sweep_records_no_sources_and_exports_none(
     assert f"{SOURCES_LINE}{SOURCES_UNRECORDED}\n" in log
     assert "seen=[]" in log
     assert os.environ[SOURCES_ENV] == "stale-from-a-caller"
+    assert evidence_for(runner.ctx.sources, log_dir=tmp_path, environ={}) is None
+
+
+def test_lanes_parse_into_the_names_given() -> None:
+    """The option takes lane names separated by commas, spaces around them dropped."""
+    assert parse_args(["--lanes", "cpp, ubsan,asan"]).only_lanes == ("cpp", "ubsan", "asan")
+    assert not parse_args([]).only_lanes
+
+
+def test_an_empty_lane_name_is_refused() -> None:
+    """A doubled comma would otherwise name a lane nothing registers into, silently."""
+    with pytest.raises(SystemExit):
+        _ = parse_args(["--lanes", "cpp,,asan"])
+
+
+def _three_lanes(runner: Runner) -> None:
+    """Register a build and steps in two lanes, interleaved."""
+    runner.step("build", "exit 0", lane="agda")
+    runner.step("a1", "exit 0", lane="a")
+    runner.step("b1", "exit 0", lane="b")
+    runner.step("a2", "exit 0", lane="a")
+
+
+def test_a_lane_subset_keeps_the_build_and_those_lanes_alone(tmp_path: Path) -> None:
+    """The build prereq every lane needs stays; another lane's steps go."""
+    runner = _runner(tmp_path)
+    _three_lanes(runner)
+    assert runner.restrict_to_lanes((LaneName("a"),)) is None
+    assert runner.registered_step_names == ("build", "a1", "a2")
+
+
+def test_a_lane_no_step_registers_into_is_refused(tmp_path: Path) -> None:
+    """A misspelt lane is refused and the registry left whole, not a smaller sweep run."""
+    runner = _runner(tmp_path)
+    _three_lanes(runner)
+    refusal = runner.restrict_to_lanes((LaneName("a"), LaneName("nope")))
+    assert refusal is not None
+    assert "nope" in refusal
+    assert runner.registered_step_names == ("build", "a1", "b1", "a2")
+
+
+def test_lanes_beside_the_fast_tier_are_refused(tmp_path: Path) -> None:
+    """Two subsets at once would leave which gates ran to the order they were applied in."""
+    runner = _runner(tmp_path, fast=True)
+    _three_lanes(runner)
+    refusal = runner.restrict_to_lanes((LaneName("a"),))
+    assert refusal is not None
+    assert "--fast" in refusal
+
+
+def test_a_lane_sweep_records_no_sources_and_exports_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A sweep of some lanes runs a subset, so its passing log vouches for no tree."""
+    monkeypatch.setenv(SOURCES_ENV, "stale-from-a-caller")
+    runner = _runner(tmp_path, only_lanes=(LaneName("x"),))
+    runner.step("observe", f"echo seen=[${SOURCES_ENV}]", lane="x")
+    assert runner.run() == 0
+    log = (tmp_path / "ci.log").read_text(encoding="utf-8")
+    assert f"{SOURCES_LINE}{SOURCES_UNRECORDED}\n" in log
+    assert "Lanes:    x\n" in log
+    assert "seen=[]" in log
     assert evidence_for(runner.ctx.sources, log_dir=tmp_path, environ={}) is None
 
 

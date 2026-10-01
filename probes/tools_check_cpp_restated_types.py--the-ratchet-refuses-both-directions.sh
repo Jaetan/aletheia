@@ -29,7 +29,7 @@ subject=cpp/src/enrich.cpp
 record=docs/CPP_RESTATED_TYPES.yaml
 [ -f "$subject" ] || exit 2
 [ -f "$record" ] || exit 2
-[ -f cpp/build/compile_commands.json ] || exit 2
+[ -f cpp/build-tidy/compile_commands.json ] || exit 2
 
 work=$(mktemp -d) || exit 2
 tree=$work/tree
@@ -39,9 +39,9 @@ trap 'git worktree remove --force "$tree" > /dev/null 2>&1; rm -rf "$work"' EXIT
 git worktree add -q --detach "$tree" HEAD || exit 2
 git diff --no-ext-diff --no-color --binary --src-prefix=a/ --dst-prefix=b/ HEAD |
     git -C "$tree" apply --index --allow-empty || exit 2
-mkdir -p "$tree/cpp/build" || exit 2
-ln -s "$PWD/cpp/build/_deps" "$tree/cpp/build/_deps" || exit 2
-sed "s|$PWD/cpp|$tree/cpp|g" cpp/build/compile_commands.json > "$tree/cpp/build/compile_commands.json" || exit 2
+mkdir -p "$tree/cpp/build-tidy" || exit 2
+ln -s "$PWD/cpp/build-tidy/_deps" "$tree/cpp/build-tidy/_deps" || exit 2
+sed "s|$PWD/cpp|$tree/cpp|g" cpp/build-tidy/compile_commands.json > "$tree/cpp/build-tidy/compile_commands.json" || exit 2
 lens() { (cd "$tree" && "$py" -m tools.check_cpp_restated_types); }
 cp "$tree/$subject" "$work/subject" || exit 2
 

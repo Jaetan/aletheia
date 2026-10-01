@@ -117,7 +117,8 @@ code, so it cannot live in this repo.
    - **Require a pull request before merging** (blocks direct `git push` to
      `main`; every change goes through a PR + the check).
    - **Require status checks to pass**, then **Add checks** and select
-     **`tools/run_ci.py (all gates)`** (the job's `name:`). ⚠️ The check only
+     **`tools/run_ci.py (all gates)`** (the `name:` of the job reporting both
+     parts of the sweep). ⚠️ The check only
      appears in that list **after it has run at least once** — that's why the
      rollout merges `ci-speed` (a green workflow run) *before* this step. Also add
      **`mutation testing`** here once its cache-seeding proof passes (see the
@@ -190,8 +191,10 @@ erroring silently in GHA. Fixed to `python3 -m tools.<check>`.
 
 The full sweep lives in
 [`.github/workflows/pr-full-ci.yml`](../../.github/workflows/pr-full-ci.yml)
-(it was the v1 draft formerly inlined here). It runs `tools/run_ci.py` (all
-gates) on `pull_request` + `push: main`, installs the toolchain via `ghcup`
+(it was the v1 draft formerly inlined here). It runs `tools/run_ci.py` on
+`pull_request` + `push: main` in two parts on two runners, each the build and
+some of the lanes (`--lanes`), and a job named `tools/run_ci.py (all gates)`
+passes only when both parts did. It installs the toolchain via `ghcup`
 directly (no third-party action to SHA-pin), declares a read-only
 `permissions:` block, and caches GHC, the cabal store and agda-stdlib. It passes the
 repo's own GHA meta-gates locally (`actionlint`, `check_action_pins`,

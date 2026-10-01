@@ -25,7 +25,10 @@ Shakefile.hs comment block where the ``ci`` phony would otherwise live.
 
 Steps register into per-toolchain lanes; ``build`` runs first (every lane needs
 its ``.so`` / ``.agdai``), then the lanes run serially (default) or concurrently
-(``--parallel`` — see ``tools/_scheduler.py``).  The always-on steps, by lane:
+(``--parallel`` — see ``tools/_scheduler.py``).  ``--lanes`` runs the named
+lanes alone, ``build`` still first: full CI runs the sweep in two parts on two
+runners (``.github/workflows/pr-full-ci.yml``), and a sweep of some lanes
+records no build-source digest.  The always-on steps, by lane:
 
   Agda gates:
     - build           — produces libaletheia-ffi.so (separate prereq; a build
@@ -71,7 +74,7 @@ its ``.so`` / ``.agdai``), then the lanes run serially (default) or concurrently
     - check-precise-hints (Python type hints held to docs/PYTHON_IMPRECISE_HINTS.yaml)
     - gofmt -l + go vet (Go)
     - clang-format --dry-run --Werror (C++)
-    - clang-tidy -p build (C++ — mandatory per AGENTS.md § Step 4)
+    - clang-tidy -p build-tidy (C++ — mandatory per AGENTS.md § Step 4)
     - Rust cargo fmt --check + clippy -D warnings
   GHA meta-checks:
     - actionlint (workflow YAML lint, skipped if not installed)
@@ -149,7 +152,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, TextIO
+from typing import TYPE_CHECKING, NewType, TextIO
 
 from tools._ci_steps import FAST_STEPS, HEAVY_STEPS, register_all_steps
 from tools._common import emit, find_executable, git_toplevel
@@ -165,13 +168,21 @@ from tools.check_gate_claim import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+# A lane's name, as a step registers into it (``Step.lane``), and the text
+# ``--lanes`` takes: lane names separated by commas.
+LaneName = NewType("LaneName", str)
+LaneSpec = NewType("LaneSpec", str)
+
+# Why a requested subset of lanes is refused, as the sweep prints it.
+LaneRefusal = NewType("LaneRefusal", str)
+
 # Number of trailing log lines echoed to stderr when a step fails.
 FAILURE_TAIL_LINES = 50
 
 # Toolchain lane inferred from a step's cwd directory name.  Binding/lint steps
 # run under python/ go/ cpp/ rust/, so their cwd unambiguously names their lane
-# (steps sharing a toolchain dir — pytest+lints, ctest+clang-tidy, cargo
-# test+clippy — must run serially within one lane).  Shake steps (cwd=None,
+# (steps sharing a toolchain dir — pytest+lints, ctest and the CLI parity suite,
+# cargo test+clippy — must run serially within one lane).  Shake steps (cwd=None,
 # shared build-dir lock) are tagged explicitly "agda"; light meta/opt-in steps
 # fall to "misc".  "misc" never holds a `cabal run shake` step, so two Shake
 # invocations can never land in different lanes and deadlock on the build lock.
@@ -249,6 +260,18 @@ class OptInOptions:
     # runs the full sweep.  A no-op subset filter, so it never changes a step's
     # command — no gate drift between commit-time and push-time definitions.
     fast: bool = False
+    # Run only these lanes, and the `build` prereq they all need: how the
+    # full-CI workflow spreads one sweep over two runners.  Empty runs every
+    # lane.  Like the fast tier, a subset filter that never alters a step's
+    # command, and a subset sweep vouches for no build-source digest, since it
+    # is no evidence that every gate observed the tree.
+    only_lanes: tuple[LaneName, ...] = ()
+
+
+def _lane_list(spec: LaneSpec) -> tuple[LaneName, ...] | None:
+    """Read ``--lanes``: its lane names, or None where one of them is empty."""
+    names = tuple(LaneName(name.strip()) for name in spec.split(","))
+    return names if all(names) else None
 
 
 def _resolve_flag(*, cli_value: bool | None, env_var: str) -> bool:
@@ -409,7 +432,19 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
         ),
     )
 
+    parser.add_argument(
+        "--lanes",
+        default=None,
+        help=(
+            "Run only the named lanes (comma-separated, e.g. cpp,ubsan,asan) and the "
+            "build prereq; an unknown lane name is refused.  How full CI spreads the "
+            "sweep over two runners; a subset sweep vouches for no build-source digest."
+        ),
+    )
     args = parser.parse_args(argv)
+    only_lanes = () if args.lanes is None else _lane_list(LaneSpec(args.lanes))
+    if only_lanes is None:
+        parser.error(f"--lanes takes comma-separated lane names, got {args.lanes!r}")
 
     # --full sets every unset CLI flag to True; explicit --no-<lane> keeps False.
     # The order matters: apply --full BEFORE _resolve_flag so the env var still
@@ -431,6 +466,7 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
         heavy_limit=_resolve_heavy_limit(args.ci_heavy_limit),
         build_staleness=_resolve_build_staleness(args.build_staleness),
         fast=args.fast or os.environ.get("ALETHEIA_CI_FAST") == "1",
+        only_lanes=only_lanes,
     )
 
 
@@ -531,10 +567,16 @@ class Runner:
     def recorded_sources(self) -> str:
         """The build-source digest this sweep vouches for, or the note that it does not.
 
-        A fast-tier sweep runs a subset of the steps, so its passing summary
+        The fast tier and a sweep of some lanes run a subset of the steps, so
+        their passing summary
         must not read as evidence that every gate observed the tree.
         """
-        return SOURCES_UNRECORDED if self.opts.fast else self.ctx.sources
+        return SOURCES_UNRECORDED if self._is_subset else self.ctx.sources
+
+    @property
+    def _is_subset(self) -> bool:
+        """Say whether this sweep runs a subset of the gates: the fast tier, or some lanes."""
+        return self.opts.fast or bool(self.opts.only_lanes)
 
     def _header(self, total: int) -> None:
         """Tee the run banner (branch, commit, sources, step count, mode, opt-ins)."""
@@ -561,6 +603,7 @@ class Runner:
                     f"Commit:   {self.ctx.commit}",
                     f"{SOURCES_LINE}{self.recorded_sources}",
                     f"Steps:    {total}",
+                    f"Lanes:    {', '.join(self.opts.only_lanes) or 'all'}",
                     f"Mode:     {mode}",
                     f"Opt-ins:  {opt_in}",
                     f"Log:      {self.ctx.log_path}",
@@ -681,17 +724,39 @@ class Runner:
             self._registry = kept
         return missing
 
+    def restrict_to_lanes(self, lanes: Sequence[LaneName]) -> LaneRefusal | None:
+        """Keep only the named lanes' steps and the ``build`` prereq, or say why not.
+
+        A lane no step registers into is refused, as is a request beside the
+        fast tier, which is a subset of its own: a misspelt lane would
+        otherwise run a smaller sweep that passes.  The registry is left
+        unchanged when the request is refused.
+        """
+        if self.opts.fast:
+            return LaneRefusal("--lanes and --fast each choose a subset; give one")
+        known = {LaneName(step.lane) for step in self._registry}
+        unknown = sorted(set(lanes) - known)
+        if unknown:
+            return LaneRefusal(
+                f"no step registers into {', '.join(unknown)}; the lanes are "
+                + ", ".join(sorted(known))
+            )
+        _ = self.restrict_to(
+            frozenset(s.name for s in self._registry if s.lane in lanes or s.name == "build")
+        )
+        return None
+
     def run(self) -> int:
         """Execute build first, then the lanes (serial or parallel); return exit code.
 
-        For the duration of a full-tier run the digest of the observed build
-        sources is exported to every step, which is how the gate-claim
+        For the duration of a sweep of every gate the digest of the observed
+        build sources is exported to every step, which is how the gate-claim
         enforcer, running inside this sweep before any log of it is finished,
         learns which tree the sweep observes.  The variable is restored on
         exit so a caller's environment is left as it was found.
         """
         previous = os.environ.get(SOURCES_ENV)
-        if self.opts.fast:
+        if self._is_subset:
             _ = os.environ.pop(SOURCES_ENV, None)
         else:
             os.environ[SOURCES_ENV] = self.ctx.sources
@@ -750,7 +815,7 @@ class Runner:
         """
         elapsed = int(time.time() - self.start)
         failures = [r.name for r in results if r.returncode != 0]
-        vouching = not failures and not self.opts.fast
+        vouching = not failures and not self._is_subset
         if vouching and sources_digest_of_worktree(self.ctx.repo_root) != self.ctx.sources:
             self._tee_err("")
             self._tee_err(
@@ -810,6 +875,11 @@ def main(argv: list[str] | None = None) -> int:
             drift = ", ".join(missing)
             msg = f"run_ci --fast: FAST_STEPS names not in the registry (rename drift?): {drift}\n"
             sys.stderr.write(msg)
+            return 2
+    if opts.only_lanes:
+        refusal = runner.restrict_to_lanes(opts.only_lanes)
+        if refusal is not None:
+            sys.stderr.write(f"run_ci --lanes: {refusal}\n")
             return 2
     return runner.run()
 

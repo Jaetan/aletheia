@@ -286,6 +286,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   toolchain already links with `rust-lld`, and mold gained no more than the
   noise.
 
+- **Full CI runs its sweep in two parts on two runners.** The sweep is bound
+  by a four-core runner's work: on a slower machine every step slowed
+  together, the sweep 886 s and 905 s against 635 s. `tools/run_ci.py --lanes`
+  runs the named lanes and the build alone, and the workflow runs two parts as
+  a matrix, the C++ tests, asan and the lint gates in one and the Agda gates,
+  the bindings and ubsan in the other; `tools/run_ci.py (all gates)`, the
+  required check, now reports both and fails unless both passed. clang-tidy
+  and the two checks reading its compile database run in a lane of their own,
+  over a tree configured and never built (`cpp/build-tidy`), so they do not
+  wait for the test build; a probe holds that tree's database to the test
+  build's. Timed alone on four CPUs, the parts took 242.5 s and 192.3 s against
+  330 s for the whole sweep; the lint lane on one runner made the sweep slower,
+  342 s, which is why it came with the second. A sweep of some lanes records no
+  build-source digest, so its log is no evidence that every gate observed the
+  tree.
+
 - **No mutation lane runs its binding's doc-example harness.** A harness
   builds and runs every fence of the documents as a program of its own,
   holding the documents to the binding, and costs its whole run once per
