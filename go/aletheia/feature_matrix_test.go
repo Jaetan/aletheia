@@ -65,15 +65,10 @@ var validParityStatuses = map[string]struct{}{
 	"planned":        {},
 }
 
-// loadFeatureMatrix reads the matrix, which sits two directories up from the
-// package this test runs in.
+// loadFeatureMatrix reads the matrix from the repository's docs.
 func loadFeatureMatrix(t *testing.T) featureMatrix {
 	t.Helper()
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	path := filepath.Join(cwd, "..", "..", "docs", "FEATURE_MATRIX.yaml")
+	path := filepath.Join(repoRoot(t), "docs", "FEATURE_MATRIX.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)

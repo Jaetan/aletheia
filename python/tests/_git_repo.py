@@ -56,3 +56,19 @@ def tracked_but_absent(tmp_path: Path) -> tuple[Path, str]:
     git(repo, "add", "--", rel)
     (repo / rel).unlink()
     return repo, rel
+
+
+def repo_with_an_uncommitted_edit(root: Path, source: Path) -> Path:
+    """Return a repository at ``root`` whose ``source`` is committed, then edited and not committed.
+
+    ``source`` is relative to ``root``: committed reading ``committed``, it
+    reads ``uncommitted edit`` in the work tree, the shape a lane sweeping a
+    copy of the tree as it stands must carry over.
+    """
+    path = root / source
+    path.parent.mkdir(parents=True)
+    _ = path.write_text("committed\n", encoding="utf-8")
+    _ = git(root, "init", "-q")
+    _ = commit(root, "base")
+    _ = path.write_text("uncommitted edit\n", encoding="utf-8")
+    return root.resolve()

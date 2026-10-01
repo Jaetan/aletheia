@@ -20,36 +20,32 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
 
-// docFiles is every tracked Markdown file carrying a Go fence, relative to this
-// directory. Code no check runs opens with tildes, which the extractor does not
-// read.
+// docFiles is every tracked Markdown file carrying a Go fence, relative to the
+// repository root. Code no check runs opens with tildes, which the extractor
+// does not read.
 var docFiles = []string{
-	"../README.md",
-	"../../docs/PITCH.md",
-	"../../docs/architecture/CANCELLATION.md",
-	"../../docs/reference/INTERFACES.md",
-	"../../docs/reference/GO_API.md",
-	"../../docs/development/DISTRIBUTION.md",
-	"../../docs/guides/TUTORIAL.md",
+	"go/README.md",
+	"docs/PITCH.md",
+	"docs/architecture/CANCELLATION.md",
+	"docs/reference/INTERFACES.md",
+	"docs/reference/GO_API.md",
+	"docs/development/DISTRIBUTION.md",
+	"docs/guides/TUTORIAL.md",
 }
 
 // goFence is one Go fence of a listed file.
 type goFence struct {
-	file    string // path relative to this directory
+	file    string // path relative to the repository root
 	line    int    // 1-based line number of the opening ```go
 	content string // body between fences (no surrounding ``` lines)
 }
 
 func (f goFence) name() string {
-	return fmt.Sprintf("%s:L%d", repoRelative(f.file), f.line)
-}
-
-// repoRelative turns a path relative to this directory into the
-// repository-relative one git lists and subtests are named by.
-func repoRelative(file string) string {
-	return filepath.ToSlash(filepath.Join("go/aletheia", file))
+	return fmt.Sprintf("%s:L%d", f.file, f.line)
 }
 
 // fenceOpening is what a line opens, read by the first word of its info
@@ -84,11 +80,12 @@ func goFenceOpening(line string) fenceOpening {
 	return hiddenGoFence
 }
 
-// extractGoFences returns every Go fence of one file: an opening line the
-// harness runs, closed by a line that is exactly the fence.
+// extractGoFences returns every Go fence of one file, named relative to the
+// repository root: an opening line the harness runs, closed by a line that is
+// exactly the fence.
 func extractGoFences(t *testing.T, file string) []goFence {
 	t.Helper()
-	data, err := os.ReadFile(file)
+	data, err := os.ReadFile(filepath.Join(aletheia.RepoRoot(t), file))
 	if err != nil {
 		t.Fatalf("read %s: %v", file, err)
 	}
@@ -138,7 +135,7 @@ func extractGoFences(t *testing.T, file string) []goFence {
 // working tree is never read.
 func trackedMarkdown(t *testing.T) []string {
 	t.Helper()
-	out, err := exec.Command("git", "-C", "../..", "ls-files", "-z", "--", "*.md", "*.mdx", "*.svx").Output()
+	out, err := exec.Command("git", "-C", aletheia.RepoRoot(t), "ls-files", "-z", "--", "*.md", "*.mdx", "*.svx").Output()
 	if err != nil {
 		t.Fatalf("git ls-files: %v", err)
 	}
@@ -146,13 +143,9 @@ func trackedMarkdown(t *testing.T) []string {
 }
 
 func TestEveryTrackedGoFenceIsInAListedDocument(t *testing.T) {
-	var known []string
-	for _, file := range docFiles {
-		known = append(known, repoRelative(file))
-	}
 	var unlisted []string
 	for _, doc := range trackedMarkdown(t) {
-		if !slices.Contains(known, doc) && len(extractGoFences(t, filepath.Join("../..", doc))) > 0 {
+		if !slices.Contains(docFiles, doc) && len(extractGoFences(t, doc)) > 0 {
 			unlisted = append(unlisted, doc)
 		}
 	}
@@ -163,15 +156,14 @@ func TestEveryTrackedGoFenceIsInAListedDocument(t *testing.T) {
 
 func TestEveryListedDocumentIsTrackedAndCarriesAGoFence(t *testing.T) {
 	tracked := trackedMarkdown(t)
-	for i, file := range docFiles {
-		doc := repoRelative(file)
-		if slices.Contains(docFiles[:i], file) {
+	for i, doc := range docFiles {
+		if slices.Contains(docFiles[:i], doc) {
 			t.Errorf("%s is listed twice", doc)
 		}
 		if !slices.Contains(tracked, doc) {
 			t.Errorf("%s is listed and not tracked", doc)
 		}
-		if len(extractGoFences(t, file)) == 0 {
+		if len(extractGoFences(t, doc)) == 0 {
 			t.Errorf("%s carries no Go fence, so the harness runs nothing in it", doc)
 		}
 	}
@@ -180,7 +172,7 @@ func TestEveryListedDocumentIsTrackedAndCarriesAGoFence(t *testing.T) {
 func TestNoGoFenceHidesBehindASuffix(t *testing.T) {
 	var hidden []string
 	for _, doc := range trackedMarkdown(t) {
-		data, err := os.ReadFile(filepath.Join("../..", doc))
+		data, err := os.ReadFile(filepath.Join(aletheia.RepoRoot(t), doc))
 		if err != nil {
 			t.Fatalf("read %s: %v", doc, err)
 		}

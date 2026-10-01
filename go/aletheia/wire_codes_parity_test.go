@@ -25,7 +25,6 @@ package aletheia_test
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -43,15 +42,10 @@ type wireCodeDoc struct {
 	ErrorCodes []wireCodeRow `yaml:"error_codes"`
 }
 
-// loadWireCodes reads the document, found from this source file rather than
-// from the working directory.
+// loadWireCodes reads the document from the repository RepoRoot names.
 func loadWireCodes(t *testing.T) wireCodeDoc {
 	t.Helper()
-	_, here, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller(0) failed")
-	}
-	yamlPath := filepath.Join(filepath.Dir(here), "..", "..", "docs", "WIRE_CODES.yaml")
+	yamlPath := filepath.Join(aletheia.RepoRoot(t), "docs", "WIRE_CODES.yaml")
 	data, err := os.ReadFile(yamlPath)
 	if err != nil {
 		t.Fatalf("read %s: %v", yamlPath, err)

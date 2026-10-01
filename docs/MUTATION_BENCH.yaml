@@ -100,53 +100,45 @@ bindings:
       # the generator, and no test written here can be the one that kills it.
       exclude: go/.gremlins.yaml
     invocation: |
-      cd go && gremlins unleash ./aletheia
+      # The runner's, which sweeps a scratch copy of the tree from its go/.
+      ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_CPP=1 \
+        ALETHEIA_MUTATION_SKIP_RUST=1 python/.venv/bin/python -m tools.mutation_run
     report: |
       # gremlins writes its summary to stdout, counting the mutants it killed,
       # those that lived, those on a line no test reaches, and those that timed
       # out. The runner reads the killed and lived counts from it, and a mutant
       # on an uncovered line is neither: the total below is killed plus lived.
     baseline:
-      # Zero survivors is the floor: any survivor on a future commit fails the
-      # lane, matching the C++ binding below.
-      #
       # gremlins puts every mutant it generates in exactly one bucket, so the
       # counts below add up: generated is the whole set, a property of the
       # source; not_covered is the part on a line no test reaches, a coverage
       # gap rather than a survivor; total_mutants is killed plus lived, which
       # is what the runner records and what score_pct is taken from.
       #
-      # The split between killed and timed out moves with the machine, and it
-      # moves a long way. This tree gave 617 killed and 2 timed out in under
-      # two minutes on a quiet host with nothing editing it. Three conditions make a
-      # sweep report numbers nobody should record, each measured here:
+      # gremlins tests each mutant in a copy of go/ alone, under the system's
+      # temporary directory, where nothing else of the repository is. The
+      # package's tests read the documents, the corpus and the kernel's header
+      # from the repository and load the kernel, so the runner sweeps a
+      # scratch copy of the whole tree, names it to the tests as
+      # ALETHEIA_REPO_ROOT and the tree's built kernel as ALETHEIA_LIB, and
+      # skips the doc-example harness. Without the two variables the unmutated
+      # suite fails at its first test and every mutant reads as killed.
       #
-      # A second sweep running beside it: 39 killed, 622 timed out. A sweep run
-      # straight after another: 25 killed, 632 timed out, because gremlins
-      # times a run of the suite to derive its per-mutant timeout and a warm
-      # `go test` cache answers in milliseconds. Clear it with
-      # `go clean -testcache` before a sweep whose counts are recorded. A
-      # mutant that times out is neither killed nor lived, so both of those
-      # runs report no survivors and full efficacy having tested one mutant in
-      # twenty.
-      #
-      # Sources edited while the sweep runs: coverage is gathered once at the
-      # start and the mutants land at positions that have moved, so lines a
-      # test covers come back as not covered.
-      #
-      # The sweep is run with ALETHEIA_LIB naming the built kernel, which is
-      # what the lane and the probe over this file both do. Without it the
-      # library-finding fallback runs, where with it set the search returns on
-      # its first branch, so the same tree reports 98 not covered and 657
-      # killed: the seven blocks that differ are all in that one function, and
-      # recording those counts would hold the lane to a run it does not make.
+      # The recorded run is one of three of this tree on a quiet host, each
+      # giving every mutant the same verdict, two from a cleared test cache
+      # and one straight after another: each sweep's copy is a new directory,
+      # which the tests read through ALETHEIA_REPO_ROOT, so a warm cache
+      # still times one run of the suite, about three seconds, and derives
+      # the per-mutant timeout from it. A sweep takes about three minutes on
+      # twenty CPUs. Sources edited while it runs are a mistake to avoid:
+      # coverage is gathered once at the start, and the mutants land at
+      # positions that have moved.
       #
       # So the numbers a later run is held to are survivors and not_covered,
-      # each a property of the source, its tests and the kernel being present:
-      # the lane fails on more of either than recorded, and on a not-covered
-      # mutant the ledger below does not name.  generated is the whole set the
-      # source yields; the killed and timeout counts are what the recorded run
-      # produced.
+      # each a property of the source and its tests: the lane fails on more of
+      # either than recorded, and on a survivor or a not-covered mutant its
+      # ledger does not name. generated is the whole set the source yields;
+      # the killed and timeout counts are what the recorded run produced.
       #
       # Every mutant gremlins makes is on code this package wrote, the
       # generated files being held out, and Go has no undefined behaviour to
@@ -156,21 +148,21 @@ bindings:
       # input a test uses to tell the original from either. The eleven
       # mutators are the five gremlins turns on by default and the six
       # go/.gremlins.yaml turns on, which gremlins ships off.
-      survivors: 0
+      survivors: 63
       generated: 763
       not_covered: 12
-      timeouts: 0
-      total_mutants: 751
-      score_pct: 100
-      run_at: "2026-09-26"
+      timeouts: 4
+      total_mutants: 747
+      score_pct: 91.6
+      run_at: "2026-10-01"
       # The lane refuses a sweep with more than this many timed out, because a
-      # mutant that times out is neither killed nor lived and a sweep that
-      # timed out on nearly all of them reports no survivors and full efficacy.
-      # A quiet host on a cold test cache gives 2, in the file carrying the
-      # cgo trampolines, whose mutants each reload the library; a sweep with a
-      # second sweep beside it gave 622, and a sweep run straight after another
-      # gave 632. This sits far enough above the first not to flake and far
-      # enough below the others to fail hard.
+      # mutant that times out is neither killed nor lived, so a sweep that
+      # timed out on many of them reports fewer survivors than the tree has.
+      # A quiet host gives 4, the same four in every run: the negated error
+      # check after each of four calls taking the client's lock, which then
+      # returns holding it. Applied by hand to StartStream, the suite's next
+      # test waits on the lock until the test binary's own timeout ends it.
+      # This sits far enough above 4 not to flake.
       timeout_ceiling: 50
       # Every not-covered mutant, by mutator, repository-relative file, the
       # text of its source line and how many share it, as the survivors are
@@ -227,6 +219,222 @@ bindings:
         - mutator: INVERT_BITWISE
           file: go/aletheia/dbc.go
           text: const extendedIDFlag = 1 << 32 // bit 32 distinguishes extended from standard IDs in map keys
+          count: 1
+      # Every survivor, by mutator, repository-relative file, the text of its
+      # source line and how many share it, as the C++ and Rust survivors are
+      # recorded. The lane refuses one not named here at any count, and
+      # reports a row the sweep no longer produces as stale; the change that
+      # kills a survivor deletes its row. These are the first measured run's
+      # survivors, none yet examined: each is a finding, recorded so that the
+      # lane holds the count while they are worked down.
+      survivors_ledger:
+        - mutator: ARITHMETIC_BASE
+          file: go/aletheia/check.go
+          text: out := make([]descPart, 0, len(parts)+1)
+          count: 1
+        - mutator: ARITHMETIC_BASE
+          file: go/aletheia/client.go
+          text: defer c.lockWaiters.Add(-1)
+          count: 1
+        - mutator: ARITHMETIC_BASE
+          file: go/aletheia/json.go
+          text: l, err := serializeFormulaDepth(left, depth+1)
+          count: 1
+        - mutator: ARITHMETIC_BASE
+          file: go/aletheia/json.go
+          text: r, err := serializeFormulaDepth(right, depth+1)
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/check.go
+          text: if timeMs < 0 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/client.go
+          text: if idx >= len(c.diags) {
+          count: 2
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/client.go
+          text: if len(remaining) > 0 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/client.go
+          text: if ts.Microseconds < 0 {
+          count: 2
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/client.go
+          text: if uint64(len(text)) > MaxDBCTextBytes {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/enrich.go
+          text: if c.count >= maxExtractCache {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/enrich.go
+          text: if v.Delta.Numerator >= 0 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/ffi.go
+          text: if cfg.rtsCores > math.MaxInt32 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/ffi.go
+          text: if len(data) > MaxFrameByteCount {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/ffi.go
+          text: if len(input) > MaxJSONBytes {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/ffi.go
+          text: if len(outBuf) > 0 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/ffi.go
+          text: if outSize > math.MaxInt32 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/ffi.go
+          text: if ts.Microseconds < 0 {
+          count: 3
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: if den < 0 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: if depth > maxFormulaDepth {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: if f < 0 || f > 255 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: if idVal < 0 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: if idVal < 0 || idVal > math.MaxUint32 {
+          count: 2
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: if idVal > math.MaxUint32 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: if len(buf) < headerSize {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: if offsets[i] < offsets[i-1] {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: if p.Tolerance.Numerator < 0 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: if r.Denominator <= 0 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: if raw > math.MaxUint16 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: if size := uint64(len(b)); size > MaxDBCTextBytes {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: if startBit < 0 || startBit > 511 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: if t.Microseconds < 0 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: if v < 0 || v > math.MaxUint32 {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/json.go
+          text: return a.Cmp(b) < 0
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/yaml.go
+          text: if size := uint64(info.Size()); size > MaxDBCTextBytes {
+          count: 1
+        - mutator: CONDITIONALS_BOUNDARY
+          file: go/aletheia/yaml.go
+          text: if size := uint64(len(source)); size > MaxDBCTextBytes {
+          count: 1
+        - mutator: CONDITIONALS_NEGATION
+          file: go/aletheia/check.go
+          text: if r.Denominator == 1 {
+          count: 1
+        - mutator: CONDITIONALS_NEGATION
+          file: go/aletheia/json.go
+          text: if err != nil {
+          count: 3
+        - mutator: CONDITIONALS_NEGATION
+          file: go/aletheia/json.go
+          text: if nerrs == 0 && reasonBytes == 0 && binary.LittleEndian.Uint32(buf[off:off+4]) == 0 {
+          count: 3
+        - mutator: CONDITIONALS_NEGATION
+          file: go/aletheia/renderer.go
+          text: if defaultLibPath == "" { // first-write-wins
+          count: 1
+        - mutator: INCREMENT_DECREMENT
+          file: go/aletheia/client.go
+          text: i++
+          count: 1
+        - mutator: INCREMENT_DECREMENT
+          file: go/aletheia/client.go
+          text: numFails++
+          count: 1
+        - mutator: INCREMENT_DECREMENT
+          file: go/aletheia/client.go
+          text: numUnresolved++
+          count: 1
+        - mutator: INCREMENT_DECREMENT
+          file: go/aletheia/enrich.go
+          text: c.count++
+          count: 1
+        - mutator: INVERT_LOGICAL
+          file: go/aletheia/json.go
+          text: if !ok || len(rawVals) == 0 {
+          count: 1
+        - mutator: INVERT_LOGICAL
+          file: go/aletheia/json.go
+          text: if !okNum || !okDen || numCls == intParseNotNumber || denCls == intParseNotNumber {
+          count: 1
+        - mutator: INVERT_LOGICAL
+          file: go/aletheia/json.go
+          text: if idVal < 0 || idVal > math.MaxUint32 {
+          count: 1
+        - mutator: INVERT_LOGICAL
+          file: go/aletheia/json.go
+          text: if nerrs == 0 && reasonBytes == 0 && binary.LittleEndian.Uint32(buf[off:off+4]) == 0 {
+          count: 1
+        - mutator: INVERT_LOGICAL
+          file: go/aletheia/json.go
+          text: if tsRaw, ok := r["timestamp"]; ok && tsRaw != nil {
+          count: 1
+        - mutator: INVERT_LOOPCTRL
+          file: go/aletheia/client.go
+          text: break
+          count: 1
+        - mutator: INVERT_LOOPCTRL
+          file: go/aletheia/client.go
+          text: continue
+          count: 3
+        - mutator: INVERT_LOOPCTRL
+          file: go/aletheia/enrich.go
+          text: continue
+          count: 1
+        - mutator: INVERT_NEGATIVES
+          file: go/aletheia/client.go
+          text: defer c.lockWaiters.Add(-1)
           count: 1
 
   cpp:

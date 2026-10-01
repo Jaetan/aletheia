@@ -7,19 +7,25 @@ under the run's artifact directory; the ``TypedDict`` classes are the shape of
 ``docs/MUTATION_BENCH.yaml`` and of the drift verdict written to
 ``summary.json``.  They live apart from the runner so the C++ lane
 (``tools/mutation_cpp.py``) can build a report without importing the module
-that drives it.
+that drives it; ``scratch_tree_or_report`` is here for the same reason, the
+Go and Rust lanes both sweeping a copy of the tree.
 """
 
 from __future__ import annotations
 
 import collections
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, cast
 
 import yaml
 
+from tools._common import scratch_worktree
+
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from tools._common import RelPath
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -202,3 +208,24 @@ class MutationReport:
             "raw_log_tail": self.raw_log[-RAW_LOG_TAIL_CHARS:],
             "error": self.error,
         }
+
+
+@contextlib.contextmanager
+def scratch_tree_or_report(
+    repo_root: Path, binding: Literal["go", "rust"], tool: Literal["gremlins", "cargo-mutants"]
+) -> Generator[Path | MutationReport]:
+    """Yield a scratch copy of ``repo_root`` (``scratch_worktree``), or the lane's refusal.
+
+    A lane that sweeps a copy has no sweep without one, so where the copy
+    cannot be made this yields the binding's report saying why in its place.
+    Only the copying is caught: an error raised in the ``with`` body propagates.
+    """
+    with contextlib.ExitStack() as stack:
+        try:
+            tree = stack.enter_context(scratch_worktree(repo_root))
+        except RuntimeError as exc:
+            yield MutationReport(
+                binding, tool, 0, 0, "", error=f"no scratch copy of the tree: {exc}"
+            )
+            return
+        yield tree

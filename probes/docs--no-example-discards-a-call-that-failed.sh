@@ -128,8 +128,7 @@ if shutil.which("go") and KERNEL.is_file():
         "\tgithub.com/Jaetan/aletheia/go/excel v0.0.0\n)\n\n"
         f"replace github.com/Jaetan/aletheia/go/v5 => {go}\n\n"
         f"replace github.com/Jaetan/aletheia/go/excel => {go / 'excel'}\n", encoding="utf-8")
-    docs = [d.replace("../../", "", 1) if d.startswith("../../") else "go/" + d.removeprefix("../")
-            for d in listed("go/aletheia/doc_files_test.go", r"var docFiles = \[\]string\{(.*?)\n\}")]
+    docs = listed("go/aletheia/doc_files_test.go", r"var docFiles = \[\]string\{(.*?)\n\}")
     discard = re.compile(r"(\s*)_(?:\s*,\s*_)*\s*=\s*(.+)$")
     for i, (doc, (start, body)) in enumerate((d, f) for d in docs for f in fences(d, "go")):
         text = "\n".join(body)

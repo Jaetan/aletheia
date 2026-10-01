@@ -37,7 +37,7 @@ func buildStandIn(t *testing.T, source string) string {
 		src = filepath.Join("testdata", "kernel_stand_in", source)
 	}
 	// The kernel's header, which holds the stand-in to the kernel's signatures.
-	header := filepath.Join("..", "..", "haskell-shim", "include")
+	header := filepath.Join(repoRoot(t), "haskell-shim", "include")
 	cmd := exec.Command(cc, "-shared", "-fPIC", "-I", header, "-o", out, src)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%s %s: %v\n%s", cc, src, err, output)
@@ -48,9 +48,14 @@ func buildStandIn(t *testing.T, source string) string {
 // runLoaderChild re-runs this binary on one scenario with the library named,
 // or with ALETHEIA_LIB removed where the scenario is the search itself, and
 // answers what the child printed.
-func runLoaderChild(t *testing.T, scenario, lib string) string {
+func runLoaderChild(t *testing.T, scenario, lib, dir string) string {
 	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestLoaderFailuresAreVocal$", "-test.v")
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("the test binary's own path: %v", err)
+	}
+	cmd := exec.Command(exe, "-test.run=^TestLoaderFailuresAreVocal$", "-test.v")
+	cmd.Dir = dir
 	env := make([]string, 0, len(os.Environ())+3)
 	for _, e := range os.Environ() {
 		if strings.HasPrefix(e, "ALETHEIA_LIB=") || strings.HasPrefix(e, skipRTSInitEnv+"=") || strings.HasPrefix(e, loaderScenarioEnv+"=") {
@@ -90,18 +95,49 @@ func TestLoaderFailuresAreVocal(t *testing.T) {
 		"symbolless":    buildStandIn(t, "symbolless.c"),
 		"not-a-library": notALibrary,
 		"null-kernel":   buildStandIn(t, "null_kernel.c"),
-		"stale-abi":     buildStandIn(t, filepath.Join("..", "..", "haskell-shim", "test", "stale_abi_kernel.c")),
-		"abi-only":      buildStandIn(t, filepath.Join("..", "..", "haskell-shim", "test", "abi_only_kernel.c")),
+		"stale-abi":     buildStandIn(t, filepath.Join(repoRoot(t), "haskell-shim", "test", "stale_abi_kernel.c")),
+		"abi-only":      buildStandIn(t, filepath.Join(repoRoot(t), "haskell-shim", "test", "abi_only_kernel.c")),
 		"search":        "",
 	}
 	for scenario, lib := range scenarios {
 		t.Run(scenario, func(t *testing.T) {
-			out := runLoaderChild(t, scenario, lib)
+			dir := ""
+			if scenario == "search" {
+				dir = searchFixture(t)
+			}
+			out := runLoaderChild(t, scenario, lib, dir)
 			if !strings.Contains(out, "LOADER_OK") {
 				t.Fatalf("the child did not confirm the scenario:\n%s", out)
 			}
 		})
 	}
+}
+
+// searchFixture is a working directory two below a build/ holding the
+// library: the layout a checkout gives this package's directory, made for the
+// search scenario wherever the package is being tested.
+func searchFixture(t *testing.T) string {
+	t.Helper()
+	lib := findFFILibrary()
+	if lib == "" {
+		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
+	}
+	lib, err := filepath.Abs(lib)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	build := filepath.Join(root, "build")
+	dir := filepath.Join(root, "a", "b")
+	for _, d := range []string{build, dir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(lib, filepath.Join(build, "libaletheia-ffi.so")); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 // expect fails the child with a numbered exit when err does not carry the

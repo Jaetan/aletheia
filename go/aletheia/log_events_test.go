@@ -22,7 +22,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -46,15 +45,11 @@ var validLogEventLevels = map[string]struct{}{
 	"warn":  {},
 }
 
-// loadLogEvents reads the shared document, found from this source file rather
-// than from the working directory, which a test may be run from anywhere.
+// loadLogEvents reads the shared document from the repository RepoRoot names,
+// whatever directory the test runs from.
 func loadLogEvents(t *testing.T) []logEventRow {
 	t.Helper()
-	_, here, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller(0) failed")
-	}
-	yamlPath := filepath.Join(filepath.Dir(here), "..", "..", "docs", "LOG_EVENTS.yaml")
+	yamlPath := filepath.Join(aletheia.RepoRoot(t), "docs", "LOG_EVENTS.yaml")
 	data, err := os.ReadFile(yamlPath)
 	if err != nil {
 		t.Fatalf("read %s: %v", yamlPath, err)

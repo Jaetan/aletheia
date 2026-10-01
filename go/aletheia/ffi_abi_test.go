@@ -21,7 +21,7 @@ import (
 // static_assert lines, which the C compiler holds to the real layout, so a
 // field moved on either side fails here rather than misreading across the ABI.
 func TestFFIStructuresMatchKernelHeader(t *testing.T) {
-	text, err := os.ReadFile(filepath.Join("..", "..", "haskell-shim", "include", "aletheia.h"))
+	text, err := os.ReadFile(filepath.Join(repoRoot(t), "haskell-shim", "include", "aletheia.h"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -70,7 +70,7 @@ func TestDBCCorpusParity(t *testing.T) {
 		}
 	})
 
-	corpusDir, err := filepath.Abs("../../python/tests/fixtures/dbc_corpus")
+	corpusDir, err := filepath.Abs(filepath.Join(repoRoot(t), "python", "tests", "fixtures", "dbc_corpus"))
 	if err != nil {
 		t.Fatalf("resolve corpus dir: %v", err)
 	}

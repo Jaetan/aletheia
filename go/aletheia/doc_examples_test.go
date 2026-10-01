@@ -306,7 +306,7 @@ func docHarnessSetup(t *testing.T, root string) (yamlFix, excelFix string) {
 	if _, err := os.Stat(yamlFix); err != nil {
 		t.Fatalf("missing yaml fixture: %v", err)
 	}
-	excelFix, _ = filepath.Abs(filepath.Join(goDir, "..", "examples", "demo", "demo_workbook.xlsx"))
+	excelFix, _ = filepath.Abs(filepath.Join(aletheia.RepoRoot(t), "examples", "demo", "demo_workbook.xlsx"))
 	if _, err := os.Stat(excelFix); err != nil {
 		t.Fatalf("missing excel fixture %s: %v", excelFix, err)
 	}

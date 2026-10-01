@@ -33,7 +33,11 @@ benchmarks/mutation/<short-sha>/   Per-commit JSON + raw tool logs (gitignored)
 
 The static gate (`tools/check_mutation_setup.py`) runs always-on
 (`check-mutation-setup`) in `tools/run_ci.py`; it fires when a hot-path
-source file is renamed or deleted without updating the YAML.  The dynamic runner is opt-in via
+source file is renamed or deleted without updating the YAML, and when a
+lane's per-mutant run reaches its binding's doc-example harness, which holds
+the documents to the binding and costs its whole run once per mutant: the Go
+and Rust lanes skip theirs by name, and the gate holds each skip to that test
+alone.  The dynamic runner is opt-in via
 `ALETHEIA_MUTATION_CHECK=1` or `tools/run_ci.py --mutation`.
 
 In CI the runner is invoked once per binding, in parallel lanes with their own
@@ -367,8 +371,11 @@ Exit code 0 = lane clean; exit code 1 = drift gate failed (see
 cd python && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so .venv/bin/mutmut run
 .venv/bin/mutmut results
 
-# Go
-cd go && gremlins unleash ./aletheia
+# Go (needs build/libaletheia-ffi.so).  The lane's own tool, which sweeps a
+# scratch copy of the tree, names it to the tests as ALETHEIA_REPO_ROOT and the
+# built kernel as ALETHEIA_LIB, and skips the doc-example harness.
+ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_CPP=1 ALETHEIA_MUTATION_SKIP_RUST=1 \
+  python/.venv/bin/python -m tools.mutation_run
 
 # Rust (needs build/libaletheia-ffi.so, which the suite loads through
 # ALETHEIA_LIB).  The lane's own tool, which sweeps a scratch copy of the tree.

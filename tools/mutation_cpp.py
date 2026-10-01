@@ -260,11 +260,16 @@ def build_cpp_mutation_tree(
 # compiled one unit at a time and took 8 minutes of a leg on the runner.
 CPP_BUILD_JOBS_CAP = 8
 
+# The test binary a tree is built for and the runner runs once per mutant:
+# the unit suite, with the integration and loader suites folded in by the
+# mutation build (cpp/CMakeLists.txt).
+CPP_TEST_TARGET = "unit_tests"
+
 
 def cpp_build_command(cmake: str, build_dir: Path) -> list[str]:
     """Build the mutation tree's test binary, several units at a time."""
     jobs = min(detect_cpus(), CPP_BUILD_JOBS_CAP)
-    return [cmake, "--build", str(build_dir), "--target", "unit_tests", "--parallel", str(jobs)]
+    return [cmake, "--build", str(build_dir), "--target", CPP_TEST_TARGET, "--parallel", str(jobs)]
 
 
 # The three reports Mull writes per leg, by suffix: Elements (what the merge
@@ -522,7 +527,7 @@ def cpp_lane_command(
     """
     return [
         mull_runner,
-        str(build_dir / "unit_tests"),
+        str(build_dir / CPP_TEST_TARGET),
         *(["--dry-run"] if dry_run else []),
         "--reporters=IDE",
         "--reporters=Elements",

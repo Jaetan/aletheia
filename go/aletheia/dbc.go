@@ -3,7 +3,10 @@
 
 package aletheia
 
-import "slices"
+import (
+	"cmp"
+	"slices"
+)
 
 // SignalPresence describes when a signal is present in a frame.
 type SignalPresence interface {
@@ -562,6 +565,17 @@ func canIDKey(id CANID) uint64 {
 		k |= extendedIDFlag
 	}
 	return k
+}
+
+// compareFrameKeys orders two canIDKey keys in the cross-binding order:
+// ascending CAN ID value, then standard before extended. The flag sits above
+// the value, so a plain comparison of the keys would order (extended, value);
+// the two halves are compared (value, extended) instead.
+func compareFrameKeys(a, b uint64) int {
+	if r := cmp.Compare(a&0xFFFFFFFF, b&0xFFFFFFFF); r != 0 {
+		return r
+	}
+	return cmp.Compare(a&extendedIDFlag, b&extendedIDFlag)
 }
 
 // MessageByID returns a deep copy of the message with the given CAN ID, or
