@@ -33,6 +33,14 @@ from tools.mutation_go import (
     ShardNumber,
     shard_binding,
 )
+from tools.mutation_rust import (
+    RUST_JOBS,
+    RUST_JOBS_ENV,
+    RUST_MERGE_STAGE,
+    RUST_STAGE_ENV,
+    RustJob,
+    job_binding,
+)
 
 _WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "pr-heavy-lanes.yml"
 _LANE_JOB = "mutation-lane"
@@ -118,6 +126,20 @@ def test_every_go_shard_is_one_lane_and_no_lane_sweeps_the_package_whole() -> No
             assert entry["go_shard"] == ""
 
 
+def test_every_rust_job_is_one_lane_and_no_lane_sweeps_the_crate_whole() -> None:
+    """One matrix entry per job, named as the job reports, and only Rust lanes carry one."""
+    entries = _matrix()
+    rust = [entry for entry in entries if entry["binding"] == "rust"]
+    assert [(entry["lane"], entry["rust_job"]) for entry in rust] == [
+        (job_binding(RustJob(n)), str(n)) for n in range(1, RUST_JOBS + 1)
+    ]
+    for entry in rust:
+        assert entry["skip_rust"] == ""
+    for entry in entries:
+        if entry["binding"] != "rust":
+            assert entry["rust_job"] == ""
+
+
 def test_the_sweep_step_hands_each_lane_its_tree_and_its_slice() -> None:
     """The runner reads both from the environment the sweep step sets.
 
@@ -129,6 +151,7 @@ def test_the_sweep_step_hands_each_lane_its_tree_and_its_slice() -> None:
     assert _env(sweeps[0])[CPP_STAGE_ENV] == "${{ matrix.stage }}"
     assert _env(sweeps[0])[CPP_SLICE_ENV] == "${{ matrix.slice }}"
     assert _env(sweeps[0])[GO_STAGE_ENV] == "${{ matrix.go_shard }}"
+    assert _env(sweeps[0])[RUST_STAGE_ENV] == "${{ matrix.rust_job }}"
 
 
 def test_the_cpp_legs_keep_a_compiler_cache_of_their_own() -> None:
@@ -174,7 +197,7 @@ def test_the_merge_reads_every_part_and_no_other_lane() -> None:
         for step in _steps(_MERGE_JOB)
         if str(step.get("uses", "")).startswith("actions/download-artifact@")
     ]
-    assert len(downloads) == 2
+    assert len(downloads) == 3
     reaching = {
         binding: [
             _with(step)["path"]
@@ -185,7 +208,7 @@ def test_the_merge_reads_every_part_and_no_other_lane() -> None:
                 for entry in _matrix()
             )
         ]
-        for binding in ("cpp", "go")
+        for binding in ("cpp", "go", "rust")
     }
     assert all(len(found) == 1 for found in reaching.values()), reaching
     merges = [step for step in _steps(_MERGE_JOB) if "tools.mutation_run" in str(step.get("run"))]
@@ -195,10 +218,12 @@ def test_the_merge_reads_every_part_and_no_other_lane() -> None:
     assert env[CPP_LEGS_ENV] == reaching["cpp"][0]
     assert env[GO_STAGE_ENV] == GO_MERGE_STAGE
     assert env[GO_SHARDS_ENV] == reaching["go"][0]
+    assert env[RUST_STAGE_ENV] == RUST_MERGE_STAGE
+    assert env[RUST_JOBS_ENV] == reaching["rust"][0]
     assert env["ALETHEIA_MUTATION_SKIP_PYTHON"] == "1"
-    assert env["ALETHEIA_MUTATION_SKIP_RUST"] == "1"
     assert "ALETHEIA_MUTATION_SKIP_GO" not in env
     assert "ALETHEIA_MUTATION_SKIP_CPP" not in env
+    assert "ALETHEIA_MUTATION_SKIP_RUST" not in env
 
 
 def test_the_merge_runs_whatever_the_lanes_did() -> None:

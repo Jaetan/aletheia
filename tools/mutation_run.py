@@ -78,6 +78,20 @@ The Go lane in shards, so CI can sweep the package's files on two machines
                                gated as the whole package is.
   - ALETHEIA_MUTATION_GO_SHARDS  that directory, read by the merge stage only.
 
+The Rust lane over two jobs, so CI sweeps the crate on two machines, each
+running four shards side by side (``tools/mutation_rust.py``):
+
+  - ALETHEIA_MUTATION_RUST_STAGE unset: the crate is swept whole in this
+                               process, one shard per CPU up to four.  A job
+                               number: its four of the jobs' eight shards are
+                               swept, and the listing kept beside them; a job
+                               judges no survivor.  ``merge``: nothing is
+                               swept; the jobs' shards are read from the
+                               directory ALETHEIA_MUTATION_RUST_JOBS names,
+                               held to one listing of this commit, and gated
+                               as the whole crate is.
+  - ALETHEIA_MUTATION_RUST_JOBS  that directory, read by the merge stage only.
+
 Diff scoping (automatic): on a PR branch only the binding(s) whose directory the
 diff vs ``main`` touches are run; the rest are skipped, since an unchanged
 binding's survivor count is unchanged from its baseline by construction.  A
@@ -105,6 +119,10 @@ Artifacts written:
     rust/shard-<n>/mutants.out/, rust-shard-<n>.raw.txt
                    one shard's own cargo-mutants report directory, a log per
                    mutant in it, and the shard's console log
+    rust-1.json, rust-1.raw.txt, rust-listing.json
+                   one job's report, log and the listing it swept its shards
+                   of, where the run is one job of the Rust lane
+                   (ALETHEIA_MUTATION_RUST_STAGE); recorded, not gated
     cpp-leak.json, cpp-plain.json
                    one leg's census where the run is one leg of the C++
                    lane (ALETHEIA_MUTATION_CPP_STAGE); recorded, not gated
@@ -195,7 +213,7 @@ from tools.mutation_report import (
     unobserved_ledger_to_rows,
     unobserved_rows_to_ledger,
 )
-from tools.mutation_rust import run_rust, rust_survivor_rows
+from tools.mutation_rust import RustBinding, is_rust_job, run_rust, rust_survivor_rows
 
 from aletheia.common_types import Prose
 
@@ -666,12 +684,16 @@ def _ungated(rep: MutationReport) -> DriftEntry | None:
 
     A C++ leg is one tree, or one slice of it: a mutant it let live may die
     in another tree, so its count is recorded and the merge is what is gated.
-    A Go shard is one part of the package, judged with the others by the
-    merge in the same way.
+    A Go shard is one part of the package, and a Rust job one part of the
+    crate's sweep, each judged with the others by the merge in the same way.
     """
     if rep.error:
         return {"status": "error", "error": rep.error}
-    if is_cpp_leg(rep.binding) or is_go_shard(Binding(rep.binding)):
+    if (
+        is_cpp_leg(rep.binding)
+        or is_go_shard(Binding(rep.binding))
+        or is_rust_job(RustBinding(rep.binding))
+    ):
         return {"status": "leg", "observed_survivors": rep.survived}
     return None
 

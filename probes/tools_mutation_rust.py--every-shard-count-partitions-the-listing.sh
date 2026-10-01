@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 #
 # Probes tools/mutation_rust.py against the pinned cargo-mutants.
-# Claim: for every shard count the runner can choose, the shards cargo-mutants
+# Claim: for every shard count the runner can choose, a whole sweep's (2 to 4)
+# and the CI jobs' total (eight), the shards cargo-mutants
 # deals with `--shard k/N` (numbered from zero) partition the mutants its
 # `--list --json` names: each listed mutant in exactly one shard, no shard
 # naming one the listing does not. The runner lists once and sweeps the
@@ -27,7 +28,15 @@ import subprocess
 import sys
 
 sys.path.insert(0, ".")
-from tools.mutation_rust import RUST_SHARDS_CAP, MutantKey, RustShard, ShardCount, mutant_key
+from tools.mutation_rust import (
+    RUST_JOB_SHARDS,
+    RUST_JOBS,
+    RUST_SHARDS_CAP,
+    MutantKey,
+    RustShard,
+    ShardCount,
+    mutant_key,
+)
 
 
 def listing(shard: tuple[RustShard, ShardCount] | None = None) -> list[MutantKey]:
@@ -47,7 +56,8 @@ if not whole or len(set(whole)) != len(whole):
     print(f"the listing names {len(whole)} mutants, {len(set(whole))} of them distinct")
     raise SystemExit(1)
 bad = False
-for count in (ShardCount(n) for n in range(2, RUST_SHARDS_CAP + 1)):
+counts = [*range(2, RUST_SHARDS_CAP + 1), RUST_JOBS * RUST_JOB_SHARDS]
+for count in (ShardCount(n) for n in counts):
     dealt = collections.Counter(
         key for k in range(count) for key in listing((RustShard(k), count))
     )
@@ -59,5 +69,5 @@ for count in (ShardCount(n) for n in range(2, RUST_SHARDS_CAP + 1)):
         bad = True
 if bad:
     raise SystemExit(1)
-print(f"PASS: 2 to {RUST_SHARDS_CAP} shards each partition the {len(whole)} listed mutants")
+print(f"PASS: {counts} shards each partition the {len(whole)} listed mutants")
 PY

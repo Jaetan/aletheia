@@ -95,8 +95,9 @@ jobs:
           # skips every binding, runs nothing and reports success.  `lane` is the
           # job's name and its artifact's; `stage` and `slice` are what the C++
           # runner is told (tools/mutation_cpp_legs.py `cpp_stage`), `go_shard`
-          # what the Go runner is (tools/mutation_go.py `go_stage`), each empty
-          # for the other lanes.
+          # what the Go runner is (tools/mutation_go.py `go_stage`), `rust_job`
+          # what the Rust runner is (tools/mutation_rust.py `rust_stage`), each
+          # empty for the other lanes.
           #
           # Every budget is read off a measurement: the lane's slowest recorded
           # wall clock plus the allowance for its caches missing, rounded up
@@ -161,6 +162,7 @@ jobs:
             stage: ''
             slice: ''
             go_shard: ''
+            rust_job: ''
             timeout: 40
             skip_python: ''
             skip_go: '1'
@@ -171,6 +173,7 @@ jobs:
             stage: ''
             slice: ''
             go_shard: '1'
+            rust_job: ''
             timeout: 50
             skip_python: '1'
             skip_go: ''
@@ -181,16 +184,29 @@ jobs:
             stage: ''
             slice: ''
             go_shard: '2'
+            rust_job: ''
             timeout: 50
             skip_python: '1'
             skip_go: ''
             skip_cpp: '1'
             skip_rust: '1'
-          - lane: rust
+          - lane: rust-1
             binding: rust
             stage: ''
             slice: ''
             go_shard: ''
+            rust_job: '1'
+            timeout: 50
+            skip_python: '1'
+            skip_go: '1'
+            skip_cpp: '1'
+            skip_rust: ''
+          - lane: rust-2
+            binding: rust
+            stage: ''
+            slice: ''
+            go_shard: ''
+            rust_job: '2'
             timeout: 50
             skip_python: '1'
             skip_go: '1'
@@ -201,6 +217,7 @@ jobs:
             stage: leak
             slice: '1'
             go_shard: ''
+            rust_job: ''
             timeout: 70
             skip_python: '1'
             skip_go: '1'
@@ -211,6 +228,7 @@ jobs:
             stage: leak
             slice: '2'
             go_shard: ''
+            rust_job: ''
             timeout: 70
             skip_python: '1'
             skip_go: '1'
@@ -221,6 +239,7 @@ jobs:
             stage: leak
             slice: '3'
             go_shard: ''
+            rust_job: ''
             timeout: 70
             skip_python: '1'
             skip_go: '1'
@@ -231,6 +250,7 @@ jobs:
             stage: plain
             slice: '1'
             go_shard: ''
+            rust_job: ''
             timeout: 80
             skip_python: '1'
             skip_go: '1'
@@ -241,6 +261,7 @@ jobs:
             stage: plain
             slice: '2'
             go_shard: ''
+            rust_job: ''
             timeout: 80
             skip_python: '1'
             skip_go: '1'
@@ -251,6 +272,7 @@ jobs:
             stage: plain
             slice: '3'
             go_shard: ''
+            rust_job: ''
             timeout: 80
             skip_python: '1'
             skip_go: '1'
@@ -261,6 +283,7 @@ jobs:
             stage: address
             slice: '1'
             go_shard: ''
+            rust_job: ''
             timeout: 60
             skip_python: '1'
             skip_go: '1'
@@ -271,6 +294,7 @@ jobs:
             stage: address
             slice: '2'
             go_shard: ''
+            rust_job: ''
             timeout: 60
             skip_python: '1'
             skip_go: '1'
@@ -281,6 +305,7 @@ jobs:
             stage: address
             slice: '3'
             go_shard: ''
+            rust_job: ''
             timeout: 60
             skip_python: '1'
             skip_go: '1'
@@ -668,6 +693,10 @@ jobs:
           # dry run's census of the package and cuts the files on it, every
           # shard the same way, and the merge holds the shards to that census.
           ALETHEIA_MUTATION_GO_STAGE: ${{ matrix.go_shard }}
+          # Which of the two Rust jobs this lane is: four of the eight shards
+          # the jobs deal, side by side, the merge holding all eight to one
+          # listing.
+          ALETHEIA_MUTATION_RUST_STAGE: ${{ matrix.rust_job }}
         run: python/.venv/bin/python3 -m tools.mutation_run
 
       # Every lane's reports leave the runner whatever ended the lane: a C++
@@ -703,12 +732,12 @@ jobs:
           path: ~/.ccache
           key: ccache-mutation-${{ matrix.lane }}-clang23-llvm23dev-libstdcxx15-noble-v1-${{ github.sha }}
 
-  # ── The C++ and Go verdicts ─────────────────────────────────────────────────
-  # The C++ legs and the Go shards above each sweep a part of their binding
-  # and have no verdict of their own.  This job downloads their reports and
-  # merges each binding's, which is where the survivors are counted against
-  # the baseline and the ledgers (tools/mutation_cpp.py and
-  # tools/mutation_go.py, each at stage `merge`).  It runs whatever the
+  # ── The C++, Go and Rust verdicts ───────────────────────────────────────────
+  # The C++ legs, the Go shards and the Rust jobs above each sweep a part of
+  # their binding and have no verdict of their own.  This job downloads their
+  # reports and merges each binding's, which is where the survivors are
+  # counted against the baseline and the ledgers (tools/mutation_cpp.py,
+  # tools/mutation_go.py and tools/mutation_rust.py, each at stage `merge`).  It runs whatever the
   # lanes' results, so another lane's failure does not erase these verdicts;
   # each needs its parts' complete reports from this commit, and a part its
   # clock killed uploaded none, which the merge refuses.
@@ -760,15 +789,22 @@ jobs:
           pattern: mutation-go-*
           path: go-shards
 
-      - name: Merge the C++ legs and the Go shards (the drift gates)
+      - name: Download the Rust jobs' reports
+        uses: actions/download-artifact@v8
+        with:
+          pattern: mutation-rust-*
+          path: rust-jobs
+
+      - name: Merge the C++ legs, the Go shards and the Rust jobs (the drift gates)
         env:
           ALETHEIA_MUTATION_CHECK: '1'
           ALETHEIA_MUTATION_SKIP_PYTHON: '1'
-          ALETHEIA_MUTATION_SKIP_RUST: '1'
           ALETHEIA_MUTATION_CPP_STAGE: merge
           ALETHEIA_MUTATION_CPP_LEGS: mutation-legs
           ALETHEIA_MUTATION_GO_STAGE: merge
           ALETHEIA_MUTATION_GO_SHARDS: go-shards
+          ALETHEIA_MUTATION_RUST_STAGE: merge
+          ALETHEIA_MUTATION_RUST_JOBS: rust-jobs
         run: python/.venv/bin/python3 -m tools.mutation_run
 
       - name: Upload the merged reports

@@ -41,11 +41,12 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NewType, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, TypedDict, cast
 
-from tools._common import find_executable, run_capture, run_streaming
+from tools._common import find_executable, run_capture, run_streaming, short_sha
 from tools._resources import detect_cpus
 from tools.mutation_cpp_config import MutantCount
+from tools.mutation_go import ShortSha
 from tools.mutation_report import MutationReport, load_spec, scratch_tree_or_report
 
 from aletheia.common_types import ExitStatus, Prose
@@ -75,6 +76,29 @@ RUST_SHARDS_CAP = 4
 # (``run_rust``).
 SWEEP_DEBUG_VAR = "CARGO_PROFILE_DEV_DEBUG"
 SWEEP_DEBUG = "0"
+
+# The stage a Rust lane runs at: unset sweeps the crate whole in one process;
+# a job number sweeps that job's part of a sweep spread over CI jobs; `merge`
+# merges the jobs' sweeps, read from the directory the second variable names.
+RUST_STAGE_ENV = "ALETHEIA_MUTATION_RUST_STAGE"
+RUST_JOBS_ENV = "ALETHEIA_MUTATION_RUST_JOBS"
+RUST_MERGE_STAGE = "merge"
+
+# Jobs a CI sweep is spread over, and the shards each runs side by side.  Both
+# are fixed, whatever CPUs a job is given: every job deals the same number of
+# shards, which is what makes the jobs' shards partition the listing.
+RUST_JOBS = 2
+RUST_JOB_SHARDS = 4
+
+# Beside a job's reports, the listing it swept its part of, which the merge
+# holds the jobs to.
+RUST_LISTING = "rust-listing.json"
+
+# A job of a sweep spread over CI jobs, numbered from one, and the binding a
+# report carries: the lane's, ``rust``, or one job's, ``rust-1``.
+RustJob = NewType("RustJob", int)
+RustBinding = NewType("RustBinding", str)
+RUST_LANE = RustBinding("rust")
 
 # One shard of a sweep, numbered from zero as cargo-mutants numbers them, and how many a sweep runs.
 RustShard = NewType("RustShard", int)
@@ -198,6 +222,59 @@ def rust_shards() -> ShardCount:
     return ShardCount(max(1, min(detect_cpus(), RUST_SHARDS_CAP)))
 
 
+def rust_stage() -> RustJob | Literal["merge"] | None:
+    """Read the stage this process runs at, or raise ValueError naming what it was given."""
+    stage = os.environ.get(RUST_STAGE_ENV, "")
+    if not stage:
+        return None
+    if stage == RUST_MERGE_STAGE:
+        return RUST_MERGE_STAGE
+    if stage.isdigit() and 1 <= int(stage) <= RUST_JOBS:
+        return RustJob(int(stage))
+    msg = f"{RUST_STAGE_ENV}={stage!r} is not a job of 1 to {RUST_JOBS} or {RUST_MERGE_STAGE!r}"
+    raise ValueError(msg)
+
+
+def job_binding(job: RustJob) -> RustBinding:
+    """Name the binding one job reports under: ``rust-1`` and its sibling."""
+    return RustBinding(f"rust-{job}")
+
+
+def is_rust_job(binding: RustBinding) -> bool:
+    """Say whether a report is one job's part of a sweep, which the merge judges."""
+    return binding in {job_binding(RustJob(n)) for n in range(1, RUST_JOBS + 1)}
+
+
+class JobRun(TypedDict):
+    """The part of a run's entry in ``summary.json`` the merge reads: its binding."""
+
+    binding: RustBinding
+
+
+class JobSummary(TypedDict):
+    """The part of a job's ``summary.json`` the merge reads: the commit and the runs."""
+
+    commit: ShortSha
+    runs: list[JobRun]
+
+
+class ShardPlan(NamedTuple):
+    """The shards a process sweeps, and how many the whole sweep deals."""
+
+    numbers: tuple[RustShard, ...]
+    total: ShardCount
+
+
+def shard_plan(job: RustJob | None) -> ShardPlan:
+    """Give a process its shards: all of a whole sweep, or a job's run of the jobs' total."""
+    if job is None:
+        shards = rust_shards()
+        return ShardPlan(tuple(RustShard(n) for n in range(shards)), shards)
+    first = (job - 1) * RUST_JOB_SHARDS
+    numbers = tuple(RustShard(n) for n in range(first, first + RUST_JOB_SHARDS))
+    return ShardPlan(numbers, ShardCount(RUST_JOBS * RUST_JOB_SHARDS))
+
+
 def shard_log(artifact_dir: Path, number: RustShard) -> Path:
     """Name the log one shard's sweep streams to."""
     return artifact_dir / f"rust-shard-{number}.raw.txt"
@@ -209,10 +286,21 @@ def shard_output(artifact_dir: Path, number: RustShard) -> Path:
 
 
 def run_rust(artifact_dir: Path) -> MutationReport:
-    """Sweep the crate's hot path with cargo-mutants, in shards side by side in scratch copies."""
+    """Sweep the crate's hot path with cargo-mutants, in shards side by side in scratch copies.
+
+    The stage (``rust_stage``) selects the whole sweep, one job's part of it,
+    or the merge of the jobs' parts, which needs no cargo.
+    """
+    try:
+        stage = rust_stage()
+    except ValueError as exc:
+        return MutationReport(RUST_LANE, "cargo-mutants", 0, 0, "", error=str(exc))
+    if stage == RUST_MERGE_STAGE:
+        return merge_rust_jobs(artifact_dir)
+    binding = RUST_LANE if stage is None else job_binding(stage)
     checked = _check_rust_tools(_pinned_version())
     if isinstance(checked, str):
-        return MutationReport("rust", "cargo-mutants", 0, 0, "", error=checked)
+        return MutationReport(binding, "cargo-mutants", 0, 0, "", error=checked)
     cargo, lib = checked
     # The suite loads the kernel through ALETHEIA_LIB, as every other run of it
     # does; the path is absolute because cargo-mutants runs the tests from
@@ -225,16 +313,16 @@ def run_rust(artifact_dir: Path) -> MutationReport:
     # same verdict.  Set for the sweep alone, so every other build of the
     # crate keeps its profile.
     env[SWEEP_DEBUG_VAR] = SWEEP_DEBUG
-    shards = rust_shards()
+    plan = shard_plan(stage)
     with contextlib.ExitStack() as stack:
-        trees: list[Path] = []
-        for _ in range(shards):
-            tree = stack.enter_context(scratch_tree_or_report(REPO_ROOT, "rust", "cargo-mutants"))
-            if isinstance(tree, MutationReport):
-                return tree
-            trees.append(tree)
-        listing = run_capture([cargo, "mutants", "--list", "--json"], cwd=trees[0] / CRATE, env=env)
+        trees = _scratch_trees(stack, plan)
+        if isinstance(trees, MutationReport):
+            return trees
+        listing = run_capture(
+            [cargo, "mutants", "--list", "--json"], cwd=trees[plan.numbers[0]] / CRATE, env=env
+        )
         (artifact_dir / RUST_OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+        _ = (artifact_dir / RUST_LISTING).write_text(listing.stdout, encoding="utf-8")
 
         def sweep(number: RustShard) -> ExitStatus:
             # Streams to the shard's own log, so a sweep killed by a wall clock
@@ -249,7 +337,7 @@ def run_rust(artifact_dir: Path) -> MutationReport:
                         "--colors",
                         "never",
                         "--shard",
-                        f"{number}/{shards}",
+                        f"{number}/{plan.total}",
                         "--output",
                         str(shard_output(artifact_dir, number)),
                     ],
@@ -259,27 +347,50 @@ def run_rust(artifact_dir: Path) -> MutationReport:
                 )
             return ExitStatus(proc.returncode)
 
-        with ThreadPoolExecutor(max_workers=shards) as pool:
-            exits = list(pool.map(sweep, (RustShard(n) for n in range(shards))))
-    return _finish_rust(artifact_dir, shards, CargoListing(listing.stdout), exits)
+        with ThreadPoolExecutor(max_workers=len(plan.numbers)) as pool:
+            exits = list(pool.map(sweep, plan.numbers))
+    return _finish_rust(artifact_dir, binding, plan, CargoListing(listing.stdout), exits)
+
+
+def _scratch_trees(
+    stack: contextlib.ExitStack[bool | None], plan: ShardPlan
+) -> dict[RustShard, Path] | MutationReport:
+    """Make one scratch copy of the tree per shard, each removed when the stack closes."""
+    trees: dict[RustShard, Path] = {}
+    for number in plan.numbers:
+        tree = stack.enter_context(scratch_tree_or_report(REPO_ROOT, "rust", "cargo-mutants"))
+        if isinstance(tree, MutationReport):
+            return tree
+        trees[number] = tree
+    return trees
 
 
 def _finish_rust(
-    artifact_dir: Path, shards: ShardCount, listing: CargoListing, exits: list[ExitStatus]
+    artifact_dir: Path,
+    binding: RustBinding,
+    plan: ShardPlan,
+    listing: CargoListing,
+    exits: list[ExitStatus],
 ) -> MutationReport:
-    """Join the shards' logs, merge their outcomes into the lane's, and read the lane's report."""
-    raw = "".join(
-        shard_log(artifact_dir, RustShard(n)).read_text(encoding="utf-8") for n in range(shards)
-    )
-    (artifact_dir / "rust.raw.txt").write_text(raw)
-    merged = _merge_shards(artifact_dir, shards, listing)
+    """Join the shards' logs, merge their outcomes, and read the report.
+
+    A whole sweep's merge is the lane's ``outcomes.json``, held to the whole
+    listing.  A job's part is held only to what the listing names, every
+    listed mutant being the merge's to account for, and is recorded and not
+    judged.
+    """
+    raw = "".join(shard_log(artifact_dir, n).read_text(encoding="utf-8") for n in plan.numbers)
+    (artifact_dir / f"{binding}.raw.txt").write_text(raw)
+    whole = binding == RUST_LANE
+    merged = _merge_shards(artifact_dir, plan.numbers, listing, whole=whole)
     if not isinstance(merged, dict):
-        return MutationReport("rust", "cargo-mutants", 0, 0, raw, error=merged)
-    outcomes_path = artifact_dir / OUTCOMES
-    outcomes_path.parent.mkdir(parents=True, exist_ok=True)
-    _ = outcomes_path.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+        return MutationReport(binding, "cargo-mutants", 0, 0, raw, error=merged)
+    if whole:
+        outcomes_path = artifact_dir / OUTCOMES
+        outcomes_path.parent.mkdir(parents=True, exist_ok=True)
+        _ = outcomes_path.write_text(json.dumps(merged, indent=2), encoding="utf-8")
     exit_list = ", ".join(str(code) for code in exits)
-    return parse_outcomes(cast("Mapping[str, object]", merged), raw, f"exits {exit_list}")
+    return parse_outcomes(merged, raw, f"exits {exit_list}", binding)
 
 
 def mutant_key(mutant: ListedMutant) -> MutantKey:
@@ -288,15 +399,17 @@ def mutant_key(mutant: ListedMutant) -> MutantKey:
 
 
 def merge_shard_outcomes(
-    listed: list[ListedMutant], shards: list[SweepOutcomes]
+    listed: list[ListedMutant], shards: list[SweepOutcomes], *, whole: bool = True
 ) -> SweepOutcomes | Prose:
     """Merge the shards' outcomes into one, or say why they are not the listed sweep.
 
     Every listed mutant must have one outcome across the shards, and no
     outcome may name a mutant the listing does not: a shard that swept the
-    wrong part, or swept a part twice, is refused rather than counted.  The
-    merged file keeps the first shard's baseline and every shard's mutants,
-    and sums the buckets, so it reads as one whole sweep's would.
+    wrong part, or swept a part twice, is refused rather than counted.  A part
+    of a sweep (``whole`` false) is held to the second and to no mutant twice,
+    the rest of the listing being other jobs'.  The merged file keeps the
+    first shard's baseline and every shard's mutants, and sums the buckets, so
+    it reads as one whole sweep's would.
     """
     seen: collections.Counter[MutantKey] = collections.Counter()
     for shard in shards:
@@ -310,7 +423,7 @@ def merge_shard_outcomes(
             f"{len(twice)} mutants have an outcome in more than one shard, first {twice[0]}"
         )
     wanted = {mutant_key(mutant) for mutant in listed}
-    if set(seen) != wanted:
+    if set(seen) != wanted and (whole or not set(seen) <= wanted):
         return Prose(
             f"the shards swept {len(seen)} mutants where the listing has {len(wanted)}: "
             + f"{len(wanted - set(seen))} unswept, {len(set(seen) - wanted)} not listed"
@@ -337,23 +450,111 @@ def merge_shard_outcomes(
 
 
 def _merge_shards(
-    artifact_dir: Path, shards: ShardCount, listing: CargoListing
+    artifact_dir: Path, numbers: tuple[RustShard, ...], listing: CargoListing, *, whole: bool
 ) -> SweepOutcomes | Prose:
-    """Read every shard's ``outcomes.json`` and the listing, and merge them."""
+    """Read the shards' ``outcomes.json`` files and the listing, and merge them."""
     try:
         listed = cast("list[ListedMutant]", json.loads(listing))
     except json.JSONDecodeError:
-        return Prose("cargo mutants --list --json printed no listing (see rust.raw.txt)")
+        return Prose("cargo mutants --list --json printed no listing (see the lane's log)")
     read: list[SweepOutcomes] = []
-    for number in (RustShard(n) for n in range(shards)):
+    for number in numbers:
         path = shard_output(artifact_dir, number) / "mutants.out" / "outcomes.json"
         if not path.is_file():
             return Prose(f"shard {number} wrote no outcomes (see rust-shard-{number}.raw.txt)")
         read.append(cast("SweepOutcomes", json.loads(path.read_text(encoding="utf-8"))))
-    return merge_shard_outcomes(listed, read)
+    return merge_shard_outcomes(listed, read, whole=whole)
 
 
-def parse_outcomes(outcomes: Mapping[str, object], raw: str, where: str) -> MutationReport:
+def _job_commits(jobs_dir: Path) -> dict[RustBinding, ShortSha]:
+    """Read the commit each job's summary records, by the job's binding."""
+    commits: dict[RustBinding, ShortSha] = {}
+    for summary_path in sorted(jobs_dir.rglob("summary.json")):
+        summary = cast("JobSummary", json.loads(summary_path.read_text(encoding="utf-8")))
+        for run in summary.get("runs", []):
+            binding = run.get("binding", RustBinding(""))
+            if is_rust_job(binding):
+                commits[binding] = summary.get("commit", ShortSha(""))
+    return commits
+
+
+def _jobs_refusal(jobs_dir: Path) -> Prose | None:
+    """Say why the jobs under the directory are not one sweep of this commit, or None."""
+    commit = ShortSha(short_sha(REPO_ROOT))
+    commits = _job_commits(jobs_dir)
+    for job in (RustJob(n) for n in range(1, RUST_JOBS + 1)):
+        binding = job_binding(job)
+        if binding not in commits:
+            return Prose(f"no summary of the {binding} job under {jobs_dir}")
+        if commits[binding] != commit:
+            return Prose(f"the {binding} job swept {commits[binding]}, this merge is at {commit}")
+    listings = sorted(jobs_dir.rglob(RUST_LISTING))
+    if len(listings) != RUST_JOBS:
+        return Prose(
+            f"{len(listings)} copies of {RUST_LISTING} under {jobs_dir}, wanted {RUST_JOBS}"
+        )
+    if len({path.read_bytes() for path in listings}) != 1:
+        return Prose("the jobs listed different mutants, so their shards are not one sweep's")
+    return None
+
+
+def _jobs_shards(jobs_dir: Path) -> list[SweepOutcomes] | Prose:
+    """Read every shard the jobs deal, each wanted once under the directory, or say which not."""
+    read: list[SweepOutcomes] = []
+    for number in range(RUST_JOBS * RUST_JOB_SHARDS):
+        pattern = f"{RUST_OUTPUT_DIR}/shard-{number}/mutants.out/outcomes.json"
+        found = sorted(jobs_dir.rglob(pattern))
+        if len(found) != 1:
+            return Prose(
+                f"{len(found)} copies of shard {number}'s outcomes under {jobs_dir}, wanted one"
+            )
+        read.append(cast("SweepOutcomes", json.loads(found[0].read_text(encoding="utf-8"))))
+    return read
+
+
+def merge_rust_jobs(artifact_dir: Path) -> MutationReport:
+    """Merge the jobs' sweeps found under the directory ``RUST_JOBS_ENV`` names.
+
+    The jobs must be of this commit and have listed the same mutants, and
+    every shard of the jobs' total is wanted exactly once, wherever the
+    download put it; the shards are then merged against the listing as one
+    whole sweep's are, and the merged ``outcomes.json`` is the lane's, which
+    the drift gate and the survivor ledger read.
+    """
+    jobs_env = os.environ.get(RUST_JOBS_ENV, "")
+    if not jobs_env:
+        msg = f"{RUST_STAGE_ENV}={RUST_MERGE_STAGE} reads the jobs from {RUST_JOBS_ENV}: unset"
+        return MutationReport(RUST_LANE, "cargo-mutants", 0, 0, "", error=msg)
+    jobs_dir = Path(jobs_env)
+    refusal = _jobs_refusal(jobs_dir)
+    if refusal is not None:
+        return MutationReport(RUST_LANE, "cargo-mutants", 0, 0, "", error=refusal)
+    listing = CargoListing(min(jobs_dir.rglob(RUST_LISTING)).read_text(encoding="utf-8"))
+    raw = f"=== merge of the Rust jobs under {jobs_dir} ===\n"
+    for job in range(1, RUST_JOBS + 1):
+        logs = sorted(jobs_dir.rglob(f"rust-{job}.raw.txt"))
+        raw += "".join(path.read_text(encoding="utf-8") for path in logs)
+    read = _jobs_shards(jobs_dir)
+    if not isinstance(read, list):
+        return MutationReport(RUST_LANE, "cargo-mutants", 0, 0, raw, error=read)
+    try:
+        listed = cast("list[ListedMutant]", json.loads(listing))
+    except json.JSONDecodeError:
+        msg = f"the jobs' {RUST_LISTING} holds no listing"
+        return MutationReport(RUST_LANE, "cargo-mutants", 0, 0, raw, error=msg)
+    merged = merge_shard_outcomes(listed, read)
+    if not isinstance(merged, dict):
+        return MutationReport(RUST_LANE, "cargo-mutants", 0, 0, raw, error=merged)
+    outcomes_path = artifact_dir / OUTCOMES
+    outcomes_path.parent.mkdir(parents=True, exist_ok=True)
+    _ = outcomes_path.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+    (artifact_dir / f"{RUST_LANE}.raw.txt").write_text(raw)
+    return parse_outcomes(merged, raw, "the jobs' merge")
+
+
+def parse_outcomes(
+    outcomes: Mapping[str, object], raw: str, where: str, binding: RustBinding | None = None
+) -> MutationReport:
     """Read a sweep's ``outcomes.json`` into a report.
 
     The file carries the four buckets every mutant lands in exactly one of:
@@ -364,10 +565,11 @@ def parse_outcomes(outcomes: Mapping[str, object], raw: str, where: str) -> Muta
     reached no mutant, because the unmutated baseline failed, is an error
     rather than a clean run of nothing.
     """
+    lane = RUST_LANE if binding is None else binding
     counts = {name: outcomes.get(name) for name in ("caught", "missed", "timeout", "unviable")}
     if not all(isinstance(value, int) for value in counts.values()):
         return MutationReport(
-            "rust",
+            lane,
             "cargo-mutants",
             0,
             0,
@@ -377,14 +579,14 @@ def parse_outcomes(outcomes: Mapping[str, object], raw: str, where: str) -> Muta
     caught, missed, timeout, unviable = (cast("int", counts[k]) for k in counts)
     if caught + missed + timeout + unviable == 0:
         return MutationReport(
-            "rust",
+            lane,
             "cargo-mutants",
             0,
             0,
             raw,
             error=f"the sweep tested no mutant (see rust.raw.txt; {where})",
         )
-    return MutationReport("rust", "cargo-mutants", caught, missed, raw, timeouts=timeout)
+    return MutationReport(lane, "cargo-mutants", caught, missed, raw, timeouts=timeout)
 
 
 def outcomes_survivor_rows(

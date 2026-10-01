@@ -302,6 +302,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   build-source digest, so its log is no evidence that every gate observed the
   tree.
 
+- **The Rust mutation lane runs as two jobs on two runners.** A mutant's
+  build is bound by the CPUs it shares with the other shards, so a second
+  runner halves each job's share of the sweep. Each job sweeps four of the
+  jobs' eight shards (`ALETHEIA_MUTATION_RUST_STAGE`), whatever CPUs it was
+  given, so the two jobs' shards partition one listing, and keeps that listing
+  beside its shards. The `mutation merge` job holds the two listings to each
+  other and to the commit, refuses a shard missing or doubled, and merges the
+  eight as one sweep's, the lane's verdict. Run the same way locally, each job
+  alone on four CPUs took 227 s and 190 s against 361 s for the whole sweep,
+  and the merge read the record: 375 mutants, 314 caught, 2 missed, 59
+  unviable. A probe holds cargo-mutants' dealing to the eight shards as well
+  as to a whole sweep's counts.
+
 - **No mutation lane runs its binding's doc-example harness.** A harness
   builds and runs every fence of the documents as a program of its own,
   holding the documents to the binding, and costs its whole run once per
