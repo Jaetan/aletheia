@@ -3483,7 +3483,7 @@ hints:
     count: 1
   - file: tools/mutation_rust.py
     text: "Mapping[str, object]"
-    count: 5
+    count: 4
   - file: tools/mutation_rust.py
     text: "dict[SurvivorKey, int]"
     count: 2

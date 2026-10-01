@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+from tools._common import CPP_LINT_TREE
 from tools.check_clang_tidy_coverage import main, uncovered_sources
 
 if TYPE_CHECKING:
@@ -61,14 +62,16 @@ def _make_repo(tmp_path: Path, db_files: list[str]) -> Path:
     """Create a repo tree with two cpp/src sources + a compile DB listing ``db_files``."""
     repo = tmp_path / "repo"
     (repo / "cpp" / "src" / "detail").mkdir(parents=True)
-    (repo / "cpp" / "build").mkdir(parents=True)
+    (repo / "cpp" / CPP_LINT_TREE).mkdir(parents=True)
     (repo / "cpp" / "src" / "a.cpp").write_text("int a;\n", encoding="utf-8")
     (repo / "cpp" / "src" / "detail" / "b.cpp").write_text("int b;\n", encoding="utf-8")
     db = [
-        {"directory": str(repo / "cpp" / "build"), "file": str(repo / f), "command": "cc"}
+        {"directory": str(repo / "cpp" / CPP_LINT_TREE), "file": str(repo / f), "command": "cc"}
         for f in db_files
     ]
-    (repo / "cpp" / "build" / "compile_commands.json").write_text(json.dumps(db), encoding="utf-8")
+    (repo / "cpp" / CPP_LINT_TREE / "compile_commands.json").write_text(
+        json.dumps(db), encoding="utf-8"
+    )
     return repo
 
 

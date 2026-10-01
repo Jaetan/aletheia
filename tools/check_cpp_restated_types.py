@@ -16,8 +16,9 @@ call and on a loop counter that names its own type, it emits nothing.
 
 The instrument is ``clang-query``, which ships with ``clang-tidy`` (the
 ``clang-tidy-23`` package Depends on ``clang-tools-23``), so wherever the lint
-gate runs this one can.  It reads the same compile database, so it runs in the
-cpp lane after the build that writes it, beside ``check_clang_tidy_coverage``.
+gate runs this one can.  It reads the same compile database, so it runs in
+clang-tidy's lane after the configure that writes it, beside
+``check_clang_tidy_coverage``.
 
 What it reports is narrower than the rule, deliberately: a declaration where
 ``auto`` would deduce the written type *exactly*.  The matcher compares the
@@ -67,7 +68,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import NamedTuple, NewType, cast
 
-from tools._common import emit, git_toplevel
+from tools._common import CPP_LINT_TREE, emit, git_toplevel
 from tools._ratchet import CanonicalText, RatchetRows, RelPath, RowKey, as_row, read_ratchet_rows
 
 # A translation unit as the compile database names it, relative to `cpp/`;
@@ -86,10 +87,10 @@ class Hit(NamedTuple):
 # The ratchet's record, repo-root-relative.
 ALLOWLIST = Path("docs") / "CPP_RESTATED_TYPES.yaml"
 
-# The compile database the binding's own build writes, and the directory
-# clang-query resolves it from.
+# The compile database the lint gate reads, and the directory clang-query
+# resolves it from.
 CPP_ROOT = Path("cpp")
-BUILD_DIR = "build"
+BUILD_DIR = CPP_LINT_TREE
 COMPILE_DB = CPP_ROOT / BUILD_DIR / "compile_commands.json"
 
 # The lint gate names the same version, and clang-query comes with it.

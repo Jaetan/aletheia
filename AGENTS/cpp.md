@@ -4,7 +4,7 @@ Scope: ALL source files, headers, and test files in `cpp/`.
 
 **Tooling gates (hard requirements):**
 - `clang-format --dry-run -Werror` must produce **zero violations** on all source files.
-- `clang-tidy -p build` must produce **zero errors and zero warnings** on all source files.
+- `clang-tidy -p build-tidy` must produce **zero errors and zero warnings** on all source files.
 - **Adding any suppression annotation** (`NOLINT`, `NOLINTNEXTLINE`, `NOLINTBEGIN/END`) **requires user approval**. Propose the annotation with justification; do not add it without explicit permission.
 - `python -m tools.check_cpp_index_loops` must pass: every counting loop under `cpp/`, spelled `for`, `while` or `do`/`while`, is named in `docs/CPP_INDEX_LOOPS.yaml`, and no row there names a loop the tree no longer holds. The record is a ratchet over cat 27, so it only shrinks: a row leaves it by the change that rewrites its loop as a range, and **adding a row requires user approval**, on the same footing as a suppression annotation.
 - `python -m tools.check_cpp_restated_types` must pass: every declaration under `cpp/` whose initializer already fixes its type is written `auto`, or is named in `docs/CPP_RESTATED_TYPES.yaml`, and no row there names a declaration the tree no longer holds. The record is a ratchet over cat 34, so it only shrinks: a row leaves it by the change that deduces its type, and **adding a row requires user approval**, on the same footing as a suppression annotation. It reads `cpp/build/compile_commands.json`, so it runs after the build that writes it.
@@ -107,7 +107,7 @@ cd cpp && ctest --test-dir build --schedule-random --output-on-failure
 git ls-files -z -- '*.cpp' '*.hpp' | xargs -0 -r clang-format-22 --style=file:cpp/.clang-format --dry-run --Werror
 # The lint gate runs FROM cpp/: clang-tidy finds .clang-tidy by walking up, so
 # the same command from the repository root enables no checks and looks clean.
-cd cpp && run-clang-tidy-23 -quiet -p build cpp/src/ cpp/tests/ cpp/benchmarks/
+cd cpp && cmake -B build-tidy -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null && run-clang-tidy-23 -quiet -p build-tidy cpp/src/ cpp/tests/ cpp/benchmarks/
 # Cat 33 dynamic-analysis lanes:
 cd cpp && cmake -B build-asan -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" && cmake --build build-asan && ctest --test-dir build-asan
 # The fuzz recipe is written once, in cpp/tests/fuzz/fuzz_parse_response.cpp,

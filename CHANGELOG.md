@@ -276,6 +276,45 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   the next run saves them, and a test holds the list to the trees the sweep's
   steps configure.
 
+- **The Rust mutation sweep builds without debug information.** A mutant's
+  cost is the incremental build of the crate's tests, and debug information is
+  a fifth of it: one mutant's build took 4.77 s against 5.98 s on one CPU,
+  1.45 s against 1.87 s on four. The sweep sets `CARGO_PROFILE_DEV_DEBUG=0`
+  for its own builds alone. Swept in four shards on four CPUs, the lane took
+  360.8 s against 479.4 s, with the same verdict: 316 mutants, 314 killed, 2
+  surviving, 59 unviable. A faster linker was measured and left out: the
+  toolchain already links with `rust-lld`, and mold gained no more than the
+  noise.
+
+- **Full CI runs its sweep in two parts on two runners.** The sweep is bound
+  by a four-core runner's work: on a slower machine every step slowed
+  together, the sweep 886 s and 905 s against 635 s. `tools/run_ci.py --lanes`
+  runs the named lanes and the build alone, and the workflow runs two parts as
+  a matrix, the C++ tests, asan and the lint gates in one and the Agda gates,
+  the bindings and ubsan in the other; `tools/run_ci.py (all gates)`, the
+  required check, now reports both and fails unless both passed. clang-tidy
+  and the two checks reading its compile database run in a lane of their own,
+  over a tree configured and never built (`cpp/build-tidy`), so they do not
+  wait for the test build; a probe holds that tree's database to the test
+  build's. Timed alone on four CPUs, the parts took 242.5 s and 192.3 s against
+  330 s for the whole sweep; the lint lane on one runner made the sweep slower,
+  342 s, which is why it came with the second. A sweep of some lanes records no
+  build-source digest, so its log is no evidence that every gate observed the
+  tree.
+
+- **The Rust mutation lane runs as two jobs on two runners.** A mutant's
+  build is bound by the CPUs it shares with the other shards, so a second
+  runner halves each job's share of the sweep. Each job sweeps four of the
+  jobs' eight shards (`ALETHEIA_MUTATION_RUST_STAGE`), whatever CPUs it was
+  given, so the two jobs' shards partition one listing, and keeps that listing
+  beside its shards. The `mutation merge` job holds the two listings to each
+  other and to the commit, refuses a shard missing or doubled, and merges the
+  eight as one sweep's, the lane's verdict. Run the same way locally, each job
+  alone on four CPUs took 227 s and 190 s against 361 s for the whole sweep,
+  and the merge read the record: 375 mutants, 314 caught, 2 missed, 59
+  unviable. A probe holds cargo-mutants' dealing to the eight shards as well
+  as to a whole sweep's counts.
+
 - **No mutation lane runs its binding's doc-example harness.** A harness
   builds and runs every fence of the documents as a program of its own,
   holding the documents to the binding, and costs its whole run once per

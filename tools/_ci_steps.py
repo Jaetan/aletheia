@@ -24,7 +24,7 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tools._common import find_executable, run_capture
+from tools._common import CPP_LINT_TREE, find_executable, run_capture
 
 if TYPE_CHECKING:
     from tools.run_ci import OptInOptions, Runner
@@ -113,6 +113,15 @@ FAST_STEPS: frozenset[str] = frozenset(
         "pylint",
     }
 )
+
+
+# The lane of the gates that read the lint tree's compile database: clang-tidy
+# first, which configures the tree, then the two checks that read it.
+CPP_LINT_LANE = "cpp-lint"
+
+# The compilers every C++ tree of the sweep is configured with: clang-23, the
+# supported toolchain, pinned rather than left to whatever cc resolves to.
+CPP_COMPILERS = "-DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23"
 
 
 # The cgo-free build of every package, keeping nothing: a module holding one
@@ -385,8 +394,8 @@ def _run_binding_tests(runner: Runner) -> None:
         # runner's clang-18 / g++ (clang < 19 mis-handles the C++23 <expected>
         # libstdc++ ships); clang-23 is version-pinned + installed by the workflow via
         # apt.llvm.org (no update-alternatives roulette).
-        "cmake -B build -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 "
-        + f"> /dev/null && cmake --build build && ALETHEIA_LIB={cpp_lib} ctest --test-dir build",
+        f"cmake -B build {CPP_COMPILERS} > /dev/null && cmake --build build"
+        + f" && ALETHEIA_LIB={cpp_lib} ctest --test-dir build",
         cwd=runner.repo_root / "cpp",
     )
     # Cross-CLI parity harness (docs/CLI_SCENARIOS.yaml): drives the three real
@@ -560,18 +569,25 @@ def _run_lints(runner: Runner) -> None:
     # tests carry their own configuration, which inherits cpp/.clang-tidy and
     # disables only what Catch2's macros generate, and the benchmarks pass the
     # root configuration with nothing disabled on their account.
+    # The database is the lint tree's, configured and never built, in a lane
+    # of its own: clang-tidy needs the compile commands and the fetched
+    # dependencies' headers, both there once the configure ends, and not the
+    # objects, so the gate need not wait for the test build: behind it on the
+    # runner, clang-tidy started 242 s into the sweep and its lane ended last.
+    # A probe holds the two databases to one set of commands.
     runner.step(
         "clang-tidy",
-        "run-clang-tidy-23 -quiet -p build cpp/src/ cpp/tests/ cpp/benchmarks/",
+        f"cmake -B {CPP_LINT_TREE} {CPP_COMPILERS} > /dev/null"
+        + f" && run-clang-tidy-23 -quiet -p {CPP_LINT_TREE} cpp/src/ cpp/tests/ cpp/benchmarks/",
         cwd=runner.repo_root / "cpp",
+        lane=CPP_LINT_LANE,
     )
     # Coverage guard: every cpp/src/**/*.cpp must appear in the compile DB, so a
     # source someone forgets to wire into a CMake target fails CI rather than
     # being silently unbuilt + unlinted (run-clang-tidy only lints compiled TUs).
-    # It reads cpp/build/compile_commands.json, which the ctest step above
-    # writes, so it runs in the cpp lane after that step; from the repository
-    # root its cwd would infer "misc" and it could run before the build tree
-    # exists.
+    # It reads the database clang-tidy read, so it runs in that lane after that
+    # step; from the repository root its cwd would infer "misc" and it could
+    # run before the tree is configured.
     # The coverage record (docs/COVERAGE_BENCH.yaml) held to its shape without
     # running a suite: its scope paths exist, its recorded figures are over
     # the floors, and the Rust tool it pins is the one the workflow installs.
@@ -585,19 +601,19 @@ def _run_lints(runner: Runner) -> None:
         "check-clang-tidy-coverage",
         [runner.python, "-m", "tools.check_clang_tidy_coverage"],
         cwd=runner.repo_root,
-        lane="cpp",
+        lane=CPP_LINT_LANE,
     )
     # Type-deduction ratchet (AGENTS/cpp.md cat 34): every declaration whose
     # initializer already fixes its type is written auto, or is a row in
     # docs/CPP_RESTATED_TYPES.yaml.  It matches on the AST through clang-query,
     # which comes with clang-tidy, and reads the same compile database, so it
-    # belongs here rather than in the misc lane: from the repository root it
-    # could run before the build tree exists.
+    # belongs in clang-tidy's lane rather than in the misc lane: from the
+    # repository root it could run before the tree is configured.
     runner.step(
         "check-cpp-restated-types",
         [runner.python, "-m", "tools.check_cpp_restated_types"],
         cwd=runner.repo_root,
-        lane="cpp",
+        lane=CPP_LINT_LANE,
     )
 
     # Rust lints: rustfmt (check) + clippy (deny warnings) + rustdoc (deny
@@ -771,7 +787,7 @@ def _run_opt_in_lanes(runner: Runner, opts: OptInOptions) -> None:
         sanitizer_ctest_cmd("undefined", cpp_lib),
         cwd=runner.repo_root / "cpp",
         # Own lane (not "cpp"): each sanitizer uses a SEPARATE build tree, so it
-        # runs concurrently with the cpp lane's ctest→clang-tidy on build/ —
+        # runs concurrently with the cpp lane's ctest on build/ —
         # splitting the local C++ bottleneck (~305s → ~180s, measured 2026-06-14).
         lane="ubsan",
     )
@@ -877,8 +893,7 @@ def sanitizer_ctest_cmd(sanitizer: str, cpp_lib: str, *, env: str = "") -> str:
     tree = f"build-{'asan' if sanitizer == 'address' else 'ubsan'}"
     prefix = f"{env} " if env else ""
     return (
-        f"cmake -B {tree} -DALETHEIA_SANITIZER={sanitizer} "
-        "-DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null"
+        f"cmake -B {tree} -DALETHEIA_SANITIZER={sanitizer} {CPP_COMPILERS} > /dev/null"
         f" && {{ grep -qx 'ALETHEIA_SANITIZER:STRING={sanitizer}' {tree}/CMakeCache.txt"
         f" || {{ echo '{tree} is configured without the {sanitizer} sanitizer'; exit 1; }}; }}"
         f" && cmake --build {tree}"

@@ -59,7 +59,7 @@ out=$(run); rc=$?
 case $out in *"$digest"*) ;; *) echo "the refusal does not name the digest: $out"; exit 1 ;; esac
 case $out in *"tools/run_ci.py"*) ;; *) echo "the refusal does not name the sweep as the remedy: $out"; exit 1 ;; esac
 
-write_log ci-fast.log "none (a fast-tier sweep runs a subset)"
+write_log ci-fast.log "none (the sweep runs a subset of the gates)"
 out=$(run); rc=$?
 [ "$rc" -eq 1 ] || { echo "a fast-tier log was accepted as evidence (exit $rc): $out"; exit 1; }
 rm -rf "$scratch"

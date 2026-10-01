@@ -86,7 +86,7 @@ LOG_DIR = Path("tools") / "ci-output"
 # summary.  The orchestrator writes both through these constants, so the reader
 # and the writer are one definition.
 SOURCES_LINE = "Sources:  "
-SOURCES_UNRECORDED = "none (a fast-tier sweep runs a subset)"
+SOURCES_UNRECORDED = "none (the sweep runs a subset of the gates)"
 PASSED_LINE = re.compile(r"^Result:   ALL \d+ STEPS PASSED$")
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")

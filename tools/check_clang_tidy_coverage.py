@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """tools/check_clang_tidy_coverage.py — every cpp/src/**/*.cpp is in the compile DB.
 
-The C++ clang-tidy gate runs ``run-clang-tidy -p build cpp/src/``, which lints
+The C++ clang-tidy gate runs ``run-clang-tidy -p build-tidy cpp/src/``, which lints
 exactly the translation units present in ``compile_commands.json``.  Driving the
 lint from the compile database makes the build system the single source of truth
 for coverage — so a whole *directory* can no longer be silently dropped the way
@@ -21,7 +21,7 @@ forgotten files) make the C++ lint coverage self-maintaining.
 Exit codes:
   0 — every cpp/src/**/*.cpp appears in the compile DB.
   1 — one or more source files are missing from the DB.
-  2 — compile_commands.json not found (run ``cmake -S cpp -B cpp/build`` first).
+  2 — compile_commands.json not found (run ``cmake -S cpp -B cpp/build-tidy`` first).
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ import json
 import sys
 from pathlib import Path
 
-from tools._common import emit, git_toplevel
+from tools._common import CPP_LINT_TREE, emit, git_toplevel
 
 
 def uncovered_sources(src_files: set[str], db_files: set[str]) -> list[str]:
@@ -68,10 +68,11 @@ def main(repo: Path | None = None) -> int:
     ``repo`` defaults to the enclosing git work tree; tests inject a temp tree.
     """
     repo = (repo if repo is not None else git_toplevel()).resolve()
-    db_path = repo / "cpp" / "build" / "compile_commands.json"
+    db_path = repo / "cpp" / CPP_LINT_TREE / "compile_commands.json"
     if not db_path.is_file():
         emit(
-            f"check-clang-tidy-coverage: {db_path} not found; run 'cmake -S cpp -B cpp/build' first"
+            f"check-clang-tidy-coverage: {db_path} not found; "
+            + f"run 'cmake -S cpp -B cpp/{CPP_LINT_TREE}' first"
         )
         return 2
 

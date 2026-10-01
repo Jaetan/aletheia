@@ -23,10 +23,33 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # The sweep in two parts on two runners, each part the build and some of the
+  # lanes (run_ci --lanes): the sweep is bound by four cores' worth of work,
+  # so a second runner takes part of it.  The parts were cut by measurement,
+  # each timed alone on four CPUs: the C++ tests, asan and the lint gates in
+  # 242.5 s, the rest with ubsan in 192.3 s, against 330 s for the whole
+  # sweep.  The Agda gates and the import gate after them are one lane, about
+  # 190 s, which no cut shortens, and the lint gates beside them slowed both
+  # (350 s for that part); the C++ lanes alone with the lint gates took 307.  A test holds the two lists to every
+  # lane the sweep registers, each in one part.  Both parts set up the same
+  # toolchains; each keeps its compiler and dependency caches under its own
+  # key, and the part running the agda lane saves the build tree.
   full-sweep:
-    name: tools/run_ci.py (all gates)
+    name: tools/run_ci.py (${{ matrix.part }})
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: C++ tests, asan and the lint gates
+            slug: cpp
+            lanes: cpp,asan,cpp-lint
+            saves_build_tree: false
+          - part: Agda, the bindings and ubsan
+            slug: rest
+            lanes: agda,python,go,rust,misc,ubsan
+            saves_build_tree: true
     env:
       GHC_VERSION: '9.8.4'
       AGDA_VERSION: '2.8.0'
@@ -254,21 +277,23 @@ jobs:
           sudo dpkg -i ~/llvm-cache/*.deb || sudo apt-get -f install -y
 
       # Caches the CMake FetchContent dependencies (json / yaml-cpp / OpenXLSX
-      # / Catch2) for every C++ tree run_ci configures: the test build and the
-      # two sanitizer trees.  Without it, every run re-downloads each tarball
-      # into each tree, slow and exposed to transient source-server errors (a
-      # 504 fetching OpenXLSX failed the ctest step on the first real run).
-      # Keyed on CMakeLists.txt, which pins the dependency versions, so a bump
-      # invalidates the cache; the suffix moves when the list of trees does,
-      # since the cache saves only on a miss.
+      # / Catch2) for every C++ tree run_ci configures: the test build, the
+      # lint tree clang-tidy reads, and the two sanitizer trees.  Without it,
+      # every run re-downloads each tarball into each tree, slow and exposed to
+      # transient source-server errors (a 504 fetching OpenXLSX failed the
+      # ctest step on the first real run).  Keyed on CMakeLists.txt, which
+      # pins the dependency versions, so a bump invalidates the cache; the
+      # suffix moves when the list of trees does, since the cache saves only
+      # on a miss.
       - name: Cache C++ FetchContent deps
         uses: actions/cache@v6
         with:
           path: |
             cpp/build/_deps
+            cpp/build-tidy/_deps
             cpp/build-ubsan/_deps
             cpp/build-asan/_deps
-          key: cpp-deps-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}-v2
+          key: cpp-deps-${{ runner.os }}-${{ matrix.slug }}-${{ hashFiles('cpp/CMakeLists.txt') }}-v3
 
       # ccache persists compiled C++ objects across runs.  cpp/CMakeLists.txt
       # auto-enables it (CMAKE_CXX_COMPILER_LAUNCHER) when ccache is on PATH.  CI
@@ -290,8 +315,9 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ~/.ccache
-          key: ccache-${{ runner.os }}-clang23-${{ github.sha }}
+          key: ccache-${{ runner.os }}-clang23-${{ matrix.slug }}-${{ github.sha }}
           restore-keys: |
+            ccache-${{ runner.os }}-clang23-${{ matrix.slug }}-
             ccache-${{ runner.os }}-clang23-
 
       # actionlint is the one GHA meta-check run_ci runs only when the binary is
@@ -397,9 +423,10 @@ jobs:
       # property on every merge (the backstop). On pull_request the default `auto`
       # runs the staleness gate (check_build_incremental, ~2 .so relinks) only when
       # a build-graph file changed, so a code-only PR gets a fast plain build.
-      - name: Run the full offline correctness sweep (tools/run_ci.py)
+      - name: Run this part of the offline correctness sweep (tools/run_ci.py)
         run: >-
           python/.venv/bin/python3 -m tools.run_ci --iwyu-all --parallel
+          --lanes ${{ matrix.lanes }}
           ${{ github.event_name == 'push' && '--build-staleness=always' || '' }}
       # The sweep echoes a step's output only when it fails; the log holds every
       # step's output, the per-module times of the proof gate included, which
@@ -408,13 +435,13 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: ci-sweep-log
+          name: ci-sweep-log-${{ matrix.slug }}
           path: tools/ci-output/*.log
           if-no-files-found: warn
 
-      # Save the build tree so the next run restores it.  This sweep is the
-      # one saver: it type-checks every module (`--iwyu-all` and the proof
-      # gate), so the interface directory it saves is complete, where a build
+      # Save the build tree so the next run restores it.  The part running the
+      # agda lane is the one saver: it type-checks every module (`--iwyu-all`
+      # and the proof gate), so the interface directory it saves is complete, where a build
       # lane's holds the runtime closure at most, and a key once written is
       # immutable.  NOT gated to pull_request: push:main must seed the cache
       # for brand-new PRs to hit it via restore-keys.  `!cancelled()` avoids
@@ -443,7 +470,8 @@ jobs:
           fi
 
       - name: Save incremental build tree
-        if: ${{ !cancelled() && steps.build-tree-cache.outputs.cache-hit != 'true'
+        if: ${{ !cancelled() && matrix.saves_build_tree
+          && steps.build-tree-cache.outputs.cache-hit != 'true'
           && steps.build-tree-present.outputs.present == 'true' }}
         uses: actions/cache/save@v6
         with:
@@ -460,4 +488,19 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ~/.ccache
-          key: ccache-${{ runner.os }}-clang23-${{ github.sha }}
+          key: ccache-${{ runner.os }}-clang23-${{ matrix.slug }}-${{ github.sha }}
+
+  # The required check: every part of the sweep passed.  A required check whose
+  # job was skipped reads as passing, so this job runs whatever became of the
+  # parts and fails unless all of them succeeded.
+  all-gates:
+    name: tools/run_ci.py (all gates)
+    needs: full-sweep
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every part of the sweep passed
+        env:
+          RESULT: ${{ needs.full-sweep.result }}
+        run: test "${RESULT}" = success

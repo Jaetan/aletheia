@@ -47,6 +47,11 @@ if TYPE_CHECKING:
 # and `git diff --name-only` both use this spelling, and only a git listing mints one.
 RelPath = NewType("RelPath", str)
 
+# The C++ tree the compile-database gates read, clang-tidy among them, under
+# cpp/: configured with the binding's compiler and never built, so those gates
+# start when its configure ends rather than after the test build in cpp/build.
+CPP_LINT_TREE = "build-tidy"
+
 
 def match_paren_content(text: str, start: int) -> str | None:
     """Return the content from ``start`` up to its matching close parenthesis.
