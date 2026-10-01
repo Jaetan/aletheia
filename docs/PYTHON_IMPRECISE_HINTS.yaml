@@ -3480,7 +3480,7 @@ hints:
     count: 2
   - file: tools/mutation_run.py
     text: "str"
-    count: 5
+    count: 3
   - file: tools/mutation_run.py
     text: "tuple[Path, Path] | str"
     count: 1

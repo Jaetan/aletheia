@@ -16,15 +16,17 @@ skipped.
 from __future__ import annotations
 
 import json
-import os
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from _git_repo import repo_with_an_uncommitted_edit
+from _stand_in import ScriptSource, ToolName, install_stand_in
 
 from tools import mutation_run
+from tools.mutation_go import GremlinsLog
 from tools.mutation_report import MutationReport
+
+from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
     import pytest
@@ -70,7 +72,7 @@ def _rows(count: int) -> dict[mutation_run.SurvivorKey, int]:
 
 def test_the_summary_is_read_whole(tmp_path: Path) -> None:
     """Killed, lived and timed out are read from the tail; not covered from the mutant lines."""
-    rep = mutation_run.parse_gremlins_summary(_SUMMARY, "here")
+    rep = mutation_run.parse_gremlins_summary(GremlinsLog(_SUMMARY), Prose("here"))
     assert (rep.killed, rep.survived, rep.timeouts) == (721, 1, 2)
     assert sum(mutation_run.go_mutant_rows(_SUMMARY, "NOT COVERED", _tree(tmp_path)).values()) == 3
 
@@ -214,13 +216,8 @@ def _go_repo(root: Path) -> Path:
 
 def _fake_gremlins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Put the stand-in first on the search path and return the file it records to."""
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    gremlins = bin_dir / "gremlins"
-    _ = gremlins.write_text(f"#!{sys.executable}\n{_FAKE_GREMLINS}", encoding="utf-8")
-    gremlins.chmod(0o755)
+    install_stand_in(tmp_path, monkeypatch, ToolName("gremlins"), ScriptSource(_FAKE_GREMLINS))
     record = tmp_path / "gremlins.json"
-    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
     monkeypatch.setenv("GREMLINS_RECORD", str(record))
     return record
 
@@ -247,13 +244,26 @@ def test_the_sweep_runs_in_a_copy_named_as_the_repository(
     assert seen["env"] == {
         "ALETHEIA_REPO_ROOT": str(ran_in.parent),
         "ALETHEIA_LIB": str(repo / "build" / "libaletheia-ffi.so"),
-        "GOFLAGS": "-mod=mod -skip=^TestDocExamples$",
+        "GOFLAGS": "-mod=mod -count=1 -skip=^TestDocExamples$",
     }
 
 
-def test_the_skip_is_the_whole_goflags_when_none_was_set() -> None:
-    """With no GOFLAGS of the caller's, the harness's skip is all there is."""
-    assert mutation_run.go_sweep_goflags(mutation_run.GoFlags("")) == "-skip=^TestDocExamples$"
+def test_the_sweep_s_flags_are_the_whole_goflags_when_none_was_set() -> None:
+    """With no GOFLAGS of the caller's, caching off and the harness's skip are all there is."""
+    assert (
+        mutation_run.go_sweep_goflags(mutation_run.GoFlags(""))
+        == "-count=1 -skip=^TestDocExamples$"
+    )
+
+
+def test_no_go_test_run_of_the_sweep_is_served_from_the_test_cache() -> None:
+    """The coverage run gremlins sets every mutant's limit from is measured, not served.
+
+    A cached coverage run takes well under a second, and three times that
+    stops every mutant's run before its tests end.
+    """
+    flags = str(mutation_run.go_sweep_goflags(mutation_run.GoFlags("-mod=mod"))).split()
+    assert "-count=1" in flags
 
 
 def test_a_tree_without_a_kernel_is_a_refusal(
