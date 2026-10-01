@@ -178,6 +178,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **A C++ mutant's run ends at its first failing assertion.** The lane hands
+  the test binary Catch2's `--abort`, where the suite used to run to its end
+  after a test had already killed the mutant: on the runner a killed run cost
+  what a survivor did, 16.4 s against 16.3 s on the slowest leg, which set the
+  pull request's wall clock. Measured locally on that leg, 494 mutants, the
+  sweep fell from 2m44.9s to 45.4s and its summed run time from 2500 s to
+  848 s. The kill-route census reads any failing assertion as the test's kill,
+  whatever ends the process after it, and a run with none goes through the
+  whole suite either way, so no route moves: compared mutant by mutant, the
+  two sweeps read the same route, check and status for every one, and a probe
+  sweeps every tree without the flag to hold that.
+
 - **No mutation lane runs its binding's doc-example harness.** A harness
   builds and runs every fence of the documents as a program of its own,
   holding the documents to the binding, and costs its whole run once per

@@ -552,6 +552,12 @@ def cpp_lane_command(
         "--",
         "--order",
         "decl",
+        # A run ends at its first failing assertion. The kill-route census
+        # reads a run with any failing assertion as the test's kill,
+        # whatever ended the process after it, and a run with none goes
+        # through the whole suite either way, so no mutant's route moves; a
+        # probe sweeps without the flag to hold that.
+        "--abort",
     ]
 
 

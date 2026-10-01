@@ -69,7 +69,8 @@ with tempfile.TemporaryDirectory(prefix="orders-") as scratch:
         report_dir = Path(scratch) / name
         report_dir.mkdir()
         argv = cpp_lane_command(MULL_RUNNER, build_dir, report_dir, leg)
-        argv = [*argv[: argv.index("--") + 1], "--order", *order]
+        at = argv.index("--order")
+        argv = [*argv[:at], "--order", *order, *argv[at + 2 :]]
         _ = subprocess.run(polite(argv), cwd=cpp_sweep_directory(), env=env, capture_output=True, check=False)
         _ = reap_dead_scratch_dirs()
         sqlite = report_dir / f"{leg.report_name}.sqlite"

@@ -93,7 +93,11 @@ Two-tier per advisor 2026-05-09:
   reported, the kernel ending the process, a check the standard library runs
   in the mutation build (the trees compile under libstdc++'s debug mode, so a
   read past a container's end or an out-of-range subscript ends the run at that
-  step, with its message), or a fault (an end none of those names).  A mutant
+  step, with its message), or a fault (an end none of those names).  A run
+  ends at its first failing assertion (Catch2's `--abort`), which moves no
+  route: a failing assertion is the test's kill whatever ends the process
+  after it, and a run with none goes through the whole suite either way; a
+  probe sweeps every tree without the flag to hold that.  A mutant
   several lanes killed is attributed in that order.  The counts land in
   `cpp-routes.json` beside `cpp.json` and in the C++ baseline; a probe holds
   them equal to the record, which the pinned test order and the debug-mode
