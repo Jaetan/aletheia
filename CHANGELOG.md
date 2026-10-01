@@ -242,6 +242,17 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   caches pip, keyed on `python/pyproject.toml`, as the benchmark workflow
   already did, and a probe holds every such job to it.
 
+- **The Rust mutation lane sweeps in shards side by side.** It set the pull
+  request's wall clock once the Go lane was sharded: 905 s, its sweep 845 s.
+  A copy of the tree holds one mutant at a time, and a mutant's cost is mostly
+  the incremental build of the test binary, so the runner's other cores sat
+  idle. The runner now sweeps one shard per CPU, up to four, each in a scratch
+  copy of its own with `cargo mutants --shard k/N`, and merges the shards'
+  outcomes into the one `outcomes.json` the survivor ledger reads, refusing a
+  mutant two shards swept, one no shard swept, or one the tool's own listing
+  does not name. On four CPUs locally the sweep took 609.0 s whole and 479.4 s
+  in four shards, both 316 mutants with 314 killed and 2 surviving, the record.
+
 - **No mutation lane runs its binding's doc-example harness.** A harness
   builds and runs every fence of the documents as a program of its own,
   holding the documents to the binding, and costs its whole run once per

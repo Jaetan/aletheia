@@ -99,10 +99,12 @@ Artifacts written:
     go-shards.json each shard's wall clock, written by the merge stage
     cpp.json       same shape
     rust.json      same shape
-    rust/mutants.out/
-                   cargo-mutants' own report directory: outcomes.json, every
-                   Rust mutant with its bucket and its site, which the ledger
-                   check reads, and a log per mutant
+    rust/mutants.out/outcomes.json
+                   the shards' outcomes merged: every Rust mutant with its
+                   bucket and its site, which the ledger check reads
+    rust/shard-<n>/mutants.out/, rust-shard-<n>.raw.txt
+                   one shard's own cargo-mutants report directory, a log per
+                   mutant in it, and the shard's console log
     cpp-leak.json, cpp-plain.json
                    one leg's census where the run is one leg of the C++
                    lane (ALETHEIA_MUTATION_CPP_STAGE); recorded, not gated

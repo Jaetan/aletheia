@@ -9,11 +9,12 @@
 # feature is on, as the suite is run everywhere else, so the async client's
 # tests are among the ones a mutant has to get past.
 #
-# tools/mutation_rust.py sweeps a scratch copy of the whole tree and passes
-# `--in-place` within it: the suite includes the DBC corpus and the parity
+# tools/mutation_rust.py sweeps scratch copies of the whole tree and passes
+# `--in-place` within each: the suite includes the DBC corpus and the parity
 # snapshots under python/ at compile time, and the documents under docs/ at
 # run time, so the copy of the crate alone that cargo-mutants would make does
-# not build.  In place, one mutant runs at a time.
+# not build.  In place, a copy runs one mutant at a time, so the runner
+# sweeps several copies side by side, one `--shard` each.
 examine_globs = ["src/response.rs", "src/dbc.rs", "src/types.rs", "src/backend.rs"]
 all_features = true
 # A function returning Result gets an Err mutant only from a value named here:

@@ -11,7 +11,7 @@
 # of the pinned cargo-mutants; the survivors are properties of the source and
 # its tests.  A timed-out mutant is neither killed nor alive, so a run with any
 # is a loaded machine's and is refused rather than compared.
-# The sweep is tools/mutation_rust.py's, which mutates a scratch copy of the
+# The sweep is tools/mutation_rust.py's, which mutates scratch copies of the
 # tree, so no tracked file moves while it runs.
 # Non-zero exit: the record and a sweep disagree, or the tool refused to sweep.
 # Exits 0 with a note when cargo-mutants is not installed or the kernel is not
