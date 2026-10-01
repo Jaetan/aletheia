@@ -235,6 +235,13 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   mutants as the last whole sweep on the runner, four of them timing out on
   the loaded host where the runner killed or kept them.
 
+- **Every job that builds the dev venv reuses pip's wheel cache.** The venv is
+  created afresh on every run, and its install fetched every wheel again from
+  the package index: about 20 s in most jobs, 97 s and 255 s in two jobs of
+  one run. Each `actions/setup-python` step ahead of a venv install now
+  caches pip, keyed on `python/pyproject.toml`, as the benchmark workflow
+  already did, and a probe holds every such job to it.
+
 - **No mutation lane runs its binding's doc-example harness.** A harness
   builds and runs every fence of the documents as a program of its own,
   holding the documents to the binding, and costs its whole run once per

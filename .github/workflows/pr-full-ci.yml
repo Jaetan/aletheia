@@ -179,6 +179,12 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: '3.14'
+          # Cache pip's wheel-download cache, keyed on the dependency manifest,
+          # as benchmark.yml does: the venv is created afresh each run, and
+          # its install fetched every wheel again, taking 97 s and 255 s in two
+          # jobs of one run against about 20 s in the rest.
+          cache: pip
+          cache-dependency-path: python/pyproject.toml
 
       - name: Create the dev venv (python/.venv)
         run: |
