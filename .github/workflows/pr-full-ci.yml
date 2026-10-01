@@ -58,38 +58,50 @@ jobs:
           # the build over log hygiene if the path differs on a future runner.
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
           ghcup install cabal 3.16.1.0 --set
+          ghc_dir="$(ghcup whereis basedir)/ghc/${GHC_VERSION}"
+          echo "GHC_DIR=${ghc_dir}" >> "${GITHUB_ENV}"
           {
             echo "${HOME}/.cabal/bin"
             echo "${HOME}/.ghcup/bin"
-            echo "${HOME}/ghc-${GHC_VERSION}/bin"
+            echo "${ghc_dir}/bin"
           } >> "${GITHUB_PATH}"
 
-      # GHC goes into a directory of its own, cached there: installing the
+      # GHC is cached in the directory ghcup installs it to: installing the
       # bindist was 92 s of the 104 s this setup took on every job of run
       # 36804855030, and the installed directory compresses to 292 MiB
-      # (zstd, measured on the same bindist).  The wrappers in its bin/ name
-      # the directory by absolute path, so it is restored where it was
-      # installed, under $HOME, which is /home/runner on every hosted runner;
-      # hit or miss, its bin/ is first on PATH (set above), so both run one
+      # (zstd, measured on the same bindist).  Its place is ghcup's own,
+      # read from ghcup above, because everything built with the compiler
+      # records its path, and those artifacts come from other caches: the
+      # kernel library's RUNPATH names GHC's library directory, and cabal's
+      # configurations name its programs, so a compiler restored anywhere
+      # else leaves a restored kernel library unable to load its runtime.
+      # Hit or miss, its bin/ is first on PATH (set above), so both run one
       # compiler.  The key names the image, as the toolchain debs' does,
       # because the bindist links the image's system libraries.
       - name: Restore GHC ${{ env.GHC_VERSION }}
         id: ghc-cache
         uses: actions/cache/restore@v6
         with:
-          path: ~/ghc-${{ env.GHC_VERSION }}
-          key: ghc${{ env.GHC_VERSION }}-noble-v1
+          path: ${{ env.GHC_DIR }}
+          key: ghc${{ env.GHC_VERSION }}-noble-v2
 
-      - name: Install GHC ${{ env.GHC_VERSION }} into its directory (only on a cache miss)
+      - name: Install GHC ${{ env.GHC_VERSION }} (only on a cache miss)
         if: steps.ghc-cache.outputs.cache-hit != 'true'
-        run: ghcup install ghc "${GHC_VERSION}" --isolate "${HOME}/ghc-${GHC_VERSION}"
+        run: |
+          set -euo pipefail
+          ghcup install ghc "${GHC_VERSION}" --set
+          installed="$(ghcup whereis --directory ghc "${GHC_VERSION}")"
+          [ "${installed}" = "${GHC_DIR}/bin" ] || {
+            echo "::error::ghcup installed GHC at ${installed}, not under ${GHC_DIR}, which the cache holds"
+            exit 1
+          }
 
       - name: Save GHC (only on a cache miss)
         if: steps.ghc-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
-          path: ~/ghc-${{ env.GHC_VERSION }}
-          key: ghc${{ env.GHC_VERSION }}-noble-v1
+          path: ${{ env.GHC_DIR }}
+          key: ghc${{ env.GHC_VERSION }}-noble-v2
 
       # Caches the prebuilt Agda library + executable so only the FIRST run
       # builds Agda (~15-20 min on the 4-core runner); later runs restore it

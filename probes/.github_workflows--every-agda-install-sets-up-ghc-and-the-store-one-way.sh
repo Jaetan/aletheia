@@ -4,10 +4,12 @@
 #
 # Probes the Haskell toolchain steps of .github/workflows/.
 # Claim: every job that installs Agda sets up GHC and the cabal store one way.
-# GHC is restored from one key into one directory, installed there with
-# ghcup's --isolate only where the restore missed, saved under the same key,
-# and that directory's bin/ is put on PATH; no job installs GHC into ghcup's
-# own tree, which no cache holds. The store is restored and saved under one
+# GHC is restored from one key into the directory ghcup installs it to, named
+# by ghcup itself, installed by ghcup only where the restore missed and checked
+# to have landed there, saved under the same key, and that directory's bin/ is
+# put on PATH. A kernel library restored from the build-tree cache names GHC's
+# library directory in its RUNPATH, so a compiler cached anywhere else leaves
+# it unable to load its runtime. The store is restored and saved under one
 # key that hashes shake.cabal, the restore falls back to the key's prefix, the
 # package index is refreshed only where nothing was restored, and the shake
 # executable's dependencies are built between the Agda install and the save,
@@ -26,10 +28,13 @@ from pathlib import Path
 
 import yaml
 
-GHC_DIR = "~/ghc-${{ env.GHC_VERSION }}"
-GHC_KEY = "ghc${{ env.GHC_VERSION }}-noble-v1"
-GHC_PATH_LINE = 'echo "${HOME}/ghc-${GHC_VERSION}/bin"'
-GHC_INSTALL = 'ghcup install ghc "${GHC_VERSION}" --isolate "${HOME}/ghc-${GHC_VERSION}"'
+GHC_DIR = "${{ env.GHC_DIR }}"
+GHC_KEY = "ghc${{ env.GHC_VERSION }}-noble-v2"
+GHC_BASE = 'ghc_dir="$(ghcup whereis basedir)/ghc/${GHC_VERSION}"'
+GHC_ENV = 'echo "GHC_DIR=${ghc_dir}" >> "${GITHUB_ENV}"'
+GHC_PATH_LINE = 'echo "${ghc_dir}/bin"'
+GHC_INSTALL = 'ghcup install ghc "${GHC_VERSION}" --set'
+GHC_LANDED = '[ "${installed}" = "${GHC_DIR}/bin" ]'
 STORE_PREFIX = "cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-"
 STORE_KEY = STORE_PREFIX + "${{ hashFiles('shake.cabal') }}-v3"
 SHAKE_DEPS = "cabal build --only-dependencies aletheia-build:exe:shake"
@@ -58,13 +63,17 @@ for path in sorted(Path(".github/workflows").glob("*.yml")):
                 and str((step.get("with") or {}).get("key", "")).startswith(key_start)
             ]
 
-        if any("ghcup install ghc" in run and "--isolate" not in run for run in runs):
-            fault("installs GHC into ghcup's own tree")
-        if not any(GHC_PATH_LINE in run and '>> "${GITHUB_PATH}"' in run for run in runs):
-            fault("never puts the cached GHC's bin/ on PATH")
+        setup = [
+            i for i, run in enumerate(runs)
+            if GHC_BASE in run and GHC_ENV in run and GHC_PATH_LINE in run and '>> "${GITHUB_PATH}"' in run
+        ]
+        if len(setup) != 1:
+            fault("does not name GHC's directory from ghcup and put its bin/ on PATH, once")
         ghc_restore = cache_steps("restore", "ghc")
         ghc_save = cache_steps("save", "ghc")
-        installs = [i for i, run in enumerate(runs) if GHC_INSTALL in run]
+        installs = [i for i, run in enumerate(runs) if "ghcup install ghc" in run]
+        if any(GHC_INSTALL not in runs[i] or GHC_LANDED not in runs[i] for i in installs):
+            fault("installs GHC other than with ghcup's own layout, checked to land under GHC_DIR")
         if len(ghc_restore) != 1 or len(ghc_save) != 1 or len(installs) != 1:
             fault("does not restore, install on a miss and save GHC exactly once each")
         else:
@@ -76,8 +85,8 @@ for path in sorted(Path(".github/workflows").glob("*.yml")):
             for i in (installs[0], s):
                 if gate not in str(steps[i].get("if", "")):
                     fault(f"step {steps[i].get('name')!r} runs whatever the GHC restore found")
-            if not r < installs[0] < s < agda[0]:
-                fault("does not restore, install and save GHC, in that order, ahead of the Agda install")
+            if not (len(setup) == 1 and setup[0] < r < installs[0] < s < agda[0]):
+                fault("does not name, restore, install and save GHC, in that order, ahead of the Agda install")
 
         store_restore = cache_steps("restore", "cabal-")
         store_save = cache_steps("save", "cabal-")

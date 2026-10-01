@@ -312,31 +312,40 @@ jobs:
           export CABAL_DIR="${HOME}/.cabal"
           sudo chown -R "$(id -un):$(id -gn)" /usr/local/.ghcup 2>/dev/null || true
           ghcup install cabal 3.16.1.0 --set
+          ghc_dir="$(ghcup whereis basedir)/ghc/${GHC_VERSION}"
+          echo "GHC_DIR=${ghc_dir}" >> "${GITHUB_ENV}"
           {
             echo "${HOME}/.cabal/bin"
             echo "${HOME}/.ghcup/bin"
-            echo "${HOME}/ghc-${GHC_VERSION}/bin"
+            echo "${ghc_dir}/bin"
           } >> "${GITHUB_PATH}"
 
-      # GHC in a directory of its own, cached there (pr-full-ci.yml says why).
+      # GHC cached in the directory ghcup installs it to (pr-full-ci.yml says why).
       - name: Restore GHC ${{ env.GHC_VERSION }}
         if: env.LANE_SWEEPS != '0'
         id: ghc-cache
         uses: actions/cache/restore@v6
         with:
-          path: ~/ghc-${{ env.GHC_VERSION }}
-          key: ghc${{ env.GHC_VERSION }}-noble-v1
+          path: ${{ env.GHC_DIR }}
+          key: ghc${{ env.GHC_VERSION }}-noble-v2
 
-      - name: Install GHC ${{ env.GHC_VERSION }} into its directory (only on a cache miss)
+      - name: Install GHC ${{ env.GHC_VERSION }} (only on a cache miss)
         if: env.LANE_SWEEPS != '0' && steps.ghc-cache.outputs.cache-hit != 'true'
-        run: ghcup install ghc "${GHC_VERSION}" --isolate "${HOME}/ghc-${GHC_VERSION}"
+        run: |
+          set -euo pipefail
+          ghcup install ghc "${GHC_VERSION}" --set
+          installed="$(ghcup whereis --directory ghc "${GHC_VERSION}")"
+          [ "${installed}" = "${GHC_DIR}/bin" ] || {
+            echo "::error::ghcup installed GHC at ${installed}, not under ${GHC_DIR}, which the cache holds"
+            exit 1
+          }
 
       - name: Save GHC (only on a cache miss)
         if: env.LANE_SWEEPS != '0' && steps.ghc-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
-          path: ~/ghc-${{ env.GHC_VERSION }}
-          key: ghc${{ env.GHC_VERSION }}-noble-v1
+          path: ${{ env.GHC_DIR }}
+          key: ghc${{ env.GHC_VERSION }}-noble-v2
 
       - name: Restore cabal store (Agda library + executable + deps)
         if: env.LANE_SWEEPS != '0'

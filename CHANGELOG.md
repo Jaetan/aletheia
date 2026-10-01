@@ -204,11 +204,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 - **CI restores GHC instead of installing it.** `ghcup install ghc` spent 92 s
   of every job's 104 s toolchain step unpacking and installing the bindist.
-  GHC now goes into a directory of its own (`ghcup --isolate`), cached under
-  a key naming the version and the runner image; a job that finds it skips
-  the install, and every job runs the compiler from that directory, hit or
-  miss. A probe holds every job that installs Agda to this one setup of GHC
-  and the store.
+  The directory ghcup installs GHC to, read from `ghcup whereis basedir`, is
+  now cached under a key naming the version and the runner image; a job that
+  finds it skips the install, and every job runs the compiler from that
+  directory, hit or miss. It is cached where ghcup puts it rather than moved,
+  because the kernel library a job restores from the build-tree cache names
+  GHC's library directory in its RUNPATH, so a compiler cached anywhere else
+  leaves that library unable to load GHC's runtime. A probe holds every job
+  that installs Agda to this one setup of GHC and the store.
 
 - **No mutation lane runs its binding's doc-example harness.** A harness
   builds and runs every fence of the documents as a program of its own,
