@@ -12,17 +12,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
-- **No test reads a clock or starts a thread, `tools/check_test_determinism.py`.**
-  The tests run on machines of very different power: a test that waits on a
-  duration passes or fails by how fast the machine was, and one that races a
-  thread by how it was scheduled; a larger timeout makes the wrong outcome
-  rarer, never impossible. The rule, now in `AGENTS.md` § Universal Rules and
-  each binding's standard, is that a test reads no clock, waits on no
-  duration and starts no thread, goroutine or concurrent task: the clock or
-  the scheduler is injected and driven. The gate, in `run_ci.py`'s fast tier,
-  reads every binding's test files with their comments and literals blanked,
-  against a catalogue of each language's time and thread primitives
-  (positional waits and delayed loop callbacks included), and holds them to
+- **No test reads a clock or starts a thread,
+  `tools/check_test_determinism.py`.** The tests run on machines of very
+  different power: a test that waits on a duration passes or fails by how fast
+  the machine was, and one that races a thread by how it was scheduled; a
+  larger timeout makes the wrong outcome rarer, never impossible. The rule,
+  now in `AGENTS.md` § Universal Rules and each binding's standard, is that a
+  test reads no clock, waits on no duration and starts no thread, goroutine or
+  concurrent task: the clock or the scheduler is injected and driven. The
+  gate, in `run_ci.py`'s fast tier, reads every binding's test files with
+  their comments and literals blanked, against a catalogue of each language's
+  time and thread primitives (positional waits, delayed loop callbacks and an
+  async client built on its default thread runner included), and holds them to
   `docs/TEST_DETERMINISM.yaml`, a ratchet that is empty: a new site fails. It
   also reads one file as the path it stands for (`--file PATH --as REL`) and
   names which paths are tests (`--is-test`), so a hook can hold every test as
@@ -213,18 +214,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
-- **BREAKING (Python): `aletheia.asyncio.testing.gated_backend` is gone; the
-  async client takes a `run_in_thread`, and `TurnExecutor` is the testing
-  helper.** `gated_backend` blocked a worker thread inside a backend call and
-  needed a second task and a thread rendezvous to cancel around it. The async
-  client takes a keyword-only `run_in_thread`, a `TurnExecutor` that runs each
-  sync call at its turn on the event loop in place of `asyncio.to_thread`
-  (still the runner when it is omitted): a call cancelled before its turn
-  never runs, as an executor drops a queued job, and `cancel_at(task,
-  after=CallCount(n))` cancels at an exact call, so a test of async
-  cancellation needs no thread, timer or second task. A test holds every async
-  method, the shielded `__aenter__` and `close` included, to its count of
-  calls through the runner.
+- **BREAKING (Python): `aletheia.asyncio.testing.gated_backend` is gone; tests
+  hand the async client a `TurnExecutor` as its `run_in_thread`.**
+  `gated_backend` blocked a worker thread inside a backend call and needed a
+  second task and a thread rendezvous to cancel around it. The async client
+  still runs each sync call on a worker thread through `asyncio.to_thread`, so
+  a long call never blocks the host's event loop, and takes a keyword-only
+  `run_in_thread` for tests: `TurnExecutor` runs each call at its turn on the
+  event loop instead, a call cancelled before its turn never running, as an
+  executor drops a queued job, and `cancel_at(task, after=CallCount(n))`
+  cancels at an exact call, so a test of async cancellation relies on no
+  thread, timer or second task. A test holds every async method, the shielded
+  `__aenter__` and `close` included, to its count of calls through the runner,
+  and the determinism gate refuses a test that builds the async client without
+  one.
 
 - **BREAKING (Go): an attribute target carries its identifier as a `CANID`.**
   `DBCAttrTargetMessage`, `DBCAttrTargetSignal`, `DBCAttrTargetNodeMsg` and

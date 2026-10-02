@@ -5,8 +5,9 @@
 # Probes tools/check_test_determinism.py.
 # Claim: the ratchet fires in both directions, in every binding. A test that
 # reads physical time or starts a thread fails the gate when the record does not
-# name it: a Go timer and goroutine, a Python sleep and thread, a C++ sleep and
-# std::thread, a Rust sleep inside a test module. A row naming more sites than
+# name it: a Go timer and goroutine, a Python sleep, thread and async client on
+# its default thread runner, a C++ sleep and std::thread, a Rust sleep inside a
+# test module. A row naming more sites than
 # its file holds fails too, since it is standing permission to bring one back.
 # Each half is checked by injecting the violation and reading the exit code and
 # the diagnostic, since a gate whose pass is not the absence of a violation has
@@ -64,6 +65,8 @@ refused "$go_test" 'func aletheiaProbe() { time.Sleep(1) }' "time: a clock or ti
 refused "$go_test" 'func aletheiaProbe() { go aletheiaProbe() }' "thread: a go statement" || exit 1
 refused "$py_test" 'time.sleep(1)' "time: a clock or sleep from module time" || exit 1
 refused "$py_test" 'threading.Thread(target=print)' "thread: a thread or timer from module threading" || exit 1
+refused "$py_test" 'from aletheia.asyncio import AletheiaClient as AsyncProbe; AsyncProbe()' \
+	"thread: an async client on its default thread runner" || exit 1
 refused "$cpp_test" 'static void aletheia_probe() { std::this_thread::sleep_for(d); }' "time: a sleep" || exit 1
 refused "$cpp_test" 'static void aletheia_probe() { std::thread t([] {}); }' "thread: a std::thread or std::jthread" || exit 1
 refused "$rust_src" '#[cfg(test)] mod aletheia_probe { fn t() { std::thread::sleep(d); } }' "time: a sleep" || exit 1
@@ -85,4 +88,4 @@ if ! grep -qF "a recorded row names more sites than the file holds" "$work/rever
 	head -4 "$work/reverse.txt" | sed 's/^/  /'
 	exit 1
 fi
-echo "PASS: a timer and a thread in a Go, a Python, a C++ and a Rust test each fail the gate by name, and so does a stale row"
+echo "PASS: a timer and a thread in a Go, a Python, a C++ and a Rust test, and an async client on its default runner, each fail the gate by name, and so does a stale row"

@@ -230,7 +230,9 @@ class TestAsyncSmoke:
         prop = Signal("TestSignal").less_than(1000).always()
 
         async def _run() -> str:
-            async with AsyncClient() as client:
+            async with AsyncClient(
+                sync_client=SyncClient(), run_in_thread=TurnExecutor()
+            ) as client:
                 parse_resp = await client.parse_dbc(simple_dbc)
                 assert parse_resp["status"] == "success"
                 set_resp = await client.set_properties([prop.to_dict()])
@@ -254,7 +256,9 @@ class TestAsyncSmoke:
         prop = Signal("TestSignal").less_than(1000).always()
 
         async def _run() -> int:
-            async with AsyncClient() as client:
+            async with AsyncClient(
+                sync_client=SyncClient(), run_in_thread=TurnExecutor()
+            ) as client:
                 await client.parse_dbc(simple_dbc)
                 await client.set_properties([prop.to_dict()])
                 await client.start_stream()
@@ -397,7 +401,9 @@ class TestAsyncIterCancellation:
         prop = Signal("TestSignal").less_than(1000).always()
 
         async def _run() -> list[FrameResult]:
-            async with AsyncClient() as client:
+            async with AsyncClient(
+                sync_client=SyncClient(), run_in_thread=TurnExecutor()
+            ) as client:
                 await client.parse_dbc(simple_dbc)
                 await client.set_properties([prop.to_dict()])
                 await client.start_stream()

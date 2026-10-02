@@ -3,9 +3,9 @@
 """Async mirror of :class:`aletheia.AletheiaClient`.
 
 Each operation method delegates to its sync counterpart on a background
-thread via :func:`asyncio.to_thread`, or at its turn on the event loop
-through a ``TurnExecutor`` a test passes as ``run_in_thread``; the resulting
-coroutine is cancellable through the standard
+thread via :func:`asyncio.to_thread` (in a test, at its turn on the event
+loop through the ``TurnExecutor`` it passes as ``run_in_thread``); the
+resulting coroutine is cancellable through the standard
 ``asyncio.CancelledError`` mechanism.
 See ``docs/architecture/CANCELLATION.md`` for the full contract.
 
@@ -101,10 +101,12 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         construction; mutually exclusive with ``sync_client`` (use
         one or the other).
 
-        ``run_in_thread`` runs each sync call, :func:`asyncio.to_thread`
-        when omitted: an ``aletheia.asyncio.testing.TurnExecutor`` runs each
-        call at its turn on the event loop instead, so a test cancels at an
-        exact call with no thread behind it.
+        Each sync call runs on a worker thread through
+        :func:`asyncio.to_thread`, so a long call never blocks the host's
+        event loop.  ``run_in_thread`` is for tests: an
+        ``aletheia.asyncio.testing.TurnExecutor`` runs each call at its turn
+        on the loop instead, so a test cancels at an exact call and relies on
+        no thread.
         """
         self._run = run_in_thread if run_in_thread is not None else asyncio.to_thread
         if sync_client is not None:

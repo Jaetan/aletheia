@@ -17,12 +17,14 @@ import textwrap
 from tools._common import RelPath, git_toplevel
 from tools._ratchet import CanonicalText, RatchetRows, RowKey
 from tools.check_test_determinism import (
+    ASYNC_CLIENT_ON_A_THREAD,
     BINDINGS,
     CLEAN,
     OUT_OF_STEP,
     Binding,
     BlankedCode,
     SourceText,
+    async_clients_on_a_thread,
     is_test,
     report,
     rows_of,
@@ -120,6 +122,34 @@ def test_python_time_threads_and_tasks_are_sites_and_their_prose_is_not() -> Non
     assert _labels(PYTHON, rel, prose) == set()
     for alone in ("proc.wait(BOUND_SECONDS)\n", "future.result(15)\n"):
         assert _labels(PYTHON, rel, SourceText(alone)) == {"time: a positional timeout"}
+
+
+def test_an_async_client_on_its_default_runner_is_a_thread_site() -> None:
+    """An async client built in a test without ``run_in_thread`` leans on executor threads.
+
+    Found by what the file imports, an alias or the module included; one handed
+    a runner, the sync client and a mention in a string are none.
+    """
+    source = SourceText(
+        textwrap.dedent(
+            """\
+            import aletheia.asyncio as aio
+            from aletheia import AletheiaClient
+            from aletheia.asyncio import AletheiaClient as AsyncClient
+            AsyncClient()
+            AsyncClient(sync_client=AletheiaClient())
+            aio.AletheiaClient()
+            aletheia.asyncio.AletheiaClient()
+            AsyncClient(run_in_thread=executor)
+            AletheiaClient()
+            note = "AsyncClient()"
+            """
+        )
+    )
+    assert async_clients_on_a_thread(source) == 4
+    rel = RelPath("python/tests/test_x.py")
+    assert rows_of(rel, source) == {RowKey(rel, ASYNC_CLIENT_ON_A_THREAD): 4}
+    assert not rows_of(RelPath("python/aletheia/x.py"), source)
 
 
 def test_a_python_yield_to_the_loop_is_not_physical_time() -> None:

@@ -737,7 +737,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Each sync call runs through `asyncio.to_thread` unless the keyword-only `run_in_thread` is given an `aletheia.asyncio.testing.TurnExecutor`, the testing stand-in that runs each call at its turn on the event loop: a call whose awaiter is cancelled before its turn never runs, as an executor drops a queued job, and `cancel_at(task, after=CallCount(n))` puts a cancellation on an exact call, so a test needs no thread, timer or second task. Its `queued` and `ran` count the calls it was handed and the calls that completed.
+Each sync call runs on a worker thread through `asyncio.to_thread`, so a long call never blocks the event loop. Tests hand the keyword-only `run_in_thread` an `aletheia.asyncio.testing.TurnExecutor`, which runs each call at its turn on the event loop instead: a call whose awaiter is cancelled before its turn never runs, as an executor drops a queued job, and `cancel_at(task, after=CallCount(n))` puts a cancellation on an exact call, so a test needs no thread, timer or second task. Its `queued` and `ran` count the calls it was handed and the calls that completed.
 
 ---
 

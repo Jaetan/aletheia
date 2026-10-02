@@ -47,6 +47,7 @@ clean, 1 a site or a row out of step, 2 a file or the record that cannot be read
 from __future__ import annotations
 
 import argparse
+import ast
 import io
 import re
 import sys
@@ -354,6 +355,60 @@ def which_are_tests(repo: Path, rels: list[RelPath]) -> list[RelPath]:
     return named
 
 
+# The async client runs each sync call through ``asyncio.to_thread`` unless it
+# is handed a ``run_in_thread``; a test that builds it without one leans on the
+# executor's threads, which no catalogue pattern can see in the call itself.
+ASYNC_CLIENT_ON_A_THREAD = CanonicalText("thread: an async client on its default thread runner")
+# A name or an attribute chain as source spells it, dots included.
+DottedName = NewType("DottedName", str)
+_ASYNC_MODULE = DottedName("aletheia.asyncio")
+
+
+def _dotted(node: ast.expr) -> DottedName | None:
+    """Spell a name or an attribute chain as dots, or None for anything else."""
+    if isinstance(node, ast.Name):
+        return DottedName(node.id)
+    if isinstance(node, ast.Attribute):
+        base = _dotted(node.value)
+        return DottedName(f"{base}.{node.attr}") if base is not None else None
+    return None
+
+
+def async_clients_on_a_thread(text: SourceText) -> SiteCount:
+    """Count the async-client constructions in a Python test that hand it no ``run_in_thread``.
+
+    The client is found by what the file imports: a name bound to
+    ``aletheia.asyncio.AletheiaClient``, or an attribute reached through a name
+    bound to the module.  A file the parser refuses counts none here; its other
+    sites are still read by the catalogue.
+    """
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return SiteCount(0)
+    spellings = {DottedName(f"{_ASYNC_MODULE}.AletheiaClient")}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == _ASYNC_MODULE:
+            spellings |= {
+                DottedName(a.asname or a.name) for a in node.names if a.name == "AletheiaClient"
+            }
+        elif isinstance(node, ast.Import):
+            spellings |= {
+                DottedName(f"{a.asname}.AletheiaClient")
+                for a in node.names
+                if a.name == _ASYNC_MODULE and a.asname
+            }
+    return SiteCount(
+        sum(
+            1
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and _dotted(node.func) in spellings
+            and not any(keyword.arg == "run_in_thread" for keyword in node.keywords)
+        )
+    )
+
+
 def rows_of(rel: RelPath, text: SourceText) -> RatchetRows:
     """Count the time and thread primitives one file's text uses, read as the path it stands for."""
     rows: RatchetRows = {}
@@ -361,6 +416,8 @@ def rows_of(rel: RelPath, text: SourceText) -> RatchetRows:
         if binding.is_test(rel):
             for label, count in sites_in(binding.blank(rel, text), binding.primitives).items():
                 rows[RowKey(rel, label)] = count
+    if _is_python_test(rel) and (on_a_thread := async_clients_on_a_thread(text)):
+        rows[RowKey(rel, ASYNC_CLIENT_ON_A_THREAD)] = on_a_thread
     return rows
 
 
