@@ -62,7 +62,6 @@ def _run_child(shape: str, frames: int) -> dict[str, float]:
         text=True,
         check=False,
         env=env,
-        timeout=600,
     )
     assert completed.returncode == 0, (
         f"residency child failed ({completed.returncode})\n"

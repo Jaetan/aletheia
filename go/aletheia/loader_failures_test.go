@@ -281,13 +281,19 @@ func runLoaderScenario(scenario string) {
 
 // A path a backend registered is what the search answers when the
 // environment names none, and a path in the environment that does not exist
-// is passed over for it: TestMain's backend registered the library's path.
+// is passed over for it. TestMain's backend, the first opened, registered the
+// path the search found, and a later registration does not replace it.
 func TestFindFFILibrary_AnswersTheRegisteredPath(t *testing.T) {
+	lib := findFFILibrary()
+	if lib == "" {
+		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
+	}
+	RegisterDefaultLibPath("/elsewhere/libaletheia-ffi.so")
 	defaultLibPathMu.Lock()
 	registered := defaultLibPath
 	defaultLibPathMu.Unlock()
-	if registered == "" {
-		t.Skip("no backend registered a path; run 'cabal run shake -- build' first")
+	if want := filepath.Clean(lib); registered != want {
+		t.Fatalf("registered %q, want %q, the path TestMain's backend opened first", registered, want)
 	}
 	t.Setenv("ALETHEIA_LIB", "")
 	if got := findFFILibrary(); got != registered {

@@ -8,10 +8,10 @@
 # recorded number on lines no test reaches, and leaves alive exactly the
 # survivors the ledger names, each at its recorded count.
 # The generated total and the not-covered count are properties of the source
-# and its tests, the survivors of the source and its tests; the split between
-# killed and timed out moves with the machine's load, so a run that timed out
-# on more mutants than the record's ceiling is a loaded machine's and is
-# refused rather than compared.
+# and its tests, the survivors of the source and its tests. A timed-out mutant
+# is neither killed nor alive, and none can hang a run by construction, so a
+# run in which gremlins' cap fired more often than the record's ceiling allows
+# is a disturbed run and is refused rather than compared.
 # The sweep is tools/mutation_run.py's, which tests each mutant against a
 # scratch copy of the tree, so no tracked file moves while it runs.
 # Non-zero exit: the record and a sweep disagree, or the sweep did not run.
@@ -55,7 +55,7 @@ for name, key in (("Killed", "killed"), ("Lived", "survivors"), ("Not covered", 
 record = yaml.safe_load(open("docs/MUTATION_BENCH.yaml", encoding="utf-8"))
 baseline = record["bindings"]["go"]["baseline"]
 if counts["timeouts"] > baseline["timeout_ceiling"]:
-    print(f"the sweep timed out on {counts['timeouts']} mutants: a loaded machine's run, not compared")
+    print(f"the sweep timed out on {counts['timeouts']} mutants: a disturbed run, not compared")
     raise SystemExit(1)
 observed = {"survivors": counts["survivors"], "generated": sum(counts.values()),
             "not_covered": counts["not_covered"]}

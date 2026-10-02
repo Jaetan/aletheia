@@ -428,7 +428,7 @@ def parse_gremlins_summary(
     """Read a gremlins run's tail summary into a report.
 
     Separate from the run so the drift gate can be shown to refuse a recorded
-    loaded-machine sweep without one having to be reproduced.  The tail is::
+    sweep that timed out without one having to be reproduced.  The tail is::
 
         Killed: N, Lived: N, Not covered: N
         Timed out: N, Not viable: N, Skipped: N

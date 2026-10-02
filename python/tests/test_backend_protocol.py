@@ -2,11 +2,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Backend Protocol + MockBackend + DI seam coverage.
 
-Covers the Backend Protocol DI seam and the MockBackend (documented but
-not previously provided).  Cross-binding parity tests with Go
-``go/aletheia/concurrent_test.go`` + C++ ``cpp/tests/unit_tests_validation.cpp``
-which exercise the same matrix of Backend behaviors (canned responses,
-captured inputs, init/close lifecycle).
+Covers the Backend Protocol DI seam and the MockBackend: canned responses,
+captured inputs and the init/close lifecycle.
 """
 
 from __future__ import annotations

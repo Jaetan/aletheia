@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import resource
 import sys
-import time
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
@@ -95,7 +94,6 @@ def main() -> int:
             raise RuntimeError(msg)
         client.start_stream()
         baseline = peak_kib()
-        started = time.monotonic()
         for i in range(frames):
             raw = (i * 7) % 60000
             payload = bytearray(DLC_BYTES)
@@ -105,7 +103,6 @@ def main() -> int:
             client.send_frame(
                 timestamp=(i + 1) * 1000, can_id=MESSAGE_ID, dlc=DLCCode(DLC_BYTES), data=payload
             )
-        elapsed = time.monotonic() - started
         peak = peak_kib()
         client.end_stream()
 
@@ -116,7 +113,6 @@ def main() -> int:
             "baseline_kib": baseline,
             "peak_kib": peak,
             "growth_kib": peak - baseline,
-            "fps": frames / elapsed if elapsed > 0 else 0.0,
         },
         sys.stdout,
     )

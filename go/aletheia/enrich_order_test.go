@@ -6,7 +6,6 @@
 package aletheia
 
 import (
-	"context"
 	"testing"
 )
 
@@ -59,9 +58,9 @@ func TestEnrichment_MergesStandardBeforeExtended(t *testing.T) {
 		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
 	}
 	dbc := twinIDDefinition(t)
-	ctx := context.Background()
 	never := []Formula{Eventually{Inner: Atomic{Predicate: GreaterThan{Signal: "Speed", Value: IntRational(200)}}}}
 	for trial := range 12 {
+		ctx := t.Context()
 		c := newFFIClient(t)
 		if _, err := c.ParseDBC(ctx, dbc); err != nil {
 			t.Fatalf("ParseDBC: %v", err)

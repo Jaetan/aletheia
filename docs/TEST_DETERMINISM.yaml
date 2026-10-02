@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+# Every place a test reads physical time or starts a thread, and the ratchet that
+# keeps the list from growing. AGENTS.md § Universal Rules, "a test is
+# deterministic": a test reads no clock and waits on no duration, and starts no
+# thread, goroutine or concurrent task beside itself; where the code under test
+# needs time or concurrency, the clock or the scheduler is injected and the test
+# drives it. tools/check_test_determinism.py refuses a site this file does not
+# name, and refuses a row naming more sites than the file holds, because such a
+# row is standing permission to bring one back.
+#
+# A row leaves this file by the change that rewrites its sites to a mocked clock
+# or a driven interleaving. Adding a row needs user approval, on the same footing
+# as a suppression.
+#
+# Rows are keyed by file and by the primitive's label, the kind first, with how
+# many sites the file holds; the labels and what each matches, per language, are
+# the gate's catalogue.
+
+sites: []

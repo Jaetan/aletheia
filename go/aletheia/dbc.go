@@ -441,17 +441,15 @@ func (DBCAttrTargetNode) attrTarget() {}
 
 // DBCAttrTargetMessage is a message-scope assignment.
 type DBCAttrTargetMessage struct {
-	ID       uint32
-	Extended bool
+	ID CANID
 }
 
 func (DBCAttrTargetMessage) attrTarget() {}
 
 // DBCAttrTargetSignal is a signal-scope assignment.
 type DBCAttrTargetSignal struct {
-	ID       uint32
-	Extended bool
-	Signal   SignalName
+	ID     CANID
+	Signal SignalName
 }
 
 func (DBCAttrTargetSignal) attrTarget() {}
@@ -465,19 +463,17 @@ func (DBCAttrTargetEnvVar) attrTarget() {}
 
 // DBCAttrTargetNodeMsg is a node-message relational assignment.
 type DBCAttrTargetNodeMsg struct {
-	Node     NodeName
-	ID       uint32
-	Extended bool
+	Node NodeName
+	ID   CANID
 }
 
 func (DBCAttrTargetNodeMsg) attrTarget() {}
 
 // DBCAttrTargetNodeSig is a node-signal relational assignment.
 type DBCAttrTargetNodeSig struct {
-	Node     NodeName
-	ID       uint32
-	Extended bool
-	Signal   SignalName
+	Node   NodeName
+	ID     CANID
+	Signal SignalName
 }
 
 func (DBCAttrTargetNodeSig) attrTarget() {}

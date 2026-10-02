@@ -162,9 +162,10 @@ func TestParseNumberAsInt64_AcceptsExactRational(t *testing.T) {
 	}
 }
 
-// A negative denominator is refused on both paths, and the message says so.
-// The kernel emits none, and a reader that divided by it would answer a
-// positive integer for a shape every other binding refuses.
+// A negative denominator is refused on both paths, and the message names the
+// denominator as the peers do. The kernel emits none, and a reader that
+// divided by it would answer a positive integer for a shape every other
+// binding refuses.
 func TestNumericReaders_NameTheNegativeDenominator(t *testing.T) {
 	m, err := parseResponse(`{"v":{"numerator":-4,"denominator":-2}}`)
 	if err != nil {
@@ -174,7 +175,7 @@ func TestNumericReaders_NameTheNegativeDenominator(t *testing.T) {
 	if err == nil {
 		t.Fatalf("a negative denominator decoded to %d", got)
 	}
-	if !strings.Contains(err.Error(), "negative denominator") {
-		t.Errorf("Error() = %q, want it to name the negative denominator", err)
+	if !strings.Contains(err.Error(), "non-positive denominator") {
+		t.Errorf("Error() = %q, want it to name the non-positive denominator", err)
 	}
 }

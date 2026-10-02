@@ -90,11 +90,14 @@ Two-tier per advisor 2026-05-09:
   a finding, surfaced via the runner's exit code = 1 with a JSON report
   pointing at the file/line.
 - **Timeout ceiling**: a mutant the tool could not finish testing is
-  neither killed nor survived, so a sweep that timed out on nearly all of
-  them reports no survivors at full efficacy.  Where a binding's baseline
+  neither killed nor survived, so a sweep whose timeouts hide survivors
+  reports fewer of them than the tree has.  Where a binding's baseline
   records `timeout_ceiling`, a run past it fails the lane whatever its
-  survivor count.  The Go lane records one; the other two tools report no
-  such bucket.
+  survivor count.  Every lane records 0, so a sweep in which a tool's cap
+  fired is refused as a disturbed run and the mutant it ended is a hang to
+  remove, never a cap to raise.  No test of any binding holds a thread or a
+  timed wait, and no Go or Rust mutant can hang a run at all; a Python or C++
+  mutant whose loop never ends is the one way left to reach a cap.
 - **Kill routes (C++, recorded, not gated)**: Mull's SQLite report keeps each
   mutant's exit status and the test binary's output, and the runner reads
   from them what ended every run: a test's assertion, which Catch2's failure
@@ -112,9 +115,9 @@ Two-tier per advisor 2026-05-09:
   several lanes killed is attributed in that order.  The counts land in
   `cpp-routes.json` beside `cpp.json` and in the C++ baseline; a probe holds
   them equal to the record, which the pinned test order and the debug-mode
-  checks make exact, and a sweep with any timeout is reported as a census taken
-  under load rather than compared.  The mutants attributed to a check or a fault are the ones no test
-  observes by behaviour: what each changes, a guard for most of them and the
+  checks make exact, and a sweep with any timeout is a disturbed run, refused
+  rather than compared.  The mutants attributed to a check or a fault are the
+  ones no test observes by behaviour: what each changes, a guard for most of them and the
   value an index is computed from for the rest, leads straight to an operation
   the language does not define.
 - **The not-covered ledger (Go, gated)**: gremlins puts a mutant on a line no

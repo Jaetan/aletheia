@@ -56,8 +56,6 @@ _GO_MODULE_DIR = _REPO_ROOT / "go"
 # the repo's other gates (which all run from ``python/``); the Go/C++ binaries
 # ignore cwd (absolute binary + fixture + ALETHEIA_LIB paths).
 _SUBPROCESS_CWD = _REPO_ROOT / "python"
-_RUN_TIMEOUT_S = 120  # each call brings up the GHC RTS; empirically ~1 s
-_BUILD_TIMEOUT_S = 300
 
 _CLI_NAMES: tuple[str, ...] = ("python", "go", "cpp")
 
@@ -154,7 +152,6 @@ def fixture_go_cli(tmp_path_factory: pytest.TempPathFactory) -> list[str]:
         cwd=_GO_MODULE_DIR,
         capture_output=True,
         text=True,
-        timeout=_BUILD_TIMEOUT_S,
         check=False,
     )
     assert build.returncode == 0, (
@@ -178,8 +175,8 @@ def fixture_cli(request: pytest.FixtureRequest) -> CliUnderTest:
 
 
 def _run_cli(argv: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    """Run one CLI invocation with the harness's fixed cwd/timeout."""
-    return run_captured(argv, env, cwd=_SUBPROCESS_CWD, timeout=_RUN_TIMEOUT_S)
+    """Run one CLI invocation from the harness's fixed cwd."""
+    return run_captured(argv, env, cwd=_SUBPROCESS_CWD)
 
 
 # ---------------------------------------------------------------------------

@@ -28,7 +28,7 @@ func errorEnvelope(code, msg string) aletheia.MockResponse {
 // cross-binding test here; these rows are this binding's decode of what it
 // emits.
 func TestCodedErrorEnvelopesReachTheCaller(t *testing.T) {
-	ctx := bounded(t)
+	ctx := t.Context()
 	parseDBC := func(c *aletheia.Client) error { _, err := c.ParseDBC(ctx, testDBC()); return err }
 	formatDBC := func(c *aletheia.Client) error { _, err := c.FormatDBC(ctx); return err }
 	cases := map[string]struct {
@@ -65,7 +65,7 @@ func TestCodedErrorEnvelopesReachTheCaller(t *testing.T) {
 // An error the backend itself returns, which carries no envelope, reaches the
 // caller rather than being swallowed.
 func TestBackendError(t *testing.T) {
-	ctx := bounded(t)
+	ctx := t.Context()
 	c, _ := mockClient(t, aletheia.RespondErr(aletheia.NewMockError("connection lost")))
 	if _, err := c.ParseDBC(ctx, testDBC()); err == nil {
 		t.Fatal("expected the backend's error to reach the caller")
@@ -75,15 +75,15 @@ func TestBackendError(t *testing.T) {
 // Close is idempotent and a call after it is a state error rather than a
 // crash.
 func TestClosedClient(t *testing.T) {
-	ctx := bounded(t)
+	ctx := t.Context()
 	c, err := aletheia.NewClient(aletheia.NewMockBackend(aletheia.Respond(`{"status":"success"}`)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := closeWithin(t, c); err != nil {
+	if err := c.Close(); err != nil {
 		t.Errorf("first close: %v", err)
 	}
-	if err := closeWithin(t, c); err != nil {
+	if err := c.Close(); err != nil {
 		t.Errorf("second close: %v", err)
 	}
 	_, err = c.ParseDBC(ctx, testDBC())

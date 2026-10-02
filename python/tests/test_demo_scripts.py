@@ -67,7 +67,6 @@ def test_demo_script_runs(script: Path) -> None:
         env=env,
         capture_output=True,
         text=True,
-        timeout=180,
         check=False,
     )
     assert result.returncode == 0, (
@@ -126,7 +125,6 @@ def test_drive_log_refuses_a_drifted_fixture(tmp_path: Path) -> None:
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=60,
         check=False,
     )
     assert result.returncode == 1, f"drift read as a match:\n{result.stdout}{result.stderr}"
@@ -144,7 +142,6 @@ def test_drive_log_update_rewrites_the_fixture(tmp_path: Path) -> None:
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=60,
         check=False,
     )
     assert result.returncode == 0, f"--update failed:\n{result.stdout}{result.stderr}"

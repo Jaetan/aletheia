@@ -12,6 +12,41 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **No test reads a clock or starts a thread, `tools/check_test_determinism.py`.**
+  The tests run on machines of very different power: a test that waits on a
+  duration passes or fails by how fast the machine was, and one that races a
+  thread by how it was scheduled; a larger timeout makes the wrong outcome
+  rarer, never impossible. The rule, now in `AGENTS.md` § Universal Rules and
+  each binding's standard, is that a test reads no clock, waits on no
+  duration and starts no thread, goroutine or concurrent task: the clock or
+  the scheduler is injected and driven. The gate, in `run_ci.py`'s fast tier,
+  reads every binding's test files with their comments and literals blanked,
+  against a catalogue of each language's time and thread primitives
+  (positional waits and delayed loop callbacks included), and holds them to
+  `docs/TEST_DETERMINISM.yaml`, a ratchet that is empty: a new site fails. It
+  also reads one file as the path it stands for (`--file PATH --as REL`) and
+  names which paths are tests (`--is-test`), so a hook can hold every test as
+  it is read or written. Every site the tests carried is rewritten:
+  - Go: the two-second deadline (`bounded`), timed close and receive and the
+    gate backend's bound are gone; a caller waiting on the lock is tested by
+    holding the lock, a cancellation in flight by cancelling from inside the
+    call, and the client's sharing by checking that every call reaches the
+    backend holding its lock, where three tests raced goroutines; the CLI's
+    output is captured through a file.
+  - Python: subprocesses run with no timeout, a hang being the run's own limit
+    to report; the guarded-run and scheduler tests block on FIFOs and on the
+    build's own lock where they polled a clock, and a restore handler is shown
+    to wait for its guard by the guard's return code, set before the exit
+    propagates; the Agda-tree lock test lets the holder go inside the waiter's
+    blocking `flock`; clients are isolated by interleaving their calls on one
+    thread; and the async cancellation tests run each call on the event loop
+    in a fixed order through `aletheia.asyncio.testing.TurnExecutor`,
+    cancelling at an exact call, the shield on `close()` included.
+  - C++: the in-flight cancellation fires from inside the backend's call;
+    two real-library clients interleave their calls on one thread; and the
+    scratch-directory peer lets go inside the try's injected lock wait, so a
+    try that slept instead of waiting on the lock would run out of tries.
+
 - **A doc-example harness for the Rust binding, `rust/tests/doc_examples.rs`.**
   `cargo test` builds every Rust fence of every tracked Markdown file carrying
   one, `CHANGELOG.md` and the Tutorial aside, as a binary of one scratch crate
@@ -177,6 +212,84 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   subscript one container, which is the case where no bound is hand-written.
 
 ### Changed
+
+- **BREAKING (Python): `aletheia.asyncio.testing.gated_backend` is gone; the
+  async client takes a `run_in_thread`, and `TurnExecutor` is the testing
+  helper.** `gated_backend` blocked a worker thread inside a backend call and
+  needed a second task and a thread rendezvous to cancel around it. The async
+  client takes a keyword-only `run_in_thread`, a `TurnExecutor` that runs each
+  sync call at its turn on the event loop in place of `asyncio.to_thread`
+  (still the runner when it is omitted): a call cancelled before its turn
+  never runs, as an executor drops a queued job, and `cancel_at(task,
+  after=CallCount(n))` cancels at an exact call, so a test of async
+  cancellation needs no thread, timer or second task. A test holds every async
+  method, the shielded `__aenter__` and `close` included, to its count of
+  calls through the runner.
+
+- **BREAKING (Go): an attribute target carries its identifier as a `CANID`.**
+  `DBCAttrTargetMessage`, `DBCAttrTargetSignal`, `DBCAttrTargetNodeMsg` and
+  `DBCAttrTargetNodeSig` held an `ID uint32` beside an `Extended bool`, read
+  from the wire unchecked against the width the flag names, where a message
+  and a comment target carry a `CANID`. They carry one now, read through the
+  same width check, so an attribute naming a standard identifier past eleven
+  bits is refused at the parse, as the C++ binding's `CanId` targets refuse
+  it.
+
+- **The Rust binding releases a kernel string in the function that copies
+  it.** A string the kernel returned was copied out and then released by the
+  `Drop` of a guard that lived for one statement at each of its three uses;
+  removing that release was a mutant no test observes without a leak
+  checker. `take_response` copies the string and releases it in one
+  function, as the Go and C++ bindings do, and the backend handle's `Drop` is
+  the Rust lane's one survivor left.
+
+- **The Python encoder writes UTF-8 whatever its caller asks.**
+  `FractionJSONEncoder` wrote non-ASCII text as its UTF-8 characters only
+  when `dump_json` passed `ensure_ascii=False`, so a caller handing the
+  encoder to `json.dumps` itself got `\uXXXX` escapes, bytes no other binding
+  writes. The encoder holds the choice now and `dump_json` passes none, which
+  retires the Python lane's one survivor, that argument's `False` turned
+  `None`, which `json.dumps` read the same.
+
+- **The Go mutation lane leaves no mutant alive.** Of the 63 survivors its
+  ledger recorded, most fell to tests at the edge each check guards: a
+  timestamp of zero on every event entry, through the real library; an
+  input of exactly a size limit; equal range bounds; a time bound
+  of zero; a start bit of 511; a payload of 64 bytes and a frame of none; an
+  empty multiplexor list; an out-of-range property index equal to the count;
+  the verdict counts the `stream.ended` record carries. The rest left with
+  the code that made them unobservable: the five input-size refusals and the
+  six timestamp checks are one function each, the hand-written integer range
+  checks one checked conversion, the two rational comparisons one, a capacity
+  hint gives way to `slices.Concat`, and two presence checks a nil lookup
+  already answered are gone. The binary extraction decoder reads its reason
+  offsets in place, so a clean frame allocates nothing for them and the fast
+  path that skipped them, which saved nothing measurable (a clean frame at 4
+  allocations either way), is gone; the end-of-stream frame pass is a method
+  of its own. Two messages changed with the checks they come from: a wire
+  rational's denominator is refused as non-positive, as the peers word it,
+  and an inverted check range renders its bounds as the between predicate
+  does. The lane's four timeouts were mutants that returned from a call
+  holding the client's lock, which the next test then waited on until
+  gremlins' clock ran out. The lock now hands back its own release, one that
+  does nothing when no lock was taken, every return of `acquire` passes that
+  release on, and every call defers it before it checks the error, so no
+  check a mutant inverts can leave the lock held: the call returns without
+  its work and the next assertion fails at once. With no test waiting on a
+  clock either, no mutant can hang a run, so gremlins' cap is a backstop, its
+  coefficient raised to 50 in `go/.gremlins.yaml`, and the lane refuses a
+  sweep in which it fired at all as a disturbed run, rather than count the
+  mutant either way.
+
+- **Every mutation lane refuses a sweep in which its tool's cap fired.** A
+  mutant the tool ended at its timeout is neither killed nor survived, and
+  no verdict comes from a clock. The C++ lane counted such a mutant killed:
+  the merge now takes the timeout count from the kill-route census and
+  leaves it out of the killed count, and the Python lane passes mutmut's
+  count through. Every baseline records `timeout_ceiling: 0`, the Rust
+  lane's former 30 and its justification by a quiet or loaded host
+  included, and the probes that compare a sweep with the record fail on a
+  timed-out mutant rather than calling the run untestable.
 
 - **A C++ mutant's run ends at its first failing assertion.** The lane hands
   the test binary Catch2's `--abort`, where the suite used to run to its end
@@ -1252,6 +1365,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   in the install prefix.
 
 ### Fixed
+
+- **The Go serializer refuses an unset identifier rather than panicking.** A
+  definition built by hand can leave a message's identifier, a comment or
+  attribute target's, or an unresolved value description's unset, a nil
+  `CANID`; serializing it dereferenced the nil and panicked. It is a
+  validation error, naming the message, or an unresolved value description's
+  signal, when the identifier is one of theirs.
+
+- **The Go decoder refuses a standard identifier past sixteen bits rather
+  than keeping its low bits.** A DBC message or an unresolved value
+  description whose standard identifier was 65541 decoded as identifier 5:
+  the conversion to the constructor's sixteen-bit argument dropped the high
+  bits before the eleven-bit check saw the value. Every identifier, payload
+  byte, multiplexor value and C `int` the binding narrows now goes through one
+  checked conversion, which refuses a value the conversion would change. The
+  kernel emits no such identifier, so only a malformed response reached it.
 
 - **The Go mutation lane counts a mutant killed only when a test fails on
   it.** gremlins tests each mutant in a copy of the `go/` module alone, under

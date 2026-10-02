@@ -590,7 +590,7 @@ pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
         denominator: r.denominator(),
     };
     // SAFETY: `value` outlives the call; the returned pointer is a GHC-allocated
-    // CString released by the `Response` guard.
+    // CString, which `take_response` copies and releases.
     let ptr = unsafe { (syms.format_rational)(&value) };
     if ptr.is_null() {
         // Unreachable for a well-formed rational (the kernel never returns null and
@@ -601,11 +601,7 @@ pub(crate) fn format_rational(r: Rational) -> Result<String, Error> {
             "aletheia_format_rational returned a null pointer".to_string(),
         ));
     }
-    Ok(Response {
-        ptr,
-        free_str: syms.free_str.clone(),
-    }
-    .into_string())
+    Ok(take_response(syms, ptr))
 }
 
 /// Parse a decimal string into an exact [`Rational`] via the verified Agda
@@ -654,11 +650,7 @@ pub(crate) fn parse_decimal(s: &str) -> Result<Rational, Error> {
                 "aletheia_parse_decimal failed without an error".to_string(),
             ));
         }
-        let envelope = Response {
-            ptr: out.err,
-            free_str: syms.free_str.clone(),
-        }
-        .into_string();
+        let envelope = take_response(syms, out.err);
         return Err(decimal_refusal(&envelope));
     }
     // The kernel answers lowest terms over a positive denominator; `new` refuses
@@ -724,34 +716,19 @@ fn init_rts(syms: &Symbols, cores: Option<u32>) -> Result<(), Error> {
     Ok(())
 }
 
-/// RAII guard for a C string the core returned (allocated by the GHC RTS).
-///
-/// The bytes must be copied out and then released with `aletheia_free_str` —
-/// **never** with `CString::from_raw`, which would hand RTS memory to Rust's
-/// allocator and corrupt the heap. `free_str` is the pre-resolved deallocator
-/// from [`Symbols`] (a cheap `Symbol` clone), keeping this guard's `Drop`
-/// infallible.
-struct Response {
-    ptr: *mut c_char,
-    free_str: Symbol<'static, FreeStrFn>,
-}
-
-impl Response {
-    /// Copy the bytes into an owned `String`; the C buffer is freed on drop.
-    fn into_string(self) -> String {
-        // SAFETY: `ptr` is a non-null, NUL-terminated C string from the core.
-        unsafe { CStr::from_ptr(self.ptr) }
-            .to_string_lossy()
-            .into_owned()
-    }
-}
-
-impl Drop for Response {
-    fn drop(&mut self) {
-        // SAFETY: `ptr` was allocated by the core; `free_str` is its matching
-        // deallocator (pre-resolved in `Symbols`, so it is known to exist).
-        unsafe { (self.free_str)(self.ptr) };
-    }
+/// Copy a C string the core returned, allocated by the GHC RTS, into an owned
+/// `String`, then release it with `aletheia_free_str`: **never** with
+/// `CString::from_raw`, which would hand RTS memory to Rust's allocator and
+/// corrupt the heap. The copy cannot unwind, so the release always follows it.
+fn take_response(syms: &Symbols, ptr: *mut c_char) -> String {
+    // SAFETY: `ptr` is a non-null, NUL-terminated C string from the core.
+    let text = unsafe { CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .into_owned();
+    // SAFETY: `ptr` was allocated by the core and is not read again;
+    // `free_str` is its matching deallocator, pre-resolved in `Symbols`.
+    unsafe { (syms.free_str)(ptr) };
+    text
 }
 
 /// Encode an optional CAN-FD bit as the `(present, value)` byte pair the FFI
@@ -898,20 +875,16 @@ impl FfiBackend {
     }
 
     /// Run `call` (handed the cached symbol table) to obtain a GHC-allocated
-    /// response pointer, then copy it out and free it via the RAII [`Response`]
-    /// (whose deallocator was pre-resolved with everything else — a `.so`
-    /// missing `aletheia_free_str` already failed in [`FfiBackend::new`]).
+    /// response pointer, then copy it out and free it (`take_response`, whose
+    /// deallocator was pre-resolved with everything else: a `.so` missing
+    /// `aletheia_free_str` already failed in [`FfiBackend::new`]).
     fn invoke(&self, call: impl FnOnce(&Symbols) -> *mut c_char) -> Result<String, Error> {
         let syms = symbols()?;
         let ptr = call(syms);
         if ptr.is_null() {
             return Err(Error::NullResponse);
         }
-        Ok(Response {
-            ptr,
-            free_str: syms.free_str.clone(),
-        }
-        .into_string())
+        Ok(take_response(syms, ptr))
     }
 }
 

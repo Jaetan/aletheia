@@ -6,15 +6,12 @@
 # Claim: the C++ baseline records a run, not a target. The recorded survivor
 # count and mutant total are what sweeps of every configured tree produce,
 # merged the way the lane merges them, under the order the lane pins, and the
-# sweep times nothing out. A timeout is a kill by another route, and the cap
-# per mutant on the lane's argv is a wall clock, so an oversubscribed machine
-# times out a mutant an idle one lets run to the route it dies by: that is a
-# property of the machine rather than of the code, so a
-# sweep with any timeout is a census taken under load and is reported as
-# untestable instead of tolerated. Non-zero exit: the record and the sweep
-# disagree. Exits 0 with a note when Mull or any mutation tree is not
-# available, since the claim is untestable then, and 2 when the machine was
-# too loaded to measure.
+# sweep times nothing out. A timeout is no verdict: the cap per mutant on the
+# lane's argv is a backstop, so a sweep in which it fired is a disturbed run,
+# refused rather than compared, and the mutant it ended is a hang to remove.
+# Non-zero exit: the record and the sweep disagree, or a mutant timed out.
+# Exits 0 with a note when Mull or any mutation tree is not available, since
+# the claim is untestable then, and 2 when no sweep could be had.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v mull-runner-23 > /dev/null || { echo "Mull not installed, claim untestable"; exit 0; }
@@ -74,12 +71,9 @@ observed = {
 }
 recorded = yaml.safe_load(open("docs/MUTATION_BENCH.yaml", encoding="utf-8"))
 baseline = recorded["bindings"]["cpp"]["baseline"]
-if observed["timeouts"] > baseline.get("timeouts", 0):
-    print(
-        f"{observed['timeouts']} mutant(s) timed out against {baseline.get('timeouts', 0)} "
-        "recorded: the machine was loaded, the census is not comparable"
-    )
-    sys.exit(2)
+if observed["timeouts"]:
+    print(f"{observed['timeouts']} mutant(s) timed out: a disturbed run, not compared")
+    sys.exit(1)
 bad = {k: (baseline.get(k), v) for k, v in observed.items() if baseline.get(k) != v}
 for key, (was, now) in bad.items():
     print(f"{key}: recorded {was}, a sweep gives {now}")

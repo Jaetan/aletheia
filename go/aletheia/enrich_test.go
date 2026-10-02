@@ -8,7 +8,6 @@ package aletheia_test
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/Jaetan/aletheia/go/v5/aletheia"
@@ -81,6 +80,7 @@ func TestFormatFormula(t *testing.T) {
 		"between":                   {atom(aletheia.Between{Signal: "S", Min: aletheia.IntRational(5), Max: aletheia.IntRational(15)}), "5 <= S <= 15"},
 		"changed by, positive":      {atom(aletheia.ChangedBy{Signal: "S", Delta: rat(5, 2)}), "ΔS >= 2.5"},
 		"changed by, negative":      {atom(aletheia.ChangedBy{Signal: "S", Delta: aletheia.IntRational(-3)}), "ΔS <= -3"},
+		"changed by, zero":          {atom(aletheia.ChangedBy{Signal: "S", Delta: aletheia.IntRational(0)}), "ΔS >= 0"},
 		"stable within":             {atom(aletheia.StableWithin{Signal: "S", Tolerance: rat(5, 2)}), "|ΔS| <= 2.5"},
 		"equals, fraction":          {atom(aletheia.Equals{Signal: "S", Value: rat(1, 3)}), "S = 1/3"},
 		"less than, decimal":        {atom(aletheia.LessThan{Signal: "V", Value: rat(23, 2)}), "V < 11.5"},
@@ -167,6 +167,7 @@ func TestFormatEnrichedReason(t *testing.T) {
 		"values without core":     {map[aletheia.SignalName]aletheia.Rational{"Speed": aletheia.IntRational(250)}, "", "Speed = 250 (formula: always(Speed < 220))"},
 		"no values":               {nil, "", "violated: always(Speed < 220)"},
 		"values of other signals": {map[aletheia.SignalName]aletheia.Rational{"Temp": aletheia.IntRational(80)}, "", "violated: always(Speed < 220)"},
+		"the second signal alone": {map[aletheia.SignalName]aletheia.Rational{"RPM": aletheia.IntRational(3000)}, "", "RPM = 3000 (formula: always(Speed < 220))"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -215,10 +216,30 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 	}
 }
 
+// A frame's violation naming a property one past the last, the first index
+// out of range, is warned about and left unenriched rather than read past the
+// diagnostics.
+func TestSendFrame_AnOutOfRangeViolationIsNotEnriched(t *testing.T) {
+	logger, logged := warnLog()
+	c, _ := startedClientOpts(t, []aletheia.Formula{speedBelow220}, []aletheia.MockResponse{
+		aletheia.Respond(`{"type":"property_batch","results":[{"type":"property","status":"fails","property_index":1,"timestamp":1000,"reason":"test"}]}`),
+	}, logger)
+	b, ok := sendFrame(t, c, 1000, 0xF5, 0x09, 0, 0, 0, 0, 0, 0).(aletheia.PropertyBatch)
+	if !ok || len(b.Results) != 1 {
+		t.Fatalf("expected a one-entry batch, got %+v", b)
+	}
+	if b.Results[0].Enrichment != nil {
+		t.Errorf("the out-of-range violation was enriched: %+v", b.Results[0].Enrichment)
+	}
+	if out := logged.String(); !strings.Contains(out, "enrichment.property_index_oob") || !strings.Contains(out, "index=1") {
+		t.Errorf("expected the warning to name index 1, got:\n%s", out)
+	}
+}
+
 // Past the cache's capacity every violation is still enriched; the
 // extraction is done and not stored.
 func TestSendFrame_CacheBounded(t *testing.T) {
-	ctx := bounded(t)
+	ctx := t.Context()
 	const frames = 257
 	responses := make([]aletheia.MockResponse, 0, 2*frames)
 	for range frames {
@@ -239,7 +260,7 @@ func TestSendFrame_CacheBounded(t *testing.T) {
 // CAN ID; when that extraction fails the enrichment still carries the
 // formula and falls back to it for the reason.
 func TestEndStream_Enriched(t *testing.T) {
-	ctx := bounded(t)
+	ctx := t.Context()
 	cases := map[string]struct {
 		extraction aletheia.MockResponse
 		signals    bool
@@ -280,7 +301,7 @@ func TestEndStream_Enriched(t *testing.T) {
 // StartStream clears the extraction cache: the same frame in a second stream
 // is extracted again.
 func TestStartStream_ClearsCache(t *testing.T) {
-	ctx := bounded(t)
+	ctx := t.Context()
 	c, _ := startedClientWith(t, []aletheia.Formula{speedBelow220},
 		violationAt(1000, "test"), extractionOf("Speed", 100),
 		endStreamFailing(1000, "test"), extractionOf("Speed", 100),
@@ -297,35 +318,5 @@ func TestStartStream_ClearsCache(t *testing.T) {
 	}
 	if v := firstViolation(t, sendFrame(t, c, 2000, 0xF5, 0x09, 0, 0, 0, 0, 0, 0)); v.Enrichment.Signals["Speed"] != aletheia.IntRational(200) {
 		t.Fatalf("stream 2: expected Speed=200, got %+v", v.Enrichment.Signals)
-	}
-}
-
-// Concurrent sends on one client with diagnostics installed all succeed and
-// never race.
-func TestConcurrent_WithDiagnostics(t *testing.T) {
-	ctx := bounded(t)
-	const n = 10
-	responses := make([]aletheia.MockResponse, 0, 2*n)
-	for range n {
-		responses = append(responses, violationAt(1000, "test"), extractionOf("Speed", 100))
-	}
-	c, _ := startedClientWith(t, []aletheia.Formula{speedBelow220}, responses...)
-	errs := make(chan error, n)
-	var wg sync.WaitGroup
-	for i := range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			sid, _ := aletheia.NewStandardID(uint16(0x100 + i))
-			_, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(i * 1000)}, sid, dlc8(), aletheia.FramePayload{byte(i), 0, 0, 0, 0, 0, 0, 0}, nil, nil)
-			errs <- err
-		}()
-	}
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		if err != nil {
-			t.Errorf("a concurrent send failed: %v", err)
-		}
 	}
 }

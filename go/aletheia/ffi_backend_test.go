@@ -7,7 +7,6 @@ package aletheia_test
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"log/slog"
 	"strings"
@@ -145,11 +144,11 @@ func ffiEndpointClient(t *testing.T) (*aletheia.Client, aletheia.CANID, aletheia
 		t.Fatalf("NewClient: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := closeWithin(t, client); err != nil {
+		if err := client.Close(); err != nil {
 			t.Errorf("Close: %v", err)
 		}
 	})
-	if _, err := client.ParseDBCText(context.Background(), ffiEndpointDBC); err != nil {
+	if _, err := client.ParseDBCText(t.Context(), ffiEndpointDBC); err != nil {
 		t.Fatalf("ParseDBCText: %v", err)
 	}
 	id, err := aletheia.NewStandardID(256)
@@ -166,7 +165,7 @@ func ffiEndpointClient(t *testing.T) (*aletheia.Client, aletheia.CANID, aletheia
 // FormatDBCBinary answers the DBC the session holds, through the real library.
 func TestFFIBackend_FormatDBCBinaryReturnsTheLoadedDBC(t *testing.T) {
 	client, _, _ := ffiEndpointClient(t)
-	dbc, err := client.FormatDBC(context.Background())
+	dbc, err := client.FormatDBC(t.Context())
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
@@ -186,7 +185,7 @@ func TestFFIBackend_FormatDBCBinaryReturnsTheLoadedDBC(t *testing.T) {
 // the raw 400, little-endian at bit zero.
 func TestFFIBackend_BuildAndUpdateFrameBinPlaceTheSignal(t *testing.T) {
 	client, id, dlc := ffiEndpointClient(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	built, err := client.BuildFrame(ctx, id, dlc, []aletheia.SignalValue{
 		{Name: "Sig", Value: aletheia.Rational{Numerator: 100, Denominator: 1}},
 	})
@@ -211,7 +210,7 @@ func TestFFIBackend_BuildAndUpdateFrameBinPlaceTheSignal(t *testing.T) {
 // which ends without a warning about either.
 func TestFFIBackend_SendErrorAndSendRemoteBinaryStream(t *testing.T) {
 	client, id, _ := ffiEndpointClient(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	if err := client.StartStream(ctx); err != nil {
 		t.Fatalf("StartStream: %v", err)
 	}
@@ -280,7 +279,7 @@ func TestFFIBackend_StablePtrCountTracksOpenSessions(t *testing.T) {
 // frame endpoints carry the message it minted rather than a status number.
 func TestFFIBackend_BinaryFrameRefusalCarriesTheKernelMessage(t *testing.T) {
 	client, id, dlc := ffiEndpointClient(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	tooLarge := []aletheia.SignalValue{
 		{Name: "Sig", Value: aletheia.Rational{Numerator: 100000, Denominator: 1}},
 	}
@@ -309,5 +308,114 @@ func TestFFIBackend_BinaryFrameRefusalCarriesTheKernelMessage(t *testing.T) {
 				t.Errorf("payload = % x, want none on a refusal", payload)
 			}
 		})
+	}
+}
+
+// ffiEdgeDBC carries the two lengths at the ends of what a frame can be: a
+// CAN-FD message of sixty-four bytes whose one signal is the last byte, and a
+// message of no bytes and no signal.
+const ffiEdgeDBC = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n" +
+	"BO_ 512 Fd: 64 ECU\n SG_ Last : 504|8@1+ (1,0) [0|255] \"\" ECU\n\n" +
+	"BO_ 768 Empty: 0 ECU\n\n"
+
+// ffiEdgeClient boots a client on the real library with ffiEdgeDBC loaded.
+func ffiEdgeClient(t *testing.T) *aletheia.Client {
+	t.Helper()
+	backend, err := aletheia.NewFFIBackend(requireFFILib(t))
+	if err != nil {
+		t.Fatalf("NewFFIBackend: %v", err)
+	}
+	client, err := aletheia.NewClient(backend)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+	if _, err := client.ParseDBCText(t.Context(), ffiEdgeDBC); err != nil {
+		t.Fatalf("ParseDBCText: %v", err)
+	}
+	return client
+}
+
+// A payload of the CAN-FD maximum crosses the boundary whole, through the
+// real library, and its last byte is read back.
+func TestFFIBackend_ASixtyFourBytePayloadCrosses(t *testing.T) {
+	client := ffiEdgeClient(t)
+	dlc, err := aletheia.BytesToDLC(64)
+	if err != nil {
+		t.Fatalf("BytesToDLC: %v", err)
+	}
+	payload := make(aletheia.FramePayload, 64)
+	payload[63] = 7
+	result, err := client.ExtractSignals(t.Context(), standardID(t, 512), dlc, payload)
+	if err != nil {
+		t.Fatalf("ExtractSignals: %v", err)
+	}
+	if len(result.Values) != 1 || result.Values[0].Name != "Last" || result.Values[0].Value != aletheia.IntRational(7) {
+		t.Errorf("Values = %+v, want Last = 7", result.Values)
+	}
+}
+
+// One byte past the CAN-FD maximum is refused by the backend itself, before
+// anything is copied across the boundary.
+func TestFFIBackend_APayloadPastSixtyFourBytesIsRefused(t *testing.T) {
+	backend, err := aletheia.NewFFIBackend(requireFFILib(t))
+	if err != nil {
+		t.Fatalf("NewFFIBackend: %v", err)
+	}
+	state, err := backend.Init()
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	defer backend.Close(state)
+	dlc, err := aletheia.BytesToDLC(64)
+	if err != nil {
+		t.Fatalf("BytesToDLC: %v", err)
+	}
+	_, err = backend.ExtractSignalsBin(state, standardID(t, 512), dlc, make([]byte, 65))
+	requireErrorContains(t, err, "exceeds CAN-FD maximum")
+}
+
+// A message of no bytes builds to an empty payload through the real library:
+// the backend hands the kernel no buffer to write rather than the address of
+// an element an empty slice does not have.
+func TestFFIBackend_BuildsAFrameOfNoBytes(t *testing.T) {
+	client := ffiEdgeClient(t)
+	dlc, err := aletheia.NewDLC(0)
+	if err != nil {
+		t.Fatalf("NewDLC: %v", err)
+	}
+	built, err := client.BuildFrame(t.Context(), standardID(t, 768), dlc, nil)
+	if err != nil {
+		t.Fatalf("BuildFrame: %v", err)
+	}
+	if len(built) != 0 {
+		t.Errorf("built % x, want no bytes", built)
+	}
+}
+
+// The trace's first instant, timestamp zero, is taken by each of the three
+// event entries through the real library.
+func TestFFIBackend_TimestampZeroIsTaken(t *testing.T) {
+	client, id, dlc := ffiEndpointClient(t)
+	ctx := t.Context()
+	if err := client.StartStream(ctx); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+	zero := aletheia.Timestamp{}
+	if _, err := client.SendFrame(ctx, zero, id, dlc, make(aletheia.FramePayload, 8), nil, nil); err != nil {
+		t.Fatalf("SendFrame: %v", err)
+	}
+	if err := client.SendError(ctx, zero); err != nil {
+		t.Fatalf("SendError: %v", err)
+	}
+	if err := client.SendRemote(ctx, zero, id); err != nil {
+		t.Fatalf("SendRemote: %v", err)
+	}
+	if _, err := client.EndStream(ctx); err != nil {
+		t.Fatalf("EndStream: %v", err)
 	}
 }

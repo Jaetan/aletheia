@@ -6,7 +6,6 @@
 package aletheia
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -196,8 +195,8 @@ func TestParseDBCText_RejectsOversizeText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = closeWithin(t, c) }()
+	defer func() { _ = c.Close() }()
 
-	_, err = c.ParseDBCText(context.Background(), strings.Repeat("x", MaxDBCTextBytes+1))
+	_, err = c.ParseDBCText(t.Context(), strings.Repeat("x", MaxDBCTextBytes+1))
 	requireBoundExceeded(t, err, uint64(MaxDBCTextBytes)+1, uint64(MaxDBCTextBytes))
 }

@@ -118,6 +118,7 @@ package aletheia
 import "C"
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -329,7 +330,7 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	if cfg.rtsCores < 1 {
 		return nil, validationError(fmt.Sprintf("rtsCores must be >= 1, got %d", cfg.rtsCores))
 	}
-	if cfg.rtsCores > math.MaxInt32 {
+	if _, ok := narrow[int32](int64(cfg.rtsCores)); !ok {
 		return nil, validationError(fmt.Sprintf("rtsCores %d exceeds C int range (max %d)", cfg.rtsCores, math.MaxInt32))
 	}
 
@@ -471,17 +472,23 @@ func wireFrame(id CANID, dlc DLC, data []byte) C.struct_aletheia_frame {
 	}
 }
 
+// firstOf is the address of the first element of s as the C type a call
+// takes, nil for an empty s, which has no first element. The caller keeps s
+// alive across the call.
+func firstOf[E, T any](s []T) *E {
+	if len(s) == 0 {
+		return nil
+	}
+	return (*E)(unsafe.Pointer(&s[0]))
+}
+
 // framePayloadPtr bounds a payload at the CAN-FD maximum and returns the
-// pointer the call takes, nil for an empty payload. The caller keeps the
-// slice alive across the call.
+// pointer the call takes.
 func framePayloadPtr(data []byte) (*C.uint8_t, error) {
 	if len(data) > MaxFrameByteCount {
 		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), MaxFrameByteCount))
 	}
-	if len(data) == 0 {
-		return nil, nil
-	}
-	return (*C.uint8_t)(unsafe.Pointer(&data[0])), nil
+	return firstOf[C.uint8_t](data), nil
 }
 
 // signalArrays splits one slice of injections into the three parallel arrays
@@ -503,12 +510,7 @@ func signalArrays(signals []SignalInjection) (indices []uint32, nums, dens []int
 // injection list. The three are built together by signalArrays above, so they
 // are the same length by construction and there is nothing here to check.
 func signalArrayPtrs(indices []uint32, nums, dens []int64) (*C.uint32_t, *C.int64_t, *C.int64_t) {
-	if len(indices) == 0 {
-		return nil, nil, nil
-	}
-	return (*C.uint32_t)(unsafe.Pointer(&indices[0])),
-		(*C.int64_t)(unsafe.Pointer(&nums[0])),
-		(*C.int64_t)(unsafe.Pointer(&dens[0]))
+	return firstOf[C.uint32_t](indices), firstOf[C.int64_t](nums), firstOf[C.int64_t](dens)
 }
 
 // stringResult copies a response the kernel allocated and frees it. A null
@@ -551,13 +553,8 @@ func (b *FFIBackend) Init() (unsafe.Pointer, error) {
 // the kernel bounds it too. The kernel reads every byte of input, and answers a
 // NUL or bytes that are not UTF-8 with an ffi_validation_error response.
 func (b *FFIBackend) Process(state unsafe.Pointer, input string) (string, error) {
-	if len(input) > MaxJSONBytes {
-		return "", newInputBoundExceededError(
-			BoundKindInputLengthBytes,
-			uint64(len(input)),
-			MaxJSONBytes,
-			CodeInputBoundExceeded,
-		)
+	if err := refuseOversize(uint64(len(input)), MaxJSONBytes); err != nil {
+		return "", err
 	}
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -580,8 +577,8 @@ func (b *FFIBackend) SendFrameBinary(
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	if ts.Microseconds < 0 {
-		return "", validationError("timestamp must be non-negative")
+	if err := ts.validate(); err != nil {
+		return "", err
 	}
 	dataPtr, err := framePayloadPtr(data)
 	if err != nil {
@@ -617,8 +614,8 @@ func (b *FFIBackend) SendErrorBinary(state unsafe.Pointer, ts Timestamp) (string
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	if ts.Microseconds < 0 {
-		return "", validationError("timestamp must be non-negative")
+	if err := ts.validate(); err != nil {
+		return "", err
 	}
 	return b.stringResult("aletheia_send_error",
 		C.call_send_error(b.sendErrorFn, state, C.struct_aletheia_frame{timestamp: C.uint64_t(ts.Microseconds)}))
@@ -629,8 +626,8 @@ func (b *FFIBackend) SendRemoteBinary(state unsafe.Pointer, ts Timestamp, id CAN
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	if ts.Microseconds < 0 {
-		return "", validationError("timestamp must be non-negative")
+	if err := ts.validate(); err != nil {
+		return "", err
 	}
 	return b.stringResult("aletheia_send_remote",
 		C.call_send_remote(b.sendRemoteFn, state, C.struct_aletheia_frame{
@@ -697,10 +694,7 @@ func (b *FFIBackend) frameBin(
 	indicesPtr, numsPtr, densPtr := signalArrayPtrs(indices, nums, dens)
 	values := C.struct_aletheia_signal_values{count: C.uint32_t(len(signals))}
 	outBuf := make([]byte, dlc.ToBytes())
-	var outBufPtr *C.uint8_t
-	if len(outBuf) > 0 {
-		outBufPtr = (*C.uint8_t)(unsafe.Pointer(&outBuf[0]))
-	}
+	outBufPtr := firstOf[C.uint8_t](outBuf)
 	out := C.struct_aletheia_buffer{size: C.uint32_t(len(outBuf))}
 
 	status := C.call_frame_bin(fn, state, frame, dataPtr, values,
@@ -749,14 +743,8 @@ func (b *FFIBackend) ExtractSignalsBin(state unsafe.Pointer, id CANID, dlc DLC, 
 	if status != 0 {
 		return nil, b.binaryStatusError("extract_signals_bin", status, out.err)
 	}
-	outBuf, outSize := out.data, out.size
-	// The copy below takes a C int, which cannot hold every uint32.
-	if outSize > math.MaxInt32 {
-		C.call_free_buf(b.freeBufFn, outBuf)
-		return nil, protocolError(fmt.Sprintf("extract_signals_bin returned outSize %d exceeding C.int range", outSize))
-	}
-	result := C.GoBytes(unsafe.Pointer(outBuf), C.int(outSize))
-	C.call_free_buf(b.freeBufFn, outBuf)
+	result := bytes.Clone(unsafe.Slice((*byte)(unsafe.Pointer(out.data)), out.size))
+	C.call_free_buf(b.freeBufFn, out.data)
 	return result, nil
 }
 

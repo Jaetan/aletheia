@@ -50,6 +50,15 @@ func (t Timestamp) Duration() time.Duration {
 	return time.Duration(t.Microseconds) * time.Microsecond
 }
 
+// validate refuses a timestamp before the trace starts, which the kernel's
+// unsigned microsecond count cannot carry.
+func (t Timestamp) validate() error {
+	if t.Microseconds < 0 {
+		return validationError("timestamp must be non-negative")
+	}
+	return nil
+}
+
 // TimeBound is a time duration for metric temporal operators, in microseconds.
 // A zero value is valid and checks only the current time step.
 type TimeBound struct {

@@ -4,9 +4,7 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -69,28 +67,28 @@ func captureStderr(t *testing.T, fn func()) string {
 	return capture(t, &os.Stderr, fn)
 }
 
-// capture runs fn with *stream redirected to a pipe and returns what it wrote.
+// capture runs fn with *stream redirected to a file and returns what it wrote.
+// A file takes any amount of output without a reader beside the writer, which
+// a pipe would need.
 func capture(t *testing.T, stream **os.File, fn func()) string {
 	t.Helper()
-	r, w, err := os.Pipe()
+	f, err := os.CreateTemp(t.TempDir(), "captured")
 	if err != nil {
-		t.Fatalf("os.Pipe: %v", err)
+		t.Fatalf("os.CreateTemp: %v", err)
 	}
 	old := *stream
-	*stream = w
+	*stream = f
 	defer func() { *stream = old }() // restore even if fn panics
 
-	// Drained as it is written, so a large write cannot fill the pipe and wait.
-	done := make(chan string, 1)
-	go func() {
-		var buf bytes.Buffer
-		_, _ = io.Copy(&buf, r)
-		done <- buf.String()
-	}()
-
 	fn()
-	_ = w.Close()
-	return <-done
+	if err := f.Close(); err != nil {
+		t.Fatalf("closing the capture: %v", err)
+	}
+	written, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatalf("reading the capture: %v", err)
+	}
+	return string(written)
 }
 
 // TestCLISignalsRendersFactorExactly: a fine-resolution factor (1/8192 =

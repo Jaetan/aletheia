@@ -15,14 +15,12 @@ import os
 import signal
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 from tools import _scheduler
 from tools._scheduler import Step, StepEvent, all_passed, run_lanes
 
 REPO_ROOT = Path(_scheduler.__file__).resolve().parents[1]
-BOUND_SECONDS = 5.0
 
 
 def _step(name: str, sh: str, *, heavy: bool = False) -> Step:
@@ -76,16 +74,21 @@ def test_signal_death_counts_as_failure() -> None:
 
 
 def test_an_interrupted_parallel_sweep_stops_its_steps(tmp_path: Path) -> None:
-    """Ctrl-C, SIGINT to the sweep's process group, ends a parallel sweep within the bound.
+    """Ctrl-C, SIGINT to the sweep's process group, ends a parallel sweep and its steps.
 
     Each step runs in a process group of its own, which the interrupt does
-    not reach, so a sweep that only waited on its workers would run until
-    the step finished on its own.
+    not reach, and this one blocks on a FIFO nothing writes, so a sweep that
+    only waited on its workers would never return.  The step says it started
+    through another FIFO, which the test reads, so no clock decides when the
+    interrupt is sent.
     """
     started = tmp_path / "started"
+    never = tmp_path / "never"
+    for fifo in (started, never):
+        os.mkfifo(fifo)
     script = (
         "from tools._scheduler import Step, run_lanes; "
-        f"run_lanes([[Step('slow', 'touch \"{started}\"; exec sleep 60')], "
+        f"run_lanes([[Step('slow', 'echo > \"{started}\"; exec cat \"{never}\"')], "
         "[Step('other', 'true')]], max_workers=2, heavy_limit=1)"
     )
     with subprocess.Popen(
@@ -96,12 +99,9 @@ def test_an_interrupted_parallel_sweep_stops_its_steps(tmp_path: Path) -> None:
         process_group=0,
     ) as sweep:
         try:
-            deadline = time.monotonic() + BOUND_SECONDS
-            while not started.exists():
-                assert time.monotonic() < deadline, "the step never started"
-                time.sleep(0.02)
+            _ = started.read_text()
             os.killpg(sweep.pid, signal.SIGINT)
-            assert sweep.wait(BOUND_SECONDS) != 0
+            assert sweep.wait() != 0
         finally:
             sweep.kill()
 

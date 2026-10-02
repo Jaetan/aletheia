@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"unsafe"
@@ -178,8 +179,36 @@ func TestParseExtractionBin_ZeroErrorsSingleOffsetEntry(t *testing.T) {
 	}
 }
 
+// The smallest buffer is a header of zeros and the offsets table's one zero
+// entry, which decodes to nothing; a byte shorter is refused before the
+// header is trusted. An error whose reason is empty, two equal offsets, is
+// carried with that empty reason: the offsets need only not decrease.
+func TestParseExtractionBin_TheSmallestBufferAndAnEmptyReason(t *testing.T) {
+	smallest := buildExtractionBin(nil, nil, []uint32{0}, nil, nil)
+	if len(smallest) != 14 {
+		t.Fatalf("the smallest buffer is %d bytes, want 14", len(smallest))
+	}
+	res, err := parseExtractionBin(smallest, nil)
+	if err != nil {
+		t.Fatalf("the smallest buffer was refused: %v", err)
+	}
+	if len(res.Values)+len(res.Errors)+len(res.Absent) != 0 {
+		t.Errorf("the smallest buffer decoded to %+v, want nothing", res)
+	}
+	requireExtractionProtocolError(t, smallest[:13], nil, "too short")
+
+	res, err = parseExtractionBin(binExtractionErrors([]string{"", "x"}, nil), []string{"A", "B"})
+	if err != nil {
+		t.Fatalf("an empty reason was refused: %v", err)
+	}
+	want := []SignalError{{Name: "A", Error: ""}, {Name: "B", Error: "x"}}
+	if !slices.Equal(res.Errors, want) {
+		t.Errorf("Errors = %+v, want %+v", res.Errors, want)
+	}
+}
+
 // Every buffer the decoder cannot trust is refused with a protocol error
-// naming the reason: a header shorter than its ten bytes, a total size that
+// naming the reason: a buffer shorter than the smallest one, a total size that
 // is off by a byte either way, an offsets table that starts past zero,
 // decreases, or ends anywhere but at the reason bytes the header declares,
 // and a reason slice that is not UTF-8, which every binding refuses.
@@ -230,7 +259,7 @@ func (b *corruptBinBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, 
 // anything but the fallback sentinel, yields no result and one warning naming
 // the failure; the JSON path is not tried.
 func TestExtractSignalsLocked_CorruptBinaryIsLoggedAndSkipped(t *testing.T) {
-	ctx := bounded(t)
+	ctx := t.Context()
 	cases := map[string]struct {
 		buf   []byte
 		err   error
@@ -249,7 +278,7 @@ func TestExtractSignalsLocked_CorruptBinaryIsLoggedAndSkipped(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() { _ = closeWithin(t, c) })
+			t.Cleanup(func() { _ = c.Close() })
 			sid, _ := NewStandardID(0x100)
 			dlc, _ := NewDLC(8)
 			c.signalNames = map[uint64][]string{canIDKey(sid): {"S"}}

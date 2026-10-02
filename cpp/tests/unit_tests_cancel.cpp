@@ -15,8 +15,6 @@
 #include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -28,7 +26,6 @@
 #include <stop_token>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -79,17 +76,21 @@ protected:
 // CancelTriggerBackend deterministically fires the supplied stop_source
 // callback on the Nth process() call so tests can force a mid-batch
 // cancellation without sleeping. Anything before N runs to completion;
-// anything after sees stop_requested at the next pre-FFI guard.
+// anything after sees stop_requested at the next pre-FFI guard. The Nth call
+// itself is in flight when the stop fires, and still answers `reply`.
 class CancelTriggerBackend : public StubStreamingBackend {
     static inline char sentinel = 0;
     std::size_t calls_ = 0;
     std::size_t cancel_after_ = 0;
     std::stop_source* source_ = nullptr;
+    std::string_view reply_;
 
 public:
-    CancelTriggerBackend(std::size_t cancel_after, std::stop_source* source)
+    CancelTriggerBackend(std::size_t cancel_after, std::stop_source* source,
+                         std::string_view reply = R"({"status":"ack"})")
         : cancel_after_(cancel_after)
-        , source_(source) {}
+        , source_(source)
+        , reply_(reply) {}
 
     [[nodiscard]] auto call_count() const -> std::size_t { return calls_; }
 
@@ -100,58 +101,7 @@ public:
         ++calls_;
         if (calls_ == cancel_after_ && source_ != nullptr)
             source_->request_stop();
-        return R"({"status":"ack"})";
-    }
-};
-
-// HoldingBackend simulates an in-flight FFI call. process() signals the
-// test that it has entered the FFI (entered_), then blocks until the test
-// releases it (proceed_). This is a rendezvous — fully deterministic, no
-// sleeps or polling — mirroring Go's gateBackend (entered/release channels)
-// and Python's gated_backend (started/proceed events). Two std::atomic_flag
-// give idempotent set/wait (like a threading.Event): set/notify and wait are
-// safe to call repeatedly, so even a set_properties that issued multiple
-// process() calls could never violate a semaphore's release-past-max
-// precondition. The release/acquire memory ordering establishes happens-before,
-// so the main thread reading call_count() after wait_until_entered() is race-free.
-class HoldingBackend : public StubStreamingBackend {
-    static inline char sentinel = 0;
-    std::size_t calls_ = 0;
-    std::atomic_flag entered_; // set when process() enters the FFI
-    std::atomic_flag proceed_; // set by the test to release the in-flight call
-
-public:
-    [[nodiscard]] auto call_count() const -> std::size_t { return calls_; }
-
-    auto init() -> BackendState override { return BackendState{*this, &sentinel}; }
-
-    // Waits until process() has entered the FFI (deterministic rendezvous),
-    // or until the deadline: a client that refuses the call before the backend
-    // never enters, and a wait with no deadline would then hold the process
-    // open past the run's end, with the worker joined and the suite reported.
-    // Polled, since an atomic_flag has no timed wait.
-    [[nodiscard]] auto wait_until_entered(std::chrono::milliseconds deadline) -> bool {
-        auto const until = std::chrono::steady_clock::now() + deadline;
-        while (!entered_.test(std::memory_order_acquire)) {
-            if (std::chrono::steady_clock::now() >= until)
-                return false;
-            std::this_thread::sleep_for(std::chrono::milliseconds{1});
-        }
-        return true;
-    }
-    // Unblocks the in-flight process() call.
-    void release() {
-        proceed_.test_and_set(std::memory_order_release);
-        proceed_.notify_one();
-    }
-
-    auto process(const BackendState& /*state*/, std::string_view /*input*/)
-        -> std::string override {
-        ++calls_;
-        entered_.test_and_set(std::memory_order_release);
-        entered_.notify_one();
-        proceed_.wait(false, std::memory_order_acquire);
-        return R"({"status":"success"})";
+        return std::string{reply_};
     }
 };
 
@@ -204,57 +154,20 @@ TEST_CASE("Client cancellation: mid-batch commit-prefix-and-report", "[cancellat
 }
 
 TEST_CASE("Client cancellation: in-flight FFI runs to completion", "[cancellation]") {
-    auto backend_owned = std::make_unique<HoldingBackend>();
-    auto* backend = backend_owned.get();
+    // The stop fires from inside the backend's process(), while the call is in
+    // flight: the call must still return its result. Driven from inside the
+    // call, as Go's cancel test is, so no thread races it.
+    std::stop_source cancel_source;
+    auto backend_owned =
+        std::make_unique<CancelTriggerBackend>(1, &cancel_source, R"({"status":"success"})");
+    auto const* backend = backend_owned.get();
     AletheiaClient client(std::move(backend_owned));
+    auto const cancel_token = cancel_source.get_token();
 
-    const std::stop_source cancel_source;
-    auto cancel_token = cancel_source.get_token();
-
-    // Run set_properties on a worker thread; HoldingBackend blocks inside
-    // process() until the test releases it. While it's blocked, fire
-    // cancel_source — the in-flight call must NOT abort. The worker's outcome
-    // is captured into worker_ok and asserted by the MAIN thread after join
-    // (Catch2 macros are not thread-safe, so we never assert inside the worker).
-    bool worker_ok = false;
-    std::thread worker([&] {
-        auto const r = client.set_properties(cancel_token, std::span<const LtlFormula>{});
-        worker_ok = r.has_value();
-    });
-
-    // RAII safety net for the window between spawning `worker` and joining it
-    // below: if any REQUIRE here throws while the worker is parked inside
-    // HoldingBackend::process() (blocked on proceed_), the worker stays joinable
-    // and `worker`'s std::thread destructor would call std::terminate during the
-    // unwind. This guard releases the backend (so process() returns) and joins the
-    // worker before that destructor runs, turning an assertion failure into a fast,
-    // clean failure instead of a terminate. A shared_ptr<void> holding a null
-    // pointer with a deleter is a dependency-free scope guard whose deleter runs
-    // on scope exit, an exception unwind included. Declared after `worker` so it
-    // destructs first; on the happy path the explicit release and join below run
-    // first and leave it a no-op, release being idempotent and join skipped once
-    // the worker has been joined.
-    auto const worker_guard = std::shared_ptr<void>(nullptr, [backend, &worker](void*) {
-        backend->release();
-        if (worker.joinable())
-            worker.join();
-    });
-
-    // Deterministically wait until process() has entered the FFI. The entered_
-    // flag's release and acquire establish happens-before, so reading
-    // call_count() here is race-free. A call the client refused before the
-    // backend never enters, and that is a failure to report, not a wait.
-    REQUIRE(backend->wait_until_entered(std::chrono::seconds{5}));
+    auto const r1 = client.set_properties(cancel_token, std::span<const LtlFormula>{});
+    REQUIRE(r1.has_value()); // in-flight call succeeded despite mid-flight cancel
     REQUIRE(backend->call_count() == 1);
-
-    // Fire cancellation while the FFI is in flight, then release it. Releasing
-    // through the proceed_ flag is sufficient: the cancel cannot have aborted
-    // an already-entered call, and the assertion after the join proves the
-    // call returned success.
-    cancel_source.request_stop();
-    backend->release();
-    worker.join();
-    REQUIRE(worker_ok); // in-flight call succeeded despite mid-flight cancel
+    REQUIRE(cancel_token.stop_requested());
 
     // Subsequent call honors the now-cancelled token (sticky).
     auto r2 = client.set_properties(cancel_token, std::span<const LtlFormula>{});

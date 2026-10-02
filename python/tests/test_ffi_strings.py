@@ -35,7 +35,6 @@ def test_kernel_strings_do_not_depend_on_the_locale() -> None:
         encoding="utf-8",
         check=False,
         env=env,
-        timeout=120,
     )
     report = f"stdout: {completed.stdout}\nstderr: {completed.stderr}"
     assert completed.returncode == 0, report

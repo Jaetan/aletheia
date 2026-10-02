@@ -27,12 +27,14 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import pytest
 
 from tools import mutation_run
 from tools._common import RelPath, git_ls_files
+
+from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -245,6 +247,21 @@ def test_main_docs_only_runs_nothing_and_passes(
     assert not ran  # no engine ran
 
 
+def _nothing() -> None:
+    """Check nothing before a stand-in call."""
+
+
+class _Mutmut(NamedTuple):
+    """Both mutmut calls: the summary they print, and a check made before each."""
+
+    summary: Prose
+    before: Callable[[], None]
+
+    def __call__(self, cmd: list[str], **_kw: object) -> subprocess.CompletedProcess[str]:
+        self.before()
+        return subprocess.CompletedProcess(cmd, 0, stdout=self.summary, stderr="")
+
+
 def test_run_python_erases_stale_mutants_tree(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -267,11 +284,11 @@ def test_run_python_erases_stale_mutants_tree(
     stale.mkdir(parents=True)
     (stale / "poisoned.txt").write_text("verdict cached from a prior tree")
 
-    def fake_run(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess[str]:
+    def erased() -> None:
         # The stale tree must already be gone before mutmut is ever invoked.
         assert not stale.exists(), "run_python invoked mutmut without erasing mutants/"
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
+    fake_run = _Mutmut(Prose(""), erased)
     # Both halves are stubbed: the long ``mutmut run`` streams (so a sweep a
     # wall clock kills still leaves its log), while the fast ``mutmut results``
     # read stays captured.  Stubbing only one would let the other reach for a
@@ -284,3 +301,33 @@ def test_run_python_erases_stale_mutants_tree(
     mutation_run.run_python(artifacts)
 
     assert not stale.exists()
+
+
+def test_run_python_reports_the_mutants_mutmut_timed_out(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A mutant mutmut ended at its timeout reaches the report, where the drift gate refuses it.
+
+    A timed-out mutant is neither killed nor survived, and the Python baseline
+    records a ceiling of 0, so a sweep in which mutmut's cap fired fails the
+    lane rather than passing on its survivor count alone.
+    """
+
+    def fake_tools() -> tuple[Path, Path]:
+        return (tmp_path / "mutmut", tmp_path / "lib.so")
+
+    fake_run = _Mutmut(Prose("⠴ 10/10  🎉 9 🫥 0  ⏰ 1  🤔 0  🙁 0  🔇 0  🧙 0\n"), _nothing)
+    monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(mutation_run, "_check_python_tools", fake_tools)
+    monkeypatch.setattr(mutation_run, "run_streaming", fake_run)
+    monkeypatch.setattr(mutation_run.subprocess, "run", fake_run)
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+
+    report = mutation_run.run_python(artifacts)
+
+    assert (report.killed, report.survived, report.timeouts) == (9, 0, 1)
+    verdict = mutation_run.drift_for(
+        report, {"python": {"baseline": {"survivors": 0, "timeout_ceiling": 0}}}
+    )
+    assert verdict["status"] == "regression"

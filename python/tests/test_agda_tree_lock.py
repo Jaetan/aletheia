@@ -8,15 +8,20 @@ import fcntl
 import os
 import subprocess
 import sys
-import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NewType
 
 import pytest
 
 from tools import _common
 
+from aletheia.common_types import Prose
+
 if TYPE_CHECKING:
     from pathlib import Path
+
+Descriptor = NewType("Descriptor", int)
+LockOperation = NewType("LockOperation", int)
+Step = NewType("Step", str)
 
 
 @pytest.fixture(name="held_lock")
@@ -44,28 +49,40 @@ def test_a_held_lock_is_refused_by_default(held_lock: int) -> None:
 
 
 def test_a_held_lock_is_waited_for_on_request(
-    held_lock: int, capsys: pytest.CaptureFixture[str]
+    held_lock: int, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """With ``wait`` the acquisition says so, blocks until the holder releases, then proceeds.
 
-    The printed line is the evidence of contention: a waiter that merely started
-    late would also find the lock free.
+    The interleaving is driven rather than raced: the holder lets go inside the
+    waiter's blocking ``flock``, so the refused try, the line saying the waiter
+    queued and the acquisition after the release are seen in that order, with no
+    thread and no clock.
     """
-    acquired = threading.Event()
+    real_flock = fcntl.flock
+    steps: list[Step] = []
+    queued: list[Prose] = []
 
-    def take() -> None:
-        with _common.agda_tree_lock(wait=True):
-            acquired.set()
+    def flock(fd: Descriptor, operation: LockOperation) -> None:
+        if operation & fcntl.LOCK_NB:
+            try:
+                real_flock(fd, operation)
+            except BlockingIOError:
+                steps.append(Step("try refused"))
+                raise
+            steps.append(Step("try took the lock"))
+            return
+        queued.append(Prose(capsys.readouterr().err))
+        os.close(held_lock)
+        steps.append(Step("holder released"))
+        real_flock(fd, operation)
+        steps.append(Step("waiter acquired"))
 
-    waiter = threading.Thread(target=take)
-    waiter.start()
-    assert not acquired.wait(0.5), "the waiter acquired a lock another descriptor held"
-    os.close(held_lock)
-    assert acquired.wait(5), "the waiter never acquired the released lock"
-    waiter.join(5)
-    err = capsys.readouterr().err
-    assert "waiting for .agda-tree.lock, held by another Agda tool (" in err
-    assert "pid 4242" in err
+    monkeypatch.setattr(fcntl, "flock", flock)
+    with _common.agda_tree_lock(wait=True):
+        steps.append(Step("inside"))
+    assert steps == ["try refused", "holder released", "waiter acquired", "inside"]
+    assert "waiting for .agda-tree.lock, held by another Agda tool (" in queued[0]
+    assert "pid 4242" in queued[0]
 
 
 def _reaped_pid() -> int:
