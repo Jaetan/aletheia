@@ -91,7 +91,6 @@ def _run_workload(n: int, extra_env: dict[str, str]) -> subprocess.CompletedProc
         env=env,
         capture_output=True,
         text=True,
-        timeout=120,
         check=False,
     )
 

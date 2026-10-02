@@ -80,3 +80,12 @@ const (
 	// signed 64-bit range the binary slots and the decimal parser share.
 	MaxRationalComponentMagnitude = 9223372036854775807
 )
+
+// refuseOversize is the binding's refusal of an input of size bytes past
+// limit, typed as the kernel's own refusal of it is lifted.
+func refuseOversize(size, limit uint64) error {
+	if size > limit {
+		return newInputBoundExceededError(BoundKindInputLengthBytes, size, limit, CodeInputBoundExceeded)
+	}
+	return nil
+}

@@ -16,6 +16,10 @@ import (
 // and the three attribute records, so one round trip covers them all. The
 // float bounds are rationals with no finite binary expansion.
 func tier2DBC(t *testing.T) aletheia.DBCDefinition {
+	extended, err := aletheia.NewExtendedID(0x1ABCDE)
+	if err != nil {
+		t.Fatalf("NewExtendedID: %v", err)
+	}
 	t.Helper()
 	return aletheia.DBCDefinition{
 		Version:  "1.0",
@@ -39,9 +43,10 @@ func tier2DBC(t *testing.T) aletheia.DBCDefinition {
 			aletheia.DBCAttrAssign{Name: "IntAttr", Target: aletheia.DBCAttrTargetNetwork{}, Value: aletheia.DBCAttrValueInt{Value: 7}},
 			aletheia.DBCAttrAssign{Name: "FloatAttr", Target: aletheia.DBCAttrTargetNode{Node: "ECU"},
 				Value: aletheia.DBCAttrValueFloat{Value: aletheia.Rational{Numerator: 1, Denominator: 3}}},
-			aletheia.DBCAttrAssign{Name: "StrAttr", Target: aletheia.DBCAttrTargetSignal{ID: 256, Signal: "RPM"}, Value: aletheia.DBCAttrValueString{Value: "hello"}},
-			aletheia.DBCAttrAssign{Name: "EnumAttr", Target: aletheia.DBCAttrTargetNodeMsg{Node: "ECU", ID: 256}, Value: aletheia.DBCAttrValueEnum{Value: 1}},
-			aletheia.DBCAttrAssign{Name: "HexAttr", Target: aletheia.DBCAttrTargetNodeSig{Node: "ECU", ID: 256, Signal: "RPM"}, Value: aletheia.DBCAttrValueHex{Value: 255}},
+			aletheia.DBCAttrAssign{Name: "StrAttr", Target: aletheia.DBCAttrTargetMessage{ID: extended}, Value: aletheia.DBCAttrValueString{Value: "extended"}},
+			aletheia.DBCAttrAssign{Name: "StrAttr", Target: aletheia.DBCAttrTargetSignal{ID: standardID(t, 256), Signal: "RPM"}, Value: aletheia.DBCAttrValueString{Value: "hello"}},
+			aletheia.DBCAttrAssign{Name: "EnumAttr", Target: aletheia.DBCAttrTargetNodeMsg{Node: "ECU", ID: standardID(t, 256)}, Value: aletheia.DBCAttrValueEnum{Value: 1}},
+			aletheia.DBCAttrAssign{Name: "HexAttr", Target: aletheia.DBCAttrTargetNodeSig{Node: "ECU", ID: standardID(t, 256), Signal: "RPM"}, Value: aletheia.DBCAttrValueHex{Value: 255}},
 		},
 	}
 }
@@ -104,7 +109,7 @@ func TestSignalReceiversAndMessageSenders_RoundtripThroughMock(t *testing.T) {
 // Tier 2 keys, a signal's receivers and a message's senders absent from a
 // response decode to nil.
 func TestFormatDBC_AbsentTier2KeysDecodeToNil(t *testing.T) {
-	ctx := bounded(t)
+	ctx := t.Context()
 	c, _ := mockClient(t, aletheia.Respond(formatDBCResponse(oneSignalMessage(
 		`{"name":"S","startBit":0,"length":8,"byteOrder":"little_endian","signed":false,"factor":1,"offset":0,"minimum":0,"maximum":255,"unit":"","presence":"always"}`))))
 	dbc, err := c.FormatDBC(ctx)
@@ -124,7 +129,7 @@ func TestFormatDBC_AbsentTier2KeysDecodeToNil(t *testing.T) {
 
 // A comment target kind outside the five is a protocol error naming it.
 func TestFormatDBC_RejectsUnknownCommentTargetKind(t *testing.T) {
-	ctx := bounded(t)
+	ctx := t.Context()
 	c, _ := mockClient(t, aletheia.Respond(`{"status":"success","dbc":{"version":"0.1","messages":[],"comments":[{"target":{"kind":"bogus"},"text":"bad"}]}}`))
 	_, err := c.FormatDBC(ctx)
 	requireKind(t, err, aletheia.ErrProtocol)
@@ -152,7 +157,7 @@ func TestSerializeDBC_EmitsEmptyTier2ArraysWhenMetadataAbsent(t *testing.T) {
 // went on the field the pair was a raw number and a flag, and a comment could
 // name a message no frame could carry.
 func TestCommentTargetRefusesAnIdentifierNoFrameCouldCarry(t *testing.T) {
-	ctx := bounded(t)
+	ctx := t.Context()
 	for _, tc := range []struct {
 		name   string
 		target map[string]any

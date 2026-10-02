@@ -7,6 +7,12 @@ Each case runs a driver process that starts a stand-in build through
 inherits, the shape of ``cabal`` running ``shake``.  The driver is then killed
 or interrupted, and the test reads whether the watched process and the lock
 outlived it.
+
+No case reads a clock.  The stand-in build blocks on a FIFO nothing ever
+writes, so it ends only when something stops it; the build says it started
+through another FIFO the test reads; and the test waits for the stop by
+blocking on the lock every process of the build holds.  A stop that never
+comes hangs the run, which is the run's own limit to report.
 """
 
 from __future__ import annotations
@@ -19,7 +25,6 @@ import signal
 import subprocess
 import sys
 import textwrap
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -31,7 +36,6 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
 REPO_ROOT = Path(_common.__file__).resolve().parents[1]
-BOUND_SECONDS = 5.0
 
 
 class Build(NamedTuple):
@@ -42,32 +46,24 @@ class Build(NamedTuple):
     lock: Path
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
+def _stopped(build: Build) -> None:
+    """Block until every process the build started has exited.
 
-
-def _lock_free(lock: Path) -> bool:
-    fd = os.open(lock, os.O_RDWR)
+    Each of them holds the lock's descriptor, the watched one included, so the
+    lock frees only once the last of them is gone.
+    """
+    fd = os.open(build.lock, os.O_RDWR)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return False
+        fcntl.flock(fd, fcntl.LOCK_EX)
     finally:
         os.close(fd)
-    return True
 
 
-def _stopped_within(build: Build, bound: float) -> bool:
-    deadline = time.monotonic() + bound
-    while _alive(build.watched) or not _lock_free(build.lock):
-        if time.monotonic() > deadline:
-            return False
-        time.sleep(0.02)
-    return True
+def _never(tmp_path: Path) -> Path:
+    """Make a FIFO nothing writes: a process reading it blocks until something stops it."""
+    never = tmp_path / "never"
+    os.mkfifo(never)
+    return never
 
 
 @contextlib.contextmanager
@@ -76,41 +72,64 @@ def _started(
 ) -> Generator[Build]:
     """Start a driver whose command takes the lock and runs ``shell_body``; kill what survives.
 
-    ``shell_body`` writes the pid the test watches into ``{pid_file}``.  The
-    command holds the lock on descriptor 9, which every process it starts
-    inherits.
+    ``shell_body`` writes the pid the test watches into ``{pid_file}``, a FIFO
+    the test reads, and may block on ``{never}``.  The command holds the lock on
+    descriptor 9, which every process it starts inherits.  The driver prints the
+    guard's return code once ``run_guarded`` is left, however it is left: set
+    when ``run_guarded`` waited for the guard, ``None`` when it did not.  With
+    ``handlers`` the driver installs the restore handlers and, once inside
+    ``communicate`` and once the command has written ``{ready}``, sends itself
+    SIGTERM, so the handler always fires while ``run_guarded`` waits on output.
     """
     lock = tmp_path / "build.lock"
     pid_file = tmp_path / "watched.pid"
+    ready = tmp_path / "ready"
+    for fifo in (pid_file, ready):
+        os.mkfifo(fifo)
+    never = _never(tmp_path)
     flock = shutil.which("flock")
     if flock is None:
         pytest.skip("flock(1) is not installed")
-    body = f'exec 9>"{lock}"; {flock} 9; ' + shell_body.format(pid_file=f'"{pid_file}"')
+    body = f'exec 9>"{lock}"; {flock} 9; ' + shell_body.format(
+        pid_file=f'"{pid_file}"', never=f'"{never}"', ready=f'"{ready}"'
+    )
     script = textwrap.dedent(f"""
+        import os
+        import signal
+        import subprocess
         from tools import _common
+        guards = []
+        class Recorded(subprocess.Popen):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                guards.append(self)
+            def communicate(self, *args, **kwargs):
+                if {handlers}:
+                    with open({str(ready)!r}) as started:
+                        started.read()
+                    os.kill(os.getpid(), signal.SIGTERM)
+                return super().communicate(*args, **kwargs)
+        subprocess.Popen = Recorded
         if {handlers}:
             _common.install_restore_handlers()
-        _common.run_guarded(["sh", "-c", {body!r}], grace_seconds={grace_seconds!r})
+        try:
+            _common.run_guarded(["sh", "-c", {body!r}], grace_seconds={grace_seconds!r})
+        finally:
+            print(guards[0].returncode if guards else "no guard", flush=True)
     """)
     with subprocess.Popen(
         [sys.executable, "-c", script],
         cwd=REPO_ROOT,
         text=True,
-        stdout=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
     ) as driver:
-        deadline = time.monotonic() + 30
-        while not (pid_file.exists() and pid_file.read_text().strip()):
-            if time.monotonic() > deadline or driver.poll() is not None:
-                driver.kill()
-                pytest.fail("the stand-in build never started")
-            time.sleep(0.02)
         watched = int(pid_file.read_text())
         try:
             yield Build(driver, watched, lock)
         finally:
             driver.kill()
-            if _alive(watched):
+            with contextlib.suppress(ProcessLookupError):  # gone already when the test passed
                 os.kill(watched, signal.SIGKILL)
 
 
@@ -141,23 +160,24 @@ def test_the_command_reads_no_input() -> None:
         [sys.executable, "-c", script], cwd=REPO_ROOT, stdin=subprocess.PIPE
     ) as driver:
         try:
-            assert driver.wait(BOUND_SECONDS) == 0
+            assert driver.wait() == 0
         finally:
             driver.kill()
 
 
-def test_closing_the_stop_descriptor_stops_the_command() -> None:
-    """A closed write end behind ``stop_fd`` interrupts the command as the caller's death does."""
+def test_closing_the_stop_descriptor_stops_the_command(tmp_path: Path) -> None:
+    """A closed write end behind ``stop_fd`` interrupts the command as the caller's death does.
+
+    The command blocks until something stops it, so its return is the stop.
+    """
     stop_read, stop_write = os.pipe()
     os.close(stop_write)
     try:
-        started = time.monotonic()
-        result = _common.run_guarded(["sleep", "60"], stop_fd=stop_read)
+        result = _common.run_guarded(["cat", str(_never(tmp_path))], stop_fd=stop_read)
     finally:
         os.close(stop_read)
     # A guard that stops its group ends in that group's SIGKILL, itself included.
     assert result.returncode == -signal.SIGKILL
-    assert time.monotonic() - started < BOUND_SECONDS
 
 
 def test_no_descriptor_is_left_open() -> None:
@@ -195,45 +215,51 @@ def test_the_guard_refuses_outside_a_group_of_its_own() -> None:
 
 
 def test_a_killed_caller_stops_its_command(tmp_path: Path) -> None:
-    """SIGKILL of the caller stops the command and frees its lock within the bound."""
+    """SIGKILL of the caller stops the command and frees its lock."""
     with _started(
-        tmp_path, handlers=False, shell_body="echo $$ > {pid_file}; exec sleep 60"
+        tmp_path, handlers=False, shell_body="echo $$ > {pid_file}; exec cat {never}"
     ) as build:
         build.driver.kill()
         _ = build.driver.wait()
-        assert _stopped_within(build, BOUND_SECONDS), "the build outlived its killed caller"
+        _stopped(build)
 
 
 def test_an_interrupted_caller_waits_for_its_command(tmp_path: Path) -> None:
-    """A restore handler's exit waits for the command to stop before the caller is gone.
+    """A restore handler's exit waits for the command's guard before the caller is gone.
 
-    The command takes half a second to exit on the interrupt, as Shake does
-    while it stops its own children, so a caller or guard that does not wait
-    exits while the command still runs.
+    The handler's ``SystemExit`` leaves ``run_guarded`` while the command still
+    blocks; the guard's return code, printed once ``run_guarded`` is left, is
+    set only if ``run_guarded`` waited for the guard, which ends in its group's
+    SIGKILL, before the exit propagated.
     """
-    body = 'trap "sleep 0.5; exit 0" INT; echo $$ > {pid_file}; sleep 60 & wait'
+    body = "echo $$ > {pid_file}; echo > {ready}; exec cat {never}"
     with _started(tmp_path, handlers=True, shell_body=body) as build:
-        build.driver.send_signal(signal.SIGTERM)
-        assert build.driver.wait(BOUND_SECONDS) == 128 + signal.SIGTERM
-        assert not _alive(build.watched), "the caller exited while its build still ran"
-        assert _lock_free(build.lock)
+        printed, _ = build.driver.communicate()
+        assert build.driver.returncode == 128 + signal.SIGTERM
+        assert printed.split() == [str(-signal.SIGKILL)], "the caller left before its guard"
+        _stopped(build)
 
 
 def test_a_command_that_ignores_the_interrupt_is_killed(tmp_path: Path) -> None:
     """What ignores the interrupt is killed once the command has exited."""
-    body = '(trap "" INT; exec sleep 60) & echo $! > {pid_file}; wait'
+    body = '(trap "" INT; exec cat {never}) & echo $! > {pid_file}; wait'
     with _started(tmp_path, handlers=False, shell_body=body) as build:
         build.driver.kill()
         _ = build.driver.wait()
-        assert _stopped_within(build, BOUND_SECONDS), "a process ignoring the interrupt survived"
+        _stopped(build)
 
 
 def test_a_command_that_ignores_the_interrupt_is_killed_after_the_grace_period(
     tmp_path: Path,
 ) -> None:
-    """A command still running once the grace period ends gets SIGKILL with its group."""
-    body = 'trap "" INT; echo $$ > {pid_file}; exec sleep 60'
-    with _started(tmp_path, handlers=False, shell_body=body, grace_seconds=0.5) as build:
+    """A command still running once the grace period ends gets SIGKILL with its group.
+
+    The period is zero, so the command, which ignores the interrupt and blocks
+    until something stops it, is still running when it ends, whatever the
+    machine's speed.
+    """
+    body = 'trap "" INT; echo $$ > {pid_file}; exec cat {never}'
+    with _started(tmp_path, handlers=False, shell_body=body, grace_seconds=0.0) as build:
         build.driver.kill()
         _ = build.driver.wait()
-        assert _stopped_within(build, BOUND_SECONDS), "the grace period never ended"
+        _stopped(build)

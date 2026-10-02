@@ -9,20 +9,16 @@ package aletheia
 import (
 	"context"
 	"errors"
-	"runtime"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 	"unsafe"
 )
 
 // routingBackend implements [Backend] by counting every call and handing it
-// to one hook with its ordinal. The two doubles below embed it and differ
-// only in the hook. Synchronisation is by channels and the scheduler, never
-// by wall-clock time: a hang shows as the test binary's timeout.
+// to one hook with its ordinal. The doubles below build on it and differ only
+// in the hook, which answers at once: no test here parks a call or runs one
+// beside another.
 type routingBackend struct {
-	mu    sync.Mutex
 	calls int
 	hook  func(n int) (string, error)
 }
@@ -35,18 +31,11 @@ func (b *routingBackend) Init() (unsafe.Pointer, error) {
 }
 
 func (b *routingBackend) Process(_ unsafe.Pointer, _ string) (string, error) {
-	b.mu.Lock()
 	b.calls++
-	n := b.calls
-	b.mu.Unlock()
-	return b.hook(n)
+	return b.hook(b.calls)
 }
 
-func (b *routingBackend) callCount() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.calls
-}
+func (b *routingBackend) callCount() int { return b.calls }
 
 func (b *routingBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte, _ *bool, _ *bool) (string, error) {
 	return b.Process(nil, "")
@@ -78,59 +67,23 @@ func (b *routingBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ [
 }
 func (b *routingBackend) Close(_ unsafe.Pointer) {}
 
-// gateBackend parks every call on a release channel before answering, so a
-// test can hold the client lock inside an FFI call for as long as it needs.
-// entered closes on the first call, which lets a test wait for the FFI to be
-// entered without polling.
-type gateBackend struct {
-	routingBackend
-	release     chan struct{}
-	entered     chan struct{}
-	enteredOnce sync.Once
-	releaseOnce sync.Once // the test and the teardown may both release
-	resp        string
-}
-
-func newGateBackend(resp string) *gateBackend {
-	b := &gateBackend{release: make(chan struct{}), entered: make(chan struct{}), resp: resp}
-	b.hook = func(int) (string, error) {
-		b.enteredOnce.Do(func() { close(b.entered) })
-		// A park with no bound would hang the binary when the test that
-		// should release it fails first; a call the tests park is released
-		// within a second, so three is the bound of a defect, not a delay.
-		select {
-		case <-b.release:
-			return b.resp, nil
-		case <-time.After(3 * time.Second):
-			return "", errors.New("gate: the parked call was never released")
-		}
-	}
+// newAnsweringBackend is a routingBackend that answers resp to every call at
+// once, so a test counts the calls that reached the FFI without parking any.
+func newAnsweringBackend(resp string) *routingBackend {
+	b := &routingBackend{}
+	b.hook = func(int) (string, error) { return resp, nil }
 	return b
 }
 
-// releaseWorker unblocks every call parked on release; safe to call twice.
-func (b *gateBackend) releaseWorker() {
-	b.releaseOnce.Do(func() { close(b.release) })
-}
-
-// newGatedClient builds a Client over a gateBackend and owns its teardown:
-// release the worker, then close the client, on any test exit including a
-// failing assertion's runtime.Goexit. The order matters, since a call parked
-// on release holds the client lock and Close would wait for it. The Python
-// gated_backend helper does the same in its finally clause. Tests must not
-// add a Close of their own.
-func newGatedClient(t *testing.T, resp string) (*Client, *gateBackend) {
+// newClientOver builds a Client over backend and closes it when the test ends.
+func newClientOver(t *testing.T, backend Backend) *Client {
 	t.Helper()
-	backend := newGateBackend(resp)
 	c, err := NewClient(backend)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	t.Cleanup(func() {
-		backend.releaseWorker()
-		_ = closeWithin(t, c)
-	})
-	return c, backend
+	t.Cleanup(func() { _ = c.Close() })
+	return c
 }
 
 // cancelTriggerBackend cancels the test's context from inside its
@@ -155,9 +108,10 @@ func newCancelTriggerBackend(cancelAfter int, cancel context.CancelFunc, resp st
 // A method called with an already-cancelled context returns the wrapped
 // ctx.Err() without reaching the FFI (CANCELLATION.md section 1.1).
 func TestClient_CancelAtEntry(t *testing.T) {
-	c, backend := newGatedClient(t, `{"status":"success"}`)
+	backend := newAnsweringBackend(`{"status":"success"}`)
+	c := newClientOver(t, backend)
 
-	cctx, cancel := context.WithCancel(context.Background())
+	cctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	err := c.SetProperties(cctx, nil)
@@ -175,50 +129,36 @@ func TestClient_CancelAtEntry(t *testing.T) {
 	}
 }
 
-// A goroutine waiting for the client lock is cancelled by its context
-// without ever acquiring the lock or reaching the FFI. This is why the lock
-// is a channel and not a sync.Mutex, whose Lock cannot wait under a context;
-// the test guards against a Mutex that would notice cancellation only after
-// acquiring.
+// A caller waiting for the client lock is released by its context, without
+// acquiring the lock or reaching the FFI. The test holds the lock itself, as a
+// caller inside an FFI call would, so the waiting caller's select has its
+// context as the only ready case: the path a cancellation arriving while it
+// waits takes. This is why the lock is a channel and not a sync.Mutex, whose
+// Lock cannot wait under a context and would block here for good.
 func TestClient_CancelWhileWaitingOnLock(t *testing.T) {
-	c, backend := newGatedClient(t, `{"status":"success"}`)
+	backend := newAnsweringBackend(`{"status":"success"}`)
+	c := newClientOver(t, backend)
+	c.lockCh <- struct{}{} // held, as by a caller inside an FFI call
 
-	// A takes the lock and parks inside the FFI call until release.
-	aDone := make(chan error, 1)
-	go func() {
-		aDone <- c.SetProperties(context.Background(), nil)
-	}()
-	recvWithin(t, backend.entered)
-
-	// B queues on the lock under a cancellable context.
-	bctx, cancelB := context.WithCancel(context.Background())
-	bDone := make(chan error, 1)
-	go func() {
-		bDone <- c.SetProperties(bctx, nil)
-	}()
-
-	// lockWaiters counts goroutines inside the lock's select; A is past it,
-	// so a count of one means B is parked. Gosched yields without sleeping.
-	for c.lockWaiters.Load() < 1 {
-		runtime.Gosched()
-	}
-
-	cancelB()
-
-	err := recvWithin(t, bDone)
+	cctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	err := c.SetProperties(cctx, nil)
 	if !errors.Is(err, context.Canceled) {
-		t.Errorf("B: expected context.Canceled, got %v", err)
+		t.Errorf("expected context.Canceled, got %v", err)
 	}
-	if !strings.HasPrefix(err.Error(), "SetProperties: ") {
-		t.Errorf("B: expected method-prefixed error, got %q", err.Error())
+	if err != nil && !strings.HasPrefix(err.Error(), "SetProperties: ") {
+		t.Errorf("expected method-prefixed error, got %q", err.Error())
 	}
-	if got := backend.callCount(); got != 1 {
-		t.Errorf("B reached the FFI: callCount=%d (want 1, only A)", got)
+	if got := backend.callCount(); got != 0 {
+		t.Errorf("the waiting caller reached the FFI: callCount=%d", got)
+	}
+	if held := len(c.lockCh); held != 1 {
+		t.Errorf("the waiting caller changed a lock it never took: %d held, want 1", held)
 	}
 
-	backend.releaseWorker()
-	if err := recvWithin(t, aDone); err != nil {
-		t.Errorf("A: unexpected error %v", err)
+	c.unlock()
+	if err := c.SetProperties(t.Context(), nil); err != nil {
+		t.Errorf("a call after the lock is released: %v", err)
 	}
 }
 
@@ -229,7 +169,7 @@ func TestClient_CancelDuringBatch(t *testing.T) {
 	const total = 10
 	const cancelAfter = 3
 
-	bctx, cancel := context.WithCancel(context.Background())
+	bctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	backend := newCancelTriggerBackend(cancelAfter, cancel, `{"status":"ack"}`)
@@ -237,7 +177,7 @@ func TestClient_CancelDuringBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	t.Cleanup(func() { _ = closeWithin(t, c) })
+	t.Cleanup(func() { _ = c.Close() })
 
 	sid, _ := NewStandardID(0x123)
 	dlc, _ := NewDLC(8)
@@ -268,39 +208,25 @@ func TestClient_CancelDuringBatch(t *testing.T) {
 
 // An FFI call already in progress runs to completion when the context fires
 // mid-call, and the next call sees the cancellation (CANCELLATION.md
-// section 1.1, second clause).
+// section 1.1, second clause). The backend cancels the context from inside the
+// call, so the cancellation lands while the call is in flight on every run.
 func TestClient_NoCancelOnInFlightFFI(t *testing.T) {
-	c, backend := newGatedClient(t, `{"status":"success"}`)
+	cctx, cancel := context.WithCancel(t.Context())
+	backend := newCancelTriggerBackend(1, cancel, `{"status":"success"}`)
+	c := newClientOver(t, backend)
 
-	cctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan error, 1)
-	go func() {
-		done <- c.SetProperties(cctx, nil)
-	}()
-	recvWithin(t, backend.entered)
-
-	cancel()
-
-	// Yield so a goroutine that wrongly returned on cancellation gets the
-	// chance to write done before the non-blocking check below.
-	for range 8 {
-		runtime.Gosched()
+	if err := c.SetProperties(cctx, nil); err != nil {
+		t.Errorf("the in-flight call did not run to completion: %v", err)
 	}
-	select {
-	case err := <-done:
-		t.Fatalf("call returned before release; cancellation is not cooperative at the FFI boundary: err=%v", err)
-	default:
+	if cctx.Err() == nil {
+		t.Fatal("the backend was never entered, so nothing was cancelled mid-call")
 	}
-
-	backend.releaseWorker()
-	if err := recvWithin(t, done); err != nil {
-		t.Errorf("expected nil error from the completed in-flight call, got %v", err)
-	}
-
 	err := c.SetProperties(cctx, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled on the next call, got %v", err)
+	}
+	if got := backend.callCount(); got != 1 {
+		t.Errorf("the call after the cancellation reached the FFI: callCount=%d", got)
 	}
 }
 
@@ -309,18 +235,16 @@ func TestClient_NoCancelOnInFlightFFI(t *testing.T) {
 // inherits. The guide names this fault as the exception to its no-panic
 // rule, and the probe over the package holds it to exactly this message.
 func TestClient_UnlockNotHeldFails(t *testing.T) {
-	c, _ := newGatedClient(t, `{"status":"success"}`)
+	c := newClientOver(t, newAnsweringBackend(`{"status":"success"}`))
 
-	// On a goroutine, so an unlock that blocks fails the bounded wait rather
-	// than running to the test deadline.
-	recovered := make(chan any, 1)
-	go func() {
-		defer func() { recovered <- recover() }()
+	recovered := func() (r any) {
+		defer func() { r = recover() }()
 		c.unlock()
+		return nil
 	}()
 
 	const want = "aletheia: unlock of a lock that is not held"
-	if got := recvWithin(t, recovered); got != want {
+	if got := recovered; got != want {
 		t.Errorf("unlock of a lock nobody holds: recovered %v, want %q", got, want)
 	}
 }

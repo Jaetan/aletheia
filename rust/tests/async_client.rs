@@ -192,11 +192,10 @@ struct GateState {
 
 /// A `Send` gating [`Backend`] for the deterministic in-flight cancellation test.
 /// Its [`process`](Backend::process) blocks on a condvar rendezvous so the test
-/// can pin the worker *inside* the FFI call — past the queued-cancel guard —
-/// exactly mirroring the C++ `HoldingBackend` (entered / proceed flags) and
-/// Python's `gated_backend`. The public `MockBackend` cannot serve here: it is
-/// `Rc`-based and so `!Send`, but `build_async_with_backend` moves the backend to
-/// the worker thread, which requires `Send`.
+/// can pin the worker *inside* the FFI call — past the queued-cancel guard.
+/// The public `MockBackend` cannot serve here: it is `Rc`-based and so
+/// `!Send`, but `build_async_with_backend` moves the backend to the worker
+/// thread, which requires `Send`.
 ///
 /// `proceed` is **sticky**: once released, every later call passes straight
 /// through, so the post-cancel "does a fresh call still work?" probe is not

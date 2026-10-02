@@ -14,14 +14,12 @@
 # route, a skipped lookup guard reading a string past a map's end; the trees
 # now compile under libstdc++'s debug mode, which ends such a read at the
 # check, and two sweeps of each tree then moved nothing.
-# A timeout is the exception, and it is not absorbed: the cap per mutant on the
-# lane's argv is a wall clock, so an oversubscribed machine times out a mutant
-# an idle one lets run to the route it dies by. A sweep with any
-# timeout is a census taken under load, which this reports as untestable
-# rather than as a finding.
-# Non-zero exit: a route differs from the recorded one, or the routes do not
-# add up. Exits 0 with a note when Mull or any tree is absent, and 2 when
-# the machine was too loaded to measure.
+# A timeout is no route a census records: the cap per mutant on the lane's
+# argv is a backstop, so a sweep in which it fired is a disturbed run, refused
+# rather than compared, and the mutant it ended is a hang to remove.
+# Non-zero exit: a route differs from the recorded one, the routes do not add
+# up, or a mutant timed out. Exits 0 with a note when Mull or any tree is
+# absent, and 2 when no sweep could be had.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v mull-runner-23 > /dev/null || { echo "Mull not installed, claim untestable"; exit 0; }
@@ -66,8 +64,8 @@ if observed is None:
     print("no census could be read from the sweeps")
     sys.exit(1)
 if observed.get("timeout", 0):
-    print(f"{observed['timeout']} mutant(s) timed out: the machine was loaded, census not comparable")
-    sys.exit(2)
+    print(f"{observed['timeout']} mutant(s) timed out: a disturbed run, not compared")
+    sys.exit(1)
 bad = False
 for route in routes.keys() | observed.keys():
     if observed.get(route, 0) != routes.get(route, 0):

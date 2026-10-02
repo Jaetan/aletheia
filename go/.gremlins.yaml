@@ -13,6 +13,15 @@
 unleash:
   exclude-files:
     - '_string\.go$'
+  # gremlins stops a mutant's run at this many times one coverage run, timed
+  # alone, plus two seconds. No verdict may come from that clock: a mutant
+  # cannot hang a run by construction (the tests start no thread and wait on
+  # no duration, and no call can return holding the client's lock), so the cap
+  # is only a backstop, set far above any real run, and the lane refuses a
+  # sweep in which it fired (docs/MUTATION_BENCH.yaml) rather than count the
+  # mutant either way. At gremlins' default of three, one fast coverage run
+  # under a sweep of one run per CPU set a cap that ordinary kills crossed.
+  timeout-coefficient: 50
 #
 # The six mutators gremlins ships off by default are on. An inverted
 # assignment operator stands for an accumulation running the wrong way, an

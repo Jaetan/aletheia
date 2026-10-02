@@ -77,14 +77,28 @@ if TYPE_CHECKING:
 
 
 class FractionJSONEncoder(json.JSONEncoder):
-    """JSON encoder that handles :class:`fractions.Fraction` losslessly.
+    r"""JSON encoder that handles :class:`fractions.Fraction` losslessly.
 
     Emits an integer when the denominator is 1, and a
     ``{"numerator": N, "denominator": D}`` dict otherwise.  This is the
     wire shape Agda's ``Aletheia.Protocol.JSON.Lookup.getRational``
     accepts and the C++/Go/Rust bindings emit; pinning it client-side
     gives byte-identical JSON across the bindings.
+
+    Non-ASCII text is written as its UTF-8 characters rather than
+    ``\uXXXX`` escapes, whatever ``ensure_ascii`` the caller passes: the
+    kernel's parser is byte-oriented and the other bindings write UTF-8
+    directly, so the pin keeps Python's bytes identical to theirs.
     """
+
+    @property
+    def ensure_ascii(self) -> bool:
+        """Never escape non-ASCII text, whatever the caller asked for."""
+        return False
+
+    @ensure_ascii.setter
+    def ensure_ascii(self, _requested: bool) -> None:  # pyright: ignore[reportIncompatibleVariableOverride]
+        """Drop the caller's choice, which ``JSONEncoder.__init__`` assigns."""
 
     def default(self, o: object) -> object:
         if isinstance(o, Fraction):
@@ -95,30 +109,13 @@ class FractionJSONEncoder(json.JSONEncoder):
 
 
 def dump_json(value: object, *, indent: int | None = None) -> str:
-    r"""Serialize *value* to JSON, handling Fraction via FractionJSONEncoder.
+    """Serialize *value* to JSON through :class:`FractionJSONEncoder`.
 
-    ``ensure_ascii=False`` is pinned so identifier and string-literal
-    fields with non-ASCII characters (DBC permits non-ASCII in
-    ``CM_`` text bodies, comments, and similar opaque-tail consumers)
-    serialize as their UTF-8 bytes rather than ``\uXXXX`` escapes.  The
-    Agda-side parser is byte-oriented; the Go and C++ bindings emit
-    UTF-8 directly — pinning ``ensure_ascii=False`` keeps Python
-    byte-identical with them (cross-binding wire-byte parity).
+    Rationals go out exact and non-ASCII text as its UTF-8 characters, both
+    pinned by the encoder (DBC permits non-ASCII in ``CM_`` text bodies,
+    comments, and similar opaque-tail consumers).
     """
-    return json.dumps(
-        value,
-        cls=FractionJSONEncoder,
-        indent=indent,
-        # ensure_ascii=False is pinned for cross-binding wire-byte parity.  The
-        # False→None mutant is an irreducible equivalent (None is falsy, so
-        # json.dumps treats it identically to False).  mutmut attributes a
-        # multi-line call-arg mutation to the call-open line, so a per-arg
-        # `# pragma: no mutate` cannot isolate it without collaterally excluding
-        # the killable value/cls/indent args; it is therefore the single
-        # documented survivor (python baseline = 1, docs/MUTATION_BENCH.yaml).
-        # The False→True mutant IS killed (the non-ASCII serialization test).
-        ensure_ascii=False,
-    )
+    return json.dumps(value, cls=FractionJSONEncoder, indent=indent)
 
 
 type JSONValue = str | int | float | bool | list[JSONValue] | dict[str, JSONValue] | None

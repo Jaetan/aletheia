@@ -67,7 +67,7 @@ func canonicalFrameIDs() (StandardID, DLC) {
 func streamingCrossBindingClient(t *testing.T, properties ...Formula) (*Client, context.Context) {
 	t.Helper()
 	c := newFFIClient(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
@@ -80,7 +80,9 @@ func streamingCrossBindingClient(t *testing.T, properties ...Formula) (*Client, 
 		t.Fatalf("StartStream: %v", err)
 	}
 	t.Cleanup(func() {
-		if _, err := c.EndStream(ctx); err != nil {
+		// The test's context is cancelled before its cleanups run, so the
+		// stream ends under one that is not.
+		if _, err := c.EndStream(context.WithoutCancel(ctx)); err != nil {
 			t.Errorf("EndStream: %v", err)
 		}
 	})
@@ -102,7 +104,7 @@ func sendCanonical(t *testing.T, c *Client, ctx context.Context, ts int64, paylo
 // Python emits [] and not None, and the message and signal names come back.
 func TestCrossBinding_ParseDBCResponseShape(t *testing.T) {
 	c := newFFIClient(t)
-	parsed, err := c.ParseDBC(context.Background(), canonicalDBC())
+	parsed, err := c.ParseDBC(t.Context(), canonicalDBC())
 	if err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
@@ -130,7 +132,7 @@ func TestCrossBinding_ParseDBCResponseShape(t *testing.T) {
 // DBC has no errors and Issues is never nil.
 func TestCrossBinding_ValidateDBCResponseShape(t *testing.T) {
 	c := newFFIClient(t)
-	result, err := c.ValidateDBC(context.Background(), canonicalDBC())
+	result, err := c.ValidateDBC(t.Context(), canonicalDBC())
 	if err != nil {
 		t.Fatalf("ValidateDBC: %v", err)
 	}
@@ -239,7 +241,7 @@ func identifierDBCText(name string) string {
 func TestCrossBinding_IdentifierAtMaxLengthAccepted(t *testing.T) {
 	c := newFFIClient(t)
 	name := strings.Repeat("A", MaxIdentifierLength)
-	parsed, err := c.ParseDBCText(context.Background(), identifierDBCText(name))
+	parsed, err := c.ParseDBCText(t.Context(), identifierDBCText(name))
 	if err != nil {
 		t.Fatalf("expected success, got error: %v", err)
 	}
@@ -254,7 +256,7 @@ func TestCrossBinding_IdentifierAtMaxLengthAccepted(t *testing.T) {
 func TestCrossBinding_IdentifierOverMaxRejected(t *testing.T) {
 	c := newFFIClient(t)
 	name := strings.Repeat("A", MaxIdentifierLength+1)
-	_, err := c.ParseDBCText(context.Background(), identifierDBCText(name))
+	_, err := c.ParseDBCText(t.Context(), identifierDBCText(name))
 	if err == nil {
 		t.Fatal("expected a parse error for an identifier one past the limit, got nil")
 	}
@@ -291,7 +293,7 @@ func TestCrossBinding_GeometryGateRefusesOutOfFrameStartBit(t *testing.T) {
 			}},
 		}},
 	}
-	_, err := c.ParseDBC(context.Background(), dbc)
+	_, err := c.ParseDBC(t.Context(), dbc)
 	if err == nil {
 		t.Fatal("expected the entry gate to refuse an out-of-frame start bit")
 	}
@@ -312,7 +314,7 @@ func TestCrossBinding_GeometryGateRefusesOutOfFrameStartBit(t *testing.T) {
 // the JSON route with the same geometry.
 func TestCrossBinding_MotorolaFullFrameClosure(t *testing.T) {
 	c := newFFIClient(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	text := "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: Engine\n\n" +
 		"BO_ 100 Msg: 2 Engine\n" +
 		" SG_ Sig : 7|16@0+ (1,0) [0|0] \"\" Engine\n"
@@ -346,7 +348,7 @@ func TestCrossBinding_MotorolaFullFrameClosure(t *testing.T) {
 // across the Go FFI for a unit test.
 func TestCrossBinding_NestingDepthLiftsToInputBoundExceeded(t *testing.T) {
 	c := newFFIClient(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
@@ -383,7 +385,7 @@ func TestCrossBinding_NestingDepthLiftsToInputBoundExceeded(t *testing.T) {
 // shared kernel formatter, checked here end to end on an out-of-bounds value.
 func TestCrossBinding_BinaryExtractionReasonParity(t *testing.T) {
 	c := newFFIClient(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	sid, d := canonicalFrameIDs()
 	dbc := DBCDefinition{
 		Version: "1.0",

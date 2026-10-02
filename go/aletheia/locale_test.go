@@ -6,7 +6,6 @@
 package aletheia
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -68,7 +67,7 @@ func runLocaleChecks(t *testing.T) {
 	if !errors.As(err, &aErr) || aErr.Kind != ErrValidation {
 		t.Errorf("FromDecimal accepted 1.5 and a euro sign, or refused it as %v", err)
 	}
-	parsed, err := newFFIClient(t).ParseDBCText(context.Background(), localeDBCText)
+	parsed, err := newFFIClient(t).ParseDBCText(t.Context(), localeDBCText)
 	if err != nil {
 		t.Fatalf("ParseDBCText: %v", err)
 	}

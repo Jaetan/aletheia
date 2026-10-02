@@ -15,12 +15,15 @@ Covers the four scenarios called out in docs/architecture/CANCELLATION.md:
    at frame boundary, committed prefix durable.
 
 The tests use the real FFI (no mocks) so the "committed prefix is
-durable in stream state" half of the contract is actually exercised.
+durable in stream state" half of the contract is actually exercised.  The
+async cancellation cases hand the client ``TurnExecutor`` as its
+``run_in_thread``, which runs each call on the event loop in a fixed order and
+cancels at an exact call, so no case starts a thread or a second task and every
+run takes one path.
 """
 
 import asyncio
-import contextlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NewType
 
 import pytest
 
@@ -30,14 +33,12 @@ from aletheia import (
 from aletheia import (
     BatchError,
     CANFrameTuple,
-    FFIBackend,
     FrameResult,
     Signal,
 )
 from aletheia.asyncio import AletheiaClient as AsyncClient
-from aletheia.asyncio.testing import gated_backend
+from aletheia.asyncio.testing import CallCount, TurnExecutor
 from aletheia.types import (
-    AckResponse,
     DBCDefinition,
     DLCCode,
     PropertyBatchResponse,
@@ -45,7 +46,14 @@ from aletheia.types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterable, Iterable
+    from collections.abc import AsyncIterable, Awaitable, Iterable
+
+
+def _main_task() -> asyncio.Task[None]:
+    """Name the task the test body runs in, which ``asyncio.run`` made."""
+    task = asyncio.current_task()
+    assert task is not None
+    return task
 
 
 def _make_frames(
@@ -68,11 +76,7 @@ def _make_frames(
 
 
 async def _consume_iter(it: AsyncIterable[FrameResult]) -> int:
-    """Drain an async iterator and return the consumed count.
-
-    Used by ``test_timeout_during_iter`` so the consumer runs as a
-    distinct task whose ``await`` boundary the timeout can interrupt.
-    """
+    """Drain an async iterator and return the consumed count."""
     consumed = 0
     async for _ in it:
         consumed += 1
@@ -226,7 +230,9 @@ class TestAsyncSmoke:
         prop = Signal("TestSignal").less_than(1000).always()
 
         async def _run() -> str:
-            async with AsyncClient() as client:
+            async with AsyncClient(
+                sync_client=SyncClient(), run_in_thread=TurnExecutor()
+            ) as client:
                 parse_resp = await client.parse_dbc(simple_dbc)
                 assert parse_resp["status"] == "success"
                 set_resp = await client.set_properties([prop.to_dict()])
@@ -250,7 +256,9 @@ class TestAsyncSmoke:
         prop = Signal("TestSignal").less_than(1000).always()
 
         async def _run() -> int:
-            async with AsyncClient() as client:
+            async with AsyncClient(
+                sync_client=SyncClient(), run_in_thread=TurnExecutor()
+            ) as client:
                 await client.parse_dbc(simple_dbc)
                 await client.set_properties([prop.to_dict()])
                 await client.start_stream()
@@ -270,128 +278,84 @@ class TestAsyncBatchCancellation:
     """Async batch ops surface ``CancelledError`` at frame boundaries."""
 
     def test_timeout_mid_batch_raises_cancelled(self, simple_dbc: DBCDefinition) -> None:
-        """Cancellation between committed frame and next ``await`` raises TimeoutError.
+        """A timeout around ``send_frames`` raises TimeoutError and leaves the stream usable.
 
-        Deterministic via the public ``gated_backend`` testing helper:
-        the worker thread blocks inside frame 1's ``send_frame_binary``
-        after committing it; the test fires ``asyncio.timeout(0)``
-        (semantically "fire on next loop tick" — no wall-clock dependency
-        since the gate guarantees a yield point); the next ``await``
-        returns ``CancelledError`` which ``asyncio.timeout`` wraps as
-        ``TimeoutError``.  No ``Event.wait(timeout=…)`` anywhere;
-        pytest's session timeout is the only safety net for genuine
-        hangs.
+        ``asyncio.timeout(0)`` fires on the next turn of the loop, which is the
+        first frame's turn, so that frame is dropped before it runs, as a queued
+        executor job is, and ``asyncio.timeout`` turns the cancellation into
+        ``TimeoutError``.  The stream is then still consistent: no frame of the
+        batch committed, and ``end_stream`` completes.
         """
         prop = Signal("TestSignal").less_than(1000).always()
+        executor = TurnExecutor()
 
         async def _run() -> None:
-            with gated_backend(FFIBackend(), after_n=1) as (backend, started, proceed):
-                sync = SyncClient(backend=backend)
-                async with AsyncClient(sync_client=sync) as client:
-                    await client.parse_dbc(simple_dbc)
-                    await client.set_properties([prop.to_dict()])
-                    await client.start_stream()
-                    send_task = asyncio.create_task(
-                        client.send_frames(_make_frames(50)),
-                    )
-                    # Block until frame 1 has committed in the worker.
-                    await asyncio.to_thread(started.wait)
-                    try:
-                        with pytest.raises(TimeoutError):
-                            async with asyncio.timeout(0):
-                                # ``send_task`` is awaiting the wedged worker;
-                                # ``timeout(0)`` fires on the next loop tick;
-                                # ``await send_task`` yields and the timeout
-                                # cancels it, then asyncio.timeout wraps the
-                                # CancelledError as TimeoutError.
-                                await send_task
-                    finally:
-                        proceed.set()  # release worker so end_stream can run
-                    # Stream state still consistent — end_stream succeeds.
-                    result = await client.end_stream()
-                    assert result["status"] == "complete"
+            async with AsyncClient(sync_client=SyncClient(), run_in_thread=executor) as client:
+                await client.parse_dbc(simple_dbc)
+                await client.set_properties([prop.to_dict()])
+                await client.start_stream()
+                before = executor.ran
+                with pytest.raises(TimeoutError):
+                    async with asyncio.timeout(0):
+                        _ = await client.send_frames(_make_frames(50))
+                assert executor.ran == before, "a frame ran after the timeout fired"
+                result = await client.end_stream()
+                assert result["status"] == "complete"
 
         asyncio.run(_run())
 
     def test_explicit_task_cancel(self, simple_dbc: DBCDefinition) -> None:
-        """Cancelling the task between frames raises CancelledError on the awaiter.
+        """Cancelling the task between frames raises CancelledError; the prefix stays committed.
 
-        Deterministic via ``gated_backend``: frame 1 is committed in the
-        worker, the test cancels + releases, frame 1's result returns,
-        and the next ``await`` raises ``CancelledError`` immediately.
+        The cancel lands as the third frame is queued, so the first two run and
+        the third is dropped; ``end_stream`` then completes over the committed
+        prefix.
         """
         prop = Signal("TestSignal").less_than(1000).always()
+        executor = TurnExecutor()
 
         async def _run() -> None:
-            with gated_backend(FFIBackend(), after_n=1) as (backend, started, proceed):
-                sync = SyncClient(backend=backend)
-                async with AsyncClient(sync_client=sync) as client:
-                    await client.parse_dbc(simple_dbc)
-                    await client.set_properties([prop.to_dict()])
-                    await client.start_stream()
-
-                    task: asyncio.Task[list[AckResponse | PropertyBatchResponse]] = (
-                        asyncio.create_task(
-                            client.send_frames(_make_frames(50)),
-                        )
-                    )
-                    # Block until frame 1 has committed in the worker.
-                    await asyncio.to_thread(started.wait)
-                    task.cancel()
-                    proceed.set()
-                    with pytest.raises(asyncio.CancelledError):
-                        await task
-
-                    # Stream state is consistent regardless of how many
-                    # frames committed — end_stream succeeds.
-                    result = await client.end_stream()
-                    assert result["status"] == "complete"
+            async with AsyncClient(sync_client=SyncClient(), run_in_thread=executor) as client:
+                await client.parse_dbc(simple_dbc)
+                await client.set_properties([prop.to_dict()])
+                await client.start_stream()
+                before = executor.ran
+                main = _main_task()
+                executor.cancel_at(main, after=CallCount(2))
+                with pytest.raises(asyncio.CancelledError):
+                    _ = await client.send_frames(_make_frames(50))
+                _ = main.uncancel()
+                assert executor.ran - before == 2
+                result = await client.end_stream()
+                assert result["status"] == "complete"
 
         asyncio.run(_run())
 
     def test_cancel_during_close_does_not_leak_state(self) -> None:
-        """Cancellation delivered while ``__aexit__`` is closing must not leak FFI state.
+        """A cancellation delivered while ``close`` waits must not drop the FFI release.
 
-        ``__aexit__`` / ``close()`` wrap their
-        ``asyncio.to_thread(self._sync.close)`` in
-        ``asyncio.shield`` so the underlying close runs to completion even
-        if the awaiting coroutine is cancelled.  Verified by cancelling
-        the task running ``client.close()`` after the shielded coroutine
-        has had a chance to start; the inner ``to_thread`` keeps running
-        in the background and ``is_closed`` flips to True.
-
-        Pattern adapted from python/tests/test_cancellation.py's existing
-        ``gated_backend`` deterministic-yield-point pattern (no
-        ``Event.wait(timeout=…)`` or wall-clock sleeps; pytest session
-        timeout is the only safety net).
+        ``close()`` wraps its ``asyncio.to_thread(self._sync.close)`` in
+        ``asyncio.shield``.  The cancel lands as the close is queued: the awaiter
+        is cancelled, and the shielded call still gets its turn and runs, so the
+        session is released.  Without the shield the cancel would drop the queued
+        call, as an executor drops a job cancelled before its turn.
         """
+        executor = TurnExecutor()
 
         async def _run() -> None:
             sync = SyncClient()
-            # AsyncClient is double-close-safe, so the implicit __aexit__ at
-            # the end of the block is a no-op after the explicit close_task
-            # has driven is_closed to True via the shielded inner close.
-            async with AsyncClient(sync_client=sync) as client:
+            # AsyncClient is double-close-safe, so the implicit __aexit__ at the
+            # end of the block is a no-op after the cancelled explicit close.
+            async with AsyncClient(sync_client=sync, run_in_thread=executor) as client:
                 assert not sync.is_closed
-                close_task = asyncio.create_task(client.close())
-                # Yield enough times for the shielded inner task to start.
-                # asyncio.shield wraps the inner future; cancelling the outer
-                # coroutine after the inner has been scheduled lets the inner
-                # complete in the background.
+                main = _main_task()
+                executor.cancel_at(main, after=CallCount(0))
+                with pytest.raises(asyncio.CancelledError):
+                    await client.close()
+                _ = main.uncancel()
+                # The shielded call was queued before this task's next turn, and
+                # the loop runs ready callbacks in the order they were queued.
                 await asyncio.sleep(0)
-                await asyncio.sleep(0)
-                close_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await close_task
-                # The shielded close runs in the asyncio default executor; wait
-                # for it to land via a deterministic poll on the observable
-                # ``is_closed`` flag.  Tests never wait on physical time, so we
-                # use ``asyncio.sleep(0)`` (single-tick yield) rather than a
-                # wall-clock wait; pytest's session timeout catches genuine hangs.
-                for _ in range(10_000):  # bounded so a real bug surfaces
-                    if sync.is_closed:
-                        break
-                    await asyncio.sleep(0)
                 assert sync.is_closed, "FFI session must be released even when close was cancelled"
 
         asyncio.run(_run())
@@ -406,44 +370,26 @@ class TestAsyncIterCancellation:
     """Async iter ops surface ``CancelledError`` at the yield boundary."""
 
     def test_timeout_during_iter(self, simple_dbc: DBCDefinition) -> None:
-        """Timeout during ``async for`` surfaces as ``TimeoutError``.
+        """A timeout during ``async for`` surfaces as ``TimeoutError`` and leaves the stream usable.
 
-        The committed prefix stays durable; async-iter wraps cancellation
-        in ``TimeoutError`` per ``asyncio.timeout`` semantics.
-
-        Deterministic via ``gated_backend``: the worker blocks inside
-        frame 1's ``send_frame_binary`` after committing it; the test
-        fires ``asyncio.timeout(0)`` (next-loop-tick semantics, not
-        wall-clock); the async-iter's next ``await`` raises
-        ``CancelledError`` which ``asyncio.timeout`` wraps as
-        ``TimeoutError``.
+        ``asyncio.timeout(0)`` fires on the first frame's turn, which is dropped
+        before it runs; nothing was consumed, and ``end_stream`` completes.
         """
         prop = Signal("TestSignal").less_than(1000).always()
+        executor = TurnExecutor()
 
         async def _run() -> None:
-            with gated_backend(FFIBackend(), after_n=1) as (backend, started, proceed):
-                sync = SyncClient(backend=backend)
-                async with AsyncClient(sync_client=sync) as client:
-                    await client.parse_dbc(simple_dbc)
-                    await client.set_properties([prop.to_dict()])
-                    await client.start_stream()
-
-                    consumed = 0
-                    iter_task = client.send_frames_iter(_make_frames(50))
-                    consume_task = asyncio.create_task(_consume_iter(iter_task))
-                    await asyncio.to_thread(started.wait)
-                    try:
-                        with pytest.raises(TimeoutError):
-                            async with asyncio.timeout(0):
-                                consumed = await consume_task
-                    finally:
-                        proceed.set()
-
-                    # Consumer may have received zero or a small prefix; the
-                    # contract guarantees state is consistent with that prefix.
-                    assert consumed >= 0
-                    result = await client.end_stream()
-                    assert result["status"] == "complete"
+            async with AsyncClient(sync_client=SyncClient(), run_in_thread=executor) as client:
+                await client.parse_dbc(simple_dbc)
+                await client.set_properties([prop.to_dict()])
+                await client.start_stream()
+                consumed = 0
+                with pytest.raises(TimeoutError):
+                    async with asyncio.timeout(0):
+                        consumed = await _consume_iter(client.send_frames_iter(_make_frames(50)))
+                assert consumed == 0
+                result = await client.end_stream()
+                assert result["status"] == "complete"
 
         asyncio.run(_run())
 
@@ -455,7 +401,9 @@ class TestAsyncIterCancellation:
         prop = Signal("TestSignal").less_than(1000).always()
 
         async def _run() -> list[FrameResult]:
-            async with AsyncClient() as client:
+            async with AsyncClient(
+                sync_client=SyncClient(), run_in_thread=TurnExecutor()
+            ) as client:
                 await client.parse_dbc(simple_dbc)
                 await client.set_properties([prop.to_dict()])
                 await client.start_stream()
@@ -469,6 +417,140 @@ class TestAsyncIterCancellation:
         assert len(results) == 5
         assert [r.frame_index for r in results] == [0, 1, 2, 3, 4]
         assert [r.timestamp for r in results] == [1000, 2000, 3000, 4000, 5000]
+
+
+# =============================================================================
+# TurnExecutor — the public stand-in for asyncio.to_thread
+# =============================================================================
+
+
+# The name a stand-in call records, so a test reads which calls were made.
+CallName = NewType("CallName", str)
+
+
+class TestTurnExecutor:
+    """``TurnExecutor`` runs each call at its turn, and drops one cancelled before it."""
+
+    def test_a_call_runs_at_its_turn_and_returns_its_result(self) -> None:
+        """The call's value comes back, and the call is counted as run."""
+        executor = TurnExecutor()
+
+        async def _run() -> CallCount:
+            assert await executor(len, "abc") == len("abc")
+            return executor.ran
+
+        assert asyncio.run(_run()) == CallCount(1)
+
+    def test_a_call_cancelled_before_its_turn_never_runs(self) -> None:
+        """A cancellation named for the next call drops it: the call is never made."""
+        executor = TurnExecutor()
+        made: list[CallName] = []
+
+        async def _run() -> None:
+            main = _main_task()
+            executor.cancel_at(main, after=CallCount(0))
+            with pytest.raises(asyncio.CancelledError):
+                await executor(made.append, CallName("dropped"))
+            _ = main.uncancel()
+
+        asyncio.run(_run())
+        assert not made
+        assert executor.ran == CallCount(0)
+
+    def test_the_cancellation_lands_on_the_named_call(self) -> None:
+        """Calls before the named one run; the named one is dropped."""
+        executor = TurnExecutor()
+        made: list[CallName] = []
+
+        async def _run() -> None:
+            main = _main_task()
+            executor.cancel_at(main, after=CallCount(1))
+            await executor(made.append, CallName("first"))
+            with pytest.raises(asyncio.CancelledError):
+                await executor(made.append, CallName("second"))
+            _ = main.uncancel()
+
+        asyncio.run(_run())
+        assert made == ["first"]
+
+    def test_every_async_call_goes_through_run_in_thread(self, simple_dbc: DBCDefinition) -> None:
+        """Each async method hands its sync calls to ``run_in_thread``, the shielded ones included.
+
+        A method left on ``asyncio.to_thread`` would escape the stand-in, and with
+        it the order and the cancellation a test drives, so each method's calls
+        are counted on the executor: one per method, one per frame for the
+        iterator.
+        """
+        executor = TurnExecutor()
+        frame = _make_frames(1)[0]
+        data = bytes(frame.data)
+        signals = {"TestSignal": 1}
+        prop = Signal("TestSignal").less_than(1000).always()
+
+        async def _queued_by[T](call: Awaitable[T]) -> CallCount:
+            before = executor.queued
+            _ = await call
+            return CallCount(executor.queued - before)
+
+        async def _run() -> dict[CallName, CallCount]:
+            entering = executor.queued
+            async with AsyncClient(sync_client=SyncClient(), run_in_thread=executor) as client:
+                counts = {CallName("__aenter__"): CallCount(executor.queued - entering)}
+                before = executor.queued
+                text = (await client.format_dbc_text(simple_dbc))["text"]
+                counts[CallName("format_dbc_text")] = CallCount(executor.queued - before)
+                counts |= {
+                    CallName("parse_dbc_text"): await _queued_by(client.parse_dbc_text(text)),
+                    CallName("parse_dbc"): await _queued_by(client.parse_dbc(simple_dbc)),
+                    CallName("validate_dbc"): await _queued_by(client.validate_dbc(simple_dbc)),
+                    CallName("format_dbc"): await _queued_by(client.format_dbc()),
+                    CallName("set_properties"): await _queued_by(
+                        client.set_properties([prop.to_dict()])
+                    ),
+                    CallName("add_checks"): await _queued_by(client.add_checks([])),
+                    CallName("extract_signals"): await _queued_by(
+                        client.extract_signals(frame.can_id, frame.dlc, data)
+                    ),
+                    CallName("build_frame"): await _queued_by(
+                        client.build_frame(frame.can_id, frame.dlc, signals)
+                    ),
+                    CallName("update_frame"): await _queued_by(
+                        client.update_frame(frame.can_id, frame.dlc, data, signals)
+                    ),
+                    CallName("start_stream"): await _queued_by(client.start_stream()),
+                    CallName("send_frame"): await _queued_by(
+                        client.send_frame(frame.timestamp, frame.can_id, frame.dlc, data)
+                    ),
+                    CallName("send_frames"): await _queued_by(
+                        client.send_frames(_make_frames(2, start_ts=2000))
+                    ),
+                    CallName("send_frames_iter"): await _queued_by(
+                        _consume_iter(client.send_frames_iter(_make_frames(2, start_ts=4000)))
+                    ),
+                    CallName("send_error"): await _queued_by(client.send_error(6000)),
+                    CallName("send_remote"): await _queued_by(
+                        client.send_remote(7000, frame.can_id)
+                    ),
+                    CallName("end_stream"): await _queued_by(client.end_stream()),
+                    CallName("close"): await _queued_by(client.close()),
+                }
+                leaving = executor.queued
+            counts[CallName("__aexit__")] = CallCount(executor.queued - leaving)
+            return counts
+
+        counts = asyncio.run(_run())
+        twice = {CallName("send_frames"), CallName("send_frames_iter")}
+        assert counts == {name: CallCount(2 if name in twice else 1) for name in counts}
+
+    def test_a_failing_call_hands_its_exception_to_the_awaiter(self) -> None:
+        """An exception the call raises reaches the awaiter, as ``asyncio.to_thread`` hands it."""
+        executor = TurnExecutor()
+
+        async def _run() -> None:
+            with pytest.raises(ValueError, match="invalid literal"):
+                _ = await executor(int, "x")
+
+        asyncio.run(_run())
 
 
 # =============================================================================

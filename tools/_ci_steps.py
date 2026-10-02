@@ -103,6 +103,7 @@ FAST_STEPS: frozenset[str] = frozenset(
         "check-venv-convention",
         "check-cpp-index-loops",
         "check-precise-hints",
+        "check-test-determinism",
         "check-dist-staging",
         "clang-format",
         "cmake-lint",
@@ -717,6 +718,11 @@ def _run_gha_checks(runner: Runner) -> None:
     runner.step(
         "check-precise-hints",
         [runner.python, "-m", "tools.check_precise_hints"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
+        "check-test-determinism",
+        [runner.python, "-m", "tools.check_test_determinism"],
         cwd=runner.repo_root,
     )
     runner.step(

@@ -10,7 +10,7 @@
 # The generated total and the unviable count are properties of the source and
 # of the pinned cargo-mutants; the survivors are properties of the source and
 # its tests.  A timed-out mutant is neither killed nor alive, so a run with any
-# is a loaded machine's and is refused rather than compared.
+# is a disturbed run and is refused rather than compared.
 # The sweep is tools/mutation_rust.py's, which mutates scratch copies of the
 # tree, so no tracked file moves while it runs.
 # Non-zero exit: the record and a sweep disagree, or the tool refused to sweep.
@@ -48,7 +48,7 @@ outcomes = json.load(open(work / OUTCOMES, encoding="utf-8"))
 record = yaml.safe_load(open("docs/MUTATION_BENCH.yaml", encoding="utf-8"))
 baseline = record["bindings"]["rust"]["baseline"]
 if outcomes["timeout"]:
-    print(f"the sweep timed out on {outcomes['timeout']} mutants: a loaded machine's run, not compared")
+    print(f"the sweep timed out on {outcomes['timeout']} mutants: a disturbed run, not compared")
     raise SystemExit(1)
 observed = {
     "generated": outcomes["total_mutants"],

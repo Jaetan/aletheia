@@ -48,13 +48,13 @@ bindings:
     # uninstrumented one.  The cross-CLI parity harness is left out here as it
     # is in every python-lane pytest step: it drives the C++ CLI binary.
     baseline:
-      lines_pct: 89.44
-      lines_covered: 3454
-      lines_total: 3862
-      second_pct: 81.12
-      second_covered: 868
+      lines_pct: 89.86
+      lines_covered: 3455
+      lines_total: 3845
+      second_pct: 81.21
+      second_covered: 869
       second_total: 1070
-      run_at: "2026-09-29"
+      run_at: "2026-10-02"
 
   go:
     tool: go test -cover
@@ -79,13 +79,13 @@ bindings:
       cd <module> && ALETHEIA_LIB=<repo>/build/libaletheia-ffi.so \
         go test ./... -count=1 -covermode=atomic -coverprofile=<artifact>/go-<name>.cover
     baseline:
-      lines_pct: 88.13
-      lines_covered: 2867
-      lines_total: 3253
-      second_pct: 82.40
-      second_covered: 1985
-      second_total: 2409
-      run_at: "2026-09-29"
+      lines_pct: 89.46
+      lines_covered: 2869
+      lines_total: 3207
+      second_pct: 84.09
+      second_covered: 2009
+      second_total: 2389
+      run_at: "2026-10-02"
 
   cpp:
     tool: llvm-cov, over clang's source-based instrumentation
@@ -114,12 +114,12 @@ bindings:
     # one binary alone is absent from a summary that names the others.
     baseline:
       lines_pct: 96.38
-      lines_covered: 4505
-      lines_total: 4674
-      second_pct: 92.10
-      second_covered: 1317
-      second_total: 1430
-      run_at: "2026-09-29"
+      lines_covered: 4504
+      lines_total: 4673
+      second_pct: 92.09
+      second_covered: 1315
+      second_total: 1428
+      run_at: "2026-10-02"
 
   rust:
     tool: cargo-llvm-cov
@@ -144,10 +144,10 @@ bindings:
       cd rust/excel && ALETHEIA_LIB=$PWD/../../build/libaletheia-ffi.so \
         cargo llvm-cov --json --summary-only --output-path <artifact>/rust-excel.json
     baseline:
-      lines_pct: 88.01
-      lines_covered: 4593
-      lines_total: 5219
-      second_pct: 85.05
-      second_covered: 7197
-      second_total: 8462
-      run_at: "2026-09-26"
+      lines_pct: 90.56
+      lines_covered: 4989
+      lines_total: 5509
+      second_pct: 87.59
+      second_covered: 7887
+      second_total: 9004
+      run_at: "2026-10-02"

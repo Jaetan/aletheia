@@ -168,7 +168,9 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 			"senders": senders,
 			"signals": sigs,
 		}
-		attachCANID(m, msg.ID.Value(), msg.ID.IsExtended())
+		if _, err := withCANID(m, msg.ID); err != nil {
+			return nil, wrapValidationError(fmt.Sprintf("message %q", msg.Name), err)
+		}
 		msgs = append(msgs, m)
 	}
 
@@ -242,7 +244,9 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 			"signalName": rvd.SignalName,
 			"entries":    entries,
 		}
-		attachCANID(obj, rvd.ID.Value(), rvd.ID.IsExtended())
+		if _, err := withCANID(obj, rvd.ID); err != nil {
+			return nil, wrapValidationError(fmt.Sprintf("unresolved value description of %q", rvd.SignalName), err)
+		}
 		unresolvedValueDescs = append(unresolvedValueDescs, obj)
 	}
 
@@ -268,8 +272,8 @@ func serializeDBC(dbc DBCDefinition) (json.RawMessage, error) {
 	if err != nil {
 		return nil, wrapProtocolError("failed to size-check DBC", err)
 	}
-	if size := uint64(len(b)); size > MaxDBCTextBytes {
-		return nil, newInputBoundExceededError(BoundKindInputLengthBytes, size, MaxDBCTextBytes, CodeInputBoundExceeded)
+	if err := refuseOversize(uint64(len(b)), MaxDBCTextBytes); err != nil {
+		return nil, err
 	}
 	return json.RawMessage(b), nil
 }
@@ -289,19 +293,18 @@ func byteOrderWireName(b ByteOrder) (string, error) {
 
 // --- Tier 2 serializers (Go to the kernel's JSON) ---
 
-// attachCANID writes an identifier the way the kernel's formatter does: the
-// number always, the extended flag only when it is set.
-func attachCANID(m map[string]any, id uint32, extended bool) {
-	m["id"] = id
-	if extended {
+// withCANID adds an identifier to m the way the kernel's formatter writes one:
+// the number always, the extended flag only when it is set. An identifier left
+// unset, nil in its interface, is refused rather than dereferenced.
+func withCANID(m map[string]any, id CANID) (map[string]any, error) {
+	if id == nil {
+		return nil, validationError("a CAN identifier is unset")
+	}
+	m["id"] = id.Value()
+	if id.IsExtended() {
 		m["extended"] = true
 	}
-}
-
-// attachCANIDValue is attachCANID for a target that carries the identifier as
-// the package's own type rather than as a number beside a flag.
-func attachCANIDValue(m map[string]any, id CANID) {
-	attachCANID(m, id.Value(), id.IsExtended())
+	return m, nil
 }
 
 func serializeCommentTarget(t DBCCommentTarget) (map[string]any, error) {
@@ -311,14 +314,9 @@ func serializeCommentTarget(t DBCCommentTarget) (map[string]any, error) {
 	case DBCCommentTargetNode:
 		return map[string]any{"kind": "node", "node": v.Node}, nil
 	case DBCCommentTargetMessage:
-		out := map[string]any{"kind": "message"}
-		attachCANIDValue(out, v.ID)
-		return out, nil
+		return withCANID(map[string]any{"kind": "message"}, v.ID)
 	case DBCCommentTargetSignal:
-		out := map[string]any{"kind": "signal"}
-		attachCANIDValue(out, v.ID)
-		out["signal"] = v.Signal
-		return out, nil
+		return withCANID(map[string]any{"kind": "signal", "signal": v.Signal}, v.ID)
 	case DBCCommentTargetEnvVar:
 		return map[string]any{"kind": "envVar", "envVar": v.EnvVar}, nil
 	default:
@@ -394,25 +392,15 @@ func serializeAttrTarget(t DBCAttrTarget) (map[string]any, error) {
 	case DBCAttrTargetNode:
 		return map[string]any{"kind": "node", "node": v.Node}, nil
 	case DBCAttrTargetMessage:
-		out := map[string]any{"kind": "message"}
-		attachCANID(out, v.ID, v.Extended)
-		return out, nil
+		return withCANID(map[string]any{"kind": "message"}, v.ID)
 	case DBCAttrTargetSignal:
-		out := map[string]any{"kind": "signal"}
-		attachCANID(out, v.ID, v.Extended)
-		out["signal"] = v.Signal
-		return out, nil
+		return withCANID(map[string]any{"kind": "signal", "signal": v.Signal}, v.ID)
 	case DBCAttrTargetEnvVar:
 		return map[string]any{"kind": "envVar", "envVar": v.EnvVar}, nil
 	case DBCAttrTargetNodeMsg:
-		out := map[string]any{"kind": "nodeMsg", "node": v.Node}
-		attachCANID(out, v.ID, v.Extended)
-		return out, nil
+		return withCANID(map[string]any{"kind": "nodeMsg", "node": v.Node}, v.ID)
 	case DBCAttrTargetNodeSig:
-		out := map[string]any{"kind": "nodeSig", "node": v.Node}
-		attachCANID(out, v.ID, v.Extended)
-		out["signal"] = v.Signal
-		return out, nil
+		return withCANID(map[string]any{"kind": "nodeSig", "node": v.Node, "signal": v.Signal}, v.ID)
 	default:
 		return nil, validationError(fmt.Sprintf("unsupported attr target type %T", t))
 	}
@@ -472,14 +460,14 @@ func validateRational(name string, r Rational) error {
 	return nil
 }
 
-// rationalLess compares two rationals by their cross-products, both
-// denominators being positive, which validateRational has established. The
-// products are taken at arbitrary width: at int64 they would wrap, and a
-// numerator near the maximum would compare as the smaller value.
-func rationalLess(r1, r2 Rational) bool {
+// ratCmp compares two rationals with positive denominators by their
+// cross-products, answering as [big.Int.Cmp] does. The products are taken at
+// arbitrary width: at int64 they would wrap, and a numerator near the maximum
+// would compare as the smaller value.
+func ratCmp(r1, r2 Rational) int {
 	a := new(big.Int).Mul(big.NewInt(r1.Numerator), big.NewInt(r2.Denominator))
 	b := new(big.Int).Mul(big.NewInt(r2.Numerator), big.NewInt(r1.Denominator))
-	return a.Cmp(b) < 0
+	return a.Cmp(b)
 }
 
 // ratPredicate is a predicate over one signal carrying one rational under the
@@ -521,21 +509,22 @@ func serializePredicate(p Predicate) (map[string]any, error) {
 		if err := validateRational("between.max", p.Max); err != nil {
 			return nil, err
 		}
-		if rationalLess(p.Max, p.Min) {
+		if ratCmp(p.Max, p.Min) < 0 {
 			return nil, validationError(fmt.Sprintf("between: min (%s) exceeds max (%s)",
 				formatRationalExact(p.Min), formatRationalExact(p.Max)))
 		}
 		out["max"] = serializeRational(p.Max)
 		return out, nil
 	case StableWithin:
-		if err := validateRational("stableWithin.tolerance", p.Tolerance); err != nil {
+		out, err := ratPredicate("stableWithin", p.Signal, "tolerance", p.Tolerance)
+		if err != nil {
 			return nil, err
 		}
 		if p.Tolerance.Numerator < 0 {
 			return nil, validationError(fmt.Sprintf("negative tolerance: %s",
 				formatRationalExact(p.Tolerance)))
 		}
-		return ratPredicate("stableWithin", p.Signal, "tolerance", p.Tolerance)
+		return out, nil
 	default:
 		return nil, validationError(fmt.Sprintf("unsupported predicate type %T", p))
 	}
@@ -667,17 +656,17 @@ func parseRational(v any) (Rational, error) {
 }
 
 // rationalParts reads the two components of a wire rational, refusing every
-// shape the wire does not carry: a component missing or not a number, one with
-// a fractional part, one outside int64, a zero denominator, and a negative
-// one. A negative denominator is refused rather than rewritten, since the
-// kernel and the Python decoder both refuse it and rewriting here would let a
-// shape through Go that no other binding accepts.
+// shape the wire does not carry: a component missing or not a number (a missing
+// key reads as nil, which is not a number), one with a fractional part, one
+// outside int64, and a denominator of zero or less. A negative denominator is
+// refused rather than rewritten, since the kernel and the Python decoder both
+// refuse it and rewriting here would let a shape through Go that no other
+// binding accepts.
 func rationalParts(m map[string]any) (int64, int64, error) {
-	rawNum, okNum := m["numerator"]
-	rawDen, okDen := m["denominator"]
+	rawNum, rawDen := m["numerator"], m["denominator"]
 	num, numCls := decodeJSONInt(rawNum)
 	den, denCls := decodeJSONInt(rawDen)
-	if !okNum || !okDen || numCls == intParseNotNumber || denCls == intParseNotNumber {
+	if numCls == intParseNotNumber || denCls == intParseNotNumber {
 		return 0, 0, protocolError(fmt.Sprintf("rational needs a numeric numerator and denominator, got %v", m))
 	}
 	// The components are checked for being integers before anything is read
@@ -689,11 +678,8 @@ func rationalParts(m map[string]any) (int64, int64, error) {
 	if numCls == intParseOverflow || denCls == intParseOverflow {
 		return 0, 0, protocolError(fmt.Sprintf("rational components out of int64 range: %v/%v", rawNum, rawDen))
 	}
-	if den == 0 {
-		return 0, 0, protocolError(fmt.Sprintf("zero denominator in rational: %v", m))
-	}
-	if den < 0 {
-		return 0, 0, protocolError(fmt.Sprintf("negative denominator in rational: %v", m))
+	if den <= 0 {
+		return 0, 0, protocolError(fmt.Sprintf("non-positive denominator in rational: %v", m))
 	}
 	return num, den, nil
 }
@@ -754,6 +740,14 @@ func decodeJSONInt(v any) (int64, intParse) {
 	default:
 		return 0, intParseNotNumber
 	}
+}
+
+// narrow is v as a T, and whether T holds v exactly: a value past either end
+// of T comes back changed by the conversion, so the round trip refuses it
+// without a bound written by hand.
+func narrow[T ~uint8 | ~uint16 | ~uint32 | ~int32](v int64) (T, bool) {
+	t := T(v)
+	return t, int64(t) == v
 }
 
 // parseNumberAsInt64 reads an exact int64 from a wire number, or from a
@@ -1138,10 +1132,11 @@ func parseFrameDataResponse(raw string) (FramePayload, error) {
 		if err != nil {
 			return nil, wrapProtocolError(fmt.Sprintf("invalid byte %d in frame data", i), err)
 		}
-		if f < 0 || f > 255 {
+		b, ok := narrow[byte](f)
+		if !ok {
 			return nil, protocolError(fmt.Sprintf("byte %d out of range: %d", i, f))
 		}
-		payload[i] = byte(f)
+		payload[i] = b
 	}
 	return payload, nil
 }
@@ -1166,8 +1161,10 @@ func parseFrameDataResponse(raw string) (FramePayload, error) {
 // field, and the two paths present the same surface. A code outside the table
 // is not refused, the reason being what the caller reads.
 func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
+	// The header, and the offsets table's one entry that a buffer without
+	// errors still carries, make the smallest buffer there is.
 	const headerSize = 10
-	if len(buf) < headerSize {
+	if len(buf) < headerSize+4 {
 		return nil, protocolError("extraction binary buffer too short")
 	}
 	nvals := int(binary.LittleEndian.Uint16(buf[0:2]))
@@ -1204,50 +1201,36 @@ func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
 		result.Values = append(result.Values, SignalValue{Name: name, Value: Rational{Numerator: num, Denominator: den}})
 	}
 
-	// With no errors and no reasons, which is every frame that extracts
-	// cleanly, the three offsets invariants come to the single entry being
-	// zero. Anything else, malformed included, takes the general path below.
-	if nerrs == 0 && reasonBytes == 0 && binary.LittleEndian.Uint32(buf[off:off+4]) == 0 {
-		off += 4
-	} else {
-		// Each error carries its signal index and its code; the reasons live in
-		// the blob at the end, addressed by the offsets table.
-		errIdx := make([]uint16, 0, nerrs)
-		for range nerrs {
-			errIdx = append(errIdx, binary.LittleEndian.Uint16(buf[off:off+2]))
-			// The byte after the index is the code, carried but not surfaced.
-			off += 3
-		}
-
-		// The offsets table is always there, and all three of its invariants
-		// hold before anything is sliced out of the blob.
-		offsets := make([]int, nerrs+1)
-		for i := range offsets {
-			offsets[i] = int(binary.LittleEndian.Uint32(buf[off : off+4]))
-			off += 4
-		}
-		if offsets[0] != 0 {
-			return nil, protocolError(fmt.Sprintf("extraction binary reason offsets must start at 0, got %d", offsets[0]))
-		}
-		for i := 1; i < len(offsets); i++ {
-			if offsets[i] < offsets[i-1] {
-				return nil, protocolError(fmt.Sprintf("extraction binary reason offsets not monotone: offset %d is %d after %d", i, offsets[i], offsets[i-1]))
-			}
-		}
-		if offsets[nerrs] != reasonBytes {
-			return nil, protocolError(fmt.Sprintf("extraction binary reason offsets end at %d, want reasonBytes %d", offsets[nerrs], reasonBytes))
-		}
-
-		reasons := buf[off : off+reasonBytes]
-		off += reasonBytes
-		for i, idx := range errIdx {
-			reason := reasons[offsets[i]:offsets[i+1]]
-			if !utf8.Valid(reason) {
-				return nil, protocolError(fmt.Sprintf("extraction binary reason %d is not valid UTF-8", i))
-			}
-			result.Errors = append(result.Errors, SignalError{Name: signalNameByIndex(names, idx), Error: string(reason)})
+	// Each error carries its signal index and its code, the code carried but
+	// not surfaced; the reasons live in the blob after the offsets table,
+	// which is read where it lies. The table is always there, its one entry
+	// zero when no error is, and all three of its invariants hold before
+	// anything is sliced out of the blob.
+	errsAt := off
+	offsetsAt := errsAt + 3*nerrs
+	offset := func(i int) int { return int(binary.LittleEndian.Uint32(buf[offsetsAt+4*i:])) }
+	if first := offset(0); first != 0 {
+		return nil, protocolError(fmt.Sprintf("extraction binary reason offsets must start at 0, got %d", first))
+	}
+	for i := 1; i <= nerrs; i++ {
+		if offset(i) < offset(i-1) {
+			return nil, protocolError(fmt.Sprintf("extraction binary reason offsets not monotone: offset %d is %d after %d", i, offset(i), offset(i-1)))
 		}
 	}
+	if last := offset(nerrs); last != reasonBytes {
+		return nil, protocolError(fmt.Sprintf("extraction binary reason offsets end at %d, want reasonBytes %d", last, reasonBytes))
+	}
+	reasonsAt := offsetsAt + 4*(nerrs+1)
+	reasons := buf[reasonsAt : reasonsAt+reasonBytes]
+	for i := range nerrs {
+		reason := reasons[offset(i):offset(i+1)]
+		if !utf8.Valid(reason) {
+			return nil, protocolError(fmt.Sprintf("extraction binary reason %d is not valid UTF-8", i))
+		}
+		idx := binary.LittleEndian.Uint16(buf[errsAt+3*i:])
+		result.Errors = append(result.Errors, SignalError{Name: signalNameByIndex(names, idx), Error: string(reason)})
+	}
+	off = reasonsAt + reasonBytes
 
 	for range nabss {
 		idx := binary.LittleEndian.Uint16(buf[off : off+2])
@@ -1402,7 +1385,8 @@ func parsePropertyResult(r map[string]any) (PropertyResult, error) {
 		Reason:        getString(r, "reason"),
 	}
 
-	if tsRaw, ok := r["timestamp"]; ok && tsRaw != nil {
+	// An absent key reads as nil, as a null one does: either is no timestamp.
+	if tsRaw := r["timestamp"]; tsRaw != nil {
 		ts, err := parseNumberAsInt64(tsRaw)
 		if err != nil {
 			return zero, wrapProtocolError("invalid timestamp in result", err)
@@ -1579,23 +1563,9 @@ func parseObjects[T any](
 // could not attach to a signal. The field is usually absent.
 func parseUnresolvedValueDescs(j map[string]any) ([]DBCRawValueDesc, error) {
 	return parseObjects(j, "unresolvedValueDescs", func(rvdRaw map[string]any) (DBCRawValueDesc, error) {
-		idVal, ext, err := parseCanIDFields(rvdRaw)
+		canID, err := parseCanIDValue(rvdRaw)
 		if err != nil {
 			return DBCRawValueDesc{}, wrapProtocolError("invalid unresolvedValueDesc id", err)
-		}
-		var canID CANID
-		if ext {
-			eid, err := NewExtendedID(idVal)
-			if err != nil {
-				return DBCRawValueDesc{}, err
-			}
-			canID = eid
-		} else {
-			sid, err := NewStandardID(uint16(idVal))
-			if err != nil {
-				return DBCRawValueDesc{}, err
-			}
-			canID = sid
 		}
 		entries, err := parseObjects(rvdRaw, "entries", func(eRaw map[string]any) (DBCValueEntry, error) {
 			v, err := parseNumberAsInt64(eRaw["value"])
@@ -1700,29 +1670,10 @@ func parseNodes(j map[string]any) ([]DBCNode, error) {
 	})
 }
 
-// parseCanIDFields reads the identifier pair every message-scoped or
-// signal-scoped target carries. An absent extended flag means a standard
-// identifier.
-func parseCanIDFields(m map[string]any) (uint32, bool, error) {
-	idVal, err := parseNumberAsInt64(m["id"])
-	if err != nil {
-		return 0, false, wrapProtocolError("invalid id", err)
-	}
-	if idVal < 0 || idVal > math.MaxUint32 {
-		return 0, false, protocolError(fmt.Sprintf("id out of uint32 range: %d", idVal))
-	}
-	return uint32(idVal), getBool(m, "extended"), nil
-}
-
-// parseCanIDValue is parseCanIDFields for a target that carries the identifier
-// as the package's own type. The constructor refuses a value out of range for
-// its width, so a comment naming a message no frame could carry is refused at
-// the parse rather than kept.
-func parseCanIDValue(m map[string]any) (CANID, error) {
-	raw, extended, err := parseCanIDFields(m)
-	if err != nil {
-		return nil, err
-	}
+// canIDOfWidth is the identifier of the width extended names. A standard value
+// past sixteen bits is refused before the constructor sees it, since the
+// conversion to its argument would keep only the low bits.
+func canIDOfWidth(raw uint32, extended bool) (CANID, error) {
 	if extended {
 		id, err := NewExtendedID(raw)
 		if err != nil {
@@ -1730,14 +1681,31 @@ func parseCanIDValue(m map[string]any) (CANID, error) {
 		}
 		return id, nil
 	}
-	if raw > math.MaxUint16 {
+	narrowed, ok := narrow[uint16](int64(raw))
+	if !ok {
 		return nil, protocolError(fmt.Sprintf("standard id out of range: %d", raw))
 	}
-	id, err := NewStandardID(uint16(raw))
+	id, err := NewStandardID(narrowed)
 	if err != nil {
 		return nil, wrapProtocolError("invalid standard id", err)
 	}
 	return id, nil
+}
+
+// parseCanIDValue reads the identifier every message-scoped or signal-scoped
+// target carries, an absent extended flag meaning a standard one. The width
+// the flag names is checked, so a target naming a message no frame could carry
+// is refused at the parse rather than kept.
+func parseCanIDValue(m map[string]any) (CANID, error) {
+	idVal, err := parseNumberAsInt64(m["id"])
+	if err != nil {
+		return nil, wrapProtocolError("invalid id", err)
+	}
+	raw, ok := narrow[uint32](idVal)
+	if !ok {
+		return nil, protocolError(fmt.Sprintf("id out of uint32 range: %d", idVal))
+	}
+	return canIDOfWidth(raw, getBool(m, "extended"))
 }
 
 // parseCommentTarget decodes what a comment is attached to, refusing a kind
@@ -1897,35 +1865,34 @@ func parseAttrTarget(m map[string]any) (DBCAttrTarget, error) {
 	case "node":
 		return DBCAttrTargetNode{Node: NodeName(getString(m, "node"))}, nil
 	case "message":
-		id, ext, err := parseCanIDFields(m)
+		id, err := parseCanIDValue(m)
 		if err != nil {
 			return nil, err
 		}
-		return DBCAttrTargetMessage{ID: id, Extended: ext}, nil
+		return DBCAttrTargetMessage{ID: id}, nil
 	case "signal":
-		id, ext, err := parseCanIDFields(m)
+		id, err := parseCanIDValue(m)
 		if err != nil {
 			return nil, err
 		}
-		return DBCAttrTargetSignal{ID: id, Extended: ext, Signal: SignalName(getString(m, "signal"))}, nil
+		return DBCAttrTargetSignal{ID: id, Signal: SignalName(getString(m, "signal"))}, nil
 	case "envVar":
 		return DBCAttrTargetEnvVar{EnvVar: getString(m, "envVar")}, nil
 	case "nodeMsg":
-		id, ext, err := parseCanIDFields(m)
+		id, err := parseCanIDValue(m)
 		if err != nil {
 			return nil, err
 		}
-		return DBCAttrTargetNodeMsg{Node: NodeName(getString(m, "node")), ID: id, Extended: ext}, nil
+		return DBCAttrTargetNodeMsg{Node: NodeName(getString(m, "node")), ID: id}, nil
 	case "nodeSig":
-		id, ext, err := parseCanIDFields(m)
+		id, err := parseCanIDValue(m)
 		if err != nil {
 			return nil, err
 		}
 		return DBCAttrTargetNodeSig{
-			Node:     NodeName(getString(m, "node")),
-			ID:       id,
-			Extended: ext,
-			Signal:   SignalName(getString(m, "signal")),
+			Node:   NodeName(getString(m, "node")),
+			ID:     id,
+			Signal: SignalName(getString(m, "signal")),
 		}, nil
 	default:
 		return nil, protocolError(fmt.Sprintf("unknown attr target kind: %q", kind))
@@ -1994,8 +1961,9 @@ func parseDBCMessage(j map[string]any) (*DBCMessage, error) {
 	if err != nil {
 		return nil, wrapProtocolError("invalid message id", err)
 	}
-	if idVal < 0 {
-		return nil, protocolError(fmt.Sprintf("negative message id: %d", idVal))
+	raw, ok := narrow[uint32](idVal)
+	if !ok {
+		return nil, protocolError(fmt.Sprintf("message id out of uint32 range: %d", idVal))
 	}
 	extended := false
 	if v, ok := j["extended"]; ok {
@@ -2005,23 +1973,9 @@ func parseDBCMessage(j map[string]any) (*DBCMessage, error) {
 		}
 		extended = b
 	}
-
-	var id CANID
-	if extended {
-		if idVal > math.MaxUint32 {
-			return nil, protocolError(fmt.Sprintf("CAN ID %d exceeds uint32 range", idVal))
-		}
-		eid, err := NewExtendedID(uint32(idVal))
-		if err != nil {
-			return nil, err
-		}
-		id = eid
-	} else {
-		sid, err := NewStandardID(uint16(idVal))
-		if err != nil {
-			return nil, err
-		}
-		id = sid
+	id, err := canIDOfWidth(raw, extended)
+	if err != nil {
+		return nil, err
 	}
 
 	dlcVal, err := parseNumberAsInt64(j["dlc"])
@@ -2198,8 +2152,9 @@ func parseSignalPresence(j map[string]any) (SignalPresence, error) {
 		if muxName == "" {
 			return nil, protocolError("multiplexed signal requires a non-empty \"multiplexor\"")
 		}
-		rawVals, ok := j["multiplex_values"].([]any)
-		if !ok || len(rawVals) == 0 {
+		// Anything but an array, absence included, asserts to a nil slice.
+		rawVals, _ := j["multiplex_values"].([]any)
+		if len(rawVals) == 0 {
 			return nil, protocolError("multiplexed signal requires a non-empty \"multiplex_values\" array")
 		}
 		muxVals := make([]MultiplexValue, 0, len(rawVals))
@@ -2208,10 +2163,11 @@ func parseSignalPresence(j map[string]any) (SignalPresence, error) {
 			if err != nil {
 				return nil, wrapProtocolError(fmt.Sprintf("invalid multiplex_values[%d]", i), err)
 			}
-			if v < 0 || v > math.MaxUint32 {
+			mv, ok := narrow[MultiplexValue](v)
+			if !ok {
 				return nil, protocolError(fmt.Sprintf("multiplex_values[%d] %d out of range (0-%d)", i, v, uint32(math.MaxUint32)))
 			}
-			muxVals = append(muxVals, MultiplexValue(v))
+			muxVals = append(muxVals, mv)
 		}
 		return Multiplexed{
 			Multiplexor:     SignalName(muxName),

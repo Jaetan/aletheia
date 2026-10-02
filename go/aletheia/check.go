@@ -6,7 +6,7 @@ package aletheia
 import (
 	"fmt"
 	"math"
-	"math/big"
+	"slices"
 	"strings"
 )
 
@@ -36,9 +36,7 @@ func betweenDesc(lo, hi Rational) []descPart {
 
 // withinDesc appends " within {ms}ms" to a copy of parts.
 func withinDesc(parts []descPart, timeMs int64) []descPart {
-	out := make([]descPart, 0, len(parts)+1)
-	out = append(out, parts...)
-	return append(out, litPart(fmt.Sprintf(" within %dms", timeMs)))
+	return slices.Concat(parts, []descPart{litPart(fmt.Sprintf(" within %dms", timeMs))})
 }
 
 // renderDesc renders a description, sending every threshold to the kernel
@@ -101,34 +99,15 @@ func (r CheckResult) SignalName() SignalName { return SignalName(r.signalName) }
 // the renderer's error without one. Construction never fails; only this does.
 func (r CheckResult) ConditionDesc() (string, error) { return renderDesc(r.descParts) }
 
-// ratLessOrEqual reports a <= b for rationals with positive denominators. It
-// cross-multiplies through math/big, since the int64 products overflow for
-// large operands. Local on purpose: the comparison is trivial and the kernel
-// owns parsing and rendering only. The Rust Rational ordering in types.rs
-// does the same through i128.
-func ratLessOrEqual(a, b Rational) bool {
-	left := new(big.Int).Mul(big.NewInt(a.Numerator), big.NewInt(b.Denominator))
-	right := new(big.Int).Mul(big.NewInt(b.Numerator), big.NewInt(a.Denominator))
-	return left.Cmp(right) <= 0
-}
-
-// ratStr writes a Rational as num/den, or the bare integer when den is 1,
-// for the inverted-range message. It does not use the kernel renderer: a
-// validation error must not need a live runtime.
-func ratStr(r Rational) string {
-	if r.Denominator == 1 {
-		return fmt.Sprintf("%d", r.Numerator)
-	}
-	return fmt.Sprintf("%d/%d", r.Numerator, r.Denominator)
-}
-
 // requireOrdered is the error for an inverted range, nil when lo <= hi; op
-// names the builder in the message.
+// names the builder in the message, which renders the bounds as the between
+// predicate's refusal does.
 func requireOrdered(op string, lo, hi Rational) error {
-	if ratLessOrEqual(lo, hi) {
+	if ratCmp(lo, hi) <= 0 {
 		return nil
 	}
-	return validationError(fmt.Sprintf("%s: lo (%s) must be <= hi (%s)", op, ratStr(lo), ratStr(hi)))
+	return validationError(fmt.Sprintf("%s: lo (%s) must be <= hi (%s)", op,
+		formatRationalExact(lo), formatRationalExact(hi)))
 }
 
 // timeBoundMs converts a millisecond bound to the kernel's microseconds,

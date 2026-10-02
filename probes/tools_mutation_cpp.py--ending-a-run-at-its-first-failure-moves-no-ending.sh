@@ -13,11 +13,11 @@
 # are the same with the flag and without it. This sweeps every tree the lane
 # sweeps once more, with the lane's argv less that flag, and compares each
 # mutant's ending with the kept sweep, which carries it.
-# A timeout is not compared: the cap per mutant is a wall clock, so a sweep
-# with one was taken under load.
-# Non-zero exit: a mutant's ending differs between the two sweeps, or they
-# sweep different mutants. Exits 0 with a note when Mull or a tree is absent,
-# and 2 when no kept sweep could be had or a timeout shows a loaded machine.
+# A timeout is not compared: the cap per mutant is a backstop, so a sweep in
+# which it fired is a disturbed run, and the mutant it ended a hang to remove.
+# Non-zero exit: a mutant's ending differs between the two sweeps, they sweep
+# different mutants, or a mutant timed out. Exits 0 with a note when Mull or a
+# tree is absent, and 2 when no kept sweep could be had.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v mull-runner-23 > /dev/null || { echo "Mull not installed, claim untestable"; exit 0; }
@@ -70,8 +70,8 @@ with tempfile.TemporaryDirectory(prefix="abort-") as scratch:
         with_flag = lane_endings(kept / f"{leg.report_name}.sqlite")
         without = lane_endings(whole)
         if any(ending.route == "timeout" for ending in (*with_flag.values(), *without.values())):
-            print(f"the {tree.value} tree timed out a mutant: the machine was loaded, not comparable")
-            sys.exit(2)
+            print(f"the {tree.value} tree timed out a mutant: a disturbed run, not comparable")
+            sys.exit(1)
         if with_flag.keys() != without.keys():
             print(f"the {tree.value} sweeps with and without --abort carry different mutants")
             sys.exit(1)

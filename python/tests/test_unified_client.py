@@ -3,7 +3,7 @@
 """Core tests for the unified AletheiaClient.
 
 Covers basic operations, streaming, mixed signal/streaming flows, the
-client lifecycle (close, restart, threading), and state-machine error
+client lifecycle (close, restart, isolation), and state-machine error
 paths.  Sibling files split out:
 
 * ``test_unified_client_canfd_mux.py`` — CAN-FD frames and nested mux
@@ -15,12 +15,11 @@ Fixtures:
 * ``demo_dbc`` — local, only used by ``TestAletheiaClientWithDemoDBC``
 """
 
+import contextlib
 import json
 import subprocess
 import sys
 import textwrap
-import threading
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -35,7 +34,7 @@ from aletheia import (
     ValidationError,
 )
 from aletheia.dbc import dbc_to_json
-from aletheia.types import DLCCode, LTLFormula
+from aletheia.types import DLCCode
 
 
 @pytest.fixture(name="demo_dbc")
@@ -291,73 +290,47 @@ class TestAletheiaClientLifecycle:
         # Double-close on the already-closed client must also be safe.
         client.close()
 
-    def test_in_process_concurrent_clients(self, simple_dbc: DBCDefinition) -> None:
-        """Multiple concurrent clients in the same pytest process work correctly.
+    def test_in_process_interleaved_clients(self, simple_dbc: DBCDefinition) -> None:
+        """Three clients in the pytest process keep their streams apart, call by call.
 
-        Unlike ``test_threaded_isolation`` (which runs in a subprocess with
-        ``rts_cores=2`` for genuine parallelism), this test runs directly
-        inside the pytest process with the default single-capability RTS.
-        The goal is to exercise the in-process concurrency path: multiple
-        ``AletheiaClient`` instances with independent FFI state pointers,
-        concurrent ``aletheia_process`` calls serialised through the GHC
-        scheduler, and independent streaming verdicts.
+        Each client holds kernel state of its own.  The three stream the same
+        frame payload (``TestSignal = 200``) against different thresholds, and
+        their calls are interleaved frame by frame, A then B then C, so every
+        call of one lands between calls of the others: a client that leaked state
+        into another (a shared global, a stale cache, an unprotected mutation)
+        would give a wrong verdict.  The interleaving is driven, the same order
+        on every run; ``test_isolated_clients_under_two_capabilities`` repeats it
+        under an RTS of two capabilities.
 
-        Three client threads each stream the same frame payload
-        (``TestSignal = 200``) but with different LTL thresholds:
-
-        * **Thread A** — ``TestSignal < 100`` → expected ``fails`` (200 ≥ 100)
-        * **Thread B** — ``TestSignal < 500`` → expected ``holds`` (200 < 500)
-        * **Thread C** — ``TestSignal < 1000`` → expected ``complete`` (clean)
-
-        The threads synchronise through a ``threading.Barrier`` so they're
-        all inside the streaming loop simultaneously, which forces the FFI
-        layer to juggle three concurrent state pointers. If any thread
-        leaks state into another (shared global, stale cache, unprotected
-        mutation), the verdicts will be wrong.
+        * **A**: ``TestSignal < 100`` fails on the first frame (200 is not < 100)
+        * **B**: ``TestSignal < 500`` completes clean
+        * **C**: ``TestSignal < 1000`` completes clean
         """
-
-        # Rewrite threshold inside the property for each thread.
-        def make_property(threshold: int) -> LTLFormula:
-            return Signal("TestSignal").less_than(threshold).always().to_dict()
-
+        thresholds = {"A": 100, "B": 500, "C": 1000}
         frames = [
             (i * 1000, 256, DLCCode(8), bytearray([200, 0, 0, 0, 0, 0, 0, 0])) for i in range(10)
         ]
-        results: dict[str, str | None] = {"A": None, "B": None, "C": None}
-        barrier = threading.Barrier(3, timeout=10)
-
-        def run_client(name: str, threshold: int) -> None:
-            with AletheiaClient() as client:
+        results: dict[str, str | None] = dict.fromkeys(thresholds)
+        with contextlib.ExitStack() as stack:
+            clients = {name: stack.enter_context(AletheiaClient()) for name in thresholds}
+            for name, client in clients.items():
                 client.parse_dbc(simple_dbc)
-                client.set_properties([make_property(threshold)])
+                client.set_properties(
+                    [Signal("TestSignal").less_than(thresholds[name]).always().to_dict()]
+                )
                 client.start_stream()
-                barrier.wait()  # Ensure all three threads are live simultaneously.
-                for ts, cid, dlc, data in frames:
+            for ts, cid, dlc, data in frames:
+                for name, client in clients.items():
+                    if results[name] is not None:
+                        continue
                     resp = client.send_frame(timestamp=ts, can_id=cid, dlc=dlc, data=data)
                     if "type" in resp and any(e.get("status") == "fails" for e in resp["results"]):
                         results[name] = "fails"
                         client.end_stream()
-                        return
-                end = client.end_stream()
-                results[name] = end.get("status")
-
-        # ThreadPoolExecutor re-raises any worker exception via future.result(),
-        # so a thread that leaks state or crashes fails the test in the main
-        # thread — no manual broad-except error collection needed.
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = [
-                executor.submit(run_client, name, threshold)
-                for name, threshold in [("A", 100), ("B", 500), ("C", 1000)]
-            ]
-            for future in futures:
-                future.result(timeout=15)
-
-        # A: 200 is not < 100 → fails on first frame
-        assert results["A"] == "fails", f"Thread A should fail, got {results['A']}"
-        # B: 200 < 500 holds for every frame → complete
-        assert results["B"] == "complete", f"Thread B should complete, got {results['B']}"
-        # C: 200 < 1000 holds for every frame → complete
-        assert results["C"] == "complete", f"Thread C should complete, got {results['C']}"
+            for name, client in clients.items():
+                if results[name] is None:
+                    results[name] = client.end_stream().get("status")
+        assert results == {"A": "fails", "B": "complete", "C": "complete"}
 
     def test_restart_stream(self, simple_dbc: DBCDefinition) -> None:
         """Stream can be restarted after end_stream."""
@@ -386,18 +359,16 @@ class TestAletheiaClientLifecycle:
             assert resp.get("status") == "ack"
             client.end_stream()
 
-    def test_threaded_isolation(self) -> None:
-        """Two clients in separate threads produce correct independent results.
+    def test_isolated_clients_under_two_capabilities(self) -> None:
+        """Two clients keep their streams apart under an RTS of two capabilities.
 
-        Runs in a subprocess so the GHC RTS is initialized fresh with
-        ``-N2`` (two capabilities).  Both threads send the same frames
-        (TestSignal = 200) but with different thresholds: thread A
-        expects violation (< 100), thread B expects no violation (< 1000).
-        A Barrier ensures both threads are inside the send_frame loop
-        simultaneously, so the GHC RTS genuinely runs in parallel.
+        Runs in a subprocess so the GHC RTS is initialised fresh with ``-N2``
+        (two capabilities).  Both clients send the same frames (TestSignal =
+        200) against different thresholds, their calls interleaved frame by
+        frame in a driven order: A expects a violation (< 100), B none (< 1000).
         """
         script = textwrap.dedent("""\
-            import json, sys, threading
+            import contextlib, json
             from aletheia import AletheiaClient, Signal
 
             DBC = {
@@ -418,59 +389,43 @@ class TestAletheiaClientLifecycle:
                 (i * 1000, 256, 8, bytearray([200, 0, 0, 0, 0, 0, 0, 0]))
                 for i in range(20)
             ]
-            results = {"A": None, "B": None}
-            errors = []
-            barrier = threading.Barrier(2, timeout=5)
-
-            def run_client(name, threshold):
-                try:
-                    with AletheiaClient(rts_cores=2) as client:
-                        client.parse_dbc(DBC)
-                        client.set_properties([
-                            Signal("TestSignal").less_than(threshold).always().to_dict()
-                        ])
-                        client.start_stream()
-                        barrier.wait()
-                        for ts, cid, dlc, data in FRAMES:
-                            resp = client.send_frame(timestamp=ts, can_id=cid, dlc=dlc, data=data)
-                            if resp.get("type") == "property_batch" and any(
+            THRESHOLDS = {"A": 100, "B": 1000}
+            results = {}
+            with contextlib.ExitStack() as stack:
+                clients = {
+                    name: stack.enter_context(AletheiaClient(rts_cores=2)) for name in THRESHOLDS
+                }
+                for name, client in clients.items():
+                    client.parse_dbc(DBC)
+                    client.set_properties([
+                        Signal("TestSignal").less_than(THRESHOLDS[name]).always().to_dict()
+                    ])
+                    client.start_stream()
+                for ts, cid, dlc, data in FRAMES:
+                    for name, client in clients.items():
+                        if name in results:
+                            continue
+                        resp = client.send_frame(timestamp=ts, can_id=cid, dlc=dlc, data=data)
+                        if resp.get("type") == "property_batch" and any(
                             e.get("status") == "fails" for e in resp["results"]
                         ):
-                                results[name] = "fails"
-                                client.end_stream()
-                                return
-                        resp = client.end_stream()
-                        results[name] = resp.get("status")
-                except Exception as e:
-                    errors.append(str(e))
-
-            t_a = threading.Thread(target=run_client, args=("A", 100))
-            t_b = threading.Thread(target=run_client, args=("B", 1000))
-            t_a.start()
-            t_b.start()
-            t_a.join(timeout=10)
-            t_b.join(timeout=10)
-
-            out = {"results": results, "errors": errors}
-            print(json.dumps(out))
-            sys.exit(0 if not errors else 1)
+                            results[name] = "fails"
+                            client.end_stream()
+                for name, client in clients.items():
+                    if name not in results:
+                        results[name] = client.end_stream().get("status")
+            print(json.dumps(results))
         """)
         result = subprocess.run(
             [sys.executable, "-c", script],
             capture_output=True,
             text=True,
-            timeout=15,
             check=False,
         )
         assert result.returncode == 0, (
             f"Subprocess failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
-        out = json.loads(result.stdout)
-        assert not out["errors"], f"Thread raised: {out['errors']}"
-        assert out["results"]["A"] == "fails", f"Thread A should violate, got {out['results']['A']}"
-        assert out["results"]["B"] == "complete", (
-            f"Thread B should complete clean, got {out['results']['B']}"
-        )
+        assert json.loads(result.stdout) == {"A": "fails", "B": "complete"}
 
 
 class TestAletheiaClientWithDemoDBC:

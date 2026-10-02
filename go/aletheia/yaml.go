@@ -65,8 +65,8 @@ func readYAMLFile(path string, mustExist bool) ([]byte, error) {
 		}
 		return nil, validationError(fmt.Sprintf("YAML path is not a regular file: %s", path))
 	}
-	if size := uint64(info.Size()); size > MaxDBCTextBytes {
-		return nil, newInputBoundExceededError(BoundKindInputLengthBytes, size, MaxDBCTextBytes, CodeInputBoundExceeded)
+	if err := refuseOversize(uint64(info.Size()), MaxDBCTextBytes); err != nil {
+		return nil, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -87,8 +87,8 @@ func loadYAMLData(source string) ([]byte, error) {
 	if data != nil {
 		return data, nil
 	}
-	if size := uint64(len(source)); size > MaxDBCTextBytes {
-		return nil, newInputBoundExceededError(BoundKindInputLengthBytes, size, MaxDBCTextBytes, CodeInputBoundExceeded)
+	if err := refuseOversize(uint64(len(source)), MaxDBCTextBytes); err != nil {
+		return nil, err
 	}
 	return []byte(source), nil
 }

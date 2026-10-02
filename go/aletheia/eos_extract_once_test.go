@@ -70,7 +70,7 @@ func warnLog() (aletheia.ClientOption, *bytes.Buffer) {
 // mustEndStream ends the stream and returns its verdicts.
 func mustEndStream(t *testing.T, c *aletheia.Client, want int) []aletheia.PropertyResult {
 	t.Helper()
-	ctx := bounded(t)
+	ctx := t.Context()
 	sr, err := c.EndStream(ctx)
 	if err != nil {
 		t.Fatalf("EndStream: %v", err)
@@ -265,5 +265,94 @@ func TestEndStream_NoTrackedFramesAttachesFallbackWithoutExtraction(t *testing.T
 	}
 	if !strings.HasPrefix(e.EnrichedReason, "violated: ") || !strings.Contains(e.EnrichedReason, "[core: eventually unmet]") {
 		t.Errorf("EnrichedReason = %q, want the fallback with the core's reason", e.EnrichedReason)
+	}
+}
+
+// endStreamOf is an end-of-stream response carrying the entries as written.
+func endStreamOf(entries ...string) aletheia.MockResponse {
+	return aletheia.Respond(`{"status":"complete","results":[` + strings.Join(entries, ",") + `]}`)
+}
+
+// A holding entry ahead of a failing one is passed over, not the end of the
+// walk: the failing entry after it is still enriched.
+func TestEndStream_AHoldingEntryDoesNotEndTheWalk(t *testing.T) {
+	c, _ := startedClientWith(t, twoSignalProperties(),
+		aletheia.Respond(ack),
+		endStreamOf(`{"property_index":0,"status":"holds"}`,
+			`{"property_index":1,"status":"fails","timestamp":1000,"reason":"eventually unmet"}`),
+		extractionOf("SigB", 7),
+	)
+	sendOn(t, c, 0x100, 0)
+
+	results := mustEndStream(t, c, 2)
+	if results[0].Enrichment != nil {
+		t.Errorf("the holding entry was enriched: %+v", results[0].Enrichment)
+	}
+	wantOneSignal(t, results[1], "SigB", 7)
+}
+
+// An out-of-range entry ahead of a valid one is passed over, not the end of
+// the walk; the index equal to the property count is the first out of range.
+func TestEndStream_AnOutOfRangeEntryDoesNotEndTheWalk(t *testing.T) {
+	logger, logged := warnLog()
+	c, _ := startedClientOpts(t, twoSignalProperties()[:1], []aletheia.MockResponse{
+		aletheia.Respond(ack),
+		endStreamFails(1, 0),
+		extractionOf("SigA", 5),
+	}, logger)
+	sendOn(t, c, 0x100, 0)
+
+	results := mustEndStream(t, c, 2)
+	if results[0].Enrichment != nil {
+		t.Errorf("the out-of-range entry was enriched: %+v", results[0].Enrichment)
+	}
+	wantOneSignal(t, results[1], "SigA", 5)
+	if out := logged.String(); !strings.Contains(out, "enrichment.property_index_oob") || !strings.Contains(out, "index=1") {
+		t.Errorf("expected the warning to name index 1, got:\n%s", out)
+	}
+}
+
+// A frame whose extraction fails is passed over, not the end of the pass:
+// the next frame still supplies the wanted value.
+func TestEndStream_AFailedExtractionDoesNotEndThePass(t *testing.T) {
+	c, mock := startedClientWith(t, twoSignalProperties()[:1],
+		aletheia.Respond(ack), aletheia.Respond(ack),
+		endStreamFails(0),
+		aletheia.Respond(`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`), // frame 0x100
+		extractionOf("SigA", 5), // frame 0x200
+	)
+	sendOn(t, c, 0x100, 0)
+	sendOn(t, c, 0x200, 1000)
+
+	results := mustEndStream(t, c, 1)
+	if got := extractCalls(mock); got != 2 {
+		t.Errorf("expected 2 extractions, the failed frame and the next, got %d", got)
+	}
+	wantOneSignal(t, results[0], "SigA", 5)
+}
+
+// The stream.ended record counts the failing and the unresolved verdicts.
+func TestEndStream_TheEndedRecordCountsTheVerdicts(t *testing.T) {
+	var buf bytes.Buffer
+	logger := aletheia.WithLogger(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	properties := append(twoSignalProperties(), aletheia.Eventually{Inner: gt("SigC", 1)}, aletheia.Eventually{Inner: gt("SigD", 1)})
+	c, _ := startedClientOpts(t, properties, []aletheia.MockResponse{
+		endStreamOf(`{"property_index":0,"status":"fails","reason":"a"}`,
+			`{"property_index":1,"status":"unresolved","reason":"b"}`,
+			`{"property_index":2,"status":"fails","reason":"c"}`,
+			`{"property_index":3,"status":"holds"}`),
+	}, logger)
+
+	mustEndStream(t, c, 4)
+	var ended string
+	for line := range strings.SplitSeq(buf.String(), "\n") {
+		if strings.Contains(line, "msg=stream.ended") {
+			ended = line
+		}
+	}
+	for _, want := range []string{"numResults=4", "numFails=2", "numUnresolved=1"} {
+		if !strings.Contains(ended, want) {
+			t.Errorf("stream.ended record %q lacks %s", ended, want)
+		}
 	}
 }

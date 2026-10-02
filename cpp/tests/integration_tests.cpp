@@ -15,12 +15,10 @@
 
 #include <algorithm>
 #include <array>
-#include <barrier>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <dlfcn.h>
-#include <exception>
 #include <expected>
 #include <filesystem>
 #include <functional>
@@ -31,7 +29,6 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <thread>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -39,7 +36,6 @@
 #include "loaded_library.hpp"
 #include "repo_root.hpp"
 #include "temp_path.hpp"
-#include <catch2/catch_message.hpp>
 
 using aletheia::test::repo_root;
 
@@ -1497,134 +1493,80 @@ BO_ 256 EngineStatus: 8 Engine
 }
 
 // ---------------------------------------------------------------------------
-// Concurrent client isolation test
+// Client isolation test
 // ---------------------------------------------------------------------------
-// Two threads operate on independent AletheiaClient instances, synchronized
-// via std::barrier so that operations interleave deterministically:
+// Two independent AletheiaClient instances over the real library, their calls
+// interleaved step by step on one thread, lenient then strict, so every call of
+// one lands between calls of the other:
 //
-//   Thread A (lenient)                Thread B (strict)
-//   ────────────────                  ────────────────
+//   lenient                           strict
+//   ────────                          ────────
 //   parse_dbc(dbc)                    parse_dbc(dbc)
-//   ── barrier ──                     ── barrier ──
 //   set_properties(Speed < 200)       set_properties(Speed < 100)
-//   ── barrier ──                     ── barrier ──
 //   start_stream()                    start_stream()
-//   ── barrier ──                     ── barrier ──
 //   send_frame(Speed = 150)           send_frame(Speed = 150)
-//   ── barrier ──                     ── barrier ──
 //   end_stream() → Holds              end_stream() → Fails
 //
 // Same DBC, same frame data, different properties → different verdicts.
-// This proves each client owns independent state.
+// This proves each client owns independent state; the order is driven, the
+// same on every run.
 
-namespace {
-// One participant of the isolation test: its own client over the real
-// library, stepped through the workflow in lockstep with its peer.
-struct ThreadResult {
-    bool ok = false;
-    Verdict verdict = Verdict::Fails;
-    std::string error;
-};
-} // namespace
-
-static void run_concurrent_client(const fs::path& lib, std::barrier<>& sync,
-                                  PhysicalValue threshold, ThreadResult& out) {
-    try {
-        auto backend = make_ffi_backend(lib);
-        AletheiaClient client(std::move(backend));
-
-        // Step 1: parse DBC
-        auto const dbc = make_integration_dbc();
-        auto const parse_result = client.parse_dbc(std::stop_token{}, dbc);
-        if (!parse_result.has_value()) {
-            out.error = "parse_dbc failed";
-            sync.arrive_and_drop();
-            return;
-        }
-        sync.arrive_and_wait();
-
-        // Step 2: set properties, each thread with a different threshold
-        auto formula = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, threshold)));
-        std::vector<LtlFormula> props;
-        props.push_back(std::move(formula));
-        if (!client.set_properties(std::stop_token{}, props).has_value()) {
-            out.error = "set_properties failed";
-            sync.arrive_and_drop();
-            return;
-        }
-        sync.arrive_and_wait();
-
-        // Step 3: start stream
-        if (!client.start_stream(std::stop_token{}).has_value()) {
-            out.error = "start_stream failed";
-            sync.arrive_and_drop();
-            return;
-        }
-        sync.arrive_and_wait();
-
-        // Step 4: send frame with Speed = 150
-        auto const id = CanId{StandardId::create(0x100).value()};
-        auto const dlc = Dlc::create(8).value();
-        const std::uint16_t raw = 1500; // Speed 150 km/h at factor one tenth
-        FramePayload data{static_cast<std::byte>(raw & 0xFFU),
-                          static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
-                          std::byte{0},
-                          std::byte{0},
-                          std::byte{0},
-                          std::byte{0},
-                          std::byte{0},
-                          std::byte{0}};
-        auto send_result =
-            client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
-        if (!send_result.has_value()) {
-            out.error = "send_frame failed";
-            sync.arrive_and_drop();
-            return;
-        }
-        sync.arrive_and_wait();
-
-        // Step 5: end stream and capture verdict
-        auto end = client.end_stream(std::stop_token{});
-        if (!end.has_value() || end->results.empty()) {
-            out.error = "end_stream failed or empty results";
-            return;
-        }
-
-        // Check both mid-stream and EOS for the verdict
-        auto const mid_violation = std::holds_alternative<PropertyBatch>(*send_result);
-        out.verdict = (mid_violation || end->results[0].verdict == Verdict::Fails) ? Verdict::Fails
-                                                                                   : Verdict::Holds;
-        out.ok = true;
-    } catch (const std::exception& e) {
-        out.error = e.what();
-    }
+static auto speed_below(PhysicalValue threshold) -> std::vector<LtlFormula> {
+    std::vector<LtlFormula> props;
+    props.push_back(ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, threshold))));
+    return props;
 }
 
-TEST_CASE("concurrent clients have independent state via real FFI", "[integration][concurrent]") {
+static auto verdict_of(const FrameResponse& sent, const StreamResult& ended) -> Verdict {
+    auto const mid_violation = std::holds_alternative<PropertyBatch>(sent);
+    return (mid_violation || ended.results[0].verdict == Verdict::Fails) ? Verdict::Fails
+                                                                         : Verdict::Holds;
+}
+
+TEST_CASE("interleaved clients have independent state via real FFI", "[integration][concurrent]") {
     auto const lib = find_lib();
+    AletheiaClient lenient(make_ffi_backend(lib)); // Speed 150 < 200 → Holds
+    AletheiaClient strict(make_ffi_backend(lib));  // Speed 150 >= 100 → Fails
+    const std::array<std::reference_wrapper<AletheiaClient>, 2> clients{lenient, strict};
 
-    // Barrier with 2 participants — blocks until both threads arrive.
-    std::barrier sync(2);
+    auto const dbc = make_integration_dbc();
+    for (AletheiaClient& client : clients)
+        REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
+    REQUIRE(lenient.set_properties(std::stop_token{}, speed_below(PhysicalValue{Rational{200, 1}}))
+                .has_value());
+    REQUIRE(strict.set_properties(std::stop_token{}, speed_below(PhysicalValue{Rational{100, 1}}))
+                .has_value());
+    for (AletheiaClient& client : clients)
+        REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    ThreadResult result_lenient; // threshold = 200: Speed 150 < 200 → Holds
-    ThreadResult result_strict;  // threshold = 100: Speed 150 >= 100 → Fails
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    const std::uint16_t raw = 1500; // Speed 150 km/h at factor one tenth
+    const FramePayload data{static_cast<std::byte>(raw & 0xFFU),
+                            static_cast<std::byte>((std::uint32_t{raw} >> 8U) & 0xFFU),
+                            std::byte{0},
+                            std::byte{0},
+                            std::byte{0},
+                            std::byte{0},
+                            std::byte{0},
+                            std::byte{0}};
+    auto const sent_lenient =
+        lenient.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
+    auto const sent_strict =
+        strict.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
+    REQUIRE(sent_lenient.has_value());
+    REQUIRE(sent_strict.has_value());
 
-    std::thread thread_a(run_concurrent_client, std::cref(lib), std::ref(sync),
-                         PhysicalValue{Rational{200, 1}}, std::ref(result_lenient));
-    std::thread thread_b(run_concurrent_client, std::cref(lib), std::ref(sync),
-                         PhysicalValue{Rational{100, 1}}, std::ref(result_strict));
-
-    thread_a.join();
-    thread_b.join();
-
-    INFO("Thread A error: " << result_lenient.error);
-    INFO("Thread B error: " << result_strict.error);
-    REQUIRE(result_lenient.ok);
-    REQUIRE(result_strict.ok);
+    auto const ended_lenient = lenient.end_stream(std::stop_token{});
+    auto const ended_strict = strict.end_stream(std::stop_token{});
+    REQUIRE(ended_lenient.has_value());
+    REQUIRE(ended_strict.has_value());
+    REQUIRE_FALSE(ended_lenient->results.empty());
+    REQUIRE_FALSE(ended_strict->results.empty());
 
     // Same data, different properties → different verdicts proves isolation
-    CHECK(result_lenient.verdict == Verdict::Holds);
-    CHECK(result_strict.verdict == Verdict::Fails);
+    CHECK(verdict_of(*sent_lenient, *ended_lenient) == Verdict::Holds);
+    CHECK(verdict_of(*sent_strict, *ended_strict) == Verdict::Fails);
 }
 
 // ---------------------------------------------------------------------------

@@ -10,9 +10,9 @@ import (
 	"io"
 	"iter"
 	"log/slog"
+	"maps"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"unsafe"
 )
 
@@ -56,9 +56,6 @@ type Client struct {
 	lastFrames    map[uint64]lastFrameData  // last frame seen per CAN ID, for EOS enrichment
 	signalIndex   map[uint64]map[string]int // signal name -> 0-based index, keyed by (canId, extended)
 	signalNames   map[uint64][]string       // index -> signal name, keyed by (canId, extended)
-	// lockWaiters counts goroutines inside [Client.lock], so a test can see
-	// that a competitor has reached the select without sleeping.
-	lockWaiters atomic.Int32
 }
 
 // NewClient creates a Client backed by the given Backend.
@@ -106,17 +103,15 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// lock takes the client lock, or returns ctx.Err() when ctx is already
-// cancelled or fires while waiting; then the lock is not held and the
-// caller must not unlock.
-func (c *Client) lock(ctx context.Context) error {
-	c.lockWaiters.Add(1)
-	defer c.lockWaiters.Add(-1)
+// lock takes the client lock and returns its release, or returns ctx.Err()
+// when ctx is already cancelled or fires while waiting, with a release that
+// does nothing, since then no lock is held.
+func (c *Client) lock(ctx context.Context) (release func(), err error) {
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return releaseNothing, ctx.Err()
 	case c.lockCh <- struct{}{}:
-		return nil
+		return c.unlock, nil
 	}
 }
 
@@ -132,23 +127,27 @@ func (c *Client) unlock() {
 
 // acquire takes the lock for the operation called name, rechecks the
 // context once the lock is held (a cancellation between the two would
-// otherwise reach the FFI), and refuses a closed client. It returns the
-// release the caller defers; on error nothing is held and every error
-// carries the operation name.
+// otherwise reach the FFI), and refuses a closed client. Every error carries
+// the operation name. Every return hands back the release that lock
+// returned, which frees the lock exactly when it was taken, and the caller
+// defers it before it checks the error, so no branch taken or skipped can
+// leave the lock held.
 func (c *Client) acquire(ctx context.Context, name string) (release func(), err error) {
-	if err := c.lock(ctx); err != nil {
-		return nil, fmt.Errorf("%s: %w", name, err)
+	release, err = c.lock(ctx)
+	if err != nil {
+		return release, fmt.Errorf("%s: %w", name, err)
 	}
-	if err := ctx.Err(); err != nil {
-		c.unlock()
-		return nil, fmt.Errorf("%s: %w", name, err)
+	if err = ctx.Err(); err != nil {
+		return release, fmt.Errorf("%s: %w", name, err)
 	}
 	if c.closed {
-		c.unlock()
-		return nil, stateError(name + ": client is closed")
+		return release, stateError(name + ": client is closed")
 	}
-	return c.unlock, nil
+	return release, nil
 }
+
+// releaseNothing is the release of an acquire that took no lock.
+func releaseNothing() {}
 
 // IsClosed reports whether [Client.Close] has been called.  Acquires
 // the same internal lock as the data-path operations so the answer
@@ -257,10 +256,10 @@ func (c *Client) ParseDBC(ctx context.Context, dbc DBCDefinition) (*ParsedDBC, e
 		return nil, err
 	}
 	release, err := c.acquire(ctx, "ParseDBC")
+	defer release()
 	if err != nil {
 		return nil, err
 	}
-	defer release()
 	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return nil, err
@@ -285,18 +284,11 @@ func (c *Client) ParseDBC(ctx context.Context, dbc DBCDefinition) (*ParsedDBC, e
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) ParseDBCText(ctx context.Context, text string) (*ParsedDBC, error) {
-	// Defense-in-depth for cross-binding parity:
-	// reject DBC text inputs longer than MaxDBCTextBytes before wrapping
-	// them in a JSON command.  The outer MaxJSONBytes cap in processLocked
-	// covers the wrapped command separately; the additional inner cap
-	// matches the Agda kernel's two-layer enforcement in handleParseDBCText.
-	if uint64(len(text)) > MaxDBCTextBytes {
-		return nil, newInputBoundExceededError(
-			BoundKindInputLengthBytes,
-			uint64(len(text)),
-			MaxDBCTextBytes,
-			CodeInputBoundExceeded,
-		)
+	// The kernel bounds the text at MaxDBCTextBytes inside the command, and
+	// FFIBackend.Process bounds the whole command at MaxJSONBytes; the text
+	// is refused here before a command is built around it.
+	if err := refuseOversize(uint64(len(text)), MaxDBCTextBytes); err != nil {
+		return nil, err
 	}
 	cmd, err := serializeCommand("parseDBCText", map[string]any{
 		"text": text,
@@ -305,10 +297,10 @@ func (c *Client) ParseDBCText(ctx context.Context, text string) (*ParsedDBC, err
 		return nil, err
 	}
 	release, err := c.acquire(ctx, "ParseDBCText")
+	defer release()
 	if err != nil {
 		return nil, err
 	}
-	defer release()
 	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return nil, err
@@ -342,10 +334,10 @@ func (c *Client) ValidateDBC(ctx context.Context, dbc DBCDefinition) (*Validatio
 		return nil, err
 	}
 	release, err := c.acquire(ctx, "ValidateDBC")
+	defer release()
 	if err != nil {
 		return nil, err
 	}
-	defer release()
 	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return nil, err
@@ -369,10 +361,10 @@ func (c *Client) ValidateDBC(ctx context.Context, dbc DBCDefinition) (*Validatio
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) FormatDBC(ctx context.Context) (*DBCDefinition, error) {
 	release, err := c.acquire(ctx, "FormatDBC")
+	defer release()
 	if err != nil {
 		return nil, err
 	}
-	defer release()
 	resp, err := c.backend.FormatDBCBinary(c.state)
 	if err != nil {
 		return nil, err
@@ -404,10 +396,10 @@ func (c *Client) FormatDBCText(ctx context.Context, dbc DBCDefinition) (*DBCText
 		return nil, err
 	}
 	release, err := c.acquire(ctx, "FormatDBCText")
+	defer release()
 	if err != nil {
 		return nil, err
 	}
-	defer release()
 	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return nil, err
@@ -425,10 +417,10 @@ func (c *Client) ExtractSignals(ctx context.Context, id CANID, dlc DLC, data Fra
 		return nil, err
 	}
 	release, err := c.acquire(ctx, "ExtractSignals")
+	defer release()
 	if err != nil {
 		return nil, err
 	}
-	defer release()
 
 	// The binary path once the signal-name cache holds the ID; only
 	// ErrBinaryPathUnsupported (the MockBackend) falls back to JSON, any
@@ -461,10 +453,10 @@ func (c *Client) ExtractSignals(ctx context.Context, id CANID, dlc DLC, data Fra
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) BuildFrame(ctx context.Context, id CANID, dlc DLC, signals []SignalValue) (FramePayload, error) {
 	release, err := c.acquire(ctx, "BuildFrame")
+	defer release()
 	if err != nil {
 		return nil, err
 	}
-	defer release()
 	injections, err := c.resolveInjections(signals, id, "BuildFrame")
 	if err != nil {
 		return nil, err
@@ -485,10 +477,10 @@ func (c *Client) UpdateFrame(ctx context.Context, id CANID, dlc DLC, data FrameP
 		return nil, err
 	}
 	release, err := c.acquire(ctx, "UpdateFrame")
+	defer release()
 	if err != nil {
 		return nil, err
 	}
-	defer release()
 	injections, err := c.resolveInjections(signals, id, "UpdateFrame")
 	if err != nil {
 		return nil, err
@@ -529,10 +521,10 @@ func (c *Client) SetProperties(ctx context.Context, properties []Formula) error 
 	// Hold lock for both the backend call and the diagnostics update
 	// to prevent SendFrame from seeing stale diags between the two.
 	release, err := c.acquire(ctx, "SetProperties")
+	defer release()
 	if err != nil {
 		return err
 	}
-	defer release()
 	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return err
@@ -584,10 +576,10 @@ func (c *Client) StartStream(ctx context.Context) error {
 	// Hold lock for both the backend call and the cache clear
 	// to prevent SendFrame from using a stale cache.
 	release, err := c.acquire(ctx, "StartStream")
+	defer release()
 	if err != nil {
 		return err
 	}
-	defer release()
 	resp, err := c.backend.StartStreamBinary(c.state)
 	if err != nil {
 		return err
@@ -630,10 +622,10 @@ func (c *Client) SendFrame(
 	brs *bool, esi *bool,
 ) (FrameResponse, error) {
 	release, err := c.acquire(ctx, "SendFrame")
+	defer release()
 	if err != nil {
 		return nil, err
 	}
-	defer release()
 	return c.sendFrameLocked(ctx, ts, id, dlc, data, brs, esi)
 }
 
@@ -651,10 +643,10 @@ func (c *Client) SendFrame(
 // uncommitted suffix.
 func (c *Client) SendFrames(ctx context.Context, frames []Frame) ([]FrameResponse, error) {
 	release, err := c.acquire(ctx, "SendFrames")
+	defer release()
 	if err != nil {
 		return nil, err
 	}
-	defer release()
 	results := make([]FrameResponse, 0, len(frames))
 	for i, f := range frames {
 		// Per-frame ctx check between FFI calls — the cancellation
@@ -713,25 +705,26 @@ func (c *Client) SendFramesSeq(ctx context.Context, frames iter.Seq[Frame]) iter
 	return func(yield func(FrameResponse, error) bool) {
 		i := 0
 		for f := range frames {
-			// Per-frame acquire (ctx-aware) + release BEFORE the yield — never
-			// hold the lock across consumer code (the 1-deep semaphore would
-			// deadlock a re-entrant consumer and starve Close otherwise).
-			release, err := c.acquire(ctx, "SendFramesSeq")
-			if err != nil {
-				yield(nil, err) // acquire has named the method
-				return
-			}
-			// Release via defer (not an explicit call) so a panic between acquire
-			// and the FFI return cannot leak the 1-deep semaphore and deadlock the
-			// client forever — matching SendFrames' panic-safety. The closure
-			// returns (so release runs) BEFORE the yield, so the lock is never
-			// held across consumer code.
+			// Per-frame acquire (ctx-aware) and release, both inside the closure,
+			// which returns, so the release runs, BEFORE the yield: the lock is
+			// never held across consumer code (the 1-deep semaphore would
+			// deadlock a re-entrant consumer and starve Close otherwise). The
+			// release is deferred, so a panic between the acquire and the FFI
+			// return cannot leak the semaphore either.
 			resp, err := func() (FrameResponse, error) {
+				release, err := c.acquire(ctx, "SendFramesSeq")
 				defer release()
-				return c.sendFrameLocked(ctx, f.Timestamp, f.ID, f.DLC, f.Data, f.BRS, f.ESI)
+				if err != nil {
+					return nil, err // acquire has named the method
+				}
+				resp, err := c.sendFrameLocked(ctx, f.Timestamp, f.ID, f.DLC, f.Data, f.BRS, f.ESI)
+				if err != nil {
+					return nil, fmt.Errorf("SendFramesSeq frame %d: %w", i, err)
+				}
+				return resp, nil
 			}()
 			if err != nil {
-				yield(nil, fmt.Errorf("SendFramesSeq frame %d: %w", i, err))
+				yield(nil, err)
 				return
 			}
 			if !yield(resp, nil) {
@@ -749,12 +742,12 @@ func (c *Client) SendFramesSeq(ctx context.Context, frames iter.Seq[Frame]) iter
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) SendError(ctx context.Context, ts Timestamp) error {
 	release, err := c.acquire(ctx, "SendError")
+	defer release()
 	if err != nil {
 		return err
 	}
-	defer release()
-	if ts.Microseconds < 0 {
-		return validationError("timestamp must be non-negative")
+	if err := ts.validate(); err != nil {
+		return err
 	}
 	resp, err := c.backend.SendErrorBinary(c.state, ts)
 	if err != nil {
@@ -777,12 +770,12 @@ func (c *Client) SendError(ctx context.Context, ts Timestamp) error {
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) SendRemote(ctx context.Context, ts Timestamp, id CANID) error {
 	release, err := c.acquire(ctx, "SendRemote")
+	defer release()
 	if err != nil {
 		return err
 	}
-	defer release()
-	if ts.Microseconds < 0 {
-		return validationError("timestamp must be non-negative")
+	if err := ts.validate(); err != nil {
+		return err
 	}
 	resp, err := c.backend.SendRemoteBinary(c.state, ts, id)
 	if err != nil {
@@ -806,8 +799,8 @@ func (c *Client) sendFrameLocked(
 	id CANID, dlc DLC, data FramePayload,
 	brs *bool, esi *bool,
 ) (FrameResponse, error) {
-	if ts.Microseconds < 0 {
-		return nil, validationError("timestamp must be non-negative")
+	if err := ts.validate(); err != nil {
+		return nil, err
 	}
 	if err := validatePayload(dlc, data); err != nil {
 		return nil, err
@@ -843,11 +836,8 @@ func (c *Client) sendFrameLocked(
 		response := "ack"
 		if b, ok := fr.(PropertyBatch); ok {
 			response = "satisfaction"
-			for _, r := range b.Results {
-				if r.Verdict == Fails {
-					response = "violation"
-					break
-				}
+			if slices.ContainsFunc(b.Results, func(r PropertyResult) bool { return r.Verdict == Fails }) {
+				response = "violation"
 			}
 		}
 		c.logger.LogAttrs(ctx, slog.LevelDebug, "frame.processed",
@@ -865,10 +855,10 @@ func (c *Client) sendFrameLocked(
 // Honors ctx cancellation per the contract on [Client.ParseDBC].
 func (c *Client) EndStream(ctx context.Context) (*StreamResult, error) {
 	release, err := c.acquire(ctx, "EndStream")
+	defer release()
 	if err != nil {
 		return nil, err
 	}
-	defer release()
 	resp, err := c.backend.EndStreamBinary(c.state)
 	if err != nil {
 		return nil, err
@@ -876,16 +866,6 @@ func (c *Client) EndStream(ctx context.Context) (*StreamResult, error) {
 	sr, err := parseStreamResponse(resp)
 	if err != nil {
 		return nil, err
-	}
-	numFails := 0
-	numUnresolved := 0
-	for i := range sr.Results {
-		switch sr.Results[i].Verdict {
-		case Fails:
-			numFails++
-		case Unresolved:
-			numUnresolved++
-		}
 	}
 	c.enrichEndOfStream(ctx, sr.Results)
 	c.lastFrames = nil
@@ -895,6 +875,15 @@ func (c *Client) EndStream(ctx context.Context) (*StreamResult, error) {
 				c.logger.LogAttrs(ctx, slog.LevelWarn, "endstream.uncached_atom",
 					slog.Int("property_index", w.PropertyIndex),
 					slog.String("detail", w.Detail))
+			}
+		}
+		numFails, numUnresolved := 0, 0
+		for _, r := range sr.Results {
+			switch r.Verdict {
+			case Fails:
+				numFails++
+			case Unresolved:
+				numUnresolved++
 			}
 		}
 		c.logger.LogAttrs(ctx, slog.LevelInfo, "stream.ended",
@@ -934,15 +923,13 @@ func (c *Client) enrichStreamingViolation(ctx context.Context, pr *PropertyResul
 // uniform cross-binding extract-once shape).
 //
 // Three passes: collect the results to enrich (warning on and excluding any
-// out-of-bounds property index); run ONE full-frame extraction per last-seen
-// frame, merging every extracted signal first-frame-wins and breaking early
-// once every signal wanted by any collected diagnostic has a value; then
+// out-of-bounds property index); extract the last-seen frames for the signals
+// any collected diagnostic wants ([Client.extractLastFrames]); then
 // distribute the merged values to each result, filtered to the signals its
 // own diagnostic references. A failed frame extraction warns
-// enrichment.extraction_failed once per frame per EndStream. When no
-// collected diagnostic wants any signal the frame pass is skipped entirely
-// (zero FFI calls), but every collected result still gets an enrichment with
-// the formula-description fallback reason.
+// enrichment.extraction_failed once per frame per EndStream. A result whose
+// signals have no value still gets an enrichment with the
+// formula-description fallback reason.
 //
 // Caller must hold the client lock.  ctx is forwarded to slog so
 // request-scoped attrs propagate into structured-log records.
@@ -973,43 +960,14 @@ func (c *Client) enrichEndOfStream(ctx context.Context, results []PropertyResult
 	if len(todo) == 0 {
 		return
 	}
-	// Union of signal names wanted by any pending diagnostic; doubles as the
-	// remaining-set that drives the early break below.
-	remaining := make(map[SignalName]bool)
+	// Union of signal names wanted by any pending diagnostic.
+	wanted := make(map[SignalName]bool)
 	for _, p := range todo {
 		for _, s := range p.diag.Signals {
-			remaining[s] = true
+			wanted[s] = true
 		}
 	}
-	merged := make(map[SignalName]Rational)
-	if len(remaining) > 0 {
-		// Sort map keys for deterministic enrichment output.
-		keys := make([]uint64, 0, len(c.lastFrames))
-		for k := range c.lastFrames {
-			keys = append(keys, k)
-		}
-		slices.SortFunc(keys, compareFrameKeys)
-		for _, k := range keys {
-			lf := c.lastFrames[k]
-			result := c.extractSignalsLocked(ctx, lf.id, lf.dlc, lf.data)
-			if result == nil {
-				if c.logger != nil {
-					c.logger.LogAttrs(ctx, slog.LevelWarn, "enrichment.extraction_failed",
-						slog.Uint64("canId", uint64(lf.id.Value())))
-				}
-				continue
-			}
-			for _, sv := range result.Values {
-				if _, ok := merged[sv.Name]; !ok {
-					merged[sv.Name] = sv.Value
-				}
-				delete(remaining, sv.Name)
-			}
-			if len(remaining) == 0 {
-				break
-			}
-		}
-	}
+	merged := c.extractLastFrames(ctx, wanted)
 	for _, p := range todo {
 		var values map[SignalName]Rational
 		for _, sig := range p.diag.Signals {
@@ -1027,6 +985,35 @@ func (c *Client) enrichEndOfStream(ctx context.Context, results []PropertyResult
 			CoreReason:     p.pr.Reason,
 		}
 	}
+}
+
+// extractLastFrames extracts the last-seen frames in key order, for a
+// deterministic merge, until every wanted signal has a value, merging
+// first-frame-wins; wanted is emptied as the values arrive, and a pass that
+// starts with it empty extracts nothing. Caller holds the client lock.
+func (c *Client) extractLastFrames(ctx context.Context, wanted map[SignalName]bool) map[SignalName]Rational {
+	merged := make(map[SignalName]Rational)
+	for _, k := range slices.SortedFunc(maps.Keys(c.lastFrames), compareFrameKeys) {
+		if len(wanted) == 0 {
+			return merged
+		}
+		lf := c.lastFrames[k]
+		result := c.extractSignalsLocked(ctx, lf.id, lf.dlc, lf.data)
+		if result == nil {
+			if c.logger != nil {
+				c.logger.LogAttrs(ctx, slog.LevelWarn, "enrichment.extraction_failed",
+					slog.Uint64("canId", uint64(lf.id.Value())))
+			}
+			continue
+		}
+		for _, sv := range result.Values {
+			if _, ok := merged[sv.Name]; !ok {
+				merged[sv.Name] = sv.Value
+			}
+			delete(wanted, sv.Name)
+		}
+	}
+	return merged
 }
 
 // extractSignalValues extracts the signals a diagnostic names from a frame,

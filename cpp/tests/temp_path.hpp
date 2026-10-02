@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <optional>
 #include <ranges>
 #include <stdexcept>
@@ -116,15 +117,25 @@ inline void reap_dead_scratch_dirs() {
     }
 }
 
+/// Waits until whoever holds `dir`'s lock lets go: the kernel's blocking
+/// `flock`, taken and dropped at once.
+inline void wait_until_free(const std::filesystem::path& dir) {
+    const ScratchLock waited{dir, LockWait::UntilFree};
+}
+
+/// How a try waits on a lock another holder has: `wait_until_free`, or in a
+/// test a stand-in that plays the holder letting go.
+using LockWaiter = std::function<void(const std::filesystem::path&)>;
+
 /// One try at owning `dir`: creates it and takes its lock into `lock`,
 /// answering whether the lock it took is the directory still at that path.
 /// A peer sweeping the dead directories can hold this one, having taken it
 /// between its creation here and the lock, and holds it for exactly the
-/// removal, tens of milliseconds for a populated directory; the try then
-/// waits on that lock rather than on time, and answers false once the peer
-/// lets go, so that the next try creates the directory afresh.
-inline auto take_scratch_dir(const std::filesystem::path& dir, std::optional<ScratchLock>& lock)
-    -> bool {
+/// removal; the try then waits on that lock through `wait`, never on time,
+/// and answers false once the peer lets go, so that the next try creates the
+/// directory afresh.
+inline auto take_scratch_dir(const std::filesystem::path& dir, std::optional<ScratchLock>& lock,
+                             const LockWaiter& wait = wait_until_free) -> bool {
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
     if (ec)
@@ -132,8 +143,8 @@ inline auto take_scratch_dir(const std::filesystem::path& dir, std::optional<Scr
     lock.emplace(dir);
     if (lock->owns(dir))
         return true;
-    lock.emplace(dir, LockWait::UntilFree);
     lock.reset();
+    wait(dir);
     return false;
 }
 
@@ -141,10 +152,11 @@ inline auto take_scratch_dir(const std::filesystem::path& dir, std::optional<Scr
 /// removal took the directory from under a try; the first try that holds is
 /// the last.  Throws when the directory cannot be created, or when the tries
 /// run out, which takes a fresh peer removal per try.
-inline void hold_scratch_dir(const std::filesystem::path& dir, std::optional<ScratchLock>& lock) {
+inline void hold_scratch_dir(const std::filesystem::path& dir, std::optional<ScratchLock>& lock,
+                             const LockWaiter& wait = wait_until_free) {
     constexpr int tries = 64;
     if (std::ranges::any_of(std::views::repeat(0, tries),
-                            [&](auto) { return take_scratch_dir(dir, lock); }))
+                            [&](auto) { return take_scratch_dir(dir, lock, wait); }))
         return;
     throw std::runtime_error("cannot hold " + dir.string());
 }

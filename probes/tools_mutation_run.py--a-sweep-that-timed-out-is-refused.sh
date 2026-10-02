@@ -11,7 +11,7 @@
 # The gate is driven here through the summary parser rather than by reproducing
 # such a run, so the check is deterministic and needs no second sweep: the
 # recorded tails of both runs go in, and the two verdicts come out.
-# Non-zero exit: the gate takes the loaded run, or refuses the clean one.
+# Non-zero exit: the gate takes the timed-out run, or refuses the clean one.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 py=python/.venv/bin/python
@@ -43,12 +43,12 @@ def tail(killed, lived, not_covered, timed_out):
 bad = []
 
 # The run that had a second sweep beside it.
-loaded = parse_gremlins_summary(tail(39, 0, 102, 622), "recorded")
-if loaded.timeouts != 622:
-    bad.append(f"the parser read {loaded.timeouts} timeouts out of the loaded run, not 622")
-verdict = drift_for(loaded, bindings)
+timed_out = parse_gremlins_summary(tail(39, 0, 102, 622), "recorded")
+if timed_out.timeouts != 622:
+    bad.append(f"the parser read {timed_out.timeouts} timeouts out of the timed-out run, not 622")
+verdict = drift_for(timed_out, bindings)
 if verdict.get("status") != "regression":
-    bad.append(f"the loaded run verdicts {verdict.get('status')!r}, not a regression: {verdict}")
+    bad.append(f"the timed-out run verdicts {verdict.get('status')!r}, not a regression: {verdict}")
 
 # The recorded baseline's own run.
 base = bindings.get("go", {}).get("baseline", {})

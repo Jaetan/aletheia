@@ -376,7 +376,9 @@ def run_python(artifact_dir: Path) -> MutationReport:
                 f"{run_proc.returncode}/{results_proc.returncode} (see python.raw.txt)"
             ),
         )
-    return MutationReport("python", "mutmut", counts.killed, counts.survived, raw)
+    return MutationReport(
+        "python", "mutmut", counts.killed, counts.survived, raw, timeouts=counts.timeout
+    )
 
 
 def run_go(artifact_dir: Path) -> MutationReport:
@@ -721,10 +723,10 @@ def drift_for(
     if ungated is not None:
         return ungated
     spec_baseline = bindings.get(rep.binding, {}).get("baseline", {})
-    # A mutant that timed out is neither killed nor survived, so a sweep that
-    # timed out on nearly all of them reports no survivors and full efficacy.
-    # That is what a loaded machine produces, and it is indistinguishable from a
-    # clean run by the survivor count alone, so the ceiling is checked first.
+    # A mutant that timed out is neither killed nor survived, so a sweep whose
+    # timeouts hide survivors reports fewer of them than the tree has, and the
+    # survivor count alone cannot tell it from a clean run: the ceiling is
+    # checked first.
     ceiling = spec_baseline.get("timeout_ceiling")
     if ceiling is not None and rep.timeouts is not None and rep.timeouts > ceiling:
         return {

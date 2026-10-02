@@ -40,6 +40,7 @@ from tools.mutation_cpp_legs import (
 )
 from tools.mutation_cpp_runs import CPP_LEG_RUNS_SUFFIX, CPP_RUNS_REPORT
 from tools.mutation_cpp_slices import CPP_SLICES, SuiteRuns
+from tools.mutation_routes import MULL_TIMEDOUT
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -124,14 +125,33 @@ def _fixed_sha(_root: Path | None = None) -> str:
     return _SHA
 
 
-def _fake_sweeps(monkeypatch: pytest.MonkeyPatch, swept: list[str]) -> None:
+# The mutant a sweep can be told the runner ended at its cap, in every tree.
+_TIMED_OUT_MUTANT = "m12"
+
+
+def _time_out(sqlite_path: Path) -> None:
+    """Record in one leg's census that the runner ended the timed-out mutant at its cap."""
+    with contextlib.closing(sqlite3.connect(sqlite_path)) as conn:
+        _ = conn.execute(
+            "INSERT INTO mutant VALUES (?, ?, ?, ?, ?)",
+            (_TIMED_OUT_MUTANT, MULL_TIMEDOUT, -1, "", ""),
+        )
+        conn.commit()
+
+
+def _fake_sweeps(
+    monkeypatch: pytest.MonkeyPatch, swept: list[str], *, timed_out: bool = False
+) -> None:
     """Replace the build-and-sweep of a leg by writing its reports, recording which ran."""
 
     def sweep(
         _cmake: str, _mull: str, _build_dir: Path, artifact_dir: Path, leg: CppLeg
     ) -> tuple[str, Mapping[str, object]]:
         swept.append(str(leg))
-        return f"=== {leg} leg ===\n", _write_leg_reports(artifact_dir, leg)
+        elements = _write_leg_reports(artifact_dir, leg)
+        if timed_out and _TIMED_OUT_MUTANT in _leg_mutants(leg):
+            _time_out(artifact_dir / f"{leg.report_name}.sqlite")
+        return f"=== {leg} leg ===\n", elements
 
     monkeypatch.setattr(mutation_cpp, "_check_cpp_tools", lambda: ("cmake", "mull-runner-23"))
     monkeypatch.setattr(mutation_cpp, "_sweep_cpp_lane", sweep)
@@ -165,6 +185,25 @@ def test_unset_stage_sweeps_every_tree_whole_and_merges(
     statuses = {m["id"]: m["status"] for m in merged["files"]["/tree/cpp/src/a.cpp"]["mutants"]}
     assert statuses["m11"] == "Survived"
     assert statuses["m21"] == "Killed"
+
+
+def test_a_mutant_every_tree_timed_out_is_neither_killed_nor_survived(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The census's timeout route reaches the report, and a ceiling of 0 refuses the sweep.
+
+    The merge reads a mutant killed in no tree and ended at the runner's cap as
+    no verdict: it leaves the killed count, and the drift gate refuses the run.
+    """
+    _fake_sweeps(monkeypatch, [], timed_out=True)
+    _stage(monkeypatch, None)
+    report = run_cpp(tmp_path)
+    assert report.error is None
+    assert (report.killed, report.survived, report.timeouts) == (len(_ALL_MUTANTS) - 2, 1, 1)
+    verdict = mutation_run.drift_for(
+        report, {"cpp": {"baseline": {"survivors": 1, "timeout_ceiling": 0}}}
+    )
+    assert verdict["status"] == "regression"
 
 
 @pytest.mark.parametrize("leg", sliced_legs(), ids=str)

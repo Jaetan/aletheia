@@ -20,14 +20,12 @@
 #include <filesystem>
 #include <fstream>
 #include <ios>
-#include <latch>
 #include <optional>
 #include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <thread>
 #include <variant>
 #include <vector>
 
@@ -1162,32 +1160,27 @@ TEST_CASE("temp path: a lock outlived by its directory's removal owns nothing at
 TEST_CASE("temp path: a scratch directory a peer is sweeping is held once the peer is done",
           "[excel][temp]") {
     // A run whose process id a killed run's directory carries can find a peer
-    // removing that directory between its own creation of it and its lock.
-    // The peer holds the lock for the whole removal, tens of milliseconds for
-    // a populated directory, and a thread of this process stands in for it
-    // because flock is per open file description.  Populated under the peer's
-    // lock, since a test binary starting beside this one sweeps any directory
-    // of this shape it finds unlocked, and populated so that a fixture waiting
-    // on time rather than on the lock would read red: an empty directory's
-    // removal takes microseconds, a populated one's tens of milliseconds.
+    // removing that directory between its own creation of it and its lock, the
+    // peer holding the lock for the whole removal. The peer here is a second
+    // lock in this process, since flock is per open file description, and it
+    // removes the directory and lets go only inside the try's wait: a try that
+    // slept and retried instead of waiting on the lock would find the peer
+    // still holding it on every try and run out of tries.
     auto const dir = planted("contested");
-    std::latch held{1};
-    bool peer_held = false;
-    std::jthread peer{[&] {
-        std::optional<aletheia::test::ScratchLock> peer_lock;
-        aletheia::test::hold_scratch_dir(dir, peer_lock);
-        peer_held = peer_lock->owns(dir);
-        std::ranges::for_each(std::views::iota(0, 20000),
-                              [&dir](int i) { std::ofstream{dir / std::to_string(i)} << "x"; });
-        held.count_down();
+    std::optional<aletheia::test::ScratchLock> peer_lock;
+    aletheia::test::hold_scratch_dir(dir, peer_lock);
+    REQUIRE(peer_lock->owns(dir));
+    bool peer_let_go = false;
+    auto const peer_sweeps = [&](const std::filesystem::path& contested) {
         std::error_code ec;
-        std::filesystem::remove_all(dir, ec);
-    }};
-    held.wait();
+        std::filesystem::remove_all(contested, ec);
+        peer_lock.reset();
+        peer_let_go = true;
+        aletheia::test::wait_until_free(contested);
+    };
     std::optional<aletheia::test::ScratchLock> lock;
-    aletheia::test::hold_scratch_dir(dir, lock);
-    peer.join();
-    REQUIRE(peer_held);
+    aletheia::test::hold_scratch_dir(dir, lock, peer_sweeps);
+    REQUIRE(peer_let_go);
     REQUIRE(lock.has_value());
     CHECK(lock->owns(dir));
     CHECK(std::filesystem::is_directory(dir));

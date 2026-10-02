@@ -289,15 +289,16 @@ CPP_LEG_REPORT_SUFFIXES: tuple[str, ...] = (".json", ".sqlite", ".txt")
 # the budget a CI job gives a leg is read off the run that measured it.
 CPP_LEGS_REPORT = "cpp-legs.json"
 
-# Milliseconds a mutant's run may take before the runner ends it. Mull's own
-# cap is ten times the unmutated run, which moves with the tree's speed and
-# not with the mutants': under debug mode the four mutants that let an
-# oversized input through to a parser run 65 to 79 seconds against baselines
-# of 2 and 5, and the default ended them where the tests would have.
-# ``--minimum-timeout`` is the knob that raises it, measured on both trees.
-# Ten minutes is seven times the slowest run measured, with room for a CI
-# runner's slower clock; a mutant that hangs costs this once per tree, and
-# none does today.
+# Milliseconds a mutant's run may take before the runner ends it. The cap is
+# a backstop and never a verdict: a mutant it ends is neither killed nor
+# survived, and the lane refuses a sweep in which it fired. Mull's own cap is
+# ten times the unmutated run, which moves with the tree's speed and not with
+# the mutants': under debug mode the four mutants that let an oversized input
+# through to a parser run 65 to 79 seconds against baselines of 2 and 5, and
+# the default ended them where the tests would have. ``--minimum-timeout`` is
+# the knob that raises it. Ten minutes is seven times the slowest run measured,
+# so it ends only a run that would not end; a mutant that hangs costs this once
+# per tree, and none does today.
 CPP_MUTANT_CAP_MS = 600_000
 
 
@@ -830,10 +831,15 @@ def _finish_cpp(
 ) -> MutationReport:
     """Merge the trees' reports, count the kill routes and the surface, and write the lane's log."""
     total, survived = _merge_cpp_lanes(artifact_dir, reports)
-    raw += f"=== merged ===\nkilled {total - survived}, survived {survived} of {total}\n"
     endings = cpp_endings(artifact_dir, legs)
-    if endings is not None:
-        routes = merge_endings(endings)
+    routes = merge_endings(endings) if endings is not None else None
+    # A mutant the runner ended at its cap in every tree is neither killed nor
+    # survived: the census names it, and the drift gate refuses the sweep.
+    timeouts = routes["timeout"] if routes is not None else None
+    killed = total - survived - (timeouts or 0)
+    raw += "=== merged ===\n"
+    raw += f"killed {killed}, survived {survived}, timed out {timeouts} of {total}\n"
+    if endings is not None and routes is not None:
         (artifact_dir / CPP_ROUTES_REPORT).write_text(json.dumps(routes, indent=2))
         raw += "routes: " + ", ".join(f"{route} {count}" for route, count in routes.items()) + "\n"
         unobserved = unobserved_rows_to_ledger(unobserved_kill_rows(endings, _repo_line))
@@ -843,7 +849,7 @@ def _finish_cpp(
     (artifact_dir / CPP_RUNS_REPORT).write_text(json.dumps(runs, indent=2))
     raw += weight_drift(runs)
     (artifact_dir / "cpp.raw.txt").write_text(raw)
-    return MutationReport("cpp", "mull", total - survived, survived, raw)
+    return MutationReport("cpp", "mull", killed, survived, raw, timeouts=timeouts)
 
 
 def unobserved_summary(unobserved: Sequence[UnobservedRow]) -> str:

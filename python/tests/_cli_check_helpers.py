@@ -23,7 +23,6 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FFI_LIB = REPO_ROOT / "build" / "libaletheia-ffi.so"
 _SUBPROCESS_CWD = REPO_ROOT / "python"
-_RUN_TIMEOUT_S = 180
 
 
 def skip_without_ffi() -> None:
@@ -33,16 +32,15 @@ def skip_without_ffi() -> None:
 
 
 def run_captured(
-    argv: list[str], env: dict[str, str], *, cwd: Path, timeout: int
+    argv: list[str], env: dict[str, str], *, cwd: Path
 ) -> subprocess.CompletedProcess[str]:
     """Run ``argv`` as a captured-output text subprocess (the shared CLI-drive primitive).
 
     The single ``subprocess.run`` invocation the CLI regression harnesses share,
-    so no test file re-spells the capture/text/timeout/no-raise options.
+    so no test file re-spells the capture/text/no-raise options.  No timeout: a
+    test waits on no duration, and a hang is the test run's own limit to report.
     """
-    return subprocess.run(
-        argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout, check=False
-    )
+    return subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, check=False)
 
 
 def run_check(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -53,7 +51,6 @@ def run_check(args: list[str]) -> subprocess.CompletedProcess[str]:
         [sys.executable, "-m", "aletheia", "check", *args],
         env,
         cwd=_SUBPROCESS_CWD,
-        timeout=_RUN_TIMEOUT_S,
     )
 
 

@@ -159,6 +159,24 @@ func TestCheckInvertedRanges(t *testing.T) {
 			t.Errorf("%s: the message does not name the bounds: %v", name, err)
 		}
 	}
+	_, err := CheckSignal("Voltage").StaysBetween(IntRational(10), IntRational(0))
+	if want := "stays_between: lo (10) must be <= hi (0)"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("got %v, want the bounds rendered as %q", err, want)
+	}
+}
+
+// A range whose two bounds are equal is ordered, in each chain that takes one.
+func TestCheckEqualBoundsAreOrdered(t *testing.T) {
+	five := IntRational(5)
+	if _, err := CheckSignal("Voltage").StaysBetween(five, five); err != nil {
+		t.Errorf("stays between: %v", err)
+	}
+	if _, err := CheckSignal("Temp").SettlesBetween(five, five).Within(500); err != nil {
+		t.Errorf("settles between: %v", err)
+	}
+	if _, err := CheckWhen("Brake").Exceeds(IntRational(50)).Then("Speed").StaysBetween(five, five).Within(200); err != nil {
+		t.Errorf("when then stays between: %v", err)
+	}
 }
 
 // The millisecond bound is refused when negative and when its microsecond
@@ -179,6 +197,9 @@ func TestCheckWithinBounds(t *testing.T) {
 	for name, within := range chains {
 		if err := within(-1); err == nil || !strings.Contains(err.Error(), "non-negative") {
 			t.Errorf("%s: expected a refusal of a negative bound, got %v", name, err)
+		}
+		if err := within(0); err != nil {
+			t.Errorf("%s: a zero bound was refused: %v", name, err)
 		}
 		if err := within(largest); err != nil {
 			t.Errorf("%s: the largest bound was refused: %v", name, err)
@@ -245,7 +266,7 @@ func TestCheckMetadataNamedSeverity(t *testing.T) {
 // one setProperties command; the mock's recorded input is read back and
 // compared property by property with the serializer's own output.
 func TestAddChecks(t *testing.T) {
-	ctx := bounded(t)
+	ctx := t.Context()
 	speed := CheckSignal("Speed").NeverExceeds(IntRational(220))
 	voltage, err := CheckSignal("Voltage").StaysBetween(half(23), half(29))
 	if err != nil {
@@ -266,7 +287,7 @@ func TestAddChecks(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewClient: %v", err)
 			}
-			t.Cleanup(func() { _ = closeWithin(t, client) })
+			t.Cleanup(func() { _ = client.Close() })
 			if err := client.AddChecks(ctx, tc.session); err != nil {
 				t.Fatalf("AddChecks: %v", err)
 			}
@@ -334,5 +355,110 @@ func TestSerializeFormulaDepthLimit(t *testing.T) {
 	}
 	if aleErr.Kind != ErrValidation {
 		t.Errorf("kind = %v, want ErrValidation", aleErr.Kind)
+	}
+}
+
+// The depth limit counts every operator, unary and binary alike: a formula
+// whose atom sits exactly at the limit serializes, and one a level deeper is
+// refused, down either side of a binary operator.
+func TestSerializeFormulaDepthLimit_CountsEveryOperator(t *testing.T) {
+	atom := Atomic{Predicate: Equals{Signal: "S", Value: IntRational(1)}}
+	nest := map[string]func(Formula) Formula{
+		"not":          func(f Formula) Formula { return Not{Inner: f} },
+		"and on left":  func(f Formula) Formula { return And{Left: f, Right: atom} },
+		"or on right":  func(f Formula) Formula { return Or{Left: atom, Right: f} },
+		"metric until": func(f Formula) Formula { return MetricUntil{Bound: TimeBound{Microseconds: 1}, Left: f, Right: atom} },
+	}
+	for name, wrap := range nest {
+		t.Run(name, func(t *testing.T) {
+			var f Formula = atom
+			for range maxFormulaDepth {
+				f = wrap(f)
+			}
+			if _, err := serializeFormula(f); err != nil {
+				t.Errorf("an atom at depth %d was refused: %v", maxFormulaDepth, err)
+			}
+			if _, err := serializeFormula(wrap(f)); err == nil {
+				t.Errorf("an atom at depth %d was accepted", maxFormulaDepth+1)
+			}
+		})
+	}
+}
+
+// Each operator serializes to the shape the kernel's parser reads, its
+// operands in place and a metric operator's bound beside them; a bound of
+// zero, which checks only the current step, is carried.
+func TestSerializeFormula_OperatorShapes(t *testing.T) {
+	a := Atomic{Predicate: LessThan{Signal: "A", Value: IntRational(1)}}
+	b := Atomic{Predicate: GreaterThan{Signal: "B", Value: IntRational(2)}}
+	wa := `{"operator":"atomic","predicate":{"predicate":"lessThan","signal":"A","value":1}}`
+	wb := `{"operator":"atomic","predicate":{"predicate":"greaterThan","signal":"B","value":2}}`
+	zero := TimeBound{}
+	cases := map[string]struct {
+		f    Formula
+		want string
+	}{
+		"and":               {And{Left: a, Right: b}, `{"left":` + wa + `,"operator":"and","right":` + wb + `}`},
+		"or":                {Or{Left: a, Right: b}, `{"left":` + wa + `,"operator":"or","right":` + wb + `}`},
+		"until":             {Until{Left: a, Right: b}, `{"left":` + wa + `,"operator":"until","right":` + wb + `}`},
+		"release":           {Release{Left: a, Right: b}, `{"left":` + wa + `,"operator":"release","right":` + wb + `}`},
+		"metric until":      {MetricUntil{Bound: TimeBound{Microseconds: 7}, Left: a, Right: b}, `{"left":` + wa + `,"operator":"metricUntil","right":` + wb + `,"timebound":7}`},
+		"metric release":    {MetricRelease{Bound: zero, Left: a, Right: b}, `{"left":` + wa + `,"operator":"metricRelease","right":` + wb + `,"timebound":0}`},
+		"metric always":     {MetricAlways{Bound: zero, Inner: a}, `{"formula":` + wa + `,"operator":"metricAlways","timebound":0}`},
+		"metric eventually": {MetricEventually{Bound: TimeBound{Microseconds: 3}, Inner: b}, `{"formula":` + wb + `,"operator":"metricEventually","timebound":3}`},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			m, err := serializeFormula(tc.f)
+			if err != nil {
+				t.Fatalf("serializeFormula: %v", err)
+			}
+			if got := canonicalJSON(t, m); got != tc.want {
+				t.Errorf("got  %s\nwant %s", got, tc.want)
+			}
+		})
+	}
+	if _, err := serializeFormula(MetricAlways{Bound: TimeBound{Microseconds: -1}, Inner: a}); err == nil {
+		t.Error("a negative bound was accepted")
+	}
+}
+
+// Each predicate's rationals are refused with a denominator of zero or less
+// and accepted with one; a between whose bounds are equal is ordered, and a
+// stable-within tolerance of zero, which allows no change at all, is carried
+// while a negative one is refused.
+func TestSerializePredicate_RationalEdges(t *testing.T) {
+	zeroDen := Rational{Numerator: 1, Denominator: 0}
+	refused := map[string]Predicate{
+		"equals over zero":         Equals{Signal: "S", Value: zeroDen},
+		"changed by over negative": ChangedBy{Signal: "S", Delta: Rational{Numerator: 1, Denominator: -1}},
+		"between min over zero":    Between{Signal: "S", Min: zeroDen, Max: IntRational(1)},
+		"between max over zero":    Between{Signal: "S", Min: IntRational(0), Max: zeroDen},
+		"tolerance over zero":      StableWithin{Signal: "S", Tolerance: zeroDen},
+		"negative tolerance":       StableWithin{Signal: "S", Tolerance: IntRational(-1)},
+		"between inverted":         Between{Signal: "S", Min: IntRational(2), Max: IntRational(1)},
+	}
+	for name, p := range refused {
+		if m, err := serializePredicate(p); err == nil {
+			t.Errorf("%s: serialized as %v", name, m)
+		}
+	}
+	accepted := map[string]struct {
+		p    Predicate
+		want string
+	}{
+		"equals over one": {Equals{Signal: "S", Value: IntRational(3)}, `{"predicate":"equals","signal":"S","value":3}`},
+		"between equal":   {Between{Signal: "S", Min: IntRational(4), Max: IntRational(4)}, `{"max":4,"min":4,"predicate":"between","signal":"S"}`},
+		"zero tolerance":  {StableWithin{Signal: "S", Tolerance: IntRational(0)}, `{"predicate":"stableWithin","signal":"S","tolerance":0}`},
+	}
+	for name, tc := range accepted {
+		m, err := serializePredicate(tc.p)
+		if err != nil {
+			t.Errorf("%s: refused: %v", name, err)
+			continue
+		}
+		if got := canonicalJSON(t, m); got != tc.want {
+			t.Errorf("%s: got %s, want %s", name, got, tc.want)
+		}
 	}
 }
