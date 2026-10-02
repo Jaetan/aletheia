@@ -214,6 +214,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **A push connects only once its tree has passed a sweep:
+  `tools/sweep_evidence.py`, which the pre-push hook asks first.** git
+  connects to the remote before it runs the pre-push hook, so a sweep run in
+  the hook held the connection idle for its whole length, and a connection
+  that died idle hung the push after `Total N (delta M)`. A full sweep now
+  writes the tree of the tracked content it saw into its log's header and,
+  measured again, into its summary, and `tools/sweep_evidence.py REV...` names
+  the finished, passing log that vouches for each revision's tree. The hook
+  asks it about the commit each pushed ref names and allows the push at once
+  when every one has a record. Otherwise it runs the sweep and asks again, so
+  it refuses a push whose sweep passed on a working tree other than the pushed
+  one; it refuses as well when either tool is missing. A sweep beside an
+  untracked file git does not ignore, a subset sweep (`--fast`, `--lanes`) and
+  a sweep whose tree moved while it ran vouch for no tree. Re-run
+  `python/.venv/bin/python -m tools.install_hooks` to install the new hook.
+
 - **BREAKING (Python): `aletheia.asyncio.testing.gated_backend` is gone; tests
   hand the async client a `TurnExecutor` as its `run_in_thread`.**
   `gated_backend` blocked a worker thread inside a backend call and needed a
@@ -1368,6 +1384,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   in the install prefix.
 
 ### Fixed
+
+- **The docs run each tool as a module.** No file under `tools/` is
+  executable, so a doc command spelled `tools/run_ci.py` failed with
+  permission denied; every such command is now
+  `python/.venv/bin/python -m tools.<name>`. Two durations the sweep logs
+  contradict are gone: the always-on sweep was documented at 22-30 minutes
+  warm, where the passing full sweeps of 2026-09-21 to 2026-10-02 ran 149 to
+  608 s.
 
 - **The Go serializer refuses an unset identifier rather than panicking.** A
   definition built by hand can leave a message's identifier, a comment or

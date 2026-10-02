@@ -2,18 +2,22 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """tools/run_ci.py — Offline CI orchestrator.
 
-Chains the full gate sweep that commit messages have historically asserted
-"all gates clean / green" against, plus the offline enforcers
-(check-changelog, check-gate-claim).  Captures all output to a timestamped log
-under ``tools/ci-output/`` whose header records a digest of the build sources
-the sweep observed, and exports that digest to every step it runs, so the
+Chains the full gate sweep a commit message's "all gates clean" claim is
+asserted against, plus the offline enforcers (check-changelog,
+check-gate-claim).  Captures all output to a timestamped log under
+``tools/ci-output/`` whose header records a digest of the build sources the
+sweep observed, and exports that digest to every step it runs, so the
 gate-claim enforcer reads whether a sweep observed a commit's content from
 this provenance rather than from a timestamp.  A ``--fast`` sweep runs a
-subset and records no digest.
+subset and records no digest.  The header also records the tree of the
+tracked content the sweep observed, measured again in the summary: the record
+a push asks for (``tools/sweep_evidence.py``).  A subset sweep, a sweep beside
+an untracked file and one whose tree moved while it ran record no tree.
 
 Invoked from:
-  * ``tools/run_ci.py`` (direct, manual or scripted)
-  * ``.git/hooks/pre-push`` (auto-installed by tools/install_hooks.py)
+  * ``python -m tools.run_ci`` (direct, manual or scripted), before a push
+  * ``.git/hooks/pre-push`` (installed by tools/install_hooks.py), when no
+    passing sweep of the pushed tree is on record
 
 Deliberately NOT exposed as a Shake ``phony "ci"`` target — the runner's
 inner ``cabal run shake -- build`` invocation fails to acquire
@@ -163,7 +167,16 @@ from tools.check_gate_claim import (
     SOURCES_ENV,
     SOURCES_LINE,
     SOURCES_UNRECORDED,
+    LogLine,
     sources_digest_of_worktree,
+)
+from tools.sweep_evidence import (
+    TREE_LINE,
+    TREE_MOVED,
+    TREE_UNRECORDED_SUBSET,
+    TREE_UNRECORDED_UNTRACKED,
+    TreeId,
+    worktree_tree,
 )
 
 if TYPE_CHECKING:
@@ -489,6 +502,10 @@ class RunContext:
     # runs: the record the gate-claim enforcer reads, and what the summary
     # re-measures to tell whether those sources moved under the sweep.
     sources: str
+    # The tree of the tracked content the sweep observes, taken before any step
+    # runs, or None beside an untracked file: the record a push asks for
+    # (tools/sweep_evidence.py), measured again in the summary.
+    tree: TreeId | None = None
 
     @classmethod
     def discover(cls, repo_root: Path) -> RunContext:
@@ -516,6 +533,7 @@ class RunContext:
             log_path=log_dir / f"ci-{branch_safe}-{timestamp}.log",
             python=python,
             sources=sources_digest_of_worktree(repo_root),
+            tree=worktree_tree(repo_root),
         )
 
 
@@ -575,6 +593,20 @@ class Runner:
         return SOURCES_UNRECORDED if self._is_subset else self.ctx.sources
 
     @property
+    def recorded_tree(self) -> LogLine:
+        """The tree this sweep vouches for, or the note that it vouches for none."""
+        if self._is_subset:
+            return TREE_UNRECORDED_SUBSET
+        return LogLine(self.ctx.tree) if self.ctx.tree is not None else TREE_UNRECORDED_UNTRACKED
+
+    def _tree_at_the_end(self) -> LogLine:
+        """Name the tree the summary vouches for: the recorded one, unless it moved meanwhile."""
+        if self._is_subset or self.ctx.tree is None:
+            return self.recorded_tree
+        held = worktree_tree(self.ctx.repo_root) == self.ctx.tree
+        return self.recorded_tree if held else TREE_MOVED
+
+    @property
     def _is_subset(self) -> bool:
         """Say whether this sweep runs a subset of the gates: the fast tier, or some lanes."""
         return self.opts.fast or bool(self.opts.only_lanes)
@@ -603,6 +635,7 @@ class Runner:
                     f"Branch:   {self.ctx.branch}",
                     f"Commit:   {self.ctx.commit}",
                     f"{SOURCES_LINE}{self.recorded_sources}",
+                    f"{TREE_LINE}{self.recorded_tree}",
                     f"Steps:    {total}",
                     f"Lanes:    {', '.join(self.opts.only_lanes) or 'all'}",
                     f"Mode:     {mode}",
@@ -835,6 +868,7 @@ class Runner:
                         f"Duration: {elapsed}s ({elapsed // 60}m{elapsed % 60:02d}s)",
                         f"Log:      {self.ctx.log_path}",
                         f"{SOURCES_LINE}{self.recorded_sources}",
+                        f"{TREE_LINE}{self._tree_at_the_end()}",
                         "Use this log as the falsifiable evidence behind any 'all "
                         + "gates' claim.",
                     ]

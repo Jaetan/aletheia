@@ -58,6 +58,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import NewType
 
 from tools._common import emit, find_executable, run_capture
 
@@ -85,8 +86,10 @@ LOG_DIR = Path("tools") / "ci-output"
 # The lines a finished log carries: the digest in its header, the verdict in its
 # summary.  The orchestrator writes both through these constants, so the reader
 # and the writer are one definition.
-SOURCES_LINE = "Sources:  "
-SOURCES_UNRECORDED = "none (the sweep runs a subset of the gates)"
+# One line of a sweep log, or what a line records after its label.
+LogLine = NewType("LogLine", str)
+SOURCES_LINE = LogLine("Sources:  ")
+SOURCES_UNRECORDED = LogLine("none (the sweep runs a subset of the gates)")
 PASSED_LINE = re.compile(r"^Result:   ALL \d+ STEPS PASSED$")
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -175,29 +178,28 @@ def _log_records(log_dir: Path) -> set[str]:
         return digests
     for log in log_dir.glob("*.log"):
         digest = _recorded_digest(log)
-        if digest is not None and _passed(log):
+        if digest is not None and log_passed(log):
             digests.add(digest)
     return digests
 
 
-def _recorded_digest(log: Path) -> str | None:
-    """Return the digest a log's header records, or None when it records none."""
+def header_value(log: Path, prefix: LogLine) -> LogLine | None:
+    """Return what a log's header records after ``prefix``, or None when it records nothing."""
     try:
         with log.open(encoding="utf-8", errors="replace") as handle:
             for _ in range(_HEAD_LINES):
                 line = handle.readline()
                 if not line:
                     return None
-                if line.startswith(SOURCES_LINE):
-                    value = line[len(SOURCES_LINE) :].strip()
-                    return value if _DIGEST.match(value) else None
+                if line.startswith(prefix):
+                    return LogLine(line[len(prefix) :].strip())
     except OSError:
         return None
     return None
 
 
-def _passed(log: Path) -> bool:
-    """Return whether a log's summary says every step of its sweep passed."""
+def summary_lines(log: Path) -> list[LogLine]:
+    """Return the lines of a log's tail, where its summary is, or none when it cannot be read."""
     try:
         with log.open("rb") as handle:
             _ = handle.seek(0, os.SEEK_END)
@@ -205,8 +207,19 @@ def _passed(log: Path) -> bool:
             _ = handle.seek(max(0, size - _TAIL_BYTES))
             tail = handle.read().decode("utf-8", errors="replace")
     except OSError:
-        return False
-    return any(PASSED_LINE.match(line) for line in tail.splitlines())
+        return []
+    return [LogLine(line) for line in tail.splitlines()]
+
+
+def log_passed(log: Path) -> bool:
+    """Return whether a log's summary says every step of its sweep passed."""
+    return any(PASSED_LINE.match(line) for line in summary_lines(log))
+
+
+def _recorded_digest(log: Path) -> str | None:
+    """Return the digest a log's header records, or None when it records none."""
+    value = header_value(log, SOURCES_LINE)
+    return value if value is not None and _DIGEST.match(value) else None
 
 
 def evidence_for(digest: str, *, log_dir: Path, environ: dict[str, str]) -> str | None:

@@ -46,12 +46,11 @@ to maintain.  The same gate runs blocking at pre-push.
 
 ## Offline correctness sweep — `tools/run_ci.py`
 
-Documented in [`tools/run_ci.py`](../../tools/run_ci.py). The always-on
-sequential steps run ~22-30 minutes warm (both sanitizer ctest lanes are
-always-on, not opt-in: an opt-in sanitizer lane can let a defect — UB, as in
-`Rational::from_double`, or a read of a returned frame, as in the serializer
-depth-bound test — ship undetected; the IWYU gate + its self-test is the
-dead-import gate).
+Documented in [`tools/run_ci.py`](../../tools/run_ci.py). Both sanitizer
+ctest lanes are among the always-on steps, not opt-in: an opt-in sanitizer
+lane can let a defect — UB, as in `Rational::from_double`, or a read of a
+returned frame, as in the serializer depth-bound test — ship undetected. The
+IWYU gate + its self-test is the dead-import gate.
 `run_ci` prints each step as `[i/N]` at runtime, so the live count is
 authoritative.
 Plus 4 opt-in lanes (reproducible build, stability bench, mutation
@@ -65,7 +64,9 @@ re-measures it: a sweep whose build sources moved while it ran fails rather
 than vouch for a tree no step is known to have observed.  A passed log is the
 falsifiable evidence behind a "gates clean" claim, and `tools/check_gate_claim.py`
 reads it by that digest.  A `--fast` sweep, or a `--lanes` sweep of some
-lanes, runs a subset and records no digest.
+lanes, runs a subset and records no digest.  The header and the summary also
+carry the tree of the tracked content the sweep saw, the record a push asks
+for ([§ Pushing](#pushing-sweep-first-then-connect)).
 Every step runs in a process group of its own under a guard that interrupts it
 when the sweep dies, however it dies, and Ctrl-C stops the running steps before
 the sweep exits, so an ended sweep leaves no build holding Shake's lock.
@@ -128,13 +129,14 @@ edit in an UNCHANGED file) is caught by the periodic whole-tree
 Install both hooks (pre-commit + pre-push):
 
 ~~~bash
-tools/install_hooks.py
+python/.venv/bin/python -m tools.install_hooks
 ~~~
 
 Idempotent (safe to re-run; preserves any existing hooks by backing them
 up).  After install, every `git commit` runs the FAST tier and the IWYU
-gate on the staged content, and every `git push` runs the full always-on
-sweep; all of it blocking.
+gate on the staged content, and every `git push` asks for a passing full
+sweep of the pushed tree, running the sweep when none is on record; all of
+it blocking.
 Bypass either hook with `--no-verify`:
 
 ~~~bash
@@ -159,20 +161,20 @@ opt-in lane; `--no-<lane>` always wins (e.g. `--full --no-mutation` runs
 everything except mutation testing).
 
 ~~~bash
-# Always-on steps only (default; ~22-30 min, incl. both sanitizer ctest lanes)
-tools/run_ci.py
+# Always-on steps only (default; incl. both sanitizer ctest lanes)
+python/.venv/bin/python -m tools.run_ci
 
 # Two specific opt-in lanes
-tools/run_ci.py --stability --repro
+python/.venv/bin/python -m tools.run_ci --stability --repro
 
 # All opt-in lanes (~55-115 min on warm host)
-tools/run_ci.py --full
+python/.venv/bin/python -m tools.run_ci --full
 
 # All opt-ins except mutation (skip the 30-minute lane during iteration)
-tools/run_ci.py --full --no-mutation
+python/.venv/bin/python -m tools.run_ci --full --no-mutation
 
 # Legacy env-var trigger (still supported for back-compat)
-ALETHEIA_REPRO_CHECK=1 tools/run_ci.py
+ALETHEIA_REPRO_CHECK=1 python/.venv/bin/python -m tools.run_ci
 ~~~
 
 The mutation lane is most expensive and is per-PR not per-commit; the
@@ -338,8 +340,8 @@ provides; treat `act` as an opt-in workflow-development tool.
 For a CI-style local replay, run both:
 
 ~~~bash
-tools/run_ci.py    # correctness gates (always-on sweep, ~22-30 min warm)
-act push           # GHA meta-gates (workflows, ~1-2 min)
+python/.venv/bin/python -m tools.run_ci  # correctness gates (the always-on sweep)
+act push                                 # GHA meta-gates (workflows, ~1-2 min)
 ~~~
 
 ## Troubleshooting
@@ -366,11 +368,32 @@ Verify `--container-architecture linux/amd64` is in `.actrc`. Without it,
 `act` invokes ARM-native runner images, which may have subtle differences
 from GHA's amd64 runners.
 
-### Pre-push hook is slow / blocking work
+### Pushing: sweep first, then connect
 
-The pre-push hook runs the full always-on sweep (~22-30 min warm). If you need to
-push iteratively (e.g., a doc-only fix that doesn't affect gates), bypass
-with:
+git connects to the remote before it runs the pre-push hook, so a sweep run
+inside the hook holds that connection idle for the whole sweep, and a
+connection that dies idle hangs the push after `Total N (delta M)`.  Sweep
+before pushing instead:
+
+~~~bash
+python/.venv/bin/python -m tools.run_ci --parallel   # records the tree it swept
+git commit -a ...                                     # commit everything it saw
+python/.venv/bin/python -m tools.sweep_evidence HEAD  # names the log vouching for HEAD
+git push
+~~~
+
+A full sweep writes the tree of the tracked content it saw (git's id for it,
+the tree committing all of it makes) into its log's header, and again into
+its summary after measuring it a second time.  The hook asks
+`tools/sweep_evidence.py` whether the commit each pushed ref names has a
+passing full sweep of its exact tree on record, and allows the push at once
+when it has.  A sweep records no tree when it runs beside an untracked file
+git does not ignore, when it is a subset (`--fast` or `--lanes`), or when the
+tree moved while it ran.  When no record exists the hook runs the sweep
+itself, then asks again, so a sweep of a working tree other than the pushed
+one allows nothing.
+
+To push without any sweep (a doc-only fix that touches no gate), bypass:
 
 ~~~bash
 git push --no-verify

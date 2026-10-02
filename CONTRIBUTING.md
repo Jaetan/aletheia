@@ -108,7 +108,7 @@ After your initial build (see [BUILDING.md](docs/development/BUILDING.md)),
 run:
 
 ~~~bash
-tools/install_hooks.py
+python/.venv/bin/python -m tools.install_hooks
 ~~~
 
 This installs a blocking pre-commit gate (the FAST static tier plus the
