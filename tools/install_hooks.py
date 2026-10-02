@@ -402,6 +402,20 @@ if __name__ == "__main__":
 '''
 
 
+# What each installed hook does, printed when it is installed: every tool its
+# body runs is named here.
+PRE_COMMIT_SUMMARY = (
+    "every `git commit` runs the FAST static gates (`tools/run_ci.py --fast`) on the "
+    "staged content, then `tools/iwyu.py --check` on staged `.agda` files, and blocks "
+    "on failure; bypass with `--no-verify`"
+)
+PRE_PUSH_SUMMARY = (
+    "every `git push` asks `tools/sweep_evidence.py` for a passing full sweep of the "
+    "pushed tree, runs `tools/run_ci.py` when none is on record, and blocks unless a "
+    "sweep of the pushed tree passed; bypass with `--no-verify`"
+)
+
+
 def _install_hook(
     hooks_dir: Path,
     name: str,
@@ -468,15 +482,14 @@ def main() -> int:
         "pre-commit",
         PRE_COMMIT_BODY,
         PRE_COMMIT_MARKER,
-        "every `git commit` runs the FAST static gates (`run_ci.py --fast`) on "
-        + "staged content and blocks on failure; bypass with `--no-verify`",
+        PRE_COMMIT_SUMMARY,
     )
     _install_hook(
         hooks_dir,
         "pre-push",
         PRE_PUSH_BODY,
         PRE_PUSH_MARKER,
-        "every `git push` will run `tools/run_ci.py` first; bypass with `--no-verify`",
+        PRE_PUSH_SUMMARY,
     )
     return 0
 

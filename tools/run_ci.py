@@ -411,7 +411,7 @@ def parse_args(argv: list[str] | None = None) -> OptInOptions:
             "Pre-commit FAST tier: run ONLY the compile-free static gates "
             "(format checks, SPDX/review-mark/venv hygiene, ruff, pylint) and "
             "skip the build prereq.  Seconds, not minutes; no build artifacts "
-            "needed.  Used by the pre-commit hook; pre-push runs the full sweep."
+            "needed.  Used by the pre-commit hook; a push asks for a full sweep."
         ),
     )
     parser.add_argument(

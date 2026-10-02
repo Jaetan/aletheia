@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -23,7 +24,12 @@ from typing import TYPE_CHECKING, NamedTuple, NewType, cast
 import pytest
 
 from tools._common import find_executable
-from tools.install_hooks import PRE_COMMIT_BODY, PRE_PUSH_BODY
+from tools.install_hooks import (
+    PRE_COMMIT_BODY,
+    PRE_COMMIT_SUMMARY,
+    PRE_PUSH_BODY,
+    PRE_PUSH_SUMMARY,
+)
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -36,6 +42,27 @@ def test_hook_bodies_are_valid_python() -> None:
     """Both generated hook bodies compile (an f-string typo can break them)."""
     compile(PRE_COMMIT_BODY, "<pre-commit>", "exec")
     compile(PRE_PUSH_BODY, "<pre-push>", "exec")
+
+
+# The Python source of a hook as the installer writes it.
+HookSource = NewType("HookSource", str)
+
+
+@pytest.mark.parametrize(
+    ("body", "summary"),
+    [
+        (HookSource(PRE_COMMIT_BODY), Prose(PRE_COMMIT_SUMMARY)),
+        (HookSource(PRE_PUSH_BODY), Prose(PRE_PUSH_SUMMARY)),
+    ],
+    ids=["pre-commit", "pre-push"],
+)
+def test_each_hook_s_summary_names_every_tool_its_body_runs(
+    body: HookSource, summary: Prose
+) -> None:
+    """The line printed at install names each ``python -m tools.X`` the hook runs."""
+    run = set(re.findall(r'"tools\.(\w+)"', body))
+    assert run
+    assert {tool for tool in run if f"tools/{tool}.py" not in summary} == set()
 
 
 def test_pre_commit_stash_ref_survived_the_fstring() -> None:
