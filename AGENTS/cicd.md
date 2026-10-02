@@ -21,11 +21,11 @@ Scope: ALL files in `.github/workflows/`, `.github/actions/`, plus any cron/sche
 # actionlint must be installed locally for the workflow-YAML gate
 actionlint .github/workflows/*.yml .github/workflows/*.yaml
 # Pin-by-SHA gate (audit script); the script's absence is itself a CI/CD cat 1 finding:
-tools/check_action_pins.py
+python/.venv/bin/python -m tools.check_action_pins
 # Permission-scoping gate; same — script absence is a finding:
-tools/check_workflow_permissions.py
+python/.venv/bin/python -m tools.check_workflow_permissions
 # Reproducible-build hash diff (Universal Rules cross-reference):
-tools/check_reproducible_build.py
+python/.venv/bin/python -m tools.check_reproducible_build
 ~~~
 
 All three audit scripts and `.github/dependabot.yml` are in place (added 2026-05-09).  Action references in `.github/workflows/` use `@v<N>` major-version tags for GitHub-owned actions (`actions/*`, `github/*`) per the carve-out above; third-party actions must be 40-char SHA pinned.  `tools/check_action_pins.py` enforces this policy and is the canonical specification — when the policy needs to evolve, change the script first, then update this guideline to match.

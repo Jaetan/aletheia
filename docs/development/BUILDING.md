@@ -391,10 +391,10 @@ For Docker deployment (Dockerfile, build commands, runtime image), see [DISTRIBU
 
 ### Install git hooks (recommended for contributors)
 
-Aletheia's CI is local-first: a pre-push hook runs the full offline correctness sweep before allowing push (`tools/run_ci.py`), and a pre-commit hook runs the compile-free FAST gate tier on the staged content and the IWYU import gate on staged `.agda` files, refusing the commit on any failure. Install both with:
+Aletheia's CI is local-first: a pre-push hook allows a push only once the full offline correctness sweep (`tools/run_ci.py`) has passed on the pushed tree, and a pre-commit hook runs the compile-free FAST gate tier on the staged content and the IWYU import gate on staged `.agda` files, refusing the commit on any failure. Install both with:
 
 ~~~bash
-tools/install_hooks.py
+python/.venv/bin/python -m tools.install_hooks
 ~~~
 
 Idempotent (safe to re-run; preserves any existing hooks by backing them up). After install:
@@ -402,7 +402,7 @@ Idempotent (safe to re-run; preserves any existing hooks by backing them up). Af
 | Hook | When | What runs | Severity |
 |---|---|---|---|
 | `pre-commit` | `git commit` | `tools/run_ci.py --fast` on the staged content, then `tools/iwyu.py --check --wait-lock` on staged `.agda` files (the single scope-aware `.agdai` IWYU tool; it queues behind a running Agda tool) | **Blocking**: refuses the commit on any finding, and on a check that never reached a verdict |
-| `pre-push` | `git push` | `tools/run_ci.py`, the full offline correctness sweep (~22-30 min warm) | **Blocking**: refuses push on any non-zero exit |
+| `pre-push` | `git push` | `tools/sweep_evidence.py` on the commit each pushed ref names: a passing full sweep of that exact tree on record allows the push at once; otherwise `tools/run_ci.py`, the full offline correctness sweep, runs in the hook | **Blocking**: refuses the push when the sweep fails, or passed on a working tree that is not the pushed one |
 
 Bypass either hook with `--no-verify` when needed (e.g. doc-only fixes that don't affect gates):
 
@@ -410,6 +410,8 @@ Bypass either hook with `--no-verify` when needed (e.g. doc-only fixes that don'
 git commit --no-verify   # skip the pre-commit FAST tier + IWYU gate
 git push   --no-verify   # skip pre-push CI sweep
 ~~~
+
+Sweep before pushing rather than in the hook: git connects to the remote before it runs the hook, so a sweep there holds the connection idle, and a connection that dies idle hangs the push. A passing full sweep of the tree you then commit is the record the hook asks for; [CI_LOCAL.md § Pushing](CI_LOCAL.md#pushing-sweep-first-then-connect) gives the sequence.
 
 Both hooks are optional; the project is fully functional without them. They are strongly recommended for contributors because they catch many issues before they reach the maintainer's review. The sweep's gates, the IWYU gate among them, are described in [CI_LOCAL.md](CI_LOCAL.md).
 

@@ -23,7 +23,7 @@ The floors gate; the recorded figures are measurements. A run over a floor and u
 
 ~~~bash
 # Every binding the diff vs main could move (the same scoping the mutation lane uses).
-tools/run_ci.py --coverage
+python/.venv/bin/python -m tools.run_ci --coverage
 
 # The runner directly: all bindings, or one.
 ALETHEIA_COVERAGE_NO_DIFF_SCOPE=1 python/.venv/bin/python -m tools.coverage_run

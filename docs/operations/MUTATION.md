@@ -390,9 +390,9 @@ Set `ALETHEIA_MUTATION_NO_DIFF_SCOPE=1` to sweep everything regardless.
 ### Via the orchestrator (recommended)
 
 ~~~bash
-tools/run_ci.py --mutation                 # always-on steps + mutation lane
-tools/run_ci.py --full                     # everything (san + repro + stability + mutation)
-ALETHEIA_MUTATION_CHECK=1 tools/run_ci.py  # legacy env-var trigger (still supported)
+python/.venv/bin/python -m tools.run_ci --mutation                 # always-on steps + mutation lane
+python/.venv/bin/python -m tools.run_ci --full                     # everything (san + repro + stability + mutation)
+ALETHEIA_MUTATION_CHECK=1 python/.venv/bin/python -m tools.run_ci  # legacy env-var trigger (still supported)
 ~~~
 
 Exit code 0 = lane clean; exit code 1 = drift gate failed (see
@@ -460,7 +460,7 @@ ALETHEIA_MUTATION_CPP_LEGS=<dir>    # sweep nothing; merge the legs' reports fou
 After a clean run on `main`:
 
 ~~~bash
-ALETHEIA_MUTATION_CHECK=1 tools/run_ci.py
+ALETHEIA_MUTATION_CHECK=1 python/.venv/bin/python -m tools.run_ci
 cat benchmarks/mutation/<short-sha>/summary.json
 # Edit docs/MUTATION_BENCH.yaml: replace `survivors: null` with the observed count
 # Commit the YAML edit with rationale ("baseline established at <sha>; <N> survivors")
@@ -524,12 +524,12 @@ python/.venv/bin/python -m tools.check_mutation_setup
 # Inject a survivor by replacing an assertion with a tautology
 # (e.g. `assert x == 1` -> `assert x == x`).
 # Run the mutation lane.
-ALETHEIA_MUTATION_CHECK=1 tools/run_ci.py
+ALETHEIA_MUTATION_CHECK=1 python/.venv/bin/python -m tools.run_ci
 # Expect: exit 1 with summary.json showing observed_survivors > baseline.
 
 # Restore source + YAML; re-run.
 git checkout python/aletheia/client/_client.py docs/MUTATION_BENCH.yaml
-ALETHEIA_MUTATION_CHECK=1 tools/run_ci.py
+ALETHEIA_MUTATION_CHECK=1 python/.venv/bin/python -m tools.run_ci
 # Expect: exit 0.
 ~~~
 

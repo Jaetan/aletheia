@@ -17,6 +17,7 @@ import sys
 from pathlib import Path, PurePosixPath
 
 import pytest
+from _git_repo import commit, git
 
 from tools._ci_steps import (
     AGDA_GATES_STEP,
@@ -48,6 +49,14 @@ from tools.run_ci import (
     Runner,
     parse_args,
 )
+from tools.sweep_evidence import (
+    TREE_LINE,
+    TREE_MOVED,
+    TREE_UNRECORDED_SUBSET,
+    TREE_UNRECORDED_UNTRACKED,
+    worktree_tree,
+)
+from tools.sweep_evidence import evidence_for as tree_evidence_for
 
 # The Agda-gate fan-in folds every cabal-shake gate into one `cabal run shake
 # -- <targets>` invocation.  Its hazard is a silently DROPPED gate: a line removed from
@@ -522,6 +531,77 @@ def test_a_fast_sweep_records_no_sources_and_exports_none(
     assert "seen=[]" in log
     assert os.environ[SOURCES_ENV] == "stale-from-a-caller"
     assert evidence_for(runner.ctx.sources, log_dir=tmp_path, environ={}) is None
+
+
+def _committed_runner(tmp_path: Path, *, fast: bool = False) -> Runner:
+    """Build a Runner over a repository with one committed file and the log ignored.
+
+    The log lands inside the repository, so it is excluded through
+    ``.git/info/exclude``, which is no tracked file either: the sweep then sees
+    the tracked content alone and records its tree.
+    """
+    _ = git(tmp_path, "init", "-q")
+    _ = (tmp_path / ".git" / "info" / "exclude").write_text("ci.log\n", encoding="utf-8")
+    _ = (tmp_path / "a.txt").write_text("one\n", encoding="utf-8")
+    _ = commit(tmp_path, "base")
+    ctx = RunContext(
+        repo_root=tmp_path,
+        branch="test",
+        commit="0000000",
+        log_path=tmp_path / "ci.log",
+        python="python3",
+        sources=sources_digest_of_worktree(tmp_path),
+        tree=worktree_tree(tmp_path),
+    )
+    opts = OptInOptions(
+        lanes=OptInLanes(repro=False, stability=False, mutation=False, coverage=False),
+        parallel=False,
+        fast=fast,
+        only_lanes=(),
+    )
+    return Runner(opts, ctx)
+
+
+def test_a_full_sweep_records_the_tree_it_swept_and_reads_back_as_evidence(
+    tmp_path: Path,
+) -> None:
+    """The header and the summary name the tree, and the log vouches for it to a push."""
+    runner = _committed_runner(tmp_path)
+    tree = runner.ctx.tree
+    assert tree is not None
+    runner.step("a", "exit 0", lane="x")
+    assert runner.run() == 0
+    log = (tmp_path / "ci.log").read_text(encoding="utf-8")
+    assert log.count(f"{TREE_LINE}{tree}\n") == len(("header", "summary"))
+    assert tree_evidence_for(tree, tmp_path) == tmp_path / "ci.log"
+
+
+def test_a_tree_that_moved_under_the_sweep_is_recorded_as_moved(tmp_path: Path) -> None:
+    """A step that edits a tracked file leaves a summary that vouches for no tree."""
+    runner = _committed_runner(tmp_path)
+    tree = runner.ctx.tree
+    assert tree is not None
+    runner.step("edit", "echo two > a.txt", cwd=tmp_path, lane="x")
+    assert runner.run() == 0
+    log = (tmp_path / "ci.log").read_text(encoding="utf-8")
+    assert f"{TREE_LINE}{TREE_MOVED}\n" in log
+    assert tree_evidence_for(tree, tmp_path) is None
+
+
+def test_an_untracked_file_or_a_subset_sweep_records_no_tree(tmp_path: Path) -> None:
+    """A file no gate lists makes the sweep vouch for no tree, and so does the fast tier."""
+    (tmp_path / "untracked").mkdir()
+    untracked = _runner(tmp_path / "untracked")
+    untracked.step("a", "exit 0", lane="x")
+    assert untracked.run() == 0
+    log = (tmp_path / "untracked" / "ci.log").read_text(encoding="utf-8")
+    assert f"{TREE_LINE}{TREE_UNRECORDED_UNTRACKED}\n" in log
+    (tmp_path / "fast").mkdir()
+    fast = _committed_runner(tmp_path / "fast", fast=True)
+    fast.step("a", "exit 0", lane="x")
+    assert fast.run() == 0
+    log = (tmp_path / "fast" / "ci.log").read_text(encoding="utf-8")
+    assert f"{TREE_LINE}{TREE_UNRECORDED_SUBSET}\n" in log
 
 
 def test_lanes_parse_into_the_names_given() -> None:

@@ -420,10 +420,10 @@ The gate is **not in the default `tools/run_ci.py` battery** because
 it costs two cold builds (~10 min wall-clock).  Run it on demand:
 
 ~~~bash
-tools/check_reproducible_build.py
+python/.venv/bin/python -m tools.check_reproducible_build
 
 # Or with --keep-artifacts to retain the temp dir for forensic diff:
-tools/check_reproducible_build.py --keep-artifacts
+python/.venv/bin/python -m tools.check_reproducible_build --keep-artifacts
 ~~~
 
 Empirically verified: same-host `libaletheia-ffi.so` is bit-identical

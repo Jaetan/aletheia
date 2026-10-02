@@ -14,25 +14,55 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import stat
 import subprocess
 import sys
-from typing import TYPE_CHECKING, cast
+from enum import Enum
+from typing import TYPE_CHECKING, NamedTuple, NewType, cast
+
+import pytest
 
 from tools._common import find_executable
-from tools.install_hooks import PRE_COMMIT_BODY, PRE_PUSH_BODY
+from tools.install_hooks import (
+    PRE_COMMIT_BODY,
+    PRE_COMMIT_SUMMARY,
+    PRE_PUSH_BODY,
+    PRE_PUSH_SUMMARY,
+)
+
+from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
-
-    import pytest
 
 
 def test_hook_bodies_are_valid_python() -> None:
     """Both generated hook bodies compile (an f-string typo can break them)."""
     compile(PRE_COMMIT_BODY, "<pre-commit>", "exec")
     compile(PRE_PUSH_BODY, "<pre-push>", "exec")
+
+
+# The Python source of a hook as the installer writes it.
+HookSource = NewType("HookSource", str)
+
+
+@pytest.mark.parametrize(
+    ("body", "summary"),
+    [
+        (HookSource(PRE_COMMIT_BODY), Prose(PRE_COMMIT_SUMMARY)),
+        (HookSource(PRE_PUSH_BODY), Prose(PRE_PUSH_SUMMARY)),
+    ],
+    ids=["pre-commit", "pre-push"],
+)
+def test_each_hook_s_summary_names_every_tool_its_body_runs(
+    body: HookSource, summary: Prose
+) -> None:
+    """The line printed at install names each ``python -m tools.X`` the hook runs."""
+    run = set(re.findall(r'"tools\.(\w+)"', body))
+    assert run
+    assert {tool for tool in run if f"tools/{tool}.py" not in summary} == set()
 
 
 def test_pre_commit_stash_ref_survived_the_fstring() -> None:
@@ -256,3 +286,150 @@ def test_pre_commit_restore_failure_keeps_the_stash_and_prints_the_recipe(
     assert "git restore --source=" + sha + "^3 --worktree" in err
     assert "boom" in err
     assert ["git", "stash", "drop", "stash@{0}"] not in git_calls
+
+
+class Evidence(Enum):
+    """What the evidence stub answers when the hook asks about the pushed commits."""
+
+    RECORDED = "a sweep of the pushed tree is on record before the push"
+    AFTER_SWEEP = "the hook's own sweep records the pushed tree"
+    NEVER = "no sweep ever records the pushed tree, as for a dirty working tree"
+
+
+_EVIDENCE_EXIT = {
+    Evidence.RECORDED: "0",
+    Evidence.AFTER_SWEEP: "0 if pathlib.Path('swept').exists() else 1",
+    Evidence.NEVER: "1",
+}
+
+
+def _pushing_repo(tmp_path: Path, evidence: Evidence) -> Path:
+    """Build a repository with the rendered pre-push hook and stubs for its two tools.
+
+    The evidence stub answers as ``evidence`` says and writes down, one line
+    per question, the commits it was asked about; the sweep stub passes and
+    writes down that it ran.  Neither needs a remote: the hook is run
+    directly, with the ref lines git would hand it on stdin.
+    """
+    repo = tmp_path / "repo"
+    (repo / "tools").mkdir(parents=True)
+    _git(repo, "init", "-q")
+    (repo / "tools" / "__init__.py").write_text("", encoding="utf-8")
+    stub = [
+        "import pathlib, sys",
+        "with pathlib.Path('asked').open('a') as asked:",
+        "    asked.write(' '.join(sys.argv[1:]) + '\\n')",
+        f"raise SystemExit({_EVIDENCE_EXIT[evidence]})",
+        "",
+    ]
+    (repo / "tools" / "sweep_evidence.py").write_text("\n".join(stub), encoding="utf-8")
+    (repo / "tools" / "run_ci.py").write_text(
+        "import pathlib\npathlib.Path('swept').write_text('yes')\n", encoding="utf-8"
+    )
+    hook = repo / ".git" / "hooks" / "pre-push"
+    body = PRE_PUSH_BODY.split("\n", 1)[1]
+    hook.write_text("#!" + sys.executable + "\n" + body, encoding="utf-8")
+    hook.chmod(hook.stat().st_mode | stat.S_IXUSR)
+    return repo
+
+
+# The ref lines git hands a pre-push hook on stdin, a file the hook runs, and
+# the commits one question to the evidence stub named.
+RefLines = NewType("RefLines", str)
+ToolFile = NewType("ToolFile", str)
+Question = NewType("Question", str)
+
+
+class Pushed(NamedTuple):
+    """What the pre-push hook answered: its exit status and what it wrote to stderr."""
+
+    returncode: ExitStatus
+    stderr: Prose
+
+
+def _push(repo: Path, refs: RefLines) -> Pushed:
+    """Run the pre-push hook as git would, with ``refs`` on its stdin."""
+    done = subprocess.run(
+        [str(repo / ".git" / "hooks" / "pre-push"), "origin", "git@example:repo.git"],
+        cwd=repo,
+        input=refs,
+        env=_GIT_ENV,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return Pushed(ExitStatus(done.returncode), Prose(done.stderr))
+
+
+def _asked(repo: Path) -> list[Question]:
+    """Read back the questions the evidence stub was asked, one per line."""
+    asked = repo / "asked"
+    lines = asked.read_text(encoding="utf-8").splitlines() if asked.exists() else []
+    return [Question(line) for line in lines]
+
+
+_PUSHED = "a" * 40
+_OTHER = "b" * 40
+_REFS = RefLines(
+    "".join(
+        [
+            f"refs/heads/b {_PUSHED} refs/heads/b {'0' * 40}\n",
+            f"refs/tags/t {_OTHER} refs/tags/t {'0' * 40}\n",
+        ]
+    )
+)
+
+
+def test_pre_push_allows_at_once_a_push_whose_trees_passed_a_recorded_sweep(
+    tmp_path: Path,
+) -> None:
+    """With every pushed ref's tree on record, the push goes without a sweep."""
+    repo = _pushing_repo(tmp_path, Evidence.RECORDED)
+    done = _push(repo, _REFS)
+    assert done.returncode == 0, done.stderr
+    assert _asked(repo) == [f"{_PUSHED} {_OTHER}"]
+    assert not (repo / "swept").exists()
+    assert "push allowed" in done.stderr
+
+
+def test_pre_push_sweeps_then_allows_once_its_sweep_records_the_pushed_tree(
+    tmp_path: Path,
+) -> None:
+    """A tree no sweep covers makes the hook sweep, then ask again before it allows."""
+    repo = _pushing_repo(tmp_path, Evidence.AFTER_SWEEP)
+    done = _push(repo, _REFS)
+    assert done.returncode == 0, done.stderr
+    assert (repo / "swept").read_text(encoding="utf-8") == "yes"
+    assert _asked(repo) == [f"{_PUSHED} {_OTHER}"] * 2
+    assert "push allowed" in done.stderr
+
+
+def test_pre_push_refuses_when_its_sweep_passed_on_another_tree(tmp_path: Path) -> None:
+    """A passing sweep of a working tree that is not the pushed one allows nothing."""
+    repo = _pushing_repo(tmp_path, Evidence.NEVER)
+    done = _push(repo, _REFS)
+    assert done.returncode == 1, done.stderr
+    assert (repo / "swept").read_text(encoding="utf-8") == "yes"
+    assert len(_asked(repo)) == 2
+    assert "push refused" in done.stderr
+
+
+def test_pre_push_allows_a_deletion_which_pushes_no_commit(tmp_path: Path) -> None:
+    """A ref line whose local id is all zeros deletes a remote ref and needs no sweep."""
+    repo = _pushing_repo(tmp_path, Evidence.NEVER)
+    done = _push(repo, RefLines(f"(delete) {'0' * 40} refs/heads/b {_PUSHED}\n"))
+    assert done.returncode == 0, done.stderr
+    assert not _asked(repo)
+    assert not (repo / "swept").exists()
+
+
+@pytest.mark.parametrize("tool", [ToolFile("run_ci.py"), ToolFile("sweep_evidence.py")])
+def test_pre_push_refuses_when_a_tool_it_runs_is_missing(tmp_path: Path, tool: ToolFile) -> None:
+    """Without the sweep or its evidence the hook cannot vouch for the push, so it refuses."""
+    repo = _pushing_repo(tmp_path, Evidence.RECORDED)
+    (repo / "tools" / tool).unlink()
+    done = _push(repo, _REFS)
+    assert done.returncode == 1, done.stderr
+    assert f"{tool} not found" in done.stderr
+    assert not _asked(repo)
+    assert not (repo / "swept").exists()

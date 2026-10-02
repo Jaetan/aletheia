@@ -16,11 +16,14 @@ Hooks installed:
     BLOCKING import gate, queued behind a running Agda tool rather than
     refused beside it.
 
-  * pre-push — runs ``tools/run_ci.py`` before allowing push.  Refuses
-    push on any non-zero exit.  Rationale: limited GitHub Actions monthly
-    allotment; offline validation catches breakage before it lands on
-    origin.  The CI sweep includes the IWYU gate (``tools/iwyu.py``) on
-    files modified in the branch.
+  * pre-push — allows a push once ``tools/run_ci.py`` has passed on the
+    tree of the commit each pushed ref names.  A recorded passing sweep of
+    that tree (``tools/sweep_evidence.py``) allows it at once; otherwise the
+    hook runs the sweep and allows the push only when it passed on the pushed
+    tree.  git holds the remote connection open while the hook runs, so the
+    sweep belongs before the push.  Rationale: offline validation catches
+    breakage before it lands on origin.  The CI sweep includes the IWYU gate
+    (``tools/iwyu.py``) on files modified in the branch.
 
 Skip via::
 
@@ -51,17 +54,34 @@ PRE_PUSH_BODY = f'''\
 {PRE_PUSH_MARKER}
 """Aletheia pre-push hook.
 
-Runs the full offline CI sweep before allowing push.  Skip with
-`git push --no-verify`.  The pre-push hook receives <remote> <url>
-on argv and a list of refs being pushed on stdin.  We do not filter
-by ref — every push runs the full sweep — because the gate-claim-
-integrity rule requires evidence for the tip commit being pushed.
+Allows a push only once a full offline CI sweep has passed on what it pushes.
+git connects to the remote before it runs this hook, so a sweep run here holds
+that connection idle for minutes, and an idle connection that dies on the way
+hangs the push.  The hook therefore first asks tools/sweep_evidence.py whether
+the commit each pushed ref names (git hands them on stdin) has a passing full
+sweep of its exact tree on record, and allows the push at once when it has.
+When one has none, it runs the sweep here over the working tree and asks
+again, so a sweep of a tree other than the pushed one allows nothing.  Skip
+with `git push --no-verify`.
 """
 
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+
+def pushed_commits() -> list[str]:
+    """Read the commits being pushed from the ref lines git hands on stdin.
+
+    A line whose local id is all zeros deletes a remote ref and pushes nothing.
+    """
+    commits = []
+    for line in sys.stdin.read().splitlines():
+        fields = line.split()
+        if len(fields) == 4 and fields[1].strip("0"):
+            commits.append(fields[1])
+    return commits
 
 
 def main() -> int:
@@ -76,17 +96,28 @@ def main() -> int:
         sys.stderr.write("pre-push: FAIL — not in a git work tree; cannot run the CI sweep\\n")
         return 1
 
-    runner = Path(repo_root) / "tools" / "run_ci.py"
-    if not runner.is_file():
-        sys.stderr.write(
-            f"pre-push: FAIL — {{runner}} not found, so the CI sweep did not run.\\n"
-            "Push refused: this hook exists to gate pushes on that sweep, and it\\n"
-            "cannot vouch for a sweep it never ran.  Restore the runner, or use\\n"
-            "`git push --no-verify` if you intend to bypass it.\\n"
-        )
-        return 1
+    for tool in ("run_ci.py", "sweep_evidence.py"):
+        path = Path(repo_root) / "tools" / tool
+        if not path.is_file():
+            sys.stderr.write(
+                f"pre-push: FAIL — {{path}} not found, so the hook cannot vouch\\n"
+                "for a sweep of the pushed tree.  Push refused: this hook exists to\\n"
+                "gate pushes on that sweep.  Restore the file, or use\\n"
+                "`git push --no-verify` if you intend to bypass it.\\n"
+            )
+            return 1
 
-    sys.stderr.write("pre-push: running offline CI sweep (parallel lanes; ~5-8 min)...\\n")
+    commits = pushed_commits()
+    if not commits:
+        sys.stderr.write("pre-push: the push sends no commit (a deletion) — push allowed.\\n")
+        return 0
+    evidence = [sys.executable, "-m", "tools.sweep_evidence", *commits]
+    if subprocess.run(evidence, cwd=repo_root, check=False).returncode == 0:
+        sys.stderr.write("pre-push: every pushed tree passed a recorded sweep — push allowed.\\n")
+        return 0
+
+    sys.stderr.write("pre-push: running the offline CI sweep (parallel lanes)...\\n")
+    sys.stderr.write("pre-push: run the sweep before pushing, so the connection does not idle\\n")
     sys.stderr.write("pre-push: skip with `git push --no-verify` if needed\\n\\n")
 
     # --parallel runs the lanes concurrently (memory-safe heavy_limit=2 default);
@@ -105,7 +136,15 @@ def main() -> int:
         )
         return 1
 
-    sys.stderr.write("pre-push: CI sweep passed — push allowed.\\n")
+    if subprocess.run(evidence, cwd=repo_root, check=False).returncode != 0:
+        sys.stderr.write(
+            "\\npre-push: the sweep passed on the working tree, which is not the tree\\n"
+            "pre-push: being pushed — push refused.  Commit or stash what differs,\\n"
+            "pre-push: and remove or ignore untracked files, then re-push.\\n"
+        )
+        return 1
+
+    sys.stderr.write("pre-push: CI sweep passed on the pushed tree — push allowed.\\n")
     return 0
 
 
@@ -363,6 +402,20 @@ if __name__ == "__main__":
 '''
 
 
+# What each installed hook does, printed when it is installed: every tool its
+# body runs is named here.
+PRE_COMMIT_SUMMARY = (
+    "every `git commit` runs the FAST static gates (`tools/run_ci.py --fast`) on the "
+    "staged content, then `tools/iwyu.py --check` on staged `.agda` files, and blocks "
+    "on failure; bypass with `--no-verify`"
+)
+PRE_PUSH_SUMMARY = (
+    "every `git push` asks `tools/sweep_evidence.py` for a passing full sweep of the "
+    "pushed tree, runs `tools/run_ci.py` when none is on record, and blocks unless a "
+    "sweep of the pushed tree passed; bypass with `--no-verify`"
+)
+
+
 def _install_hook(
     hooks_dir: Path,
     name: str,
@@ -429,15 +482,14 @@ def main() -> int:
         "pre-commit",
         PRE_COMMIT_BODY,
         PRE_COMMIT_MARKER,
-        "every `git commit` runs the FAST static gates (`run_ci.py --fast`) on "
-        + "staged content and blocks on failure; bypass with `--no-verify`",
+        PRE_COMMIT_SUMMARY,
     )
     _install_hook(
         hooks_dir,
         "pre-push",
         PRE_PUSH_BODY,
         PRE_PUSH_MARKER,
-        "every `git push` will run `tools/run_ci.py` first; bypass with `--no-verify`",
+        PRE_PUSH_SUMMARY,
     )
     return 0
 
