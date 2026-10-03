@@ -140,7 +140,7 @@ Only if a *legitimate* workload is shown to exceed the working sets above:
 
 ## Verifying the cap still has teeth
 
-The behavioural tests (`python/tests/test_rts_runtime_parity.py`,
+The behavioural tests (`python/tests/test_rts_heap_cap.py`,
 `go/aletheia/rts_heap_cap_test.go`, `cpp/tests/test_rts_heap_cap.cpp`,
 `rust/tests/rts_heap_cap.rs`) each boot a real FFI client twice: once on the
 default cap (which must boot and parse), and once under a tight

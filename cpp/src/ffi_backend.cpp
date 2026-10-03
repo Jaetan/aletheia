@@ -237,7 +237,7 @@ public:
         // before any other entry is resolved or its runtime is started.
         if (auto refusal = detail::abi_version_refusal(
                 load_sym<AletheiaAbiVersionFn>(handle, "aletheia_abi_version")()))
-            throw AletheiaException(AletheiaError{ErrorKind::Ffi, std::move(*refusal)});
+            throw AletheiaException(AletheiaError{ErrorKind::Ffi, std::move(refusal).value()});
 
         auto hs_init = load_sym<HsInitFn>(handle, std::string{detail::rts_init_symbol}.c_str());
         init_fn_ = load_sym<AletheiaInitFn>(handle, "aletheia_init");
@@ -287,7 +287,7 @@ public:
             rts.cores = rts_cores;
             rts.initialized = true;
         } else if (auto mismatch = detail::rts_cores_mismatch(rts_cores, rts.cores)) {
-            rts_mismatch_ = *mismatch;
+            rts_mismatch_ = mismatch.value();
         }
         handle_ = opened.release();
     }
@@ -308,7 +308,7 @@ public:
 
     auto process(const BackendState& state, std::string_view input) -> std::string override {
         if (auto refusal = detail::json_input_bound_error(input.size()))
-            return std::move(*refusal);
+            return std::move(refusal).value();
         auto const text = detail::ffi_text(input);
         return wrap_str_result(process_fn_(state.get(), &text), "aletheia_process returned null");
     }
@@ -317,14 +317,14 @@ public:
                            std::span<const std::byte> data, std::optional<bool> brs,
                            std::optional<bool> esi) -> std::string override {
         if (auto err = payload_bound_error(data))
-            throw AletheiaException(*err);
+            throw AletheiaException(err.value());
 
         // Encode optional<bool> as (present, value) byte pairs — inverse
         // of the Haskell shim's mkMaybeBool.
         auto const encode = [](std::optional<bool> b) -> std::pair<std::uint8_t, std::uint8_t> {
             if (!b.has_value())
                 return {0, 0};
-            return {1, static_cast<std::uint8_t>(*b ? 1 : 0)};
+            return {1, static_cast<std::uint8_t>(b.value() ? 1 : 0)};
         };
         auto frame = payload_frame(id, dlc, data);
         frame.timestamp = static_cast<std::uint64_t>(ts.count());
@@ -365,7 +365,7 @@ public:
     auto extract_signals_binary(const BackendState& state, const CanId& id, Dlc dlc,
                                 std::span<const std::byte> data) -> std::string override {
         if (auto err = payload_bound_error(data))
-            throw AletheiaException(*err);
+            throw AletheiaException(err.value());
         auto const frame = payload_frame(id, dlc, data);
         return wrap_str_result(extract_signals_fn_(state.get(), &frame),
                                "aletheia_extract_signals returned null");
@@ -382,7 +382,7 @@ public:
                               .size = static_cast<std::uint32_t>(buf.size())};
         auto const status = build_frame_bin_fn_(state.get(), &frame, &values, &out);
         if (auto err = detail::ffi_error_from_status(status, out.err, free_str_fn_))
-            return std::unexpected(*err);
+            return std::unexpected(err.value());
         buf.resize(out.size);
         return buf;
     }
@@ -392,7 +392,7 @@ public:
                           std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         if (auto err = payload_bound_error(data))
-            return std::unexpected(*err);
+            return std::unexpected(err.value());
         auto const frame = payload_frame(id, dlc, data);
         auto const values = signal_values(signals);
         std::vector<std::byte> buf(expected_bytes);
@@ -401,7 +401,7 @@ public:
                               .size = static_cast<std::uint32_t>(buf.size())};
         auto const status = update_frame_bin_fn_(state.get(), &frame, &values, &out);
         if (auto err = detail::ffi_error_from_status(status, out.err, free_str_fn_))
-            return std::unexpected(*err);
+            return std::unexpected(err.value());
         buf.resize(out.size);
         return buf;
     }
@@ -410,12 +410,12 @@ public:
                              std::span<const std::byte> data)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         if (auto err = payload_bound_error(data))
-            return std::unexpected(*err);
+            return std::unexpected(err.value());
         auto const frame = payload_frame(id, dlc, data);
         detail::FfiBuffer out{.data = nullptr, .err = nullptr, .size = 0};
         auto const status = extract_signals_bin_fn_(state.get(), &frame, &out);
         if (auto err = detail::ffi_error_from_status(status, out.err, free_str_fn_))
-            return std::unexpected(*err);
+            return std::unexpected(err.value());
         // RAII-owned so a throwing std::vector construction (e.g. bad_alloc on
         // copy) still frees the Haskell-allocated buffer. A bare free call
         // after the copy would leak on that path.

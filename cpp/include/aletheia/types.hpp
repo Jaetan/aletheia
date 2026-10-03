@@ -327,7 +327,7 @@ inline constexpr std::array<std::size_t, 16> k_dlc_bytes = {0, 1,  2,  3,  4,  5
 } // namespace detail
 
 [[nodiscard]] constexpr auto dlc_to_bytes(Dlc dlc) -> std::size_t {
-    return detail::k_dlc_bytes[dlc.value()];
+    return detail::k_dlc_bytes.at(dlc.value());
 }
 
 // Payload byte count to DLC code: the inverse of dlc_to_bytes over the same

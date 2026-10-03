@@ -6,6 +6,7 @@
 // which owns all parsing, dispatch, and exit-code logic.
 
 #include <aletheia/cli.hpp>
+#include <aletheia/detail/checked.hpp>
 
 #include <cstddef>
 #include <exception>
@@ -18,7 +19,7 @@ auto main(int argc, char** argv) -> int {
     try {
         const std::span<char* const> raw{argv, static_cast<std::size_t>(argc)};
         std::vector<std::string> args;
-        for (auto const* arg : raw.subspan(1))
+        for (auto const* arg : aletheia::detail::subspan_at(raw, 1))
             args.emplace_back(arg);
         return aletheia::run_cli(args);
     } catch (const std::exception& e) {

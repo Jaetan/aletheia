@@ -8,8 +8,8 @@
 // would latch a default core count and squander the FfiBackend's own, nor
 // calling the kernel with the runtime down.
 //
-// Must run in its own process, one ctest entry, because the GHC RTS is
-// process-global: any FfiBackend-first case in the same process would bring the
+// Must run in its own process, a child of fresh_process_tests, because the GHC
+// RTS is process-global: any FfiBackend-first case in the same process would bring the
 // runtime up and defeat the assertion. The listener that brings the runtime up
 // for the other suites, rts_setup_listener.cpp, is linked into those binaries
 // and not into this one.

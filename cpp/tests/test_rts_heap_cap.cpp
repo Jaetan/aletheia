@@ -16,6 +16,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <linux/prctl.h>
+#include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -33,7 +35,7 @@
 // Fork+exec the workload with `n` messages and an optional ALETHEIA_RTS_OPTS
 // override, returning its exit code (or -1 if it died from a signal) and
 // whatever it wrote to stdout.  The child inherits ALETHEIA_LIB from this
-// test's environment, which ctest sets.  Its stdout comes back through a pipe
+// test's environment, which fresh_process_tests sets.  Its stdout comes back through a pipe
 // so the positive case can read the success sentinel rather than infer it from
 // the exit code; stderr flows to this process's, where a failure shows it.
 static auto run_workload(const std::string& n, const char* rts_opts)
@@ -41,8 +43,16 @@ static auto run_workload(const std::string& n, const char* rts_opts)
     std::array<int, 2> out{};
     REQUIRE(pipe(out.data()) == 0);
 
+    auto const parent = getpid();
     auto const pid = fork();
     if (pid == 0) {
+        // The workload dies with this process: the mutation runner, which
+        // runs this suite as a child of its test binary, ends a run by killing
+        // that binary alone and waits for every holder of its pipes.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg): PR_SET_PDEATHSIG has no other API
+        static_cast<void>(prctl(PR_SET_PDEATHSIG, SIGKILL));
+        if (getppid() != parent)
+            _exit(127);
         close(out[0]);
         dup2(out[1], STDOUT_FILENO);
         close(out[1]);

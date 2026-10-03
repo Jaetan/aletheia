@@ -3,6 +3,7 @@
 //
 // YAML check loader implementation.
 //
+#include <aletheia/detail/checked.hpp>
 #include <aletheia/yaml.hpp>
 
 #include "detail/loader_utils.hpp"
@@ -201,7 +202,7 @@ static auto parse_when_then_check(const YAML::Node& entry, const std::string& na
     // loader's; which keys they are, and what to say when one is missing, is
     // this loader's. Only the slots the obligation reads are handed over.
     detail::ThenSlotValues read;
-    switch (*slots) {
+    switch (slots.value()) {
     case detail::ThenSlots::Value:
         read.emplace("value", PhysicalValue{get_decimal(then, "value", ctx(name))});
         break;
@@ -282,10 +283,10 @@ auto load_checks_from_yaml(const std::filesystem::path& path) -> Result<std::vec
     // Reject symlinks and cap the raw size before handing the path to yaml-cpp.
     // YAML has no compressed container, so the uncompressed-size walk the .xlsx
     // loader does over its ZIP entries has no counterpart here.
-    if (auto v = detail::validate_loader_path(path, "YAML"); !v)
-        return std::unexpected(v.error());
-    if (auto v = detail::check_file_size_bound(path); !v)
-        return std::unexpected(v.error());
+    if (auto const v = detail::validate_loader_path(path, "YAML"); !v)
+        return std::unexpected(detail::error_of(v));
+    if (auto const v = detail::check_file_size_bound(path); !v)
+        return std::unexpected(detail::error_of(v));
 
     try {
         auto const root = YAML::LoadFile(path.string());
@@ -300,8 +301,8 @@ auto load_checks_from_yaml_string(std::string_view yaml) -> Result<std::vector<C
     // file loader's check_file_size_bound (and Go/Rust, which bound their inline
     // YAML loaders).  AGENTS.md trust boundary: every check loader, file or
     // inline, caps input at max_dbc_text_bytes.
-    if (auto v = detail::check_input_size_bound(yaml.size()); !v)
-        return std::unexpected(v.error());
+    if (auto const v = detail::check_input_size_bound(yaml.size()); !v)
+        return std::unexpected(detail::error_of(v));
     try {
         auto const root = YAML::Load(std::string(yaml));
         return parse_yaml_checks(root);

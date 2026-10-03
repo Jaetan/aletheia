@@ -15,6 +15,7 @@
 // construction, not by a test corpus.
 
 #include <aletheia/backend.hpp>
+#include <aletheia/detail/checked.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/error.hpp>
 
@@ -164,10 +165,10 @@ static auto load_renderer(const std::filesystem::path& lib_path)
     // another ABI is refused before the entries it would lay out differently.
     auto const abi_version = load_sym("aletheia_abi_version");
     if (!abi_version)
-        return std::unexpected(abi_version.error());
-    if (auto refusal =
-            detail::abi_version_refusal(detail::symbol_as<std::uint32_t (*)()>(*abi_version)()))
-        return std::unexpected("renderer: " + *refusal);
+        return std::unexpected(detail::error_of(abi_version));
+    if (auto refusal = detail::abi_version_refusal(
+            detail::symbol_as<std::uint32_t (*)()>(abi_version.value())()))
+        return std::unexpected("renderer: " + refusal.value());
     // The three entries the renderer needs, resolved by one loop with one
     // refusal, so a library missing any of them is refused at the first.
     constexpr std::array names{"aletheia_format_rational", "aletheia_free_str",
@@ -176,20 +177,20 @@ static auto load_renderer(const std::filesystem::path& lib_path)
     for (auto const [i, name] : std::views::enumerate(names)) {
         auto const sym = load_sym(name);
         if (!sym)
-            return std::unexpected(sym.error());
-        syms[static_cast<std::size_t>(i)] = *sym;
+            return std::unexpected(detail::error_of(sym));
+        syms.at(static_cast<std::size_t>(i)) = sym.value();
     }
     std::ignore = opened.release();
     return RendererSymbols{
-        .format_fn = detail::symbol_as<FormatRationalFn>(syms[0]),
-        .free_fn = detail::symbol_as<FreeStrFn>(syms[1]),
-        .parse_decimal_fn = detail::symbol_as<ParseDecimalFn>(syms[2]),
+        .format_fn = detail::symbol_as<FormatRationalFn>(syms.at(0)),
+        .free_fn = detail::symbol_as<FreeStrFn>(syms.at(1)),
+        .parse_decimal_fn = detail::symbol_as<ParseDecimalFn>(syms.at(2)),
     };
 }
 
 auto renderer_load_error(const std::filesystem::path& lib_path) -> std::string {
     auto const loaded = load_renderer(lib_path);
-    return loaded ? std::string{} : loaded.error();
+    return loaded ? std::string{} : detail::error_of(loaded);
 }
 
 // Records the resolved function pointers, or the load's refusal, in the
@@ -198,12 +199,12 @@ static void init_renderer() {
     auto& s = state();
     auto const loaded = load_renderer(find_library_path());
     if (!loaded) {
-        s.load_error = loaded.error();
+        s.load_error = detail::error_of(loaded);
         return;
     }
-    s.format_fn = loaded->format_fn;
-    s.free_fn = loaded->free_fn;
-    s.parse_decimal_fn = loaded->parse_decimal_fn;
+    s.format_fn = loaded.value().format_fn;
+    s.free_fn = loaded.value().free_fn;
+    s.parse_decimal_fn = loaded.value().parse_decimal_fn;
     s.loaded = true;
 }
 
@@ -265,11 +266,7 @@ auto parse_decimal_ffi(std::string_view input) -> std::expected<Rational, std::s
         const std::unique_ptr<char, decltype(deleter)> guard{out.err, deleter};
         return std::unexpected(std::string{out.err});
     }
-    // Checked before Rational sees it, which would report it as a caller's
-    // argument rather than a malfunction.
-    if (auto refusal = decimal_denominator_refusal(out.value.denominator))
-        throw AletheiaException(AletheiaError{ErrorKind::Protocol, std::move(*refusal)});
-    return Rational{out.value.numerator, out.value.denominator};
+    return decimal_value(out.value.numerator, out.value.denominator);
 }
 
 void register_default_lib_path(const std::filesystem::path& lib_path) {

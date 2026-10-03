@@ -6,6 +6,7 @@
 // to the decoder that reads it.
 #include <aletheia/types.hpp>
 
+#include <aletheia/detail/checked.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/error.hpp>
 
@@ -18,8 +19,8 @@ namespace aletheia {
 auto Rational::from_decimal(std::string_view s) -> Rational {
     auto answer = detail::parse_decimal_ffi(s);
     if (!answer)
-        throw AletheiaException(detail::decimal_refusal(answer.error()));
-    return *answer;
+        throw AletheiaException(detail::decimal_refusal(detail::error_of(answer)));
+    return answer.value();
 }
 
 } // namespace aletheia

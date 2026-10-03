@@ -349,6 +349,7 @@ endif()
 
 add_library(aletheia-cpp ${ALETHEIA_CPP_LINKAGE}
     src/backend.cpp
+    src/checked.cpp
     src/client.cpp
     src/dbc.cpp
     src/detail/ffi_logic.cpp
@@ -540,6 +541,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         tests/unit_tests_decimal.cpp
         tests/unit_tests_loader_utils.cpp
         tests/unit_tests_benchmark_measure.cpp
+        tests/unit_tests_checked.cpp
         tests/rts_setup_listener.cpp)
     # benchmarks: the benchmark harness's timed loops live there as a header,
     # and their test drives them under a clock of its own.
@@ -690,14 +692,18 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # `format_rational_ffi` must throw. Must run in
     # its own process because the GHC RTS is process-global: any FfiBackend-first
     # test sharing the process would bring the runtime up and defeat the assertion.
+    # Run as a child of fresh_process_tests, below.
     add_executable(rts_init_renderer_uninitialized_tests
         tests/rts_init_renderer_uninitialized_tests.cpp)
     target_link_libraries(rts_init_renderer_uninitialized_tests
         PRIVATE aletheia-cpp Catch2::Catch2WithMain)
-    add_test(NAME rts_init_renderer_uninitialized_tests
-        COMMAND rts_init_renderer_uninitialized_tests)
-    set_tests_properties(rts_init_renderer_uninitialized_tests PROPERTIES
-        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
+
+    # The renderer's refusal when it finds no library at all, in a process of
+    # its own for the same reason: the renderer searches once per process and
+    # keeps the answer. Run as a child of fresh_process_tests, below.
+    add_executable(renderer_missing_library_tests tests/renderer_missing_library_tests.cpp)
+    target_link_libraries(renderer_missing_library_tests
+        PRIVATE aletheia-cpp Catch2::Catch2WithMain)
 
     # Feature matrix parity test (yaml-cpp, Catch2). Reads
     # docs/FEATURE_MATRIX.yaml and verifies every C++ implemented entry
@@ -749,18 +755,6 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     set_tests_properties(wire_codes_tests PROPERTIES
         ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
 
-    # Runtime RTS-parameter parity test (yaml-cpp + detail/rts_params.hpp,
-    # Catch2). Reads docs/RESOURCE_BUDGETS.yaml (the kernel-runtime RTS SSOT)
-    # and asserts the C++ mirror constants match. Pure: no RTS, no FFI backend.
-    add_executable(rts_params_tests tests/test_rts_params_parity.cpp)
-    target_compile_features(rts_params_tests PRIVATE cxx_std_23)
-    target_include_directories(rts_params_tests PRIVATE src)
-    target_link_libraries(rts_params_tests
-        PRIVATE yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
-    add_test(NAME rts_params_tests COMMAND rts_params_tests)
-    set_tests_properties(rts_params_tests PROPERTIES
-        ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
-
     # RTS heap-cap containment (behavioural). rts_heap_cap_workload is a
     # standalone helper (its own main, real FFI) that the rts_heap_cap_tests
     # Catch2 test forks twice: default cap parses cleanly; a tight
@@ -776,9 +770,34 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     target_compile_definitions(rts_heap_cap_tests
         PRIVATE ALETHEIA_RTS_WORKLOAD_BIN="$<TARGET_FILE:rts_heap_cap_workload>")
     add_dependencies(rts_heap_cap_tests rts_heap_cap_workload)
-    add_test(NAME rts_heap_cap_tests COMMAND rts_heap_cap_tests)
-    set_tests_properties(rts_heap_cap_tests PROPERTIES
-        ENVIRONMENT "${ALETHEIA_TEST_LIB}")
+
+    # The three suites above that need a process of their own for the
+    # renderer and the runtime run as children of one binary
+    # (tests/fresh_process_tests.cpp), which ctest runs, and which the
+    # mutation build folds into the mutation binary, so the lane sweeps them
+    # with the mutant each child inherits. Their binaries are built into a
+    # directory of their own, where the sweep cache finds them: a sweep is
+    # keyed on every file it runs.
+    set(ALETHEIA_FRESH_PROCESS_BINARIES rts_init_renderer_uninitialized_tests
+        renderer_missing_library_tests rts_heap_cap_tests rts_heap_cap_workload)
+    set_target_properties(${ALETHEIA_FRESH_PROCESS_BINARIES} PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/fresh-process")
+    set(ALETHEIA_FRESH_PROCESS_DEFINITIONS
+        ALETHEIA_RUNTIME_DOWN_TESTS="$<TARGET_FILE:rts_init_renderer_uninitialized_tests>"
+        ALETHEIA_RENDERER_MISSING_LIBRARY_TESTS="$<TARGET_FILE:renderer_missing_library_tests>"
+        ALETHEIA_RTS_HEAP_CAP_TESTS="$<TARGET_FILE:rts_heap_cap_tests>")
+    add_executable(fresh_process_tests tests/fresh_process_tests.cpp)
+    target_compile_features(fresh_process_tests PRIVATE cxx_std_23)
+    target_link_libraries(fresh_process_tests PRIVATE Catch2::Catch2WithMain)
+    target_compile_definitions(fresh_process_tests PRIVATE ${ALETHEIA_FRESH_PROCESS_DEFINITIONS})
+    add_dependencies(fresh_process_tests ${ALETHEIA_FRESH_PROCESS_BINARIES})
+    add_test(NAME fresh_process_tests COMMAND fresh_process_tests)
+    set_tests_properties(fresh_process_tests PROPERTIES ENVIRONMENT "${ALETHEIA_TEST_REPO_ROOT}")
+    if(ALETHEIA_MUTATION)
+        target_sources(unit_tests PRIVATE tests/fresh_process_tests.cpp)
+        target_compile_definitions(unit_tests PRIVATE ${ALETHEIA_FRESH_PROCESS_DEFINITIONS})
+        add_dependencies(unit_tests ${ALETHEIA_FRESH_PROCESS_BINARIES})
+    endif()
 
     # Cross-binding integration. Counterpart of
     # python/tests/test_cross_binding_integration.py and

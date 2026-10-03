@@ -214,6 +214,53 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The C++ binding reads a state a check rules out in a checked form, and its
+  mutation lane sweeps the three suites that need a process of their own for
+  the renderer and the runtime.** A guard whose mutant stopped it firing let
+  the code read an optional's or an expected's value that was not there, an
+  expected's error that was not there, or a subscript, a span's slice or a
+  string view's narrowing past the end: undefined on a shipped build, and
+  killed in the lane only by the standard library's debug checks, which no
+  test observes. Every such read in the library and the command-line tool now
+  takes its checked form, `value()`, `at()`, `substr()`, and two helpers for
+  what C++23 leaves unchecked, `detail::error_of` and `detail::subspan_at`
+  (`cpp/include/aletheia/detail/checked.hpp`). Each is a template forwarding
+  to one check compiled once and tested at its boundaries; the one mutant of
+  that check no test can observe computes a slice past the end, which the
+  standard library's own assertion ends. A helper whose check sat in the
+  template would carry a mutant no correct call can kill for every type it
+  reads, measured. A span's front and back have no checked form in C++23 and
+  stay as they were. The ZIP walker's little-endian readers read their field
+  as a checked slice, each byte at its place, without an index. One guard read
+  the same as the `catch` around it, so that `catch` now takes nlohmann's
+  exceptions only, as its comment said, and a test that read past the end of
+  the list it checked now requires its size first. The three suites, the
+  renderer with the runtime down, the renderer with no library to find (a
+  suite new here) and the runtime's heap cap, run as children of one binary,
+  `cpp/tests/fresh_process_tests.cpp`, which ctest runs and the mutation build
+  folds into the mutation binary: each child inherits the mutant and links the
+  same library, itself or through the workload it starts, and a child that
+  fails ends its parent as it ended itself, so the sweep reads the child's
+  ending as its own. Each child, and the heap-cap suite's workload, dies with
+  the process that started it, since the runner ends a run by killing the test
+  binary alone and then waits for its pipes, which a child left running would
+  hold. The children build into a `fresh-process` directory of the tree, which
+  the sweep cache keys as it keys the test kernels. The decimal parser's
+  denominator check builds the rational or throws, as Go's does, so the call
+  site has no branch left to mutate. The lane's survivors fall from 8 to 4,
+  both classes now ruled: the client's re-check of a precondition nothing
+  proves, and `from_chars`'s out-parameter. The kills no test observes fall
+  from 172 mutants in 122 ledger rows to 58 in 35, and a probe over every
+  translation unit holds the census of unchecked reads at zero.
+- **The runtime parameters' document has one check.** The four bindings'
+  tests that compared their mirrored constants with
+  `docs/RESOURCE_BUDGETS.yaml` repeated `tools/check_rts_runtime.py`, and
+  are gone; the gate now also refuses a heap-cap flag and byte count that
+  name two caps, reading the flag as GHC does (a decimal count, a unit in
+  either case), which the Go and Python suites checked on their own. The
+  Python heap-cap containment suite is `test_rts_heap_cap.py`, as the other
+  bindings name theirs, and Go's argument-vector test is `rts_test.go`.
+
 - **A push connects only once its tree has passed a sweep:
   `tools/sweep_evidence.py`, which the pre-push hook asks first.** git
   connects to the remote before it runs the pre-push hook, so a sweep run in

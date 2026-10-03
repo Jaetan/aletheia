@@ -15,6 +15,7 @@
 #pragma once
 
 #include <aletheia/error.hpp>
+#include <aletheia/types.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -66,11 +67,11 @@ namespace aletheia::detail {
 // memory than a test can allocate, so the check is held on the count alone.
 [[nodiscard]] auto wire_count_refusal(std::size_t count) -> std::optional<std::string>;
 
-// The refusal of a rational the decimal parser answered over `denominator`, or
-// nullopt for a positive one: the kernel answers lowest terms over a positive
-// denominator, so any other is the ABI or the kernel malfunctioning.
-[[nodiscard]] auto decimal_denominator_refusal(std::int64_t denominator)
-    -> std::optional<std::string>;
+// The rational the decimal parser answered. The kernel answers lowest terms
+// over a positive denominator, so any other is the ABI or the kernel
+// malfunctioning, thrown as a protocol error before Rational sees it, which
+// would report it as a caller's argument.
+[[nodiscard]] auto decimal_value(std::int64_t numerator, std::int64_t denominator) -> Rational;
 
 // The refusal of a library whose ABI version is `found` rather than this
 // backend's `abi_version`, or nullopt for a library at that version.

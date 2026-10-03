@@ -13,10 +13,6 @@
 //!
 //!   positive — the correct path (hs_init_with_rtsopts + -M3G) boots and parses;
 //!   negative — a tight ALETHEIA_RTS_OPTS=-M12M cap over a large DBC aborts.
-//!
-//! The parity leg (mirror constants vs docs/RESOURCE_BUDGETS.yaml) lives in an
-//! internal `#[cfg(test)]` module in src/backend.rs, since it reads the private
-//! mirror constants directly.
 
 use std::io::Write;
 use std::process::Command;

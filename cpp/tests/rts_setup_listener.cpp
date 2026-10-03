@@ -21,7 +21,7 @@
 // held for the run. It is the C++ analogue of Go's package `TestMain`. Best-effort:
 // if the .so is not locatable the render tests fail vocally with the renderer's
 // "runtime not initialized" error. (The dedicated renderer-uninitialised test runs
-// in its own ctest process without this listener, so it is not masked.)
+// in a process of its own without this listener, so it is not masked.)
 
 #include <catch2/catch_test_run_info.hpp>
 #include <catch2/interfaces/catch_interfaces_reporter.hpp>

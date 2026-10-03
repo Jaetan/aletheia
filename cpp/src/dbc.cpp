@@ -42,9 +42,9 @@ static auto is_multiplexed_signal(const DbcSignal& s) -> bool {
 template<typename Item, typename Matches>
 static auto cached_element(std::optional<std::size_t> idx, const std::vector<Item>& items,
                            Matches matches) -> const Item* {
-    if (!idx || *idx >= items.size() || !matches(items[*idx]))
+    if (!idx || idx.value() >= items.size() || !matches(items.at(idx.value())))
         return nullptr;
-    return &items[*idx];
+    return &items.at(idx.value());
 }
 
 // ---------------------------------------------------------------------------

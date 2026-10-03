@@ -24,6 +24,7 @@
 #include <aletheia/cli.hpp>
 #include <aletheia/client.hpp>
 #include <aletheia/dbc.hpp>
+#include <aletheia/detail/checked.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/excel.hpp>
 #include <aletheia/types.hpp>
@@ -123,7 +124,7 @@ static auto make_client() -> std::expected<AletheiaClient, std::string> {
         return std::unexpected<std::string>(
             "libaletheia-ffi.so not found; set $ALETHEIA_LIB or run 'cabal run shake -- build'");
     try {
-        return AletheiaClient(aletheia::make_ffi_backend(*lib));
+        return AletheiaClient(aletheia::make_ffi_backend(lib.value()));
     } catch (const std::exception& e) {
         return std::unexpected<std::string>(std::string{"loading FFI backend: "} + e.what());
     }
@@ -143,10 +144,11 @@ static auto load_dbc_text(AletheiaClient& client, const std::string& path)
     if (path.ends_with(".json") || path.ends_with(".xlsx"))
         return std::unexpected(DbcLoadError{
             .message = path + ": the C++ CLI accepts .dbc text input only (not JSON or .xlsx)"});
-    if (auto bound = aletheia::detail::check_file_size_bound(path); !bound)
+    if (auto const bound = aletheia::detail::check_file_size_bound(path); !bound)
         return std::unexpected(DbcLoadError{
-            .message = "reading " + path + ": " + std::string{bound.error().message()},
-            .core = std::move(bound.error()),
+            .message =
+                "reading " + path + ": " + std::string{aletheia::detail::error_of(bound).message()},
+            .core = aletheia::detail::error_of(bound),
         });
     const std::ifstream in{path};
     if (!in)
@@ -156,10 +158,11 @@ static auto load_dbc_text(AletheiaClient& client, const std::string& path)
     auto parsed = client.parse_dbc_text(std::stop_token{}, buf.str());
     if (!parsed)
         return std::unexpected(DbcLoadError{
-            .message = "parsing " + path + ": " + std::string{parsed.error().message()},
-            .core = std::move(parsed.error()),
+            .message = "parsing " + path + ": " +
+                       std::string{aletheia::detail::error_of(parsed).message()},
+            .core = aletheia::detail::error_of(parsed),
         });
-    return std::move(*parsed);
+    return std::move(parsed).value();
 }
 
 // --- value parsing --------------------------------------------------------
@@ -167,7 +170,7 @@ static auto load_dbc_text(AletheiaClient& client, const std::string& path)
 static auto parse_can_id(std::string_view s) -> std::optional<std::uint32_t> {
     int base = 10;
     if (s.starts_with("0x") || s.starts_with("0X")) {
-        s.remove_prefix(2);
+        s = s.substr(2);
         base = 16;
     }
     // Materialize a std::string so from_chars reads null-terminated data()
@@ -188,13 +191,13 @@ static auto parse_can_id(std::string_view s) -> std::optional<std::uint32_t> {
 static auto make_can_id(std::uint32_t n, bool extended) -> std::optional<CanId> {
     if (extended) {
         if (auto id = ExtendedId::create(n))
-            return CanId{*id};
+            return CanId{id.value()};
         return std::nullopt;
     }
     if (n > k_std_id_max)
         return std::nullopt;
     if (auto id = StandardId::create(static_cast<std::uint16_t>(n)))
-        return CanId{*id};
+        return CanId{id.value()};
     return std::nullopt;
 }
 
@@ -205,7 +208,7 @@ static auto parse_hex_data(std::string_view s) -> std::optional<std::vector<std:
             cleaned.push_back(c);
     std::string_view view{cleaned};
     if (view.starts_with("0x") || view.starts_with("0X"))
-        view.remove_prefix(2);
+        view = view.substr(2);
     if (view.size() % 2 != 0)
         return std::nullopt;
     std::vector<std::byte> out;
@@ -236,7 +239,7 @@ static auto parse_args(std::span<const std::string> args, const std::set<std::st
     // what the loop says.
     while (!args.empty()) {
         const std::string& a = args.front();
-        args = args.subspan(1);
+        args = aletheia::detail::subspan_at(args, 1);
         if (!a.starts_with("--")) {
             out.positionals.push_back(a);
             continue;
@@ -251,10 +254,10 @@ static auto parse_args(std::span<const std::string> args, const std::set<std::st
             out.flags.insert(name);
         } else if (value_flags.contains(name)) {
             if (inline_val) {
-                out.opts[name] = *inline_val;
+                out.opts[name] = inline_val.value();
             } else if (!args.empty()) {
                 out.opts[name] = args.front();
-                args = args.subspan(1);
+                args = aletheia::detail::subspan_at(args, 1);
             } else {
                 return std::unexpected<std::string>("flag --" + name + " requires a value");
             }
@@ -325,24 +328,24 @@ static auto has_error_issue(const std::vector<aletheia::ValidationIssue>& issues
 static auto cmd_validate(const Args& a) -> int {
     auto client = make_client();
     if (!client)
-        return die(client.error());
-    auto def = load_dbc_text(*client, opt_or(a, "dbc"));
+        return die(aletheia::detail::error_of(client));
+    auto def = load_dbc_text(client.value(), opt_or(a, "dbc"));
     if (!def) {
         // A parse rejected with validation issues renders as a normal
         // validation report; any other load failure stays fatal.
-        auto const& core = def.error().core;
+        auto const& core = aletheia::detail::error_of(def).core;
         if (core.has_value()) {
-            auto const& issues = core->issues();
+            auto const& issues = core.value().issues();
             if (issues.has_value())
-                return render_validation(has_error_issue(*issues), *issues,
+                return render_validation(has_error_issue(issues.value()), issues.value(),
                                          a.flags.contains("json"));
         }
-        return die(def.error().message);
+        return die(aletheia::detail::error_of(def).message);
     }
     // The kernel's parse epilogue IS full DBC validation: on parse success
     // has_errors is structurally false and the parse warnings are the
     // complete issue list — no second kernel round-trip needed.
-    return render_validation(false, def->warnings, a.flags.contains("json"));
+    return render_validation(false, def.value().warnings, a.flags.contains("json"));
 }
 
 // Exact rational -> JSON for `extract --json`: a bare integer when the
@@ -376,52 +379,53 @@ static auto render_rational(const aletheia::Rational& r) -> std::string {
 static auto cmd_extract(const Args& a) -> int {
     if (a.positionals.size() != 2)
         return die("extract requires <can_id> <data> positional arguments");
-    auto can_id = parse_can_id(a.positionals[0]);
+    auto can_id = parse_can_id(a.positionals.at(0));
     if (!can_id)
-        return die("invalid CAN ID: " + a.positionals[0]);
-    auto data = parse_hex_data(a.positionals[1]);
+        return die("invalid CAN ID: " + a.positionals.at(0));
+    auto data = parse_hex_data(a.positionals.at(1));
     if (!data)
-        return die("invalid hex data: " + a.positionals[1]);
+        return die("invalid hex data: " + a.positionals.at(1));
     auto const extended = a.flags.contains("extended");
     auto client = make_client();
     if (!client)
-        return die(client.error());
-    auto def = load_dbc_text(*client, opt_or(a, "dbc"));
+        return die(aletheia::detail::error_of(client));
+    auto def = load_dbc_text(client.value(), opt_or(a, "dbc"));
     if (!def)
-        return die(def.error().message);
-    auto id = make_can_id(*can_id, extended);
+        return die(aletheia::detail::error_of(def).message);
+    auto id = make_can_id(can_id.value(), extended);
     if (!id)
         return die("invalid CAN ID for the selected width");
-    auto const* msg = def->dbc.message_by_id(*id);
+    auto const* msg = def.value().dbc.message_by_id(id.value());
     if (msg == nullptr)
         return die("CAN ID not found in DBC");
-    auto res = client->extract_signals(std::stop_token{}, *id, msg->dlc, *data);
+    auto res =
+        client.value().extract_signals(std::stop_token{}, id.value(), msg->dlc, data.value());
     if (!res)
-        return die(res.error().message());
+        return die(aletheia::detail::error_of(res).message());
 
     if (a.flags.contains("json")) {
         auto values = Json::object();
-        for (auto const& v : res->values)
+        for (auto const& v : res.value().values)
             values[v.name.get()] = extract_value_to_json(v.value.get());
         auto errors = Json::object();
-        for (auto const& e : res->errors)
+        for (auto const& e : res.value().errors)
             errors[e.name.get()] = e.reason;
         auto absent = Json::array();
-        for (auto const& s : res->absent)
+        for (auto const& s : res.value().absent)
             absent.push_back(s.get());
-        return emit_json({{"can_id", *can_id},
+        return emit_json({{"can_id", can_id.value()},
                           {"extended", extended},
                           {"values", values},
                           {"errors", errors},
                           {"absent", absent}});
     }
-    std::cout << "CAN ID 0x" << std::hex << *can_id << std::dec << " (" << msg->name.get()
+    std::cout << "CAN ID 0x" << std::hex << can_id.value() << std::dec << " (" << msg->name.get()
               << "):\n\n";
-    if (res->values.empty())
+    if (res.value().values.empty())
         std::cout << "  (no signals)\n";
-    for (auto const& v : res->values)
+    for (auto const& v : res.value().values)
         std::cout << "  " << v.name.get() << " = " << render_rational(v.value.get()) << '\n';
-    for (auto const& e : res->errors)
+    for (auto const& e : res.value().errors)
         std::cout << "  error " << e.name.get() << ": " << e.reason << '\n';
     return cli_exit_ok;
 }
@@ -439,16 +443,16 @@ static void print_signal_line(const aletheia::DbcSignal& sig) {
 static auto cmd_signals(const Args& a) -> int {
     auto client = make_client();
     if (!client)
-        return die(client.error());
-    auto def = load_dbc_text(*client, opt_or(a, "dbc"));
+        return die(aletheia::detail::error_of(client));
+    auto def = load_dbc_text(client.value(), opt_or(a, "dbc"));
     if (!def)
-        return die(def.error().message);
+        return die(aletheia::detail::error_of(def).message);
     if (a.flags.contains("json")) {
-        std::cout << aletheia::to_canonical_json(def->dbc) << '\n';
+        std::cout << aletheia::to_canonical_json(def.value().dbc) << '\n';
         return cli_exit_ok;
     }
     std::size_t total = 0;
-    for (auto const& msg : def->dbc.messages) {
+    for (auto const& msg : def.value().dbc.messages) {
         std::cout << "Message 0x" << std::hex << aletheia::can_id_value(msg.id) << std::dec << " "
                   << msg.name.get() << '\n';
         for (auto const& sig : msg.signals) {
@@ -456,29 +460,29 @@ static auto cmd_signals(const Args& a) -> int {
             print_signal_line(sig);
         }
     }
-    std::cout << '\n' << def->dbc.messages.size() << " messages, " << total << " signals\n";
+    std::cout << '\n' << def.value().dbc.messages.size() << " messages, " << total << " signals\n";
     return cli_exit_ok;
 }
 
 static auto cmd_format_dbc(const Args& a) -> int {
     auto client = make_client();
     if (!client)
-        return die(client.error());
-    auto def = load_dbc_text(*client, opt_or(a, "dbc"));
+        return die(aletheia::detail::error_of(client));
+    auto const def = load_dbc_text(client.value(), opt_or(a, "dbc"));
     if (!def)
-        return die(def.error().message);
-    auto canonical = client->format_dbc(std::stop_token{});
+        return die(aletheia::detail::error_of(def).message);
+    auto canonical = client.value().format_dbc(std::stop_token{});
     if (!canonical)
-        return die(canonical.error().message());
-    std::cout << aletheia::to_canonical_json(*canonical) << '\n';
+        return die(aletheia::detail::error_of(canonical).message());
+    std::cout << aletheia::to_canonical_json(canonical.value()) << '\n';
     return cli_exit_ok;
 }
 
 static auto resolve_mux_message(const DbcDefinition& def, const std::string& ident, bool extended)
     -> const DbcMessage* {
     if (auto can_id = parse_can_id(ident))
-        if (auto id = make_can_id(*can_id, extended))
-            if (auto const* msg = def.message_by_id(*id))
+        if (auto id = make_can_id(can_id.value(), extended))
+            if (auto const* msg = def.message_by_id(id.value()))
                 return msg;
     return def.message_by_name(aletheia::MessageName{ident});
 }
@@ -566,13 +570,14 @@ static auto cmd_mux_query(const Args& a) -> int {
         return die("mux-query requires a <message> positional argument (CAN ID or name)");
     auto client = make_client();
     if (!client)
-        return die(client.error());
-    auto def = load_dbc_text(*client, opt_or(a, "dbc"));
+        return die(aletheia::detail::error_of(client));
+    auto def = load_dbc_text(client.value(), opt_or(a, "dbc"));
     if (!def)
-        return die(def.error().message);
-    auto const* msg = resolve_mux_message(def->dbc, a.positionals[0], a.flags.contains("extended"));
+        return die(aletheia::detail::error_of(def).message);
+    auto const* msg =
+        resolve_mux_message(def.value().dbc, a.positionals.at(0), a.flags.contains("extended"));
     if (msg == nullptr)
-        return die("message not found by id or name: " + a.positionals[0]);
+        return die("message not found by id or name: " + a.positionals.at(0));
 
     // `--mux NAME --value N` (both or neither) selects one multiplexor value;
     // otherwise print the full summary. Mirrors the Python/Go CLIs.
@@ -598,9 +603,9 @@ static auto cmd_mux_query(const Args& a) -> int {
 static auto cmd_template(const Args& a) -> int {
     if (a.positionals.size() != 1)
         return die("template requires one <path> positional argument");
-    auto const& path = a.positionals.front();
-    if (auto made = aletheia::create_excel_template(path); !made)
-        return die(made.error().message());
+    auto const& path = a.positionals.at(0);
+    if (auto const made = aletheia::create_excel_template(path); !made)
+        return die(aletheia::detail::error_of(made).message());
     std::cout << "Template written to " << path << '\n';
     return std::cout ? cli_exit_ok : cli_exit_error;
 }
@@ -626,30 +631,30 @@ static auto dispatch(const std::string& cmd, std::span<const std::string> rest) 
     if (cmd == "validate" || cmd == "signals" || cmd == "format-dbc") {
         auto parsed = parse_args(rest, {"dbc"}, bool_flags);
         if (!parsed)
-            return die(parsed.error());
+            return die(aletheia::detail::error_of(parsed));
         if (cmd == "validate")
-            return cmd_validate(*parsed);
+            return cmd_validate(parsed.value());
         if (cmd == "signals")
-            return cmd_signals(*parsed);
-        return cmd_format_dbc(*parsed);
+            return cmd_signals(parsed.value());
+        return cmd_format_dbc(parsed.value());
     }
     if (cmd == "extract") {
         auto parsed = parse_args(rest, {"dbc"}, bool_flags);
         if (!parsed)
-            return die(parsed.error());
-        return cmd_extract(*parsed);
+            return die(aletheia::detail::error_of(parsed));
+        return cmd_extract(parsed.value());
     }
     if (cmd == "mux-query") {
         auto parsed = parse_args(rest, {"dbc", "mux", "value"}, bool_flags);
         if (!parsed)
-            return die(parsed.error());
-        return cmd_mux_query(*parsed);
+            return die(aletheia::detail::error_of(parsed));
+        return cmd_mux_query(parsed.value());
     }
     if (cmd == "template") {
         auto parsed = parse_args(rest, {}, {});
         if (!parsed)
-            return die(parsed.error());
-        return cmd_template(*parsed);
+            return die(aletheia::detail::error_of(parsed));
+        return cmd_template(parsed.value());
     }
     if (cmd == "check") {
         std::cerr << "Error: 'check' is not available in the C++ CLI: it needs a CAN-log reader "
@@ -672,7 +677,7 @@ auto run_cli(std::span<const std::string> args) noexcept -> int {
             std::cerr << k_usage << '\n';
             return cli_exit_error;
         }
-        return dispatch(args.front(), args.subspan(1));
+        return dispatch(args.front(), aletheia::detail::subspan_at(args, 1));
     } catch (const std::exception& e) {
         return die(std::string{"unexpected error: "} + e.what());
     } catch (...) {

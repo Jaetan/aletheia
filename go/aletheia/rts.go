@@ -4,8 +4,8 @@
 package aletheia
 
 // The arguments the GHC runtime is started with. The values are
-// docs/RESOURCE_BUDGETS.yaml's, mirrored here; tools/check_rts_runtime.py and
-// rts_params_parity_test.go hold the mirror to it.
+// docs/RESOURCE_BUDGETS.yaml's, mirrored here; tools/check_rts_runtime.py
+// holds the mirror to it.
 //
 // The heap cap contains rather than reports. Without it the runtime has no
 // limit, so an allocation that runs away takes the host's memory and the

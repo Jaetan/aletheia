@@ -314,7 +314,13 @@ bindings:
       # What holds the surface. The mutation binary folds in the real-FFI
       # integration suite and the two loader suites, because a mock-only
       # binary never executes the dlopen glue and the static link drops a
-      # loader object nothing references. The build records each unit's
+      # loader object nothing references. The three suites that need a
+      # process of their own for the renderer and the runtime, the renderer
+      # with the runtime down or no library to find and the runtime's heap cap,
+      # run as the binary's children
+      # (cpp/tests/fresh_process_tests.cpp), each under the mutant it inherits,
+      # since a process starts the runtime and searches for the library once.
+      # The build records each unit's
       # command line, without which Mull's junk detector drops every mutant
       # of a unit it cannot re-parse. The mutator set and the held-out paths
       # (vendored, system, and the test sources) are cpp/mull.yml. Fixtures
@@ -334,13 +340,13 @@ bindings:
       # anything it drops is seen. A mutant is a survivor only where both
       # lanes let it survive.
       #
-      # What the survivors are, each a row of the ledger below, in the three
-      # classes the ledger's own comments name: a refusal of an input no call
-      # can build, an out-parameter its callee writes, and the state a process
-      # holds once, whose guards the fresh-process binaries exercise. Every other guard the widened mutator set reached has a test
-      # feeding the input that fires it, or went with the redundancy it
-      # guarded: the logger's own gate, one table lookup per loader word, one
-      # symbol loop in the renderer, the factories' own refusals.
+      # What the survivors are, each a row of the ledger below, in the two
+      # classes the ledger's own comments name: a re-check of a precondition
+      # nothing proves, and an out-parameter its callee writes. Every other
+      # guard the widened mutator set reached has a test feeding the input that
+      # fires it, or went with the redundancy it guarded: the logger's own
+      # gate, one table lookup per loader word, one symbol loop in the
+      # renderer, the factories' own refusals.
       # Every call the source writes under the older mutators is killed: the
       # named-call mutators reach a call that can throw, the capacity hints
       # and the ack fast path are held by allocation counts, the loaders'
@@ -368,7 +374,9 @@ bindings:
       # build: both trees compile under libstdc++'s debug mode, so a read
       # past a container's end or an out-of-range subscript ends the run at
       # that step with the check's message, where the shipped build, which
-      # runs no such check, reads whatever lies beyond. A fault is a signal.
+      # runs no such check, reads whatever lies beyond. A fault is an end none
+      # of those name: a signal, or the GHC runtime refusing a call made with
+      # it down and ending the process with its own message.
       # A mutant killed only by a check or a fault is one no test observes
       # by behaviour; every such mutant was activated against a tree built
       # without the checks, and most then fail a test outright, some die by a
@@ -398,17 +406,17 @@ bindings:
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
-      survivors: 8
-      total_mutants: 1482
+      survivors: 4
+      total_mutants: 1475
       # What each tree carries, which is not one number: the address tree drops
       # the mutators over calls, since a sanitizer inserts its own checks at
       # the source location of the statement they guard and a mutator over calls
       # mutates those rather than the program's own. Each tree is held to its own
       # figure, and the merge judges a mutant only over the trees carrying it.
       mutants_by_tree:
-        leak: 1482
-        plain: 1482
-        address: 338
+        leak: 1475
+        plain: 1475
+        address: 337
       # Per tree, the suite runs each file's mutants cost, which is what the
       # tree's slices are cut on: a CI leg builds one slice of one tree, and a
       # slice is a set of files whose recorded figures add up to about a third
@@ -504,8 +512,8 @@ bindings:
           cpp/src/rational_renderer.cpp: 2.6
           cpp/src/yaml.cpp: 1.3
       timeouts: 0
-      score_pct: 99.5
-      run_at: "2026-09-30"
+      score_pct: 99.7
+      run_at: "2026-10-03"
       # A mutant the runner ended at its cap in every tree is neither killed
       # nor survived, and no verdict comes from a clock: the lane refuses a
       # sweep in which the cap fired, and a timed-out mutant is a hang to
@@ -514,26 +522,29 @@ bindings:
       # the cap.
       timeout_ceiling: 0
       kill_routes:
-        test: 1300
-        leak: 3
+        test: 1411
+        leak: 2
         address: 19
         kernel: 2
-        check: 129
-        fault: 21
+        check: 15
+        fault: 22
         timeout: 0
-        survived: 8
+        survived: 4
       # Every survivor, by mutator, repository-relative file, the text of its
       # source line and how many mutants share that line. The lane refuses a
       # survivor not named here even at an unchanged count, and reports a row
       # that no longer survives as stale; the change that kills or removes one
       # deletes its row here.
       survivors_ledger:
-        # refusal of an input no call can build, 3 mutants:
+        # a re-check of a precondition nothing proves, 3 mutants:
         # SignalInjection::create refuses arrays of unequal length and a count
-        # past the wire's 32 bits; injection() hands it three arrays of one
-        # resolution, whose count the message bound keeps under a thousand.
-        # The guard stands for a direct caller of the factory, which the tests
-        # reach through it; behind injection() nothing can fire it.
+        # past the wire's 32 bits; the tests reach the first through the
+        # factory and the second on the count alone. The client sizes its
+        # three arrays from the caller's signals, so they share one length,
+        # and no test can hand it the more than 2^32 signals the count refusal
+        # needs. Nothing proves that the client's path meets the factory's
+        # precondition, so the client's re-check stands, and the factory keeps
+        # its refusals for its direct callers.
         - mutator: cxx_replace_bool_call_true
           file: cpp/src/client.cpp
           text: if (!block)
@@ -542,50 +553,37 @@ bindings:
           file: cpp/src/client.cpp
           text: if (!inj)
           count: 2
-        # out-parameter the callee writes, 1 mutant: A start value the callee
-        # overwrites on success and nothing reads on failure: from_chars
-        # writes its result. The alternative is an object left indeterminate,
-        # which the guidelines refuse.
+        # an out-parameter the callee writes, 1 mutant, an irreducible C++23
+        # equivalent:
+        # from_chars writes its result through a reference on success and
+        # nothing reads it on failure, and the mutator rewrites the compiled
+        # store whether the source spells `= 0` or `{}`. Left unset the object
+        # is indeterminate, which ES.20 refuses, and `[[indeterminate]]`, the
+        # attribute that would say so, is C++26.
         - mutator: cxx_init_const
           file: cpp/src/excel.cpp
           text: std::uint32_t result = 0;
-          count: 1
-        # state a process holds once, 4 mutants: The runtime initialises once
-        # per process and the renderer loads once, so the guard on the first
-        # load, the guard on an uninitialised runtime and the environment
-        # override read at that load are exercised by the binaries of their
-        # own that start a fresh process (rts_params_tests,
-        # rts_init_renderer_uninitialized_tests), which the mutation binary
-        # cannot fold in. The refusal of a non-positive denominator from the
-        # decimal parser fires only under a kernel that answers one, which the
-        # renderer, bound once to the real library, is never given in that
-        # binary; the helper it calls is tested at 0, -1 and 1.
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/rational_renderer.cpp
-          text: if (!loaded) {
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/rational_renderer.cpp
-          text: if (!rts_initialized())
-          count: 1
-        - mutator: cxx_replace_pointer_call_null
-          file: cpp/src/ffi_backend.cpp
-          text: const char* override_env = std::getenv(std::string{detail::rts_override_env}.c_str());
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/rational_renderer.cpp
-          text: if (auto refusal = decimal_denominator_refusal(out.value.denominator))
           count: 1
       # Every kill no test observes by behaviour, by mutator, repository-relative
       # file, the text of its source line, the route it took and what refused
       # it: the invariant of the standard library's check, or the class the
       # address sanitizer names its report by. The count is how many mutants of
-      # that mutator share the line. These are the mutations that run straight
-      # into an operation the language does not define, a guard for most of
-      # them and the value an index is computed from for the rest, with the
-      # suite reporting nothing before the process stops: an instrument is what
-      # ends them, and on the shipped build, which runs none of them, nothing
-      # would.
+      # that mutator share the line. Most are mutations that run straight into
+      # an operation the language does not define, a guard for most of them and
+      # the value an index is computed from for the rest, with the suite
+      # reporting nothing before the process stops: an instrument is what ends
+      # them, and on the shipped build, which runs none of them, nothing would.
+      # The rest call the GHC runtime while it is down, which it refuses on any
+      # build by ending the process, before any test can report.
+      #
+      # A read of a state a check rules out is written in its checked form
+      # wherever one exists (cpp/include/aletheia/detail/checked.hpp), so a
+      # guard that stops firing before such a read throws and a test reports
+      # it. The rows are what has no checked form, a dereference past an
+      # iterator's end, an empty container's front, a null smart pointer, a
+      # range whose bounds are inverted, the magnitude of the most negative
+      # integer and the checked forms' own check, beside the mutants that end
+      # in a signal, a sanitizer's report, a leak or the runtime's refusal.
       #
       # The lane refuses a row this does not name, as it refuses an unrecorded
       # survivor: a new one is a line somebody has to look at, not a number to
@@ -607,46 +605,13 @@ bindings:
       #
       # The rows survive the standard library the lane is built against
       # changing version, which they have to: this machine compiles them under
-      # libstdc++ 16 and the workflow installs 15. Measured over the four
-      # shapes the rows carry, a past-the-end dereference, an out-of-range
-      # subscript, a span refusing an offset and a valueless expected read:
-      # the debug-mode sentences are identical, and the assertions differ only
-      # in the header path and line they name, span:450 against span:436 and
-      # expected:731 against expected:791, which is not what a row records.
-      # What it records, the invariant, is the same string under both, and
-      # each of the nine invariants the rows name is present in the headers of
-      # both versions.
+      # libstdc++ 16 and the workflow installs 15. A debug-mode sentence, such
+      # as a past-the-end dereference's, is the same under both, and an
+      # assertion differs only in the header path and line it names, which is
+      # not what a row records. What it records, the invariant, is the same
+      # string under both: every assertion invariant the rows name is spelled
+      # in the headers of both versions.
       unobserved_ledger:
-        - mutator: cxx_add_assign_to_sub_assign
-          file: cpp/src/client.cpp
-          text: off += (std::size_t{nerrs} * k_error_record_bytes) +
-          route: check
-          refused: __offset <= size()
-          count: 1
-        - mutator: cxx_add_assign_to_sub_assign
-          file: cpp/src/client.cpp
-          text: off += std::size_t{nvals} * k_value_record_bytes;
-          route: check
-          refused: __offset <= size()
-          count: 1
-        - mutator: cxx_add_to_sub
-          file: cpp/src/client.cpp
-          text: ((std::size_t{nerrs} + 1) * k_offset_bytes) + std::size_t{reason_bytes};
-          route: check
-          refused: __offset <= size()
-          count: 1
-        - mutator: cxx_add_to_sub
-          file: cpp/src/client.cpp
-          text: auto const slice = buf.subspan(reasons_off + bound.front(), bound.back() - bound.front());
-          route: check
-          refused: __offset <= size()
-          count: 1
-        - mutator: cxx_add_to_sub
-          file: cpp/src/client.cpp
-          text: buf.subspan(offsets_off, (std::size_t{nerrs} + 1) * k_offset_bytes) |
-          route: check
-          refused: __count <= size()
-          count: 1
         - mutator: cxx_add_to_sub
           file: cpp/src/excel.cpp
           text: 'for (auto const r : std::views::iota(std::uint64_t{2}, std::uint64_t{total_rows} + 1)) {'
@@ -665,39 +630,15 @@ bindings:
           route: address
           refused: SEGV
           count: 11
-        - mutator: cxx_ge_to_gt
-          file: cpp/src/client.cpp
-          text: if (idx >= diags_.size()) {
-          route: check
-          refused: attempt to subscript container with out-of-bounds index
-          count: 2
-        - mutator: cxx_ge_to_gt
-          file: cpp/src/dbc.cpp
-          text: if (!idx || *idx >= items.size() || !matches(items[*idx]))
-          route: check
-          refused: attempt to subscript container with out-of-bounds index
-          count: 3
-        - mutator: cxx_init_const
-          file: cpp/src/client.cpp
-          text: auto off = k_header_bytes;
-          route: check
-          refused: __offset <= size()
-          count: 1
         - mutator: cxx_init_const
           file: cpp/src/ffi_backend.cpp
           text: auto argc = static_cast<int>(rts_argv_ptrs.size());
           route: fault
           refused: ''
           count: 1
-        - mutator: cxx_lt_to_le
-          file: cpp/src/client.cpp
-          text: 'return idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};'
-          route: check
-          refused: attempt to subscript container with out-of-bounds index
-          count: 1
         - mutator: cxx_mul_to_div
           file: cpp/src/client.cpp
-          text: buf.subspan(offsets_off, (std::size_t{nerrs} + 1) * k_offset_bytes) |
+          text: detail::subspan_at(buf, offsets_off, (std::size_t{nerrs} + 1) * k_offset_bytes) |
           route: check
           refused: '!empty()'
           count: 1
@@ -763,12 +704,6 @@ bindings:
           count: 2
         - mutator: cxx_remove_void_call
           file: cpp/src/ffi_backend.cpp
-          text: auto const deleter = [this](char* p) { free_str_fn_(p); };
-          route: leak
-          refused: ''
-          count: 1
-        - mutator: cxx_remove_void_call
-          file: cpp/src/ffi_backend.cpp
           text: hs_init(&argc, &argv);
           route: fault
           refused: ''
@@ -792,256 +727,22 @@ bindings:
           refused: get() != pointer()
           count: 1
         - mutator: cxx_replace_bool_call_true
-          file: cpp/src/backend.cpp
-          text: if (auto refusal = detail::wire_count_refusal(indices.size()))
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (!bin_result) {
-          route: check
-          refused: _M_has_value
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (!errors)
-          route: check
-          refused: _M_has_value
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (!extraction.has_value())
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (!extraction.has_value()) {
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (!lead)
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (!r.has_value()) {
-          route: check
-          refused: _M_has_value
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (!rat_or_err)
-          route: check
-          refused: _M_has_value
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (!resolved) {
-          route: check
-          refused: _M_has_value
-          count: 2
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (!result.has_value())
-          route: check
-          refused: _M_has_value
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (!result.has_value()) {
-          route: check
-          refused: _M_has_value
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (!sv)
-          route: check
-          refused: _M_has_value
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (auto rts = backend_->rts_mismatch_info(); rts) {
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (buf)
-          route: check
-          refused: _M_has_value
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (buf) {
-          route: check
-          refused: _M_has_value
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/client.cpp
-          text: if (result.has_value()) {
-          route: check
-          refused: _M_has_value
-          count: 3
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/dbc.cpp
-          text: if (!idx || *idx >= items.size() || !matches(items[*idx]))
-          route: check
-          refused: this->_M_is_engaged()
-          count: 3
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/detail/loader_utils.cpp
-          text: if (!eocd)
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/detail/loader_utils.cpp
-          text: if (!total)
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/excel.cpp
-          text: if (!slots)
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/excel.cpp
-          text: if (s.starts_with('-'))
-          route: check
-          refused: this->_M_len >= __n
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/ffi_backend.cpp
-          text: if (!b.has_value())
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/ffi_backend.cpp
-          text: if (auto err = detail::ffi_error_from_status(status, out.err, free_str_fn_))
-          route: check
-          refused: this->_M_is_engaged()
-          count: 3
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/ffi_backend.cpp
-          text: if (auto err = payload_bound_error(data))
-          route: check
-          refused: this->_M_is_engaged()
-          count: 4
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/ffi_backend.cpp
-          text: if (auto refusal = detail::abi_version_refusal(
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/ffi_backend.cpp
-          text: if (auto refusal = detail::json_input_bound_error(input.size()))
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
           file: cpp/src/ffi_backend.cpp
           text: if (opened == nullptr)
           route: fault
           refused: ''
           count: 1
         - mutator: cxx_replace_bool_call_true
-          file: cpp/src/ffi_backend.cpp
-          text: '} else if (auto mismatch = detail::rts_cores_mismatch(rts_cores, rts.cores)) {'
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/json_parse.cpp
-          text: if (!bo)
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/json_parse.cpp
-          text: if (!dlc_result)
-          route: check
-          refused: _M_has_value
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/json_parse.cpp
-          text: if (!entry)
-          route: check
-          refused: _M_has_value
-          count: 4
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/json_parse.cpp
-          text: if (!result)
-          route: check
-          refused: _M_has_value
-          count: 2
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/json_parse.cpp
-          text: if (!severity)
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/json_parse.cpp
-          text: if (!verdict)
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/json_parse.cpp
-          text: if (auto scope = lookup(attr_scope_table, s))
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
           file: cpp/src/rational_renderer.cpp
-          text: if (!abi_version)
-          route: check
-          refused: _M_has_value
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/rational_renderer.cpp
-          text: if (!sym)
-          route: check
-          refused: _M_has_value
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/rational_renderer.cpp
-          text: if (auto refusal =
-          route: check
-          refused: this->_M_is_engaged()
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/rational_renderer.cpp
-          text: if (auto refusal = decimal_denominator_refusal(out.value.denominator))
-          route: check
-          refused: this->_M_is_engaged()
+          text: if (!rts_initialized())
+          route: fault
+          refused: ''
           count: 1
         - mutator: cxx_replace_bool_call_true
           file: cpp/src/rational_renderer.cpp
           text: if (opened == nullptr)
           route: fault
           refused: ''
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/types.cpp
-          text: if (!answer)
-          route: check
-          refused: _M_has_value
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/yaml.cpp
-          text: if (!slots)
-          route: check
-          refused: this->_M_is_engaged()
           count: 1
         - mutator: cxx_replace_pointer_call_null
           file: cpp/src/ffi_backend.cpp
@@ -1062,108 +763,6 @@ bindings:
           refused: get() != pointer()
           count: 1
         - mutator: cxx_replace_scalar_call
-          file: cpp/include/aletheia/types.hpp
-          text: return detail::k_dlc_bytes[dlc.value()];
-          route: check
-          refused: attempt to subscript container with out-of-bounds index
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: auto const slice = buf.subspan(reasons_off + bound.front(), bound.back() - bound.front());
-          route: check
-          refused: __count <= size()
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: auto const slice = buf.subspan(reasons_off + bound.front(), bound.back() - bound.front());
-          route: check
-          refused: __offset + __count <= size()
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: if (!bin_result) {
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: if (!block)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: if (!errors)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: if (!inj)
-          route: check
-          refused: '!_M_has_value'
-          count: 2
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: if (!r.has_value()) {
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: if (!resolved) {
-          route: check
-          refused: '!_M_has_value'
-          count: 2
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: if (!result.has_value()) {
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: if (!sv)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: if (auto t = validate_timestamp(ts); !t.has_value())
-          route: check
-          refused: '!_M_has_value'
-          count: 3
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: if (auto v = validate_payload(dlc, data); !v.has_value())
-          route: check
-          refused: '!_M_has_value'
-          count: 2
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: if (auto v = validate_payload(dlc, data); !v.has_value()) {
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: if (buf)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: if (buf) {
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: if (buf.size() < k_header_bytes)
-          route: check
-          refused: __offset + __count <= size()
-          count: 1
-        - mutator: cxx_replace_scalar_call
           file: cpp/src/client.cpp
           text: if (cache_it == cache_.end()) {
           route: check
@@ -1171,27 +770,9 @@ bindings:
           count: 1
         - mutator: cxx_replace_scalar_call
           file: cpp/src/client.cpp
-          text: if (idx >= diags_.size()) {
-          route: check
-          refused: attempt to subscript container with out-of-bounds index
-          count: 2
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
           text: if (it == signal_index_.end()) {
           route: check
           refused: attempt to dereference a past-the-end iterator.
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: if (len > bytes.size())
-          route: check
-          refused: __count <= size()
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/client.cpp
-          text: 'return idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};'
-          route: check
-          refused: attempt to subscript container with out-of-bounds index
           count: 1
         - mutator: cxx_replace_scalar_call
           file: cpp/src/client.cpp
@@ -1205,42 +786,6 @@ bindings:
           route: check
           refused: attempt to dereference a past-the-end iterator.
           count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/excel.cpp
-          text: auto [it, inserted] = positions.try_emplace(key, groups.size());
-          route: check
-          refused: attempt to subscript container with out-of-bounds index
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/excel.cpp
-          text: if (!msg.has_value())
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/excel.cpp
-          text: if (auto v = detail::check_file_size_bound(path); !v)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/excel.cpp
-          text: if (auto v = detail::validate_loader_path(path, "Excel"); !v)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/excel.cpp
-          text: if (auto v = detail::validate_output_parent_dir(path); !v)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/excel.cpp
-          text: if (auto v = harden_excel_path(path); !v)
-          route: check
-          refused: '!_M_has_value'
-          count: 2
         - mutator: cxx_replace_scalar_call
           file: cpp/src/excel.cpp
           text: if (it == cells.end())
@@ -1260,30 +805,6 @@ bindings:
           refused: ''
           count: 1
         - mutator: cxx_replace_scalar_call
-          file: cpp/src/json_parse.cpp
-          text: if (!dlc_result)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/json_parse.cpp
-          text: if (!entry)
-          route: check
-          refused: '!_M_has_value'
-          count: 3
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/json_parse.cpp
-          text: if (!j.contains(key))
-          route: check
-          refused: attempt to subscript container with out-of-bounds index
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/json_parse.cpp
-          text: if (!result)
-          route: check
-          refused: '!_M_has_value'
-          count: 2
-        - mutator: cxx_replace_scalar_call
           file: cpp/src/json_serialize.cpp
           text: if (can_id_is_extended(id))
           route: check
@@ -1295,59 +816,11 @@ bindings:
           route: check
           refused: __val != __gnu_cxx::__int_traits<_Res>::__min
           count: 2
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/rational_renderer.cpp
-          text: if (!abi_version)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/rational_renderer.cpp
-          text: if (!loaded) {
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/rational_renderer.cpp
-          text: if (!sym)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/rational_renderer.cpp
-          text: 'return loaded ? std::string{} : loaded.error();'
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/types.cpp
-          text: if (!answer)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/yaml.cpp
-          text: if (auto v = detail::check_file_size_bound(path); !v)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/yaml.cpp
-          text: if (auto v = detail::check_input_size_bound(yaml.size()); !v)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
-        - mutator: cxx_replace_scalar_call
-          file: cpp/src/yaml.cpp
-          text: if (auto v = detail::validate_loader_path(path, "YAML"); !v)
-          route: check
-          refused: '!_M_has_value'
-          count: 1
         - mutator: cxx_sub_to_add
-          file: cpp/src/client.cpp
-          text: auto const slice = buf.subspan(reasons_off + bound.front(), bound.back() - bound.front());
+          file: cpp/src/checked.cpp
+          text: if (offset > size || count > size - offset)
           route: check
-          refused: __count <= size()
+          refused: __offset + __count <= size()
           count: 1
 
   rust:

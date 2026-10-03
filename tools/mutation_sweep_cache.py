@@ -14,6 +14,7 @@ that the file is absent, the argv the lane sweeps with, its paths taken within
 the tree, and the environment it sweeps under, which names where the tree
 is.  A trace of the lane's own command finds the files: each tree's test binary
 and the test kernels built beside it, which the binary loads by path; the
+binaries it runs as children, built into a directory of their own; the
 configuration the runner is given; the kernel library, at every path in the
 tree the tests look for it; the fixture a test reads; the source files the
 binary's mutants point at, which the runner copies into its report; the
@@ -99,6 +100,10 @@ _LIBRARY_PATHS = (
 
 # The fixtures the tests read from the tree.
 _FIXTURES = (Path("examples/demo/demo_workbook.xlsx"),)
+
+# The directory of a mutation tree the binaries its test binary runs as
+# processes of their own are built into (cpp/CMakeLists.txt).
+CPP_FRESH_PROCESS_DIR = "fresh-process"
 
 # How a mutant is named inside the binary that carries it: its mutator, the
 # absolute path of its source file, its span, a hash and an ordinal. The runner
@@ -349,13 +354,15 @@ def _loaded() -> list[Path]:
     """Name the ELF files a sweep loads from the tree, whether they are there or not.
 
     The kernel library at every path the tests look for it, each tree's test
-    binary, and the test kernels built beside it, which the binary names by
-    path and is not relinked for, so its digest cannot stand for theirs.
+    binary, the test kernels built beside it and the binaries it runs as
+    children, which the binary names by path and is not relinked for, so its
+    digest cannot stand for theirs.
     """
     loaded = [REPO_ROOT / path for path in _LIBRARY_PATHS]
     for tree in CppTree:
         loaded.append(tree_binary(tree))
         loaded.extend(sorted(tree_build_dir(tree).glob("libaletheia_test_*.so")))
+        loaded.extend(sorted((tree_build_dir(tree) / CPP_FRESH_PROCESS_DIR).glob("*")))
     return loaded
 
 

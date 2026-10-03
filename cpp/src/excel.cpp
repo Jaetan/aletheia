@@ -3,6 +3,7 @@
 //
 // Excel check and DBC loader implementation.
 //
+#include <aletheia/detail/checked.hpp>
 #include <aletheia/excel.hpp>
 
 #include "detail/loader_utils.hpp"
@@ -113,7 +114,7 @@ static auto raw_stored_v_text(const OpenXLSX::XLCell& cell) -> std::string {
 /// parse is exact rather than a prefix-read.
 static auto is_signed_digit_run(std::string_view s) -> bool {
     if (s.starts_with('-'))
-        s.remove_prefix(1);
+        s = s.substr(1);
     if (s.empty())
         return false;
     return std::ranges::all_of(s, [](char ch) { return ch >= '0' && ch <= '9'; });
@@ -435,7 +436,7 @@ static auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResul
     // handed over.
     auto result = [&] -> CheckResult {
         detail::ThenSlotValues read;
-        switch (*slots) {
+        switch (slots.value()) {
         case detail::ThenSlots::Value:
             read.emplace("value", PhysicalValue{get_decimal(cells, "Then Value", ctx_str)});
             break;
@@ -543,10 +544,10 @@ static auto collect_data_rows(OpenXLSX::XLWorksheet const& ws) -> std::vector<Da
 // The entry guards every Excel reader runs before handing the path to
 // OpenXLSX: no symlink, raw size, uncompressed size (see loader_utils.hpp).
 static auto harden_excel_path(const std::filesystem::path& path) -> Result<void> {
-    if (auto v = detail::validate_loader_path(path, "Excel"); !v)
-        return std::unexpected(v.error());
-    if (auto v = detail::check_file_size_bound(path); !v)
-        return std::unexpected(v.error());
+    if (auto const v = detail::validate_loader_path(path, "Excel"); !v)
+        return std::unexpected(detail::error_of(v));
+    if (auto const v = detail::check_file_size_bound(path); !v)
+        return std::unexpected(detail::error_of(v));
     return detail::check_xlsx_uncompressed_bound(path);
 }
 
@@ -570,8 +571,8 @@ static void write_header_row(OpenXLSX::XLWorksheet const& ws,
 
 auto load_checks_from_excel(const std::filesystem::path& path, std::string_view checks_sheet,
                             std::string_view when_then_sheet) -> Result<std::vector<CheckResult>> {
-    if (auto v = harden_excel_path(path); !v)
-        return std::unexpected(v.error());
+    if (auto const v = harden_excel_path(path); !v)
+        return std::unexpected(detail::error_of(v));
 
     try {
         OpenXLSX::XLDocument doc;
@@ -635,7 +636,7 @@ static auto group_rows_by_message(const std::vector<DataRow>& data_rows)
         auto [it, inserted] = positions.try_emplace(key, groups.size());
         if (inserted)
             groups.emplace_back(std::move(key), std::vector<std::size_t>{});
-        groups[it->second].second.push_back(static_cast<std::size_t>(i));
+        groups.at(it->second).second.push_back(static_cast<std::size_t>(i));
     }
     return groups;
 }
@@ -647,7 +648,7 @@ static auto build_message_from_group(const MessageKeyExt& key,
                                      const std::vector<DataRow>& data_rows) -> Result<DbcMessage> {
     std::vector<DbcSignal> signals;
     std::ranges::transform(indices, std::back_inserter(signals), [&](std::size_t idx) {
-        return parse_dbc_signal(data_rows[idx].cells, data_rows[idx].number);
+        return parse_dbc_signal(data_rows.at(idx).cells, data_rows.at(idx).number);
     });
     auto [msg_id, msg_name, dlc, extended] = key;
     // A standard id is created from the 16 bits it fits in; a wider value is
@@ -667,7 +668,7 @@ static auto build_message_from_group(const MessageKeyExt& key,
     // here rather than truncated into its range, with the same wording.
     auto const dlc_refused = [&] {
         return std::unexpected(AletheiaError{
-            ErrorKind::Validation, row_ctx(data_rows[indices[0]].number) +
+            ErrorKind::Validation, row_ctx(data_rows.at(indices.at(0)).number) +
                                        ": DLC out of range [0, 15]: " + std::to_string(dlc)});
     };
     if (!std::in_range<std::uint8_t>(dlc))
@@ -686,8 +687,8 @@ static auto build_message_from_group(const MessageKeyExt& key,
 
 auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view sheet)
     -> Result<DbcDefinition> {
-    if (auto v = harden_excel_path(path); !v)
-        return std::unexpected(v.error());
+    if (auto const v = harden_excel_path(path); !v)
+        return std::unexpected(detail::error_of(v));
 
     try {
         OpenXLSX::XLDocument doc;
@@ -707,7 +708,7 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
         for (auto const& [key, rows] : group_rows_by_message(data_rows)) {
             auto msg = build_message_from_group(key, rows, data_rows);
             if (!msg.has_value())
-                return std::unexpected(msg.error());
+                return std::unexpected(detail::error_of(msg));
             messages.push_back(std::move(msg.value()));
         }
 
@@ -727,8 +728,8 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
 auto create_excel_template(const std::filesystem::path& path) -> Result<void> {
     // Validate the destination's parent dir
     // before letting OpenXLSX raise an opaque exception inside `doc.create`.
-    if (auto v = detail::validate_output_parent_dir(path); !v)
-        return std::unexpected(v.error());
+    if (auto const v = detail::validate_output_parent_dir(path); !v)
+        return std::unexpected(detail::error_of(v));
     if (std::filesystem::exists(path))
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "File already exists: " + path.string()});

@@ -10,10 +10,12 @@
 //
 #include "loader_utils.hpp"
 
+#include <aletheia/detail/checked.hpp>
 #include <aletheia/error.hpp>
 #include <aletheia/limits.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -38,18 +40,23 @@ namespace aletheia::detail {
 // readers take a bounds-checked subspan at the field's offset.
 // ---------------------------------------------------------------------------
 
-static auto byte_at(std::span<const char> s, std::size_t i) -> std::uint32_t {
-    return static_cast<std::uint8_t>(s[i]);
+// The little-endian integer the `width` bytes at `off` spell, no wider than
+// four: each byte at its place, the first byte lowest.
+static auto load_le(std::span<const char> buf, std::size_t off, std::size_t width)
+    -> std::uint32_t {
+    constexpr std::array<unsigned, 4> places{0U, 8U, 16U, 24U};
+    std::uint32_t value = 0;
+    for (auto const [c, place] : std::views::zip(detail::subspan_at(buf, off, width), places))
+        value |= std::uint32_t{static_cast<std::uint8_t>(c)} << place;
+    return value;
 }
 
 static auto load_le16(std::span<const char> buf, std::size_t off) -> std::uint16_t {
-    auto const s = buf.subspan(off, 2);
-    return static_cast<std::uint16_t>(byte_at(s, 0) | (byte_at(s, 1) << 8U));
+    return static_cast<std::uint16_t>(load_le(buf, off, 2));
 }
 
 static auto load_le32(std::span<const char> buf, std::size_t off) -> std::uint32_t {
-    auto const s = buf.subspan(off, 4);
-    return byte_at(s, 0) | (byte_at(s, 1) << 8U) | (byte_at(s, 2) << 16U) | (byte_at(s, 3) << 24U);
+    return load_le(buf, off, 4);
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +182,7 @@ static auto sum_uncompressed_sizes(std::ifstream& f, const EOCD& eocd)
         const std::size_t entry_size = k_cd_entry_min + name_len + extra_len + comment_len;
         if (rest.size() < entry_size)
             return std::nullopt;
-        rest = rest.subspan(entry_size);
+        rest = detail::subspan_at(rest, entry_size);
     }
     return total;
 }
@@ -270,22 +277,23 @@ auto check_xlsx_uncompressed_bound(const std::filesystem::path& path) -> Result<
 
     // Bound the central-directory allocation against the actual file size —
     // refuse a forged EOCD that asserts a multi-GiB CD inside a 50 KiB file.
-    if (static_cast<std::uintmax_t>(eocd->cd_offset) > file_size ||
-        static_cast<std::uintmax_t>(eocd->cd_size) > file_size ||
-        static_cast<std::uintmax_t>(eocd->cd_offset) + eocd->cd_size > file_size)
+    auto const& location = eocd.value();
+    if (static_cast<std::uintmax_t>(location.cd_offset) > file_size ||
+        static_cast<std::uintmax_t>(location.cd_size) > file_size ||
+        static_cast<std::uintmax_t>(location.cd_offset) + location.cd_size > file_size)
         return std::unexpected(AletheiaError{
             ErrorKind::Validation,
             "Malformed central directory location in .xlsx archive: " + path.string()});
 
-    auto total = sum_uncompressed_sizes(f, *eocd);
+    auto total = sum_uncompressed_sizes(f, location);
     if (!total)
         return std::unexpected(
             AletheiaError{ErrorKind::Validation,
                           "Malformed central directory in .xlsx archive: " + path.string()});
 
-    if (*total > max_dbc_text_bytes)
-        return std::unexpected(
-            make_input_bound_error(*total, ".xlsx uncompressed size", " (ZIP-bomb defence)"));
+    if (total.value() > max_dbc_text_bytes)
+        return std::unexpected(make_input_bound_error(total.value(), ".xlsx uncompressed size",
+                                                      " (ZIP-bomb defence)"));
     return {};
 }
 

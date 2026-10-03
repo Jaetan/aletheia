@@ -1176,6 +1176,7 @@ TEST_CASE("Tier 2 attribute bounds and values survive the parse leg, each one",
     auto const dbc = make_tier2_dbc();
     auto const result = detail::parse_dbc_response(detail::serialize_parsed_dbc_response(dbc));
     REQUIRE(result.has_value());
+    REQUIRE(result->attributes.size() == 13);
     auto const& def_int = std::get<DbcAttrDef>(result->attributes[0]);
     CHECK(std::get<DbcAttrTypeInt>(def_int.attr_type).min == 0);
     CHECK(std::get<DbcAttrTypeInt>(def_int.attr_type).max == 10000);
