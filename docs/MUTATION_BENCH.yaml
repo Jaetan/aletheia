@@ -422,17 +422,17 @@ bindings:
       # slice is a set of files whose recorded figures add up to about a third
       # of the tree's.  A suite run is a mutant's run time divided by its leg's
       # unmutated run, a unit that holds a file's figure across the CI runners
-      # its leg draws but not across hosts: over two pairs of CI runs, each pair
-      # sweeping one state of the C++ sources, each file of 2 percent of its
-      # tree or more in either run of a pair gets 0.82 to 1.22 times the other
-      # run's figure, where a local sweep gives each such file 0.33 to 0.63
-      # times the CI one, so the figures are taken from CI.  Dividing by the
-      # leg's own unmutated run takes out the runner's speed: that run took 8.9
-      # to 12.4 s across the address tree's legs on heavy lanes run 37091833867,
-      # and the trees are weighed apart because a mutant's cost varies by file
-      # and by tree, a killed run ending at its first failed assertion.  Taken
-      # from that run's legs by the merge's own computation, which writes the
-      # same figures to cpp-runs.json.
+      # its leg draws but not across hosts: over three pairs of CI runs, each
+      # pair sweeping one state of the C++ sources, each file of 2 percent of
+      # its tree or more in either run of a pair gets 0.82 to 1.22 times the
+      # other run's figure, where a local sweep gives each such file 0.33 to
+      # 0.63 times the CI one, so the figures are taken from CI.  Dividing by
+      # the leg's own unmutated run takes out the runner's speed: that run took
+      # 8.9 to 12.4 s across the address tree's legs on heavy lanes run
+      # 37091833867, and the trees are weighed apart because a mutant's cost
+      # varies by file and by tree, a killed run ending at its first failed
+      # assertion.  Taken from that run's legs by the merge's own computation,
+      # which writes the same figures to cpp-runs.json.
       #
       # They are a measurement and they age in one direction: adding code adds
       # mutants, nothing refuses that, and the slices drift out of balance

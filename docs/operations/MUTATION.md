@@ -591,14 +591,14 @@ mutants cost that tree when the weights were last taken, a suite run being a
 mutant's run time divided by its leg's unmutated run.  The unit holds a file's
 figure across the CI runners a leg draws, which differ: the address tree's
 legs took 8.9 to 12.4 s to run its unmutated suite on heavy lanes run
-37091833867, the run the weights were taken from.  Over two pairs of CI runs,
-each pair sweeping one state of the C++ sources, each file of 2 percent of its
-tree or more in either run of a pair gets 0.82 to 1.22 times the other run's
-figure, and the slices cut on one run of a pair cost 2.1 to 9.1 percent over
-an equal share on the other.  The trees are weighed apart because a mutant's
-cost varies by file and by tree.  Cut on mutant counts shared by the trees,
-run 37091833867's plain slices cost 92, 134 and 290 suite runs; cut on the
-plain tree's own runs, 172, 172 and 172.  A file the record does not name
+37091833867, the run the weights were taken from.  Over three pairs of CI
+runs, each pair sweeping one state of the C++ sources, each file of 2 percent
+of its tree or more in either run of a pair gets 0.82 to 1.22 times the other
+run's figure, and the slices cut on one run of a pair cost 2.1 to 12.9 percent
+over an equal share on the other.  The trees are weighed apart because a
+mutant's cost varies by file and by tree.  Cut on mutant counts shared by the
+trees, run 37091833867's plain slices cost 92, 134 and 290 suite runs; cut on
+the plain tree's own runs, 172, 172 and 172.  A file the record does not name
 still lands in a slice; it simply weighs nothing, which is right for the files
 that carry no mutants and costs a newly added file some balance until the
 weights are re-taken.  Because adding code adds mutants and nothing refuses

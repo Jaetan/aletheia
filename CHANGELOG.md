@@ -223,14 +223,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   run's `cpp-runs.json`, the same run reads 0.0, 0.0 and 2.1, the address
   tree's `cpp/src/client.cpp` alone being more than a third of that tree. The
   docs now say what the unit, a suite run, holds: a file's figure across CI
-  runners and not across hosts. Over two pairs of CI runs, each pair sweeping
-  one state of the C++ sources, each file of 2 percent of its tree or more in
-  either run of a pair gets 0.82 to 1.22 times the other run's figure, and a
-  local sweep gives each such file 0.33 to 0.63 times the CI one. A lane's
-  saved cache kept superseded generations until the 128M cap trimmed them, and
-  the four fresh caches of the largest slice the cap was sized to hold, 130.4
-  MB, had outgrown it. A lane now takes its start where it zeroes its cache's
-  counters, after the restore, and before the save it runs
+  runners and not across hosts. Over three pairs of CI runs, each pair
+  sweeping one state of the C++ sources, each file of 2 percent of its tree or
+  more in either run of a pair gets 0.82 to 1.22 times the other run's figure,
+  and a local sweep gives each such file 0.33 to 0.63 times the CI one. A
+  lane's saved cache kept superseded generations until the 128M cap trimmed
+  them, and the four fresh caches of the largest slice the cap was sized to
+  hold, 130.4 MB, had outgrown it. A lane now takes its start where it zeroes
+  its cache's counters, after the restore, and before the save it runs
   `tools/mutation_ccache_evict.sh`, which evicts every entry the run did not
   use, going by the modification time a hit refreshes, keeps the cache whole
   for a run that compiled nothing or whose build stopped at a failed compile
