@@ -37,15 +37,16 @@ public:
         if (cache_)
             return;
         cache_.emplace();
-        std::forward<Builder>(build)(*cache_);
+        std::forward<Builder>(build)(cache_.value());
     }
 
     /// Look up a key; returns std::nullopt if absent or not yet built.
     [[nodiscard]] auto find(const Key& key) const -> std::optional<std::size_t> {
         if (!cache_)
             return std::nullopt;
-        auto const it = cache_->find(key);
-        return (it != cache_->end()) ? std::optional{it->second} : std::nullopt;
+        auto const& index = cache_.value();
+        auto const it = index.find(key);
+        return (it != index.end()) ? std::optional{it->second} : std::nullopt;
     }
 
 private:

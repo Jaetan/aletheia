@@ -38,8 +38,7 @@ const MAX_FRAME_BYTES: usize = 64;
 
 // Runtime GHC RTS parameters — SSOT: docs/RESOURCE_BUDGETS.yaml (runtime
 // block); mirrored here verbatim.  Parity with the SSOT is enforced by
-// tools/check_rts_runtime.py (a run_ci gate) and the `rts_params` test module
-// at the bottom of this file.
+// tools/check_rts_runtime.py (a run_ci gate).
 //
 // CONTAINMENT-BY-ABORT contract: the heap cap does NOT yield a recoverable
 // error.  The loaded kernel's GHC RTS has no heap limit by default, so a
@@ -1050,53 +1049,13 @@ impl Drop for FfiBackend {
 }
 
 #[cfg(test)]
-mod rts_params {
-    //! Rust leg of the runtime-RTS parity chain: assert this binding's mirrored
-    //! constants equal `docs/RESOURCE_BUDGETS.yaml` (the cross-binding SSOT,
-    //! itself enforced against every binding by `tools/check_rts_runtime.py`).
-    //! An internal `#[cfg(test)]` module (not a `tests/` integration test) so it
-    //! reads the private mirror constants directly — matching how the Python /
-    //! Go / C++ mirrors are private to their binding.
+mod rts_argv {
+    //! The runtime's argument vector carries the cap whatever the core count
+    //! and puts the override's flags after it. An internal `#[cfg(test)]`
+    //! module so it reads the private constants directly, which are private
+    //! here as they are in every other binding.
 
-    use std::path::Path;
-
-    use yaml_rust2::YamlLoader;
-
-    use super::{
-        build_rts_argv, RTS_DEFAULT_CORES, RTS_HEAP_CAP_FLAG, RTS_INIT_SYMBOL, RTS_OVERRIDE_ENV,
-    };
-
-    fn ssot() -> yaml_rust2::Yaml {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/RESOURCE_BUDGETS.yaml");
-        let text = std::fs::read_to_string(&path).expect("read docs/RESOURCE_BUDGETS.yaml");
-        let docs = YamlLoader::load_from_str(&text).expect("parse RESOURCE_BUDGETS.yaml");
-        docs[0]["runtime"].clone()
-    }
-
-    #[test]
-    fn mirror_matches_ssot() {
-        let runtime = ssot();
-        assert_eq!(
-            runtime["heap_cap"]["flag"].as_str(),
-            Some(RTS_HEAP_CAP_FLAG),
-            "RTS_HEAP_CAP_FLAG drifted from docs/RESOURCE_BUDGETS.yaml runtime.heap_cap.flag"
-        );
-        assert_eq!(
-            runtime["default_cores"]["value"].as_i64(),
-            Some(i64::from(RTS_DEFAULT_CORES)),
-            "RTS_DEFAULT_CORES drifted from runtime.default_cores.value"
-        );
-        assert_eq!(
-            runtime["init_symbol"].as_str(),
-            Some(RTS_INIT_SYMBOL),
-            "RTS_INIT_SYMBOL drifted from runtime.init_symbol"
-        );
-        assert_eq!(
-            runtime["heap_cap"]["override_env"].as_str(),
-            Some(RTS_OVERRIDE_ENV),
-            "RTS_OVERRIDE_ENV drifted from runtime.heap_cap.override_env"
-        );
-    }
+    use super::{build_rts_argv, RTS_HEAP_CAP_FLAG};
 
     #[test]
     fn argv_always_carries_the_cap() {

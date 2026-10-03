@@ -30,8 +30,8 @@
 #   on the RTS-init path would be the wrong dependency for code whose job is to
 #   survive a runaway.  Parity is enforced statically instead:
 #   tools/check_rts_runtime.py reads this file and asserts every binding's
-#   mirror matches (a run_ci gate), and each binding carries a parity test that
-#   reads this file and checks its own mirror.
+#   mirror matches, and that the cap's flag and byte count name one cap (a
+#   run_ci gate); it is the one reader of this file.
 #
 # Init symbol:
 #   The `.so` is linked with GHC's default RtsOptsSafeOnly, so passing a `-M`
@@ -55,7 +55,8 @@
 #     also why the cap must travel in argv, not be left to GHCRTS.)
 #
 # Changing a value:
-#   1. edit the value here (heap_cap.flag / default_cores.value / init_symbol);
+#   1. edit the value here (heap_cap.flag with heap_cap.bytes /
+#      default_cores.value / init_symbol);
 #   2. update the mirrored constant in every binding
 #      (python/aletheia/client/_ffi.py, go/aletheia/rts.go,
 #      cpp/src/detail/rts_params.hpp, rust/src/backend.rs);

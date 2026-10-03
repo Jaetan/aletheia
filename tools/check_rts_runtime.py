@@ -34,9 +34,14 @@ HeapExhausted abort of the foreign-export wrapper) so the host survives — ther
 is no recoverable error.  See ``docs/RESOURCE_BUDGETS.yaml`` and
 ``docs/development/RESOURCE_PARAMETERS.md``.
 
+The gate also holds the SSOT to itself: the heap-cap flag and the byte count
+it states beside the flag name one cap.
+
 Exit codes:
-  0 — every binding's mirror matches the SSOT.
-  1 — at least one binding mirror diverges (wrong value or missing constant).
+  0 — every binding's mirror matches the SSOT, and its two spellings of the cap
+      agree.
+  1 — at least one binding mirror diverges (wrong value or missing constant),
+      or the cap's flag and byte count name two caps.
   2 — could not check: missing / malformed SSOT, an absent ``runtime`` block or
       field, or a binding source file missing (a vacuous pass is refused).
 """
@@ -46,17 +51,23 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
-from typing import cast
+from typing import NewType, cast
 
 import yaml
 
 from tools._common import emit
 
+from aletheia.common_types import Prose
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_YAML_PATH = REPO_ROOT / "docs" / "RESOURCE_BUDGETS.yaml"
 
 COULD_NOT_CHECK = 2
+
+# A heap size in bytes, as the SSOT states the cap beside its flag.
+ByteCount = NewType("ByteCount", int)
 
 
 class RTSRuntimeError(Exception):
@@ -68,6 +79,7 @@ class RuntimeSSOT:
     """The mirrored runtime parameters read from the SSOT ``runtime`` block."""
 
     heap_cap_flag: str
+    heap_cap_bytes: ByteCount
     default_cores: int
     init_symbol: str
     override_env: str
@@ -140,13 +152,11 @@ def load_runtime_ssot(yaml_path: Path) -> RuntimeSSOT:
         message = f"SSOT not found: {yaml_path}"
         raise RTSRuntimeError(message)
     raw: object = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        message = f"{yaml_path}: root must be a mapping"
-        raise RTSRuntimeError(message)
-    root = cast("dict[object, object]", raw)
-    runtime_raw = root.get("runtime")
+    runtime_raw = (
+        cast("dict[object, object]", raw).get("runtime") if isinstance(raw, dict) else None
+    )
     if not isinstance(runtime_raw, dict):
-        message = f"{yaml_path}: missing or malformed 'runtime' block"
+        message = f"{yaml_path}: the root is not a mapping holding a 'runtime' mapping"
         raise RTSRuntimeError(message)
     runtime = cast("dict[object, object]", runtime_raw)
 
@@ -162,12 +172,16 @@ def load_runtime_ssot(yaml_path: Path) -> RuntimeSSOT:
     default_cores = cast("dict[object, object]", default_cores_raw)
 
     flag = heap_cap.get("flag")
+    cap_bytes = heap_cap.get("bytes")
     override_env = heap_cap.get("override_env")
     cores_value = default_cores.get("value")
     init_symbol = runtime.get("init_symbol")
 
     if not isinstance(flag, str) or not flag:
         message = f"{yaml_path}: runtime.heap_cap.flag must be a non-empty string"
+        raise RTSRuntimeError(message)
+    if not isinstance(cap_bytes, int) or isinstance(cap_bytes, bool):
+        message = f"{yaml_path}: runtime.heap_cap.bytes must be an integer"
         raise RTSRuntimeError(message)
     if not isinstance(override_env, str) or not override_env:
         message = f"{yaml_path}: runtime.heap_cap.override_env must be a non-empty string"
@@ -182,9 +196,39 @@ def load_runtime_ssot(yaml_path: Path) -> RuntimeSSOT:
 
     return RuntimeSSOT(
         heap_cap_flag=flag,
+        heap_cap_bytes=ByteCount(cap_bytes),
         default_cores=cores_value,
         init_symbol=init_symbol,
         override_env=override_env,
+    )
+
+
+# A GHC ``-M`` flag: a count, which may be a decimal, and an optional unit, a
+# power of two the runtime reads in either case.
+_CAP_FLAG = re.compile(r"-M(\d+(?:\.\d+)?)([kKmMgG]?)")
+_FLAG_UNIT_SHIFTS = (("k", 10), ("m", 20), ("g", 30))
+
+
+def cap_divergence(ssot: RuntimeSSOT) -> Prose | None:
+    """Say how the SSOT's two spellings of the cap disagree, or None when they agree.
+
+    The flag is what every binding emits and the byte count is what the
+    documents cite; nothing else reads the count, so without this the SSOT
+    could state two caps.
+    """
+    match = _CAP_FLAG.fullmatch(ssot.heap_cap_flag)
+    if match is None:
+        return Prose(f"runtime.heap_cap.flag '{ssot.heap_cap_flag}' is not a -M<size> heap cap")
+    unit = match.group(2).lower()
+    shift = next((bits for name, bits in _FLAG_UNIT_SHIFTS if name == unit), 0)
+    flag_bytes = Fraction(match.group(1)) * (1 << shift)
+    if flag_bytes.denominator != 1:
+        return Prose(f"runtime.heap_cap.flag '{ssot.heap_cap_flag}' is not a whole number of bytes")
+    if flag_bytes == ssot.heap_cap_bytes:
+        return None
+    return Prose(
+        f"runtime.heap_cap.flag '{ssot.heap_cap_flag}' is {flag_bytes} bytes, "
+        + f"runtime.heap_cap.bytes says {ssot.heap_cap_bytes}"
     )
 
 
@@ -248,7 +292,8 @@ def main() -> int:
     """Check every binding's RTS-init mirror against the RESOURCE_BUDGETS SSOT."""
     try:
         ssot = load_runtime_ssot(DEFAULT_YAML_PATH)
-        diffs: list[str] = []
+        cap = cap_divergence(ssot)
+        diffs: list[str] = [] if cap is None else [str(cap)]
         for mirror in BINDING_MIRRORS:
             diffs.extend(check_binding(mirror, ssot))
     except RTSRuntimeError as exc:
@@ -260,15 +305,16 @@ def main() -> int:
         for diff in diffs:
             _ = sys.stderr.write(f"  - {diff}\n")
         _ = sys.stderr.write(
-            f"\nfound {len(diffs)} divergence(s) between docs/RESOURCE_BUDGETS.yaml "
-            + "(SSOT) and the binding RTS-init mirrors.  Reconcile by updating the "
-            + "binding mirror or the SSOT (per the SSOT header's change protocol).\n"
+            f"\nfound {len(diffs)} divergence(s) in docs/RESOURCE_BUDGETS.yaml (SSOT) "
+            + "or between it and the binding RTS-init mirrors.  Reconcile by updating "
+            + "the binding mirror or the SSOT (per the SSOT header's change protocol).\n"
         )
         return 1
 
     emit(
         f"check-rts-runtime: {len(BINDING_MIRRORS)} bindings mirror "
-        + f"heap_cap={ssot.heap_cap_flag} default_cores={ssot.default_cores} "
+        + f"heap_cap={ssot.heap_cap_flag} ({ssot.heap_cap_bytes} bytes, as the SSOT states) "
+        + f"default_cores={ssot.default_cores} "
         + f"init_symbol={ssot.init_symbol} — all in parity with docs/RESOURCE_BUDGETS.yaml"
     )
     return 0

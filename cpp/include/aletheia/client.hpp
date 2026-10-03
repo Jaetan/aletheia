@@ -18,6 +18,7 @@
 #include <aletheia/validation.hpp> // IWYU pragma: export
 
 #include <aletheia/detail/cache_keys.hpp> // IWYU pragma: private, include "aletheia/client.hpp"
+#include <aletheia/detail/checked.hpp>
 
 #include <concepts>
 #include <cstddef>
@@ -206,7 +207,7 @@ public:
         for (auto&& f : frames) {
             auto r = send_frame(stop, f);
             if (!r.has_value()) {
-                auto const& e = r.error();
+                auto const& e = detail::error_of(r);
                 if (e.kind() == ErrorKind::Cancellation) {
                     co_yield std::unexpected(e);
                 } else {

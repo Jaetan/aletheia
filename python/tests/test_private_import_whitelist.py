@@ -230,16 +230,12 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._client",
             "reject_formula_inexact",
         ),
-        # Runtime RTS mirror constants + the FFI-lib locator — the Python leg of
-        # the RTS-parameter parity chain (docs/RESOURCE_BUDGETS.yaml). These are
-        # RTS-init implementation detail, private by design like the peer
-        # bindings' mirrors; the parity + containment tests reach through to
-        # compare them against the SSOT and to skip when the .so is absent.
-        ("test_rts_runtime_parity.py", "aletheia.client._ffi", "DEFAULT_RTS_CORES"),
-        ("test_rts_runtime_parity.py", "aletheia.client._ffi", "DEFAULT_RTS_HEAP_CAP"),
-        ("test_rts_runtime_parity.py", "aletheia.client._ffi", "RTS_INIT_SYMBOL"),
-        ("test_rts_runtime_parity.py", "aletheia.client._ffi", "RTS_OVERRIDE_ENV"),
-        ("test_rts_runtime_parity.py", "aletheia.client._ffi", "find_ffi_library"),
+        # The override variable and the FFI-lib locator: RTS-init implementation
+        # detail, private by design like the peer bindings' mirrors; the
+        # containment tests reach through to set the override and to skip when
+        # the .so is absent.
+        ("test_rts_heap_cap.py", "aletheia.client._ffi", "RTS_OVERRIDE_ENV"),
+        ("test_rts_heap_cap.py", "aletheia.client._ffi", "find_ffi_library"),
         # The ctypes mirrors of the kernel's C structures: the layout test holds
         # them to haskell-shim/include/aletheia.h, and the entry tests call the kernel raw
         # with a NULL or undersized structure, or bytes no binding ever passes.

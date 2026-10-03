@@ -20,9 +20,12 @@
 #include <aletheia/error.hpp>
 
 #include <aletheia/limits.hpp>
+#include <aletheia/types.hpp>
 #include <cstddef>
+#include <cstdint>
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace aletheia;
@@ -169,11 +172,18 @@ TEST_CASE("abi_version_refusal admits the backend's version and names any other"
     CHECK(detail::abi_version_refusal(detail::abi_version - 1).has_value());
 }
 
-TEST_CASE("decimal_denominator_refusal admits a positive denominator and names any other",
+TEST_CASE("decimal_value builds over a positive denominator and refuses any other",
           "[ffi][logic]") {
-    CHECK_FALSE(detail::decimal_denominator_refusal(1).has_value());
-    auto const zero = detail::decimal_denominator_refusal(0);
-    REQUIRE(zero.has_value());
-    CHECK(*zero == "aletheia_parse_decimal answered a non-positive denominator 0");
-    CHECK(detail::decimal_denominator_refusal(-1).has_value());
+    CHECK(detail::decimal_value(3, 1) == Rational{3, 1});
+    for (auto const denominator : {std::int64_t{0}, std::int64_t{-1}}) {
+        try {
+            static_cast<void>(detail::decimal_value(1, denominator));
+            FAIL("decimal_value admitted the denominator " << denominator);
+        } catch (const AletheiaException& e) {
+            CHECK(e.kind() == ErrorKind::Protocol);
+            CHECK(std::string_view{e.what()} ==
+                  "aletheia_parse_decimal answered a non-positive denominator " +
+                      std::to_string(denominator));
+        }
+    }
 }

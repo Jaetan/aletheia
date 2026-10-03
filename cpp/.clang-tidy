@@ -138,7 +138,8 @@ CheckOptions:
   # Headers a call site must not be asked to name. The vendored umbrellas
   # legitimately re-export symbols their own detail subtrees declare; bits/ is
   # where the standard library keeps what its public headers include; and the
-  # POSIX surface (popen, setenv, the wait macros) is declared in the C headers
-  # that <cstdio> and <cstdlib> include, so naming a provider for it would mean
-  # naming a C header that modernize-deprecated-headers then rejects.
-  misc-include-cleaner.IgnoreHeaders: 'nlohmann/.*;OpenXLSX.*;yaml-cpp/.*;bits/.*;stdio.h;stdlib.h;sys/.*'
+  # POSIX surface (popen, setenv, the wait macros, the signal numbers) is
+  # declared in the C headers that <cstdio>, <cstdlib> and <csignal> include,
+  # so naming a provider for it would mean naming a C header that
+  # modernize-deprecated-headers then rejects.
+  misc-include-cleaner.IgnoreHeaders: 'nlohmann/.*;OpenXLSX.*;yaml-cpp/.*;bits/.*;stdio.h;stdlib.h;signal.h;sys/.*'

@@ -11,6 +11,7 @@
 
 #include <aletheia/error.hpp>
 #include <aletheia/limits.hpp>
+#include <aletheia/types.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -71,11 +72,13 @@ auto wire_count_refusal(std::size_t count) -> std::optional<std::string> {
                        count);
 }
 
-auto decimal_denominator_refusal(std::int64_t denominator) -> std::optional<std::string> {
-    if (denominator > 0)
-        return std::nullopt;
-    return std::format("aletheia_parse_decimal answered a non-positive denominator {}",
-                       denominator);
+auto decimal_value(std::int64_t numerator, std::int64_t denominator) -> Rational {
+    if (denominator <= 0)
+        throw AletheiaException(AletheiaError{
+            ErrorKind::Protocol,
+            std::format("aletheia_parse_decimal answered a non-positive denominator {}",
+                        denominator)});
+    return Rational{numerator, denominator};
 }
 
 auto abi_version_refusal(std::uint32_t found) -> std::optional<std::string> {

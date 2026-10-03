@@ -3,6 +3,7 @@
 // AletheiaClient — orchestrates backend + JSON serialization/parsing.
 #include <aletheia/client.hpp>
 #include <aletheia/detail/cache_keys.hpp>
+#include <aletheia/detail/checked.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/enrich.hpp>
 #include <aletheia/limits.hpp>
@@ -73,7 +74,8 @@ static auto validate_timestamp(Timestamp ts) -> Result<void> {
 // DBC message does not have (a kernel/binding drift, surfaced rather than
 // dropped).
 static auto signal_name_at(const std::vector<std::string>& names, std::uint16_t idx) -> SignalName {
-    return idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
+    return idx < names.size() ? SignalName{names.at(idx)}
+                              : SignalName{std::format("signal_{}", idx)};
 }
 
 // Wire layout of the binary extraction buffer (src/Aletheia/Main/Binary.agda,
@@ -95,7 +97,7 @@ constexpr std::size_t k_absent_record_bytes = 2;
 template<typename T>
 static auto read_native(std::span<const std::byte> buf, std::size_t off) -> T {
     alignas(T) std::array<std::byte, sizeof(T)> raw{};
-    std::ranges::copy(buf.subspan(off, sizeof(T)), raw.begin());
+    std::ranges::copy(detail::subspan_at(buf, off, sizeof(T)), raw.begin());
     return std::bit_cast<T>(raw);
 }
 
@@ -112,8 +114,8 @@ AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
     // Python (python/aletheia/client/_ffi.py), both of which carry
     // `active_cores` and `requested_cores` integer fields.
     if (auto rts = backend_->rts_mismatch_info(); rts) {
-        auto const active = static_cast<std::int64_t>(rts->first);
-        auto const requested = static_cast<std::int64_t>(rts->second);
+        auto const active = static_cast<std::int64_t>(rts.value().first);
+        auto const requested = static_cast<std::int64_t>(rts.value().second);
         logger_.warn("rts.cores_mismatch",
                      {{"active_cores", active}, {"requested_cores", requested}});
     }
@@ -185,9 +187,10 @@ auto AletheiaClient::parse_dbc(std::stop_token stop, const DbcDefinition& dbc)
     auto const resp = backend_->process(state_, cmd);
     auto result = detail::parse_parsed_dbc(resp);
     if (result.has_value()) {
-        populate_signal_lookup(result->dbc);
-        logger_.info("dbc.parsed",
-                     {{"messages", static_cast<std::uint64_t>(result->dbc.messages.size())}});
+        populate_signal_lookup(result.value().dbc);
+        logger_.info(
+            "dbc.parsed",
+            {{"messages", static_cast<std::uint64_t>(result.value().dbc.messages.size())}});
     }
     return result;
 }
@@ -218,9 +221,10 @@ auto AletheiaClient::parse_dbc_text(std::stop_token stop, std::string_view text)
     auto const resp = backend_->process(state_, cmd);
     auto result = detail::parse_parsed_dbc(resp);
     if (result.has_value()) {
-        populate_signal_lookup(result->dbc);
-        logger_.info("dbc.parsed",
-                     {{"messages", static_cast<std::uint64_t>(result->dbc.messages.size())}});
+        populate_signal_lookup(result.value().dbc);
+        logger_.info(
+            "dbc.parsed",
+            {{"messages", static_cast<std::uint64_t>(result.value().dbc.messages.size())}});
     }
     return result;
 }
@@ -271,7 +275,7 @@ static auto wire_signal_value(std::uint16_t idx, std::int64_t num, std::int64_t 
             AletheiaError{ErrorKind::Protocol,
                           std::format("Invalid rational in extraction value for {}: num={}, den={}",
                                       std::string_view{name}, num, den)});
-    return SignalValue{.name = std::move(name), .value = PhysicalValue{*rat_or_err}};
+    return SignalValue{.name = std::move(name), .value = PhysicalValue{rat_or_err.value()}};
 }
 
 // True iff `bytes` is well-formed UTF-8 (RFC 3629): continuation bytes in
@@ -289,7 +293,7 @@ static auto is_valid_utf8(std::span<const std::byte> bytes) -> bool {
     while (!bytes.empty()) {
         auto const b0 = static_cast<std::uint8_t>(bytes.front());
         if (b0 < 0x80) {
-            bytes = bytes.subspan(1);
+            bytes = detail::subspan_at(bytes, 1);
             continue;
         }
         // The lead byte names the sequence length and the bits it carries, or
@@ -305,18 +309,18 @@ static auto is_valid_utf8(std::span<const std::byte> bytes) -> bool {
         }();
         if (!lead)
             return false;
-        auto [len, cp] = *lead;
+        auto [len, cp] = lead.value();
         if (len > bytes.size())
             return false;
-        for (auto const byte : bytes.first(len).subspan(1)) {
+        for (auto const byte : detail::subspan_at(detail::subspan_at(bytes, 0, len), 1)) {
             auto const bk = static_cast<std::uint8_t>(byte);
             if ((bk & 0xC0U) != 0x80)
                 return false;
             cp = (cp << 6U) | (bk & 0x3FU);
         }
-        if (cp < min_cp[len] || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF))
+        if (cp < min_cp.at(len) || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF))
             return false;
-        bytes = bytes.subspan(len);
+        bytes = detail::subspan_at(bytes, len);
     }
     return true;
 }
@@ -341,10 +345,11 @@ static auto wire_signal_errors(std::span<const std::byte> buf, std::size_t error
     // construction, and the segments lie inside the buffer by the caller's
     // exact-size check.  The offset table holds one more entry than there are
     // records, the end of the last reason.
-    auto const records = buf.subspan(errors_off, std::size_t{nerrs} * k_error_record_bytes) |
-                         std::views::chunk(k_error_record_bytes);
+    auto const records =
+        detail::subspan_at(buf, errors_off, std::size_t{nerrs} * k_error_record_bytes) |
+        std::views::chunk(k_error_record_bytes);
     auto const offsets =
-        buf.subspan(offsets_off, (std::size_t{nerrs} + 1) * k_offset_bytes) |
+        detail::subspan_at(buf, offsets_off, (std::size_t{nerrs} + 1) * k_offset_bytes) |
         std::views::chunk(k_offset_bytes) | std::views::transform([](auto const entry) {
             return read_native<std::uint32_t>(std::span<const std::byte>{entry}, 0);
         });
@@ -378,7 +383,8 @@ static auto wire_signal_errors(std::span<const std::byte> buf, std::size_t error
     for (auto const [record, bound] : std::views::zip(records, bounds)) {
         auto name = signal_name_at(
             names, read_native<std::uint16_t>(std::span<const std::byte>{record}, 0));
-        auto const slice = buf.subspan(reasons_off + bound.front(), bound.back() - bound.front());
+        auto const slice =
+            detail::subspan_at(buf, reasons_off + bound.front(), bound.back() - bound.front());
         if (!is_valid_utf8(slice))
             return std::unexpected(AletheiaError{
                 ErrorKind::Protocol,
@@ -431,15 +437,16 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
     result.values.reserve(nvals);
     // A run of fixed-size records, read as the records: the stride is the
     // view's and not an addition this loop repeats.
-    for (auto const entry : buf.subspan(off, std::size_t{nvals} * k_value_record_bytes) |
-                                std::views::chunk(k_value_record_bytes)) {
+    for (auto const entry :
+         detail::subspan_at(buf, off, std::size_t{nvals} * k_value_record_bytes) |
+             std::views::chunk(k_value_record_bytes)) {
         std::span<const std::byte> const record{entry};
         auto sv = wire_signal_value(read_native<std::uint16_t>(record, 0),
                                     read_native<std::int64_t>(record, 2),
                                     read_native<std::int64_t>(record, 10), names);
         if (!sv)
-            return std::unexpected(sv.error());
-        result.values.push_back(std::move(*sv));
+            return std::unexpected(detail::error_of(sv));
+        result.values.push_back(std::move(sv).value());
     }
     off += std::size_t{nvals} * k_value_record_bytes;
     // Errors + Offsets + Reasons — all three segments lie within the buffer
@@ -447,13 +454,14 @@ static auto parse_extraction_bin(std::span<const std::byte> buf,
     // invariants and validates each reason slice as UTF-8.
     auto errors = wire_signal_errors(buf, off, nerrs, reason_bytes, names);
     if (!errors)
-        return std::unexpected(errors.error());
-    result.errors = std::move(*errors);
+        return std::unexpected(detail::error_of(errors));
+    result.errors = std::move(errors).value();
     off += (std::size_t{nerrs} * k_error_record_bytes) +
            ((std::size_t{nerrs} + 1) * k_offset_bytes) + std::size_t{reason_bytes};
     result.absent.reserve(nabss);
-    for (auto const entry : buf.subspan(off, std::size_t{nabss} * k_absent_record_bytes) |
-                                std::views::chunk(k_absent_record_bytes)) {
+    for (auto const entry :
+         detail::subspan_at(buf, off, std::size_t{nabss} * k_absent_record_bytes) |
+             std::views::chunk(k_absent_record_bytes)) {
         result.absent.push_back(signal_name_at(
             names, read_native<std::uint16_t>(std::span<const std::byte>{entry}, 0)));
     }
@@ -464,8 +472,8 @@ auto AletheiaClient::extract_signals(std::stop_token stop, CanId id, Dlc dlc,
                                      std::span<const std::byte> data) -> Result<ExtractionResult> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("extract_signals"));
-    if (auto v = validate_payload(dlc, data); !v.has_value())
-        return std::unexpected(v.error());
+    if (auto const v = validate_payload(dlc, data); !v.has_value())
+        return std::unexpected(detail::error_of(v));
 
     // Use binary path when signal name cache is populated. Only
     // ErrorKind::BinaryUnsupported (e.g. MockBackend) triggers the JSON
@@ -477,9 +485,9 @@ auto AletheiaClient::extract_signals(std::stop_token stop, CanId id, Dlc dlc,
     if (names_it != signal_names_.end()) {
         auto buf = backend_->extract_signals_bin(state_, id, dlc, data);
         if (buf)
-            return parse_extraction_bin(*buf, names_it->second);
-        if (buf.error().kind() != ErrorKind::BinaryUnsupported)
-            return std::unexpected(buf.error());
+            return parse_extraction_bin(buf.value(), names_it->second);
+        if (detail::error_of(buf).kind() != ErrorKind::BinaryUnsupported)
+            return std::unexpected(detail::error_of(buf));
         // BinaryUnsupported: fall through to JSON path.
     }
 
@@ -491,8 +499,8 @@ auto AletheiaClient::extract_signals(std::stop_token stop, CanId id, Dlc dlc,
 auto AletheiaClient::ResolvedSignals::injection() const -> Result<SignalInjection> {
     auto block = SignalInjection::create(indices, numerators, denominators);
     if (!block)
-        return std::unexpected(AletheiaError{ErrorKind::Validation, block.error()});
-    return *block;
+        return std::unexpected(AletheiaError{ErrorKind::Validation, detail::error_of(block)});
+    return block.value();
 }
 
 auto AletheiaClient::resolve_signals(std::string_view method, CanId id,
@@ -543,12 +551,12 @@ auto AletheiaClient::build_frame(std::stop_token stop, CanId id, Dlc dlc,
         return std::unexpected(make_cancellation_error("build_frame"));
     auto resolved = resolve_signals("build_frame", id, signals);
     if (!resolved) {
-        return std::unexpected(resolved.error());
+        return std::unexpected(detail::error_of(resolved));
     }
-    auto inj = resolved->injection();
+    auto inj = resolved.value().injection();
     if (!inj)
-        return std::unexpected(inj.error());
-    return backend_->build_frame_bin(state_, id, dlc, *inj, dlc_to_bytes(dlc));
+        return std::unexpected(detail::error_of(inj));
+    return backend_->build_frame_bin(state_, id, dlc, inj.value(), dlc_to_bytes(dlc));
 }
 
 auto AletheiaClient::update_frame(std::stop_token stop, CanId id, Dlc dlc,
@@ -556,17 +564,17 @@ auto AletheiaClient::update_frame(std::stop_token stop, CanId id, Dlc dlc,
                                   std::span<const SignalValue> signals) -> Result<FramePayload> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("update_frame"));
-    if (auto v = validate_payload(dlc, data); !v.has_value()) {
-        return std::unexpected(v.error());
+    if (auto const v = validate_payload(dlc, data); !v.has_value()) {
+        return std::unexpected(detail::error_of(v));
     }
     auto resolved = resolve_signals("update_frame", id, signals);
     if (!resolved) {
-        return std::unexpected(resolved.error());
+        return std::unexpected(detail::error_of(resolved));
     }
-    auto inj = resolved->injection();
+    auto inj = resolved.value().injection();
     if (!inj)
-        return std::unexpected(inj.error());
-    return backend_->update_frame_bin(state_, id, dlc, data, *inj, dlc_to_bytes(dlc));
+        return std::unexpected(detail::error_of(inj));
+    return backend_->update_frame_bin(state_, id, dlc, data, inj.value(), dlc_to_bytes(dlc));
 }
 
 // ---------------------------------------------------------------------------
@@ -633,10 +641,10 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
                                 std::optional<bool> esi) -> Result<FrameResponse> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("send_frame"));
-    if (auto t = validate_timestamp(ts); !t.has_value())
-        return std::unexpected(t.error());
-    if (auto v = validate_payload(dlc, data); !v.has_value())
-        return std::unexpected(v.error());
+    if (auto const t = validate_timestamp(ts); !t.has_value())
+        return std::unexpected(detail::error_of(t));
+    if (auto const v = validate_payload(dlc, data); !v.has_value())
+        return std::unexpected(detail::error_of(v));
     auto const resp = backend_->send_frame_binary(state_, ts, id, dlc, data, brs, esi);
     auto result = detail::parse_frame_response(resp);
     if (result.has_value()) {
@@ -664,7 +672,7 @@ auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dl
         // Violation; enrich each fails entry and emit the standard
         // frame.processed log event.  A helper, so send_frame stays under
         // clang-tidy's cognitive-complexity threshold.
-        finalize_frame_response(*result, ts, id, dlc, data, id_value, is_extended);
+        finalize_frame_response(result.value(), ts, id, dlc, data, id_value, is_extended);
     }
     return result;
 }
@@ -682,7 +690,7 @@ auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> fr
         }
         auto r = send_frame(stop, frame);
         if (!r.has_value()) {
-            auto const& e = r.error();
+            auto const& e = detail::error_of(r);
             // Cancellation propagates as-is so callers see ErrorKind::Cancellation
             // rather than a misleading "frame N: ..." wrap.
             if (e.kind() == ErrorKind::Cancellation) {
@@ -696,7 +704,7 @@ auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> fr
             }
             return batch;
         }
-        batch.responses.push_back(std::move(*r));
+        batch.responses.push_back(std::move(r).value());
     }
     return batch;
 }
@@ -704,8 +712,8 @@ auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> fr
 auto AletheiaClient::send_error(std::stop_token stop, Timestamp ts) -> Result<void> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("send_error"));
-    if (auto t = validate_timestamp(ts); !t.has_value())
-        return std::unexpected(t.error());
+    if (auto const t = validate_timestamp(ts); !t.has_value())
+        return std::unexpected(detail::error_of(t));
     auto const resp = backend_->send_error_binary(state_, ts);
     auto r = detail::parse_event_ack(resp);
     if (r.has_value()) {
@@ -718,8 +726,8 @@ auto AletheiaClient::send_error(std::stop_token stop, Timestamp ts) -> Result<vo
 auto AletheiaClient::send_remote(std::stop_token stop, Timestamp ts, CanId id) -> Result<void> {
     if (stop.stop_requested()) [[unlikely]]
         return std::unexpected(make_cancellation_error("send_remote"));
-    if (auto t = validate_timestamp(ts); !t.has_value())
-        return std::unexpected(t.error());
+    if (auto const t = validate_timestamp(ts); !t.has_value())
+        return std::unexpected(detail::error_of(t));
     auto const resp = backend_->send_remote_binary(state_, ts, id);
     auto r = detail::parse_event_ack(resp);
     if (r.has_value()) {
@@ -739,8 +747,8 @@ auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
     if (!result.has_value())
         return result;
     if (!diags_.empty())
-        enrich_end_stream_results(*result);
-    log_end_stream_summary(*result);
+        enrich_end_stream_results(result.value());
+    log_end_stream_summary(result.value());
     // A finished stream holds no frame, so the next one starts with none.
     last_frames_.clear();
     return result;
@@ -860,7 +868,7 @@ void AletheiaClient::enrich_violation(PropertyResult& pr, CanId id, Dlc dlc,
                       {"count", static_cast<std::uint64_t>(diags_.size())}});
         return;
     }
-    auto const& diag = diags_[idx];
+    auto const& diag = diags_.at(idx);
     auto values = extract_signal_values(diag, id, dlc, data, id_value, is_extended);
     auto reason = format_enriched_reason(diag, values, v.reason);
     v.enrichment = ViolationEnrichment{
@@ -920,7 +928,7 @@ auto AletheiaClient::collect_enrichable_results(StreamResult& result)
                           {"count", static_cast<std::uint64_t>(diags_.size())}});
             continue;
         }
-        todo.emplace_back(&pr, &diags_[idx]);
+        todo.emplace_back(&pr, &diags_.at(idx));
     }
     return todo;
 }
@@ -947,11 +955,11 @@ auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId
                                  .is_extended = is_extended,
                                  .dlc = dlc.value(),
                                  .data = FramePayload(data.begin(), data.end())};
-            cache_it = cache_.emplace(std::move(key), std::move(*extraction)).first;
+            cache_it = cache_.emplace(std::move(key), std::move(extraction).value()).first;
         } else {
             logger_.warn("cache.full", {{"size", static_cast<std::uint64_t>(cache_.size())}});
             // Over capacity — use result directly without caching
-            return collect_matching_signals(diag, *extraction);
+            return collect_matching_signals(diag, extraction.value());
         }
     } else {
         logger_.debug("cache.hit", {{"canId", static_cast<std::uint64_t>(id_value)},
@@ -977,7 +985,7 @@ auto AletheiaClient::merge_last_known_values(std::set<SignalName> remaining)
                          {{"canId", static_cast<std::uint64_t>(key.first)}});
             continue;
         }
-        for (auto const& sv : extraction->values) {
+        for (auto const& sv : extraction.value().values) {
             if (merged.emplace(sv.name, sv.value).second)
                 remaining.erase(sv.name);
         }
@@ -999,19 +1007,19 @@ auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const
     if (names_it != signal_names_.end()) {
         auto buf = backend_->extract_signals_bin(state_, id, dlc, data);
         if (buf) {
-            auto bin_result = parse_extraction_bin(*buf, names_it->second);
+            auto bin_result = parse_extraction_bin(buf.value(), names_it->second);
             if (!bin_result) {
                 logger_.warn("extraction.parse_failed",
                              {{"canId", static_cast<std::uint64_t>(id_value)},
-                              {"error", bin_result.error().message()}});
+                              {"error", detail::error_of(bin_result).message()}});
                 return std::nullopt;
             }
-            return std::move(*bin_result);
+            return std::move(bin_result).value();
         }
-        if (buf.error().kind() != ErrorKind::BinaryUnsupported) {
+        if (detail::error_of(buf).kind() != ErrorKind::BinaryUnsupported) {
             logger_.warn("extraction.process_failed",
                          {{"canId", static_cast<std::uint64_t>(id_value)},
-                          {"error", buf.error().message()}});
+                          {"error", detail::error_of(buf).message()}});
             return std::nullopt;
         }
         // BinaryUnsupported: fall through to JSON path.
@@ -1035,10 +1043,10 @@ auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const
     auto result = detail::parse_extraction(resp);
     if (!result.has_value()) {
         logger_.warn("extraction.parse_failed", {{"canId", static_cast<std::uint64_t>(id_value)},
-                                                 {"error", result.error().message()}});
+                                                 {"error", detail::error_of(result).message()}});
         return std::nullopt;
     }
-    return std::move(*result);
+    return std::move(result).value();
 }
 
 } // namespace aletheia

@@ -71,7 +71,7 @@ auto SignalInjection::create(std::span<const std::uint32_t> indices,
                         "{} denominators",
                         indices.size(), numerators.size(), denominators.size()));
     if (auto refusal = detail::wire_count_refusal(indices.size()))
-        return std::unexpected(std::move(*refusal));
+        return std::unexpected(std::move(refusal).value());
     SignalInjection block;
     block.indices_ = indices;
     block.numerators_ = numerators;

@@ -3,6 +3,7 @@
 // JSON parsing: Agda core response strings → C++ types.
 #include "detail/json.hpp"
 
+#include <aletheia/detail/checked.hpp>
 #include <aletheia/limits.hpp>
 
 #include <nlohmann/json.hpp>
@@ -243,11 +244,12 @@ static auto lift_validation_issues(const Json& j) -> std::optional<std::vector<V
             auto entry = parse_issue_entry(issue);
             if (!entry)
                 return std::nullopt;
-            issues.push_back(std::move(*entry));
+            issues.push_back(std::move(entry).value());
         }
-    } catch (const std::exception&) {
+    } catch (const Json::exception&) {
         // A non-object element or an ill-typed field throws from nlohmann's
-        // value(); degrade identically to a failed entry parse.
+        // value(); degrade identically to a failed entry parse. Nothing else is
+        // caught: a check of this file's own that stops firing propagates.
         return std::nullopt;
     }
     return issues;
@@ -425,7 +427,7 @@ static auto parse_issue_entry(const Json& issue) -> Result<ValidationIssue> {
             make_error(ErrorKind::Protocol, "Unknown validation severity: " + sev_str));
     auto const code_str = issue.value("code", "");
     return ValidationIssue{
-        .severity = *severity,
+        .severity = severity.value(),
         .code = parse_issue_code(code_str),
         .code_raw = code_str,
         .detail = issue.value("detail", ""),
@@ -519,7 +521,7 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
         .name = SignalName{j.at("name").get<std::string>()},
         .start_bit = BitPosition{static_cast<std::uint16_t>(start_bit_raw)},
         .bit_length = BitLength{static_cast<std::uint16_t>(length_raw)},
-        .byte_order = *bo,
+        .byte_order = bo.value(),
         .is_signed = j.value("signed", false),
         .factor = RationalFactor{parse_rational(j.at("factor"))},
         .offset = RationalOffset{parse_rational(j.at("offset"))},
@@ -541,8 +543,8 @@ static auto json_to_can_id(std::uint32_t id_val, bool extended) -> CanId {
         auto result = ExtendedId::create(id_val);
         if (!result)
             throw std::runtime_error("Invalid extended CAN ID " + std::to_string(id_val) + ": " +
-                                     result.error());
-        return CanId{*result};
+                                     detail::error_of(result));
+        return CanId{result.value()};
     }
     // The factory takes the 16 bits a standard id fits in and refuses past 11;
     // a wider value is refused here rather than truncated into its range.
@@ -552,8 +554,8 @@ static auto json_to_can_id(std::uint32_t id_val, bool extended) -> CanId {
     auto result = StandardId::create(static_cast<std::uint16_t>(id_val));
     if (!result)
         throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) + ": " +
-                                 result.error());
-    return CanId{*result};
+                                 detail::error_of(result));
+    return CanId{result.value()};
 }
 
 static auto parse_message_def(const Json& j) -> DbcMessage {
@@ -563,7 +565,7 @@ static auto parse_message_def(const Json& j) -> DbcMessage {
 
     auto dlc_result = bytes_to_dlc(require_uint<std::size_t>(j.at("dlc"), "dlc"));
     if (!dlc_result)
-        throw std::runtime_error("Invalid DLC: " + dlc_result.error());
+        throw std::runtime_error("Invalid DLC: " + detail::error_of(dlc_result));
 
     std::vector<DbcSignal> signals;
     for (auto const& s : j.at("signals"))
@@ -575,7 +577,7 @@ static auto parse_message_def(const Json& j) -> DbcMessage {
     return DbcMessage{
         .id = id,
         .name = MessageName{j.at("name").get<std::string>()},
-        .dlc = *dlc_result,
+        .dlc = dlc_result.value(),
         .sender = NodeName{j.value("sender", "")},
         .senders = std::move(senders),
         .signals = std::move(signals),
@@ -685,7 +687,7 @@ constexpr auto attr_scope_table = std::to_array<AttrScopeEntry>({
 
 static auto parse_attr_scope(std::string_view s) -> DbcAttrScope {
     if (auto scope = lookup(attr_scope_table, s))
-        return *scope;
+        return scope.value();
     throw std::runtime_error("Unknown attribute scope: " + std::string{s});
 }
 
@@ -861,8 +863,8 @@ auto parse_validation(std::string_view input) -> Result<ValidationResult> {
         for (auto const& issue : j.at("issues")) {
             auto entry = parse_issue_entry(issue);
             if (!entry)
-                return std::unexpected(entry.error());
-            issues.push_back(std::move(*entry));
+                return std::unexpected(detail::error_of(entry));
+            issues.push_back(std::move(entry).value());
         }
         return ValidationResult{
             .has_errors = j.value("has_errors", false),
@@ -958,7 +960,7 @@ static auto parse_property_result_entry(const Json& r) -> PropertyResult {
 
     return PropertyResult{
         .property_index = PropertyIndex{static_cast<std::size_t>(idx)},
-        .verdict = *verdict,
+        .verdict = verdict.value(),
         .timestamp = ts,
         .reason = std::move(reason),
     };
@@ -1087,8 +1089,8 @@ auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
             for (auto const& issue : j.at("warnings")) {
                 auto entry = parse_issue_entry(issue);
                 if (!entry)
-                    return std::unexpected(entry.error());
-                warnings.push_back(std::move(*entry));
+                    return std::unexpected(detail::error_of(entry));
+                warnings.push_back(std::move(entry).value());
             }
         }
         return ParsedDBC{.dbc = std::move(dbc), .warnings = std::move(warnings)};
@@ -1122,8 +1124,8 @@ auto parse_dbc_text_response(std::string_view input) -> Result<DbcText> {
             for (auto const& issue : j.at("issues")) {
                 auto entry = parse_issue_entry(issue);
                 if (!entry)
-                    return std::unexpected(entry.error());
-                issues.push_back(std::move(*entry));
+                    return std::unexpected(detail::error_of(entry));
+                issues.push_back(std::move(entry).value());
             }
         }
         return DbcText{.text = j.at("text").get<std::string>(), .issues = std::move(issues)};

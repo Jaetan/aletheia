@@ -419,6 +419,9 @@ ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_GO=1 ALETHEIA_MUTATION_SK
 # C++ (needs build/libaletheia-ffi.so — the ALETHEIA_MUTATION build folds the
 # real-.so integration tests into unit_tests to cover FfiBackend, so run
 # `cabal run shake -- build` first).
+# The three suites that need a process of their own for the renderer and the
+# runtime run as the binary's children (cpp/tests/fresh_process_tests.cpp),
+# each under the mutant it inherits.
 # A mutant survives only where every tree carrying it let it: the leak tree
 # reads a destructor removal that leaks, the address tree a value read after
 # what held it has gone, and the plain tree carries the allocation-fault

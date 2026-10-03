@@ -77,6 +77,10 @@ _READ_BY_A_SWEEP = (
     Path("cpp", CppTree.ADDRESS.directory, "mull-config.yml"),
     *(Path("cpp", tree.directory, "unit_tests") for tree in CppTree),
     *(
+        Path("cpp", tree.directory, sweep_cache.CPP_FRESH_PROCESS_DIR, "child_tests")
+        for tree in CppTree
+    ),
+    *(
         Path("cpp", tree.directory, f"libaletheia_test_{kernel}.so")
         for tree in CppTree
         for kernel in _KERNELS
@@ -268,6 +272,16 @@ def test_the_sources_keyed_are_the_ones_a_binary_carries_mutants_in(tree: Path) 
     before = sweep_cache.sweep_key()
     _change(tree / _UNMUTATED, "rewritten")
     assert sweep_cache.sweep_key() == before
+
+
+@pytest.mark.usefixtures("tree")
+def test_a_child_the_test_binary_runs_appearing_moves_the_key() -> None:
+    """A binary built where the children are is keyed from the moment it appears."""
+    child = sweep_cache.tree_build_dir(CppTree.PLAIN) / sweep_cache.CPP_FRESH_PROCESS_DIR / "late"
+    before = sweep_cache.sweep_key()
+    _change(child, "created")
+    assert child in sweep_cache.key_inputs()
+    assert sweep_cache.sweep_key() != before
 
 
 _NEEDED = _Name("libneeded.so.1")

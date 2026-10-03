@@ -35,7 +35,7 @@ def parse_json_object(s: str) -> dict[str, JSONValue]:
 
 # Runtime RTS parameters — SSOT: docs/RESOURCE_BUDGETS.yaml (runtime block);
 # mirrored here verbatim.  Parity with the SSOT is enforced by
-# tools/check_rts_runtime.py (a run_ci gate) and test_rts_runtime_parity.py.
+# tools/check_rts_runtime.py (a run_ci gate).
 #
 # Default maximum heap for the loaded kernel's GHC RTS.  The RTS has NO heap
 # limit by default, so a runaway allocation inside the kernel is not a failed

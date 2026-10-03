@@ -3,7 +3,7 @@
 //
 // Runtime GHC RTS parameters — SSOT: docs/RESOURCE_BUDGETS.yaml (runtime
 // block); mirrored here verbatim.  Parity with the SSOT is enforced by
-// tools/check_rts_runtime.py (a run_ci gate) and cpp/tests/test_rts_params_parity.cpp.
+// tools/check_rts_runtime.py (a run_ci gate).
 //
 // CONTAINMENT-BY-ABORT contract: the heap cap does NOT yield a recoverable
 // error.  The loaded kernel's GHC RTS has no heap limit by default, so a
