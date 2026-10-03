@@ -1,9 +1,9 @@
-# Mutation Testing — operations guide
+# Mutation Testing: operations guide
 
 Mutation testing runs across all four bindings.
 The actual tools are: **Python** via `mutmut`, **Go** via `gremlins`
 (substituted for the AGENTS.md cat 14(g)–named `go-mutesting`, which is
-unmaintained — see § Per-binding sub-checks), **C++** via `Mull`, **Rust**
+unmaintained; see § Per-binding sub-checks), **C++** via `Mull`, **Rust**
 via `cargo-mutants`.  This doc
 explains the threshold model, the per-binding sub-checks, the env-var
 contract, the install procedure, and the forward-revert verification
@@ -12,22 +12,28 @@ protocol.
 A finding survives a mutation when the test suite still passes after the
 mutation operator transforms operational code (e.g. flips `<` to `<=`).
 AGENTS.md cat 14(g): **"an unjustified survivor is a test gap"**.  The
-mutation lane is a per-PR signal, not per-commit (cost is high — 30 min to
+mutation lane is a per-PR signal, not per-commit (cost is high: 30 min to
 2 hours per binding).
 
 ## Architecture
 
 ~~~
-docs/MUTATION_BENCH.yaml           SSOT — per-binding tool, hot-path module list, baseline
+docs/MUTATION_BENCH.yaml           SSOT: per-binding tool, hot-path module list, baseline
 tools/check_mutation_setup.py      Static gate (offline, ~1 sec)
 tools/mutation_run.py              Dynamic runner (opt-in, ~30 min - 2 hours)
+tools/mutation_scope.py            Whether a lane sweeps, asked before it installs a toolchain
 tools/mutation_cpp.py              The C++ lane: Mull over the trees, in stages
 tools/mutation_cpp_legs.py         The C++ lane's trees, legs and stage variables
 tools/mutation_cpp_config.py       The configuration a C++ leg is built and swept under, and its stamp
 tools/mutation_cpp_slices.py       The C++ surface's partition into slices
+tools/mutation_cpp_runs.py         What the C++ sweep spends on each file, and how far the recorded slice weights have drifted from it
+tools/mutation_routes.py           The C++ kill-route census
+tools/mutation_ccache_evict.sh     The C++ lane's compiler cache cut to its run's working set before the save
+tools/mutation_sweep_cache.py      One sweep of the C++ mutation trees, kept for every probe that reads it
+tools/build_mull.sh                Mull built from source against LLVM 23, with the patches in tools/mull/
+tools/mutation_go.py               The Go lane's shards: which files each sweeps, and the proof they add up
 tools/mutation_rust.py             The Rust lane: cargo-mutants in shards, over scratch copies of the tree
 tools/mutation_report.py           The report and baseline shapes the lanes share
-tools/mutation_routes.py           The C++ kill-route census
 benchmarks/mutation/<short-sha>/   Per-commit JSON + raw tool logs (gitignored)
 ~~~
 
@@ -85,7 +91,7 @@ while it runs there would be no way to tell progress from a hang.
 
 Two-tier per advisor 2026-05-09:
 
-- **Drift gate (hard equality)** — observed survivor count must not exceed
+- **Drift gate (hard equality)**: observed survivor count must not exceed
   the baseline recorded in `docs/MUTATION_BENCH.yaml`.  Any new survivor is
   a finding, surfaced via the runner's exit code = 1 with a JSON report
   pointing at the file/line.
@@ -147,7 +153,7 @@ Two-tier per advisor 2026-05-09:
   rename or a reworded line surfaces in seconds rather than at the end of a
   mutation run.  The lane writes the same rows to `cpp-unobserved.json` beside the
   census and prints them in its log, so re-taking the ledger is a copy.
-- **First run (no gate)** — when the YAML baseline is `null`, the runner
+- **First run (no gate)**: when the YAML baseline is `null`, the runner
   records the observed survivor count as informational and exits 0.  The
   next commit is expected to either match this count or improve on it; the
   `null → integer` transition happens via an explicit baseline-set commit
@@ -186,7 +192,7 @@ the YAML is the actual *configuration*.
 The mutation lane is opt-in only, so the tooling is NOT in the project's
 default `[dev]` extras.  Install once:
 
-### Python — `mutmut`
+### Python: `mutmut`
 
 ~~~bash
 cd python
@@ -213,19 +219,19 @@ Python lane cannot see, and the probe
 holds the pinned version to that list, so a release that gains an operator
 re-opens the row rather than counting silently.
 
-### Go — `gremlins`
+### Go: `gremlins`
 
 ~~~bash
 go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
 which gremlins    # expect: ~/go/bin/gremlins
 ~~~
 
-`~/go/bin` should already be in `$PATH` — verify with `echo $PATH`.
+`~/go/bin` should already be in `$PATH`; verify with `echo $PATH`.
 
 (Per the table above, `gremlins` substitutes for the AGENTS.md-named
 `go-mutesting`; both reach the same operator set.)
 
-### Rust — `cargo-mutants`
+### Rust: `cargo-mutants`
 
 ~~~bash
 cargo install cargo-mutants --version 27.1.0 --locked
@@ -267,7 +273,7 @@ each.  What is mutated
 and with which features is `rust/.cargo/mutants.toml`, read from the crate, so
 every sweep makes one set.
 
-### C++ — `Mull`
+### C++: `Mull`
 
 The project supports only the latest stable Clang (23), and UB can differ
 between compiler versions, so the mutation lane MUST test clang-23 codegen.
@@ -369,12 +375,14 @@ dedicated trees, `cpp/build-mutation/`, `cpp/build-mutation-plain/` and
 `cpp/build-mutation-asan/`.  CI caches the clang-23 debs, the from-source Mull
 build (keyed on the Mull tag + LLVM version) and, per lane, the compiler cache
 of its tree's objects under a cap the lane's own comment sizes from a
-measurement; see `.github/workflows/pr-heavy-lanes.yml`.  The repository's
-Actions cache as a whole is kept under its ceiling by
-`.github/workflows/cache-prune.yml`, which runs `tools/prune_actions_cache.py`
-on every closed pull request and once a day: a closed request's entries, which
-nothing can restore, and the entries on `main` a newer one under the same key
-prefix has superseded are deleted, and nothing else is.
+measurement, `tools/mutation_ccache_evict.sh` evicting before the save every
+entry a build did not use unless a compile failed or nothing compiled; see
+`.github/workflows/pr-heavy-lanes.yml`.  The repository's Actions cache as a
+whole is kept under its ceiling by `.github/workflows/cache-prune.yml`, which
+runs `tools/prune_actions_cache.py` on every closed pull request and once a
+day: a closed request's entries, which nothing can restore, and the entries on
+`main` past the newest few under each commit-suffixed key prefix are deleted,
+and nothing else is.
 
 On a pull request the runner sweeps only the bindings whose directory the diff
 against `main` touches, and each CI lane installs only the toolchain its own
@@ -416,7 +424,7 @@ ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_CPP=1 ALETHEIA_MUTATION_S
 ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_GO=1 ALETHEIA_MUTATION_SKIP_CPP=1 \
   python/.venv/bin/python -m tools.mutation_run
 
-# C++ (needs build/libaletheia-ffi.so — the ALETHEIA_MUTATION build folds the
+# C++ (needs build/libaletheia-ffi.so: the ALETHEIA_MUTATION build folds the
 # real-.so integration tests into unit_tests to cover FfiBackend, so run
 # `cabal run shake -- build` first).
 # The three suites that need a process of their own for the renderer and the
@@ -447,15 +455,16 @@ ALETHEIA_MUTATION_SKIP_CPP=1      # skip C++ lane only
 ALETHEIA_MUTATION_SKIP_RUST=1     # skip Rust lane only
 ~~~
 
-The C++ lane in stages, as CI runs it (unset, the runner sweeps every tree in
-one process and merges them itself):
+The C++ lane in legs, as CI runs it: each slice of each tree in a job of its
+own, then the merge (unset, the runner sweeps every tree whole in one process
+and merges them itself):
 
 ~~~bash
-ALETHEIA_MUTATION_CPP_STAGE=leak    # sweep the leak tree alone; reports as cpp-leak, judges nothing
-ALETHEIA_MUTATION_CPP_STAGE=plain   # the plain tree likewise, as cpp-plain
-ALETHEIA_MUTATION_CPP_STAGE=address # the address tree likewise, as cpp-address
+ALETHEIA_MUTATION_CPP_STAGE=leak \
+ALETHEIA_MUTATION_CPP_SLICE=1       # sweep slice 1 of the leak tree; reports as cpp-leak-1, judges nothing
+                                    # likewise every slice of the leak, plain and address trees
 ALETHEIA_MUTATION_CPP_STAGE=merge \
-ALETHEIA_MUTATION_CPP_LEGS=<dir>    # sweep nothing; merge the legs' reports found under <dir>
+ALETHEIA_MUTATION_CPP_LEGS=<dir>    # sweep nothing; merge every slice's reports found under <dir>
 ~~~
 
 ## Setting / updating a baseline
@@ -543,9 +552,9 @@ ALETHEIA_MUTATION_CHECK=1 python/.venv/bin/python -m tools.run_ci
 | Static gate (`check-mutation-setup`) | Every push (via pre-push hook) | <1 sec | Always-on (`check-mutation-setup`) in `run_ci.py` |
 | Dynamic gate (`mutation testing`) | Per PR | ~30 min - 2 hrs | Opt-in via `--mutation` / `ALETHEIA_MUTATION_CHECK=1` |
 
-The static gate guards against silent rename / removal of a hot-path file
-without YAML update — a config-vs-reality drift class, but for hot-path file paths.  The
-dynamic gate is the actual mutation pass; per AGENTS.md "once per PR is
+The static gate guards against a hot-path file renamed or removed without a
+YAML update, which leaves the YAML's hot-path paths out of step with the tree.
+The dynamic gate is the actual mutation pass; per AGENTS.md "once per PR is
 sufficient; per-commit is overkill".
 
 ## The C++ lane's slices, and the weights they are cut on
@@ -579,31 +588,36 @@ the record in the same commit, the way the survivors baseline is lowered.
 schedule.**  Each tree's partition is balanced by its own figures under
 `runs_by_file` in `docs/MUTATION_BENCH.yaml`: the suite runs each file's
 mutants cost that tree when the weights were last taken, a suite run being a
-mutant's run time divided by its leg's unmutated run.  The unit takes the
-runner out, since the legs of one CI run drew runners whose unmutated suite
-took from 4.9 to 13.9 s, and the trees are weighed apart because a mutant's
+mutant's run time divided by its leg's unmutated run.  The unit holds a file's
+figure across the CI runners a leg draws, which differ: the address tree's
+legs took 8.9 to 12.4 s to run its unmutated suite on heavy lanes run
+37091833867, the run the weights were taken from.  Over two pairs of CI runs,
+each pair sweeping one state of the C++ sources, each file of 2 percent of its
+tree or more in either run of a pair gets 0.82 to 1.22 times the other run's
+figure, and the slices cut on one run of a pair cost 2.1 to 9.1 percent over
+an equal share on the other.  The trees are weighed apart because a mutant's
 cost varies by file and by tree.  Cut on mutant counts shared by the trees,
-that run's plain slices cost 79, 119 and 271 suite runs; cut on the plain
-tree's own runs, 157, 156 and 156.  A file the record does not name still
-lands in a slice; it simply weighs nothing, which is right for the files that
-carry no mutants and costs a newly added file some balance until the weights
-are re-taken.  Because adding code adds mutants and nothing refuses that, the
-figures age quietly in one direction.  So the merge prints beside its verdict,
-per tree, what the heaviest slice would cost today under the recorded weights
-against an equal share.  On the run the weights were taken from it read 0.0
-percent over for the leak tree, 0.4 for the plain tree and 12.5 for the
-address tree, where `cpp/src/client.cpp` alone costs more than a third; the
-figure grows as the surface outgrows the record, and the review that re-takes
-the weights is scheduled against it rather than against a date (AGENTS.md
-§ Universal Rules; the task list carries it).  The figures are read from a CI
-merge and compared with one: a local whole-tree sweep on another host, its
-mutants twenty at a time against a CI leg's four, read 0.89, 0.66 and 0.71 of
-the CI figures for the leak, plain and address trees, and its drift lines
-13.0, 6.1 and 2.3 percent over against the same record.  Each leg writes its
-figures beside its reports, because only its own log prints its unmutated
-run, and the merge sums each tree's legs into `cpp-runs.json`; re-take by
-copying that file's trees into `runs_by_file` from a CI run's `mutation
-merge` artifact.
+run 37091833867's plain slices cost 92, 134 and 290 suite runs; cut on the
+plain tree's own runs, 172, 172 and 172.  A file the record does not name
+still lands in a slice; it simply weighs nothing, which is right for the files
+that carry no mutants and costs a newly added file some balance until the
+weights are re-taken.  Because adding code adds mutants and nothing refuses
+that, the figures age quietly in one direction.  So the merge prints beside
+its verdict, per tree, what the heaviest slice would cost today under the
+recorded weights against an equal share.  Computed over the run the weights
+were taken from, it reads 0.0 percent over for the leak tree, 0.0 for the
+plain tree and 2.1 for the address tree, where `cpp/src/client.cpp` alone
+costs more than a third; the figure grows as the surface outgrows the record,
+and the review that re-takes the weights is scheduled against it rather than
+against a date (AGENTS.md § Universal Rules; the task list carries it).  The
+figures are read from a CI merge and compared with one, since the unit does
+not hold across hosts: a local whole-tree sweep on another host, its mutants
+twenty at a time against a CI leg's four, read 0.40, 0.56 and 0.38 of the CI
+figures for the leak, plain and address trees, and its drift lines 10.7, 8.2
+and 5.4 percent over against the same record.  Each leg writes its figures
+beside its reports, because only its own log prints its unmutated run, and the
+merge sums each tree's legs into `cpp-runs.json`; re-take by copying that
+file's trees into `runs_by_file` from a CI run's `mutation merge` artifact.
 
 Changing the partition changes every slice's configuration, which the compiler
 cache keys on, so the run after such a change rebuilds every slice's tree.  It is
@@ -618,7 +632,7 @@ would answer a rebuild by doing nothing and sweep the other slice's mutants.
 threshold model treats baseline as a starting point: the first run sets
 it via an explicit YAML edit; subsequent runs guard against regression.
 Eliminating the initial baseline survivors is a separate follow-up
-backlog item — they are individual findings (per AGENTS.md "an unjustified
+backlog item: they are individual findings (per AGENTS.md "an unjustified
 survivor is a test gap"), each tracked / addressed in their own PRs.
 
 The infrastructure was designed so that the survivor-elimination work is
@@ -628,12 +642,8 @@ needed.
 
 ## See also
 
-- `AGENTS.md` cat 14(g) (Python / Go / C++ / Rust) — canonical hot-path lists
-- `docs/MUTATION_BENCH.yaml` — actual on-disk paths, baseline numbers
-- `tools/check_mutation_setup.py` — static gate (always-on)
-- `tools/mutation_run.py` — dynamic runner (opt-in)
-- `tools/mutation_cpp.py`, `tools/mutation_cpp_config.py`, `tools/mutation_report.py`,
-  `tools/mutation_routes.py`: the C++ lane, the configuration its legs are built
-  under, the shapes the lanes share, the kill-route census
-- `docs/operations/STABILITY.md` — sibling opt-in lane
-- `docs/development/CI_LOCAL.md` — three-layer CI architecture
+- `AGENTS.md` cat 14(g) (Python / Go / C++ / Rust): canonical hot-path lists
+- `docs/MUTATION_BENCH.yaml`: actual on-disk paths, baseline numbers
+- the mutation tools, each with its job: [§ Architecture](#architecture)
+- `docs/operations/STABILITY.md`: sibling opt-in lane
+- `docs/development/CI_LOCAL.md`: three-layer CI architecture

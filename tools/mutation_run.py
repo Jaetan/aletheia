@@ -10,7 +10,7 @@ archives per-binding JSON to ``benchmarks/mutation/<short_sha>/``.
 
 Drift gate: each binding's report is compared against the baseline survivor
 count recorded in ``docs/MUTATION_BENCH.yaml``.  ``observed > baseline + 0``
-fails the lane (allow exact equality only — any new survivor is a finding
+fails the lane (allow exact equality only: any new survivor is a finding
 per AGENTS.md cat 14(g) "an unjustified survivor is a test gap").  Where the
 baseline also carries a ``survivors_ledger``, every survivor must be one of
 its rows, by mutator, repository-relative file and source-line text, up to
@@ -48,34 +48,44 @@ Optional per-binding skip (useful for partial runs in CI lanes):
   - ALETHEIA_MUTATION_SKIP_CPP=1
   - ALETHEIA_MUTATION_SKIP_RUST=1
 
-The C++ lane in stages, so CI can sweep its two trees on two machines:
+The C++ lane in legs, so CI can sweep each tree in slices across machines
+(``tools/mutation_cpp.py``):
 
-  - ALETHEIA_MUTATION_CPP_STAGE  unset: both trees are swept in this process
-                               and merged, the whole lane in one run.
-                               ``leak`` or ``plain``: that tree alone is
-                               swept, a leg, and the run passes when the
-                               tree built, swept and wrote its reports; a
-                               leg judges no survivor, since a mutant is a
-                               survivor of the lane only where every tree
-                               let it live.  ``merge``: nothing is swept;
-                               the legs' reports are read from the directory
-                               ALETHEIA_MUTATION_CPP_LEGS names (searched
-                               recursively, one copy of each report), merged,
-                               and gated as the whole lane is.
+  - ALETHEIA_MUTATION_CPP_STAGE  unset: every tree is swept whole in this
+                               process and merged, the whole lane in one run.
+                               ``leak``, ``plain`` or ``address``: that tree
+                               alone is swept, a leg, whole or in the slice
+                               ALETHEIA_MUTATION_CPP_SLICE names, and the run
+                               passes when the leg built, swept and wrote its
+                               reports; a leg judges no survivor, since a
+                               mutant is a survivor of the lane only where
+                               every tree let it live.  ``merge``: nothing is
+                               swept; every slice of every tree is read from
+                               the directory ALETHEIA_MUTATION_CPP_LEGS names
+                               (searched recursively, one copy of each
+                               report), each tree's slices unioned and refused
+                               below its recorded census, the trees merged,
+                               and gated as the whole lane is; a leg swept
+                               whole is no part of the merge.
+  - ALETHEIA_MUTATION_CPP_SLICE  which slice of its tree a leg sweeps; unset is
+                               the tree whole.
   - ALETHEIA_MUTATION_CPP_LEGS   that directory, read by the merge stage only.
 
-The Go lane in shards, so CI can sweep the package's files on two machines
+The Go lane in shards, so CI can sweep the package's files across machines
 (``tools/mutation_go.py``):
 
   - ALETHEIA_MUTATION_GO_STAGE   unset: the package is swept whole in this
-                               process.  A shard number: a dry run lists the
-                               package's mutants, the files are cut on that
-                               census and this shard's files alone are swept;
-                               a shard judges no survivor.  ``merge``: nothing
-                               is swept; the shards' records and logs are read
-                               from the directory ALETHEIA_MUTATION_GO_SHARDS
-                               names, held to the census they cut on, and
-                               gated as the whole package is.
+                               process.  A shard number: the package's files
+                               are cut on their sizes and this shard's files
+                               alone are swept, after which a dry run under
+                               the package's own configuration takes the
+                               whole package's census; a shard judges no
+                               survivor.  ``merge``:
+                               nothing is swept; the shards' records and logs
+                               are read from the directory
+                               ALETHEIA_MUTATION_GO_SHARDS names, held to the
+                               census the shards took, and gated as the whole
+                               package is.
   - ALETHEIA_MUTATION_GO_SHARDS  that directory, read by the merge stage only.
 
 The Rust lane over two jobs, so CI sweeps the crate on two machines, each
@@ -123,21 +133,23 @@ Artifacts written:
                    one job's report, log and the listing it swept its shards
                    of, where the run is one job of the Rust lane
                    (ALETHEIA_MUTATION_RUST_STAGE); recorded, not gated
-    cpp-leak.json, cpp-plain.json
-                   one leg's census where the run is one leg of the C++
-                   lane (ALETHEIA_MUTATION_CPP_STAGE); recorded, not gated
+    cpp-<leg>.json one leg's census where the run is one leg of the C++
+                   lane (ALETHEIA_MUTATION_CPP_STAGE), the leg named by its
+                   tree and slice, cpp-leak-1.json and its siblings
+                   (cpp-leak.json for a tree swept whole); recorded, not gated
     cpp-legs.json  each leg's wall clock, written by the merge stage
     cpp-mull.json  Mull's Elements report: every C++ mutant with its status
                    and site, which the ledger check reads
-    cpp-mull-<lane>.json
-                   one tree's Elements report, what the merge reads
-    cpp-mull-<lane>.txt
-                   Mull's IDE report of that tree, its summary
-    cpp-mull-<lane>.sqlite
-                   Mull's SQLite report of one tree: each mutant's exit
+    cpp-mull-<leg>.json
+                   one leg's Elements report, a tree or one slice of it, what
+                   the merge reads
+    cpp-mull-<leg>.txt
+                   Mull's IDE report of that leg, its summary
+    cpp-mull-<leg>.sqlite
+                   Mull's SQLite report of one leg: each mutant's exit
                    status and the test binary's output, which the kill-route
                    census (tools/mutation_routes.py) reads
-    cpp-mull-<lane>.runs.json
+    cpp-mull-<leg>.runs.json
                    the suite runs that leg's mutants cost by file, which the
                    leg writes (tools/mutation_cpp_runs.py)
     cpp-runs.json  each tree's runs by file, summed over its legs: what the
@@ -151,7 +163,7 @@ Artifacts written:
     summary.json   {commit, runs: [...], passed: bool, baseline_drift: {...}}
 
 Usage:
-  ALETHEIA_MUTATION_CHECK=1 python3 tools/mutation_run.py
+  python/.venv/bin/python -m tools.mutation_run
 
 The static counterpart is ``tools/check_mutation_setup.py``, which gates on
 each binding's hot-path source files existing per ``docs/MUTATION_BENCH.yaml``.
@@ -267,13 +279,13 @@ def _parse_mutmut(raw: str) -> MutmutCounts:
         <spinner> N/Total  🎉 <killed>  🫥 <no-tests>  ⏰ <timeout>
                            🤔 <suspicious>  🙁 <survived>  ...
 
-    (`mutmut results` lists ONLY the non-killed mutants, one per line —
-    ``module.x__mutmut_K: survived`` — so the killed count is NOT recoverable
+    (`mutmut results` lists ONLY the non-killed mutants, one per line,
+    ``module.x__mutmut_K: survived``, so the killed count is NOT recoverable
     from ``results`` alone; the run summary is the only source for killed.)
 
     Primary: parse the last emoji summary.  Fallback (summary shape changed):
-    count the per-mutant ``: survived`` / ``: no tests`` lines from ``results``
-    — that keeps the gate-critical SURVIVOR count correct even if the killed
+    count the per-mutant ``: survived`` / ``: no tests`` lines from ``results``;
+    that keeps the gate-critical SURVIVOR count correct even if the killed
     count (score only) is lost.  Legacy ``X/Y mutants`` last.
     """
     summary = re.findall(
@@ -335,19 +347,19 @@ def run_python(artifact_dir: Path) -> MutationReport:
     env["ALETHEIA_LIB"] = str(lib)
     # Erase mutmut's persistent work-tree before every run.  mutmut reuses
     # ``python/mutants/`` across invocations and only invalidates cached
-    # kill/survive verdicts on SOURCE changes — NOT on TEST changes (test files
+    # kill/survive verdicts on SOURCE changes, NOT on TEST changes (test files
     # are not in ``source_paths``, so their content is not tracked).  A test
     # edit, or files arriving via ``git merge`` / ``checkout`` / ``pull``,
     # therefore yields stale verdicts (observed live: a merge that added a
     # function plus its killing tests reported 20 phantom survivors until the
     # tree was cleared).  Erasing it makes this local gate reproduce CI's
-    # fresh-checkout semantics exactly — CI already starts from a clean checkout
+    # fresh-checkout semantics exactly: CI already starts from a clean checkout
     # (``mutants/`` is gitignored and uncached), so this is a no-op there.  Cost
     # is local only: ~11 s on the Python lane (warm reuse 29 s -> clean 40 s).
     shutil.rmtree(cwd / "mutants", ignore_errors=True)
-    # mutmut 3.6 keeps ALL state under mutants/ — the mutated tree, the copied
-    # tests/ (the piece that goes stale), and the mutmut-stats.json results —
-    # with no separate .mutmut/ cache, so the erase above is complete.  Run
+    # mutmut keeps ALL state under mutants/: the mutated tree, the copied
+    # tests/ (the piece that goes stale), and the mutmut-stats.json results.  It
+    # has no separate .mutmut/ cache, so the erase above is complete.  Run
     # produces that state; results parses it.  Both write to stdout; we capture
     # both.
     # The run is the long half and streams, so a sweep killed by a wall clock
@@ -534,7 +546,7 @@ def go_mutant_rows(
 
 # ── Diff-scope ──────────────────────────────────────────────────────────────
 # A binding's mutation result can only change if its own source, tests, or
-# mutation config changed — OR if a shared artifact every binding depends on
+# mutation config changed, OR if a shared artifact every binding depends on
 # changed (the .so they all dlopen, or this harness / the baselines).  So on a
 # PR we run only the affected engine(s); an unchanged binding's survivor count
 # is definitionally unchanged from its baseline, so skipping it is coverage-
@@ -545,7 +557,7 @@ def go_mutant_rows(
 # mutmut / Mull kill mutants by RUNNING that binding's tests, so a test-only or
 # mutation-config-only edit can raise a binding's survivor count.  Under-scoping
 # a binding is a correctness bug (a real regression skipped); over-scoping only
-# costs time — so per-binding we scope generously.
+# costs time, so per-binding we scope generously.
 BINDING_DIRS: dict[str, str] = {
     "python": "python/",
     "go": "go/",
@@ -554,7 +566,7 @@ BINDING_DIRS: dict[str, str] = {
 }
 
 # A change under any of these can alter the shared ``.so`` every binding dlopens,
-# or this harness / the baselines themselves — so it forces ALL bindings.  This
+# or this harness / the baselines themselves, so it forces ALL bindings.  This
 # set IS precision-sensitive: a miss here under-scopes (the dangerous direction),
 # unlike the generous per-binding dirs above.
 # What makes the kernel every binding loads: a change here moves every
@@ -596,16 +608,16 @@ def bindings_in_scope(
 ) -> set[str] | None:
     """Bindings whose mutation result the branch diff vs ``main`` could change.
 
-    Returns ``None`` — meaning "run ALL bindings", the fail-SAFE answer — when:
+    Returns ``None`` (meaning "run ALL bindings", the fail-SAFE answer) when:
 
       * the escape-hatch env var is set,
       * git is absent / the diff cannot be computed (no ``git`` binary, no
         ``main`` ref, git error),
-      * the diff is EMPTY (push:main / on-main: ``HEAD == main`` — the
+      * the diff is EMPTY (push:main / on-main: ``HEAD == main``, the
         cache-seeding + post-merge backstop run), or
       * any GLOBAL path changed (shared ``.so`` / harness / baselines).
 
-    Otherwise returns the set of bindings whose directory the diff touched —
+    Otherwise returns the set of bindings whose directory the diff touched,
     possibly empty (e.g. a docs-only PR), meaning "run NONE".
 
     The tables default to this lane's; the coverage lane
@@ -620,15 +632,15 @@ def bindings_in_scope(
     try:
         git = find_executable("git")
     except RuntimeError:
-        return None  # no `git` binary on PATH — fail safe to the full run
+        return None  # no `git` binary on PATH: fail safe to the full run
     result = run_capture(
         [git, "-C", str(repo_root), "diff", "--name-only", "main...HEAD"],
     )
     if result.returncode != 0:
-        return None  # no `main` ref / git error — fail safe to the full run
+        return None  # no `main` ref / git error: fail safe to the full run
     changed = [line for line in result.stdout.splitlines() if line]
     if not changed:
-        return None  # push:main / no diff — run the full backstop
+        return None  # push:main / no diff: run the full backstop
     if any(line.startswith(global_paths) for line in changed):
         return None
     return {
@@ -655,11 +667,11 @@ def _run_enabled_bindings(
     A binding is skipped when its explicit skip env var is set, or when diff
     scoping is active (``in_scope is not None``) and the binding is out of scope.
     Each skip is logged so a scoped run is never silent about what it did not
-    run — a gate's claim is only as good as its record of what it covered.
+    run: a gate's claim is only as good as its record of what it covered.
     """
     reports: list[MutationReport] = []
     # Wall seconds per binding that ran, so the budget a CI job gives a lane is
-    # read off a measurement rather than guessed -- the number nobody had when
+    # read off a measurement rather than guessed, a measurement nobody had when
     # a lane was killed by its own wall clock.
     elapsed: dict[str, float] = {}
     for name, skip_var, runner in RUNNERS:

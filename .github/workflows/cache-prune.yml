@@ -9,7 +9,8 @@
 # saved, which live on that request's merge ref and are unreadable once it is
 # closed, and the ones on `main` under a commit-suffixed key that a newer entry
 # under the same prefix has superseded.  `tools/prune_actions_cache.py` deletes
-# those two kinds and nothing else; this workflow runs it.
+# those two kinds and nothing else, keeping the newest few under each prefix on
+# `main`; this workflow runs it.
 #
 # Two paths.  A closed pull request prunes its own ref at once, taking the event
 # as the evidence its runs are over.  The schedule sweeps the whole store, which

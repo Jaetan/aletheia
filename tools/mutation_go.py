@@ -10,8 +10,8 @@ verdict.
 
 The files are cut on their sizes, read from the tree, so nothing here is a
 list anyone keeps; the size stands for a file's share of the sweep, and over
-the recorded census it cut the package's mutants 399 and 364 where the census
-itself would cut 382 and 381.  The census is not what the cut is made on
+the census recorded when the cut was chosen, 763 mutants, it cut them 399 and
+364 where the census itself would cut 382 and 381.  The census is not what the cut is made on
 because the only census is gremlins' dry run, and a dry run ahead of a sweep
 leaves the package compiled in the build cache: gremlins times its coverage
 run to set every mutant's limit, so that run, then quicker than the
@@ -277,7 +277,7 @@ def shard_config_text(
 
 
 class ShardRecord(NamedTuple):
-    """What one shard wrote beside its log: the census it cut on, its domain and its files."""
+    """What a shard wrote beside its log: the census taken after its sweep, its domain and files."""
 
     number: ShardNumber
     domain: tuple[RelPath, ...]
@@ -340,7 +340,7 @@ def _census_refusal(shards: Sequence[ShardSweep]) -> Prose | None:
     for shard in shards[1:]:
         if shard.record.census != first.census or shard.record.domain != first.domain:
             return Prose(
-                f"Go shards {first.number} and {shard.record.number} cut on different "
+                f"Go shards {first.number} and {shard.record.number} read different "
                 + "censuses or domains: the tree or the tool differed between their runs"
             )
     outside = sorted(set(first.census) - set(first.domain))
@@ -523,11 +523,11 @@ def merge_go_shards(artifact_dir: Path, commit: ShortSha) -> MutationReport:
 
     Each shard's record and log are wanted exactly once under that directory,
     wherever the download put them, and the shards must add up to the census
-    they cut on (``merge_refusal``): the merge has no recorded total to hold
-    them to, the census being what the dry run measured.  The merged report
-    is the lane's ``go`` report, its counts the shards' sums and its log every
-    shard's log, so the drift gate reads its survivors and its not-covered
-    mutants as it reads a whole sweep's.
+    they took after their sweeps (``merge_refusal``): the merge holds them to
+    no recorded total, the census being what the dry run measured.  The merged
+    report is the lane's ``go`` report, its counts the shards' sums and its
+    log every shard's log, so the drift gate reads its survivors and its
+    not-covered mutants as it reads a whole sweep's.
     """
     shards_env = os.environ.get(GO_SHARDS_ENV, "")
     if not shards_env:
