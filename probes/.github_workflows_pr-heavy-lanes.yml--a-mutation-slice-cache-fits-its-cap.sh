@@ -4,20 +4,26 @@
 #
 # Probes .github/workflows/pr-heavy-lanes.yml.
 # Claim: the compiler-cache cap a C++ mutation lane sets, CCACHE_MAXSIZE, is at
-# least four fresh caches of the largest slice, and a fresh slice's cache is the
-# size the lane's comment records. The cap is the room a lane's cache has to
-# hold the live generation of objects and the superseded ones a change to the
-# plugin, the configuration or the toolchain leaves behind, and a cap below four
-# working sets lets an approximate LRU trim live objects; a cap sized from a
-# figure that has drifted is sized from nothing.
+# least three fresh caches of the largest slice, and a fresh slice's cache is
+# the size recorded here. A lane evicts what its run did not use unless the run
+# compiled nothing, a compile failed, or the eviction failed or did not run, so
+# the cache it restores is one working set plus, for each run since the last
+# eviction that failed a compile or its eviction, at most one more, a whole set
+# only when that run missed every object, and three covers one such run; a build
+# that misses every object, after a change to the plugin, the configuration or
+# the toolchain, holds those beside its own until the eviction, and a cap below
+# the three lets an approximate LRU trim the build's own objects. A cap sized
+# from a figure that has drifted is sized from nothing.
 # Three builds: slice 1 of each tree, configured the way the lane configures a
 # leg, compiled from cold into an empty cache, and the cache's own size counter
 # read after. Each is held within a tolerance of the recorded figure, and the
-# cap is held against four times the largest.
-# Non-zero exit: the workflow sets no single cap, the cap is under four of the
-# largest slice, or a slice's fresh cache is outside the recorded figure's
-# tolerance. Skipped (exit 0) when ccache, clang-23 or the plugin is not
-# installed, since the claim is then untestable.
+# cap is held against three times the largest.
+# Non-zero exit: the workflow sets no single cap, a slice does not build or
+# ccache reports no size for it, the cap is under three of the largest slice, or
+# a slice's fresh cache is outside the recorded figure's tolerance; 2 when the
+# repository root cannot be entered or the scratch directory cannot be made.
+# Skipped (exit 0) when ccache, clang++-23, the plugin or python/.venv is
+# missing, since the claim is then untestable.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v ccache > /dev/null || { echo "ccache not installed, claim untestable"; exit 0; }
@@ -28,10 +34,10 @@ command -v clang++-23 > /dev/null || { echo "clang++-23 not installed, claim unt
 workflow=.github/workflows/pr-heavy-lanes.yml
 # Recorded, KiB as `ccache --print-stats` counts cache_size_kibibyte, each slice
 # of the tree built from cold into an empty cache; the three slices of one tree
-# read within 60 KiB of each other, so one per tree stands for the tree.
-declare -A recorded=([leak]=24944 [plain]=26060 [address]=29696)
+# read within 192 KiB of each other, so one per tree stands for the tree.
+declare -A recorded=([leak]=26600 [plain]=27712 [address]=31792)
 tolerance_percent=20
-multiple=4
+multiple=3
 
 caps=$(sed -n 's/^ *echo "CCACHE_MAXSIZE=\([0-9]*\)M"$/\1/p' "$workflow")
 [ "$(printf '%s\n' "$caps" | grep -c .)" -eq 1 ] ||

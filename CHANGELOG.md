@@ -214,6 +214,36 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The C++ mutation lane's slice weights are re-taken from the tree as it
+  stands, and each lane saves only the compiler cache its run used.** The
+  weights (`runs_by_file`) predated `cpp/src/checked.cpp`, which the merge
+  printed as a file whose runs the record does not count, and against them the
+  heaviest slice of heavy lanes run 37091833867 cost 5.1, 5.7 and 9.7 percent
+  over an equal share in the leak, plain and address trees. Re-taken from that
+  run's `cpp-runs.json`, the same run reads 0.0, 0.0 and 2.1, the address
+  tree's `cpp/src/client.cpp` alone being more than a third of that tree. The
+  docs now say what the unit, a suite run, holds: a file's figure across CI
+  runners and not across hosts. Over three pairs of CI runs, each pair
+  sweeping one state of the C++ sources, each file of 2 percent of its tree or
+  more in either run of a pair gets 0.82 to 1.22 times the other run's figure,
+  and a local sweep gives each such file 0.33 to 0.63 times the CI one. A
+  lane's saved cache kept superseded generations until the 128M cap trimmed
+  them, and the four fresh caches of the largest slice the cap was sized to
+  hold, 130.4 MB, had outgrown it. A lane now takes its start where it zeroes
+  its cache's counters, after the restore, and before the save it runs
+  `tools/mutation_ccache_evict.sh`, which evicts every entry the run did not
+  use, going by the modification time a hit refreshes, keeps the cache whole
+  for a run that compiled nothing or whose build stopped at a failed compile
+  or a preprocessor error, prints the cache before and after, and fails when
+  an entry from a second or more before the start survives; the 128M cap holds
+  three of the largest slice, enough for the run after one build that stopped
+  at a failed compile, with room to grow. A probe, run green under ccache
+  4.9.1 (the runner's) and 4.13.6, holds that a direct and a preprocessor-mode
+  rebuild keep every entry they read and the latter drops the manifests it did
+  not, that a build under another slice's configuration keeps none of the
+  first's entries, and that a run that compiled nothing, failed a compile or
+  failed to preprocess keeps the cache whole.
+
 - **The C++ binding reads a state a check rules out in a checked form, and its
   mutation lane sweeps the three suites that need a process of their own for
   the renderer and the runtime.** A guard whose mutant stopped it firing let
@@ -433,19 +463,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   in four shards, both 316 mutants with 314 killed and 2 surviving, the record.
 
 - **Each C++ mutation tree's slices are cut on what its files cost that
-  tree.** The slices were cut on mutant counts shared by the three trees, and a
-  mutant's cost varies by file and by tree, so the plain tree's slices cost 79,
-  119 and 271 runs of the unmutated suite on one run, its third slice the
-  longest C++ job at 863 s. The record now keeps, per tree, the suite runs each
-  file's mutants cost (`runs_by_file`): a mutant's run time over its leg's
-  unmutated run, which takes out the runner a leg drew, whose unmutated suite
-  took from 4.9 to 13.9 s across that run's legs. Cut on them, the plain tree's
-  slices cost 157, 156 and 156, the leak tree's 248 each, and the address
-  tree's 76, 63 and 63, its `client.cpp` alone more than a third. Each leg
-  writes its figures beside its reports, the merge sums them per tree into
-  `cpp-runs.json`, which the weights are re-taken from, and prints per tree how
-  far the recorded weights have drifted; the setup gate refuses a tree the
-  record weighs nothing for.
+  tree.** The slices were cut on mutant counts shared by the three trees, and
+  a mutant's cost varies by file and by tree, so the plain tree's slices cost
+  79, 119 and 271 runs of the unmutated suite on one run, its third slice the
+  longest C++ job at 863 s. The record now keeps, per tree, the suite runs
+  each file's mutants cost (`runs_by_file`): a mutant's run time over its
+  leg's unmutated run, which holds the figure across the CI runners a leg
+  draws, whose unmutated suite took from 4.9 to 13.9 s across that run's legs.
+  Cut on them, the plain tree's slices cost 157, 156 and 156, the leak tree's
+  248 each, and the address tree's 76, 63 and 63, its `client.cpp` alone more
+  than a third. Each leg writes its figures beside its reports, the merge sums
+  them per tree into `cpp-runs.json`, which the weights are re-taken from, and
+  prints per tree how far the recorded weights have drifted; the setup gate
+  refuses a tree the record weighs nothing for.
 
 - **Full CI caches the dependencies of every C++ tree it configures.** The
   cache listed a `build-tidy` tree no step configures and left out
@@ -780,12 +810,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   cap every lane inherited would have let the nine together, on `main` and on
   each open pull request's ref, outgrow the platform's ceiling on their own.
   Each slice was built from cold into an empty cache: a leak slice holds about
-  25 MB, a plain slice about 26 MB and an address slice about 30 MB, the
+  27 MB, a plain slice about 28 MB and an address slice about 33 MB, the
   sanitizer's instrumentation making the address objects the largest rather
-  than the smallest. The cap is now four caches of the largest slice, room for
-  the live generation of objects and three superseded ones, and the lane's
-  comment states the figures and the rule. Each lane also prints its cache's
-  own statistics before saving it, so the figures can be re-read from a run.
+  than the smallest. The cap is sized from the slices' measured caches, which
+  the lane's comment states. Each lane also prints its cache's own statistics
+  before saving it, so the figures can be re-read from a run.
 
 - **A failing probe says why.** The probe store's runner sent every probe's
   output to `/dev/null` and printed `FAIL` and a path, so a probe that crashed

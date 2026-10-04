@@ -76,6 +76,13 @@ def _env(step: Step) -> dict[str, str]:
     return cast("dict[str, str]", step.get("env", {}))
 
 
+def _is_ccache_cache(step: Step) -> bool:
+    """Say whether a step restores or saves the C++ legs' compiler cache."""
+    return str(step.get("uses", "")).startswith("actions/cache/") and "ccache" in str(
+        _with(step).get("key", "")
+    )
+
+
 def _artifact_name(lane: str) -> str:
     """Read the name a lane's upload step gives its artifact, with the lane substituted."""
     uploads = [
@@ -155,7 +162,7 @@ def test_the_sweep_step_hands_each_lane_its_tree_and_its_slice() -> None:
 
 
 def test_the_cpp_legs_keep_a_compiler_cache_of_their_own() -> None:
-    """Six legs build six trees, and the build is only affordable cached.
+    """Nine legs build nine slices, and the build is only affordable cached.
 
     The cache is what the launcher's extra-files hashing makes safe, and
     nothing else here would notice its absence: without a directory, a key and
@@ -169,12 +176,7 @@ def test_the_cpp_legs_keep_a_compiler_cache_of_their_own() -> None:
     # Containment, not equality: the step reads the lane's diff scope as well,
     # since a lane that sweeps nothing installs nothing (tools/mutation_scope.py).
     assert "matrix.binding == 'cpp'" in str(setup[0]["if"])
-    caches = [
-        step
-        for step in steps
-        if str(step.get("uses", "")).startswith("actions/cache/")
-        and "ccache" in str(_with(step).get("key", ""))
-    ]
+    caches = [step for step in steps if _is_ccache_cache(step)]
     # One restore and one save, both the C++ lanes' alone.
     assert len(caches) == 2
     assert {str(step["uses"]).split("@", maxsplit=1)[0] for step in caches} == {
@@ -188,6 +190,54 @@ def test_the_cpp_legs_keep_a_compiler_cache_of_their_own() -> None:
         # The toolchain deb key, verbatim: hashing the compiler by content
         # does not reach the LLVM runtime beside it, and that key pins it.
         assert "clang23-llvm23dev-libstdcxx15-noble-v1" in key
+
+
+def test_the_cpp_legs_save_only_the_cache_their_run_used() -> None:
+    """A leg's saved compiler cache is the working set of the run that built it.
+
+    One step right after the restore zeroes the counters and takes the run's
+    start, before the sweep builds; the eviction script runs with that start
+    after the sweep and before the save, under the save's own condition once
+    the start was taken.  ccache refreshes an entry on a hit, so an entry older
+    than the start is one the run never read, and the script reads this run's
+    counters to keep the cache whole for a run that compiled nothing or failed
+    a compile.  Counters carried from earlier runs, an eviction after the save
+    or under a narrower condition, each leave the saved cache other than the
+    run's working set.
+    """
+    steps = _steps(_LANE_JOB)
+    caches = [i for i, step in enumerate(steps) if _is_ccache_cache(step)]
+    starts = [
+        i for i, step in enumerate(steps) if "MUTATION_CACHE_START=" in str(step.get("run", ""))
+    ]
+    sweeps = [
+        i
+        for i, step in enumerate(steps)
+        if str(step.get("name", "")).startswith("Mutation testing")
+    ]
+    evictions = [
+        i
+        for i, step in enumerate(steps)
+        if "tools/mutation_ccache_evict.sh" in str(step.get("run", ""))
+    ]
+    assert len(caches) == 2
+    assert len(starts) == len(sweeps) == len(evictions) == 1
+    restore, save = caches
+    assert str(steps[restore]["uses"]).startswith("actions/cache/restore@")
+    assert restore + 1 == starts[0] < sweeps[0] < evictions[0] < save
+    start = steps[starts[0]]
+    assert start["run"] == (
+        'ccache --zero-stats\necho "MUTATION_CACHE_START=$(date +%s)" >> "${GITHUB_ENV}"\n'
+    )
+    assert start["if"] == steps[restore]["if"]
+    eviction = steps[evictions[0]]
+    assert eviction["run"] == 'tools/mutation_ccache_evict.sh "${MUTATION_CACHE_START}"'
+    # The save's condition and the start's presence: a leg that swept and then
+    # failed saves, so it evicts first, and a leg whose counters were never
+    # zeroed saves its cache as restored.
+    save_if = str(steps[save]["if"])
+    assert save_if.endswith(" }}")
+    assert eviction["if"] == save_if.removesuffix(" }}") + " && env.MUTATION_CACHE_START != '' }}"
 
 
 def test_the_merge_reads_every_part_and_no_other_lane() -> None:

@@ -4,12 +4,13 @@
 
 A tree's slices are cut on these.  A mutant's run, as Mull's SQLite report
 records it, is divided by the leg's unmutated run, which Mull prints as its
-baseline, so the figure counts suites' worth of work rather than the speed of
-the runner the leg drew: one CI run's address legs ran the unmutated suite in
-6.9 s on one runner and 13.9 s on another.  Each leg writes its own figures
-beside its reports; the merge sums each tree's legs into ``cpp-runs.json``,
-the file the recorded weights are re-taken from, and prints how far the
-recorded weights have drifted from it.
+baseline, so the figure holds across the CI runners a leg draws, which differ:
+one CI run's address legs ran the unmutated suite in 8.9 s on one runner and
+12.4 s on another.  The figure does not carry to another host, whose sweep
+reads other figures.  Each leg writes its own figures beside its reports; the
+merge sums each tree's legs into ``cpp-runs.json``, the file the recorded
+weights are re-taken from, and prints how far the recorded weights have
+drifted from it.
 """
 
 from __future__ import annotations

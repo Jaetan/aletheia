@@ -421,11 +421,18 @@ bindings:
       # tree's slices are cut on: a CI leg builds one slice of one tree, and a
       # slice is a set of files whose recorded figures add up to about a third
       # of the tree's.  A suite run is a mutant's run time divided by its leg's
-      # unmutated run, so the figure is the work and not the runner: on heavy
-      # lanes run 36827685901 a leg's unmutated suite took 4.9 to 13.9 s, and a
-      # mutant's cost varies by file and by tree, a killed run ending at its
-      # first failed assertion.  Taken from that run's legs by the merge's own
-      # computation, which writes the same figures to cpp-runs.json.
+      # unmutated run, a unit that holds a file's figure across the CI runners
+      # its leg draws but not across hosts: over three pairs of CI runs, each
+      # pair sweeping one state of the C++ sources, each file of 2 percent of
+      # its tree or more in either run of a pair gets 0.82 to 1.22 times the
+      # other run's figure, where a local sweep gives each such file 0.33 to
+      # 0.63 times the CI one, so the figures are taken from CI.  Dividing by
+      # the leg's own unmutated run takes out the runner's speed: that run took
+      # 8.9 to 12.4 s across the address tree's legs on heavy lanes run
+      # 37091833867, and the trees are weighed apart because a mutant's cost
+      # varies by file and by tree, a killed run ending at its first failed
+      # assertion.  Taken from that run's legs by the merge's own computation,
+      # which writes the same figures to cpp-runs.json.
       #
       # They are a measurement and they age in one direction: adding code adds
       # mutants, nothing refuses that, and the slices drift out of balance
@@ -438,79 +445,82 @@ bindings:
       # the library and not over this list.
       runs_by_file:
         leak:
-          cpp/benchmarks/measure.hpp: 6.7
+          cpp/benchmarks/measure.hpp: 9.1
           cpp/include/aletheia/backend.hpp: 0.1
-          cpp/include/aletheia/check.hpp: 0.9
-          cpp/include/aletheia/client.hpp: 0.1
+          cpp/include/aletheia/check.hpp: 1.0
+          cpp/include/aletheia/client.hpp: 0.2
           cpp/include/aletheia/detail/cache_keys.hpp: 0.9
           cpp/include/aletheia/detail/rational_renderer.hpp: 0.0
-          cpp/include/aletheia/log.hpp: 0.9
-          cpp/include/aletheia/ltl.hpp: 0.3
+          cpp/include/aletheia/log.hpp: 1.1
+          cpp/include/aletheia/ltl.hpp: 0.4
           cpp/include/aletheia/response.hpp: 0.3
-          cpp/include/aletheia/types.hpp: 1.2
-          cpp/src/backend.cpp: 1.1
-          cpp/src/client.cpp: 126.2
-          cpp/src/dbc.cpp: 3.5
+          cpp/include/aletheia/types.hpp: 1.3
+          cpp/src/backend.cpp: 0.9
+          cpp/src/checked.cpp: 1.5
+          cpp/src/client.cpp: 145.5
+          cpp/src/dbc.cpp: 3.0
           cpp/src/detail/ffi_abi.hpp: 0.1
-          cpp/src/detail/ffi_logic.cpp: 15.3
-          cpp/src/detail/loader_utils.cpp: 99.4
-          cpp/src/detail/loader_utils.hpp: 33.1
+          cpp/src/detail/ffi_logic.cpp: 18.4
+          cpp/src/detail/loader_utils.cpp: 120.0
+          cpp/src/detail/loader_utils.hpp: 43.3
           cpp/src/enrich.cpp: 0.3
-          cpp/src/excel.cpp: 214.9
-          cpp/src/ffi_backend.cpp: 46.8
-          cpp/src/json_parse.cpp: 15.2
-          cpp/src/json_serialize.cpp: 3.2
-          cpp/src/rational_renderer.cpp: 16.1
-          cpp/src/types.cpp: 2.3
-          cpp/src/yaml.cpp: 156.2
+          cpp/src/excel.cpp: 263.5
+          cpp/src/ffi_backend.cpp: 70.1
+          cpp/src/json_parse.cpp: 15.8
+          cpp/src/json_serialize.cpp: 4.3
+          cpp/src/rational_renderer.cpp: 12.8
+          cpp/src/types.cpp: 2.6
+          cpp/src/yaml.cpp: 187.2
         plain:
-          cpp/benchmarks/measure.hpp: 4.5
+          cpp/benchmarks/measure.hpp: 5.1
           cpp/include/aletheia/backend.hpp: 0.0
-          cpp/include/aletheia/check.hpp: 0.3
+          cpp/include/aletheia/check.hpp: 0.4
           cpp/include/aletheia/client.hpp: 0.1
-          cpp/include/aletheia/detail/cache_keys.hpp: 0.3
+          cpp/include/aletheia/detail/cache_keys.hpp: 0.4
           cpp/include/aletheia/detail/rational_renderer.hpp: 0.0
           cpp/include/aletheia/log.hpp: 0.4
           cpp/include/aletheia/ltl.hpp: 0.1
           cpp/include/aletheia/response.hpp: 0.1
-          cpp/include/aletheia/types.hpp: 0.5
+          cpp/include/aletheia/types.hpp: 0.4
           cpp/src/backend.cpp: 0.4
-          cpp/src/client.cpp: 65.9
+          cpp/src/checked.cpp: 0.8
+          cpp/src/client.cpp: 80.2
           cpp/src/dbc.cpp: 1.2
           cpp/src/detail/ffi_abi.hpp: 0.0
-          cpp/src/detail/ffi_logic.cpp: 9.9
-          cpp/src/detail/loader_utils.cpp: 65.0
-          cpp/src/detail/loader_utils.hpp: 21.5
+          cpp/src/detail/ffi_logic.cpp: 10.6
+          cpp/src/detail/loader_utils.cpp: 63.4
+          cpp/src/detail/loader_utils.hpp: 24.1
           cpp/src/enrich.cpp: 0.1
-          cpp/src/excel.cpp: 147.8
-          cpp/src/ffi_backend.cpp: 30.5
-          cpp/src/json_parse.cpp: 9.3
-          cpp/src/json_serialize.cpp: 1.8
-          cpp/src/rational_renderer.cpp: 11.0
+          cpp/src/excel.cpp: 157.1
+          cpp/src/ffi_backend.cpp: 41.0
+          cpp/src/json_parse.cpp: 9.1
+          cpp/src/json_serialize.cpp: 1.9
+          cpp/src/rational_renderer.cpp: 9.5
           cpp/src/types.cpp: 1.4
-          cpp/src/yaml.cpp: 97.1
+          cpp/src/yaml.cpp: 108.2
         address:
-          cpp/benchmarks/measure.hpp: 2.5
+          cpp/benchmarks/measure.hpp: 3.3
           cpp/include/aletheia/backend.hpp: 0.0
-          cpp/include/aletheia/check.hpp: 0.3
+          cpp/include/aletheia/check.hpp: 0.4
           cpp/include/aletheia/client.hpp: 0.1
           cpp/include/aletheia/detail/cache_keys.hpp: 0.3
           cpp/include/aletheia/log.hpp: 0.2
           cpp/include/aletheia/response.hpp: 0.1
-          cpp/include/aletheia/types.hpp: 1.0
+          cpp/include/aletheia/types.hpp: 1.1
           cpp/src/backend.cpp: 0.3
-          cpp/src/client.cpp: 75.6
+          cpp/src/checked.cpp: 1.7
+          cpp/src/client.cpp: 75.8
           cpp/src/dbc.cpp: 0.8
-          cpp/src/detail/ffi_logic.cpp: 8.8
-          cpp/src/detail/loader_utils.cpp: 49.8
-          cpp/src/detail/loader_utils.hpp: 3.9
+          cpp/src/detail/ffi_logic.cpp: 13.2
+          cpp/src/detail/loader_utils.cpp: 48.6
+          cpp/src/detail/loader_utils.hpp: 4.5
           cpp/src/enrich.cpp: 0.1
-          cpp/src/excel.cpp: 46.1
-          cpp/src/ffi_backend.cpp: 3.0
-          cpp/src/json_parse.cpp: 1.7
-          cpp/src/json_serialize.cpp: 3.1
-          cpp/src/rational_renderer.cpp: 2.6
-          cpp/src/yaml.cpp: 1.3
+          cpp/src/excel.cpp: 58.0
+          cpp/src/ffi_backend.cpp: 3.9
+          cpp/src/json_parse.cpp: 2.0
+          cpp/src/json_serialize.cpp: 3.5
+          cpp/src/rational_renderer.cpp: 3.1
+          cpp/src/yaml.cpp: 1.7
       timeouts: 0
       score_pct: 99.7
       run_at: "2026-10-03"
