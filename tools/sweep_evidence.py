@@ -72,7 +72,11 @@ def worktree_tree(repo: Path) -> TreeId | None:
     """Name the tree of the tracked content as it stands, or None beside an untracked file.
 
     Written through a copy of the index, so the repository's own index and
-    every file in the tree are left as they were.  Git runs clear of the
+    every file in the tree are left as they were.  The copy keeps the index's
+    modification time: a file rewritten at its size in the second it was last
+    written can keep every stat field git compares, git re-reads rather than
+    trusts an entry modified no earlier than the index, and a copy stamped
+    later would let that rewrite pass as unchanged.  Git runs clear of the
     variables a hook exports, so it reads ``repo`` and no hook's repository.
     """
     clean = git_clean_env()
@@ -86,7 +90,7 @@ def worktree_tree(repo: Path) -> TreeId | None:
         copy = Path(scratch) / "index"
         source = Path(index.stdout.strip())
         if index.returncode == 0 and source.is_file():
-            _ = shutil.copyfile(source, copy)
+            _ = shutil.copy2(source, copy)
         env = clean | {"GIT_INDEX_FILE": str(copy)}
         added = run_capture([_GIT, "add", "--update"], cwd=repo, env=env)
         written = run_capture([_GIT, "write-tree"], cwd=repo, env=env)
