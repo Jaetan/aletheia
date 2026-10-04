@@ -46,6 +46,7 @@ Run: ``python -m tools.check_build_incremental``  (exit 0 = pass, 1 = fail).
 
 from __future__ import annotations
 
+import argparse
 import fcntl
 import os
 import re
@@ -418,6 +419,7 @@ def _run() -> int:
 
 def main() -> int:
     """Hold the repo-wide Agda lock, so two runs cannot overlap, and run the checks."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     with agda_tree_lock():
         return _run()
 

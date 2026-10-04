@@ -114,6 +114,7 @@ def test_main_reports_the_verdict(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Main reports the verdict."""
+    monkeypatch.setattr("sys.argv", ["check_coverage_setup"])
     assert gate.main() == 0
     assert "check-coverage-setup: OK" in capsys.readouterr().out
 

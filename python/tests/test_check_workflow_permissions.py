@@ -22,14 +22,21 @@ if TYPE_CHECKING:
 
     import pytest
 
+    from tools._common import GateName
+
 _STEPS = "jobs:\n  a:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo hi\n"
 _COMPLIANT = "name: x\non: push\npermissions:\n  contents: read\n" + _STEPS
 _NO_PERMISSIONS = "name: x\non: push\n" + _STEPS
 
 
 def _rooted(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
-    """Point the gate's repo-root resolution at an arbitrary directory."""
-    monkeypatch.setattr(check_workflow_permissions, "git_toplevel", lambda: root)
+    """Point the gate's repo-root resolution at an arbitrary directory; run it with no argument."""
+
+    def at_root(_gate: GateName) -> Path:
+        return root
+
+    monkeypatch.setattr(check_workflow_permissions, "gate_repo_root", at_root)
+    monkeypatch.setattr("sys.argv", ["check_workflow_permissions"])
 
 
 def test_missing_workflows_dir_cannot_certify(

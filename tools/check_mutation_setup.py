@@ -82,6 +82,7 @@ renamed away -> this gate fires, by binding; restore it -> exit 0
 
 from __future__ import annotations
 
+import argparse
 import collections
 import re
 import sys
@@ -603,6 +604,7 @@ def _total_hot_paths(bindings: dict[str, object]) -> int:
 
 def main() -> int:
     """Check hot paths exist, tools-tests are ignored, and the slices are of the tree."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     bindings = _load_bindings()
     failures = _collect_failures(bindings)
     failures += _tools_importing_tests_unignored()

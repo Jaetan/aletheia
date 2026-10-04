@@ -46,6 +46,7 @@ only with a complete one.
 
 from __future__ import annotations
 
+import argparse
 import fcntl
 import hashlib
 import mmap
@@ -54,11 +55,10 @@ import re
 import shutil
 import struct
 import subprocess
-import sys
 import tempfile
 from enum import IntEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, BinaryIO, NamedTuple, NewType
+from typing import TYPE_CHECKING, BinaryIO, NamedTuple, NewType, cast
 
 from tools._common import emit
 from tools._resources import polite_cpu_list
@@ -579,9 +579,13 @@ def sweep_directory(*, refresh: bool = False) -> Path | Prose:
     return wanted
 
 
-def main(argv: list[str]) -> ExitStatus:
+def main() -> ExitStatus:
     """Print the directory of a sweep of today's trees, or the reason there is none."""
-    result = sweep_directory(refresh="--refresh" in argv)
+    parser = argparse.ArgumentParser(description=__doc__)
+    _ = parser.add_argument(
+        "--refresh", action="store_true", help="sweep again where a sweep of today's trees is kept"
+    )
+    result = sweep_directory(refresh=cast("bool", parser.parse_args().refresh))
     if isinstance(result, Path):
         emit(str(result))
         return ExitStatus(0)
@@ -590,4 +594,4 @@ def main(argv: list[str]) -> ExitStatus:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    raise SystemExit(main())

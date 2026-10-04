@@ -17,6 +17,7 @@ Usage: python3 benchmarks/profile_extraction.py
 
 from __future__ import annotations
 
+import argparse
 import ctypes
 import json
 import time
@@ -223,6 +224,7 @@ def _canfd_frame() -> bytearray:
 
 def main() -> int:
     """Run the FFI-roundtrip baseline and the CAN 2.0B / CAN-FD extraction profiles."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     dbc_20 = dbc_to_json(str(EXAMPLES_DIR / "example.dbc"))
     dbc_fd = dbc_to_json(str(EXAMPLES_DIR / "example_canfd.dbc"))
 

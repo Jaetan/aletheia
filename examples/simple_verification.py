@@ -14,6 +14,7 @@ Demonstrates:
 # each script reads and runs in isolation; deduplicating would couple them.
 # pylint: disable=duplicate-code
 
+import argparse
 from pathlib import Path
 
 from aletheia import AletheiaClient, AletheiaError, Signal, from_decimal
@@ -23,6 +24,7 @@ from aletheia.types import DLCCode
 
 def main() -> int:
     """Run a simple verification example."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     example_dir = Path(__file__).parent
     dbc_file = example_dir / "example.dbc"
 

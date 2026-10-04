@@ -78,21 +78,23 @@ def test_the_tracked_tree_carries_none() -> None:
 
 
 def test_a_tracked_file_that_cannot_be_read_is_not_clean(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A tracked file the gate cannot read exits 2 and is named; the tree is not vouched for."""
     repo, rel = tracked_but_absent(tmp_path)
+    monkeypatch.setattr("sys.argv", ["check_refused_words"])
     assert main(repo=repo) == 2
     assert rel in capsys.readouterr().err
 
 
 def test_an_unreadable_file_dominates_a_finding_and_the_finding_is_still_printed(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With a refused word and an unreadable file, the exit is 2 and both are reported."""
     repo, rel = tracked_but_absent(tmp_path)
     _ = (repo / "prose.md").write_text("a spurious report\n", encoding="utf-8")
     git(repo, "add", "--", "prose.md")
+    monkeypatch.setattr("sys.argv", ["check_refused_words"])
     assert main(repo=repo) == 2
     captured = capsys.readouterr()
     assert "prose.md:1" in captured.out

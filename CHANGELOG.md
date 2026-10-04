@@ -1464,6 +1464,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **`--help` describes a tool rather than running it.** A runnable file that
+  read no argument took `--help`, or a mistyped flag, as nothing and did its
+  whole job: `python -m tools.mutation_run --help` started a mutation sweep of
+  every binding and `tools.install_hooks --help` installed the hooks, and
+  `tools.mutation_sweep_cache`, which read any argument but `--refresh` as
+  none, swept the C++ trees wherever no sweep of them was kept. Each such file
+  now parses its arguments with `argparse`, so `--help` prints its docstring
+  and an argument it does not know exits 2 before any work. `tools.iwyu`
+  parses its modes and scopes the same way: two modes, two scopes, files
+  beside `--all` or `--diff` and an unknown flag are refused, where it let one
+  of two modes or scopes win and ignored a flag it did not know, so a mistyped
+  `--check` ran the report that never fails.
+  `python/tests/test_runnable_files_parse_their_arguments.py` holds
+  every runnable file to this and names the ones that read their arguments
+  otherwise: the atheris fuzz harnesses, whose flags libFuzzer parses, and the
+  files that read them by position, where `--help` names nothing they can use.
+
 - **The docs run each tool as a module.** No file under `tools/` is
   executable, so a doc command spelled `tools/run_ci.py` failed with
   permission denied; every such command is now

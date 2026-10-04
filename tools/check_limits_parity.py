@@ -48,6 +48,7 @@ this script; reverting returns to exit 0.
 
 from __future__ import annotations
 
+import argparse
 import ast
 import re
 import sys
@@ -548,6 +549,7 @@ def _check_agda_drift(agda_consts: dict[str, int], agda_boundkind: dict[str, str
 
 def main() -> int:
     """Check Agda Limits SSOT parity against the Go, Python and C++ mirrors."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     agda_consts, agda_boundkind = _parse_agda_limits(_read(AGDA_LIMITS))
     go_consts, go_boundkind = _parse_go_limits(_read(GO_LIMITS))
     py_consts, py_boundkind = _parse_python_limits(_read(PYTHON_LIMITS))

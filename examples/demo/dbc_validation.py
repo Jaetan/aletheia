@@ -20,6 +20,7 @@ Requirements:
 
 from __future__ import annotations
 
+import argparse
 import sys
 from fractions import Fraction
 from typing import TYPE_CHECKING, cast
@@ -281,6 +282,7 @@ def check_dbc(
 
 def main() -> None:
     """Run the DBC-validation scenarios and print a pass/fail summary."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     print("=" * 60)
     print("DBC VALIDATION DEMO")
     print("=" * 60)

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Tests for ``tools._common.git_toplevel``.
+"""Tests for ``tools._common.git_toplevel``, and for ``gate_repo_root``, a gate's use of it.
 
 The helper answers which work tree contains a path.  Git answers a different
 question when the caller's environment names the repository: a hook runs with
@@ -12,12 +12,15 @@ overrides discovery, and ask from the subdirectory.
 
 from __future__ import annotations
 
+import io
 import subprocess
+import sys
 from typing import TYPE_CHECKING
 
 import pytest
 
-from tools._common import find_executable, git_toplevel
+from tools import _common
+from tools._common import GateName, find_executable, gate_repo_root, git_toplevel
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -68,3 +71,18 @@ def test_a_path_outside_any_work_tree_is_refused(tmp_path: Path) -> None:
     outside.mkdir()
     with pytest.raises(RuntimeError, match="not inside a git work tree"):
         _ = git_toplevel(outside)
+
+
+def test_a_gate_gets_the_root_or_says_it_runs_outside_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Inside the repository a gate gets its root; outside, None, with the gate named."""
+    assert gate_repo_root(GateName("a-gate")) == git_toplevel()
+
+    def outside() -> Path:
+        message = "not inside a git work tree"
+        raise RuntimeError(message)
+
+    errors = io.StringIO()
+    monkeypatch.setattr(_common, "git_toplevel", outside)
+    monkeypatch.setattr(sys, "stderr", errors)
+    assert gate_repo_root(GateName("a-gate")) is None
+    assert errors.getvalue() == "a-gate: not inside a git repo\n"

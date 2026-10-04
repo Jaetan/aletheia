@@ -29,6 +29,7 @@ file was unreadable, never reported as clean). Its rule is unit-tested by
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NewType
@@ -93,6 +94,7 @@ def _is_not_markdown(rel: RelPath) -> bool:
 
 def main() -> ExitStatus:
     """Report every backtick fence no harness runs; 2 if a file was unreadable, 1 if any found."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     scan = scan_tracked_tree(
         REPO_ROOT,
         lambda rel: _is_not_markdown(RelPath(rel)),

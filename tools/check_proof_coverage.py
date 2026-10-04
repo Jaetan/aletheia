@@ -27,6 +27,7 @@ Exit codes:
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -81,6 +82,7 @@ def _closure(roots: set[str], edges: dict[str, set[str]]) -> set[str]:
 
 def main() -> int:
     """Fail when a src module is covered by neither ``build`` nor ``check-properties``."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     files = sorted(SRC.rglob("*.agda"))
     modules = {_module_of(p): p for p in files}
     modset = set(modules)

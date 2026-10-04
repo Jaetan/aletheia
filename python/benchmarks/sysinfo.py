@@ -12,6 +12,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import platform
 import sys
 import time
@@ -175,6 +176,7 @@ def _print_docker(mem: MemorySnapshot) -> None:
 
 def main() -> int:
     """CLI entry point — measure resources and print sizing recommendations."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     print("=" * 60)
     print("Aletheia System Info & Docker Sizing")
     print("=" * 60)

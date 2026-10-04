@@ -36,6 +36,7 @@ the committed state; bypassing them forfeits that guarantee.
 
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import stat
@@ -455,6 +456,7 @@ def _install_hook(
 
 def main() -> int:
     """Install the pre-commit and pre-push hooks, returning a process exit code."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     git = find_executable("git")
     rc = subprocess.run(
         [git, "rev-parse", "--show-toplevel"],

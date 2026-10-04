@@ -15,6 +15,7 @@ Run: python3 benchmarks/response_overhead.py
 
 from __future__ import annotations
 
+import argparse
 import json
 import time
 from typing import TYPE_CHECKING
@@ -103,6 +104,7 @@ def bench(name: str, func: Callable[[], object], iterations: int = ITERATIONS) -
 
 def main() -> None:
     """Run the ack/violation response-parsing microbenchmarks and print a report."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     print("Response parsing overhead (Python)")
     print(f"Iterations: {ITERATIONS:,}\n")
 

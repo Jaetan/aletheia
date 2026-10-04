@@ -443,48 +443,50 @@ def changed_agda_files() -> list[RelPath] | None:
     return sorted(rels)
 
 
-def select_files(args: list[str]) -> list[RelPath] | None:
-    """Resolve the scoped file set from the mode flags; None signals a usage error.
+def select_files(*, whole_tree: bool, diff: bool, paths: list[RelPath]) -> list[RelPath] | None:
+    """Resolve the scoped file set; None when git cannot name the changed files.
 
-    ``--all`` = whole tree (onboarding / periodic).  ``--diff`` = files changed
-    vs ``main`` (per-push).  Otherwise the explicit ``<relpath.agda> …`` args.
-    There is NO file-count skip: the warm load is fast enough (~0.6 s/file after
-    the first) to run on every scoped file, so the gate never silently passes.
+    ``whole_tree`` = whole tree (onboarding / periodic).  ``diff`` = files
+    changed vs ``main`` (per-push).  Otherwise ``paths``, named relative to
+    ``src/``.  There is NO file-count skip: the warm load is fast enough
+    (~0.6 s/file after the first) to run on every scoped file, so the gate never
+    silently passes.
     """
-    if "--all" in args:
+    if whole_tree:
         files = all_agda_files()
         emit(f"iwyu gate: whole tree — {len(files)} file(s)")
         return files
-    if "--diff" in args:
+    if diff:
         files = changed_agda_files()
         if files is None:
             return None  # git failure — reason already emitted; caller exits non-zero
         emit(f"iwyu gate: {len(files)} .agda file(s) changed vs main")
         return files
-    explicit = [a for a in args if not a.startswith("--")]
-    if not explicit:
-        emit("usage: (--all | --diff | FILE.agda ...)")
-        return None
-    return explicit
+    return paths
 
 
-def run_warm_gate(args: list[str], action: Callable[[WarmAgda, list[RelPath]], int]) -> int:
-    """Resolve scope, warm-load each file (fresh `.agdai`), then run ``action``.
+def run_warm_gate(
+    files: list[RelPath] | None,
+    action: Callable[[WarmAgda, list[RelPath]], int],
+    *,
+    wait_lock: bool,
+) -> int:
+    """Warm-load each scoped file (fresh `.agdai`), then run ``action``.
 
-    The shared CLI shell of the IWYU tool (:mod:`tools.iwyu` `--check` /
-    `--apply`): scope selection (usage error → exit 2; empty scope
-    → exit 0 no-op), the agda-tree lock + one warm process, and a `Cmd_load` of
-    every scoped file so the `.agdai` interfaces the reader reads are current.
-    ``action(agda, files)`` does the per-tool work; its return is the exit code.
-    ``--wait-lock`` queues behind a running Agda tool instead of refusing to
-    start beside it, which is what a hook that must reach a verdict wants.
+    The shared shell of the IWYU tool (:mod:`tools.iwyu` `--check` /
+    `--apply`): ``files`` is :func:`select_files`'s scope (None, a scope git
+    could not name → exit 2; empty → exit 0 no-op), then the agda-tree lock +
+    one warm process, and a `Cmd_load` of every scoped file so the `.agdai`
+    interfaces the reader reads are current.  ``action(agda, files)`` does the
+    per-tool work; its return is the exit code.  ``wait_lock`` queues behind a
+    running Agda tool instead of refusing to start beside it, which is what a
+    hook that must reach a verdict wants.
     """
-    files = select_files(args)
     if files is None:
         return 2
     if not files:
         return 0  # nothing in scope (e.g. --diff with no .agda change): a true no-op
-    with agda_tree_lock(wait="--wait-lock" in args), WarmAgda() as agda:
+    with agda_tree_lock(wait=wait_lock), WarmAgda() as agda:
         for rel in files:
             _ = agda.load(str(SRC / rel))  # refresh `.agdai` so the reader sees current interfaces
         return action(agda, files)

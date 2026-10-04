@@ -29,10 +29,11 @@ Exit codes:
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 
-from tools._common import emit, git_toplevel, workflow_files
+from tools._common import GateName, emit, gate_repo_root, workflow_files
 
 USES_RE = re.compile(r"uses:\s*(\S+?)@(\S+)")
 SHA_RE = re.compile(r"^[a-f0-9]{40}$")
@@ -70,10 +71,9 @@ def main() -> int:
 
     Returns the process exit code (0 compliant, 1 violation, 2 no git repo).
     """
-    try:
-        repo_root = git_toplevel()
-    except RuntimeError:
-        _ = sys.stderr.write("check-action-pins: not inside a git repo\n")
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
+    repo_root = gate_repo_root(GateName("check-action-pins"))
+    if repo_root is None:
         return 2
 
     workflows = workflow_files("check-action-pins", "the action-pin policy", repo_root)

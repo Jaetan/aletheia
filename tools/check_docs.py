@@ -255,8 +255,7 @@ def check_tree(md_files: list[Path]) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     """Scan every tracked Markdown file; return 1 (and list defects) if any, else 0."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.parse_args(argv)  # no options; --help only
+    argparse.ArgumentParser(description=__doc__).parse_args(argv)  # no options; --help only
 
     findings = check_tree(_tracked_md())
     if findings:
