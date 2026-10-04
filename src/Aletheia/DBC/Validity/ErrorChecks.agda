@@ -33,7 +33,7 @@ open import Aletheia.DBC.Validity.Combinators using
   ; liftTriangular-sound; liftTriangular-complete )
 open import Aletheia.DBC.Decidable using (SignalPairValid; signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Encoding.Value using (bitsRange)
+open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange)
 open import Data.List using ([]; length)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)

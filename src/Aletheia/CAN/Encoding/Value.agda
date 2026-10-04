@@ -12,8 +12,8 @@
 -- its raw value and both facts.  The facts a valid DBC states of the signal
 -- (`SignalFacts`: a non-zero factor, a non-zero bit length, a declared range
 -- within the values its bits carry) then prove the raw value fits the bits
--- (`rawFits`), and `encodedBits` builds them from that proof without checking
--- anything.
+-- (`Aletheia.CAN.Encoding.Properties.Fits.rawFits`, used only erased here),
+-- and `encodedBits` builds them from that proof without checking anything.
 --
 -- DEFER-stdlib-mandate (Cat 29): `candidateRaw` divides by the factor with the
 -- stdlib's `_÷_`, which takes a `.{{_ : NonZero q}}` instance argument; the
@@ -22,8 +22,10 @@
 module Aletheia.CAN.Encoding.Value where
 
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Encoding.Arithmetic using (applyScaling; fromSigned; inBounds₀; rawRange; orderBySign)
-open import Aletheia.CAN.Encoding.Arithmetic.Range using (RawFits; scaledRawFits; RawFits-implies-bounded)
+open import Aletheia.CAN.Encoding.Arithmetic using (applyScaling; fromSigned; inBounds₀)
+open import Aletheia.CAN.Encoding.Arithmetic.Range using (RawFits-implies-bounded)
+open import Aletheia.CAN.Encoding.Value.Facts using (SignalFacts)
+open import Aletheia.CAN.Encoding.Properties.Fits using (rawFits)
 open import Aletheia.Data.BitVec using (BitVec)
 open import Aletheia.Data.BitVec.Conversion using (ℕToBitVec)
 open import Aletheia.Data.Dec0 using (_because₀_; absurd₀)
@@ -31,35 +33,14 @@ open import Aletheia.Data.Dec0.Rational using (_≟ℚ₀_)
 open import Aletheia.DBC.DecRat using (toℚ)
 open import Data.Bool using (true; false)
 open import Data.Integer using (ℤ; +_; -[1+_])
-open import Data.Nat using (zero; suc; _>_; _<_; _^_)
-open import Data.Product using (_×_; proj₁; proj₂)
+open import Data.Nat using (zero; suc; _<_; _^_)
+open import Data.Product using (proj₁; proj₂)
 open import Data.Rational as ℚ using (ℚ; 0ℚ; mkℚ; _≤_; floor)
-  renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_; _÷_ to _÷ᵣ_)
+  renaming (_-_ to _-ᵣ_; _÷_ to _÷ᵣ_)
 import Data.Rational.Properties as ℚP
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; subst)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
 open import Relation.Nullary.Reflects using (invert)
-
--- ============================================================================
--- THE VALUES A SIGNAL'S BITS CARRY
--- ============================================================================
-
--- The least and the greatest physical value a signal's bits carry: the raw
--- range scaled by the factor and shifted by the offset.
-bitsRange : SignalDef → ℚ × ℚ
-bitsRange sd =
-  let factor = toℚ (SignalDef.factor sd)
-      offset = toℚ (SignalDef.offset sd)
-      raw    = rawRange (SignalDef.isSigned sd) (SignalDef.bitLength sd)
-  in orderBySign factor (proj₁ raw *ᵣ factor +ᵣ offset) (proj₂ raw *ᵣ factor +ᵣ offset)
-
--- What a valid DBC states of a signal, and what encoding it needs.
-record SignalFacts (sd : SignalDef) : Set where
-  field
-    factor≢0    : toℚ (SignalDef.factor sd) ≢ 0ℚ
-    bitLength>0 : SignalDef.bitLength sd > 0
-    lowWithin   : proj₁ (bitsRange sd) ≤ toℚ (SignalDef.minimum sd)
-    highWithin  : toℚ (SignalDef.maximum sd) ≤ proj₂ (bitsRange sd)
 
 -- ============================================================================
 -- CHECKING A REQUESTED VALUE
@@ -110,19 +91,6 @@ checkValue sd factor≢0 v
 -- ============================================================================
 -- THE BITS
 -- ============================================================================
-
--- A raw value that scales exactly to a value within the declared range, which
--- lies within the values the bits carry, fits the bits.
-rawFits : ∀ {sd v} (raw : ℤ)
-  → toℚ (SignalDef.minimum sd) ≤ v → v ≤ toℚ (SignalDef.maximum sd)
-  → applyScaling raw (toℚ (SignalDef.factor sd)) (toℚ (SignalDef.offset sd)) ≡ v
-  → SignalFacts sd
-  → RawFits raw (SignalDef.bitLength sd) (SignalDef.isSigned sd)
-rawFits {sd} raw lowOk highOk exact facts =
-  scaledRawFits (SignalDef.isSigned sd) (SignalDef.bitLength sd)
-    (toℚ (SignalDef.factor sd)) (toℚ (SignalDef.offset sd)) raw (SignalFacts.factor≢0 facts)
-    (subst (_ ≤_) (sym exact) (ℚP.≤-trans (SignalFacts.lowWithin facts) lowOk))
-    (subst (_≤ _) (sym exact) (ℚP.≤-trans highOk (SignalFacts.highWithin facts)))
 
 -- The proof the bits are built under: the raw value fits them, so its
 -- unsigned representation lies below 2^n.

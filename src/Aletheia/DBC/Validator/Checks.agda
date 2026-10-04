@@ -49,7 +49,7 @@ open import Aletheia.DBC.Decidable.SignalGeometry using
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_; findSignalInList)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Encoding.Value using (bitsRange)
+open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange)
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; map; filter; concatMap; length)
   renaming (_++_ to _++ₗ_)

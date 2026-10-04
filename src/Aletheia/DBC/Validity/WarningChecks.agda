@@ -18,7 +18,7 @@ open import Aletheia.DBC.Types using
   ; GlobalNameCollision; Always; When
   ; DBCComment
   ; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar )
-open import Aletheia.CAN.Encoding.Value using (bitsRange)
+open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange)
 open import Aletheia.DBC.Validator using
   ( checkGlobalNamePair; checkGlobalNameAgainstList
   ; checkAllGlobalNameCollisions; messageSignalNames

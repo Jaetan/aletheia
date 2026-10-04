@@ -18,7 +18,7 @@ open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Validator using (walkMux)
-open import Aletheia.CAN.Encoding.Value using (bitsRange; SignalFacts)
+open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange; SignalFacts)
 open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.DBC.Decidable using (SignalPairValid)
 open import Aletheia.CAN.Signal using (SignalDef)

@@ -31,7 +31,7 @@ open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-s
 open import Aletheia.DBC.Validity.Combinators using (requireDec-allE; rejectDec-allE)
 open import Aletheia.DBC.Decidable using (signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Encoding.Value using (bitsRange)
+open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange)
 open import Data.List using ([]; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_; universal)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)

@@ -22,7 +22,9 @@ MAlonzo.Code.Aletheia.CAN.DLC
 MAlonzo.Code.Aletheia.CAN.Encoding
 MAlonzo.Code.Aletheia.CAN.Encoding.Arithmetic
 MAlonzo.Code.Aletheia.CAN.Encoding.Arithmetic.Range
+MAlonzo.Code.Aletheia.CAN.Encoding.Properties.Fits
 MAlonzo.Code.Aletheia.CAN.Encoding.Value
+MAlonzo.Code.Aletheia.CAN.Encoding.Value.Facts
 MAlonzo.Code.Aletheia.CAN.Endianness
 MAlonzo.Code.Aletheia.CAN.ExtractionResult
 MAlonzo.Code.Aletheia.CAN.Frame

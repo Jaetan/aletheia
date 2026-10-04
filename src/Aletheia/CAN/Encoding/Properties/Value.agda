@@ -24,7 +24,9 @@ open import Aletheia.CAN.Encoding.Arithmetic using (applyScaling; inBounds; inBo
 open import Aletheia.CAN.Encoding.Arithmetic.Range using (RawFits; unsigned-fits; signed-fits; SignedFits-implies-fromSigned-bounded)
 open import Aletheia.CAN.Encoding.Value
   using (Encodable; encodable; EncodeRefusal; OutOfRange; NotRepresentable; checkValue; candidateRaw;
-         SignalFacts; encodedBits; nonZeroOf; rawFits; fitBound)
+         encodedBits; nonZeroOf; fitBound)
+open import Aletheia.CAN.Encoding.Value.Facts using (SignalFacts)
+open import Aletheia.CAN.Encoding.Properties.Fits using (rawFits)
 open import Aletheia.CAN.Encoding.Properties.Roundtrip using (extractSignal-reduces-unsigned; extractSignal-reduces-signed)
 open import Aletheia.CAN.Encoding.Properties.Arithmetic.Rational using (floor-int)
 open import Aletheia.CAN.Endianness using (ByteOrder)

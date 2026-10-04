@@ -19,7 +19,8 @@ module Aletheia.CAN.BatchFrameBuilding where
 
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.Encoding using (withInjected)
-open import Aletheia.CAN.Encoding.Value using (checkValue; encodedBits; SignalFacts; Encodable; EncodeRefusal; OutOfRange; NotRepresentable)
+open import Aletheia.CAN.Encoding.Value using (checkValue; encodedBits; Encodable; EncodeRefusal; OutOfRange; NotRepresentable)
+open import Aletheia.CAN.Encoding.Value.Facts using (SignalFacts)
 open import Aletheia.DBC.Validity using (ValidDBC; signalFacts)
 open import Aletheia.DBC.DecRat using (toℚ)
 open import Aletheia.CAN.Endianness using (replicate-below256)
