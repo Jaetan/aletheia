@@ -35,6 +35,7 @@ unreadable, never reported as clean). Its parser is unit-tested by
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -82,6 +83,7 @@ def check_tree(repo: Path = REPO) -> TreeScan:
 
 def main(*, repo: Path = REPO) -> int:
     """Report every refused word in the tracked tree; 2 if a file was unreadable, 1 if any found."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     scan = check_tree(repo)
     return report_tree_scan(
         "check_refused_words",

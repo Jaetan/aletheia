@@ -220,8 +220,10 @@ def _sandbox_main(
     """Point ``main``'s repo-root / artifact-base / SHA at a writable sandbox.
 
     ``SPEC_PATH`` was bound to the real repo at import, so the real per-binding
-    baselines still load; only the artifact tree and the diff are sandboxed.
+    baselines still load; only the artifact tree and the diff are sandboxed,
+    and ``main`` runs with no argument.
     """
+    monkeypatch.setattr("sys.argv", ["mutation_run"])
     monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(mutation_run, "ARTIFACT_BASE", tmp_path / "artifacts")
     monkeypatch.setattr(mutation_run, "short_sha", _fixed_sha)

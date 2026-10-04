@@ -17,6 +17,7 @@ Requirements:
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -108,6 +109,7 @@ def _print_results(violations: list[_Violation], target_index: int) -> None:
 
 def main() -> None:
     """Load a DBC, inject an over-limit speed frame, and report the violation."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     print("=" * 60)
     print("FRAME INJECTION DEMO")
     print("=" * 60)

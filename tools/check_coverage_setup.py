@@ -34,6 +34,7 @@ the record cannot be read.
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -182,6 +183,7 @@ def collect_failures(spec: Spec) -> list[str]:
 
 def main() -> int:
     """Check the coverage record's shape without running a suite."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     failures = collect_failures(load_spec())
     if failures:
         emit("check-coverage-setup: FAIL")

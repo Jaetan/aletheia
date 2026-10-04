@@ -152,8 +152,7 @@ def check_tree(repo: Path = REPO) -> TreeScan:
 
 def main(argv: list[str] | None = None, *, repo: Path = REPO) -> int:
     """Scan the gated tree; 2 if a file was unreadable, 1 if citations found, else 0."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.parse_args(argv)  # no options; --help only
+    argparse.ArgumentParser(description=__doc__).parse_args(argv)  # no options; --help only
 
     scan = check_tree(repo)
     return report_tree_scan(

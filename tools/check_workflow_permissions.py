@@ -33,13 +33,14 @@ Exit codes:
 
 from __future__ import annotations
 
+import argparse
 import sys
 from typing import TYPE_CHECKING, cast
 
 import yaml
 from yaml.error import YAMLError
 
-from tools._common import emit, git_toplevel, workflow_files
+from tools._common import GateName, emit, gate_repo_root, workflow_files
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -106,10 +107,9 @@ def _check_workflow(path: Path) -> str | None:
 
 def main() -> int:
     """Check every workflow under ``.github/workflows/`` and return an exit code."""
-    try:
-        repo_root = git_toplevel()
-    except RuntimeError:
-        _ = sys.stderr.write("check-workflow-permissions: not inside a git repo\n")
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
+    repo_root = gate_repo_root(GateName("check-workflow-permissions"))
+    if repo_root is None:
         return 2
 
     workflows = workflow_files(

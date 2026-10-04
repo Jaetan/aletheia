@@ -130,7 +130,7 @@ def _gate_on_scratch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[P
     """Point the gate at two scratch sources, a free Shake lock, a scratch Agda lock, no build.
 
     A build during a refusal is the defect these tests exist to catch, so the
-    build step fails the test outright.
+    build step fails the test outright.  The gate runs with no argument.
     """
     a = tmp_path / "ResponseFormat.agda"
     b = tmp_path / "Formatter.agda"
@@ -145,6 +145,7 @@ def _gate_on_scratch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[P
     monkeypatch.setattr(gate, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(_common, "_agda_lock_path", lambda: tmp_path / ".agda-tree.lock")
     monkeypatch.setattr(gate, "_build", lambda: pytest.fail("the gate built during a refusal"))
+    monkeypatch.setattr("sys.argv", ["check_build_incremental"])
     return a, b
 
 

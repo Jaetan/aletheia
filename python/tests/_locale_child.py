@@ -13,6 +13,7 @@ from one that stopped early.
 
 from __future__ import annotations
 
+import argparse
 import locale
 import sys
 
@@ -52,6 +53,7 @@ def _failures() -> list[Prose]:
 
 def main() -> ExitStatus:
     """Print each failure, or the sentinel when there is none."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     failures = _failures()
     for line in failures:
         sys.stdout.write(f"{line}\n")

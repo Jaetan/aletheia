@@ -171,6 +171,7 @@ each binding's hot-path source files existing per ``docs/MUTATION_BENCH.yaml``.
 
 from __future__ import annotations
 
+import argparse
 import collections
 import json
 import os
@@ -842,6 +843,7 @@ def _judge_unobserved(
 
 def main() -> int:
     """Drive every binding's mutation tool, archive reports, gate on baseline drift."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     if not SPEC_PATH.is_file():
         _ = sys.stderr.write(f"ERROR: spec missing at {SPEC_PATH}\n")
         return SPEC_ERROR_EXIT

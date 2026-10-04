@@ -33,11 +33,12 @@ Invoke: `python -m tools.iwyu (--check | --apply | --self-test) [--wait-lock]
 
 from __future__ import annotations
 
+import argparse
 import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 from tools._agda_opens import find_opens
 from tools._common import (
@@ -67,7 +68,7 @@ from tools._iwyu import (
     wildcard_fields,
 )
 from tools._resources import cpu_budget
-from tools._warm import AGDA_BIN, SRC, RelPath, WarmAgda, run_warm_gate
+from tools._warm import AGDA_BIN, SRC, RelPath, WarmAgda, run_warm_gate, select_files
 
 FIXTURES = PKG / "test" / "fixtures"
 MANIFEST = PKG / "test" / "manifest.tsv"
@@ -333,11 +334,28 @@ def main() -> int:
     exits 1 on any finding or unresolved candidate; `--apply` rewrites wildcard
     findings and exits 0; the default is a non-failing report.
     """
-    argv = sys.argv[1:]
-    if "--self-test" in argv:
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group()
+    _ = mode.add_argument("--check", action="store_true", help="exit 1 on any finding")
+    _ = mode.add_argument("--apply", action="store_true", help="rewrite each wildcard finding")
+    _ = mode.add_argument("--self-test", action="store_true", help="run the fixture matrix")
+    _ = parser.add_argument(
+        "--wait-lock", action="store_true", help="queue behind a running Agda tool"
+    )
+    scope = parser.add_mutually_exclusive_group()
+    _ = scope.add_argument("--all", action="store_true", help="scope the whole tree")
+    _ = scope.add_argument("--diff", action="store_true", help="scope the files changed vs main")
+    _ = parser.add_argument("paths", nargs="*", metavar="FILE.agda", help="scope these, under src/")
+    args = parser.parse_args()
+    if cast("bool", args.self_test):
         return _self_test()
-    check = "--check" in argv
-    apply = "--apply" in argv
+    whole_tree, diff = cast("bool", args.all), cast("bool", args.diff)
+    paths = cast("list[RelPath]", args.paths)
+    if not (whole_tree or diff or paths):
+        parser.error("no scope: give --all, --diff or FILE.agda ...")
+    if paths and (whole_tree or diff):
+        parser.error("FILE.agda ... is a scope of its own: drop --all or --diff")
+    check, apply = cast("bool", args.check), cast("bool", args.apply)
 
     def action(agda: WarmAgda, files: list[RelPath]) -> int:
         dead = analyze_dead_imports(files)
@@ -348,7 +366,8 @@ def main() -> int:
             return 0
         return 1 if (check and findings) else 0
 
-    return run_warm_gate(argv, action)
+    files = select_files(whole_tree=whole_tree, diff=diff, paths=paths)
+    return run_warm_gate(files, action, wait_lock=cast("bool", args.wait_lock))
 
 
 if __name__ == "__main__":

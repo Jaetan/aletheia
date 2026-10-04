@@ -59,6 +59,7 @@ Run: ``python -m tools.check_cpp_restated_types`` (exit 0 = clean, 1 = findings)
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import subprocess
@@ -300,6 +301,7 @@ def report(observed: RatchetRows, recorded: RatchetRows) -> int:
 
 def main() -> int:
     """Compare the tree's restating declarations against the record; 0 clean, 1 not."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     repo = git_toplevel()
     recorded = read_ratchet_rows(repo, ALLOWLIST, "declarations")
     if isinstance(recorded, str):

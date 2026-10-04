@@ -64,6 +64,7 @@ def _fixture(tmp_path: Path, *, orphan: bool, parseable: bool = True) -> Path:
 
 def _run(repo: Path, monkeypatch: pytest.MonkeyPatch) -> int:
     monkeypatch.chdir(repo)
+    monkeypatch.setattr("sys.argv", ["check_proof_coverage"])
     return main()
 
 

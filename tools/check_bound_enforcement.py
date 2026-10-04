@@ -27,6 +27,7 @@ Exit codes:
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -128,6 +129,7 @@ def _agda_files(root: Path, exclude: set[Path]) -> list[Path]:
 
 def main() -> int:
     """Verify every BoundKind ctor has at least one InputBoundExceeded emit site."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     ctors = _parse_boundkind_ctors(LIMITS_PATH)
     files = _agda_files(SRC_ROOT, EXCLUDED_FILES)
     if not files:

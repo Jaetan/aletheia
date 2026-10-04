@@ -42,6 +42,7 @@ each binding's harness *containing* the required sub-check markers per
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -216,6 +217,7 @@ def _build_summary(
 
 def main() -> int:
     """Run every binding's stability harness, archive verdicts, gate on drift."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     sha = short_sha(REPO_ROOT)
     artifact_dir = prepare_artifact_dir(ARTIFACT_BASE, sha)
 

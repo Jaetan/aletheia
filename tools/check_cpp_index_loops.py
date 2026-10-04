@@ -48,6 +48,7 @@ Run: ``python -m tools.check_cpp_index_loops`` (exit 0 = clean, 1 = violations).
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -394,6 +395,7 @@ def report(observed: RatchetRows, recorded: RatchetRows) -> int:
 
 def main() -> int:
     """Compare the tree's counting loops against the record; 0 clean, 1 violations."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     repo = git_toplevel()
     recorded = read_ratchet_rows(repo, ALLOWLIST, "loops")
     if isinstance(recorded, str):

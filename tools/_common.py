@@ -47,6 +47,9 @@ if TYPE_CHECKING:
 # and `git diff --name-only` both use this spelling, and only a git listing mints one.
 RelPath = NewType("RelPath", str)
 
+# A gate's name as its messages print it, such as check-action-pins.
+GateName = NewType("GateName", str)
+
 # The C++ tree the compile-database gates read, clang-tidy among them, under
 # cpp/: configured with the binding's compiler and never built, so those gates
 # start when its configure ends rather than after the test build in cpp/build.
@@ -766,6 +769,15 @@ def report_tree_scan(
     elif not scan.findings:
         emit(f"{gate}: {clean}")
     return tree_scan_exit_code(scan)
+
+
+def gate_repo_root(gate: GateName) -> Path | None:
+    """Return the repository's root, or None once ``gate`` said it runs outside one."""
+    try:
+        return git_toplevel()
+    except RuntimeError:
+        _ = sys.stderr.write(f"{gate}: not inside a git repo\n")
+        return None
 
 
 def workflow_files(gate: str, policy: str, repo_root: Path) -> list[Path] | None:

@@ -75,23 +75,28 @@ def _make_repo(tmp_path: Path, db_files: list[str]) -> Path:
     return repo
 
 
-def test_main_passes_when_all_sources_in_db(tmp_path: Path) -> None:
+def test_main_passes_when_all_sources_in_db(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """End-to-end: both sources in the DB → exit 0."""
     repo = _make_repo(tmp_path, ["cpp/src/a.cpp", "cpp/src/detail/b.cpp"])
+    monkeypatch.setattr("sys.argv", ["check_clang_tidy_coverage"])
     assert main(repo=repo) == 0
 
 
 def test_main_fails_when_a_source_is_missing_from_db(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """End-to-end: b.cpp on disk but absent from the DB → exit 1, names the file."""
     repo = _make_repo(tmp_path, ["cpp/src/a.cpp"])
+    monkeypatch.setattr("sys.argv", ["check_clang_tidy_coverage"])
     assert main(repo=repo) == 1
     assert "cpp/src/detail/b.cpp" in capsys.readouterr().out
 
 
-def test_main_errors_when_db_absent(tmp_path: Path) -> None:
+def test_main_errors_when_db_absent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """No compile_commands.json → exit 2 (build not configured)."""
     repo = tmp_path / "repo"
     (repo / "cpp" / "src").mkdir(parents=True)
+    monkeypatch.setattr("sys.argv", ["check_clang_tidy_coverage"])
     assert main(repo=repo) == 2

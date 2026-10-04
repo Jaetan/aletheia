@@ -26,6 +26,7 @@ ctypes-handle-delta diagnostic; restoring brings it back to 0 drift.
 
 from __future__ import annotations
 
+import argparse
 import gc
 import json
 import logging
@@ -189,6 +190,7 @@ def _build_sub_checks(start: dict[str, int], end: dict[str, int]) -> list[dict[s
 
 def main() -> int:
     """Drive ``cycles × frames`` exercise of the FFI surface; emit verdict JSON."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     cycles = int(os.environ.get("ALETHEIA_STABILITY_CYCLES", "10"))
     frames = int(os.environ.get("ALETHEIA_STABILITY_FRAMES", "100000"))
     proc = psutil.Process()

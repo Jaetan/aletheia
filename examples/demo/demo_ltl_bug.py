@@ -30,6 +30,7 @@ Requires:
 
 from __future__ import annotations
 
+import argparse
 from typing import TYPE_CHECKING
 
 from engine_ecu_sim import ENGINE_DBC, generate_frozen_trace, generate_normal_trace
@@ -143,6 +144,7 @@ def _run_ltl_part(normal: list[CANFrame], frozen: list[CANFrame]) -> int:
 
 def main() -> None:
     """Contrast naive value checks (which miss the frozen counter) with LTL."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     print(HEADER)
     print("  Aletheia Staleness Bug Demo")
     print("  Catching temporal bugs that naive tests miss")

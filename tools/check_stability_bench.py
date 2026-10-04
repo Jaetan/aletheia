@@ -24,6 +24,7 @@ this gate with a precise diagnostic; restoring brings it back to clean.
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 from typing import cast
@@ -112,6 +113,7 @@ def _report_failures(failures: list[str]) -> None:
 
 def main() -> int:
     """Verify every STABILITY_BENCH.yaml source_marker is present in its harness."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     bindings = _load_bindings(SPEC_PATH)
     failures: list[str] = []
     total = 0

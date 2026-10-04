@@ -26,6 +26,7 @@ Exit codes:
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -67,6 +68,7 @@ def main(repo: Path | None = None) -> int:
 
     ``repo`` defaults to the enclosing git work tree; tests inject a temp tree.
     """
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     repo = (repo if repo is not None else git_toplevel()).resolve()
     db_path = repo / "cpp" / CPP_LINT_TREE / "compile_commands.json"
     if not db_path.is_file():

@@ -48,6 +48,7 @@ Exit codes:
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from dataclasses import dataclass
@@ -290,6 +291,7 @@ def check_binding(mirror: BindingMirror, ssot: RuntimeSSOT) -> list[str]:
 
 def main() -> int:
     """Check every binding's RTS-init mirror against the RESOURCE_BUDGETS SSOT."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     try:
         ssot = load_runtime_ssot(DEFAULT_YAML_PATH)
         cap = cap_divergence(ssot)

@@ -30,6 +30,7 @@ RUNBOOK.md fires this script; restoring it returns to exit 0.
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -85,6 +86,7 @@ def _covered_events(runbook_path: Path, names: list[str]) -> set[str]:
 
 def main() -> int:
     """Verify every LOG_EVENTS.yaml event is documented in RUNBOOK.md."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     names = _load_event_names(LOG_EVENTS_YAML)
     covered = _covered_events(RUNBOOK_MD, names)
     missing = [n for n in names if n not in covered]

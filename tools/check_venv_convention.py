@@ -29,6 +29,7 @@ Run: ``python -m tools.check_venv_convention`` (exit 0 = clean, 1 = violations).
 
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import sys
@@ -193,6 +194,7 @@ def scan_tracked_docs(root: Path) -> list[str]:
 
 def main() -> int:
     """Run both checks; print findings; return 0 (clean) or 1 (violations)."""
+    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
     root = repo_root()
     strays = find_stray_venvs(root)
     doc_findings = scan_tracked_docs(root)

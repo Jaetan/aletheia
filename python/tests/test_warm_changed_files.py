@@ -94,8 +94,8 @@ def test_scope_git_failure_signals_could_not_check(
 def test_diff_scope_git_failure_propagates_to_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """Propagate a git failure to a usage error, not a [] no-op.
 
-    select_files(--diff) returns None on a git failure so run_warm_gate exits
+    select_files with ``diff`` returns None on a git failure so run_warm_gate exits
     non-zero (could-not-check) — a git failure is never squashed to a [] no-op.
     """
     monkeypatch.setattr(_warm, "changed_agda_files", lambda: None)
-    assert _warm.select_files(["--check", "--diff"]) is None
+    assert _warm.select_files(whole_tree=False, diff=True, paths=[]) is None
