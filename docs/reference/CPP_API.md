@@ -177,7 +177,9 @@ Outside (or inside) streaming, decode and synthesize frames directly. `dlc` must
 - `build_frame(stop, id, dlc, signals)` → `FramePayload` (encode signal values).
 - `update_frame(stop, id, dlc, data, signals)` → `FramePayload` (patch a frame).
 
-Decoding a frame and encoding one are inverses, and a `SignalValue` is a name beside an exact value:
+Each value is written exactly or refused: one outside the signal's declared range fails with code `frame_value_out_of_range`, one that no integer raw value scales to under the signal's factor and offset with `frame_value_not_representable`, and two requested signals sharing a bit with `frame_signals_overlap`. A written value reads back unchanged wherever the frame carries its signal: always, or for a multiplexed signal when its multiplexor's value selects it.
+
+A `SignalValue` is a name beside an exact value:
 
 ```cpp
 using namespace aletheia;
@@ -208,7 +210,7 @@ auto describe = [](const AletheiaError& e) -> std::string_view {
 (void)describe;
 ```
 
-`ErrorKind` is one of `Protocol`, `Validation`, `State`, `Ffi`, `BinaryUnsupported`, `Cancellation`, `InputBoundExceeded` and `TextRoundtrip`; `ErrorCode` mirrors the kernel's `IssueCode` enum (see [PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
+`ErrorKind` is one of `Protocol`, `Validation`, `State`, `Ffi`, `BinaryUnsupported`, `Cancellation`, `InputBoundExceeded` and `TextRoundtrip`; `ErrorCode` mirrors the kernel's error codes (see [PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
 
 ---
 

@@ -764,7 +764,7 @@ print(f"Absent: {result.absent}")
 
 #### `update_frame(can_id: int, dlc: int, frame: bytearray, signals: dict[str, int | Fraction], *, extended: bool = False) -> bytearray`
 
-Update specific signals in an existing frame. Returns a new frame (immutable).
+Update specific signals in an existing frame. Returns a new frame (immutable). Each value is written exactly or refused, as `build_frame` describes.
 
 ```python
 original = bytearray([0x20, 0x1C, 0, 0, 0, 0, 0, 0])
@@ -779,7 +779,7 @@ modified = client.update_frame(
 
 #### `build_frame(can_id: int, dlc: int, signals: dict[str, int | Fraction], *, extended: bool = False) -> bytearray`
 
-Build a CAN frame from signal values (starts with zero-filled frame).
+Build a CAN frame from signal values (starts with zero-filled frame). Each value is written exactly or refused: one outside the signal's declared range raises `ProtocolError` with code `frame_value_out_of_range`, one that no integer raw value scales to under the signal's factor and offset with `frame_value_not_representable`, and two requested signals sharing a bit with `frame_signals_overlap`. A written value reads back unchanged wherever the frame carries its signal: always, or for a multiplexed signal when its multiplexor's value selects it.
 
 ```python
 frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72})

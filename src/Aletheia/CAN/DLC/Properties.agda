@@ -106,7 +106,7 @@ bytesToDlc-complete (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc 
   ⊥-elim (16+k≰15 d≤15)
 
 -- Valid DLC codes produce recognized byte counts (Is-just predicate).
--- Useful for constructing ValidDBC proofs from DLC code bounds.
+-- Useful for constructing IsValidDBC proofs from DLC code bounds.
 dlcToBytes-Is-just : ∀ d → d ≤ 15 → Is-just (bytesToDlc (dlcToBytes d))
 dlcToBytes-Is-just d d≤15 rewrite bytesToDlc-dlcToBytes d d≤15 = is-just tt
 

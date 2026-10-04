@@ -30,6 +30,7 @@
 -- `handleDataFrame-verdict-preserved` (runtime frame result ≡ spec, no premise).
 module Aletheia.Protocol.FrameProcessor.Properties.VerdictPreserved where
 
+open import Aletheia.DBC.Validity using (validated)
 open import Data.Char using (Char)
 open import Data.Bool using (true; false)
 open import Data.Nat using (ℕ; zero; suc; _≤ᵇ_)
@@ -402,30 +403,30 @@ stepFrame-core-preserved dbc props tf cache =
 -- directly.  The outgoing cache term is identical on both sides —
 -- `dispatchIterResult` stores it in the result state but never consults it for
 -- the verdict — so this is exactly the eval-side identity.
-stepFrameShared-verdict-preserved : ∀ {n} dbc (props : List (PropertyState n)) (tf : TimedFrame) cache →
-  stepFrameShared dbc props tf cache (extractTable dbc (TimedFrame.frame tf) (readableSignals props))
-    ≡ dispatchIterResult dbc (iterate (specStep dbc cache tf) props) tf
+stepFrameShared-verdict-preserved : ∀ {n} dbc v (props : List (PropertyState n)) (tf : TimedFrame) cache →
+  stepFrameShared (validated dbc v) props tf cache (extractTable dbc (TimedFrame.frame tf) (readableSignals props))
+    ≡ dispatchIterResult (validated dbc v) (iterate (specStep dbc cache tf) props) tf
         (cacheFromTable (timestamp tf) (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache)
-stepFrameShared-verdict-preserved dbc props tf cache =
+stepFrameShared-verdict-preserved dbc v props tf cache =
   trans (withForcedTable-id table (withForcedCache cache′ body))
     (trans (withForcedCache-id cache′ body)
-      (cong (λ ir → dispatchIterResult dbc ir tf cache′)
+      (cong (λ ir → dispatchIterResult (validated dbc v) ir tf cache′)
             (stepFrame-core-preserved dbc props tf cache)))
   where
     table  = extractTable dbc (TimedFrame.frame tf) (readableSignals props)
     cache′ = cacheFromTable (timestamp tf) table cache
-    body   = dispatchIterResult dbc (iterate (stepProperty dbc table cache tf) props) tf
+    body   = dispatchIterResult (validated dbc v) (iterate (stepProperty dbc table cache tf) props) tf
 
 -- Top-level, unconditional: on an accepted (monotone) frame the runtime
 -- `handleDataFrame` produces the SAME result as the spec streaming step.  The
 -- readable-coverage premise is gone — it is discharged internally because the
 -- table is built over `readableSignals props`, the union of every property's
 -- atom signals.
-handleDataFrame-verdict-preserved : ∀ {n} dbc (props : List (PropertyState n)) prev cache (tf : TimedFrame) →
+handleDataFrame-verdict-preserved : ∀ {n} dbc v (props : List (PropertyState n)) prev cache (tf : TimedFrame) →
   checkMonotonic prev tf ≡ nothing →
-  handleDataFrame (Streaming n dbc props prev cache) tf
-    ≡ dispatchIterResult dbc (iterate (specStep dbc cache tf) props) tf
+  handleDataFrame (Streaming n (validated dbc v) props prev cache) tf
+    ≡ dispatchIterResult (validated dbc v) (iterate (specStep dbc cache tf) props) tf
         (cacheFromTable (timestamp tf) (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache)
-handleDataFrame-verdict-preserved dbc props prev cache tf mono
+handleDataFrame-verdict-preserved dbc v props prev cache tf mono
   with checkMonotonic prev tf | mono
-... | nothing | refl = stepFrameShared-verdict-preserved dbc props tf cache
+... | nothing | refl = stepFrameShared-verdict-preserved dbc v props tf cache

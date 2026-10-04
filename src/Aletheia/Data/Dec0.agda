@@ -76,11 +76,10 @@ dec₀ b r = b because₀ r
 -- ERASED-WITNESS RESURRECTION
 -- ============================================================================
 
-private
-  -- The erased-absurd trick: an erased ⊥ still eliminates, because the
-  -- absurd match has no clauses to compile.
-  absurd₀ : ∀ {a} {A : Set a} → @0 ⊥ → A
-  absurd₀ ()
+-- The erased-absurd trick: an erased ⊥ still eliminates, because the absurd
+-- match has no clauses to compile.
+absurd₀ : ∀ {a} {A : Set a} → @0 ⊥ → A
+absurd₀ ()
 
 -- Resurrect an erased witness through a RELEVANT decider: when a consumer
 -- holds `@0 P` but needs `P`, a relevant `Dec P` re-decides; the erased

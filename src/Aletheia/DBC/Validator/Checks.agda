@@ -5,7 +5,7 @@
 -- DBC structural validator: individual check functions.
 --
 -- Purpose: Per-check functions for the DBC validity conditions.
--- Each check returns [] (no issues) or a singleton list (issue found).
+-- Each check returns [] (no issues) or the issues it found, one per broken condition.
 -- checkAll* variants lift per-element checks to full message lists via concatMap.
 -- Role: Used by Validity proofs (ErrorChecks, WarningChecks) and composed
 --   into validateDBCFull in the parent Validator module.
@@ -31,7 +31,7 @@ open import Aletheia.DBC.Types using
   ; MultiplexorNotFound; MultiplexorCycle
   ; GlobalNameCollision; MinExceedsMax; SignalExceedsDLC
   ; SignalOverlap; BitLengthZero; DuplicateMessageName
-  ; OffsetScaleRange; EmptyMessage
+  ; OffsetScaleRange; EmptyMessage; RangeExceedsBits
   ; StartBitOutOfRange; BitLengthExcessive
   ; MultiplexorNonUnitScaling
   ; DuplicateAttributeName; UnknownCommentTarget; UnknownMessageSender
@@ -49,6 +49,7 @@ open import Aletheia.DBC.Decidable.SignalGeometry using
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_; findSignalInList)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.CAN.Encoding.Value using (bitsRange)
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; map; filter; concatMap; length)
   renaming (_++_ to _++ₗ_)
@@ -56,16 +57,15 @@ open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Bool using (Bool; true; false)
-open import Data.Nat using (ℕ; zero; suc; _^_; _∸_; pred)
+open import Data.Nat using (ℕ; zero; suc)
 open import Data.Nat.Properties using (_≟_)
 open import Data.Maybe using (Maybe; just; nothing) renaming (map to mapₘ)
-open import Data.Rational using (ℚ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_)
-open import Aletheia.Prelude using (ℕtoℚ; fromℤ)
+open import Data.Rational using (ℚ)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
 open import Aletheia.DBC.DecRat using (DecRat; 0ᵈ; 1ᵈ; toℚ; _≟ᵈ_; _≤?ᵈ_)
-open import Data.Integer using (+_; -[1+_])
+open import Data.Integer using (+_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
-open import Data.Product using (_×_; _,_; proj₁; proj₂)
+open import Data.Product using (proj₁; proj₂)
 open import Relation.Nullary using (yes; no)
 open import Data.List.Relation.Unary.Any using (any?)
 open import Data.List.Membership.DecPropositional _≟ₛ_ using (_∈?_)
@@ -352,18 +352,13 @@ checkAllDuplicateMessageNames = triangularCheck checkDuplicateNamePair
 -- CHECK 13: OFFSET/SCALE RANGE
 -- ============================================================================
 
-isNegativeℚ : ℚ → Bool
-isNegativeℚ q with ℚ.numerator q
-... | (+ _)     = false
-... | (-[1+ _ ]) = true
-
 checkRangeLow : String → String → ℚ → ℚ → List ValidationIssue
 checkRangeLow msgName sigName physMin declaredMin =
   requireDec (declaredMin ≤?ᵣ physMin)
              (mkIssue IsWarning OffsetScaleRange
                ("Message '" ++ₛ msgName ++ₛ "', signal '"
                 ++ₛ sigName
-                ++ₛ "': declared minimum is below physical range"))
+                ++ₛ "': its bits carry values below the declared minimum"))
 
 checkRangeHigh : String → String → ℚ → ℚ → List ValidationIssue
 checkRangeHigh msgName sigName physMax declaredMax =
@@ -371,34 +366,37 @@ checkRangeHigh msgName sigName physMax declaredMax =
              (mkIssue IsWarning OffsetScaleRange
                ("Message '" ++ₛ msgName ++ₛ "', signal '"
                 ++ₛ sigName
-                ++ₛ "': declared maximum is above physical range"))
-
-checkRangeBounds : String → String → ℚ → ℚ → ℚ → ℚ → ℚ → List ValidationIssue
-checkRangeBounds msgName sigName factor physA physB declMin declMax
-  with isNegativeℚ factor
-... | false = checkRangeLow msgName sigName physA declMin ++ₗ checkRangeHigh msgName sigName physB declMax
-... | true  = checkRangeLow msgName sigName physB declMin ++ₗ checkRangeHigh msgName sigName physA declMax
-
--- Raw (pre-scaling) range of an n-bit integer value.
--- Signed: two's complement range [−2^(n−1), 2^(n−1)−1].
--- Unsigned: [0, 2^n − 1].
-rawRange : Bool → ℕ → ℚ × ℚ
-rawRange true  n = fromℤ (-[1+ pred (2 ^ (n ∸ 1)) ]) , ℕtoℚ (pred (2 ^ (n ∸ 1)))
-rawRange false n = ℕtoℚ 0 , ℕtoℚ (pred (2 ^ n))
+                ++ₛ "': its bits carry values above the declared maximum"))
 
 checkOffsetScaleRange : String → DBCSignal → List ValidationIssue
 checkOffsetScaleRange msgName sig =
-  let sd      = DBCSignal.signalDef sig
-      factor  = toℚ (SignalDef.factor sd)
-      offset  = toℚ (SignalDef.offset sd)
-      raw     = rawRange (SignalDef.isSigned sd) (SignalDef.bitLength sd)
-      physA   = proj₁ raw *ᵣ factor +ᵣ offset
-      physB   = proj₂ raw *ᵣ factor +ᵣ offset
-  in checkRangeBounds msgName (signalNameStr sig) factor physA physB
-                      (toℚ (SignalDef.minimum sd)) (toℚ (SignalDef.maximum sd))
+  let sd = DBCSignal.signalDef sig
+  in checkRangeLow msgName (signalNameStr sig) (proj₁ (bitsRange sd)) (toℚ (SignalDef.minimum sd))
+     ++ₗ checkRangeHigh msgName (signalNameStr sig) (proj₂ (bitsRange sd)) (toℚ (SignalDef.maximum sd))
 
 checkAllOffsetScaleRange : List DBCMessage → List ValidationIssue
 checkAllOffsetScaleRange = liftPerSignal checkOffsetScaleRange
+
+-- ============================================================================
+-- CHECK 26: DECLARED RANGE PAST THE BITS
+-- ============================================================================
+-- The converse of check 13: a declared minimum or maximum that no raw value
+-- reaches.  A value the range admits there has no encoding, so building a
+-- frame with it could only fail; a DBC carrying one is refused at load.
+
+checkRangeExceedsBitsSig : String → DBCSignal → List ValidationIssue
+checkRangeExceedsBitsSig msgName sig =
+  let sd    = DBCSignal.signalDef sig
+      subject = "Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ signalNameStr sig
+  in requireDec (proj₁ (bitsRange sd) ≤?ᵣ toℚ (SignalDef.minimum sd))
+       (mkIssue IsError RangeExceedsBits
+         (subject ++ₛ "': declared minimum lies below the values its bits carry"))
+     ++ₗ requireDec (toℚ (SignalDef.maximum sd) ≤?ᵣ proj₂ (bitsRange sd))
+       (mkIssue IsError RangeExceedsBits
+         (subject ++ₛ "': declared maximum lies above the values its bits carry"))
+
+checkAllRangeExceedsBits : List DBCMessage → List ValidationIssue
+checkAllRangeExceedsBits = liftPerSignal checkRangeExceedsBitsSig
 
 -- ============================================================================
 -- CHECK 14: EMPTY MESSAGE

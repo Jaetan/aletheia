@@ -118,7 +118,8 @@ class TestDBCFloatHandling:
 
     def test_valid_fraction_dbc_still_parses(self) -> None:
         """Control: an all-``Fraction`` DBC passes the guard and parses successfully."""
-        good = dbc([message(0x100, "M", [signal("S", factor=Fraction(1, 10))])])
+        tenths = signal("S", factor=Fraction(1, 10), maximum=Fraction(65535, 10))
+        good = dbc([message(0x100, "M", [tenths])])
         with AletheiaClient() as client:
             result = client.parse_dbc(good)
         assert result["status"] == "success"

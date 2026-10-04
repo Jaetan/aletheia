@@ -21,6 +21,8 @@ MAlonzo.Code.Aletheia.CAN.DBCHelpers
 MAlonzo.Code.Aletheia.CAN.DLC
 MAlonzo.Code.Aletheia.CAN.Encoding
 MAlonzo.Code.Aletheia.CAN.Encoding.Arithmetic
+MAlonzo.Code.Aletheia.CAN.Encoding.Arithmetic.Range
+MAlonzo.Code.Aletheia.CAN.Encoding.Value
 MAlonzo.Code.Aletheia.CAN.Endianness
 MAlonzo.Code.Aletheia.CAN.ExtractionResult
 MAlonzo.Code.Aletheia.CAN.Frame
@@ -31,6 +33,7 @@ MAlonzo.Code.Aletheia.DBC.AttrLookup
 MAlonzo.Code.Aletheia.DBC.BoundWalks
 MAlonzo.Code.Aletheia.DBC.CanonicalReceivers
 MAlonzo.Code.Aletheia.DBC.DecRat
+MAlonzo.Code.Aletheia.DBC.DecRat.RationalRoundtrip
 MAlonzo.Code.Aletheia.DBC.DecRat.Refinement
 MAlonzo.Code.Aletheia.DBC.DecRat.ScaleLemmas
 MAlonzo.Code.Aletheia.DBC.Decidable
@@ -104,11 +107,17 @@ MAlonzo.Code.Aletheia.DBC.TextParser.WellFormedAttr
 MAlonzo.Code.Aletheia.DBC.TextParser.WellFormedCheck
 MAlonzo.Code.Aletheia.DBC.TextParser.WellFormedCheck.Foundations
 MAlonzo.Code.Aletheia.DBC.Types
+MAlonzo.Code.Aletheia.DBC.Validated
 MAlonzo.Code.Aletheia.DBC.Validator
 MAlonzo.Code.Aletheia.DBC.Validator.Checks
 MAlonzo.Code.Aletheia.DBC.Validator.Formatting
+MAlonzo.Code.Aletheia.DBC.Validity
 MAlonzo.Code.Aletheia.DBC.Validity.Combinators
+MAlonzo.Code.Aletheia.DBC.Validity.Composition
+MAlonzo.Code.Aletheia.DBC.Validity.ErrorChecks
 MAlonzo.Code.Aletheia.DBC.Validity.ListLemmas
+MAlonzo.Code.Aletheia.DBC.Validity.Theorem
+MAlonzo.Code.Aletheia.DBC.Validity.WarningChecks
 MAlonzo.Code.Aletheia.Data.BitVec
 MAlonzo.Code.Aletheia.Data.BitVec.Conversion
 MAlonzo.Code.Aletheia.Data.Dec0

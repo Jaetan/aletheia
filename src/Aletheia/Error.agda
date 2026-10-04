@@ -18,6 +18,8 @@ open import Data.Nat using (ℕ; _∸_; _*_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Integer using (ℤ)
 open import Data.Integer.Show using () renaming (show to showℤ)
+open import Data.Rational using (ℚ)
+open import Aletheia.DBC.RationalRenderer using (formatℚ)
 open import Data.List using (List)
 open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
 open import Aletheia.CAN.DLC using (maxDLC-FD)
@@ -247,7 +249,12 @@ extractionErrorCode (InContext _ inner)      = extractionErrorCode inner
 data FrameError : Set where
   SignalNotFound         : String → FrameError
   SignalIndexOOB         : ℕ → FrameError
-  InjectionFailed        : String → FrameError
+  -- A requested value outside the signal's declared range: the signal's
+  -- name, the value, the minimum and the maximum.
+  ValueOutOfRange        : String → ℚ → ℚ → ℚ → FrameError
+  -- A requested value that no integer raw value scales to: the signal's
+  -- name, the value, the factor and the offset.
+  ValueNotRepresentable  : String → ℚ → ℚ → ℚ → FrameError
   SignalsOverlap         : FrameError
   CANIdNotFound          : FrameError
   CANIdMismatch          : FrameError
@@ -260,26 +267,32 @@ data FrameError : Set where
   InContext              : String → FrameError → FrameError
 
 formatFrameError : FrameError → String
-formatFrameError (SignalNotFound name)          = "signal '" ++ₛ name ++ₛ "' not found in message"
-formatFrameError (SignalIndexOOB idx)           = "signal index " ++ₛ showℕ idx ++ₛ " out of range"
-formatFrameError (InjectionFailed n)            = "injection failed for signal '" ++ₛ n ++ₛ "'"
-formatFrameError SignalsOverlap                 = "signals overlap"
-formatFrameError (SignalPastFrameEnd n bytes)   = "signal '" ++ₛ n ++ₛ "' does not fit a frame of size " ++ₛ showℕ bytes
-formatFrameError CANIdNotFound                  = "CAN ID not found in DBC"
-formatFrameError CANIdMismatch                  = "CAN ID does not match frame"
-formatFrameError (SignalValueOutOfBounds desc)  = "value out of bounds: " ++ₛ desc
-formatFrameError (InContext ctx inner)          = ctx ++ₛ ": " ++ₛ formatFrameError inner
+formatFrameError (SignalNotFound name)           = "signal '" ++ₛ name ++ₛ "' not found in message"
+formatFrameError (SignalIndexOOB idx)            = "signal index " ++ₛ showℕ idx ++ₛ " out of range"
+formatFrameError (ValueOutOfRange n v mn mx)     =
+  "value " ++ₛ formatℚ v ++ₛ " for signal '" ++ₛ n ++ₛ "' is outside ["
+  ++ₛ formatℚ mn ++ₛ ", " ++ₛ formatℚ mx ++ₛ "]"
+formatFrameError (ValueNotRepresentable n v f o) =
+  "no integer raw value scales to value " ++ₛ formatℚ v ++ₛ " for signal '" ++ₛ n
+  ++ₛ "' (factor " ++ₛ formatℚ f ++ₛ ", offset " ++ₛ formatℚ o ++ₛ ")"
+formatFrameError SignalsOverlap                  = "signals overlap"
+formatFrameError (SignalPastFrameEnd n bytes)    = "signal '" ++ₛ n ++ₛ "' does not fit a frame of size " ++ₛ showℕ bytes
+formatFrameError CANIdNotFound                   = "CAN ID not found in DBC"
+formatFrameError CANIdMismatch                   = "CAN ID does not match frame"
+formatFrameError (SignalValueOutOfBounds desc)   = "value out of bounds: " ++ₛ desc
+formatFrameError (InContext ctx inner)           = ctx ++ₛ ": " ++ₛ formatFrameError inner
 
 frameErrorCode : FrameError → String
-frameErrorCode (SignalNotFound _)          = "frame_signal_not_found"
-frameErrorCode (SignalIndexOOB _)          = "frame_signal_index_oob"
-frameErrorCode (InjectionFailed _)         = "frame_injection_failed"
-frameErrorCode SignalsOverlap              = "frame_signals_overlap"
-frameErrorCode (SignalPastFrameEnd _ _)    = "frame_signal_past_frame_end"
-frameErrorCode CANIdNotFound               = "frame_can_id_not_found"
-frameErrorCode CANIdMismatch               = "frame_can_id_mismatch"
-frameErrorCode (SignalValueOutOfBounds _)  = "frame_signal_value_out_of_bounds"
-frameErrorCode (InContext _ inner)         = frameErrorCode inner
+frameErrorCode (SignalNotFound _)              = "frame_signal_not_found"
+frameErrorCode (SignalIndexOOB _)              = "frame_signal_index_oob"
+frameErrorCode (ValueOutOfRange _ _ _ _)       = "frame_value_out_of_range"
+frameErrorCode (ValueNotRepresentable _ _ _ _) = "frame_value_not_representable"
+frameErrorCode SignalsOverlap                  = "frame_signals_overlap"
+frameErrorCode (SignalPastFrameEnd _ _)        = "frame_signal_past_frame_end"
+frameErrorCode CANIdNotFound                   = "frame_can_id_not_found"
+frameErrorCode CANIdMismatch                   = "frame_can_id_mismatch"
+frameErrorCode (SignalValueOutOfBounds _)      = "frame_signal_value_out_of_bounds"
+frameErrorCode (InContext _ inner)             = frameErrorCode inner
 
 -- ============================================================================
 -- ROUTE/COMMAND ERRORS (Protocol/Routing.agda)

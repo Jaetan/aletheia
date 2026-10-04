@@ -8,7 +8,7 @@
 -- the full check battery into the validateDBCFull entry point.
 -- Submodules:
 --   Checks     — individual check functions (per-element and lifted)
---   Formatting — hasAnyError, formatIssuesText, errorIssues
+--   Formatting — hasAnyError, formatIssuesText, errorIssues, warningIssues
 -- Role: Used by Protocol.Handlers (validateDBCFull), Validity proofs
 --   (individual checks), and Protocol.ResponseFormat (hasAnyError).
 module Aletheia.DBC.Validator where
@@ -45,6 +45,7 @@ validateDBCFull dbc =
      ++ₗ checkAllSignalExceedsDLC msgs
      ++ₗ checkAllSignalOverlaps msgs
      ++ₗ checkAllBitLengthZero msgs
+     ++ₗ checkAllRangeExceedsBits msgs
      ++ₗ checkAllDuplicateMessageNames msgs
      ++ₗ checkAllOffsetScaleRange msgs
      ++ₗ checkAllEmptyMessage msgs

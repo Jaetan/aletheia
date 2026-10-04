@@ -7,8 +7,10 @@ package aletheia_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"unsafe"
@@ -132,9 +134,9 @@ func TestNewFFIBackendFromEnv_LoadsRealLibrary(t *testing.T) {
 const ffiEndpointDBC = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n" +
 	"BO_ 256 Msg: 8 ECU\n SG_ Sig : 0|16@1+ (0.25,0) [0|8000] \"u\" ECU\n\n"
 
-// ffiEndpointClient boots a client on the real library with that DBC loaded,
-// and the message identifier and length to address it with.
-func ffiEndpointClient(t *testing.T) (*aletheia.Client, aletheia.CANID, aletheia.DLC) {
+// ffiClient boots a client on the real library, holding no DBC, closed when
+// the test ends.
+func ffiClient(t *testing.T) *aletheia.Client {
 	t.Helper()
 	backend, err := aletheia.NewFFIBackend(requireFFILib(t))
 	if err != nil {
@@ -149,6 +151,14 @@ func ffiEndpointClient(t *testing.T) (*aletheia.Client, aletheia.CANID, aletheia
 			t.Errorf("Close: %v", err)
 		}
 	})
+	return client
+}
+
+// ffiEndpointClient boots a client on the real library with that DBC loaded,
+// and the message identifier and length to address it with.
+func ffiEndpointClient(t *testing.T) (*aletheia.Client, aletheia.CANID, aletheia.DLC) {
+	t.Helper()
+	client := ffiClient(t)
 	if _, err := client.ParseDBCText(t.Context(), ffiEndpointDBC); err != nil {
 		t.Fatalf("ParseDBCText: %v", err)
 	}
@@ -286,39 +296,185 @@ func TestFFIBackend_StablePtrCountTracksOpenSessions(t *testing.T) {
 
 // A value the signal cannot hold is refused by the kernel, and both binary
 // frame endpoints carry the code and the message it minted rather than a
-// status number.
+// status number: a value outside the declared [0, 8000], and one lying
+// between two raw values at a quarter per count, which is refused rather
+// than rounded to either.
 func TestFFIBackend_BinaryFrameRefusalCarriesTheKernelMessage(t *testing.T) {
 	client, id, dlc := ffiEndpointClient(t)
 	ctx := t.Context()
-	tooLarge := []aletheia.SignalValue{
-		{Name: "Sig", Value: aletheia.Rational{Numerator: 100000, Denominator: 1}},
+	refusals := map[string]struct {
+		value   aletheia.Rational
+		code    string
+		message string
+	}{
+		"above the declared maximum": {
+			value:   aletheia.Rational{Numerator: 100000, Denominator: 1},
+			code:    aletheia.CodeFrameValueOutOfRange,
+			message: "value 100000 for signal 'Sig' is outside [0, 8000]",
+		},
+		"below the declared minimum": {
+			value:   aletheia.Rational{Numerator: -1, Denominator: 1},
+			code:    aletheia.CodeFrameValueOutOfRange,
+			message: "value -1 for signal 'Sig' is outside [0, 8000]",
+		},
+		"between two raw values": {
+			value:   aletheia.Rational{Numerator: 1, Denominator: 10},
+			code:    aletheia.CodeFrameValueNotRepresentable,
+			message: "no integer raw value scales to value 0.1 for signal 'Sig' (factor 0.25, offset 0)",
+		},
 	}
-	for name, call := range map[string]func() (aletheia.FramePayload, error){
-		"BuildFrame": func() (aletheia.FramePayload, error) { return client.BuildFrame(ctx, id, dlc, tooLarge) },
-		"UpdateFrame": func() (aletheia.FramePayload, error) {
-			return client.UpdateFrame(ctx, id, dlc, make(aletheia.FramePayload, 8), tooLarge)
+	for refusal, tc := range refusals {
+		signals := []aletheia.SignalValue{{Name: "Sig", Value: tc.value}}
+		for name, call := range map[string]func() (aletheia.FramePayload, error){
+			"BuildFrame": func() (aletheia.FramePayload, error) { return client.BuildFrame(ctx, id, dlc, signals) },
+			"UpdateFrame": func() (aletheia.FramePayload, error) {
+				return client.UpdateFrame(ctx, id, dlc, make(aletheia.FramePayload, 8), signals)
+			},
+		} {
+			t.Run(refusal+"/"+name, func(t *testing.T) {
+				payload, err := call()
+				if err == nil {
+					t.Fatalf("the value built % x instead of failing", payload)
+				}
+				var e *aletheia.Error
+				if !errors.As(err, &e) {
+					t.Fatalf("error is %T, want *aletheia.Error", err)
+				}
+				if e.Kind != aletheia.ErrProtocol {
+					t.Errorf("Kind = %v, want ErrProtocol", e.Kind)
+				}
+				if e.Code != tc.code {
+					t.Errorf("Code = %q, want %q", e.Code, tc.code)
+				}
+				if e.Message != tc.message {
+					t.Errorf("Message = %q, want %q", e.Message, tc.message)
+				}
+				if payload != nil {
+					t.Errorf("payload = % x, want none on a refusal", payload)
+				}
+			})
+		}
+	}
+}
+
+// The declared bounds are inside the range a frame accepts, and a value on a
+// raw step is placed exactly, by a build and by an update: the maximum writes
+// raw 32000 and a quarter writes raw 1, both little-endian.
+func TestFFIBackend_BinaryFrameBuildsTheBoundsAndTheSteps(t *testing.T) {
+	client, id, dlc := ffiEndpointClient(t)
+	cases := map[string]struct {
+		value aletheia.Rational
+		want  aletheia.FramePayload
+	}{
+		"the declared minimum": {aletheia.IntRational(0), aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}},
+		"the declared maximum": {aletheia.IntRational(8000), aletheia.FramePayload{0x00, 0x7D, 0, 0, 0, 0, 0, 0}},
+		"one raw step":         {aletheia.Rational{Numerator: 1, Denominator: 4}, aletheia.FramePayload{0x01, 0, 0, 0, 0, 0, 0, 0}},
+	}
+	for name, tc := range cases {
+		signals := []aletheia.SignalValue{{Name: "Sig", Value: tc.value}}
+		for entry, call := range map[string]func(ctx context.Context) (aletheia.FramePayload, error){
+			"BuildFrame": func(ctx context.Context) (aletheia.FramePayload, error) {
+				return client.BuildFrame(ctx, id, dlc, signals)
+			},
+			"UpdateFrame": func(ctx context.Context) (aletheia.FramePayload, error) {
+				return client.UpdateFrame(ctx, id, dlc, make(aletheia.FramePayload, 8), signals)
+			},
+		} {
+			t.Run(name+"/"+entry, func(t *testing.T) {
+				payload, err := call(t.Context())
+				if err != nil {
+					t.Fatalf("%s: %v", entry, err)
+				}
+				if !bytes.Equal(payload, tc.want) {
+					t.Errorf("payload = % x, want % x", payload, tc.want)
+				}
+			})
+		}
+	}
+}
+
+// Two multiplexed signals over the same bits, requested together, are refused
+// by a build and by an update alike: of two writes to one bit only the later
+// would remain.
+func TestFFIBackend_BinaryFrameRefusesTwoSignalsSharingABit(t *testing.T) {
+	const mux = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\nBO_ 100 BasicMux: 8 ECU\n" +
+		" SG_ Mode M : 0|4@1+ (1,0) [0|15] \"\" ECU\n" +
+		" SG_ PayloadA m0 : 8|16@1+ (1,0) [0|65535] \"\" ECU\n" +
+		" SG_ PayloadB m1 : 8|16@1+ (1,0) [0|65535] \"\" ECU\n\n"
+	client := ffiClient(t)
+	if _, err := client.ParseDBCText(t.Context(), mux); err != nil {
+		t.Fatalf("ParseDBCText: %v", err)
+	}
+	id, err := aletheia.NewStandardID(100)
+	if err != nil {
+		t.Fatalf("NewStandardID: %v", err)
+	}
+	dlc, err := aletheia.NewDLC(8)
+	if err != nil {
+		t.Fatalf("NewDLC: %v", err)
+	}
+	signals := []aletheia.SignalValue{
+		{Name: "PayloadA", Value: aletheia.IntRational(1)},
+		{Name: "PayloadB", Value: aletheia.IntRational(1)},
+	}
+	for entry, call := range map[string]func(ctx context.Context) (aletheia.FramePayload, error){
+		"BuildFrame": func(ctx context.Context) (aletheia.FramePayload, error) {
+			return client.BuildFrame(ctx, id, dlc, signals)
+		},
+		"UpdateFrame": func(ctx context.Context) (aletheia.FramePayload, error) {
+			return client.UpdateFrame(ctx, id, dlc, make(aletheia.FramePayload, 8), signals)
 		},
 	} {
-		t.Run(name, func(t *testing.T) {
-			payload, err := call()
-			if err == nil {
-				t.Fatalf("a value outside the signal range built % x instead of failing", payload)
-			}
+		t.Run(entry, func(t *testing.T) {
+			payload, err := call(t.Context())
 			var e *aletheia.Error
 			if !errors.As(err, &e) {
-				t.Fatalf("error is %T, want *aletheia.Error", err)
+				t.Fatalf("error is %T (%v), want *aletheia.Error", err, err)
 			}
-			if e.Kind != aletheia.ErrProtocol {
-				t.Errorf("Kind = %v, want ErrProtocol", e.Kind)
-			}
-			if e.Code != aletheia.CodeFrameInjectionFailed {
-				t.Errorf("Code = %q, want %q", e.Code, aletheia.CodeFrameInjectionFailed)
-			}
-			if !strings.Contains(err.Error(), "signal 'Sig'") {
-				t.Errorf("error %q does not name the signal the kernel refused", err)
+			if e.Code != aletheia.CodeFrameSignalsOverlap || e.Message != "signals overlap" {
+				t.Errorf("refusal = %q %q, want %q %q", e.Code, e.Message, aletheia.CodeFrameSignalsOverlap, "signals overlap")
 			}
 			if payload != nil {
 				t.Errorf("payload = % x, want none on a refusal", payload)
+			}
+		})
+	}
+}
+
+// A DBC whose declared range reaches past the values its signal's bits carry
+// after scaling is refused at load, with one error naming range_exceeds_bits
+// and the bound at fault: eight unsigned bits carry 0 to 255, eight signed
+// bits -128 to 127.
+func TestFFIBackend_DeclaredRangePastTheBitsIsRefused(t *testing.T) {
+	const head = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\nBO_ 256 M: 8 ECU\n"
+	const above = "Message 'M', signal 'S': declared maximum lies above the values its bits carry"
+	const below = "Message 'M', signal 'S': declared minimum lies below the values its bits carry"
+	cases := map[string]struct {
+		signal string
+		detail string
+	}{
+		"an unsigned maximum of 1000": {` SG_ S : 0|8@1+ (1,0) [0|1000] "" ECU`, above},
+		"a signed maximum of 255":     {` SG_ S : 0|8@1- (1,0) [-128|255] "" ECU`, above},
+		"an unsigned minimum of -10":  {` SG_ S : 0|8@1+ (1,0) [-10|255] "" ECU`, below},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := ffiClient(t).ParseDBCText(t.Context(), head+tc.signal+"\n\n")
+			var vfe *aletheia.ValidationFailedError
+			if !errors.As(err, &vfe) {
+				t.Fatalf("error is %T (%v), want *aletheia.ValidationFailedError", err, err)
+			}
+			if vfe.Code != aletheia.CodeHandlerValidationFailed {
+				t.Errorf("Code = %q, want %q", vfe.Code, aletheia.CodeHandlerValidationFailed)
+			}
+			if !vfe.HasErrors {
+				t.Error("HasErrors = false, want true")
+			}
+			want := []aletheia.ValidationIssue{{
+				Severity: aletheia.SeverityError, Code: aletheia.IssueRangeExceedsBits, Detail: tc.detail,
+			}}
+			if !slices.Equal(vfe.Issues, want) {
+				t.Errorf("Issues = %+v, want %+v", vfe.Issues, want)
 			}
 		})
 	}
@@ -371,19 +527,7 @@ const ffiEdgeDBC = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n" +
 // ffiEdgeClient boots a client on the real library with ffiEdgeDBC loaded.
 func ffiEdgeClient(t *testing.T) *aletheia.Client {
 	t.Helper()
-	backend, err := aletheia.NewFFIBackend(requireFFILib(t))
-	if err != nil {
-		t.Fatalf("NewFFIBackend: %v", err)
-	}
-	client, err := aletheia.NewClient(backend)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := client.Close(); err != nil {
-			t.Errorf("Close: %v", err)
-		}
-	})
+	client := ffiClient(t)
 	if _, err := client.ParseDBCText(t.Context(), ffiEdgeDBC); err != nil {
 		t.Fatalf("ParseDBCText: %v", err)
 	}

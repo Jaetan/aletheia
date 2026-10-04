@@ -149,11 +149,13 @@ TEST_CASE("signals text renders a fine-resolution factor exactly via format_rati
     }
     // factor 1/8192 = 0.0001220703125, which every digit of must survive the
     // render: a float64 path drops the tail. example.dbc has no such fine
-    // factor, so the test writes its own.
-    const TempPath dbc{"aletheia_fine_factor.dbc",
-                       "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_:\n\n"
-                       "BO_ 1024 FineMsg: 8 ECU4\n"
-                       " SG_ FineSignal : 0|16@1+ (0.0001220703125,0) [0|8] \"x\" Vector__XXX\n"};
+    // factor, so the test writes its own, its maximum the most the sixteen bits
+    // carry, 65535/8192.
+    const TempPath dbc{
+        "aletheia_fine_factor.dbc",
+        "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_:\n\n"
+        "BO_ 1024 FineMsg: 8 ECU4\n"
+        " SG_ FineSignal : 0|16@1+ (0.0001220703125,0) [0|7.9998779296875] \"x\" Vector__XXX\n"};
     auto [code, out] = run_capture({"signals", "--dbc", dbc.string()});
     CHECK(code == 0);
     CHECK(out.contains("x0.0001220703125"));

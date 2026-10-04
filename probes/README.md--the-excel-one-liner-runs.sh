@@ -25,7 +25,9 @@ line=$(grep -oE '^aletheia check --excel [^ ]+ [^ ]+$' README.md)
 [ "$line" = "aletheia check --excel workbook.xlsx trace.log" ] || { echo "README.md shows no such Excel line (found: '$line')"; exit 1; }
 grep -q 'examples/demo/demo_workbook.xlsx' README.md || { echo "README.md no longer names the template workbook"; exit 1; }
 [ -f examples/demo/demo_workbook.xlsx ] || { echo "the template workbook is not in the tree"; exit 1; }
-out=$(cd examples/demo && ALETHEIA_LIB=$(realpath "$lib") PYTHONPATH=../../python "../../$py" -m aletheia check --excel demo_workbook.xlsx drive.log 2>&1)
+# Resolved here, before the run changes directory under a relative path.
+lib=$(realpath "$lib") || exit 2
+out=$(cd examples/demo && ALETHEIA_LIB=$lib PYTHONPATH=../../python "../../$py" -m aletheia check --excel demo_workbook.xlsx drive.log 2>&1)
 rc=$?
 [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ] || { echo "the Excel run exited $rc, not a verdict:"; printf '%s\n' "$out" | tail -5; exit 1; }
 printf '%s\n' "$out" | grep -qE '^Summary: [0-9]+ violations, [0-9]+ unresolved in [0-9]+ checks' || { echo "the run exited $rc but printed no check summary:"; printf '%s\n' "$out" | tail -5; exit 1; }

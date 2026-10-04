@@ -9,10 +9,13 @@
 -- Submodules: Roundtrip, Completeness, ReasonParity, Capstone.
 --
 -- Proof flow:
---   1. validateDBCFull dbc succeeds → DBCValid dbc
---   2. lookupDisjointFromDBC extracts PhysicallyDisjoint for any two coexisting signals
---   3. PhysicallyDisjoint is the precondition for injectSignal-preserves-disjoint-bits-physical
---   4. Therefore: batch operations on validated DBCs preserve signal values
+--   1. a loaded DBC is a ValidDBC, carrying IsValidDBC
+--   2. validDBC→allPairsDisjoint gives PhysicallyDisjoint for any two
+--      coexisting signals a request names
+--   3. withInjected-preserves-disjoint-bits-physical: writing one signal
+--      leaves a disjoint one's bits as they were
+--   4. extractSignal-encodedBits: an accepted value's frame extracts back to it
+--   5. Therefore: batch building on a valid DBC roundtrips every signal
 --
 -- Mixed byte orders are fully supported: PhysicallyDisjoint checks physical bit
 -- positions rather than logical intervals, so LE/BE signal pairs are handled correctly.
@@ -23,18 +26,17 @@ open import Aletheia.CAN.Batch.Properties.Roundtrip public using
   ( DisjointFromAll; dfa-nil; dfa-cons
   ; AllPairsDisjoint; apd-nil; apd-cons
   ; AllSignalsFit; asf-nil; asf-cons
+  ; AllFromMessage; afm-nil; afm-cons
   ; signalFits
+  ; pairs
   ; nonePastFrameEnd-fits
   ; validateAndBuild-fits
-  ; single-inject-preserves
+  ; single-write-preserves
+  ; injectOne-written
+  ; injectOne-roundtrip
   ; injectAll-preserves-disjoint
-  ; InjectRoundtrips
-  ; AllRoundtrip; ar-nil; ar-cons
-  ; roundtrip-unsigned→IR
-  ; roundtrip-signed→IR
   ; injectAll-roundtrip
   )
-
 -- Extraction completeness
 open import Aletheia.CAN.Batch.Properties.Completeness public using
   ( totalEntries
@@ -49,10 +51,9 @@ open import Aletheia.CAN.Batch.Properties.ReasonParity public using
   ; extractionErrorCodeToℕ-injective
   )
 
--- Capstone theorem: ValidDBC → batch roundtrip, representability
+-- Capstone theorem: IsValidDBC → batch roundtrip
 open import Aletheia.CAN.Batch.Properties.Capstone public using
   ( AllAlwaysPresent; aap-nil; aap-cons
-  ; AllFromMessage; afm-nil; afm-cons
   ; DistinctFromAll; dist-nil; dist-cons
   ; PairsDistinct; pd-nil; pd-cons
   ; allAlwaysPresent?
@@ -61,10 +62,4 @@ open import Aletheia.CAN.Batch.Properties.Capstone public using
   ; validDBC→allPairsDisjoint
   ; validDBC→allSignalsFit
   ; validDBC-roundtrip
-  ; Representable; repr-unsigned; repr-signed
-  ; representable?
-  ; representable→roundtrips
-  ; AllRepresentable; arep-nil; arep-cons
-  ; allRepresentable?
-  ; allRepresentable→allRoundtrip
   )

@@ -25,6 +25,7 @@ open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Char using (Char)
 open import Function using (case_of_)
 open import Aletheia.DBC.Types using (DBC)
+open import Aletheia.DBC.Validity using (ValidDBC)
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; Unknown; SignalCache; updateCache; evalPredicateTV; evalPredicateTVT; extractTruthValue; signalOf; ExtractTable)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample)
@@ -367,15 +368,15 @@ stepProperty dbc table cache tf prop =
 -- Empty list is unreachable here — when there are no events on a frame
 -- we emit `Response.Ack` instead (so single-event frames remain
 -- single-element lists, never empty).
-dispatchIterResult : ∀ {n} → DBC
+dispatchIterResult : ∀ {n} → ValidDBC
                   → List (PropertyState n) × Maybe (Fin n × Counterexample) × List (Fin n)
                   → TimedFrame → SignalCache → StreamState × Response
-dispatchIterResult {n} dbc (updatedProps , nothing , []) tf cache =
-  (Streaming n dbc updatedProps (just tf) cache , Response.Ack)
-dispatchIterResult {n} dbc (updatedProps , nothing , c ∷ cs) tf cache =
+dispatchIterResult {n} vdbc (updatedProps , nothing , []) tf cache =
+  (Streaming n vdbc updatedProps (just tf) cache , Response.Ack)
+dispatchIterResult {n} vdbc (updatedProps , nothing , c ∷ cs) tf cache =
   let satisfactions = map (λ i → PR.PropertyResult.Satisfaction (toℕ i)) (c ∷ cs)
-  in (Streaming n dbc updatedProps (just tf) cache , Response.PropertyResponse satisfactions)
-dispatchIterResult {n} dbc (allProps , just (idx , ce) , completions) tf cache =
+  in (Streaming n vdbc updatedProps (just tf) cache , Response.PropertyResponse satisfactions)
+dispatchIterResult {n} vdbc (allProps , just (idx , ce) , completions) tf cache =
   let open Counterexample ce
       ceData = mkCounterexampleData (TimedFrame.timestamp violatingFrame) reason
       satisfactions = map (λ i → PR.PropertyResult.Satisfaction (toℕ i)) completions
@@ -383,4 +384,4 @@ dispatchIterResult {n} dbc (allProps , just (idx , ce) , completions) tf cache =
       -- Source-order: completions encountered BEFORE the halt come first;
       -- the violation closes the batch.
       results = satisfactions ++ₗ (violation ∷ [])
-  in (Streaming n dbc allProps (just tf) cache , Response.PropertyResponse results)
+  in (Streaming n vdbc allProps (just tf) cache , Response.PropertyResponse results)

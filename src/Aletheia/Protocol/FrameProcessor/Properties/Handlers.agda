@@ -19,6 +19,7 @@
 -- `FrameProcessor.Properties.Step`.
 module Aletheia.Protocol.FrameProcessor.Properties.Handlers where
 
+open import Aletheia.DBC.Validity using (validated)
 open import Aletheia.Protocol.StreamState using (getDBC; PropertyState)
 open import Aletheia.Protocol.StreamState.Internals using (stepProperty; extractTable; readableSignals)
 open import Aletheia.Protocol.Message using (Ack; Response)
@@ -71,14 +72,14 @@ processFrameDirect-response state tf with handleDataFrame state tf
 -- after the mid-stream-Satisfaction lift Ack additionally implies no
 -- property completed (a completion-only frame returns PropertyResponse,
 -- not Ack).
-processFrameDirect-ack-sound-json : ∀ {n} dbc (props : List (PropertyState n)) prev cache tf
+processFrameDirect-ack-sound-json : ∀ {n} dbc v (props : List (PropertyState n)) prev cache tf
   → checkMonotonic prev tf ≡ nothing
-  → formatResponse (proj₂ (handleDataFrame (Streaming n dbc props prev cache) tf)) ≡ formatResponse Ack
+  → formatResponse (proj₂ (handleDataFrame (Streaming n (validated dbc v) props prev cache) tf)) ≡ formatResponse Ack
   → proj₁ (proj₂ (iterate (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props)) ≡ nothing
   × proj₂ (proj₂ (iterate (stepProperty dbc (extractTable dbc (TimedFrame.frame tf) (readableSignals props)) cache tf) props)) ≡ []
-processFrameDirect-ack-sound-json dbc props prev cache tf mono fmt-eq =
-  handleDataFrame-ack-sound dbc props prev cache tf mono
-    (formatResponse-ack-unique (proj₂ (handleDataFrame (Streaming _ dbc props prev cache) tf)) fmt-eq)
+processFrameDirect-ack-sound-json dbc v props prev cache tf mono fmt-eq =
+  handleDataFrame-ack-sound dbc v props prev cache tf mono
+    (formatResponse-ack-unique (proj₂ (handleDataFrame (Streaming _ (validated dbc v) props prev cache) tf)) fmt-eq)
 
 -- ============================================================================
 -- PROPERTIES 19, 22: Read-only handler state preservation
@@ -121,8 +122,8 @@ handleFormatDBCText-preserves-state dbcJSON state
 -- pins the runtime contract that makes the premise hold: on a `Streaming` state,
 -- `handleSetProperties` returns the state VERBATIM (cache untouched) with a
 -- `StreamActive` error, so the property set can never shift under a live cache.
-handleSetProperties-streaming-rejected : ∀ {n} propJSONs dbc (props : List (PropertyState n)) prev cache →
-  handleSetProperties propJSONs (Streaming n dbc props prev cache)
-    ≡ (Streaming n dbc props prev cache ,
+handleSetProperties-streaming-rejected : ∀ {n} propJSONs dbc v (props : List (PropertyState n)) prev cache →
+  handleSetProperties propJSONs (Streaming n (validated dbc v) props prev cache)
+    ≡ (Streaming n (validated dbc v) props prev cache ,
        Response.Error (WithContext "SetProperties" (HandlerErr StreamActive)))
-handleSetProperties-streaming-rejected propJSONs dbc props prev cache = refl
+handleSetProperties-streaming-rejected propJSONs dbc v props prev cache = refl

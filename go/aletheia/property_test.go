@@ -172,11 +172,18 @@ func TestProperty_DefinitionRoundTripsThroughTheKernel(t *testing.T) {
 
 	property := func(rawStart uint8, rawLength uint8, rawFactor uint16, rawOffset int16) bool {
 		// The generated numbers are brought into the ranges the format has,
-		// so that what is under test is the trip and not the validator.
+		// so that what is under test is the trip and not the validator. The
+		// declared range is the one the unsigned bits carry after scaling,
+		// raw 0 to 2^length - 1, past which the validator refuses the DBC.
 		length := BitLength(rawLength%16 + 1)
 		start := BitPosition(uint16(rawStart) % uint16(64-length+1))
 		factor := Rational{Numerator: int64(rawFactor%1000 + 1), Denominator: 1000}
 		offset := Rational{Numerator: int64(rawOffset), Denominator: 1}
+		rawTop := int64(1)<<length - 1
+		maximum := Rational{
+			Numerator:   offset.Numerator*factor.Denominator + rawTop*factor.Numerator,
+			Denominator: factor.Denominator,
+		}
 		sid, err := NewStandardID(0x123)
 		if err != nil {
 			return false
@@ -193,8 +200,8 @@ func TestProperty_DefinitionRoundTripsThroughTheKernel(t *testing.T) {
 					Name: "Sig", StartBit: start, BitLength: length,
 					ByteOrder: LittleEndian,
 					Factor:    factor, Offset: offset,
-					Minimum: Rational{Numerator: -100000, Denominator: 1},
-					Maximum: Rational{Numerator: 100000, Denominator: 1},
+					Minimum: offset,
+					Maximum: maximum,
 					Unit:    "u", Presence: AlwaysPresent{},
 				}},
 			}},

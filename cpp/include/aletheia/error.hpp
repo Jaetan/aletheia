@@ -88,7 +88,8 @@ enum class ErrorCode {
     // Frame errors
     FrameSignalNotFound,
     FrameSignalIndexOob,
-    FrameInjectionFailed,
+    FrameValueOutOfRange,
+    FrameValueNotRepresentable,
     FrameSignalsOverlap,
     FrameSignalPastFrameEnd,
     FrameCanIdNotFound,

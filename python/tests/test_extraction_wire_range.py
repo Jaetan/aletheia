@@ -40,7 +40,9 @@ class TestExtractionValueExceedsWireRange:
         The exact value passes the signal's own ``[minimum, maximum]``
         bounds, but its reduced numerator exceeds the Int64 wire slot.
         The signal must be ABSENT from ``values`` and carry exactly one
-        error entry naming the Int64 wire range.
+        error entry naming the Int64 wire range.  The signal is 17 bits
+        wide so that its declared maximum lies within what its bits carry;
+        the frame sets only the low 16.
 
         This test also pins the host-crash fix in the JSON ingestion
         measurement: the ``parse_dbc`` call submits the same
@@ -63,7 +65,7 @@ class TestExtractionValueExceedsWireRange:
                 message(
                     256,
                     "M",
-                    [signal("Speed", factor=factor, maximum=Fraction(10000))],
+                    [signal("Speed", length=17, factor=factor, maximum=Fraction(10000))],
                 )
             ]
         )
@@ -103,7 +105,11 @@ class TestExtractionValueExceedsWireRange:
                             "S",
                             factor=factor,
                             offset=offset,
-                            maximum=Fraction(10000),
+                            # The bits carry [offset, offset + factor × 0xFFFF];
+                            # the maximum leaves the offset out, whose sum with it
+                            # has a denominator past Int64, and stays inside them.
+                            minimum=offset,
+                            maximum=factor * 0xFFFF,
                         )
                     ],
                 )
@@ -139,7 +145,7 @@ class TestExtractionValueExceedsWireRange:
                 message(
                     256,
                     "M",
-                    [signal("Speed", factor=factor, maximum=Fraction(10000))],
+                    [signal("Speed", length=17, factor=factor, maximum=Fraction(10000))],
                 )
             ]
         )
@@ -206,8 +212,9 @@ class TestWireRangeBoundaryAccepted:
                             "S",
                             length=1,
                             offset=-edge,
+                            # The one bit carries −edge and 1 − edge.
                             minimum=-edge,
-                            maximum=0,
+                            maximum=1 - edge,
                         )
                     ],
                 )

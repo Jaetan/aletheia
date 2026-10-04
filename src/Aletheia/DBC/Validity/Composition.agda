@@ -13,7 +13,7 @@ open import Aletheia.DBC.Identifier using (nameStr)
 
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; ValidationIssue; IsError; IsWarning; DBCMessage; DBCSignal; Always; When)
 open import Aletheia.DBC.Validator using
-  ( errorIssues; walkMux
+  ( errorIssues; hasAnyError; walkMux
   ; checkDuplicateIdPair; checkDuplicateIdAgainstList; checkAllDuplicateMessageIds
   ; checkDuplicateSignalPair; checkDuplicateSignalAgainstList; checkDuplicateSignalTriangular
   ; checkAllDuplicateSignalNames
@@ -24,12 +24,14 @@ open import Aletheia.DBC.Validator using
   ; checkOverlapPair; checkOverlapAgainstList; checkOverlapTriangular
   ; checkAllSignalOverlaps
   ; checkBitLengthZero; checkAllBitLengthZero
+  ; checkRangeExceedsBitsSig; checkAllRangeExceedsBits
   )
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-split; All-concatMap)
 open import Aletheia.DBC.Validity.Combinators using (requireDec-allE; rejectDec-allE)
 open import Aletheia.DBC.Decidable using (signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.CAN.Encoding.Value using (bitsRange)
 open import Data.List using ([]; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_; universal)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
@@ -39,10 +41,11 @@ open import Data.Nat using (_+_; _*_)
 open import Data.Nat.Properties using (_≤?_; _≟_)
 open import Data.Integer using (+_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
-open import Aletheia.DBC.DecRat using (DecRat)
+open import Aletheia.DBC.DecRat using (DecRat; toℚ)
+open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
 open import Data.Bool using (true; false)
 open import Aletheia.CAN.DLC using (dlcBytes)
-open import Data.Product using (_×_)
+open import Data.Product using (_×_; proj₁; proj₂)
 open import Relation.Nullary using (yes; no)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; trans; sym)
 
@@ -88,6 +91,14 @@ ei-from-≡[] .[] refl = refl
 ei-combine : ∀ xs ys → errorIssues xs ≡ [] → errorIssues ys ≡ [] →
   errorIssues (xs ++ₗ ys) ≡ []
 ei-combine xs ys px py = trans (errorIssues-++ xs ys) (++-≡[]-combine px py)
+
+-- A list `hasAnyError` reads as clean holds no error-severity issue: the
+-- bridge from the loader's Bool verdict to the validity theorem's premise.
+noError-errorIssues : ∀ xs → hasAnyError xs ≡ false → errorIssues xs ≡ []
+noError-errorIssues []       _  = refl
+noError-errorIssues (i ∷ rest) eq with ValidationIssue.severity i | eq
+... | IsError   | ()
+... | IsWarning | eq′ = noError-errorIssues rest eq′
 
 -- ============================================================================
 -- PER-ELEMENT allE PROOFS
@@ -187,6 +198,19 @@ checkAllDuplicateSignalNames-allE [] = []
 checkAllDuplicateSignalNames-allE (msg ∷ rest) =
   ++⁺ (checkDuplicateSignalTriangular-allE (messageNameStr msg) (DBCMessage.signals msg))
          (checkAllDuplicateSignalNames-allE rest)
+
+-- Check 26
+checkRangeExceedsBitsSig-allE : ∀ msgName sig → All E (checkRangeExceedsBitsSig msgName sig)
+checkRangeExceedsBitsSig-allE _ sig =
+  ++⁺ (requireDec-allE (proj₁ (bitsRange sd) ≤?ᵣ toℚ (SignalDef.minimum sd)) _ refl)
+      (requireDec-allE (toℚ (SignalDef.maximum sd) ≤?ᵣ proj₂ (bitsRange sd)) _ refl)
+  where
+    sd = DBCSignal.signalDef sig
+
+checkAllRangeExceedsBits-allE : ∀ msgs → All E (checkAllRangeExceedsBits msgs)
+checkAllRangeExceedsBits-allE msgs = All-concatMap (universal (λ msg →
+  All-concatMap (universal (checkRangeExceedsBitsSig-allE (messageNameStr msg))
+                         (DBCMessage.signals msg))) msgs)
 
 -- Check 3
 checkAllFactorZero-allE : ∀ msgs → All E (checkAllFactorZero msgs)

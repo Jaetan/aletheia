@@ -94,14 +94,15 @@ func capture(t *testing.T, stream **os.File, fn func()) string {
 // TestCLISignalsRendersFactorExactly: a fine-resolution factor (1/8192 =
 // 0.0001220703125) renders exactly via the kernel format_rational, never the
 // lossy 6-significant-figure %g form ("0.00012207"). example.dbc has no such
-// fine factor, so write a dedicated temp DBC.
+// fine factor, so write a dedicated temp DBC, its maximum the most the sixteen
+// bits carry, 65535/8192.
 func TestCLISignalsRendersFactorExactly(t *testing.T) {
 	ensureLib(t)
 	dir := t.TempDir()
 	dbcPath := filepath.Join(dir, "fine.dbc")
 	const dbc = "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_:\n\n" +
 		"BO_ 1024 FineMsg: 8 ECU4\n" +
-		" SG_ FineSignal : 0|16@1+ (0.0001220703125,0) [0|8] \"x\" Vector__XXX\n"
+		" SG_ FineSignal : 0|16@1+ (0.0001220703125,0) [0|7.9998779296875] \"x\" Vector__XXX\n"
 	if err := os.WriteFile(dbcPath, []byte(dbc), 0o600); err != nil {
 		t.Fatalf("write dbc: %v", err)
 	}

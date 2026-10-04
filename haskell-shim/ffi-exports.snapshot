@@ -25,16 +25,16 @@
 F: Aletheia/DBC/RationalRenderer:d_formatRational_166
 F: Aletheia/DBC/TextParser/DecimalEntry:d_parseDecimal_16
 F: Aletheia/Main/JSON:d_processJSONLine_74
-F: Aletheia/Main/Binary:d_processFrameRaw_120
-F: Aletheia/Main/Binary:d_processErrorFrameRaw_180
-F: Aletheia/Main/Binary:d_processRemoteFrameRaw_192
-F: Aletheia/Main/Binary:d_processExtractRaw_234
+F: Aletheia/Main/Binary:d_processFrameRaw_116
+F: Aletheia/Main/Binary:d_processErrorFrameRaw_176
+F: Aletheia/Main/Binary:d_processRemoteFrameRaw_188
+F: Aletheia/Main/Binary:d_processExtractRaw_230
 F: Aletheia/Main/Binary:d_processStartStreamDirect_28
 F: Aletheia/Main/Binary:d_processEndStreamDirect_32
 F: Aletheia/Main/Binary:d_processFormatDBCDirect_36
-F: Aletheia/Main/Binary:d_processBuildFrameRaw_294
-F: Aletheia/Main/Binary:d_processUpdateFrameRaw_444
-F: Aletheia/Main/Binary:d_processExtractBinRaw_554
+F: Aletheia/Main/Binary:d_processBuildFrameRaw_290
+F: Aletheia/Main/Binary:d_processUpdateFrameRaw_440
+F: Aletheia/Main/Binary:d_processExtractBinRaw_550
 F: Aletheia/Protocol/StreamState/Types:d_initialState_50
 
 # Indirect helper accessors used by haskell-shim FFI marshalling.
@@ -70,7 +70,7 @@ C: Data/Sum/Base:C_inj'8322'_42
 # Every T_*_NN tag the Haskell shim names directly (in type annotations,
 # `unsafeCoerce` casts, or qualified imports of MAlonzo-generated types).
 T: Aletheia/Protocol/StreamState/Types:T_StreamState_32
-T: Aletheia/Error:T_Error_342
+T: Aletheia/Error:T_Error_358
 T: Aletheia/CAN/BatchExtraction:T_PartitionedResults_10
 T: Data/Rational/Base:T_ℚ_6
 T: Agda/Builtin/Sigma:T_Σ_14

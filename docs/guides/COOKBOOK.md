@@ -306,6 +306,7 @@ The most common codes you'll see:
 | `multiplexor_not_found` | Multiplexed signal references an absent multiplexor. | error |
 | `factor_zero` | `factor=0` makes physical-value extraction undefined. | error |
 | `duplicate_message_id` | Two messages share the same CAN ID. | error |
+| `range_exceeds_bits` | A declared minimum or maximum lies past every value the signal's bits carry after scaling. | error |
 | `unknown_message_sender` | `BU_` sender declared but not in node list. | warning |
 
 The IssueCode names are the authoritative cross-binding identifiers — the

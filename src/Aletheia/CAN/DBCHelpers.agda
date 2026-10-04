@@ -23,7 +23,7 @@ open import Data.Nat.Properties using (_≟_; ≡ᵇ⇒≡; ≡⇒≡ᵇ)
 open import Relation.Nullary using (Dec; yes; no)
 open import Relation.Nullary.Reflects using (ofⁿ)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
-open import Aletheia.Prelude using (findByPredicate)
+open import Aletheia.Prelude using (findByPredicate; Found; findIn)
 
 open import Aletheia.Data.Dec0 using (Dec₀; fromBridges; dec₀; does₀)
 
@@ -85,6 +85,13 @@ findMessageById msgId dbc = findByPredicate matchesId (DBC.messages dbc)
   where
     matchesId : DBCMessage → Bool
     matchesId msg = canIdEquals msgId (DBCMessage.id msg)
+
+-- The same search, also returning where the message sits, for a consumer
+-- that reads a fact the DBC's validity states of each message.  `Found` is a
+-- newtype over the message, so the two searches cost the same; extraction
+-- keeps `findMessageById`, the search its proofs are stated over.
+findMessage : CANId → (dbc : DBC) → Maybe (Found (DBC.messages dbc))
+findMessage msgId dbc = findIn (λ msg → canIdEquals msgId (DBCMessage.id msg)) (DBC.messages dbc)
 
 -- ============================================================================
 -- SIGNAL LOOKUP

@@ -186,7 +186,8 @@ pub enum IssueCode {
     BitLengthZero,
     /// Two messages share the same name.
     DuplicateMessageName,
-    /// The offset/scale combination is out of representable range.
+    /// A signal's offset/scale combination produces values outside its
+    /// declared range.
     OffsetScaleRange,
     /// A message has no signals.
     EmptyMessage,
@@ -220,6 +221,9 @@ pub enum IssueCode {
     AttributeEnumEmpty,
     /// An enum attribute's default index does not resolve back to itself.
     AttributeEnumDefaultUnstable,
+    /// A signal's declared minimum or maximum lies beyond the values its bits
+    /// carry after scaling.
+    RangeExceedsBits,
     /// A code outside the known vocabulary (forward-compatible).
     Unknown(String),
 }
@@ -258,6 +262,7 @@ impl IssueCode {
             "attribute_value_type_mismatch" => IssueCode::AttributeValueTypeMismatch,
             "attribute_enum_empty" => IssueCode::AttributeEnumEmpty,
             "attribute_enum_default_unstable" => IssueCode::AttributeEnumDefaultUnstable,
+            "range_exceeds_bits" => IssueCode::RangeExceedsBits,
             other => IssueCode::Unknown(other.to_string()),
         }
     }
@@ -294,6 +299,7 @@ impl IssueCode {
             IssueCode::AttributeValueTypeMismatch => "attribute_value_type_mismatch",
             IssueCode::AttributeEnumEmpty => "attribute_enum_empty",
             IssueCode::AttributeEnumDefaultUnstable => "attribute_enum_default_unstable",
+            IssueCode::RangeExceedsBits => "range_exceeds_bits",
             IssueCode::Unknown(s) => s,
         }
     }

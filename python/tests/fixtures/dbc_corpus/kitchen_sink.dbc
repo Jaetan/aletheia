@@ -36,7 +36,7 @@ VAL_TABLE_ OnOff 0 "Off" 1 "On" ;
 
 BO_ 256 EngineStatus: 8 Engine
  SG_ Speed : 0|16@1+ (0.25,0) [0|8000] "rpm" Gateway
- SG_ Temp : 16|8@1- (1,-40) [-40|215] "degC" Gateway
+ SG_ Temp : 16|8@1+ (1,-40) [-40|215] "degC" Gateway
  SG_ Running : 24|1@1+ (1,0) [0|1] "" Gateway
 
 BO_ 300 BrakeMux: 8 Brake

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Tests for utility types, DLC conversion, rational parsing, and condition sets."""
+"""Tests for DLC conversion, condition sets, the signal index cache and CAN IDs."""
 
 import pytest
 from _dbc_helpers import dbc, message, signal

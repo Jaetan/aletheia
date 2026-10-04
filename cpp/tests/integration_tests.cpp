@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <format>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <ranges>
@@ -1164,9 +1165,126 @@ TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
 
     auto extracted = client.extract_signals(std::stop_token{}, id, Dlc::create(8).value(), *built);
     REQUIRE(extracted.has_value());
-    // Round-trip: values should match (within quantization)
+    // Each value is one a raw value scales to exactly, so it comes back unchanged.
     CHECK(extracted->get(SignalName{"Speed"}).get() == Rational{85, 2});
     CHECK(extracted->get(SignalName{"RPM"}).get() == Rational{1500, 1});
+}
+
+// The kernel writes a requested value only when it lies in the signal's
+// declared range and a raw value scales to it exactly; otherwise building and
+// updating a frame both refuse it, each refusal under its own code.
+TEST_CASE("a value outside the signal's declared range is refused on build and update",
+          "[integration]") {
+    AletheiaClient client(make_ffi_backend(find_lib()));
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    const std::vector<std::byte> data(8, std::byte{0});
+    // RPM is [0, 65535] at factor 1: 70000 and -1 each have a raw value, and
+    // each lies past one bound.
+    struct Case {
+        Rational value;
+        std::string_view message;
+    };
+    for (auto const& [value, message] : std::to_array<Case>({
+             {.value = Rational{70000, 1},
+              .message = "value 70000 for signal 'RPM' is outside [0, 65535]"},
+             {.value = Rational{-1, 1},
+              .message = "value -1 for signal 'RPM' is outside [0, 65535]"},
+         })) {
+        CAPTURE(message);
+        const std::vector<SignalValue> rpm{
+            {.name = SignalName{"RPM"}, .value = PhysicalValue{value}}};
+
+        auto const built = client.build_frame(std::stop_token{}, id, dlc, rpm);
+        REQUIRE_FALSE(built.has_value());
+        CHECK(built.error().code() == ErrorCode::FrameValueOutOfRange);
+        CHECK(built.error().message() == message);
+
+        auto const updated = client.update_frame(std::stop_token{}, id, dlc, data, rpm);
+        REQUIRE_FALSE(updated.has_value());
+        CHECK(updated.error().code() == ErrorCode::FrameValueOutOfRange);
+        CHECK(updated.error().message() == message);
+    }
+}
+
+TEST_CASE("the declared bounds are written exactly on build and update", "[integration]") {
+    AletheiaClient client(make_ffi_backend(find_lib()));
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    const std::vector<std::byte> data(8, std::byte{0});
+    for (auto const value : {Rational{0, 1}, Rational{65535, 1}}) {
+        const std::vector<SignalValue> rpm{
+            {.name = SignalName{"RPM"}, .value = PhysicalValue{value}}};
+        auto const built = client.build_frame(std::stop_token{}, id, dlc, rpm);
+        REQUIRE(built.has_value());
+        auto const updated = client.update_frame(std::stop_token{}, id, dlc, data, rpm);
+        REQUIRE(updated.has_value());
+        for (auto const& frame : {*built, *updated}) {
+            auto const extracted = client.extract_signals(std::stop_token{}, id, dlc, frame);
+            REQUIRE(extracted.has_value());
+            CHECK(extracted->get(SignalName{"RPM"}).get() == value);
+        }
+    }
+}
+
+// Two multiplexed signals over the same bits, requested together: of two
+// writes to one bit only the later would remain, so a build and an update
+// both refuse them.
+TEST_CASE("two signals sharing a bit are refused on build and update", "[integration]") {
+    AletheiaClient client(make_ffi_backend(find_lib()));
+    REQUIRE(client
+                .parse_dbc_text(std::stop_token{},
+                                "VERSION \"\"\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\n"
+                                "BO_ 100 BasicMux: 8 ECU\n"
+                                " SG_ Mode M : 0|4@1+ (1,0) [0|15] \"\" ECU\n"
+                                " SG_ PayloadA m0 : 8|16@1+ (1,0) [0|65535] \"\" ECU\n"
+                                " SG_ PayloadB m1 : 8|16@1+ (1,0) [0|65535] \"\" ECU\n\n")
+                .has_value());
+
+    auto const id = CanId{StandardId::create(100).value()};
+    auto const dlc = Dlc::create(8).value();
+    const std::vector<SignalValue> both{
+        {.name = SignalName{"PayloadA"}, .value = PhysicalValue{Rational{1, 1}}},
+        {.name = SignalName{"PayloadB"}, .value = PhysicalValue{Rational{1, 1}}}};
+
+    auto const built = client.build_frame(std::stop_token{}, id, dlc, both);
+    REQUIRE_FALSE(built.has_value());
+    CHECK(built.error().code() == ErrorCode::FrameSignalsOverlap);
+    CHECK(built.error().message() == "signals overlap");
+
+    const std::vector<std::byte> data(8, std::byte{0});
+    auto const updated = client.update_frame(std::stop_token{}, id, dlc, data, both);
+    REQUIRE_FALSE(updated.has_value());
+    CHECK(updated.error().code() == ErrorCode::FrameSignalsOverlap);
+    CHECK(updated.error().message() == "signals overlap");
+}
+
+TEST_CASE("a value no raw value scales to is refused on build and update", "[integration]") {
+    AletheiaClient client(make_ffi_backend(find_lib()));
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+
+    auto const id = CanId{StandardId::create(0x100).value()};
+    auto const dlc = Dlc::create(8).value();
+    // RPM is factor 1, offset 0: 1.5 lies in its range, and between two raw values.
+    const std::vector<SignalValue> rpm{
+        {.name = SignalName{"RPM"}, .value = PhysicalValue{Rational{3, 2}}}};
+    constexpr std::string_view message =
+        "no integer raw value scales to value 1.5 for signal 'RPM' (factor 1, offset 0)";
+
+    auto const built = client.build_frame(std::stop_token{}, id, dlc, rpm);
+    REQUIRE_FALSE(built.has_value());
+    CHECK(built.error().code() == ErrorCode::FrameValueNotRepresentable);
+    CHECK(built.error().message() == message);
+
+    const std::vector<std::byte> data(8, std::byte{0});
+    auto const updated = client.update_frame(std::stop_token{}, id, dlc, data, rpm);
+    REQUIRE_FALSE(updated.has_value());
+    CHECK(updated.error().code() == ErrorCode::FrameValueNotRepresentable);
+    CHECK(updated.error().message() == message);
 }
 
 TEST_CASE("FFI payload guards accept a payload of its DLC's length, 64 bytes included",
@@ -1513,6 +1631,81 @@ TEST_CASE("CHECK 25 mux_master_incoherent warning via real FFI",
     auto parsed = client.parse_dbc(std::stop_token{}, make_split_master_mux_dbc());
     REQUIRE(parsed.has_value());
     CHECK(has_warning(parsed->warnings, IssueCode::MuxMasterIncoherent));
+}
+
+// An eight-bit unsigned signal at factor 1, offset 0 carries [0, 255], so a
+// declared maximum of 1000, or a minimum of -5, admits values no raw value
+// encodes. That is an error: validation reports it, and the load route refuses
+// the DBC with it, one issue for the bound at fault.
+static auto make_range_dbc(Rational minimum, Rational maximum) -> DbcDefinition {
+    return DbcDefinition{
+        .version = "",
+        .messages = {DbcMessage{
+            .id = CanId{StandardId::create(0x101).value()},
+            .name = MessageName{"M"},
+            .dlc = Dlc::create(8).value(),
+            .sender = NodeName{"ECU"},
+            .signals = {DbcSignal{
+                .name = SignalName{"S"},
+                .start_bit = BitPosition{0},
+                .bit_length = BitLength{8},
+                .byte_order = ByteOrder::LittleEndian,
+                .is_signed = false,
+                .factor = RationalFactor{Rational{1, 1}},
+                .offset = RationalOffset{Rational{0, 1}},
+                .minimum = RationalBound{minimum},
+                .maximum = RationalBound{maximum},
+                .unit = Unit{""},
+                .presence = AlwaysPresent{},
+            }},
+        }},
+    };
+}
+
+// The issues naming range_exceeds_bits: exactly one, an error, with `detail`.
+static void check_one_range_issue(std::span<const ValidationIssue> issues,
+                                  std::string_view detail) {
+    std::vector<ValidationIssue> named;
+    std::ranges::copy_if(issues, std::back_inserter(named), [](const ValidationIssue& issue) {
+        return issue.code == IssueCode::RangeExceedsBits;
+    });
+    REQUIRE(named.size() == 1);
+    CHECK(named.front().severity == IssueSeverity::Error);
+    CHECK(named.front().detail == detail);
+}
+
+TEST_CASE("a declared range past the values a signal's bits carry is refused at load",
+          "[integration][dbc][validator]") {
+    AletheiaClient client(make_ffi_backend(find_lib()));
+    struct Case {
+        Rational minimum;
+        Rational maximum;
+        std::string_view detail;
+    };
+    for (auto const& [minimum, maximum, detail] : std::to_array<Case>({
+             {.minimum = Rational{0, 1},
+              .maximum = Rational{1000, 1},
+              .detail = "Message 'M', signal 'S': declared maximum lies above the values its "
+                        "bits carry"},
+             {.minimum = Rational{-5, 1},
+              .maximum = Rational{255, 1},
+              .detail = "Message 'M', signal 'S': declared minimum lies below the values its "
+                        "bits carry"},
+         })) {
+        CAPTURE(detail);
+        auto const dbc = make_range_dbc(minimum, maximum);
+
+        auto const validated = client.validate_dbc(std::stop_token{}, dbc);
+        REQUIRE(validated.has_value());
+        CHECK(validated->has_errors);
+        check_one_range_issue(validated->issues, detail);
+
+        auto const parsed = client.parse_dbc(std::stop_token{}, dbc);
+        REQUIRE_FALSE(parsed.has_value());
+        CHECK(parsed.error().code() == ErrorCode::HandlerValidationFailed);
+        REQUIRE(parsed.error().issues().has_value());
+        check_one_range_issue(*parsed.error().issues(), detail);
+    }
 }
 
 TEST_CASE("rejected DBC text parse carries typed validation issues via real FFI",

@@ -2,59 +2,45 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Capstone theorem and representability.
+-- Capstone theorem: a valid DBC makes batch frame building roundtrip.
 --
--- Purpose: Bridge from ValidDBC to batch roundtrip correctness.
---   ValidDBC provides AllPairsDisjoint and AllSignalsFit; Representable
---   provides AllRoundtrip; composing these yields the capstone:
---   validDBC-roundtrip.
--- Key results: validDBC-roundtrip, representable?, allRepresentable→allRoundtrip.
+-- Purpose: from the DBC's validity, the always-present and pairwise distinct
+--   signals a request names are physically disjoint and fit the message's
+--   frame; with the batch roundtrip, every signal a build injected extracts
+--   back to its value.  Acceptance of each value is the injection's own
+--   check, so the theorem takes no premise on the values.
+-- Key result: validDBC-roundtrip.
 module Aletheia.CAN.Batch.Properties.Capstone where
 
 open import Aletheia.CAN.Batch.Properties.Roundtrip using (
   DisjointFromAll; dfa-nil; dfa-cons;
   AllPairsDisjoint; apd-nil; apd-cons;
   AllSignalsFit; asf-nil; asf-cons;
-  signalFits;
-  InjectRoundtrips;
-  AllRoundtrip; ar-nil; ar-cons;
-  injectAll-roundtrip;
-  roundtrip-unsigned→IR; roundtrip-signed→IR)
+  AllFromMessage; afm-nil; afm-cons;
+  pairs;
+  injectAll-roundtrip)
 
 open import Aletheia.CAN.Frame using (CANFrame)
-open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Encoding using (extractSignal)
-open import Aletheia.CAN.Encoding.Properties using (
-  signalValue;
-  SignedFits;
-  removeScaling-applyScaling-exact; removeScaling-nothing⇒zero)
-open import Aletheia.CAN.Encoding.Arithmetic using (inBounds; removeScaling)
-open import Aletheia.CAN.BatchFrameBuilding using (injectAll)
+open import Aletheia.CAN.BatchFrameBuilding using (Request; injectAll)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Decidable using (SignalPairValid; both-always; _≟-DBCSignal_)
 open import Aletheia.DBC.Properties using (signalPairValid-sym; extractDisjointness)
-open import Aletheia.DBC.Validity using (ValidDBC; nonZeroFactor→factorℚ≢0; BitsInFrame)
-
-open import Data.List using (List; []; _∷_)
-open import Data.Product using (_×_; _,_)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Sum using (inj₂)
-open import Data.Nat using (ℕ; _<_; _^_; _>_; _∸_; suc; _<?_; _≤?_)
-open import Data.Rational using (ℚ; 0ℚ)
-open import Data.Rational.Properties using () renaming (_≟_ to _≟ᵣ_)
-open import Aletheia.DBC.DecRat using (toℚ)
-open import Data.Integer using (ℤ; +_; -[1+_])
-open import Data.Bool using (true; false)
-open import Data.List.Membership.Propositional using (_∈_)
-open import Data.List.Relation.Unary.Any using (here; there)
-open import Data.Maybe.Properties using (just-injective)
+open import Aletheia.DBC.Validity using (IsValidDBC; validated; BitsInFrame)
+open import Aletheia.Prelude using (Found)
 import Data.List.Relation.Unary.All as StdAll
 import Data.List.Relation.Unary.AllPairs as StdAP
+open import Data.List using (List; []; _∷_)
+open import Data.Product using (_×_; _,_)
+open import Data.Maybe using (Maybe; just)
+open import Data.Sum using (inj₂)
+open import Data.Rational using (ℚ)
+open import Data.List.Membership.Propositional using (_∈_)
+open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.Empty using (⊥-elim)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; subst; cong; trans)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
 open import Relation.Nullary using (Dec; yes; no)
-open import Function using (case_of_)
 
 -- ============================================================================
 -- PREDICATES FOR CAPSTONE PRECONDITIONS
@@ -67,14 +53,6 @@ data AllAlwaysPresent : List (DBCSignal × ℚ) → Set where
     → DBCSignal.presence s ≡ Always
     → AllAlwaysPresent rest
     → AllAlwaysPresent ((s , v) ∷ rest)
-
--- All signals come from a specific message
-data AllFromMessage : List (DBCSignal × ℚ) → DBCMessage → Set where
-  afm-nil  : ∀ {msg} → AllFromMessage [] msg
-  afm-cons : ∀ {s v rest msg}
-    → s ∈ DBCMessage.signals msg
-    → AllFromMessage rest msg
-    → AllFromMessage ((s , v) ∷ rest) msg
 
 -- Signals in the list are pairwise distinct (as DBCSignal values)
 data DistinctFromAll (s : DBCSignal) : List (DBCSignal × ℚ) → Set where
@@ -111,7 +89,7 @@ allAlwaysPresent? ((s , v) ∷ rest) with isAlways? (DBCSignal.presence s)
 open import Data.List.Membership.DecPropositional {A = DBCSignal} _≟-DBCSignal_ using (_∈?_)
 
 allFromMessage? : (pairs : List (DBCSignal × ℚ)) → (msg : DBCMessage)
-                → Dec (AllFromMessage pairs msg)
+                → Dec (AllFromMessage msg pairs)
 allFromMessage? [] msg = yes afm-nil
 allFromMessage? ((s , v) ∷ rest) msg with s ∈? DBCMessage.signals msg
 ... | no ¬s∈ = no λ { (afm-cons s∈ _) → ¬s∈ s∈ }
@@ -138,7 +116,7 @@ pairsDistinct? ((s , v) ∷ rest) with distinctFromAll? s rest
 ...   | yes pr = yes (pd-cons da pr)
 
 -- ============================================================================
--- GAP 1: ValidDBC → AllPairsDisjoint
+-- GAP 1: IsValidDBC → AllPairsDisjoint
 -- ============================================================================
 
 private
@@ -158,7 +136,7 @@ private
     → StdAP.AllPairs (SignalPairValid n) (DBCMessage.signals msg)
     → s ∈ DBCMessage.signals msg
     → DBCSignal.presence s ≡ Always
-    → AllFromMessage rest msg
+    → AllFromMessage msg rest
     → AllAlwaysPresent rest
     → DistinctFromAll s rest
     → DisjointFromAll n s rest
@@ -170,29 +148,29 @@ private
       (buildDFA s rest ap s∈ refl afm-rest aap-rest dist-rest)
 
 validDBC→allPairsDisjoint : ∀ {dbc msg} (pairs : List (DBCSignal × ℚ))
-  → ValidDBC dbc
+  → IsValidDBC dbc
   → msg ∈ DBC.messages dbc
   → AllAlwaysPresent pairs
-  → AllFromMessage pairs msg
+  → AllFromMessage msg pairs
   → PairsDistinct pairs
   → AllPairsDisjoint (dlcBytes (DBCMessage.dlc msg)) pairs
 validDBC→allPairsDisjoint [] _ _ _ _ _ = apd-nil
-validDBC→allPairsDisjoint ((s , v) ∷ rest) vdbc msg∈
+validDBC→allPairsDisjoint ((s , v) ∷ rest) iv msg∈
     (aap-cons ps aap-rest) (afm-cons s∈ afm-rest) (pd-cons dist pd-rest) =
   apd-cons
     (buildDFA s rest ap s∈ ps afm-rest aap-rest dist)
-    (validDBC→allPairsDisjoint rest vdbc msg∈ aap-rest afm-rest pd-rest)
+    (validDBC→allPairsDisjoint rest iv msg∈ aap-rest afm-rest pd-rest)
   where
-    ap = StdAll.lookup (ValidDBC.sigPairsValid vdbc) msg∈
+    ap = StdAll.lookup (IsValidDBC.sigPairsValid iv) msg∈
 
 -- ============================================================================
--- GAP 2: ValidDBC → AllSignalsFit
+-- GAP 2: IsValidDBC → AllSignalsFit
 -- ============================================================================
 
 private
   buildASF : ∀ {msg} (pairs : List (DBCSignal × ℚ))
     → StdAll.All (BitsInFrame (dlcBytes (DBCMessage.dlc msg))) (DBCMessage.signals msg)
-    → AllFromMessage pairs msg
+    → AllFromMessage msg pairs
     → AllSignalsFit (dlcBytes (DBCMessage.dlc msg)) pairs
   buildASF [] _ _ = asf-nil
   buildASF ((s , _) ∷ rest) bifs (afm-cons s∈ afm-rest) =
@@ -201,13 +179,13 @@ private
       (buildASF rest bifs afm-rest)
 
 validDBC→allSignalsFit : ∀ {dbc msg} (pairs : List (DBCSignal × ℚ))
-  → ValidDBC dbc
+  → IsValidDBC dbc
   → msg ∈ DBC.messages dbc
-  → AllFromMessage pairs msg
+  → AllFromMessage msg pairs
   → AllSignalsFit (dlcBytes (DBCMessage.dlc msg)) pairs
-validDBC→allSignalsFit pairs vdbc msg∈ afm =
+validDBC→allSignalsFit pairs iv msg∈ afm =
   buildASF pairs
-    (StdAll.lookup (ValidDBC.bitsInFrame vdbc) msg∈)
+    (StdAll.lookup (IsValidDBC.bitsInFrame iv) msg∈)
     afm
 
 -- ============================================================================
@@ -215,166 +193,18 @@ validDBC→allSignalsFit pairs vdbc msg∈ afm =
 -- ============================================================================
 
 validDBC-roundtrip :
-  ∀ {dbc msg} (pairs : List (DBCSignal × ℚ))
-    (frame frame' : CANFrame (dlcBytes (DBCMessage.dlc msg)))
-  → ValidDBC dbc
-  → msg ∈ DBC.messages dbc
-  → AllAlwaysPresent pairs
-  → AllFromMessage pairs msg
-  → PairsDistinct pairs
-  → AllRoundtrip (dlcBytes (DBCMessage.dlc msg)) pairs
-  → injectAll frame pairs ≡ inj₂ frame'
-  → ∀ {s v} → (s , v) ∈ pairs
+  ∀ (dbc : DBC) (iv : IsValidDBC dbc) (msg : Found (DBC.messages dbc))
+    (reqs : List (Request (Found.item msg)))
+    (frame frame' : CANFrame (dlcBytes (DBCMessage.dlc (Found.item msg))))
+  → Found.item msg ∈ DBC.messages dbc
+  → AllAlwaysPresent (pairs {Found.item msg} reqs)
+  → AllFromMessage (Found.item msg) (pairs {Found.item msg} reqs)
+  → PairsDistinct (pairs {Found.item msg} reqs)
+  → injectAll (validated dbc iv) msg frame reqs ≡ inj₂ frame'
+  → ∀ {s v} → (s , v) ∈ pairs {Found.item msg} reqs
   → extractSignal frame' (DBCSignal.signalDef s) (DBCSignal.byteOrder s) ≡ just v
-validDBC-roundtrip pairs frame frame' vdbc msg∈ aap afm pd ar eq mem =
-  injectAll-roundtrip pairs frame frame'
-    (validDBC→allPairsDisjoint pairs vdbc msg∈ aap afm pd)
-    (validDBC→allSignalsFit pairs vdbc msg∈ afm)
-    ar eq mem
-
--- ============================================================================
--- REPRESENTABLE: decidable value representability for capstone theorem
--- ============================================================================
-
-data Representable (sig : DBCSignal) (v : ℚ) : Set where
-  repr-unsigned : (n : ℕ)
-    → v ≡ signalValue (+ n) (DBCSignal.signalDef sig)
-    → inBounds v (toℚ (SignalDef.minimum (DBCSignal.signalDef sig)))
-                  (toℚ (SignalDef.maximum (DBCSignal.signalDef sig))) ≡ true
-    → SignalDef.isSigned (DBCSignal.signalDef sig) ≡ false
-    → n < 2 ^ SignalDef.bitLength (DBCSignal.signalDef sig)
-    → Representable sig v
-  repr-signed : (z : ℤ)
-    → v ≡ signalValue z (DBCSignal.signalDef sig)
-    → inBounds v (toℚ (SignalDef.minimum (DBCSignal.signalDef sig)))
-                  (toℚ (SignalDef.maximum (DBCSignal.signalDef sig))) ≡ true
-    → SignalDef.isSigned (DBCSignal.signalDef sig) ≡ true
-    → SignalDef.bitLength (DBCSignal.signalDef sig) > 0
-    → SignedFits z (SignalDef.bitLength (DBCSignal.signalDef sig))
-    → Representable sig v
-
-representable? : (sig : DBCSignal) (v : ℚ)
-  → toℚ (SignalDef.factor (DBCSignal.signalDef sig)) ≢ 0ℚ
-  → Dec (Representable sig v)
-representable? sig v factor≢0 = go (removeScaling v factor offset) refl
-  where
-    sd = DBCSignal.signalDef sig
-    open SignalDef sd
-      using (bitLength; isSigned)
-      renaming (factor to factorᵈ; offset to offsetᵈ; minimum to minimumᵈ; maximum to maximumᵈ)
-    factor = toℚ factorᵈ
-    offset = toℚ offsetᵈ
-    minimum = toℚ minimumᵈ
-    maximum = toℚ maximumᵈ
-
-    +-inj : ∀ {m n : ℕ} → (+ m) ≡ (+ n) → m ≡ n
-    +-inj refl = refl
-
-    raw≡z : ∀ {raw z} → removeScaling v factor offset ≡ just z
-          → v ≡ signalValue raw sd → raw ≡ z
-    raw≡z {raw} remEq v≡ = just-injective
-      (trans (sym (removeScaling-applyScaling-exact raw factor offset factor≢0))
-             (trans (cong (λ x → removeScaling x factor offset) (sym v≡)) remEq))
-
-    goSF : ∀ z → removeScaling v factor offset ≡ just z → signalValue z sd ≡ v
-         → inBounds v minimum maximum ≡ true → isSigned ≡ true
-         → bitLength > 0 → Dec (Representable sig v)
-    goSF (+ n) remEq sv≡v bEq isEq bl>0 with n <? 2 ^ (bitLength ∸ 1)
-    ... | yes n< = yes (repr-signed (+ n) (sym sv≡v) bEq isEq bl>0 n<)
-    ... | no ¬n< = no λ where
-          (repr-unsigned _ _ _ u _) → case trans (sym isEq) u of λ ()
-          (repr-signed z' v≡ _ _ _ sf) →
-            ¬n< (subst (λ r → SignedFits r bitLength) (raw≡z {z'} remEq v≡) sf)
-    goSF -[1+ n ] remEq sv≡v bEq isEq bl>0 with suc n ≤? 2 ^ (bitLength ∸ 1)
-    ... | yes sn≤ = yes (repr-signed -[1+ n ] (sym sv≡v) bEq isEq bl>0 sn≤)
-    ... | no ¬sn≤ = no λ where
-          (repr-unsigned _ _ _ u _) → case trans (sym isEq) u of λ ()
-          (repr-signed z' v≡ _ _ _ sf) →
-            ¬sn≤ (subst (λ r → SignedFits r bitLength) (raw≡z {z'} remEq v≡) sf)
-
-    goIS : ∀ b → isSigned ≡ b → ∀ z → removeScaling v factor offset ≡ just z
-         → signalValue z sd ≡ v → inBounds v minimum maximum ≡ true
-         → Dec (Representable sig v)
-    goIS false isEq (+ n) remEq sv≡v bEq with n <? 2 ^ bitLength
-    ... | yes n< = yes (repr-unsigned n (sym sv≡v) bEq isEq n<)
-    ... | no ¬n< = no λ where
-          (repr-unsigned n' v≡ _ _ n'<) →
-            ¬n< (subst (_< 2 ^ bitLength) (+-inj (raw≡z {+ n'} remEq v≡)) n'<)
-          (repr-signed _ _ _ s _ _) → case trans (sym isEq) s of λ ()
-    goIS false isEq -[1+ _ ] remEq _ _ = no λ where
-        (repr-unsigned n v≡ _ _ _) → case raw≡z {+ n} remEq v≡ of λ ()
-        (repr-signed _ _ _ s _ _) → case trans (sym isEq) s of λ ()
-    goIS true isEq z remEq sv≡v bEq with 0 <? bitLength
-    ... | no ¬bl>0 = no λ where
-          (repr-unsigned _ _ _ u _) → case trans (sym isEq) u of λ ()
-          (repr-signed _ _ _ _ bl>0 _) → ¬bl>0 bl>0
-    ... | yes bl>0 = goSF z remEq sv≡v bEq isEq bl>0
-
-    go : (r : Maybe ℤ) → removeScaling v factor offset ≡ r → Dec (Representable sig v)
-    go nothing remEq = ⊥-elim (factor≢0 (removeScaling-nothing⇒zero v factor offset remEq))
-    go (just z) remEq with signalValue z sd ≟ᵣ v
-    ... | no sv≢v = no λ where
-          (repr-unsigned n v≡ _ _ _) →
-            sv≢v (subst (λ r → signalValue r sd ≡ v) (raw≡z {+ n} remEq v≡) (sym v≡))
-          (repr-signed z' v≡ _ _ _ _) →
-            sv≢v (subst (λ r → signalValue r sd ≡ v) (raw≡z {z'} remEq v≡) (sym v≡))
-    ... | yes sv≡v with inBounds v minimum maximum in bEq
-    ...   | false = no λ where
-            (repr-unsigned _ _ b _ _) → case trans (sym bEq) b of λ ()
-            (repr-signed _ _ b _ _ _) → case trans (sym bEq) b of λ ()
-    ...   | true = goIS isSigned refl z remEq sv≡v bEq
-
--- Bridge: Representable → InjectRoundtrips
-representable→roundtrips : ∀ {m sig v}
-  → Representable sig v
-  → toℚ (SignalDef.factor (DBCSignal.signalDef sig)) ≢ 0ℚ
-  → signalFits m (DBCSignal.signalDef sig)
-  → InjectRoundtrips m sig v
-representable→roundtrips {_} {sig} (repr-unsigned n v≡ bounds-ok unsigned n<) factor≢0 fits =
-  subst (InjectRoundtrips _ sig) (sym v≡)
-    (roundtrip-unsigned→IR n sig
-      (subst (λ x → inBounds x (toℚ (SignalDef.minimum sd)) (toℚ (SignalDef.maximum sd)) ≡ true) v≡ bounds-ok)
-      factor≢0 unsigned fits n<)
-  where sd = DBCSignal.signalDef sig
-representable→roundtrips {_} {sig} (repr-signed z v≡ bounds-ok signed bl>0 sf) factor≢0 fits =
-  subst (InjectRoundtrips _ sig) (sym v≡)
-    (roundtrip-signed→IR z sig
-      (subst (λ x → inBounds x (toℚ (SignalDef.minimum sd)) (toℚ (SignalDef.maximum sd)) ≡ true) v≡ bounds-ok)
-      factor≢0 signed bl>0 sf fits)
-  where sd = DBCSignal.signalDef sig
-
--- All signals in a list are representable
-data AllRepresentable : List (DBCSignal × ℚ) → Set where
-  arep-nil  : AllRepresentable []
-  arep-cons : ∀ {s v rest}
-    → Representable s v → AllRepresentable rest
-    → AllRepresentable ((s , v) ∷ rest)
-
-allRepresentable? : (pairs : List (DBCSignal × ℚ))
-  → StdAll.All (λ { (s , _) → toℚ (SignalDef.factor (DBCSignal.signalDef s)) ≢ 0ℚ }) pairs
-  → Dec (AllRepresentable pairs)
-allRepresentable? [] _ = yes arep-nil
-allRepresentable? ((s , v) ∷ rest) (f≢0 StdAll.∷ fs) with representable? s v f≢0
-... | no ¬r = no λ { (arep-cons r _) → ¬r r }
-... | yes r with allRepresentable? rest fs
-...   | no ¬ar = no λ { (arep-cons _ ar) → ¬ar ar }
-...   | yes ar = yes (arep-cons r ar)
-
--- Bridge: AllRepresentable → AllRoundtrip (given ValidDBC context)
-allRepresentable→allRoundtrip : ∀ {dbc msg} (pairs : List (DBCSignal × ℚ))
-  → ValidDBC dbc
-  → msg ∈ DBC.messages dbc
-  → AllFromMessage pairs msg
-  → AllRepresentable pairs
-  → AllRoundtrip (dlcBytes (DBCMessage.dlc msg)) pairs
-allRepresentable→allRoundtrip [] _ _ _ _ = ar-nil
-allRepresentable→allRoundtrip ((s , v) ∷ rest) vdbc msg∈
-    (afm-cons s∈ afm-rest) (arep-cons rep arep-rest) =
-  ar-cons
-    (representable→roundtrips rep
-      (nonZeroFactor→factorℚ≢0 {s} (StdAll.lookup nzfs s∈))
-      (StdAll.lookup bifs s∈))
-    (allRepresentable→allRoundtrip rest vdbc msg∈ afm-rest arep-rest)
-  where
-    nzfs = StdAll.lookup (ValidDBC.nonZeroFactors vdbc) msg∈
-    bifs = StdAll.lookup (ValidDBC.bitsInFrame vdbc) msg∈
+validDBC-roundtrip dbc iv msg reqs frame frame' msg∈ aap afm pd eq mem =
+  injectAll-roundtrip dbc iv msg reqs frame frame' msg∈ afm
+    (validDBC→allPairsDisjoint (pairs {Found.item msg} reqs) iv msg∈ aap afm pd)
+    (validDBC→allSignalsFit (pairs {Found.item msg} reqs) iv msg∈ afm)
+    eq mem

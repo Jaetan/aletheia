@@ -38,7 +38,7 @@ open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   UnknownSignalReceiver; UnknownValueDescriptionTarget;
   TextRoundTripDivergence; MultiValueMuxSelector; MuxMasterIncoherent;
   UnknownAttributeName; AttributeValueTypeMismatch;
-  AttributeEnumEmpty; AttributeEnumDefaultUnstable;
+  AttributeEnumEmpty; AttributeEnumDefaultUnstable; RangeExceedsBits;
   ValidationIssue)
 open import Aletheia.DBC.Validator using (hasAnyError)
 
@@ -130,6 +130,7 @@ formatIssueCode UnknownAttributeName          = "unknown_attribute_name"
 formatIssueCode AttributeValueTypeMismatch    = "attribute_value_type_mismatch"
 formatIssueCode AttributeEnumEmpty            = "attribute_enum_empty"
 formatIssueCode AttributeEnumDefaultUnstable  = "attribute_enum_default_unstable"
+formatIssueCode RangeExceedsBits              = "range_exceeds_bits"
 
 formatValidationIssue : ValidationIssue → JSON
 formatValidationIssue issue =

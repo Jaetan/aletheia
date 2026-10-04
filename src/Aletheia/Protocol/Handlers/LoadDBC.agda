@@ -44,7 +44,9 @@ open import Aletheia.DBC.BoundWalks using
   ; firstOverBoundLC; firstOverBoundInMessages; firstOverBoundInComments
   ; firstOverBoundInAttrs; firstOverBoundInValueTables; firstOverBoundInUnresolved
   )
-open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; warningIssues)
+open import Aletheia.DBC.Validated using (validate)
+open import Data.Sum using (inj₁; inj₂)
+open import Data.Product using (_,_)
 open import Aletheia.DBC.Formatter using (formatDBC)
 open import Aletheia.LTL.SignalPredicate using (emptyCache)
 open import Aletheia.Protocol.Message using (Response)
@@ -127,12 +129,13 @@ private
   -- validator; an error-severity issue becomes a `ValidationFailed`
   -- envelope, a clean parse loads a `ReadyToStream` session and emits
   -- `ParsedDBCResponse` with the (non-error) warnings flowing through.
+  -- The session loads the validator's verdict: a DBC it accepts arrives as
+  -- a `ValidDBC`, carrying the proof of its validity.
   loadValidatedEpilogue : String → DBC → StreamState → StreamState × Response
-  loadValidatedEpilogue cmdCtx dbc state =
-    let issues = validateDBCFull dbc
-    in if hasAnyError issues
-       then (state , Response.Error (WithContext cmdCtx (HandlerErr (ValidationFailed issues))))
-       else (ReadyToStream 0 dbc [] emptyCache , Response.ParsedDBCResponse (formatDBC dbc) (warningIssues issues))
+  loadValidatedEpilogue cmdCtx dbc state with validate dbc
+  ... | inj₁ issues = (state , Response.Error (WithContext cmdCtx (HandlerErr (ValidationFailed issues))))
+  ... | inj₂ (vdbc , warnings) =
+    (ReadyToStream 0 vdbc [] emptyCache , Response.ParsedDBCResponse (formatDBC dbc) warnings)
 
 -- The adversarial-bound cascade shared by all three DBC commands: array
 -- cardinality first, then string-length.  `nothing` = clean (proceed);
@@ -149,7 +152,7 @@ checkDBCBounds cmdCtx dbc state = cascade (firstDBCOverBound dbc) (firstStringOv
 -- The full parse→load pipeline: adversarial bound cascade, then the
 -- validate-and-load epilogue.  Shared verbatim by ParseDBC (JSON) and
 -- ParseDBCText (verified text); the two differ only in the command-context
--- `String`, so both now emit identical field-context bound errors.
+-- `String`, so both emit identical field-context bound errors.
 loadValidatedDBC : String → DBC → StreamState → StreamState × Response
 loadValidatedDBC cmdCtx dbc state with checkDBCBounds cmdCtx dbc state
 ... | just err = err

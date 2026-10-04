@@ -310,7 +310,7 @@ swapBytes = reverse
 -- ============================================================================
 
 -- The byte order isomorphism: id for LittleEndian, swapBytes for BigEndian
--- Defined using if to match injectSignal's implementation definitionally
+-- Defined using if, so it reduces as the frame writer's byte-order dispatch does
 -- Parameterized by payload size n
 payloadIso : ∀ {n} → ByteOrder → Vec Byte n → Vec Byte n
 payloadIso bo bytes = if isBigEndian bo then swapBytes bytes else bytes

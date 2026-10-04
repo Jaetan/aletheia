@@ -46,6 +46,9 @@ enum class IssueCode {
     AttributeValueTypeMismatch,
     AttributeEnumEmpty,
     AttributeEnumDefaultUnstable,
+    // A structural-validation error, after the round-trip codes in the order
+    // the kernel declares its codes.
+    RangeExceedsBits,
     Unknown
 };
 

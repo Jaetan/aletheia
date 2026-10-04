@@ -4,11 +4,11 @@
 
 -- Top-level soundness and completeness theorems for DBC validation.
 --
--- soundness   : errorIssues (validateDBCFull dbc) ≡ [] → ValidDBC dbc
--- completeness : ValidDBC dbc → errorIssues (validateDBCFull dbc) ≡ []
+-- soundness   : errorIssues (validateDBCFull dbc) ≡ [] → IsValidDBC dbc
+-- completeness : IsValidDBC dbc → errorIssues (validateDBCFull dbc) ≡ []
 --
 -- Together these establish: the validator reports no errors if and only if
--- the DBC satisfies every formal validity condition (the ValidDBC record).
+-- the DBC satisfies every formal validity condition (the IsValidDBC record).
 module Aletheia.DBC.Validity.Theorem where
 
 open import Aletheia.DBC.Types using (DBC)
@@ -18,7 +18,7 @@ open import Aletheia.DBC.Validator using
   ; checkAllFactorZero; checkAllMuxFound; checkAllMuxCycle
   ; checkAllMuxScaling; checkAllGlobalNameCollisions; checkAllMinMax
   ; checkAllSignalExceedsDLC; checkAllSignalOverlaps
-  ; checkAllBitLengthZero; checkAllDuplicateMessageNames
+  ; checkAllBitLengthZero; checkAllRangeExceedsBits; checkAllDuplicateMessageNames
   ; checkAllOffsetScaleRange
   ; checkAllEmptyMessage; checkAllStartBitOutOfRange
   ; checkAllBitLengthExcessive
@@ -28,14 +28,14 @@ open import Aletheia.DBC.Validator using
   ; checkAllUnknownValueDescriptionTargets
   ; checkAllMultiValueMuxSelectors
   )
-open import Aletheia.DBC.Validity using (ValidDBC)
+open import Aletheia.DBC.Validity using (IsValidDBC)
 open import Aletheia.DBC.Validity.Composition using
   ( ei-split; ei-combine; ei-from-≡[]; errorIssues-allE-nil
   ; errorIssues-allW
   ; checkAllDuplicateMessageIds-allE; checkAllDuplicateSignalNames-allE
   ; checkAllFactorZero-allE; checkAllMuxFound-allE
   ; checkAllMuxCycle-allE; checkAllSignalExceedsDLC-allE
-  ; checkAllSignalOverlaps-allE; checkAllBitLengthZero-allE
+  ; checkAllSignalOverlaps-allE; checkAllBitLengthZero-allE; checkAllRangeExceedsBits-allE
   )
 open import Aletheia.DBC.Validity.ErrorChecks using
   ( checkAllDuplicateMessageIds-sound; checkAllDuplicateMessageIds-complete
@@ -48,6 +48,7 @@ open import Aletheia.DBC.Validity.ErrorChecks using
   ; checkAllSignalExceedsDLC-sound; checkAllSignalExceedsDLC-complete
   ; checkAllSignalOverlaps-sound; checkAllSignalOverlaps-complete
   ; checkAllBitLengthZero-sound; checkAllBitLengthZero-complete
+  ; checkAllRangeExceedsBits-sound; checkAllRangeExceedsBits-complete
   )
 open import Aletheia.DBC.Validity.WarningChecks using
   ( checkAllMuxScaling-allW; checkAllGlobalNameCollisions-allW
@@ -69,7 +70,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_)
 -- SOUNDNESS: no errors reported ⟹ DBC is valid
 -- ============================================================================
 
-soundness : ∀ dbc → errorIssues (validateDBCFull dbc) ≡ [] → ValidDBC dbc
+soundness : ∀ dbc → errorIssues (validateDBCFull dbc) ≡ [] → IsValidDBC dbc
 soundness dbc eq₀ = record
   { uniqueIds        = checkAllDuplicateMessageIds-sound msgs
       (errorIssues-allE-nil _ (checkAllDuplicateMessageIds-allE msgs) (proj₁ s₁))
@@ -87,6 +88,8 @@ soundness dbc eq₀ = record
       (errorIssues-allE-nil _ (checkAllSignalOverlaps-allE msgs) (proj₁ s₉))
   ; nonZeroBitLengths = checkAllBitLengthZero-sound msgs
       (errorIssues-allE-nil _ (checkAllBitLengthZero-allE msgs) (proj₁ s₁₀))
+  ; rangesWithinBits = checkAllRangeExceedsBits-sound msgs
+      (errorIssues-allE-nil _ (checkAllRangeExceedsBits-allE msgs) (proj₁ s₁₁))
   }
   where
     msgs = DBC.messages dbc
@@ -101,23 +104,24 @@ soundness dbc eq₀ = record
     s₈  = ei-split (checkAllSignalExceedsDLC msgs) _ (proj₂ s₇)
     s₉  = ei-split (checkAllSignalOverlaps msgs) _ (proj₂ s₈)
     s₁₀ = ei-split (checkAllBitLengthZero msgs) _ (proj₂ s₉)
+    s₁₁ = ei-split (checkAllRangeExceedsBits msgs) _ (proj₂ s₁₀)
 
 -- ============================================================================
 -- COMPLETENESS: DBC is valid ⟹ no errors reported
 -- ============================================================================
 
-completeness : ∀ dbc → ValidDBC dbc → errorIssues (validateDBCFull dbc) ≡ []
+completeness : ∀ dbc → IsValidDBC dbc → errorIssues (validateDBCFull dbc) ≡ []
 completeness dbc v =
   ei-combine (checkAllDuplicateMessageIds msgs) _
-    (ei-from-≡[] _ (checkAllDuplicateMessageIds-complete msgs (ValidDBC.uniqueIds v)))
+    (ei-from-≡[] _ (checkAllDuplicateMessageIds-complete msgs (IsValidDBC.uniqueIds v)))
   (ei-combine (checkAllDuplicateSignalNames msgs) _
-    (ei-from-≡[] _ (checkAllDuplicateSignalNames-complete msgs (ValidDBC.uniqueSigNames v)))
+    (ei-from-≡[] _ (checkAllDuplicateSignalNames-complete msgs (IsValidDBC.uniqueSigNames v)))
   (ei-combine (checkAllFactorZero msgs) _
-    (ei-from-≡[] _ (checkAllFactorZero-complete msgs (ValidDBC.nonZeroFactors v)))
+    (ei-from-≡[] _ (checkAllFactorZero-complete msgs (IsValidDBC.nonZeroFactors v)))
   (ei-combine (checkAllMuxFound msgs) _
-    (ei-from-≡[] _ (checkAllMuxFound-complete msgs (ValidDBC.muxExist v)))
+    (ei-from-≡[] _ (checkAllMuxFound-complete msgs (IsValidDBC.muxExist v)))
   (ei-combine (checkAllMuxCycle msgs) _
-    (ei-from-≡[] _ (checkAllMuxCycle-complete msgs (ValidDBC.muxAcyclic v)))
+    (ei-from-≡[] _ (checkAllMuxCycle-complete msgs (IsValidDBC.muxAcyclic v)))
   (ei-combine (checkAllMuxScaling msgs) _
     (errorIssues-allW _ (checkAllMuxScaling-allW msgs))
   (ei-combine (checkAllGlobalNameCollisions msgs) _
@@ -125,11 +129,13 @@ completeness dbc v =
   (ei-combine (checkAllMinMax msgs) _
     (errorIssues-allW _ (checkAllMinMax-allW msgs))
   (ei-combine (checkAllSignalExceedsDLC msgs) _
-    (ei-from-≡[] _ (checkAllSignalExceedsDLC-complete msgs (ValidDBC.bitsInFrame v)))
+    (ei-from-≡[] _ (checkAllSignalExceedsDLC-complete msgs (IsValidDBC.bitsInFrame v)))
   (ei-combine (checkAllSignalOverlaps msgs) _
-    (ei-from-≡[] _ (checkAllSignalOverlaps-complete msgs (ValidDBC.sigPairsValid v)))
+    (ei-from-≡[] _ (checkAllSignalOverlaps-complete msgs (IsValidDBC.sigPairsValid v)))
   (ei-combine (checkAllBitLengthZero msgs) _
-    (ei-from-≡[] _ (checkAllBitLengthZero-complete msgs (ValidDBC.nonZeroBitLengths v)))
+    (ei-from-≡[] _ (checkAllBitLengthZero-complete msgs (IsValidDBC.nonZeroBitLengths v)))
+  (ei-combine (checkAllRangeExceedsBits msgs) _
+    (ei-from-≡[] _ (checkAllRangeExceedsBits-complete msgs (IsValidDBC.rangesWithinBits v)))
   (ei-combine (checkAllDuplicateMessageNames msgs) _
     (errorIssues-allW _ (checkAllDuplicateMessageNames-allW msgs))
   (ei-combine (checkAllOffsetScaleRange msgs) _
@@ -155,7 +161,7 @@ completeness dbc v =
   (ei-combine (checkAllMultiValueMuxSelectors msgs) _
     (errorIssues-allW _ (checkAllMultiValueMuxSelectors-allW msgs))
     (errorIssues-allW _ (checkAllMuxMasterIncoherent-allW msgs))
-  ))))))))))))))))))))))
+  )))))))))))))))))))))))
   where
     msgs    = DBC.messages dbc
     nodes   = DBC.nodes dbc

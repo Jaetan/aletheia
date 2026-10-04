@@ -201,6 +201,18 @@ class SignalOpsMixin(ClientHostState):
         Returns:
             New frame with updated signals
 
+        Raises:
+            StateError: If the client is not initialized or no DBC is loaded
+            ValidationError: If ``frame`` does not match ``dlc``, the DLC or
+                CAN ID is invalid, no DBC message has the CAN ID, a signal name
+                is unknown, or a value overflows the Int64 wire range
+            TypeError: If a value is a ``bool`` or a ``float``
+            ProtocolError: If the kernel refuses the update; ``code`` names the
+                refusal, among them ``frame_value_out_of_range`` for a value
+                outside the signal's declared ``[minimum, maximum]`` and
+                ``frame_value_not_representable`` for a value no integer raw
+                value scales to under the signal's factor and offset
+
         """
         expected_bytes = validate_payload_length(dlc, frame)
         validate_can_id(can_id, extended=extended)
@@ -246,6 +258,18 @@ class SignalOpsMixin(ClientHostState):
 
         Returns:
             CAN frame payload (length = dlc_to_bytes(dlc))
+
+        Raises:
+            StateError: If the client is not initialized or no DBC is loaded
+            ValidationError: If the DLC or CAN ID is invalid, no DBC message has
+                the CAN ID, a signal name is unknown, or a value overflows the
+                Int64 wire range
+            TypeError: If a value is a ``bool`` or a ``float``
+            ProtocolError: If the kernel refuses the build; ``code`` names the
+                refusal, among them ``frame_value_out_of_range`` for a value
+                outside the signal's declared ``[minimum, maximum]`` and
+                ``frame_value_not_representable`` for a value no integer raw
+                value scales to under the signal's factor and offset
 
         """
         validate_can_id(can_id, extended=extended)

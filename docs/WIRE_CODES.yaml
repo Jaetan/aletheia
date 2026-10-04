@@ -144,6 +144,9 @@ issue_codes:
   - name: attribute_enum_default_unstable
     description: An ENUM attribute's default index does not resolve back to itself.
 
+  - name: range_exceeds_bits
+    description: A signal's declared minimum or maximum lies beyond the values its bits carry after scaling.
+
 # ── Error codes (the *ErrorCode families + errorCode, Error.agda) ──
 error_codes:
 
@@ -255,11 +258,14 @@ error_codes:
   - name: frame_signal_index_oob
     description: An internal signal index is out of range.
 
-  - name: frame_injection_failed
-    description: Bit-packing a signal value into the frame failed.
+  - name: frame_value_out_of_range
+    description: A requested signal value lies outside the signal's declared minimum/maximum range.
+
+  - name: frame_value_not_representable
+    description: No integer raw value scales to a requested signal value under the signal's factor and offset.
 
   - name: frame_signals_overlap
-    description: Two requested signals occupy overlapping bits.
+    description: Two signals requested by one build or update occupy overlapping bits.
 
   - name: frame_signal_past_frame_end
     description: A signal's last bit lies past the end of the frame the caller's DLC sizes.
@@ -271,7 +277,7 @@ error_codes:
     description: The request's CAN ID does not match the frame being updated.
 
   - name: frame_signal_value_out_of_bounds
-    description: A physical value lies outside the signal's declared minimum/maximum range.
+    description: An extracted value lies outside the signal's declared minimum/maximum range; its message is the reason extraction reports for the signal.
 
   # routeErrorCode -- command dispatch.
 

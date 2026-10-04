@@ -212,6 +212,8 @@ const (
 	IssueAttributeEnumEmpty IssueCode = "attribute_enum_empty"
 	// IssueAttributeEnumDefaultUnstable is an enum attribute's default index does not resolve back to itself.
 	IssueAttributeEnumDefaultUnstable IssueCode = "attribute_enum_default_unstable"
+	// IssueRangeExceedsBits is a signal's declared minimum or maximum lies beyond the values its bits carry after scaling.
+	IssueRangeExceedsBits IssueCode = "range_exceeds_bits"
 	// IssueUnknown is unrecognized issue code from the Agda core.
 	IssueUnknown IssueCode = "unknown"
 )

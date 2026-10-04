@@ -45,7 +45,7 @@ import qualified MAlonzo.Code.Data.Sum.Base as AgdaSum
 shimErrorOut :: String -> Ptr Buffer -> IO Int8
 shimErrorOut msg out = newUtf8 (T.pack (mkErrorJson msg)) >>= pokeBufferErr out >> return 1
 
-kernelErrorOut :: AgdaError.T_Error_342 -> Ptr Buffer -> IO Int8
+kernelErrorOut :: AgdaError.T_Error_358 -> Ptr Buffer -> IO Int8
 kernelErrorOut err out =
     newUtf8 (unsafeCoerce (AgdaBin.d_formatErrorEnvelope_12 err) :: T.Text) >>= pokeBufferErr out >> return 1
 

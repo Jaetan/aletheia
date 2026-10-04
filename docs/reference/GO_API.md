@@ -204,7 +204,9 @@ A frame can be decoded and built directly, inside a stream or outside one. The `
 - `BuildFrame(ctx, id, dlc, signals)` → `FramePayload` (encode signal values).
 - `UpdateFrame(ctx, id, dlc, data, signals)` → `FramePayload` (patch a frame).
 
-Decoding a frame and encoding one are inverses, and a `SignalValue` is a name beside an exact value:
+Each value is written exactly or refused: one outside the signal's declared range fails with code `frame_value_out_of_range`, one that no integer raw value scales to under the signal's factor and offset with `frame_value_not_representable`, and two requested signals sharing a bit with `frame_signals_overlap`. A written value reads back unchanged wherever the frame carries its signal: always, or for a multiplexed signal when its multiplexor's value selects it.
+
+A `SignalValue` is a name beside an exact value:
 
 ```go
 decoded, err := client.ExtractSignals(ctx, canID, dlc, data)
