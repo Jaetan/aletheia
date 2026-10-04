@@ -5,13 +5,15 @@
 ``tools/sweep_evidence.py`` names the tree of the tracked content a sweep saw,
 and finds the finished log that vouches for a commit's tree.  Each case builds
 a scratch repository, so the trees are git's own ids for real content: a
-committed tree is the one the clean working tree names, an edit moves it, an
-untracked file leaves no tree to name, and a log vouches only when its header
-and its summary name the tree and its summary says every step passed.
+committed tree is the one the clean working tree names, an edit moves it even
+where its stat data matches the indexed file's, an untracked file leaves no
+tree to name, and a log vouches only when its header and its summary name the
+tree and its summary says every step passed.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import TYPE_CHECKING, NewType
 
@@ -43,6 +45,9 @@ if TYPE_CHECKING:
 LogName = NewType("LogName", str)
 
 _PASSED = LogLine("Result:   ALL 3 STEPS PASSED")
+# 2001-09-09T01:46:40Z in nanoseconds, the one instant a case stamps its files
+# with so that it reads no clock.
+_INSTANT = 10**18
 _FAILED = LogLine("═══ CI FAILED — 1 step(s) failed: x ═══")
 
 
@@ -88,6 +93,31 @@ def test_an_edit_names_the_tree_its_commit_will_have(tmp_path: Path) -> None:
     assert edited != tree_of(Revision("HEAD"), repo)
     _ = commit(repo, "edit")
     assert edited == tree_of(Revision("HEAD"), repo)
+
+
+def test_a_rewrite_in_the_index_s_own_second_moves_the_tree(tmp_path: Path) -> None:
+    """A rewrite whose stat data git cannot tell from the indexed file's is still read.
+
+    The file is written, indexed and rewritten at its size all at one instant,
+    the case git re-reads rather than trusts.  ``core.trustctime`` is off
+    because ``os.utime`` cannot set a change time: the rewrite's is the
+    clock's, and only with it ignored does every field git compares match the
+    entry's whatever second the case runs in.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _ = git(repo, "init", "-q")
+    _ = git(repo, "config", "core.trustctime", "false")
+    tracked = repo / "a.txt"
+    _ = tracked.write_text("one\n", encoding="utf-8")
+    os.utime(tracked, ns=(_INSTANT, _INSTANT))
+    _ = commit(repo, "base")
+    os.utime(repo / ".git" / "index", ns=(_INSTANT, _INSTANT))
+    _ = tracked.write_text("two\n", encoding="utf-8")
+    os.utime(tracked, ns=(_INSTANT, _INSTANT))
+    tree = worktree_tree(repo)
+    assert tree is not None
+    assert git(repo, "show", f"{tree}:a.txt") == "two\n"
 
 
 def test_an_intent_added_file_is_in_the_tree_and_the_index_is_left_alone(tmp_path: Path) -> None:

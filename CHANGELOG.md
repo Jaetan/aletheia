@@ -304,7 +304,10 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   it refuses a push whose sweep passed on a working tree other than the pushed
   one; it refuses as well when either tool is missing. A sweep beside an
   untracked file git does not ignore, a subset sweep (`--fast`, `--lanes`) and
-  a sweep whose tree moved while it ran vouch for no tree. Re-run
+  a sweep whose tree moved while it ran vouch for no tree. The tree is named
+  through a copy of the index that keeps the index's modification time, so a
+  file rewritten at its size within the second it was last written is re-read
+  by git rather than trusted on stat data that still matches. Re-run
   `python/.venv/bin/python -m tools.install_hooks` to install the new hook.
 
 - **BREAKING (Python): `aletheia.asyncio.testing.gated_backend` is gone; tests
