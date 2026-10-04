@@ -21,7 +21,7 @@
 -- they differ).
 module Aletheia.CAN.Encoding.Properties.Disjoint where
 
-open import Aletheia.CAN.Encoding using (extractionBytes; injectSignal; injectHelper)
+open import Aletheia.CAN.Encoding using (extractionBytes; injectSignal; injectHelper; withInjected)
 open import Aletheia.CAN.Encoding.Arithmetic using (fromSigned; removeScaling; inBounds)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; extractBits; injectBits; swapBytes; payloadIso; physicalBitPos; not-in-interval)
 open import Aletheia.CAN.Endianness.Properties using (payloadIso-involutive; injectBits-preserves-disjoint; injectBits-preserves-outside; physicalBitPos-BE-involutive; extractBits-swap-inject-preserves)
@@ -86,7 +86,7 @@ injectHelper-preserves-disjoint-bits {m} {len₂} v sig bo frame frame' start₂
     finalBytes = payloadIso bo updatedBytes
 
     -- The frame returned by injectHelper when all conditions succeed
-    expectedFrame = record frame { payload = finalBytes }
+    expectedFrame = withInjected start₁ rawBitVec bo frame
 
     -- Core proof using the fact that frame' = expectedFrame
     core-proof : frame' ≡ expectedFrame
@@ -170,7 +170,7 @@ injectHelper-preserves-disjoint-bits-physical {n} {len₂} v sig bo₁ bo₂ fra
     updatedBytes = injectBits bytes s₁ rawBitVec
     finalBytes = payloadIso bo₁ updatedBytes
 
-    expectedFrame = record frame { payload = finalBytes }
+    expectedFrame = withInjected s₁ rawBitVec bo₁ frame
 
     core-proof : frame' ≡ expectedFrame
                → extractBits {len₂} (extractionBytes frame' bo₂) start₂

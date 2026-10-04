@@ -3,6 +3,7 @@
 // Integration tests with real libaletheia-ffi.so.
 // Requires: cabal run shake -- build (produces build/libaletheia-ffi.so)
 // Run with: ctest -R integration (or ./integration_tests)
+#include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -21,6 +22,7 @@
 #include <dlfcn.h>
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -755,51 +757,105 @@ TEST_CASE("the FFI backend is refused a library path that is empty", "[integrati
                         Catch::Matchers::ContainsSubstring("library path is empty"));
 }
 
+// A payload whose length is not its DLC's is refused on the backend's own
+// interface, before the kernel sees it; both lengths are within the largest
+// payload, so only the exact rule refuses them, one from below and one from
+// above.
+TEST_CASE("the FFI backend refuses a payload that is not its DLC's byte count", "[integration]") {
+    auto backend = make_ffi_backend(find_lib());
+    auto const state = backend->init();
+    auto const id = CanId{StandardId::create(0x100).value()};
+    const std::vector<std::uint32_t> indices{0};
+    const std::vector<std::int64_t> ones{1};
+    auto const injection = SignalInjection::create(indices, ones, ones).value();
+    auto const dlc8 = Dlc::create(8).value();
+    auto const refused = [](const AletheiaError& error, std::size_t length) {
+        CHECK(error.kind() == ErrorKind::Validation);
+        CHECK(error.message() ==
+              std::format("payload length {} does not match DLC 8 (expected 8 bytes)", length));
+    };
+    auto const thrown = [](auto&& call) -> std::optional<AletheiaError> {
+        try {
+            static_cast<void>(call());
+        } catch (const AletheiaException& e) {
+            return e.error();
+        }
+        return std::nullopt;
+    };
+    for (auto const length : {std::size_t{7}, std::size_t{20}}) {
+        INFO("a payload of " << length << " bytes");
+        const std::vector<std::byte> data(length, std::byte{0});
+        auto const sent = thrown([&] {
+            return backend->send_frame_binary(state, Timestamp{0}, id, dlc8, data, std::nullopt,
+                                              std::nullopt);
+        });
+        REQUIRE(sent.has_value());
+        refused(*sent, length);
+        auto const extracted_json =
+            thrown([&] { return backend->extract_signals_binary(state, id, dlc8, data); });
+        REQUIRE(extracted_json.has_value());
+        refused(*extracted_json, length);
+        auto const updated = backend->update_frame_bin(state, id, dlc8, data, injection, 8);
+        REQUIRE_FALSE(updated.has_value());
+        refused(updated.error(), length);
+        auto const extracted = backend->extract_signals_bin(state, id, dlc8, data);
+        REQUIRE_FALSE(extracted.has_value());
+        refused(extracted.error(), length);
+    }
+    // The exact length passes the guard to the kernel, which answers.
+    const std::vector<std::byte> data8(8, std::byte{0});
+    CHECK_FALSE(thrown([&] {
+                    return backend->send_frame_binary(state, Timestamp{0}, id, dlc8, data8,
+                                                      std::nullopt, std::nullopt);
+                }).has_value());
+    CHECK_FALSE(thrown([&] {
+                    return backend->extract_signals_binary(state, id, dlc8, data8);
+                }).has_value());
+    auto const updated = backend->update_frame_bin(state, id, dlc8, data8, injection, 8);
+    REQUIRE_FALSE(updated.has_value());
+    CHECK(updated.error().code() == ErrorCode::HandlerNoDbc);
+    auto const extracted = backend->extract_signals_bin(state, id, dlc8, data8);
+    REQUIRE_FALSE(extracted.has_value());
+    CHECK(extracted.error().code() == ErrorCode::HandlerNoDbc);
+}
+
 // The backend's endpoints are the public IBackend interface, so a call the
-// client would never make, a 65-byte payload or a message the DBC lacks, is
-// a legitimate call on that interface and not a fabricated state.
+// client would never make, a command past the JSON cap or a message the DBC
+// lacks, is a legitimate call on that interface and not a fabricated state.
 TEST_CASE("the FFI backend's own guards answer on its interface", "[integration]") {
     auto backend = make_ffi_backend(find_lib());
     auto const state = backend->init();
     // No DBC is loaded, so every binary endpoint the kernel reaches refuses.
     auto const id = CanId{StandardId::create(0x100).value()};
     auto const dlc = Dlc::create(15).value();
-    const std::vector<std::byte> data65(65, std::byte{0});
     const std::vector<std::byte> data64(64, std::byte{0});
     const std::vector<std::uint32_t> indices{0};
     const std::vector<std::int64_t> ones{1};
     auto const injection = SignalInjection::create(indices, ones, ones).value();
-    constexpr std::string_view too_long = "data length exceeds 64 bytes (CAN-FD max)";
 
-    SECTION("a payload past the CAN-FD maximum is refused before the kernel sees it") {
-        CHECK_THROWS_WITH(backend->send_frame_binary(state, Timestamp{0}, id, dlc, data65,
-                                                     std::nullopt, std::nullopt),
-                          Catch::Matchers::ContainsSubstring(std::string{too_long}));
-        CHECK_THROWS_WITH(backend->extract_signals_binary(state, id, dlc, data65),
-                          Catch::Matchers::ContainsSubstring(std::string{too_long}));
-        auto const updated = backend->update_frame_bin(state, id, dlc, data65, injection, 64);
-        REQUIRE_FALSE(updated.has_value());
-        CHECK(std::string_view{updated.error().message()}.contains(too_long));
-        auto const extracted = backend->extract_signals_bin(state, id, dlc, data65);
-        REQUIRE_FALSE(extracted.has_value());
-        CHECK(std::string_view{extracted.error().message()}.contains(too_long));
-    }
     SECTION("a command past the JSON cap is refused before the kernel sees it") {
         const std::string past_cap(max_json_bytes + 1, 'x');
         auto const answer = backend->process(state, past_cap);
         CHECK(answer.contains(R"("code":"input_bound_exceeded")"));
         CHECK(answer.contains(R"("observed":67108865)"));
     }
-    SECTION("a kernel refusal on a binary endpoint is surfaced, not swallowed") {
+    SECTION("a kernel refusal on a binary endpoint is surfaced with its code, not swallowed") {
+        // The entry hands back the kernel's error envelope; the error carries
+        // the envelope's code and message, as a JSON response's would.
+        auto const no_dbc = [](const AletheiaError& error) {
+            CHECK(error.kind() == ErrorKind::Protocol);
+            CHECK(error.code() == ErrorCode::HandlerNoDbc);
+            CHECK(error.message() == "DBC not loaded");
+        };
         auto const built = backend->build_frame_bin(state, id, dlc, injection, 64);
         REQUIRE_FALSE(built.has_value());
-        CHECK(built.error().kind() == ErrorKind::Protocol);
+        no_dbc(built.error());
         auto const updated = backend->update_frame_bin(state, id, dlc, data64, injection, 64);
         REQUIRE_FALSE(updated.has_value());
-        CHECK(updated.error().kind() == ErrorKind::Protocol);
+        no_dbc(updated.error());
         auto const extracted = backend->extract_signals_bin(state, id, dlc, data64);
         REQUIRE_FALSE(extracted.has_value());
-        CHECK(extracted.error().kind() == ErrorKind::Protocol);
+        no_dbc(extracted.error());
     }
 }
 
@@ -839,7 +895,9 @@ TEST_CASE("the kernel refuses a DLC code past 15 on the binary build entry", "[i
     const std::unique_ptr<char, decltype(release)> error{out.err, release};
     CHECK(status == 1);
     REQUIRE(error != nullptr);
-    CHECK(std::string_view{error.get()}.contains("DLC 42 exceeds maximum (15)"));
+    // The error is the kernel's envelope, naming the refusal by its code.
+    CHECK(std::string_view{error.get()}.contains("parse_dlc_code_out_of_range"));
+    CHECK(std::string_view{error.get()}.contains("DLC 42 exceeds limit 15"));
 }
 
 namespace {
@@ -944,14 +1002,16 @@ TEST_CASE("the FFI backend's result buffer holds the frame the DLC sizes", "[int
     auto const injection = SignalInjection::create(indices, numerators, denominators).value();
 
     SECTION("a buffer shorter than the frame is refused") {
+        // The library's own refusal, under a code the kernel's vocabulary does
+        // not hold.
         auto const built = backend->build_frame_bin(state, id, dlc, injection, 4);
         REQUIRE_FALSE(built.has_value());
-        CHECK_THAT(std::string{built.error().message()},
-                   Catch::Matchers::ContainsSubstring("out size 4 < dlcToBytes 8"));
+        CHECK(built.error().code() == ErrorCode::Unknown);
+        CHECK(built.error().message() == "aletheia_build_frame_bin: out size 4 < 8 frame bytes");
         auto const updated = backend->update_frame_bin(state, id, dlc, data, injection, 4);
         REQUIRE_FALSE(updated.has_value());
-        CHECK_THAT(std::string{updated.error().message()},
-                   Catch::Matchers::ContainsSubstring("out size 4 < dlcToBytes 8"));
+        CHECK(updated.error().code() == ErrorCode::Unknown);
+        CHECK(updated.error().message() == "aletheia_update_frame_bin: out size 4 < 8 frame bytes");
     }
     SECTION("a buffer longer than the frame comes back at the frame's length") {
         const std::vector<std::byte> speed{std::byte{0xE8}, std::byte{0x03}};
@@ -1109,22 +1169,21 @@ TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
     CHECK(extracted->get(SignalName{"RPM"}).get() == Rational{1500, 1});
 }
 
-TEST_CASE("FFI payload guards accept exactly 64 bytes (CAN-FD boundary)",
+TEST_CASE("FFI payload guards accept a payload of its DLC's length, 64 bytes included",
           "[integration][boundary]") {
     // Every FfiBackend method that takes a payload calls one guard,
-    // `payload_bound_error`, which refuses anything longer than the CAN-FD
-    // maximum, behind the client's own `data.size() == dlc_to_bytes(dlc)`
-    // pre-check.  That makes the guard defense in depth: a longer payload is
-    // intercepted by the client first, so the guard is only ever reached at
-    // exactly the maximum, where it must pass.  Mutating its comparison flips
-    // that boundary call from accept to reject, and these calls, one per
-    // method that reaches the guard, are what kill those mutants: the
-    // streaming send, the binary extraction for an identifier the DBC knows,
-    // the JSON extraction for one it does not, and the frame update.  Two of
-    // them report by throwing and two by returning an unexpected value; the
-    // helper below covers both.  Per the no-defense-removal rule the guard
-    // stays: this is the complement that proves it accepts the legal
-    // maximum.
+    // `payload_length_error`, which refuses a payload whose length is not the
+    // byte count its DLC names, behind the client's own check of the same
+    // rule.  That makes the guard defense in depth: through the client it is
+    // only ever reached at exactly the DLC's length, where it must pass.
+    // Mutating its comparison flips that call from accept to reject, and these
+    // calls, one per method that reaches the guard, are what kill those
+    // mutants: the streaming send, the binary extraction for an identifier the
+    // DBC knows, the JSON extraction for one it does not, and the frame
+    // update.  Two of them report by throwing and two by returning an
+    // unexpected value; the helper below covers both.  Per the
+    // no-defense-removal rule the guard stays: this is the complement that
+    // proves it accepts the legal length, at the largest DLC.
     auto const lib = find_lib();
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
@@ -1137,20 +1196,20 @@ TEST_CASE("FFI payload guards accept exactly 64 bytes (CAN-FD boundary)",
     const std::vector<SignalValue> signals{
         {.name = SignalName{"Speed"}, .value = PhysicalValue{Rational{100, 1}}}};
 
-    auto const mentions_exceeds = [](std::string_view msg) {
-        return msg.contains("data length exceeds");
+    auto const mentions_mismatch = [](std::string_view msg) {
+        return msg.contains("does not match DLC");
     };
-    // A 64-byte call must NOT produce the >64 guard error, whether the guard
-    // reports by throwing or by returning std::unexpected.  The original
-    // passes the guard (any non-exceeds outcome is fine); both mutants reject
-    // with "data length exceeds …", failing the check.
+    // A 64-byte call at DLC 15 must NOT produce the guard's error, whether
+    // the guard reports by throwing or by returning std::unexpected.  The
+    // original passes the guard (any other outcome is fine); a mutant
+    // rejecting the exact length fails the check.
     auto const accepts_64 = [&](auto&& call) {
         try {
             auto result = call();
             if (!result.has_value())
-                CHECK_FALSE(mentions_exceeds(result.error().message()));
+                CHECK_FALSE(mentions_mismatch(result.error().message()));
         } catch (const AletheiaException& e) {
-            CHECK_FALSE(mentions_exceeds(e.what()));
+            CHECK_FALSE(mentions_mismatch(e.what()));
         }
     };
 

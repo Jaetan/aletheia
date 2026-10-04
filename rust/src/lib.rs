@@ -774,8 +774,8 @@ impl Client {
     /// properties — violations include enrichment when diagnostics are loaded.
     ///
     /// # Errors
-    /// [`Error::Validation`] if the payload exceeds the CAN-FD maximum, else
-    /// [`Error::Core`] / [`Error::Protocol`].
+    /// [`Error::Validation`] if the payload length does not match the DLC,
+    /// else [`Error::Core`] / [`Error::Protocol`].
     pub fn send_frame(
         &self,
         ts: Timestamp,
@@ -879,8 +879,8 @@ impl Client {
     /// (binary FFI), independent of streaming.
     ///
     /// # Errors
-    /// [`Error::Validation`] if the payload exceeds the CAN-FD maximum, else
-    /// [`Error::Core`] / [`Error::Protocol`].
+    /// [`Error::Validation`] if the payload length does not match the DLC,
+    /// else [`Error::Core`] / [`Error::Protocol`].
     pub fn extract_signals(
         &self,
         id: CanId,
@@ -956,8 +956,8 @@ impl Client {
     ///
     /// # Errors
     /// [`Error::Validation`] if a signal name is not in `message` or there are more
-    /// injections than `u32::MAX`; [`Error::Protocol`] if the core rejects a value
-    /// (out of range / not representable at the signal's scale).
+    /// injections than `u32::MAX`; [`Error::Core`] carrying the core's code if it
+    /// rejects a value (out of range / not representable at the signal's scale).
     pub fn build_frame(
         &self,
         message: &DbcMessage,
@@ -984,7 +984,7 @@ impl Client {
     /// # Errors
     /// [`Error::Validation`] for an unknown signal, more than `u32::MAX`
     /// injections, or a `frame` whose length does not match `dlc`;
-    /// [`Error::Protocol`] if the core rejects the update.
+    /// [`Error::Core`] carrying the core's code if it rejects the update.
     pub fn update_frame(
         &self,
         message: &DbcMessage,

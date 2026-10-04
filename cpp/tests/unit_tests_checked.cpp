@@ -16,7 +16,9 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
+using aletheia::detail::c_string_view;
 using aletheia::detail::error_of;
 using aletheia::detail::subspan_at;
 
@@ -56,4 +58,11 @@ TEST_CASE("subspan_at slices any element type", "[checked]") {
     const std::span<const char> all{chars};
     CHECK(subspan_at(all, 1, 1).front() == 'b');
     CHECK_THROWS_AS(subspan_at(all, 1, 2), std::out_of_range);
+}
+
+TEST_CASE("c_string_view reads a C string's text and refuses null", "[checked]") {
+    CHECK(c_string_view("text") == std::string_view{"text"});
+    CHECK(c_string_view("").empty());
+    CHECK_THROWS_MATCHES(c_string_view(nullptr), std::logic_error,
+                         Catch::Matchers::Message("read the text of a null C string"));
 }

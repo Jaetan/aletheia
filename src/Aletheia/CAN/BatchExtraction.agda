@@ -31,7 +31,7 @@ open import Aletheia.Error using
   ( FrameError; CANIdNotFound; SignalNotFound; SignalValueOutOfBounds
   ; formatFrameError; ExtractionErr; formatError
   ; ExtractionError; MuxValueMismatch; MuxSignalNotFound; MuxChainCycle
-  ; MuxExtractionFailed; BitExtractionFailed; ValueExceedsWireRange; InContext
+  ; MuxExtractionFailed; ValueExceedsWireRange; InContext
   ; formatExtractionError
   )
 -- The error and its wire code share a name for this condition, as they do for
@@ -183,7 +183,6 @@ extractionErrorToCode (PastFrameEndError _)   = SignalPastFrameEnd
 extractionErrorToCode (MuxSignalNotFound _)   = MuxSignalNotFound
 extractionErrorToCode MuxChainCycle           = MuxChainCycle
 extractionErrorToCode (MuxExtractionFailed _) = MuxExtractionFailed
-extractionErrorToCode (BitExtractionFailed _) = BitExtractionFailed
 extractionErrorToCode ValueExceedsWireRange   = ValueExceedsWireRange
 extractionErrorToCode (InContext _ inner)     = extractionErrorToCode inner
 
@@ -229,3 +228,9 @@ extractAllSignalsIndexed : ∀ {n} → DBC → CANFrame n → FrameError ⊎ Ind
 extractAllSignalsIndexed dbc frame with findMessageById (CANFrame.id frame) dbc
 ... | nothing = inj₁ CANIdNotFound
 ... | just msg = inj₂ (extractAllSignalsIndexedFromMessage frame msg)
+
+-- The wire code of `ValueExceedsWireRange`, read by the binary encoder that
+-- reroutes an out-of-range value, so the shim names a number rather than
+-- building a kernel value.
+valueExceedsWireRangeCode : ℕ
+valueExceedsWireRangeCode = extractionErrorCodeToℕ ValueExceedsWireRange

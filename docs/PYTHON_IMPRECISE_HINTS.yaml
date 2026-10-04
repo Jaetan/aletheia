@@ -812,10 +812,10 @@ hints:
     count: 1
   - file: python/aletheia/limits.py
     text: "Final[int]"
-    count: 13
+    count: 12
   - file: python/aletheia/limits.py
     text: "Final[str]"
-    count: 9
+    count: 8
   - file: python/aletheia/types.py
     text: "NotRequired[int]"
     count: 3
@@ -2525,21 +2525,6 @@ hints:
     count: 10
   - file: tools/check_bench_schema.py
     text: "tuple[list[str], list[str]]"
-    count: 1
-  - file: tools/check_bound_enforcement.py
-    text: "dict[Path, int]"
-    count: 2
-  - file: tools/check_bound_enforcement.py
-    text: "dict[str, int]"
-    count: 1
-  - file: tools/check_bound_enforcement.py
-    text: "int"
-    count: 1
-  - file: tools/check_bound_enforcement.py
-    text: "list[str]"
-    count: 3
-  - file: tools/check_bound_enforcement.py
-    text: "str"
     count: 1
   - file: tools/check_build_incremental.py
     text: "bytes"

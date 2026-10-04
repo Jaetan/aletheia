@@ -27,7 +27,7 @@ open import Aletheia.Protocol.Routing using (parseCommand)
 open import Aletheia.Protocol.StreamState using (StreamState)
 open import Aletheia.Protocol.Handlers using (processStreamCommand)
 open import Aletheia.Error using
-  ( DispatchErr
+  ( DispatchErr; RouteErr
   ; InputBoundExceeded
   ; MissingTypeField; UnknownMessageType; InvalidJSON; RequestNotObject
   )
@@ -39,14 +39,10 @@ open import Aletheia.Main.Binary using (wrapJSON)
 import Aletheia.Protocol.Message as Msg
 
 private
-  -- Try to parse and execute a command from JSON fields.  parseCommand
-  -- returns `Error ⊎ StreamCommand` (the return type accommodates the
-  -- typed `InputBoundExceeded FrameByteCount …` emit at
-  -- `parseBytePayload`); the legacy RouteError
-  -- branches arrive pre-wrapped via `RouteErr`.
+  -- Try to parse and execute a command from JSON fields.
   tryParseCommand : StreamState → List (String × JSON) → StreamState × String
   tryParseCommand state obj with parseCommand obj
-  ... | inj₁ err = wrapJSON (state , Msg.Response.Error err)
+  ... | inj₁ err = wrapJSON (state , Msg.Response.Error (RouteErr err))
   ... | inj₂ cmd = wrapJSON (processStreamCommand cmd state)
 
   -- Dispatch by message type field

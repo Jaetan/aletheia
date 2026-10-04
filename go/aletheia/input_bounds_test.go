@@ -97,10 +97,9 @@ func TestInputBoundExceededError_Shape(t *testing.T) {
 // set: a kind the binding declares and this map omits would go unchecked.
 func TestLimits_Constants(t *testing.T) {
 	limits := map[string]struct{ got, want uint64 }{
-		"MaxJSONBytes":      {uint64(MaxJSONBytes), 64 * 1024 * 1024},
-		"MaxDBCTextBytes":   {uint64(MaxDBCTextBytes), 64 * 1024 * 1024},
-		"MaxNestingDepth":   {uint64(MaxNestingDepth), 64},
-		"MaxFrameByteCount": {uint64(MaxFrameByteCount), 64},
+		"MaxJSONBytes":    {uint64(MaxJSONBytes), 64 * 1024 * 1024},
+		"MaxDBCTextBytes": {uint64(MaxDBCTextBytes), 64 * 1024 * 1024},
+		"MaxNestingDepth": {uint64(MaxNestingDepth), 64},
 	}
 	for name, tc := range limits {
 		t.Run(name, func(t *testing.T) {
@@ -117,7 +116,6 @@ func TestLimits_Constants(t *testing.T) {
 		BoundKindIdentifierLength:           "identifier_length",
 		BoundKindStringLength:               "string_length",
 		BoundKindAtomCount:                  "atom_count",
-		BoundKindFrameByteCount:             "frame_byte_count",
 		BoundKindPropertyCount:              "property_count",
 		BoundKindRationalComponentMagnitude: "rational_component_magnitude",
 	}
@@ -126,8 +124,8 @@ func TestLimits_Constants(t *testing.T) {
 			t.Errorf("bound kind %q should spell %q", got, want)
 		}
 	}
-	if len(kinds) != 9 {
-		t.Errorf("the roster holds %d kinds; the binding declares nine", len(kinds))
+	if len(kinds) != 8 {
+		t.Errorf("the roster holds %d kinds; the binding declares eight", len(kinds))
 	}
 }
 

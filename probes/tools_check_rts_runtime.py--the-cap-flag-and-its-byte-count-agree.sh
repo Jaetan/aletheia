@@ -58,6 +58,9 @@ for (flag, size), refused in cases.items():
     if (said is not None) != refused:
         wrong.append(f"{flag} over {size} bytes: the check said {said!r}")
 gate.DEFAULT_YAML_PATH = Path(sys.argv[1])
+# The gate parses its argument list and takes none, so it is run as the
+# command line runs it, with the scratch path this script was handed removed.
+sys.argv[1:] = []
 with contextlib.redirect_stderr(io.StringIO()) as said:
     status = gate.main()
 if status != 1 or "runtime.heap_cap.bytes says 2147483648" not in said.getvalue():

@@ -7,9 +7,9 @@
 // live shared library. The branches fire on process-global runtime state or on
 // a non-zero return from the kernel, which is why they live in pure helpers
 // rather than inline in the backend: here they are reachable. The error helper
-// is driven with a record-only mock free function, the buffers being
-// stack-allocated, so the mock records whether it was called and with what and
-// never frees.
+// is driven with a record-only mock free function, the buffers being the
+// test's own strings, so the mock records whether it was called and with what
+// and never frees.
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -32,7 +32,7 @@ using namespace aletheia;
 
 // AletheiaFreeStrFn is a C function pointer (void(*)(char*)); a capturing lambda
 // cannot bind to it, so the mock is a free function over file-scope state.  It
-// records the call but NEVER frees (the buffers below live on the stack).
+// records the call but NEVER frees (the buffers below are the tests' own).
 static auto free_calls() -> int& {
     static int calls = 0;
     return calls;
@@ -116,19 +116,87 @@ TEST_CASE("ffi_error_from_status: status 0 is success, frees nothing", "[ffi][lo
     CHECK(free_calls() == 0);
 }
 
-TEST_CASE("ffi_error_from_status: non-zero status with message uses it and frees",
+TEST_CASE("ffi_error_from_status: non-zero status decodes the envelope's code and message, frees",
           "[ffi][logic][error]") {
     reset_free();
-    std::string buf = "boom"; // mutable: buf.data() binds to char*
+    // mutable: buf.data() binds to char*
+    std::string buf =
+        R"({"status": "error", "code": "handler_no_dbc", "message": "no DBC loaded"})";
     auto err = detail::ffi_error_from_status(1, buf.data(), mock_free);
     REQUIRE(err.has_value());
     CHECK(err->kind() == ErrorKind::Protocol);
-    // Kills the ternary `err_str != nullptr ? err_str : "Unknown error"` → `==`:
-    // an == mutant would pick "Unknown error" even with a real message.
-    CHECK(std::string{err->message()} == "boom");
-    // Kills the free guard `err_str != nullptr` → `==`: an == mutant skips the free.
+    CHECK(err->code() == ErrorCode::HandlerNoDbc);
+    // The message is the envelope's, not the envelope, and not the fallback a
+    // null message reads as.
+    CHECK(std::string{err->message()} == "no DBC loaded");
+    // The envelope is released once, after it is decoded.
     CHECK(free_calls() == 1);
     CHECK(last_freed() == buf.data());
+}
+
+TEST_CASE("ffi_error_from_status: the shim's own refusal keeps its message under no known code",
+          "[ffi][logic][error]") {
+    // The shim's refusals carry a code the kernel's vocabulary does not hold,
+    // which decodes as the JSON path decodes it.
+    reset_free();
+    std::string buf = R"({"status":"error","code":"ffi_validation_error",)"
+                      R"("message":"aletheia_build_frame_bin: null out buffer"})";
+    auto err = detail::ffi_error_from_status(1, buf.data(), mock_free);
+    REQUIRE(err.has_value());
+    CHECK(err->kind() == ErrorKind::Protocol);
+    CHECK(err->code() == ErrorCode::Unknown);
+    CHECK(std::string{err->message()} == "aletheia_build_frame_bin: null out buffer");
+    CHECK(free_calls() == 1);
+}
+
+TEST_CASE("ffi_error_from_status: an input-bound envelope carries its kind and its triple",
+          "[ffi][logic][error]") {
+    reset_free();
+    std::string buf = R"({"status":"error","code":"input_bound_exceeded",)"
+                      R"("message":"array cardinality 2000 exceeds limit 1024",)"
+                      R"("bound_kind":"array_cardinality","observed":2000,"limit":1024})";
+    auto err = detail::ffi_error_from_status(1, buf.data(), mock_free);
+    REQUIRE(err.has_value());
+    CHECK(err->kind() == ErrorKind::InputBoundExceeded);
+    CHECK(err->code() == ErrorCode::InputBoundExceeded);
+    REQUIRE(err->bound_info().has_value());
+    CHECK(err->bound_info()->bound_kind == "array_cardinality");
+    CHECK(err->bound_info()->observed == 2000);
+    CHECK(err->bound_info()->limit == 1024);
+    CHECK(free_calls() == 1);
+}
+
+TEST_CASE("ffi_error_from_status: an error that is not an error envelope is a protocol fault",
+          "[ffi][logic][error]") {
+    reset_free();
+    SECTION("text that does not parse") {
+        std::string buf = "boom";
+        auto err = detail::ffi_error_from_status(1, buf.data(), mock_free);
+        REQUIRE(err.has_value());
+        CHECK(err->kind() == ErrorKind::Protocol);
+        CHECK(err->code() == ErrorCode::Unknown);
+        CHECK(std::string_view{err->message()}.starts_with("Malformed error envelope boom: "));
+        CHECK(free_calls() == 1);
+    }
+    SECTION("an envelope whose status is not error") {
+        std::string buf = R"({"status":"success","code":"handler_no_dbc","message":"m"})";
+        auto err = detail::ffi_error_from_status(1, buf.data(), mock_free);
+        REQUIRE(err.has_value());
+        CHECK(err->kind() == ErrorKind::Protocol);
+        CHECK(err->code() == ErrorCode::Unknown);
+        CHECK(std::string{err->message()} == "Error envelope without status \"error\": " + buf);
+        CHECK(free_calls() == 1);
+    }
+    SECTION("an envelope without its message") {
+        std::string buf = R"({"status":"error","code":"handler_no_dbc"})";
+        auto err = detail::ffi_error_from_status(1, buf.data(), mock_free);
+        REQUIRE(err.has_value());
+        CHECK(err->kind() == ErrorKind::Protocol);
+        CHECK(err->code() == ErrorCode::Unknown);
+        CHECK(std::string{err->message()} ==
+              "Error response missing or non-string 'message' field");
+        CHECK(free_calls() == 1);
+    }
 }
 
 TEST_CASE("ffi_error_from_status: non-zero status without message falls back, frees nothing",
@@ -138,7 +206,7 @@ TEST_CASE("ffi_error_from_status: non-zero status without message falls back, fr
     REQUIRE(err.has_value());
     CHECK(err->kind() == ErrorKind::Protocol);
     CHECK(std::string{err->message()} == "Unknown error");
-    // Kills the free guard `err_str != nullptr` → `==`: an == mutant frees the null pointer.
+    // A null envelope is never decoded and never reaches the deleter.
     CHECK(free_calls() == 0);
 }
 

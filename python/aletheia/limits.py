@@ -34,7 +34,6 @@ BOUND_KIND_ARRAY_CARDINALITY: Final[str] = "array_cardinality"
 BOUND_KIND_IDENTIFIER_LENGTH: Final[str] = "identifier_length"
 BOUND_KIND_STRING_LENGTH: Final[str] = "string_length"
 BOUND_KIND_ATOM_COUNT: Final[str] = "atom_count"
-BOUND_KIND_FRAME_BYTE_COUNT: Final[str] = "frame_byte_count"
 BOUND_KIND_PROPERTY_COUNT: Final[str] = "property_count"
 BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE: Final[str] = "rational_component_magnitude"
 
@@ -76,9 +75,6 @@ MAX_ATOM_COUNT_PER_PROPERTY: Final[int] = 1024
 # src/Aletheia/Limits.agda.
 MAX_PROPERTIES_PER_STREAM: Final[int] = 1024
 
-# CAN frame payload byte count (CAN-FD maximum).
-MAX_FRAME_BYTE_COUNT: Final[int] = 64
-
 # Magnitude cap on a JSON number's rational components (|numerator| and
 # denominator of the exact rational it denotes): the signed 64-bit wire
 # range shared with the binary FFI's rational slots and the decimal SSOT.
@@ -88,7 +84,6 @@ MAX_RATIONAL_COMPONENT_MAGNITUDE: Final[int] = 9223372036854775807
 __all__ = [
     "BOUND_KIND_ARRAY_CARDINALITY",
     "BOUND_KIND_ATOM_COUNT",
-    "BOUND_KIND_FRAME_BYTE_COUNT",
     "BOUND_KIND_IDENTIFIER_LENGTH",
     "BOUND_KIND_INPUT_LENGTH_BYTES",
     "BOUND_KIND_NESTING_DEPTH",
@@ -98,7 +93,6 @@ __all__ = [
     "MAX_ATOM_COUNT_PER_PROPERTY",
     "MAX_ATTRIBUTES_PER_FILE",
     "MAX_DBC_TEXT_BYTES",
-    "MAX_FRAME_BYTE_COUNT",
     "MAX_IDENTIFIER_LENGTH",
     "MAX_JSON_BYTES",
     "MAX_MESSAGES_PER_FILE",

@@ -16,6 +16,7 @@ module Aletheia.CAN.BatchFrameBuilding where
 
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.Encoding using (injectSignal)
+open import Aletheia.CAN.Endianness using (replicate-below256)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; signalNameStr)
 open import Aletheia.DBC.Decidable using (signalPhysicalBits; Intersects; bitsIntersect₀)
@@ -198,7 +199,9 @@ validateAndBuild canId dlc defs
 ...   | false = injectAll emptyFrame defs >>=ₑ λ finalFrame → inj₂ (CANFrame.payload finalFrame)
   where
     emptyFrame : CANFrame (dlcBytes dlc)
-    emptyFrame = record { id = canId ; dlc = dlc ; payload = Vec.replicate (dlcBytes dlc) 0 }
+    emptyFrame = record
+      { id = canId ; dlc = dlc ; payload = Vec.replicate (dlcBytes dlc) 0
+      ; below256 = replicate-below256 (dlcBytes dlc) }
 
 -- ============================================================================
 -- GENERIC FRAME BUILDING AND UPDATING

@@ -54,6 +54,11 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"parse_invalid_identifier", ErrorCode::ParseInvalidIdentifier},
     {"parse_non_integer_multiplex_value", ErrorCode::ParseNonIntegerMultiplexValue},
     {"parse_non_natural_field", ErrorCode::ParseNonNaturalField},
+    {"parse_dlc_code_out_of_range", ErrorCode::ParseDlcCodeOutOfRange},
+    {"parse_payload_length_mismatch", ErrorCode::ParsePayloadLengthMismatch},
+    {"parse_payload_byte_out_of_range", ErrorCode::ParsePayloadByteOutOfRange},
+    {"parse_non_positive_denominator", ErrorCode::ParseNonPositiveDenominator},
+    {"parse_signal_array_length_mismatch", ErrorCode::ParseSignalArrayLengthMismatch},
     // DBC text parse errors
     {"dbc_text_parse_failure", ErrorCode::DBCTextParseFailure},
     {"dbc_text_trailing_input", ErrorCode::DBCTextTrailingInput},
@@ -71,12 +76,8 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"input_bound_exceeded", ErrorCode::InputBoundExceeded},
     // Route errors
     {"route_missing_field", ErrorCode::RouteMissingField},
-    {"route_missing_array", ErrorCode::RouteMissingArray},
     {"route_unknown_command", ErrorCode::RouteUnknownCommand},
     {"route_missing_command_field", ErrorCode::RouteMissingCommandField},
-    {"route_dlc_exceeds_max", ErrorCode::RouteDlcExceedsMax},
-    {"route_byte_array_parse_failed", ErrorCode::RouteByteArrayParseFailed},
-    {"route_byte_count_mismatch", ErrorCode::RouteByteCountMismatch},
     {"route_missing_dbc_field", ErrorCode::RouteMissingDbcField},
     {"route_missing_props_field", ErrorCode::RouteMissingPropsField},
     // Handler errors
@@ -86,7 +87,6 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"handler_stream_not_started", ErrorCode::HandlerStreamNotStarted},
     {"handler_stream_active", ErrorCode::HandlerStreamActive},
     {"handler_property_parse_failed", ErrorCode::HandlerPropertyParseFailed},
-    {"handler_invalid_dlc_code", ErrorCode::HandlerInvalidDlcCode},
     {"handler_validation_failed", ErrorCode::HandlerValidationFailed},
     {"handler_text_roundtrip_failed", ErrorCode::HandlerTextRoundtripFailed},
     {"handler_non_monotonic_timestamp", ErrorCode::HandlerNonMonotonicTimestamp},
@@ -101,7 +101,6 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     {"extraction_mux_signal_not_found", ErrorCode::ExtractionMuxSignalNotFound},
     {"extraction_mux_chain_cycle", ErrorCode::ExtractionMuxChainCycle},
     {"extraction_mux_extraction_failed", ErrorCode::ExtractionMuxExtractionFailed},
-    {"extraction_bit_extraction_failed", ErrorCode::ExtractionBitExtractionFailed},
     {"extraction_value_exceeds_wire_range", ErrorCode::ExtractionValueExceedsWireRange},
 });
 
@@ -356,6 +355,22 @@ auto decimal_refusal(std::string_view envelope) -> AletheiaError {
     }
     return make_error(ErrorKind::Validation,
                       j.value("message", std::string{"invalid decimal literal"}));
+}
+
+// Decode a binary-output entry's refusal envelope (declared in detail/json.hpp)
+// with the JSON path's own `make_json_error`, so the code, the message and any
+// structured fields surface as they do on a JSON response.
+auto binary_refusal(std::string_view envelope) -> AletheiaError {
+    try {
+        auto const j = parse_bounded(envelope);
+        if (j.value("status", "") != "error")
+            return make_error(ErrorKind::Protocol,
+                              "Error envelope without status \"error\": " + std::string{envelope});
+        return make_json_error(ErrorKind::Protocol, j);
+    } catch (const std::exception& e) {
+        return make_error(ErrorKind::Protocol,
+                          "Malformed error envelope " + std::string{envelope} + ": " + e.what());
+    }
 }
 
 // Agda emits an exact rational as an integer or as

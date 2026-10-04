@@ -19,6 +19,7 @@ from aletheia import (
     MockBackend,
     Signal,
     StateError,
+    ValidationError,
 )
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.types import DBCDefinition, DLCCode
@@ -59,6 +60,53 @@ def test_ffibackend_null_handles_yield_clean_error_not_segfault() -> None:
         assert b"null state handle" in backend.process(0, b'{"command":"validateDBC","dbc":""}')
         # … and via a second entry point (aletheia_format_dbc → runJSON).
         assert b"null state handle" in backend.format_dbc_binary(0)
+    finally:
+        backend.close(state)
+
+
+def test_ffibackend_refuses_a_payload_other_than_the_dlc_byte_count() -> None:
+    """Every entry that carries a payload refuses a length its DLC does not name.
+
+    The frame's ``data_len`` is a ``uint8_t`` and ctypes narrows silently, so a
+    264-byte payload against DLC 8 would cross as 8 bytes and read as a valid
+    frame.  The backend holds the exact rule before the call, as each binding's
+    backend does, so a caller of the backend alone is refused too.
+    """
+    backend = FFIBackend()
+    state = backend.init()
+    try:
+        for data in (bytes(7), bytes(9), bytes(264)):
+            with pytest.raises(ValidationError, match="does not match DLC"):
+                _ = backend.send_frame_binary(
+                    state,
+                    timestamp=0,
+                    can_id=0x100,
+                    extended=False,
+                    dlc=8,
+                    data=data,
+                    brs=None,
+                    esi=None,
+                )
+            with pytest.raises(ValidationError, match="does not match DLC"):
+                _ = backend.extract_signals_binary(
+                    state, can_id=0x100, extended=False, dlc=8, data=data
+                )
+            with pytest.raises(ValidationError, match="does not match DLC"):
+                _ = backend.extract_signals_bin(
+                    state, can_id=0x100, extended=False, dlc=8, data=data
+                )
+            with pytest.raises(ValidationError, match="does not match DLC"):
+                _ = backend.update_frame_bin(
+                    state,
+                    can_id=0x100,
+                    extended=False,
+                    dlc=8,
+                    data=data,
+                    indices=(0,),
+                    numerators=(1,),
+                    denominators=(1,),
+                    expected_bytes=8,
+                )
     finally:
         backend.close(state)
 

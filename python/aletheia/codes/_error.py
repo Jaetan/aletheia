@@ -47,6 +47,11 @@ class ErrorCode(StrEnum):
     PARSE_INVALID_IDENTIFIER = "parse_invalid_identifier"
     PARSE_NON_INTEGER_MULTIPLEX_VALUE = "parse_non_integer_multiplex_value"
     PARSE_NON_NATURAL_FIELD = "parse_non_natural_field"
+    PARSE_DLC_CODE_OUT_OF_RANGE = "parse_dlc_code_out_of_range"
+    PARSE_PAYLOAD_LENGTH_MISMATCH = "parse_payload_length_mismatch"
+    PARSE_PAYLOAD_BYTE_OUT_OF_RANGE = "parse_payload_byte_out_of_range"
+    PARSE_NON_POSITIVE_DENOMINATOR = "parse_non_positive_denominator"
+    PARSE_SIGNAL_ARRAY_LENGTH_MISMATCH = "parse_signal_array_length_mismatch"
     # DBC text parse errors
     DBC_TEXT_PARSE_FAILURE = "dbc_text_parse_failure"
     DBC_TEXT_TRAILING_INPUT = "dbc_text_trailing_input"
@@ -67,12 +72,8 @@ class ErrorCode(StrEnum):
     INPUT_BOUND_EXCEEDED = "input_bound_exceeded"
     # Route errors
     ROUTE_MISSING_FIELD = "route_missing_field"
-    ROUTE_MISSING_ARRAY = "route_missing_array"
     ROUTE_UNKNOWN_COMMAND = "route_unknown_command"
     ROUTE_MISSING_COMMAND_FIELD = "route_missing_command_field"
-    ROUTE_DLC_EXCEEDS_MAX = "route_dlc_exceeds_max"
-    ROUTE_BYTE_ARRAY_PARSE_FAILED = "route_byte_array_parse_failed"
-    ROUTE_BYTE_COUNT_MISMATCH = "route_byte_count_mismatch"
     ROUTE_MISSING_DBC_FIELD = "route_missing_dbc_field"
     ROUTE_MISSING_PROPS_FIELD = "route_missing_props_field"
     # Handler errors
@@ -82,7 +83,6 @@ class ErrorCode(StrEnum):
     HANDLER_STREAM_NOT_STARTED = "handler_stream_not_started"
     HANDLER_STREAM_ACTIVE = "handler_stream_active"
     HANDLER_PROPERTY_PARSE_FAILED = "handler_property_parse_failed"
-    HANDLER_INVALID_DLC_CODE = "handler_invalid_dlc_code"
     HANDLER_VALIDATION_FAILED = "handler_validation_failed"
     HANDLER_TEXT_ROUNDTRIP_FAILED = "handler_text_roundtrip_failed"
     HANDLER_NON_MONOTONIC_TIMESTAMP = "handler_non_monotonic_timestamp"
@@ -97,7 +97,6 @@ class ErrorCode(StrEnum):
     EXTRACTION_MUX_SIGNAL_NOT_FOUND = "extraction_mux_signal_not_found"
     EXTRACTION_MUX_CHAIN_CYCLE = "extraction_mux_chain_cycle"
     EXTRACTION_MUX_EXTRACTION_FAILED = "extraction_mux_extraction_failed"
-    EXTRACTION_BIT_EXTRACTION_FAILED = "extraction_bit_extraction_failed"
     EXTRACTION_VALUE_EXCEEDS_WIRE_RANGE = "extraction_value_exceeds_wire_range"
 
 

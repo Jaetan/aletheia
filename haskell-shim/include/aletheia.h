@@ -77,6 +77,11 @@ struct aletheia_text {
 /*
  * One CAN frame.
  *
+ * The kernel decides every rule below and refuses a frame breaking one with
+ * its typed code: an identifier out of range (parse_std_can_id_out_of_range,
+ * parse_ext_can_id_out_of_range), a DLC above 15 (parse_dlc_code_out_of_range),
+ * a data_len that is not the DLC's byte count (parse_payload_length_mismatch).
+ *
  * timestamp    Microseconds. Read by the three trace-event entries,
  *              aletheia_send_frame, aletheia_send_remote and aletheia_send_error.
  * data         Payload in bus order (data[0] is the first byte on the bus,
@@ -112,8 +117,9 @@ struct aletheia_frame {
 
 /*
  * Signal values to write into a frame: count parallel entries, each a DBC
- * signal index and the exact rational numerators[i] / denominators[i]. Each
- * array may be NULL only when count is 0.
+ * signal index and the exact rational numerators[i] / denominators[i], each
+ * denominator positive (parse_non_positive_denominator otherwise). Each array
+ * may be NULL only when count is 0.
  */
 struct aletheia_signal_values {
     const uint32_t *indices;
@@ -131,10 +137,12 @@ struct aletheia_signal_values {
  * aletheia_extract_signals_bin allocates: on success data points at size
  * bytes the caller frees with aletheia_free_buf.
  *
- * On failure every entry sets err to a message the caller frees with
- * aletheia_free_str, and leaves data and size as they were. A NULL frame or
- * signal values is such a failure; a NULL buffer, which has no err to set,
- * returns 1 with nothing written.
+ * On failure every entry sets err to a JSON error envelope, as every other
+ * entry answers ({"status": "error", "code": ..., "message": ...}), which the
+ * caller frees with aletheia_free_str, and leaves data and size as they were.
+ * The code is the kernel's typed refusal, or ffi_validation_error for a NULL
+ * frame or signal values, or a buffer smaller than the frame the kernel built.
+ * A NULL buffer, which has no err to set, returns 1 with nothing written.
  */
 struct aletheia_buffer {
     uint8_t *data;
@@ -260,7 +268,7 @@ char *aletheia_process(void *state, const struct aletheia_text *input);
  *
  * Thread safety: Same as aletheia_process() — one thread per state handle.
  *
- * Requires streaming mode (startStream command via aletheia_process() first).
+ * Requires streaming mode (aletheia_start_stream() first).
  */
 char *aletheia_send_frame(void *state, const struct aletheia_frame *frame);
 

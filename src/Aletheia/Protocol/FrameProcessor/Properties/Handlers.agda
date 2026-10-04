@@ -35,7 +35,7 @@ open import Aletheia.Protocol.Iteration using (iterate)
 open import Aletheia.Protocol.FrameProcessor.Properties.Step
     using (handleDataFrame-ack-sound)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
-open import Aletheia.CAN.DLC using ()
+open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.Protocol.StreamState using (handleDataFrame; checkMonotonic; Streaming)
 open import Data.List using (List; [])
 open import Data.Sum using (inj₁; inj₂)
@@ -87,9 +87,9 @@ processFrameDirect-ack-sound-json dbc props prev cache tf mono fmt-eq =
 -- Extract and formatDBC handlers never modify StreamState.  The proof
 -- case-splits on getDBC (withDBC pattern).
 
-handleExtractAllSignals-preserves-state : ∀ canId dlc bytes state
-  → proj₁ (handleExtractAllSignals canId dlc bytes state) ≡ state
-handleExtractAllSignals-preserves-state canId dlc bytes state
+handleExtractAllSignals-preserves-state : ∀ {n} (frame : CANFrame n) state
+  → proj₁ (handleExtractAllSignals frame state) ≡ state
+handleExtractAllSignals-preserves-state frame state
   with getDBC state
 ... | nothing = refl
 ... | just _  = refl

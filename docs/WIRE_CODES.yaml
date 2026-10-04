@@ -212,6 +212,21 @@ error_codes:
   - name: parse_non_natural_field
     description: A field is present but its value is not a JSON natural number.
 
+  - name: parse_dlc_code_out_of_range
+    description: A frame's DLC code exceeds 15.
+
+  - name: parse_payload_length_mismatch
+    description: A frame's payload length is not the byte count its DLC names.
+
+  - name: parse_payload_byte_out_of_range
+    description: A frame's payload byte is 256 or above.
+
+  - name: parse_non_positive_denominator
+    description: A signal value's denominator is zero or negative.
+
+  - name: parse_signal_array_length_mismatch
+    description: The signal-value arrays (indices, numerators, denominators) differ in length.
+
   # extractionErrorCode -- signal extraction on a data frame.
 
   - name: extraction_mux_value_mismatch
@@ -225,9 +240,6 @@ error_codes:
 
   - name: extraction_mux_extraction_failed
     description: Reading the multiplexor signal's own bits failed.
-
-  - name: extraction_bit_extraction_failed
-    description: A bit-level read or scaling step failed.
 
   - name: extraction_value_exceeds_wire_range
     description: The extracted exact value's reduced numerator or denominator exceeds the signed 64-bit binary-wire range.
@@ -266,23 +278,11 @@ error_codes:
   - name: route_missing_field
     description: A command-level required field is missing.
 
-  - name: route_missing_array
-    description: A command expects an array field that is absent.
-
   - name: route_unknown_command
     description: The command value is not recognised.
 
   - name: route_missing_command_field
     description: The request has no command field.
-
-  - name: route_dlc_exceeds_max
-    description: The DLC exceeds the maximum DLC code (15).
-
-  - name: route_byte_array_parse_failed
-    description: The data array could not be parsed as bytes.
-
-  - name: route_byte_count_mismatch
-    description: The data length does not match the DLC's byte count.
 
   - name: route_missing_dbc_field
     description: A DBC command is missing its dbc field.
@@ -309,9 +309,6 @@ error_codes:
 
   - name: handler_property_parse_failed
     description: An LTL property failed to parse.
-
-  - name: handler_invalid_dlc_code
-    description: The DLC is not in the CAN / CAN-FD table.
 
   - name: handler_validation_failed
     description: DBC validation surfaced an error on load; the envelope's issues array carries the full list.

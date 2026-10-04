@@ -24,7 +24,6 @@ open import Data.Nat using (ℕ; suc; _<ᵇ_)
 open import Data.Fin using (Fin; toℕ) renaming (zero to fzero; suc to fsuc)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (Bool; true; false)
-open import Data.Vec using (Vec)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
@@ -40,8 +39,7 @@ open import Aletheia.Protocol.JSON using (JSON)
 open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; ValidateDBC; ParseDBCText; FormatDBCText)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; Warning; mkWarning; UncachedAtom)
 open import Aletheia.Trace.Time using (μs; mkTs)
-open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
-open import Aletheia.CAN.DLC using (DLC; dlcBytes)
+open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.BatchExtraction using (extractAllSignals; PartitionedResults)
 open import Aletheia.Prelude using (require)
 open import Aletheia.Error as Err using
@@ -73,14 +71,6 @@ open import Aletheia.Protocol.Handlers.LoadDBC using (checkDBCBounds; loadValida
 -- ============================================================================
 
 private
-  -- Create frame from bytes, DLC, and message ID
-  makeFrame : ∀ {n} → CANId → DLC → Vec Byte n → CANFrame n
-  makeFrame msgId dlc bytes = record
-    { id = msgId
-    ; dlc = dlc
-    ; payload = bytes
-    }
-
   -- Check DBC is loaded, returning the DBC or NoDBC error
   withDBC : StreamState → HandlerError ⊎ DBC
   withDBC state = require NoDBC (getDBC state)
@@ -289,10 +279,9 @@ handleEndStream state =
   (state , Response.Error (WithContext "EndStream" (HandlerErr NotStreaming)))
 
 -- Extract all signals from a CAN frame
-handleExtractAllSignals : CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc) → StreamState → StreamState × Response
-handleExtractAllSignals canId dlc bytes state = withDBCContext "ExtractAllSignals" state λ dbc →
-  let frame = makeFrame canId dlc bytes
-      results = extractAllSignals dbc frame
+handleExtractAllSignals : ∀ {n} → CANFrame n → StreamState → StreamState × Response
+handleExtractAllSignals frame state = withDBCContext "ExtractAllSignals" state λ dbc →
+  let results = extractAllSignals dbc frame
   in (state , Response.ExtractionResultsResponse
                 (PartitionedResults.values results)
                 (PartitionedResults.errors results)

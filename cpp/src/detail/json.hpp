@@ -70,4 +70,13 @@ namespace aletheia::detail {
 // while direct callers can branch on `.kind()`.
 [[nodiscard]] auto decimal_refusal(std::string_view envelope) -> AletheiaError;
 
+// The error a binary-output entry's refusal envelope carries: the
+// `{"status":"error","code":...,"message":...}` text `aletheia_build_frame_bin`,
+// `aletheia_update_frame_bin` and `aletheia_extract_signals_bin` set as the
+// buffer's error, decoded as a JSON error response is, so the code, the
+// message and the kind surface the same way on both paths (Protocol, unless
+// the code names its own kind).  An envelope that does not parse, or whose
+// status is not "error", is a Protocol error quoting it.
+[[nodiscard]] auto binary_refusal(std::string_view envelope) -> AletheiaError;
+
 } // namespace aletheia::detail

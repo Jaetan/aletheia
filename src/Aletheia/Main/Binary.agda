@@ -5,7 +5,13 @@
 -- Binary entry points (no JSON parsing on input and/or output).
 --
 -- Purpose: Direct binary frame processing, bypassing JSON parsing/serialization.
--- Called from AletheiaFFI.hs with pre-marshalled arguments.
+--
+-- The `*Raw` entries are the ones AletheiaFFI.hs calls.  They take frames and
+-- signal values as the C caller handed them in, as builtins only (ℕ, ℤ,
+-- Bool, List, Maybe), so the shim applies no kernel constructor; they parse
+-- them with `CAN.Frame.Parse`, refusing with the typed `ParseError`, and pass
+-- the parsed values to the typed entries, which the protocol properties are
+-- stated over.
 --
 -- Two categories:
 --   *Direct  — binary input, JSON output (formatJSON on response)
@@ -13,11 +19,12 @@
 --
 -- Wire format (canonical documentation — AletheiaFFI.hs references this):
 --
--- processBuildFrameBin / processUpdateFrameBin:
---   Success: raw frame bytes (Vec Byte n) written to caller-provided buffer.
---   Error:   error string via outErr pointer; return code 1.
+-- processBuildFrameRaw / processUpdateFrameRaw:
+--   Success: the frame's bytes, written to the caller-provided buffer.
+--   Error:   the JSON error envelope (`formatErrorEnvelope`) via the buffer's
+--            error pointer; return code 1.
 --
--- processExtractBin:
+-- processExtractBinRaw:
 --   Success: Haskell-allocated buffer (free with aletheia_free_buf).
 --   Layout (offsets-table variant — every segment start is O(1) arithmetic
 --   from the header; reason i is an O(1) slice):
@@ -35,11 +42,12 @@
 --              Same strings the JSON path formats (shared resultToString;
 --              machine-checked reason-parity).
 --     Absent:  nAbsent × (signal_index:u16) = 2 bytes each
---   Error:   error string via outErr pointer; return code 1.
+--   Error:   the JSON error envelope via the buffer's error pointer; return
+--            code 1.
 --
 -- Byte order: native (platform-dependent; little-endian on x86_64/aarch64).
 -- Multi-byte integers (u16, i64) use the host's native byte order via Haskell's
--- Storable poke. All three language bindings run on the same host, so this is safe.
+-- Storable poke. Every binding runs on the same host, so this is safe.
 --
 -- Timestamp monotonicity enforcement:
 --   handleDataFrame rejects backward timestamps with a NonMonotonicTimestamp
@@ -51,14 +59,17 @@
 --   PROPERTY 28 for the correctness proofs.
 module Aletheia.Main.Binary where
 
+open import Data.Bool using (Bool)
+open import Data.Integer using (ℤ)
 open import Data.String using (String)
 open import Data.Product using (_×_; _,_)
 open import Data.List using (List)
 open import Data.Nat using (ℕ)
 open import Data.Rational using (ℚ)
-open import Data.Vec using (Vec)
-open import Data.Maybe using (nothing; just)
-open import Data.Sum using (_⊎_; inj₁) renaming (map to bimapₑ)
+open import Data.Vec using (Vec; toList)
+open import Data.Maybe using (Maybe; nothing; just)
+open import Data.Sum using (_⊎_; inj₁; inj₂) renaming (map to bimapₑ)
+open import Function.Base using (id)
 
 open import Aletheia.Protocol.JSON using (formatJSON)
 open import Aletheia.Protocol.ResponseFormat using (formatResponse)
@@ -68,16 +79,15 @@ open import Aletheia.Protocol.Handlers using
   ( handleStartStream; handleEndStream; handleFormatDBC
   ; handleExtractAllSignals
   )
-open import Aletheia.Trace.CANTrace using (TimedFrame; TraceEvent)
+open import Aletheia.Trace.CANTrace using (TimedFrame; TraceEvent; Error; Remote)
+open import Aletheia.Trace.Time using (mkTs)
 open import Aletheia.CAN.Frame using (CANId; CANFrame; Byte)
+open import Aletheia.CAN.Frame.Parse using (parseCANId; parseDLC; parseCANFrame; parseTimedFrame; parseSignalValues)
 open import Aletheia.CAN.BatchFrameBuilding using (buildFrameByIndex; updateFrameByIndex)
 open import Aletheia.CAN.BatchExtraction using (IndexedExtractionResults; extractAllSignalsIndexed)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.Prelude using (mapₑ)
-open import Aletheia.Error using
-  ( NoDBC
-  ; formatFrameError; formatHandlerError
-  )
+open import Aletheia.Error using (NoDBC; HandlerErr; FrameErr; ParseErr) renaming (Error to Err)
 import Aletheia.Protocol.Message as Msg
 
 -- Apply formatJSON ∘ formatResponse to the second component of a state-response pair.
@@ -85,16 +95,21 @@ import Aletheia.Protocol.Message as Msg
 wrapJSON : StreamState × Msg.Response → StreamState × String
 wrapJSON (s , r) = (s , formatJSON (formatResponse r))
 
+-- The JSON error envelope a binary-output entry hands back on refusal: the
+-- same `{"status": "error", "code": …}` shape every JSON entry answers with.
+formatErrorEnvelope : Err → String
+formatErrorEnvelope e = formatJSON (formatResponse (Msg.Response.Error e))
+
 -- ============================================================================
 -- DIRECT ENTRY POINTS (binary input, JSON output)
 -- ============================================================================
 
--- Binary entry point: process a pre-parsed data frame.
+-- Process a parsed data frame.
 processFrameDirect : StreamState → TimedFrame → StreamState × String
 {-# NOINLINE processFrameDirect #-}
 processFrameDirect state tf = wrapJSON (handleDataFrame state tf)
 
--- Binary entry point: process a trace event (data, error, or remote frame).
+-- Process a trace event (data, error, or remote frame).
 processEventDirect : StreamState → TraceEvent → StreamState × String
 {-# NOINLINE processEventDirect #-}
 processEventDirect state ev = wrapJSON (handleTraceEvent state ev)
@@ -114,38 +129,108 @@ processFormatDBCDirect : StreamState → StreamState × String
 {-# NOINLINE processFormatDBCDirect #-}
 processFormatDBCDirect state = wrapJSON (handleFormatDBC state)
 
--- Extract all signals from a binary CAN frame (no JSON input parsing)
-processExtractDirect : StreamState → CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc) → StreamState × String
+-- Extract all signals from a parsed frame.
+processExtractDirect : ∀ {n} → StreamState → CANFrame n → StreamState × String
 {-# NOINLINE processExtractDirect #-}
-processExtractDirect state canId dlc payload =
-  wrapJSON (handleExtractAllSignals canId dlc payload state)
+processExtractDirect state frame = wrapJSON (handleExtractAllSignals frame state)
 
 -- ============================================================================
 -- BINARY OUTPUT ENTRY POINTS (binary input, binary output)
 -- ============================================================================
 
--- Common pattern: check for loaded DBC, return error string on missing.
 private
-  withDBCBin : ∀ {A : Set} → StreamState → (DBC → String ⊎ A) → StreamState × (String ⊎ A)
+  -- Check for a loaded DBC; refuse with `NoDBC` when there is none.
+  withDBCBin : ∀ {A : Set} → StreamState → (DBC → Err ⊎ A) → StreamState × (Err ⊎ A)
   withDBCBin state f with getDBC state
-  ... | nothing  = (state , inj₁ (formatHandlerError NoDBC))
+  ... | nothing  = (state , inj₁ (HandlerErr NoDBC))
   ... | just dbc = (state , f dbc)
 
--- Build CAN frame, returning raw bytes instead of JSON-formatted Response.
-processBuildFrameBin : StreamState → CANId → (dlc : DLC) → List (ℕ × ℚ) → StreamState × (String ⊎ Vec Byte (dlcBytes dlc))
+-- Build a frame from signal values, returning its bytes.
+processBuildFrameBin : StreamState → CANId → (dlc : DLC) → List (ℕ × ℚ) → StreamState × (Err ⊎ Vec Byte (dlcBytes dlc))
 {-# NOINLINE processBuildFrameBin #-}
 processBuildFrameBin state canId dlc signals =
-  withDBCBin state λ dbc → mapₑ formatFrameError (buildFrameByIndex dbc canId dlc signals)
+  withDBCBin state λ dbc → mapₑ FrameErr (buildFrameByIndex dbc canId dlc signals)
 
--- Update CAN frame, returning raw bytes instead of JSON-formatted Response.
-processUpdateFrameBin : StreamState → CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc) → List (ℕ × ℚ) → StreamState × (String ⊎ Vec Byte (dlcBytes dlc))
+-- Update a frame's signals, returning its bytes.
+processUpdateFrameBin : ∀ {n} → StreamState → CANFrame n → List (ℕ × ℚ) → StreamState × (Err ⊎ Vec Byte n)
 {-# NOINLINE processUpdateFrameBin #-}
-processUpdateFrameBin state canId dlc payload signals =
-  withDBCBin state λ dbc → bimapₑ formatFrameError CANFrame.payload
-    (updateFrameByIndex dbc canId (record { id = canId ; dlc = dlc ; payload = payload }) signals)
+processUpdateFrameBin state frame signals =
+  withDBCBin state λ dbc → bimapₑ FrameErr CANFrame.payload
+    (updateFrameByIndex dbc (CANFrame.id frame) frame signals)
 
 -- Extract signals returning indexed results (no strings on success path).
-processExtractBin : StreamState → CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc) → StreamState × (String ⊎ IndexedExtractionResults)
+processExtractBin : ∀ {n} → StreamState → CANFrame n → StreamState × (Err ⊎ IndexedExtractionResults)
 {-# NOINLINE processExtractBin #-}
-processExtractBin state canId dlc payload =
-  withDBCBin state λ dbc → mapₑ formatFrameError (extractAllSignalsIndexed dbc (record { id = canId ; dlc = dlc ; payload = payload }))
+processExtractBin state frame =
+  withDBCBin state λ dbc → mapₑ FrameErr (extractAllSignalsIndexed dbc frame)
+
+-- ============================================================================
+-- RAW ENTRY POINTS (what AletheiaFFI.hs calls: builtins in, parsed here)
+-- ============================================================================
+
+-- A data frame as the caller handed it in: timestamp, identifier and its
+-- extended flag, DLC code, payload bytes, and the CAN-FD BRS / ESI bits.
+processFrameRaw : StreamState → (timestamp raw : ℕ) (extended : Bool) (code : ℕ) (bytes : List ℕ) (brs esi : Maybe Bool)
+                → StreamState × String
+{-# NOINLINE processFrameRaw #-}
+processFrameRaw state ts raw ext code bytes brs esi with parseTimedFrame ts raw ext code bytes brs esi
+... | inj₁ e  = wrapJSON (state , Msg.Response.Error (ParseErr e))
+... | inj₂ tf = processFrameDirect state tf
+
+-- An error frame: its timestamp only.
+processErrorFrameRaw : StreamState → (timestamp : ℕ) → StreamState × String
+{-# NOINLINE processErrorFrameRaw #-}
+processErrorFrameRaw state ts = processEventDirect state (Error (mkTs ts))
+
+-- A remote frame: timestamp and identifier.
+processRemoteFrameRaw : StreamState → (timestamp raw : ℕ) (extended : Bool) → StreamState × String
+{-# NOINLINE processRemoteFrameRaw #-}
+processRemoteFrameRaw state ts raw ext with parseCANId raw ext
+... | inj₁ e     = wrapJSON (state , Msg.Response.Error (ParseErr e))
+... | inj₂ canId = processEventDirect state (Remote (mkTs ts) canId)
+
+-- Extract every signal of a frame, answering in JSON.
+processExtractRaw : StreamState → (raw : ℕ) (extended : Bool) (code : ℕ) (bytes : List ℕ) → StreamState × String
+{-# NOINLINE processExtractRaw #-}
+processExtractRaw state raw ext code bytes with parseCANFrame raw ext code bytes
+... | inj₁ e           = wrapJSON (state , Msg.Response.Error (ParseErr e))
+... | inj₂ (_ , frame) = processExtractDirect state frame
+
+private
+  -- The bytes of a binary-output result, as the builtin list the shim reads.
+  asList : ∀ {n} → StreamState × (Err ⊎ Vec Byte n) → StreamState × (Err ⊎ List Byte)
+  asList (state , result) = (state , bimapₑ id toList result)
+
+-- Build a frame from signal values given as parallel arrays.  The
+-- identifier, the DLC and the values are refused in that order.
+processBuildFrameRaw : StreamState → (raw : ℕ) (extended : Bool) (code : ℕ)
+                     → (indices : List ℕ) (numerators denominators : List ℤ)
+                     → StreamState × (Err ⊎ List Byte)
+{-# NOINLINE processBuildFrameRaw #-}
+processBuildFrameRaw state raw ext code is ns ds with parseCANId raw ext
+... | inj₁ e = (state , inj₁ (ParseErr e))
+... | inj₂ canId with parseDLC code
+...   | inj₁ e = (state , inj₁ (ParseErr e))
+...   | inj₂ dlc with parseSignalValues is ns ds
+...     | inj₁ e    = (state , inj₁ (ParseErr e))
+...     | inj₂ sigs = asList (processBuildFrameBin state canId dlc sigs)
+
+-- Update a frame's signals, the frame and the values given raw; the frame
+-- is refused before the values.
+processUpdateFrameRaw : StreamState → (raw : ℕ) (extended : Bool) (code : ℕ) (bytes : List ℕ)
+                      → (indices : List ℕ) (numerators denominators : List ℤ)
+                      → StreamState × (Err ⊎ List Byte)
+{-# NOINLINE processUpdateFrameRaw #-}
+processUpdateFrameRaw state raw ext code bytes is ns ds with parseCANFrame raw ext code bytes
+... | inj₁ e = (state , inj₁ (ParseErr e))
+... | inj₂ (_ , frame) with parseSignalValues is ns ds
+...   | inj₁ e    = (state , inj₁ (ParseErr e))
+...   | inj₂ sigs = asList (processUpdateFrameBin state frame sigs)
+
+-- Extract signals with binary output, the frame given raw.
+processExtractBinRaw : StreamState → (raw : ℕ) (extended : Bool) (code : ℕ) (bytes : List ℕ)
+                     → StreamState × (Err ⊎ IndexedExtractionResults)
+{-# NOINLINE processExtractBinRaw #-}
+processExtractBinRaw state raw ext code bytes with parseCANFrame raw ext code bytes
+... | inj₁ e           = (state , inj₁ (ParseErr e))
+... | inj₂ (_ , frame) = processExtractBin state frame

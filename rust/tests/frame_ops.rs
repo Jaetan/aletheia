@@ -5,8 +5,8 @@
 //! `libaletheia-ffi.so`. Set `ALETHEIA_LIB` to the built shared library.
 
 use aletheia::{
-    CanId, Client, Dlc, ExtractionResult, Formula, Frame, FrameResponse, Predicate, Rational,
-    SignalValue, Timestamp,
+    CanId, Client, Dlc, Error, ExtractionResult, Formula, Frame, FrameResponse, Predicate,
+    Rational, SignalValue, Timestamp,
 };
 
 const MINIMAL: &str = include_str!("../../python/tests/fixtures/dbc_corpus/minimal.dbc");
@@ -279,6 +279,36 @@ fn build_frame_with_no_signals_is_zero_filled() {
         .build_frame(msg, Dlc::new(8).expect("dlc"), &[])
         .expect("build_frame");
     assert_eq!(bytes, vec![0u8; 8]);
+}
+
+#[test]
+fn a_frame_entry_refusal_carries_the_core_code() {
+    // The build and update entries answer a refusal with the JSON error
+    // envelope the JSON path answers with: on a client with no DBC loaded,
+    // each is the core's `handler_no_dbc`, its message kept.
+    let with_dbc = client();
+    let dbc = with_dbc
+        .parse_dbc_text(MINIMAL)
+        .expect("parse DBC text")
+        .dbc;
+    let msg = dbc
+        .message_by_id(CanId::standard(256).expect("id"))
+        .expect("EngineStatus");
+    let dlc = Dlc::new(8).expect("dlc");
+    let without_dbc = client();
+    let refusals = [
+        without_dbc.build_frame(msg, dlc, &[sv("EngineSpeed", 100, 1)]),
+        without_dbc.update_frame(msg, dlc, &[0u8; 8], &[sv("EngineSpeed", 100, 1)]),
+    ];
+    for refusal in refusals {
+        match refusal {
+            Err(Error::Core { code, message }) => {
+                assert_eq!(code, "handler_no_dbc");
+                assert_eq!(message, "DBC not loaded");
+            }
+            other => panic!("expected the core's handler_no_dbc refusal, got {other:?}"),
+        }
+    }
 }
 
 #[test]

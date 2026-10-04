@@ -25,26 +25,28 @@
 F: Aletheia/DBC/RationalRenderer:d_formatRational_166
 F: Aletheia/DBC/TextParser/DecimalEntry:d_parseDecimal_16
 F: Aletheia/Main/JSON:d_processJSONLine_74
-F: Aletheia/Main/Binary:d_processFrameDirect_12
-F: Aletheia/Main/Binary:d_processEventDirect_18
-F: Aletheia/Main/Binary:d_processStartStreamDirect_24
-F: Aletheia/Main/Binary:d_processEndStreamDirect_28
-F: Aletheia/Main/Binary:d_processFormatDBCDirect_32
-F: Aletheia/Main/Binary:d_processExtractDirect_38
-F: Aletheia/Main/Binary:d_processBuildFrameBin_72
-F: Aletheia/Main/Binary:d_processUpdateFrameBin_86
-F: Aletheia/Main/Binary:d_processExtractBin_102
+F: Aletheia/Main/Binary:d_processFrameRaw_120
+F: Aletheia/Main/Binary:d_processErrorFrameRaw_180
+F: Aletheia/Main/Binary:d_processRemoteFrameRaw_192
+F: Aletheia/Main/Binary:d_processExtractRaw_234
+F: Aletheia/Main/Binary:d_processStartStreamDirect_28
+F: Aletheia/Main/Binary:d_processEndStreamDirect_32
+F: Aletheia/Main/Binary:d_processFormatDBCDirect_36
+F: Aletheia/Main/Binary:d_processBuildFrameRaw_294
+F: Aletheia/Main/Binary:d_processUpdateFrameRaw_444
+F: Aletheia/Main/Binary:d_processExtractBinRaw_554
 F: Aletheia/Protocol/StreamState/Types:d_initialState_50
 
 # Indirect helper accessors used by haskell-shim FFI marshalling.
 # Drift here means the proof or runtime modules were renumbered;
 # end-to-end check-fidelity catches it eventually but at much higher cost.
-F: Aletheia/CAN/DLC:d_dlcToBytes_6
+F: Aletheia/Main/Binary:d_formatErrorEnvelope_12
 F: Aletheia/CAN/BatchExtraction:d_values_22
 F: Aletheia/CAN/BatchExtraction:d_errors_24
 F: Aletheia/CAN/BatchExtraction:d_absent_26
 F: Aletheia/CAN/BatchExtraction:d_extractionErrorCodeToℕ_160
 F: Aletheia/CAN/BatchExtraction:d_wireRangeReason_166
+F: Aletheia/CAN/BatchExtraction:d_valueExceedsWireRangeCode_226
 F: Data/Rational/Base:d_numerator_14
 F: Data/Rational/Base:d_denominatorℕ_20
 F: Agda/Builtin/Sigma:d_fst_28
@@ -53,31 +55,12 @@ F: Agda/Builtin/Sigma:d_snd_30
 # ============================================================================
 # Constructor tags (C_*)
 # ============================================================================
-# Every C_*_NN tag that the Haskell shim constructs or pattern-matches via
-# `unsafeCoerce` is pinned here so a MAlonzo renumber surfaces as a Shake
-# gate failure before it can corrupt the FFI binary.  Sites:
-#   * AletheiaFFI.hs aletheia_send_frame / aletheia_send_error /
-#     aletheia_send_remote (CANTrace ctors)
-#   * AletheiaFFI/Marshal.hs C_Standard_12 / C_Extended_16 / C_mkDLC_28 /
-#     C_mkℚ_24 / C_'91''93'_32 / C__'8759'__38 / C__'44'__32
-#   * AletheiaFFI/BinaryOutput.hs dispatchSumResult + AletheiaFFI.hs
-#     runBinDispatch / aletheia_extract_signals_bin
-#     C_inj'8321'_38 / C_inj'8322'_42 (Sum branches)
-#   * AletheiaFFI/BinaryOutput.hs C_ValueExceedsWireRange_148 (the
-#     encoder guard's reroute code, fed to extractionErrorCodeToℕ)
-C: Aletheia/CAN/Frame:C_Standard_12
-C: Aletheia/CAN/Frame:C_Extended_16
-C: Aletheia/CAN/Frame:C_constructor_36
-C: Aletheia/CAN/BatchExtraction:C_ValueExceedsWireRange_148
-C: Aletheia/CAN/DLC:C_mkDLC_28
-C: Aletheia/Trace/Time:C_mkTs_26
-C: Aletheia/Trace/CANTrace:C_constructor_32
-C: Aletheia/Trace/CANTrace:C_Error_38
-C: Aletheia/Trace/CANTrace:C_Remote_40
-C: Data/Rational/Base:C_mkℚ_24
-C: Agda/Builtin/Sigma:C__'44'__32
-C: Data/Vec/Base:C_'91''93'_32
-C: Data/Vec/Base:C__'8759'__38
+# Every C_*_NN tag the Haskell shim names is pinned here so a MAlonzo
+# renumber surfaces as a Shake gate failure before it can corrupt the FFI
+# binary.  The shim builds no kernel value (`check-shim-builds-no-kernel-value`),
+# so each of these is only matched: the two Sum branches of a binary-output
+# result, in AletheiaFFI/BinaryOutput.hs `dispatchBytesResult` and AletheiaFFI.hs
+# `aletheia_extract_signals_bin`.
 C: Data/Sum/Base:C_inj'8321'_38
 C: Data/Sum/Base:C_inj'8322'_42
 
@@ -87,13 +70,8 @@ C: Data/Sum/Base:C_inj'8322'_42
 # Every T_*_NN tag the Haskell shim names directly (in type annotations,
 # `unsafeCoerce` casts, or qualified imports of MAlonzo-generated types).
 T: Aletheia/Protocol/StreamState/Types:T_StreamState_32
-T: Aletheia/CAN/Frame:T_CANId_8
-T: Aletheia/CAN/Frame:T_CANFrame_20
-T: Aletheia/CAN/DLC:T_DLC_18
-T: Aletheia/Trace/Time:T_Timestamp_18
-T: Aletheia/Trace/CANTrace:T_TimedFrame_6
-T: Aletheia/Trace/CANTrace:T_TraceEvent_34
+T: Aletheia/Error:T_Error_342
+T: Aletheia/CAN/BatchExtraction:T_PartitionedResults_10
 T: Data/Rational/Base:T_ℚ_6
 T: Agda/Builtin/Sigma:T_Σ_14
-T: Data/Vec/Base:T_Vec_28
 T: Data/Sum/Base:T__'8846'__30

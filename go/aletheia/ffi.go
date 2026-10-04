@@ -461,8 +461,9 @@ func abiLayout() (sizes map[string]uintptr, fields map[string][]abiField) {
 }
 
 // wireFrame is the frame's identifier, DLC and payload length, its pointer
-// left empty for the trampoline to fill. The caller has bounded the payload,
-// so its length fits the byte.
+// left empty for the trampoline to fill. The length fits the byte: a caller
+// with a payload has held it to its DLC's byte count through framePayloadPtr,
+// and the build passes none.
 func wireFrame(id CANID, dlc DLC, data []byte) C.struct_aletheia_frame {
 	return C.struct_aletheia_frame{
 		can_id:   C.uint32_t(id.Value()),
@@ -482,11 +483,13 @@ func firstOf[E, T any](s []T) *E {
 	return (*E)(unsafe.Pointer(&s[0]))
 }
 
-// framePayloadPtr bounds a payload at the CAN-FD maximum and returns the
-// pointer the call takes.
-func framePayloadPtr(data []byte) (*C.uint8_t, error) {
-	if len(data) > MaxFrameByteCount {
-		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), MaxFrameByteCount))
+// framePayloadPtr holds a payload to the byte count its DLC names, through the
+// client's own validatePayload, and returns the pointer the call takes. Every
+// count the DLC table names fits a byte, so the check also keeps the narrowing
+// of the payload length to the wire's byte lossless.
+func framePayloadPtr(dlc DLC, data []byte) (*C.uint8_t, error) {
+	if err := validatePayload(dlc, data); err != nil {
+		return nil, err
 	}
 	return firstOf[C.uint8_t](data), nil
 }
@@ -524,15 +527,32 @@ func (b *FFIBackend) stringResult(symbol string, result *C.char) (string, error)
 	return C.GoString(result), nil
 }
 
-// binaryStatusError is the error a non-zero status carries, freeing the
-// message the kernel allocated for it.
+// binaryStatusError is the error a non-zero status carries, read by
+// binaryRefusal from the error envelope the entry set, whose string the
+// library allocated and this frees.
 func (b *FFIBackend) binaryStatusError(symbol string, status C.int8_t, outErr *C.char) error {
-	if outErr != nil {
-		msg := C.GoString(outErr)
-		C.call_free_str(b.freeStrFn, outErr)
-		return protocolError(msg)
+	if outErr == nil {
+		return protocolError(fmt.Sprintf("%s returned status %d with null error message", symbol, status))
 	}
-	return protocolError(fmt.Sprintf("%s returned status %d with null error message", symbol, status))
+	envelope := C.GoString(outErr)
+	C.call_free_str(b.freeStrFn, outErr)
+	return binaryRefusal(symbol, envelope)
+}
+
+// binaryRefusal reads the error a binary-output entry sets on a refusal. It
+// is the error envelope a JSON response carries, with the kernel's code or the
+// shim's ffi_validation_error, so the JSON path's own reading lifts it into
+// the same typed error. Text that is not an envelope, or an envelope that is
+// not an error, is the library malfunctioning.
+func binaryRefusal(symbol, envelope string) error {
+	m, err := parseResponse(envelope)
+	if err != nil {
+		return err
+	}
+	if err := checkErrorStatus(m); err != nil {
+		return err
+	}
+	return protocolError(fmt.Sprintf("%s refused with a response that is not an error envelope: %s", symbol, envelope))
 }
 
 // Init opens a session and returns its handle, which the kernel owns.
@@ -580,7 +600,7 @@ func (b *FFIBackend) SendFrameBinary(
 	if err := ts.validate(); err != nil {
 		return "", err
 	}
-	dataPtr, err := framePayloadPtr(data)
+	dataPtr, err := framePayloadPtr(dlc, data)
 	if err != nil {
 		return "", err
 	}
@@ -666,7 +686,7 @@ func (b *FFIBackend) ExtractSignalsBinary(state unsafe.Pointer, id CANID, dlc DL
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	dataPtr, err := framePayloadPtr(data)
+	dataPtr, err := framePayloadPtr(dlc, data)
 	if err != nil {
 		return "", err
 	}
@@ -718,7 +738,7 @@ func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CANID, dlc DLC, dat
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	dataPtr, err := framePayloadPtr(data)
+	dataPtr, err := framePayloadPtr(dlc, data)
 	if err != nil {
 		return nil, err
 	}
@@ -733,7 +753,7 @@ func (b *FFIBackend) ExtractSignalsBin(state unsafe.Pointer, id CANID, dlc DLC, 
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	dataPtr, err := framePayloadPtr(data)
+	dataPtr, err := framePayloadPtr(dlc, data)
 	if err != nil {
 		return nil, err
 	}

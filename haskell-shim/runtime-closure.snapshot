@@ -24,6 +24,7 @@ MAlonzo.Code.Aletheia.CAN.Encoding.Arithmetic
 MAlonzo.Code.Aletheia.CAN.Endianness
 MAlonzo.Code.Aletheia.CAN.ExtractionResult
 MAlonzo.Code.Aletheia.CAN.Frame
+MAlonzo.Code.Aletheia.CAN.Frame.Parse
 MAlonzo.Code.Aletheia.CAN.Signal
 MAlonzo.Code.Aletheia.CAN.SignalExtraction
 MAlonzo.Code.Aletheia.DBC.AttrLookup

@@ -35,6 +35,7 @@ from aletheia.client._ffi import (
     check_abi_version,
     configure_ffi_signatures,
     find_ffi_library,
+    parse_json_object,
 )
 from aletheia.client._types import (
     AletheiaError,
@@ -42,7 +43,9 @@ from aletheia.client._types import (
     ProtocolError,
     StateError,
     encode_maybe_bool,
+    validate_payload_length,
 )
+from aletheia.types import DLCCode
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -232,25 +235,40 @@ def _decode_out_err(
     out: AletheiaBuffer,
     prefix: str,
 ) -> ProtocolError:
-    """Decode a failed buffer's ``err`` C-string and return a :class:`ProtocolError`.
+    """Decode a failed buffer's ``err`` envelope and return a :class:`ProtocolError`.
 
-    Frees the ``err`` string.  The caller raises the returned
-    exception (kept as a return value rather than ``NoReturn``-style raise
-    so the call sites read linearly under pylint's ``too-many-statements``
-    budget).
+    The error is the JSON envelope every entry answers with
+    (``{"status": "error", "code": …, "message": …}``): the kernel's typed
+    refusal, or the shim's own (``ffi_validation_error``, a NULL pointer or a
+    buffer too small).  The exception carries the envelope's ``code``.  Frees
+    the ``err`` string.  The caller raises the returned exception (kept as a
+    return value rather than ``NoReturn``-style raise so the call sites read
+    linearly under pylint's ``too-many-statements`` budget).
     """
     err: int | None = out.err
     if err is None:
         return ProtocolError(f"{prefix}: Unknown error")
-    err_msg = ctypes.string_at(err).decode("utf-8")
-    lib.aletheia_free_str(err)
-    return ProtocolError(f"{prefix}: {err_msg}")
+    try:
+        envelope = parse_json_object(ctypes.string_at(err).decode("utf-8"))
+    finally:
+        lib.aletheia_free_str(err)
+    code = envelope.get("code")
+    message = envelope.get("message")
+    if not isinstance(code, str) or not isinstance(message, str):
+        return ProtocolError(f"{prefix}: malformed error envelope {envelope!r}")
+    return ProtocolError(f"{prefix}: {message}", code=code)
 
 
 def _payload_frame(
     *, can_id: int, extended: bool, dlc: int, data: bytes | bytearray
 ) -> AletheiaFrame:
-    """Carry identifier, DLC and a copy of ``data`` in a frame with no timestamp or bus bits."""
+    """Carry identifier, DLC and a copy of ``data`` in a frame with no timestamp or bus bits.
+
+    Refuses a payload whose length is not the DLC's byte count, the one length
+    the kernel accepts: the frame's ``data_len`` is a ``uint8_t`` and ctypes
+    narrows silently, so a 264-byte payload would cross as 8 bytes.
+    """
+    _ = validate_payload_length(DLCCode(dlc), data)
     # `from_buffer_copy` is a single C-level memcpy; the frame keeps the
     # array alive for as long as the frame lives.
     data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
@@ -376,6 +394,8 @@ class FFIBackend:  # pylint: disable=too-many-public-methods
         esi: bool | None,
     ) -> bytes:
         """Send a CAN data frame via the binary FFI; returns the JSON response bytes."""
+        # The exact length rule, for the reason `_payload_frame` gives.
+        _ = validate_payload_length(DLCCode(dlc), data)
         # `from_buffer_copy` is a single C-level memcpy; the varargs form
         # `(c_uint8 * N)(*data)` does O(N) Python-level per-byte coercion.
         data_array = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)

@@ -4,25 +4,21 @@
 
 -- | Binary FFI Smoke Test (comprehensive unsafeCoerce drift guard)
 --
--- End-to-end test of every FFI export, mirroring the unsafeCoerce dance from
--- AletheiaFFI.hs / AletheiaFFI/Marshal.hs / AletheiaFFI/BinaryOutput.hs. If a
--- MAlonzo Σ-shape, record-field type, or constructor arity drifts upstream,
--- the corresponding coerce target type mismatches the GHC heap object and
--- crashes here on first call (or on a forced traversal of the result).
+-- End-to-end test of every FFI export, calling each one the way AletheiaFFI.hs
+-- does: the raw entries take builtins (Integer, Bool, lists, Maybe), and the
+-- results are read back through the same unsafeCoerce targets as
+-- AletheiaFFI.hs / AletheiaFFI/BinaryOutput.hs. If a MAlonzo Σ-shape, sum
+-- shape or record-field type drifts upstream, the corresponding coerce target
+-- mismatches the GHC heap object and crashes here on first call (or on a
+-- forced traversal of the result).
 --
--- Coverage matches the entries in haskell-shim/ffi-exports.snapshot
--- (the SSOT the check-ffi-exports gate diffs against):
---   1. d_initialState_50         — exercised in setup
---   2. d_processJSONLine_74      — exercised in setup (DBC load + setProps)
---   3. d_processStartStreamDirect_24  — exercised in setup
---   4. d_processFrameDirect_12   — tests 1-4
---   5. d_processEventDirect_18   — tests 5-6
---   6. d_processExtractDirect_38 — test 7
---   7. d_processFormatDBCDirect_32 — test 8
---   8. d_processBuildFrameBin_72 — tests 9-10 (success + error)
---   9. d_processUpdateFrameBin_86 — test 11
---  10. d_processExtractBin_102   — test 12
---  11. d_processEndStreamDirect_28 — test 13
+-- Coverage matches the function entries in haskell-shim/ffi-exports.snapshot
+-- (the SSOT the check-ffi-exports gate diffs against): initialState and
+-- processJSONLine in setup, then processStartStreamDirect, processFrameRaw,
+-- processErrorFrameRaw, processRemoteFrameRaw, processExtractRaw,
+-- processFormatDBCDirect, processBuildFrameRaw, processUpdateFrameRaw,
+-- processExtractBinRaw, formatErrorEnvelope and processEndStreamDirect, and
+-- the kernel's frame refusals through both answer channels.
 --
 -- This is NOT a substitute for the Agda proofs — handler correctness is proven
 -- formally. This test exists solely to catch MAlonzo coerce-target drift at
@@ -43,39 +39,39 @@ import qualified MAlonzo.Code.Aletheia.Main.JSON as AgdaJSON
 import qualified MAlonzo.Code.Aletheia.Main.Binary as AgdaBin
 import qualified MAlonzo.Code.Aletheia.Protocol.StreamState.Types as AgdaState
 import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
-import qualified MAlonzo.Code.Aletheia.Trace.CANTrace as AgdaTrace
-import qualified MAlonzo.Code.Aletheia.Trace.Time as AgdaTime
-import qualified MAlonzo.Code.Aletheia.CAN.Frame as AgdaFrame
-import qualified MAlonzo.Code.Aletheia.CAN.DLC as AgdaDLC
 import qualified MAlonzo.Code.Aletheia.CAN.BatchExtraction as AgdaBatch
-import qualified MAlonzo.Code.Data.Vec.Base as AgdaVec
+import qualified MAlonzo.Code.Aletheia.Error as AgdaError
 import qualified MAlonzo.Code.Data.Sum.Base as AgdaSum
 import qualified MAlonzo.Code.Data.Rational.Base as AgdaRational
 
 -- ============================================================================
--- HELPERS — mirror AletheiaFFI.hs / Marshal.hs / BinaryOutput.hs coerce sites
+-- HELPERS — mirror AletheiaFFI.hs / BinaryOutput.hs call and coerce sites
 -- ============================================================================
 
 -- | Extract (state, response text) from a JSON-out Σ pair.
--- Mirrors runJSON in AletheiaFFI.hs (lines 53-54).
+-- Mirrors runJSON in AletheiaFFI.hs.
 extractResult :: AgdaSigma.T_Σ_14 -> (AgdaState.T_StreamState_32, T.Text)
 extractResult result =
     let st = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_32
         tx = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
     in (st, tx)
 
--- | Extract (state, Either Text Vec) from a binary-out Σ pair.
--- Mirrors runBinDispatch + dispatchSumResult (BinaryOutput.hs lines 41-50).
-extractSumVec :: AgdaSigma.T_Σ_14
-              -> (AgdaState.T_StreamState_32, Either T.Text AgdaVec.T_Vec_28)
-extractSumVec result =
+-- | The JSON envelope of a binary-output refusal.  Mirrors kernelErrorOut in
+-- BinaryOutput.hs.
+envelope :: AgdaError.T_Error_342 -> T.Text
+envelope err = unsafeCoerce (AgdaBin.d_formatErrorEnvelope_12 err) :: T.Text
+
+-- | Extract (state, Either envelope bytes) from a binary-out Σ pair.
+-- Mirrors runBinDispatch + dispatchBytesResult (BinaryOutput.hs).
+extractSumBytes :: AgdaSigma.T_Σ_14 -> (AgdaState.T_StreamState_32, Either T.Text [Word8])
+extractSumBytes result =
     let st = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_32
         sumResult = unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30
     in case sumResult of
-         AgdaSum.C_inj'8321'_38 errAny -> (st, Left  (unsafeCoerce errAny :: T.Text))
-         AgdaSum.C_inj'8322'_42 vecAny -> (st, Right (unsafeCoerce vecAny :: AgdaVec.T_Vec_28))
+         AgdaSum.C_inj'8321'_38 errAny -> (st, Left (envelope (unsafeCoerce errAny)))
+         AgdaSum.C_inj'8322'_42 bytesAny -> (st, Right (map fromIntegral (unsafeCoerce bytesAny :: [Integer])))
 
--- | Extract (state, Either Text PartitionedResults). Highest-risk path:
+-- | Extract (state, Either envelope PartitionedResults). Highest-risk path:
 -- mirrors aletheia_extract_signals_bin in AletheiaFFI.hs.
 extractSumIER :: AgdaSigma.T_Σ_14
               -> (AgdaState.T_StreamState_32, Either T.Text AgdaBatch.T_PartitionedResults_10)
@@ -83,44 +79,13 @@ extractSumIER result =
     let st = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_32
         sumResult = unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30
     in case sumResult of
-         AgdaSum.C_inj'8321'_38 errAny -> (st, Left  (unsafeCoerce errAny :: T.Text))
+         AgdaSum.C_inj'8321'_38 errAny -> (st, Left (envelope (unsafeCoerce errAny)))
          AgdaSum.C_inj'8322'_42 ierAny -> (st, Right (unsafeCoerce ierAny :: AgdaBatch.T_PartitionedResults_10))
 
 -- | Process a JSON command (used in setup).
 processJSON :: AgdaState.T_StreamState_32 -> String
             -> (AgdaState.T_StreamState_32, T.Text)
 processJSON state input = extractResult (AgdaJSON.d_processJSONLine_74 state (T.pack input))
-
--- | Convert [Word8] to MAlonzo Vec Byte n (linked-list shape).
--- Identical to bytesToAgdaVec in AletheiaFFI/Marshal.hs — must stay in sync.
-bytesToAgdaVec :: [Word8] -> AgdaVec.T_Vec_28
-bytesToAgdaVec [] = AgdaVec.C_'91''93'_32
-bytesToAgdaVec (b:bs) = AgdaVec.C__'8759'__38
-    (unsafeCoerce (toInteger b)) (bytesToAgdaVec bs)
-
--- | Walk MAlonzo Vec Byte to a Word8 list. Forces the full constructor
--- traversal so a Vec-shape drift crashes the test rather than slipping
--- through unforced thunks.
-walkVec :: AgdaVec.T_Vec_28 -> [Word8]
-walkVec AgdaVec.C_'91''93'_32 = []
-walkVec (AgdaVec.C__'8759'__38 x xs) = fromIntegral (unsafeCoerce x :: Integer) : walkVec xs
-
--- | MAlonzo CANId from raw value + extended flag. The proof field is `.(…)`
--- irrelevant in Agda — MAlonzo erases it, so the constructor takes only the
--- numeric ID. Caller validates canId < standardMax / extendedMax.
-mkAgdaCanId :: Integer -> Bool -> AgdaFrame.T_CANId_8
-mkAgdaCanId canIdVal isExtended =
-    if isExtended
-        then AgdaFrame.C_Extended_16 canIdVal
-        else AgdaFrame.C_Standard_12 canIdVal
-
--- | Construct MAlonzo (signalIndex, ℚ) Σ pair — mirrors mkSignalPairs in
--- AletheiaFFI/Marshal.hs (lines 87-94). Caller validates den > 0.
-mkSignalPair :: Integer -> Integer -> Integer -> AgdaSigma.T_Σ_14
-mkSignalPair idx num den =
-    AgdaSigma.C__'44'__32
-        (unsafeCoerce idx)
-        (unsafeCoerce (AgdaRational.C_mkℚ_24 num (den - 1)))
 
 -- | Walk PartitionedResults — forces field dispatch + full list traversals
 -- of values / errors / absent. Mirrors packPartitionedResults in
@@ -150,90 +115,51 @@ walkPartitionedResults ier =
             reason = unsafeCoerce (AgdaSigma.d_snd_30 codeReason) :: T.Text
         in (idx, code, reason)
 
--- | Construct a TimedFrame via binary MAlonzo constructors.
--- Mirrors aletheia_send_frame's construction in AletheiaFFI.hs.
--- The brs/esi arguments populate `TimedFrame.brs` / `.esi`: pass `Nothing`
--- for CAN 2.0B frames, `Just b` for CAN-FD frames carrying the BRS / ESI
--- bits.
-mkTimedFrame :: Integer -> Integer -> Bool -> Integer -> [Word8]
-             -> Maybe Bool -> Maybe Bool
-             -> AgdaTrace.T_TimedFrame_6
-mkTimedFrame timestamp canIdVal isExtended _dlc bytes brs esi =
-    let agdaCanId = mkAgdaCanId canIdVal isExtended
-        agdaVec = bytesToAgdaVec bytes
-        -- CAN 2.0B: C_constructor_36 CANId DLC Vec. DLC erased at runtime
-        -- via Fin; the helper dlc argument is unused at this layer.
-        agdaFrame = AgdaFrame.C_constructor_36 agdaCanId (unsafeCoerce ()) agdaVec
-        agdaTs = AgdaTime.C_mkTs_26 timestamp
-        dataLen = toInteger (length bytes)
-    in AgdaTrace.C_constructor_32 agdaTs dataLen agdaFrame brs esi
+-- | A data frame through processFrameRaw: timestamp, identifier, extended
+-- flag, DLC code, payload, and the CAN-FD BRS / ESI bits (`Nothing` for a
+-- CAN 2.0B frame).  Mirrors aletheia_send_frame.
+sendFrame :: AgdaState.T_StreamState_32 -> Integer -> Integer -> Bool -> Integer -> [Word8]
+          -> Maybe Bool -> Maybe Bool -> (AgdaState.T_StreamState_32, T.Text)
+sendFrame state ts canIdVal isExt dlc bytes brs esi =
+    extractResult (AgdaBin.d_processFrameRaw_120 state ts canIdVal isExt dlc (map toInteger bytes) brs esi)
 
--- | Process a frame via the binary path (processFrameDirect).
-sendFrame :: AgdaState.T_StreamState_32 -> AgdaTrace.T_TimedFrame_6
-          -> (AgdaState.T_StreamState_32, T.Text)
-sendFrame state tf =
-    extractResult (AgdaBin.d_processFrameDirect_12 state (unsafeCoerce tf))
+sendErrorEvent :: AgdaState.T_StreamState_32 -> Integer -> (AgdaState.T_StreamState_32, T.Text)
+sendErrorEvent state ts = extractResult (AgdaBin.d_processErrorFrameRaw_180 state ts)
 
--- | Send Error event via processEventDirect.
-sendErrorEvent :: AgdaState.T_StreamState_32 -> Integer
-               -> (AgdaState.T_StreamState_32, T.Text)
-sendErrorEvent state ts =
-    extractResult (AgdaBin.d_processEventDirect_18 state
-        (unsafeCoerce (AgdaTrace.C_Error_38 (AgdaTime.C_mkTs_26 ts))))
-
--- | Send Remote event via processEventDirect.
 sendRemoteEvent :: AgdaState.T_StreamState_32 -> Integer -> Integer -> Bool
                 -> (AgdaState.T_StreamState_32, T.Text)
-sendRemoteEvent state ts canIdVal isExtended =
-    extractResult (AgdaBin.d_processEventDirect_18 state
-        (unsafeCoerce (AgdaTrace.C_Remote_40 (AgdaTime.C_mkTs_26 ts)
-                                              (mkAgdaCanId canIdVal isExtended))))
+sendRemoteEvent state ts canIdVal isExt =
+    extractResult (AgdaBin.d_processRemoteFrameRaw_192 state ts canIdVal isExt)
 
--- | Process extract (JSON-out) via processExtractDirect.
 extractDirect :: AgdaState.T_StreamState_32 -> Integer -> Bool -> Integer -> [Word8]
               -> (AgdaState.T_StreamState_32, T.Text)
 extractDirect state canIdVal isExt dlc bytes =
-    extractResult (AgdaBin.d_processExtractDirect_38 state
-        (mkAgdaCanId canIdVal isExt)
-        (AgdaDLC.C_mkDLC_28 dlc)
-        (unsafeCoerce (bytesToAgdaVec bytes)))
+    extractResult (AgdaBin.d_processExtractRaw_234 state canIdVal isExt dlc (map toInteger bytes))
 
 -- | Zero-arg JSON-out paths.
 startStream, endStream, formatDBC
     :: AgdaState.T_StreamState_32 -> (AgdaState.T_StreamState_32, T.Text)
-startStream st = extractResult (AgdaBin.d_processStartStreamDirect_24 st)
-endStream   st = extractResult (AgdaBin.d_processEndStreamDirect_28   st)
-formatDBC   st = extractResult (AgdaBin.d_processFormatDBCDirect_32   st)
+startStream st = extractResult (AgdaBin.d_processStartStreamDirect_28 st)
+endStream   st = extractResult (AgdaBin.d_processEndStreamDirect_32   st)
+formatDBC   st = extractResult (AgdaBin.d_processFormatDBCDirect_36   st)
 
--- | Build frame (binary out) via processBuildFrameBin.
-buildFrameBin :: AgdaState.T_StreamState_32 -> Integer -> Bool -> Integer
-              -> [AgdaSigma.T_Σ_14]
-              -> (AgdaState.T_StreamState_32, Either T.Text AgdaVec.T_Vec_28)
-buildFrameBin state canIdVal isExt dlc pairs =
-    extractSumVec (AgdaBin.d_processBuildFrameBin_72 state
-        (mkAgdaCanId canIdVal isExt)
-        (AgdaDLC.C_mkDLC_28 dlc)
-        pairs)
+-- | Signal values as the three parallel arrays the raw entries take.
+type Values = ([Integer], [Integer], [Integer])
 
--- | Update frame (binary out) via processUpdateFrameBin.
-updateFrameBin :: AgdaState.T_StreamState_32 -> Integer -> Bool -> Integer
-               -> [Word8] -> [AgdaSigma.T_Σ_14]
-               -> (AgdaState.T_StreamState_32, Either T.Text AgdaVec.T_Vec_28)
-updateFrameBin state canIdVal isExt dlc bytes pairs =
-    extractSumVec (AgdaBin.d_processUpdateFrameBin_86 state
-        (mkAgdaCanId canIdVal isExt)
-        (AgdaDLC.C_mkDLC_28 dlc)
-        (unsafeCoerce (bytesToAgdaVec bytes))
-        pairs)
+buildFrameBin :: AgdaState.T_StreamState_32 -> Integer -> Bool -> Integer -> Values
+              -> (AgdaState.T_StreamState_32, Either T.Text [Word8])
+buildFrameBin state canIdVal isExt dlc (is, ns, ds) =
+    extractSumBytes (AgdaBin.d_processBuildFrameRaw_294 state canIdVal isExt dlc is ns ds)
 
--- | Extract signals (binary out) via processExtractBin.
+updateFrameBin :: AgdaState.T_StreamState_32 -> Integer -> Bool -> Integer -> [Word8] -> Values
+               -> (AgdaState.T_StreamState_32, Either T.Text [Word8])
+updateFrameBin state canIdVal isExt dlc bytes (is, ns, ds) =
+    extractSumBytes (AgdaBin.d_processUpdateFrameRaw_444 state canIdVal isExt dlc (map toInteger bytes) is ns ds)
+
 extractBin :: AgdaState.T_StreamState_32 -> Integer -> Bool -> Integer -> [Word8]
            -> (AgdaState.T_StreamState_32, Either T.Text AgdaBatch.T_PartitionedResults_10)
 extractBin state canIdVal isExt dlc bytes =
-    extractSumIER (AgdaBin.d_processExtractBin_102 state
-        (mkAgdaCanId canIdVal isExt)
-        (AgdaDLC.C_mkDLC_28 dlc)
-        (unsafeCoerce (bytesToAgdaVec bytes)))
+    extractSumIER (AgdaBin.d_processExtractBinRaw_554 state canIdVal isExt dlc (map toInteger bytes))
 
 -- ============================================================================
 -- ASSERTIONS
@@ -274,7 +200,7 @@ main = do
     -- ------------------------------------------------------------------------
     -- Setup: load DBC + properties + start stream.
     --   exercises: d_initialState_50, d_processJSONLine_74,
-    --              d_processStartStreamDirect_24
+    --              d_processStartStreamDirect_28
     -- ------------------------------------------------------------------------
     let state0 = AgdaState.d_initialState_50
 
@@ -311,47 +237,43 @@ main = do
     putStrLn ""
 
     -- ------------------------------------------------------------------------
-    -- Tests 1-4: d_processFrameDirect_12
+    -- Tests 1-4: d_processFrameRaw_12
     -- ------------------------------------------------------------------------
-    putStrLn "Test 1: processFrameDirect — Speed=100, expect ack (100 < 1000)"
-    let tf1 = mkTimedFrame 1000 256 False 8 [100, 0, 0, 0, 0, 0, 0, 0] Nothing Nothing
-    let (state4, r1) = sendFrame state3 tf1
+    putStrLn "Test 1: processFrameRaw — Speed=100, expect ack (100 < 1000)"
+    let (state4, r1) = sendFrame state3 1000 256 False 8 [100, 0, 0, 0, 0, 0, 0, 0] Nothing Nothing
     let r1s = T.unpack r1
     putStrLn $ "  Response: " ++ r1s
     pass1 <- assertContains "Ack response" "\"status\": \"ack\"" r1s
 
-    putStrLn "Test 2: processFrameDirect — Speed=1500, expect violation (1500 ≥ 1000)"
-    let tf2 = mkTimedFrame 2000 256 False 8 [220, 5, 0, 0, 0, 0, 0, 0] Nothing Nothing
-    let (_, r2) = sendFrame state4 tf2
+    putStrLn "Test 2: processFrameRaw — Speed=1500, expect violation (1500 ≥ 1000)"
+    let (_, r2) = sendFrame state4 2000 256 False 8 [220, 5, 0, 0, 0, 0, 0, 0] Nothing Nothing
     let r2s = T.unpack r2
     putStrLn $ "  Response: " ++ r2s
     pass2 <- assertContains "Violation response" "\"status\": \"fails\"" r2s
 
-    putStrLn "Test 3: processFrameDirect — non-matching standard ID, expect ack"
-    let tf3 = mkTimedFrame 3000 512 False 8 [255, 255, 0, 0, 0, 0, 0, 0] Nothing Nothing
-    let (_, r3) = sendFrame state3 tf3
+    putStrLn "Test 3: processFrameRaw — non-matching standard ID, expect ack"
+    let (_, r3) = sendFrame state3 3000 512 False 8 [255, 255, 0, 0, 0, 0, 0, 0] Nothing Nothing
     let r3s = T.unpack r3
     putStrLn $ "  Response: " ++ r3s
     pass3 <- assertContains "Ack for non-matching ID" "\"status\": \"ack\"" r3s
 
-    putStrLn "Test 4: processFrameDirect — extended CAN ID, expect ack"
-    let tf4 = mkTimedFrame 4000 256 True 8 [0, 0, 0, 0, 0, 0, 0, 0] Nothing Nothing
-    let (_, r4) = sendFrame state3 tf4
+    putStrLn "Test 4: processFrameRaw — extended CAN ID, expect ack"
+    let (_, r4) = sendFrame state3 4000 256 True 8 [0, 0, 0, 0, 0, 0, 0, 0] Nothing Nothing
     let r4s = T.unpack r4
     putStrLn $ "  Response: " ++ r4s
     pass4 <- assertContains "Ack for extended ID" "\"status\": \"ack\"" r4s
     putStrLn ""
 
     -- ------------------------------------------------------------------------
-    -- Tests 5-6: d_processEventDirect_18
+    -- Tests 5-6: d_processErrorFrameRaw_180 / d_processRemoteFrameRaw_192
     -- ------------------------------------------------------------------------
-    putStrLn "Test 5: processEventDirect (Error) — expect ack"
+    putStrLn "Test 5: processErrorFrameRaw — expect ack"
     let (_, r5) = sendErrorEvent state3 5000
     let r5s = T.unpack r5
     putStrLn $ "  Response: " ++ r5s
     pass5 <- assertContains "Error event ack" "\"status\": \"ack\"" r5s
 
-    putStrLn "Test 6: processEventDirect (Remote) — expect ack"
+    putStrLn "Test 6: processRemoteFrameRaw — expect ack"
     let (_, r6) = sendRemoteEvent state3 6000 256 False
     let r6s = T.unpack r6
     putStrLn $ "  Response: " ++ r6s
@@ -359,9 +281,9 @@ main = do
     putStrLn ""
 
     -- ------------------------------------------------------------------------
-    -- Test 7: d_processExtractDirect_38 (JSON-out)
+    -- Test 7: d_processExtractRaw_38 (JSON-out)
     -- ------------------------------------------------------------------------
-    putStrLn "Test 7: processExtractDirect — Speed=200, expect signal value in response"
+    putStrLn "Test 7: processExtractRaw — Speed=200, expect signal value in response"
     let (_, r7) = extractDirect state3 256 False 8 [200, 0, 0, 0, 0, 0, 0, 0]
     let r7s = T.unpack r7
     putStrLn $ "  Response: " ++ r7s
@@ -369,7 +291,7 @@ main = do
     putStrLn ""
 
     -- ------------------------------------------------------------------------
-    -- Test 8: d_processFormatDBCDirect_32
+    -- Test 8: d_processFormatDBCDirect_36
     -- ------------------------------------------------------------------------
     putStrLn "Test 8: processFormatDBCDirect — expect formatted DBC containing TestMsg"
     let (_, r8) = formatDBC state3
@@ -379,14 +301,12 @@ main = do
     putStrLn ""
 
     -- ------------------------------------------------------------------------
-    -- Tests 9-10: d_processBuildFrameBin_72 (success + error)
+    -- Tests 9-10: d_processBuildFrameRaw_72 (success + error)
     -- ------------------------------------------------------------------------
-    putStrLn "Test 9: processBuildFrameBin — Speed=300 at idx 0, expect inj₂ Vec"
-    let pairs9 = [mkSignalPair 0 300 1]
-    let (_, r9) = buildFrameBin state3 256 False 8 pairs9
+    putStrLn "Test 9: processBuildFrameRaw — Speed=300 at idx 0, expect inj₂ Vec"
+    let (_, r9) = buildFrameBin state3 256 False 8 ([0], [300], [1])
     pass9 <- case r9 of
-        Right vec -> do
-            let bytes9 = walkVec vec
+        Right bytes9 -> do
             putStrLn $ "  Bytes: " ++ show bytes9
             -- 300 = 0x012C; LE 16-bit → [0x2C, 0x01] in low bytes; rest zero.
             assertTrue "Build success — 8 bytes, low pair = (44, 1)"
@@ -396,33 +316,28 @@ main = do
             putStrLn $ "  Unexpected error: " ++ T.unpack err
             return False
 
-    putStrLn "Test 10: processBuildFrameBin — bad CAN ID 999, expect inj₁ Text"
-    let pairs10 = [mkSignalPair 0 100 1]
-    let (_, r10) = buildFrameBin state3 999 False 8 pairs10
+    putStrLn "Test 10: processBuildFrameRaw — CAN ID 999 not in the DBC, expect inj₁ Error"
+    let (_, r10) = buildFrameBin state3 999 False 8 ([0], [100], [1])
     pass10 <- case r10 of
         Left errText -> do
             -- T.unpack forces traversal; coerce-target mismatch crashes here.
             let errStr = T.unpack errText
-            putStrLn $ "  Error text: " ++ errStr
-            assertTrue "Build error — non-empty Text from inj₁"
-                       ("got length=" ++ show (T.length errText))
-                       (T.length errText > 0)
-        Right vec -> do
-            let bs = walkVec vec
-            putStrLn $ "  Unexpected Vec: " ++ show bs
+            putStrLn $ "  Error envelope: " ++ errStr
+            assertContains "Build error envelope carries frame_can_id_not_found"
+                           "\"code\": \"frame_can_id_not_found\"" errStr
+        Right bs -> do
+            putStrLn $ "  Unexpected bytes: " ++ show bs
             return False
     putStrLn ""
 
     -- ------------------------------------------------------------------------
-    -- Test 11: d_processUpdateFrameBin_86
+    -- Test 11: d_processUpdateFrameRaw_86
     -- ------------------------------------------------------------------------
-    putStrLn "Test 11: processUpdateFrameBin — Speed=500 over zeroed payload, expect inj₂ Vec"
+    putStrLn "Test 11: processUpdateFrameRaw — Speed=500 over zeroed payload, expect inj₂ Vec"
     let baseBytes = [0, 0, 0, 0, 0, 0, 0, 0]
-    let pairs11 = [mkSignalPair 0 500 1]
-    let (_, r11) = updateFrameBin state3 256 False 8 baseBytes pairs11
+    let (_, r11) = updateFrameBin state3 256 False 8 baseBytes ([0], [500], [1])
     pass11 <- case r11 of
-        Right vec -> do
-            let bytes11 = walkVec vec
+        Right bytes11 -> do
             putStrLn $ "  Bytes: " ++ show bytes11
             -- 500 = 0x01F4; LE → [0xF4, 0x01].
             assertTrue "Update success — 8 bytes, low pair = (244, 1)"
@@ -434,9 +349,9 @@ main = do
     putStrLn ""
 
     -- ------------------------------------------------------------------------
-    -- Test 12: d_processExtractBin_102 (highest-risk: PartitionedResults coerce)
+    -- Test 12: d_processExtractBinRaw_554 (highest-risk: PartitionedResults coerce)
     -- ------------------------------------------------------------------------
-    putStrLn "Test 12: processExtractBin — Speed=400, Temp=0, expect inj₂ PartitionedResults with 2 values"
+    putStrLn "Test 12: processExtractBinRaw — Speed=400, Temp=0, expect inj₂ PartitionedResults with 2 values"
     let bytes12 = [144, 1, 0, 0, 0, 0, 0, 0]  -- 400 = 0x0190; LE → [0x90, 0x01].
     let (_, r12) = extractBin state3 256 False 8 bytes12
     pass12 <- case r12 of
@@ -456,7 +371,7 @@ main = do
             putStrLn $ "  Unexpected error: " ++ T.unpack err
             return False
 
-    putStrLn "Test 12b: processExtractBin — Temp=200 out of [0, 100], expect error entry with kernel reason"
+    putStrLn "Test 12b: processExtractBinRaw — Temp=200 out of [0, 100], expect error entry with kernel reason"
     let bytes12b = [144, 1, 200, 0, 0, 0, 0, 0]  -- Temp raw byte = 200.
     let (_, r12b) = extractBin state3 256 False 8 bytes12b
     pass12b <- case r12b of
@@ -483,23 +398,45 @@ main = do
     -- constructor path must accept Just True / Just False / Nothing for both
     -- bits without distorting downstream JSON output.
     -- ------------------------------------------------------------------------
-    putStrLn "Test 13: processFrameDirect — CAN-FD frame with brs=Just True, esi=Just False"
-    let tf13 = mkTimedFrame 7000 256 False 8 [200, 0, 0, 0, 0, 0, 0, 0]
-                            (Just True) (Just False)
-    let (_, r13a) = sendFrame state3 tf13
+    putStrLn "Test 13: processFrameRaw — CAN-FD frame with brs=Just True, esi=Just False"
+    let (_, r13a) = sendFrame state3 7000 256 False 8 [200, 0, 0, 0, 0, 0, 0, 0] (Just True) (Just False)
     let r13as = T.unpack r13a
     putStrLn $ "  Response: " ++ r13as
     pass13 <- assertContains "Ack with brs=Just True / esi=Just False"
                              "\"status\": \"ack\"" r13as
 
-    putStrLn "Test 14: processFrameDirect — CAN-FD frame with brs=Just False, esi=Just True"
-    let tf14 = mkTimedFrame 7001 256 False 8 [200, 0, 0, 0, 0, 0, 0, 0]
-                            (Just False) (Just True)
-    let (_, r14) = sendFrame state3 tf14
+    putStrLn "Test 14: processFrameRaw — CAN-FD frame with brs=Just False, esi=Just True"
+    let (_, r14) = sendFrame state3 7001 256 False 8 [200, 0, 0, 0, 0, 0, 0, 0] (Just False) (Just True)
     let r14s = T.unpack r14
     putStrLn $ "  Response: " ++ r14s
     pass14 <- assertContains "Ack with brs=Just False / esi=Just True"
                              "\"status\": \"ack\"" r14s
+
+    -- ------------------------------------------------------------------------
+    -- Tests 16-19: the kernel's frame and value refusals, through both answer
+    -- channels (a JSON-out entry and a binary-out entry's envelope).
+    -- ------------------------------------------------------------------------
+    putStrLn "Test 16: processFrameRaw — 7 bytes against DLC 8, expect parse_payload_length_mismatch"
+    let (_, r16) = sendFrame state3 7100 256 False 8 [0, 0, 0, 0, 0, 0, 0] Nothing Nothing
+    pass16 <- assertContains "Length refusal" "\"code\": \"parse_payload_length_mismatch\"" (T.unpack r16)
+
+    putStrLn "Test 17: processExtractRaw — DLC 16, expect parse_dlc_code_out_of_range"
+    let (_, r17) = extractDirect state3 256 False 16 []
+    pass17 <- assertContains "DLC refusal" "\"code\": \"parse_dlc_code_out_of_range\"" (T.unpack r17)
+
+    putStrLn "Test 18: processRemoteFrameRaw — standard ID 2048, expect parse_std_can_id_out_of_range"
+    let (_, r18) = sendRemoteEvent state3 7200 2048 False
+    pass18 <- assertContains "Identifier refusal" "\"code\": \"parse_std_can_id_out_of_range\"" (T.unpack r18)
+
+    putStrLn "Test 19: processBuildFrameRaw — denominator 0, expect parse_non_positive_denominator envelope"
+    let (_, r19) = buildFrameBin state3 256 False 8 ([0], [5], [0])
+    pass19 <- case r19 of
+        Left errText -> assertContains "Denominator refusal envelope"
+                                       "\"code\": \"parse_non_positive_denominator\"" (T.unpack errText)
+        Right bs -> do
+            putStrLn $ "  Unexpected bytes: " ++ show bs
+            return False
+    putStrLn ""
 
     putStrLn "Test 15: processEndStreamDirect — expect summary response"
     let (_, r15) = endStream state3
@@ -511,8 +448,9 @@ main = do
     -- ------------------------------------------------------------------------
     -- Summary
     -- ------------------------------------------------------------------------
-    let allPass = and [pass1, pass2, pass3, pass4, pass5, pass6, pass7, pass8,
-                       pass9, pass10, pass11, pass12, pass12b, pass13, pass14, pass15]
-    if allPass
-        then putStrLn "All 16 checks passed (11/11 FFI exports + BRS/ESI binary)." >> exitSuccess
+    let checks = [pass1, pass2, pass3, pass4, pass5, pass6, pass7, pass8,
+                  pass9, pass10, pass11, pass12, pass12b, pass13, pass14, pass15,
+                  pass16, pass17, pass18, pass19]
+    if and checks
+        then putStrLn ("All " ++ show (length checks) ++ " checks passed.") >> exitSuccess
         else putStrLn "SOME CHECKS FAILED." >> exitFailure

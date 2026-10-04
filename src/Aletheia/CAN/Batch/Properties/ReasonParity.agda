@@ -20,7 +20,7 @@ open import Aletheia.CAN.ExtractionResult using
 open import Aletheia.Error using () renaming (SignalPastFrameEnd to PastFrameEndError)
 open import Aletheia.Error using
   (MuxValueMismatch; MuxSignalNotFound; MuxChainCycle; MuxExtractionFailed;
-   BitExtractionFailed; ValueExceedsWireRange; InContext)
+   ValueExceedsWireRange; InContext)
 open import Aletheia.CAN.BatchExtraction using
   ( PartitionedResults; categorizeResult; categorizeIndexed
   ; ExtractionErrorCode; extractionErrorCodeToℕ
@@ -55,7 +55,6 @@ reason-parity _ _ (SignalNotPresent MuxValueMismatch)    = refl
 reason-parity _ _ (SignalNotPresent (MuxSignalNotFound _))   = refl
 reason-parity _ _ (SignalNotPresent MuxChainCycle)       = refl
 reason-parity _ _ (SignalNotPresent (MuxExtractionFailed _)) = refl
-reason-parity _ _ (SignalNotPresent (BitExtractionFailed _)) = refl
 reason-parity _ _ (SignalNotPresent ValueExceedsWireRange)   = refl
 reason-parity _ _ (SignalNotPresent (PastFrameEndError _)) = refl
 reason-parity _ _ (SignalNotPresent (InContext _ _))     = refl

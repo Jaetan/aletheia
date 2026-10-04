@@ -238,7 +238,8 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_rts_heap_cap.py", "aletheia.client._ffi", "find_ffi_library"),
         # The ctypes mirrors of the kernel's C structures: the layout test holds
         # them to haskell-shim/include/aletheia.h, and the entry tests call the kernel raw
-        # with a NULL or undersized structure, or bytes no binding ever passes.
+        # with a NULL or undersized structure, or bytes no binding ever passes, and
+        # read the JSON envelope a refusal comes back as.
         ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaBuffer"),
         ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaDecimal"),
         ("test_ffi_abi_layout.py", "aletheia.client._ffi", "AletheiaRational"),
@@ -252,6 +253,7 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "AletheiaText"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "configure_ffi_signatures"),
         ("test_ffi_struct_entries.py", "aletheia.client._ffi", "find_ffi_library"),
+        ("test_ffi_struct_entries.py", "aletheia.client._ffi", "parse_json_object"),
         # The binding's ABI version, which the version test holds to the header's.
         ("test_ffi_abi_version.py", "aletheia.client._ffi", "ABI_VERSION"),
     )

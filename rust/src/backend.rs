@@ -28,13 +28,11 @@ use serde_json::Value;
 
 use crate::error::Error;
 use crate::log::{events, LogField, LogLevel, LogRecord, LogValue, Logger};
+use crate::response;
 use crate::types::{CanId, Dlc, Rational, Timestamp};
 
 /// Opaque pointer to the `StreamState` owned by the core (from `aletheia_init`).
 pub(crate) type StateHandle = *mut c_void;
-
-/// CAN-FD's largest payload; frames longer than this are rejected before the FFI.
-const MAX_FRAME_BYTES: usize = 64;
 
 // Runtime GHC RTS parameters — SSOT: docs/RESOURCE_BUDGETS.yaml (runtime
 // block); mirrored here verbatim.  Parity with the SSOT is enforced by
@@ -123,20 +121,33 @@ impl FfiFrame {
         }
     }
 
-    /// A frame carrying identifier, DLC and payload, with no timestamp and
-    /// no bus bits: what every entry but `aletheia_send_frame` reads.
-    fn new(can_id: u32, extended: bool, dlc: Dlc, data: &[u8]) -> Result<Self, Error> {
-        Ok(FfiFrame {
+    /// A frame carrying identifier and DLC, with no payload, no timestamp and
+    /// no bus bits: what `aletheia_build_frame_bin` reads, as it writes the
+    /// payload itself.
+    fn header(can_id: u32, extended: bool, dlc: Dlc) -> Self {
+        FfiFrame {
             timestamp: 0,
-            data: slice_ptr(data),
+            data: std::ptr::null(),
             can_id,
             extended: u8::from(extended),
             dlc: dlc.value(),
-            data_len: frame_len(data)?,
+            data_len: 0,
             brs_present: 0,
             brs_value: 0,
             esi_present: 0,
             esi_value: 0,
+        }
+    }
+
+    /// The [`header`](Self::header) frame carrying `data`, refused unless it
+    /// is exactly the DLC's byte count ([`frame_len`]): what the extraction
+    /// and update entries read, and `aletheia_send_frame` once it adds the
+    /// timestamp and the bus bits.
+    fn new(can_id: u32, extended: bool, dlc: Dlc, data: &[u8]) -> Result<Self, Error> {
+        Ok(FfiFrame {
+            data: slice_ptr(data),
+            data_len: frame_len(dlc, data)?,
+            ..FfiFrame::header(can_id, extended, dlc)
         })
     }
 }
@@ -153,8 +164,8 @@ struct FfiSignalValues {
 /// `struct aletheia_buffer`: a binary result and the error the core set.
 /// Build and update write into the caller's `data` (`size` bytes, set to the
 /// count written); extraction allocates `data` for the caller to free with
-/// `aletheia_free_buf`. On failure `err` is a GHC-allocated C string the
-/// caller frees with `aletheia_free_str`.
+/// `aletheia_free_buf`. On failure `err` is a GHC-allocated JSON error
+/// envelope the caller frees with `aletheia_free_str`.
 #[repr(C)]
 struct FfiBuffer {
     data: *mut u8,
@@ -221,7 +232,7 @@ type AbiVersionFn = unsafe extern "C" fn() -> u32;
 const ABI_VERSION: u32 = 2;
 // Build and update share one shape: the caller allocates the output (`dlc`
 // bytes) in the `FfiBuffer` and reads an `i8` status, nonzero meaning failure
-// with the message in the buffer's `err`.
+// with the JSON error envelope in the buffer's `err`.
 type FrameBinFn = unsafe extern "C" fn(
     StateHandle,
     *const FfiFrame,
@@ -309,7 +320,9 @@ pub trait Backend {
     ///
     /// # Errors
     /// [`Error::BinaryPathUnsupported`] by default; a real FFI backend returns
-    /// [`Error::Validation`] / [`Error::Protocol`] on a bad payload or wire fault.
+    /// [`Error::Validation`] on a payload whose length is not the DLC's byte
+    /// count, [`Error::Core`] on the core's refusal, and [`Error::Protocol`] on
+    /// a wire fault.
     fn extract_signals_bin(&self, id: CanId, dlc: Dlc, data: &[u8]) -> Result<Vec<u8>, Error> {
         let _ = (id, dlc, data);
         Err(Error::BinaryPathUnsupported)
@@ -740,15 +753,20 @@ fn encode_opt_bool(b: Option<bool>) -> (u8, u8) {
     }
 }
 
-/// Validate a payload length against the CAN-FD maximum and narrow it to `u8`.
-fn frame_len(data: &[u8]) -> Result<u8, Error> {
-    if data.len() > MAX_FRAME_BYTES {
-        return Err(Error::Validation(format!(
-            "frame payload {} bytes exceeds CAN-FD maximum of {MAX_FRAME_BYTES}",
-            data.len()
-        )));
-    }
-    Ok(data.len() as u8) // guarded above: <= 64 fits u8
+/// Require a payload of exactly the DLC's byte count, the one length the core
+/// accepts, and narrow that length to the frame's `u8`. A length past `u8`
+/// equals no DLC's byte count, so it takes the same refusal.
+fn frame_len(dlc: Dlc, data: &[u8]) -> Result<u8, Error> {
+    let expected = dlc.to_bytes();
+    u8::try_from(data.len())
+        .ok()
+        .filter(|&len| usize::from(len) == expected)
+        .ok_or_else(|| {
+            Error::Validation(format!(
+                "payload length {} does not match DLC ({expected} bytes expected)",
+                data.len()
+            ))
+        })
 }
 
 /// A plausibility cap on the size the core reports for an extraction buffer,
@@ -817,11 +835,12 @@ fn slice_ptr<T>(s: &[T]) -> *const T {
     }
 }
 
-/// Interpret a build/update FFI status: nonzero ⇒ read and free `out_err`.
+/// Interpret a binary-output entry's status: nonzero ⇒ read and free
+/// `out_err`, and answer the refusal it carries ([`buffer_refusal`]).
 fn check_buffer_status(
     status: i8,
     out_err: *mut c_char,
-    free_str: &Symbol<'static, FreeStrFn>,
+    syms: &Symbols,
     op: &str,
 ) -> Result<(), Error> {
     if status == 0 {
@@ -832,13 +851,22 @@ fn check_buffer_status(
             "{op}: status {status} with null error message"
         )));
     }
-    // SAFETY: a nonzero status with non-null `out_err` is a GHC-allocated C
-    // string; copy it out, then release it with the core's deallocator.
-    let msg = unsafe { CStr::from_ptr(out_err) }
-        .to_string_lossy()
-        .into_owned();
-    unsafe { free_str(out_err) };
-    Err(Error::Protocol(format!("{op}: {msg}")))
+    // A nonzero status with non-null `out_err` is a GHC-allocated C string,
+    // which `take_response` copies out and releases.
+    Err(buffer_refusal(op, &take_response(syms, out_err)))
+}
+
+/// Read the JSON error envelope a binary-output entry sets on refusal, the
+/// one the JSON path answers with (the core's typed error, or the shim's own
+/// `ffi_validation_error`), as the JSON path reads it: [`Error::Core`] with
+/// its `code` and `message`, or a typed lift. Anything else in `err` is a
+/// wire fault.
+fn buffer_refusal(op: &str, json: &str) -> Error {
+    match response::parse_object(json) {
+        Err(Error::Protocol(e)) => Error::Protocol(format!("{op}: malformed error envelope: {e}")),
+        Err(refusal) => refusal,
+        Ok(_) => Error::Protocol(format!("{op}: error is not an error envelope: {json}")),
+    }
 }
 
 /// The production [`Backend`]: loads `libaletheia-ffi.so` and owns one
@@ -910,8 +938,8 @@ impl Backend for FfiBackend {
         (frame.brs_present, frame.brs_value) = encode_opt_bool(brs);
         (frame.esi_present, frame.esi_value) = encode_opt_bool(esi);
         // SAFETY: `handle` is the live StreamState this backend owns; `frame`
-        // points at `data`, valid for `data_len` bytes (validated <= 64 by
-        // `frame_len`), and both outlive the call.
+        // points at `data`, valid for its `data_len` bytes (the DLC's byte
+        // count, checked by `frame_len`), and both outlive the call.
         self.invoke(|syms| unsafe { (syms.send_frame)(self.handle, &frame) })
     }
 
@@ -947,8 +975,8 @@ impl Backend for FfiBackend {
     fn extract_signals_binary(&self, id: CanId, dlc: Dlc, data: &[u8]) -> Result<String, Error> {
         let frame = FfiFrame::new(id.value(), id.is_extended(), dlc, data)?;
         // SAFETY: `handle` is the live StreamState this backend owns; `frame`
-        // points at `data`, valid for `data_len` bytes (validated <= 64 by
-        // `frame_len`), and both outlive the call.
+        // points at `data`, valid for its `data_len` bytes (the DLC's byte
+        // count, checked by `frame_len`), and both outlive the call.
         self.invoke(|syms| unsafe { (syms.extract_signals)(self.handle, &frame) })
     }
 
@@ -961,10 +989,10 @@ impl Backend for FfiBackend {
             size: 0,
         };
         // SAFETY: `handle` is the live StreamState this backend owns; `frame`
-        // points at `data`, valid for `data_len` bytes (validated <= 64 by
-        // `frame_len`); `out` is an out-param the core writes.
+        // points at `data`, valid for its `data_len` bytes (the DLC's byte
+        // count, checked by `frame_len`); `out` is an out-param the core writes.
         let status = unsafe { (syms.extract_signals_bin)(self.handle, &frame, &mut out) };
-        check_buffer_status(status, out.err, &syms.free_str, "extract_signals_bin")?;
+        check_buffer_status(status, out.err, syms, "extract_signals_bin")?;
         // SAFETY: on success the core set `out.data` to an `out.size`-byte
         // buffer it allocated, and `free_buf` is its deallocator.
         unsafe { take_extraction_buffer(out.data, out.size, |buf| (syms.free_buf)(buf)) }
@@ -977,7 +1005,7 @@ impl Backend for FfiBackend {
         dlc: Dlc,
         signals: SignalInjection<'_>,
     ) -> Result<Vec<u8>, Error> {
-        let frame = FfiFrame::new(id, extended, dlc, &[])?;
+        let frame = FfiFrame::header(id, extended, dlc);
         let syms = symbols()?;
         self.frame_bin(&syms.build_frame, &frame, dlc, signals, "build_frame")
     }
@@ -1031,7 +1059,7 @@ impl FfiBackend {
         // core writes); the parallel arrays all share `indices.len()`;
         // `frame`'s payload is valid for its `data_len` bytes.
         let status = unsafe { entry(self.handle, frame, &values, &mut out) };
-        check_buffer_status(status, out.err, &syms.free_str, op)?;
+        check_buffer_status(status, out.err, syms, op)?;
         payload.truncate(out.size as usize);
         Ok(payload)
     }
@@ -1232,8 +1260,8 @@ mod codec_tests {
     use std::cell::Cell;
 
     use super::{
-        check_buffer_status, encode_opt_bool, frame_len, symbols, take_extraction_buffer, Backend,
-        MAX_EXTRACT_BUF, MAX_FRAME_BYTES,
+        buffer_refusal, check_buffer_status, encode_opt_bool, frame_len, symbols,
+        take_extraction_buffer, Backend, MAX_EXTRACT_BUF,
     };
     use crate::error::Error;
     use crate::mock::MockBackend;
@@ -1246,24 +1274,101 @@ mod codec_tests {
         assert_eq!(encode_opt_bool(Some(true)), (1, 1));
     }
 
+    /// `frame_len` over `data` with the DLC whose code is `code`.
+    fn len_for(code: u8, data: &[u8]) -> Result<u8, Error> {
+        frame_len(Dlc::new(code).expect("dlc"), data)
+    }
+
     #[test]
-    fn frame_len_admits_the_can_fd_maximum_and_refuses_one_more() {
-        assert_eq!(frame_len(&[]).expect("empty"), 0);
-        assert_eq!(frame_len(&[0u8; MAX_FRAME_BYTES]).expect("64 bytes"), 64);
-        assert!(matches!(
-            frame_len(&[0u8; MAX_FRAME_BYTES + 1]),
-            Err(Error::Validation(_))
-        ));
+    fn frame_len_admits_exactly_the_dlc_byte_count() {
+        assert_eq!(len_for(0, &[]).expect("DLC 0, no payload"), 0);
+        assert_eq!(len_for(8, &[0u8; 8]).expect("DLC 8, 8 bytes"), 8);
+        assert_eq!(len_for(9, &[0u8; 12]).expect("DLC 9, 12 bytes"), 12);
+        assert_eq!(len_for(15, &[0u8; 64]).expect("DLC 15, 64 bytes"), 64);
+    }
+
+    #[test]
+    fn frame_len_refuses_any_other_length_within_the_largest_frame() {
+        // Each length is at most 64 bytes, the largest a DLC names, and still
+        // not the byte count of the DLC it travels with.
+        for (code, len) in [(8, 20), (8, 7), (8, 9), (0, 1), (9, 8), (15, 48), (15, 63)] {
+            let result = len_for(code, &vec![0u8; len]);
+            assert!(
+                matches!(&result, Err(Error::Validation(m)) if m.contains("does not match DLC")),
+                "DLC {code} with {len} bytes: {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn frame_len_refuses_a_length_past_the_largest_frame() {
+        // 65 is one past any DLC's byte count; 256 is the first length the
+        // frame's u8 cannot carry, which wrapped would read as 0.
+        assert!(matches!(len_for(15, &[0u8; 65]), Err(Error::Validation(_))));
+        assert!(matches!(len_for(0, &[0u8; 256]), Err(Error::Validation(_))));
     }
 
     #[test]
     fn buffer_status_zero_is_success_and_nonzero_without_a_message_is_a_protocol_fault() {
         let syms = symbols().expect("load libaletheia-ffi.so for test (is ALETHEIA_LIB set?)");
-        assert!(check_buffer_status(0, std::ptr::null_mut(), &syms.free_str, "op").is_ok());
-        let err = check_buffer_status(1, std::ptr::null_mut(), &syms.free_str, "op").unwrap_err();
+        assert!(check_buffer_status(0, std::ptr::null_mut(), syms, "op").is_ok());
+        let err = check_buffer_status(1, std::ptr::null_mut(), syms, "op").unwrap_err();
         assert!(
             matches!(&err, Error::Protocol(m) if m.contains("null error message")),
             "got: {err}"
+        );
+    }
+
+    #[test]
+    fn a_buffer_refusal_surfaces_the_envelope_code_and_message() {
+        let err = buffer_refusal(
+            "build_frame",
+            r#"{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}"#,
+        );
+        assert!(
+            matches!(&err, Error::Core { code, message }
+                if code == "handler_no_dbc" && message == "no DBC loaded"),
+            "got: {err:?}"
+        );
+        // The shim's own refusals carry their code the same way.
+        let err = buffer_refusal(
+            "update_frame",
+            r#"{"status":"error","code":"ffi_validation_error","message":"aletheia_update_frame_bin: null out buffer"}"#,
+        );
+        assert!(
+            matches!(&err, Error::Core { code, message }
+                if code == "ffi_validation_error"
+                    && message == "aletheia_update_frame_bin: null out buffer"),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn a_buffer_refusal_lifts_a_structured_envelope_as_the_json_path_does() {
+        let err = buffer_refusal(
+            "extract_signals_bin",
+            r#"{"status":"error","code":"input_bound_exceeded","message":"m","bound_kind":"nesting_depth","observed":65,"limit":64}"#,
+        );
+        assert!(
+            matches!(&err, Error::InputBoundExceeded { bound_kind, observed: 65, limit: 64, .. }
+                if bound_kind == "nesting_depth"),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn a_buffer_error_that_is_not_an_error_envelope_is_a_wire_fault() {
+        let err = buffer_refusal("build_frame", "no DBC loaded");
+        assert!(
+            matches!(&err, Error::Protocol(m)
+                if m.starts_with("build_frame: malformed error envelope")),
+            "got: {err:?}"
+        );
+        let err = buffer_refusal("build_frame", r#"{"status":"ack"}"#);
+        assert!(
+            matches!(&err, Error::Protocol(m)
+                if m.starts_with("build_frame: error is not an error envelope")),
+            "got: {err:?}"
         );
     }
 
@@ -1346,5 +1451,98 @@ mod codec_tests {
             "got: {result:?}"
         );
         assert!(mock.captured().is_empty(), "the default records nothing");
+    }
+}
+
+#[cfg(test)]
+mod frame_entries {
+    //! The payload guard and the refusal envelope at the real entries: a
+    //! payload of any length but the DLC's byte count never reaches the core,
+    //! and one of exactly that length does, the core then refusing it for want
+    //! of a DBC with its own code.
+
+    use super::{Backend, FfiBackend, SignalInjection};
+    use crate::error::Error;
+    use crate::log::LogLevel;
+    use crate::types::{CanId, Dlc, Timestamp};
+
+    const NO_SIGNALS: SignalInjection<'static> = SignalInjection {
+        indices: &[],
+        nums: &[],
+        dens: &[],
+    };
+
+    fn backend() -> FfiBackend {
+        FfiBackend::new(None, None, LogLevel::Warn)
+            .expect("load libaletheia-ffi.so for test (is ALETHEIA_LIB set?)")
+    }
+
+    fn id() -> CanId {
+        CanId::standard(256).expect("id")
+    }
+
+    fn dlc8() -> Dlc {
+        Dlc::new(8).expect("dlc")
+    }
+
+    /// A refusal by the guard, which names the mismatch.
+    fn assert_guarded<T: std::fmt::Debug>(entry: &str, result: Result<T, Error>) {
+        assert!(
+            matches!(&result, Err(Error::Validation(m)) if m.contains("does not match DLC")),
+            "{entry}: {result:?}"
+        );
+    }
+
+    /// The core's refusal for want of a DBC, carried from the envelope.
+    fn assert_no_dbc<T: std::fmt::Debug>(entry: &str, result: Result<T, Error>) {
+        assert!(
+            matches!(&result, Err(Error::Core { code, message })
+                if code == "handler_no_dbc" && message == "DBC not loaded"),
+            "{entry}: {result:?}"
+        );
+    }
+
+    #[test]
+    fn every_payload_entry_refuses_a_length_other_than_the_dlc_byte_count() {
+        // 20 bytes is within the largest frame and is not the 8 a DLC of 8
+        // names.
+        let b = backend();
+        let data = [0u8; 20];
+        assert_guarded(
+            "send_frame_binary",
+            b.send_frame_binary(Timestamp(0), id(), dlc8(), &data, None, None),
+        );
+        assert_guarded(
+            "extract_signals_binary",
+            b.extract_signals_binary(id(), dlc8(), &data),
+        );
+        assert_guarded(
+            "extract_signals_bin",
+            b.extract_signals_bin(id(), dlc8(), &data),
+        );
+        assert_guarded(
+            "update_frame_bin",
+            b.update_frame_bin(256, false, dlc8(), &data, NO_SIGNALS),
+        );
+    }
+
+    #[test]
+    fn the_binary_output_entries_carry_the_core_code_of_a_refusal() {
+        // The exact length passes the guard, and with no DBC loaded each entry
+        // answers the core's own refusal.
+        let b = backend();
+        let data = [0u8; 8];
+        assert_no_dbc(
+            "extract_signals_bin",
+            b.extract_signals_bin(id(), dlc8(), &data),
+        );
+        assert_no_dbc(
+            "build_frame_bin",
+            b.build_frame_bin(256, false, dlc8(), NO_SIGNALS),
+        );
+        assert_no_dbc(
+            "update_frame_bin",
+            b.update_frame_bin(256, false, dlc8(), &data, NO_SIGNALS),
+        );
     }
 }

@@ -85,7 +85,7 @@ class ProtocolError(AletheiaError):
     invalid JSON, missing response fields, FFI-returned-null where a
     response was expected, AND the Agda kernel returning an
     ``ErrorResponse`` with a wire ``code`` (e.g. ``frame_signal_not_found``,
-    ``extraction_bit_extraction_failed``).  Callers can branch on
+    ``parse_payload_length_mismatch``).  Callers can branch on
     :attr:`AletheiaError.code` to discriminate kernel error codes
     without parsing the message string.
     """
@@ -107,8 +107,7 @@ class ValidationError(AletheiaError):
 class InputBoundExceededError(AletheiaError):
     """Raised when an input exceeds an adversarial-input bound.
 
-    Mirrors the Agda ``InputBoundExceeded`` constructor on
-    ``ParseError`` / ``DBCTextParseError`` / ``FrameError``.  Attributes
+    Mirrors the Agda ``Error.InputBoundExceeded`` constructor.  Attributes
     carry the bound kind (e.g. ``"input_length_bytes"``), the observed
     value, and the canonical limit per :mod:`aletheia.limits`.
 

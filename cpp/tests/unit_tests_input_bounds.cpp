@@ -46,7 +46,6 @@ TEST_CASE("Numeric limit constants mirror Aletheia.Limits values", "[input_bound
     CHECK(aletheia::max_dbc_text_bytes == 64ULL * 1024 * 1024);
     CHECK(aletheia::max_json_bytes == 64ULL * 1024 * 1024);
     CHECK(aletheia::max_nesting_depth == 64);
-    CHECK(aletheia::max_frame_byte_count == 64);
     CHECK(aletheia::max_messages_per_file == 10'000);
     CHECK(aletheia::max_signals_per_message == 1024);
     CHECK(aletheia::max_attributes_per_file == 10'000);
@@ -68,7 +67,6 @@ TEST_CASE("BoundKind wire codes mirror boundKindCode in Aletheia.Limits", "[inpu
     CHECK(aletheia::bound_kind_identifier_length == "identifier_length");
     CHECK(aletheia::bound_kind_string_length == "string_length");
     CHECK(aletheia::bound_kind_atom_count == "atom_count");
-    CHECK(aletheia::bound_kind_frame_byte_count == "frame_byte_count");
     CHECK(aletheia::bound_kind_property_count == "property_count");
     CHECK(aletheia::bound_kind_rational_component_magnitude == "rational_component_magnitude");
 }
@@ -96,6 +94,21 @@ TEST_CASE("parse_non_integer_multiplex_value maps from string", "[parse_error]")
     // matching enumerator.
     CHECK(aletheia::error_code_from_string("parse_non_integer_multiplex_value") ==
           aletheia::ErrorCode::ParseNonIntegerMultiplexValue);
+}
+
+TEST_CASE("the binary entries' frame and signal-value refusals map from string", "[parse_error]") {
+    // The kernel parses what a binary entry is handed and names each refusal;
+    // each name decodes to its own enumerator.
+    CHECK(aletheia::error_code_from_string("parse_dlc_code_out_of_range") ==
+          aletheia::ErrorCode::ParseDlcCodeOutOfRange);
+    CHECK(aletheia::error_code_from_string("parse_payload_length_mismatch") ==
+          aletheia::ErrorCode::ParsePayloadLengthMismatch);
+    CHECK(aletheia::error_code_from_string("parse_payload_byte_out_of_range") ==
+          aletheia::ErrorCode::ParsePayloadByteOutOfRange);
+    CHECK(aletheia::error_code_from_string("parse_non_positive_denominator") ==
+          aletheia::ErrorCode::ParseNonPositiveDenominator);
+    CHECK(aletheia::error_code_from_string("parse_signal_array_length_mismatch") ==
+          aletheia::ErrorCode::ParseSignalArrayLengthMismatch);
 }
 
 // Every detail::parse_* callsite uses the parse_bounded helper

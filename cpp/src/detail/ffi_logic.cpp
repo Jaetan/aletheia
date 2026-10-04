@@ -7,8 +7,10 @@
 #include "ffi_logic.hpp"
 #include "ffi_abi.hpp"
 
+#include "json.hpp"
 #include "rts_params.hpp"
 
+#include <aletheia/detail/checked.hpp>
 #include <aletheia/error.hpp>
 #include <aletheia/limits.hpp>
 #include <aletheia/types.hpp>
@@ -57,12 +59,15 @@ auto rts_cores_mismatch(int requested, int active) -> std::optional<std::pair<in
 
 auto ffi_error_from_status(std::int8_t status, char* err_str, void (*free_str)(char*))
     -> std::optional<AletheiaError> {
-    // The Haskell-owned message is released by the deleter on every path out,
-    // and a null message (unique_ptr skips the deleter) reads as unknown.
+    // The Haskell-owned envelope is released by the deleter on every path out,
+    // after it is decoded, and a null one (unique_ptr skips the deleter) reads
+    // as unknown.
     const std::unique_ptr<char, void (*)(char*)> owned{err_str, free_str};
-    if (status != 0)
-        return AletheiaError{ErrorKind::Protocol, owned ? owned.get() : "Unknown error"};
-    return std::nullopt;
+    if (status == 0)
+        return std::nullopt;
+    if (!owned)
+        return AletheiaError{ErrorKind::Protocol, "Unknown error"};
+    return binary_refusal(c_string_view(owned.get()));
 }
 
 auto wire_count_refusal(std::size_t count) -> std::optional<std::string> {

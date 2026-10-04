@@ -429,7 +429,7 @@ violation; discriminate by the `bound_kind` field on the structured
 payload.
 
 **Symptom:** Any command (JSON-shape `parseDBC` / `setProperties` /
-binary `aletheia_send_frame` / `parse_dbc_text`) returns
+`parse_dbc_text`) returns
 `{"status": "error", "code": "input_bound_exceeded", "bound_kind": "...", ...}`,
 or the binding raises `aletheia.InputBoundExceededError` (Python) /
 `*aletheia.InputBoundExceededError` (Go) / throws
@@ -451,12 +451,10 @@ or the binding raises `aletheia.InputBoundExceededError` (Python) /
   `max_string_length_bytes` (64 KiB).
 - `atom_count` — an LTL property exceeded
   `max_atom_count_per_property` (1024 atoms).
-- `frame_byte_count` — a frame payload exceeded
-  `max_frame_byte_count` (64 — CAN-FD maximum).  Structurally
-  impossible for a valid CAN / CAN-FD frame; indicates a
-  binding-side encoding bug (check the producer's DLC-to-bytes
-  mapping; valid table is `{0..8, 12, 16, 20, 24, 32, 48, 64}` for
-  DLC values `0..15`).
+- `property_count` — one `setProperties` call submitted more than
+  `max_properties_per_stream` (1024) properties.
+- `rational_component_magnitude` — a JSON number's exact rational has a
+  numerator or denominator outside the signed 64-bit wire range.
 
 **Action:** Read the `bound_kind` / `observed` / `limit` fields on
 the typed error to identify which bound was crossed. Action then
@@ -482,9 +480,28 @@ splits by bound-kind family:
 - **`atom_count`** — an LTL property exceeded 1024 atoms.  The
   property is likely the wrong shape (a real-world property should
   fit in a few atoms); restructure rather than raising the cap.
-- **`frame_byte_count`** — structurally impossible for a valid CAN /
-  CAN-FD frame.  Indicates a binding-side encoding bug; check the
-  producer's DLC-to-bytes mapping (valid table under Cause).
+- **`property_count`** — split the properties across streams, or see
+  PROTOCOL.md § Updating bounds to raise the cap.
+- **`rational_component_magnitude`** — rescale the value (a signal's
+  `factor` / `offset`) so its exact rational fits the wire.
+
+### Runtime — frame refusals (`parse_*` on a binary entry)
+
+#### `parse_payload_length_mismatch` / `parse_dlc_code_out_of_range` / `parse_std_can_id_out_of_range` / `parse_ext_can_id_out_of_range`
+
+**Symptom:** A binary entry (`aletheia_send_frame`, `aletheia_extract_signals`,
+`aletheia_build_frame_bin`, `aletheia_update_frame_bin`,
+`aletheia_extract_signals_bin`, `aletheia_send_remote`) answers one of these
+codes.
+
+**Cause:** The kernel parses every frame it is handed and refused this one:
+a `data_len` that is not the DLC's byte count, a DLC above 15, or an
+identifier outside its 11- or 29-bit range.  Every binding refuses these
+before calling the kernel, so the producer is a caller of the C ABI itself.
+
+**Action:** Fix the producer's frame encoding.  The DLC-to-bytes table is
+`{0..8, 12, 16, 20, 24, 32, 48, 64}` for DLC codes `0..15`, and `data_len`
+must be exactly the DLC's entry.
 
 ### Runtime — OOM / heap pressure
 

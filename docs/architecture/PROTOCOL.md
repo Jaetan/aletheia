@@ -10,7 +10,7 @@
 - [Overview](#overview)
 - [Message Types](#message-types)
 - [Commands](#commands)
-- [Binary Frame Entry Point](#binary-frame-entry-point)
+- [Binary Entry Points](#binary-entry-points)
 - [Response Types](#response-types)
 - [LTL Property Format](#ltl-property-format)
 - [Rational Number Encoding](#rational-number-encoding)
@@ -41,11 +41,8 @@ This document is for:
 Aletheia uses a JSON protocol for communication between language bindings (Python, C++, Go, Rust) and the Agda/Haskell core. Each message is a single JSON object passed as a string via FFI (Foreign Function Interface) function calls.
 
 **Communication Model**:
-- The FFI exposes several binary entry points (the full streaming set is listed under [Message Types](#message-types)); the four core request/response ones return JSON response strings:
-  - `aletheia_process()`: JSON string in — handles the DBC/property commands (parseDBC, setProperties, validateDBC, parseDBCText, formatDBCText)
-  - `aletheia_send_frame()`: Binary data in — streaming hot path for CAN data frames (no JSON parsing on input)
-  - `aletheia_send_error()`: Binary error frame (timestamp only, no payload)
-  - `aletheia_send_remote()`: Binary remote frame (timestamp + CAN ID, no payload)
+- `aletheia_process()` takes a JSON string: the DBC and property commands (parseDBC, setProperties, validateDBC, parseDBCText, formatDBCText).
+- The [binary entry points](#binary-entry-points) take C values: the stream's lifecycle (`aletheia_start_stream()`, `aletheia_end_stream()`), its events (`aletheia_send_frame()`, `aletheia_send_error()`, `aletheia_send_remote()`), extraction (`aletheia_extract_signals()`), the DBC's export (`aletheia_format_dbc()`), and the binary-output build, update and extraction.
 - One call per response (request-response)
 - Sequential processing (no threading or queuing)
 - No subprocess or IPC — everything runs in-process via `libaletheia-ffi.so`
@@ -64,15 +61,15 @@ WaitingForDBC → ParseDBC → ReadyToStream → SetProperties → ReadyToStream
 All messages have a `"type"` field that determines how they are processed.
 
 ### Type Tags
-- `"command"`: DBC / property JSON commands — `parseDBC`, `setProperties`, `validateDBC`, `parseDBCText`, `formatDBCText`. The streaming / frame operations have **no JSON command form**; they are driven through the binary FFI entry points: start-stream (`aletheia_start_stream`), send-frame (`aletheia_send_frame`), extract-signals (`aletheia_extract_signals`), format-DBC (`aletheia_format_dbc`), end-stream (`aletheia_end_stream`), and frame build/update (`aletheia_build_frame_bin` / `aletheia_update_frame_bin`). (The JSON command mirrors for the streaming operations were removed — production has always used the binary FFI.)
+- `"command"`: DBC / property JSON commands — `parseDBC`, `setProperties`, `validateDBC`, `parseDBCText`, `formatDBCText`. The streaming and frame operations have **no JSON command form**; they are the binary entry points: start-stream (`aletheia_start_stream`), send-frame (`aletheia_send_frame`), extract-signals (`aletheia_extract_signals`), format-DBC (`aletheia_format_dbc`), end-stream (`aletheia_end_stream`), and frame build/update (`aletheia_build_frame_bin` / `aletheia_update_frame_bin`).
 
-> **Note**: Data frames are sent via the binary `aletheia_send_frame()` entry point, not as JSON. See [Binary Frame Entry Point](#binary-frame-entry-point) below.
+> **Note**: Data frames are sent via the binary `aletheia_send_frame()` entry point, not as JSON. See [Binary Entry Points](#binary-entry-points) below.
 
 ---
 
 ## Commands
 
-### 1. ParseDBC
+### ParseDBC
 
 Load a DBC (Database CAN) structure from JSON format.
 
@@ -120,7 +117,7 @@ Load a DBC (Database CAN) structure from JSON format.
 }
 ~~~
 
-The success response echoes the canonical parsed body (`dbc`) plus `warnings` — the warning-severity validation issues, in the same `{severity, code, detail}` element shape as [ValidateDBC](#3-validatedbc)'s `issues`. Warnings never block a load; error-severity issues instead refuse it with `handler_validation_failed` (see [§ Wire shape](#wire-shape)).
+The success response echoes the canonical parsed body (`dbc`) plus `warnings` — the warning-severity validation issues, in the same `{severity, code, detail}` element shape as [ValidateDBC](#validatedbc)'s `issues`. Warnings never block a load; error-severity issues instead refuse it with `handler_validation_failed` (see [§ Wire shape](#wire-shape)).
 
 **Response** (Error):
 ~~~json
@@ -260,49 +257,7 @@ Signal is only present when the multiplexor signal's value is in the `multiplex_
 
 ---
 
-### 2. ExtractAllSignals
-
-> **Removed (JSON command).** This operation no longer has a JSON command form; it is driven through the binary FFI entry point `aletheia_extract_signals` (see [Binary Frame Entry Point](#binary-frame-entry-point)). `aletheia_process` no longer accepts the `extractAllSignals` command. The request/response shapes below are retained as a reference to the operation's semantics.
-
-Extract all signal values from a CAN frame without streaming.
-
-**Request**:
-~~~json
-{
-  "type": "command",
-  "command": "extractAllSignals",
-  "canId": 256,
-  "dlc": 8,
-  "extended": false,
-  "data": [232, 3, 0, 0, 0, 0, 0, 0]
-}
-~~~
-
-**Response** (Success):
-~~~json
-{
-  "status": "success",
-  "values": [
-    {"name": "Speed", "value": 100.0}
-  ],
-  "errors": [],
-  "absent": []
-}
-~~~
-
-**Fields**:
-- `canId`: CAN message ID (integer, must match a message in the loaded DBC)
-- `dlc`: Data Length Code (0-15)
-- `data`: Array of bytes (0-255), length must match `dlcToBytes(dlc)`
-- Response `values`: Successfully extracted signals with physical values
-- Response `errors`: Signals that failed extraction (with error message)
-- Response `absent`: Multiplexed signals not present in this frame
-
-**State Requirements**: Must have called `parseDBC`. Does NOT require streaming mode.
-
----
-
-### 3. ValidateDBC
+### ValidateDBC
 
 Validate a DBC definition for structural correctness. Returns all issues found (not just the first). Does not modify client state.
 
@@ -339,47 +294,6 @@ Validate a DBC definition for structural correctness. Returns all issues found (
 The last two warning codes mirror the [FormatDBCText](#formatdbctext) round-trip checker's diagnostics, driven by the same kernel deciders: the DBC loads and streams fine, but cannot be expressed as round-tripping `.dbc` text — `formatDBCText` would refuse it. Like every warning, they never block a load (`has_errors` stays `false` when only warnings are present).
 
 **State Requirements**: Does NOT require `parseDBC`. Does NOT modify client state (read-only probe).
-
----
-
-### 4. FormatDBC
-
-> **Removed (JSON command).** This operation no longer has a JSON command form; it is driven through the binary FFI entry point `aletheia_format_dbc` (see [Binary Frame Entry Point](#binary-frame-entry-point)). `aletheia_process` no longer accepts the `formatDBC` command. (Note: the distinct [`formatDBCText`](#formatdbctext) JSON command — DBC struct → `.dbc` text — is retained.) The shapes below are retained as a reference to the operation's semantics.
-
-Export the currently-loaded DBC as JSON.
-
-**Request**:
-~~~json
-{
-  "type": "command",
-  "command": "formatDBC"
-}
-~~~
-
-**Response** (Success):
-~~~json
-{
-  "status": "success",
-  "dbc": {
-    "version": "1.0",
-    "messages": [...]
-  }
-}
-~~~
-
-**Response** (Error):
-~~~json
-{
-  "status": "error",
-  "message": "FormatDBC: No DBC loaded"
-}
-~~~
-
-**Fields**:
-- No input fields — uses the currently-loaded DBC
-- Response `dbc`: Complete DBC definition in JSON format (same schema as the `parseDBC` input)
-
-**State Requirements**: Must have called `parseDBC`. Does NOT modify client state (read-only).
 
 ---
 
@@ -431,7 +345,7 @@ Render a DBC definition (JSON wire shape) back to `.dbc` file text via the verif
 
 The refusal envelope shares the `{severity, code, detail}` element shape, the `has_errors` flag, and the one-issue-decoder contract with the `handler_validation_failed` envelope (see [§ Wire shape](#wire-shape)) — a binding decodes both with the same issue decoder.
 
-**Round-trip issue codes** (the codes this command's checker introduces; all severity **warning** except `text_roundtrip_divergence`). They are documented separately from the structural-validation codes under [ValidateDBC](#3-validatedbc), with two shared codes: `multi_value_mux_selector` and `mux_master_incoherent` are also emitted by `validateDBC` and the DBC-loading routes as warning-class mirrors driven by the same kernel deciders (a shape that loads cleanly but cannot round-trip to `.dbc` text is named without calling `formatDBCText`); the remaining codes are emitted by `formatDBCText` only:
+**Round-trip issue codes** (the codes this command's checker introduces; all severity **warning** except `text_roundtrip_divergence`). They are documented separately from the structural-validation codes under [ValidateDBC](#validatedbc), with two shared codes: `multi_value_mux_selector` and `mux_master_incoherent` are also emitted by `validateDBC` and the DBC-loading routes as warning-class mirrors driven by the same kernel deciders (a shape that loads cleanly but cannot round-trip to `.dbc` text is named without calling `formatDBCText`); the remaining codes are emitted by `formatDBCText` only:
 
 | Code | Severity | Meaning |
 |---|---|---|
@@ -449,7 +363,7 @@ Every binding surfaces this as `format_dbc_text(dbc)`: `text` + `issues` on succ
 
 ---
 
-### 5. SetProperties
+### SetProperties
 
 Define LTL properties to check against the frame stream.
 
@@ -497,214 +411,81 @@ See [LTL Property Format](#ltl-property-format) section below for complete schem
 
 ---
 
-### 6. StartStream
+## Binary Entry Points
 
-> **Removed (JSON command).** This operation no longer has a JSON command form; it is driven through the binary FFI entry point `aletheia_start_stream` (see [Binary Frame Entry Point](#binary-frame-entry-point)). `aletheia_process` no longer accepts the `startStream` command. The shapes below are retained as a reference to the operation's semantics.
+The stream and its frames go through C entry points that take their input as C values, never as JSON; `aletheia.h` fixes the layout of every structure they read. A JSON-answering entry returns a string the caller frees with `aletheia_free_str()`; a binary-output entry fills a `struct aletheia_buffer`. Every binding drives the stream through these entries.
 
-Begin streaming mode for processing data frames.
+**The kernel parses every frame.** `Aletheia.CAN.Frame.Parse` reads a frame's fields as the caller passed them and refuses one that breaks a rule before any state changes, checking them in this order and the payload byte by byte, so the first rule broken is the one reported:
 
-**Request**:
-~~~json
-{
-  "type": "command",
-  "command": "startStream"
-}
+| Rule | Code |
+|---|---|
+| A standard identifier is below 2048, an extended one below 2²⁹ | `parse_std_can_id_out_of_range` / `parse_ext_can_id_out_of_range` |
+| The DLC is at most 15 | `parse_dlc_code_out_of_range` |
+| `data_len` is the DLC's byte count: the code itself up to 8, then 12, 16, 20, 24, 32, 48, 64 | `parse_payload_length_mismatch` |
+| Every payload byte is below 256 | `parse_payload_byte_out_of_range` |
+
+`data_len` is a `uint8_t`, so no payload over 255 bytes reaches the kernel. Every binding checks a payload against its DLC before calling, so these codes reach only a caller of the C entries themselves.
+
+### aletheia_start_stream and aletheia_end_stream
+
+~~~c
+char *aletheia_start_stream(void *state);
+char *aletheia_end_stream(void *state);
 ~~~
 
-**Response** (Success):
+`aletheia_start_stream()` moves a session with a loaded DBC from `ReadyToStream` to `Streaming`:
+
 ~~~json
-{
-  "status": "success",
-  "message": "Streaming started"
-}
+{"status": "success", "message": "Streaming started successfully"}
 ~~~
 
-**Response** (Error):
+Without a DBC it answers `handler_no_dbc`, and on a stream already started `handler_already_streaming`.
+
+`aletheia_end_stream()` closes the stream, returning the session to `ReadyToStream` (it can stream again), and answers each property's final verdict:
+
 ~~~json
-{
-  "status": "error",
-  "message": "Must call ParseDBC before StartStream"
-}
+{"status": "complete", "results": [{"type": "property", "status": "holds", "property_index": 0}], "warnings": []}
 ~~~
 
-**State Requirements**: Must be in `ReadyToStream` state
-**State Transition**: `ReadyToStream` → `Streaming`
-
----
-
-### 7. SendFrame
-
-> **Removed (JSON command).** The JSON `sendFrame` mirror has been removed; submitting a CAN data frame is done through the binary FFI entry point `aletheia_send_frame` (see [Binary Frame Entry Point](#binary-frame-entry-point) below) — the throughput-optimised route every binding uses. `aletheia_process` no longer accepts the `sendFrame` command. The shapes below are retained as a reference to the operation's semantics.
-
-Submit a CAN data frame to the active monitoring stream.
-
-**Request**:
-~~~json
-{
-  "type": "command",
-  "command": "sendFrame",
-  "timestamp": 1000,
-  "canId": 256,
-  "dlc": 8,
-  "extended": false,
-  "data": [232, 3, 0, 0, 0, 0, 0, 0],
-  "brs": true,
-  "esi": false
-}
-~~~
-
-**Fields**:
-- `timestamp`: Frame timestamp in microseconds (non-negative integer).
-  Must be monotonically non-decreasing relative to the previous accepted
-  frame; backward timestamps return `handler_non_monotonic_timestamp`.
-- `canId`: CAN message ID (must match a message in the loaded DBC).
-- `dlc`: Data Length Code (0–15).
-- `extended` (optional): `true` for 29-bit extended CAN ID, `false`
-  (default) for 11-bit standard.
-- `data`: Array of bytes (0–255), length must match `dlcToBytes(dlc)`.
-- `brs` (optional, CAN-FD only): Bit Rate Switch (ISO 11898-1:2015
-  §10.4.2). `true` if the data phase ran at the higher bit rate, `false`
-  if at the arbitration rate.  Omit (or set to anything non-boolean) for
-  CAN 2.0B frames where the bit does not exist on the wire.
-- `esi` (optional, CAN-FD only): Error State Indicator (ISO 11898-1:2015
-  §10.4.3). `true` if the transmitter is error-passive, `false` if
-  error-active.  Same wire semantics as `brs`.
-
-**BRS / ESI semantics**: The Aletheia kernel does not consume these
-bits — LTL atomic predicates are signal-level (see
-[Aletheia.Trace.CANTrace](../../src/Aletheia/Trace/CANTrace.agda) design
-comment).  Bindings preserve them as pass-through metadata available via
-`Frame.brs` / `Frame.esi` (or the binding's equivalent) for downstream
-consumers.  The response shape never echoes BRS / ESI back per the
-send-only wire-symmetry contract.
-
-**Response** (Ack — no property fired):
-~~~json
-{"status": "ack"}
-~~~
-
-**Response** (Property Batch):
-~~~json
-{
-  "type": "property_batch",
-  "results": [
-    {"type": "property", "status": "holds", "property_index": {"numerator": 0, "denominator": 1}},
-    {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 1000, "denominator": 1}, "reason": "Always violated"}
-  ]
-}
-~~~
-
-A frame may produce zero events (returns `{"status": "ack"}` instead),
-or one-or-more events in `results`.  Mid-stream Satisfactions (a property
-that completes at this frame) come first in source-order, followed by an
-optional terminal Violation that halts iteration.  A frame contains at
-most one Violation; if present it is the last entry.  Empty `results` is
-unreachable — zero-event frames are encoded as Ack.
-
-**State Requirements**: Must be in `Streaming` state (after `startStream`
-command).
-
----
-
-### 8. EndStream
-
-> **Removed (JSON command).** This operation no longer has a JSON command form; it is driven through the binary FFI entry point `aletheia_end_stream` (see [Binary Frame Entry Point](#binary-frame-entry-point)). `aletheia_process` no longer accepts the `endStream` command. The shapes below are retained as a reference to the operation's semantics.
-
-End streaming mode and return final results.
-
-**Request**:
-~~~json
-{
-  "type": "command",
-  "command": "endStream"
-}
-~~~
-
-**Response**:
-~~~json
-{
-  "status": "complete",
-  "results": [
-    {"type": "property", "status": "holds", "property_index": {"numerator": 0, "denominator": 1}},
-    {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 4523, "denominator": 1}, "reason": "Always violated"}
-  ],
-  "warnings": [
-    {"kind": "uncached_atom", "property_index": 2, "detail": "Speed"}
-  ]
-}
-~~~
-
-The `warnings` array carries non-fatal end-of-stream diagnostics — see [§ End-of-stream Warnings](#end-of-stream-warnings) for the wire shape and evolution rule. The array is always emitted (empty when no warnings fired).
-
-**State Requirements**: Must be in `Streaming` state
-**State Transition**: `Streaming` → `ReadyToStream` (can stream again)
-
----
-
-## Binary Frame Entry Point
+`warnings` carries the non-fatal end-of-stream diagnostics described under [End-of-stream Warnings](#end-of-stream-warnings), and is present, empty, when none fired. Outside a stream it answers `handler_not_streaming`.
 
 ### aletheia_send_frame
 
-Send a CAN data frame for LTL analysis. This is the high-performance streaming entry point: the frame crosses as one C structure, bypassing JSON parsing on input.
-
-**C signature** (see `aletheia.h`, which also fixes the structure's layout):
 ~~~c
 char *aletheia_send_frame(void *state, const struct aletheia_frame *frame);
 ~~~
 
-**Frame fields** (`struct aletheia_frame`, every one read by this entry; a NULL frame is refused):
-- `timestamp`: Frame timestamp in microseconds
-- `can_id`: CAN message ID (must match a message in the loaded DBC)
-- `extended`: 0 for standard 11-bit ID, 1 for extended 29-bit ID
-- `dlc`: Data Length Code (0-15)
-- `data`: Pointer to payload bytes
-- `data_len`: Number of payload bytes (must equal `dlcToBytes(dlc)`)
-- `brs_present` / `brs_value`: CAN-FD Bit Rate Switch encoding (ISO
-  11898-1:2015 §10.4.2). `*_present = 0` → bit absent (CAN 2.0B);
-  `*_present != 0` → bit present with `*_value != 0` for `true`.
-  See the JSON `sendFrame` § above for full semantics.
-- `esi_present` / `esi_value`: CAN-FD Error State Indicator encoding
-  (ISO 11898-1:2015 §10.4.3); same wire encoding as BRS.
+The streaming hot path for data frames. **Frame fields** (`struct aletheia_frame`, every one read; a NULL frame is refused):
 
-**Response** (Acknowledged):
+- `timestamp`: microseconds, non-decreasing across the stream's events (an equal timestamp is accepted).
+- `can_id`, `extended`: the identifier, 11-bit when `extended` is 0, 29-bit otherwise; it selects the DBC message the signals are read with.
+- `dlc`, `data`, `data_len`: the DLC code and its payload, held to the rules above.
+- `brs_present` / `brs_value`: the CAN-FD Bit Rate Switch (ISO 11898-1:2015 §10.4.2), true when the data phase ran at the higher bit rate. `*_present = 0` means the bit is absent (a CAN 2.0B frame); otherwise the bit is `*_value != 0`.
+- `esi_present` / `esi_value`: the CAN-FD Error State Indicator (§10.4.3), true when the transmitter is error-passive, encoded as BRS.
+
+The kernel does not consume BRS or ESI: LTL atomic predicates are signal-level (see the design comment in [Aletheia.Trace.CANTrace](../../src/Aletheia/Trace/CANTrace.agda)). Bindings keep them as pass-through metadata on their frame type, and no response echoes them.
+
+**Response** (no property decided at this frame):
+
 ~~~json
-{
-  "status": "ack"
-}
+{"status": "ack"}
 ~~~
 
-**Response** (Property Batch):
+**Response** (property batch):
+
 ~~~json
-{
-  "type": "property_batch",
-  "results": [
-    {"type": "property", "status": "holds", "property_index": {"numerator": 0, "denominator": 1}},
-    {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 1000, "denominator": 1}, "reason": "Always violated"}
-  ]
-}
+{"type": "property_batch", "results": [{"type": "property", "status": "fails", "property_index": 0, "timestamp": 2000, "reason": "Atomic: predicate failed"}]}
 ~~~
 
-Mirrors the JSON `sendFrame` shape — see § 7 above for the source-order
-contract (Satisfactions first, optional terminal Violation last) and the
-empty-list-is-unreachable invariant (frames with no events return Ack).
+A frame produces no event (answered `ack`) or one or more in `results`: the properties that completed at this frame first, in property order, then at most one violation, which ends the frame's evaluation and comes last. An empty `results` never occurs.
 
-**State Requirements**: Must be in `Streaming` state (after `startStream` command via `aletheia_process()`)
+**Refusals**: no DBC loaded, `handler_no_dbc`; a DBC but no stream, `handler_stream_not_started`; a timestamp below the previous event's, `handler_non_monotonic_timestamp`; a frame breaking a rule above, its `parse_*` code.
 
-**Processing**:
-1. Construct MAlonzo types directly from raw C values (no JSON parsing)
-2. Extract all signals from frame using DBC
-3. Evaluate all LTL properties
-4. If violation or satisfaction detected, return property response immediately
-5. Otherwise, return acknowledgment
-
-**Why binary?** Eliminates JSON serialization/parsing overhead for the streaming hot path. Result: 4.3x throughput for CAN 2.0B, 9.1x for CAN-FD compared to the JSON path (see [BENCHMARKS.md](../development/BENCHMARKS.md#canonical-results) for benchmark methodology and per-language numbers). All language bindings (Python, C++, Go, Rust) use this entry point for `send_frame()`.
+**Why binary?** It removes JSON serialization and parsing from the streaming hot path: 4.3x the throughput of a JSON route for CAN 2.0B, 9.1x for CAN-FD (see [BENCHMARKS.md](../development/BENCHMARKS.md#canonical-results) for the methodology and per-language numbers).
 
 ### aletheia_send_error and aletheia_send_remote
 
-Error frames and remote frames are non-data trace events. Both are exposed
-as their own binary entry points in `aletheia.h`, alongside `aletheia_send_frame`,
-and take the same `struct aletheia_frame`: a remote frame reads its `timestamp`,
-`can_id` and `extended`, an error frame its `timestamp` alone.
+Error frames and remote frames are non-data trace events. Both take the same `struct aletheia_frame`: a remote frame reads its `timestamp`, `can_id` and `extended`, an error frame its `timestamp` alone.
 
 ~~~c
 char *aletheia_send_error(void *state, const struct aletheia_frame *frame);
@@ -713,54 +494,80 @@ char *aletheia_send_remote(void *state, const struct aletheia_frame *frame);
 
 #### Trace event taxonomy
 
-The Agda core models a CAN trace as a sequence of `TraceEvent` values
-(see `Aletheia/Trace/CANTrace.agda`):
+The Agda core models a CAN trace as a sequence of `TraceEvent` values (see `Aletheia/Trace/CANTrace.agda`):
 
 | Constructor | Carries | FFI entry point | Purpose |
 |---|---|---|---|
-| `Frame ts canId dlc data ...` | timestamp + ID + DLC + payload + flags | `aletheia_send_frame` | Normal data frame, drives signal extraction. |
+| `Data tf` | a `TimedFrame`: timestamp, identifier, DLC, payload, BRS / ESI | `aletheia_send_frame` | Normal data frame, drives signal extraction. |
 | `Error ts` | timestamp only | `aletheia_send_error` | Bus-error event (CAN error frame on the wire). |
-| `Remote ts canId` | timestamp + ID, no payload | `aletheia_send_remote` | Remote transmission request (RTR). |
+| `Remote ts canId` | timestamp + identifier, no payload | `aletheia_send_remote` | Remote transmission request (RTR). |
 
-#### State machine — what each event does
+#### What each event does
 
-All three entry points share the same **streaming-state precondition** and
-the same **monotonic-timestamp precondition**:
-
-1. The session must already be in `Streaming` (after `startStream`); calling
-   any of these in `WaitingForDBC` or `ReadyToStream` returns a `HandlerError`
-   with code `handler_not_streaming`. The state machine is enforced in
-   `Aletheia/Protocol/StreamState.agda`.
-2. Timestamps must be **strictly monotonic across all three event kinds** —
-   the kernel rejects a backward `ts` regardless of which entry point
-   delivered the previous event. Mixing `aletheia_send_frame` and
-   `aletheia_send_error` does not reset the clock.
-
-What differs:
+In a stream, the three event kinds share one clock: timestamps are non-decreasing across all of them, and a timestamp below the previous event's, whichever entry delivered it, is refused with `handler_non_monotonic_timestamp`. Mixing `aletheia_send_frame` and `aletheia_send_error` does not reset the clock.
 
 | Step | `send_frame` | `send_error` | `send_remote` |
 |---|---|---|---|
-| 1. Validate DLC and payload length | ✅ (`dlcToBytes(dlc)`) | — | — |
-| 2. Validate CAN ID range | ✅ (11- or 29-bit) | — | ✅ (11- or 29-bit) |
-| 3. Extract signals from payload | ✅ | — | — |
-| 4. Update signal cache | ✅ | — | — |
-| 5. Advance LTL clock by `ts` | ✅ | ✅ | ✅ |
-| 6. Re-evaluate active properties | ✅ | ✅ (no signal change, but metric windows may expire) | ✅ |
-| 7. Emit verdict if a property terminates | ✅ | ✅ | ✅ |
+| 1. Parse the frame (rules above) | ✅ identifier, DLC, payload | — | ✅ identifier |
+| 2. Extract signals from payload | ✅ | — | — |
+| 3. Update signal cache | ✅ | — | — |
+| 4. Advance LTL clock by `ts` | ✅ | ✅ | ✅ |
+| 5. Re-evaluate active properties | ✅ | ✅ (no signal change, but metric windows may expire) | ✅ |
+| 6. Emit verdict if a property terminates | ✅ | ✅ | ✅ |
 
-The key consequence of step 6: **error and remote frames can finalize a
-metric `eventually` window or trigger a `between(...)` deadline expiry**,
-even though they carry no signal updates. This matches LTLf semantics — the
-clock advances, so any property whose window closes between events
-resolves on the next timestamp regardless of the event kind.
+The key consequence of step 5: **error and remote frames can finalize a metric `eventually` window or trigger a `between(...)` deadline expiry**, even though they carry no signal updates. This matches LTLf semantics: the clock advances, so any property whose window closes between events resolves on the next timestamp regardless of the event kind.
+
+Outside a stream, with or without a DBC, an error or remote frame is answered `ack` and leaves the session as it was, its clock included; a data frame is refused there, as above.
 
 #### Response shape
 
-The response shape is identical to `aletheia_send_frame`: an `ack` if no
-property terminated, or a `property` response (`status: "holds"` / `"fails"`)
-if one did. There is no error- or remote-specific response variant — the
-binding-layer wrappers `send_error()` / `send_remote()` (Python, C++, Go, Rust)
-parse the same response types they use for data frames.
+The response shape is identical to `aletheia_send_frame`: an `ack` if no property terminated, or a property batch if one did. The binding wrappers `send_error()` / `send_remote()` (Python, C++, Go, Rust) parse the same response types they use for data frames.
+
+### aletheia_extract_signals
+
+~~~c
+char *aletheia_extract_signals(void *state, const struct aletheia_frame *frame);
+~~~
+
+Extracts every signal of a frame's message against the loaded DBC, without a stream and without changing the session. Reads the frame's `can_id`, `extended`, `dlc`, `data` and `data_len`.
+
+~~~json
+{"status": "success", "values": [{"name": "Speed", "value": 100}], "errors": [], "absent": []}
+~~~
+
+- `values`: the signals extracted, with their physical values.
+- `errors`: the signals whose extraction failed, each with its reason.
+- `absent`: the multiplexed signals this frame's multiplexor value does not select.
+
+**Refusals**: no DBC loaded, `handler_no_dbc`; a frame breaking a rule above, its `parse_*` code.
+
+### aletheia_format_dbc
+
+~~~c
+char *aletheia_format_dbc(void *state);
+~~~
+
+Answers the loaded DBC as JSON, in the schema `parseDBC` takes, without changing the session:
+
+~~~json
+{"status": "success", "dbc": {"version": "1.0", "messages": [...]}}
+~~~
+
+Without a DBC it answers `handler_no_dbc`. The distinct [`formatDBCText`](#formatdbctext) command renders a DBC as `.dbc` text.
+
+### aletheia_build_frame_bin, aletheia_update_frame_bin and aletheia_extract_signals_bin
+
+The binary-output entries answer 0 on success and 1 on failure, with their result in a `struct aletheia_buffer` (see `aletheia.h`): a build or an update writes the frame's bytes into the caller's buffer, an extraction allocates the packed layout `Aletheia/Main/Binary.agda` documents.
+
+Signal values for a build or an update cross as three parallel arrays (`struct aletheia_signal_values`: indices, numerators, denominators); the kernel builds each value as an exact rational in lowest terms and refuses a denominator that is not positive with `parse_non_positive_denominator` (and arrays of unequal length with `parse_signal_array_length_mismatch`, which the C structure, carrying one count, cannot express).
+
+On failure the buffer's `err` is the JSON error envelope every other entry answers with, freed with `aletheia_free_str()`:
+
+~~~json
+{"status": "error", "code": "parse_non_positive_denominator", "message": "non-positive denominator 0"}
+~~~
+
+The code is the kernel's refusal, or `ffi_validation_error` for a NULL frame or signal values, or a buffer smaller than the frame the kernel built.
 
 ---
 
@@ -1242,10 +1049,11 @@ The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/L
 | Properties per `setProperties` call | 1,024 | `property_count` |
 | DBC identifier length | 128 chars | `identifier_length` |
 | Quoted-string body length | 64 KiB (65,536 bytes) | `string_length` |
-| CAN frame payload bytes | 64 (CAN-FD max) | `frame_byte_count` |
 | Rational components of any JSON number (\|numerator\| and denominator of the exact rational it denotes, reduced) | 9,223,372,036,854,775,807 (2⁶³ − 1) | `rational_component_magnitude` |
 
 The rational-component bound is measured on the parsed tree like the nesting-depth bound (reduction only shrinks component magnitudes, so a bounded submitted literal stays bounded). It pins the JSON wire to the same signed 64-bit range the binary FFI's rational slots and the typed decimal path (`aletheia_parse_decimal`) already enforce — one Int64 bound on every wire, so a bare JSON integer cannot smuggle a component the binary wire cannot represent. The limit is symmetric in magnitude: numerator −2⁶³ is refused even though a two's-complement slot could carry it, keeping the structured `observed` / `limit` pair a plain magnitude comparison.
+
+A frame has no bound kind: `data_len` is a `uint8_t`, and the kernel refuses any payload whose length is not its DLC's byte count with `parse_payload_length_mismatch` (see [Binary Entry Points](#binary-entry-points)).
 
 ### Wire shape
 
@@ -1253,7 +1061,7 @@ The rational-component bound is measured on the parsed tree like the nesting-dep
 
 | Code | bound_kind values |
 |---|---|
-| `input_bound_exceeded` | `input_length_bytes` / `nesting_depth` / `array_cardinality` / `identifier_length` / `string_length` / `atom_count` / `property_count` / `frame_byte_count` / `rational_component_magnitude` |
+| `input_bound_exceeded` | `input_length_bytes` / `nesting_depth` / `array_cardinality` / `identifier_length` / `string_length` / `atom_count` / `property_count` / `rational_component_magnitude` |
 
 The `message` field embeds the kind label, observed value, and limit; the structured `bound_kind` / `observed` / `limit` fields appear on the envelope alongside `code` and `message`. Example:
 
@@ -1311,7 +1119,7 @@ Bounds are intentionally generous (commercial automotive DBCs are 1-10 MiB, ~6×
 
 **Invalid State Transition**:
 ~~~
-<<< {"status": "error", "message": "Must call ParseDBC before StartStream"}
+<<< {"status": "error", "code": "handler_no_dbc", "message": "StartStream: DBC not loaded"}
 ~~~
 
 **Signal Not Found**:
@@ -1330,7 +1138,7 @@ Every error response carries a stable `code` field (in addition to the human-rea
 
 Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signal extraction), `frame_*` (frame building/update), `route_*` (command dispatch), `handler_*` (stream state machine), `dispatch_*` (top-level request routing), `dbc_text_*` (DBC text parse/format). When an error is wrapped (e.g., a `ParseError` surfaces through `WrappedParse` inside a `HandlerError`), the emitted `code` is the innermost code, not the wrapping layer — so `parse_missing_field` during `parseDBC` and during `setProperties` both surface as `parse_missing_field`.
 
-#### Parse errors — malformed DBC or property JSON
+#### Parse errors — malformed DBC or property JSON, or a binary entry's frame
 
 | Code | Meaning | Likely cause / fix |
 |---|---|---|
@@ -1355,6 +1163,11 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `parse_non_terminating_rational` | A rational field is non-terminating in decimal (denominator has a prime factor outside {2, 5}) | Use a value representable as a terminating decimal |
 | `parse_invalid_identifier` | String is not a valid DBC identifier (must start with a letter or `_`, then alphanumerics/`_`) | Fix the identifier name |
 | `parse_non_natural_field` | A field is present but its value is not a JSON natural number | Supply a non-negative integer |
+| `parse_dlc_code_out_of_range` | A binary entry's frame has a DLC above 15 | Encode the DLC as a code `0-15` |
+| `parse_payload_length_mismatch` | A binary entry's frame has a `data_len` that is not its DLC's byte count | Send exactly `dlcToBytes(dlc)` bytes |
+| `parse_payload_byte_out_of_range` | A binary entry's payload byte is 256 or above | Unreachable through `aletheia.h`'s `uint8_t` payload |
+| `parse_non_positive_denominator` | A signal value for a build or an update has a zero or negative denominator | Give each value a positive denominator |
+| `parse_signal_array_length_mismatch` | A build's or an update's signal-value arrays differ in length | Unreachable through `struct aletheia_signal_values`, which carries one count |
 
 #### Extraction errors — signal extraction on a data frame
 
@@ -1364,7 +1177,6 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `extraction_mux_signal_not_found` | Named multiplexor signal missing from message definition | DBC inconsistency — fix the DBC |
 | `extraction_mux_chain_cycle` | Multiplexor chain exceeded recursion depth (cycle?) | Simplify or break the multiplexor chain |
 | `extraction_mux_extraction_failed` | Failed to read the multiplexor signal's own bits | Check the multiplexor signal's `startBit`/`length` |
-| `extraction_bit_extraction_failed` | Bit-level read or scaling failed | Usually a DBC/frame-size mismatch |
 | `extraction_value_exceeds_wire_range` | The extracted exact value's reduced numerator or denominator exceeds the signed 64-bit range of the binary wire's rational slots, so the value cannot travel the wire (the FFI encoder reroutes the signal to `errors` instead of letting the value wrap silently) | Per-signal runtime condition, not a DBC defect — reduction alone can push a component over the range even when every DBC field and frame byte is in range; rescale the signal's `factor`/`offset` if the exact value must travel |
 
 #### Frame errors — binary build/update paths (`aletheia_build_frame_bin` / `aletheia_update_frame_bin`)
@@ -1384,12 +1196,8 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | Code | Meaning | Likely cause / fix |
 |---|---|---|
 | `route_missing_field` | Command-level required field missing | See the specific command's fields |
-| `route_missing_array` | Command expects an array field | Provide an array, even if empty |
 | `route_unknown_command` | `command` value not recognised | See the Commands section for the valid commands |
 | `route_missing_command_field` | Request has no `command` field | Add `"command": "..."` |
-| `route_dlc_exceeds_max` | `dlc > 15` | Must be `0-15` |
-| `route_byte_array_parse_failed` | `data` array could not be parsed as bytes | Each element must be an integer `0-255` |
-| `route_byte_count_mismatch` | `data` length does not match `dlcToBytes(dlc)` | Resize `data` to match the DLC |
 | `route_missing_dbc_field` | `parseDBC`/`validateDBC` missing `dbc` field | Add the `dbc` object |
 | `route_missing_props_field` | `setProperties` missing `properties` field | Add `"properties": [...]` |
 
@@ -1398,12 +1206,11 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | Code | Meaning | Likely cause / fix |
 |---|---|---|
 | `handler_no_dbc` | Operation requires a loaded DBC | Call `parseDBC` first |
-| `handler_already_streaming` | `startStream` while already streaming | Call `endStream` before restarting |
-| `handler_not_streaming` | Frame submitted outside streaming mode | Call `startStream` before `aletheia_send_frame` |
-| `handler_stream_not_started` | `endStream` before `startStream` | Streaming must be active to end it |
+| `handler_already_streaming` | `aletheia_start_stream` while already streaming | Call `aletheia_end_stream` before restarting |
+| `handler_not_streaming` | `aletheia_end_stream` outside a stream | Streaming must be active to end it |
+| `handler_stream_not_started` | A data frame with a DBC loaded but no stream started | Call `aletheia_start_stream` before `aletheia_send_frame` |
 | `handler_stream_active` | Operation forbidden while streaming | End the stream first (e.g., to reload DBC) |
 | `handler_property_parse_failed` | LTL property at the indicated index failed to parse | Check the failing property against the LTL Property Format section |
-| `handler_invalid_dlc_code` | DLC not in the CAN/CAN-FD table | See `parse_invalid_dlc_bytes` |
 | `handler_validation_failed` | DBC validation surfaced an error when loading | The envelope's structured `issues` array carries the full list (errors and warnings) — see § Wire shape above |
 | `handler_text_roundtrip_failed` | `formatDBCText` refused: the emitted `.dbc` text does not re-parse to the input DBC | The DBC cannot be expressed as round-tripping `.dbc` text (e.g. a multi-value multiplexed signal). The envelope's `issues` array is led by the error-severity `text_roundtrip_divergence` — see [FormatDBCText](#formatdbctext) |
 | `handler_non_monotonic_timestamp` | Current frame's timestamp is below the previous frame's | Sort frames by timestamp before streaming — metric LTL operators require monotonicity |
@@ -1427,7 +1234,7 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 
 Signal-geometry refusals on the text route reuse the JSON route's
 `parse_signal_*` codes (both routes run the same entry gate — see the
-[ParseDBC](#1-parsedbc) geometry semantics). They are anchored by the signal's
+[ParseDBC](#parsedbc) geometry semantics). They are anchored by the signal's
 name (`signal 'NAME': ...`) rather than the positioned `line`/`column`
 watermark: the gate runs after the `SG_` line parses, so the offending
 statement is already consumed. The positioned channel above remains for

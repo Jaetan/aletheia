@@ -45,11 +45,10 @@ records no build-source digest.  The always-on steps, by lane:
       `cabal run shake -- <targets>` call (AGDA_SHAKE_TARGETS).  Shake runs the
       independent phony rules concurrently (shakeThreads=0) — the two heavy proof
       checks overlap at ~2.3 GiB peak — and pays the per-process cabal/shake
-      startup + build-graph re-validation once instead of once per gate.  Covers:
-      check-properties, check-invariants, check-no-properties-in-runtime,
-      check-erasure, check-fidelity, check-ffi-exports, count-modules,
-      check-changelog, check-gate-claim, check-runbook, check-limits-parity,
-      check-stability-bench, check-mutation-setup.  Shake fails fast on the first
+      startup + build-graph re-validation once instead of once per gate.  The
+      targets are `AGDA_SHAKE_TARGETS` in tools/_ci_steps.py, and
+      `tools/check_gates_reached.py` holds every Shake check target to that list
+      or to a rule that needs it.  Shake fails fast on the first
       failing target and names it on stderr (surfaced in the failure tail).
   Branch-scoped IWYU gates (separate — they read the .agdai the gates write):
     - iwyu — `tools/iwyu.py --check --diff` (or `--all` under --iwyu-all, the

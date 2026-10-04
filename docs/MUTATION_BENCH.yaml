@@ -144,12 +144,12 @@ bindings:
       # mutators are the five gremlins turns on by default and the six
       # go/.gremlins.yaml turns on, which gremlins ships off.
       survivors: 0
-      generated: 709
+      generated: 710
       not_covered: 15
       timeouts: 0
-      total_mutants: 694
+      total_mutants: 695
       score_pct: 100.0
-      run_at: "2026-10-02"
+      run_at: "2026-10-04"
       # A mutant that times out is neither killed nor lived, and no verdict
       # may come from a clock: a survivor runs the whole suite, the slowest
       # run there is, so a cap it reached would hide it as a timeout. A mutant
@@ -407,15 +407,15 @@ bindings:
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
       survivors: 4
-      total_mutants: 1475
+      total_mutants: 1478
       # What each tree carries, which is not one number: the address tree drops
       # the mutators over calls, since a sanitizer inserts its own checks at
       # the source location of the statement they guard and a mutator over calls
       # mutates those rather than the program's own. Each tree is held to its own
       # figure, and the merge judges a mutant only over the trees carrying it.
       mutants_by_tree:
-        leak: 1475
-        plain: 1475
+        leak: 1478
+        plain: 1478
         address: 337
       # Per tree, the suite runs each file's mutants cost, which is what the
       # tree's slices are cut on: a CI leg builds one slice of one tree, and a
@@ -523,7 +523,7 @@ bindings:
           cpp/src/yaml.cpp: 1.7
       timeouts: 0
       score_pct: 99.7
-      run_at: "2026-10-03"
+      run_at: "2026-10-04"
       # A mutant the runner ended at its cap in every tree is neither killed
       # nor survived, and no verdict comes from a clock: the lane refuses a
       # sweep in which the cap fired, and a timed-out mutant is a hang to
@@ -532,7 +532,7 @@ bindings:
       # the cap.
       timeout_ceiling: 0
       kill_routes:
-        test: 1411
+        test: 1414
         leak: 2
         address: 19
         kernel: 2
@@ -899,11 +899,11 @@ bindings:
       # with no Drop of its own to remove.
       survivors: 1
       generated: 374
-      unviable: 59
+      unviable: 61
       timeouts: 0
-      total_mutants: 315
+      total_mutants: 313
       score_pct: 99.7
-      run_at: "2026-10-02"
+      run_at: "2026-10-04"
       # A mutant cargo-mutants ended at its timeout is neither killed nor
       # alive, and no verdict comes from a clock.  None can hang a run by
       # construction: the lane's four files hold no loop, wait or thread, the

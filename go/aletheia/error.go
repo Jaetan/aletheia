@@ -106,6 +106,20 @@ const (
 	CodeParseNonIntegerMultiplexValue = "parse_non_integer_multiplex_value"
 	// CodeParseNonNaturalField — a field is present but its value is not a JSON natural number.
 	CodeParseNonNaturalField = "parse_non_natural_field"
+	// CodeParseDLCCodeOutOfRange reports a frame's DLC code above 15.
+	CodeParseDLCCodeOutOfRange = "parse_dlc_code_out_of_range"
+	// CodeParsePayloadLengthMismatch reports a frame's payload length that is
+	// not the byte count its DLC names.
+	CodeParsePayloadLengthMismatch = "parse_payload_length_mismatch"
+	// CodeParsePayloadByteOutOfRange reports a frame's payload byte of 256 or
+	// above.
+	CodeParsePayloadByteOutOfRange = "parse_payload_byte_out_of_range"
+	// CodeParseNonPositiveDenominator reports a signal value whose denominator
+	// is zero or negative.
+	CodeParseNonPositiveDenominator = "parse_non_positive_denominator"
+	// CodeParseSignalArrayLengthMismatch reports signal-value arrays (indices,
+	// numerators, denominators) of different lengths.
+	CodeParseSignalArrayLengthMismatch = "parse_signal_array_length_mismatch"
 
 	// CodeDBCTextParseFailure — generic .dbc text parse failure.
 	CodeDBCTextParseFailure = "dbc_text_parse_failure"
@@ -141,18 +155,10 @@ const (
 
 	// CodeRouteMissingField — required field absent on a routed request.
 	CodeRouteMissingField = "route_missing_field"
-	// CodeRouteMissingArray — expected array field absent on a routed request.
-	CodeRouteMissingArray = "route_missing_array"
 	// CodeRouteUnknownCommand — command name not recognized by the dispatcher.
 	CodeRouteUnknownCommand = "route_unknown_command"
 	// CodeRouteMissingCommandField — request body missing the `cmd` field.
 	CodeRouteMissingCommandField = "route_missing_command_field"
-	// CodeRouteDLCExceedsMax — DLC value exceeds the maximum allowed.
-	CodeRouteDLCExceedsMax = "route_dlc_exceeds_max"
-	// CodeRouteByteArrayParseFailed — byte-array body could not be parsed.
-	CodeRouteByteArrayParseFailed = "route_byte_array_parse_failed"
-	// CodeRouteByteCountMismatch — byte count does not match DLC.
-	CodeRouteByteCountMismatch = "route_byte_count_mismatch"
 	// CodeRouteMissingDBCField — `dbc` field absent on a request that requires it.
 	CodeRouteMissingDBCField = "route_missing_dbc_field"
 	// CodeRouteMissingPropsField — `properties` field absent on a request that requires it.
@@ -170,8 +176,6 @@ const (
 	CodeHandlerStreamActive = "handler_stream_active"
 	// CodeHandlerPropertyParseFailed — set_properties body could not be parsed.
 	CodeHandlerPropertyParseFailed = "handler_property_parse_failed"
-	// CodeHandlerInvalidDLCCode — DLC code outside [0, 15].
-	CodeHandlerInvalidDLCCode = "handler_invalid_dlc_code"
 	// CodeHandlerValidationFailed — handler-level validation rejected the request.
 	CodeHandlerValidationFailed = "handler_validation_failed"
 	// CodeHandlerTextRoundtripFailed — FormatDBCText refused: emitted text does not re-parse to the input DBC.
@@ -199,8 +203,6 @@ const (
 	CodeExtractionMuxChainCycle = "extraction_mux_chain_cycle"
 	// CodeExtractionMuxExtractionFailed — multiplexor extraction step failed.
 	CodeExtractionMuxExtractionFailed = "extraction_mux_extraction_failed"
-	// CodeExtractionBitExtractionFailed — bit-extraction step failed (out-of-range / scaling error).
-	CodeExtractionBitExtractionFailed = "extraction_bit_extraction_failed"
 	// CodeExtractionValueExceedsWireRange — the extracted exact value's reduced
 	// numerator or denominator exceeds the signed 64-bit binary-wire range.
 	CodeExtractionValueExceedsWireRange = "extraction_value_exceeds_wire_range"

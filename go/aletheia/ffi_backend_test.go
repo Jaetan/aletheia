@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"github.com/Jaetan/aletheia/go/v5/aletheia"
 )
@@ -229,9 +230,10 @@ func TestFFIBackend_SendErrorAndSendRemoteBinaryStream(t *testing.T) {
 	}
 }
 
-// A timestamp before the epoch is refused at the boundary, without reaching
-// the library, by both event endpoints.
-func TestFFIBackend_NegativeTimestampIsRefused(t *testing.T) {
+// ffiSession opens a session on the real library holding no DBC, closed when
+// the test ends, for the tests that call the backend without a client.
+func ffiSession(t *testing.T) (*aletheia.FFIBackend, unsafe.Pointer) {
+	t.Helper()
 	backend, err := aletheia.NewFFIBackend(requireFFILib(t))
 	if err != nil {
 		t.Fatalf("NewFFIBackend: %v", err)
@@ -240,7 +242,14 @@ func TestFFIBackend_NegativeTimestampIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	defer backend.Close(state)
+	t.Cleanup(func() { backend.Close(state) })
+	return backend, state
+}
+
+// A timestamp before the epoch is refused at the boundary, without reaching
+// the library, by both event endpoints.
+func TestFFIBackend_NegativeTimestampIsRefused(t *testing.T) {
+	backend, state := ffiSession(t)
 	past := aletheia.Timestamp{Microseconds: -1}
 	id, err := aletheia.NewStandardID(256)
 	if err != nil {
@@ -276,7 +285,8 @@ func TestFFIBackend_StablePtrCountTracksOpenSessions(t *testing.T) {
 }
 
 // A value the signal cannot hold is refused by the kernel, and both binary
-// frame endpoints carry the message it minted rather than a status number.
+// frame endpoints carry the code and the message it minted rather than a
+// status number.
 func TestFFIBackend_BinaryFrameRefusalCarriesTheKernelMessage(t *testing.T) {
 	client, id, dlc := ffiEndpointClient(t)
 	ctx := t.Context()
@@ -301,11 +311,51 @@ func TestFFIBackend_BinaryFrameRefusalCarriesTheKernelMessage(t *testing.T) {
 			if e.Kind != aletheia.ErrProtocol {
 				t.Errorf("Kind = %v, want ErrProtocol", e.Kind)
 			}
+			if e.Code != aletheia.CodeFrameInjectionFailed {
+				t.Errorf("Code = %q, want %q", e.Code, aletheia.CodeFrameInjectionFailed)
+			}
 			if !strings.Contains(err.Error(), "signal 'Sig'") {
 				t.Errorf("error %q does not name the signal the kernel refused", err)
 			}
 			if payload != nil {
 				t.Errorf("payload = % x, want none on a refusal", payload)
+			}
+		})
+	}
+}
+
+// A binary entry's refusal carries the kernel's code, read from the error
+// envelope the entry sets, beside the message the envelope holds rather than
+// the envelope's text: a session holding no DBC is refused by each of the
+// three with handler_no_dbc.
+func TestFFIBackend_BinaryRefusalCarriesTheKernelCode(t *testing.T) {
+	backend, state := ffiSession(t)
+	id := standardID(t, 256)
+	calls := map[string]func() ([]byte, error){
+		"BuildFrameBin": func() ([]byte, error) { return backend.BuildFrameBin(state, id, dlc8(), nil) },
+		"UpdateFrameBin": func() ([]byte, error) {
+			return backend.UpdateFrameBin(state, id, dlc8(), make([]byte, 8), nil)
+		},
+		"ExtractSignalsBin": func() ([]byte, error) { return backend.ExtractSignalsBin(state, id, dlc8(), make([]byte, 8)) },
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			out, err := call()
+			var e *aletheia.Error
+			if !errors.As(err, &e) {
+				t.Fatalf("error is %T (%v), want *aletheia.Error", err, err)
+			}
+			if e.Code != aletheia.CodeHandlerNoDBC {
+				t.Errorf("Code = %q, want %q", e.Code, aletheia.CodeHandlerNoDBC)
+			}
+			if e.Kind != aletheia.ErrProtocol {
+				t.Errorf("Kind = %v, want ErrProtocol", e.Kind)
+			}
+			if e.Message == "" || strings.HasPrefix(e.Message, "{") {
+				t.Errorf("Message = %q, want the envelope's message", e.Message)
+			}
+			if out != nil {
+				t.Errorf("output = % x, want none on a refusal", out)
 			}
 		})
 	}
@@ -359,24 +409,61 @@ func TestFFIBackend_ASixtyFourBytePayloadCrosses(t *testing.T) {
 	}
 }
 
-// One byte past the CAN-FD maximum is refused by the backend itself, before
-// anything is copied across the boundary.
-func TestFFIBackend_APayloadPastSixtyFourBytesIsRefused(t *testing.T) {
-	backend, err := aletheia.NewFFIBackend(requireFFILib(t))
-	if err != nil {
-		t.Fatalf("NewFFIBackend: %v", err)
+// Each backend entry that carries a payload holds it to the byte count its DLC
+// names, before anything is copied across the boundary: twenty bytes under a
+// DLC of eight are refused though a CAN-FD frame holds them, and so are
+// sixty-five under the code for sixty-four. The exact count crosses, and what
+// answers it is the kernel: a response from the two entries answering JSON,
+// and from the two answering bytes the kernel's coded refusal of a session
+// holding no DBC, where the guard's refusal carries no code.
+func TestFFIBackend_APayloadNotItsDLCByteCountIsRefused(t *testing.T) {
+	backend, state := ffiSession(t)
+	id := standardID(t, 256)
+	entries := map[string]func(dlc aletheia.DLC, data []byte) error{
+		"SendFrameBinary": func(dlc aletheia.DLC, data []byte) error {
+			_, err := backend.SendFrameBinary(state, aletheia.Timestamp{}, id, dlc, data, nil, nil)
+			return err
+		},
+		"ExtractSignalsBinary": func(dlc aletheia.DLC, data []byte) error {
+			_, err := backend.ExtractSignalsBinary(state, id, dlc, data)
+			return err
+		},
+		"UpdateFrameBin": func(dlc aletheia.DLC, data []byte) error {
+			_, err := backend.UpdateFrameBin(state, id, dlc, data, nil)
+			return err
+		},
+		"ExtractSignalsBin": func(dlc aletheia.DLC, data []byte) error {
+			_, err := backend.ExtractSignalsBin(state, id, dlc, data)
+			return err
+		},
 	}
-	state, err := backend.Init()
-	if err != nil {
-		t.Fatalf("Init: %v", err)
+	refused := map[string]struct {
+		code   uint8
+		length int
+	}{
+		"twenty bytes under DLC 8":      {8, 20},
+		"sixty-five bytes under DLC 15": {15, 65},
 	}
-	defer backend.Close(state)
-	dlc, err := aletheia.BytesToDLC(64)
-	if err != nil {
-		t.Fatalf("BytesToDLC: %v", err)
+	for name, call := range entries {
+		t.Run(name, func(t *testing.T) {
+			for what, tc := range refused {
+				dlc, err := aletheia.NewDLC(tc.code)
+				if err != nil {
+					t.Fatalf("NewDLC(%d): %v", tc.code, err)
+				}
+				err = call(dlc, make([]byte, tc.length))
+				requireKind(t, err, aletheia.ErrValidation)
+				if !strings.Contains(err.Error(), "does not match DLC") {
+					t.Errorf("%s: error %q does not name the DLC it failed", what, err)
+				}
+			}
+			err := call(dlc8(), make([]byte, 8))
+			var e *aletheia.Error
+			if err != nil && (!errors.As(err, &e) || e.Code == "") {
+				t.Errorf("the exact byte count did not reach the kernel: %v", err)
+			}
+		})
 	}
-	_, err = backend.ExtractSignalsBin(state, standardID(t, 512), dlc, make([]byte, 65))
-	requireErrorContains(t, err, "exceeds CAN-FD maximum")
 }
 
 // A message of no bytes builds to an empty payload through the real library:
