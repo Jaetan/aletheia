@@ -9,16 +9,17 @@
 --        CANFrame n (ID + DLC + n-byte payload), Byte (ℕ alias), BitPosition (ℕ alias).
 -- Role: Core types used throughout CAN processing and signal extraction.
 --
--- Numeric fields use ℕ at runtime for O(1) MAlonzo allocation.
--- DLC uses a validated DLC record (erased bound proof — MAlonzo newtype).
--- Bounds enforcement is at construction sites (% n / input validation).
+-- Numeric fields use ℕ at runtime for O(1) MAlonzo allocation, and each
+-- bound is a proof the value carries: the identifier's range on `CANId`, the
+-- code's on `DLC`, every byte's on `CANFrame`.  `Aletheia.CAN.Frame.Parse`
+-- decides them for a frame arriving from outside the kernel.
 -- Supported: Both standard (11-bit) and extended (29-bit) CAN IDs via sum type.
 -- Payload size is parameterized: CAN 2.0B uses n=8, CAN-FD uses n=12..64.
 module Aletheia.CAN.Frame where
 
 open import Data.Bool using (T)
 open import Data.Nat using (ℕ; _<ᵇ_)
-open import Data.Vec using (Vec)
+open import Data.Vec using (Vec; []; _∷_)
 
 open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
 open import Aletheia.CAN.DLC using (DLC)
@@ -26,9 +27,21 @@ open import Aletheia.CAN.DLC using (DLC)
 -- Byte is ℕ at runtime for O(1) allocation.
 -- MAlonzo compiles ℕ to Integer via BUILTIN NATURAL (machine word for <2^63).
 -- Fin 256 would create O(n) nested suc constructors (~3.2 KB per byte value).
--- Bounds enforcement is at construction sites (% 256 / input validation).
+-- The range is `IsByte`, carried by the frame for every payload byte.
 Byte : Set
 Byte = ℕ
+
+-- A byte value is below 256.  Stated on `_<ᵇ_` so a Bool comparison yields
+-- the evidence (`tt`) with no proof term built at runtime.
+IsByte : Byte → Set
+IsByte b = T (b <ᵇ 256)
+
+-- Every byte of a payload is below 256.  Its own family rather than the
+-- standard library's `All`, whose module would pull the library's vector
+-- lemmas into the compiled kernel.
+data AllBytes : ∀ {n} → Vec Byte n → Set where
+  []  : AllBytes []
+  _∷_ : ∀ {n b} {bs : Vec Byte n} → IsByte b → AllBytes bs → AllBytes (b ∷ bs)
 
 -- CAN ID type supporting both standard (11-bit) and extended (29-bit) IDs.
 -- Bounds embedded via T (n <ᵇ max), marked irrelevant `.(…)` per AGENTS.md G-A4:
@@ -54,6 +67,9 @@ record CANFrame (n : ℕ) : Set where
     id      : CANId
     dlc     : DLC
     payload : Vec Byte n
+    -- Irrelevant, so MAlonzo erases it and two frames with one payload are
+    -- equal whatever proof each carries.
+    .below256 : AllBytes payload
 
 BitPosition : Set
 BitPosition = ℕ

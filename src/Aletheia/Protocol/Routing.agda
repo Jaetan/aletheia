@@ -19,7 +19,7 @@ open import Aletheia.Prelude using (lookupByKey)
 open import Aletheia.Protocol.JSON using (JSON; lookupString; lookupArray)
 open import Aletheia.Protocol.Message using (StreamCommand; ParseDBC; SetProperties; ValidateDBC; ParseDBCText; FormatDBCText)
 open import Aletheia.Error using
-  ( Error; RouteErr
+  ( RouteError
   ; RouteMissingField; UnknownCommand
   ; MissingCommandField; MissingDBCField; MissingPropsField
   ; InContext
@@ -31,39 +31,39 @@ open import Aletheia.Error using
 
 private
   -- Parse ParseDBC command
-  tryParseDBC : List (String × JSON) → Error ⊎ StreamCommand
+  tryParseDBC : List (String × JSON) → RouteError ⊎ StreamCommand
   tryParseDBC obj with lookupByKey "dbc" obj
-  ... | nothing = inj₁ (RouteErr (InContext "ParseDBC" MissingDBCField))
+  ... | nothing = inj₁ (InContext "ParseDBC" MissingDBCField)
   ... | just dbc = inj₂ (ParseDBC dbc)
 
   -- Parse SetProperties command
-  trySetProperties : List (String × JSON) → Error ⊎ StreamCommand
+  trySetProperties : List (String × JSON) → RouteError ⊎ StreamCommand
   trySetProperties obj with lookupArray "properties" obj
-  ... | nothing = inj₁ (RouteErr MissingPropsField)
+  ... | nothing = inj₁ MissingPropsField
   ... | just props = inj₂ (SetProperties props)
 
   -- Parse ValidateDBC command
-  tryValidateDBC : List (String × JSON) → Error ⊎ StreamCommand
+  tryValidateDBC : List (String × JSON) → RouteError ⊎ StreamCommand
   tryValidateDBC obj with lookupByKey "dbc" obj
-  ... | nothing = inj₁ (RouteErr (InContext "ValidateDBC" MissingDBCField))
+  ... | nothing = inj₁ (InContext "ValidateDBC" MissingDBCField)
   ... | just dbc = inj₂ (ValidateDBC dbc)
 
   -- Parse ParseDBCText command (raw DBC text image)
-  tryParseDBCText : List (String × JSON) → Error ⊎ StreamCommand
+  tryParseDBCText : List (String × JSON) → RouteError ⊎ StreamCommand
   tryParseDBCText obj with lookupString "text" obj
-  ... | nothing   = inj₁ (RouteErr (InContext "ParseDBCText" (RouteMissingField "text")))
+  ... | nothing   = inj₁ (InContext "ParseDBCText" (RouteMissingField "text"))
   ... | just text = inj₂ (ParseDBCText text)
 
   -- Parse FormatDBCText command (DBC JSON structure → DBC text)
-  tryFormatDBCText : List (String × JSON) → Error ⊎ StreamCommand
+  tryFormatDBCText : List (String × JSON) → RouteError ⊎ StreamCommand
   -- The handler refuses with a typed error rather than emit text that does not
   -- round-trip, so routing only needs the DBC structure.
   tryFormatDBCText obj with lookupByKey "dbc" obj
-  ... | nothing  = inj₁ (RouteErr (InContext "FormatDBCText" MissingDBCField))
+  ... | nothing  = inj₁ (InContext "FormatDBCText" MissingDBCField)
   ... | just dbc = inj₂ (FormatDBCText dbc)
 
   -- Dispatch table for command parsers
-  commandDispatchTable : List (String × (List (String × JSON) → Error ⊎ StreamCommand))
+  commandDispatchTable : List (String × (List (String × JSON) → RouteError ⊎ StreamCommand))
   commandDispatchTable =
     ("parseDBC" , tryParseDBC) ∷
     ("setProperties" , trySetProperties) ∷
@@ -73,16 +73,13 @@ private
     []
 
   -- Dispatch using table lookup
-  dispatchCommand : String → List (String × JSON) → Error ⊎ StreamCommand
+  dispatchCommand : String → List (String × JSON) → RouteError ⊎ StreamCommand
   dispatchCommand cmdType obj with lookupByKey cmdType commandDispatchTable
-  ... | nothing = inj₁ (RouteErr (UnknownCommand cmdType))
+  ... | nothing = inj₁ (UnknownCommand cmdType)
   ... | just parser = parser obj
 
--- Parse StreamCommand from JSON object (returns Error on failure).  Return
--- type lifted from `RouteError ⊎ _` to `Error ⊎ _` to accommodate the
--- typed `InputBoundExceeded FrameByteCount …` emit at `parseBytePayload`;
--- RouteError emits compose via `RouteErr`.
-parseCommand : List (String × JSON) → Error ⊎ StreamCommand
+-- Parse StreamCommand from JSON object (returns RouteError on failure).
+parseCommand : List (String × JSON) → RouteError ⊎ StreamCommand
 parseCommand obj with lookupString "command" obj
-... | nothing = inj₁ (RouteErr MissingCommandField)
+... | nothing = inj₁ MissingCommandField
 ... | just cmdType = dispatchCommand cmdType obj

@@ -17,12 +17,12 @@
 // (`aletheia.InputBoundExceededError`) and Go (`*aletheia.InputBoundExceededError`)
 // bindings expose the equivalent type; keep the three surfaces in sync.
 //
-// The binding enforces four of these bounds itself before crossing the FFI:
-// `max_json_bytes` and `max_frame_byte_count` in ffi_backend.cpp,
-// `max_dbc_text_bytes` in the client and the loaders, `max_nesting_depth` in
-// the JSON translation units.  The remaining constants are declarations: the
-// Agda kernel produces the wire string and the structured triple, and this
-// header lets C++ callers identify and compare against them by name.  The
+// The binding enforces these bounds itself before crossing the FFI:
+// `max_json_bytes` in the FFI backend, `max_dbc_text_bytes` in the client and
+// the loaders, `max_nesting_depth` in the JSON translation units.  The
+// remaining constants are declarations: the Agda kernel produces the wire
+// string and the structured triple, and this header lets C++ callers identify
+// and compare against them by name.  The
 // mirror is held to the Agda module by a probe under probes/ that reads both
 // files and compares every bound and every wire string.
 #pragma once
@@ -44,7 +44,6 @@ inline constexpr std::string_view bound_kind_array_cardinality = "array_cardinal
 inline constexpr std::string_view bound_kind_identifier_length = "identifier_length";
 inline constexpr std::string_view bound_kind_string_length = "string_length";
 inline constexpr std::string_view bound_kind_atom_count = "atom_count";
-inline constexpr std::string_view bound_kind_frame_byte_count = "frame_byte_count";
 inline constexpr std::string_view bound_kind_property_count = "property_count";
 inline constexpr std::string_view bound_kind_rational_component_magnitude =
     "rational_component_magnitude";
@@ -90,9 +89,6 @@ inline constexpr std::uint64_t max_atom_count_per_property = 1024;
 
 // Properties per stream.
 inline constexpr std::uint64_t max_properties_per_stream = 1024;
-
-// CAN frame payload byte count (CAN-FD maximum).
-inline constexpr std::uint64_t max_frame_byte_count = 64;
 
 // Magnitude of a JSON number's numerator and denominator in reduced form: the
 // signed 64-bit wire range the binary FFI's rational slots carry.

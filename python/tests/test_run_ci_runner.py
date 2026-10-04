@@ -63,7 +63,7 @@ from tools.sweep_evidence import evidence_for as tree_evidence_for
 # AGDA_SHAKE_TARGETS quietly stops running on every PR.  Guard it by invariants
 # rather than a mirror copy of the tuple (DRY) — the count tripwire turns any
 # add/drop into a conscious edit, and the named checks pin the load-bearing gates.
-_EXPECTED_GATE_COUNT = 14
+_EXPECTED_GATE_COUNT = 15
 
 
 def test_combined_agda_gates_have_no_silent_drop() -> None:

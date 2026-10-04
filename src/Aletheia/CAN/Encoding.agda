@@ -15,13 +15,14 @@ module Aletheia.CAN.Encoding where
 
 open import Aletheia.CAN.Frame using (CANFrame; Byte)
 open import Aletheia.CAN.Signal using (SignalDef; SignalValue)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; isBigEndian; swapBytes; extractBits; extractRaw; extractRaw-extractBits; injectBits)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; swapBytes; extractBits; extractRaw; extractRaw-extractBits; injectPayload; injectPayload-below256)
 open import Aletheia.CAN.Encoding.Arithmetic using (toSigned; fromSigned; applyScaling; removeScaling; inBounds)
 open import Aletheia.DBC.DecRat using (toℚ)
-open import Aletheia.Data.BitVec using ()
+open import Aletheia.Data.BitVec using (BitVec)
 open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ; mkBoundedBitVec)
 open import Data.Rational using (ℚ)
 open import Data.Integer using (ℤ)
+open import Data.Nat using (ℕ)
 open import Data.Bool using (true; false; if_then_else_)
 open import Data.Vec using (Vec)
 open import Data.Maybe using (Maybe; just; nothing)
@@ -106,6 +107,12 @@ extractSignal frame sig byteOrder =
 -- See `Aletheia.Data.BitVec.Conversion.mkBoundedBitVec` for the smart
 -- constructor and `mkBoundedBitVec-just` for its reduction equation
 -- (consumed by `injectHelper-reduces-*` in Encoding/Properties/Roundtrip).
+-- The frame with `bits` written at `s` in the given byte order; the bytes
+-- written keep the frame's byte range (`injectPayload-below256`).
+withInjected : ∀ {len m} → ℕ → BitVec len → ByteOrder → CANFrame m → CANFrame m
+withInjected s bits bo record { id = i ; dlc = d ; payload = v ; below256 = ok } =
+  record { id = i ; dlc = d ; payload = injectPayload s bits bo v ; below256 = injectPayload-below256 s bits bo ok }
+
 injectHelper : ∀ {m} → SignalValue → SignalDef → ByteOrder → CANFrame m → Maybe (CANFrame m)
 injectHelper {m} value signalDef byteOrder frame
   with removeScaling value (toℚ (SignalDef.factor signalDef)) (toℚ (SignalDef.offset signalDef))
@@ -129,21 +136,7 @@ injectHelper {m} value signalDef byteOrder frame
 -- The branch is dead-code-eliminable by GHC's strictness analyzer
 -- (it returns `Nothing` without further work).
 ...   | nothing = nothing
-...   | just rawBitVec =
-  let open CANFrame frame
-      open SignalDef signalDef
-      -- Inject bits
-      bytes : Vec Byte m
-      bytes = if isBigEndian byteOrder
-              then swapBytes payload
-              else payload
-      updatedBytes : Vec Byte m
-      updatedBytes = injectBits bytes startBit rawBitVec
-      finalBytes : Vec Byte m
-      finalBytes = if isBigEndian byteOrder
-                   then swapBytes updatedBytes
-                   else updatedBytes
-  in just (record frame { payload = finalBytes })
+...   | just rawBitVec = just (withInjected (SignalDef.startBit signalDef) rawBitVec byteOrder frame)
 
 -- Inject a signal value into a CAN frame
 injectSignal : ∀ {m} → SignalValue → SignalDef → ByteOrder → CANFrame m → Maybe (CANFrame m)

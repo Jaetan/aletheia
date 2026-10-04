@@ -563,7 +563,7 @@ with AletheiaClient() as client:
 |--------|------|----------|-------|
 | Message ID | int or hex string | yes | `0x100` or `256` |
 | Message Name | string | yes | |
-| DLC | int | yes | 0-15 (see [PROTOCOL.md](../architecture/PROTOCOL.md#1-parsedbc) for CAN-FD DLC-to-bytes mapping) |
+| DLC | int | yes | 0-15 (see [PROTOCOL.md](../architecture/PROTOCOL.md#parsedbc) for CAN-FD DLC-to-bytes mapping) |
 | Signal | string | yes | Signal name |
 | Start Bit | int | yes | 0-511 (CAN-FD) or 0-63 (standard CAN) |
 | Length | int | yes | Bit length |

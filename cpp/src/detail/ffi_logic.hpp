@@ -46,11 +46,12 @@ namespace aletheia::detail {
     -> std::optional<std::pair<int, int>>;
 
 // Convert a binary-FFI `(status, err_str)` outcome into an error.  `status == 0`
-// → nullopt (success).  Otherwise returns `AletheiaError{Protocol, msg}` where
-// `msg` is `err_str` when non-null, or "Unknown error" when the backend
-// signalled failure without a message; a non-null `err_str` (Haskell-owned) is
-// released via `free_str`.  `free_str` is a plain C function pointer
-// (`void(*)(char*)`) to match the dlsym'd `aletheia_free_str`.
+// is success, nullopt.  Otherwise `err_str` is the entry's JSON error envelope,
+// decoded by `binary_refusal` (json.hpp) into the code and message it carries,
+// or, when the backend signalled failure without one, `AletheiaError{Protocol,
+// "Unknown error"}`; a non-null `err_str` (Haskell-owned) is released via
+// `free_str`.  `free_str` is a plain C function pointer (`void(*)(char*)`) to
+// match the dlsym'd `aletheia_free_str`.
 [[nodiscard]] auto ffi_error_from_status(std::int8_t status, char* err_str, void (*free_str)(char*))
     -> std::optional<AletheiaError>;
 

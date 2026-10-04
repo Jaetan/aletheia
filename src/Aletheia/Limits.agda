@@ -6,16 +6,17 @@
 --
 -- Purpose: Single source of truth for the compile-time bound constants
 -- enforced by every parser at a trust boundary (DBC text, JSON at the
--- FFI boundary, binary frame decoder, attribute / value-table inputs,
--- YAML / Excel loaders).  Per AGENTS.md universal rule "Adversarial-input
--- bounds at parser surfaces", rejection over the bound is a typed error
--- (`InputBoundExceeded`) carrying the offending kind, observed value, and
--- the limit it crossed.
+-- FFI boundary, attribute / value-table inputs, YAML / Excel loaders).  Per
+-- AGENTS.md universal rule "Adversarial-input bounds at parser surfaces",
+-- rejection over the bound is a typed error (`InputBoundExceeded`)
+-- carrying the offending kind, observed value, and the limit it crossed.
+-- The binary frame decoder needs no constant here: the C ABI's `uint8_t`
+-- `data_len` caps what it reads at 255 bytes, and `CAN.Frame.Parse` refuses
+-- any payload whose length is not the DLC's.
 --
 -- Cross-references:
 --   * docs/architecture/PROTOCOL.md § Limits — wire-side documentation.
---   * Aletheia.Error — `InputBoundExceeded` constructors (ParseError,
---     DBCTextParseError, FrameError).
+--   * Aletheia.Error — the `InputBoundExceeded` constructor of `Error`.
 --   * Each binding mirrors `InputBoundExceededError` at the FFI entry
 --     to short-circuit before marshaling: Python aletheia.exceptions,
 --     Go *aletheia.InputBoundExceededError, C++ aletheia::InputBoundExceededError.
@@ -31,7 +32,6 @@
 --   * 128-char identifiers — DBC convention is 32; 4× headroom.
 --   * 64 KiB string body — comments, attribute string values.
 --   * 1024 atoms/property — LTL property atom complexity.
---   * 64-byte frame — CAN-FD maximum payload.
 module Aletheia.Limits where
 
 open import Data.Nat using (ℕ)
@@ -59,8 +59,6 @@ data BoundKind : Set where
   StringLength            : BoundKind
   -- LTL atom count per property.
   AtomCount               : BoundKind
-  -- CAN frame byte count (8 for CAN 2.0B, 64 for CAN-FD).
-  FrameByteCount          : BoundKind
   -- Number of properties submitted in one `setProperties` call.
   PropertyCount           : BoundKind
   -- Magnitude of a JSON number's rational components (|numerator| and
@@ -75,7 +73,6 @@ boundKindCode ArrayCardinality  = "array_cardinality"
 boundKindCode IdentifierLength  = "identifier_length"
 boundKindCode StringLength      = "string_length"
 boundKindCode AtomCount         = "atom_count"
-boundKindCode FrameByteCount    = "frame_byte_count"
 boundKindCode PropertyCount     = "property_count"
 boundKindCode RationalComponentMagnitude = "rational_component_magnitude"
 
@@ -86,7 +83,6 @@ boundKindLabel ArrayCardinality  = "array cardinality"
 boundKindLabel IdentifierLength  = "identifier length"
 boundKindLabel StringLength      = "string length"
 boundKindLabel AtomCount         = "atom count"
-boundKindLabel FrameByteCount    = "frame byte count"
 boundKindLabel PropertyCount     = "property count"
 boundKindLabel RationalComponentMagnitude = "rational component magnitude"
 
@@ -153,10 +149,6 @@ max-string-length-bytes = 65536    -- 64 KiB
 -- LTL atoms per single property.
 max-atom-count-per-property : ℕ
 max-atom-count-per-property = 1024
-
--- CAN frame payload byte count (CAN-FD maximum).
-max-frame-byte-count : ℕ
-max-frame-byte-count = 64
 
 -- LTL properties submittable in one `setProperties` call.  1024 is
 -- symmetric with `max-atom-count-per-property`; real-world CAN

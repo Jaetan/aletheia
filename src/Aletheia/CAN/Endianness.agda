@@ -34,16 +34,17 @@
 -- exception path.
 module Aletheia.CAN.Endianness where
 
-open import Aletheia.CAN.Frame using (Byte)
+open import Aletheia.CAN.Frame using (Byte; IsByte; AllBytes; []; _∷_)
 open import Aletheia.Data.BitVec using (BitVec; testBit; setBit)
-open import Aletheia.Data.BitVec.Conversion using (ℕToBitVec; bitVecToℕ; shiftR-conv; boolToℕ; ℕToBitVec-lookup; shiftR-mod-pow2)
-open import Data.Vec using (Vec; []; _∷_; reverse; lookup)
+open import Aletheia.Data.BitVec.Conversion using (ℕToBitVec; bitVecToℕ; bitVecToℕ-bounded; shiftR-conv; boolToℕ; ℕToBitVec-lookup; shiftR-mod-pow2)
+open import Data.Vec using (Vec; []; _∷_; reverse; replicate; lookup; foldl; FoldlOp)
+open import Data.Unit using (tt)
 open import Data.Fin using (Fin; fromℕ<; toℕ)
 open import Data.Fin.Properties using (toℕ-fromℕ<)
 open import Data.Nat as Nat using (ℕ; zero; suc; _+_; _∸_; _*_; _<_; _≤_; z≤n; s≤s; _/_; _%_)
 open import Data.Nat.DivMod using (m%n<n; m≡m%n+[m/n]*n; [m+kn]%n≡m%n; +-distrib-/-∣ʳ; m*n/n≡m)
 open import Data.Nat.Divisibility using (divides-refl)
-open import Data.Nat.Properties using (_≟_; _<?_; +-suc; +-identityʳ; ≤-antisym; ≮⇒≥; m^n≢0)
+open import Data.Nat.Properties using (_≟_; _<?_; +-suc; +-identityʳ; ≤-antisym; ≮⇒≥; m^n≢0; <⇒<ᵇ)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; cong₂; subst; _≢_)
@@ -320,6 +321,58 @@ payloadIso bo bytes = if isBigEndian bo then swapBytes bytes else bytes
 injectPayload : ∀ {len} {n} → ℕ → BitVec len → ByteOrder → Vec Byte n → Vec Byte n
 injectPayload s bits bo payload =
   payloadIso bo (injectBits (payloadIso bo payload) s bits)
+
+-- ============================================================================
+-- BYTE RANGE: what these functions write keeps every byte below 256
+-- ============================================================================
+
+-- The evidence `CANFrame.below256` asks of every payload a frame is built
+-- with.  A byte the bit writer touches comes out of `bitVecToByte`, eight
+-- bits, so below 256 whatever it was; every other byte is moved, not changed.
+
+bitVecToByte-below256 : (bits : BitVec 8) → IsByte (bitVecToByte bits)
+bitVecToByte-below256 bits = <⇒<ᵇ (bitVecToℕ-bounded bits)
+
+replicate-below256 : ∀ n → AllBytes (replicate n 0)
+replicate-below256 zero    = []
+replicate-below256 (suc n) = tt ∷ replicate-below256 n
+
+private
+  -- A left fold keeps an invariant of its accumulator when each step does.
+  -- Stated over every accumulator family, since the fold moves to `B ∘ suc`
+  -- at each element.
+  foldl-keeps : ∀ (B : ℕ → Set) (f : FoldlOp Byte B) (Q : ∀ {m} → B m → Set)
+              → (∀ {m} {acc : B m} {b} → Q acc → IsByte b → Q (f acc b))
+              → ∀ {n} {e : B zero} {v : Vec Byte n} → Q e → AllBytes v → Q (foldl B f e v)
+  foldl-keeps B f Q step qe []       = qe
+  foldl-keeps B f Q step qe (p ∷ ps) = foldl-keeps (λ m → B (suc m)) f Q step (step qe p) ps
+
+swapBytes-below256 : ∀ {n} {v : Vec Byte n} → AllBytes v → AllBytes (swapBytes v)
+swapBytes-below256 = foldl-keeps (Vec Byte) (λ rev b → b ∷ rev) (AllBytes) (λ qa pb → pb ∷ qa) []
+
+payloadIso-below256 : ∀ {n} bo {v : Vec Byte n} → AllBytes v → AllBytes (payloadIso bo v)
+payloadIso-below256 LittleEndian ok = ok
+payloadIso-below256 BigEndian    ok = swapBytes-below256 ok
+
+updateSafe-below256 : ∀ n i {f : Byte → Byte} → (∀ b → IsByte (f b))
+                    → {v : Vec Byte n} → AllBytes v → AllBytes (updateSafe n i f v)
+updateSafe-below256 zero    _       _  ok       = ok
+updateSafe-below256 (suc n) zero    fb (_ ∷ ps) = fb _ ∷ ps
+updateSafe-below256 (suc n) (suc i) fb (p ∷ ps) = p ∷ updateSafe-below256 n i fb ps
+
+injectBits-below256 : ∀ {len n} {v : Vec Byte n} sb (bits : BitVec len)
+                    → AllBytes v → AllBytes (injectBits v sb bits)
+injectBits-below256 sb [] ok = ok
+injectBits-below256 {n = n} sb (bit ∷ rest) ok =
+  injectBits-below256 (suc sb) rest (updateSafe-below256 n (sb / 8) written ok)
+  where
+    written : ∀ b → IsByte (bitVecToByte (setBit (byteToBitVec b) (fromℕ< (m%n<n sb 8)) bit))
+    written b = bitVecToByte-below256 (setBit (byteToBitVec b) (fromℕ< (m%n<n sb 8)) bit)
+
+injectPayload-below256 : ∀ {len n} s (bits : BitVec len) bo {v : Vec Byte n}
+                       → AllBytes v → AllBytes (injectPayload s bits bo v)
+injectPayload-below256 s bits bo ok =
+  payloadIso-below256 bo (injectBits-below256 s bits (payloadIso-below256 bo ok))
 
 -- ============================================================================
 -- BYTE ORDER DECIDABLE EQUALITY

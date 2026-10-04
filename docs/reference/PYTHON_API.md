@@ -1106,7 +1106,7 @@ These are importable from the top-level `aletheia` package.
 
 #### `dlc_to_bytes(dlc: int) -> int`
 
-Convert a DLC code (0-15) to payload byte count. CAN 2.0B: DLC 0-8 maps directly. See [PROTOCOL.md](../architecture/PROTOCOL.md#1-parsedbc) for the CAN-FD DLC-to-bytes mapping.
+Convert a DLC code (0-15) to payload byte count. CAN 2.0B: DLC 0-8 maps directly. See [PROTOCOL.md](../architecture/PROTOCOL.md#parsedbc) for the CAN-FD DLC-to-bytes mapping.
 
 #### `bytes_to_dlc(byte_count: int) -> int`
 

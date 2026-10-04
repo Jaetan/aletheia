@@ -6,7 +6,6 @@
 --
 -- Combines:
 --   PROPERTY 1  — handleDataFrame state-machine guards (non-Streaming → no-op)
---   PROPERTY 2  — byte modulus identity (boundary justification for the FFI shim)
 --   PROPERTY 3  — classifyStepResult faithfulness wrt StepResult constructors
 --   PROPERTY 4  — stepProperty halts iff stepL returns Violated
 --   PROPERTY 5  — dispatchIterResult response characterization
@@ -43,8 +42,6 @@ open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃-syntax)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Maybe using (just; nothing)
-open import Data.Nat using (ℕ; _<_; _%_)
-open import Data.Nat.DivMod using (m<n⇒m%n≡m)
 open import Data.Fin using (Fin; toℕ)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong)
 
@@ -62,21 +59,6 @@ handleDataFrame-guard-waitingForDBC tf = refl
 handleDataFrame-guard-readyToStream : ∀ n dbc props cache (tf : TimedFrame)
     → proj₁ (handleDataFrame (ReadyToStream n dbc props cache) tf) ≡ ReadyToStream n dbc props cache
 handleDataFrame-guard-readyToStream n dbc props cache tf = refl
-
--- ============================================================================
--- PROPERTY 2: Byte modulus identity (boundary justification)
--- ============================================================================
-
--- When n < 256, n % 256 ≡ n.
--- This justifies the Haskell shim's bytesToAgdaVec skipping % 256:
--- Agda's listToVec applies (x % 256), but the Haskell shim constructs
--- Vec entries directly from Word8 values (which are already in [0,255]).
--- Since Word8 ∈ [0,255] implies n < 256, the modulo is a no-op.
--- Direct re-export of stdlib `m<n⇒m%n≡m`;
--- kept exported under the documented name because the Haskell shim cites
--- it in `haskell-shim/src/AletheiaFFI/Marshal.hs`'s rationale comment.
-mod-identity-byte : ∀ (n : ℕ) → n < 256 → n % 256 ≡ n
-mod-identity-byte _ = m<n⇒m%n≡m
 
 -- ============================================================================
 -- PROPERTY 3: classifyStepResult faithfully reflects StepResult constructors

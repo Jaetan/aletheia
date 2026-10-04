@@ -82,7 +82,7 @@ Aletheia provides:
 
 4. **DBC integration**: Parse real-world DBC files, tested against a cross-binding corpus that all four bindings must agree on
 
-5. **Proven DBC validator**: the error-class checks carry a machine-checked **soundness and completeness** proof, so a DBC the validator passes on those is provably well-formed; the warning-class checks are proven to be warnings and no more. [PROTOCOL.md § ValidateDBC](architecture/PROTOCOL.md#3-validatedbc) lists both sets. It certifies your DBC is well-formed, which is exactly the precondition the decode proof assumes, so a validated DBC is one the correctness guarantee actually applies to.
+5. **Proven DBC validator**: the error-class checks carry a machine-checked **soundness and completeness** proof, so a DBC the validator passes on those is provably well-formed; the warning-class checks are proven to be warnings and no more. [PROTOCOL.md § ValidateDBC](architecture/PROTOCOL.md#validatedbc) lists both sets. It certifies your DBC is well-formed, which is exactly the precondition the decode proof assumes, so a validated DBC is one the correctness guarantee actually applies to.
 
 6. **Exact arithmetic**: Signal values are exact rationals end-to-end and never floats, so a decoded value is never off by a rounding step.
 

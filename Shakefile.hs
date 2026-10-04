@@ -213,6 +213,14 @@ checkOneFFIName ffiFile qualifier funcName malonzoContent ffiContent =
             error $ "FFI name check: " ++ ffiFile ++ " has no call to " ++ qualifier
                  ++ ".d_" ++ funcName ++ "_<digits> outside a comment"
 
+-- | The words of a generated data declaration `data T_<name>_<n> = …`, which
+-- MAlonzo may spread over several indented lines; empty when it is absent.
+dataDeclWords :: String -> String -> [String]
+dataDeclWords name src =
+    case break (("data T_" ++ name ++ "_") `isPrefixOf`) (lines src) of
+      (_, decl : rest) -> concatMap words (decl : takeWhile (" " `isPrefixOf`) rest)
+      _ -> []
+
 -- | FFI export specification. Single source of truth for both
 -- `checkFFINames` (verifies the FFI wrapper matches MAlonzo output, inline
 -- in the Main.hs build rule and on demand via `check-ffi-names`) and
@@ -229,15 +237,16 @@ data FFIExport = FFIExport
 ffiExports :: [FFIExport]
 ffiExports =
     [ FFIExport "AgdaJSON"  "processJSONLine"          "Aletheia/Main/JSON"
-    , FFIExport "AgdaBin"   "processFrameDirect"       "Aletheia/Main/Binary"
-    , FFIExport "AgdaBin"   "processEventDirect"       "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processFrameRaw"          "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processErrorFrameRaw"     "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processRemoteFrameRaw"    "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processExtractRaw"        "Aletheia/Main/Binary"
     , FFIExport "AgdaBin"   "processStartStreamDirect" "Aletheia/Main/Binary"
     , FFIExport "AgdaBin"   "processEndStreamDirect"   "Aletheia/Main/Binary"
     , FFIExport "AgdaBin"   "processFormatDBCDirect"   "Aletheia/Main/Binary"
-    , FFIExport "AgdaBin"   "processExtractDirect"     "Aletheia/Main/Binary"
-    , FFIExport "AgdaBin"   "processBuildFrameBin"     "Aletheia/Main/Binary"
-    , FFIExport "AgdaBin"   "processUpdateFrameBin"    "Aletheia/Main/Binary"
-    , FFIExport "AgdaBin"   "processExtractBin"        "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processBuildFrameRaw"     "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processUpdateFrameRaw"    "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processExtractBinRaw"     "Aletheia/Main/Binary"
     , FFIExport "AgdaState" "initialState"             "Aletheia/Protocol/StreamState/Types"
     , FFIExport "AgdaRR"    "formatRational"           "Aletheia/DBC/RationalRenderer"
     , FFIExport "AgdaDE"    "parseDecimal"             "Aletheia/DBC/TextParser/DecimalEntry"
@@ -485,6 +494,9 @@ proofModules =
     , "Aletheia/CAN/Encoding/Properties.agda"
     , "Aletheia/CAN/Batch/Properties.agda"
     , "Aletheia/CAN/DLC/Properties.agda"
+    -- What the binary entries' frame parser accepts and refuses
+    -- (CAN/Frame/Parse.agda): reached by no other proof, so its own root.
+    , "Aletheia/CAN/Frame/Parse/Properties.agda"
     , "Aletheia/CAN/SignalExtraction/Properties.agda"
     , "Aletheia/CAN/Endianness/Properties.agda"
     -- DBC
@@ -811,53 +823,48 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
              "--test-show-details=direct"
 
     phony "check-erasure" $ do
-        -- Guard the FFI marshaling assumptions about MAlonzo output shape.
-        -- CANId proof fields are `.(…)`-irrelevant — MAlonzo erases the
-        -- cell entirely, so the constructors compile to single-Integer
-        -- shape (no `AgdaAny` proof slot). Marshal.hs `mkAgdaCanId`
-        -- constructs without the second arg. Timestamp comparisons rely
-        -- on the newtype compilation to avoid a hot-path allocation.
-        -- If either assumption regresses we want a clear early failure
-        -- before ConstructorTest runs.
+        -- Guard the zero-cost shapes the kernel's proofs rely on, and the
+        -- MAlonzo names the FFI shim reads results with.  A frame's proofs
+        -- (`CANId`'s range, `CANFrame`'s byte range) are `.(…)`-irrelevant,
+        -- so MAlonzo erases them and they cost no cell at runtime; Timestamp
+        -- comparisons rely on the newtype compilation to avoid a hot-path
+        -- allocation.  If either regresses we want a clear early failure.
         need ["build/libaletheia-ffi.so"]
         frame <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/CAN/Frame.hs"
         time  <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/Trace/Time.hs"
-        -- Single-Integer ctor shape — irrelevant proof erased; reject any
-        -- reintroduction of an `AgdaAny` proof slot.
-        -- Match by absence of the AgdaAny-shaped form rather than positive
-        -- presence: MAlonzo formats the data declaration on one line
-        -- (`data T_CANId_8 = C_Standard_12 Integer | C_Extended_16 Integer`),
-        -- so a positive-presence check would race the formatter.
-        let canIdErasure =
-              "C_Standard_12 Integer" `isInfixOf` frame &&
-              "C_Extended_16 Integer" `isInfixOf` frame &&
-              not ("C_Standard_12 Integer AgdaAny" `isInfixOf` frame) &&
-              not ("C_Extended_16 Integer AgdaAny" `isInfixOf` frame)
+        -- Single-Integer constructors, read off the declaration's words so a
+        -- renumbering cannot hide an `AgdaAny` proof slot coming back.
+        let canIdErasure = case drop 3 (dataDeclWords "CANId" frame) of
+              [std, "Integer", "|", ext, "Integer"] ->
+                "C_Standard_" `isPrefixOf` std && "C_Extended_" `isPrefixOf` ext
+              _ -> False
         unless canIdErasure $
           error $ "check-erasure failed: CAN ID constructor shape drifted "
                ++ "from the single-Integer form. "
                ++ "Either MAlonzo regressed and re-emits the proof slot, or "
-               ++ "the `.(…)` irrelevance was reverted. "
-               ++ "Marshal.hs mkAgdaCanId assumes single-arg constructors; "
-               ++ "fix the source of drift before this regresses end-to-end."
+               ++ "the `.(…)` irrelevance was reverted; every CANId would "
+               ++ "carry a proof cell at runtime."
+        -- Three fields: the byte-range proof leaves no cell beside the id,
+        -- the DLC and the payload.
+        let frameErasure = case drop 3 (dataDeclWords "CANFrame" frame) of
+              [ctor, idT, dlcT, vecT] ->
+                "C_constructor_" `isPrefixOf` ctor && "T_CANId_" `isPrefixOf` idT
+                  && "T_DLC_" `isInfixOf` dlcT && "T_Vec_" `isInfixOf` vecT
+              _ -> False
+        unless frameErasure $
+          error $ "check-erasure failed: CANFrame no longer compiles to its "
+               ++ "three runtime fields. The `.below256` byte-range proof "
+               ++ "must stay irrelevant, or every frame carries a proof cell."
         let tsNewtype = "newtype T_Timestamp_18" `isInfixOf` time
         unless tsNewtype $
           error $ "check-erasure failed: Timestamp is no longer compiled as "
                ++ "a newtype. Trace/Time.agda uses `record ... no-eta-equality` "
                ++ "intentionally so MAlonzo compiles Timestamp comparisons "
                ++ "without a wrapper allocation on the hot path."
-        -- Stdlib constructor names used by BinaryOutput.hs.
-        -- These are mangled from stdlib's Vec/Sum modules; a stdlib version
-        -- bump can silently rename them, breaking pattern matches at runtime.
-        vecBase <- liftIO $ readFile "build/MAlonzo/Code/Data/Vec/Base.hs"
+        -- Stdlib constructor names the shim matches binary-output results on.
+        -- These are mangled from stdlib's Sum module; a stdlib version bump
+        -- can silently rename them, breaking pattern matches at runtime.
         sumBase <- liftIO $ readFile "build/MAlonzo/Code/Data/Sum/Base.hs"
-        let vecCtors =
-              "C_'91''93'_32"   `isInfixOf` vecBase &&
-              "C__'8759'__38"   `isInfixOf` vecBase
-        unless vecCtors $
-          error $ "check-erasure failed: Vec stdlib constructor names changed. "
-               ++ "BinaryOutput.hs pattern-matches on C_'91''93'_32 (nil) and "
-               ++ "C__'8759'__38 (cons) — update to match current MAlonzo output."
         let sumCtors =
               "C_inj'8321'_38"  `isInfixOf` sumBase &&
               "C_inj'8322'_42"  `isInfixOf` sumBase
@@ -907,7 +914,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                ++ "newtype over Bool (Aletheia/Data/Dec0.hs). The @0 proof "
                ++ "field must stay erased — a plain data declaration here "
                ++ "means every Dec₀-valued hot-path predicate allocates."
-        putInfo "Erasure guards OK: CANId single-Integer ctor + Timestamp newtype + stdlib constructors + Maybe/Sigma builtins + Dec₀ newtype-over-Bool."
+        putInfo "Erasure guards OK: CANId single-Integer ctors + CANFrame three fields + Timestamp newtype + Sum constructors + Maybe/Sigma builtins + Dec₀ newtype-over-Bool."
 
     phony "check-ffi-names" $ do
         -- Run `checkFFINames` on demand, against the wrapper named by
@@ -1205,15 +1212,6 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- on the same branch).
         cmd_ pythonBin "-m" "tools.check_changelog"
 
-    phony "check-spdx-headers" $ do
-        -- SPDX license-header gate.  Every source/build file must carry the
-        -- two-line SPDX header (SPDX-FileCopyrightText 2025 Nicolas Pelletier +
-        -- SPDX-License-Identifier BSD-2-Clause).  The tool is an allowlist over
-        -- source/build extensions and excludes docs, archived review data,
-        -- comment-less files (JSON), binaries, and generated artefacts.  Repair
-        -- in place with `python -m tools.check_spdx_headers --apply`.
-        cmd_ pythonBin "-m" "tools.check_spdx_headers"
-
     phony "check-gate-claim" $ do
         -- Gate-claim integrity enforcer: a commit may not assert that gates are
         -- clean unless a sweep observed the build sources it commits.  When a
@@ -1273,17 +1271,15 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- ALETHEIA_MUTATION_CHECK=1 (or `--mutation`) in `tools/run_ci.py`.
         cmd_ pythonBin "-m" "tools.check_mutation_setup"
 
-    phony "check-bound-enforcement" $ do
-        -- Adversarial-input bound enforcement gate.  AGENTS.md universal
-        -- rule "Adversarial-input bounds at parser surfaces" requires
-        -- every `BoundKind` ctor in
-        -- `Aletheia.Limits` to surface as a typed
-        -- `Error.InputBoundExceeded <Ctor> observed limit` at some parser
-        -- or handler boundary.  This script parses the `data BoundKind`
-        -- ADT and greps for `InputBoundExceeded <Ctor>` emit sites under
-        -- `src/`; a ctor with zero sites is dead metadata (the wire code
-        -- is unreachable) and fails the gate.
-        cmd_ pythonBin "-m" "tools.check_bound_enforcement"
+    phony "check-wire-code-emitters" $ do
+        -- Every wire code names a constructor the runtime builds: each
+        -- formatter arm (`parseErrorCode`, `boundKindCode`, the u8 reason
+        -- codes, …) is read from the Agda source, and its constructor must
+        -- appear applied, not only matched, in the generated Haskell of the
+        -- runtime closure.  A constructor nothing builds is a code no response
+        -- can carry, which every binding still mirrors.
+        need ["build/MAlonzo/Code/Aletheia/Main.hs", "haskell-shim/runtime-closure.snapshot"]
+        cmd_ pythonBin "-m" "tools.check_wire_code_emitters"
 
     -- The full offline CI sweep is invoked directly via `tools/run_ci.py`,
     -- NOT through a Shake `phony "ci"` target.

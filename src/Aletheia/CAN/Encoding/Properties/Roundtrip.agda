@@ -26,10 +26,10 @@
 --   private Layer 4A helpers.
 module Aletheia.CAN.Encoding.Properties.Roundtrip where
 
-open import Aletheia.CAN.Encoding using (extractSignalCore; scaleExtracted; extractSignal; injectSignal; injectHelper; injectSignal-bounds-true)
+open import Aletheia.CAN.Encoding using (extractSignalCore; scaleExtracted; extractSignal; injectSignal; injectHelper; injectSignal-bounds-true; withInjected)
 open import Aletheia.CAN.Encoding.Arithmetic using (toSigned; fromSigned; applyScaling; removeScaling; inBounds)
 open import Aletheia.CAN.Encoding.Properties.Arithmetic using (SignedFits; toSigned-fromSigned-roundtrip; removeScaling-applyScaling-exact)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; extractBits; injectBits; swapBytes; injectPayload)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; extractBits; injectBits; swapBytes)
 open import Aletheia.CAN.Endianness.Properties using (extractBits-injectBits-roundtrip; swapBytes-involutive)
 open import Aletheia.CAN.Frame using (CANFrame; Byte)
 open import Aletheia.CAN.Signal using (SignalDef)
@@ -229,7 +229,7 @@ injectedFrame : ∀ {m} (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (fra
   → n < 2 ^ SignalDef.bitLength sig
   → CANFrame m
 injectedFrame n sig byteOrder frame n<2^bl =
-  record frame { payload = injectPayload (SignalDef.startBit sig) (ℕToBitVec {SignalDef.bitLength sig} n n<2^bl) byteOrder (CANFrame.payload frame) }
+  withInjected (SignalDef.startBit sig) (ℕToBitVec {SignalDef.bitLength sig} n n<2^bl) byteOrder frame
 
 -- Reduction Lemma A (helper level): injectHelper reduces to a known frame
 -- when removeScaling succeeds and the unsigned width-fit witness is in scope.

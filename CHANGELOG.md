@@ -12,6 +12,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Three gates on what the kernel's wire and build promise.**
+  `tools/check_wire_code_emitters.py` (the Shake target
+  `check-wire-code-emitters`, replacing `check-bound-enforcement`) reads the
+  generated Haskell of the runtime closure and fails on a wire code whose
+  constructor is only ever matched, never built; it found the six codes
+  above and `frame_byte_count`. `tools/check_gates_reached.py` fails on a Shake `check-*` target that
+  no CI step runs and no rule needs (`check-bound-enforcement` was one, never
+  run since it was written; the redundant `check-spdx-headers` target, a
+  second entry point to the gate CI runs as a Python step, is removed).
+  `tools/check_shim_builds_no_kernel_value.py` fails on a generated
+  constructor the shim applies rather than matches. `check-erasure` also holds
+  `CANFrame` to its three runtime fields, so the byte-range proof stays erased.
+
 - **No test reads a clock or starts a thread,
   `tools/check_test_determinism.py`.** The tests run on machines of very
   different power: a test that waits on a duration passes or fails by how fast
@@ -213,6 +226,46 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   subscript one container, which is the case where no bound is hand-written.
 
 ### Changed
+
+- **The kernel decides every frame it accepts (BREAKING).** A frame handed to
+  a binary entry (`aletheia_send_frame`, `aletheia_send_remote`,
+  `aletheia_extract_signals`, `aletheia_build_frame_bin`,
+  `aletheia_update_frame_bin`, `aletheia_extract_signals_bin`) is parsed by
+  the Agda kernel (`Aletheia.CAN.Frame.Parse`) from the fields the C caller
+  passed: the identifier against its range, the DLC code against 15, then the
+  payload byte by byte, every byte below 256 and exactly as many as the DLC
+  names; the signal values of a build or an update as three parallel arrays,
+  each denominator positive and the rational normalised in the kernel. Every
+  refusal is a typed `ParseError` with its own wire code:
+  `parse_std_can_id_out_of_range` / `parse_ext_can_id_out_of_range` (the codes
+  the DBC parser already used for the same check), and the new
+  `parse_dlc_code_out_of_range`, `parse_payload_length_mismatch`,
+  `parse_payload_byte_out_of_range`, `parse_non_positive_denominator` and
+  `parse_signal_array_length_mismatch`. The frame the parser builds carries
+  each invariant as an erased proof (`CANFrame` now holds every payload byte's
+  range), and `Aletheia.CAN.Frame.Parse.Properties` proves the parser takes a
+  valid frame as it is and refuses only on the condition each code names. The
+  Haskell shim no longer decides anything a frame must satisfy, and builds no
+  kernel value: it reads the caller's memory, refusing a NULL pointer, and
+  hands the kernel builtins. Before, the shim checked the DLC, the length and
+  the identifier itself and answered `ffi_validation_error` with a free-form
+  message; a payload over 64 bytes and one of the wrong length got two
+  different codes for the same defect.
+- **A binary-output entry's refusal is the JSON error envelope (BREAKING).**
+  `aletheia_build_frame_bin`, `aletheia_update_frame_bin` and
+  `aletheia_extract_signals_bin` set the buffer's `err` to the same
+  `{"status": "error", "code": …, "message": …}` envelope every other entry
+  answers with, where it was a bare message: the kernel's typed refusal, or
+  the shim's own (`ffi_validation_error`, a NULL pointer or a buffer too small
+  for the frame the kernel built). Every binding reads the envelope and
+  carries its `code` on the error it raises. The buffer's capacity is checked
+  against the bytes the kernel returns.
+- **Every binding's backend checks a payload against its DLC (BREAKING).**
+  The Go, C++ and Rust backends refused only a payload over 64 bytes before
+  narrowing its length into the `uint8_t` `data_len`, and Python's refused
+  none, its ctypes field wrapping a 264-byte payload to 8; each now refuses
+  any payload whose length is not the DLC's byte count, as each client
+  already did, so no length is ever narrowed into a different frame.
 
 - **The C++ mutation lane's slice weights are re-taken from the tree as it
   stands, and each lane saves only the compiler cache its run used.** The
@@ -2106,6 +2159,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   probes under `probes/` carry the claims.
 
 ### Removed
+
+- **The `frame_byte_count` bound kind and `max-frame-byte-count` (BREAKING).**
+  The bound refused nothing the DLC's byte count did not already refuse; a
+  frame of the wrong length is now `parse_payload_length_mismatch`, whatever
+  its length. The constant and the bound kind leave `Aletheia.Limits` and the
+  Python, Go and C++ mirrors.
+- **Six wire codes nothing in the kernel produced (BREAKING).**
+  `route_missing_array`, `route_dlc_exceeds_max`,
+  `route_byte_array_parse_failed`, `route_byte_count_mismatch` (whose only
+  producers left with the JSON streaming commands), `handler_invalid_dlc_code`
+  and `extraction_bit_extraction_failed` leave `docs/WIRE_CODES.yaml`, the
+  kernel's error types and every binding's vocabulary, and the routing errors
+  narrow to `RouteError`.
+- **The JSON streaming commands' removal in [3.0.0] was breaking.** `startStream`,
+  `sendFrame`, `extractAllSignals`, `endStream` and `formatDBC` were
+  documented commands of `aletheia_process`, listed under [3.0.0] "Removed"
+  without the BREAKING mark; a caller of the C entry depending on them
+  streams through the binary entries instead.
 
 - **`docs/development/DEFERRED_ITEMS.md`.** Pending work is tracked in one task
   list rather than in a file in the tree, so the nine open items moved there whole

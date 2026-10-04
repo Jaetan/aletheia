@@ -80,7 +80,6 @@ NAME_MAPPING: dict[str, tuple[str, str]] = {
     "max-identifier-length": ("MaxIdentifierLength", "REQUIRED"),
     "max-string-length-bytes": ("MaxStringLengthBytes", "REQUIRED"),
     "max-atom-count-per-property": ("MaxAtomCountPerProperty", "REQUIRED"),
-    "max-frame-byte-count": ("MaxFrameByteCount", "REQUIRED"),
     "max-properties-per-stream": ("MaxPropertiesPerStream", "REQUIRED"),
     # Value-magnitude bound — enforced post-parse in the kernel (the Int64
     # wire range on rational components); mirrored for typed consumers.
@@ -111,7 +110,6 @@ PYTHON_NAME_MAPPING: dict[str, tuple[str, str]] = {
     "max-identifier-length": ("MAX_IDENTIFIER_LENGTH", "REQUIRED"),
     "max-string-length-bytes": ("MAX_STRING_LENGTH_BYTES", "REQUIRED"),
     "max-atom-count-per-property": ("MAX_ATOM_COUNT_PER_PROPERTY", "REQUIRED"),
-    "max-frame-byte-count": ("MAX_FRAME_BYTE_COUNT", "REQUIRED"),
     "max-properties-per-stream": ("MAX_PROPERTIES_PER_STREAM", "REQUIRED"),
     "max-rational-component-magnitude": ("MAX_RATIONAL_COMPONENT_MAGNITUDE", "REQUIRED"),
     "max-messages-per-file": ("MAX_MESSAGES_PER_FILE", "REQUIRED"),
@@ -133,7 +131,6 @@ PYTHON_BOUND_KIND_MAPPING: dict[str, str] = {
     "IdentifierLength": "BOUND_KIND_IDENTIFIER_LENGTH",
     "StringLength": "BOUND_KIND_STRING_LENGTH",
     "AtomCount": "BOUND_KIND_ATOM_COUNT",
-    "FrameByteCount": "BOUND_KIND_FRAME_BYTE_COUNT",
     "PropertyCount": "BOUND_KIND_PROPERTY_COUNT",
     "RationalComponentMagnitude": "BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE",
 }
@@ -149,7 +146,6 @@ CPP_NAME_MAPPING: dict[str, tuple[str, str]] = {
     "max-identifier-length": ("max_identifier_length", "REQUIRED"),
     "max-string-length-bytes": ("max_string_length_bytes", "REQUIRED"),
     "max-atom-count-per-property": ("max_atom_count_per_property", "REQUIRED"),
-    "max-frame-byte-count": ("max_frame_byte_count", "REQUIRED"),
     "max-properties-per-stream": ("max_properties_per_stream", "REQUIRED"),
     "max-rational-component-magnitude": ("max_rational_component_magnitude", "REQUIRED"),
     "max-messages-per-file": ("max_messages_per_file", "REQUIRED"),
@@ -170,7 +166,6 @@ CPP_BOUND_KIND_MAPPING: dict[str, str] = {
     "IdentifierLength": "bound_kind_identifier_length",
     "StringLength": "bound_kind_string_length",
     "AtomCount": "bound_kind_atom_count",
-    "FrameByteCount": "bound_kind_frame_byte_count",
     "PropertyCount": "bound_kind_property_count",
     "RationalComponentMagnitude": "bound_kind_rational_component_magnitude",
 }
@@ -186,7 +181,6 @@ BOUND_KIND_MAPPING: dict[str, str] = {
     "IdentifierLength": "BoundKindIdentifierLength",
     "StringLength": "BoundKindStringLength",
     "AtomCount": "BoundKindAtomCount",
-    "FrameByteCount": "BoundKindFrameByteCount",
     "PropertyCount": "BoundKindPropertyCount",
     "RationalComponentMagnitude": "BoundKindRationalComponentMagnitude",
 }

@@ -160,7 +160,7 @@ class SignalOpsMixin(ClientHostState):
                     error=cast("str", error_msg),
                 )
                 # Forward the Agda wire ``code`` so callers can branch on e.g.
-                # ``extraction_bit_extraction_failed`` vs ``frame_signal_not_found``
+                # ``parse_payload_length_mismatch`` vs ``frame_signal_not_found``
                 # without parsing the message string (matches Go / C++ bindings).
                 msg = f"extract_signals failed: {error_msg}"
                 raise ProtocolError(msg, code=error_code)

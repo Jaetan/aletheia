@@ -13,7 +13,8 @@ module AletheiaFFI.BinaryOutput where
 
 import Foreign.C.String (CString)
 import Foreign.Marshal.Alloc (mallocBytes)
-import Foreign.Ptr (Ptr, plusPtr, castPtr)
+import Foreign.Marshal.Array (pokeArray)
+import Foreign.Ptr (Ptr, plusPtr, castPtr, nullPtr)
 import Foreign.Storable (peek, poke)
 import Data.Bits (toIntegralSized)
 import Data.Int (Int8, Int64)
@@ -22,51 +23,55 @@ import qualified Data.Text as T
 import qualified Data.Text.Foreign as TF
 import Unsafe.Coerce (unsafeCoerce)
 
-import AletheiaFFI.Marshal (newUtf8)
+import AletheiaFFI.Marshal (newUtf8, mkErrorJson)
 import AletheiaFFI.Wire (Buffer, bufData, pokeBufferErr, pokeBufferSize)
+import qualified AletheiaFFI.Wire as Wire
 
 import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
 import qualified MAlonzo.Code.Aletheia.CAN.BatchExtraction as AgdaBatch
+import qualified MAlonzo.Code.Aletheia.Error as AgdaError
+import qualified MAlonzo.Code.Aletheia.Main.Binary as AgdaBin
 import qualified MAlonzo.Code.Data.Rational.Base as AgdaRational
 import qualified MAlonzo.Code.Data.Sum.Base as AgdaSum
-import qualified MAlonzo.Code.Data.Vec.Base as AgdaVec
 
--- Stdlib-dependent MAlonzo constructor names used in this module:
---   Vec:  C_'91''93'_32 (nil), C__'8759'__38 (cons)
---   Sum:  C_inj'8321'_38 (inj₁), C_inj'8322'_42 (inj₂)
--- The Shakefile's check-erasure phony verifies these against MAlonzo output.
+-- Stdlib-dependent MAlonzo constructor names used in this module, only ever
+-- matched: Sum's C_inj'8321'_38 (inj₁) and C_inj'8322'_42 (inj₂).  The
+-- Shakefile's check-erasure phony verifies them against MAlonzo output.
 
--- | Walk MAlonzo Vec Byte, writing each byte to a contiguous buffer, and
--- answer the count written.
-agdaVecToBuffer :: AgdaVec.T_Vec_28 -> Ptr Word8 -> IO Word32
-agdaVecToBuffer = go 0
-  where
-    go n AgdaVec.C_'91''93'_32 _ = return n
-    go n (AgdaVec.C__'8759'__38 x xs) ptr = do
-        poke ptr (fromIntegral (unsafeCoerce x :: Integer) :: Word8)
-        go (n + 1) xs (ptr `plusPtr` 1)
+-- | Set the buffer's error to a JSON error envelope and answer 1.  The shim's
+-- own refusals (a NULL pointer, a buffer too small) carry code
+-- `ffi_validation_error`; the kernel's are its typed `Error`, rendered by
+-- `formatErrorEnvelope`.  Either way a binding reads one shape.
+shimErrorOut :: String -> Ptr Buffer -> IO Int8
+shimErrorOut msg out = newUtf8 (T.pack (mkErrorJson msg)) >>= pokeBufferErr out >> return 1
 
--- | Dispatch on MAlonzo String ⊎ Vec Byte: write the bytes into the caller's
--- buffer and set its size to the count written (success), or set its error
--- (failure). Used by build_frame_bin / update_frame_bin, which have checked
--- the buffer holds the frame before the kernel runs.
-dispatchSumResult :: AgdaSum.T__'8846'__30 -> Ptr Buffer -> IO Int8
-dispatchSumResult (AgdaSum.C_inj'8321'_38 errAny) out = do
-    let errText = unsafeCoerce errAny :: T.Text
-    newUtf8 errText >>= pokeBufferErr out
-    return 1
-dispatchSumResult (AgdaSum.C_inj'8322'_42 vecAny) out = do
-    let vec = unsafeCoerce vecAny :: AgdaVec.T_Vec_28
+kernelErrorOut :: AgdaError.T_Error_342 -> Ptr Buffer -> IO Int8
+kernelErrorOut err out =
+    newUtf8 (unsafeCoerce (AgdaBin.d_formatErrorEnvelope_12 err) :: T.Text) >>= pokeBufferErr out >> return 1
+
+-- | Dispatch a binary-output entry's `Error ⊎ List Byte`: on success write the
+-- bytes into the caller's buffer, which must hold them, and set its size; on
+-- refusal set its error to the kernel's envelope.
+dispatchBytesResult :: String -> AgdaSum.T__'8846'__30 -> Ptr Buffer -> IO Int8
+dispatchBytesResult _ (AgdaSum.C_inj'8321'_38 errAny) out = kernelErrorOut (unsafeCoerce errAny) out
+dispatchBytesResult ctx (AgdaSum.C_inj'8322'_42 bytesAny) out = do
+    let bytes = unsafeCoerce bytesAny :: [Integer]
+        n = length bytes
     buf <- peek out
-    agdaVecToBuffer vec (bufData buf) >>= pokeBufferSize out
-    return 0
+    if fromIntegral (Wire.bufSize buf) < n
+      then shimErrorOut (ctx ++ ": out size " ++ show (Wire.bufSize buf) ++ " < " ++ show n ++ " frame bytes") out
+      else if n > 0 && bufData buf == nullPtr
+        then shimErrorOut (ctx ++ ": null out buffer") out
+        else do
+          pokeArray (bufData buf) (map fromIntegral bytes :: [Word8])
+          pokeBufferSize out (fromIntegral n)
+          return 0
 
--- | u8 wire value for the encoder guard's reroute, pulled from the kernel
--- mapping (`extractionErrorCodeToℕ ValueExceedsWireRange`) so the shim never
--- hardcodes a wire constant — the code mints in the kernel enum.
+-- | u8 wire value for the encoder guard's reroute, read from the kernel
+-- (`valueExceedsWireRangeCode`) so the shim neither hardcodes a wire constant
+-- nor builds a kernel value to look one up.
 valueExceedsWireRangeCode :: Integer
-valueExceedsWireRangeCode =
-    AgdaBatch.d_extractionErrorCodeToℕ_160 AgdaBatch.C_ValueExceedsWireRange_148
+valueExceedsWireRangeCode = AgdaBatch.d_valueExceedsWireRangeCode_226
 
 -- | Split one (index, ℚ) value pair into its wire components.  The kernel
 -- rational is unbounded; the wire's rational slots are i64.  `toIntegralSized`

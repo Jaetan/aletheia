@@ -28,17 +28,13 @@ import Unsafe.Coerce (unsafeCoerce)
 
 import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
 import qualified MAlonzo.Code.Aletheia.CAN.BatchExtraction as AgdaBatch
-import qualified MAlonzo.Code.Aletheia.CAN.Frame as AgdaFrame
 import qualified MAlonzo.Code.Aletheia.DBC.RationalRenderer as AgdaRR
 import qualified MAlonzo.Code.Aletheia.DBC.TextParser.DecimalEntry as AgdaDE
 import qualified MAlonzo.Code.Aletheia.Main.Binary as AgdaBin
 import qualified MAlonzo.Code.Aletheia.Main.JSON as AgdaJSON
 import qualified MAlonzo.Code.Aletheia.Protocol.StreamState.Types as AgdaState
-import qualified MAlonzo.Code.Aletheia.Trace.CANTrace as AgdaTrace
-import qualified MAlonzo.Code.Aletheia.Trace.Time as AgdaTime
 import qualified MAlonzo.Code.Data.Rational.Base as AgdaRational
 import qualified MAlonzo.Code.Data.Sum.Base as AgdaSum
-import qualified MAlonzo.Code.Data.Vec.Base as AgdaVec
 
 import AletheiaFFI.Marshal
 import AletheiaFFI.BinaryOutput
@@ -64,13 +60,6 @@ runJSON statePtr f
 errorJSON :: String -> IO CString
 errorJSON = newUtf8 . T.pack . mkErrorJson
 
--- | Return a JSON error response from a typed FFIError.  Dispatches the
--- legacy free-form `FFIStringError` to `mkErrorJson` and the structured
--- `FFIBoundExceeded` to the bound-payload
--- envelope produced by `formatFFIError`.
-errorJSONFor :: FFIError -> IO CString
-errorJSONFor = newUtf8 . T.pack . formatFFIError
-
 -- ============================================================================
 -- NULL-POINTER GUARDS (trust-boundary hardening)
 -- ============================================================================
@@ -89,8 +78,8 @@ isNullState statePtr = castStablePtrToPtr statePtr == nullPtr
 
 -- | `peekArray`, but a NULL pointer with a positive length (which would deref
 -- NULL) is surfaced as `Left` for the caller to turn into a clean error.  A
--- zero length never dereferences, so `(NULL, 0)` is fine.  No bounds/validity
--- logic here — that stays in `validateDLCAndLen` / `mkSignalPairs`.
+-- zero length never dereferences, so `(NULL, 0)` is fine.  No bounds or
+-- validity logic here: the kernel parses what was read.
 peekArrayChecked :: Storable a => String -> Int -> Ptr a -> IO (Either String [a])
 peekArrayChecked what n ptr
   | n > 0 && ptr == nullPtr = pure (Left (what ++ ": null buffer pointer"))
@@ -116,6 +105,10 @@ aletheia_process statePtr inputPtr = do
 -- ============================================================================
 -- BINARY-INPUT JSON ENTRY POINTS (binary in, JSON out)
 -- ============================================================================
+-- Each entry reads what the caller's struct holds and hands it to a kernel
+-- `*Raw` entry as builtins; the kernel parses the identifier, the DLC, the
+-- payload and the signal values, and refuses with its typed error.  The shim
+-- refuses only what it cannot read: a NULL pointer where memory is needed.
 
 -- | Read the frame the caller passed, refusing NULL.
 peekFrame :: String -> Ptr Frame -> IO (Either String Frame)
@@ -123,10 +116,15 @@ peekFrame ctx framePtr
   | framePtr == nullPtr = pure (Left (ctx ++ ": null frame"))
   | otherwise           = Right <$> peek framePtr
 
--- | Read the frame's payload, `data_len` bytes from `data`.
-peekPayload :: String -> Frame -> IO (Either String [Word8])
+-- | Read every byte `data_len` names from `data`, as the kernel takes them.
+peekPayload :: String -> Frame -> IO (Either String [Integer])
 peekPayload ctx f =
-    peekArrayChecked (ctx ++ " data") (fromIntegral (frameDataLen f)) (frameData f)
+    fmap (map toInteger) <$>
+      peekArrayChecked (ctx ++ " data") (fromIntegral (frameDataLen f)) (frameData f)
+
+-- | The identifier, its extended flag and the DLC code, as the kernel takes them.
+frameId :: Frame -> (Integer, Bool, Integer)
+frameId f = (toInteger (frameCanId f), frameExtended f /= 0, toInteger (frameDlc f))
 
 -- CAN-FD BRS/ESI each cross as a presence byte and a value byte, both zero
 -- for a CAN 2.0B frame where the bits do not exist. The kernel does not
@@ -138,48 +136,35 @@ aletheia_send_frame statePtr framePtr = do
     frameE <- peekFrame ctx framePtr
     case frameE of
       Left err -> errorJSON err
-      Right f -> case validateDLCAndLen ctx (frameDlc f) (frameDataLen f) of
-        Left ffiErr -> errorJSONFor ffiErr
-        Right _ -> case mkAgdaCanId (frameCanId f) (frameExtended f) of
+      Right f -> do
+        bytesE <- peekPayload ctx f
+        case bytesE of
           Left err -> errorJSON err
-          Right agdaCanId -> do
-            bytesE <- peekPayload ctx f
-            case bytesE of
-              Left err -> errorJSON err
-              Right bytes -> do
-                let agdaTF = AgdaTrace.C_constructor_32
-                        (AgdaTime.C_mkTs_26 (toInteger (frameTimestamp f)))
-                        (toInteger (frameDataLen f))
-                        (AgdaFrame.C_constructor_36 agdaCanId
-                            (mkAgdaDLC (toInteger (frameDlc f))) (bytesToAgdaVec bytes))
-                        (mkMaybeBool (frameBrsPresent f) (frameBrsValue f))
-                        (mkMaybeBool (frameEsiPresent f) (frameEsiValue f))
-                runJSON statePtr (\s -> AgdaBin.d_processFrameDirect_12 s (unsafeCoerce agdaTF))
+          Right bytes ->
+            let (canId, extended, dlc) = frameId f
+            in runJSON statePtr (\s -> AgdaBin.d_processFrameRaw_120 s
+                   (toInteger (frameTimestamp f)) canId extended dlc bytes
+                   (mkMaybeBool (frameBrsPresent f) (frameBrsValue f))
+                   (mkMaybeBool (frameEsiPresent f) (frameEsiValue f)))
   where
     ctx = "aletheia_send_frame"
 
--- | A bus-error event: the frame's timestamp and nothing else.
 foreign export ccall aletheia_send_error :: StateHandle -> Ptr Frame -> IO CString
 aletheia_send_error :: StateHandle -> Ptr Frame -> IO CString
 aletheia_send_error statePtr framePtr = do
     frameE <- peekFrame "aletheia_send_error" framePtr
     case frameE of
       Left err -> errorJSON err
-      Right f -> runJSON statePtr (\s -> AgdaBin.d_processEventDirect_18 s
-        (unsafeCoerce (AgdaTrace.C_Error_38 (AgdaTime.C_mkTs_26 (toInteger (frameTimestamp f))))))
+      Right f -> runJSON statePtr (\s -> AgdaBin.d_processErrorFrameRaw_180 s (toInteger (frameTimestamp f)))
 
--- | A remote frame: the frame's timestamp and identifier, no payload.
 foreign export ccall aletheia_send_remote :: StateHandle -> Ptr Frame -> IO CString
 aletheia_send_remote :: StateHandle -> Ptr Frame -> IO CString
 aletheia_send_remote statePtr framePtr = do
     frameE <- peekFrame "aletheia_send_remote" framePtr
     case frameE of
       Left err -> errorJSON err
-      Right f -> case mkAgdaCanId (frameCanId f) (frameExtended f) of
-        Left err -> errorJSON err
-        Right agdaCanId -> runJSON statePtr (\s -> AgdaBin.d_processEventDirect_18 s
-          (unsafeCoerce (AgdaTrace.C_Remote_40
-              (AgdaTime.C_mkTs_26 (toInteger (frameTimestamp f))) agdaCanId)))
+      Right f -> runJSON statePtr (\s -> AgdaBin.d_processRemoteFrameRaw_192 s
+                   (toInteger (frameTimestamp f)) (toInteger (frameCanId f)) (frameExtended f /= 0))
 
 foreign export ccall aletheia_extract_signals :: StateHandle -> Ptr Frame -> IO CString
 aletheia_extract_signals :: StateHandle -> Ptr Frame -> IO CString
@@ -187,58 +172,50 @@ aletheia_extract_signals statePtr framePtr = do
     frameE <- peekFrame ctx framePtr
     case frameE of
       Left err -> errorJSON err
-      Right f -> case validateDLCAndLen ctx (frameDlc f) (frameDataLen f) of
-        Left ffiErr -> errorJSONFor ffiErr
-        Right _ -> case mkAgdaCanId (frameCanId f) (frameExtended f) of
+      Right f -> do
+        bytesE <- peekPayload ctx f
+        case bytesE of
           Left err -> errorJSON err
-          Right agdaCanId -> do
-            bytesE <- peekPayload ctx f
-            case bytesE of
-              Left err -> errorJSON err
-              Right bytes -> runJSON statePtr (\s -> AgdaBin.d_processExtractDirect_38 s agdaCanId
-                  (mkAgdaDLC (toInteger (frameDlc f))) (unsafeCoerce (bytesToAgdaVec bytes)))
+          Right bytes ->
+            let (canId, extended, dlc) = frameId f
+            in runJSON statePtr (\s -> AgdaBin.d_processExtractRaw_234 s canId extended dlc bytes)
   where
     ctx = "aletheia_extract_signals"
 
 foreign export ccall aletheia_start_stream :: StateHandle -> IO CString
 aletheia_start_stream :: StateHandle -> IO CString
-aletheia_start_stream statePtr = runJSON statePtr AgdaBin.d_processStartStreamDirect_24
+aletheia_start_stream statePtr = runJSON statePtr AgdaBin.d_processStartStreamDirect_28
 
 foreign export ccall aletheia_end_stream :: StateHandle -> IO CString
 aletheia_end_stream :: StateHandle -> IO CString
-aletheia_end_stream statePtr = runJSON statePtr AgdaBin.d_processEndStreamDirect_28
+aletheia_end_stream statePtr = runJSON statePtr AgdaBin.d_processEndStreamDirect_32
 
 foreign export ccall aletheia_format_dbc :: StateHandle -> IO CString
 aletheia_format_dbc :: StateHandle -> IO CString
-aletheia_format_dbc statePtr = runJSON statePtr AgdaBin.d_processFormatDBCDirect_32
+aletheia_format_dbc statePtr = runJSON statePtr AgdaBin.d_processFormatDBCDirect_36
 
 -- ============================================================================
 -- BINARY-OUTPUT ENTRY POINTS (no JSON serialization on output)
 -- ============================================================================
 
--- | Run a binary-output Agda function: writes packed bytes into the caller's
--- buffer on success, or sets its error on failure. Returns 0/1.
-runBinDispatch :: StateHandle
+-- | Run a binary-output kernel entry and hand its `Error ⊎ List Byte` to
+-- `dispatchBytesResult`, which writes the bytes or the refusal.
+runBinDispatch :: String -> StateHandle
                -> (AgdaState.T_StreamState_32 -> AgdaSigma.T_Σ_14)
                -> Ptr Buffer -> IO Int8
-runBinDispatch statePtr f out
-  | isNullState statePtr = errorOut "null state handle" out
+runBinDispatch ctx statePtr f out
+  | isNullState statePtr = shimErrorOut "null state handle" out
   | otherwise = do
       ref <- deRefStablePtr statePtr
       state <- readIORef ref
       let result = f state
       writeIORef ref (unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_32)
-      let sumResult = unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30
-      dispatchSumResult sumResult out
-
--- | Set the buffer's error to a freshly-allocated CString and return 1.
-errorOut :: String -> Ptr Buffer -> IO Int8
-errorOut err out = newUtf8 (T.pack err) >>= pokeBufferErr out >> return 1
+      dispatchBytesResult ctx (unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30) out
 
 -- | Read the signal values the caller passed, refusing NULL, as the three
--- parallel arrays.
+-- parallel arrays the kernel takes.
 peekSignalValues :: String -> Ptr SignalValues
-                 -> IO (Either String ([Word32], [Int64], [Int64]))
+                 -> IO (Either String ([Integer], [Integer], [Integer]))
 peekSignalValues ctx valuesPtr
   | valuesPtr == nullPtr = pure (Left (ctx ++ ": null signal values"))
   | otherwise = do
@@ -247,18 +224,7 @@ peekSignalValues ctx valuesPtr
       indicesE <- peekArrayChecked (ctx ++ " indices") n (svIndices v)
       numsE <- peekArrayChecked (ctx ++ " nums") n (svNumerators v)
       densE <- peekArrayChecked (ctx ++ " dens") n (svDenominators v)
-      pure ((,,) <$> indicesE <*> numsE <*> densE)
-
--- | The caller's buffer must hold the frame the DLC sizes before the kernel
--- writes it, since the entry writes through `data` unchecked.
-checkCapacity :: String -> Word8 -> Buffer -> Either String ()
-checkCapacity ctx dlc b
-  | fromIntegral (bufSize b) < need =
-      Left (ctx ++ ": out size " ++ show (bufSize b) ++ " < dlcToBytes " ++ show need)
-  | need > 0 && bufData b == nullPtr = Left (ctx ++ ": null out buffer")
-  | otherwise = Right ()
-  where
-    need = dlcToBytes dlc
+      pure ((,,) <$> (map toInteger <$> indicesE) <*> (map toInteger <$> numsE) <*> (map toInteger <$> densE))
 
 foreign export ccall aletheia_build_frame_bin
     :: StateHandle -> Ptr Frame -> Ptr SignalValues -> Ptr Buffer -> IO Int8
@@ -268,21 +234,12 @@ aletheia_build_frame_bin statePtr framePtr valuesPtr out
   | otherwise = do
     frameE <- peekFrame ctx framePtr
     valuesE <- peekSignalValues ctx valuesPtr
-    buf <- peek out
-    case frameE of
-      Left err -> errorOut err out
-      Right f -> case validateDLC ctx (frameDlc f) of
-        Left ffiErr -> errorOut (formatFFIError ffiErr) out
-        Right _ -> case checkCapacity ctx (frameDlc f) buf >> valuesE of
-          Left err -> errorOut err out
-          Right (indices, nums, dens) ->
-            case (,) <$> mkAgdaCanId (frameCanId f) (frameExtended f)
-                     <*> mkSignalPairs indices nums dens of
-              Left err -> errorOut err out
-              Right (agdaCanId, pairs) -> runBinDispatch statePtr
-                (\s -> AgdaBin.d_processBuildFrameBin_72 s agdaCanId
-                           (mkAgdaDLC (toInteger (frameDlc f))) pairs)
-                out
+    case (,) <$> frameE <*> valuesE of
+      Left err -> shimErrorOut err out
+      Right (f, (indices, nums, dens)) ->
+        let (canId, extended, dlc) = frameId f
+        in runBinDispatch ctx statePtr
+             (\s -> AgdaBin.d_processBuildFrameRaw_294 s canId extended dlc indices nums dens) out
   where
     ctx = "aletheia_build_frame_bin"
 
@@ -294,31 +251,21 @@ aletheia_update_frame_bin statePtr framePtr valuesPtr out
   | otherwise = do
     frameE <- peekFrame ctx framePtr
     valuesE <- peekSignalValues ctx valuesPtr
-    buf <- peek out
-    case frameE of
-      Left err -> errorOut err out
-      Right f -> case validateDLCAndLen ctx (frameDlc f) (frameDataLen f) of
-        Left ffiErr -> errorOut (formatFFIError ffiErr) out
-        Right _ -> case checkCapacity ctx (frameDlc f) buf >> valuesE of
-          Left err -> errorOut err out
-          Right (indices, nums, dens) ->
-            case (,) <$> mkAgdaCanId (frameCanId f) (frameExtended f)
-                     <*> mkSignalPairs indices nums dens of
-              Left err -> errorOut err out
-              Right (agdaCanId, pairs) -> do
-                bytesE <- peekPayload ctx f
-                case bytesE of
-                  Left err -> errorOut err out
-                  Right bytes -> runBinDispatch statePtr
-                      (\s -> AgdaBin.d_processUpdateFrameBin_86 s agdaCanId
-                                 (mkAgdaDLC (toInteger (frameDlc f)))
-                                 (unsafeCoerce (bytesToAgdaVec bytes)) pairs)
-                      out
+    case (,) <$> frameE <*> valuesE of
+      Left err -> shimErrorOut err out
+      Right (f, (indices, nums, dens)) -> do
+        bytesE <- peekPayload ctx f
+        case bytesE of
+          Left err -> shimErrorOut err out
+          Right bytes ->
+            let (canId, extended, dlc) = frameId f
+            in runBinDispatch ctx statePtr
+                 (\s -> AgdaBin.d_processUpdateFrameRaw_444 s canId extended dlc bytes indices nums dens) out
   where
     ctx = "aletheia_update_frame_bin"
 
--- | Wire format documented in Main.agda processExtractBin (canonical source).
--- Header(3×u16 + u32 reasonBytes) + Values(×18B) + Errors(×3B)
+-- | Wire format documented in Main/Binary.agda processExtractBinRaw (canonical
+-- source).  Header(3×u16 + u32 reasonBytes) + Values(×18B) + Errors(×3B)
 -- + Offsets((nErrors+1)×u32) + Reasons(UTF-8 blob) + Absent(×2B).
 -- Native byte order.
 foreign export ccall aletheia_extract_signals_bin
@@ -326,41 +273,35 @@ foreign export ccall aletheia_extract_signals_bin
 aletheia_extract_signals_bin :: StateHandle -> Ptr Frame -> Ptr Buffer -> IO Int8
 aletheia_extract_signals_bin statePtr framePtr out
   | out == nullPtr = return 1
-  | isNullState statePtr = errorOut "null state handle" out
+  | isNullState statePtr = shimErrorOut "null state handle" out
   | otherwise = do
     frameE <- peekFrame ctx framePtr
     case frameE of
-      Left err -> errorOut err out
-      Right f -> case validateDLCAndLen ctx (frameDlc f) (frameDataLen f) of
-        Left ffiErr -> errorOut (formatFFIError ffiErr) out
-        Right _ -> case mkAgdaCanId (frameCanId f) (frameExtended f) of
-          Left err -> errorOut err out
-          Right agdaCanId -> do
-            bytesE <- peekPayload ctx f
-            case bytesE of
-              Left err -> errorOut err out
-              Right bytes -> do
-                ref <- deRefStablePtr statePtr
-                state <- readIORef ref
-                let result = AgdaBin.d_processExtractBin_102 state agdaCanId
-                                 (mkAgdaDLC (toInteger (frameDlc f)))
-                                 (unsafeCoerce (bytesToAgdaVec bytes))
-                writeIORef ref (unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_32)
-                case unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30 of
-                    AgdaSum.C_inj'8321'_38 errAny ->
-                        errorOut (T.unpack (unsafeCoerce errAny :: T.Text)) out
-                    AgdaSum.C_inj'8322'_42 ierAny -> do
-                        packedE <- packPartitionedResults
-                            (unsafeCoerce ierAny :: AgdaBatch.T_PartitionedResults_10)
-                        case packedE of
-                            -- Unreachable with kernel-bounded reason strings
-                            -- (u32 offset space), but total: fail loudly, never
-                            -- truncate or wrap.
-                            Left packErr -> errorOut packErr out
-                            Right (packed, packedSize) -> do
-                                pokeBufferData out packed
-                                pokeBufferSize out (fromIntegral packedSize)
-                                return 0
+      Left err -> shimErrorOut err out
+      Right f -> do
+        bytesE <- peekPayload ctx f
+        case bytesE of
+          Left err -> shimErrorOut err out
+          Right bytes -> do
+            ref <- deRefStablePtr statePtr
+            state <- readIORef ref
+            let (canId, extended, dlc) = frameId f
+                result = AgdaBin.d_processExtractBinRaw_554 state canId extended dlc bytes
+            writeIORef ref (unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_32)
+            case unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30 of
+                AgdaSum.C_inj'8321'_38 errAny -> kernelErrorOut (unsafeCoerce errAny) out
+                AgdaSum.C_inj'8322'_42 ierAny -> do
+                    packedE <- packPartitionedResults
+                        (unsafeCoerce ierAny :: AgdaBatch.T_PartitionedResults_10)
+                    case packedE of
+                        -- Unreachable with kernel-bounded reason strings
+                        -- (u32 offset space), but total: fail loudly, never
+                        -- truncate or wrap.
+                        Left packErr -> shimErrorOut packErr out
+                        Right (packed, packedSize) -> do
+                            pokeBufferData out packed
+                            pokeBufferSize out (fromIntegral packedSize)
+                            return 0
   where
     ctx = "aletheia_extract_signals_bin"
 
@@ -416,8 +357,8 @@ aletheia_format_rational valuePtr
 -- binding routes user decimal input through here rather than re-deriving a
 -- float→rational heuristic, so the accepted grammar cannot drift between
 -- languages.  The kernel parser (`parseDecimal`) yields an unbounded ℚ; the
--- Int64-wire bound is enforced here at the marshaling boundary (mirrors
--- `mkAgdaRational`).  The rational is written into `out`; a failure sets its
+-- Int64-wire bound is enforced here at the marshaling boundary.  The rational
+-- is written into `out`; a failure sets its
 -- error to a JSON envelope the caller frees via `aletheia_free_str`.
 foreign export ccall aletheia_parse_decimal :: Ptr WireText -> Ptr Decimal -> IO Int8
 aletheia_parse_decimal :: Ptr WireText -> Ptr Decimal -> IO Int8

@@ -55,8 +55,9 @@ bytesToDlc n  =
   else if n ≡ᵇ 48 then just 14
   else if n ≡ᵇ 64 then just 15
   -- Reached for byte counts not in the CAN-FD mapping table (e.g., 3, 9–11,
-  -- 13–15, 17–19, 21–23, 25–31, 33–47, 49–63, ≥65). Callers: Routing.agda
-  -- parses user-supplied byte arrays, so invalid counts are possible.
+  -- 13–15, 17–19, 21–23, 25–31, 33–47, 49–63, ≥65). Callers: the DBC parsers
+  -- read a message's byte count from their input, so a count off the table is
+  -- possible.
   else nothing
 
 -- Maximum DLC value for CAN 2.0B

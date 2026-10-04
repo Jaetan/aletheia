@@ -54,6 +54,7 @@ AGDA_SHAKE_TARGETS: tuple[str, ...] = (
     "check-limits-parity",
     "check-stability-bench",
     "check-mutation-setup",
+    "check-wire-code-emitters",
 )
 
 # Big-memory steps gated by the OOM semaphore in --parallel mode.  Centralizing
@@ -733,6 +734,16 @@ def _run_gha_checks(runner: Runner) -> None:
     runner.step(
         "check-wire-codes",
         [runner.python, "-m", "tools.check_wire_codes"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
+        "check-gates-reached",
+        [runner.python, "-m", "tools.check_gates_reached"],
+        cwd=runner.repo_root,
+    )
+    runner.step(
+        "check-shim-builds-no-kernel-value",
+        [runner.python, "-m", "tools.check_shim_builds_no_kernel_value"],
         cwd=runner.repo_root,
     )
     runner.step(

@@ -19,7 +19,6 @@ const (
 	BoundKindIdentifierLength = "identifier_length"
 	BoundKindStringLength     = "string_length"
 	BoundKindAtomCount        = "atom_count"
-	BoundKindFrameByteCount   = "frame_byte_count"
 	BoundKindPropertyCount    = "property_count"
 
 	// BoundKindRationalComponentMagnitude is a numerator or denominator past
@@ -72,9 +71,6 @@ const (
 
 	// MaxPropertiesPerStream bounds the properties one call may install.
 	MaxPropertiesPerStream = 1024
-
-	// MaxFrameByteCount bounds a frame payload, at the CAN-FD maximum.
-	MaxFrameByteCount = 64
 
 	// MaxRationalComponentMagnitude bounds a numerator or a denominator, at the
 	// signed 64-bit range the binary slots and the decimal parser share.

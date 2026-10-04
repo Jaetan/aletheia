@@ -9,7 +9,7 @@
 // backend still route through the same kernel function.
 #include <aletheia/backend.hpp>
 #include <aletheia/detail/rational_renderer.hpp>
-#include <aletheia/limits.hpp>
+#include <aletheia/types.hpp>
 
 #include "detail/ffi_abi.hpp"
 #include "detail/ffi_logic.hpp"
@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -37,10 +38,6 @@
 namespace aletheia {
 
 namespace {
-
-// CAN-FD's largest payload, aliased from the public limits header so a bound
-// change at that surface reaches this one.
-constexpr auto max_can_fd_payload_bytes = static_cast<std::size_t>(aletheia::max_frame_byte_count);
 
 using AletheiaAbiVersionFn = std::uint32_t (*)();
 using HsInitFn = void (*)(int*, char***);
@@ -120,8 +117,9 @@ static auto header_frame(const CanId& id, Dlc dlc) -> detail::FfiFrame {
             .esi_value = 0};
 }
 
-// A frame carrying identifier, DLC and payload; the caller has bounded the
-// payload, so its length fits the byte.
+// A frame carrying identifier, DLC and payload.  The caller has checked that
+// the payload is the byte count its DLC names, at most 64, so the cast of its
+// length to the byte the frame carries loses nothing.
 static auto payload_frame(const CanId& id, Dlc dlc, std::span<const std::byte> data)
     -> detail::FfiFrame {
     auto frame = header_frame(id, dlc);
@@ -137,15 +135,18 @@ static auto signal_values(const SignalInjection& signals) -> detail::FfiSignalVa
             .count = signals.count()};
 }
 
-// CAN-FD's largest payload is 64 bytes; tighten the FFI bound so a malformed
-// caller cannot smuggle a 65 to 255 byte payload into the Haskell core before
-// it does its own length check.
-static auto payload_bound_error(std::span<const std::byte> data) -> std::optional<AletheiaError> {
-    if (data.size() <= max_can_fd_payload_bytes)
+// The payload of a frame is exactly the byte count its DLC names, the rule the
+// kernel holds a frame to.  A payload of any other length is refused here,
+// before the call, which also keeps its length within the byte the frame
+// carries it in.
+static auto payload_length_error(Dlc dlc, std::span<const std::byte> data)
+    -> std::optional<AletheiaError> {
+    auto const expected = dlc_to_bytes(dlc);
+    if (data.size() == expected)
         return std::nullopt;
-    return AletheiaError{ErrorKind::Validation, "data length exceeds " +
-                                                    std::to_string(max_can_fd_payload_bytes) +
-                                                    " bytes (CAN-FD max)"};
+    return AletheiaError{ErrorKind::Validation,
+                         std::format("payload length {} does not match DLC {} (expected {} bytes)",
+                                     data.size(), dlc.value(), expected)};
 }
 
 namespace {
@@ -316,7 +317,7 @@ public:
     auto send_frame_binary(const BackendState& state, Timestamp ts, const CanId& id, Dlc dlc,
                            std::span<const std::byte> data, std::optional<bool> brs,
                            std::optional<bool> esi) -> std::string override {
-        if (auto err = payload_bound_error(data))
+        if (auto err = payload_length_error(dlc, data))
             throw AletheiaException(err.value());
 
         // Encode optional<bool> as (present, value) byte pairs — inverse
@@ -364,7 +365,7 @@ public:
 
     auto extract_signals_binary(const BackendState& state, const CanId& id, Dlc dlc,
                                 std::span<const std::byte> data) -> std::string override {
-        if (auto err = payload_bound_error(data))
+        if (auto err = payload_length_error(dlc, data))
             throw AletheiaException(err.value());
         auto const frame = payload_frame(id, dlc, data);
         return wrap_str_result(extract_signals_fn_(state.get(), &frame),
@@ -391,7 +392,7 @@ public:
                           std::span<const std::byte> data, SignalInjection signals,
                           std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
-        if (auto err = payload_bound_error(data))
+        if (auto err = payload_length_error(dlc, data))
             return std::unexpected(err.value());
         auto const frame = payload_frame(id, dlc, data);
         auto const values = signal_values(signals);
@@ -409,7 +410,7 @@ public:
     auto extract_signals_bin(const BackendState& state, const CanId& id, Dlc dlc,
                              std::span<const std::byte> data)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
-        if (auto err = payload_bound_error(data))
+        if (auto err = payload_length_error(dlc, data))
             return std::unexpected(err.value());
         auto const frame = payload_frame(id, dlc, data);
         detail::FfiBuffer out{.data = nullptr, .err = nullptr, .size = 0};

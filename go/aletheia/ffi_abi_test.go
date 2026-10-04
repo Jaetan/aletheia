@@ -6,6 +6,7 @@
 package aletheia
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,6 +61,63 @@ func TestABIVersionErrorAdmitsOnlyTheBindingsVersion(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("abiVersionError(%d) = %v, want an error carrying %q", found, err, want)
 		}
+	}
+}
+
+// A binary entry's refusal is the error envelope a JSON response carries, and
+// reads as the JSON path reads one: a kernel code and the shim's own each on
+// the coded error with the message inside the envelope, and a structured
+// payload lifted to its typed error. Text that is not an envelope, or an
+// envelope that is not an error, is the library malfunctioning, which no
+// working library sets and the tests over the real one therefore never reach.
+func TestBinaryRefusalReadsTheErrorEnvelope(t *testing.T) {
+	coded := map[string]struct{ envelope, code, message string }{
+		"a kernel code": {
+			`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`,
+			CodeHandlerNoDBC, "no DBC loaded",
+		},
+		"the shim's code": {
+			`{"status":"error","code":"ffi_validation_error","message":"build_frame_bin: null out buffer"}`,
+			"ffi_validation_error", "build_frame_bin: null out buffer",
+		},
+	}
+	for name, tc := range coded {
+		t.Run(name, func(t *testing.T) {
+			requireDegradedCoded(t, binaryRefusal("build_frame_bin", tc.envelope), tc.code, tc.message)
+		})
+	}
+
+	t.Run("a structured payload", func(t *testing.T) {
+		err := binaryRefusal("build_frame_bin", `{"status":"error","code":"input_bound_exceeded",`+
+			`"message":"too many signals","bound_kind":"array_cardinality","observed":1025,"limit":1024}`)
+		var bex *InputBoundExceededError
+		if !errors.As(err, &bex) {
+			t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+		}
+		want := InputBoundExceededError{BoundKind: BoundKindArrayCardinality, Observed: 1025, Limit: 1024, Code: CodeInputBoundExceeded}
+		if *bex != want {
+			t.Errorf("got %+v, want %+v", *bex, want)
+		}
+	})
+
+	malfunctions := map[string]struct{ envelope, says string }{
+		"not JSON":     {"no DBC loaded", "invalid JSON response"},
+		"not an error": {`{"status":"success"}`, "extract_signals_bin refused with a response that is not an error envelope"},
+	}
+	for name, tc := range malfunctions {
+		t.Run(name, func(t *testing.T) {
+			err := binaryRefusal("extract_signals_bin", tc.envelope)
+			var aErr *Error
+			if !errors.As(err, &aErr) {
+				t.Fatalf("expected *Error, got %T: %v", err, err)
+			}
+			if aErr.Kind != ErrProtocol || aErr.Code != "" {
+				t.Errorf("Kind = %v, Code = %q, want ErrProtocol with no code: %v", aErr.Kind, aErr.Code, err)
+			}
+			if !strings.Contains(err.Error(), tc.says) {
+				t.Errorf("error %q does not say %q", err, tc.says)
+			}
+		})
 	}
 }
 

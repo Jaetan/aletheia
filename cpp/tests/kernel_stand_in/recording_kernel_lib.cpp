@@ -127,22 +127,22 @@ auto aletheia_extract_signals(void* /*state*/, const FfiFrame* /*frame*/) -> cha
     return refusal("extract_signals");
 }
 
-// The three binary entries refuse with the bare message, as the kernel's do.
+// The three binary entries refuse with an error envelope, as the kernel's do.
 auto aletheia_build_frame_bin(void* /*state*/, const FfiFrame* /*frame*/,
                               const FfiSignalValues* /*values*/, FfiBuffer* out) -> std::int8_t {
-    out->err = handed_back("build_frame_bin");
+    out->err = refusal("build_frame_bin");
     return 1;
 }
 
 auto aletheia_update_frame_bin(void* /*state*/, const FfiFrame* /*frame*/,
                                const FfiSignalValues* /*values*/, FfiBuffer* out) -> std::int8_t {
-    out->err = handed_back("update_frame_bin");
+    out->err = refusal("update_frame_bin");
     return 1;
 }
 
 auto aletheia_extract_signals_bin(void* /*state*/, const FfiFrame* /*frame*/, FfiBuffer* out)
     -> std::int8_t {
-    out->err = handed_back("extract_signals_bin");
+    out->err = refusal("extract_signals_bin");
     return 1;
 }
 

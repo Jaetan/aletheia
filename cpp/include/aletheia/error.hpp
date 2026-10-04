@@ -76,6 +76,11 @@ enum class ErrorCode {
     ParseInvalidIdentifier,
     ParseNonIntegerMultiplexValue,
     ParseNonNaturalField,
+    ParseDlcCodeOutOfRange,
+    ParsePayloadLengthMismatch,
+    ParsePayloadByteOutOfRange,
+    ParseNonPositiveDenominator,
+    ParseSignalArrayLengthMismatch,
     // DBC text parse errors
     DBCTextParseFailure,
     DBCTextTrailingInput,
@@ -94,12 +99,8 @@ enum class ErrorCode {
     InputBoundExceeded,
     // Route errors
     RouteMissingField,
-    RouteMissingArray,
     RouteUnknownCommand,
     RouteMissingCommandField,
-    RouteDlcExceedsMax,
-    RouteByteArrayParseFailed,
-    RouteByteCountMismatch,
     RouteMissingDbcField,
     RouteMissingPropsField,
     // Handler errors
@@ -109,7 +110,6 @@ enum class ErrorCode {
     HandlerStreamNotStarted,
     HandlerStreamActive,
     HandlerPropertyParseFailed,
-    HandlerInvalidDlcCode,
     HandlerValidationFailed,
     HandlerTextRoundtripFailed,
     HandlerNonMonotonicTimestamp,
@@ -124,7 +124,6 @@ enum class ErrorCode {
     ExtractionMuxSignalNotFound,
     ExtractionMuxChainCycle,
     ExtractionMuxExtractionFailed,
-    ExtractionBitExtractionFailed,
     ExtractionValueExceedsWireRange,
 };
 

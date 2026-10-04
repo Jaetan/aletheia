@@ -16,6 +16,8 @@ module Aletheia.Error where
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Nat using (ℕ; _∸_; _*_)
 open import Data.Nat.Show using () renaming (show to showℕ)
+open import Data.Integer using (ℤ)
+open import Data.Integer.Show using () renaming (show to showℤ)
 open import Data.List using (List)
 open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
 open import Aletheia.CAN.DLC using (maxDLC-FD)
@@ -25,7 +27,7 @@ open import Aletheia.Parser.Position using (Position)
 open import Aletheia.Limits using (BoundKind; boundKindLabel)
 
 -- ============================================================================
--- PARSE ERRORS (DBC/JSONParser.agda)
+-- PARSE ERRORS (DBC/JSONParser.agda, CAN/Frame/Parse.agda)
 -- ============================================================================
 
 data ParseError : Set where
@@ -85,12 +87,20 @@ data ParseError : Set where
   -- but non-natural geometry value is reported truthfully instead of as an
   -- absent key (the prior lookupNat conflation).  Carries the field name.
   NonNaturalField         : String → ParseError
+  -- What the binary entries receive (CAN.Frame.Parse): a DLC code past 15;
+  -- a payload whose byte count is not the DLC's (expected, observed); a
+  -- payload byte at or above 256 (position, value); a signal value whose
+  -- denominator is not positive; signal-value arrays of unequal lengths
+  -- (indices, numerators, denominators).  The identifier's range reuses
+  -- the CAN ID refusals above.
+  DLCCodeOutOfRange       : ℕ → ParseError
+  PayloadLengthMismatch   : ℕ → ℕ → ParseError
+  PayloadByteOutOfRange   : ℕ → ℕ → ParseError
+  NonPositiveDenominator  : ℤ → ParseError
+  SignalArrayLengthMismatch : ℕ → ℕ → ℕ → ParseError
   InContext               : String → ParseError → ParseError
-  -- NOTE: Adversarial-input bounds are emitted via the top-level
-  -- `Error.InputBoundExceeded` ctor (consolidated from the three
-  -- previously duplicate per-ADT ctors).
-  -- A ParseError observer sees `InputBoundExceeded` at the Error sum
-  -- level rather than inside ParseError itself.
+  -- An adversarial-input bound is the top-level `Error.InputBoundExceeded`,
+  -- not a ParseError.
 
 formatParseError : ParseError → String
 formatParseError (MissingField f) =
@@ -139,6 +149,17 @@ formatParseError NonIntegerMultiplexValue =
   "non-integer value in 'multiplex_values' array (every element must be a JSON natural number)"
 formatParseError (NonNaturalField f) =
   "field '" ++ₛ f ++ₛ "' must be a JSON natural number (non-negative integer)"
+formatParseError (DLCCodeOutOfRange c) =
+  "DLC " ++ₛ showℕ c ++ₛ " exceeds limit " ++ₛ showℕ maxDLC-FD
+formatParseError (PayloadLengthMismatch expected observed) =
+  "payload of " ++ₛ showℕ observed ++ₛ " bytes does not match the DLC's " ++ₛ showℕ expected
+formatParseError (PayloadByteOutOfRange position value) =
+  "payload byte " ++ₛ showℕ position ++ₛ " is " ++ₛ showℕ value ++ₛ ", above 255"
+formatParseError (NonPositiveDenominator d) =
+  "non-positive denominator " ++ₛ showℤ d
+formatParseError (SignalArrayLengthMismatch i n d) =
+  "signal value arrays differ in length: " ++ₛ showℕ i ++ₛ " indices, "
+    ++ₛ showℕ n ++ₛ " numerators, " ++ₛ showℕ d ++ₛ " denominators"
 formatParseError (InContext ctx inner) =
   ctx ++ₛ ": " ++ₛ formatParseError inner
 
@@ -164,6 +185,11 @@ parseErrorCode (NonTerminatingRational _) = "parse_non_terminating_rational"
 parseErrorCode (InvalidIdentifier _)       = "parse_invalid_identifier"
 parseErrorCode NonIntegerMultiplexValue    = "parse_non_integer_multiplex_value"
 parseErrorCode (NonNaturalField _)         = "parse_non_natural_field"
+parseErrorCode (DLCCodeOutOfRange _)       = "parse_dlc_code_out_of_range"
+parseErrorCode (PayloadLengthMismatch _ _) = "parse_payload_length_mismatch"
+parseErrorCode (PayloadByteOutOfRange _ _) = "parse_payload_byte_out_of_range"
+parseErrorCode (NonPositiveDenominator _)  = "parse_non_positive_denominator"
+parseErrorCode (SignalArrayLengthMismatch _ _ _) = "parse_signal_array_length_mismatch"
 parseErrorCode (InContext _ inner)         = parseErrorCode inner
 
 -- ============================================================================
@@ -175,10 +201,6 @@ data ExtractionError : Set where
   MuxSignalNotFound      : String → ExtractionError  -- multiplexor signal name
   MuxChainCycle          : ExtractionError
   MuxExtractionFailed    : String → ExtractionError  -- multiplexor signal name
-  -- Bit-level extraction or scaling failed (catch-all for ExtractionResult.ExtractionFailed).
-  -- Routed through the typed Error sum rather than carrying a raw String at the
-  -- ExtractionResult layer, so all errors share a single ADT.
-  BitExtractionFailed    : String → ExtractionError
   -- The extracted exact value cannot travel a binary-wire rational slot:
   -- its reduced numerator or denominator exceeds the signed 64-bit range.
   -- The code is minted here (the wire-code SSOT); detection happens in the
@@ -204,8 +226,6 @@ formatExtractionError (SignalPastFrameEnd bytes) =
   "signal does not fit the frame that arrived, of size " ++ₛ showℕ bytes
 formatExtractionError (MuxExtractionFailed name) =
   "failed to extract multiplexor signal '" ++ₛ name ++ₛ "'"
-formatExtractionError (BitExtractionFailed reason) =
-  "bit extraction failed: " ++ₛ reason
 formatExtractionError ValueExceedsWireRange =
   "extracted value's numerator or denominator exceeds the Int64 wire range"
 formatExtractionError (InContext ctx inner) =
@@ -216,7 +236,6 @@ extractionErrorCode MuxValueMismatch         = "extraction_mux_value_mismatch"
 extractionErrorCode (MuxSignalNotFound _)    = "extraction_mux_signal_not_found"
 extractionErrorCode MuxChainCycle            = "extraction_mux_chain_cycle"
 extractionErrorCode (MuxExtractionFailed _)  = "extraction_mux_extraction_failed"
-extractionErrorCode (BitExtractionFailed _)  = "extraction_bit_extraction_failed"
 extractionErrorCode ValueExceedsWireRange    = "extraction_value_exceeds_wire_range"
 extractionErrorCode (SignalPastFrameEnd _)   = "extraction_signal_past_frame_end"
 extractionErrorCode (InContext _ inner)      = extractionErrorCode inner
@@ -239,8 +258,6 @@ data FrameError : Set where
   -- without a word.  Carries the signal's name and the frame's byte count.
   SignalPastFrameEnd     : String → ℕ → FrameError
   InContext              : String → FrameError → FrameError
-  -- NOTE: Frame-byte-count and similar adversarial-input bounds emit
-  -- via the top-level `Error.InputBoundExceeded` ctor.
 
 formatFrameError : FrameError → String
 formatFrameError (SignalNotFound name)          = "signal '" ++ₛ name ++ₛ "' not found in message"
@@ -270,52 +287,32 @@ frameErrorCode (InContext _ inner)         = frameErrorCode inner
 
 data RouteError : Set where
   RouteMissingField    : String → RouteError           -- field name
-  RouteMissingArray    : String → RouteError           -- field name
   UnknownCommand       : String → RouteError           -- command name
   MissingCommandField  : RouteError
-  DLCExceedsMax        : RouteError
-  ByteArrayParseFailed : RouteError
-  ByteCountMismatch    : RouteError
   MissingDBCField      : RouteError
   MissingPropsField    : RouteError
-  WrappedParse         : ParseError → RouteError
   InContext            : String → RouteError → RouteError
 
 formatRouteError : RouteError → String
 formatRouteError (RouteMissingField f) =
   "missing '" ++ₛ f ++ₛ "' field"
-formatRouteError (RouteMissingArray f) =
-  "missing '" ++ₛ f ++ₛ "' array"
 formatRouteError (UnknownCommand s) =
   "unknown command '" ++ₛ s ++ₛ "'"
 formatRouteError MissingCommandField =
   "missing 'command' field"
-formatRouteError DLCExceedsMax =
-  "DLC exceeds limit " ++ₛ showℕ maxDLC-FD
-formatRouteError ByteArrayParseFailed =
-  "failed to parse byte array"
-formatRouteError ByteCountMismatch =
-  "byte count does not match DLC"
 formatRouteError MissingDBCField =
   "missing 'dbc' field"
 formatRouteError MissingPropsField =
   "missing 'properties' field"
-formatRouteError (WrappedParse pe) =
-  "parse error: " ++ₛ formatParseError pe
 formatRouteError (InContext ctx inner) =
   ctx ++ₛ ": " ++ₛ formatRouteError inner
 
 routeErrorCode : RouteError → String
 routeErrorCode (RouteMissingField _)    = "route_missing_field"
-routeErrorCode (RouteMissingArray _)    = "route_missing_array"
 routeErrorCode (UnknownCommand _)       = "route_unknown_command"
 routeErrorCode MissingCommandField      = "route_missing_command_field"
-routeErrorCode DLCExceedsMax            = "route_dlc_exceeds_max"
-routeErrorCode ByteArrayParseFailed     = "route_byte_array_parse_failed"
-routeErrorCode ByteCountMismatch        = "route_byte_count_mismatch"
 routeErrorCode MissingDBCField          = "route_missing_dbc_field"
 routeErrorCode MissingPropsField        = "route_missing_props_field"
-routeErrorCode (WrappedParse pe)        = parseErrorCode pe
 routeErrorCode (InContext _ inner)      = routeErrorCode inner
 
 -- ============================================================================
@@ -329,7 +326,6 @@ data HandlerError : Set where
   StreamNotStarted       : HandlerError
   StreamActive           : HandlerError
   PropertyParseFailed    : ℕ → HandlerError
-  InvalidDLCCode         : HandlerError
   -- Carries the FULL structured list of validation issues produced by
   -- DBC.Validator.validateDBCFull — errors AND warnings, so a rejected
   -- parse still reports the complete picture (a caller fixing the errors
@@ -364,7 +360,6 @@ formatHandlerError StreamNotStarted      = "stream not started"
 formatHandlerError StreamActive          = "stream still active"
 formatHandlerError (PropertyParseFailed idx) =
   "property parse failure at index " ++ₛ showℕ idx
-formatHandlerError InvalidDLCCode        = "invalid DLC code"
 -- The message flattens only the error-level issues (byte-identical to the
 -- pre-full-list wire text); warnings travel in the structured `issues`
 -- field appended by ResponseFormat.errorExtras.
@@ -386,7 +381,6 @@ handlerErrorCode NotStreaming          = "handler_not_streaming"
 handlerErrorCode StreamNotStarted      = "handler_stream_not_started"
 handlerErrorCode StreamActive          = "handler_stream_active"
 handlerErrorCode (PropertyParseFailed _) = "handler_property_parse_failed"
-handlerErrorCode InvalidDLCCode        = "handler_invalid_dlc_code"
 handlerErrorCode (ValidationFailed _)  = "handler_validation_failed"
 handlerErrorCode (TextRoundTripFailed _) = "handler_text_roundtrip_failed"
 handlerErrorCode (NonMonotonicTimestamp _ _) = "handler_non_monotonic_timestamp"
@@ -501,13 +495,9 @@ data Error : Set where
   DispatchErr        : DispatchError → Error
   DBCTextParseErr    : DBCTextParseError → Error
   WithContext        : String → Error → Error
-  -- Adversarial-input bound exceeded at any parser surface.  Consolidated
-  -- from the previously per-ADT `InputBoundExceeded` ctors on ParseError /
-  -- FrameError / DBCTextParseError.  The
-  -- `BoundKind` discriminates which kind of bound (NestingDepth /
-  -- AtomCount / IdentifierLength / FrameByteCount / etc.); the
-  -- ADT-prefix discrimination on the wire code is no longer needed —
-  -- bindings dispatch on `bound_kind` from the structured payload.
+  -- Adversarial-input bound exceeded at any parser surface; the `BoundKind`
+  -- says which bound, and bindings dispatch on the `bound_kind` field of
+  -- the structured payload.
   InputBoundExceeded : BoundKind → ℕ → ℕ → Error
 
 formatError : Error → String

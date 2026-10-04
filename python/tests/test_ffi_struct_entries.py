@@ -26,6 +26,7 @@ from aletheia.client._ffi import (
     AletheiaText,
     configure_ffi_signatures,
     find_ffi_library,
+    parse_json_object,
 )
 from aletheia.types import ParseDBCCommand, dump_json
 
@@ -72,10 +73,19 @@ def _take_string(pointer: int) -> str:
 
 
 def _error(buffer: AletheiaBuffer) -> str:
-    """Read and free the error a failed entry set on ``buffer``."""
+    """Read and free the shim's refusal set on ``buffer``, and answer its message.
+
+    The refusal is the JSON envelope every entry answers with, carrying the
+    shim's own code.
+    """
     err: int | None = buffer.err
     assert err is not None
-    return _take_string(err)
+    envelope = parse_json_object(_take_string(err))
+    assert envelope["status"] == "error"
+    assert envelope["code"] == "ffi_validation_error"
+    reason = envelope["message"]
+    assert isinstance(reason, str)
+    return reason
 
 
 def _values() -> AletheiaSignalValues:
@@ -136,7 +146,7 @@ def test_a_buffer_smaller_than_the_frame_is_refused_before_a_write(state: StateH
         target = _filled()
         out = AletheiaBuffer(data=target, size=7)
         assert entry(state, ctypes.byref(frame), ctypes.byref(values), ctypes.byref(out)) == 1
-        assert "out size 7 < dlcToBytes 8" in _error(out)
+        assert "out size 7 < 8 frame bytes" in _error(out)
         assert bytes(target) == bytes([_SET]) * _CAPACITY
         assert out.size == 7
         unset = AletheiaBuffer(size=_CAPACITY)
