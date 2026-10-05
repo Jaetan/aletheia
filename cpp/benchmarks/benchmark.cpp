@@ -44,11 +44,11 @@
 // reader sees which part of the API a benchmark touches.
 using aletheia::AletheiaClient, aletheia::AlwaysPresent, aletheia::BitLength, aletheia::BitPosition,
     aletheia::ByteOrder, aletheia::CanId, aletheia::DbcDefinition, aletheia::DbcMessage,
-    aletheia::DbcSignal, aletheia::Dlc, aletheia::FramePayload, aletheia::LtlFormula,
-    aletheia::MessageName, aletheia::NodeName, aletheia::PhysicalValue, aletheia::Rational,
-    aletheia::RationalBound, aletheia::RationalFactor, aletheia::RationalOffset,
-    aletheia::SignalName, aletheia::SignalValue, aletheia::StandardId, aletheia::Timestamp,
-    aletheia::Unit, aletheia::make_ffi_backend;
+    aletheia::DbcNode, aletheia::DbcSignal, aletheia::Dlc, aletheia::ExtendedId,
+    aletheia::FramePayload, aletheia::LtlFormula, aletheia::MessageName, aletheia::NodeName,
+    aletheia::PhysicalValue, aletheia::Rational, aletheia::RationalBound, aletheia::RationalFactor,
+    aletheia::RationalOffset, aletheia::SignalName, aletheia::SignalValue, aletheia::StandardId,
+    aletheia::Timestamp, aletheia::Unit, aletheia::make_ffi_backend;
 using aletheia::bench::latencies_us, aletheia::bench::operations_per_second,
     aletheia::bench::require;
 namespace ltl = aletheia::ltl;
@@ -836,13 +836,15 @@ static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json
 // ---------------------------------------------------------------------------
 // Benchmark: scaling
 //
-// Four sweeps emitted as a DICT keyed by sub-benchmark, in this exact order:
-// trace_size_can20, trace_size_canfd, property_count, property_complexity.
-// The canonical schema is benchmarks/SCHEMA.yaml; the semantic source is
-// python/benchmarks/scaling.py; go/benchmarks/main.go runScaling is the
+// Five sweeps emitted as a DICT keyed by sub-benchmark, in this exact order:
+// trace_size_can20, trace_size_canfd, property_count, property_complexity,
+// dbc_size. The canonical schema is benchmarks/SCHEMA.yaml; the semantic source
+// is python/benchmarks/scaling.py; go/benchmarks/main.go runScaling is the
 // conformant structural reference. Methodology (identical across bindings):
-// every sweep point is the MEAN fps over --runs streaming passes;
-// relative = fps / (fps of the first row in the same sweep).
+// every streaming sweep point is the MEAN fps over --runs streaming passes;
+// relative = fps / (fps of the first row in the same sweep). A dbc_size point
+// is the MINIMUM seconds over --runs DBC loads, each on a fresh client, and its
+// relative compares messages per second to the first row's the same way.
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -867,6 +869,15 @@ struct ComplexityRow {
     std::string complexity;
     double fps;
     double us_per_frame;
+    double relative;
+};
+} // namespace
+
+namespace {
+struct DbcSizeRow {
+    int messages;
+    double seconds;
+    double messages_per_sec;
     double relative;
 };
 } // namespace
@@ -904,6 +915,10 @@ static auto round3(double x) -> double {
     return std::round(x * 1000) / 1000;
 }
 
+static auto round4(double x) -> double {
+    return std::round(x * 10000) / 10000;
+}
+
 static auto us_per_frame_of(double fps) -> double {
     return (fps > 0) ? 1'000'000.0 / fps : 0.0;
 }
@@ -916,6 +931,66 @@ static auto trace_sizes(bool quick) -> std::vector<int> {
     if (quick)
         return {1000, 5000, 10000, 50000};
     return {1000, 5000, 10000, 50000, 100000};
+}
+
+static auto dbc_sizes(bool quick) -> std::vector<int> {
+    if (quick)
+        return {2500, 5000, 10000};
+    return {1250, 2500, 5000, 10000};
+}
+
+// The dbc_size sweep's DBC, identical in every binding: messages M0, M1, ... on
+// consecutive extended IDs from 0x100000, each carrying one unsigned
+// little-endian byte S0, S1, ..., all sent and received by the one node ECU.
+// No two messages share an ID, a name or a signal name, so every load succeeds.
+static auto make_sized_dbc(int messages) -> DbcDefinition {
+    const NodeName ecu{"ECU"};
+    std::vector<DbcMessage> sized;
+    sized.reserve(static_cast<std::size_t>(messages));
+    for (auto const i : std::views::iota(0, messages)) {
+        sized.push_back({
+            .id = CanId{ExtendedId::create(static_cast<std::uint32_t>(0x100000 + i)).value()},
+            .name = MessageName{std::format("M{}", i)},
+            .dlc = Dlc::create(8).value(),
+            .sender = ecu,
+            .signals = {DbcSignal{
+                .name = SignalName{std::format("S{}", i)},
+                .start_bit = BitPosition{0},
+                .bit_length = BitLength{8},
+                .byte_order = ByteOrder::LittleEndian,
+                .is_signed = false,
+                .factor = RationalFactor{Rational{1, 1}},
+                .offset = RationalOffset{Rational{0, 1}},
+                .minimum = RationalBound{Rational{0, 1}},
+                .maximum = RationalBound{Rational{255, 1}},
+                .unit = Unit{""},
+                .presence = AlwaysPresent{},
+                .receivers = {ecu},
+            }},
+        });
+    }
+    return DbcDefinition{
+        .version = "1.0", .messages = std::move(sized), .nodes = {DbcNode{.name = ecu}}};
+}
+
+// One load's wall-clock seconds: a fresh client, and only its parse_dbc call
+// timed. The client closes as it leaves scope, after the clock has stopped.
+static auto load_seconds(const fs::path& lib, const DbcDefinition& dbc) -> double {
+    AletheiaClient client(make_ffi_backend(lib));
+    auto const timed = latencies_us(0, 1, "parse_dbc",
+                                    [&](auto) { return client.parse_dbc(std::stop_token{}, dbc); });
+    return timed.front() / 1'000'000.0;
+}
+
+// The least of num_runs load times: the minimum is the estimate of a load's
+// work the host's other activity disturbs least.
+static auto min_load_seconds(const fs::path& lib, const DbcDefinition& dbc, int num_runs)
+    -> double {
+    std::vector<double> seconds;
+    seconds.reserve(num_runs);
+    std::ranges::for_each(std::views::repeat(0, num_runs),
+                          [&](auto) { seconds.push_back(load_seconds(lib, dbc)); });
+    return compute_stats(seconds).min_val;
 }
 
 // always_between / always_less_than build the Always-wrapped atomic predicates
@@ -979,7 +1054,8 @@ static void emit_scaling_json(int num_runs, bool quick,
                               const std::vector<TraceSizeRow>& trace_can20,
                               const std::vector<TraceSizeRow>& trace_canfd,
                               const std::vector<PropCountRow>& prop_count,
-                              const std::vector<ComplexityRow>& complexity) {
+                              const std::vector<ComplexityRow>& complexity,
+                              const std::vector<DbcSizeRow>& dbc_size) {
     // ordered_json (NOT default json, which sorts object keys alphabetically):
     // the schema pins the sub-benchmark key order, so the whole payload must
     // preserve insertion order end-to-end.
@@ -1014,11 +1090,21 @@ static void emit_scaling_json(int num_runs, bool quick,
             {"relative", round3(r.relative)},
         });
 
+    auto dbc_size_json = Ordered::array();
+    for (auto const& r : dbc_size)
+        dbc_size_json.push_back({
+            {"messages", r.messages},
+            {"seconds", round4(r.seconds)},
+            {"messages_per_sec", round1(r.messages_per_sec)},
+            {"relative", round3(r.relative)},
+        });
+
     Ordered results;
     results["trace_size_can20"] = trace_json(trace_can20);
     results["trace_size_canfd"] = trace_json(trace_canfd);
     results["property_count"] = prop_count_json;
     results["property_complexity"] = complexity_json;
+    results["dbc_size"] = dbc_size_json;
 
     Ordered output;
     output["benchmark"] = "scaling";
@@ -1061,6 +1147,60 @@ static auto scan_property_count(const fs::path& lib, const DbcDefinition& dbc, i
         }
     }
     return prop_count;
+}
+
+// The property-complexity sweep (CAN 2.0B): the same trace measured against
+// five labelled bundles, each level's rate reported against the first.
+static auto scan_property_complexity(const fs::path& lib, const DbcDefinition& dbc, int num_frames,
+                                     int num_runs) -> std::vector<ComplexityRow> {
+    std::println(out_file(), "");
+    print_header("Property Complexity Scaling");
+    std::println(out_file(), "{:<25} {:>12} {:>10} {:>10}", "Complexity", "Frames/sec", "us/frame",
+                 "Relative");
+    print_separator();
+    std::vector<ComplexityRow> complexity;
+    double baseline = 0;
+    for (auto const& [label, props] : complexity_levels()) {
+        auto fps =
+            mean_fps(lib, dbc, can20_id, can20_dlc, can20_frame(), props, num_frames, num_runs);
+        if (baseline == 0)
+            baseline = fps;
+        auto relative = relative_of(fps, baseline);
+        auto us = us_per_frame_of(fps);
+        std::println(out_file(), "{:<25} {:12.0f} {:10.1f} {:10.2f}x", label, fps, us, relative);
+        complexity.push_back(
+            {.complexity = label, .fps = fps, .us_per_frame = us, .relative = relative});
+    }
+    return complexity;
+}
+
+// The DBC-size sweep: a warm-up load whose time is discarded, then each size's
+// minimum load time over num_runs loads, its rate reported against the first
+// size's.
+static auto scan_dbc_size(const fs::path& lib, int num_runs, bool quick)
+    -> std::vector<DbcSizeRow> {
+    [[maybe_unused]] auto const warmed = load_seconds(lib, make_sized_dbc(500));
+    std::println(out_file(), "");
+    print_header("5. DBC Size Scaling");
+    std::println(out_file(), "{:>10} {:>10} {:>12} {:>10}", "Messages", "Time (s)", "Messages/sec",
+                 "Relative");
+    print_separator();
+    std::vector<DbcSizeRow> rows;
+    double baseline = 0;
+    for (auto const size : dbc_sizes(quick)) {
+        auto const seconds = min_load_seconds(lib, make_sized_dbc(size), num_runs);
+        auto const rate = static_cast<double>(size) / seconds;
+        if (baseline == 0)
+            baseline = rate;
+        auto const relative = relative_of(rate, baseline);
+        std::println(out_file(), "{:10} {:10.4f} {:12.0f} {:10.2f}x", size, seconds, rate,
+                     relative);
+        rows.push_back(
+            {.messages = size, .seconds = seconds, .messages_per_sec = rate, .relative = relative});
+    }
+    std::println(out_file(),
+                 "Expected: Relative stays near 1.0x (load time linear in the number of messages)");
+    return rows;
 }
 
 static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit_json) {
@@ -1114,34 +1254,14 @@ static void run_scaling(const fs::path& lib, int num_runs, bool quick, bool emit
                                         canfd_frame(), trace_props_canfd);
 
     auto const prop_count = scan_property_count(lib, dbc_20, num_frames, num_runs);
-
-    // 4. Property-complexity sweep (CAN 2.0B), five labelled bundles.
-    std::println(out_file(), "");
-    print_header("Property Complexity Scaling");
-    std::println(out_file(), "{:<25} {:>12} {:>10} {:>10}", "Complexity", "Frames/sec", "us/frame",
-                 "Relative");
-    print_separator();
-    std::vector<ComplexityRow> complexity;
-    {
-        double baseline = 0;
-        for (auto const& [label, props] : complexity_levels()) {
-            auto fps = mean_fps(lib, dbc_20, can20_id, can20_dlc, can20_frame(), props, num_frames,
-                                num_runs);
-            if (baseline == 0)
-                baseline = fps;
-            auto relative = relative_of(fps, baseline);
-            auto us = us_per_frame_of(fps);
-            std::println(out_file(), "{:<25} {:12.0f} {:10.1f} {:10.2f}x", label, fps, us,
-                         relative);
-            complexity.push_back(
-                {.complexity = label, .fps = fps, .us_per_frame = us, .relative = relative});
-        }
-    }
+    auto const complexity = scan_property_complexity(lib, dbc_20, num_frames, num_runs);
+    auto const dbc_size = scan_dbc_size(lib, num_runs, quick);
 
     std::println(out_file(), "{}", k_rule_heavy);
 
     if (emit_json)
-        emit_scaling_json(num_runs, quick, trace_can20, trace_canfd, prop_count, complexity);
+        emit_scaling_json(num_runs, quick, trace_can20, trace_canfd, prop_count, complexity,
+                          dbc_size);
 }
 
 // ---------------------------------------------------------------------------

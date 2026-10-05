@@ -370,6 +370,10 @@ pytest_add_cli_args = [
     # and reads the baseline and the schema above python/.  Infra coverage,
     # not hot-path.
     "--ignore=tests/test_benchmark_gate.py",
+    # Same shape: covers the benchmark legs' scope question (repo-root `tools`
+    # package) and reads benchmark.yml above python/.  Infra coverage, not
+    # hot-path.
+    "--ignore=tests/test_benchmark_lane_scope.py",
     # Same shape, by reading rather than importing: it holds every build-tree
     # cache save to asking whether there is a tree, and the workflows it reads
     # are above python/, which the relocated mutants/ tree does not carry.

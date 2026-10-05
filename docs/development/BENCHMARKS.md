@@ -95,7 +95,11 @@ Narrow-scope tools, outside the cross-language run. The long-run stability harne
 
 ## CI regression gate
 
-`.github/workflows/benchmark.yml` runs the throughput suite on every pull request touching something other than Markdown or `docs/`, and on demand through `workflow_dispatch`. On a pull request it then runs `tools/benchmark_gate.py`, which **fails the check if any lane is more than 30% slower** than the GitHub-runner baseline in `benchmarks/gha_baseline.json`. A binding with no result file is skipped, its build failure being `pr-full-ci`'s to report; a binding whose file is present but lacks a lane the baseline names fails the gate with the lane named.
+`.github/workflows/benchmark.yml` runs in two legs on every pull request, and the chosen mode on demand through `workflow_dispatch`. No path filter skips it: each leg asks `tools/benchmark_scope.py` whether the diff can move a measurement (the kernel, a binding, the benchmark harness or its gate), and installs and measures only if it can.
+
+The `load scaling` leg, a required check, runs the scaling suite's quick sweeps and fails when a binding's DBC load time outgrows the doublings of its messages: over the `dbc_size` sweep's two doublings, 2,500 to 10,000 messages, a load time may grow at most ×9 (×3 per doubling), where linear loads measured ×4.1 to ×4.4 and a validator comparing every pair of messages ×21.5.
+
+The throughput leg, advisory, runs the throughput suite and then `tools/benchmark_gate.py`, which **fails the check if any lane is more than 30% slower** than the GitHub-runner baseline in `benchmarks/gha_baseline.json`. A binding with no result file is skipped, its build failure being `pr-full-ci`'s to report; a binding whose file is present but lacks a lane the baseline names fails the gate with the lane named.
 
 The threshold is generous: the hosted runner is shared and noisy, so the gate catches a *noticeable* regression rather than jitter, the five-run mean having damped the noise within a run. A failing gate re-measures once and gates again, a slow runner slowing every lane at once where a real regression slows only what changed. The baseline is measured **on the runner**, never locally, the two machines differing several-fold. The hosted runners come in more than one CPU class, and the classes differ by up to twofold, so the baseline is taken from the most common class, which the C++ report's `system.cpu` names: a run on a faster class passes with a wide margin, and a run on the common class is the one the gate measures.
 

@@ -14,7 +14,7 @@ open import Aletheia.DBC.Identifier using (nameStr)
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; ValidationIssue; IsError; IsWarning; DBCMessage; DBCSignal; Always; When)
 open import Aletheia.DBC.Validator using
   ( errorIssues; hasAnyError; walkMux
-  ; checkDuplicateIdPair; checkDuplicateIdAgainstList; checkAllDuplicateMessageIds
+  ; checkAllDuplicateMessageIds
   ; checkDuplicateSignalPair; checkDuplicateSignalAgainstList; checkDuplicateSignalTriangular
   ; checkAllDuplicateSignalNames
   ; checkFactorZeroSig; checkAllFactorZero
@@ -26,7 +26,6 @@ open import Aletheia.DBC.Validator using
   ; checkBitLengthZero; checkAllBitLengthZero
   ; checkRangeExceedsBitsSig; checkAllRangeExceedsBits
   )
-open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-split; All-concatMap)
 open import Aletheia.DBC.Validity.Combinators using (requireDec-allE; rejectDec-allE)
 open import Aletheia.DBC.Decidable using (signalPairValid?)
@@ -34,7 +33,7 @@ open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange)
 open import Data.List using ([]; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_; universal)
-open import Data.List.Relation.Unary.All.Properties using (++⁺)
+open import Data.List.Relation.Unary.All.Properties using (++⁺; map⁺)
 open import Data.List.Relation.Unary.Any using (any?)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Nat using (_+_; _*_)
@@ -112,11 +111,6 @@ noError-errorIssues (i ∷ rest) eq with ValidationIssue.severity i | eq
 -- patterns (mux presence + walkMux Bool) that don't fit the Dec
 -- combinator, so they stay inline.
 
--- Check 1: DuplicateMessageIds
-checkDuplicateIdPair-allE : ∀ m1 m2 → All E (checkDuplicateIdPair m1 m2)
-checkDuplicateIdPair-allE m1 m2 =
-  rejectDec-allE (DBCMessage.id m1 ≟-CANId DBCMessage.id m2) _ refl
-
 -- Check 2: DuplicateSignalNames
 checkDuplicateSignalPair-allE : ∀ msgName s1 s2 → All E (checkDuplicateSignalPair msgName s1 s2)
 checkDuplicateSignalPair-allE _ s1 s2 =
@@ -166,16 +160,9 @@ checkBitLengthZero-allE _ sig =
 -- LIFTED allE PROOFS
 -- ============================================================================
 
--- Check 1
-checkDuplicateIdAgainstList-allE : ∀ m rest → All E (checkDuplicateIdAgainstList m rest)
-checkDuplicateIdAgainstList-allE _ [] = []
-checkDuplicateIdAgainstList-allE m (other ∷ rest) =
-  ++⁺ (checkDuplicateIdPair-allE m other) (checkDuplicateIdAgainstList-allE m rest)
-
+-- Check 1: one issue per group of messages sharing a CAN ID, each an error.
 checkAllDuplicateMessageIds-allE : ∀ msgs → All E (checkAllDuplicateMessageIds msgs)
-checkAllDuplicateMessageIds-allE [] = []
-checkAllDuplicateMessageIds-allE (m ∷ rest) =
-  ++⁺ (checkDuplicateIdAgainstList-allE m rest) (checkAllDuplicateMessageIds-allE rest)
+checkAllDuplicateMessageIds-allE _ = map⁺ (universal (λ _ → refl) _)
 
 -- Check 2
 checkDuplicateSignalAgainstList-allE : ∀ msgName sig rest →

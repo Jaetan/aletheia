@@ -12,6 +12,23 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **A DBC's load time may not outgrow its number of messages: the `load
+  scaling` check.** Each binding's scaling benchmark measures a `dbc_size`
+  sweep, the time to load a DBC of 1,250 to 10,000 messages (2,500 to 10,000
+  with `--quick`), each size double the one before and each point the best of
+  its runs. `tools/benchmark_gate.py --bench scaling` fails when a binding's
+  load time over the sweep grows more than ×3 per doubling of its messages, or
+  when a binding reports no sweep. On one machine the four bindings grew ×4.07
+  to ×4.39 from 2,500 to 10,000 messages, and a validator comparing every pair
+  of messages ×21.5, against the ×9 allowed. The sweep runs on every pull
+  request as `benchmark.yml`'s `load scaling` leg, a required check: no path
+  filter skips it, and `tools/benchmark_scope.py` decides inside the job
+  whether the diff can move a measurement (the kernel, a binding, the harness
+  or its gate), so a pull request of documentation alone passes it without
+  measuring. The throughput leg asks the same question in place of its path
+  filter. `benchmarks/run_all.sh` takes `--quick`, and `benchmarks/compare.py`
+  tables the sweep.
+
 - **Three gates on what the kernel's wire and build promise.**
   `tools/check_wire_code_emitters.py` (the Shake target
   `check-wire-code-emitters`, replacing `check-bound-enforcement`) reads the
@@ -227,6 +244,30 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **A shared CAN ID, message name or signal name is one issue naming every
+  message (BREAKING).** The validator reported `duplicate_message_id`,
+  `duplicate_message_name` and `global_name_collision` once per pair of
+  messages, so k messages sharing a key gave k(k−1)/2 issues (a signal name
+  such as a checksum in 500 messages gave 124,750 warnings), and comparing
+  every pair made validating a DBC take time quadratic in its number of
+  messages. Each shared key is now one issue naming every message that shares
+  it, in order of appearance, the issues in the order the keys first appear:
+  "Messages 'A', 'C' and 'D' share the same CAN ID" (two messages read as
+  before, "Messages 'A' and 'B' share the same CAN ID"), "Messages with CAN
+  IDs 256, 768 and 1024 share the name 'Same'", and "Signal 'Shared' appears
+  in messages 'M1', 'M3' and 'M4'"; a name repeated inside one message is a
+  `duplicate_signal_name`, not a collision between messages. `formatDBCText`
+  warns the same way, once per shared CAN ID, where it gave one generic
+  warning for all of them. The messages are grouped in time O(N log N) by
+  sorting them by key (`Aletheia.Data.KeyConflicts`), and
+  `Aletheia.Data.KeyConflicts.Properties` proves the groups are empty exactly
+  when no two messages share a key, so every check keeps the soundness and
+  completeness lemmas the validity theorem rests on. At 3,200 messages of one
+  signal each, `validateDBC` took 3.43 s and takes 0.69 s, `parseDBC` 6.52 s
+  and 0.94 s, `parseDBCText` 5.81 s and 0.51 s, with byte-identical answers;
+  at the 10,000-message bound they take 2.59 s, 2.90 s and 2.00 s (each the
+  median of three interleaved rounds of the best of three loads, one
+  machine).
 - **A requested value is written exactly or refused with a typed error
   (BREAKING).** Building or updating a frame (`aletheia_build_frame_bin`,
   `aletheia_update_frame_bin`) checks each requested value in the kernel: one
@@ -1581,11 +1622,12 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   to its length. `validateDBC` of 1,600 messages without signals took 195.6 s
   and takes 0.34 s; `parseDBCText` of 1,600 messages of one signal each took
   94.2 s and takes 2.6 s, most of it now in validation (one run each, same
-  machine); the answers are byte-identical. A response is rendered in one pass
-  (`formatJSON` writes each value in front of what follows it) instead of by
-  appending strings, which copied everything after an element once per
-  element. The validator's cross-message checks still compare every pair of
-  messages, so a DBC of many thousand messages remains slow to load.
+  machine); the answers are byte-identical. A response no longer copies
+  everything after an element once per element: `formatJSON` joins an array's
+  elements in pairs, then the pairs in pairs, so each character of n elements
+  is copied about log₂ n times. A streamed frame's response allocates 0.59%
+  (CAN 2.0B) and 0.39% (CAN-FD) fewer bytes than with the renderer it
+  replaces, on the same kernel, as the GHC runtime counts them.
 - **`--help` describes a tool rather than running it.** A runnable file that
   read no argument took `--help`, or a mistyped flag, as nothing and did its
   whole job: `python -m tools.mutation_run --help` started a mutation sweep of

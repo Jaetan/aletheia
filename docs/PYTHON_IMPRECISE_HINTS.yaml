@@ -82,14 +82,11 @@ hints:
     text: "list[tuple[str, F, F]]"
     count: 2
   - file: benchmarks/compare.py
-    text: "list[tuple[str, str, str]]"
-    count: 1
-  - file: benchmarks/compare.py
     text: "object"
     count: 2
   - file: benchmarks/compare.py
     text: "str"
-    count: 17
+    count: 12
   - file: benchmarks/compare.py
     text: "tuple[str, str]"
     count: 1

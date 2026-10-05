@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""``tools.benchmark_gate``, the throughput regression gate, and its baseline.
+"""``tools.benchmark_gate``: the throughput gate and its baseline, and the load scaling check.
 
 Two layers. The committed runner baseline, ``benchmarks/gha_baseline.json``,
 must carry a bar for every lane the runner measures: the bindings the gate
@@ -11,6 +11,11 @@ teeth. And ``main`` itself, every polarity: a lane past the threshold fails,
 one inside it passes, a binding the run lacks is skipped, a binding the run
 has that lacks a baseline lane fails, a run with no result file fails, and a
 missing baseline reports and passes.
+
+The load scaling check, ``--bench scaling``, every polarity too: a load linear
+in its messages passes and a quadratic one fails, growth at the bound passes
+and past it fails, and a binding with no sweep, a sweep of one point or points
+that do not double fail, since the check is required.
 """
 
 from __future__ import annotations
@@ -21,7 +26,7 @@ from typing import TYPE_CHECKING, cast
 
 import yaml
 
-from tools.benchmark_gate import BINDINGS, main
+from tools.benchmark_gate import BINDINGS, MAX_DOUBLING, MessageCount, Seconds, main
 
 if TYPE_CHECKING:
     import pytest
@@ -143,3 +148,75 @@ def test_a_missing_baseline_reports_the_run_and_passes(
     out = capsys.readouterr().out
     printed = cast("dict[str, dict[str, float]]", json.loads(out[out.index("{") :]))
     assert printed == {"cpp": {LANE: BASE_FPS}}
+
+
+# The quick sweep's sizes, each double the one before, and load times for them.
+_SIZES = (MessageCount(2500), MessageCount(5000), MessageCount(10000))
+_LINEAR = (Seconds(0.25), Seconds(0.5), Seconds(1.0))
+_QUADRATIC = (Seconds(0.0625), Seconds(0.25), Seconds(1.0))
+
+
+def _write_sweep(
+    path: Path, seconds: tuple[Seconds, ...], messages: tuple[MessageCount, ...] = _SIZES
+) -> None:
+    """Write one binding's scaling result file holding only its ``dbc_size`` sweep."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = [{"messages": n, "seconds": s} for n, s in zip(messages, seconds, strict=True)]
+    _ = path.write_text(json.dumps({"results": {"dbc_size": rows}}), encoding="utf-8")
+
+
+def _write_linear_sweeps(results_dir: Path) -> None:
+    """Write every binding's scaling result file with a load time linear in its messages."""
+    for binding in BINDINGS:
+        _write_sweep(results_dir / f"{binding}_scaling.json", _LINEAR)
+
+
+def test_the_factor_sits_between_a_linear_load_and_a_quadratic_one() -> None:
+    """A doubling doubles a linear load's time and quadruples a quadratic one's."""
+    assert 2.0 < MAX_DOUBLING < 4.0
+
+
+def test_a_load_linear_in_its_messages_passes(tmp_path: Path) -> None:
+    """Every binding doubling its time with its messages passes."""
+    _write_linear_sweeps(tmp_path)
+    assert main(["--bench", "scaling", "--results-dir", str(tmp_path)]) == 0
+
+
+def test_a_load_quadratic_in_its_messages_fails(tmp_path: Path) -> None:
+    """One binding quadrupling its time with each doubling fails the check."""
+    _write_linear_sweeps(tmp_path)
+    _write_sweep(tmp_path / "rust_scaling.json", _QUADRATIC)
+    assert main(["--bench", "scaling", "--results-dir", str(tmp_path)]) == 1
+
+
+def test_growth_at_the_bound_passes_and_past_it_fails(tmp_path: Path) -> None:
+    """The bound is the factor to the power of the doublings, over the whole sweep, inclusive."""
+    _write_linear_sweeps(tmp_path)
+    at_bound = Seconds(MAX_DOUBLING ** (len(_SIZES) - 1))
+    _write_sweep(tmp_path / "go_scaling.json", (Seconds(1.0), Seconds(1.0), at_bound))
+    assert main(["--bench", "scaling", "--results-dir", str(tmp_path)]) == 0
+    past_it = Seconds(at_bound * 1.01)
+    _write_sweep(tmp_path / "go_scaling.json", (Seconds(1.0), Seconds(1.0), past_it))
+    assert main(["--bench", "scaling", "--results-dir", str(tmp_path)]) == 1
+
+
+def test_a_binding_without_a_sweep_fails(tmp_path: Path) -> None:
+    """The check is required, so a binding that reported nothing fails it rather than passing."""
+    _write_linear_sweeps(tmp_path)
+    (tmp_path / "cpp_scaling.json").unlink()
+    assert main(["--bench", "scaling", "--results-dir", str(tmp_path)]) == 1
+
+
+def test_a_sweep_of_one_point_fails(tmp_path: Path) -> None:
+    """One size measures no doubling."""
+    _write_linear_sweeps(tmp_path)
+    _write_sweep(tmp_path / "python_scaling.json", (Seconds(1.0),), (MessageCount(10000),))
+    assert main(["--bench", "scaling", "--results-dir", str(tmp_path)]) == 1
+
+
+def test_points_that_do_not_double_fail(tmp_path: Path) -> None:
+    """The bound counts doublings, so a sweep whose sizes do not double cannot be judged by it."""
+    _write_linear_sweeps(tmp_path)
+    sizes = (MessageCount(2500), MessageCount(5000), MessageCount(9000))
+    _write_sweep(tmp_path / "python_scaling.json", _LINEAR, sizes)
+    assert main(["--bench", "scaling", "--results-dir", str(tmp_path)]) == 1

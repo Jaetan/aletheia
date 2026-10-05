@@ -11,11 +11,14 @@
 -- the JSON envelope.
 module Aletheia.Protocol.JSON.Format where
 
-open import Data.String using (String; fromList; toList) renaming (_++_ to _++ₛ_)
-open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
+open import Data.String using (String; fromList) renaming (_++_ to _++ₛ_)
+open import Data.List using (List; []; _∷_; length; intersperse) renaming (_++_ to _++ₗ_)
 open import Data.Char using (Char)
 open import Data.Bool using (true; false)
-open import Data.Nat using (zero; suc)
+open import Data.Nat using (zero; suc; _<_; z<s; s<s)
+open import Data.Nat.Induction using (<-wellFounded-fast)
+open import Data.Nat.Properties using (m<n⇒m<1+n)
+open import Induction.WellFounded using (Acc; acc)
 open import Data.Integer using ()
 open import Data.Rational as Rat using (ℚ)
 open import Data.Rational.Unnormalised as ℚᵘ using ()
@@ -50,35 +53,53 @@ private
   escapeOnto []       rest = rest
   escapeOnto (c ∷ cs) rest = escapeChar c ++ₗ escapeOnto cs rest
 
--- Each value is written in front of the characters that follow it, so every
--- character of the response is produced once and rendering costs time linear
--- in the response's length; the `String` is built once, from the finished
--- list.  Appending `String`s copies both operands, so a response assembled by
--- appending its elements one by one would cost time quadratic in their count.
+-- The elements of an array are rendered one by one and then joined
+-- neighbour to neighbour, which halves their number: every round copies the
+-- text once, so n elements cost a number of copies logarithmic in n, where
+-- appending them one by one would copy everything after an element once per
+-- element.  The rounds end because each shortens the list, the same
+-- well-founded recursion as stdlib's merge sort.  Within one value the few
+-- pieces are appended directly, which is cheapest for the small responses a
+-- stream answers each frame with.
+private
+  pairUp : List String → List String
+  pairUp (a ∷ b ∷ rest) = (a ++ₛ b) ∷ pairUp rest
+  pairUp xs             = xs
+
+  pairUp-shorter : ∀ a b rest → length (pairUp (a ∷ b ∷ rest)) < length (a ∷ b ∷ rest)
+  pairUp-shorter _ _ []           = s<s z<s
+  pairUp-shorter _ _ (_ ∷ [])     = s<s (s<s z<s)
+  pairUp-shorter _ _ (c ∷ d ∷ cs) = s<s (m<n⇒m<1+n (pairUp-shorter c d cs))
+
+  joinAll : (xs : List String) → Acc _<_ (length xs) → String
+  joinAll []                _         = ""
+  joinAll (x ∷ [])          _         = x
+  joinAll xs@(a ∷ b ∷ rest) (acc rec) = joinAll (pairUp xs) (rec (pairUp-shorter a b rest))
+
+  -- Rendered elements, separated by commas.
+  joinSeparated : List String → String
+  joinSeparated xs = joinAll (intersperse ", " xs) (<-wellFounded-fast _)
+
 mutual
-  renderJSON : JSON → List Char → List Char
-  renderJSON JNull              rest = 'n' ∷ 'u' ∷ 'l' ∷ 'l' ∷ rest
-  renderJSON (JBool true)       rest = 't' ∷ 'r' ∷ 'u' ∷ 'e' ∷ rest
-  renderJSON (JBool false)      rest = 'f' ∷ 'a' ∷ 'l' ∷ 's' ∷ 'e' ∷ rest
-  renderJSON (JNumber n)        rest = toList (formatRational n) ++ₗ rest
-  renderJSON (JString cs)       rest = '"' ∷ escapeOnto cs ('"' ∷ rest)
-  renderJSON (JArray [])        rest = '[' ∷ ']' ∷ rest
-  renderJSON (JArray (x ∷ xs))  rest = '[' ∷ renderJSON x (renderElements xs (']' ∷ rest))
-  renderJSON (JObject [])       rest = '{' ∷ '}' ∷ rest
-  renderJSON (JObject (f ∷ fs)) rest = '{' ∷ renderField f (renderFields fs ('}' ∷ rest))
+  formatJSON : JSON → String
+  formatJSON JNull         = "null"
+  formatJSON (JBool true)  = "true"
+  formatJSON (JBool false) = "false"
+  formatJSON (JNumber n)   = formatRational n
+  formatJSON (JString cs)  = fromList ('"' ∷ escapeOnto cs ('"' ∷ []))
+  formatJSON (JArray xs)   = "[" ++ₛ joinSeparated (renderElements xs) ++ₛ "]"
+  formatJSON (JObject fs)  = "{" ++ₛ renderFields fs ++ₛ "}"
 
-  -- The elements after the first, each after its separator.
-  renderElements : List JSON → List Char → List Char
-  renderElements []       rest = rest
-  renderElements (x ∷ xs) rest = ',' ∷ ' ' ∷ renderJSON x (renderElements xs rest)
+  renderElements : List JSON → List String
+  renderElements []       = []
+  renderElements (x ∷ xs) = formatJSON x ∷ renderElements xs
 
-  renderField : String × JSON → List Char → List Char
-  renderField (key , val) rest = '"' ∷ toList key ++ₗ '"' ∷ ':' ∷ ' ' ∷ renderJSON val rest
+  -- An object's fields are the few its kind declares, so they are appended
+  -- one by one; a collection the data sizes is an array.
+  renderFields : List (String × JSON) → String
+  renderFields []                          = ""
+  renderFields ((key , val) ∷ [])          = renderField key val
+  renderFields ((key , val) ∷ rest@(_ ∷ _)) = renderField key val ++ₛ ", " ++ₛ renderFields rest
 
-  -- The fields after the first, each after its separator.
-  renderFields : List (String × JSON) → List Char → List Char
-  renderFields []       rest = rest
-  renderFields (f ∷ fs) rest = ',' ∷ ' ' ∷ renderField f (renderFields fs rest)
-
-formatJSON : JSON → String
-formatJSON j = fromList (renderJSON j [])
+  renderField : String → JSON → String
+  renderField key val = "\"" ++ₛ key ++ₛ "\": " ++ₛ formatJSON val

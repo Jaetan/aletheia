@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, NotRequired, TypedDict, cast
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -49,13 +49,24 @@ class _ScalingRow(TypedDict):
     fps: float
 
 
+# How many DBC messages loaded per second.
+MessagesPerSecond = NewType("MessagesPerSecond", float)
+
+
+class _DbcSizeRow(TypedDict):
+    """One DBC-size row: the messages and how many loaded per second."""
+
+    messages_per_sec: MessagesPerSecond
+
+
 class _ScalingResults(TypedDict):
-    """Scaling result payload: a dict of four sweeps (see benchmarks/SCHEMA.yaml)."""
+    """Scaling result payload: a dict of five sweeps (see benchmarks/SCHEMA.yaml)."""
 
     trace_size_can20: list[_ScalingRow]
     trace_size_canfd: list[_ScalingRow]
     property_count: list[_ScalingRow]
     property_complexity: list[_ScalingRow]
+    dbc_size: list[_DbcSizeRow]
 
 
 class _ThroughputFile(TypedDict):
@@ -207,13 +218,59 @@ def compare_latency(columns: dict[str, _LatencyFile]) -> None:
     print()
 
 
-# (sweep key in the results dict, identifying column, human title). Mirrors the
-# four sub-benchmarks pinned in benchmarks/SCHEMA.yaml.
-_SCALING_SWEEPS: list[tuple[str, str, str]] = [
-    ("trace_size_can20", "frames", "Trace Size (CAN 2.0B)"),
-    ("trace_size_canfd", "frames", "Trace Size (CAN-FD)"),
-    ("property_count", "properties", "Property Count"),
-    ("property_complexity", "complexity", "Property Complexity"),
+# A sweep's key in the results dict, a column of its rows, and a heading.
+SweepKey = NewType("SweepKey", str)
+ColumnName = NewType("ColumnName", str)
+Heading = NewType("Heading", str)
+
+
+class _Sweep(NamedTuple):
+    """A scaling sweep: its key, the column naming a row, the column compared, titles."""
+
+    key: SweepKey
+    id_col: ColumnName
+    title: Heading
+    value: ColumnName
+    unit: Heading
+
+
+# The five sub-benchmarks pinned in benchmarks/SCHEMA.yaml.
+_SCALING_SWEEPS: list[_Sweep] = [
+    _Sweep(
+        SweepKey("trace_size_can20"),
+        ColumnName("frames"),
+        Heading("Trace Size (CAN 2.0B)"),
+        ColumnName("fps"),
+        Heading("fps"),
+    ),
+    _Sweep(
+        SweepKey("trace_size_canfd"),
+        ColumnName("frames"),
+        Heading("Trace Size (CAN-FD)"),
+        ColumnName("fps"),
+        Heading("fps"),
+    ),
+    _Sweep(
+        SweepKey("property_count"),
+        ColumnName("properties"),
+        Heading("Property Count"),
+        ColumnName("fps"),
+        Heading("fps"),
+    ),
+    _Sweep(
+        SweepKey("property_complexity"),
+        ColumnName("complexity"),
+        Heading("Property Complexity"),
+        ColumnName("fps"),
+        Heading("fps"),
+    ),
+    _Sweep(
+        SweepKey("dbc_size"),
+        ColumnName("messages"),
+        Heading("DBC Size"),
+        ColumnName("messages_per_sec"),
+        Heading("messages/sec"),
+    ),
 ]
 
 
@@ -236,38 +293,36 @@ def _id_label(idv: object, width: int) -> str:
     return f"{idv:>{width},}" if isinstance(idv, int) else f"{idv!s:>{width}}"
 
 
-def _sweep_fps(data: _ScalingFile, sweep_key: str, id_col: str, idv: object) -> float | None:
-    """Return the fps a file reports at one identifying value of a sweep, if any."""
-    match = next((r for r in _sweep_rows(data, sweep_key) if r.get(id_col) == idv), None)
-    return float(cast("float", match["fps"])) if match else None
+def _sweep_value(data: _ScalingFile, sweep: _Sweep, idv: object) -> float | None:
+    """Return the value a file reports at one identifying value of a sweep, if any."""
+    match = next((r for r in _sweep_rows(data, sweep.key) if r.get(sweep.id_col) == idv), None)
+    return float(cast("float", match[sweep.value])) if match else None
 
 
-def _compare_one_sweep(
-    columns: dict[str, _ScalingFile], sweep_key: str, id_col: str, title: str
-) -> None:
-    """Print one sweep's fps table, one column per file, keyed on its id column."""
+def _compare_one_sweep(columns: dict[str, _ScalingFile], sweep: _Sweep) -> None:
+    """Print one sweep's table, one column per file, keyed on its id column."""
     labels = sorted(columns)
     col = _width(labels)
-    ids = _sweep_ids(columns.values(), sweep_key, id_col)
+    ids = _sweep_ids(columns.values(), sweep.key, sweep.id_col)
     idw = _width(str(idv) for idv in ids)
     print(_RULE)
-    print(f"{title} Scaling Comparison (fps)")
+    print(f"{sweep.title} Scaling Comparison ({sweep.unit})")
     print(_RULE)
-    print(f"{id_col:>{idw}}" + "".join(f"{label:>{col}}" for label in labels))
+    print(f"{sweep.id_col:>{idw}}" + "".join(f"{label:>{col}}" for label in labels))
     print("-" * (idw + col * len(labels)))
     for idv in ids:
         row = _id_label(idv, idw)
         for label in labels:
-            fps = _sweep_fps(columns[label], sweep_key, id_col, idv)
-            row += f"{fps:>{col},.0f}" if fps is not None else f"{'n/a':>{col}}"
+            value = _sweep_value(columns[label], sweep, idv)
+            row += f"{value:>{col},.0f}" if value is not None else f"{'n/a':>{col}}"
         print(row)
     print()
 
 
 def compare_scaling(columns: dict[str, _ScalingFile]) -> None:
-    """Compare all four scaling sweeps across the files."""
-    for sweep_key, id_col, title in _SCALING_SWEEPS:
-        _compare_one_sweep(columns, sweep_key, id_col, title)
+    """Compare every scaling sweep across the files."""
+    for sweep in _SCALING_SWEEPS:
+        _compare_one_sweep(columns, sweep)
 
 
 def _pairs[F](columns: dict[str, tuple[str, F]]) -> list[tuple[str, F, F]]:
@@ -322,18 +377,18 @@ def against_baseline_latency(lang: str, current: _LatencyFile, baseline: _Latenc
 
 
 def against_baseline_scaling(lang: str, current: _ScalingFile, baseline: _ScalingFile) -> None:
-    """Per sweep and identifying value: current fps, baseline fps, the delta."""
-    for sweep_key, id_col, title in _SCALING_SWEEPS:
-        ids = _sweep_ids([current], sweep_key, id_col)
+    """Per sweep and identifying value: the current value, the baseline's, the delta."""
+    for sweep in _SCALING_SWEEPS:
+        ids = _sweep_ids([current], sweep.key, sweep.id_col)
         idw = _width(str(idv) for idv in ids)
         print(_RULE)
-        print(f"{lang} {title} scaling against its baseline (fps)")
+        print(f"{lang} {sweep.title} scaling against its baseline ({sweep.unit})")
         print(_RULE)
-        print(f"{id_col:>{idw}}{'current':>12}{'baseline':>12}{'delta':>9}")
+        print(f"{sweep.id_col:>{idw}}{'current':>12}{'baseline':>12}{'delta':>9}")
         print("-" * (idw + 33))
         for idv in ids:
-            cur = _sweep_fps(current, sweep_key, id_col, idv)
-            base = _sweep_fps(baseline, sweep_key, id_col, idv)
+            cur = _sweep_value(current, sweep, idv)
+            base = _sweep_value(baseline, sweep, idv)
             row = _id_label(idv, idw)
             if cur is not None and base is not None:
                 row += f"{cur:>12,.0f}{base:>12,.0f}{_delta(cur, base):>9}"

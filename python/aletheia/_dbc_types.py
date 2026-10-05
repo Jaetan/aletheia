@@ -10,10 +10,8 @@ threshold; ``aletheia.types`` remains the canonical public surface
 via re-export.
 """
 
-from typing import TYPE_CHECKING, Literal, NewType, NotRequired, TypedDict
-
-if TYPE_CHECKING:
-    from fractions import Fraction
+from fractions import Fraction
+from typing import Literal, NewType, NotRequired, TypedDict
 
 ByteOrder = Literal["little_endian", "big_endian"]
 
@@ -512,4 +510,32 @@ def empty_dbc_tier2() -> _DBCTier2Empty:
         "comments": [],
         "attributes": [],
         "unresolvedValueDescs": [],
+    }
+
+
+# A signal's name, and its width in bits.
+SignalName = NewType("SignalName", str)
+BitLength = NewType("BitLength", int)
+
+
+def raw_unsigned_signal(name: SignalName, length: BitLength) -> DBCSignalAlways:
+    """Return an always-present unsigned little-endian signal at bit 0 whose value is its raw value.
+
+    Identity scaling (factor 1, offset 0) over the whole raw range,
+    ``[0, 2**length - 1]``, with no unit and no receivers: the signal a
+    hand-written DBC needs when only its name and width matter.  Each call
+    returns a fresh dict.
+    """
+    return {
+        "name": name,
+        "startBit": 0,
+        "length": length,
+        "byteOrder": "little_endian",
+        "signed": False,
+        "factor": Fraction(1),
+        "offset": Fraction(0),
+        "minimum": Fraction(0),
+        "maximum": Fraction(2**length - 1),
+        "unit": "",
+        "presence": "always",
     }

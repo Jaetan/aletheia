@@ -11,28 +11,15 @@ copy-pasting the TypedDict literal (pylint cat 6 R0801 — duplicate-code).
 
 from __future__ import annotations
 
-from fractions import Fraction
 from typing import TYPE_CHECKING
 
-from aletheia._dbc_types import empty_dbc_tier2
+from aletheia._dbc_types import BitLength, SignalName, empty_dbc_tier2, raw_unsigned_signal
 from aletheia.types import DLCByteCount
 
 if TYPE_CHECKING:
     from aletheia.types import DBCDefinition, DBCMessage, DBCSignalAlways
 
-CANONICAL_SIGNAL: DBCSignalAlways = {
-    "name": "TestSignal",
-    "startBit": 0,
-    "length": 16,
-    "byteOrder": "little_endian",
-    "signed": False,
-    "factor": Fraction(1),
-    "offset": Fraction(0),
-    "minimum": Fraction(0),
-    "maximum": Fraction(65535),
-    "unit": "",
-    "presence": "always",
-}
+CANONICAL_SIGNAL: DBCSignalAlways = raw_unsigned_signal(SignalName("TestSignal"), BitLength(16))
 
 
 def make_dbc(*, msg_id: int = 256, sender: str = "ECU") -> DBCDefinition:

@@ -60,8 +60,8 @@ Read the accumulated `## [Unreleased]` notes and pick `X.Y.Z` by
 
 ### 1. ⚑ Branch — the prepare-release commit goes through a PR
 
-`main` is protected (the ruleset requires `tools/run_ci.py (all gates)` +
-`mutation testing`), so the version bump **cannot** be committed straight to
+`main` is protected (the ruleset requires `tools/run_ci.py (all gates)`,
+`mutation testing` and `load scaling`), so the version bump **cannot** be committed straight to
 `main`. Branch first:
 ~~~bash
 git switch main && git fetch origin main && git merge --ff-only origin/main

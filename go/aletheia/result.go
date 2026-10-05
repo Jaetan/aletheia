@@ -156,9 +156,9 @@ const (
 type IssueCode string
 
 const (
-	// IssueDuplicateMessageID is two messages share the same CAN ID.
+	// IssueDuplicateMessageID is a CAN ID two or more messages share; one issue names them all.
 	IssueDuplicateMessageID IssueCode = "duplicate_message_id"
-	// IssueDuplicateMessageName is two messages share the same name.
+	// IssueDuplicateMessageName is a name two or more messages share; one issue names them all by CAN ID.
 	IssueDuplicateMessageName IssueCode = "duplicate_message_name"
 	// IssueDuplicateSignalName is two signals in the same message share a name.
 	IssueDuplicateSignalName IssueCode = "duplicate_signal_name"
@@ -168,7 +168,7 @@ const (
 	IssueMultiplexorNotFound IssueCode = "multiplexor_not_found"
 	// IssueMultiplexorCycle is multiplexor chain references itself (cycle).
 	IssueMultiplexorCycle IssueCode = "multiplexor_cycle"
-	// IssueGlobalNameCollision is signal name is not unique across all messages.
+	// IssueGlobalNameCollision is a signal name signals of two or more messages share; one issue names those messages.
 	IssueGlobalNameCollision IssueCode = "global_name_collision"
 	// IssueMinExceedsMax is signal physical min exceeds max.
 	IssueMinExceedsMax IssueCode = "min_exceeds_max"

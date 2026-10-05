@@ -22,6 +22,7 @@ status=0
 # tree (docs/development/BRANCH_PR_HYGIENE.md).
 required_a='tools/run_ci.py (all gates)'
 required_b='mutation testing'
+required_c='load scaling'
 
 # One list per `paths-ignore:` block: the block's own indented items, joined,
 # printed with the file it was read from.
@@ -44,8 +45,9 @@ distinct=$(printf '%s\n' "$lists" | sed 's/^[^:]*://' | sort -u)
 
 filtered=$(printf '%s\n' "$lists" | sed 's/:.*//' | sort -u)
 for wf in $filtered; do
-    for context in "$required_a" "$required_b"; do
-        grep -qF "name: $context" "$wf" && {
+    for context in "$required_a" "$required_b" "$required_c"; do
+        # A name written as an expression reports one of its quoted literals.
+        { grep -qF "name: $context" "$wf" || grep -E '^ *name: \$\{\{' "$wf" | grep -qF "'$context'"; } && {
             echo "$wf is path-filtered and defines the required context '$context'"
             status=1
         }

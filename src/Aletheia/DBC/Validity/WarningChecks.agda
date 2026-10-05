@@ -14,17 +14,15 @@ open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 
 open import Aletheia.DBC.Types using
   ( signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr
-  ; ValidationIssue; IsWarning; DBCMessage; DBCSignal; mkIssue
-  ; GlobalNameCollision; Always; When
+  ; ValidationIssue; IsWarning; DBCMessage; DBCSignal
+  ; Always; When
   ; DBCComment
   ; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar )
 open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange)
 open import Aletheia.DBC.Validator using
-  ( checkGlobalNamePair; checkGlobalNameAgainstList
-  ; checkAllGlobalNameCollisions; messageSignalNames
+  ( globalNameIssue; checkAllGlobalNameCollisions
   ; checkMinMaxSig; checkAllMinMax
-  ; checkDuplicateNamePair; checkDuplicateNameAgainstList
-  ; checkAllDuplicateMessageNames
+  ; duplicateNameIssue; checkAllDuplicateMessageNames
   ; checkRangeLow; checkRangeHigh
   ; checkOffsetScaleRange; checkAllOffsetScaleRange
   ; checkEmptyMessage; checkAllEmptyMessage
@@ -59,15 +57,12 @@ open import Aletheia.DBC.Validity.ListLemmas using
 open import Aletheia.DBC.Validity.Combinators using
   ( liftConcatMap-sound; liftConcatMap-complete
   ; requireDec-sound; requireDec-complete
-  ; rejectDec-sound; rejectDec-complete
-  ; liftTriangular-sound; liftTriangular-complete
   ; triangularCheck )
-open import Data.List using ([]; _∷_; map; filter; concatMap)
-open import Data.List.Relation.Unary.All using (All; []; _∷_)
-open import Data.List.Relation.Unary.All.Properties using (++⁺)
+open import Data.List using ([]; _∷_; map; concatMap)
+open import Data.List.Relation.Unary.All using (All; []; _∷_; universal)
+open import Data.List.Relation.Unary.All.Properties using (++⁺; map⁺)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
-open import Data.List.Relation.Unary.Any using (Any; any?)
-open import Data.String using () renaming (_++_ to _++ₛ_)
+open import Data.List.Relation.Unary.Any using (any?)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
 open import Aletheia.DBC.DecRat using (0ᵈ; 1ᵈ; toℚ; _≟ᵈ_; _≤?ᵈ_)
@@ -75,9 +70,13 @@ open import Data.Maybe using (just; nothing)
 open import Data.Unit using (tt)
 open import Data.Empty using (⊥-elim)
 open import Data.Product using (_,_; proj₁; proj₂)
-open import Relation.Nullary using (yes; no; ¬_)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
-open import Data.List.Membership.DecPropositional _≟ₛ_ using (_∈?_)
+open import Relation.Nullary using (yes; no)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong)
+open import Aletheia.DBC.Validator.SharedKeys using
+  (messageSignalNames; signalEntries; sharedKeyGroups)
+open import Aletheia.DBC.Validator.SharedKeys.Properties using
+  ( map-≡[]; namesDistinct-sound; namesDistinct-complete
+  ; signalNamesDisjoint-sound; signalNamesDisjoint-complete )
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.DBC.Decidable.SignalGeometry using (startBitInFrame?; bitLengthInFrame?)
@@ -91,87 +90,24 @@ private
 -- CHECK 6: GLOBAL NAME COLLISION — Severity
 -- ============================================================================
 
-checkGlobalNamePair-allW : ∀ m1 m2 → All W (checkGlobalNamePair m1 m2)
-checkGlobalNamePair-allW m1 m2 = go (messageSignalNames m1)
-  where
-    names2 = messageSignalNames m2
-    go : ∀ ns → All W (map (λ n → mkIssue IsWarning GlobalNameCollision
-            ("Signal '" ++ₛ n ++ₛ "' appears in both message '"
-             ++ₛ messageNameStr m1 ++ₛ "' and '"
-             ++ₛ messageNameStr m2 ++ₛ "'")) (filter (_∈? names2) ns))
-    go [] = []
-    go (n ∷ ns) with n ∈? names2
-    ... | yes _ = refl ∷ go ns
-    ... | no  _ = go ns
-
 checkAllGlobalNameCollisions-allW : ∀ msgs → All W (checkAllGlobalNameCollisions msgs)
-checkAllGlobalNameCollisions-allW [] = []
-checkAllGlobalNameCollisions-allW (m ∷ rest) =
-  ++⁺ (go m rest) (checkAllGlobalNameCollisions-allW rest)
-  where
-    go : ∀ m rest → All W (checkGlobalNameAgainstList m rest)
-    go _ [] = []
-    go m (other ∷ rest) = ++⁺ (checkGlobalNamePair-allW m other) (go m rest)
+checkAllGlobalNameCollisions-allW _ = map⁺ (universal (λ _ → refl) _)
 
 -- ============================================================================
 -- CHECK 6: GLOBAL NAME COLLISION — Soundness/Completeness
 -- ============================================================================
 
-checkGlobalNamePair-sound : ∀ m1 m2 →
-  checkGlobalNamePair m1 m2 ≡ [] →
-  DisjointSignalNames (messageSignalNames m1) (messageSignalNames m2)
-checkGlobalNamePair-sound m1 m2 eq = go (messageSignalNames m1) eq
-  where
-    names2 = messageSignalNames m2
-    go : ∀ ns → map (λ n → mkIssue IsWarning GlobalNameCollision
-            ("Signal '" ++ₛ n ++ₛ "' appears in both message '"
-             ++ₛ messageNameStr m1 ++ₛ "' and '"
-             ++ₛ messageNameStr m2 ++ₛ "'")) (filter (_∈? names2) ns) ≡ []
-         → All (λ n → ¬ Any (n ≡_) names2) ns
-    go [] _ = []
-    go (n ∷ ns) eq with n ∈? names2
-    go (n ∷ ns) () | yes _
-    go (n ∷ ns) eq | no ¬n∈ = ¬n∈ ∷ go ns eq
-
-checkGlobalNamePair-complete : ∀ m1 m2 →
-  DisjointSignalNames (messageSignalNames m1) (messageSignalNames m2) →
-  checkGlobalNamePair m1 m2 ≡ []
-checkGlobalNamePair-complete m1 m2 disj = go (messageSignalNames m1) disj
-  where
-    names2 = messageSignalNames m2
-    go : ∀ ns → All (λ n → ¬ Any (n ≡_) names2) ns
-         → map (λ n → mkIssue IsWarning GlobalNameCollision
-                  ("Signal '" ++ₛ n ++ₛ "' appears in both message '"
-                   ++ₛ messageNameStr m1 ++ₛ "' and '"
-                   ++ₛ messageNameStr m2 ++ₛ "'")) (filter (_∈? names2) ns) ≡ []
-    go [] [] = refl
-    go (n ∷ ns) (¬n∈ ∷ rest) with n ∈? names2
-    ... | yes n∈ = ⊥-elim (¬n∈ n∈)
-    ... | no  _  = go ns rest
-
-checkGlobalNameAgainstList-sound : ∀ m rest →
-  checkGlobalNameAgainstList m rest ≡ [] →
-  All (λ other → DisjointSignalNames (messageSignalNames m) (messageSignalNames other)) rest
-checkGlobalNameAgainstList-sound m =
-  liftConcatMap-sound (checkGlobalNamePair m) (checkGlobalNamePair-sound m)
-
-checkGlobalNameAgainstList-complete : ∀ m rest →
-  All (λ other → DisjointSignalNames (messageSignalNames m) (messageSignalNames other)) rest →
-  checkGlobalNameAgainstList m rest ≡ []
-checkGlobalNameAgainstList-complete m =
-  liftConcatMap-complete (checkGlobalNamePair m) (checkGlobalNamePair-complete m)
-
 checkAllGlobalNameCollisions-sound : ∀ msgs →
   checkAllGlobalNameCollisions msgs ≡ [] →
   AllPairs (λ m1 m2 → DisjointSignalNames (messageSignalNames m1) (messageSignalNames m2)) msgs
-checkAllGlobalNameCollisions-sound =
-  liftTriangular-sound checkGlobalNamePair checkGlobalNamePair-sound
+checkAllGlobalNameCollisions-sound msgs eq =
+  signalNamesDisjoint-sound msgs (map-≡[] globalNameIssue (sharedKeyGroups (signalEntries msgs)) eq)
 
 checkAllGlobalNameCollisions-complete : ∀ msgs →
   AllPairs (λ m1 m2 → DisjointSignalNames (messageSignalNames m1) (messageSignalNames m2)) msgs →
   checkAllGlobalNameCollisions msgs ≡ []
-checkAllGlobalNameCollisions-complete =
-  liftTriangular-complete checkGlobalNamePair checkGlobalNamePair-complete
+checkAllGlobalNameCollisions-complete msgs d =
+  cong (map globalNameIssue) (signalNamesDisjoint-complete msgs d)
 
 -- ============================================================================
 -- CHECK 7: MIN EXCEEDS MAX — Severity
@@ -227,57 +163,24 @@ checkAllMinMax-complete = liftConcatMap-complete _ λ msg →
 -- CHECK 11: DUPLICATE MESSAGE NAME — Severity
 -- ============================================================================
 
-checkDuplicateNamePair-allW : ∀ m1 m2 → All W (checkDuplicateNamePair m1 m2)
-checkDuplicateNamePair-allW m1 m2 with messageNameStr m1 ≟ₛ messageNameStr m2
-... | yes _ = refl ∷ []
-... | no  _ = []
-
 checkAllDuplicateMessageNames-allW : ∀ msgs → All W (checkAllDuplicateMessageNames msgs)
-checkAllDuplicateMessageNames-allW [] = []
-checkAllDuplicateMessageNames-allW (m ∷ rest) =
-  ++⁺ (go m rest) (checkAllDuplicateMessageNames-allW rest)
-  where
-    go : ∀ m rest → All W (checkDuplicateNameAgainstList m rest)
-    go _ [] = []
-    go m (other ∷ rest) = ++⁺ (checkDuplicateNamePair-allW m other) (go m rest)
+checkAllDuplicateMessageNames-allW _ = map⁺ (universal (λ _ → refl) _)
 
 -- ============================================================================
 -- CHECK 11: DUPLICATE MESSAGE NAME — Soundness/Completeness
 -- ============================================================================
 
-checkDuplicateNamePair-sound : ∀ m1 m2 →
-  checkDuplicateNamePair m1 m2 ≡ [] → DistinctMessageNames m1 m2
-checkDuplicateNamePair-sound m1 m2 =
-  rejectDec-sound (messageNameStr m1 ≟ₛ messageNameStr m2) _
-
-checkDuplicateNamePair-complete : ∀ m1 m2 →
-  DistinctMessageNames m1 m2 → checkDuplicateNamePair m1 m2 ≡ []
-checkDuplicateNamePair-complete m1 m2 =
-  rejectDec-complete (messageNameStr m1 ≟ₛ messageNameStr m2) _
-
-checkDuplicateNameAgainstList-sound : ∀ m rest →
-  checkDuplicateNameAgainstList m rest ≡ [] →
-  All (DistinctMessageNames m) rest
-checkDuplicateNameAgainstList-sound m =
-  liftConcatMap-sound (checkDuplicateNamePair m) (checkDuplicateNamePair-sound m)
-
-checkDuplicateNameAgainstList-complete : ∀ m rest →
-  All (DistinctMessageNames m) rest →
-  checkDuplicateNameAgainstList m rest ≡ []
-checkDuplicateNameAgainstList-complete m =
-  liftConcatMap-complete (checkDuplicateNamePair m) (checkDuplicateNamePair-complete m)
-
 checkAllDuplicateMessageNames-sound : ∀ msgs →
   checkAllDuplicateMessageNames msgs ≡ [] →
   AllPairs DistinctMessageNames msgs
-checkAllDuplicateMessageNames-sound =
-  liftTriangular-sound checkDuplicateNamePair checkDuplicateNamePair-sound
+checkAllDuplicateMessageNames-sound msgs eq =
+  namesDistinct-sound msgs (map-≡[] duplicateNameIssue _ eq)
 
 checkAllDuplicateMessageNames-complete : ∀ msgs →
   AllPairs DistinctMessageNames msgs →
   checkAllDuplicateMessageNames msgs ≡ []
-checkAllDuplicateMessageNames-complete =
-  liftTriangular-complete checkDuplicateNamePair checkDuplicateNamePair-complete
+checkAllDuplicateMessageNames-complete msgs ap =
+  cong (map duplicateNameIssue) (namesDistinct-complete msgs ap)
 
 -- ============================================================================
 -- CHECK 13: OFFSET/SCALE RANGE — Severity

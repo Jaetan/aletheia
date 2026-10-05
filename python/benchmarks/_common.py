@@ -201,7 +201,7 @@ class LatencyParameters(TypedDict):
 
 
 class ScalingParameters(TypedDict):
-    """Scaling's flags: passes averaged per sweep point, and the quick sweep."""
+    """Scaling's flags: passes per point (streams averaged, loads least), the quick sweep."""
 
     runs: RunCount
     quick: bool
