@@ -14,7 +14,7 @@ open import Aletheia.DBC.Validator using
   ( checkBitLengthZero; checkAllBitLengthZero
   ; checkFactorZeroSig; checkAllFactorZero
   ; checkSignalExceedsDLC; checkAllSignalExceedsDLC
-  ; checkDuplicateIdPair; checkDuplicateIdAgainstList; checkAllDuplicateMessageIds
+  ; duplicateIdIssue; checkAllDuplicateMessageIds
   ; checkDuplicateSignalPair; checkDuplicateSignalAgainstList; checkDuplicateSignalTriangular
   ; checkAllDuplicateSignalNames
   ; checkOverlapPair; checkOverlapAgainstList; checkOverlapTriangular
@@ -24,7 +24,6 @@ open import Aletheia.DBC.Validator using
   ; walkMux
   ; checkRangeExceedsBitsSig; checkAllRangeExceedsBits
   )
-open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Validity using (NonZeroBitLength; NonZeroFactor; BitsInFrame; MuxResolvable; MuxAcyclic; RangeWithinBits)
 open import Aletheia.DBC.Validity.Combinators using
   ( liftConcatMap-sound; liftConcatMap-complete
@@ -34,7 +33,7 @@ open import Aletheia.DBC.Validity.Combinators using
 open import Aletheia.DBC.Decidable using (SignalPairValid; signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange)
-open import Data.List using ([]; length)
+open import Data.List using ([]; length; map)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.List.Relation.Unary.Any using (any?)
@@ -52,7 +51,10 @@ open import Aletheia.CAN.DLC using (dlcBytes)
 open import Data.Unit using (tt)
 open import Data.Empty using (⊥-elim)
 open import Relation.Nullary using (yes; no)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; cong)
+open import Aletheia.DBC.Validator.SharedKeys using (sharedKeyGroups; messageIdEntries)
+open import Aletheia.DBC.Validator.SharedKeys.Properties using
+  (map-≡[]; idsDistinct-sound; idsDistinct-complete)
 
 -- ============================================================================
 -- CHECK 10: BIT LENGTH ZERO
@@ -137,42 +139,20 @@ checkAllSignalExceedsDLC-complete = liftConcatMap-complete _ λ msg →
   liftConcatMap-complete _ (checkSignalExceedsDLC-complete (messageNameStr msg) (dlcBytes (DBCMessage.dlc msg))) _
 
 -- ============================================================================
--- CHECK 1: DUPLICATE MESSAGE IDs (triangular)
+-- CHECK 1: DUPLICATE MESSAGE IDs (messages grouped by CAN ID)
 -- ============================================================================
-
-checkDuplicateIdPair-sound : ∀ m1 m2 →
-  checkDuplicateIdPair m1 m2 ≡ [] → DBCMessage.id m1 ≢ DBCMessage.id m2
-checkDuplicateIdPair-sound m1 m2 =
-  rejectDec-sound (DBCMessage.id m1 ≟-CANId DBCMessage.id m2) _
-
-checkDuplicateIdPair-complete : ∀ m1 m2 →
-  DBCMessage.id m1 ≢ DBCMessage.id m2 → checkDuplicateIdPair m1 m2 ≡ []
-checkDuplicateIdPair-complete m1 m2 =
-  rejectDec-complete (DBCMessage.id m1 ≟-CANId DBCMessage.id m2) _
-
-checkDuplicateIdAgainstList-sound : ∀ m rest →
-  checkDuplicateIdAgainstList m rest ≡ [] →
-  All (λ other → DBCMessage.id m ≢ DBCMessage.id other) rest
-checkDuplicateIdAgainstList-sound m =
-  liftConcatMap-sound (checkDuplicateIdPair m) (checkDuplicateIdPair-sound m)
-
-checkDuplicateIdAgainstList-complete : ∀ m rest →
-  All (λ other → DBCMessage.id m ≢ DBCMessage.id other) rest →
-  checkDuplicateIdAgainstList m rest ≡ []
-checkDuplicateIdAgainstList-complete m =
-  liftConcatMap-complete (checkDuplicateIdPair m) (checkDuplicateIdPair-complete m)
 
 checkAllDuplicateMessageIds-sound : ∀ msgs →
   checkAllDuplicateMessageIds msgs ≡ [] →
   AllPairs (λ m₁ m₂ → DBCMessage.id m₁ ≢ DBCMessage.id m₂) msgs
-checkAllDuplicateMessageIds-sound =
-  liftTriangular-sound checkDuplicateIdPair checkDuplicateIdPair-sound
+checkAllDuplicateMessageIds-sound msgs eq =
+  idsDistinct-sound msgs (map-≡[] duplicateIdIssue (sharedKeyGroups (messageIdEntries msgs)) eq)
 
 checkAllDuplicateMessageIds-complete : ∀ msgs →
   AllPairs (λ m₁ m₂ → DBCMessage.id m₁ ≢ DBCMessage.id m₂) msgs →
   checkAllDuplicateMessageIds msgs ≡ []
-checkAllDuplicateMessageIds-complete =
-  liftTriangular-complete checkDuplicateIdPair checkDuplicateIdPair-complete
+checkAllDuplicateMessageIds-complete msgs ap =
+  cong (map duplicateIdIssue) (idsDistinct-complete msgs ap)
 
 -- ============================================================================
 -- CHECK 2: DUPLICATE SIGNAL NAMES (nested triangular)

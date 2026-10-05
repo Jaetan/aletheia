@@ -56,7 +56,7 @@ issue_codes:
   # DBC validator diagnostics (ValidateDBC / DBC load paths).
 
   - name: duplicate_message_id
-    description: Two messages share the same CAN ID.
+    description: Two or more messages share a CAN ID; one issue names them all.
 
   - name: duplicate_signal_name
     description: Two signals in the same message share a name.
@@ -71,7 +71,7 @@ issue_codes:
     description: A multiplexor chain references itself (cycle).
 
   - name: global_name_collision
-    description: A signal name is not unique across all messages.
+    description: Signals of two or more messages share a name; one issue names those messages.
 
   - name: min_exceeds_max
     description: A signal's physical minimum exceeds its maximum.
@@ -86,7 +86,7 @@ issue_codes:
     description: A signal has zero bit length.
 
   - name: duplicate_message_name
-    description: Two messages share the same name.
+    description: Two or more messages share a name; one issue names them all by CAN ID.
 
   - name: offset_scale_range
     description: A signal's offset/scale combination produces values outside its declared range.

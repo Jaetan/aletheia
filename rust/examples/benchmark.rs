@@ -17,16 +17,16 @@
 //! ```
 //!
 //! Modes: `throughput` (`--frames N --runs N`), `latency` (`--ops N`),
-//! `scaling` (`--runs N --quick`; four sweeps — trace size CAN 2.0B / CAN-FD,
-//! property count, property complexity — emitted as a dict-shaped `results`
-//! payload). `--json` sends the human-readable progress to stderr and prints
+//! `scaling` (`--runs N --quick`; sweeps of trace size CAN 2.0B / CAN-FD,
+//! property count, property complexity and DBC size, emitted as a dict-shaped
+//! `results` payload). `--json` sends the human-readable progress to stderr and prints
 //! the JSON report to stdout. `--quick` shrinks the default sizes for a fast
 //! smoke run (and selects the reduced scaling magnitudes the schema pins).
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use aletheia::{
-    ByteOrder, CanId, Client, Dbc, DbcMessage, DbcSignal, Dlc, Formula, Predicate, Presence,
+    ByteOrder, CanId, Client, Dbc, DbcMessage, DbcSignal, Dlc, Formula, Node, Predicate, Presence,
     Rational, SignalValue, Timestamp,
 };
 use serde_json::{json, Value};
@@ -562,6 +562,10 @@ fn round3(x: f64) -> f64 {
     (x * 1000.0).round() / 1000.0
 }
 
+fn round4(x: f64) -> f64 {
+    (x * 10_000.0).round() / 10_000.0
+}
+
 // ---------------------------------------------------------------------------
 // System info & timestamp
 // ---------------------------------------------------------------------------
@@ -951,12 +955,15 @@ fn run_latency(ops: usize, warmup: usize, json: bool) -> Vec<Value> {
 }
 
 // ---------------------------------------------------------------------------
-// Scaling mode — four sweeps under one dict-shaped payload, in the order the
+// Scaling mode: the sweeps under one dict-shaped payload, in the order the
 // cross-binding schema (benchmarks/SCHEMA.yaml, tools/check_bench_schema.py)
 // pins across all four bindings: trace_size_can20, trace_size_canfd,
-// property_count, property_complexity. Every sweep point is the MEAN fps over
-// `runs` streaming passes; `relative = fps / (fps of the first row)`. Rounding:
-// fps / us_per_frame -> 1 dp, relative -> 3 dp (identical to Go / Python).
+// property_count, property_complexity, dbc_size. A streaming sweep's point is
+// the MEAN fps over `runs` streaming passes, `relative = fps / (fps of the
+// first row)`; a dbc_size point is the MINIMUM load time over `runs` loads,
+// `relative = messages_per_sec / (messages_per_sec of the first row)`.
+// Rounding: fps / us_per_frame / messages_per_sec -> 1 dp, relative -> 3 dp,
+// seconds -> 4 dp (identical to Go / Python).
 // ---------------------------------------------------------------------------
 
 /// Mean streaming fps over `runs` passes (the robust methodology — noise on an
@@ -1062,7 +1069,101 @@ fn complexity_levels() -> Vec<(&'static str, Vec<Formula>)> {
     ]
 }
 
-/// Run the four scaling sweeps and return them as ordered `(key, rows)` pairs
+/// DBC-size sweep points (messages per DBC), each double the one before;
+/// `--quick` drops the smallest.
+fn dbc_sizes(quick: bool) -> Vec<u32> {
+    if quick {
+        vec![2500, 5000, 10000]
+    } else {
+        vec![1250, 2500, 5000, 10000]
+    }
+}
+
+/// The DBC-size sweep's document: version `1.0`, the one node `ECU`, and
+/// `count` messages `M{i}` (extended id `0x100000 + i`, 8 bytes, sent by `ECU`),
+/// each carrying one 8-bit unsigned signal `S{i}` received by `ECU`. No two
+/// messages share an id, a name or a signal name, so the load succeeds.
+fn sized_dbc(count: u32) -> Dbc {
+    let messages = (0..count)
+        .map(|i| {
+            let signal = DbcSignal {
+                receivers: vec!["ECU".to_string()],
+                ..sig(
+                    &format!("S{i}"),
+                    0,
+                    8,
+                    false,
+                    (r(1, 1), r(0, 1)),
+                    (r(0, 1), r(255, 1)),
+                    "",
+                )
+            };
+            DbcMessage {
+                extended: true,
+                ..msg(0x10_0000 + i, &format!("M{i}"), 8, "ECU", vec![signal])
+            }
+        })
+        .collect();
+    Dbc {
+        version: "1.0".to_string(),
+        nodes: vec![Node {
+            name: "ECU".to_string(),
+        }],
+        ..dbc(messages)
+    }
+}
+
+/// Wall-clock seconds of one `parse_dbc` of `dbc` into a fresh client. Only the
+/// call is timed: the client is created before the clock starts, and the loaded
+/// document and the client (whose drop closes it) are dropped after it stops.
+fn load_seconds(dbc: &Dbc) -> f64 {
+    let client = new_client();
+    let start = Instant::now();
+    let loaded = client.parse_dbc(dbc).expect("parse dbc");
+    let elapsed = start.elapsed().as_secs_f64();
+    drop(loaded);
+    elapsed
+}
+
+/// Minimum load time over `runs` loads: the sweep compares two sizes' times,
+/// and the minimum is the least noisy estimate of the work.
+fn min_load_seconds(dbc: &Dbc, runs: usize) -> f64 {
+    let secs_list: Vec<f64> = (0..runs).map(|_| load_seconds(dbc)).collect();
+    // Never take the minimum of an empty sample: `min_of` would yield a
+    // fabricated infinity reported as a measurement.  Load errors already abort
+    // (`load_seconds` panics), so this is reachable only for `--runs 0`.
+    assert!(
+        !secs_list.is_empty(),
+        "dbc_size point ({} messages) has no measurement (runs = {runs})",
+        dbc.messages.len()
+    );
+    min_of(&secs_list)
+}
+
+/// Sweep DBC sizes; rows carry `{messages, seconds, messages_per_sec, relative}`.
+fn scan_dbc_size(sizes: &[u32], runs: usize, json: bool) -> Vec<Value> {
+    let mut rows = Vec::new();
+    let mut baseline: Option<f64> = None;
+    for &size in sizes {
+        let secs = min_load_seconds(&sized_dbc(size), runs);
+        let per_sec = f64::from(size) / secs;
+        let base = *baseline.get_or_insert(per_sec);
+        let relative = if base > 0.0 { per_sec / base } else { 0.0 };
+        log_line(
+            json,
+            &format!("  {size} messages: {secs:.4} s, {per_sec:.0} messages/sec ({relative:.2}x)"),
+        );
+        rows.push(json!({
+            "messages": size,
+            "seconds": round4(secs),
+            "messages_per_sec": round1(per_sec),
+            "relative": round3(relative),
+        }));
+    }
+    rows
+}
+
+/// Run the scaling sweeps and return them as ordered `(key, rows)` pairs
 /// (the caller emits them in this order — the schema pins it).
 fn run_scaling(runs: usize, quick: bool, json: bool) -> Vec<(&'static str, Value)> {
     let dbc20 = can20_dbc();
@@ -1146,11 +1247,17 @@ fn run_scaling(runs: usize, quick: bool, json: bool) -> Vec<(&'static str, Value
         }));
     }
 
+    // 5: DBC-size sweep, after one untimed warm-up load of a 500-message DBC.
+    let _ = load_seconds(&sized_dbc(500));
+    log_line(json, "\nDBC size scaling:");
+    let dbc_rows = scan_dbc_size(&dbc_sizes(quick), runs, json);
+
     vec![
         ("trace_size_can20", Value::Array(trace20)),
         ("trace_size_canfd", Value::Array(tracefd)),
         ("property_count", Value::Array(pc_rows)),
         ("property_complexity", Value::Array(cx_rows)),
+        ("dbc_size", Value::Array(dbc_rows)),
     ]
 }
 

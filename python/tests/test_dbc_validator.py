@@ -25,6 +25,7 @@ from _validator_helpers import (
 
 from aletheia import AletheiaClient, DBCDefinition, ProtocolError, ValidationIssue
 from aletheia.codes import IssueCode, IssueSeverity
+from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
     from aletheia.types import (
@@ -276,6 +277,149 @@ class TestDuplicateMessageName:
 
         dup_names = [i for i in result["issues"] if i["code"] == "duplicate_message_name"]
         assert dup_names == []
+
+
+def _details(issues: list[ValidationIssue], code: IssueCode) -> list[Prose]:
+    """Return the details of the issues carrying ``code``, in order."""
+    return [Prose(i["detail"]) for i in issues if i["code"] == code]
+
+
+class TestSharedKeyIssues:
+    """Checks 1, 6 and 11 report one issue per shared key, naming every message.
+
+    A CAN ID, a message name or a signal name that several messages share is
+    one issue, its messages in order of appearance, however many share it;
+    the issues come in the order the shared keys first appear.
+    """
+
+    def test_messages_sharing_an_id_are_one_issue(self) -> None:
+        """Verify three messages sharing a CAN ID give one issue naming them in order."""
+        dbc = make_dbc(
+            [
+                make_message(0x100, "A", [make_signal("SigA")]),
+                make_message(0x200, "B", [make_signal("SigB")]),
+                make_message(0x100, "C", [make_signal("SigC")]),
+                make_message(0x100, "D", [make_signal("SigD")]),
+            ]
+        )
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        assert _details(result["issues"], IssueCode.DUPLICATE_MESSAGE_ID) == [
+            "Messages 'A', 'C' and 'D' share the same CAN ID"
+        ]
+
+    def test_two_messages_sharing_an_id_name_both(self) -> None:
+        """Verify two messages sharing a CAN ID read as a pair."""
+        dbc = make_dbc(
+            [
+                make_message(0x100, "Msg1", [make_signal("Sig1")]),
+                make_message(0x100, "Msg2", [make_signal("Sig2")]),
+            ]
+        )
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        assert _details(result["issues"], IssueCode.DUPLICATE_MESSAGE_ID) == [
+            "Messages 'Msg1' and 'Msg2' share the same CAN ID"
+        ]
+
+    def test_shared_ids_come_in_order_of_first_appearance(self) -> None:
+        """Verify the issue for the ID shared first comes first."""
+        dbc = make_dbc(
+            [
+                make_message(0x300, "X", [make_signal("SigX")]),
+                make_message(0x100, "Y", [make_signal("SigY")]),
+                make_message(0x300, "Z", [make_signal("SigZ")]),
+                make_message(0x100, "W", [make_signal("SigW")]),
+            ]
+        )
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        assert _details(result["issues"], IssueCode.DUPLICATE_MESSAGE_ID) == [
+            "Messages 'X' and 'Z' share the same CAN ID",
+            "Messages 'Y' and 'W' share the same CAN ID",
+        ]
+
+    def test_standard_and_extended_ids_of_one_number_do_not_collide(self) -> None:
+        """Verify a standard and an extended ID with the same number are distinct."""
+        extended = make_message(0x100, "Ext", [make_signal("SigE")])
+        extended["extended"] = True
+        dbc = make_dbc([make_message(0x100, "Std", [make_signal("SigS")]), extended])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        assert _details(result["issues"], IssueCode.DUPLICATE_MESSAGE_ID) == []
+
+    def test_messages_sharing_a_name_are_one_issue(self) -> None:
+        """Verify three messages sharing a name give one issue naming their CAN IDs."""
+        dbc = make_dbc(
+            [
+                make_message(0x100, "Same", [make_signal("Sig1")]),
+                make_message(0x200, "Other", [make_signal("Sig2")]),
+                make_message(0x300, "Same", [make_signal("Sig3")]),
+                make_message(0x400, "Same", [make_signal("Sig4")]),
+            ]
+        )
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        assert _details(result["issues"], IssueCode.DUPLICATE_MESSAGE_NAME) == [
+            "Messages with CAN IDs 256, 768 and 1024 share the name 'Same'"
+        ]
+
+    def test_signal_name_in_several_messages_is_one_issue(self) -> None:
+        """Verify a signal name in three messages gives one issue naming them."""
+        dbc = make_dbc(
+            [
+                make_message(0x100, "M1", [make_signal("Shared")]),
+                make_message(0x200, "M2", [make_signal("Other")]),
+                make_message(0x300, "M3", [make_signal("Shared")]),
+                make_message(0x400, "M4", [make_signal("Shared")]),
+            ]
+        )
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        assert _details(result["issues"], IssueCode.GLOBAL_NAME_COLLISION) == [
+            "Signal 'Shared' appears in messages 'M1', 'M3' and 'M4'"
+        ]
+
+    def test_signal_name_repeated_in_one_message_collides_with_no_message(self) -> None:
+        """Verify a name twice in one message is not a name shared between messages."""
+        dbc = make_dbc(
+            [
+                make_message(
+                    0x100,
+                    "M1",
+                    [make_signal("Dup", start_bit=0), make_signal("Dup", start_bit=8)],
+                ),
+                make_message(0x200, "M2", [make_signal("Other")]),
+            ]
+        )
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        assert _details(result["issues"], IssueCode.GLOBAL_NAME_COLLISION) == []
+
+    def test_format_text_warns_once_per_shared_id(self) -> None:
+        """Verify formatDBCText warns once per shared CAN ID, naming the messages."""
+        dbc = make_dbc(
+            [
+                make_message(0x100, "A", [make_signal("SigA")]),
+                make_message(0x200, "B", [make_signal("SigB")]),
+                make_message(0x100, "C", [make_signal("SigC")]),
+                make_message(0x100, "D", [make_signal("SigD")]),
+            ]
+        )
+        with AletheiaClient() as client:
+            result = client.format_dbc_text(dbc)
+
+        assert _details(result["issues"], IssueCode.DUPLICATE_MESSAGE_ID) == [
+            "Messages 'A', 'C' and 'D' share the same CAN ID"
+            + " (text round-trip needs unique message IDs)"
+        ]
 
 
 class TestOffsetScaleRange:

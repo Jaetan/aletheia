@@ -51,11 +51,10 @@ open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange)
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; map; filter; concatMap; length)
+open import Data.List using (List; []; _∷_; map; concatMap; length)
   renaming (_++_ to _++ₗ_)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
-open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Bool using (Bool; true; false)
 open import Data.Nat using (ℕ; zero; suc)
 open import Data.Nat.Properties using (_≟_)
@@ -68,9 +67,14 @@ open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
 open import Data.Product using (proj₁; proj₂)
 open import Relation.Nullary using (yes; no)
 open import Data.List.Relation.Unary.Any using (any?)
-open import Data.List.Membership.DecPropositional _≟ₛ_ using (_∈?_)
 open import Aletheia.DBC.Validity.Combinators using
   (requireDec; rejectDec; checkAgainst; triangularCheck)
+open import Aletheia.DBC.Validator.SharedKeys using
+  ( Entry; message; label; nameKey; showCanIdText
+  ; messageEntries; messageIdEntries; signalEntries; sharedKeyGroups; perOwner
+  ; joinAnd; quoted; sharedIdText )
+open import Data.List.NonEmpty using (List⁺) renaming (toList to toList⁺; head to head⁺)
+open import Function using (_∘_)
 open import Aletheia.DBC.TextParser.WellFormedCheck.Foundations using
   (presenceIssue; mcIssue)
 
@@ -95,18 +99,12 @@ liftPerSignal f = concatMap λ msg →
 -- CHECK 1: DUPLICATE MESSAGE IDs
 -- ============================================================================
 
-checkDuplicateIdPair : DBCMessage → DBCMessage → List ValidationIssue
-checkDuplicateIdPair m1 m2 =
-  rejectDec (DBCMessage.id m1 ≟-CANId DBCMessage.id m2)
-            (mkIssue IsError DuplicateMessageId
-              ("Messages '" ++ₛ messageNameStr m1 ++ₛ "' and '"
-               ++ₛ messageNameStr m2 ++ₛ "' share the same CAN ID"))
-
-checkDuplicateIdAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
-checkDuplicateIdAgainstList = checkAgainst checkDuplicateIdPair
+-- One issue per CAN ID two or more messages share, naming them in order.
+duplicateIdIssue : List⁺ Entry → ValidationIssue
+duplicateIdIssue g = mkIssue IsError DuplicateMessageId (sharedIdText g)
 
 checkAllDuplicateMessageIds : List DBCMessage → List ValidationIssue
-checkAllDuplicateMessageIds = triangularCheck checkDuplicateIdPair
+checkAllDuplicateMessageIds msgs = map duplicateIdIssue (sharedKeyGroups (messageIdEntries msgs))
 
 -- ============================================================================
 -- CHECK 2: DUPLICATE SIGNAL NAMES (within a message)
@@ -240,24 +238,16 @@ checkAllMuxScaling = concatMap λ msg →
 -- CHECK 6: GLOBAL NAME COLLISION
 -- ============================================================================
 
-messageSignalNames : DBCMessage → List String
-messageSignalNames msg = map signalNameStr (DBCMessage.signals msg)
-
-checkGlobalNamePair : DBCMessage → DBCMessage → List ValidationIssue
-checkGlobalNamePair m1 m2 =
-  let names1  = messageSignalNames m1
-      names2  = messageSignalNames m2
-      shared  = filter (_∈? names2) names1
-  in map (λ n → mkIssue IsWarning GlobalNameCollision
-                  ("Signal '" ++ₛ n ++ₛ "' appears in both message '"
-                   ++ₛ messageNameStr m1 ++ₛ "' and '"
-                   ++ₛ messageNameStr m2 ++ₛ "'")) shared
-
-checkGlobalNameAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
-checkGlobalNameAgainstList = checkAgainst checkGlobalNamePair
+-- One issue per signal name that signals of two or more messages share,
+-- naming those messages in order.
+globalNameIssue : List⁺ Entry → ValidationIssue
+globalNameIssue g =
+  mkIssue IsWarning GlobalNameCollision
+    ("Signal " ++ₛ quoted (label (head⁺ g)) ++ₛ " appears in messages "
+     ++ₛ joinAnd (map (quoted ∘ messageNameStr ∘ message) (toList⁺ (perOwner g))))
 
 checkAllGlobalNameCollisions : List DBCMessage → List ValidationIssue
-checkAllGlobalNameCollisions = triangularCheck checkGlobalNamePair
+checkAllGlobalNameCollisions msgs = map globalNameIssue (sharedKeyGroups (signalEntries msgs))
 
 -- ============================================================================
 -- CHECK 7: MIN EXCEEDS MAX
@@ -335,18 +325,18 @@ checkAllBitLengthZero = liftPerSignal checkBitLengthZero
 -- CHECK 11: DUPLICATE MESSAGE NAME
 -- ============================================================================
 
-checkDuplicateNamePair : DBCMessage → DBCMessage → List ValidationIssue
-checkDuplicateNamePair m1 m2 =
-  rejectDec (messageNameStr m1 ≟ₛ messageNameStr m2)
-            (mkIssue IsWarning DuplicateMessageName
-              ("Messages '" ++ₛ messageNameStr m1 ++ₛ "' and '"
-               ++ₛ messageNameStr m2 ++ₛ "' share the same name"))
-
-checkDuplicateNameAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
-checkDuplicateNameAgainstList = checkAgainst checkDuplicateNamePair
+-- One issue per name two or more messages share, naming them by CAN ID.
+duplicateNameIssue : List⁺ Entry → ValidationIssue
+duplicateNameIssue g =
+  mkIssue IsWarning DuplicateMessageName
+    ("Messages with CAN IDs "
+     ++ₛ joinAnd (map (showCanIdText ∘ DBCMessage.id ∘ message) (toList⁺ g))
+     ++ₛ " share the name " ++ₛ quoted (label (head⁺ g)))
 
 checkAllDuplicateMessageNames : List DBCMessage → List ValidationIssue
-checkAllDuplicateMessageNames = triangularCheck checkDuplicateNamePair
+checkAllDuplicateMessageNames msgs =
+  map duplicateNameIssue
+    (sharedKeyGroups (messageEntries (nameKey ∘ messageNameStr) messageNameStr 0 msgs))
 
 -- ============================================================================
 -- CHECK 13: OFFSET/SCALE RANGE
@@ -602,10 +592,6 @@ checkAllUnknownAdditionalSenders msgs nodes@(_ ∷ _) =
 -- `RawValueDesc` rather than `(messages, nodes)` — text-roundtrip closure
 -- requires `unresolvedValueDescs ≡ []` (`WellFormedTextDBCAgg.unresolved-empty`),
 -- so a non-empty list always indicates user-written DBC slop.
-
-showCanIdText : CANId → String
-showCanIdText (CANId.Standard n _) = showℕ n
-showCanIdText (CANId.Extended n _) = showℕ n
 
 checkUnknownValueDescriptionTarget : RawValueDesc → List ValidationIssue
 checkUnknownValueDescriptionTarget rvd =

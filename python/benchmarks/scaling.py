@@ -7,6 +7,7 @@ Measures how Aletheia performance scales with:
 - Trace size (1K to 100K frames)
 - Property count (1 to 10 properties)
 - Property complexity (simple vs nested temporal operators)
+- DBC size (load time for 1,250 to 10,000 messages)
 
 Tests both CAN 2.0B and CAN-FD frames for trace size scaling.
 
@@ -18,9 +19,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from fractions import Fraction
 from statistics import fmean
-from typing import IO, TYPE_CHECKING, NamedTuple, TypedDict
+from typing import IO, TYPE_CHECKING, NamedTuple, NewType, TextIO, TypedDict
 
 # Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
 from benchmarks._common import (
@@ -37,13 +39,22 @@ from benchmarks._common import (
 
 # See ``throughput.py`` — benchmarks import the installed package to keep
 # the wheel / setuptools shim cost inside the measurement.
-from aletheia import Signal
+from aletheia import AletheiaClient, Signal
+from aletheia._dbc_types import BitLength, SignalName, raw_unsigned_signal
+from aletheia.types import DLCByteCount
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from aletheia.dsl import Property
     from aletheia.types import DBCDefinition, LTLFormula
+
+# A DBC's number of messages, a load's wall-clock duration, messages loaded per
+# second, and a rate over the sweep's first rate.
+MessageCount = NewType("MessageCount", int)
+Seconds = NewType("Seconds", float)
+MessageRate = NewType("MessageRate", float)
+RelativeRate = NewType("RelativeRate", float)
 
 
 class _TraceSizeRow(TypedDict):
@@ -72,13 +83,23 @@ class _PropertyComplexityRow(TypedDict):
     relative: float
 
 
+class _DbcSizeRow(TypedDict):
+    """One row from the DBC-size scaling sweep."""
+
+    messages: MessageCount
+    seconds: Seconds
+    messages_per_sec: MessageRate
+    relative: RelativeRate
+
+
 class _ScalingResults(TypedDict):
-    """All four sweep rows aggregated into one JSON-report payload."""
+    """Every sweep's rows aggregated into one JSON-report payload."""
 
     trace_size_can20: list[_TraceSizeRow]
     trace_size_canfd: list[_TraceSizeRow]
     property_count: list[_PropertyCountRow]
     property_complexity: list[_PropertyComplexityRow]
+    dbc_size: list[_DbcSizeRow]
 
 
 def benchmark_frames_per_sec(
@@ -100,7 +121,7 @@ def mean_fps(
 ) -> tuple[float, float]:
     """Mean fps + total elapsed over ``runs`` streaming passes.
 
-    Every scaling point is averaged over ``runs`` passes (default 5): the sweep
+    Every streaming point is averaged over ``runs`` passes (default 5): the sweep
     reports ``relative = fps / baseline_fps``, so noise on an un-averaged
     baseline row would multiply into every ratio. Matches the run-averaging the
     C++/Go/Rust harnesses use — the robust methodology, kept identical across
@@ -339,12 +360,121 @@ def benchmark_property_complexity_scaling(
     return results
 
 
+def _dbc_sizes(*, quick: bool) -> list[MessageCount]:
+    """Return the DBC-size sweep in messages, each double the last (--quick drops the smallest)."""
+    sizes = [2500, 5000, 10000] if quick else [1250, 2500, 5000, 10000]
+    return [MessageCount(size) for size in sizes]
+
+
+def _sized_dbc(messages: MessageCount) -> DBCDefinition:
+    """Build a DBC of ``messages`` extended-ID messages, each carrying one 8-bit signal.
+
+    Message ``i`` is ``M{i}`` at CAN ID ``0x100000 + i`` with signal ``S{i}``, so
+    no two messages share an ID or a name and the load succeeds.
+    """
+    return {
+        "version": "1.0",
+        "messages": [
+            {
+                "id": 0x100000 + i,
+                "name": f"M{i}",
+                "dlc": DLCByteCount(8),
+                "sender": "ECU",
+                "extended": True,
+                "signals": [
+                    {**raw_unsigned_signal(SignalName(f"S{i}"), BitLength(8)), "receivers": ["ECU"]}
+                ],
+            }
+            for i in range(messages)
+        ],
+        "signalGroups": [],
+        "environmentVars": [],
+        "valueTables": [],
+        "nodes": [{"name": "ECU"}],
+        "comments": [],
+        "attributes": [],
+        "unresolvedValueDescs": [],
+    }
+
+
+def _load_seconds(dbc: DBCDefinition) -> Seconds:
+    """Time one ``parse_dbc`` on a fresh client, closed after it.
+
+    Raises ``RuntimeError`` when the load is refused, so a refusal is never
+    recorded as a time.
+    """
+    with AletheiaClient() as client:
+        start = time.perf_counter()
+        result = client.parse_dbc(dbc)
+        elapsed = Seconds(time.perf_counter() - start)
+    if result["status"] != "success":
+        msg = (
+            f"parse_dbc refused a {len(dbc['messages'])}-message DBC: "
+            + f"{result['code']}: {result['message']}"
+        )
+        raise RuntimeError(msg)
+    return elapsed
+
+
+def benchmark_dbc_size_scaling(
+    *,
+    runs: RunCount,
+    quick: bool = False,
+    file: TextIO | None = None,
+) -> list[_DbcSizeRow]:
+    """Test how DBC load time scales with the number of messages.
+
+    Each point is the minimum over ``runs`` loads: the sweep compares sizes'
+    times, and the minimum is the least noisy estimate of the work.
+    """
+    out = file or sys.stdout
+    print("\n" + "=" * 70, file=out)
+    print("5. DBC Size Scaling", file=out)
+    print("=" * 70, file=out)
+    print("Testing DBC load time as the message count increases...", file=out)
+    print(file=out)
+
+    _load_seconds(_sized_dbc(MessageCount(500)))  # warm-up; its time is discarded
+
+    print(f"{'Messages':>10} {'Time (s)':>10} {'Messages/sec':>12} {'Relative':>10}", file=out)
+    print("-" * 45, file=out)
+
+    baseline_rate: MessageRate | None = None
+    results: list[_DbcSizeRow] = []
+    for size in _dbc_sizes(quick=quick):
+        dbc = _sized_dbc(size)
+        seconds = min(_load_seconds(dbc) for _ in range(runs))
+        rate = MessageRate(size / seconds)
+        if baseline_rate is None:
+            baseline_rate = rate
+        relative = RelativeRate(rate / baseline_rate)
+        print(f"{size:>10,} {seconds:>10.4f} {rate:>12,.0f} {relative:>10.2f}x", file=out)
+        results.append(
+            {
+                "messages": size,
+                "seconds": Seconds(round(seconds, 4)),
+                "messages_per_sec": MessageRate(round(rate, 1)),
+                "relative": RelativeRate(round(relative, 3)),
+            }
+        )
+
+    print(file=out)
+    print(
+        "Expected: Relative stays near 1.0x (load time linear in the number of messages)",
+        file=out,
+    )
+    return results
+
+
 def main() -> int:
     """CLI entry point — parse args, run all scaling sweeps, emit summary."""
     parser = argparse.ArgumentParser(description="Scaling benchmark")
     parser.add_argument("--quick", action="store_true", help="Run faster with fewer iterations")
     parser.add_argument(
-        "--runs", type=int, default=5, help="Streaming passes averaged per sweep point"
+        "--runs",
+        type=int,
+        default=5,
+        help="Passes per sweep point: streaming averaged, DBC loads minimum",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON to stdout")
     args = parser.parse_args()
@@ -378,6 +508,9 @@ def main() -> int:
         ),
         "property_complexity": benchmark_property_complexity_scaling(
             dbc, quick=args.quick, runs=args.runs, file=out
+        ),
+        "dbc_size": benchmark_dbc_size_scaling(
+            quick=args.quick, runs=RunCount(args.runs), file=out
         ),
     }
 

@@ -14,6 +14,7 @@ it on every event a diff reaches it by.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import cast
 
@@ -25,7 +26,7 @@ _WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 # docs/development/BRANCH_PR_HYGIENE.md).  GitHub keeps the ruleset outside the
 # tree, so the names are stated here: a job of one of these names is what a path
 # filter must never be able to skip.
-_REQUIRED_CONTEXTS = frozenset({"tools/run_ci.py (all gates)", "mutation testing"})
+_REQUIRED_CONTEXTS = frozenset({"tools/run_ci.py (all gates)", "mutation testing", "load scaling"})
 
 # The lanes that own no required context, by job name.  Each one builds the
 # whole tree and measures it, which a documentation change cannot move.
@@ -60,9 +61,17 @@ def _ignored_paths(workflow: Workflow) -> dict[str, list[str]]:
 
 
 def _job_names(workflow: Workflow) -> set[str]:
-    """Return every context the workflow reports: a job's ``name``, or its key."""
+    """Return every context the workflow reports: a job's ``name``, or its key.
+
+    A name written as an expression reports whichever of its quoted literals the
+    expression picks, so each of them counts as a name the workflow can report.
+    """
     jobs = cast("dict[str, dict[str, object]]", workflow["jobs"])
-    return {str(job.get("name", key)) for key, job in jobs.items()}
+    spelled = [str(job.get("name", key)) for key, job in jobs.items()]
+    picked = [
+        literal for name in spelled if "${{" in name for literal in re.findall(r"'([^']*)'", name)
+    ]
+    return {*spelled, *picked}
 
 
 def _files() -> list[Path]:

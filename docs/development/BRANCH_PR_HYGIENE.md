@@ -94,6 +94,15 @@ the build tree) only seed on `push: main`, adding it to the ruleset is gated on 
    Flipping before step 3 risks a cold ~33-min run plus a from-source Mull build on
    a merge-blocking path, with no bypass (the bypass list is empty by design).
 
+**Load scaling → required.** The `load scaling` check, the scaling leg of
+`benchmark.yml`, fails when a binding's DBC load time outgrows the doublings of
+its messages (`tools/benchmark_gate.py --bench scaling`). It runs on every pull
+request with no path filter: each leg asks `tools/benchmark_scope.py` whether
+the diff can move a measurement, and reports green without measuring when it
+cannot. Once the pull request that adds it has reported it green, add
+**`load scaling`** to the `main` ruleset's required checks, before that pull
+request merges.
+
 ## How to protect `main` (repo-admin — you must do this in GitHub)
 
 `main` is protected by **repository rulesets** (Settings → Rules → Rulesets) —
@@ -122,7 +131,9 @@ code, so it cannot live in this repo.
      appears in that list **after it has run at least once** — that's why the
      rollout merges `ci-speed` (a green workflow run) *before* this step. Also add
      **`mutation testing`** here once its cache-seeding proof passes (see the
-     mutation rollout note above) — both are required merge gates.
+     mutation rollout note above), and **`load scaling`** once it has reported
+     green (see the load scaling note above) — all three are required merge
+     gates.
 4. Leave the **Bypass list empty** — any actor in it could merge around the gate
    (the ruleset equivalent of an admin override), reopening the hole this closes.
 5. Set **Enforcement status: Enabled** (this repo's UI offers only **Disabled**

@@ -68,16 +68,17 @@ modes:
 
   scaling:
     flags: ["--runs", "--quick", "--json"]
-    # A DICT keyed by sub-benchmark (NOT a flat list) — scaling runs four
+    # A DICT keyed by sub-benchmark (NOT a flat list) — scaling runs five
     # distinct sweeps, each its own row schema.
     results_container: dict
-    sub_benchmarks: [trace_size_can20, trace_size_canfd, property_count, property_complexity]
+    sub_benchmarks: [trace_size_can20, trace_size_canfd, property_count, property_complexity, dbc_size]
     # Per-sub-benchmark row key sets.
     row_keys:
       trace_size_can20: [frames, fps, relative]
       trace_size_canfd: [frames, fps, relative]
       property_count: [properties, fps, us_per_frame, relative]
       property_complexity: [complexity, fps, us_per_frame, relative]
+      dbc_size: [messages, seconds, messages_per_sec, relative]
     # Row COUNT per sweep under --quick (the mode the gate runs) — deterministic,
     # so the gate can assert it without touching measured values.
     quick_row_counts:
@@ -85,6 +86,7 @@ modes:
       trace_size_canfd: 4
       property_count: 6          # [1, 2, 3, 5, 7, 10]
       property_complexity: 5
+      dbc_size: 3                # [2500, 5000, 10000]: two doublings, the gate's
     # The five complexity labels, verbatim and in order (the "complexity" row field).
     complexity_labels:
       - "Simple predicate"
@@ -96,8 +98,10 @@ modes:
 # ── Canonical experiment definitions (for the harness authors; the gate checks
 #    structure/labels/counts, not these magnitudes) ───────────────────────────
 experiment:
-  # Averaging: EVERY scaling point is the mean of --runs streaming passes
-  # (default 5). This is the robust methodology; single-pass is NOT used.
+  # Averaging: every streaming point is the mean of --runs passes (default 5);
+  # single-pass is NOT used.  A dbc_size point is the MINIMUM of --runs loads:
+  # the gate compares two sizes' times, and the minimum is the least noisy
+  # estimate of the work.
   scaling_runs_default: 5
   # Frames per timed pass. For trace-size sweeps the size IS the frame count;
   # for property-count / property-complexity it is fixed:
@@ -108,11 +112,20 @@ experiment:
     full: [1000, 5000, 10000, 50000, 100000]
     quick: [1000, 5000, 10000, 50000]
   property_counts: [1, 2, 3, 5, 7, 10]
-  # relative = fps / (fps of the first row in the same sweep).
+  # dbc_size: messages per DBC, each load on a fresh client after one untimed
+  # 500-message warm-up load.  Message i: name M{i}, extended CAN ID
+  # 0x100000 + i, DLC 8, sender ECU, one signal S{i} (start bit 0, 8 bits,
+  # little-endian, unsigned, factor 1, offset 0, range [0, 255], unit "",
+  # receiver ECU); one node ECU; version "1.0".
+  dbc_sizes:
+    full: [1250, 2500, 5000, 10000]
+    quick: [2500, 5000, 10000]
+  # relative = fps / (fps of the first row in the same sweep); for dbc_size,
+  # messages_per_sec / (the first row's messages_per_sec).
   relative_baseline: first_row
   # Rounding (match across bindings): fps -> 1 dp, us_per_frame -> 1 dp,
-  # relative -> 3 dp.
-  rounding: { fps: 1, us_per_frame: 1, relative: 3 }
+  # relative -> 3 dp, seconds -> 4 dp, messages_per_sec -> 1 dp.
+  rounding: { fps: 1, us_per_frame: 1, relative: 3, seconds: 4, messages_per_sec: 1 }
   # trace-size sweep properties (one Always-wrapped range predicate each):
   trace_size_property:
     can20: "Always(Atomic(Between(EngineSpeed, 0, 8000)))"

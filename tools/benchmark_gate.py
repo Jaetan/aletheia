@@ -1,6 +1,14 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""Throughput regression gate for the cross-language benchmark.
+"""Regression gates for the cross-language benchmark.
+
+``--bench scaling`` checks the ``dbc_size`` sweep instead: in every binding,
+doubling a DBC's messages must not multiply its load time by more than
+``MAX_DOUBLING``.  A linear load doubles its time; a load quadratic in its
+messages quadruples it.  Every binding must have reported, since this check
+is required: a missing result fails it.
+
+Otherwise, the throughput gate:
 
 Compares the per-lane mean throughput in ``benchmarks/results/*_<bench>.json``
 (produced by ``benchmarks/run_all.sh``) against a committed GitHub-runner
@@ -22,10 +30,13 @@ known-good run) and exits 0.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import sys
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import NewType, TypedDict, cast
+
+from aletheia.common_types import ExitStatus, Prose
 
 # The four bindings benchmarked by run_all.sh, the languages benchmarks/SCHEMA.yaml
 # names. A binding absent from a run (one that failed to build) is skipped, not
@@ -48,6 +59,96 @@ class _ResultFile(TypedDict):
     """Shape of ``benchmarks/results/<binding>_<bench>.json`` (fields we read)."""
 
     results: list[_Row]
+
+
+# A number of DBC messages, a load time, and how many times one time is another.
+MessageCount = NewType("MessageCount", int)
+Seconds = NewType("Seconds", float)
+GrowthFactor = NewType("GrowthFactor", float)
+
+# A linear load doubles its time when its messages double, and a quadratic one
+# quadruples it; this sits between.  Measured on one machine, best of five
+# loads per point, over the quick sweep's two doublings (2,500 to 10,000
+# messages): the four bindings grew x4.07 to x4.39, a validator comparing every
+# pair of messages x21.5, against the x9 this allows.
+MAX_DOUBLING = GrowthFactor(3.0)
+
+
+class _DbcSizeRow(TypedDict):
+    """One point of the ``dbc_size`` scaling sweep (fields we read)."""
+
+    messages: MessageCount
+    seconds: Seconds
+
+
+class _ScalingResults(TypedDict):
+    """The scaling sweeps of a result file (the one this gate reads)."""
+
+    dbc_size: list[_DbcSizeRow]
+
+
+class _ScalingFile(TypedDict):
+    """Shape of ``benchmarks/results/<binding>_scaling.json`` (fields we read)."""
+
+    results: _ScalingResults
+
+
+def _check_dbc_size(results_dir: Path, max_doubling: GrowthFactor) -> ExitStatus:
+    """Fail when a binding is missing or its load time outgrows the doublings of its messages.
+
+    Each step of the sweep doubles the messages.  The check is on the whole
+    sweep, the last time over the first against ``max_doubling`` to the power
+    of the doublings: a single step's ratio carries one step's noise, and the
+    wider the range the further a quadratic load's growth sits from a linear one.
+    """
+    _emit(
+        "benchmark-gate: each doubling of a DBC's messages may multiply its load time"
+        + f" by at most {max_doubling}, over the whole sweep\n"
+    )
+    failures: list[Prose] = []
+    for binding in BINDINGS:
+        path = results_dir / f"{binding}_scaling.json"
+        if not path.is_file():
+            failures.append(Prose(f"{binding}: no {path.name}"))
+            continue
+        data = cast("_ScalingFile", json.loads(path.read_text(encoding="utf-8")))
+        rows = data["results"].get("dbc_size", [])
+        if len(rows) < len(("small", "large")):
+            failures.append(
+                Prose(f"{binding}: dbc_size has {len(rows)} point(s), a doubling needs two")
+            )
+            continue
+        steps = list(itertools.pairwise(rows))
+        if any(large["messages"] != 2 * small["messages"] for small, large in steps):
+            failures.append(Prose(f"{binding}: the dbc_size points do not double"))
+            continue
+        for small, large in steps:
+            _emit(
+                f"  {binding:7s} {small['messages']:>6} -> {large['messages']:>6} messages:"
+                + f" {small['seconds']:.4f} s -> {large['seconds']:.4f} s"
+                + f" (x{large['seconds'] / small['seconds']:.2f})"
+            )
+        growth = rows[-1]["seconds"] / rows[0]["seconds"]
+        allowed = max_doubling ** len(steps)
+        flag = "  <-- SUPERLINEAR" if growth > allowed else ""
+        _emit(
+            f"  {binding:7s} {rows[0]['messages']:>6} -> {rows[-1]['messages']:>6} messages:"
+            + f" x{growth:.2f} (at most x{allowed:.2f}){flag}"
+        )
+        if growth > allowed:
+            failures.append(
+                Prose(
+                    f"{binding}: {rows[0]['messages']} -> {rows[-1]['messages']} messages took"
+                    + f" {growth:.2f} times as long (at most {allowed:.2f})"
+                )
+            )
+    if failures:
+        _fail("\nbenchmark-gate: FAIL:")
+        for line in failures:
+            _fail(f"  {line}")
+        return ExitStatus(1)
+    _emit("\nbenchmark-gate: ok (no binding's load time outgrew its messages past the factor)")
+    return ExitStatus(0)
 
 
 def _emit(message: str = "") -> None:
@@ -139,6 +240,8 @@ def _parse_args(argv: list[str] | None) -> tuple[str, Path, Path, float]:
 def main(argv: list[str] | None = None) -> int:
     """Compare the latest benchmark run against the baseline; return the exit code."""
     bench, results_dir, baseline_path, threshold_pct = _parse_args(argv)
+    if bench == "scaling":
+        return _check_dbc_size(results_dir, MAX_DOUBLING)
 
     current = _load_results(results_dir, bench)
     if not current:

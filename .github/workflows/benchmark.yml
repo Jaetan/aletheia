@@ -1,34 +1,25 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# One-off cross-language throughput benchmark on a real GitHub-hosted runner
-# (ubuntu-24.04, 4-core / ~16 GB).  Manual (workflow_dispatch) only — this is
-# not a gate; it answers "what do the numbers look like on a constrained
-# GHA-class machine?" with the SUPPORTED toolchain (clang-23 / Python 3.14 /
-# Go stable).  Results are printed to the log and uploaded as an artifact.
+# The cross-language benchmark on a GitHub-hosted runner (ubuntu-24.04,
+# 4-core / ~16 GB), with the supported toolchain (clang-23 / Python 3.14 / Go
+# stable), in two legs on every pull request: throughput, gated against the
+# committed GHA baseline and advisory, and `load scaling`, which fails when a
+# binding's DBC load time outgrows the doublings of its messages and is a
+# check the main branch ruleset requires.  A manual run measures the one mode
+# it is given.  Results are printed to the log and uploaded as an artifact.
 # The toolchain setup mirrors pr-full-ci.yml and reuses its cache keys so the
 # Agda build and the clang-23 debs are warm if that workflow has run.
 
 name: Benchmark
 
 on:
-  # On every PR: a regression gate (tools/benchmark_gate.py fails the check if
-  # any lane is >30% slower than the committed GHA baseline, generous because
-  # the shared runner is noisy, or if a binding that ran lacks a baseline lane;
-  # see benchmarks/gha_baseline.json).
+  # On every PR, with no path filter: `load scaling` is required, and a
+  # workflow a filter skips reports nothing, which leaves a required check
+  # pending.  Each leg asks instead whether the diff can move a measurement
+  # (tools/benchmark_scope.py) and installs and measures only if it can, so a
+  # documentation-only change costs the scope question and nothing more.
   pull_request:
-    # Doc-only PRs cannot change runtime throughput, so skip the ~12-min lane
-    # for them.  Safe because Benchmark is NOT a required check (the main
-    # ruleset requires only run_ci + mutation), so a path-skipped run never
-    # leaves a required check pending.  No paired `paths:` allowlist — adding
-    # one would flip the default to "deny unless matched".  workflow_dispatch
-    # ignores path filters, so manual exploratory runs are unaffected.  The list
-    # is shared with pr-build-lanes.yml, the other lanes no required check
-    # reports; python/tests/test_doc_only_path_exemption.py holds the two equal,
-    # GitHub having no way to write the set once.
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
   # Manual: ad-hoc numbers with custom parameters (the gate is PR-only, so
   # exploratory dispatch runs are never gated).
   workflow_dispatch:
@@ -60,7 +51,15 @@ concurrency:
 
 jobs:
   benchmark:
-    name: cross-language throughput (ubuntu-24.04)
+    # One leg per mode: throughput and scaling on a pull request, the chosen
+    # mode on a manual run.  Each leg reports its own check, so `load scaling`
+    # can be required while throughput stays advisory, and a failed leg does
+    # not cancel the other.
+    name: ${{ matrix.bench == 'scaling' && 'load scaling' || format('cross-language {0} (ubuntu-24.04)', matrix.bench) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        bench: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', github.event.inputs.bench) || '["throughput", "scaling"]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
@@ -71,12 +70,44 @@ jobs:
       # because every PR run uses these same values, matching the baseline.
       FRAMES: ${{ github.event.inputs.frames || '5000' }}
       RUNS: ${{ github.event.inputs.runs || '5' }}
-      BENCH: ${{ github.event.inputs.bench || 'throughput' }}
+      BENCH: ${{ matrix.bench }}
     steps:
-      - name: Checkout
+      - name: Checkout (full history, for the diff the scope reads)
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Ensure a local `main` ref for `git diff main...HEAD`
+        run: git fetch --no-tags origin +refs/heads/main:refs/heads/main || true
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+          # Cache pip's wheel-download cache, keyed on the dependency manifest,
+          # so `pip install -e python/.[dev]` reuses downloaded wheels across
+          # runs (the venv itself is re-created each run; this saves the fetch).
+          cache: pip
+          cache-dependency-path: python/pyproject.toml
+
+      - name: Create the dev venv (python/.venv) with aletheia installed
+        run: |
+          set -euo pipefail
+          python3.14 -m venv python/.venv
+          python/.venv/bin/pip install --upgrade pip
+          python/.venv/bin/pip install -e 'python/.[dev]'
+
+      # Whether this diff can move a measurement: the same reading of the diff
+      # the mutation lanes scope by (tools/benchmark_scope.py says which paths
+      # count).  Every later step that installs, builds or measures reads
+      # LANE_MEASURES as `!= '0'`, so an answer that did not arrive measures.
+      # The job itself always runs, so `load scaling`, a required check, is
+      # reported on every pull request, measured or not.
+      - name: Does this diff move a measurement?
+        run: python/.venv/bin/python3 -m tools.benchmark_scope
 
       - name: Set up GHC + cabal
+        if: env.LANE_MEASURES != '0'
         run: |
           set -euo pipefail
           echo "CABAL_DIR=${HOME}/.cabal" >> "${GITHUB_ENV}"
@@ -93,6 +124,7 @@ jobs:
 
       # GHC cached in the directory ghcup installs it to (pr-full-ci.yml says why).
       - name: Restore GHC ${{ env.GHC_VERSION }}
+        if: env.LANE_MEASURES != '0'
         id: ghc-cache
         uses: actions/cache/restore@v6
         with:
@@ -100,7 +132,7 @@ jobs:
           key: ghc${{ env.GHC_VERSION }}-noble-v2
 
       - name: Install GHC ${{ env.GHC_VERSION }} (only on a cache miss)
-        if: steps.ghc-cache.outputs.cache-hit != 'true'
+        if: env.LANE_MEASURES != '0' && steps.ghc-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           ghcup install ghc "${GHC_VERSION}" --set
@@ -111,7 +143,7 @@ jobs:
           }
 
       - name: Save GHC (only on a cache miss)
-        if: steps.ghc-cache.outputs.cache-hit != 'true'
+        if: env.LANE_MEASURES != '0' && steps.ghc-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ${{ env.GHC_DIR }}
@@ -120,6 +152,7 @@ jobs:
       # Reuses pr-full-ci.yml's cabal cache key so the (15-20 min) Agda build is
       # warm whenever that workflow has populated it.
       - name: Restore cabal store (Agda library + executable + deps)
+        if: env.LANE_MEASURES != '0'
         id: cabal-cache
         uses: actions/cache/restore@v6
         with:
@@ -134,18 +167,20 @@ jobs:
       # The index is refreshed only where no store was restored (pr-full-ci.yml
       # says why).
       - name: Update cabal package index (only on a cabal-store cache miss)
-        if: steps.cabal-cache.outputs.cache-matched-key == ''
+        if: env.LANE_MEASURES != '0' && steps.cabal-cache.outputs.cache-matched-key == ''
         run: cabal update
 
       - name: Install Agda ${{ env.AGDA_VERSION }} (binary + store library)
+        if: env.LANE_MEASURES != '0'
         run: cabal install "Agda-${AGDA_VERSION}" --overwrite-policy=always
 
       # The shake executable's dependencies join the store (pr-full-ci.yml says why).
       - name: Build the shake executable's dependencies into the store
+        if: env.LANE_MEASURES != '0'
         run: cabal build --only-dependencies aletheia-build:exe:shake
 
       - name: Save cabal store (only on a cache miss)
-        if: steps.cabal-cache.outputs.cache-hit != 'true'
+        if: env.LANE_MEASURES != '0' && steps.cabal-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: |
@@ -155,12 +190,14 @@ jobs:
           key: cabal-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-${{ hashFiles('shake.cabal') }}-v3
 
       - name: Cache agda-stdlib ${{ env.STDLIB_VERSION }}
+        if: env.LANE_MEASURES != '0'
         uses: actions/cache@v6
         with:
           path: ~/.agda/agda-stdlib
           key: agda-stdlib-${{ env.STDLIB_VERSION }}
 
       - name: Install + register agda-stdlib ${{ env.STDLIB_VERSION }}
+        if: env.LANE_MEASURES != '0'
         run: |
           set -euo pipefail
           mkdir -p ~/.agda
@@ -171,17 +208,8 @@ jobs:
           echo "${HOME}/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries
           echo "standard-library" > ~/.agda/defaults
 
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-          # Cache pip's wheel-download cache, keyed on the dependency manifest,
-          # so `pip install -e python/.[dev]` reuses downloaded wheels across
-          # runs (the venv itself is re-created each run; this saves the fetch).
-          cache: pip
-          cache-dependency-path: python/pyproject.toml
-
       - name: Set up Go
+        if: env.LANE_MEASURES != '0'
         uses: actions/setup-go@v7
         with:
           go-version: 'stable'
@@ -192,11 +220,13 @@ jobs:
       # ubuntu-24.04 pre-installs only clang ≤19; install clang-23 (the supported
       # toolchain) from apt.llvm.org.  Reuses pr-full-ci.yml's deb-cache key.
       - name: Cache clang-23 .debs (Clang is a large download)
+        if: env.LANE_MEASURES != '0'
         uses: actions/cache@v6
         with:
           path: ~/llvm-cache
           key: clang23-libstdcxx15-noble-v1
       - name: Install C++ toolchain (clang-23 from apt.llvm.org)
+        if: env.LANE_MEASURES != '0'
         run: |
           set -euo pipefail
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
@@ -237,6 +267,7 @@ jobs:
       # reproduces the exact current .so and the benchmark measures the PR's
       # actual code.
       - name: Restore incremental build tree (build/ + _build/ + dist-newstyle/)
+        if: env.LANE_MEASURES != '0'
         uses: actions/cache/restore@v6
         with:
           path: |
@@ -249,20 +280,15 @@ jobs:
             build-tree-${{ runner.os }}-ghc${{ env.GHC_VERSION }}-agda${{ env.AGDA_VERSION }}-stdlib${{ env.STDLIB_VERSION }}-
 
       - name: Build the FFI library (libaletheia-ffi.so)
+        if: env.LANE_MEASURES != '0'
         run: cabal run shake -- build
-
-      - name: Create the dev venv (python/.venv) with aletheia installed
-        run: |
-          set -euo pipefail
-          python3.14 -m venv python/.venv
-          python/.venv/bin/pip install --upgrade pip
-          python/.venv/bin/pip install -e 'python/.[dev]'
 
       # ── C++ build caching (ccache + CMake FetchContent deps) ────────────────
       # Both must be in place BEFORE the cmake CONFIGURE below: cpp/CMakeLists.txt
       # bakes the ccache launcher (CMAKE_CXX_COMPILER_LAUNCHER) at find_program =
       # configure time, and FetchContent downloads its deps during configure.
       - name: Set up ccache
+        if: env.LANE_MEASURES != '0'
         run: |
           set -euo pipefail
           command -v ccache >/dev/null || sudo apt-get install -y ccache
@@ -277,6 +303,7 @@ jobs:
       # immutable-key race and cold-start pr-full-ci's ctest/ubsan lanes.
       # Separate pools (split restore/save, like the build tree).
       - name: Restore ccache (benchmark lane)
+        if: env.LANE_MEASURES != '0'
         id: ccache-cache
         uses: actions/cache/restore@v6
         with:
@@ -296,6 +323,7 @@ jobs:
       # FetchContent fetch has hit before).  The save below persists them even
       # on a red later step.
       - name: Restore C++ FetchContent deps (benchmark lane)
+        if: env.LANE_MEASURES != '0'
         id: cpp-deps-cache
         uses: actions/cache/restore@v6
         with:
@@ -303,6 +331,7 @@ jobs:
           key: cpp-deps-bench-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
 
       - name: Build the C++ benchmark (Release, clang-23)
+        if: env.LANE_MEASURES != '0'
         run: |
           set -euo pipefail
           # -S cpp: CMakeLists.txt lives in cpp/, not the repo root.
@@ -311,6 +340,7 @@ jobs:
           cmake --build cpp/build --target benchmark
 
       - name: Build the Go benchmark
+        if: env.LANE_MEASURES != '0'
         run: |
           set -euo pipefail
           cd go && go build -o benchmarks/benchmark ./benchmarks/
@@ -321,6 +351,7 @@ jobs:
       # every binding — the run_ci copy only reaches the Python reference. Runs
       # BEFORE the measurement so a schema regression fails fast.
       - name: Cross-binding benchmark-schema conformance
+        if: env.LANE_MEASURES != '0'
         run: |
           set -euo pipefail
           cargo build --release --example benchmark --manifest-path rust/Cargo.toml
@@ -331,23 +362,27 @@ jobs:
           python3 -m tools.check_bench_schema --built
 
       - name: Select the arguments the chosen mode reads
+        if: env.LANE_MEASURES != '0'
         run: |
           set -euo pipefail
           # run_all.sh refuses a flag the selected mode does not read, rather
           # than accepting it and measuring its default: throughput reads both
           # counts, latency reads the frame count as its operation count, and
-          # scaling picks its own trace sizes and reads the run count. The
+          # scaling picks its own sweep sizes and reads the run count, plus the
+          # quick sweeps on a pull request, which are what its gate judges. The
           # dispatch inputs are numbers and mode names, so the string splits
           # back into arguments safely where it is used.
           case "${BENCH}" in
             throughput) args="--frames ${FRAMES} --runs ${RUNS}" ;;
             latency)    args="--frames ${FRAMES}" ;;
-            scaling)    args="--runs ${RUNS}" ;;
+            scaling)    args="--runs ${RUNS}"
+                        if [ "${GITHUB_EVENT_NAME}" = pull_request ]; then args="${args} --quick"; fi ;;
             *) echo "unknown bench '${BENCH}'" >&2; exit 1 ;;
           esac
           echo "BENCH_ARGS=${args}" >> "${GITHUB_ENV}"
 
       - name: Run the cross-language benchmark
+        if: env.LANE_MEASURES != '0'
         run: |
           set -euo pipefail
           # Activate the venv so run_all.sh's `python3 -m benchmarks.<bench>`
@@ -356,10 +391,12 @@ jobs:
           read -ra args <<< "${BENCH_ARGS}"
           bash benchmarks/run_all.sh "${args[@]}" --bench "${BENCH}"
 
-      # PR gate: fail the check on a noticeable regression vs the committed GHA
-      # baseline. PR-only (exploratory workflow_dispatch runs are not gated). On
-      # the first run there is no baseline yet — the gate reports + passes
-      # (bootstrap); seed benchmarks/gha_baseline.json from that known-good run.
+      # PR gate.  Throughput: fail the check on a noticeable regression vs the
+      # committed GHA baseline; with no baseline yet the gate reports + passes
+      # (bootstrap), and benchmarks/gha_baseline.json is seeded from that
+      # known-good run.  Scaling: fail when a binding's DBC load time outgrows
+      # the doublings of its messages (tools/benchmark_gate.py says by how
+      # much).  PR-only: exploratory workflow_dispatch runs are not gated.
       #
       # Retry-once WITH RE-MEASURE (jitter watch, 2026-07-02): #132 failed this
       # gate with a uniform ~2.7× slowdown across EVERY binding and category on
@@ -372,16 +409,18 @@ jobs:
       # count retries across runs with:
       #   gh api /repos/OWNER/REPO/actions/artifacts --paginate \
       #     --jq '[.artifacts[] | select(.name | test("attempt1"))] | length'
-      - name: Regression gate (vs GHA baseline; retry-once with re-measure)
-        if: github.event_name == 'pull_request'
+      - name: Regression gate (retry-once with re-measure)
+        if: env.LANE_MEASURES != '0' && github.event_name == 'pull_request'
         run: |
           set -euo pipefail
-          if python/.venv/bin/python3 -m tools.benchmark_gate --bench "${BENCH}" --threshold-pct 30; then
+          gate=(--bench "${BENCH}")
+          if [ "${BENCH}" = throughput ]; then gate+=(--threshold-pct 30); fi
+          if python/.venv/bin/python3 -m tools.benchmark_gate "${gate[@]}"; then
             exit 0
           fi
-          echo "::warning title=FLAKE-RETRY::throughput gate failed on attempt 1 — re-measuring once (runner jitter suspected; see the jitter watch)"
+          echo "::warning title=FLAKE-RETRY::${BENCH} gate failed on attempt 1 — re-measuring once (runner jitter suspected; see the jitter watch)"
           {
-            echo "## ⚠ FLAKE-RETRY: cross-language throughput"
+            echo "## ⚠ FLAKE-RETRY: cross-language ${BENCH}"
             echo ""
             echo "Attempt 1 failed the regression gate; the benchmark re-measured once."
             echo "If attempt 2 passes, attempt 1 was runner jitter (a symmetric global"
@@ -397,7 +436,7 @@ jobs:
           source python/.venv/bin/activate
           read -ra args <<< "${BENCH_ARGS}"
           bash benchmarks/run_all.sh "${args[@]}" --bench "${BENCH}"
-          python/.venv/bin/python3 -m tools.benchmark_gate --bench "${BENCH}" --threshold-pct 30
+          python/.venv/bin/python3 -m tools.benchmark_gate "${gate[@]}"
 
       # Print + upload AFTER the gate so a retried run's artifact holds the
       # FINAL (attempt-2) results; the first attempt uploads separately below.
@@ -413,7 +452,7 @@ jobs:
           done
 
       - name: Upload benchmark results
-        if: always()
+        if: always() && env.LANE_MEASURES != '0'
         uses: actions/upload-artifact@v7
         with:
           name: benchmark-${{ env.BENCH }}-results
@@ -421,7 +460,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload first-attempt results (only exists on a retry)
-        if: always()
+        if: always() && env.LANE_MEASURES != '0'
         uses: actions/upload-artifact@v7
         with:
           name: benchmark-${{ env.BENCH }}-results-attempt1
@@ -432,7 +471,7 @@ jobs:
       # even if the regression gate above failed; skip on an exact-sha re-run
       # hit, since GHA cache keys are immutable).
       - name: Save ccache (benchmark lane)
-        if: ${{ !cancelled() && steps.ccache-cache.outputs.cache-hit != 'true' }}
+        if: ${{ env.LANE_MEASURES != '0' && !cancelled() && steps.ccache-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6
         with:
           path: ~/.ccache
@@ -443,8 +482,12 @@ jobs:
       # Skip on an exact-key hit (immutable keys); the key is content-addressed
       # on CMakeLists.txt, so on a re-run with unchanged deps this no-ops.
       - name: Save C++ FetchContent deps (benchmark lane)
-        if: ${{ !cancelled() && steps.cpp-deps-cache.outputs.cache-hit != 'true' }}
+        if: ${{ env.LANE_MEASURES != '0' && !cancelled() && steps.cpp-deps-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6
         with:
           path: cpp/build/_deps
           key: cpp-deps-bench-${{ runner.os }}-${{ hashFiles('cpp/CMakeLists.txt') }}
+
+      - name: Nothing to measure on this diff
+        if: env.LANE_MEASURES == '0'
+        run: echo "This diff moves no binding, the kernel or the benchmark harness, so nothing was measured or gated."

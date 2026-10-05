@@ -305,7 +305,7 @@ The most common codes you'll see:
 | `signal_exceeds_dlc` | Signal's bit range extends past `DLC` bytes. | error |
 | `multiplexor_not_found` | Multiplexed signal references an absent multiplexor. | error |
 | `factor_zero` | `factor=0` makes physical-value extraction undefined. | error |
-| `duplicate_message_id` | Two messages share the same CAN ID. | error |
+| `duplicate_message_id` | Two or more messages share a CAN ID; one issue names them all. | error |
 | `range_exceeds_bits` | A declared minimum or maximum lies past every value the signal's bits carry after scaling. | error |
 | `unknown_message_sender` | `BU_` sender declared but not in node list. | warning |
 

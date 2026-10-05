@@ -156,18 +156,15 @@ open import Data.Maybe using (Maybe; nothing; just)
 open import Data.Maybe.Properties using (≡-dec)
 open import Data.Nat using (ℕ)
 open import Data.Nat.Properties using (_≟_)
-open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.String using (String; fromList) renaming (_++_ to _++ₛ_)
 open import Data.Unit using (tt)
 open import Relation.Nullary.Decidable using (Dec; yes; no; ¬?)
 
-open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.DBC.Decidable.SignalGeometry using
   (startBitInFrame?; bitLengthInFrame?; bitLengthPositive?; signalFitsFrame?)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
-open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Identifier using (nameStr; _≟ᴵ_)
 open import Aletheia.DBC.TextFormatter.Attributes using (nthLabel; collectDefs)
 open import Aletheia.DBC.TextParser.Attributes using (findLabel; lookupDef)
@@ -188,6 +185,9 @@ open import Aletheia.DBC.Types using
   ; AttributeEnumEmpty; UnknownAttributeName; AttributeValueTypeMismatch
   ; AttributeEnumDefaultUnstable )
 open import Aletheia.DBC.Validity.Combinators using (requireDec)
+open import Aletheia.DBC.Validator.SharedKeys using
+  (Entry; showCanIdText; messageIdEntries; sharedKeyGroups; sharedIdText)
+open import Data.List.NonEmpty using (List⁺)
 
 -- The mux-presence (`wfps`) and master-coherence (`mc`) deciders live in the
 -- Foundations submodule — the structural validator's warning-class mirrors
@@ -204,10 +204,6 @@ open import Aletheia.DBC.TextParser.WellFormedCheck.Foundations public
 -- `Validator/Checks.agda:checkUnknownValueDescriptionTarget` (same code, same
 -- detail shape); re-derived here so the WF field is decided from THIS output.
 
-showCanIdText : CANId → String
-showCanIdText (CANId.Standard n _) = showℕ n
-showCanIdText (CANId.Extended n _) = showℕ n
-
 checkUnresolved : List RawValueDesc → List ValidationIssue
 checkUnresolved = concatMap unresolvedIssue
   where
@@ -221,10 +217,11 @@ checkUnresolved = concatMap unresolvedIssue
 
 -- ── uniqueness (WF fields `sig-names-unique`, `msg-ids-unique`) ──────────────
 --
--- Decide the record fields' EXACT mapped forms — `AllPairs _≢_ (map …)` — directly
--- with stdlib `allPairs?`, so `requireDec-sound` lands the field with no bridge
--- from the validator's string/list form.  `allPairs?` decides the whole
--- list, so the detail is generic (it does not single out the offending pair).
+-- Signal names: decided in the record field's exact mapped form,
+-- `AllPairs _≢_ (map …)`, with stdlib `allPairs?`, so `requireDec-sound` lands
+-- the field with no bridge; the detail is generic.  Message IDs: grouped by
+-- CAN ID in time O(N log N), as the validator groups them
+-- (`Validator.SharedKeys`), one warning per CAN ID two or more messages share.
 
 checkSigNamesUnique : List DBCSignal → List ValidationIssue
 checkSigNamesUnique sigs =
@@ -232,11 +229,13 @@ checkSigNamesUnique sigs =
     (mkIssue IsWarning DuplicateSignalName
       "duplicate signal name within a message (text round-trip needs unique signal names)")
 
+msgIdIssue : List⁺ Entry → ValidationIssue
+msgIdIssue g =
+  mkIssue IsWarning DuplicateMessageId
+    (sharedIdText g ++ₛ " (text round-trip needs unique message IDs)")
+
 checkMsgIdsUnique : List DBCMessage → List ValidationIssue
-checkMsgIdsUnique msgs =
-  requireDec (allPairs? (λ x y → ¬? (x ≟-CANId y)) (map DBCMessage.id msgs))
-    (mkIssue IsWarning DuplicateMessageId
-      "duplicate message CAN ID (text round-trip needs unique message IDs)")
+checkMsgIdsUnique msgs = map msgIdIssue (sharedKeyGroups (messageIdEntries msgs))
 
 -- ── signal arithmetic (WF `wf-sigs` = All WellFormedSignal, whose payload is
 -- WellFormedSignalDef — derived from the frame-capacity arms below via the

@@ -9,10 +9,11 @@
 # Results are saved as JSON in benchmarks/results/.
 #
 # Usage:
-#     ./benchmarks/run_all.sh [--frames N] [--runs N] [--warmup N] [--bench throughput|latency|scaling]
+#     ./benchmarks/run_all.sh [--frames N] [--runs N] [--warmup N] [--quick] [--bench throughput|latency|scaling]
 #
-# --warmup is the latency mode's and is refused for the others, where it
-# would reach nothing.
+# --warmup is the latency mode's and --quick the scaling mode's (each binding's
+# shorter sweeps, the ones the pull-request gate runs); each is refused by the
+# other modes, where it would reach nothing.
 #
 # Results go to benchmarks/results/ unless ALETHEIA_BENCH_RESULTS_DIR names
 # another directory.  The override exists so a probe can exercise this script
@@ -45,6 +46,7 @@ BENCH=throughput
 # lanes four ways and the committed baselines were not comparable. 500 is the
 # larger of the two, which is what the Python and C++ baselines were taken at.
 WARMUP=500
+QUICK=0
 
 # The flags actually given, whatever their value, so that a flag the selected
 # mode does not read can be told from a default it never chose.
@@ -57,6 +59,7 @@ while [[ $# -gt 0 ]]; do
         --runs)   RUNS="$2";   GIVEN="$GIVEN runs";   shift 2 ;;
         --bench)  BENCH="$2";  shift 2 ;;
         --warmup) WARMUP="$2"; GIVEN="$GIVEN warmup"; shift 2 ;;
+        --quick)  QUICK=1;     GIVEN="$GIVEN quick";  shift ;;
         *)        echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
 done
@@ -92,7 +95,8 @@ esac
 # builders below are written from: throughput takes both counts; latency takes
 # the frame count, as the number of operations it times, and the warmup, which
 # it counts in operations where the other modes would count whole runs of the
-# frame set; scaling picks its own trace sizes and takes the run count alone.
+# frame set; scaling picks its own sweep sizes and takes the run count and
+# whether to run the quick sweeps.
 #
 # A flag the selected mode does not read is refused here rather than accepted
 # and dropped, which is the one thing this harness will not do with an
@@ -102,7 +106,7 @@ esac
 case "$BENCH" in
     throughput) READS="frames runs" ;;
     latency)    READS="frames warmup" ;;
-    scaling)    READS="runs" ;;
+    scaling)    READS="runs quick" ;;
 esac
 for flag in $GIVEN; do
     case " $READS " in
@@ -155,7 +159,7 @@ echo "Benchmark: $BENCH"
 case $BENCH in
     throughput) echo "Frames:    $FRAMES"; echo "Runs:      $RUNS" ;;
     latency)    echo "Ops:       $FRAMES"; echo "Warmup:    $WARMUP" ;;
-    scaling)    echo "Runs:      $RUNS" ;;
+    scaling)    echo "Runs:      $RUNS"; if [[ "$QUICK" == 1 ]]; then echo "Sweeps:    quick"; fi ;;
 esac
 echo "Library:   $ALETHEIA_LIB"
 echo ""
@@ -254,7 +258,8 @@ PYTHON_ARGS=(--json)
 case $BENCH in
     throughput) PYTHON_ARGS=(--frames "$FRAMES" --runs "$RUNS" "${PYTHON_ARGS[@]}") ;;
     latency)    PYTHON_ARGS=(--ops "$FRAMES" --warmup "$WARMUP" "${PYTHON_ARGS[@]}") ;;
-    scaling)    PYTHON_ARGS=(--runs "$RUNS" "${PYTHON_ARGS[@]}") ;;
+    scaling)    PYTHON_ARGS=(--runs "$RUNS" "${PYTHON_ARGS[@]}")
+                if [[ "$QUICK" == 1 ]]; then PYTHON_ARGS+=(--quick); fi ;;
 esac
 
 cd "$PROJECT_DIR/python"
@@ -290,7 +295,8 @@ if [[ -f "$CPP_CACHE" ]]; then
         case $BENCH in
             throughput) CPP_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
             latency)    CPP_ARGS+=(--ops "$FRAMES" --warmup "$WARMUP") ;;
-            scaling)    CPP_ARGS+=(--runs "$RUNS") ;;
+            scaling)    CPP_ARGS+=(--runs "$RUNS")
+                        if [[ "$QUICK" == 1 ]]; then CPP_ARGS+=(--quick); fi ;;
         esac
 
         if run_benchmark "C++" "$RESULTS_DIR/cpp_${BENCH}.json" \
@@ -326,7 +332,8 @@ if GO_BUILD_LOG="$(cd "$GO_DIR" && go build -o benchmarks/benchmark ./benchmarks
     case $BENCH in
         throughput) GO_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
         latency)    GO_ARGS+=(--ops "$FRAMES" --warmup "$WARMUP") ;;
-        scaling)    GO_ARGS+=(--runs "$RUNS") ;;
+        scaling)    GO_ARGS+=(--runs "$RUNS")
+                    if [[ "$QUICK" == 1 ]]; then GO_ARGS+=(--quick); fi ;;
     esac
 
     if run_benchmark "Go" "$RESULTS_DIR/go_${BENCH}.json" \
@@ -359,7 +366,8 @@ if RUST_BUILD_LOG="$(cd "$RUST_DIR" && cargo build --release --example benchmark
     case $BENCH in
         throughput) RUST_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
         latency)    RUST_ARGS+=(--ops "$FRAMES" --warmup "$WARMUP") ;;
-        scaling)    RUST_ARGS+=(--runs "$RUNS") ;;
+        scaling)    RUST_ARGS+=(--runs "$RUNS")
+                    if [[ "$QUICK" == 1 ]]; then RUST_ARGS+=(--quick); fi ;;
     esac
 
     if run_benchmark "Rust" "$RESULTS_DIR/rust_${BENCH}.json" \

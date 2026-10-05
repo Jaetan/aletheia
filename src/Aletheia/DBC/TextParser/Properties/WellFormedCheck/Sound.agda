@@ -12,19 +12,22 @@ module Aletheia.DBC.TextParser.Properties.WellFormedCheck.Sound where
 
 open import Data.List using (List; []; _∷_; map)
 open import Data.Product using (proj₁; proj₂)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; cong)
 open import Relation.Nullary.Decidable using (¬?)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs; allPairs?)
 import Data.List.Relation.Unary.All as All
 open All using (All)
 
 open import Aletheia.CAN.DLC using (dlcBytes)
-open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Identifier using (_≟ᴵ_)
 open import Aletheia.DBC.Types using (DBC; DBCSignal; DBCMessage; DBCAttribute; RawValueDesc)
 open import Aletheia.DBC.Formatter.WellFormed using (PhysicallyValid)
 open import Aletheia.DBC.Formatter.WellFormedText using (MasterCoherent; WellFormedTextPresence)
 open import Aletheia.DBC.Validity.Combinators using (requireDec-sound; requireDec-complete)
+open import Aletheia.DBC.Validator.SharedKeys using (sharedKeyGroups; messageIdEntries)
+open import Aletheia.DBC.Validator.SharedKeys.Properties using
+  (map-≡[]; idsDistinct-sound; idsDistinct-complete)
+import Data.List.Relation.Unary.AllPairs.Properties as AllPairsₚ
 open import Aletheia.DBC.Validity.ListLemmas using
   (++-≡[]-split; ++-≡[]-combine; concatMap-≡[]-sound; concatMap-≡[]-complete)
 open import Aletheia.DBC.JSONParser.MessageWF using (dlcBytes-bounded)
@@ -32,7 +35,7 @@ open import Aletheia.DBC.TextFormatter.Attributes using (collectDefs)
 open import Aletheia.DBC.TextParser.WellFormed using (WellFormedTextDBCAgg)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using (WFAttribute)
 open import Aletheia.DBC.TextParser.WellFormedCheck using
-  (mcIssue; masterCoherent?; checkSigNamesUnique; checkMsgIdsUnique; checkUnresolved;
+  (mcIssue; masterCoherent?; checkSigNamesUnique; checkMsgIdsUnique; msgIdIssue; checkUnresolved;
    checkTextMessage; checkAttrs; wfTextIssues; checkSignalBounds; pvGo)
 open import Aletheia.DBC.TextParser.Properties.Topology.Message using (MessageWF)
 open import Aletheia.DBC.TextParser.Properties.Topology.SignalList using (SignalLineWF)
@@ -68,7 +71,7 @@ checkSigNamesUnique-sound sigs eq =
 checkMsgIdsUnique-sound : ∀ (msgs : List DBCMessage)
   → checkMsgIdsUnique msgs ≡ [] → AllPairs _≢_ (map DBCMessage.id msgs)
 checkMsgIdsUnique-sound msgs eq =
-  requireDec-sound (allPairs? (λ x y → ¬? (x ≟-CANId y)) (map DBCMessage.id msgs)) _ eq
+  AllPairsₚ.map⁺ (idsDistinct-sound msgs (map-≡[] msgIdIssue (sharedKeyGroups (messageIdEntries msgs)) eq))
 
 -- `checkUnresolved` emits one non-empty issue PER entry, so `≡ []` forces the
 -- list empty: `[]` gives `refl`, a cons makes the head issue `≢ []` (`()`).
@@ -187,7 +190,7 @@ checkSigNamesUnique-complete sigs p =
 checkMsgIdsUnique-complete : ∀ (msgs : List DBCMessage)
   → AllPairs _≢_ (map DBCMessage.id msgs) → checkMsgIdsUnique msgs ≡ []
 checkMsgIdsUnique-complete msgs p =
-  requireDec-complete (allPairs? (λ x y → ¬? (x ≟-CANId y)) (map DBCMessage.id msgs)) _ p
+  cong (map msgIdIssue) (idsDistinct-complete msgs (AllPairsₚ.map⁻ p))
 
 checkUnresolved-complete : ∀ (rvds : List RawValueDesc) → rvds ≡ [] → checkUnresolved rvds ≡ []
 checkUnresolved-complete _ refl = refl

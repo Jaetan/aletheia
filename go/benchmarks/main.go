@@ -80,6 +80,14 @@ func mustStdID(v uint16) aletheia.CANID {
 	return id
 }
 
+func mustExtID(v uint32) aletheia.CANID {
+	id, err := aletheia.NewExtendedID(v)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 func mustDLC(v uint8) aletheia.DLC {
 	dlc, err := aletheia.NewDLC(v)
 	if err != nil {
@@ -289,10 +297,12 @@ func stdev(xs []float64) float64 {
 	return math.Sqrt(ss / float64(len(xs)-1))
 }
 
-// round1 and round3 are the rounding the cross-binding schema pins: one
-// decimal for a rate or a duration, three for a ratio.
+// round1, round3 and round4 are the rounding the cross-binding schema pins:
+// one decimal for a rate or a duration in microseconds, three for a ratio,
+// four for a duration in seconds.
 func round1(x float64) float64 { return math.Round(x*10) / 10 }
 func round3(x float64) float64 { return math.Round(x*1000) / 1000 }
+func round4(x float64) float64 { return math.Round(x*10000) / 10000 }
 
 // usPerFrameOf inverts a rate, relativeOf compares one to a sweep's baseline.
 // Neither invents a number from a non-positive one.
@@ -654,7 +664,7 @@ func runLatency(backend *aletheia.FFIBackend, out *os.File, numOps, warmup int) 
 	return stats
 }
 
-// Scaling reports four sweeps under one mapping. The field order below is the
+// Scaling reports five sweeps under one mapping. The field order below is the
 // wire order benchmarks/SCHEMA.yaml pins across the four bindings.
 type traceSizeRow struct {
 	Frames   int     `json:"frames"`
@@ -676,11 +686,19 @@ type complexityRow struct {
 	Relative   float64 `json:"relative"`
 }
 
+type dbcSizeRow struct {
+	Messages       int     `json:"messages"`
+	Seconds        float64 `json:"seconds"`
+	MessagesPerSec float64 `json:"messages_per_sec"`
+	Relative       float64 `json:"relative"`
+}
+
 type scalingResults struct {
 	TraceSizeCAN20     []traceSizeRow  `json:"trace_size_can20"`
 	TraceSizeCANFD     []traceSizeRow  `json:"trace_size_canfd"`
 	PropertyCount      []propCountRow  `json:"property_count"`
 	PropertyComplexity []complexityRow `json:"property_complexity"`
+	DBCSize            []dbcSizeRow    `json:"dbc_size"`
 }
 
 // alwaysBetween, alwaysLessThan and alwaysLessThanRat build the Always-wrapped
@@ -773,6 +791,57 @@ func complexityLevels() []struct {
 	}
 }
 
+// dbcSizeDBC is the definition the DBC-size sweep loads: n extended-ID
+// messages of one byte-wide signal each, no two sharing an ID, a message name
+// or a signal name, so every load succeeds.
+func dbcSizeDBC(n int) aletheia.DBCDefinition {
+	msgs := make([]aletheia.DBCMessage, 0, n)
+	for i := 0; i < n; i++ {
+		sig := aletheia.DBCSignal{Name: aletheia.SignalName(fmt.Sprintf("S%d", i)), StartBit: 0, BitLength: 8, ByteOrder: aletheia.LittleEndian, IsSigned: false,
+			Factor: rat(1, 1), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(255, 1), Unit: "", Presence: aletheia.AlwaysPresent{},
+			Receivers: []aletheia.NodeName{"ECU"}}
+		msgs = append(msgs, aletheia.NewDBCMessage(mustExtID(0x100000+uint32(i)), aletheia.MessageName(fmt.Sprintf("M%d", i)), mustDLC(8), "ECU", nil, []aletheia.DBCSignal{sig}))
+	}
+	d := aletheia.NewDBCDefinition("1.0", msgs)
+	d.Nodes = []aletheia.DBCNode{{Name: "ECU"}}
+	return *d
+}
+
+func dbcSizes(quick bool) []int {
+	if quick {
+		return []int{2500, 5000, 10000}
+	}
+	return []int{1250, 2500, 5000, 10000}
+}
+
+// minLoadSeconds loads the definition numRuns times, each on a fresh client
+// closed after, and answers the fastest load in seconds. Only ParseDBC is
+// timed. The minimum, not the mean: the sweep compares two sizes' times, and
+// the fastest load is the least noisy estimate of the work.
+func minLoadSeconds(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, numRuns int) float64 {
+	load := func() (float64, error) {
+		client, err := aletheia.NewClient(backend)
+		if err != nil {
+			return 0, err
+		}
+		defer client.Close()
+		start := time.Now()
+		if _, err := client.ParseDBC(ctx, dbc); err != nil {
+			return 0, err
+		}
+		return time.Since(start).Seconds(), nil
+	}
+	times := make([]float64, 0, numRuns)
+	for r := 0; r < numRuns; r++ {
+		secs, err := load()
+		if err != nil {
+			die("dbc size point (%d messages) run %d/%d failed: %v", len(dbc.Messages), r+1, numRuns, err)
+		}
+		times = append(times, secs)
+	}
+	return slices.Min(times)
+}
+
 func runScaling(backend *aletheia.FFIBackend, out *os.File, numRuns int, quick bool) scalingResults {
 	fams := families()
 	can20, canfd := fams[0], fams[1]
@@ -834,12 +903,38 @@ func runScaling(backend *aletheia.FFIBackend, out *os.File, numRuns int, quick b
 		})
 	}
 
+	// Warmup.
+	_ = minLoadSeconds(backend, dbcSizeDBC(500), 1)
+
+	// The definition is built outside the timed load.
+	dbcCounts := dbcSizes(quick)
+	loadTimes := sweep(len(dbcCounts), func(i int) float64 {
+		return minLoadSeconds(backend, dbcSizeDBC(dbcCounts[i]), numRuns)
+	})
+	dbcSize := make([]dbcSizeRow, 0, len(dbcCounts))
+	for i, secs := range loadTimes {
+		mps := float64(dbcCounts[i]) / secs
+		dbcSize = append(dbcSize, dbcSizeRow{
+			Messages: dbcCounts[i], Seconds: round4(secs), MessagesPerSec: round1(mps),
+			Relative: round3(relativeOf(mps, float64(dbcCounts[0])/loadTimes[0])),
+		})
+	}
+
+	fmt.Fprintf(out, "\n%s\n5. DBC Size Scaling\n%s\n", strings.Repeat("=", 70), strings.Repeat("=", 70))
+	fmt.Fprintf(out, "%10s %10s %14s %10s\n", "Messages", "Time (s)", "Messages/sec", "Relative")
+	fmt.Fprintf(out, "%s\n", strings.Repeat("-", 47))
+	for _, r := range dbcSize {
+		fmt.Fprintf(out, "%10d %10.4f %14.1f %9.3fx\n", r.Messages, r.Seconds, r.MessagesPerSec, r.Relative)
+	}
+	fmt.Fprintf(out, "\nExpected: Relative stays near 1.0x (load time linear in the number of messages)\n")
+
 	fmt.Fprintf(out, "%s\n", strings.Repeat("=", 70))
 	return scalingResults{
 		TraceSizeCAN20:     traceCAN20,
 		TraceSizeCANFD:     traceCANFD,
 		PropertyCount:      propCount,
 		PropertyComplexity: complexity,
+		DBCSize:            dbcSize,
 	}
 }
 

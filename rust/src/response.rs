@@ -164,7 +164,7 @@ impl std::fmt::Display for IssueSeverity {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum IssueCode {
-    /// Two messages share the same CAN id.
+    /// A CAN id two or more messages share; one issue names them all.
     DuplicateMessageId,
     /// Two signals in the same message share a name.
     DuplicateSignalName,
@@ -174,7 +174,8 @@ pub enum IssueCode {
     MultiplexorNotFound,
     /// A multiplexor cycle was detected.
     MultiplexorCycle,
-    /// A signal name is not unique across all messages.
+    /// A signal name signals of two or more messages share; one issue names those
+    /// messages.
     GlobalNameCollision,
     /// A signal's declared minimum exceeds its maximum.
     MinExceedsMax,
@@ -184,7 +185,7 @@ pub enum IssueCode {
     SignalOverlap,
     /// A signal has zero bit length.
     BitLengthZero,
-    /// Two messages share the same name.
+    /// A name two or more messages share; one issue names them all by CAN id.
     DuplicateMessageName,
     /// A signal's offset/scale combination produces values outside its
     /// declared range.
