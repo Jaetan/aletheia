@@ -2,17 +2,16 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K --no-main #-}
 
--- Parser combinators with structural recursion on input length.
+-- Parser combinators with structural recursion.
 --
 -- Purpose: Provide composable parsers for strings with termination guarantees.
--- Key design: Uses input length as termination measure (no fuel needed).
+-- Key design: repetition recurses structurally on the input list itself, its
+-- length bounding the iterations (no fuel).
 -- Interfaces: Functor, Applicative, Monad for parser composition.
 -- Role: Foundation for all parsing (JSON, DBC, LTL, protocol).
---
--- The `many` combinator terminates by tracking consumed input length.
 module Aletheia.Parser.Combinators where
 
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
 open import Data.Char using (Char; _≈ᵇ_)
@@ -147,57 +146,35 @@ noneOf : List Char → Parser Char
 noneOf chars = satisfy (λ c → not (elem c chars))
 
 -- ============================================================================
--- REPETITION COMBINATORS (structurally recursive on input length)
+-- REPETITION COMBINATORS (structurally recursive on the input list)
 -- ============================================================================
 
--- Structural recursion on input length: if a parser doesn't consume input, we stop
-
--- This structural definition is kept deliberately rather than
--- `length xs ≡ᵇ length ys` ("use stdlib `_≡ᵇ_`"): that swap is NOT a
--- stdlib equivalence — stdlib
--- has no list-length-equality primitive; `_≡ᵇ_` is on `ℕ`, and routing
--- through `length` changes the runtime profile from O(min(|xs|, |ys|))
--- parallel walk (short-circuits on the first constructor mismatch) to
--- O(|xs| + |ys|) two-pass walk with two intermediate ℕ values built in
--- MAlonzo.  This function is `manyHelper`'s per-iteration termination
--- check on the `parseDBCText` runtime path (FFI-exposed via
--- `client.parse_dbc_text`, already O(N²)).  Empirical measurement
--- 2026-05-17 on a 200-msg × 4-sig synthetic DBC (44 KB), 5 runs:
---   Structural form (this code): median 10.21s, stddev 0.11s
---   Wrapper form    (rejected) : median 58.07s, stddev 0.31s
---   → 5.69× slowdown for a one-line cosmetic change.
--- The 5 derived lemmas in `DBC/TextParser/Properties/*` (sameLengthᵇ-cons,
--- -cons-cons, -lt, -len-≢, -app-nz) re-type-check unchanged under either
--- definition (the wrapper is definitionally equivalent on list-ctor
--- matches), so the cleanup yields no proof-side simplification either.
-sameLengthᵇ : ∀ {A : Set} → List A → List A → Bool
-sameLengthᵇ [] [] = true
-sameLengthᵇ (_ ∷ _) [] = false
-sameLengthᵇ [] (_ ∷ _) = false
-sameLengthᵇ (_ ∷ xs) (_ ∷ ys) = sameLengthᵇ xs ys
-
--- Helper for many: structurally recursive on input via well-founded recursion
--- Uses the length of the input as a measure.
+-- Helper for `many`.  It recurses structurally on its last argument, a list
+-- whose length bounds the iterations: `many` passes the input itself, so
+-- nothing is computed up front, and each iteration drops one element of it.
+-- It stops when the element parser fails, or succeeds at the position it
+-- started from, which means it consumed nothing (`samePosᵇ`); either check
+-- costs the same whatever is left of the input.
 -- Exposed (not private) so roundtrip proofs in `Aletheia.DBC.TextParser.*.Properties`
 -- can pattern-match on its structure (see
 -- `Aletheia.DBC.TextParser.DecRatParse.Properties.manyHelper-satisfy-exhaust`).
-manyHelper : ∀ {A : Set} → Parser A → Position → (input : List Char) → ℕ → Position × Maybe (ParseResult (List A))
+manyHelper : ∀ {A : Set} → Parser A → Position → (input : List Char) → List Char → Position × Maybe (ParseResult (List A))
 -- Base case: ran out of attempts
-manyHelper p pos input zero = pos , just (mkResult [] pos input)
+manyHelper p pos input [] = pos , just (mkResult [] pos input)
 -- Recursive case: try parser. A failed element parse is SWALLOWED (many
 -- succeeds with the shorter list) but its watermark is KEPT — that depth
 -- is exactly what the driver reports for the first unparseable statement.
-manyHelper p pos input (suc n) with p pos input
+manyHelper p pos input (_ ∷ bound) with p pos input
 ... | w , nothing = w , just (mkResult [] pos input)  -- Parser failed, return empty list
-... | w , just result with sameLengthᵇ input (remaining result)
-...   | true = w , just (mkResult [] pos input)  -- No progress made, stop to ensure termination
-...   | false with manyHelper p (position result) (remaining result) n  -- Progress made, continue
+... | w , just result with samePosᵇ (position result) pos
+...   | true = w , just (mkResult [] pos input)  -- No progress made, stop
+...   | false with manyHelper p (position result) (remaining result) bound  -- Progress made, continue
 ...     | w' , nothing = maxₚ w w' , just (mkResult ((value result) ∷ []) (position result) (remaining result))
 ...     | w' , just restResult = maxₚ w w' , just (mkResult ((value result) ∷ (value restResult)) (position restResult) (remaining restResult))
 
 -- | Parse zero or more occurrences (structurally terminating)
 many : ∀ {A : Set} → Parser A → Parser (List A)
-many p pos input = manyHelper p pos input (length input)
+many p pos input = manyHelper p pos input input
 
 -- | Parse one or more occurrences
 some : ∀ {A : Set} → Parser A → Parser (List A)

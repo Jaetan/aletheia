@@ -364,7 +364,7 @@ parseComment-roundtrip pos c suffix tgtStop nl-stop =
                      pos-line suffix
                      [] pos-line suffix
                      (manyHelper-parseNewline-exhaust
-                       pos-line suffix (length suffix) nl-stop)
+                       pos-line suffix suffix nl-stop)
 
     -- Step 3: buildCommentP recovers DBCComment, transport position via
     -- bridge.

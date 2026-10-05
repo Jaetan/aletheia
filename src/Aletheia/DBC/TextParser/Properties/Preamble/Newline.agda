@@ -31,7 +31,6 @@ open import Data.Char using (Char)
 open import Data.Char.Base using (_≈ᵇ_)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (just; nothing)
-open import Data.Nat using (ℕ; zero; suc)
 open import Data.Product using (_×_; _,_; proj₂)
 open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality
@@ -40,10 +39,11 @@ open import Relation.Binary.PropositionalEquality
 open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult; advancePosition;
    pure; _>>=_; _*>_; manyHelper;
-   char; string; parseCharsSeq; sameLengthᵇ)
+   char; string; parseCharsSeq; samePosᵇ)
 open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
-  (SuffixStops; ∷-stop; sameLengthᵇ-cons)
+  (SuffixStops; ∷-stop)
+open import Aletheia.Parser.Position.Properties using (samePosᵇ-advance)
 open import Aletheia.DBC.TextParser.Properties.Primitives using
   (char-matches; alt-right-nothing; bind-nothing)
 
@@ -163,40 +163,40 @@ parseNewline-fail-on-stop pos (c ∷ cs) (∷-stop h) =
 -- manyHelper lemmas
 -- ============================================================================
 
--- `manyHelper parseNewline` exhausts to the empty list on any fuel `n`
+-- `manyHelper parseNewline` exhausts to the empty list whatever its bound
 -- when the suffix cannot start another newline.  Parallels
 -- `manyHelper-satisfy-exhaust-many` but for the `<|>`-composed
 -- `parseNewline`.  This is the workhorse for `many
 -- parseNewline` termination — reused wherever a construct's parser
 -- ends with `<many parseNewline>`.
 manyHelper-parseNewline-exhaust : ∀ (pos : Position) (suffix : List Char)
-                                    (n : ℕ)
+                                    (bound : List Char)
   → SuffixStops isNewlineStart suffix
-  → proj₂ (manyHelper parseNewline pos suffix n)
+  → proj₂ (manyHelper parseNewline pos suffix bound)
     ≡ just (mkResult [] pos suffix)
-manyHelper-parseNewline-exhaust pos suffix zero     _  = refl
-manyHelper-parseNewline-exhaust pos suffix (suc n') ss
+manyHelper-parseNewline-exhaust pos suffix []      _  = refl
+manyHelper-parseNewline-exhaust pos suffix (_ ∷ b) ss
   with parseNewline pos suffix | parseNewline-fail-on-stop pos suffix ss
 ... | w , nothing | refl = refl
 
 -- Generic `manyHelper` one-iteration lemma: if the first parse succeeds
--- with progress (via sameLengthᵇ-false) and the remaining iterations
+-- with progress (its position moved, `samePosᵇ` false) and the remaining iterations
 -- exhaust, the full call returns a singleton list.  Abstract in the
 -- parser result's components to keep K-elim out of the unification.
 -- Parallels `bind-just-step` for `_>>=_`.
 manyHelper-one-iter : ∀ {A : Set} (p : Parser A) (pos : Position)
-                       (input : List Char) (n : ℕ)
+                       (input : List Char) {b : Char} (bound : List Char)
                        (v : A) (pos' : Position) (rest : List Char)
   → proj₂ (p pos input) ≡ just (mkResult v pos' rest)
-  → sameLengthᵇ input rest ≡ false
-  → proj₂ (manyHelper p pos' rest n) ≡ just (mkResult [] pos' rest)
-  → proj₂ (manyHelper p pos input (suc n))
+  → samePosᵇ pos' pos ≡ false
+  → proj₂ (manyHelper p pos' rest bound) ≡ just (mkResult [] pos' rest)
+  → proj₂ (manyHelper p pos input (b ∷ bound))
     ≡ just (mkResult (v ∷ []) pos' rest)
-manyHelper-one-iter p pos input n v pos' rest peq sleq hpeq
+manyHelper-one-iter p pos input bound v pos' rest peq sleq hpeq
   with p pos input | peq
 ... | w , just .(mkResult v pos' rest) | refl
   rewrite sleq
-  with manyHelper p pos' rest n | hpeq
+  with manyHelper p pos' rest bound | hpeq
 ...   | w' , just .(mkResult [] pos' rest) | refl = refl
 
 -- Generic `manyHelper` "progressing iteration + tail" lemma: generalises
@@ -204,39 +204,39 @@ manyHelper-one-iter p pos input n v pos' rest peq sleq hpeq
 -- NS_ inductive proof (`manyHelper-parseNSLine-body`) where each
 -- keyword line prepends a `tt` to the recursive call's `vs`.
 manyHelper-prog-cons : ∀ {A : Set} (p : Parser A) (pos : Position)
-                        (input : List Char) (n : ℕ)
+                        (input : List Char) {b : Char} (bound : List Char)
                         (v : A) (pos' : Position) (rest : List Char)
                         (vs : List A) (pos-out : Position) (rest-out : List Char)
   → proj₂ (p pos input) ≡ just (mkResult v pos' rest)
-  → sameLengthᵇ input rest ≡ false
-  → proj₂ (manyHelper p pos' rest n) ≡ just (mkResult vs pos-out rest-out)
-  → proj₂ (manyHelper p pos input (suc n))
+  → samePosᵇ pos' pos ≡ false
+  → proj₂ (manyHelper p pos' rest bound) ≡ just (mkResult vs pos-out rest-out)
+  → proj₂ (manyHelper p pos input (b ∷ bound))
     ≡ just (mkResult (v ∷ vs) pos-out rest-out)
-manyHelper-prog-cons p pos input n v pos' rest vs pos-out rest-out peq sleq hpeq
+manyHelper-prog-cons p pos input bound v pos' rest vs pos-out rest-out peq sleq hpeq
   with p pos input | peq
 ... | w , just .(mkResult v pos' rest) | refl
   rewrite sleq
-  with manyHelper p pos' rest n | hpeq
+  with manyHelper p pos' rest bound | hpeq
 ...   | w' , just .(mkResult vs pos-out rest-out) | refl = refl
 
 -- `many parseNewline` consumes exactly one leading `'\n'` and then
 -- terminates on a non-newline outer suffix.  Composes parseNewline-
--- match-LF (one-step) + sameLengthᵇ-cons (progress witness) +
+-- match-LF (one-step) + samePosᵇ-advance (progress witness) +
 -- manyHelper-parseNewline-exhaust (termination) via the generic
 -- `manyHelper-one-iter`.  Used for the VERSION / BS_ trailing blank
 -- line — both emit `"\n\n"` which parses as `parseNewline *> many
 -- parseNewline` with the inner `many` consuming the single trailing
 -- `'\n'`.
 many-parseNewline-one-LF-stop :
-  ∀ (pos : Position) (suffix : List Char) (n : ℕ)
+  ∀ (pos : Position) (suffix : List Char) (bound : List Char)
   → SuffixStops isNewlineStart suffix
-  → proj₂ (manyHelper parseNewline pos ('\n' ∷ suffix) (suc n))
+  → proj₂ (manyHelper parseNewline pos ('\n' ∷ suffix) ('\n' ∷ bound))
     ≡ just (mkResult ('\n' ∷ [])
                      (advancePosition pos '\n') suffix)
-many-parseNewline-one-LF-stop pos suffix n ss =
-  manyHelper-one-iter parseNewline pos ('\n' ∷ suffix) n
+many-parseNewline-one-LF-stop pos suffix bound ss =
+  manyHelper-one-iter parseNewline pos ('\n' ∷ suffix) {'\n'} bound
     '\n' (advancePosition pos '\n') suffix
     (parseNewline-match-LF pos suffix)
-    (sameLengthᵇ-cons '\n' suffix)
+    (samePosᵇ-advance pos '\n')
     (manyHelper-parseNewline-exhaust
-       (advancePosition pos '\n') suffix n ss)
+       (advancePosition pos '\n') suffix bound ss)

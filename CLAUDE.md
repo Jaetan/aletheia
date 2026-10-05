@@ -222,7 +222,7 @@ Build-time issues are catalogued in [BUILDING.md § Troubleshooting](docs/develo
 
 ## Performance Considerations
 
-- **Parser combinators**: structural recursion on input length, not fuel — fuel breaks termination or blows up type-checking. See `Parser/Combinators.agda`.
+- **Parser combinators**: structural recursion on the input list, not fuel — fuel breaks termination or blows up type-checking. See `Parser/Combinators.agda`.
 - **Type-checking**: always cap the heap `+RTS -M16G -RTS`; `-N` gives no per-module speedup (see the Type-check command note).
 - **Hot path**: `Dec`-valued predicates allocate proof terms per call in MAlonzo. Replace with `Bool`-valued fast path + equivalence lemma. See `extractSignalCoreFast` for the pattern.
 
@@ -238,7 +238,7 @@ Start with the [Project Pitch](docs/PITCH.md) for context.
 
 **Operational pitfalls** (most are caught by build/lint, but easy to trip on first time):
 - `Dec`-valued predicates on the streaming hot path: MAlonzo allocates per call. Use `Bool`-valued fast path + equivalence lemma (`extractSignalCoreFast`).
-- Fuel-based parser combinators: structural recursion on `length input` only.
+- Fuel-based parser combinators: structural recursion on the input list only.
 - Type-checking without `+RTS -M16G -RTS`: a runaway elaboration can OOM the host instead of failing the build.
 - Running tools from the repo root: `pytest` / `basedpyright` / `pylint` need `cd python` first (config picks up nearest `pyproject.toml`).
 

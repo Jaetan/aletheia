@@ -73,8 +73,8 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase1Digits
   using (foldl-digitToNat-showNat-chars; parseDigitList-showℕ-padded-chars)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties.Phase2Many
   using (SuffixStops; some-satisfy-prefix;
-         All-isDigit-showNat-chars; All-isDigit-showℕ-padded-chars;
-         sameLengthᵇ-cons)
+         All-isDigit-showNat-chars; All-isDigit-showℕ-padded-chars)
+open import Aletheia.Parser.Position.Properties using (samePosᵇ-advance)
 
 -- ============================================================================
 -- Phase 3.1: Non-emptiness and position/length lemmas
@@ -466,22 +466,22 @@ showNat-chars-head-≢-dash n with showNat-chars-head n
 manyHelper-satisfy-exhaust-all : (P : Char → Bool) (pos : Position)
   → (xs : List Char)
   → All (λ c → P c ≡ true) xs
-  → (n : ℕ) → length xs ≤ n
-  → proj₂ (manyHelper (satisfy P) pos xs n)
+  → (bound : List Char) → length xs ≤ length bound
+  → proj₂ (manyHelper (satisfy P) pos xs bound)
     ≡ just (mkResult xs (advancePositions pos xs) [])
-manyHelper-satisfy-exhaust-all P pos []        _          zero     _            = refl
-manyHelper-satisfy-exhaust-all P pos (x ∷ xs') _          zero     ()
-manyHelper-satisfy-exhaust-all P pos []        _          (suc n') _            = refl
-manyHelper-satisfy-exhaust-all P pos (x ∷ xs') (px ∷ pxs) (suc n') (s≤s len≤)
+manyHelper-satisfy-exhaust-all P pos []        _          []      _            = refl
+manyHelper-satisfy-exhaust-all P pos (x ∷ xs') _          []      ()
+manyHelper-satisfy-exhaust-all P pos []        _          (_ ∷ b) _            = refl
+manyHelper-satisfy-exhaust-all P pos (x ∷ xs') (px ∷ pxs) (_ ∷ b) (s≤s len≤)
   rewrite px
-        | sameLengthᵇ-cons x xs'
-  with manyHelper (satisfy P) (advancePosition pos x) xs' n'
-     | manyHelper-satisfy-exhaust-all P (advancePosition pos x) xs' pxs n' len≤
+        | samePosᵇ-advance pos x
+  with manyHelper (satisfy P) (advancePosition pos x) xs' b
+     | manyHelper-satisfy-exhaust-all P (advancePosition pos x) xs' pxs b len≤
 ... | w' , just restResult | refl = refl
 
--- Entry point at the public `many` (length-fuel) specialisation.
--- Parallel to `some-satisfy-prefix` but at empty suffix: both use the
--- `px` / `sameLengthᵇ-cons` / inner-exhaust rewrite sequence.
+-- Entry point at the public `many` specialisation (the input is its own
+-- bound).  Parallel to `some-satisfy-prefix` but at empty suffix: both use
+-- the `px` / `samePosᵇ-advance` / inner-exhaust rewrite sequence.
 some-satisfy-prefix-all : (P : Char → Bool) (pos : Position)
   → ∀ x (xs' : List Char)
   → P x ≡ true
@@ -490,9 +490,9 @@ some-satisfy-prefix-all : (P : Char → Bool) (pos : Position)
     ≡ just (mkResult (x ∷ xs') (advancePositions pos (x ∷ xs')) [])
 some-satisfy-prefix-all P pos x xs' px pxs
   rewrite px
-  with manyHelper (satisfy P) (advancePosition pos x) xs' (length xs')
+  with manyHelper (satisfy P) (advancePosition pos x) xs' xs'
      | manyHelper-satisfy-exhaust-all P (advancePosition pos x) xs'
-         pxs (length xs') ≤-refl
+         pxs xs' ≤-refl
 ... | w' , just restResult | refl = refl
 
 -- ----------------------------------------------------------------------------

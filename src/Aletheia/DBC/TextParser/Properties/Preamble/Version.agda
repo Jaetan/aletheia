@@ -24,7 +24,7 @@
 module Aletheia.DBC.TextParser.Properties.Preamble.Version where
 
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
 open import Data.Product using (proj₂)
@@ -108,7 +108,7 @@ parseVersion-roundtrip pos v suffix nl-stop =
                      pos-line ('\n' ∷ suffix)
                      ('\n' ∷ []) pos-after-nl suffix
                      (many-parseNewline-one-LF-stop
-                       pos-line suffix (length suffix) nl-stop)
+                       pos-line suffix suffix nl-stop)
 
     -- Step 3: pure v returns just (mkResult v pos-after-nl suffix);
     -- collapse `pos-after-nl` to `advancePositions pos (emitVersion-

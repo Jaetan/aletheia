@@ -197,11 +197,11 @@ parseString = do
   _ ← char '"'
   pure (JString chars)
 
--- Parse JSON using input length as termination measure (like 'many' does)
--- This makes the structural recursion explicit to Agda's termination checker
-parseJSONHelper : ℕ → Parser JSON
-parseJSONHelper zero pos input = pos , nothing  -- No budget left, fail
-parseJSONHelper (suc n) pos input = (spaces *> parseValue <* spaces) pos input
+-- Parse JSON with a character list as termination measure, as `many` does:
+-- each nesting level drops one element of it, so the recursion is structural.
+parseJSONHelper : List Char → Parser JSON
+parseJSONHelper []          pos input = pos , nothing  -- Nested deeper than the measure is long
+parseJSONHelper (_ ∷ bound) pos input = (spaces *> parseValue <* spaces) pos input
   where
     mutual
       -- Parse a single JSON value
@@ -210,7 +210,7 @@ parseJSONHelper (suc n) pos input = (spaces *> parseValue <* spaces) pos input
         parseNull <|> parseBoolean <|> parseNumber <|> parseString <|>
         parseArray <|> parseObject
 
-      -- Parse array using structurally smaller n
+      -- Parse array, recursing on the shorter measure
       parseArray : Parser JSON
       parseArray = do
         _ ← char '['
@@ -223,12 +223,12 @@ parseJSONHelper (suc n) pos input = (spaces *> parseValue <* spaces) pos input
           parseArrayElements : Parser (List JSON)
           parseArrayElements =
             (do
-              first ← parseJSONHelper n  -- Recursive call with smaller n
-              rest ← many (spaces *> char ',' *> spaces *> parseJSONHelper n)
+              first ← parseJSONHelper bound  -- Recursive call with the shorter measure
+              rest ← many (spaces *> char ',' *> spaces *> parseJSONHelper bound)
               pure (first ∷ rest))
             <|> pure []
 
-      -- Parse object using structurally smaller n
+      -- Parse object, recursing on the shorter measure
       parseObject : Parser JSON
       parseObject = do
         _ ← char '{'
@@ -253,15 +253,15 @@ parseJSONHelper (suc n) pos input = (spaces *> parseValue <* spaces) pos input
                 _ ← spaces
                 _ ← char ':'
                 _ ← spaces
-                val ← parseJSONHelper n  -- Recursive call with smaller n
+                val ← parseJSONHelper bound  -- Recursive call with the shorter measure
                 pure (key , val)
                 where
                   extractString : JSON → Parser String
                   extractString (JString cs) = pure (fromList cs)
                   extractString _ = fail
 
--- Entry point: uses `length input` as termination measure, naturally bounding
--- recursion depth above by `length input`.  The adversarial-input nesting-depth
+-- Entry point: the input itself is the termination measure, bounding the
+-- recursion depth by its length.  The adversarial-input nesting-depth
 -- cap (`max-nesting-depth`, 64) is enforced ONE LAYER UP by `processJSONLine`
 -- (`Main/JSON.agda`) as a typed `ParseErr (InputBoundExceeded NestingDepth …)`
 -- rejection.
@@ -270,7 +270,7 @@ parseJSONHelper (suc n) pos input = (spaces *> parseValue <* spaces) pos input
 -- punning) and exposes the structured `bound_kind / observed / limit` triple
 -- on the wire via `Protocol/ResponseFormat.errorExtras`.
 parseJSON : Parser JSON
-parseJSON pos input = parseJSONHelper (length input) pos input
+parseJSON pos input = parseJSONHelper input pos input
 
 -- ============================================================================
 -- HELPER: RUN JSON PARSER

@@ -197,7 +197,7 @@ parseSignalGroup-roundtrip pos sg suffix nameStop sigs-stops nl-stop =
                      pos-line suffix
                      [] pos-line suffix
                      (manyHelper-parseNewline-exhaust
-                       pos-line suffix (length suffix) nl-stop)
+                       pos-line suffix suffix nl-stop)
 
     -- Step 3: pure sg returns just (mkResult sg pos-line suffix); convert
     -- pos-line back to `advancePositions pos (emitSignalGroup-chars sg)`

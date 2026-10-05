@@ -18,7 +18,7 @@
 module Aletheia.DBC.TextParser.Properties.Attributes.Def where
 
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
 open import Data.Product using (_,_; proj₂)
 open import Data.String using ()
@@ -266,7 +266,7 @@ private
                        pos-line outer-suffix
                        [] pos-line outer-suffix
                        (manyHelper-parseNewline-exhaust
-                         pos-line outer-suffix (length outer-suffix) nl-stop)
+                         pos-line outer-suffix outer-suffix nl-stop)
 
       -- Step 3: pure (liftStdAttrDef (s, n, rt, tt)) returns; convert
       -- pos-line back to `advancePositions pos (emitAttrDef-chars d)`
@@ -434,7 +434,7 @@ private
                        pos-line outer-suffix
                        [] pos-line outer-suffix
                        (manyHelper-parseNewline-exhaust
-                         pos-line outer-suffix (length outer-suffix) nl-stop)
+                         pos-line outer-suffix outer-suffix nl-stop)
 
       step-pure :
         proj₂ (cont-blanks [] pos-line outer-suffix)

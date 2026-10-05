@@ -20,12 +20,11 @@
 -- (unprivatised 2026-04-22 to enable this proof).
 --
 -- Phase organisation:
---   * 2.1: sameLengthᵇ cons (manyHelper termination-guard discharge).
 --   * 2.2: SuffixStops P — characterises a stop boundary.
 --   * 2.3: digitChar d is an ASCII digit (under d < 10).
 --   * 2.4: All emitted characters are digits.
 --   * 2.5: manyHelper-satisfy-exhaust — the workhorse lemma.
---   * 2.6: many-fuel specialisation.
+--   * 2.6: `many` specialisation (the input is its own bound).
 --   * 2.7: some-satisfy-prefix — the reusable entry point.
 --
 -- Self-contained: no dependency on Phase 1 (it's lemmas about
@@ -52,23 +51,10 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Aletheia.Parser.Combinators
   using (Position; mkResult;
          advancePosition; advancePositions;
-         satisfy; some; manyHelper; sameLengthᵇ)
+         satisfy; some; manyHelper)
+open import Aletheia.Parser.Position.Properties using (samePosᵇ-advance)
 open import Aletheia.DBC.TextFormatter.Emitter
   using (digitChar; showNat-chars; showNat-chars-fuel; showℕ-padded-chars)
-
--- ----------------------------------------------------------------------------
--- Phase 2.1: sameLengthᵇ cons (manyHelper termination-guard discharge)
--- ----------------------------------------------------------------------------
-
--- `manyHelper` checks `sameLengthᵇ input (remaining result)` to
--- detect zero-progress parsers.  When `satisfy P` consumes a real
--- character, the post-result remaining is exactly one shorter than
--- the pre-input (i.e. `remaining ≡ tail input`), so the check must
--- discharge to `false`.
-sameLengthᵇ-cons : ∀ {A : Set} (x : A) (l : List A) →
-  sameLengthᵇ (x ∷ l) l ≡ false
-sameLengthᵇ-cons _ []       = refl
-sameLengthᵇ-cons _ (y ∷ ys) = sameLengthᵇ-cons y ys
 
 -- ----------------------------------------------------------------------------
 -- Phase 2.2: SuffixStops P — characterises a stop boundary
@@ -76,7 +62,7 @@ sameLengthᵇ-cons _ (y ∷ ys) = sameLengthᵇ-cons y ys
 
 -- `SuffixStops P suffix` — either the suffix is empty, or its first
 -- character fails `P`.  In both cases `manyHelper (satisfy P)` on
--- `suffix` (with any fuel ≥ 0) returns the empty-result base.
+-- `suffix` (whatever its bound) returns the empty-result base.
 data SuffixStops (P : Char → Bool) : List Char → Set where
   []-stop : SuffixStops P []
   ∷-stop  : ∀ {c cs} → P c ≡ false → SuffixStops P (c ∷ cs)
@@ -139,26 +125,26 @@ All-isDigit-showℕ-padded-chars (suc w) n =
 -- Phase 2.5: manyHelper-satisfy-exhaust — the workhorse lemma
 -- ----------------------------------------------------------------------------
 
--- Given enough fuel, `manyHelper (satisfy P)` on `xs ++ suffix` with
+-- Given a bound at least as long as `xs`, `manyHelper (satisfy P)` on `xs ++ suffix` with
 -- every `xs` character `P`-true and `suffix` at a stop boundary
 -- returns `xs` and leaves `suffix` unconsumed (with a correctly
 -- advanced position).
 --
--- Six coverage cases after splitting on fuel / `xs` / `suffix`:
---   * fuel = 0, xs = [], suffix = []:             manyHelper short-
---     circuits on fuel before inspecting the parser; reduces to
+-- Six coverage cases after splitting on the bound / `xs` / `suffix`:
+--   * bound = [], xs = [], suffix = []:           manyHelper short-
+--     circuits on the bound before inspecting the parser; reduces to
 --     `just (mkResult [] pos [])` directly.
---   * fuel = 0, xs = [], suffix = c ∷ cs:         same short-circuit.
---   * fuel = 0, xs = x ∷ xs':                     absurd via
+--   * bound = [], xs = [], suffix = c ∷ cs:       same short-circuit.
+--   * bound = [], xs = x ∷ xs':                   absurd via
 --                                                  `suc _ ≤ 0`.
---   * fuel = suc n', xs = [], suffix = []:        satisfy fails on
+--   * bound = _ ∷ b, xs = [], suffix = []:        satisfy fails on
 --     empty input; manyHelper falls through the `nothing` branch.
---   * fuel = suc n', xs = [], suffix = c ∷ cs:    `rewrite h` (the
+--   * bound = _ ∷ b, xs = [], suffix = c ∷ cs:    `rewrite h` (the
 --     `P c ≡ false` component of `∷-stop`) makes satisfy return
 --     `nothing`; manyHelper's `nothing` branch.
---   * fuel = suc n', xs = x ∷ xs':                inductive step.
+--   * bound = _ ∷ b, xs = x ∷ xs':                inductive step.
 --     Rewrites (1) `px : P x ≡ true` (satisfy returns `just`) and
---     (2) `sameLengthᵇ-cons` (zero-progress guard → `false`); then a
+--     (2) `samePosᵇ-advance` (zero-progress guard → `false`); then a
 --     simultaneous `with` on the recursive manyHelper call and the IH
 --     — the IH is outcome-level (`proj₂`), so it cannot fire as a
 --     rewrite on the pair-typed scrutinee; abstracting the pair and
@@ -168,28 +154,28 @@ manyHelper-satisfy-exhaust : (P : Char → Bool) (pos : Position)
   → (xs suffix : List Char)
   → All (λ c → P c ≡ true) xs
   → SuffixStops P suffix
-  → (n : ℕ) → length xs ≤ n
-  → proj₂ (manyHelper (satisfy P) pos (xs ++ₗ suffix) n)
+  → (bound : List Char) → length xs ≤ length bound
+  → proj₂ (manyHelper (satisfy P) pos (xs ++ₗ suffix) bound)
     ≡ just (mkResult xs (advancePositions pos xs) suffix)
-manyHelper-satisfy-exhaust P pos []        []       _          _          zero     _            = refl
-manyHelper-satisfy-exhaust P pos []        (c ∷ cs) _          _          zero     _            = refl
-manyHelper-satisfy-exhaust P pos (x ∷ xs') _        _          _          zero     ()
-manyHelper-satisfy-exhaust P pos []        []       _          _          (suc n') _            = refl
-manyHelper-satisfy-exhaust P pos []        (c ∷ cs) _          (∷-stop h) (suc n') _
+manyHelper-satisfy-exhaust P pos []        []       _          _          []        _            = refl
+manyHelper-satisfy-exhaust P pos []        (c ∷ cs) _          _          []        _            = refl
+manyHelper-satisfy-exhaust P pos (x ∷ xs') _        _          _          []        ()
+manyHelper-satisfy-exhaust P pos []        []       _          _          (_ ∷ b)   _            = refl
+manyHelper-satisfy-exhaust P pos []        (c ∷ cs) _          (∷-stop h) (_ ∷ b)   _
   rewrite h = refl
-manyHelper-satisfy-exhaust P pos (x ∷ xs') suffix   (px ∷ pxs) ss         (suc n') (s≤s len≤)
+manyHelper-satisfy-exhaust P pos (x ∷ xs') suffix   (px ∷ pxs) ss         (_ ∷ b)   (s≤s len≤)
   rewrite px
-        | sameLengthᵇ-cons x (xs' ++ₗ suffix)
-  with manyHelper (satisfy P) (advancePosition pos x) (xs' ++ₗ suffix) n'
-     | manyHelper-satisfy-exhaust P (advancePosition pos x) xs' suffix pxs ss n' len≤
+        | samePosᵇ-advance pos x
+  with manyHelper (satisfy P) (advancePosition pos x) (xs' ++ₗ suffix) b
+     | manyHelper-satisfy-exhaust P (advancePosition pos x) xs' suffix pxs ss b len≤
 ... | w' , just restResult | refl = refl
 
 -- ----------------------------------------------------------------------------
--- Phase 2.6: many-fuel specialisation
+-- Phase 2.6: `many` specialisation
 -- ----------------------------------------------------------------------------
 
--- `many p pos input = manyHelper p pos input (length input)`.  For
--- `input = xs ++ suffix`, the fuel is `length (xs ++ suffix)`, which
+-- `many p pos input = manyHelper p pos input input`.  For
+-- `input = xs ++ suffix`, the bound is `xs ++ suffix`, whose length
 -- is `≥ length xs` via `length-++ₗ` + `m≤m+n`.  This wrapper
 -- specialises the exhaustion lemma to exactly the shape that
 -- `some-satisfy-prefix` needs.
@@ -197,11 +183,11 @@ manyHelper-satisfy-exhaust-many : (P : Char → Bool) (pos : Position)
   → (xs suffix : List Char)
   → All (λ c → P c ≡ true) xs
   → SuffixStops P suffix
-  → proj₂ (manyHelper (satisfy P) pos (xs ++ₗ suffix) (length (xs ++ₗ suffix)))
+  → proj₂ (manyHelper (satisfy P) pos (xs ++ₗ suffix) (xs ++ₗ suffix))
     ≡ just (mkResult xs (advancePositions pos xs) suffix)
 manyHelper-satisfy-exhaust-many P pos xs suffix pxs ss =
   manyHelper-satisfy-exhaust P pos xs suffix pxs ss
-    (length (xs ++ₗ suffix)) len-xs≤len-xs++suffix
+    (xs ++ₗ suffix) len-xs≤len-xs++suffix
   where
     len-xs≤len-xs++suffix : length xs ≤ length (xs ++ₗ suffix)
     len-xs≤len-xs++suffix
@@ -233,6 +219,6 @@ some-satisfy-prefix : (P : Char → Bool) (pos : Position)
     ≡ just (mkResult (x ∷ xs') (advancePositions pos (x ∷ xs')) suffix)
 some-satisfy-prefix P pos x xs' suffix px pxs ss
   rewrite px
-  with manyHelper (satisfy P) (advancePosition pos x) (xs' ++ₗ suffix) (length (xs' ++ₗ suffix))
+  with manyHelper (satisfy P) (advancePosition pos x) (xs' ++ₗ suffix) (xs' ++ₗ suffix)
      | manyHelper-satisfy-exhaust-many P (advancePosition pos x) xs' suffix pxs ss
 ... | w' , just restResult | refl = refl

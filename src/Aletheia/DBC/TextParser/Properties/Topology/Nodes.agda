@@ -23,7 +23,7 @@
 module Aletheia.DBC.TextParser.Properties.Topology.Nodes where
 
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; map; foldr; length) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_; map; foldr) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.Maybe using (just)
@@ -188,7 +188,7 @@ parseBU-roundtrip pos ns suffix node-stops nl-stop =
                      pos-line ('\n' ∷ suffix)
                      ('\n' ∷ []) pos-after-nl suffix
                      (many-parseNewline-one-LF-stop
-                       pos-line suffix (length suffix) nl-stop)
+                       pos-line suffix suffix nl-stop)
 
     -- Step 3: pure ns returns just (mkResult ns pos-after-nl suffix);
     -- collapse `pos-after-nl` to `advancePositions pos (emitBU-chars ns)`

@@ -509,7 +509,7 @@ parseMessage-roundtrip pos msg outer-suffix
         pos-after-sigs ('\n' ∷ outer-suffix)
         ('\n' ∷ []) pos-after-nl outer-suffix
         (many-parseNewline-one-LF-stop pos-after-sigs outer-suffix
-          (length outer-suffix) nl-stop)
+          outer-suffix nl-stop)
 
     -- Step 4: apply buildMessage-roundtrip; bridge the goal's position
     -- to the canonical `advancePositions pos (emitMessage-chars msg)`
