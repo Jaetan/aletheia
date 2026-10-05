@@ -22,7 +22,7 @@
 module Aletheia.DBC.TextParser.Properties.Preamble.BitTiming where
 
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
 open import Data.Product using (proj₂)
@@ -102,7 +102,7 @@ parseBitTiming-roundtrip pos suffix nl-stop =
                      pos-line ('\n' ∷ suffix)
                      ('\n' ∷ []) pos-after-nl suffix
                      (many-parseNewline-one-LF-stop
-                       pos-line suffix (length suffix) nl-stop)
+                       pos-line suffix suffix nl-stop)
 
     pos-eq : pos-after-nl ≡ advancePositions pos emitBitTiming-chars
     pos-eq =

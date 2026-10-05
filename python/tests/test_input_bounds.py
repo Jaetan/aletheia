@@ -269,7 +269,7 @@ class TestIdentifierLengthBound:
 class TestNestingDepthBound:
     """Typed JSON nesting-depth wire-error.
 
-    ``parseJSON`` parses the input with ``length input`` as a structural
+    ``parseJSON`` parses the input with the input itself as its structural
     termination measure (bounded above by the upstream ``max_json_bytes``
     cap).  At the handler boundary (``processJSONLine`` →
     ``handleParsedJSON``), ``jsonDepth`` of the constructed tree is

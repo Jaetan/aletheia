@@ -28,7 +28,7 @@
 module Aletheia.DBC.TextParser.Properties.ValueTables.ValueDesc where
 
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; length)
+open import Data.List using (List; []; _∷_)
   renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (just)
 open import Data.Nat using (ℕ)
@@ -205,7 +205,7 @@ parseValueDescription-roundtrip pos rvd suffix nameStop nl-stop =
                      pos-line suffix
                      [] pos-line suffix
                      (manyHelper-parseNewline-exhaust
-                       pos-line suffix (length suffix) nl-stop)
+                       pos-line suffix suffix nl-stop)
 
     -- Step 3: buildResultP resolves via buildCANId-rawCanIdℕ + record-η.
     step-buildResult :

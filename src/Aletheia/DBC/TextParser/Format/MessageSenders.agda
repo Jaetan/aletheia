@@ -30,7 +30,7 @@
 -- round-trip AS-IS (no `Vector__XXX` singleton stripping).  The comma-list
 -- EmitsOK helpers are local copies of the (private) ones in
 -- `Format.Receivers.Roundtrip`, matching the codebase's accepted pattern of
--- per-site local copies of the `sameLengthᵇ`/comma helpers.
+-- per-site local copies of the comma helpers.
 module Aletheia.DBC.TextParser.Format.MessageSenders where
 
 open import Data.Bool using (Bool; true; false; _∨_)

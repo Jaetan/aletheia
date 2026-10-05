@@ -44,7 +44,7 @@ open import Data.Char using () renaming (_≟_ to _≟ᶜ_)
 open import Data.Char.Properties using (toℕ-injective)
 open import Data.List using (foldr; length)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
-open import Data.Nat using (ℕ; zero; suc; _≤_; z≤n; s≤s)
+open import Data.Nat using (ℕ; suc; _≤_; z≤n; s≤s)
 open import Data.Nat.Properties using (≡⇒≡ᵇ; ≡ᵇ⇒≡; m≤n⇒m≤1+n; m≤m+n; ≤-trans)
 open import Data.Unit using (tt)
 open import Relation.Nullary.Decidable using (⌊_⌋; yes; no)
@@ -53,7 +53,7 @@ open import Relation.Nullary using (¬_)
 open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult; advancePosition; advancePositions;
    pure; _>>=_; _<|>_; _*>_; _<$>_; satisfy; many; manyHelper;
-   char; string; parseCharsSeq; sameLengthᵇ)
+   char; string; parseCharsSeq)
 open import Aletheia.DBC.Identifier using
   (Identifier; mkIdentFromChars; mkIdentFromChars-on-valid;
    isIdentStart; isIdentCont; validIdentifierᵇ; allᵇ)
@@ -68,8 +68,9 @@ open import Aletheia.DBC.TextFormatter.Emitter using
 -- step is needed anywhere, and this module stays `--safe`.
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; ∷-stop; bind-just-step;
-   manyHelper-satisfy-exhaust-many; sameLengthᵇ-cons;
+   manyHelper-satisfy-exhaust-many;
    advancePositions-++)
+open import Aletheia.Parser.Position.Properties using (samePosᵇ-advance; samePosᵇ-advance2)
 open import Aletheia.Prelude using (T→true)
 
 -- ============================================================================
@@ -409,7 +410,7 @@ parseWS-one-space : ∀ (pos : Position) (suffix : List Char)
                      (advancePosition pos ' ') suffix)
 parseWS-one-space pos suffix ss
   with manyHelper (satisfy isHSpace) (advancePosition pos ' ')
-         suffix (length suffix)
+         suffix suffix
      | manyHelper-satisfy-exhaust-many isHSpace
          (advancePosition pos ' ') [] suffix [] ss
 ... | w , just r | refl = refl
@@ -425,7 +426,7 @@ parseWS-one-tab : ∀ (pos : Position) (suffix : List Char)
                      (advancePosition pos '\t') suffix)
 parseWS-one-tab pos suffix ss
   with manyHelper (satisfy isHSpace) (advancePosition pos '\t')
-         suffix (length suffix)
+         suffix suffix
      | manyHelper-satisfy-exhaust-many isHSpace
          (advancePosition pos '\t') [] suffix [] ss
 ... | w , just r | refl = refl
@@ -546,24 +547,15 @@ escape-body-chars-nonquote : ∀ (c : Char) (cs : List Char)
 escape-body-chars-nonquote c cs c≢quote
   rewrite ⌊⌋-false-of-≢ {c} {'"'} c≢quote = refl
 
--- Cons-by-2 progress witness for `manyHelper`'s `sameLengthᵇ` check.
--- Structurally recursive on the tail; mirrors `sameLengthᵇ-cons` in
--- `DecRatParse.Properties` (which covers the cons-by-1 case).
-private
-  sameLengthᵇ-cons-cons : ∀ {A : Set} (x y : A) (l : List A)
-    → sameLengthᵇ (x ∷ y ∷ l) l ≡ false
-  sameLengthᵇ-cons-cons x y []       = refl
-  sameLengthᵇ-cons-cons x y (z ∷ zs) = sameLengthᵇ-cons-cons y z zs
-
 -- ============================================================================
 -- `manyHelper parseStringChar` workhorse
 -- ============================================================================
 --
 -- Mirrors `manyHelper-satisfy-exhaust` (DecRatParse/Properties) but
--- for the two-branch `parseStringChar` parser.  Induction on `cs + n`;
--- each step case-splits on `c ≟ᶜ '"'` and discharges the `sameLengthᵇ`
--- progress check via `sameLengthᵇ-cons` (literal) or `-cons-cons`
--- (escape).
+-- for the two-branch `parseStringChar` parser.  Induction on `cs` and the
+-- bound; each step case-splits on `c ≟ᶜ '"'` and discharges the progress
+-- check via `samePosᵇ-advance` (literal, one character) or
+-- `samePosᵇ-advance2` (escape, two).
 
 -- Mutual-recursion structure: the `'"' ∷ cs'` clause directly recurses
 -- (shrinking `cs'`); the `(c ∷ cs')` catch-all's `yes refl` branch can't
@@ -573,55 +565,55 @@ private
 
 private
   manyHelper-parseStringChar-exhaust-escape-step :
-    ∀ (pos : Position) (cs' : List Char) (suffix : List Char) (n' : ℕ)
+    ∀ (pos : Position) (cs' : List Char) (suffix : List Char) {b : Char} (bound : List Char)
     → SuffixStops (λ c → c ≈ᵇ '"') suffix
-    → length cs' ≤ n'
+    → length cs' ≤ length bound
     → proj₂ (manyHelper parseStringChar pos
-               ('"' ∷ '"' ∷ escape-body-chars cs' ++ₗ '"' ∷ suffix) (suc n'))
+               ('"' ∷ '"' ∷ escape-body-chars cs' ++ₗ '"' ∷ suffix) (b ∷ bound))
       ≡ just (mkResult ('"' ∷ cs')
                (advancePositions pos
                   ('"' ∷ '"' ∷ escape-body-chars cs'))
                ('"' ∷ suffix))
 
 manyHelper-parseStringChar-exhaust :
-  ∀ (pos : Position) (cs : List Char) (suffix : List Char) (n : ℕ)
+  ∀ (pos : Position) (cs : List Char) (suffix : List Char) (bound : List Char)
   → SuffixStops (λ c → c ≈ᵇ '"') suffix
-  → length cs ≤ n
+  → length cs ≤ length bound
   → proj₂ (manyHelper parseStringChar pos
-             (escape-body-chars cs ++ₗ '"' ∷ suffix) n)
+             (escape-body-chars cs ++ₗ '"' ∷ suffix) bound)
     ≡ just (mkResult cs
              (advancePositions pos (escape-body-chars cs))
              ('"' ∷ suffix))
-manyHelper-parseStringChar-exhaust pos [] suffix zero     _  _         = refl
-manyHelper-parseStringChar-exhaust pos [] suffix (suc n') ss _
+manyHelper-parseStringChar-exhaust pos [] suffix []      _  _         = refl
+manyHelper-parseStringChar-exhaust pos [] suffix (_ ∷ b) ss _
   with parseStringChar pos ('"' ∷ suffix)
      | parseStringChar-fail-at-close pos suffix ss
 ... | w , nothing | refl = refl
-manyHelper-parseStringChar-exhaust pos ('"' ∷ cs') suffix (suc n') ss (s≤s len≤) =
-  manyHelper-parseStringChar-exhaust-escape-step pos cs' suffix n' ss len≤
-manyHelper-parseStringChar-exhaust pos (c ∷ cs') suffix (suc n') ss (s≤s len≤)
+manyHelper-parseStringChar-exhaust pos ('"' ∷ cs') suffix (b₀ ∷ b) ss (s≤s len≤) =
+  manyHelper-parseStringChar-exhaust-escape-step pos cs' suffix {b₀} b ss len≤
+manyHelper-parseStringChar-exhaust pos (c ∷ cs') suffix (b₀ ∷ b) ss (s≤s len≤)
   with c ≟ᶜ '"'
 ... | yes refl =
-      manyHelper-parseStringChar-exhaust-escape-step pos cs' suffix n' ss len≤
+      manyHelper-parseStringChar-exhaust-escape-step pos cs' suffix {b₀} b ss len≤
 ... | no c≢quote
   with parseStringChar pos (c ∷ escape-body-chars cs' ++ₗ '"' ∷ suffix)
      | parseStringChar-literal pos c
          (escape-body-chars cs' ++ₗ '"' ∷ suffix) c≢quote
 ...   | w , just r | refl
-  rewrite sameLengthᵇ-cons c (escape-body-chars cs' ++ₗ '"' ∷ suffix)
+  rewrite samePosᵇ-advance pos c
   with manyHelper parseStringChar (advancePosition pos c)
-         (escape-body-chars cs' ++ₗ '"' ∷ suffix) n'
+         (escape-body-chars cs' ++ₗ '"' ∷ suffix) b
      | manyHelper-parseStringChar-exhaust
-         (advancePosition pos c) cs' suffix n' ss len≤
+         (advancePosition pos c) cs' suffix b ss len≤
 ...     | w' , just r' | refl = refl
 
-manyHelper-parseStringChar-exhaust-escape-step pos cs' suffix n' ss len≤
-  rewrite sameLengthᵇ-cons-cons '"' '"' (escape-body-chars cs' ++ₗ '"' ∷ suffix)
+manyHelper-parseStringChar-exhaust-escape-step pos cs' suffix bound ss len≤
+  rewrite samePosᵇ-advance2 pos '"' '"'
   with manyHelper parseStringChar
          (advancePosition (advancePosition pos '"') '"')
-         (escape-body-chars cs' ++ₗ '"' ∷ suffix) n'
+         (escape-body-chars cs' ++ₗ '"' ∷ suffix) bound
      | manyHelper-parseStringChar-exhaust
-         (advancePosition (advancePosition pos '"') '"') cs' suffix n' ss len≤
+         (advancePosition (advancePosition pos '"') '"') cs' suffix bound ss len≤
 ... | w' , just r' | refl = refl
 
 -- ============================================================================
@@ -629,8 +621,8 @@ manyHelper-parseStringChar-exhaust-escape-step pos cs' suffix n' ss len≤
 -- ============================================================================
 --
 -- Compose: opening `"` via `char-matches`, body via
--- `manyHelper-parseStringChar-exhaust` specialised at `length input`
--- fuel, closing `"` via `char-matches`, final `pure cs`
+-- `manyHelper-parseStringChar-exhaust` with the input as its own bound,
+-- closing `"` via `char-matches`, final `pure cs`
 -- (`parseStringLit : Parser (List Char)` returns the body
 -- chars directly — no `fromList`, no `fromList∘toList` axiom).
 
@@ -714,7 +706,7 @@ parseStringLit-roundtrip pos cs suffix ss =
       ≡ just (mkResult cs pos2 ('"' ∷ suffix))
     many-success =
       manyHelper-parseStringChar-exhaust pos1 cs suffix
-        (length rest-after-open) ss len-bound
+        rest-after-open ss len-bound
       where
         open import Data.List.Properties
           using () renaming (length-++ to length-++ₗ-prop)

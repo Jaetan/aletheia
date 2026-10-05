@@ -11,8 +11,8 @@
 -- the JSON envelope.
 module Aletheia.Protocol.JSON.Format where
 
-open import Data.String using (String; fromList) renaming (_++_ to _++ₛ_)
-open import Data.List using (List; []; _∷_; concatMap)
+open import Data.String using (String; fromList; toList) renaming (_++_ to _++ₛ_)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Char using (Char)
 open import Data.Bool using (true; false)
 open import Data.Nat using (zero; suc)
@@ -45,27 +45,40 @@ private
   ... | '\t'  = '\\' ∷ 't' ∷ []
   ... | other = other ∷ []
 
-  escapeString : List Char → List Char
-  escapeString = concatMap escapeChar
+  -- `cs` escaped, in front of `rest`.
+  escapeOnto : List Char → List Char → List Char
+  escapeOnto []       rest = rest
+  escapeOnto (c ∷ cs) rest = escapeChar c ++ₗ escapeOnto cs rest
+
+-- Each value is written in front of the characters that follow it, so every
+-- character of the response is produced once and rendering costs time linear
+-- in the response's length; the `String` is built once, from the finished
+-- list.  Appending `String`s copies both operands, so a response assembled by
+-- appending its elements one by one would cost time quadratic in their count.
+mutual
+  renderJSON : JSON → List Char → List Char
+  renderJSON JNull              rest = 'n' ∷ 'u' ∷ 'l' ∷ 'l' ∷ rest
+  renderJSON (JBool true)       rest = 't' ∷ 'r' ∷ 'u' ∷ 'e' ∷ rest
+  renderJSON (JBool false)      rest = 'f' ∷ 'a' ∷ 'l' ∷ 's' ∷ 'e' ∷ rest
+  renderJSON (JNumber n)        rest = toList (formatRational n) ++ₗ rest
+  renderJSON (JString cs)       rest = '"' ∷ escapeOnto cs ('"' ∷ rest)
+  renderJSON (JArray [])        rest = '[' ∷ ']' ∷ rest
+  renderJSON (JArray (x ∷ xs))  rest = '[' ∷ renderJSON x (renderElements xs (']' ∷ rest))
+  renderJSON (JObject [])       rest = '{' ∷ '}' ∷ rest
+  renderJSON (JObject (f ∷ fs)) rest = '{' ∷ renderField f (renderFields fs ('}' ∷ rest))
+
+  -- The elements after the first, each after its separator.
+  renderElements : List JSON → List Char → List Char
+  renderElements []       rest = rest
+  renderElements (x ∷ xs) rest = ',' ∷ ' ' ∷ renderJSON x (renderElements xs rest)
+
+  renderField : String × JSON → List Char → List Char
+  renderField (key , val) rest = '"' ∷ toList key ++ₗ '"' ∷ ':' ∷ ' ' ∷ renderJSON val rest
+
+  -- The fields after the first, each after its separator.
+  renderFields : List (String × JSON) → List Char → List Char
+  renderFields []       rest = rest
+  renderFields (f ∷ fs) rest = ',' ∷ ' ' ∷ renderField f (renderFields fs rest)
 
 formatJSON : JSON → String
-formatJSON JNull = "null"
-formatJSON (JBool true) = "true"
-formatJSON (JBool false) = "false"
-formatJSON (JNumber n) = formatRational n
-formatJSON (JString cs) = "\"" ++ₛ fromList (escapeString cs) ++ₛ "\""
-formatJSON (JArray xs) = "[" ++ₛ formatJSONList xs ++ₛ"]"
-  where
-    formatJSONList : List JSON → String
-    formatJSONList [] = ""
-    formatJSONList (x ∷ []) = formatJSON x
-    formatJSONList (x ∷ xs) = formatJSON x ++ₛ ", " ++ₛ formatJSONList xs
-formatJSON (JObject fields) = "{" ++ₛ formatFields fields ++ₛ"}"
-  where
-    formatField : String × JSON → String
-    formatField (key , val) = "\"" ++ₛ key ++ₛ"\": " ++ₛ formatJSON val
-
-    formatFields : List (String × JSON) → String
-    formatFields [] = ""
-    formatFields (f ∷ []) = formatField f
-    formatFields (f ∷ fs) = formatField f ++ₛ ", " ++ₛ formatFields fs
+formatJSON j = fromList (renderJSON j [])

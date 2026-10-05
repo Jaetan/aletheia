@@ -1568,6 +1568,24 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **Parsing a DBC takes time linear in its length.** Every route that loads a
+  DBC reads its JSON or its text through the parser combinators' `many`, which
+  measured the whole rest of the document each time it started (once per JSON
+  string, once per list) and walked what was left after every repetition to
+  check it had moved, so each element cost time proportional to what was left
+  of the document. `many` now recurses on the input list itself and stops when
+  an element parser succeeds without moving the position (`samePosᵇ`): every
+  character a parser consumes moves its position, which
+  `Aletheia.Parser.Position.Properties` proves. The JSON parser's nesting
+  recursion takes the same measure, the input list, instead of a counter set
+  to its length. `validateDBC` of 1,600 messages without signals took 195.6 s
+  and takes 0.34 s; `parseDBCText` of 1,600 messages of one signal each took
+  94.2 s and takes 2.6 s, most of it now in validation (one run each, same
+  machine); the answers are byte-identical. A response is rendered in one pass
+  (`formatJSON` writes each value in front of what follows it) instead of by
+  appending strings, which copied everything after an element once per
+  element. The validator's cross-message checks still compare every pair of
+  messages, so a DBC of many thousand messages remains slow to load.
 - **`--help` describes a tool rather than running it.** A runnable file that
   read no argument took `--help`, or a mistyped flag, as nothing and did its
   whole job: `python -m tools.mutation_run --help` started a mutation sweep of

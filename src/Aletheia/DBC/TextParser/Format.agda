@@ -40,8 +40,8 @@ open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_; length; concatMap) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (length-++) renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just; nothing)
-open import Data.Nat using (ℕ; zero; suc; _≤_; _<_; _+_; s≤s; z≤n)
-open import Data.Nat.Properties using (≤-trans; m≤m+n; m≤n+m; +-mono-≤)
+open import Data.Nat using (ℕ; _≤_; _<_; s≤s; z≤n)
+open import Data.Nat.Properties using (≤-trans; m≤m+n; +-mono-≤)
 open import Data.Product using (_×_; _,_; Σ; proj₂)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
@@ -53,8 +53,9 @@ open import Data.List.Relation.Unary.All as All using ()
 open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult; advancePosition; advancePositions;
          parseCharsSeq; pure; _>>=_; _<|>_; _<$>_;
-         satisfy; manyHelper; sameLengthᵇ)
+         satisfy; manyHelper; samePosᵇ)
   renaming (many to many-parser)
+open import Aletheia.Parser.Position.Properties using (samePosᵇ-advances)
 open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
 open import Aletheia.DBC.DecRat using (DecRat)
 open import Aletheia.DBC.DecRat.Refinement using
@@ -111,10 +112,10 @@ data Format : Set → Set₁ where
   -- `parse (many f)` delegates to the existing `Combinators.many`
   -- (renamed `many-parser` to avoid the constructor clash).  Each
   -- iteration must consume non-empty input (`0 < length (emit f x)`
-  -- carried per-element in `EmitsOK`) so `manyHelper`'s `sameLengthᵇ`
-  -- progress check passes; termination is via a user-provided
-  -- `ParseFailsAt f suffix` certificate that says the trailing input
-  -- doesn't start another `f`-match.
+  -- carried per-element in `EmitsOK`) so it moves the position and
+  -- `manyHelper`'s `samePosᵇ` progress check passes; termination is via
+  -- a user-provided `ParseFailsAt f suffix` certificate that says the
+  -- trailing input doesn't start another `f`-match.
   many    : ∀ {A} → Format A → Format (List A)
   -- Carrier change via a total bijection.  `φ` lifts the inner value to
   -- the outer carrier (used by `parse`); `ψ` projects back (used by
@@ -390,40 +391,18 @@ data EmitsOKMany {A} f where
 -- ============================================================================
 
 private
-  -- `manyHelper` on a parser-failing input returns `[]` regardless of fuel.
-  -- Drives the `[] / suc m'` branch of `manyHelper-roundtrip-list`.
+  -- `manyHelper` on a parser-failing input returns `[]` whatever the
+  -- measure.  Drives the `[]` case of `manyHelper-roundtrip-list`.
   manyHelper-fails-stop : ∀ {A} (p : Parser A) (pos : Position)
-                            (input : List Char) (n : ℕ)
+                            (input : List Char) (bound : List Char)
     → proj₂ (p pos input) ≡ nothing
-    → proj₂ (manyHelper p pos input n) ≡ just (mkResult [] pos input)
-  manyHelper-fails-stop p pos input zero    _  = refl
-  manyHelper-fails-stop p pos input (suc n) eq with p pos input | eq
+    → proj₂ (manyHelper p pos input bound) ≡ just (mkResult [] pos input)
+  manyHelper-fails-stop p pos input []      _  = refl
+  manyHelper-fails-stop p pos input (_ ∷ _) eq with p pos input | eq
   ... | w , nothing | refl = refl
 
-  -- `sameLengthᵇ` on lists of differing length returns `false`.  Mirrors
-  -- the local copies in `Properties/Topology/Receivers.agda` and
-  -- `Properties/ValueTables/ValueTable.agda`; not factored upstream
-  -- because both sites still depend on the layered import order from
-  -- the pre-DSL proofs.  A later migration may consolidate them.
-  sameLengthᵇ-lt : ∀ {A : Set} (xs ys : List A)
-    → length ys < length xs
-    → sameLengthᵇ xs ys ≡ false
-  sameLengthᵇ-lt []       []       ()
-  sameLengthᵇ-lt []       (_ ∷ _)  ()
-  sameLengthᵇ-lt (_ ∷ _)  []       _       = refl
-  sameLengthᵇ-lt (_ ∷ xs) (_ ∷ ys) (s≤s h) = sameLengthᵇ-lt xs ys h
-
-  -- `cs ++ rest` is strictly longer than `rest` whenever `cs` is non-empty.
-  -- The progress witness `manyHelper`'s `sameLengthᵇ` check needs to
-  -- conclude `false` and continue iteration.
-  ++ₗ-strictly-longer : ∀ {A B : Set} (cs : List A) (rest : List B)
-    → 0 < length cs
-    → length rest < length cs + length rest
-  ++ₗ-strictly-longer []       _    ()
-  ++ₗ-strictly-longer (_ ∷ _)  rest _ = s≤s (m≤n+m (length rest) _)
-
   -- Lower bound on emit-many length, derived from per-element non-empty
-  -- emit (carried in `EmitsOK (many f)`).  Used to discharge the fuel
+  -- emit (carried in `EmitsOK (many f)`).  Used to discharge the measure
   -- precondition of `manyHelper-roundtrip-list` at the outer call site.
   length-emit-many-bound : ∀ {A} (f : Format A) (xs : List A) (suffix : List Char)
     → EmitsOK (many f) xs suffix
@@ -489,13 +468,13 @@ mutual
   -- mirrors `manyHelper-parseValueEntry-body` from
   -- `Properties/ValueTables/ValueTable.agda` but with `roundtrip f` in
   -- place of the per-construct iter-eq lemma.  Inducts on the list `xs`
-  -- with fuel `m ≥ length xs`.  One iteration via `manyHelper-prog-cons`
+  -- with a measure at least as long as `xs`.  One iteration via `manyHelper-prog-cons`
   -- + recursive call on `xs`.
   manyHelper-roundtrip-list : ∀ {A} (f : Format A)
-    (pos : Position) (xs : List A) (suffix : List Char) (m : ℕ)
-    → length xs ≤ m
+    (pos : Position) (xs : List A) (suffix : List Char) (bound : List Char)
+    → length xs ≤ length bound
     → EmitsOK (many f) xs suffix
-    → proj₂ (manyHelper (parse f) pos (emit (many f) xs ++ₗ suffix) m)
+    → proj₂ (manyHelper (parse f) pos (emit (many f) xs ++ₗ suffix) bound)
       ≡ just (mkResult xs (advancePositions pos (emit (many f) xs)) suffix)
 
   roundtrip (literal cs) pos tt suffix _ =
@@ -582,12 +561,12 @@ mutual
                        (roundtrip g pos-f b suffix wf-g)
   roundtrip (many f) pos xs suffix wf =
     manyHelper-roundtrip-list f pos xs suffix
-      (length (emit (many f) xs ++ₗ suffix))
-      fuel-bound
+      (emit (many f) xs ++ₗ suffix)
+      measure-bound
       wf
     where
-      fuel-bound : length xs ≤ length (emit (many f) xs ++ₗ suffix)
-      fuel-bound =
+      measure-bound : length xs ≤ length (emit (many f) xs ++ₗ suffix)
+      measure-bound =
         ≤-trans (length-emit-many-bound f xs suffix wf)
                 (subst (λ k → length (emit (many f) xs) ≤ k)
                        (sym (length-++ (emit (many f) xs) {suffix}))
@@ -662,13 +641,13 @@ mutual
                    (manyHelper-satisfy-exhaust-many isNonNewline pos []
                                                     suffix All.[] ss)
 
-  manyHelper-roundtrip-list f pos []       suffix m _ ([]-fails fails) =
-    manyHelper-fails-stop (parse f) pos suffix m (fails pos)
-  manyHelper-roundtrip-list f pos (x ∷ xs) suffix (suc m') (s≤s len-le)
+  manyHelper-roundtrip-list f pos []       suffix bound _ ([]-fails fails) =
+    manyHelper-fails-stop (parse f) pos suffix bound (fails pos)
+  manyHelper-roundtrip-list f pos (x ∷ xs) suffix (b ∷ bound') (s≤s len-le)
                             (∷-cons wf-x ne-x wf-xs) =
-    trans (cong (λ inp → proj₂ (manyHelper (parse f) pos inp (suc m'))) input-eq)
+    trans (cong (λ inp → proj₂ (manyHelper (parse f) pos inp (b ∷ bound'))) input-eq)
       (trans (manyHelper-prog-cons (parse f) pos
-                (emit f x ++ₗ iter-rest) m'
+                (emit f x ++ₗ iter-rest) {b} bound'
                 x pos-x iter-rest
                 xs (advancePositions pos-x (emit (many f) xs))
                 suffix iter-eq sleq rec-eq)
@@ -688,16 +667,14 @@ mutual
                ≡ emit f x ++ₗ iter-rest
       input-eq = ++ₗ-assoc (emit f x) (emit (many f) xs) suffix
 
-      sleq : sameLengthᵇ (emit f x ++ₗ iter-rest) iter-rest ≡ false
-      sleq = sameLengthᵇ-lt (emit f x ++ₗ iter-rest) iter-rest
-               (subst (λ k → length iter-rest < k)
-                      (sym (length-++ (emit f x) {iter-rest}))
-                      (++ₗ-strictly-longer (emit f x) iter-rest ne-x))
+      -- `emit f x` is non-empty, so parsing it moves the position.
+      sleq : samePosᵇ pos-x pos ≡ false
+      sleq = samePosᵇ-advances pos (emit f x) ne-x
 
-      rec-eq : proj₂ (manyHelper (parse f) pos-x iter-rest m')
+      rec-eq : proj₂ (manyHelper (parse f) pos-x iter-rest bound')
              ≡ just (mkResult xs
                        (advancePositions pos-x (emit (many f) xs)) suffix)
-      rec-eq = manyHelper-roundtrip-list f pos-x xs suffix m' len-le wf-xs
+      rec-eq = manyHelper-roundtrip-list f pos-x xs suffix bound' len-le wf-xs
 
       pos-out-eq : advancePositions pos-x (emit (many f) xs)
                  ≡ advancePositions pos (emit (many f) (x ∷ xs))

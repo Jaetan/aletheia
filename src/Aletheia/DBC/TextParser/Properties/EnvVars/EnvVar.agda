@@ -150,7 +150,7 @@ parseEnvVar-roundtrip pos ev suffix nameStop nl-stop =
                      pos-line suffix
                      [] pos-line suffix
                      (manyHelper-parseNewline-exhaust
-                       pos-line suffix (length suffix) nl-stop)
+                       pos-line suffix suffix nl-stop)
 
     -- Step 3: pure ev returns just (mkResult ev pos-line suffix); convert
     -- pos-line back to `advancePositions pos (emitEnvVar-chars ev)` via

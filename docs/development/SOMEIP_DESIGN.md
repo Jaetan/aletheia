@@ -132,7 +132,7 @@ Modeled in a new `Aletheia.SomeIP.*` package (peer of `Aletheia.CAN.*`):
   length fields and skip-extra semantics), fixed and dynamic arrays, and
   length-prefixed strings; the TLV / optional-member mode ("SOME/IP TLV") and
   unions come later. Termination follows the existing discipline: structural
-  recursion on input length (`Aletheia.Parser.Combinators` is precedent; an
+  recursion on the input (`Aletheia.Parser.Combinators` is precedent; an
   exact-length byte reader is the natural substrate).
 - **Service discovery**: SOME/IP-SD messages are ordinary SOME/IP payloads with
   a fixed entry/option layout (16-byte entries, option-index cross-references).

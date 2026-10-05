@@ -176,7 +176,7 @@ parseValueTable-roundtrip pos vt suffix nameStop nl-stop =
                      pos-line suffix
                      [] pos-line suffix
                      (manyHelper-parseNewline-exhaust
-                       pos-line suffix (Data.List.length suffix) nl-stop)
+                       pos-line suffix suffix nl-stop)
       where
         open import Data.List using (length)
 

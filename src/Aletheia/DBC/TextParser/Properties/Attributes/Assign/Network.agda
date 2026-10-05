@@ -23,7 +23,7 @@ open import Data.Bool using (false)
 open import Data.Char using (Char)
 open import Data.Char.Base using ()
 open import Data.Integer using (ℤ; +_; -[1+_])
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
 open import Data.Nat using (zero; suc)
@@ -209,7 +209,7 @@ private
           pos-line outer-suffix
           [] pos-line outer-suffix
           (manyHelper-parseNewline-exhaust pos-line outer-suffix
-            (length outer-suffix) ss-NL)
+            outer-suffix ss-NL)
 
       step-buildP :
         proj₂ (cont-blanks [] pos-line outer-suffix)

@@ -26,7 +26,7 @@
 module Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Simple.MsgSenders where
 
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.Maybe using (just)
 open import Data.Nat using (ℕ)
@@ -151,7 +151,7 @@ parseBOTxBu-roundtrip-explicit pos cid h t suffix nameStop nl-stop =
                      pos-line suffix
                      [] pos-line suffix
                      (manyHelper-parseNewline-exhaust
-                       pos-line suffix (length suffix) nl-stop)
+                       pos-line suffix suffix nl-stop)
 
     step-buildResult :
         proj₂ (cont-blanks [] pos-line suffix)

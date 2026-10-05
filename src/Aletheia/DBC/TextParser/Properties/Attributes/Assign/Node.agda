@@ -19,7 +19,7 @@ module Aletheia.DBC.TextParser.Properties.Attributes.Assign.Node where
 open import Data.Bool using (false)
 open import Data.Char using (Char)
 open import Data.Integer using (ℤ)
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
 open import Data.Product using (_,_; Σ-syntax; _×_; proj₁; proj₂)
@@ -214,7 +214,7 @@ private
           pos-line outer-suffix
           [] pos-line outer-suffix
           (manyHelper-parseNewline-exhaust pos-line outer-suffix
-            (length outer-suffix) ss-NL)
+            outer-suffix ss-NL)
 
       step-buildP :
         proj₂ (cont-blanks [] pos-line outer-suffix)

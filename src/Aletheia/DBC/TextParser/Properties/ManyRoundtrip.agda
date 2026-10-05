@@ -15,36 +15,34 @@
 -- element precondition (`Stop : X → Set`); this module factors that
 -- shared structure into a single helper and a tiny instantiation API.
 --
--- Composition strategy: induct on the *element list* `xs`, with fuel
--- `n` bounded by `length xs ≤ n` (advisor's element-count fuel choice
--- — bytes-bound forces arithmetic at every cons step, element-count
--- gives a clean `length (x ∷ rest) ≤ suc n' ⇒ length rest ≤ n'`
--- handoff to the IH).  Empty case: `manyHelper-P-fails` (any-fuel
--- exhaust on `P pos outer ≡ nothing`).  Cons case: `manyHelper-prog-
--- cons` (Preamble.Newline) + slim `P-on-emit` + `sameLengthᵇ-app-nz`
--- (this module) + IH.  Position bridge via `advancePositions-++`.
+-- Composition strategy: induct on the *element list* `xs`, with the
+-- measure `bound` that `manyHelper` recurses on bounded by
+-- `length xs ≤ length bound`, so each cons step hands
+-- `length rest ≤ length bound'` to the IH.  Empty case:
+-- `manyHelper-P-fails` (exhaust on `P pos outer ≡ nothing`, whatever the
+-- measure).  Cons case: `manyHelper-prog-cons` (Preamble.Newline) + slim
+-- `P-on-emit` + `samePosᵇ-advances` (a non-empty `E x` moves the
+-- position) + IH.  Position bridge via `advancePositions-++`.
 module Aletheia.DBC.TextParser.Properties.ManyRoundtrip where
 
 open import Data.Bool using (false)
 open import Data.Char using (Char)
-open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_; foldr; length; map)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (length-++)
   renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.Maybe using (just; nothing)
-open import Data.Nat using
-  (ℕ; zero; suc; _≤_; _<_; s≤s; z≤n)
-open import Data.Nat.Properties using
-  (m≤n+m; m≤m+n; <⇒≢; ≤-trans; +-mono-≤)
+open import Data.Nat using (suc; _≤_; _<_; s≤s; z≤n)
+open import Data.Nat.Properties using (m≤m+n; ≤-trans; +-mono-≤)
 open import Data.Product using (_,_; proj₂)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; _≢_; refl; sym; trans; cong; subst)
+  using (_≡_; refl; sym; trans; cong; subst)
 
 open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult;
-   advancePositions; many; manyHelper; sameLengthᵇ)
+   advancePositions; many; manyHelper; samePosᵇ)
+open import Aletheia.Parser.Position.Properties using (samePosᵇ-advances)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; advancePositions-++)
@@ -54,56 +52,18 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 
 
 -- ============================================================================
--- AUXILIARY: `sameLengthᵇ` discharge for non-empty prefix
--- ============================================================================
-
--- `sameLengthᵇ xs ys = false` whenever `length xs ≢ length ys`.
--- Structural double-induction on `xs` and `ys`.
-private
-  sameLengthᵇ-len-≢ : ∀ {A : Set} (xs ys : List A) →
-    length xs ≢ length ys → sameLengthᵇ xs ys ≡ false
-  sameLengthᵇ-len-≢ []       []       neq = ⊥-elim (neq refl)
-  sameLengthᵇ-len-≢ []       (_ ∷ _)  _   = refl
-  sameLengthᵇ-len-≢ (_ ∷ _)  []       _   = refl
-  sameLengthᵇ-len-≢ (_ ∷ xs) (_ ∷ ys) neq =
-    sameLengthᵇ-len-≢ xs ys (λ eq → neq (cong suc eq))
-
--- `length ((x ∷ xs) ++ ys) ≢ length ys` — strict-bigger by 1 + length xs.
--- Routes through stdlib's `length-++` + `m≤n+m` + `<⇒≢`.
-private
-  length-cons-app-≢ : ∀ {A : Set} (x : A) (xs ys : List A) →
-    length ((x ∷ xs) ++ₗ ys) ≢ length ys
-  length-cons-app-≢ x xs ys eq =
-    <⇒≢ (s≤s (m≤n+m (length ys) (length xs)))
-        (trans (sym eq) (length-++ (x ∷ xs)))
-
--- `sameLengthᵇ ((x ∷ xs) ++ ys) ys ≡ false` — workhorse for the cons-case
--- progress check inside `manyHelper-prog-cons`.  Each section's `E x` is
--- non-empty (closed-form prefix `"VAL_TABLE_ "` / `"BO_ "` / `"CM_ "` /
--- `"EV_ "` / `"SIG_GROUP_ "`), so the helper specialises with `E x` in
--- the `(x ∷ xs)` slot.
-sameLengthᵇ-app-nz : ∀ {A : Set} (xs ys : List A) →
-  0 < length xs →
-  sameLengthᵇ (xs ++ₗ ys) ys ≡ false
-sameLengthᵇ-app-nz []       _  ()
-sameLengthᵇ-app-nz (x ∷ xs) ys _  =
-  sameLengthᵇ-len-≢ ((x ∷ xs) ++ₗ ys) ys (length-cons-app-≢ x xs ys)
-
-
--- ============================================================================
 -- AUXILIARY: empty-case `manyHelper` exhaust
 -- ============================================================================
 
--- `proj₂ (manyHelper P pos input n) ≡ just (mkResult [] pos input)`
--- whenever `proj₂ (P pos input) ≡ nothing`.  Parametric in fuel — works
--- at zero (vacuous by definition) or `suc n'` (with-match the parser's
--- `nothing` outcome).
+-- `proj₂ (manyHelper P pos input bound) ≡ just (mkResult [] pos input)`
+-- whenever `proj₂ (P pos input) ≡ nothing`, whatever the measure: empty,
+-- by definition; non-empty, by with-matching the parser's `nothing`.
 manyHelper-P-fails : ∀ {A : Set} (P : Parser A)
-                       (pos : Position) (input : List Char) (n : ℕ)
+                       (pos : Position) (input : List Char) (bound : List Char)
   → proj₂ (P pos input) ≡ nothing
-  → proj₂ (manyHelper P pos input n) ≡ just (mkResult [] pos input)
-manyHelper-P-fails _ _ _     zero    _  = refl
-manyHelper-P-fails P pos input (suc _) eq with P pos input | eq
+  → proj₂ (manyHelper P pos input bound) ≡ just (mkResult [] pos input)
+manyHelper-P-fails _ _ _     []      _  = refl
+manyHelper-P-fails P pos input (_ ∷ _) eq with P pos input | eq
 ... | w , nothing | refl = refl
 
 
@@ -111,9 +71,9 @@ manyHelper-P-fails P pos input (suc _) eq with P pos input | eq
 -- POLYMORPHIC HELPER: `many P` roundtrip from per-element slim
 -- ============================================================================
 
--- Internal core: the proof at a specific fuel level `n`.  Top-level
--- `many-η-roundtrip` calls this with `n = length input` (which is ≥
--- `length xs` since each `E x` consumes ≥ 1 char).
+-- Internal core: the proof at a measure `bound`.  Top-level
+-- `many-η-roundtrip` calls this with the input itself, as `many` does,
+-- which is at least as long as `xs` since each `E x` is ≥ 1 char.
 --
 -- Parameters:
 --   * `P : Parser X`         — the slim parser (`parseValueTable`, …)
@@ -127,7 +87,7 @@ manyHelper-P-fails P pos input (suc _) eq with P pos input | eq
 --   * `pos`                  — starting position
 --   * `xs : List X`          — element list
 --   * `outer-suffix`         — bytes after the final element
---   * `n`                    — fuel; must be ≥ `length xs`
+--   * `bound`                — the measure; at least as long as `xs`
 --   * `xs-stops : All Stop xs`
 --   * `outer-stop`           — `SuffixStops isNewlineStart outer-suffix`
 --   * `P-fails-outer`        — `proj₂ (P pos' outer-suffix) ≡ nothing` ∀ pos'
@@ -144,31 +104,31 @@ many-η-roundtrip-helper :
     → (E-head-not-newline :
           ∀ (x : X) (suffix : List Char)
         → SuffixStops isNewlineStart (E x ++ₗ suffix))
-    → ∀ (pos : Position) (xs : List X) (outer-suffix : List Char) (n : ℕ)
-    → length xs ≤ n
+    → ∀ (pos : Position) (xs : List X) (outer-suffix : List Char) (bound : List Char)
+    → length xs ≤ length bound
     → All Stop xs
     → SuffixStops isNewlineStart outer-suffix
     → (∀ (pos' : Position) → proj₂ (P pos' outer-suffix) ≡ nothing)
     → proj₂ (manyHelper P pos
                  (foldr (λ x acc → E x ++ₗ acc) [] xs ++ₗ outer-suffix)
-                 n)
+                 bound)
       ≡ just (mkResult xs
                (advancePositions pos
                  (foldr (λ x acc → E x ++ₗ acc) [] xs))
                outer-suffix)
 many-η-roundtrip-helper P E Stop rt nz hns
-                        pos [] outer n _ [] os pf =
-  manyHelper-P-fails P pos outer n (pf pos)
+                        pos [] outer bound _ [] os pf =
+  manyHelper-P-fails P pos outer bound (pf pos)
 many-η-roundtrip-helper P E Stop rt nz hns
-                        pos (x ∷ rest) outer (suc n') (s≤s rest≤n')
+                        pos (x ∷ rest) outer (b ∷ bound') (s≤s rest≤b)
                         (sx ∷ srest) os pf =
   -- Spine bridge: associate `(E x ++ rest-input) ++ outer` to
   -- `E x ++ (rest-input ++ outer)` so `manyHelper-prog-cons` can fire.
   trans
-    (cong (λ inp → proj₂ (manyHelper P pos inp (suc n')))
+    (cong (λ inp → proj₂ (manyHelper P pos inp (b ∷ bound')))
           (++ₗ-assoc (E x) rest-input outer))
     (trans
-      (manyHelper-prog-cons P pos (E x ++ₗ (rest-input ++ₗ outer)) n'
+      (manyHelper-prog-cons P pos (E x ++ₗ (rest-input ++ₗ outer)) {b} bound'
         x posx (rest-input ++ₗ outer) rest pos-out outer
         peq sleq hpeq)
       (cong (λ p → just (mkResult (x ∷ rest) p outer)) pos-bridge))
@@ -204,18 +164,15 @@ many-η-roundtrip-helper P E Stop rt nz hns
           ≡ just (mkResult x posx (rest-input ++ₗ outer))
     peq = rt pos x (rest-input ++ₗ outer) sx inner-stop
 
-    -- `sameLengthᵇ` between `E x ++ rest` and `rest` is false because
-    -- `length (E x) ≥ 1`.
-    sleq : sameLengthᵇ (E x ++ₗ (rest-input ++ₗ outer))
-                       (rest-input ++ₗ outer)
-           ≡ false
-    sleq = sameLengthᵇ-app-nz (E x) (rest-input ++ₗ outer) (nz x)
+    -- `E x` is non-empty, so parsing it moves the position.
+    sleq : samePosᵇ posx pos ≡ false
+    sleq = samePosᵇ-advances pos (E x) (nz x)
 
-    -- IH: `proj₂ (manyHelper P posx (rest-input ++ outer) n') ≡ ...`.
-    hpeq : proj₂ (manyHelper P posx (rest-input ++ₗ outer) n')
+    -- IH: `proj₂ (manyHelper P posx (rest-input ++ outer) bound') ≡ ...`.
+    hpeq : proj₂ (manyHelper P posx (rest-input ++ₗ outer) bound')
            ≡ just (mkResult rest pos-out outer)
     hpeq = many-η-roundtrip-helper P E Stop rt nz hns
-             posx rest outer n' rest≤n' srest os pf
+             posx rest outer bound' rest≤b srest os pf
 
     -- Position bridge: `pos-out = advancePositions posx rest-input
     -- = advancePositions pos (E x ++ rest-input)` by `advancePositions-++`.
@@ -226,7 +183,7 @@ many-η-roundtrip-helper P E Stop rt nz hns
 
 
 -- ============================================================================
--- TOP-LEVEL: `many P` roundtrip — discharges the fuel obligation
+-- TOP-LEVEL: `many P` roundtrip — discharges the measure obligation
 -- ============================================================================
 
 -- `length xs ≤ length (foldr ... [] xs)` — each `E xᵢ` ≥ 1 char.
@@ -280,7 +237,7 @@ many-η-roundtrip :
                outer-suffix)
 many-η-roundtrip P E Stop rt nz hns pos xs outer xs-stops os pf =
   many-η-roundtrip-helper P E Stop rt nz hns
-    pos xs outer (length input) (length-xs-≤-bytes E nz xs outer)
+    pos xs outer input (length-xs-≤-bytes E nz xs outer)
     xs-stops os pf
   where
     input : List Char
@@ -314,29 +271,29 @@ many-η-roundtrip-with-lift-helper :
     → (E-head-not-newline :
           ∀ (i : I) (suffix : List Char)
         → SuffixStops isNewlineStart (E i ++ₗ suffix))
-    → ∀ (pos : Position) (xs : List I) (outer-suffix : List Char) (n : ℕ)
-    → length xs ≤ n
+    → ∀ (pos : Position) (xs : List I) (outer-suffix : List Char) (bound : List Char)
+    → length xs ≤ length bound
     → All Stop xs
     → SuffixStops isNewlineStart outer-suffix
     → (∀ (pos' : Position) → proj₂ (P pos' outer-suffix) ≡ nothing)
     → proj₂ (manyHelper P pos
                  (foldr (λ i acc → E i ++ₗ acc) [] xs ++ₗ outer-suffix)
-                 n)
+                 bound)
       ≡ just (mkResult (map L xs)
                (advancePositions pos
                  (foldr (λ i acc → E i ++ₗ acc) [] xs))
                outer-suffix)
 many-η-roundtrip-with-lift-helper P E Stop L rt nz hns
-                                  pos [] outer n _ [] os pf =
-  manyHelper-P-fails P pos outer n (pf pos)
+                                  pos [] outer bound _ [] os pf =
+  manyHelper-P-fails P pos outer bound (pf pos)
 many-η-roundtrip-with-lift-helper P E Stop L rt nz hns
-                                  pos (i ∷ rest) outer (suc n') (s≤s rest≤n')
+                                  pos (i ∷ rest) outer (b ∷ bound') (s≤s rest≤b)
                                   (sx ∷ srest) os pf =
   trans
-    (cong (λ inp → proj₂ (manyHelper P pos inp (suc n')))
+    (cong (λ inp → proj₂ (manyHelper P pos inp (b ∷ bound')))
           (++ₗ-assoc (E i) rest-input outer))
     (trans
-      (manyHelper-prog-cons P pos (E i ++ₗ (rest-input ++ₗ outer)) n'
+      (manyHelper-prog-cons P pos (E i ++ₗ (rest-input ++ₗ outer)) {b} bound'
         (L i) posx (rest-input ++ₗ outer) (map L rest) pos-out outer
         peq sleq hpeq)
       (cong (λ p → just (mkResult (L i ∷ map L rest) p outer)) pos-bridge))
@@ -367,15 +324,13 @@ many-η-roundtrip-with-lift-helper P E Stop L rt nz hns
           ≡ just (mkResult (L i) posx (rest-input ++ₗ outer))
     peq = rt pos i (rest-input ++ₗ outer) sx inner-stop
 
-    sleq : sameLengthᵇ (E i ++ₗ (rest-input ++ₗ outer))
-                       (rest-input ++ₗ outer)
-           ≡ false
-    sleq = sameLengthᵇ-app-nz (E i) (rest-input ++ₗ outer) (nz i)
+    sleq : samePosᵇ posx pos ≡ false
+    sleq = samePosᵇ-advances pos (E i) (nz i)
 
-    hpeq : proj₂ (manyHelper P posx (rest-input ++ₗ outer) n')
+    hpeq : proj₂ (manyHelper P posx (rest-input ++ₗ outer) bound')
            ≡ just (mkResult (map L rest) pos-out outer)
     hpeq = many-η-roundtrip-with-lift-helper P E Stop L rt nz hns
-             posx rest outer n' rest≤n' srest os pf
+             posx rest outer bound' rest≤b srest os pf
 
     pos-bridge : pos-out
       ≡ advancePositions pos
@@ -408,7 +363,7 @@ many-η-roundtrip-with-lift :
                outer-suffix)
 many-η-roundtrip-with-lift P E Stop L rt nz hns pos xs outer xs-stops os pf =
   many-η-roundtrip-with-lift-helper P E Stop L rt nz hns
-    pos xs outer (length input) (length-xs-≤-bytes E nz xs outer)
+    pos xs outer input (length-xs-≤-bytes E nz xs outer)
     xs-stops os pf
   where
     input : List Char

@@ -27,7 +27,7 @@ open import Data.Char.Properties using (toℕ-injective)
 open import Data.Empty using (⊥-elim)
 import Data.Empty.Irrelevant as EmptyI
 open import Data.Unit using (tt)
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (++-assoc)
 open import Data.List.Relation.Unary.All using ([])
 open import Data.Maybe using (just; nothing)
@@ -141,7 +141,7 @@ parseDecRatFrac-roundtrip-+zero-suffix : ∀ a b pos suffix
 parseDecRatFrac-roundtrip-+zero-suffix zero    zero    pos suffix _ ss
   with manyHelper (satisfy isDigit)
          (advancePosition (advancePosition (advancePosition pos '0') '.') '0')
-         suffix (length suffix)
+         suffix suffix
      | manyHelper-satisfy-exhaust-many isDigit
          (advancePosition (advancePosition (advancePosition pos '0') '.') '0')
          [] suffix [] ss
