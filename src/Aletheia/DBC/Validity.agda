@@ -4,17 +4,21 @@
 
 -- Formal definition of DBC validity.
 --
--- Purpose: Define ValidDBC as a precise predicate capturing when a DBC's
--- signal layout defines a well-defined partial function from frames to values.
+-- Purpose: Define IsValidDBC as a precise predicate capturing when a DBC's
+-- signal layout defines a well-defined partial function from frames to values,
+-- and every value its declared ranges admit has an encoding in its bits.
 -- Supports CAN 2.0B (DLC 0–8) and CAN-FD (DLC 0–15).
 --
--- A DBC is valid when all 8 error-severity conditions hold.
--- Warning-severity checks are advisory and NOT part of ValidDBC.
+-- A DBC is valid when every error-severity condition holds.
+-- Warning-severity checks are advisory and NOT part of IsValidDBC.
+-- `ValidDBC` is the DBC with its erased proof, the value a loaded session
+-- holds; `signalFacts` reads off it what encoding a signal's value needs.
 module Aletheia.DBC.Validity where
 open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Validator using (walkMux)
+open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange; SignalFacts)
 open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.DBC.Decidable using (SignalPairValid)
 open import Aletheia.CAN.Signal using (SignalDef)
@@ -23,7 +27,9 @@ open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; 0ᵈ; 1ᵈ; _≤ᵈ_; t
 open import Aletheia.DBC.DecRat.RationalRoundtrip using (↥-toℚ-canonical)
 open import Data.Rational.Base as ℚ using ()
 open import Data.List using (List; []; length)
-open import Data.List.Relation.Unary.All using (All)
+open import Data.List.Relation.Unary.All using (All; lookup)
+open import Data.List.Membership.Propositional using (_∈_)
+open import Data.Nat.Properties using (n≢0⇒n>0)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.List.Relation.Unary.Any using (Any)
 open import Data.Nat using (ℕ; _+_; _*_; _≤_; _<_)
@@ -34,8 +40,8 @@ open import Data.Unit using (⊤)
 open import Data.Empty using (⊥)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; cong; trans; sym)
 open import Data.String using (String)
-open import Data.Bool using (Bool; true; false)
-open import Data.Product using (_×_)
+open import Data.Bool using (Bool; true)
+open import Data.Product using (_×_; proj₁; proj₂)
 
 -- ============================================================================
 -- PER-SIGNAL PREDICATES
@@ -95,11 +101,19 @@ BitsInFrame payloadBytes sig =
 NonZeroBitLength : DBCSignal → Set
 NonZeroBitLength sig = SignalDef.bitLength (DBCSignal.signalDef sig) ≢ 0
 
+-- Condition 9 (check 26): the declared range lies within the values the
+-- signal's bits carry, so every value the range admits has an encoding.
+RangeWithinBits : DBCSignal → Set
+RangeWithinBits sig =
+  let sd = DBCSignal.signalDef sig
+  in (proj₁ (bitsRange sd) ≤ᵣ toℚ (SignalDef.minimum sd))
+     × (toℚ (SignalDef.maximum sd) ≤ᵣ proj₂ (bitsRange sd))
+
 -- ============================================================================
--- ValidDBC: conjunction of all 8 error-severity conditions
+-- IsValidDBC: conjunction of the error-severity conditions
 -- ============================================================================
 
-record ValidDBC (dbc : DBC) : Set where
+record IsValidDBC (dbc : DBC) : Set where
   private
     msgs = DBC.messages dbc
   field
@@ -126,9 +140,37 @@ record ValidDBC (dbc : DBC) : Set where
                                             (DBCMessage.signals m)) msgs
     -- 8. Non-zero bit lengths
     nonZeroBitLengths : All (λ m → All NonZeroBitLength (DBCMessage.signals m)) msgs
+    -- 9. Declared ranges within what the bits carry
+    rangesWithinBits  : All (λ m → All RangeWithinBits (DBCMessage.signals m)) msgs
+
+-- A DBC with the proof that it is valid.  The validator's verdict is its
+-- one producer (`Aletheia.DBC.Validated.validate`); the proof is
+-- erased, so it costs nothing at run time, and a consumer reads from it any
+-- fact it states of the DBC's messages and signals.
+record ValidDBC : Set where
+  constructor validated
+  field
+    dbc        : DBC
+    @0 isValid : IsValidDBC dbc
+
+-- The facts encoding needs of a signal of a valid DBC, read off where the
+-- signal sits.
+signalFacts : ∀ {dbc msg sig} → IsValidDBC dbc
+  → msg ∈ DBC.messages dbc → sig ∈ DBCMessage.signals msg
+  → SignalFacts (DBCSignal.signalDef sig)
+signalFacts {sig = sig} v m∈ s∈ = record
+  { factor≢0    = nonZeroFactor→factorℚ≢0 {sig} (at IsValidDBC.nonZeroFactors)
+  ; bitLength>0 = n≢0⇒n>0 (at IsValidDBC.nonZeroBitLengths)
+  ; lowWithin   = proj₁ (at IsValidDBC.rangesWithinBits)
+  ; highWithin  = proj₂ (at IsValidDBC.rangesWithinBits)
+  }
+  where
+    at : ∀ {P : DBCSignal → Set}
+       → (IsValidDBC _ → All (λ m → All P (DBCMessage.signals m)) _) → P sig
+    at field′ = lookup (lookup (field′ v) m∈) s∈
 
 -- ============================================================================
--- WARNING PREDICATES (advisory, not part of ValidDBC)
+-- WARNING PREDICATES (advisory, not part of IsValidDBC)
 -- ============================================================================
 
 -- Check 7: Signal minimum ≤ maximum (DecRat-level ordering).
@@ -168,10 +210,11 @@ RangeLowOK physMin declMin = declMin ≤ᵣ physMin
 RangeHighOK : ℚ → ℚ → Set
 RangeHighOK physMax declMax = physMax ≤ᵣ declMax
 
--- Composed range check, parameterized by factor sign
-RangeBoundsOK : Bool → ℚ → ℚ → ℚ → ℚ → Set
-RangeBoundsOK false physA physB declMin declMax = RangeLowOK physA declMin × RangeHighOK physB declMax
-RangeBoundsOK true  physA physB declMin declMax = RangeLowOK physB declMin × RangeHighOK physA declMax
+-- The values a signal's bits carry lie within its declared range.
+BitsWithinRange : DBCSignal → Set
+BitsWithinRange sig =
+  RangeLowOK (proj₁ (bitsRange (DBCSignal.signalDef sig))) (toℚ (SignalDef.minimum (DBCSignal.signalDef sig)))
+  × RangeHighOK (proj₂ (bitsRange (DBCSignal.signalDef sig))) (toℚ (SignalDef.maximum (DBCSignal.signalDef sig)))
 
 -- Check 17: Multiplexor non-unit scaling
 -- A mux signal with factor ≠ 1 or offset ≠ 0 produces non-integer physical

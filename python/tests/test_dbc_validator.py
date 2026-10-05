@@ -4,9 +4,10 @@
 
 Tests that the Aletheia engine's validateDBC command correctly detects
 structural issues in DBC definitions (duplicate IDs and names, global name
-collisions, factor zero, min > max, offset and scale range, multiplexor
-issues) and refuses a malformed validation response.  The checks on where a
-signal sits in its message's frame are in ``test_dbc_validator_layout.py``.
+collisions, factor zero, min > max, offset and scale range, a declared range
+past its signal's bits, multiplexor issues) and refuses a malformed validation
+response.  The checks on where a signal sits in its message's frame are in
+``test_dbc_validator_layout.py``.
 """
 
 from fractions import Fraction
@@ -22,7 +23,8 @@ from _validator_helpers import (
     single_message_dbc,
 )
 
-from aletheia import AletheiaClient, DBCDefinition, ProtocolError
+from aletheia import AletheiaClient, DBCDefinition, ProtocolError, ValidationIssue
+from aletheia.codes import IssueCode, IssueSeverity
 
 if TYPE_CHECKING:
     from aletheia.types import (
@@ -146,15 +148,16 @@ class TestFactorZero:
         assert "factor_zero" in codes
 
     def test_nonzero_factor_ok(self) -> None:
-        """Verify nonzero factor ok."""
+        """A nonzero factor, its range what its eight bits carry, validates clean."""
         dbc = single_message_dbc(
             [
-                make_signal("GoodSignal", factor=Fraction("0.01")),
+                make_signal("GoodSignal", factor=Fraction("0.01"), maximum=Fraction("2.55")),
             ]
         )
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
+        assert result["has_errors"] is False
         factor_issues = [i for i in result["issues"] if i["code"] == "factor_zero"]
         assert factor_issues == []
 
@@ -311,7 +314,9 @@ class TestOffsetScaleRange:
 
         osr = [i for i in result["issues"] if i["code"] == "offset_scale_range"]
         assert len(osr) == 1
-        assert "maximum" in osr[0]["detail"]
+        assert osr[0]["detail"] == (
+            "Message 'Msg1', signal 'Narrow': its bits carry values above the declared maximum"
+        )
 
     def test_signed_correct_range_clean(self) -> None:
         # 8-bit signed, factor=1, offset=0 → phys ∈ [-128, 127]
@@ -358,7 +363,9 @@ class TestOffsetScaleRange:
 
         osr = [i for i in result["issues"] if i["code"] == "offset_scale_range"]
         assert len(osr) == 1
-        assert "minimum" in osr[0]["detail"]
+        assert osr[0]["detail"] == (
+            "Message 'Msg1', signal 'Cold': its bits carry values below the declared minimum"
+        )
 
     def test_negative_factor_unsigned(self) -> None:
         # 8-bit unsigned, factor=Fraction("-0.1"), offset=Fraction("25.5")
@@ -427,6 +434,51 @@ class TestOffsetScaleRange:
 
         osr = [i for i in result["issues"] if i["code"] == "offset_scale_range"]
         assert osr == []
+
+
+class TestRangeExceedsBits:
+    """Check 26: a declared [min, max] past what the bits carry refuses the load.
+
+    The converse of check 13: a value the range admits there has no raw
+    encoding, so ``parse_dbc`` answers ``handler_validation_failed`` carrying
+    one error-severity ``range_exceeds_bits`` issue per bound past the bits.
+    """
+
+    @staticmethod
+    def _refused_issues(dbc: DBCDefinition) -> list[ValidationIssue] | None:
+        """Load ``dbc``, assert the load is refused, and return the refusal's issues."""
+        with AletheiaClient() as client:
+            result = client.parse_dbc(dbc)
+        assert result["status"] == "error"
+        assert result["code"] == "handler_validation_failed"
+        assert result.get("has_errors") is True
+        return result.get("issues")
+
+    def test_declared_maximum_above_the_bits_refuses_the_load(self) -> None:
+        """An 8-bit unsigned signal at factor 1 declared up to 1000 is refused."""
+        expected: list[ValidationIssue] = [
+            {
+                "severity": IssueSeverity.ERROR,
+                "code": IssueCode.RANGE_EXCEEDS_BITS,
+                "detail": "Message 'Msg1', signal 'S': "
+                + "declared maximum lies above the values its bits carry",
+            }
+        ]
+        dbc = single_message_dbc([make_signal("S", maximum=1000)])
+        assert self._refused_issues(dbc) == expected
+
+    def test_declared_minimum_below_the_bits_refuses_the_load(self) -> None:
+        """An 8-bit unsigned signal declared down to -1 is refused."""
+        expected: list[ValidationIssue] = [
+            {
+                "severity": IssueSeverity.ERROR,
+                "code": IssueCode.RANGE_EXCEEDS_BITS,
+                "detail": "Message 'Msg1', signal 'S': "
+                + "declared minimum lies below the values its bits carry",
+            }
+        ]
+        dbc = single_message_dbc([make_signal("S", minimum=-1)])
+        assert self._refused_issues(dbc) == expected
 
 
 class TestMultiValueMuxSelector:

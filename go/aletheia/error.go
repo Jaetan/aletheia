@@ -132,12 +132,14 @@ const (
 	CodeFrameSignalNotFound = "frame_signal_not_found"
 	// CodeFrameSignalIndexOOB — frame-level: signal index out of range for the message.
 	CodeFrameSignalIndexOOB = "frame_signal_index_oob"
-	// CodeFrameInjectionFailed — bit-injection of a signal value failed.
-	// Common causes: physical value outside the signal's [min, max] range,
-	// computed raw value not fitting the signal's bit width, or scale/offset
-	// reverse-transform producing a non-integer where the signal is unsigned.
-	CodeFrameInjectionFailed = "frame_injection_failed"
-	// CodeFrameSignalsOverlap — two signals occupy overlapping bit positions.
+	// CodeFrameValueOutOfRange — a requested signal value lies outside the
+	// signal's declared [minimum, maximum].
+	CodeFrameValueOutOfRange = "frame_value_out_of_range"
+	// CodeFrameValueNotRepresentable — no integer raw value scales to a
+	// requested signal value under the signal's factor and offset.
+	CodeFrameValueNotRepresentable = "frame_value_not_representable"
+	// CodeFrameSignalsOverlap — two signals requested by one build or update
+	// occupy overlapping bit positions.
 	CodeFrameSignalsOverlap = "frame_signals_overlap"
 	// CodeFrameSignalPastFrameEnd — a signal's last bit lies past the end of the
 	// frame the caller's DLC sizes, so its overhanging bits have nowhere to go.
@@ -146,7 +148,8 @@ const (
 	CodeFrameCanIDNotFound = "frame_can_id_not_found"
 	// CodeFrameCanIDMismatch — frame CAN ID disagrees with the message ID resolved by name.
 	CodeFrameCanIDMismatch = "frame_can_id_mismatch"
-	// CodeFrameSignalValueOutOfBounds — physical value outside [min, max] bounds.
+	// CodeFrameSignalValueOutOfBounds — an extracted value outside the signal's
+	// [min, max]; its message is the reason extraction reports for the signal.
 	CodeFrameSignalValueOutOfBounds = "frame_signal_value_out_of_bounds"
 
 	// CodeInputBoundExceeded is any input bound crossed at any parser

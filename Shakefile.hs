@@ -861,6 +861,21 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                ++ "a newtype. Trace/Time.agda uses `record ... no-eta-equality` "
                ++ "intentionally so MAlonzo compiles Timestamp comparisons "
                ++ "without a wrapper allocation on the hot path."
+        -- Records whose proofs are erased compile to newtypes over their one
+        -- runtime field: a loaded DBC carries its validity, an encodable
+        -- value its range and exactness facts, a found element its position,
+        -- each at no runtime cost.
+        validity <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/DBC/Validity.hs"
+        encoding <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/CAN/Encoding/Value.hs"
+        prelude  <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/Prelude.hs"
+        let newtypeOf name src = any (("newtype T_" ++ name ++ "_") `isPrefixOf`) (lines src)
+        forM_ [ ("ValidDBC", validity, "the DBC's validity proof")
+              , ("Encodable", encoding, "an encodable value's range and exactness facts")
+              , ("Found", prelude, "a found element's position") ] $ \(name, src, what) ->
+          unless (newtypeOf name src) $
+            error $ "check-erasure failed: " ++ name ++ " no longer compiles to a "
+                 ++ "newtype over its one runtime field; " ++ what
+                 ++ " must stay erased, or every value carries a proof cell."
         -- Stdlib constructor names the shim matches binary-output results on.
         -- These are mangled from stdlib's Sum module; a stdlib version bump
         -- can silently rename them, breaking pattern matches at runtime.

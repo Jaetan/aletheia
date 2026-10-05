@@ -227,6 +227,57 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **A requested value is written exactly or refused with a typed error
+  (BREAKING).** Building or updating a frame (`aletheia_build_frame_bin`,
+  `aletheia_update_frame_bin`) checks each requested value in the kernel: one
+  outside the signal's declared `[minimum, maximum]` is refused with
+  `frame_value_out_of_range`, and one no integer raw value scales to exactly,
+  such as `1.5` at factor 1 or `0.3` at factor 0.5, with
+  `frame_value_not_representable`; each message names the signal and the
+  value, with the range or with the factor and offset. Before, a value outside
+  the range and a raw value of 2^n or more for n bits both failed with
+  `frame_injection_failed`, which is removed; an inexact value was written
+  with its raw value rounded down (`1.5` at factor 1 became `1`); and a raw
+  value the bits do not carry as it is, a signed one past their positive half
+  or a negative one in unsigned bits, was written wrapped: a signed 8-bit
+  signal declared `[-128, 255]` took 200 and read back -56. A caller matching
+  the removed code matches the two new ones instead (Python
+  `ErrorCode.FRAME_VALUE_OUT_OF_RANGE` / `FRAME_VALUE_NOT_REPRESENTABLE` for
+  `FRAME_INJECTION_FAILED`, Go `CodeFrameValueOutOfRange` /
+  `CodeFrameValueNotRepresentable` for `CodeFrameInjectionFailed`, C++
+  `ErrorCode::FrameValueOutOfRange` / `FrameValueNotRepresentable` for
+  `FrameInjectionFailed`; Rust carries the code as a string). An accepted
+  value is written from the proof that its raw value fits the signal's bits,
+  with nothing checked at the write. Encoding a value is its own layer
+  (`Aletheia.CAN.Encoding.Value`: `checkValue`, `encodedBits`), between the
+  arithmetic of the raw range (`Aletheia.CAN.Encoding.Arithmetic.Range`) and
+  writing bits into a frame (`withInjected`), and `validDBC-roundtrip`
+  (`Aletheia.CAN.Batch.Properties.Capstone`) proves that every value an
+  accepted build writes for distinct, always-present signals of the message
+  reads back as requested, with no premise on the values.
+- **An update refuses two requested signals sharing a bit (BREAKING).**
+  `aletheia_update_frame_bin` wrote both, the later write replacing the
+  earlier one's bits, where a build refused the same request; an update now
+  refuses it too, with `frame_signals_overlap`.
+- **A DBC whose declared range reaches past its bits is refused at load
+  (BREAKING).** The new error-severity issue `range_exceeds_bits` names a
+  signal whose declared minimum lies below, or maximum above, every physical
+  value its bits carry after scaling: the range admits values no frame can
+  hold. Every route that loads a DBC refuses it with
+  `handler_validation_failed`, and `validateDBC` reports it; each binding
+  names the issue (Python `IssueCode.RANGE_EXCEEDS_BITS`, Go
+  `IssueRangeExceedsBits`, C++ and Rust `IssueCode::RangeExceedsBits`).
+  `IsValidDBC` (renamed from `ValidDBC`) gains the field `rangesWithinBits`,
+  and a loaded DBC is a `ValidDBC`, the DBC with its erased validity proof,
+  from which the frame builder reads the facts it writes under. The
+  `offset_scale_range` warning named the inverse of its condition; it now says
+  which way the bits overreach: "its bits carry values below the declared
+  minimum" or "above the declared maximum". In `examples/example_canfd.dbc`,
+  `GPSAltitude`'s maximum is 3276.7, the most its 16 signed bits carry at
+  factor 0.1, and `IMUTemp` is unsigned, as its range `[-40, 215]` at offset
+  -40 reads; `Temp` in the corpus's `kitchen_sink.dbc` and `EngineTemp` in
+  `examples/demo/demo_workbook.xlsx` are unsigned for the same reason, and
+  each binding's benchmark DBC follows the example.
 - **The kernel decides every frame it accepts (BREAKING).** A frame handed to
   a binary entry (`aletheia_send_frame`, `aletheia_send_remote`,
   `aletheia_extract_signals`, `aletheia_build_frame_bin`,

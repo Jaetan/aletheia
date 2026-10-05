@@ -23,15 +23,13 @@
 module Aletheia.Data.BitVec.Conversion where
 
 open import Aletheia.Data.BitVec using (BitVec)
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; _^_; _%_; _<ᵇ_; s≤s; z≤n; pred; NonZero)
+open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; _^_; _%_; s≤s; z≤n; pred; NonZero)
 open import Data.Nat.DivMod using (_mod_; _/_; m≡m%n+[m/n]*n; m%n<n; m*n%n≡0; m*n/n≡m; [m+kn]%n≡m%n; m<n*o⇒m/o<n; m%[n*o]/o≡m/o%n)
-open import Data.Nat.Properties using (*-comm; +-identityˡ; *-cancelʳ-≡; *-identityˡ; n≤1+n; ≤-<-trans; ≡ᵇ⇒≡; n<1⇒n≡0; *-monoʳ-<; +-mono-≤; +-suc; *-cancelˡ-≡; suc-injective; m^n≢0; m*n≢0; *-assoc; <-irrelevant; <ᵇ-reflects-<)
+open import Data.Nat.Properties using (*-comm; +-identityˡ; *-cancelʳ-≡; *-identityˡ; n≤1+n; ≤-<-trans; ≡ᵇ⇒≡; n<1⇒n≡0; *-monoʳ-<; +-mono-≤; +-suc; *-cancelˡ-≡; suc-injective; m^n≢0; m*n≢0; *-assoc)
 open import Data.Fin using (Fin; toℕ)
 open import Data.Fin.Properties using (toℕ-fromℕ<)
 open import Data.Bool using (Bool; true; false; T)
 open import Data.Empty using (⊥; ⊥-elim)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Relation.Nullary.Reflects using (ofʸ; ofⁿ)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst)
 open import Data.Vec using ([]; _∷_; lookup)
 
@@ -191,16 +189,12 @@ private
       -- even-div-2   : (2*k)/2 ≡ k
       -- Transport: (2*k)/2 < 2^n to k < 2^n
 
--- Core conversion function: takes parity as a witness parameter
--- This is the key: parity is DATA, not COMPUTATION
--- Mutual with public API so core can recurse via wrapper.
--- The `value < 2 ^ n` bound is `@0`-erased: the proof slot is
--- structurally needed for type-checking
--- but never inspected at runtime, so MAlonzo can erase it.  Two
--- different proofs of `value < 2 ^ n` produce propositionally equal
--- BitVecs (witness propositional equality of `ℕToBitVec`'s output is
--- now trivial because the proof argument doesn't appear in the result).
--- Unblocks the `injectHelper` Bool fast-path in `Aletheia.CAN.Encoding`.
+-- Core conversion function: takes parity as a witness parameter, so parity
+-- is data, not computation.  Mutual with the public API so the core can
+-- recurse via the wrapper.  The `value < 2 ^ n` bound is `@0`-erased: the
+-- proof slot is needed for type-checking but never inspected at runtime, so
+-- MAlonzo erases it; the encoding layer builds bits from a bound it proves
+-- (`Aletheia.CAN.Encoding.Value.encodedBits`).
 mutual
   private
     ℕToBitVec′ : ∀ {n} (value : ℕ) → ParityDecomp value → @0 (value < 2 ^ n) → BitVec n
@@ -214,60 +208,15 @@ mutual
   ℕToBitVec : ∀ {n} (value : ℕ) → @0 (value < 2 ^ n) → BitVec n
   ℕToBitVec {n} value bound = ℕToBitVec′ {n} value (parity-decomp value) bound
 
--- ============================================================================
--- BOOL-DISPATCH SMART CONSTRUCTOR
--- ============================================================================
--- `mkBoundedBitVec` is the verified gateway from a raw ℕ to a `Maybe (BitVec bl)`,
--- doing the bound check via `_<ᵇ_` (Bool) rather than `_<?_` (Dec).  The bound
--- witness needed by `ℕToBitVec` is constructed in-place from `<ᵇ-reflects-<`'s
--- `ofʸ` payload and flows into `ℕToBitVec`'s `@0`-erased slot, so MAlonzo drops
--- it at runtime.  Net runtime cost: one Bool comparison + one `Maybe`
--- constructor — compared to `_<?_`'s `Dec` wrapper (yes/no constructor + the
--- Bool decision internally).
---
--- **Why `<ᵇ-reflects-<` instead of `with ... in eq`:** the `with ... in eq`
--- idiom builds an equation `(n <ᵇ 2 ^ bl) ≡ true` that needs to flow through
--- the consumer's `with`-abstraction.  When a consumer (e.g. a proof of the
--- form `mkBoundedBitVec-just`) tries to `with`-abstract over the same
--- scrutinee, Agda's elaborator generates an ill-typed with-function because
--- the inner `eq` binding doesn't propagate — reporting
--- `n <ᵇ 2 ^ bl != w of type Bool`.
---
--- `Reflects` carries the witness AS DATA inside the constructor (`ofʸ p`
--- when `b = true`).  Pattern-matching on the constructor automatically
--- substitutes `(n <ᵇ 2 ^ bl)` to `true`/`false` in both the runtime body and
--- any proof — no separate `eq` equation needs to thread through abstraction.
--- Both `mkBoundedBitVec` and its consumers can `with`-abstract over the
--- `Reflects` value without crossing the elaboration barrier.
--- Two-with abstraction is required: under `--without-K`, single-`with` on
--- `Reflects … (n <ᵇ 2 ^ bl)` hits a SplitError because the Boolean index is
--- an open expression.  First abstracting `n <ᵇ 2 ^ bl` to a fresh variable,
--- then matching the Reflects constructor against that variable, lets Agda
--- unify the index in each clause.
---
--- **Why this stays open-coded rather than using `Aletheia.Data.Dec0`:** the
--- reduction lemma `mkBoundedBitVec-just` below must equate the two branches
--- RELEVANTLY, which requires the `ofʸ` witness (via `<-irrelevant`) in a
--- relevant position — an erased Dec₀ certificate cannot leave erased
--- context, and resurrecting it per call (`recompute₀`) would reintroduce
--- the relevant-decider allocation this construction exists to avoid.  The
--- relevant `Reflects` value here is lazily allocated and its payload flows
--- into an erased slot, which is already the cost floor for a construction
--- whose consumers need the witness at proof level.
-mkBoundedBitVec : (n bl : ℕ) → Maybe (BitVec bl)
-mkBoundedBitVec n bl with n <ᵇ 2 ^ bl | <ᵇ-reflects-< n (2 ^ bl)
-... | false | ofⁿ _    = nothing
-... | true  | ofʸ n<bl = just (ℕToBitVec n n<bl)
-
--- Reduction lemma: when `n < 2 ^ bl` holds at the proof level,
--- `mkBoundedBitVec n bl` reduces to `just (ℕToBitVec n n<bl)`.  Consumers
--- compose this lemma into their own reduction chains via `trans` /
--- `with … | reduction-lemma` without needing to abstract over `n <ᵇ 2 ^ bl`.
-mkBoundedBitVec-just : ∀ n bl (n<bl : n < 2 ^ bl)
-                    → mkBoundedBitVec n bl ≡ just (ℕToBitVec n n<bl)
-mkBoundedBitVec-just n bl n<bl with n <ᵇ 2 ^ bl | <ᵇ-reflects-< n (2 ^ bl)
-... | true  | ofʸ n<bl' = cong (λ p → just (ℕToBitVec n p)) (<-irrelevant n<bl' n<bl)
-... | false | ofⁿ ¬n<bl = ⊥-elim (¬n<bl n<bl)
+-- The bound is a certificate and never shapes the bits: two proofs of it give
+-- the same bit vector.
+ℕToBitVec-irrelevant : ∀ {n} (value : ℕ) (@0 p q : value < 2 ^ n) → ℕToBitVec {n} value p ≡ ℕToBitVec {n} value q
+ℕToBitVec-irrelevant {zero} _ _ _ = refl
+ℕToBitVec-irrelevant {suc n} value p q with parity-decomp value
+... | even k eq = cong (false ∷_)
+  (ℕToBitVec-irrelevant k (half-bound-even {value} {k} {n} eq p) (half-bound-even {value} {k} {n} eq q))
+... | odd  k eq = cong (true ∷_)
+  (ℕToBitVec-irrelevant k (half-bound-odd {value} {k} {n} eq p) (half-bound-odd {value} {k} {n} eq q))
 
 -- ============================================================================
 -- ROUNDTRIP PROOF (The hard part - proven ONCE)

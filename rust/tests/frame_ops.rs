@@ -311,6 +311,101 @@ fn a_frame_entry_refusal_carries_the_core_code() {
     }
 }
 
+/// Both frame entries for one value of `CoolantLevel` (8 bits, factor 1,
+/// offset 0, declared `[0, 255]`), building and updating message 256.
+fn coolant_level_entries(num: i64, den: i64) -> [Result<Vec<u8>, Error>; 2] {
+    let c = client();
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
+    let msg = dbc
+        .message_by_id(CanId::standard(256).expect("id"))
+        .expect("EngineStatus");
+    let dlc = Dlc::new(8).expect("dlc");
+    [
+        c.build_frame(msg, dlc, &[sv("CoolantLevel", num, den)]),
+        c.update_frame(msg, dlc, &[0u8; 8], &[sv("CoolantLevel", num, den)]),
+    ]
+}
+
+/// Asserts a frame entry's answer is the core refusal `code` with `message`.
+fn assert_core_refusal(answer: Result<Vec<u8>, Error>, code: &str, message: &str) {
+    match answer {
+        Err(Error::Core {
+            code: got_code,
+            message: got_message,
+        }) => {
+            assert_eq!(got_code, code);
+            assert_eq!(got_message, message);
+        }
+        other => panic!("expected the core's {code} refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_value_outside_the_declared_range_is_refused() {
+    for (value, message) in [
+        (
+            300,
+            "value 300 for signal 'CoolantLevel' is outside [0, 255]",
+        ),
+        (-1, "value -1 for signal 'CoolantLevel' is outside [0, 255]"),
+    ] {
+        for answer in coolant_level_entries(value, 1) {
+            assert_core_refusal(answer, "frame_value_out_of_range", message);
+        }
+    }
+}
+
+/// Two multiplexed signals over the same bits, requested together: of two
+/// writes to one bit only the later would remain, so both entries refuse them.
+#[test]
+fn two_signals_sharing_a_bit_are_refused() {
+    let c = client();
+    let dbc = c.parse_dbc_text(MUX).expect("parse DBC text").dbc;
+    let msg = dbc
+        .message_by_id(CanId::standard(100).expect("id"))
+        .expect("BasicMux");
+    let dlc = Dlc::new(8).expect("dlc");
+    let both = [sv("PayloadA", 1, 1), sv("PayloadB", 1, 1)];
+    for answer in [
+        c.build_frame(msg, dlc, &both),
+        c.update_frame(msg, dlc, &[0u8; 8], &both),
+    ] {
+        assert_core_refusal(answer, "frame_signals_overlap", "signals overlap");
+    }
+}
+
+#[test]
+fn the_declared_bounds_are_written_exactly() {
+    let c = client();
+    let dbc = c.parse_dbc_text(MINIMAL).expect("parse DBC text").dbc;
+    let id = CanId::standard(256).expect("id");
+    let msg = dbc.message_by_id(id).expect("EngineStatus");
+    let dlc = Dlc::new(8).expect("dlc");
+    for value in [0, 255] {
+        let built = c
+            .build_frame(msg, dlc, &[sv("CoolantLevel", value, 1)])
+            .expect("build_frame");
+        let updated = c
+            .update_frame(msg, dlc, &[0u8; 8], &[sv("CoolantLevel", value, 1)])
+            .expect("update_frame");
+        for frame in [built, updated] {
+            let ex = c.extract_signals(id, dlc, &frame).expect("extract_signals");
+            assert!(value_is(&ex, "CoolantLevel", value, 1), "{:?}", ex.values);
+        }
+    }
+}
+
+#[test]
+fn a_value_no_raw_value_scales_to_is_refused_rather_than_rounded() {
+    for answer in coolant_level_entries(3, 2) {
+        assert_core_refusal(
+            answer,
+            "frame_value_not_representable",
+            "no integer raw value scales to value 1.5 for signal 'CoolantLevel' (factor 1, offset 0)",
+        );
+    }
+}
+
 #[test]
 fn payload_length_must_match_dlc() {
     // The data-length-vs-DLC invariant is enforced before the FFI (Copilot review).

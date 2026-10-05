@@ -54,13 +54,13 @@ _DBC_BRAKE_MSG = (
     + ' SG_ BrakePressure : 0|16@1+ (0.1,0) [0|6553.5] "bar" Vector__XXX\n'
 )
 
-# Factor 1/8192 = 0.0001220703125 exactly — a terminating decimal with more
-# significant figures than the old `{value:g}` (6 sig figs) kept, so %g truncated
-# it to "0.00012207".  Used to prove the signals listing now renders the factor
-# exactly via the kernel format_rational.
+# Factor 1/8192 = 0.0001220703125 exactly: a terminating decimal with more
+# significant figures than `{value:g}` keeps (six, "0.00012207"), so the signals
+# listing renders it through the kernel's format_rational to print every digit.
+# The maximum is the most the sixteen bits carry, 65535/8192.
 _DBC_FINE_MSG = (
     "BO_ 1024 FineMsg: 8 ECU4\n"
-    + ' SG_ FineSignal : 0|16@1+ (0.0001220703125,0) [0|8] "x" Vector__XXX\n'
+    + ' SG_ FineSignal : 0|16@1+ (0.0001220703125,0) [0|7.9998779296875] "x" Vector__XXX\n'
 )
 
 # 16-byte CAN-FD message — payload byte count 16 (DLC code 10).  Exercises
@@ -236,9 +236,8 @@ class TestSignalsCommand:
     ) -> None:
         """A fine-resolution factor renders exactly via the kernel format_rational.
 
-        Factor 1/8192 = 0.0001220703125; the old `{value:g}` (6 significant
-        figures) truncated it to "0.00012207".  The exact render contains the
-        full-precision string, which the lossy form does not.
+        The exact render contains the full-precision string of 1/8192, which
+        the six-figure form ``0.00012207`` does not.
         """
         p = tmp_path / "fine.dbc"
         _write_dbc(p, _DBC_FINE_MSG)

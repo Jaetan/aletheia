@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Per-check soundness and completeness for all 8 error-severity checks.
+-- Per-check soundness and completeness for every error-severity check.
 --
 -- For each error check: checkE args ≡ [] ↔ condition(args)
 -- Proved by case analysis on the Dec used in each check function.
@@ -22,9 +22,10 @@ open import Aletheia.DBC.Validator using
   ; checkMuxFoundSig; checkAllMuxFound
   ; checkMuxCycleSig; checkAllMuxCycle
   ; walkMux
+  ; checkRangeExceedsBitsSig; checkAllRangeExceedsBits
   )
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
-open import Aletheia.DBC.Validity using (NonZeroBitLength; NonZeroFactor; BitsInFrame; MuxResolvable; MuxAcyclic)
+open import Aletheia.DBC.Validity using (NonZeroBitLength; NonZeroFactor; BitsInFrame; MuxResolvable; MuxAcyclic; RangeWithinBits)
 open import Aletheia.DBC.Validity.Combinators using
   ( liftConcatMap-sound; liftConcatMap-complete
   ; requireDec-sound; requireDec-complete
@@ -32,6 +33,7 @@ open import Aletheia.DBC.Validity.Combinators using
   ; liftTriangular-sound; liftTriangular-complete )
 open import Aletheia.DBC.Decidable using (SignalPairValid; signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange)
 open import Data.List using ([]; length)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
@@ -40,7 +42,10 @@ open import Data.Nat using (_+_; _*_)
 open import Data.Nat.Properties using (_≤?_; _≟_)
 open import Data.Integer using (+_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
-open import Aletheia.DBC.DecRat using (DecRat)
+open import Aletheia.DBC.DecRat using (DecRat; toℚ)
+open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-split; ++-≡[]-combine)
+open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
+open import Data.Product using (_,_; proj₁; proj₂)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Bool using (true; false)
 open import Aletheia.CAN.DLC using (dlcBytes)
@@ -350,3 +355,37 @@ checkAllMuxCycle-complete : ∀ msgs →
 checkAllMuxCycle-complete = liftConcatMap-complete _ λ msg →
   liftConcatMap-complete _
     (checkMuxCycleSig-complete (messageNameStr msg) (DBCMessage.signals msg)) _
+
+-- ============================================================================
+-- CHECK 26: DECLARED RANGE PAST THE BITS
+-- ============================================================================
+
+checkRangeExceedsBitsSig-sound : ∀ msgName sig →
+  checkRangeExceedsBitsSig msgName sig ≡ [] → RangeWithinBits sig
+checkRangeExceedsBitsSig-sound _ sig eq =
+  requireDec-sound (proj₁ (bitsRange sd) ≤?ᵣ toℚ (SignalDef.minimum sd)) _ (proj₁ halves)
+  , requireDec-sound (toℚ (SignalDef.maximum sd) ≤?ᵣ proj₂ (bitsRange sd)) _ (proj₂ halves)
+  where
+    sd = DBCSignal.signalDef sig
+    halves = ++-≡[]-split eq
+
+checkRangeExceedsBitsSig-complete : ∀ msgName sig →
+  RangeWithinBits sig → checkRangeExceedsBitsSig msgName sig ≡ []
+checkRangeExceedsBitsSig-complete _ sig (low , high) =
+  ++-≡[]-combine
+    (requireDec-complete (proj₁ (bitsRange sd) ≤?ᵣ toℚ (SignalDef.minimum sd)) _ low)
+    (requireDec-complete (toℚ (SignalDef.maximum sd) ≤?ᵣ proj₂ (bitsRange sd)) _ high)
+  where
+    sd = DBCSignal.signalDef sig
+
+checkAllRangeExceedsBits-sound : ∀ msgs →
+  checkAllRangeExceedsBits msgs ≡ [] →
+  All (λ m → All RangeWithinBits (DBCMessage.signals m)) msgs
+checkAllRangeExceedsBits-sound = liftConcatMap-sound _ λ msg →
+  liftConcatMap-sound _ (checkRangeExceedsBitsSig-sound (messageNameStr msg)) _
+
+checkAllRangeExceedsBits-complete : ∀ msgs →
+  All (λ m → All RangeWithinBits (DBCMessage.signals m)) msgs →
+  checkAllRangeExceedsBits msgs ≡ []
+checkAllRangeExceedsBits-complete = liftConcatMap-complete _ λ msg →
+  liftConcatMap-complete _ (checkRangeExceedsBitsSig-complete (messageNameStr msg)) _

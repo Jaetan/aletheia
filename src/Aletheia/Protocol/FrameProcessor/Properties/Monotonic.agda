@@ -23,6 +23,7 @@
 -- corollaries.
 module Aletheia.Protocol.FrameProcessor.Properties.Monotonic where
 
+open import Aletheia.DBC.Validity using (validated)
 open import Aletheia.Protocol.StreamState
     using (Streaming; handleDataFrame; checkMonotonic)
 open import Aletheia.Protocol.StreamState.Internals
@@ -84,14 +85,14 @@ checkMonotonic-< p tf tf<p with timestampℕ tf Data.Nat.<ᵇ timestampℕ p in 
 -- Backward timestamps are rejected with NonMonotonicTimestamp HandlerError.
 -- The state's `prev` is left unchanged so the next frame is still checked
 -- against the same anchor — the rejected frame is never the new anchor.
-handleDataFrame-rejects-regress : ∀ n dbc props p cache tf
+handleDataFrame-rejects-regress : ∀ n dbc v props p cache tf
   → timestampℕ tf < timestampℕ p
-  → handleDataFrame (Streaming n dbc props (just p) cache) tf
-    ≡ (Streaming n dbc props (just p) cache ,
+  → handleDataFrame (Streaming n (validated dbc v) props (just p) cache) tf
+    ≡ (Streaming n (validated dbc v) props (just p) cache ,
        Response.Error
          (WithContext "DataFrame"
            (HandlerErr (NonMonotonicTimestamp (timestampℕ tf) (timestampℕ p)))))
-handleDataFrame-rejects-regress n dbc props p cache tf tf<p
+handleDataFrame-rejects-regress n dbc v props p cache tf tf<p
   rewrite checkMonotonic-< p tf tf<p
   = refl
 
@@ -100,30 +101,30 @@ handleDataFrame-rejects-regress n dbc props p cache tf tf<p
 -- Coalgebra/Properties take Monotonic σ as a hypothesis; this property
 -- guarantees that the streaming pipeline only enters its iteration logic on
 -- frames that satisfy the monotonicity precondition those theorems require.
-handleDataFrame-accepts-monotonic : ∀ n dbc props p cache tf
+handleDataFrame-accepts-monotonic : ∀ n dbc v props p cache tf
   → timestampℕ p ≤ timestampℕ tf
-  → handleDataFrame (Streaming n dbc props (just p) cache) tf
+  → handleDataFrame (Streaming n (validated dbc v) props (just p) cache) tf
     ≡ let readable     = readableSignals props
           table        = extractTable dbc (TimedFrame.frame tf) readable
           updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf) readable
-      in dispatchIterResult dbc
+      in dispatchIterResult (validated dbc v)
            (iterate (stepProperty dbc table cache tf) props)
            tf updatedCache
-handleDataFrame-accepts-monotonic n dbc props p cache tf p≤tf =
-  handleDataFrame-streaming dbc props (just p) cache tf
+handleDataFrame-accepts-monotonic n dbc v props p cache tf p≤tf =
+  handleDataFrame-streaming dbc v props (just p) cache tf
     (checkMonotonic-≥ p tf p≤tf)
 
 -- After StartStream (prev = nothing), the first frame is always accepted.
-handleDataFrame-first-frame : ∀ n dbc props cache tf
-  → handleDataFrame (Streaming n dbc props nothing cache) tf
+handleDataFrame-first-frame : ∀ n dbc v props cache tf
+  → handleDataFrame (Streaming n (validated dbc v) props nothing cache) tf
     ≡ let readable     = readableSignals props
           table        = extractTable dbc (TimedFrame.frame tf) readable
           updatedCache = updateCacheFromFrame dbc cache (timestamp tf) (TimedFrame.frame tf) readable
-      in dispatchIterResult dbc
+      in dispatchIterResult (validated dbc v)
            (iterate (stepProperty dbc table cache tf) props)
            tf updatedCache
-handleDataFrame-first-frame n dbc props cache tf =
-  handleDataFrame-streaming dbc props nothing cache tf refl
+handleDataFrame-first-frame n dbc v props cache tf =
+  handleDataFrame-streaming dbc v props nothing cache tf refl
 
 -- Inverse of checkMonotonic-≥: if the runtime check accepts a frame against
 -- an actual anchor, then the anchor's timestamp is ≤ the new frame's

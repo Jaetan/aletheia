@@ -66,7 +66,8 @@ constexpr auto error_code_table = std::to_array<ErrorCodeEntry>({
     // Frame errors
     {"frame_signal_not_found", ErrorCode::FrameSignalNotFound},
     {"frame_signal_index_oob", ErrorCode::FrameSignalIndexOob},
-    {"frame_injection_failed", ErrorCode::FrameInjectionFailed},
+    {"frame_value_out_of_range", ErrorCode::FrameValueOutOfRange},
+    {"frame_value_not_representable", ErrorCode::FrameValueNotRepresentable},
     {"frame_signals_overlap", ErrorCode::FrameSignalsOverlap},
     {"frame_signal_past_frame_end", ErrorCode::FrameSignalPastFrameEnd},
     {"frame_can_id_not_found", ErrorCode::FrameCanIdNotFound},
@@ -422,6 +423,7 @@ constexpr auto issue_code_table = std::to_array<IssueCodeEntry>({
     {"attribute_value_type_mismatch", IssueCode::AttributeValueTypeMismatch},
     {"attribute_enum_empty", IssueCode::AttributeEnumEmpty},
     {"attribute_enum_default_unstable", IssueCode::AttributeEnumDefaultUnstable},
+    {"range_exceeds_bits", IssueCode::RangeExceedsBits},
 });
 
 static auto parse_issue_code(std::string_view s) -> IssueCode {

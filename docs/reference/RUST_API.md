@@ -180,7 +180,9 @@ Outside streaming or inside it, decode and synthesize frames directly. The `dlc`
 - `build_frame(message, dlc, signals)` → `Vec<u8>` (encode signal values).
 - `update_frame(message, dlc, frame, signals)` → `Vec<u8>` (patch a frame).
 
-Encoding takes the `DbcMessage` itself rather than its identifier, the signal positions being resolved against that message. Decoding a frame and encoding one are inverses, and a `SignalValue` is a name beside an exact value:
+Each value is written exactly or refused: one outside the signal's declared range fails with code `frame_value_out_of_range`, one that no integer raw value scales to under the signal's factor and offset with `frame_value_not_representable`, and two requested signals sharing a bit with `frame_signals_overlap`. A written value reads back unchanged wherever the frame carries its signal: always, or for a multiplexed signal when its multiplexor's value selects it.
+
+Encoding takes the `DbcMessage` itself rather than its identifier, the signal positions being resolved against that message. A `SignalValue` is a name beside an exact value:
 
 ```rust
 use aletheia::{CanId, Client, Dlc, SignalValue, Rational};
@@ -217,7 +219,7 @@ println!("encoded {} bytes", rebuilt.len());
 
 ## Error Handling
 
-Every fallible operation returns `Result<_, aletheia::Error>`, and none panics on the normal path. `Error` is an enum matched directly. `Core { code, message }` mirrors the kernel's `IssueCode`, and `Validation`, `Protocol`, `InputBoundExceeded { .. }` and `ValidationFailed { .. }` classify what a call refuses; the remaining variants are the loader's own failures and the round-trip refusal, listed in rustdoc:
+Every fallible operation returns `Result<_, aletheia::Error>`, and none panics on the normal path. `Error` is an enum matched directly. `Core { code, message }` carries the kernel's error code, and `Validation`, `Protocol`, `InputBoundExceeded { .. }` and `ValidationFailed { .. }` classify what a call refuses; the remaining variants are the loader's own failures and the round-trip refusal, listed in rustdoc:
 
 ```rust
 use aletheia::Error;

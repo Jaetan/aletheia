@@ -21,7 +21,9 @@ grep -qE '^\- \*\*exit 0\*\*.*unresolved.*exits 0' README.md || { echo "README.m
 tmp=$(mktemp -d) || exit 2
 trap 'rm -rf "$tmp"' EXIT
 printf '(0.000000) can0 7FF#00\n' > "$tmp/one.log"
-out=$(cd examples/demo && ALETHEIA_LIB=$(realpath "$lib") PYTHONPATH=../../python \
+# Resolved here, before the run changes directory under a relative path.
+lib=$(realpath "$lib") || exit 2
+out=$(cd examples/demo && ALETHEIA_LIB=$lib PYTHONPATH=../../python \
     "../../$py" -m aletheia check --dbc vehicle.dbc --checks vehicle_checks.yaml "$tmp/one.log" 2>&1)
 rc=$?
 [ "$rc" -eq 0 ] || { echo "aletheia check exited $rc on a log with no violation:"; printf '%s\n' "$out" | tail -5; exit 1; }

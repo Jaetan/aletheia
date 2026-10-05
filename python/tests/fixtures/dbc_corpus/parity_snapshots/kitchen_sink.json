@@ -307,7 +307,7 @@
           "receivers": [
             "Gateway"
           ],
-          "signed": true,
+          "signed": false,
           "startBit": 16,
           "unit": "degC",
           "valueDescriptions": []

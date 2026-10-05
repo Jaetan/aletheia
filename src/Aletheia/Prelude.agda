@@ -66,6 +66,8 @@ open import Function public
 
 -- Find first element in list matching a Bool predicate (stdlib re-export).
 open import Data.List.Base public using () renaming (findᵇ to findByPredicate)
+open import Data.List.Membership.Propositional using (_∈_)
+open import Data.List.Relation.Unary.Any using (here; there)
 
 -- Look up value by string key in association list.
 --
@@ -92,6 +94,35 @@ listIndex : ∀ {A : Set} → ℕ → List A → Maybe A
 listIndex _ [] = nothing
 listIndex zero (x ∷ _) = just x
 listIndex (suc n) (_ ∷ xs) = listIndex n xs
+
+-- An element of a list together with where it sits.  The position is a
+-- proof, erased: a consumer that needs a fact the list's owner states of
+-- every element reads it there, at no run-time cost.
+record Found {A : Set} (xs : List A) : Set where
+  constructor found
+  field
+    item    : A
+    @0 position : item ∈ xs
+
+-- The first element passing a test, with where it sits.  Each walk below is
+-- a loop: a sublist's positions reach the whole list through an erased
+-- embedding, so nothing is built until the element is found.
+findIn : ∀ {A : Set} → (A → Bool) → (xs : List A) → Maybe (Found xs)
+findIn {A} p xs = go xs (λ y∈ → y∈)
+  where
+    go : (ys : List A) → @0 (∀ {y} → y ∈ ys → y ∈ xs) → Maybe (Found xs)
+    go []       _     = nothing
+    go (y ∷ ys) embed = if p y then just (found y (embed (here refl))) else go ys (λ y∈ → embed (there y∈))
+
+-- The element at a position, with where it sits: `listIndex` with the
+-- position kept, at the same cost, `Found` being a newtype over the element.
+indexIn : ∀ {A : Set} → ℕ → (xs : List A) → Maybe (Found xs)
+indexIn {A} n xs = go n xs (λ y∈ → y∈)
+  where
+    go : ℕ → (ys : List A) → @0 (∀ {y} → y ∈ ys → y ∈ xs) → Maybe (Found xs)
+    go _       []       _     = nothing
+    go zero    (y ∷ _)  embed = just (found y (embed (here refl)))
+    go (suc k) (_ ∷ ys) embed = go k ys (λ y∈ → embed (there y∈))
 
 -- Lift Maybe to E ⊎ A with an error value on Nothing
 require : ∀ {E A : Set} → E → Maybe A → E ⊎ A

@@ -67,14 +67,14 @@ open import Data.List using (List)
 open import Data.Nat using (ℕ)
 open import Data.Rational using (ℚ)
 open import Data.Vec using (Vec; toList)
-open import Data.Maybe using (Maybe; nothing; just)
+open import Data.Maybe using (Maybe)
 open import Data.Sum using (_⊎_; inj₁; inj₂) renaming (map to bimapₑ)
 open import Function.Base using (id)
 
 open import Aletheia.Protocol.JSON using (formatJSON)
 open import Aletheia.Protocol.ResponseFormat using (formatResponse)
-open import Aletheia.Protocol.StreamState using (StreamState; getDBC; handleDataFrame; handleTraceEvent)
-open import Aletheia.DBC.Types using (DBC)
+open import Aletheia.Protocol.StreamState using (StreamState; WaitingForDBC; ReadyToStream; Streaming; handleDataFrame; handleTraceEvent)
+open import Aletheia.DBC.Validity using (ValidDBC)
 open import Aletheia.Protocol.Handlers using
   ( handleStartStream; handleEndStream; handleFormatDBC
   ; handleExtractAllSignals
@@ -139,30 +139,31 @@ processExtractDirect state frame = wrapJSON (handleExtractAllSignals frame state
 -- ============================================================================
 
 private
-  -- Check for a loaded DBC; refuse with `NoDBC` when there is none.
-  withDBCBin : ∀ {A : Set} → StreamState → (DBC → Err ⊎ A) → StreamState × (Err ⊎ A)
-  withDBCBin state f with getDBC state
-  ... | nothing  = (state , inj₁ (HandlerErr NoDBC))
-  ... | just dbc = (state , f dbc)
+  -- Hand the loaded, validated DBC to `f`; refuse with `NoDBC` when there is
+  -- none.
+  withDBCBin : ∀ {A : Set} → StreamState → (ValidDBC → Err ⊎ A) → StreamState × (Err ⊎ A)
+  withDBCBin state@WaitingForDBC              _ = (state , inj₁ (HandlerErr NoDBC))
+  withDBCBin state@(ReadyToStream _ vdbc _ _) f = (state , f vdbc)
+  withDBCBin state@(Streaming _ vdbc _ _ _)   f = (state , f vdbc)
 
 -- Build a frame from signal values, returning its bytes.
 processBuildFrameBin : StreamState → CANId → (dlc : DLC) → List (ℕ × ℚ) → StreamState × (Err ⊎ Vec Byte (dlcBytes dlc))
 {-# NOINLINE processBuildFrameBin #-}
 processBuildFrameBin state canId dlc signals =
-  withDBCBin state λ dbc → mapₑ FrameErr (buildFrameByIndex dbc canId dlc signals)
+  withDBCBin state λ vdbc → mapₑ FrameErr (buildFrameByIndex vdbc canId dlc signals)
 
 -- Update a frame's signals, returning its bytes.
 processUpdateFrameBin : ∀ {n} → StreamState → CANFrame n → List (ℕ × ℚ) → StreamState × (Err ⊎ Vec Byte n)
 {-# NOINLINE processUpdateFrameBin #-}
 processUpdateFrameBin state frame signals =
-  withDBCBin state λ dbc → bimapₑ FrameErr CANFrame.payload
-    (updateFrameByIndex dbc (CANFrame.id frame) frame signals)
+  withDBCBin state λ vdbc → bimapₑ FrameErr CANFrame.payload
+    (updateFrameByIndex vdbc (CANFrame.id frame) frame signals)
 
 -- Extract signals returning indexed results (no strings on success path).
 processExtractBin : ∀ {n} → StreamState → CANFrame n → StreamState × (Err ⊎ IndexedExtractionResults)
 {-# NOINLINE processExtractBin #-}
 processExtractBin state frame =
-  withDBCBin state λ dbc → mapₑ FrameErr (extractAllSignalsIndexed dbc frame)
+  withDBCBin state λ vdbc → mapₑ FrameErr (extractAllSignalsIndexed (ValidDBC.dbc vdbc) frame)
 
 -- ============================================================================
 -- RAW ENTRY POINTS (what AletheiaFFI.hs calls: builtins in, parsed here)

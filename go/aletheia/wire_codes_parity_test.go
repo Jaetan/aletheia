@@ -106,6 +106,7 @@ var goIssueCodes = []aletheia.IssueCode{
 	aletheia.IssueAttributeValueTypeMismatch,
 	aletheia.IssueAttributeEnumEmpty,
 	aletheia.IssueAttributeEnumDefaultUnstable,
+	aletheia.IssueRangeExceedsBits,
 }
 
 // goErrorCodes is every error code the binding declares.
@@ -141,7 +142,8 @@ var goErrorCodes = []string{
 	aletheia.CodeDBCTextAttributeRefinementFailed,
 	aletheia.CodeFrameSignalNotFound,
 	aletheia.CodeFrameSignalIndexOOB,
-	aletheia.CodeFrameInjectionFailed,
+	aletheia.CodeFrameValueOutOfRange,
+	aletheia.CodeFrameValueNotRepresentable,
 	aletheia.CodeFrameSignalsOverlap,
 	aletheia.CodeFrameSignalPastFrameEnd,
 	aletheia.CodeFrameCanIDNotFound,

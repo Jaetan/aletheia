@@ -18,13 +18,14 @@ open import Aletheia.DBC.Types using
   ; GlobalNameCollision; Always; When
   ; DBCComment
   ; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar )
+open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange)
 open import Aletheia.DBC.Validator using
   ( checkGlobalNamePair; checkGlobalNameAgainstList
   ; checkAllGlobalNameCollisions; messageSignalNames
   ; checkMinMaxSig; checkAllMinMax
   ; checkDuplicateNamePair; checkDuplicateNameAgainstList
   ; checkAllDuplicateMessageNames
-  ; checkRangeLow; checkRangeHigh; checkRangeBounds; isNegativeℚ
+  ; checkRangeLow; checkRangeHigh
   ; checkOffsetScaleRange; checkAllOffsetScaleRange
   ; checkEmptyMessage; checkAllEmptyMessage
   ; checkStartBitOutOfRange; checkAllStartBitOutOfRange
@@ -50,7 +51,7 @@ open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.DBC.Validity using
   ( MinLeqMax; DistinctMessageNames; NonEmptySignals
   ; StartBitInRange; BitLengthInRange; DisjointSignalNames
-  ; RangeLowOK; RangeHighOK; RangeBoundsOK
+  ; RangeLowOK; RangeHighOK; BitsWithinRange
   ; MuxScalingOK; MuxUnitScaling
   )
 open import Aletheia.DBC.Validity.ListLemmas using
@@ -72,9 +73,8 @@ open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
 open import Aletheia.DBC.DecRat using (0ᵈ; 1ᵈ; toℚ; _≟ᵈ_; _≤?ᵈ_)
 open import Data.Maybe using (just; nothing)
 open import Data.Unit using (tt)
-open import Data.Bool using (true; false)
 open import Data.Empty using (⊥-elim)
-open import Data.Product using (_,_)
+open import Data.Product using (_,_; proj₁; proj₂)
 open import Relation.Nullary using (yes; no; ¬_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Data.List.Membership.DecPropositional _≟ₛ_ using (_∈?_)
@@ -295,22 +295,11 @@ checkRangeHigh-allW msgName sigName physMax declMax with physMax ≤?ᵣ declMax
 ... | yes _ = []
 ... | no  _ = refl ∷ []
 
-checkRangeBounds-allW : ∀ msgName sigName factor physA physB declMin declMax →
-  All W (checkRangeBounds msgName sigName factor physA physB declMin declMax)
-checkRangeBounds-allW msgName sigName factor physA physB declMin declMax
-  with isNegativeℚ factor
-... | false = ++⁺ (checkRangeLow-allW msgName sigName physA declMin)
-                     (checkRangeHigh-allW msgName sigName physB declMax)
-... | true  = ++⁺ (checkRangeLow-allW msgName sigName physB declMin)
-                     (checkRangeHigh-allW msgName sigName physA declMax)
-
 checkOffsetScaleRange-allW : ∀ msgName sig → All W (checkOffsetScaleRange msgName sig)
-checkOffsetScaleRange-allW msgName sig
-  with SignalDef.isSigned (DBCSignal.signalDef sig)
-... | true  = checkRangeBounds-allW msgName (signalNameStr sig)
-                (toℚ (SignalDef.factor (DBCSignal.signalDef sig))) _ _ _ _
-... | false = checkRangeBounds-allW msgName (signalNameStr sig)
-                (toℚ (SignalDef.factor (DBCSignal.signalDef sig))) _ _ _ _
+checkOffsetScaleRange-allW msgName sig =
+  let sd = DBCSignal.signalDef sig
+  in ++⁺ (checkRangeLow-allW msgName (signalNameStr sig) (proj₁ (bitsRange sd)) (toℚ (SignalDef.minimum sd)))
+         (checkRangeHigh-allW msgName (signalNameStr sig) (proj₂ (bitsRange sd)) (toℚ (SignalDef.maximum sd)))
 
 checkAllOffsetScaleRange-allW : ∀ msgs → All W (checkAllOffsetScaleRange msgs)
 checkAllOffsetScaleRange-allW [] = []
@@ -346,33 +335,21 @@ checkRangeHigh-complete : ∀ msgName sigName physMax declMax →
 checkRangeHigh-complete _ _ physMax declMax =
   requireDec-complete (physMax ≤?ᵣ declMax) _
 
-checkRangeBounds-sound : ∀ msgName sigName factor physA physB declMin declMax →
-  checkRangeBounds msgName sigName factor physA physB declMin declMax ≡ [] →
-  RangeBoundsOK (isNegativeℚ factor) physA physB declMin declMax
-checkRangeBounds-sound msgName sigName factor physA physB declMin declMax eq
-  with isNegativeℚ factor
-... | false =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkRangeLow-sound msgName sigName physA declMin eq₁ ,
-     checkRangeHigh-sound msgName sigName physB declMax eq₂
-... | true  =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkRangeLow-sound msgName sigName physB declMin eq₁ ,
-     checkRangeHigh-sound msgName sigName physA declMax eq₂
+checkOffsetScaleRange-sound : ∀ msgName sig →
+  checkOffsetScaleRange msgName sig ≡ [] → BitsWithinRange sig
+checkOffsetScaleRange-sound msgName sig eq =
+  let sd = DBCSignal.signalDef sig
+      (eq₁ , eq₂) = ++-≡[]-split eq
+  in checkRangeLow-sound msgName (signalNameStr sig) (proj₁ (bitsRange sd)) (toℚ (SignalDef.minimum sd)) eq₁ ,
+     checkRangeHigh-sound msgName (signalNameStr sig) (proj₂ (bitsRange sd)) (toℚ (SignalDef.maximum sd)) eq₂
 
-checkRangeBounds-complete : ∀ msgName sigName factor physA physB declMin declMax →
-  RangeBoundsOK (isNegativeℚ factor) physA physB declMin declMax →
-  checkRangeBounds msgName sigName factor physA physB declMin declMax ≡ []
-checkRangeBounds-complete msgName sigName factor physA physB declMin declMax p
-  with isNegativeℚ factor
-... | false =
-  let (lo , hi) = p
-  in ++-≡[]-combine (checkRangeLow-complete msgName sigName physA declMin lo)
-                    (checkRangeHigh-complete msgName sigName physB declMax hi)
-... | true  =
-  let (lo , hi) = p
-  in ++-≡[]-combine (checkRangeLow-complete msgName sigName physB declMin lo)
-                    (checkRangeHigh-complete msgName sigName physA declMax hi)
+checkOffsetScaleRange-complete : ∀ msgName sig →
+  BitsWithinRange sig → checkOffsetScaleRange msgName sig ≡ []
+checkOffsetScaleRange-complete msgName sig (lo , hi) =
+  let sd = DBCSignal.signalDef sig
+  in ++-≡[]-combine
+       (checkRangeLow-complete msgName (signalNameStr sig) (proj₁ (bitsRange sd)) (toℚ (SignalDef.minimum sd)) lo)
+       (checkRangeHigh-complete msgName (signalNameStr sig) (proj₂ (bitsRange sd)) (toℚ (SignalDef.maximum sd)) hi)
 
 -- ============================================================================
 -- CHECK 14: EMPTY MESSAGE — Severity

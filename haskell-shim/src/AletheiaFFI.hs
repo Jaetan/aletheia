@@ -142,7 +142,7 @@ aletheia_send_frame statePtr framePtr = do
           Left err -> errorJSON err
           Right bytes ->
             let (canId, extended, dlc) = frameId f
-            in runJSON statePtr (\s -> AgdaBin.d_processFrameRaw_120 s
+            in runJSON statePtr (\s -> AgdaBin.d_processFrameRaw_116 s
                    (toInteger (frameTimestamp f)) canId extended dlc bytes
                    (mkMaybeBool (frameBrsPresent f) (frameBrsValue f))
                    (mkMaybeBool (frameEsiPresent f) (frameEsiValue f)))
@@ -155,7 +155,7 @@ aletheia_send_error statePtr framePtr = do
     frameE <- peekFrame "aletheia_send_error" framePtr
     case frameE of
       Left err -> errorJSON err
-      Right f -> runJSON statePtr (\s -> AgdaBin.d_processErrorFrameRaw_180 s (toInteger (frameTimestamp f)))
+      Right f -> runJSON statePtr (\s -> AgdaBin.d_processErrorFrameRaw_176 s (toInteger (frameTimestamp f)))
 
 foreign export ccall aletheia_send_remote :: StateHandle -> Ptr Frame -> IO CString
 aletheia_send_remote :: StateHandle -> Ptr Frame -> IO CString
@@ -163,7 +163,7 @@ aletheia_send_remote statePtr framePtr = do
     frameE <- peekFrame "aletheia_send_remote" framePtr
     case frameE of
       Left err -> errorJSON err
-      Right f -> runJSON statePtr (\s -> AgdaBin.d_processRemoteFrameRaw_192 s
+      Right f -> runJSON statePtr (\s -> AgdaBin.d_processRemoteFrameRaw_188 s
                    (toInteger (frameTimestamp f)) (toInteger (frameCanId f)) (frameExtended f /= 0))
 
 foreign export ccall aletheia_extract_signals :: StateHandle -> Ptr Frame -> IO CString
@@ -178,7 +178,7 @@ aletheia_extract_signals statePtr framePtr = do
           Left err -> errorJSON err
           Right bytes ->
             let (canId, extended, dlc) = frameId f
-            in runJSON statePtr (\s -> AgdaBin.d_processExtractRaw_234 s canId extended dlc bytes)
+            in runJSON statePtr (\s -> AgdaBin.d_processExtractRaw_230 s canId extended dlc bytes)
   where
     ctx = "aletheia_extract_signals"
 
@@ -239,7 +239,7 @@ aletheia_build_frame_bin statePtr framePtr valuesPtr out
       Right (f, (indices, nums, dens)) ->
         let (canId, extended, dlc) = frameId f
         in runBinDispatch ctx statePtr
-             (\s -> AgdaBin.d_processBuildFrameRaw_294 s canId extended dlc indices nums dens) out
+             (\s -> AgdaBin.d_processBuildFrameRaw_290 s canId extended dlc indices nums dens) out
   where
     ctx = "aletheia_build_frame_bin"
 
@@ -260,7 +260,7 @@ aletheia_update_frame_bin statePtr framePtr valuesPtr out
           Right bytes ->
             let (canId, extended, dlc) = frameId f
             in runBinDispatch ctx statePtr
-                 (\s -> AgdaBin.d_processUpdateFrameRaw_444 s canId extended dlc bytes indices nums dens) out
+                 (\s -> AgdaBin.d_processUpdateFrameRaw_440 s canId extended dlc bytes indices nums dens) out
   where
     ctx = "aletheia_update_frame_bin"
 
@@ -286,7 +286,7 @@ aletheia_extract_signals_bin statePtr framePtr out
             ref <- deRefStablePtr statePtr
             state <- readIORef ref
             let (canId, extended, dlc) = frameId f
-                result = AgdaBin.d_processExtractBinRaw_554 state canId extended dlc bytes
+                result = AgdaBin.d_processExtractBinRaw_550 state canId extended dlc bytes
             writeIORef ref (unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_32)
             case unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30 of
                 AgdaSum.C_inj'8321'_38 errAny -> kernelErrorOut (unsafeCoerce errAny) out

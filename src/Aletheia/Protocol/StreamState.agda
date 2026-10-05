@@ -35,7 +35,7 @@ open import Aletheia.Protocol.StreamState.Internals
   using (extractTable; cacheFromTable; readableSignals; stepProperty; dispatchIterResult)
 open import Aletheia.LTL.SignalPredicate.Cache using (SignalCache; withForcedCache)
 open import Aletheia.LTL.SignalPredicate.Evaluation using (ExtractTable; withForcedTable)
-open import Aletheia.DBC.Types using (DBC)
+open import Aletheia.DBC.Validity using (ValidDBC)
 open import Data.List using (List)
 
 -- ============================================================================
@@ -60,12 +60,12 @@ checkMonotonic (just p) tf with timestampℕ tf <ᵇ timestampℕ p
 -- Keeping the single extraction here is what makes the optimization real.
 -- `withForcedTable`/`withForcedCache` then force the table spine and the
 -- outgoing cache so the accepted frame is released (bounded residency).
-stepFrameShared : ∀ {n} → DBC → List (PropertyState n) → TimedFrame → SignalCache
-                → ExtractTable → StreamState × Response
-stepFrameShared dbc props tf cache table =
+stepFrameShared : ∀ {n} → ValidDBC → List (PropertyState n) → TimedFrame
+                → SignalCache → ExtractTable → StreamState × Response
+stepFrameShared vdbc props tf cache table =
   withForcedTable table
     (withForcedCache (cacheFromTable (timestamp tf) table cache)
-      (dispatchIterResult dbc (iterate (stepProperty dbc table cache tf) props) tf))
+      (dispatchIterResult vdbc (iterate (stepProperty (ValidDBC.dbc vdbc) table cache tf) props) tf))
 
 -- Process incoming CAN frame with incremental LTL property checking.
 --
@@ -97,11 +97,11 @@ handleDataFrame WaitingForDBC _ =
   (WaitingForDBC , Response.Error (WithContext "DataFrame" (HandlerErr NoDBC)))
 handleDataFrame state@(ReadyToStream _ _ _ _) _ =
   (state , Response.Error (WithContext "DataFrame" (HandlerErr StreamNotStarted)))
-handleDataFrame state@(Streaming _ dbc props prev cache) tf with checkMonotonic prev tf
+handleDataFrame state@(Streaming _ vdbc props prev cache) tf with checkMonotonic prev tf
 ... | just err =
   (state , Response.Error (WithContext "DataFrame" (HandlerErr err)))
 ... | nothing =
-  stepFrameShared dbc props tf cache (extractTable dbc (TimedFrame.frame tf) (readableSignals props))
+  stepFrameShared vdbc props tf cache (extractTable (ValidDBC.dbc vdbc) (TimedFrame.frame tf) (readableSignals props))
 
 -- Dispatch a trace event: data frames go through handleDataFrame,
 -- error and remote frames are acknowledged without LTL evaluation

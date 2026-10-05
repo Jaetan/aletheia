@@ -385,6 +385,9 @@ data IssueCode : Set where
   AttributeValueTypeMismatch    : IssueCode
   AttributeEnumEmpty            : IssueCode
   AttributeEnumDefaultUnstable  : IssueCode
+  -- A signal's declared [minimum, maximum] reaches past the values its bits
+  -- carry after scaling, so a value the range admits could not be encoded.
+  RangeExceedsBits              : IssueCode
 
 -- A single validation issue
 record ValidationIssue : Set where

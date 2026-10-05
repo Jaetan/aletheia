@@ -123,7 +123,7 @@ func canfdDBC() aletheia.DBCDefinition {
 			[]aletheia.DBCSignal{
 				{Name: "GPSLatitude", StartBit: 0, BitLength: 32, ByteOrder: le, IsSigned: true, Factor: rat(1, 10000000), Offset: rat(0, 1), Minimum: rat(-90, 1), Maximum: rat(90, 1), Unit: "deg", Presence: ap},
 				{Name: "GPSLongitude", StartBit: 32, BitLength: 32, ByteOrder: le, IsSigned: true, Factor: rat(1, 10000000), Offset: rat(0, 1), Minimum: rat(-180, 1), Maximum: rat(180, 1), Unit: "deg", Presence: ap},
-				{Name: "GPSAltitude", StartBit: 64, BitLength: 16, ByteOrder: le, IsSigned: true, Factor: rat(1, 10), Offset: rat(0, 1), Minimum: rat(-1000, 1), Maximum: rat(55535, 10), Unit: "m", Presence: ap},
+				{Name: "GPSAltitude", StartBit: 64, BitLength: 16, ByteOrder: le, IsSigned: true, Factor: rat(1, 10), Offset: rat(0, 1), Minimum: rat(-1000, 1), Maximum: rat(32767, 10), Unit: "m", Presence: ap},
 				{Name: "GPSSpeed", StartBit: 80, BitLength: 16, ByteOrder: le, IsSigned: false, Factor: rat(1, 100), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(65535, 100), Unit: "m/s", Presence: ap},
 				{Name: "YawRate", StartBit: 96, BitLength: 16, ByteOrder: le, IsSigned: true, Factor: rat(1, 100), Offset: rat(0, 1), Minimum: rat(-32768, 100), Maximum: rat(32767, 100), Unit: "deg/s", Presence: ap},
 				{Name: "LateralAccel", StartBit: 112, BitLength: 16, ByteOrder: le, IsSigned: true, Factor: rat(1, 100), Offset: rat(0, 1), Minimum: rat(-32768, 100), Maximum: rat(32767, 100), Unit: "m/s2", Presence: ap},
@@ -142,7 +142,7 @@ func canfdDBC() aletheia.DBCDefinition {
 				{Name: "TirePressRL", StartBit: 288, BitLength: 8, ByteOrder: le, IsSigned: false, Factor: rat(1, 100), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(255, 100), Unit: "bar", Presence: ap},
 				{Name: "TirePressRR", StartBit: 296, BitLength: 8, ByteOrder: le, IsSigned: false, Factor: rat(1, 100), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(255, 100), Unit: "bar", Presence: ap},
 				{Name: "SensorStatus", StartBit: 304, BitLength: 8, ByteOrder: le, IsSigned: false, Factor: rat(1, 1), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(255, 1), Unit: "", Presence: ap},
-				{Name: "IMUTemp", StartBit: 312, BitLength: 8, ByteOrder: le, IsSigned: true, Factor: rat(1, 1), Offset: rat(-40, 1), Minimum: rat(-40, 1), Maximum: rat(215, 1), Unit: "celsius", Presence: ap},
+				{Name: "IMUTemp", StartBit: 312, BitLength: 8, ByteOrder: le, IsSigned: false, Factor: rat(1, 1), Offset: rat(-40, 1), Minimum: rat(-40, 1), Maximum: rat(215, 1), Unit: "celsius", Presence: ap},
 				{Name: "BatteryVolt", StartBit: 320, BitLength: 12, ByteOrder: le, IsSigned: false, Factor: rat(1, 100), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(4095, 100), Unit: "V", Presence: ap},
 				{Name: "GPSHeading", StartBit: 332, BitLength: 16, ByteOrder: le, IsSigned: false, Factor: rat(1, 100), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(65535, 100), Unit: "deg", Presence: ap},
 				{Name: "TimestampMs", StartBit: 348, BitLength: 32, ByteOrder: le, IsSigned: false, Factor: rat(1, 1), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(4294967295, 1), Unit: "ms", Presence: ap},

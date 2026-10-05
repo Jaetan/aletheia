@@ -2,24 +2,25 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Numeric conversion utilities for CAN signal encoding/decoding.
+-- The arithmetic of raw and physical values, with no signal and no frame.
 --
 -- Purpose: Two's complement sign conversion, scaling/offset application,
---          and bounds checking for signal values.
+--          and bounds checking of a value.
 -- Operations: toSigned (unsigned → signed), fromSigned (signed → unsigned),
---             applyScaling (raw → physical), removeScaling (physical → raw),
---             inBounds (range check).
--- Role: Used by Encoding for signal extraction/injection pipeline.
+--             applyScaling (raw → physical), inBounds (range check), and the
+--             raw range and scaling direction (rawRange, orderBySign).
+-- Role: Used by the extraction path (Aletheia.CAN.Encoding), value encoding
+--   (Aletheia.CAN.Encoding.Value), the raw range's arithmetic
+--   (Aletheia.CAN.Encoding.Arithmetic.Range) and the validator.
 module Aletheia.CAN.Encoding.Arithmetic where
 
-open import Data.Nat using (ℕ; zero; suc; _∸_; _^_)
-open import Data.Rational as Rat using (ℚ; _≤ᵇ_; _/_; floor; 0ℚ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_)
-open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ)
+open import Data.Nat using (ℕ; suc; _∸_; _^_; pred)
+open import Data.Rational as Rat using (ℚ; _≤ᵇ_; _/_) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_)
 open import Data.Integer as ℤ using (ℤ; +_; -[1+_])
 open import Data.Bool using (Bool; T; true; false; if_then_else_; _∧_)
-open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
 import Data.Rational.Properties as ℚP
+open import Data.Rational.Literals using (fromℤ)
 
 open import Aletheia.Data.Dec0 using (Dec₀; fromBridges; does₀; T-∧→; T-∧←)
 
@@ -45,46 +46,11 @@ fromSigned : ℤ → ℕ → ℕ
 fromSigned (+ n) _ = n
 fromSigned -[1+ n ] bitLength = fullRange bitLength ∸ suc n
 
--- Apply scaling and offset to convert raw value to signal value
+-- Apply scaling and offset to convert a raw value to a physical value
 applyScaling : ℤ → ℚ → ℚ → ℚ
 applyScaling raw factor offset =
   let rawℚ = raw / 1
   in (rawℚ *ᵣ factor) +ᵣ offset
-
--- Inverse of applyScaling: convert signal value back to raw integer
--- Formula: raw = floor((signalValue - offset) / factor)
--- Returns Nothing if factor is zero (malformed DBC file)
-removeScaling : ℚ → ℚ → ℚ → Maybe ℤ
-removeScaling signalValue factor offset =
-  if isZero factor
-  then nothing  -- Cannot divide by zero
-  else just (floor (divideByFactor (signalValue -ᵣ offset) factor))
-  where
-    -- Check if rational is zero via the Bool-valued `_≤ᵇ_`, which compiles to
-    -- a direct ℤ comparison without allocating a Dec proof term per call.
-    isZero : ℚ → Bool
-    isZero q = (q ≤ᵇ 0ℚ) ∧ (0ℚ ≤ᵇ q)
-
-    -- Divide by factor (only called when factor ≠ 0, but Agda can't prove this)
-    -- We work with unnormalized rationals to avoid coprimality proofs
-    divideByFactor : ℚ → ℚ → ℚ
-    divideByFactor numer denom =
-      Rat.fromℚᵘ (divideUnnorm (Rat.toℚᵘ numer) (Rat.toℚᵘ denom))
-      where
-        -- Divide unnormalized rationals by pattern matching to expose nonzero structure.
-        --
-        -- Dead branch: the `(+ zero)` case is unreachable because `removeScaling`
-        -- guards with `if isZero factor then nothing` above (line 54), so this
-        -- helper is only ever called on a non-zero `factor`. Retained to satisfy
-        -- Agda's pattern coverage checker — returning `0ℚᵘ` keeps the branch
-        -- total without requiring a proof-carrying NonZero instance through the
-        -- call chain from `removeScaling`.
-        divideUnnorm : ℚᵘ → ℚᵘ → ℚᵘ
-        divideUnnorm n (ℚᵘ.mkℚᵘ (+ zero) _) = ℚᵘ.0ℚᵘ  -- Dead branch, see comment above.
-        divideUnnorm n (ℚᵘ.mkℚᵘ (+ suc num) denom) =  -- Explicit nonzero pattern, instance exists!
-          n ℚᵘ.÷ (ℚᵘ.mkℚᵘ (+ suc num) denom)
-        divideUnnorm n (ℚᵘ.mkℚᵘ -[1+ num ] denom) =    -- Explicit nonzero pattern, instance exists!
-          n ℚᵘ.÷ (ℚᵘ.mkℚᵘ -[1+ num ] denom)
 
 -- Self-certifying bounds check: `does₀` is the Bool fast path (two direct ℤ
 -- comparisons via `_≤ᵇ_`); the erased certificate pins its meaning as the
@@ -102,7 +68,29 @@ inBounds₀ value minVal maxVal =
                 → T ((minVal ≤ᵇ value) ∧ (value ≤ᵇ maxVal))
     complete (lo , hi) = T-∧← (ℚP.≤⇒≤ᵇ lo) (ℚP.≤⇒≤ᵇ hi)
 
--- Check if a signal value is within bounds — definitional projection of
--- `inBounds₀` (runtime shape unchanged).
+-- Whether a value lies within bounds: the definitional projection of
+-- `inBounds₀`.
 inBounds : ℚ → ℚ → ℚ → Bool
 inBounds value minVal maxVal = does₀ (inBounds₀ value minVal maxVal)
+
+-- ============================================================================
+-- RAW RANGE AND SCALING DIRECTION
+-- ============================================================================
+
+-- Whether a rational is below zero, read off its numerator.
+isNegativeℚ : ℚ → Bool
+isNegativeℚ q with ℚ.numerator q
+... | (+ _)     = false
+... | (-[1+ _ ]) = true
+
+-- The least and the greatest raw value of n bits.
+-- Signed: two's complement, [−2^(n−1), 2^(n−1)−1].
+-- Unsigned: [0, 2^n − 1].
+rawRange : Bool → ℕ → ℚ × ℚ
+rawRange true  n = fromℤ (-[1+ pred (2 ^ (n ∸ 1)) ]) , fromℤ (+ pred (2 ^ (n ∸ 1)))
+rawRange false n = fromℤ (+ 0) , fromℤ (+ pred (2 ^ n))
+
+-- The images of two ends under scaling, least first: a negative factor
+-- reverses them.
+orderBySign : ℚ → ℚ → ℚ → ℚ × ℚ
+orderBySign factor a b = if isNegativeℚ factor then (b , a) else (a , b)

@@ -2,66 +2,44 @@
 -- SPDX-License-Identifier: BSD-2-Clause
 {-# OPTIONS --safe --without-K #-}
 
--- Full signal encoding/decoding roundtrip proofs.
+-- Extracting a signal whose raw value's bits were written into a frame.
 --
--- Purpose: Layer 4 composition — combines the bit-level roundtrip
---   (Endianness.Properties), the ℕ ↔ ℤ signed/unsigned bridge (Arithmetic),
---   and the ℚ scaling roundtrip (Arithmetic) into the headline theorems
---   `extractSignal-injectSignal-roundtrip-unsigned` / `-signed`, which state
---   that `extractSignal ∘ injectSignal` is the identity on well-formed
---   signals/frames.
+-- Purpose: composes the bit-level roundtrip (Endianness.Properties), the
+--   ℕ ↔ ℤ signed/unsigned bridge (Arithmetic) and the scaling of the raw
+--   value: the frame the writer `withInjected` makes from a raw value's bits
+--   (`injectedFrame`) extracts back to the value that raw value scales to
+--   (`extractSignal-reduces-unsigned` / `-signed`).  The value-level theorem
+--   built on these, that an accepted value's frame extracts back to it, is
+--   `Aletheia.CAN.Encoding.Properties.Value.extractSignal-encodedBits`.
 --
 -- Layering (this file):
 --   * Layer 4A (core bytes-level roundtrip, private): raw → ℕToBitVec →
 --     injectBits → extractBits → bitVecToℕ → toSigned chains for unsigned
 --     and signed cases. No Maybe, no guards — pure bytes-level reasoning.
---   * Layer 4 (full Maybe-threaded roundtrip): `signalValue`, `injectedFrame`,
---     reduction lemmas `injectSignal-reduces-*` and `extractSignal-reduces-*`,
---     and the composed `extractSignal-injectSignal-roundtrip-*` theorems.
---   * Layer 4B (signed variant): mirrors Layer 4 with `SignedFits` instead
---     of `n < 2^bl` and `toSigned _ true` at the end.
---
--- Imports from Arithmetic sibling: SignedFits, toSigned-fromSigned-roundtrip,
---   removeScaling-applyScaling-exact. No other files in the project need the
---   private Layer 4A helpers.
+--   * Layer 4: `injectedFrame`, `extractSignal-reduces-unsigned`.
+--   * Layer 4B (signed variant): `extractSignal-reduces-signed`, with
+--     `SignedFits` instead of `n < 2^bl` and `toSigned _ true` at the end.
 module Aletheia.CAN.Encoding.Properties.Roundtrip where
 
-open import Aletheia.CAN.Encoding using (extractSignalCore; scaleExtracted; extractSignal; injectSignal; injectHelper; injectSignal-bounds-true; withInjected)
-open import Aletheia.CAN.Encoding.Arithmetic using (toSigned; fromSigned; applyScaling; removeScaling; inBounds)
-open import Aletheia.CAN.Encoding.Properties.Arithmetic using (SignedFits; toSigned-fromSigned-roundtrip; removeScaling-applyScaling-exact)
+open import Aletheia.CAN.Encoding using (extractSignalCore; scaleExtracted; extractSignal; withInjected)
+open import Aletheia.CAN.Encoding.Arithmetic using (toSigned; fromSigned; inBounds)
+open import Aletheia.CAN.Encoding.Properties.Arithmetic using (SignedFits; toSigned-fromSigned-roundtrip)
+open import Aletheia.CAN.Encoding.Arithmetic.Range using
+  (SignedFits-implies-fromSigned-bounded)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; extractBits; injectBits; swapBytes)
 open import Aletheia.CAN.Endianness.Properties using (extractBits-injectBits-roundtrip; swapBytes-involutive)
 open import Aletheia.CAN.Frame using (CANFrame; Byte)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.Data.BitVec using (BitVec)
-open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ; ℕToBitVec; bitVec-roundtrip; mkBoundedBitVec; mkBoundedBitVec-just)
+open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ; ℕToBitVec; bitVec-roundtrip)
 open import Data.Vec using (Vec)
-open import Data.Nat using (ℕ; suc; _+_; _*_; _∸_; _<_; _≤_; _^_; _>_; z≤n; s≤s)
-open import Data.Integer using (ℤ; +_; -[1+_])
-open import Data.Rational using (ℚ; 0ℚ)
+open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _^_; _>_)
+open import Data.Integer using (ℤ; +_)
+open import Data.Rational using (ℚ)
 open import Aletheia.DBC.DecRat using (toℚ)
 open import Data.Bool using (Bool; true; false; if_then_else_)
-open import Data.Maybe using (Maybe; just; nothing; _>>=_)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; trans; cong)
-open import Relation.Nullary using (¬_)
-
--- ============================================================================
--- LAYER 4: COMPOSITION - FULL ROUNDTRIP
--- ============================================================================
--- Combine all layers into the full signal extraction/injection proof
-
--- Helper: Define when a signal definition is well-formed
-record WellFormedSignal (sig : SignalDef) : Set where
-  field
-    startBit-bounded : SignalDef.startBit sig < 64
-    bitLength-positive : SignalDef.bitLength sig > 0
-    bitLength-fits : SignalDef.startBit sig + SignalDef.bitLength sig ≤ 64
-    -- Stated at the ℚ arithmetic level: the proofs below rely on
-    -- `removeScaling-applyScaling-exact` which is a ℚ lemma, so stating
-    -- `factor-nonzero` and `ranges-consistent` after `toℚ` conversion
-    -- keeps the bridge transparent.
-    factor-nonzero : ¬ (toℚ (SignalDef.factor sig) ≡ 0ℚ)
-    ranges-consistent : toℚ (SignalDef.minimum sig) Data.Rational.≤ toℚ (SignalDef.maximum sig)
+open import Data.Maybe using (Maybe; just; nothing)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; cong)
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- LAYER 4A: Core roundtrip (pure bytes level, no Maybe/guards)
@@ -69,49 +47,6 @@ record WellFormedSignal (sig : SignalDef) : Set where
 -- Chain: extractBits ∘ injectBits → bitVecToℕ ∘ ℕToBitVec → toSigned ∘ fromSigned
 
 private
-  -- Helper: SignedFits implies fromSigned is bounded
-  -- This is the direction we need for injectSignal's guard
-  SignedFits-implies-fromSigned-bounded : ∀ (raw : ℤ) (bitLength : ℕ)
-    → bitLength > 0
-    → SignedFits raw bitLength
-    → fromSigned raw bitLength < 2 ^ bitLength
-  SignedFits-implies-fromSigned-bounded (+ n) bitLength bl>0 n<half =
-    -- n < 2^(bl-1) < 2^bl
-    <-trans n<half (half<full bitLength bl>0)
-    where
-      open import Data.Nat.Properties as ℕP using (<-trans; ^-monoʳ-<; n<1+n)
-      -- 2^(bl-1) < 2^bl follows from 1<2 and bl-1 < bl
-      half<full : ∀ bl → bl > 0 → 2 ^ (bl ∸ 1) < 2 ^ bl
-      half<full (suc bl) _ = ^-monoʳ-< 2 1<2 (n<1+n bl)
-        where
-          1<2 : 1 < 2
-          1<2 = s≤s (s≤s z≤n)
-  SignedFits-implies-fromSigned-bounded -[1+ n ] bitLength bl>0 sucn≤half =
-    -- fromSigned -[1+ n] bl = 2^bl - suc n
-    -- Need: 2^bl - suc n < 2^bl, which is always true when 2^bl > 0
-    m∸sucn<m (2 ^ bitLength) n (m^n>0 2 bitLength)
-    where
-      open import Data.Nat.Properties using (m∸n≤m; m^n>0)
-      -- m ∸ suc n < m when m > 0
-      m∸sucn<m : ∀ m n → m > 0 → m ∸ suc n < m
-      m∸sucn<m (suc m) n _ = s≤s (m∸n≤m m n)
-
-  -- Unified constraint: combines what we need for roundtrip
-  -- For unsigned: raw is non-negative
-  -- For signed: raw satisfies SignedFits
-  data RawFits (raw : ℤ) (bitLength : ℕ) : Bool → Set where
-    unsigned-fits : ∀ {n} → raw ≡ + n → n < 2 ^ bitLength → RawFits raw bitLength false
-    signed-fits : SignedFits raw bitLength → RawFits raw bitLength true
-
-  -- Derive fromSigned bound from RawFits
-  RawFits-implies-bounded : ∀ (raw : ℤ) (bitLength : ℕ) (isSigned : Bool)
-    → bitLength > 0
-    → RawFits raw bitLength isSigned
-    → fromSigned raw bitLength < 2 ^ bitLength
-  RawFits-implies-bounded .(+ n) bitLength false bl>0 (unsigned-fits {n} refl n<2^bl) = n<2^bl
-  RawFits-implies-bounded raw bitLength true bl>0 (signed-fits sf) =
-    SignedFits-implies-fromSigned-bounded raw bitLength bl>0 sf
-
   -- Core roundtrip: at the bytes level, extraction recovers the original raw value
   -- No Maybe, no guards - just the pure mathematical roundtrip
   --
@@ -180,119 +115,33 @@ private
                            (toSigned-fromSigned-roundtrip raw bitLength bitLength>0 sf)
 
 -- ============================================================================
--- LAYER 4: FULL SIGNAL ROUNDTRIP (through Maybe)
+-- LAYER 4: A WRITTEN RAW VALUE READS BACK (through Maybe)
 -- ============================================================================
--- The full composition: extractSignal ∘ injectSignal = id
--- This lifts the pure bytes-level roundtrip through Maybe and handles:
--- - Bounds checking guards
--- - Scaling operations
--- - Byte order swapping
-
-{-
-  Strategy: The full roundtrip proof requires showing that:
-  1. injectSignal value sig byteOrder frame = just frame'
-     (when bounds pass, removeScaling succeeds, and raw fits)
-  2. extractSignal frame' sig byteOrder = just value
-     (because we extract the same bits → same raw → same value)
-
-  The key insight is that for a value = applyScaling raw factor offset,
-  removeScaling will return exactly raw (no floor precision loss).
-
-  Endianness handling: swapBytes is involutive, so:
-  - Big-endian: swap → inject → swap → extract → swap
-    The first swap-swap pair cancels, leaving inject → extract
--}
-
--- Full roundtrip theorem: extractSignal ∘ injectSignal = id
--- Preconditions:
--- 1. value = applyScaling raw factor offset (ensures removeScaling recovers raw exactly)
--- 2. inBounds value min max ≡ true (bounds check passes)
--- 3. factor ≢ 0 (well-formed signal)
--- 4. fits-in-bits: fromSigned raw bitLength < 2^bitLength
-
--- For now, we state the theorem for the unsigned case (isSigned = false)
--- The signed case follows the same structure with SignedFits constraint
-
--- Helper: compute signal value from raw integer.  `factor`/`offset` are
--- stored as `DecRat`; this function bridges to the ℚ arithmetic used by
--- `applyScaling`/`removeScaling`/`inBounds`.
-signalValue : ℤ → SignalDef → ℚ
-signalValue raw sig = applyScaling raw (toℚ (SignalDef.factor sig)) (toℚ (SignalDef.offset sig))
+-- Lifts the bytes-level roundtrip through extractSignal's bounds check and
+-- scaling: the frame written with a raw value's bits extracts back to the
+-- value the raw value scales to.  Big-endian: swapBytes is involutive, so the
+-- swap around the write cancels the swap before the read.
 
 -- ============================================================================
--- REDUCTION LEMMAS: State exactly what injectSignal/extractSignal compute
+-- REDUCTION LEMMAS: what extractSignal computes on a written frame
 -- ============================================================================
 
--- Helper: compute the frame that injectSignal produces
--- Uses injectPayload abstraction to factor out byte order handling
+-- The frame `withInjected` writes from the raw value `n`'s bits, placed in
+-- the payload by `injectPayload`, which handles the byte order.
 injectedFrame : ∀ {m} (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
   → n < 2 ^ SignalDef.bitLength sig
   → CANFrame m
 injectedFrame n sig byteOrder frame n<2^bl =
   withInjected (SignalDef.startBit sig) (ℕToBitVec {SignalDef.bitLength sig} n n<2^bl) byteOrder frame
 
--- Reduction Lemma A (helper level): injectHelper reduces to a known frame
--- when removeScaling succeeds and the unsigned width-fit witness is in scope.
--- Two-deep `with`-chain (removeScaling + `mkBoundedBitVec`); the outer
--- `inBounds` dispatch is handled by `injectSignal-bounds-true`, and
--- `mkBoundedBitVec`'s internal Bool dispatch is encapsulated behind its
--- `Maybe`-shaped API + `mkBoundedBitVec-just` reduction equation.
-injectHelper-reduces-unsigned :
-  ∀ {m} (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
-  → (factor≢0 : toℚ (SignalDef.factor sig) ≢ 0ℚ)
-  → (n<2^bl : n < 2 ^ SignalDef.bitLength sig)
-  → injectHelper (signalValue (+ n) sig) sig byteOrder frame ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
-injectHelper-reduces-unsigned n sig byteOrder frame factor≢0 n<2^bl =
-  helper remove-eq mkbv-eq
-  where
-    open SignalDef sig
-      using (startBit; bitLength; isSigned)
-      renaming (factor to factorᵈ; offset to offsetᵈ)
-    open CANFrame frame
-
-    factor = toℚ factorᵈ
-    offset = toℚ offsetᵈ
-
-    value : ℚ
-    value = signalValue (+ n) sig
-
-    remove-eq : removeScaling value factor offset ≡ just (+ n)
-    remove-eq = removeScaling-applyScaling-exact (+ n) factor offset factor≢0
-
-    mkbv-eq : mkBoundedBitVec n bitLength ≡ just (ℕToBitVec n n<2^bl)
-    mkbv-eq = mkBoundedBitVec-just n bitLength n<2^bl
-
-    helper : removeScaling value factor offset ≡ just (+ n)
-           → mkBoundedBitVec n bitLength ≡ just (ℕToBitVec n n<2^bl)
-           → injectHelper value sig byteOrder frame ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
-    helper remove-eq' mkbv-eq'
-      with removeScaling value factor offset | remove-eq'
-    ... | just .(+ n) | refl
-      with mkBoundedBitVec n bitLength | mkbv-eq'
-    ... | just .(ℕToBitVec n n<2^bl) | refl = refl
-
--- Reduction Lemma A: injectSignal reduces to a known frame
--- Composes `injectSignal-bounds-true` (outer bounds dispatch) with
--- `injectHelper-reduces-unsigned` (inner removeScaling + Dec dispatch).
-injectSignal-reduces-unsigned :
-  ∀ {m} (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
-  → (bounds-ok : inBounds (signalValue (+ n) sig) (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ true)
-  → (factor≢0 : toℚ (SignalDef.factor sig) ≢ 0ℚ)
-  → (n<2^bl : n < 2 ^ SignalDef.bitLength sig)
-  → injectSignal (signalValue (+ n) sig) sig byteOrder frame ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
-injectSignal-reduces-unsigned n sig byteOrder frame bounds-ok factor≢0 n<2^bl =
-  trans (injectSignal-bounds-true (signalValue (+ n) sig) sig byteOrder frame bounds-ok)
-        (injectHelper-reduces-unsigned n sig byteOrder frame factor≢0 n<2^bl)
-
--- Reduction Lemma B: extractSignal on injectedFrame returns the original value
--- Now uses the refactored extractSignal with computational core
+-- Unsigned: extractSignal on injectedFrame returns the value `n` scales to.
 extractSignal-reduces-unsigned :
   ∀ {m} (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
-  → (bounds-ok : inBounds (signalValue (+ n) sig) (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ true)
+  → (bounds-ok : inBounds (scaleExtracted (+ n) sig) (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ true)
   → (unsigned : SignalDef.isSigned sig ≡ false)
   → (fits-in-frame : SignalDef.startBit sig + SignalDef.bitLength sig ≤ m * 8)
   → (n<2^bl : n < 2 ^ SignalDef.bitLength sig)
-  → extractSignal (injectedFrame n sig byteOrder frame n<2^bl) sig byteOrder ≡ just (signalValue (+ n) sig)
+  → extractSignal (injectedFrame n sig byteOrder frame n<2^bl) sig byteOrder ≡ just (scaleExtracted (+ n) sig)
 
 -- LittleEndian case: no byte swapping
 extractSignal-reduces-unsigned n sig LittleEndian frame bounds-ok unsigned fits-in-frame n<2^bl =
@@ -309,9 +158,10 @@ extractSignal-reduces-unsigned n sig LittleEndian frame bounds-ok unsigned fits-
     maximum = toℚ maximumᵈ
 
     value : ℚ
-    value = signalValue (+ n) sig
+    value = scaleExtracted (+ n) sig
 
-    -- The bytes we extract from (definitional for LittleEndian via injectPayload)
+    -- The bytes extracted from: for LittleEndian, `injectPayload` writes them
+    -- with no swap.
     injectedBytes : Vec Byte _
     injectedBytes = injectBits {bitLength} payload startBit (ℕToBitVec {bitLength} n n<2^bl)
 
@@ -357,7 +207,7 @@ extractSignal-reduces-unsigned n sig BigEndian frame bounds-ok unsigned fits-in-
     maximum = toℚ maximumᵈ
 
     value : ℚ
-    value = signalValue (+ n) sig
+    value = scaleExtracted (+ n) sig
 
     -- For BigEndian, injectedFrame's payload = swapBytes (injectBits (swapBytes payload) startBit bv)
     swappedPayload : Vec Byte _
@@ -402,111 +252,23 @@ extractSignal-reduces-unsigned n sig BigEndian frame bounds-ok unsigned fits-in-
         step3 : resultOf injectedBytesSwapped ≡ just value
         step3 rewrite core-eq' | bounds-eq = refl
 
-extractSignal-injectSignal-roundtrip-unsigned :
-  ∀ {m} (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
-  → (bounds-ok : inBounds (signalValue (+ n) sig) (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ true)
-  → (factor≢0 : toℚ (SignalDef.factor sig) ≢ 0ℚ)
-  → (unsigned : SignalDef.isSigned sig ≡ false)
-  → (fits-in-frame : SignalDef.startBit sig + SignalDef.bitLength sig ≤ m * 8)
-  → (n<2^bl : n < 2 ^ SignalDef.bitLength sig)
-  → (injectSignal (signalValue (+ n) sig) sig byteOrder frame >>= λ frame' →
-       extractSignal frame' sig byteOrder) ≡ just (signalValue (+ n) sig)
-extractSignal-injectSignal-roundtrip-unsigned n sig byteOrder frame bounds-ok factor≢0 unsigned fits-in-frame n<2^bl =
-  proof
-  where
-    value : ℚ
-    value = signalValue (+ n) sig
-
-    -- Reduction lemma: injectSignal computes to just (injectedFrame ...)
-    inject-reduces : injectSignal value sig byteOrder frame ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
-    inject-reduces = injectSignal-reduces-unsigned n sig byteOrder frame bounds-ok factor≢0 n<2^bl
-
-    -- Reduction lemma: extractSignal on injectedFrame returns just value
-    extract-reduces : extractSignal (injectedFrame n sig byteOrder frame n<2^bl) sig byteOrder ≡ just value
-    extract-reduces = extractSignal-reduces-unsigned n sig byteOrder frame bounds-ok unsigned fits-in-frame n<2^bl
-
-    -- Compose by rewriting: inject >>= extract = just injectedFrame >>= extract = extract injectedFrame = just value
-    proof : (injectSignal value sig byteOrder frame >>= λ f → extractSignal f sig byteOrder) ≡ just value
-    proof rewrite inject-reduces = extract-reduces
-
 -- ============================================================================
 -- LAYER 4B: SIGNED SIGNAL ROUNDTRIP
 -- ============================================================================
 -- Same pattern as unsigned, but uses SignedFits constraint and toSigned true
 
--- Reduction Lemma A (Signed): injectSignal reduces to a known frame
--- The raw value is fromSigned z bitLength, which we prove fits in bitLength bits
-injectSignal-reduces-signed :
-  ∀ {m} (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
-  → (bounds-ok : inBounds (signalValue z sig) (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ true)
-  → (factor≢0 : toℚ (SignalDef.factor sig) ≢ 0ℚ)
-  → (bl>0 : SignalDef.bitLength sig > 0)
-  → (sf : SignedFits z (SignalDef.bitLength sig))
-  → let n = fromSigned z (SignalDef.bitLength sig)
-        n<2^bl = SignedFits-implies-fromSigned-bounded z (SignalDef.bitLength sig) bl>0 sf
-    in injectSignal (signalValue z sig) sig byteOrder frame ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
-injectSignal-reduces-signed z sig byteOrder frame bounds-ok factor≢0 bl>0 sf =
-  trans (injectSignal-bounds-true (signalValue z sig) sig byteOrder frame bounds-ok)
-        (injectHelper-reduces-signed z sig byteOrder frame factor≢0 bl>0 sf)
-  where
-    -- Helper-level reduction: same scope as injectHelper-reduces-unsigned
-    -- but with `SignedFits`-derived bound.  Defined locally because the
-    -- bound is computed from `bl>0`/`sf` rather than passed in directly.
-    injectHelper-reduces-signed :
-      ∀ {m} (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
-      → (factor≢0 : toℚ (SignalDef.factor sig) ≢ 0ℚ)
-      → (bl>0 : SignalDef.bitLength sig > 0)
-      → (sf : SignedFits z (SignalDef.bitLength sig))
-      → let n = fromSigned z (SignalDef.bitLength sig)
-            n<2^bl = SignedFits-implies-fromSigned-bounded z (SignalDef.bitLength sig) bl>0 sf
-        in injectHelper (signalValue z sig) sig byteOrder frame ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
-    injectHelper-reduces-signed z sig byteOrder frame factor≢0 bl>0 sf =
-      helper remove-eq mkbv-eq
-      where
-        open SignalDef sig
-          using (startBit; bitLength; isSigned)
-          renaming (factor to factorᵈ; offset to offsetᵈ)
-        open CANFrame frame
-
-        factor = toℚ factorᵈ
-        offset = toℚ offsetᵈ
-
-        value : ℚ
-        value = signalValue z sig
-
-        n : ℕ
-        n = fromSigned z bitLength
-
-        n<2^bl : n < 2 ^ bitLength
-        n<2^bl = SignedFits-implies-fromSigned-bounded z bitLength bl>0 sf
-
-        remove-eq : removeScaling value factor offset ≡ just z
-        remove-eq = removeScaling-applyScaling-exact z factor offset factor≢0
-
-        mkbv-eq : mkBoundedBitVec n bitLength ≡ just (ℕToBitVec n n<2^bl)
-        mkbv-eq = mkBoundedBitVec-just n bitLength n<2^bl
-
-        helper : removeScaling value factor offset ≡ just z
-               → mkBoundedBitVec n bitLength ≡ just (ℕToBitVec n n<2^bl)
-               → injectHelper value sig byteOrder frame ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
-        helper remove-eq' mkbv-eq'
-          with removeScaling value factor offset | remove-eq'
-        ... | just .z | refl
-          with mkBoundedBitVec n bitLength | mkbv-eq'
-        ... | just .(ℕToBitVec n n<2^bl) | refl = refl
-
--- Reduction Lemma B (Signed): extractSignal on injectedFrame returns the original value
--- Uses signal-roundtrip-signed which uses toSigned with isSigned = true
+-- Signed: extractSignal on injectedFrame returns the value `z` scales to,
+-- through signal-roundtrip-signed (toSigned with isSigned = true).
 extractSignal-reduces-signed :
   ∀ {m} (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
-  → (bounds-ok : inBounds (signalValue z sig) (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ true)
+  → (bounds-ok : inBounds (scaleExtracted z sig) (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ true)
   → (signed : SignalDef.isSigned sig ≡ true)
   → (bl>0 : SignalDef.bitLength sig > 0)
   → (sf : SignedFits z (SignalDef.bitLength sig))
   → (fits-in-frame : SignalDef.startBit sig + SignalDef.bitLength sig ≤ m * 8)
   → let n = fromSigned z (SignalDef.bitLength sig)
         n<2^bl = SignedFits-implies-fromSigned-bounded z (SignalDef.bitLength sig) bl>0 sf
-    in extractSignal (injectedFrame n sig byteOrder frame n<2^bl) sig byteOrder ≡ just (signalValue z sig)
+    in extractSignal (injectedFrame n sig byteOrder frame n<2^bl) sig byteOrder ≡ just (scaleExtracted z sig)
 
 -- LittleEndian case: no byte swapping
 extractSignal-reduces-signed z sig LittleEndian frame bounds-ok signed bl>0 sf fits-in-frame =
@@ -523,7 +285,7 @@ extractSignal-reduces-signed z sig LittleEndian frame bounds-ok signed bl>0 sf f
     maximum = toℚ maximumᵈ
 
     value : ℚ
-    value = signalValue z sig
+    value = scaleExtracted z sig
 
     n : ℕ
     n = fromSigned z (bitLength)
@@ -572,7 +334,7 @@ extractSignal-reduces-signed z sig BigEndian frame bounds-ok signed bl>0 sf fits
     maximum = toℚ maximumᵈ
 
     value : ℚ
-    value = signalValue z sig
+    value = scaleExtracted z sig
 
     n : ℕ
     n = fromSigned z (bitLength)
@@ -617,47 +379,3 @@ extractSignal-reduces-signed z sig BigEndian frame bounds-ok signed bl>0 sf fits
 
         step3 : resultOf injectedBytesSwapped ≡ just value
         step3 rewrite core-eq' | bounds-eq = refl
-
--- Main theorem (Signed): inject then extract returns original value
-extractSignal-injectSignal-roundtrip-signed :
-  ∀ {m} (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
-  → (bounds-ok : inBounds (signalValue z sig) (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ true)
-  → (factor≢0 : toℚ (SignalDef.factor sig) ≢ 0ℚ)
-  → (signed : SignalDef.isSigned sig ≡ true)
-  → (bl>0 : SignalDef.bitLength sig > 0)
-  → (sf : SignedFits z (SignalDef.bitLength sig))
-  → (fits-in-frame : SignalDef.startBit sig + SignalDef.bitLength sig ≤ m * 8)
-  → (injectSignal (signalValue z sig) sig byteOrder frame >>= λ frame' →
-       extractSignal frame' sig byteOrder) ≡ just (signalValue z sig)
-extractSignal-injectSignal-roundtrip-signed z sig byteOrder frame bounds-ok factor≢0 signed bl>0 sf fits-in-frame =
-  proof
-  where
-    open SignalDef sig
-      using (startBit; bitLength; isSigned)
-      renaming (factor to factorᵈ; offset to offsetᵈ; minimum to minimumᵈ; maximum to maximumᵈ)
-
-    factor = toℚ factorᵈ
-    offset = toℚ offsetᵈ
-    minimum = toℚ minimumᵈ
-    maximum = toℚ maximumᵈ
-
-    value : ℚ
-    value = signalValue z sig
-
-    n : ℕ
-    n = fromSigned z (bitLength)
-
-    n<2^bl : n < 2 ^ bitLength
-    n<2^bl = SignedFits-implies-fromSigned-bounded z (bitLength) bl>0 sf
-
-    -- Reduction lemma: injectSignal computes to just (injectedFrame ...)
-    inject-reduces : injectSignal value sig byteOrder frame ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
-    inject-reduces = injectSignal-reduces-signed z sig byteOrder frame bounds-ok factor≢0 bl>0 sf
-
-    -- Reduction lemma: extractSignal on injectedFrame returns just value
-    extract-reduces : extractSignal (injectedFrame n sig byteOrder frame n<2^bl) sig byteOrder ≡ just value
-    extract-reduces = extractSignal-reduces-signed z sig byteOrder frame bounds-ok signed bl>0 sf fits-in-frame
-
-    -- Compose by rewriting
-    proof : (injectSignal value sig byteOrder frame >>= λ f → extractSignal f sig byteOrder) ≡ just value
-    proof rewrite inject-reduces = extract-reduces

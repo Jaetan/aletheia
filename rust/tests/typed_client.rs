@@ -168,6 +168,50 @@ fn parse_dbc_text_lifts_validation_failure() {
 }
 
 #[test]
+fn a_declared_range_beyond_the_bits_refuses_the_dbc() {
+    // CoolantLevel is 8 bits unsigned at factor 1, offset 0, so its bits carry
+    // [0, 255]: widening either declared bound past that refuses the DBC with
+    // an error-severity range_exceeds_bits issue naming the bound.
+    let client = Client::new().expect("init client");
+    let original = "SG_ CoolantLevel : 24|8@1+ (1,0) [0|255]";
+    let cases = [
+        (
+            "SG_ CoolantLevel : 24|8@1+ (1,0) [0|1000]",
+            "Message 'EngineStatus', signal 'CoolantLevel': \
+             declared maximum lies above the values its bits carry",
+        ),
+        (
+            "SG_ CoolantLevel : 24|8@1+ (1,0) [-5|255]",
+            "Message 'EngineStatus', signal 'CoolantLevel': \
+             declared minimum lies below the values its bits carry",
+        ),
+    ];
+    for (declared, detail) in cases {
+        let widened = DBC.replace(original, declared);
+        assert_ne!(widened, DBC, "the derivation must rewrite CoolantLevel");
+        match client.parse_dbc_text(&widened) {
+            Err(Error::ValidationFailed {
+                code,
+                has_errors,
+                issues,
+                ..
+            }) => {
+                assert_eq!(code, "handler_validation_failed");
+                assert!(has_errors, "range_exceeds_bits is error-severity");
+                let named: Vec<_> = issues
+                    .iter()
+                    .filter(|i| i.code == IssueCode::RangeExceedsBits)
+                    .collect();
+                assert_eq!(named.len(), 1, "one issue per bound, got {issues:?}");
+                assert_eq!(named[0].severity, IssueSeverity::Error);
+                assert_eq!(named[0].detail, detail);
+            }
+            other => panic!("expected Error::ValidationFailed, got {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn canfd_frame_with_brs_esi_is_accepted() {
     // Behaviourally back the `can_fd` + `canfd_brs_esi_fields` matrix claims:
     // a CAN-FD frame (DLC 10 → 16-byte payload) with BRS/ESI set must be

@@ -26,6 +26,7 @@ open import Data.Product using (_×_; _,_)
 open import Data.Bool using (Bool; true; false)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.DBC.Types using (DBC)
+open import Aletheia.DBC.Validity using (ValidDBC)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Validator using (validateDBCFull)
 open import Aletheia.DBC.Formatter using (formatDBC)
@@ -174,10 +175,10 @@ parseFailResponse state _ (BadSignal (BadChars cs)) =
       (state , Response.Error (WithContext "SetProperties"
                                 (ParseErr (InvalidIdentifier (fromList cs)))))
 
-parseAllProperties : (n : ℕ) → StreamState → DBC → List (Fin n × JSON) → List (PropertyState n) → StreamState × Response
-parseAllProperties n _ dbc [] acc =
-  (ReadyToStream n dbc (reverse acc) emptyCache , Response.Success "Properties set successfully")
-parseAllProperties n state dbc ((idx , json) ∷ rest) acc with parseProperty json
+parseAllProperties : (n : ℕ) → StreamState → ValidDBC → List (Fin n × JSON) → List (PropertyState n) → StreamState × Response
+parseAllProperties n _ vdbc [] acc =
+  (ReadyToStream n vdbc (reverse acc) emptyCache , Response.Success "Properties set successfully")
+parseAllProperties n state vdbc ((idx , json) ∷ rest) acc with parseProperty json
 ... | inj₁ pf   = parseFailResponse state (toℕ idx) pf
 ... | inj₂ prop with atomCount prop <ᵇ suc max-atom-count-per-property | atomCount prop
 ...   | false | observed = (state , Response.Error
@@ -187,26 +188,26 @@ parseAllProperties n state dbc ((idx , json) ∷ rest) acc with parseProperty js
        let atoms = collectAtoms prop
            proc = initProc (indexFormula prop)
            propState = mkPropertyState idx prop atoms proc
-       in parseAllProperties n state dbc rest (propState ∷ acc)
+       in parseAllProperties n state vdbc rest (propState ∷ acc)
 
 -- Set properties command: parse JSON properties to LTL
 handleSetProperties : List JSON → StreamState → StreamState × Response
 handleSetProperties _ WaitingForDBC =
   (WaitingForDBC , Response.Error (WithContext "SetProperties" (HandlerErr NoDBC)))
-handleSetProperties propJSONs state@(ReadyToStream _ dbc _ _)
+handleSetProperties propJSONs state@(ReadyToStream _ vdbc _ _)
   with length propJSONs <ᵇ suc max-properties-per-stream | length propJSONs
 ... | false | observed = (state , Response.Error
                             (WithContext "SetProperties"
                               (InputBoundExceeded PropertyCount observed max-properties-per-stream)))
 ... | true  | _        =
-  parseAllProperties (length propJSONs) state dbc (withIndices propJSONs) []
+  parseAllProperties (length propJSONs) state vdbc (withIndices propJSONs) []
 handleSetProperties propJSONs state@(Streaming _ _ _ _ _) =
   (state , Response.Error (WithContext "SetProperties" (HandlerErr StreamActive)))
 
 -- Start stream command: transition to streaming mode
 handleStartStream : StreamState → StreamState × Response
-handleStartStream (ReadyToStream n dbc props cache) =
-  (Streaming n dbc props nothing cache , Response.Success "Streaming started successfully")
+handleStartStream (ReadyToStream n vdbc props cache) =
+  (Streaming n vdbc props nothing cache , Response.Success "Streaming started successfully")
 handleStartStream WaitingForDBC =
   (WaitingForDBC , Response.Error (WithContext "StartStream" (HandlerErr NoDBC)))
 handleStartStream state@(Streaming _ _ _ _ _) =
@@ -271,10 +272,10 @@ collectUncachedWarnings cache (ps ∷ rest) =
 -- EndStream signal cache).  Binding-side parsers see the field they were
 -- already decoding, just with concrete entries now.
 handleEndStream : StreamState → StreamState × Response
-handleEndStream (Streaming n dbc props _ cache) =
+handleEndStream (Streaming n vdbc props _ cache) =
   let results  = finalizeProperties props
       warnings = collectUncachedWarnings cache props
-  in (ReadyToStream n dbc props cache , Response.Complete results warnings)
+  in (ReadyToStream n vdbc props cache , Response.Complete results warnings)
 handleEndStream state =
   (state , Response.Error (WithContext "EndStream" (HandlerErr NotStreaming)))
 

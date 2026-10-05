@@ -58,7 +58,7 @@ extractResult result =
 
 -- | The JSON envelope of a binary-output refusal.  Mirrors kernelErrorOut in
 -- BinaryOutput.hs.
-envelope :: AgdaError.T_Error_342 -> T.Text
+envelope :: AgdaError.T_Error_358 -> T.Text
 envelope err = unsafeCoerce (AgdaBin.d_formatErrorEnvelope_12 err) :: T.Text
 
 -- | Extract (state, Either envelope bytes) from a binary-out Σ pair.
@@ -121,20 +121,20 @@ walkPartitionedResults ier =
 sendFrame :: AgdaState.T_StreamState_32 -> Integer -> Integer -> Bool -> Integer -> [Word8]
           -> Maybe Bool -> Maybe Bool -> (AgdaState.T_StreamState_32, T.Text)
 sendFrame state ts canIdVal isExt dlc bytes brs esi =
-    extractResult (AgdaBin.d_processFrameRaw_120 state ts canIdVal isExt dlc (map toInteger bytes) brs esi)
+    extractResult (AgdaBin.d_processFrameRaw_116 state ts canIdVal isExt dlc (map toInteger bytes) brs esi)
 
 sendErrorEvent :: AgdaState.T_StreamState_32 -> Integer -> (AgdaState.T_StreamState_32, T.Text)
-sendErrorEvent state ts = extractResult (AgdaBin.d_processErrorFrameRaw_180 state ts)
+sendErrorEvent state ts = extractResult (AgdaBin.d_processErrorFrameRaw_176 state ts)
 
 sendRemoteEvent :: AgdaState.T_StreamState_32 -> Integer -> Integer -> Bool
                 -> (AgdaState.T_StreamState_32, T.Text)
 sendRemoteEvent state ts canIdVal isExt =
-    extractResult (AgdaBin.d_processRemoteFrameRaw_192 state ts canIdVal isExt)
+    extractResult (AgdaBin.d_processRemoteFrameRaw_188 state ts canIdVal isExt)
 
 extractDirect :: AgdaState.T_StreamState_32 -> Integer -> Bool -> Integer -> [Word8]
               -> (AgdaState.T_StreamState_32, T.Text)
 extractDirect state canIdVal isExt dlc bytes =
-    extractResult (AgdaBin.d_processExtractRaw_234 state canIdVal isExt dlc (map toInteger bytes))
+    extractResult (AgdaBin.d_processExtractRaw_230 state canIdVal isExt dlc (map toInteger bytes))
 
 -- | Zero-arg JSON-out paths.
 startStream, endStream, formatDBC
@@ -149,17 +149,17 @@ type Values = ([Integer], [Integer], [Integer])
 buildFrameBin :: AgdaState.T_StreamState_32 -> Integer -> Bool -> Integer -> Values
               -> (AgdaState.T_StreamState_32, Either T.Text [Word8])
 buildFrameBin state canIdVal isExt dlc (is, ns, ds) =
-    extractSumBytes (AgdaBin.d_processBuildFrameRaw_294 state canIdVal isExt dlc is ns ds)
+    extractSumBytes (AgdaBin.d_processBuildFrameRaw_290 state canIdVal isExt dlc is ns ds)
 
 updateFrameBin :: AgdaState.T_StreamState_32 -> Integer -> Bool -> Integer -> [Word8] -> Values
                -> (AgdaState.T_StreamState_32, Either T.Text [Word8])
 updateFrameBin state canIdVal isExt dlc bytes (is, ns, ds) =
-    extractSumBytes (AgdaBin.d_processUpdateFrameRaw_444 state canIdVal isExt dlc (map toInteger bytes) is ns ds)
+    extractSumBytes (AgdaBin.d_processUpdateFrameRaw_440 state canIdVal isExt dlc (map toInteger bytes) is ns ds)
 
 extractBin :: AgdaState.T_StreamState_32 -> Integer -> Bool -> Integer -> [Word8]
            -> (AgdaState.T_StreamState_32, Either T.Text AgdaBatch.T_PartitionedResults_10)
 extractBin state canIdVal isExt dlc bytes =
-    extractSumIER (AgdaBin.d_processExtractBinRaw_554 state canIdVal isExt dlc (map toInteger bytes))
+    extractSumIER (AgdaBin.d_processExtractBinRaw_550 state canIdVal isExt dlc (map toInteger bytes))
 
 -- ============================================================================
 -- ASSERTIONS
@@ -265,7 +265,7 @@ main = do
     putStrLn ""
 
     -- ------------------------------------------------------------------------
-    -- Tests 5-6: d_processErrorFrameRaw_180 / d_processRemoteFrameRaw_192
+    -- Tests 5-6: d_processErrorFrameRaw_176 / d_processRemoteFrameRaw_188
     -- ------------------------------------------------------------------------
     putStrLn "Test 5: processErrorFrameRaw — expect ack"
     let (_, r5) = sendErrorEvent state3 5000
@@ -349,7 +349,7 @@ main = do
     putStrLn ""
 
     -- ------------------------------------------------------------------------
-    -- Test 12: d_processExtractBinRaw_554 (highest-risk: PartitionedResults coerce)
+    -- Test 12: d_processExtractBinRaw_550 (highest-risk: PartitionedResults coerce)
     -- ------------------------------------------------------------------------
     putStrLn "Test 12: processExtractBinRaw — Speed=400, Temp=0, expect inj₂ PartitionedResults with 2 values"
     let bytes12 = [144, 1, 0, 0, 0, 0, 0, 0]  -- 400 = 0x0190; LE → [0x90, 0x01].

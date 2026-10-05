@@ -4,64 +4,58 @@
 
 -- Correctness properties for CAN signal encoding/decoding (curated facade).
 --
--- Purpose: Re-export the round-trip and disjoint-bit theorems used by
---   downstream proofs (Aletheia.CAN.Batch.Properties), grouped by topic.
+-- Purpose: Gather the encoding theorems in one place, grouped by layer;
+--   `check-properties` type-checks this module as the root of the encoding
+--   proofs.
 --
--- The actual proofs live in three sibling submodules so that IDE
--- jump-to-definition stays fast and each layer can be re-checked
--- independently:
+-- The proofs live in sibling submodules, one per layer, so each can be
+-- re-checked on its own:
 --
---   Properties.Arithmetic — Layer 2 (ℕ ↔ ℤ two's complement) and
---                            Layer 3 (ℤ ↔ ℚ scaling) algebraic lemmas.
---   Properties.Roundtrip  — Layer 4 composition: signal-level
---                            extract ∘ inject ≡ id, both unsigned and
---                            signed, plus the WellFormedSignal record.
---   Properties.Disjoint   — Bit preservation under disjoint injection,
---                            including mixed-byte-order physical disjointness.
---
--- Strategy: BitVec-based architecture - structural proofs, not arithmetic:
---   Layer 0: BitVec operations (structural) - PROVEN in BitVec module
---   Layer 1: BitVec ↔ ℕ conversion - proven ONCE in Conversion module
---   Layer 2: Integer conversion (ℕ ↔ ℤ) - no ℚ
---   Layer 3: Scaling (ℤ ↔ ℚ) - isolated ℚ lemmas
---   Layer 4: Composition - combine all layers
+--   Properties.Arithmetic — ℕ ↔ ℤ two's complement and the floor of an integer.
+--   Properties.Roundtrip  — a raw value's bits written into a frame extract
+--                            back to the value it scales to (frame + decoding).
+--   Properties.Value      — what checking and encoding a value guarantee: each
+--                            refusal's condition, and an accepted value's frame
+--                            extracting back to exactly that value.
+--   Properties.Disjoint   — the frame writer leaves disjoint bits as they
+--                            were, including across byte orders.
 --
 -- Philosophy: Bit independence is structural, not arithmetic.
--- The hard proofs (testBit-setBit) are now trivial because we use the right representation.
 module Aletheia.CAN.Encoding.Properties where
 
 -- ============================================================================
--- LAYER 2 + LAYER 3: ARITHMETIC LEMMAS
+-- ARITHMETIC
 -- ============================================================================
--- Two's-complement (ℕ ↔ ℤ) and scaling (ℤ ↔ ℚ) bridge lemmas. These are
--- the algebraic primitives consumed by Layer 4 composition proofs.
+
 open import Aletheia.CAN.Encoding.Properties.Arithmetic public
-  using ( SignedFits
-        ; removeScaling-nothing⇒zero
-        ; removeScaling-applyScaling-exact
+  using ( SignedFits )
+
+-- ============================================================================
+-- A WRITTEN RAW VALUE READS BACK
+-- ============================================================================
+
+open import Aletheia.CAN.Encoding.Properties.Roundtrip public
+  using ( extractSignal-reduces-unsigned
+        ; extractSignal-reduces-signed
         )
 
 -- ============================================================================
--- LAYER 4: SIGNAL-LEVEL ROUND-TRIP THEOREMS
+-- CHECKING AND ENCODING A VALUE
 -- ============================================================================
--- Composition of all lower layers: extract ∘ inject ≡ id at the signal
--- level, for both unsigned and signed signals. Includes the
--- WellFormedSignal record that captures the precondition.
-open import Aletheia.CAN.Encoding.Properties.Roundtrip public
-  using ( signalValue
-        ; injectSignal-reduces-unsigned
-        ; extractSignal-reduces-unsigned
-        ; extractSignal-injectSignal-roundtrip-unsigned
-        ; injectSignal-reduces-signed
-        ; extractSignal-reduces-signed
+
+open import Aletheia.CAN.Encoding.Properties.Value public
+  using ( checkValue-accepted
+        ; checkValue-out-of-range
+        ; checkValue-not-representable
+        ; extractSignal-encodedBits
+        ; encodedBits-irrelevant
         )
 
 -- ============================================================================
 -- DISJOINT BIT PRESERVATION
 -- ============================================================================
--- Bit-level theorems used by BatchFrameBuilding to prove that writing
--- one signal does not corrupt the bits of disjoint signals — even when
--- injection and extraction use different byte orders.
+
 open import Aletheia.CAN.Encoding.Properties.Disjoint public
-  using ( injectSignal-preserves-disjoint-bits-physical
+  using ( withInjected-preserves-disjoint-bits
+        ; withInjected-preserves-disjoint-bits-physical
         )

@@ -12,8 +12,11 @@
 -- Design: StreamState is a sum type, not a record with a phase field.
 -- Each constructor carries only the fields valid in that phase:
 --   WaitingForDBC : no fields (waiting for ParseDBC command)
---   ReadyToStream : DBC + properties + cache (DBC parsed, configuring)
---   Streaming     : DBC + properties + prevFrame + cache (active LTL checking)
+--   ReadyToStream : validated DBC + properties + cache (DBC parsed, configuring)
+--   Streaming     : validated DBC + properties + prevFrame + cache (active LTL checking)
+-- A loaded DBC is a `ValidDBC`, the validator's verdict carrying the proof of
+-- its validity, so a handler that needs a DBC fact (a signal's non-zero
+-- factor, its range within its bits) reads it from the DBC it holds.
 -- Invalid phase transitions are unrepresentable at the type level.
 module Aletheia.Protocol.StreamState.Types where
 
@@ -22,6 +25,7 @@ open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ)
 open import Data.Fin using (Fin)
 open import Aletheia.DBC.Types using (DBC)
+open import Aletheia.DBC.Validity using (ValidDBC)
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache)
 open import Aletheia.LTL.Coalgebra using (LTLProc)
@@ -58,15 +62,14 @@ record PropertyState (n : ℕ) : Set where
 -- performs without rebuilding the property list.
 data StreamState : Set where
   WaitingForDBC : StreamState
-  ReadyToStream : (n : ℕ) → DBC → List (PropertyState n) → SignalCache → StreamState
-  Streaming     : (n : ℕ) → DBC → List (PropertyState n) → Maybe TimedFrame → SignalCache → StreamState
+  ReadyToStream : (n : ℕ) → ValidDBC → List (PropertyState n) → SignalCache → StreamState
+  Streaming     : (n : ℕ) → ValidDBC → List (PropertyState n) → Maybe TimedFrame → SignalCache → StreamState
 
--- Extract DBC if loaded (ReadyToStream or Streaming).
--- Drop-in replacement for the old StreamState.dbc record accessor.
+-- The loaded DBC, if any (ReadyToStream or Streaming).
 getDBC : StreamState → Maybe DBC
 getDBC WaitingForDBC = nothing
-getDBC (ReadyToStream _ dbc _ _) = just dbc
-getDBC (Streaming _ dbc _ _ _) = just dbc
+getDBC (ReadyToStream _ vdbc _ _) = just (ValidDBC.dbc vdbc)
+getDBC (Streaming _ vdbc _ _ _) = just (ValidDBC.dbc vdbc)
 
 -- Initial empty state
 initialState : StreamState

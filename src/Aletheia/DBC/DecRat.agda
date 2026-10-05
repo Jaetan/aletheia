@@ -38,10 +38,10 @@
 -- scale/offset/min/max (`SignalDef`), environment-variable initial /
 -- minimum / maximum (`EnvironmentVar`), attribute float bounds
 -- (`AttrType.ATFloat` / `AttrValue.AVFloat`), value-table keys.
--- Signal-extraction hot path converts DecRat → ℚ via `toℚ` at the four
--- arithmetic call sites in `CAN/Encoding.agda` (`scaleExtracted`,
--- `extractSignal` bounds, `injectHelper` removeScaling, `injectHelper`
--- bounds).  Post-extraction `SignalValue` stays ℚ.
+-- Signal extraction and encoding convert DecRat → ℚ via `toℚ` where they do
+-- arithmetic (`scaleExtracted` and `extractSignal`'s bounds in
+-- `CAN/Encoding.agda`; the value checks and the bits' fit proof in
+-- `CAN/Encoding/Value.agda`).  Post-extraction `SignalValue` stays ℚ.
 module Aletheia.DBC.DecRat where
 
 open import Data.Nat.Base

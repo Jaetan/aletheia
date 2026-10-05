@@ -288,7 +288,7 @@ Validate a DBC definition for structural correctness. Returns all issues found (
 - Response `issues`: Array of validation issues
 
 **Issue Codes**:
-- **Error**: `duplicate_message_id`, `duplicate_signal_name`, `factor_zero`, `multiplexor_not_found`, `multiplexor_cycle`, `signal_exceeds_dlc`, `signal_overlap`, `bit_length_zero`
+- **Error**: `duplicate_message_id`, `duplicate_signal_name`, `factor_zero`, `multiplexor_not_found`, `multiplexor_cycle`, `signal_exceeds_dlc`, `signal_overlap`, `bit_length_zero`, `range_exceeds_bits`
 - **Warning**: `global_name_collision`, `min_exceeds_max`, `duplicate_message_name`, `offset_scale_range`, `empty_message`, `start_bit_out_of_range`, `bit_length_excessive`, `multiplexor_non_unit_scaling`, `duplicate_attribute_name`, `unknown_comment_target`, `unknown_message_sender`, `unknown_signal_receiver`, `unknown_value_description_target`, `multi_value_mux_selector`, `mux_master_incoherent`
 
 The last two warning codes mirror the [FormatDBCText](#formatdbctext) round-trip checker's diagnostics, driven by the same kernel deciders: the DBC loads and streams fine, but cannot be expressed as round-tripping `.dbc` text — `formatDBCText` would refuse it. Like every warning, they never block a load (`has_errors` stays `false` when only warnings are present).
@@ -560,6 +560,8 @@ Without a DBC it answers `handler_no_dbc`. The distinct [`formatDBCText`](#forma
 The binary-output entries answer 0 on success and 1 on failure, with their result in a `struct aletheia_buffer` (see `aletheia.h`): a build or an update writes the frame's bytes into the caller's buffer, an extraction allocates the packed layout `Aletheia/Main/Binary.agda` documents.
 
 Signal values for a build or an update cross as three parallel arrays (`struct aletheia_signal_values`: indices, numerators, denominators); the kernel builds each value as an exact rational in lowest terms and refuses a denominator that is not positive with `parse_non_positive_denominator` (and arrays of unequal length with `parse_signal_array_length_mismatch`, which the C structure, carrying one count, cannot express).
+
+A build or an update checks the request before writing anything: every requested signal must fit the frame (`frame_signal_past_frame_end`) and no two may share a bit (`frame_signals_overlap`). Each value is then checked in turn, and a refusal leaves the caller's buffer untouched: a value outside the signal's declared range is refused with `frame_value_out_of_range`, and one that no integer raw value scales to exactly with `frame_value_not_representable`. An accepted value is written exactly, and the frame reads it back unchanged wherever it carries the signal: always, or for a multiplexed signal when its multiplexor's value selects it.
 
 On failure the buffer's `err` is the JSON error envelope every other entry answers with, freed with `aletheia_free_str()`:
 
@@ -1185,11 +1187,13 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 |---|---|---|
 | `frame_signal_not_found` | Named signal not in the target message | Check the signal name against the DBC |
 | `frame_signal_index_oob` | Internal signal index out of range | Indicates a DBC/runtime mismatch — rebuild |
-| `frame_injection_failed` | Bit-packing failed for a signal | Usually means the value exceeds the signal's bit width |
-| `frame_signals_overlap` | Two requested signals occupy overlapping bits | Edit only one signal per bit range, or fix the DBC |
+| `frame_value_out_of_range` | A requested value lies outside the signal's `[minimum, maximum]` | Clip at the caller, or widen the DBC's range within what the bits carry |
+| `frame_value_not_representable` | No integer raw value scales to the requested value under the signal's factor and offset | Request a value on the signal's grid, `offset + k × factor` for an integer `k` |
+| `frame_signals_overlap` | Two signals requested by one build or update occupy overlapping bits | Request only one signal per bit range, or fix the DBC |
+| `frame_signal_past_frame_end` | A signal's last bit lies past the end of the frame (the build's DLC, or the updated frame's) | Use a DLC whose byte count holds every signal of the message |
 | `frame_can_id_not_found` | `canId` not present in loaded DBC | Re-check the CAN ID against the DBC |
 | `frame_can_id_mismatch` | Request `canId` does not match the frame being updated | For the binary update path, the existing frame's ID must match |
-| `frame_signal_value_out_of_bounds` | Physical value outside the signal's `[minimum, maximum]` | Clip at the caller, or loosen the DBC bounds |
+| `frame_signal_value_out_of_bounds` | An extracted value lies outside the signal's `[minimum, maximum]` | Not a build or update refusal: its message is the reason extraction reports for the signal |
 
 #### Route errors — command dispatch
 
