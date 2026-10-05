@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-07-16.
+**Last Updated**: 2026-10-06.
 
 Aletheia is a formally verified CAN-frame analysis system: a core written in Agda
 with machine-checked correctness proofs, compiled to Haskell and exposed through
@@ -118,6 +118,15 @@ warning-class issues at validate/load — reusing the round-trip checker's own
 deciders, so the surfaces cannot disagree. The heavier capability that remains
 deferred, off the critical path: emitting the currently-lossy constructs
 (e.g. multi-value multiplexing) without loss.
+
+**Frames, values and DBC load.** Every frame the kernel accepts is parsed in
+Agda: one whose identifier (CAN ID) is out of range, whose data length code
+(DLC) is past 15, or whose payload's byte count is not the one its DLC names is
+refused with a typed error. A requested signal value is written exactly, from
+the proofs the validated DBC carries, or refused with a typed error; it is never
+rounded or wrapped. Loading a DBC takes time linear in its length on both routes
+(JSON and `.dbc` text), and a check the main branch requires fails any change
+under which doubling a DBC's messages more than triples its load time.
 
 Living detail and rationale for the above are tracked outside the tree, with
 the rest of the pending work.
