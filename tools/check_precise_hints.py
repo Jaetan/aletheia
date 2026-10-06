@@ -15,6 +15,14 @@ checker cannot refuse what the code refuses.  A hint is imprecise when it holds:
   instead; prose is ``Prose``, a ``NewType`` like any other;
 * three or more nested subscripts, a shape that wants a name of its own.
 
+An ``Annotated`` hint is read as the type it annotates, its metadata being
+notes, with one exception: ``Annotated[P, M(...)]``, where ``P`` is one of the
+four primitives and a metadata argument is a call of a refinement marker, is
+precise, since the marker narrows ``P`` to the values it admits.  The markers
+are listed by name in this tool: ``Gt``, the one ``aletheia.common_types``
+defines.  A marker named but not called refines nothing, nor does any other
+metadata, nor a marker on any type but a primitive.
+
 A type alias is read as the hint on its right side, however it is spelled
 (``type X = ...``, an annotation of ``TypeAlias``, ``TypeAliasType``, or a
 generic or a union assigned to a name at module level), since an alias renames
@@ -143,6 +151,10 @@ _BARE_UNSEEN = frozenset(
 _PRIMITIVES = frozenset({TypeName("str"), TypeName("int"), TypeName("float"), TypeName("bytes")})
 _NESTED = Depth(3)
 
+# The refinement markers: `Annotated` metadata a call of which narrows the
+# primitive it annotates, the ones `aletheia.common_types` defines.
+_REFINEMENTS = frozenset({TypeName("Gt")})
+
 # The generics a module-level assignment subscripts when it defines a type alias
 # rather than computing a value.
 _GENERICS = frozenset(
@@ -203,13 +215,23 @@ def _named_faults(name: TypeName) -> frozenset[Fault]:
     return frozenset()
 
 
+def _refines(metadata: ast.expr) -> bool:
+    """Say whether an ``Annotated`` metadata argument is a call of a refinement marker."""
+    return isinstance(metadata, ast.Call) and _name(metadata.func) in _REFINEMENTS
+
+
 def _subscripted(node: ast.Subscript) -> _Reading:
-    """Read a subscripted hint: a Literal holds values, an Annotated's note is not a type."""
+    """Read a subscripted hint: a Literal holds values, an Annotated's note is not a type.
+
+    A primitive annotated with a call of a refinement marker is precise.
+    """
     outer = _name(node.value)
     if outer == TypeName("Literal"):
         return _Reading(frozenset(), Depth(1))
     parts = list(node.slice.elts) if isinstance(node.slice, ast.Tuple) else [node.slice]
     if outer == TypeName("Annotated"):
+        if _name(parts[0]) in _PRIMITIVES and any(_refines(note) for note in parts[1:]):
+            return _Reading(frozenset(), Depth(1))
         parts = parts[:1]
     return _joined([_read(part) for part in parts], nests=True)
 

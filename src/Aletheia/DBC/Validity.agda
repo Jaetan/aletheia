@@ -9,8 +9,9 @@
 -- and every value its declared ranges admit has an encoding in its bits.
 -- Supports CAN 2.0B (DLC 0–8) and CAN-FD (DLC 0–15).
 --
--- A DBC is valid when every error-severity condition holds.
--- Warning-severity checks are advisory and NOT part of IsValidDBC.
+-- A DBC is valid when it meets every size bound (`IsBoundedDBC`) and every
+-- error-severity condition holds.  Warning-severity checks are advisory and
+-- NOT part of IsValidDBC.
 -- `ValidDBC` is the DBC with its erased proof, the value a loaded session
 -- holds; `signalFacts` reads off it what encoding a signal's value needs.
 module Aletheia.DBC.Validity where
@@ -18,6 +19,7 @@ open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Validator using (walkMux)
+open import Aletheia.DBC.Bounds using (IsBoundedDBC)
 open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange; SignalFacts)
 open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.DBC.Decidable using (SignalPairValid)
@@ -142,6 +144,8 @@ record IsValidDBC (dbc : DBC) : Set where
     nonZeroBitLengths : All (λ m → All NonZeroBitLength (DBCMessage.signals m)) msgs
     -- 9. Declared ranges within what the bits carry
     rangesWithinBits  : All (λ m → All RangeWithinBits (DBCMessage.signals m)) msgs
+    -- 10. Every list and text within its size bound
+    bounded           : IsBoundedDBC dbc
 
 -- A DBC with the proof that it is valid.  The validator's verdict is its
 -- one producer (`Aletheia.DBC.Validated.validate`); the proof is

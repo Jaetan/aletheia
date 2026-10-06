@@ -143,13 +143,17 @@ fn typed_lift_trigger_codes_are_ssot_members_and_lift() {
     {
         Error::InputBoundExceeded {
             code,
+            message,
             bound_kind,
             observed,
             limit,
+            field,
         } => {
             assert_eq!(code, "input_bound_exceeded");
+            assert_eq!(message, "m");
             assert_eq!(bound_kind, "input_length_bytes");
             assert_eq!((observed, limit), (10, 5));
+            assert_eq!(field, None, "a bound on the input's length names no field");
         }
         other => panic!("expected Error::InputBoundExceeded, got {other:?}"),
     }

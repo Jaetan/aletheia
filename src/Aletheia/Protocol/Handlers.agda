@@ -65,7 +65,8 @@ open import Aletheia.Protocol.StreamState using
   ; PropertyState; mkPropertyState
   )
 open import Aletheia.Protocol.StreamState.Internals using (collectAtoms; indexFormula)
-open import Aletheia.Protocol.Handlers.LoadDBC using (checkDBCBounds; loadValidatedDBC)
+open import Aletheia.Protocol.Handlers.LoadDBC using (loadValidatedDBC)
+open import Aletheia.DBC.Bounds using (BoundedDBC; checkBounds)
 
 -- ============================================================================
 -- INTERNAL HELPERS
@@ -291,16 +292,13 @@ handleExtractAllSignals frame state = withDBCContext "ExtractAllSignals" state �
 -- Validate DBC structure: parse JSON, then run comprehensive validator
 handleValidateDBC : JSON → StreamState → StreamState × Response
 handleValidateDBC dbcJSON state = withParsedDBC "ValidateDBC" dbcJSON state λ dbc →
-  -- C2 hardening: run the same adversarial bound cascade as the load routes
-  -- (shared via Handlers.LoadDBC.checkDBCBounds) before validating, so an
-  -- over-cardinality / over-length JSON DBC is rejected with a typed
-  -- InputBoundExceeded rather than validated unbounded.  Discovery order and
-  -- field-context tags are identical to ParseDBC.
-  validateHelper dbc (checkDBCBounds "ValidateDBC" dbc state)
+  -- The same size bounds as the load routes, refused the same way, before
+  -- the validator runs.
+  validateHelper (checkBounds dbc)
   where
-    validateHelper : DBC → Maybe (StreamState × Response) → StreamState × Response
-    validateHelper _ (just err) = err
-    validateHelper dbc nothing = (state , Response.ValidationResponse (validateDBCFull dbc))
+    validateHelper : Err.Error ⊎ BoundedDBC → StreamState × Response
+    validateHelper (inj₁ e) = (state , Response.Error (WithContext "ValidateDBC" e))
+    validateHelper (inj₂ b) = (state , Response.ValidationResponse (validateDBCFull (BoundedDBC.dbc b)))
 
 -- Format DBC: returns currently-loaded DBC as JSON
 handleFormatDBC : StreamState → StreamState × Response

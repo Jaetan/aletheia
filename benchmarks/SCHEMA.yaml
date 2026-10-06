@@ -113,10 +113,12 @@ experiment:
     quick: [1000, 5000, 10000, 50000]
   property_counts: [1, 2, 3, 5, 7, 10]
   # dbc_size: messages per DBC, each load on a fresh client after one untimed
-  # 500-message warm-up load.  Message i: name M{i}, extended CAN ID
-  # 0x100000 + i, DLC 8, sender ECU, one signal S{i} (start bit 0, 8 bits,
-  # little-endian, unsigned, factor 1, offset 0, range [0, 255], unit "",
-  # receiver ECU); one node ECU; version "1.0".
+  # 500-message warm-up load.  Of n messages, message i: name M{i}, extended
+  # CAN ID 0x100000 + i, DLC 8, sender N{i}, additional sender
+  # N{(i + 1) mod n}, one signal S{i} (start bit 0, 8 bits, little-endian,
+  # unsigned, factor 1, offset 0, range [0, 255], unit "", receiver N{i}), and
+  # one comment "c" targeting it by its CAN ID; nodes N0 to N{n - 1}; version
+  # "1.0".  Every kind of reference doubles with the messages.
   dbc_sizes:
     full: [1250, 2500, 5000, 10000]
     quick: [2500, 5000, 10000]

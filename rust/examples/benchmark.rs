@@ -26,8 +26,8 @@
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use aletheia::{
-    ByteOrder, CanId, Client, Dbc, DbcMessage, DbcSignal, Dlc, Formula, Node, Predicate, Presence,
-    Rational, SignalValue, Timestamp,
+    ByteOrder, CanId, Client, Comment, CommentTarget, Dbc, DbcMessage, DbcSignal, Dlc, Formula,
+    Node, Predicate, Presence, Rational, SignalValue, Timestamp,
 };
 use serde_json::{json, Value};
 
@@ -1079,15 +1079,19 @@ fn dbc_sizes(quick: bool) -> Vec<u32> {
     }
 }
 
-/// The DBC-size sweep's document: version `1.0`, the one node `ECU`, and
-/// `count` messages `M{i}` (extended id `0x100000 + i`, 8 bytes, sent by `ECU`),
-/// each carrying one 8-bit unsigned signal `S{i}` received by `ECU`. No two
-/// messages share an id, a name or a signal name, so the load succeeds.
+/// The DBC-size sweep's document: version `1.0`, the nodes `N0` … `N{count-1}`,
+/// `count` messages `M{i}` (extended id `0x100000 + i`, 8 bytes, sent by `N{i}`
+/// with the additional sender `N{(i+1) % count}`), each carrying one 8-bit
+/// unsigned signal `S{i}` received by `N{i}`, and one comment per message
+/// targeting it by its id. Every kind of reference grows with the messages,
+/// every name resolves, and no two messages share an id, a name or a signal
+/// name, so the load succeeds.
 fn sized_dbc(count: u32) -> Dbc {
+    let id = |i: u32| 0x10_0000 + i;
     let messages = (0..count)
         .map(|i| {
             let signal = DbcSignal {
-                receivers: vec!["ECU".to_string()],
+                receivers: vec![format!("N{i}")],
                 ..sig(
                     &format!("S{i}"),
                     0,
@@ -1100,15 +1104,27 @@ fn sized_dbc(count: u32) -> Dbc {
             };
             DbcMessage {
                 extended: true,
-                ..msg(0x10_0000 + i, &format!("M{i}"), 8, "ECU", vec![signal])
+                senders: vec![format!("N{}", (i + 1) % count)],
+                ..msg(id(i), &format!("M{i}"), 8, &format!("N{i}"), vec![signal])
             }
         })
         .collect();
     Dbc {
         version: "1.0".to_string(),
-        nodes: vec![Node {
-            name: "ECU".to_string(),
-        }],
+        nodes: (0..count)
+            .map(|i| Node {
+                name: format!("N{i}"),
+            })
+            .collect(),
+        comments: (0..count)
+            .map(|i| Comment {
+                target: CommentTarget::Message {
+                    id: id(i),
+                    extended: true,
+                },
+                text: "c".to_owned(),
+            })
+            .collect(),
         ..dbc(messages)
     }
 }

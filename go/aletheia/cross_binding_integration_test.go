@@ -340,7 +340,7 @@ func TestCrossBinding_MotorolaFullFrameClosure(t *testing.T) {
 
 // A formula nested past MaxNestingDepth is refused by the kernel's depth
 // check with an InputBoundExceeded error carrying bound kind, observed depth
-// and limit, lifted to *InputBoundExceededError (Python's
+// and limit and naming no field, lifted to *InputBoundExceededError (Python's
 // TestNestingDepthBound is the same case). The same lifter serves the
 // AtomCount and IdentifierLength kinds; the AtomCount bound is exercised at
 // the kernel and Python boundary (python/tests/test_input_bounds.py,
@@ -377,6 +377,9 @@ func TestCrossBinding_NestingDepthLiftsToInputBoundExceeded(t *testing.T) {
 	}
 	if bex.Observed <= uint64(MaxNestingDepth) {
 		t.Errorf("Observed = %d, want > %d", bex.Observed, MaxNestingDepth)
+	}
+	if bex.Field != "" {
+		t.Errorf("Field = %q, want it empty", bex.Field)
 	}
 }
 

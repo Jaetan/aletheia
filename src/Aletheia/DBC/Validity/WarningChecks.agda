@@ -9,11 +9,11 @@
 -- (predicate → check ≡ []) for each warning check, relating the
 -- validator functions to the predicates in Validity.agda.
 module Aletheia.DBC.Validity.WarningChecks where
-open import Aletheia.DBC.Identifier using (Identifier; nameStr)
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 
 open import Aletheia.DBC.Types using
-  ( signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr
+  ( signalNameStr; messageNameStr
   ; ValidationIssue; IsWarning; DBCMessage; DBCSignal
   ; Always; When
   ; DBCComment
@@ -30,7 +30,7 @@ open import Aletheia.DBC.Validator using
   ; checkBitLengthExcessive; checkAllBitLengthExcessive
   ; checkMuxScaling; checkMuxScalingSig; checkAllMuxScaling
   ; attrDefNames; checkDuplicateAttrNamePair; checkAllDuplicateAttributeNames
-  ; findMessageInList
+  ; CommentTargets; commentTargets
   ; checkCommentTargetExists; checkAllUnknownCommentTargets
   ; checkUnknownSender; checkAllUnknownMessageSenders
   ; checkUnknownReceiver; checkReceiversForSignal
@@ -46,6 +46,9 @@ open import Aletheia.DBC.TextParser.WellFormedCheck.Foundations using
   (pGo; presenceIssue; mcIssue; masterCoherent?)
 open import Data.List.NonEmpty using () renaming (_∷_ to _∷⁺_)
 open import Aletheia.CAN.DBCHelpers using (findSignalInList)
+open import Aletheia.DBC.Validator.Targets using (_∈?_; nodeNames; findMessage)
+open import Aletheia.Data.Dec0 using (_because₀_)
+open import Data.Bool using (true; false)
 open import Aletheia.DBC.Validity using
   ( MinLeqMax; DistinctMessageNames; NonEmptySignals
   ; StartBitInRange; BitLengthInRange; DisjointSignalNames
@@ -62,7 +65,6 @@ open import Data.List using ([]; _∷_; map; concatMap)
 open import Data.List.Relation.Unary.All using (All; []; _∷_; universal)
 open import Data.List.Relation.Unary.All.Properties using (++⁺; map⁺)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
-open import Data.List.Relation.Unary.Any using (any?)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
 open import Aletheia.DBC.DecRat using (0ᵈ; 1ᵈ; toℚ; _≟ᵈ_; _≤?ᵈ_)
@@ -513,46 +515,46 @@ checkAllDuplicateAttributeNames-allW attrs = go (attrDefNames attrs)
 -- CHECK 19: UNKNOWN COMMENT TARGET — Severity
 -- ============================================================================
 
-checkCommentTargetExists-allW : ∀ msgs nodes envVars cm →
-  All W (checkCommentTargetExists msgs nodes envVars cm)
-checkCommentTargetExists-allW msgs nodes envVars cm with DBCComment.target cm
+checkCommentTargetExists-allW : ∀ ts cm → All W (checkCommentTargetExists ts cm)
+checkCommentTargetExists-allW ts cm with DBCComment.target cm
 ... | CTNetwork   = []
-... | CTNode nname with any? (λ n → nodeNameStr n ≟ₛ nameStr nname) nodes
-...   | yes _ = []
-...   | no  _ = refl ∷ []
-checkCommentTargetExists-allW msgs _ _ cm | CTMessage mid
-  with findMessageInList mid msgs
+... | CTNode nname with Identifier.name nname ∈? CommentTargets.nodes ts
+...   | true  because₀ _ = []
+...   | false because₀ _ = refl ∷ []
+checkCommentTargetExists-allW ts cm | CTMessage mid
+  with findMessage mid (CommentTargets.messages ts)
 ...   | just _  = []
 ...   | nothing = refl ∷ []
-checkCommentTargetExists-allW msgs _ _ cm | CTSignal mid sname
-  with findMessageInList mid msgs
+checkCommentTargetExists-allW ts cm | CTSignal mid sname
+  with findMessage mid (CommentTargets.messages ts)
 ...   | nothing = refl ∷ []
 ...   | just m  with findSignalInList (Identifier.name sname) (DBCMessage.signals m)
 ...     | just _  = []
 ...     | nothing = refl ∷ []
-checkCommentTargetExists-allW _ _ envVars cm | CTEnvVar evname
-  with any? (λ ev → envVarNameStr ev ≟ₛ nameStr evname) envVars
-...   | yes _ = []
-...   | no  _ = refl ∷ []
+checkCommentTargetExists-allW ts cm | CTEnvVar evname
+  with Identifier.name evname ∈? CommentTargets.envVars ts
+...   | true  because₀ _ = []
+...   | false because₀ _ = refl ∷ []
 
 checkAllUnknownCommentTargets-allW : ∀ msgs nodes envVars cmts →
   All W (checkAllUnknownCommentTargets msgs nodes envVars cmts)
 checkAllUnknownCommentTargets-allW msgs nodes envVars cmts =
   All-concatMap (go cmts)
   where
-    go : ∀ cs → All (λ c → All W (checkCommentTargetExists msgs nodes envVars c)) cs
+    ts = commentTargets msgs nodes envVars
+    go : ∀ cs → All (λ c → All W (checkCommentTargetExists ts c)) cs
     go [] = []
-    go (c ∷ cs) = checkCommentTargetExists-allW msgs nodes envVars c ∷ go cs
+    go (c ∷ cs) = checkCommentTargetExists-allW ts c ∷ go cs
 
 -- ============================================================================
 -- CHECK 20: UNKNOWN MESSAGE SENDER — Severity
 -- ============================================================================
 
-checkUnknownSender-allW : ∀ nodes msg → All W (checkUnknownSender nodes msg)
-checkUnknownSender-allW nodes msg
-  with any? (λ n → nodeNameStr n ≟ₛ messageSenderStr msg) nodes
-... | yes _ = []
-... | no  _ = refl ∷ []
+checkUnknownSender-allW : ∀ known msg → All W (checkUnknownSender known msg)
+checkUnknownSender-allW known msg
+  with Identifier.name (DBCMessage.sender msg) ∈? known
+... | true  because₀ _ = []
+... | false because₀ _ = refl ∷ []
 
 checkAllUnknownMessageSenders-allW : ∀ msgs nodes →
   All W (checkAllUnknownMessageSenders msgs nodes)
@@ -560,29 +562,29 @@ checkAllUnknownMessageSenders-allW _    []              = []
 checkAllUnknownMessageSenders-allW msgs nodes@(_ ∷ _) =
   All-concatMap (go msgs)
   where
-    go : ∀ ms → All (λ m → All W (checkUnknownSender nodes m)) ms
+    go : ∀ ms → All (λ m → All W (checkUnknownSender (nodeNames nodes) m)) ms
     go [] = []
-    go (m ∷ ms) = checkUnknownSender-allW nodes m ∷ go ms
+    go (m ∷ ms) = checkUnknownSender-allW (nodeNames nodes) m ∷ go ms
 
 -- ============================================================================
 -- CHECK 21: UNKNOWN SIGNAL RECEIVER — Severity
 -- ============================================================================
 
-checkUnknownReceiver-allW : ∀ nodes msgName sigName r →
-  All W (checkUnknownReceiver nodes msgName sigName r)
-checkUnknownReceiver-allW nodes msgName sigName r
-  with any? (λ n → nodeNameStr n ≟ₛ nameStr r) nodes
-... | yes _ = []
-... | no  _ = refl ∷ []
+checkUnknownReceiver-allW : ∀ known msgName sigName r →
+  All W (checkUnknownReceiver known msgName sigName r)
+checkUnknownReceiver-allW known msgName sigName r
+  with Identifier.name r ∈? known
+... | true  because₀ _ = []
+... | false because₀ _ = refl ∷ []
 
-checkReceiversForSignal-allW : ∀ nodes msgName sig →
-  All W (checkReceiversForSignal nodes msgName sig)
-checkReceiversForSignal-allW nodes msgName sig =
+checkReceiversForSignal-allW : ∀ known msgName sig →
+  All W (checkReceiversForSignal known msgName sig)
+checkReceiversForSignal-allW known msgName sig =
   All-concatMap (go (CanonicalReceivers.list (DBCSignal.receivers sig)))
   where
-    go : ∀ rs → All (λ r → All W (checkUnknownReceiver nodes msgName (signalNameStr sig) r)) rs
+    go : ∀ rs → All (λ r → All W (checkUnknownReceiver known msgName (signalNameStr sig) r)) rs
     go [] = []
-    go (r ∷ rs) = checkUnknownReceiver-allW nodes msgName (signalNameStr sig) r ∷ go rs
+    go (r ∷ rs) = checkUnknownReceiver-allW known msgName (signalNameStr sig) r ∷ go rs
 
 checkAllUnknownSignalReceivers-allW : ∀ msgs nodes →
   All W (checkAllUnknownSignalReceivers msgs nodes)
@@ -590,11 +592,12 @@ checkAllUnknownSignalReceivers-allW _    []              = []
 checkAllUnknownSignalReceivers-allW msgs nodes@(_ ∷ _) =
   All-concatMap (goMsgs msgs)
   where
-    goSigs : ∀ msgName sigs → All (λ s → All W (checkReceiversForSignal nodes msgName s)) sigs
+    known = nodeNames nodes
+    goSigs : ∀ msgName sigs → All (λ s → All W (checkReceiversForSignal known msgName s)) sigs
     goSigs msgName [] = []
-    goSigs msgName (s ∷ ss) = checkReceiversForSignal-allW nodes msgName s ∷ goSigs msgName ss
+    goSigs msgName (s ∷ ss) = checkReceiversForSignal-allW known msgName s ∷ goSigs msgName ss
 
-    goMsgs : ∀ ms → All (λ m → All W (concatMap (checkReceiversForSignal nodes (messageNameStr m)) (DBCMessage.signals m))) ms
+    goMsgs : ∀ ms → All (λ m → All W (concatMap (checkReceiversForSignal known (messageNameStr m)) (DBCMessage.signals m))) ms
     goMsgs [] = []
     goMsgs (m ∷ ms) = All-concatMap (goSigs (messageNameStr m) (DBCMessage.signals m)) ∷ goMsgs ms
 
@@ -602,21 +605,21 @@ checkAllUnknownSignalReceivers-allW msgs nodes@(_ ∷ _) =
 -- CHECK 22: UNKNOWN ADDITIONAL SENDER — Severity
 -- ============================================================================
 
-checkUnknownAdditionalSender-allW : ∀ nodes msgName s →
-  All W (checkUnknownAdditionalSender nodes msgName s)
-checkUnknownAdditionalSender-allW nodes msgName s
-  with any? (λ n → nodeNameStr n ≟ₛ nameStr s) nodes
-... | yes _ = []
-... | no  _ = refl ∷ []
+checkUnknownAdditionalSender-allW : ∀ known msgName s →
+  All W (checkUnknownAdditionalSender known msgName s)
+checkUnknownAdditionalSender-allW known msgName s
+  with Identifier.name s ∈? known
+... | true  because₀ _ = []
+... | false because₀ _ = refl ∷ []
 
-checkAdditionalSendersForMessage-allW : ∀ nodes msg →
-  All W (checkAdditionalSendersForMessage nodes msg)
-checkAdditionalSendersForMessage-allW nodes msg =
+checkAdditionalSendersForMessage-allW : ∀ known msg →
+  All W (checkAdditionalSendersForMessage known msg)
+checkAdditionalSendersForMessage-allW known msg =
   All-concatMap (go (DBCMessage.senders msg))
   where
-    go : ∀ ss → All (λ s → All W (checkUnknownAdditionalSender nodes (messageNameStr msg) s)) ss
+    go : ∀ ss → All (λ s → All W (checkUnknownAdditionalSender known (messageNameStr msg) s)) ss
     go [] = []
-    go (s ∷ ss) = checkUnknownAdditionalSender-allW nodes (messageNameStr msg) s ∷ go ss
+    go (s ∷ ss) = checkUnknownAdditionalSender-allW known (messageNameStr msg) s ∷ go ss
 
 checkAllUnknownAdditionalSenders-allW : ∀ msgs nodes →
   All W (checkAllUnknownAdditionalSenders msgs nodes)
@@ -624,9 +627,9 @@ checkAllUnknownAdditionalSenders-allW _    []              = []
 checkAllUnknownAdditionalSenders-allW msgs nodes@(_ ∷ _) =
   All-concatMap (go msgs)
   where
-    go : ∀ ms → All (λ m → All W (checkAdditionalSendersForMessage nodes m)) ms
+    go : ∀ ms → All (λ m → All W (checkAdditionalSendersForMessage (nodeNames nodes) m)) ms
     go [] = []
-    go (m ∷ ms) = checkAdditionalSendersForMessage-allW nodes m ∷ go ms
+    go (m ∷ ms) = checkAdditionalSendersForMessage-allW (nodeNames nodes) m ∷ go ms
 
 -- ============================================================================
 -- CHECK 23: UNKNOWN VALUE DESCRIPTION TARGET — Severity

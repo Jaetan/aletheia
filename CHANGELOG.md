@@ -260,6 +260,80 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Every list in a DBC has a bound, every DBC command decides them alike,
+  and a loaded DBC carries the proof (BREAKING).** Eight lists had no bound on
+  any route and now refuse past it with `input_bound_exceeded`,
+  `array_cardinality`: signal groups (10,000), a signal group's members
+  (1,024), environment variables (10,000), `VAL_` lines naming no signal of
+  the file (10,000), a message's additional senders and a signal's receivers
+  (10,000 each, the node bound), an enumerated attribute type's labels
+  (10,000) and a multiplexed signal's selector values (1,024).
+  `formatDBCText` formatted a DBC past a size bound that every load refused;
+  it now refuses it first, as the loads do, and holds the node list it fills
+  from the message transmitters, when `nodes` is empty, to the node bound.
+  The kernel's `checkBounds` (`Aletheia.DBC.Bounds`) decides every bound in
+  one order, every count before any text, and returns the DBC with the erased
+  proof `IsBoundedDBC` that it meets every one; validity includes that proof,
+  so a loaded DBC is proven bounded, and `checkBounds-accepts` proves a DBC
+  within every bound is accepted. A DBC bound's refusal names the part of the
+  DBC that crossed it in a new envelope key, `field` (`senders array`,
+  `version string`), and every binding's typed bound error carries it:
+  Python `InputBoundExceededError.field`, Go `InputBoundExceededError.Field`,
+  C++ `InputBoundExceededError::field`, Rust `Error::InputBoundExceeded {
+  field, .. }`. A kernel refusal's text is the kernel's message in every
+  binding (Go's `InputBoundExceededError` gains `Message`, which `Error()`
+  returns; Rust's variant gains `message`, which it displays). Python's
+  `parse_dbc` and `parse_dbc_text` raise `InputBoundExceededError` for a bound,
+  as `validate_dbc` and `format_dbc_text` do, where they returned an error
+  response. The limits are mirrored in Python (`MAX_SIGNAL_GROUPS_PER_FILE`,
+  `MAX_ENVIRONMENT_VARIABLES_PER_FILE`,
+  `MAX_UNRESOLVED_VALUE_DESCRIPTIONS_PER_FILE`, `MAX_ENUM_LABELS_PER_ATTRIBUTE`,
+  `MAX_MULTIPLEX_VALUES_PER_SIGNAL`, and `MAX_COMMENTS_PER_FILE`,
+  `MAX_NODES_PER_FILE`, `MAX_VALUE_TABLES_PER_FILE`, which Go and C++ already
+  carried), Go and C++ under their own spellings; every Python limit is a
+  positive integer (`aletheia.common_types.PositiveInt`). Migration: Python,
+  catch `InputBoundExceededError` around `parse_dbc` / `parse_dbc_text` where
+  the returned `ErrorResponse` was read; Rust, add `..` (or the new fields) to
+  a match naming the variant's fields.
+- **A DBC text field's bound is counted, and named, in characters
+  (BREAKING).** The kernel counts a text field's characters; the constant and
+  its mirrors said bytes. `max-string-length-bytes` is
+  `max-string-length-characters`, Python `MAX_STRING_LENGTH_CHARACTERS`, Go
+  `MaxStringLengthCharacters`, C++ `max_string_length_characters`.
+- **A JSON command's length is counted in UTF-8 bytes (BREAKING).** The kernel
+  counted the decoded characters of a command against `max-json-bytes`, while
+  every binding counts the bytes it sends; it now counts the UTF-8 bytes
+  (`Aletheia.Data.UTF8`), so a command of non-ASCII text whose bytes pass
+  64 MiB is refused though its characters do not. The kernel no longer checks
+  a DBC text's own length: the text arrives inside a JSON command, which that
+  bound already covers, and the check could not fire.
+- **Resolving a DBC's references costs time linear in their number.** The
+  validator looked up every message sender, additional sender, receiver and
+  comment target by scanning the node, message or environment-variable list,
+  so a load took time proportional to references times declarations; each
+  list is now indexed once (`Aletheia.DBC.Validator.Targets`, the standard
+  library's AVL trees) and every reference looked up in its index, with the
+  same issues in the same order. `formatDBCText`'s node filling kept the names
+  it had seen in a list the same way and now keeps them in a set. Measured
+  through the library: `parseDBC` with 5,000 nodes and 5,000 / 10,000 /
+  20,000 senders took 12.13 / 27.12 / 57.54 s and takes 0.16 / 0.19 / 0.31 s;
+  `formatDBCText` filling 10,000 / 20,000 / 40,000 nodes took 4.16 / 17.44 /
+  76.62 s and takes 0.10 / 0.27 / 0.62 s. The `load scaling` check's DBC now
+  names a node per message as its sender, an additional sender, its signal's
+  receiver and a comment's target, in every binding, so a lookup that scans a
+  list fails it.
+- **The precise-hints ratchet counts a refined primitive as precise.**
+  `tools/check_precise_hints.py` reads `Annotated[int, Gt(0)]` (a primitive
+  carrying a call of a refinement marker it lists, `Gt` today) as a precise
+  hint, as it reads a named type; `Annotated[int]`, a metadata argument that
+  is no marker call, and a refined non-primitive still count as imprecise.
+  The Python limits are written that way, `PositiveInt` in
+  `aletheia.common_types`, and the ratchet holds 3,589 imprecise hints.
+- **The Go Excel loader's size refusals carry their wire code.** The three
+  bounds `go/excel` checks before reading a workbook built an
+  `InputBoundExceededError` with an empty `Code`, where every other refusal
+  carries `input_bound_exceeded`.
+
 - **A test starts a process only where its claim needs one.** Every process
   the four bindings' tests start was judged against what the test claims. The
   `aletheia check` tests of error frames, an Excel-authored DBC and a filled-in

@@ -30,7 +30,7 @@
 --   * 1M value descriptions — VAL_/VAL_TABLE_ entries can fan out across
 --     many enum-typed signals; generous to avoid rejecting legitimate DBCs.
 --   * 128-char identifiers — DBC convention is 32; 4× headroom.
---   * 64 KiB string body — comments, attribute string values.
+--   * 65,536-character text fields — comments, attribute string values.
 --   * 1024 atoms/property — LTL property atom complexity.
 module Aletheia.Limits where
 
@@ -90,7 +90,9 @@ boundKindLabel RationalComponentMagnitude = "rational component magnitude"
 -- BOUND CONSTANTS
 -- ============================================================================
 
--- Total DBC-text input length in bytes.
+-- A DBC text file's length in bytes, the bindings' cap on a file or text
+-- they read; the kernel receives a DBC text inside a JSON command, which
+-- `max-json-bytes` bounds.
 max-dbc-text-bytes : ℕ
 max-dbc-text-bytes = 67108864      -- 64 MiB = 64 × 1024 × 1024
 
@@ -116,9 +118,7 @@ max-attributes-per-file = 10000
 
 -- Value-description entries per DBC file (VAL_ + VAL_TABLE_), counted
 -- as the SUM across `DBCSignal.valueDescriptions`, `ValueTable.entries`,
--- and `DBC.unresolvedValueDescs.entries`.  The 64 MiB input cap already
--- protects against the largest fan-outs; this bound is the explicit
--- cardinality gate at the handler boundary.
+-- and `DBC.unresolvedValueDescs.entries`.
 max-value-descriptions-per-file : ℕ
 max-value-descriptions-per-file = 1000000
 
@@ -138,13 +138,39 @@ max-nodes-per-file = 10000
 max-value-tables-per-file : ℕ
 max-value-tables-per-file = 10000
 
+-- Signal groups per DBC file (`SIG_GROUP_`), at the metadata-cap
+-- convention.  A group's members are one message's signals, so they are
+-- bounded by `max-signals-per-message`.
+max-signal-groups-per-file : ℕ
+max-signal-groups-per-file = 10000
+
+-- Environment variables per DBC file (`EV_`), at the metadata-cap
+-- convention.
+max-environment-variables-per-file : ℕ
+max-environment-variables-per-file = 10000
+
+-- `VAL_` lines per DBC file naming no signal of the file, counted as
+-- lines: their entries flow through `max-value-descriptions-per-file`.
+max-unresolved-value-descriptions-per-file : ℕ
+max-unresolved-value-descriptions-per-file = 10000
+
+-- Labels of one enumerated attribute type (`BA_DEF_ … ENUM`), at the
+-- metadata-cap convention.
+max-enum-labels-per-attribute : ℕ
+max-enum-labels-per-attribute = 10000
+
+-- Selector values one multiplexed signal is present for.
+max-multiplex-values-per-signal : ℕ
+max-multiplex-values-per-signal = 1024
+
 -- DBC identifier (signal name, message name, etc.) length in characters.
 max-identifier-length : ℕ
 max-identifier-length = 128
 
--- Quoted-string body (comment text, attribute string value) length in bytes.
-max-string-length-bytes : ℕ
-max-string-length-bytes = 65536    -- 64 KiB
+-- A DBC text field (version, unit, comment, attribute name or value, value
+-- label) length in characters.
+max-string-length-characters : ℕ
+max-string-length-characters = 65536
 
 -- LTL atoms per single property.
 max-atom-count-per-property : ℕ

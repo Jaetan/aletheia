@@ -3,8 +3,9 @@
 """The hint lens reads every hint a module or a probe holds, and judges each the same way.
 
 A hint is imprecise when it holds ``Any`` or ``object``, a ``str``, ``int``,
-``float`` or ``bytes`` anywhere, or three nested subscripts; an alias is judged
-by its right side however it is spelled.  Each case below is one of those
+``float`` or ``bytes`` anywhere but under a call of a refinement marker, or
+three nested subscripts; an alias is judged by its right side however it is
+spelled.  Each case below is one of those
 claims, or one of the forms a precise hint takes that the lens must pass, since
 a lens that refused them would be a gate nobody could satisfy.  A probe's
 Python is read wherever an interpreter is handed it, and a run the lens cannot
@@ -68,6 +69,12 @@ def _judged(source: PythonSource) -> dict[CanonicalText, frozenset[Fault]]:
         ("Callable[[str], None]", Fault.PRIMITIVE),
         ("Final[int]", Fault.PRIMITIVE),
         ("list[dict[Key, list[Key]]]", Fault.NESTED),
+        ("Annotated[int, 'doc']", Fault.PRIMITIVE),
+        ("Annotated[int]", Fault.PRIMITIVE),
+        ("Annotated[int, Gt]", Fault.PRIMITIVE),
+        ("Annotated[int, Lt(0)]", Fault.PRIMITIVE),
+        ("Annotated[list[int], Gt(0)]", Fault.PRIMITIVE),
+        ("Annotated[Any, Gt(0)]", Fault.UNSEEN),
     ],
 )
 def test_an_imprecise_hint_is_found_with_its_fault(annotation: CanonicalText, fault: Fault) -> None:
@@ -83,13 +90,20 @@ def test_an_imprecise_hint_is_found_with_its_fault(annotation: CanonicalText, fa
         "dict[Key, list[Path]]",
         'Literal["str", "int"]',
         'Annotated[Key, "int"]',
+        "Annotated[int, Gt(0)]",
+        "Annotated[float, 'doc', common_types.Gt(0)]",
         "Key | None",
         "bool",
     ],
 )
 def test_a_precise_hint_passes(annotation: CanonicalText) -> None:
-    """A named type, two subscripts, a Literal's values and an Annotated's note hold nothing."""
+    """A named type, two subscripts, a Literal's values, an Annotated's note and a refinement."""
     assert _judged(PythonSource(f"x: {annotation}\n")) == {}
+
+
+def test_a_refined_primitive_aliased_is_precise() -> None:
+    """The alias ``aletheia.common_types`` spells a positive integer as holds nothing."""
+    assert _judged(PythonSource("type PositiveInt = Annotated[int, Gt(0)]\n")) == {}
 
 
 def test_a_quoted_hint_is_read_as_the_hint_it_quotes() -> None:

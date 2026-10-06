@@ -506,6 +506,9 @@ proofModules =
     -- non-vacuous.  Unimported by other proofs, so it needs its own root.
     , "Aletheia/DBC/Properties/GeometryGateDeadness.agda"
     , "Aletheia/DBC/JSONParser/Properties.agda"
+    -- What the size-bound checker (DBC/Bounds.agda) accepts and refuses:
+    -- reached by no other proof, so its own root.
+    , "Aletheia/DBC/Bounds/Properties.agda"
     , "Aletheia/DBC/Validity/Theorem.agda"
     , "Aletheia/DBC/Formatter/Properties.agda"
     , "Aletheia/DBC/Formatter/Bounded.agda"
@@ -873,14 +876,16 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                ++ "intentionally so MAlonzo compiles Timestamp comparisons "
                ++ "without a wrapper allocation on the hot path."
         -- Records whose proofs are erased compile to newtypes over their one
-        -- runtime field: a loaded DBC carries its validity, an encodable
-        -- value its range and exactness facts, a found element its position,
-        -- each at no runtime cost.
+        -- runtime field: a loaded DBC carries its validity, a checked DBC its
+        -- size bounds, an encodable value its range and exactness facts, a
+        -- found element its position, each at no runtime cost.
         validity <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/DBC/Validity.hs"
+        bounds   <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/DBC/Bounds.hs"
         encoding <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/CAN/Encoding/Value.hs"
         prelude  <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/Prelude.hs"
         let newtypeOf name src = any (("newtype T_" ++ name ++ "_") `isPrefixOf`) (lines src)
         forM_ [ ("ValidDBC", validity, "the DBC's validity proof")
+              , ("BoundedDBC", bounds, "the DBC's size-bound proof")
               , ("Encodable", encoding, "an encodable value's range and exactness facts")
               , ("Found", prelude, "a found element's position") ] $ \(name, src, what) ->
           unless (newtypeOf name src) $

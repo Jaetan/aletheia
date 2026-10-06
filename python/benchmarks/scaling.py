@@ -367,10 +367,15 @@ def _dbc_sizes(*, quick: bool) -> list[MessageCount]:
 
 
 def _sized_dbc(messages: MessageCount) -> DBCDefinition:
-    """Build a DBC of ``messages`` extended-ID messages, each carrying one 8-bit signal.
+    """Build a DBC of ``messages`` extended-ID messages, every kind of reference growing with them.
 
-    Message ``i`` is ``M{i}`` at CAN ID ``0x100000 + i`` with signal ``S{i}``, so
-    no two messages share an ID or a name and the load succeeds.
+    Message ``i`` is ``M{i}`` at CAN ID ``0x100000 + i``, sent by node ``N{i}``
+    and by one more sender, the next node round the ring
+    (``N{(i + 1) % messages}``); its one 8-bit signal ``S{i}`` is received by
+    ``N{i}``, and one comment targets it.  The nodes are ``N0`` to
+    ``N{messages - 1}``.  So the nodes, senders, receivers and comments grow in
+    proportion to the messages and double with them, every name resolves, and
+    no two messages share an ID or a name: the load succeeds.
     """
     return {
         "version": "1.0",
@@ -379,10 +384,14 @@ def _sized_dbc(messages: MessageCount) -> DBCDefinition:
                 "id": 0x100000 + i,
                 "name": f"M{i}",
                 "dlc": DLCByteCount(8),
-                "sender": "ECU",
+                "sender": f"N{i}",
+                "senders": [f"N{(i + 1) % messages}"],
                 "extended": True,
                 "signals": [
-                    {**raw_unsigned_signal(SignalName(f"S{i}"), BitLength(8)), "receivers": ["ECU"]}
+                    {
+                        **raw_unsigned_signal(SignalName(f"S{i}"), BitLength(8)),
+                        "receivers": [f"N{i}"],
+                    }
                 ],
             }
             for i in range(messages)
@@ -390,8 +399,11 @@ def _sized_dbc(messages: MessageCount) -> DBCDefinition:
         "signalGroups": [],
         "environmentVars": [],
         "valueTables": [],
-        "nodes": [{"name": "ECU"}],
-        "comments": [],
+        "nodes": [{"name": f"N{i}"} for i in range(messages)],
+        "comments": [
+            {"target": {"kind": "message", "id": 0x100000 + i, "extended": True}, "text": "c"}
+            for i in range(messages)
+        ],
         "attributes": [],
         "unresolvedValueDescs": [],
     }
@@ -400,7 +412,8 @@ def _sized_dbc(messages: MessageCount) -> DBCDefinition:
 def _load_seconds(dbc: DBCDefinition) -> Seconds:
     """Time one ``parse_dbc`` on a fresh client, closed after it.
 
-    Raises ``RuntimeError`` when the load is refused, so a refusal is never
+    Raises ``RuntimeError`` when the load is refused, or the client's
+    ``InputBoundExceededError`` when a bound refuses it, so a refusal is never
     recorded as a time.
     """
     with AletheiaClient() as client:

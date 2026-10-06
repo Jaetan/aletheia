@@ -376,27 +376,35 @@ pub(crate) fn parse_object(raw: &str) -> Result<Value, Error> {
             .and_then(Value::as_str)
             .unwrap_or("unknown")
             .to_string();
-        let message = value
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        // Lift the structured input_bound_exceeded triple into the typed
-        // Error::InputBoundExceeded when it is present and well-typed (parity with
-        // Go's *InputBoundExceededError, C++'s make_json_error, and Python's
-        // build_error_response). A malformed or partial triple degrades to the
-        // generic Error::Core rather than being reported as a bound error.
+        let wire_message = value.get("message").and_then(Value::as_str);
+        let message = wire_message.unwrap_or_default().to_string();
+        // Lift the structured input_bound_exceeded triple, with the kernel's
+        // `message` and the `field` a DBC size refusal names, into the typed
+        // Error::InputBoundExceeded when it is present and well-typed (parity
+        // with Go's *InputBoundExceededError, C++'s make_json_error, and
+        // Python's build_error_response). A malformed or partial triple, a
+        // `message` that is missing or not a string, or a `field` that is
+        // present but not a string, degrades to the generic Error::Core rather
+        // than being reported as a bound error; an absent `field` is `None`.
         if code == "input_bound_exceeded" {
-            if let (Some(bound_kind), Some(observed), Some(limit)) = (
+            let field = match value.get("field") {
+                None => Some(None),
+                Some(raw) => raw.as_str().map(|f| Some(f.to_string())),
+            };
+            if let (Some(bound_kind), Some(observed), Some(limit), Some(field), Some(_)) = (
                 value.get("bound_kind").and_then(Value::as_str),
                 value.get("observed").and_then(Value::as_u64),
                 value.get("limit").and_then(Value::as_u64),
+                field,
+                wire_message,
             ) {
                 return Err(Error::InputBoundExceeded {
                     code,
+                    message,
                     bound_kind: bound_kind.to_string(),
                     observed,
                     limit,
+                    field,
                 });
             }
         }
@@ -1061,25 +1069,76 @@ mod tests {
             r#"{"status":"error","code":"input_bound_exceeded","message":"too deep","bound_kind":"nesting_depth","observed":65,"limit":64}"#,
         )
         .unwrap_err();
-        // Display renders the bound triple (covers the Display arm).
-        assert!(
-            err.to_string()
-                .contains("nesting_depth 65 exceeds limit 64"),
-            "Display: {err}"
-        );
+        let text = err.to_string();
         match err {
             Error::InputBoundExceeded {
                 code,
+                message,
                 bound_kind,
                 observed,
                 limit,
+                field,
             } => {
                 assert_eq!(code, "input_bound_exceeded");
+                assert_eq!(message, "too deep");
                 assert_eq!(bound_kind, "nesting_depth");
                 assert_eq!(observed, 65);
                 assert_eq!(limit, 64);
+                assert_eq!(field, None, "an envelope naming no field lifts to None");
             }
             other => panic!("expected Error::InputBoundExceeded, got {other:?}"),
+        }
+        // Display renders the kernel's message and nothing else.
+        assert_eq!(text, "too deep");
+    }
+
+    #[test]
+    fn parse_object_lifts_the_field_a_dbc_size_refusal_names() {
+        let err = parse_object(
+            r#"{"status":"error","code":"input_bound_exceeded","message":"ParseDBC: senders array: array cardinality 10001 exceeds limit 10000","field":"senders array","bound_kind":"array_cardinality","observed":10001,"limit":10000}"#,
+        )
+        .unwrap_err();
+        let kernel = "ParseDBC: senders array: array cardinality 10001 exceeds limit 10000";
+        assert!(
+            matches!(&err, Error::InputBoundExceeded { message, field: Some(f), observed: 10_001, limit: 10_000, .. }
+                if message == kernel && f == "senders array"),
+            "got: {err:?}"
+        );
+        assert_eq!(err.to_string(), kernel);
+    }
+
+    #[test]
+    fn parse_object_degrades_a_message_missing_or_not_a_string_to_core() {
+        for member in [
+            "",
+            r#","message":7"#,
+            r#","message":null"#,
+            r#","message":[]"#,
+        ] {
+            let err = parse_object(&format!(
+                r#"{{"status":"error","code":"input_bound_exceeded"{member},"field":"senders array","bound_kind":"array_cardinality","observed":10001,"limit":10000}}"#
+            ))
+            .unwrap_err();
+            assert!(
+                matches!(&err, Error::Core { code, message }
+                    if code == "input_bound_exceeded" && message.is_empty()),
+                "member {member:?}: expected Error::Core, got {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_object_degrades_a_field_that_is_not_a_string_to_core() {
+        for field in ["7", "null", "[]"] {
+            let err = parse_object(&format!(
+                r#"{{"status":"error","code":"input_bound_exceeded","message":"m","field":{field},"bound_kind":"array_cardinality","observed":10001,"limit":10000}}"#
+            ))
+            .unwrap_err();
+            assert!(
+                matches!(&err, Error::Core { code, message }
+                    if code == "input_bound_exceeded" && message == "m"),
+                "field {field}: expected Error::Core, got {err:?}"
+            );
         }
     }
 

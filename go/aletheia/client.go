@@ -345,16 +345,6 @@ func (c *Client) ValidateDBC(ctx context.Context, dbc DBCDefinition) (*Validatio
 	return parseValidationResponse(resp)
 }
 
-// DEFERRED — TRACKED.
-// FormatDBC / FormatDBCText return-type rework (originally a String →
-// structured-result migration carrying e.g. rendering options) is deferred.
-//
-// Why: Structured-result wrapping changes the wire contract across all 3
-// bindings; benefits proper typing but unclear payoff vs migration cost.
-//
-// Revisit when: A consumer needs richer return metadata (e.g. structured
-// rendering options) — the migration becomes load-bearing then.
-//
 // FormatDBC returns the currently loaded DBC definition as parsed by the Agda core.
 // Call ParseDBC first.
 //
@@ -380,7 +370,9 @@ func (c *Client) FormatDBC(ctx context.Context) (*DBCDefinition, error) {
 // with a [TextRoundTripFailedError] rather than emitting lossy text. The
 // round trip holds at the text-parser level: a DBC with duplicate message
 // ids or signal names is emitted with warnings and refused by the
-// validating load of ParseDBCText. Client state is untouched; any
+// validating load of ParseDBCText. A definition past a size bound is
+// refused before it is formatted, with the [InputBoundExceededError] that
+// ParseDBC and ValidateDBC answer for it. Client state is untouched; any
 // DBCDefinition value may be passed.
 //
 // Honors ctx cancellation per the contract on [Client.ParseDBC].

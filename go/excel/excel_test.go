@@ -1111,6 +1111,9 @@ func TestLoadChecks_RejectsOversize(t *testing.T) {
 	if bound.BoundKind != aletheia.BoundKindInputLengthBytes {
 		t.Errorf("BoundKind: got %s, want input_length_bytes", bound.BoundKind)
 	}
+	if bound.Code != aletheia.CodeInputBoundExceeded {
+		t.Errorf("Code: got %q, want %q", bound.Code, aletheia.CodeInputBoundExceeded)
+	}
 	if bound.Limit != aletheia.MaxDBCTextBytes {
 		t.Errorf("Limit: got %d, want %d", bound.Limit, aletheia.MaxDBCTextBytes)
 	}
@@ -1157,6 +1160,9 @@ func TestLoadChecks_RejectsZipBomb(t *testing.T) {
 	}
 	if bound.BoundKind != aletheia.BoundKindInputLengthBytes {
 		t.Errorf("BoundKind: got %s, want input_length_bytes", bound.BoundKind)
+	}
+	if bound.Code != aletheia.CodeInputBoundExceeded {
+		t.Errorf("Code: got %q, want %q", bound.Code, aletheia.CodeInputBoundExceeded)
 	}
 	// The refusal reports what the entries claim, not the bound plus one.
 	if want := uint64(parts) * uint64(len(zeros)); bound.Observed != want {

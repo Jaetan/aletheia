@@ -94,7 +94,10 @@ func TestBinaryRefusalReadsTheErrorEnvelope(t *testing.T) {
 		if !errors.As(err, &bex) {
 			t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
 		}
-		want := InputBoundExceededError{BoundKind: BoundKindArrayCardinality, Observed: 1025, Limit: 1024, Code: CodeInputBoundExceeded}
+		want := InputBoundExceededError{
+			BoundKind: BoundKindArrayCardinality, Observed: 1025, Limit: 1024, Code: CodeInputBoundExceeded,
+			Message: "too many signals",
+		}
 		if *bex != want {
 			t.Errorf("got %+v, want %+v", *bex, want)
 		}

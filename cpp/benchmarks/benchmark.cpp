@@ -43,12 +43,13 @@
 // The names this harness uses, declared rather than pulled in wholesale, so a
 // reader sees which part of the API a benchmark touches.
 using aletheia::AletheiaClient, aletheia::AlwaysPresent, aletheia::BitLength, aletheia::BitPosition,
-    aletheia::ByteOrder, aletheia::CanId, aletheia::DbcDefinition, aletheia::DbcMessage,
-    aletheia::DbcNode, aletheia::DbcSignal, aletheia::Dlc, aletheia::ExtendedId,
-    aletheia::FramePayload, aletheia::LtlFormula, aletheia::MessageName, aletheia::NodeName,
-    aletheia::PhysicalValue, aletheia::Rational, aletheia::RationalBound, aletheia::RationalFactor,
-    aletheia::RationalOffset, aletheia::SignalName, aletheia::SignalValue, aletheia::StandardId,
-    aletheia::Timestamp, aletheia::Unit, aletheia::make_ffi_backend;
+    aletheia::ByteOrder, aletheia::CanId, aletheia::DbcComment, aletheia::DbcCommentTargetMessage,
+    aletheia::DbcDefinition, aletheia::DbcMessage, aletheia::DbcNode, aletheia::DbcSignal,
+    aletheia::Dlc, aletheia::ExtendedId, aletheia::FramePayload, aletheia::LtlFormula,
+    aletheia::MessageName, aletheia::NodeName, aletheia::PhysicalValue, aletheia::Rational,
+    aletheia::RationalBound, aletheia::RationalFactor, aletheia::RationalOffset,
+    aletheia::SignalName, aletheia::SignalValue, aletheia::StandardId, aletheia::Timestamp,
+    aletheia::Unit, aletheia::make_ffi_backend;
 using aletheia::bench::latencies_us, aletheia::bench::operations_per_second,
     aletheia::bench::require;
 namespace ltl = aletheia::ltl;
@@ -939,20 +940,27 @@ static auto dbc_sizes(bool quick) -> std::vector<int> {
     return {1250, 2500, 5000, 10000};
 }
 
-// The dbc_size sweep's DBC, identical in every binding: messages M0, M1, ... on
-// consecutive extended IDs from 0x100000, each carrying one unsigned
-// little-endian byte S0, S1, ..., all sent and received by the one node ECU.
-// No two messages share an ID, a name or a signal name, so every load succeeds.
+// The dbc_size sweep's DBC, identical in every binding, in which every kind of
+// reference grows with the messages: message M{i} on extended ID 0x100000 + i
+// carries one unsigned little-endian byte S{i}, is sent by node N{i} with
+// N{(i + 1) % n} as its one additional sender, and S{i} is received by N{i};
+// the nodes are N0 ... N{n - 1}, and one comment per message names it by its
+// ID. Every name resolves, and no two messages share an ID, a name or a signal
+// name, so every load succeeds.
 static auto make_sized_dbc(int messages) -> DbcDefinition {
-    const NodeName ecu{"ECU"};
-    std::vector<DbcMessage> sized;
-    sized.reserve(static_cast<std::size_t>(messages));
+    auto const node = [messages](int i) { return NodeName{std::format("N{}", i % messages)}; };
+    DbcDefinition sized{.version = "1.0"};
+    sized.messages.reserve(static_cast<std::size_t>(messages));
+    sized.nodes.reserve(static_cast<std::size_t>(messages));
+    sized.comments.reserve(static_cast<std::size_t>(messages));
     for (auto const i : std::views::iota(0, messages)) {
-        sized.push_back({
-            .id = CanId{ExtendedId::create(static_cast<std::uint32_t>(0x100000 + i)).value()},
+        auto const id = CanId{ExtendedId::create(static_cast<std::uint32_t>(0x100000 + i)).value()};
+        sized.messages.push_back({
+            .id = id,
             .name = MessageName{std::format("M{}", i)},
             .dlc = Dlc::create(8).value(),
-            .sender = ecu,
+            .sender = node(i),
+            .senders = {node(i + 1)},
             .signals = {DbcSignal{
                 .name = SignalName{std::format("S{}", i)},
                 .start_bit = BitPosition{0},
@@ -965,12 +973,14 @@ static auto make_sized_dbc(int messages) -> DbcDefinition {
                 .maximum = RationalBound{Rational{255, 1}},
                 .unit = Unit{""},
                 .presence = AlwaysPresent{},
-                .receivers = {ecu},
+                .receivers = {node(i)},
             }},
         });
+        sized.nodes.push_back(DbcNode{.name = node(i)});
+        sized.comments.push_back(
+            DbcComment{.target = DbcCommentTargetMessage{.id = id}, .text = "c"});
     }
-    return DbcDefinition{
-        .version = "1.0", .messages = std::move(sized), .nodes = {DbcNode{.name = ecu}}};
+    return sized;
 }
 
 // One load's wall-clock seconds: a fresh client, and only its parse_dbc call

@@ -212,6 +212,8 @@ auto describe = [](const AletheiaError& e) -> std::string_view {
 
 `ErrorKind` is one of `Protocol`, `Validation`, `State`, `Ffi`, `BinaryUnsupported`, `Cancellation`, `InputBoundExceeded` and `TextRoundtrip`; `ErrorCode` mirrors the kernel's error codes (see [PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference)).
 
+A DBC past one of the size bounds in `<aletheia/limits.hpp>` is refused with kind and code `InputBoundExceeded` by every command that takes one: `parse_dbc`, `parse_dbc_text`, `validate_dbc` and `format_dbc_text`, which refuses it rather than formatting it. `error().bound_info()` then carries the bound kind, the observed size, the limit and `field`, the part of the DBC that crossed the bound (such as `"senders array"`), which every other bound leaves `std::nullopt`; the message names the command and that part. A text field's length is counted in characters, against `max_string_length_characters`.
+
 ---
 
 ## Cancellation

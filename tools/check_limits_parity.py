@@ -78,7 +78,7 @@ NAME_MAPPING: dict[str, tuple[str, str]] = {
     "max-json-bytes": ("MaxJSONBytes", "REQUIRED"),
     "max-nesting-depth": ("MaxNestingDepth", "REQUIRED"),
     "max-identifier-length": ("MaxIdentifierLength", "REQUIRED"),
-    "max-string-length-bytes": ("MaxStringLengthBytes", "REQUIRED"),
+    "max-string-length-characters": ("MaxStringLengthCharacters", "REQUIRED"),
     "max-atom-count-per-property": ("MaxAtomCountPerProperty", "REQUIRED"),
     "max-properties-per-stream": ("MaxPropertiesPerStream", "REQUIRED"),
     # Value-magnitude bound — enforced post-parse in the kernel (the Int64
@@ -94,6 +94,14 @@ NAME_MAPPING: dict[str, tuple[str, str]] = {
     "max-comments-per-file": ("MaxCommentsPerFile", "OPTIONAL"),
     "max-nodes-per-file": ("MaxNodesPerFile", "OPTIONAL"),
     "max-value-tables-per-file": ("MaxValueTablesPerFile", "OPTIONAL"),
+    "max-signal-groups-per-file": ("MaxSignalGroupsPerFile", "OPTIONAL"),
+    "max-environment-variables-per-file": ("MaxEnvironmentVariablesPerFile", "OPTIONAL"),
+    "max-unresolved-value-descriptions-per-file": (
+        "MaxUnresolvedValueDescriptionsPerFile",
+        "OPTIONAL",
+    ),
+    "max-enum-labels-per-attribute": ("MaxEnumLabelsPerAttribute", "OPTIONAL"),
+    "max-multiplex-values-per-signal": ("MaxMultiplexValuesPerSignal", "OPTIONAL"),
 }
 
 
@@ -108,7 +116,7 @@ PYTHON_NAME_MAPPING: dict[str, tuple[str, str]] = {
     "max-json-bytes": ("MAX_JSON_BYTES", "REQUIRED"),
     "max-nesting-depth": ("MAX_NESTING_DEPTH", "REQUIRED"),
     "max-identifier-length": ("MAX_IDENTIFIER_LENGTH", "REQUIRED"),
-    "max-string-length-bytes": ("MAX_STRING_LENGTH_BYTES", "REQUIRED"),
+    "max-string-length-characters": ("MAX_STRING_LENGTH_CHARACTERS", "REQUIRED"),
     "max-atom-count-per-property": ("MAX_ATOM_COUNT_PER_PROPERTY", "REQUIRED"),
     "max-properties-per-stream": ("MAX_PROPERTIES_PER_STREAM", "REQUIRED"),
     "max-rational-component-magnitude": ("MAX_RATIONAL_COMPONENT_MAGNITUDE", "REQUIRED"),
@@ -119,6 +127,14 @@ PYTHON_NAME_MAPPING: dict[str, tuple[str, str]] = {
     "max-comments-per-file": ("MAX_COMMENTS_PER_FILE", "OPTIONAL"),
     "max-nodes-per-file": ("MAX_NODES_PER_FILE", "OPTIONAL"),
     "max-value-tables-per-file": ("MAX_VALUE_TABLES_PER_FILE", "OPTIONAL"),
+    "max-signal-groups-per-file": ("MAX_SIGNAL_GROUPS_PER_FILE", "OPTIONAL"),
+    "max-environment-variables-per-file": ("MAX_ENVIRONMENT_VARIABLES_PER_FILE", "OPTIONAL"),
+    "max-unresolved-value-descriptions-per-file": (
+        "MAX_UNRESOLVED_VALUE_DESCRIPTIONS_PER_FILE",
+        "OPTIONAL",
+    ),
+    "max-enum-labels-per-attribute": ("MAX_ENUM_LABELS_PER_ATTRIBUTE", "OPTIONAL"),
+    "max-multiplex-values-per-signal": ("MAX_MULTIPLEX_VALUES_PER_SIGNAL", "OPTIONAL"),
 }
 
 
@@ -144,7 +160,7 @@ CPP_NAME_MAPPING: dict[str, tuple[str, str]] = {
     "max-json-bytes": ("max_json_bytes", "REQUIRED"),
     "max-nesting-depth": ("max_nesting_depth", "REQUIRED"),
     "max-identifier-length": ("max_identifier_length", "REQUIRED"),
-    "max-string-length-bytes": ("max_string_length_bytes", "REQUIRED"),
+    "max-string-length-characters": ("max_string_length_characters", "REQUIRED"),
     "max-atom-count-per-property": ("max_atom_count_per_property", "REQUIRED"),
     "max-properties-per-stream": ("max_properties_per_stream", "REQUIRED"),
     "max-rational-component-magnitude": ("max_rational_component_magnitude", "REQUIRED"),
@@ -155,6 +171,14 @@ CPP_NAME_MAPPING: dict[str, tuple[str, str]] = {
     "max-comments-per-file": ("max_comments_per_file", "REQUIRED"),
     "max-nodes-per-file": ("max_nodes_per_file", "REQUIRED"),
     "max-value-tables-per-file": ("max_value_tables_per_file", "REQUIRED"),
+    "max-signal-groups-per-file": ("max_signal_groups_per_file", "REQUIRED"),
+    "max-environment-variables-per-file": ("max_environment_variables_per_file", "REQUIRED"),
+    "max-unresolved-value-descriptions-per-file": (
+        "max_unresolved_value_descriptions_per_file",
+        "REQUIRED",
+    ),
+    "max-enum-labels-per-attribute": ("max_enum_labels_per_attribute", "REQUIRED"),
+    "max-multiplex-values-per-signal": ("max_multiplex_values_per_signal", "REQUIRED"),
 }
 
 
@@ -340,13 +364,14 @@ def _parse_python_limits(text: str) -> tuple[dict[str, int], dict[str, str]]:
     """Parse Python limits.py — return (MAX_* constants, BOUND_KIND_* strings).
 
     Recognises:
-      * ``MAX_NAME: Final[int] = 64 * 1024 * 1024`` (typed) or
-        ``MAX_NAME = 64 * 1024 * 1024`` (untyped) — both forms.
-      * ``BOUND_KIND_NAME: Final[str] = "wire"`` lines.
+      * ``MAX_NAME: Final[Limit] = 64 * 1024 * 1024``, with any type name in the
+        brackets, a bare ``Final``, or no annotation at all.
+      * ``BOUND_KIND_NAME: Final = BoundKind("wire")``, the same annotations
+        allowed, and the code either wrapped in a ``NewType`` call or bare.
     """
+    final = r"(?::\s*Final(?:\[[A-Za-z_][A-Za-z0-9_]*\])?)?"
     max_pattern = re.compile(
-        r"^\s*(?P<name>MAX_[A-Z][A-Z0-9_]*)\s*(?::\s*Final\[int\])?\s*=\s*"
-        + r"(?P<expr>[^#\n]+?)\s*(?:#.*)?$",
+        rf"^\s*(?P<name>MAX_[A-Z][A-Z0-9_]*)\s*{final}\s*=\s*" + r"(?P<expr>[^#\n]+?)\s*(?:#.*)?$",
         flags=re.MULTILINE,
     )
     constants: dict[str, int] = {}
@@ -356,8 +381,8 @@ def _parse_python_limits(text: str) -> tuple[dict[str, int], dict[str, str]]:
             constants[m.group("name")] = value
 
     bk_pattern = re.compile(
-        r"^\s*(?P<name>BOUND_KIND_[A-Z][A-Z0-9_]*)\s*(?::\s*Final\[str\])?\s*="
-        + r'\s*"(?P<wire>[a-z_]+)"',
+        rf"^\s*(?P<name>BOUND_KIND_[A-Z][A-Z0-9_]*)\s*{final}\s*="
+        + r'\s*(?:[A-Za-z_][A-Za-z0-9_]*\(\s*)?"(?P<wire>[a-z_]+)"',
         flags=re.MULTILINE,
     )
     boundkind: dict[str, str] = {}

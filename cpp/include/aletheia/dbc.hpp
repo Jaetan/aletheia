@@ -377,9 +377,10 @@ struct DbcDefinition {
     std::vector<DbcNode> nodes;
     std::vector<DbcComment> comments;
     std::vector<DbcAttribute> attributes;
-    // VAL_ lines from the text-parse path that did
-    // not resolve to any signal in `messages`.  Empty on the JSON-parse
-    // path (JSON has no notion of unresolved RVDs structurally).
+    // VAL_ lines naming no signal of `messages`: the text parser collects
+    // them, and the JSON wire carries them as `unresolvedValueDescs` (absent
+    // equals empty).  A DBC with more than
+    // max_unresolved_value_descriptions_per_file of them is refused.
     std::vector<DbcRawValueDesc> unresolved_value_descs;
 
     // --- Lookup helpers (defined in dbc.cpp) ---

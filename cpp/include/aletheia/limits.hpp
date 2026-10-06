@@ -13,7 +13,8 @@
 //
 // Per AGENTS.md universal rule "Adversarial-input bounds at parser surfaces",
 // rejection over a bound is a typed `InputBoundExceededError` carrying the
-// offending kind, the observed value, and the limit it crossed.  The Python
+// offending kind, the observed value, the limit it crossed and, for a DBC
+// size bound, the part of the DBC that crossed it.  The Python
 // (`aletheia.InputBoundExceededError`) and Go (`*aletheia.InputBoundExceededError`)
 // bindings expose the equivalent type; keep the three surfaces in sync.
 //
@@ -28,6 +29,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -64,7 +66,7 @@ inline constexpr std::uint64_t max_nesting_depth = 64;
 // DBC messages per file.
 inline constexpr std::uint64_t max_messages_per_file = 10'000;
 
-// Signals per single DBC message.
+// Signals per single DBC message, and members per signal group.
 inline constexpr std::uint64_t max_signals_per_message = 1024;
 
 // Attribute definitions / assignments per DBC file.
@@ -74,15 +76,30 @@ inline constexpr std::uint64_t max_attributes_per_file = 10'000;
 inline constexpr std::uint64_t max_value_descriptions_per_file = 1'000'000;
 
 // Comments (CM_), nodes (BU_) and value tables (VAL_TABLE_) per DBC file.
+// The node bound also holds a message's senders and a signal's receivers.
 inline constexpr std::uint64_t max_comments_per_file = 10'000;
 inline constexpr std::uint64_t max_nodes_per_file = 10'000;
 inline constexpr std::uint64_t max_value_tables_per_file = 10'000;
 
+// Signal groups (SIG_GROUP_) and environment variables (EV_) per DBC file.
+inline constexpr std::uint64_t max_signal_groups_per_file = 10'000;
+inline constexpr std::uint64_t max_environment_variables_per_file = 10'000;
+
+// VAL_ lines per DBC file naming no signal of the file, counted as lines:
+// their entries count against max_value_descriptions_per_file.
+inline constexpr std::uint64_t max_unresolved_value_descriptions_per_file = 10'000;
+
+// Labels of one enumerated attribute type (BA_DEF_ ... ENUM).
+inline constexpr std::uint64_t max_enum_labels_per_attribute = 10'000;
+
+// Selector values one multiplexed signal is present for.
+inline constexpr std::uint64_t max_multiplex_values_per_signal = 1024;
+
 // DBC identifier (signal name, message name, etc.) length in characters.
 inline constexpr std::uint64_t max_identifier_length = 128;
 
-// Quoted-string body (comment text, attribute string value) length in bytes.
-inline constexpr std::uint64_t max_string_length_bytes = 64ULL * 1024;
+// A DBC text field's length, in characters.
+inline constexpr std::uint64_t max_string_length_characters = 64ULL * 1024;
 
 // LTL atoms per single property.
 inline constexpr std::uint64_t max_atom_count_per_property = 1024;
@@ -110,6 +127,10 @@ struct InputBoundExceededError {
     std::string bound_kind; // wire code (one of `bound_kind_*` above)
     std::uint64_t observed; // input value that exceeded the limit
     std::uint64_t limit;    // canonical bound from `Aletheia.Limits`
+    // The part of the DBC that crossed the bound, as the kernel names it
+    // (e.g. "senders array"): present on a DBC size bound (`array_cardinality`,
+    // `string_length`), std::nullopt on every other bound.
+    std::optional<std::string> field;
 };
 
 } // namespace aletheia

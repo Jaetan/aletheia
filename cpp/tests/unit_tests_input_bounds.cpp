@@ -4,17 +4,19 @@
 // Adversarial-input bounds, and their cross-binding parity.
 //
 // `aletheia::InputBoundExceededError` exists, carries kind/observed/limit
-// fields, and the FFI-entry process() short-circuits oversize JSON inputs
-// to a wire-format error response with code "parse_input_bound_exceeded"
-// before marshaling the input across the dlopen-loaded `aletheia_process`.
+// fields and the field a DBC size bound names, and the FFI-entry process()
+// short-circuits oversize JSON inputs to a wire-format error response with
+// code "input_bound_exceeded" before marshaling the input across the
+// dlopen-loaded `aletheia_process`.
 //
-// The Agda kernel ALSO rejects (parseJSON's input-length cap returns a
-// `parse_input_bound_exceeded` error response); the binding-side guard
+// The Agda kernel ALSO rejects (parseJSON's input-length cap returns an
+// `input_bound_exceeded` error response); the binding-side guard
 // fires first so we do not allocate a 100 MiB null-terminated buffer
 // only to be rejected on the other side.
 
 #include <aletheia/backend.hpp>
 #include <aletheia/client.hpp>
+#include <aletheia/dbc.hpp>
 #include <aletheia/error.hpp>
 #include <aletheia/limits.hpp>
 
@@ -29,9 +31,11 @@
 #include <memory>
 #include <stop_token>
 #include <string>
+#include <string_view>
 #include <utility>
 
-TEST_CASE("InputBoundExceededError carries kind / observed / limit", "[input_bounds]") {
+TEST_CASE("InputBoundExceededError carries kind / observed / limit, and no field unless given",
+          "[input_bounds]") {
     aletheia::InputBoundExceededError err{
         .bound_kind = std::string{aletheia::bound_kind_input_length_bytes},
         .observed = 100,
@@ -40,6 +44,8 @@ TEST_CASE("InputBoundExceededError carries kind / observed / limit", "[input_bou
     CHECK(err.bound_kind == "input_length_bytes");
     CHECK(err.observed == 100);
     CHECK(err.limit == 50);
+    // The binding's own input-length refusals construct it this way.
+    CHECK_FALSE(err.field.has_value());
 }
 
 TEST_CASE("Numeric limit constants mirror Aletheia.Limits values", "[input_bounds]") {
@@ -53,8 +59,13 @@ TEST_CASE("Numeric limit constants mirror Aletheia.Limits values", "[input_bound
     CHECK(aletheia::max_comments_per_file == 10'000);
     CHECK(aletheia::max_nodes_per_file == 10'000);
     CHECK(aletheia::max_value_tables_per_file == 10'000);
+    CHECK(aletheia::max_signal_groups_per_file == 10'000);
+    CHECK(aletheia::max_environment_variables_per_file == 10'000);
+    CHECK(aletheia::max_unresolved_value_descriptions_per_file == 10'000);
+    CHECK(aletheia::max_enum_labels_per_attribute == 10'000);
+    CHECK(aletheia::max_multiplex_values_per_signal == 1024);
     CHECK(aletheia::max_identifier_length == 128);
-    CHECK(aletheia::max_string_length_bytes == 64ULL * 1024);
+    CHECK(aletheia::max_string_length_characters == 64ULL * 1024);
     CHECK(aletheia::max_atom_count_per_property == 1024);
     CHECK(aletheia::max_properties_per_stream == 1024);
     CHECK(aletheia::max_rational_component_magnitude == 9'223'372'036'854'775'807);
@@ -210,6 +221,8 @@ TEST_CASE("Input-bound error JSON lifts structured fields into bound_info", "[in
     CHECK(result.error().bound_info()->bound_kind == "input_length_bytes");
     CHECK(result.error().bound_info()->observed == 100000000ULL);
     CHECK(result.error().bound_info()->limit == 67108864ULL);
+    // An input-length bound names no field, and the envelope carries none.
+    CHECK_FALSE(result.error().bound_info()->field.has_value());
 }
 
 TEST_CASE("Input-bound error JSON without structured fields degrades to nullopt",
@@ -224,6 +237,42 @@ TEST_CASE("Input-bound error JSON without structured fields degrades to nullopt"
     CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
     CHECK(result.error().code() == aletheia::ErrorCode::InputBoundExceeded);
     CHECK_FALSE(result.error().bound_info().has_value());
+}
+
+// The kernel refuses a DBC past a size bound on every command that takes one;
+// the client surfaces that refusal as one typed error whichever command met it.
+template<typename T>
+static void check_signal_groups_refusal(const aletheia::Result<T>& result) {
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
+    CHECK(result.error().code() == aletheia::ErrorCode::InputBoundExceeded);
+    CHECK(result.error().message() == "signal groups array: array cardinality 10001 exceeds limit "
+                                      "10000");
+    REQUIRE(result.error().bound_info().has_value());
+    CHECK(result.error().bound_info()->bound_kind == aletheia::bound_kind_array_cardinality);
+    CHECK(result.error().bound_info()->observed == aletheia::max_signal_groups_per_file + 1);
+    CHECK(result.error().bound_info()->limit == aletheia::max_signal_groups_per_file);
+    CHECK(result.error().bound_info()->field == "signal groups array");
+}
+
+TEST_CASE("every DBC command surfaces a size-bound refusal as InputBoundExceeded",
+          "[input_bounds]") {
+    constexpr std::string_view refusal =
+        R"({"status":"error","code":"input_bound_exceeded",)"
+        R"("message":"signal groups array: array cardinality 10001 exceeds limit 10000",)"
+        R"("field":"signal groups array",)"
+        R"("bound_kind":"array_cardinality","observed":10001,"limit":10000})";
+    auto mock = std::make_unique<aletheia::MockBackend>();
+    // One answer for each of the three commands below.
+    mock->queue_response(std::string{refusal});
+    mock->queue_response(std::string{refusal});
+    mock->queue_response(std::string{refusal});
+    aletheia::AletheiaClient client{std::move(mock)};
+    const aletheia::DbcDefinition dbc{};
+
+    check_signal_groups_refusal(client.parse_dbc(std::stop_token{}, dbc));
+    check_signal_groups_refusal(client.validate_dbc(std::stop_token{}, dbc));
+    check_signal_groups_refusal(client.format_dbc_text(std::stop_token{}, dbc));
 }
 
 TEST_CASE("parse_dbc_text passes text at the cap to the backend", "[input_bounds]") {

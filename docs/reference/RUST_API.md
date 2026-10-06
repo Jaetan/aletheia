@@ -233,6 +233,8 @@ fn describe(err: &Error) -> String {
 }
 ```
 
+The kernel bounds the length of a DBC's lists and strings, so `parse_dbc_text`, `parse_dbc`, `validate_dbc` and `format_dbc_text` return `Error::InputBoundExceeded` for a DBC past a size bound, carrying the bound's kind, the observed size, the limit, the kernel's `message` and, in `field: Option<String>`, the part of the DBC that crossed it (e.g. `"senders array"`, `"version string"`); `format_dbc_text` checks every bound before it formats anything. A bound that names no part of a DBC, such as the input's length, its nesting depth or an identifier's length, leaves `field` as `None`. The error's text (`to_string()`) is the kernel's message exactly, e.g. `ParseDBC: senders array: array cardinality 10001 exceeds limit 10000`; the binding renders nothing of its own. A `match` on the variant that names its fields without `..` names `message` and `field` too.
+
 Rust has no dedicated `State` variant, so a call made in the wrong lifecycle state surfaces as `Error::Protocol`. Codes match the kernel's `IssueCode` enum, tabulated in [PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference).
 
 ---

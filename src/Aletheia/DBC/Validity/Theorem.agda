@@ -4,11 +4,12 @@
 
 -- Top-level soundness and completeness theorems for DBC validation.
 --
--- soundness   : errorIssues (validateDBCFull dbc) ≡ [] → IsValidDBC dbc
+-- soundness   : IsBoundedDBC dbc → errorIssues (validateDBCFull dbc) ≡ [] → IsValidDBC dbc
 -- completeness : IsValidDBC dbc → errorIssues (validateDBCFull dbc) ≡ []
 --
--- Together these establish: the validator reports no errors if and only if
--- the DBC satisfies every formal validity condition (the IsValidDBC record).
+-- Together these establish: for a DBC within its size bounds, the validator
+-- reports no errors if and only if the DBC satisfies every formal validity
+-- condition (the IsValidDBC record).
 module Aletheia.DBC.Validity.Theorem where
 
 open import Aletheia.DBC.Types using (DBC)
@@ -29,6 +30,7 @@ open import Aletheia.DBC.Validator using
   ; checkAllMultiValueMuxSelectors
   )
 open import Aletheia.DBC.Validity using (IsValidDBC)
+open import Aletheia.DBC.Bounds using (IsBoundedDBC)
 open import Aletheia.DBC.Validity.Composition using
   ( ei-split; ei-combine; ei-from-≡[]; errorIssues-allE-nil
   ; errorIssues-allW
@@ -70,8 +72,8 @@ open import Relation.Binary.PropositionalEquality using (_≡_)
 -- SOUNDNESS: no errors reported ⟹ DBC is valid
 -- ============================================================================
 
-soundness : ∀ dbc → errorIssues (validateDBCFull dbc) ≡ [] → IsValidDBC dbc
-soundness dbc eq₀ = record
+soundness : ∀ dbc → IsBoundedDBC dbc → errorIssues (validateDBCFull dbc) ≡ [] → IsValidDBC dbc
+soundness dbc b eq₀ = record
   { uniqueIds        = checkAllDuplicateMessageIds-sound msgs
       (errorIssues-allE-nil _ (checkAllDuplicateMessageIds-allE msgs) (proj₁ s₁))
   ; uniqueSigNames   = checkAllDuplicateSignalNames-sound msgs
@@ -90,6 +92,7 @@ soundness dbc eq₀ = record
       (errorIssues-allE-nil _ (checkAllBitLengthZero-allE msgs) (proj₁ s₁₀))
   ; rangesWithinBits = checkAllRangeExceedsBits-sound msgs
       (errorIssues-allE-nil _ (checkAllRangeExceedsBits-allE msgs) (proj₁ s₁₁))
+  ; bounded          = b
   }
   where
     msgs = DBC.messages dbc

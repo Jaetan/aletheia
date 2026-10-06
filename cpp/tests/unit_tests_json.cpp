@@ -2524,7 +2524,9 @@ TEST_CASE("a bound-exceeded error carries no bound info where a bound field is m
                              R"({"status": "error", "code": "input_bound_exceeded", "message": "m",
               "bound_kind": "k", "observed": 1})",
                              R"({"status": "error", "code": "input_bound_exceeded", "message": "m",
-              "bound_kind": "k", "observed": 1, "limit": "x"})"}) {
+              "bound_kind": "k", "observed": 1, "limit": "x"})",
+                             R"({"status": "error", "code": "input_bound_exceeded", "message": "m",
+              "field": 5, "bound_kind": "k", "observed": 1, "limit": 1})"}) {
         auto const result = detail::parse_success(body);
         REQUIRE_FALSE(result.has_value());
         CHECK(result.error().kind() == ErrorKind::InputBoundExceeded);

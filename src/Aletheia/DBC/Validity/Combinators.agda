@@ -17,6 +17,8 @@ open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
 open import Data.Empty using (⊥-elim)
 open import Data.Product using (_,_)
 open import Relation.Nullary using (Dec; yes; no; ¬_)
+open import Data.Bool using (true; false)
+open import Aletheia.Data.Dec0 using (Dec₀; _because₀_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Aletheia.DBC.Validity.ListLemmas using
   ( concatMap-≡[]-sound; concatMap-≡[]-complete
@@ -36,6 +38,11 @@ private
 requireDec : ∀ {P : Set} → Dec P → B → List B
 requireDec (yes _) _ = []
 requireDec (no  _) i = i ∷ []
+
+-- `requireDec` for a decision whose evidence is erased.
+requireDec₀ : ∀ {P : Set} → Dec₀ P → B → List B
+requireDec₀ (true  because₀ _) _ = []
+requireDec₀ (false because₀ _) i = i ∷ []
 
 requireDec-sound : ∀ {P : Set} (dec : Dec P) (i : B) →
   requireDec dec i ≡ [] → P

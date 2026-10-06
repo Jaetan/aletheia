@@ -150,6 +150,14 @@ _ALLOWED: frozenset[PrivateImport] = frozenset(
             "aletheia.client._response_parsers",
             "parse_complete_warnings",
         ),
+        # The bound-refusal lift: the real kernel only ever sends a whole,
+        # well-typed envelope, so the degrade branches (a non-string field or
+        # message, a malformed triple) are reachable only by calling it directly.
+        (
+            "test_response_parsers.py",
+            "aletheia.client._response_parsers",
+            "raise_if_input_bound_exceeded",
+        ),
         # Pre-__enter__ send-frame stub — a defensive raise shadowed by
         # send_frame's own _state guard, so a direct call is the only way to
         # exercise (and mutation-test) it.

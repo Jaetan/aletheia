@@ -883,10 +883,11 @@ func requireString(m map[string]any, key string) (string, error) {
 // harder than it would have. C++ and Python degrade the same way.
 
 // inputBoundExceededFromResponse lifts a bound refusal, whichever bound the
-// kernel crossed. The wire message is not carried: the typed error renders an
-// equivalent one from the kind, the observed size and the limit, as each
-// binding renders it in its own idiom.
-func inputBoundExceededFromResponse(code string, m map[string]any) *InputBoundExceededError {
+// kernel crossed. The typed error keeps the kind, the observed size, the
+// limit, the field the refusal names, if it names one, and the kernel's
+// message, which is its text. A field that is not a string degrades the lift
+// as a malformed number does.
+func inputBoundExceededFromResponse(code, msg string, m map[string]any) *InputBoundExceededError {
 	if code != CodeInputBoundExceeded {
 		return nil
 	}
@@ -902,7 +903,13 @@ func inputBoundExceededFromResponse(code string, m map[string]any) *InputBoundEx
 	if !ok {
 		return nil
 	}
-	return newInputBoundExceededError(kind, observed, limit, code)
+	var field string
+	if raw, named := m["field"]; named {
+		if field, ok = raw.(string); !ok {
+			return nil
+		}
+	}
+	return newInputBoundExceededError(kind, observed, limit, code, field, msg)
 }
 
 // jsonNumberToUint64 reads a wire number as an exact uint64, refusing a
@@ -980,7 +987,7 @@ func checkErrorStatus(m map[string]any) error {
 	if err != nil {
 		return err
 	}
-	if bex := inputBoundExceededFromResponse(code, m); bex != nil {
+	if bex := inputBoundExceededFromResponse(code, msg, m); bex != nil {
 		return bex
 	}
 	if vfe := validationFailedFromResponse(code, msg, m); vfe != nil {
@@ -1418,9 +1425,10 @@ func parseDBCResponse(raw string) (*DBCDefinition, error) {
 // parseDBCTextResponse decodes a formatDBCText response into the .dbc text image
 // plus its wfTextIssues diagnostics.  A round-trip refusal
 // (handler_text_roundtrip_failed) is lifted by checkErrorStatus into a typed
-// [TextRoundTripFailedError]; that and other errors (Agda-side JSON parse
-// failure on the input, unexpected status) short-circuit to the (*DBCText,
-// error) tuple's error half.
+// [TextRoundTripFailedError], and a size-bound refusal (input_bound_exceeded)
+// into a typed [InputBoundExceededError]; those and other errors (Agda-side
+// JSON parse failure on the input, unexpected status) short-circuit to the
+// (*DBCText, error) tuple's error half.
 func parseDBCTextResponse(raw string) (*DBCText, error) {
 	m, err := decodeResponse(raw, "success")
 	if err != nil {

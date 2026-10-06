@@ -2,29 +2,25 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Adversarial-input bounds regression tests.
 
-Cross-binding parity: ``aletheia.InputBoundExceededError`` exists,
-carries kind/observed/limit fields, and is raised when a JSON payload
-exceeds ``aletheia.limits.MAX_JSON_BYTES`` at the FFI boundary before
-the payload is marshaled across ctypes.
+``aletheia.InputBoundExceededError`` carries the bound's kind, the observed
+value, the limit and, for a DBC's size bounds, the field that crossed it.  The
+binding refuses an oversize DBC text or JSON command before marshaling it
+across ctypes, in its own words; the kernel refuses an input past any other
+bound, and every DBC command raises that refusal as the typed error, whose text
+is the kernel's message.
 
-The Agda kernel additionally enforces the same bound (Aletheia.Limits +
-parseJSON / parseDBCText InputBoundExceeded constructor); this suite
-covers the binding-side short-circuit so a 100 MiB JSON does not
-allocate buffers in Python/ctypes before being rejected.
-
-Per-loader regression tests extend this: every parser-surface entry
-point (``yaml_loader._load_yaml``, ``dbc.dbc_to_json``,
-``excel_loader.load_dbc_from_excel``, ``excel_loader.load_checks_from_excel``)
-rejects oversize files with :class:`InputBoundExceededError` before
-allocating buffers / parsing.
+Every parser-surface loader entry point (``yaml_loader._load_yaml``,
+``dbc.dbc_to_json``, ``excel_loader.load_dbc_from_excel``,
+``excel_loader.load_checks_from_excel``) rejects oversize files with
+:class:`InputBoundExceededError` before allocating buffers / parsing.
 """
 
+import inspect
 from fractions import Fraction
-from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast, get_args
 
 import pytest
-from _dbc_helpers import dbc, message, signal
+from _dbc_helpers import dbc, message, mux_signal, signal
 
 from aletheia import (
     AletheiaClient,
@@ -35,18 +31,30 @@ from aletheia import (
 )
 from aletheia._dbc_types import empty_dbc_tier2
 from aletheia.codes import ErrorCode
+from aletheia.common_types import Gt, PositiveInt
 from aletheia.dbc import dbc_to_json
 from aletheia.excel_loader import load_checks_from_excel, load_dbc_from_excel
 from aletheia.yaml_loader import load_checks
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
     from aletheia.dsl import Predicate
+    from aletheia.limits import Limit
     from aletheia.types import DBCDefinition, ErrorResponse, LTLFormula
 
-
-def _path_exists_false(_self: Path) -> bool:
-    """Path.exists replacement that always reports a non-existent path."""
-    return False
+# A DBC list the kernel bounds, spelled as its refusal names it.
+ListField = Literal[
+    "signal groups array",
+    "environment variables array",
+    "unresolved value descriptions array",
+    "senders array",
+    "receivers array",
+    "signal group members array",
+    "enum labels array",
+    "multiplex values array",
+]
 
 
 def _trivial_dbc() -> DBCDefinition:
@@ -86,6 +94,125 @@ def _balanced_and(predicates: list[Predicate]) -> LTLFormula:
             "right": _balanced_and(predicates[half:]),
         },
     )
+
+
+def _over_signal_groups() -> DBCDefinition:
+    """Build a DBC holding one signal group past ``MAX_SIGNAL_GROUPS_PER_FILE``."""
+    d = _trivial_dbc()
+    d["signalGroups"] = [
+        {"name": f"G{i}", "signals": []} for i in range(limits.MAX_SIGNAL_GROUPS_PER_FILE + 1)
+    ]
+    return d
+
+
+def _over_environment_variables() -> DBCDefinition:
+    """Build a DBC holding one environment variable past ``MAX_ENVIRONMENT_VARIABLES_PER_FILE``."""
+    d = _trivial_dbc()
+    d["environmentVars"] = [
+        {
+            "name": f"E{i}",
+            "varType": 0,
+            "initial": Fraction(0),
+            "minimum": Fraction(0),
+            "maximum": Fraction(1),
+        }
+        for i in range(limits.MAX_ENVIRONMENT_VARIABLES_PER_FILE + 1)
+    ]
+    return d
+
+
+def _over_unresolved_value_descriptions() -> DBCDefinition:
+    """Build a DBC holding one entry-less unresolved ``VAL_`` line past its bound."""
+    d = _trivial_dbc()
+    d["unresolvedValueDescs"] = [
+        {"id": 999, "extended": False, "signalName": "Q", "entries": []}
+        for _ in range(limits.MAX_UNRESOLVED_VALUE_DESCRIPTIONS_PER_FILE + 1)
+    ]
+    return d
+
+
+def _over_senders() -> DBCDefinition:
+    """Build a DBC whose message has one sender past ``MAX_NODES_PER_FILE``."""
+    senders = [f"N{i}" for i in range(limits.MAX_NODES_PER_FILE + 1)]
+    return dbc([message(256, "M", [signal("S")], senders=senders)])
+
+
+def _over_receivers() -> DBCDefinition:
+    """Build a DBC whose signal has one receiver past ``MAX_NODES_PER_FILE``."""
+    receivers = [f"N{i}" for i in range(limits.MAX_NODES_PER_FILE + 1)]
+    return dbc([message(256, "M", [signal("S", receivers=receivers)])])
+
+
+def _over_signal_group_members() -> DBCDefinition:
+    """Build a DBC whose signal group has one member past ``MAX_SIGNALS_PER_MESSAGE``."""
+    d = _trivial_dbc()
+    members = [f"S{i}" for i in range(limits.MAX_SIGNALS_PER_MESSAGE + 1)]
+    d["signalGroups"] = [{"name": "G", "signals": members}]
+    return d
+
+
+def _over_enum_labels() -> DBCDefinition:
+    """Build a DBC whose enum attribute has one label past ``MAX_ENUM_LABELS_PER_ATTRIBUTE``."""
+    d = _trivial_dbc()
+    labels = [f"v{i}" for i in range(limits.MAX_ENUM_LABELS_PER_ATTRIBUTE + 1)]
+    d["attributes"] = [
+        {
+            "kind": "definition",
+            "name": "A",
+            "scope": "network",
+            "attrType": {"kind": "enum", "values": labels},
+        }
+    ]
+    return d
+
+
+def _over_multiplex_values() -> DBCDefinition:
+    """Build a DBC whose muxed signal has one value past ``MAX_MULTIPLEX_VALUES_PER_SIGNAL``."""
+    values = list(range(limits.MAX_MULTIPLEX_VALUES_PER_SIGNAL + 1))
+    return dbc([message(256, "M", [signal("Mx"), mux_signal("S", "Mx", values, start_bit=16)])])
+
+
+# Each list the kernel bounds: its name in the refusal, its limit, a DBC one past it.
+_LISTS_PAST_BOUND = [
+    pytest.param(
+        "signal groups array",
+        limits.MAX_SIGNAL_GROUPS_PER_FILE,
+        _over_signal_groups,
+        id="signal-groups",
+    ),
+    pytest.param(
+        "environment variables array",
+        limits.MAX_ENVIRONMENT_VARIABLES_PER_FILE,
+        _over_environment_variables,
+        id="environment-variables",
+    ),
+    pytest.param(
+        "unresolved value descriptions array",
+        limits.MAX_UNRESOLVED_VALUE_DESCRIPTIONS_PER_FILE,
+        _over_unresolved_value_descriptions,
+        id="unresolved-value-descriptions",
+    ),
+    pytest.param("senders array", limits.MAX_NODES_PER_FILE, _over_senders, id="senders"),
+    pytest.param("receivers array", limits.MAX_NODES_PER_FILE, _over_receivers, id="receivers"),
+    pytest.param(
+        "signal group members array",
+        limits.MAX_SIGNALS_PER_MESSAGE,
+        _over_signal_group_members,
+        id="signal-group-members",
+    ),
+    pytest.param(
+        "enum labels array",
+        limits.MAX_ENUM_LABELS_PER_ATTRIBUTE,
+        _over_enum_labels,
+        id="enum-labels",
+    ),
+    pytest.param(
+        "multiplex values array",
+        limits.MAX_MULTIPLEX_VALUES_PER_SIGNAL,
+        _over_multiplex_values,
+        id="multiplex-values",
+    ),
+]
 
 
 class TestInputBoundExceededErrorType:
@@ -128,6 +255,15 @@ class TestInputBoundExceededErrorType:
         )
         assert err.code == "input_bound_exceeded"
 
+    def test_wire_code_is_an_error_code(self) -> None:
+        """``ErrorCode`` carries the one bound code; ``bound_kind`` tells the bounds apart."""
+        assert ErrorCode.INPUT_BOUND_EXCEEDED == "input_bound_exceeded"
+
+    def test_without_a_kernel_refusal_the_text_is_the_bindings_own(self) -> None:
+        """A bound the binding checks names no field, and its text names the bound."""
+        err = InputBoundExceededError(limits.BOUND_KIND_NESTING_DEPTH, 65, 64)
+        assert (err.field, str(err)) == (None, "nesting_depth 65 exceeds limit 64")
+
 
 class TestLimitsConstants:
     """Numeric bound constants present and match Aletheia.Limits values."""
@@ -167,37 +303,63 @@ class TestLimitsConstants:
         assert limits.MAX_ATTRIBUTES_PER_FILE == 10_000
         assert limits.MAX_VALUE_DESCRIPTIONS_PER_FILE == 1_000_000
         assert limits.MAX_IDENTIFIER_LENGTH == 128
-        assert limits.MAX_STRING_LENGTH_BYTES == 64 * 1024
+        assert limits.MAX_STRING_LENGTH_CHARACTERS == 64 * 1024
         assert limits.MAX_ATOM_COUNT_PER_PROPERTY == 1024
         assert limits.MAX_PROPERTIES_PER_STREAM == 1024
 
+    def test_dbc_list_cardinalities(self) -> None:
+        """Cardinality bounds for the remaining DBC lists, mirroring ``Aletheia.Limits``."""
+        assert limits.MAX_COMMENTS_PER_FILE == 10_000
+        assert limits.MAX_NODES_PER_FILE == 10_000
+        assert limits.MAX_VALUE_TABLES_PER_FILE == 10_000
+        assert limits.MAX_SIGNAL_GROUPS_PER_FILE == 10_000
+        assert limits.MAX_ENVIRONMENT_VARIABLES_PER_FILE == 10_000
+        assert limits.MAX_UNRESOLVED_VALUE_DESCRIPTIONS_PER_FILE == 10_000
+        assert limits.MAX_ENUM_LABELS_PER_ATTRIBUTE == 10_000
+        assert limits.MAX_MULTIPLEX_VALUES_PER_SIGNAL == 1024
+
+    def test_every_limit_is_a_positive_int(self) -> None:
+        """Each ``MAX_*`` constant is typed ``Limit``, a positive int, and holds one."""
+        assert get_args(limits.Limit.__value__) == get_args(PositiveInt) == (int, Gt(0))
+        annotations = inspect.get_annotations(limits)
+        names = [name for name in vars(limits) if name.startswith("MAX_")]
+        assert names
+        for name in names:
+            value = getattr(limits, name)
+            assert get_args(annotations[name]) == (limits.Limit,), name
+            assert isinstance(value, int), name
+            assert not isinstance(value, bool), name
+            assert value > 0, name
+
 
 class TestInputBoundEnforcedAtFFIEntry:
-    """Binding-side short-circuit rejects oversize input before marshaling.
+    """The binding refuses an oversize DBC text or JSON command before marshaling it.
 
-    The Agda kernel ALSO rejects (parseJSON's input-length cap returns a
-    ``parse_input_bound_exceeded`` error response; parseDBCText returns
-    ``dbc_text_input_bound_exceeded``), but the binding-side short-circuit
-    fires first so the ctypes buffer is never allocated.
-
-    Cross-binding parity: ``parse_dbc_text`` additionally pre-checks the
-    inner DBC text size against :data:`MAX_DBC_TEXT_BYTES` before wrapping
-    it in a JSON command, so the rejection carries the precise
-    ``dbc_text_input_bound_exceeded`` wire code and a ``limit`` field
-    matching the inner cap (rather than the outer JSON cap from
-    ``_send_command``).
+    ``parse_dbc_text`` refuses a text longer than :data:`MAX_DBC_TEXT_BYTES`
+    before wrapping it in a JSON command, and every command whose JSON is
+    longer than :data:`MAX_JSON_BYTES` is refused before the call, so no ctypes
+    buffer is allocated.  Either refusal is the binding's own: it names no
+    field, and its text names the bound.
     """
 
-    def test_oversize_json_raises_input_bound_exceeded(self) -> None:
-        """A payload one byte over the limit triggers ``InputBoundExceededError``."""
-        with AletheiaClient() as client:
-            big_payload = "x" * (limits.MAX_JSON_BYTES + 1)
-            with pytest.raises(InputBoundExceededError) as exc_info:
-                client.parse_dbc_text(big_payload)
-            err = exc_info.value
-            assert err.kind == limits.BOUND_KIND_INPUT_LENGTH_BYTES
-            assert err.observed > limits.MAX_JSON_BYTES
-            assert err.limit == limits.MAX_DBC_TEXT_BYTES
+    def test_oversize_json_command_refused_before_the_call(self) -> None:
+        """A DBC whose command is past ``MAX_JSON_BYTES`` is refused with that cap.
+
+        The DBC's version string alone fills the cap, so the command holding it
+        is past it.  The text is the binding's own, so the kernel never answered.
+        """
+        over = dbc([message(256, "M", [signal("S")])], version="x" * limits.MAX_JSON_BYTES)
+        with AletheiaClient() as client, pytest.raises(InputBoundExceededError) as exc_info:
+            client.parse_dbc(over)
+        err = exc_info.value
+        assert err.observed > limits.MAX_JSON_BYTES
+        assert (err.kind, err.limit, err.field, err.code, str(err)) == (
+            limits.BOUND_KIND_INPUT_LENGTH_BYTES,
+            limits.MAX_JSON_BYTES,
+            None,
+            "input_bound_exceeded",
+            f"input_length_bytes {err.observed} exceeds limit {limits.MAX_JSON_BYTES}",
+        )
 
     def test_observed_field_is_actual_payload_size(self) -> None:
         """The reported ``observed`` value is the input text byte size."""
@@ -208,15 +370,8 @@ class TestInputBoundEnforcedAtFFIEntry:
             # Inner cap is on the raw text bytes, not the JSON envelope.
             assert exc_info.value.observed == limits.MAX_DBC_TEXT_BYTES + 1024
 
-    def test_parse_dbc_text_uses_consolidated_code(self) -> None:
-        """Inner-cap rejection carries the ``input_bound_exceeded`` code.
-
-        Regression: an earlier design routed the rejection through
-        ``_send_command``'s outer JSON cap and surfaced it as a parse code;
-        the parse / frame / dbc-text codes were later consolidated to a
-        single ``input_bound_exceeded`` with the discriminator carried by
-        ``bound_kind`` (here ``input_length_bytes``).
-        """
+    def test_parse_dbc_text_refusal_carries_wire_code(self) -> None:
+        """The binding's refusal carries the kernel's ``input_bound_exceeded`` code."""
         with AletheiaClient() as client:
             big_payload = "x" * (limits.MAX_DBC_TEXT_BYTES + 1)
             with pytest.raises(InputBoundExceededError) as exc_info:
@@ -225,19 +380,13 @@ class TestInputBoundEnforcedAtFFIEntry:
 
 
 class TestIdentifierLengthBound:
-    """Identifier validity record enforces ``MAX_IDENTIFIER_LENGTH``.
+    """A DBC identifier is at most ``MAX_IDENTIFIER_LENGTH`` characters.
 
-    The Agda kernel's `validIdentifierᵇ` predicate (in
-    ``src/Aletheia/DBC/Identifier.agda``) includes a conjunct asserting
-    `length name <ᵇ suc max-identifier-length`.  Identifiers at the limit
-    (128 chars) still parse; anything longer is rejected at
-    ``mkIdentFromChars``.  The wire surface is currently
-    ``dbc_text_trailing_input`` rather than the more specific
-    ``parse_invalid_identifier`` — once parseIdentifier's monadic position
-    is past the consumed chars when it rejects, the outer top-level
-    parser eventually fails with "trailing input".  Refining the wire
-    error to typed ``InputBoundExceeded IdentifierLength`` is downstream
-    parser-monad plumbing (deferred).
+    The kernel's ``validIdentifierᵇ`` (``src/Aletheia/DBC/Identifier.agda``)
+    holds an identifier to ``max-identifier-length`` characters.  One at the
+    limit parses; a longer name is no identifier, so the text parser stops in
+    front of the statement holding it and refuses the text with
+    ``dbc_text_trailing_input``.
     """
 
     def test_identifier_at_max_length_accepted(self) -> None:
@@ -256,6 +405,7 @@ class TestIdentifierLengthBound:
         with AletheiaClient() as client:
             result = client.parse_dbc_text(dbc_text)
             assert result["status"] == "error", result
+            assert result["code"] == "dbc_text_trailing_input", result
 
     def test_identifier_far_over_max_rejected(self) -> None:
         """A 500-char identifier is rejected (no length-dependent edge case)."""
@@ -264,26 +414,17 @@ class TestIdentifierLengthBound:
         with AletheiaClient() as client:
             result = client.parse_dbc_text(dbc_text)
             assert result["status"] == "error", result
+            assert result["code"] == "dbc_text_trailing_input", result
 
 
 class TestNestingDepthBound:
-    """Typed JSON nesting-depth wire-error.
+    """The kernel bounds a JSON command's nesting depth at ``MAX_NESTING_DEPTH``.
 
-    ``parseJSON`` parses the input with the input itself as its structural
-    termination measure (bounded above by the upstream ``max_json_bytes``
-    cap).  At the handler boundary (``processJSONLine`` →
-    ``handleParsedJSON``), ``jsonDepth`` of the constructed tree is
-    compared against ``MAX_NESTING_DEPTH``; over-depth trees are rejected
-    with a typed ``ParseError.InputBoundExceeded NestingDepth …``
-    constructor.
-
-    The wire envelope carries ``code="parse_input_bound_exceeded"`` plus
-    the structured ``bound_kind / observed / limit`` triple, mirroring
-    the typed surface already in place for ``InputLengthBytes`` (oversize
-    JSON) and ``InputLengthBytes`` (oversize DBC text).  An earlier
-    untyped ``dispatch_invalid_json`` shape conflated nesting-depth
-    rejection with malformed JSON; tests asserting the new shape pin the
-    contract for the C++ / Go bindings' typed lifters.
+    ``handleParsedJSON`` (``src/Aletheia/Main/JSON.agda``) measures the parsed
+    tree with ``jsonDepth`` and refuses one deeper than ``max-nesting-depth``
+    with ``input_bound_exceeded``, bound kind ``nesting_depth``, the observed
+    depth and the limit.  ``set_properties`` returns that refusal as its
+    ``ErrorResponse``.
     """
 
     def test_nested_at_depth_60_accepted(self) -> None:
@@ -314,26 +455,13 @@ class TestNestingDepthBound:
 
 
 class TestAtomCountBound:
-    """Typed AtomCount wire-error refinement.
+    """The kernel bounds a property's atoms at ``MAX_ATOM_COUNT_PER_PROPERTY``.
 
-    Post-parse refinement: ``parseProperty`` parses the full tree
-    (structurally terminating on the JSON value); at the handler boundary
-    (``parseAllProperties`` in ``Protocol.Handlers``) ``atomCount prop <ᵇ
-    suc max-atom-count-per-property`` discriminates accepted from over-
-    bound trees.  Over-bound trees emit the typed
-    ``ParseErr (InputBoundExceeded AtomCount observed limit)`` (code
-    ``parse_input_bound_exceeded`` + structured ``bound_kind / observed /
-    limit``).  An earlier untyped ``handler_property_parse_failed``
-    code conflated atom-count overflow with shape-malformed JSON.
-
-    The over-bound case is slow (parseLTL runs to completion on a 1025-
-    atom tree before the post-parse check fires — empirically ~110s on
-    this host) and is intentionally not exercised here.  Manual
-    verification (2026-05-11): a balanced 1025-atom And-tree returns
-    ``status="error"``, ``code="parse_input_bound_exceeded"``,
-    ``bound_kind="atom_count"``, ``observed=1025``, ``limit=1024`` after
-    109.2s elapsed.  The formal bound-soundness proof is proven
-    kernel-side.
+    ``parseAllProperties`` (``src/Aletheia/Protocol/Handlers.agda``) counts a
+    parsed property's atoms with ``atomCount`` and refuses one past
+    ``max-atom-count-per-property`` with ``input_bound_exceeded``, bound kind
+    ``atom_count``, the observed count and the limit.  ``set_properties``
+    returns that refusal as its ``ErrorResponse``.
     """
 
     def test_single_atom_property_accepted(self) -> None:
@@ -361,30 +489,56 @@ class TestAtomCountBound:
             r = client.set_properties([prop])
             assert r["status"] == "success", r
 
+    def test_property_at_bound_accepted(self) -> None:
+        """A property of exactly ``MAX_ATOM_COUNT_PER_PROPERTY`` atoms is accepted."""
+        limit = limits.MAX_ATOM_COUNT_PER_PROPERTY
+        prop = _balanced_and([Signal("S").equals(i) for i in range(limit)])
+        with AletheiaClient() as client:
+            client.parse_dbc(_trivial_dbc())
+            r = client.set_properties([prop])
+        assert r["status"] == "success", r
+
+    def test_property_one_past_bound_refused(self) -> None:
+        """A property one atom past the bound is refused with the bound triple."""
+        limit = limits.MAX_ATOM_COUNT_PER_PROPERTY
+        prop = _balanced_and([Signal("S").equals(i) for i in range(limit + 1)])
+        with AletheiaClient() as client:
+            client.parse_dbc(_trivial_dbc())
+            r = client.set_properties([prop])
+        assert r["status"] == "error", r
+        assert r["code"] == "input_bound_exceeded", r
+        assert r.get("bound_kind") == limits.BOUND_KIND_ATOM_COUNT, r
+        assert r.get("observed") == limit + 1, r
+        assert r.get("limit") == limit, r
+
 
 class TestListCardinalityBound:
-    """List cardinality caps on messages / signals / attributes.
+    """The lists of a DBC are bounded in size, decided before the DBC is used.
 
-    `requireArrayBound` in `Aletheia/DBC/JSONParser.agda` wraps each
-    list-shaped parsed field with a post-parse `length xs <ᵇ suc bound`
-    check.  Three call sites wired:
-      * `parseMessageBody`: signals → `max-signals-per-message` (1024)
-      * `parseDBCWithErrors` messages → `max-messages-per-file` (10000)
-      * `parseDBCWithErrors` attributes → `max-attributes-per-file` (10000)
-
-    Wire surface for rejection is `InContext "<array> array"
-    (InputBoundExceeded ArrayCardinality observed limit)` (typed
-    ParseError); refining to a more specific wire code is downstream
-    parser-monad plumbing (deferred).
-
-    Tests only exercise the acceptance path (well under bound).  The
-    over-bound case is verified by code inspection — `requireArrayBound`
-    is invoked at the three call sites above with the canonical limits
-    — plus a manual one-off run at the canonical limit; reproducing in
-    CI is impractical until the pre-existing O(N²) parseDBC scaling is
-    fixed.
-    Formal bound-soundness `parseDBC-arrays-bounded` is proven kernel-side.
+    ``checkBounds`` in ``src/Aletheia/DBC/Bounds.agda`` decides the size bounds
+    of a parsed DBC before it is validated, loaded or formatted.  A list one
+    past its bound is refused with code ``input_bound_exceeded``, bound kind
+    ``array_cardinality``, the observed count, the limit and the list's name as
+    the ``field``.  Each refusal case holds one list one past its bound; the
+    acceptance cases sit well under.
     """
+
+    @pytest.mark.parametrize(("field", "limit", "build"), _LISTS_PAST_BOUND)
+    def test_list_one_past_bound_refused(
+        self, field: ListField, limit: Limit, build: Callable[[], DBCDefinition]
+    ) -> None:
+        """``parse_dbc`` raises the bound triple, names the list and reads the kernel's message."""
+        with AletheiaClient() as client, pytest.raises(InputBoundExceededError) as exc_info:
+            client.parse_dbc(build())
+        err = exc_info.value
+        assert (err.kind, err.observed, err.limit, err.field, err.code, str(err)) == (
+            limits.BOUND_KIND_ARRAY_CARDINALITY,
+            limit + 1,
+            limit,
+            field,
+            "input_bound_exceeded",
+            f"ParseDBC: {field}: array cardinality {limit + 1} exceeds limit {limit}",
+        )
 
     def test_messages_well_under_bound_accepted(self) -> None:
         """100 messages << 10000 → parses successfully."""
@@ -446,34 +600,6 @@ class TestListCardinalityBound:
             assert r["status"] == "success", r
 
 
-class TestErrorCodes:
-    """``ErrorCode`` enum carries the consolidated ``input_bound_exceeded`` code.
-
-    The three previously per-ADT wire codes (``parse_input_bound_exceeded``
-    / ``frame_input_bound_exceeded`` / ``dbc_text_input_bound_exceeded``)
-    merged into a single top-level ``input_bound_exceeded`` code; the
-    sub-discrimination lives in the structured ``bound_kind`` payload.
-    """
-
-    def test_input_bound_exceeded_code(self) -> None:
-        """Top-level adversarial-input bound wire code."""
-        assert ErrorCode.INPUT_BOUND_EXCEEDED == "input_bound_exceeded"
-
-    def test_bound_kind_constants(self) -> None:
-        """``BOUND_KIND_*`` wire-payload discriminators (canonical strings).
-
-        These are the structured-payload discriminator values that
-        replaced the per-ADT wire codes.
-        """
-        assert limits.BOUND_KIND_INPUT_LENGTH_BYTES == "input_length_bytes"
-        assert limits.BOUND_KIND_NESTING_DEPTH == "nesting_depth"
-        assert limits.BOUND_KIND_ARRAY_CARDINALITY == "array_cardinality"
-        assert limits.BOUND_KIND_IDENTIFIER_LENGTH == "identifier_length"
-        assert limits.BOUND_KIND_STRING_LENGTH == "string_length"
-        assert limits.BOUND_KIND_ATOM_COUNT == "atom_count"
-        assert limits.BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE == "rational_component_magnitude"
-
-
 class TestRationalComponentMagnitudeBound:
     """Typed Int64 bound on every JSON number's rational components.
 
@@ -481,13 +607,11 @@ class TestRationalComponentMagnitudeBound:
     to the nesting-depth check): ``jsonMaxComponent`` measures the
     largest ``|numerator|`` / denominator of the exact rational any JSON
     number in the parsed tree denotes, and anything past
-    ``max-rational-component-magnitude`` — the signed 64-bit range the
-    binary wire's rational slots and the decimal SSOT already enforce —
-    is rejected with the typed ``input_bound_exceeded`` envelope.  A bare
-    JSON integer can therefore no longer smuggle a component the wire
-    cannot represent past the typed decimal path (pre-bound, such a
-    number was accepted into the kernel's unbounded ℚ and only surfaced
-    at the binary encoder).
+    ``max-rational-component-magnitude``, the signed 64-bit range the
+    binary wire's rational slots and the decimal SSOT enforce, is refused
+    with ``input_bound_exceeded``, so a bare JSON integer cannot carry a
+    component the wire cannot represent.  ``parse_dbc`` raises the refusal,
+    naming no field; ``set_properties`` returns it as its ``ErrorResponse``.
 
     Boundary pinned tight from both sides: the refusal cases sit exactly
     one past the limit, the acceptance cases exactly at it.
@@ -509,12 +633,23 @@ class TestRationalComponentMagnitudeBound:
         assert r.get("observed") == self._LIMIT + 1, r
         assert r.get("limit") == self._LIMIT, r
 
+    def _assert_parse_dbc_refuses(self, factor: Fraction) -> None:
+        """Assert ``parse_dbc`` raises the triple for a factor past the bound, naming no field."""
+        with AletheiaClient() as client, pytest.raises(InputBoundExceededError) as exc_info:
+            client.parse_dbc(self._factor_dbc(factor))
+        err = exc_info.value
+        assert (err.kind, err.observed, err.limit, err.field, err.code, str(err)) == (
+            limits.BOUND_KIND_RATIONAL_COMPONENT_MAGNITUDE,
+            self._LIMIT + 1,
+            self._LIMIT,
+            None,
+            "input_bound_exceeded",
+            f"rational component magnitude {self._LIMIT + 1} exceeds limit {self._LIMIT}",
+        )
+
     def test_parse_dbc_component_one_past_int64_refused(self) -> None:
         """A factor numerator one past Int64 max refuses with the triple."""
-        with AletheiaClient() as client:
-            self._assert_bound_refusal(
-                client.parse_dbc(self._factor_dbc(Fraction(self._LIMIT + 1)))
-            )
+        self._assert_parse_dbc_refuses(Fraction(self._LIMIT + 1))
 
     def test_parse_dbc_component_at_int64_max_accepted(self) -> None:
         """The same position exactly at Int64 max is accepted (tightness)."""
@@ -530,10 +665,7 @@ class TestRationalComponentMagnitudeBound:
         keeps ONE symmetric magnitude limit so the structured
         ``observed`` / ``limit`` pair stays a plain magnitude comparison.
         """
-        with AletheiaClient() as client:
-            self._assert_bound_refusal(
-                client.parse_dbc(self._factor_dbc(Fraction(-(self._LIMIT + 1))))
-            )
+        self._assert_parse_dbc_refuses(Fraction(-(self._LIMIT + 1)))
 
     def test_set_properties_bare_integer_one_past_refused(self) -> None:
         """The bound covers every command surface, not just ``parseDBC``.
@@ -580,9 +712,7 @@ class TestPythonLoaderBoundChecks:
     """Per-loader bound checks fire and raise ``InputBoundExceededError``.
 
     Covers all four parser-surface loader entry points (yaml_loader,
-    dbc, excel_loader x2).  These tests close the binding-side
-    observation gap left implicit when the cap was wired but not tested
-    to fire.
+    dbc, excel_loader x2).
 
     Tests patch ``MAX_DBC_TEXT_BYTES`` on the consuming module to a
     small value so a 2 KiB temp file exceeds the patched cap; this
@@ -605,16 +735,10 @@ class TestPythonLoaderBoundChecks:
     def test_yaml_loader_inline_string_oversize(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """yaml_loader rejects inline YAML strings whose byte length exceeds the cap.
 
-        Mocks ``Path.exists`` to return False unconditionally so the
-        file-vs-string dispatch falls into the inline-yaml branch
-        deterministically.  Without the mock, ``Path(big_str).exists()``
-        raises ENAMETOOLONG on Linux for any single-segment string >
-        NAME_MAX (255 bytes) — that path-confusion behavior is tracked
-        separately; this test verifies the bound check itself fires when
-        reached.
+        A ``str`` is inline YAML whatever it spells, so the string is never
+        taken for a path.
         """
         monkeypatch.setattr("aletheia.client._types.MAX_DBC_TEXT_BYTES", 100)
-        monkeypatch.setattr(Path, "exists", _path_exists_false)
         big_yaml = "checks:\n" + "  - { name: x, signal: S, condition: equals, value: 0 }\n" * 8
         assert len(big_yaml.encode("utf-8")) > 100
         with pytest.raises(InputBoundExceededError) as exc_info:
@@ -661,39 +785,140 @@ class TestPythonLoaderBoundChecks:
 
 
 class TestSharedDBCBoundCascade:
-    """The load + validate routes share one tagged bound cascade (LoadDBC).
+    """Every DBC command refuses a DBC past a size bound with the same bound.
 
-    All three DBC commands run the same adversarial bound cascade in the
-    kernel's ``Handlers.LoadDBC``, so ``validate_dbc`` rejects an over-length
-    / over-cardinality DBC with the typed :class:`InputBoundExceededError`
-    (C2 hardening — the reject arm was unreachable before, and now lifts the
-    bound triple like ``parse_dbc``, parity with Go / C++ / Rust whose shared
-    error decoders already typed it), and the text route's bound error
-    message names the offending field (e.g. ``"version string"``), parity
-    with the JSON route.
+    ``parseDBC``, ``parseDBCText``, ``validateDBC`` and ``formatDBCText`` each
+    decide the bounds with ``checkBounds`` (``src/Aletheia/DBC/Bounds.agda``)
+    before validating, loading or formatting.  Each client method raises the
+    refusal as :class:`InputBoundExceededError` carrying the bound's kind,
+    observed value, limit and the field that crossed it.  ``formatDBCText``
+    given no nodes derives them from the message senders, and bounds the
+    derived list too.
     """
+
+    def test_validate_dbc_rejects_list_past_bound(self) -> None:
+        """A list past its bound trips the cascade before validation."""
+        with AletheiaClient() as client, pytest.raises(InputBoundExceededError) as exc_info:
+            client.validate_dbc(_over_multiplex_values())
+        err = exc_info.value
+        limit, field = limits.MAX_MULTIPLEX_VALUES_PER_SIGNAL, "multiplex values array"
+        assert (err.kind, err.observed, err.limit, err.field, err.code, str(err)) == (
+            limits.BOUND_KIND_ARRAY_CARDINALITY,
+            limit + 1,
+            limit,
+            field,
+            "input_bound_exceeded",
+            f"ValidateDBC: {field}: array cardinality {limit + 1} exceeds limit {limit}",
+        )
+
+    def test_format_dbc_text_rejects_list_past_bound(self) -> None:
+        """``format_dbc_text`` refuses a list past its bound instead of rendering it."""
+        with AletheiaClient() as client, pytest.raises(InputBoundExceededError) as exc_info:
+            client.format_dbc_text(_over_signal_groups())
+        err = exc_info.value
+        limit, field = limits.MAX_SIGNAL_GROUPS_PER_FILE, "signal groups array"
+        assert (err.kind, err.observed, err.limit, err.field, err.code, str(err)) == (
+            limits.BOUND_KIND_ARRAY_CARDINALITY,
+            limit + 1,
+            limit,
+            field,
+            "input_bound_exceeded",
+            f"FormatDBCText: {field}: array cardinality {limit + 1} exceeds limit {limit}",
+        )
+
+    def test_format_dbc_text_rejects_over_long_string_field(self) -> None:
+        """``format_dbc_text`` refuses a text past its bound instead of rendering it."""
+        limit = limits.MAX_STRING_LENGTH_CHARACTERS
+        over = dbc([message(256, "M", [signal("S")])], version="x" * (limit + 1))
+        with AletheiaClient() as client, pytest.raises(InputBoundExceededError) as exc_info:
+            client.format_dbc_text(over)
+        err = exc_info.value
+        assert (err.kind, err.observed, err.limit, err.field, err.code) == (
+            limits.BOUND_KIND_STRING_LENGTH,
+            limit + 1,
+            limit,
+            "version string",
+            "input_bound_exceeded",
+        )
+
+    def test_format_dbc_text_rejects_derived_nodes_past_bound(self) -> None:
+        """Nodes derived from the senders are bounded, though no senders list is past it.
+
+        Two messages share the primary sender ``ECU`` and carry disjoint
+        ``senders`` lists, each under ``MAX_NODES_PER_FILE``: the DBC loads,
+        and ``format_dbc_text`` derives the primary sender plus both lists as
+        the nodes, past the bound.
+        """
+        per_message = limits.MAX_NODES_PER_FILE // 2 + 1
+        over = dbc(
+            [
+                message(256, "MA", [signal("S")], senders=[f"A{i}" for i in range(per_message)]),
+                message(257, "MB", [signal("T")], senders=[f"B{i}" for i in range(per_message)]),
+            ]
+        )
+        with AletheiaClient() as client:
+            assert client.parse_dbc(over)["status"] == "success"
+            with pytest.raises(InputBoundExceededError) as exc_info:
+                client.format_dbc_text(over)
+        err = exc_info.value
+        limit = limits.MAX_NODES_PER_FILE
+        assert (err.kind, err.observed, err.limit, err.field, err.code) == (
+            limits.BOUND_KIND_ARRAY_CARDINALITY,
+            1 + 2 * per_message,
+            limit,
+            "nodes array",
+            "input_bound_exceeded",
+        )
 
     def test_validate_dbc_rejects_over_long_string_field(self) -> None:
         """An over-length string field trips the cascade before validation."""
-        big = "z" * (limits.MAX_STRING_LENGTH_BYTES + 10)
-        over = dbc([message(100, "M", [], senders=[])], version=big)
-        with AletheiaClient() as client:
-            with pytest.raises(InputBoundExceededError) as exc_info:
-                client.validate_dbc(over)
-            err = exc_info.value
-            assert err.kind == limits.BOUND_KIND_STRING_LENGTH
-            assert err.observed == limits.MAX_STRING_LENGTH_BYTES + 10
-            assert err.limit == limits.MAX_STRING_LENGTH_BYTES
-            # The lifted error echoes the wire code (not the default None) —
-            # pins the code kwarg that validate_dbc passes to the constructor.
-            assert err.code == "input_bound_exceeded"
+        limit = limits.MAX_STRING_LENGTH_CHARACTERS
+        over = dbc([message(100, "M", [], senders=[])], version="z" * (limit + 10))
+        with AletheiaClient() as client, pytest.raises(InputBoundExceededError) as exc_info:
+            client.validate_dbc(over)
+        err = exc_info.value
+        # The code is the wire's, not the constructor's default None.
+        assert (err.kind, err.observed, err.limit, err.field, err.code) == (
+            limits.BOUND_KIND_STRING_LENGTH,
+            limit + 10,
+            limit,
+            "version string",
+            "input_bound_exceeded",
+        )
 
     def test_parse_dbc_text_bound_error_names_field(self) -> None:
-        """An over-length version field yields a field-tagged bound message."""
-        big = "z" * (limits.MAX_STRING_LENGTH_BYTES + 10)
-        text = f'VERSION "{big}"\nNS_:\nBS_:\nBU_: ECU\nBO_ 100 M: 8 ECU\n'
+        """An over-length version field in a text raises the triple naming the field."""
+        limit = limits.MAX_STRING_LENGTH_CHARACTERS
+        text = f'VERSION "{"z" * (limit + 10)}"\nNS_:\nBS_:\nBU_: ECU\nBO_ 100 M: 8 ECU\n'
+        with AletheiaClient() as client, pytest.raises(InputBoundExceededError) as exc_info:
+            client.parse_dbc_text(text)
+        err = exc_info.value
+        assert (err.kind, err.observed, err.limit, err.field, err.code, str(err)) == (
+            limits.BOUND_KIND_STRING_LENGTH,
+            limit + 10,
+            limit,
+            "version string",
+            "input_bound_exceeded",
+            f"ParseDBCText: version string: string length {limit + 10} exceeds limit {limit}",
+        )
+
+    def test_text_field_bound_counts_characters(self) -> None:
+        """A text field is bounded in characters, so a two-byte character counts once.
+
+        The version holds exactly ``MAX_STRING_LENGTH_CHARACTERS`` characters,
+        twice as many bytes; it loads.  One character more is refused, and the
+        observed length is the character count.
+        """
+        limit = limits.MAX_STRING_LENGTH_CHARACTERS
         with AletheiaClient() as client:
-            resp = client.parse_dbc_text(text)
-            assert resp["status"] == "error"
-            assert resp.get("code") == "input_bound_exceeded"
-            assert "version string" in resp.get("message", "")
+            at = client.parse_dbc(dbc([message(256, "M", [signal("S")])], version="é" * limit))
+            assert at["status"] == "success", at
+            with pytest.raises(InputBoundExceededError) as exc_info:
+                client.parse_dbc(dbc([message(256, "M", [signal("S")])], version="é" * (limit + 1)))
+        err = exc_info.value
+        assert (err.kind, err.observed, err.limit, err.field) == (
+            limits.BOUND_KIND_STRING_LENGTH,
+            limit + 1,
+            limit,
+            "version string",
+        )

@@ -38,6 +38,7 @@ from aletheia.client._enrichment import format_rational
 from aletheia.client._types import (
     AletheiaError,
     DBCValidationFailedError,
+    InputBoundExceededError,
     SignalExtractionResult,
     ValidationError,
     bytes_to_dlc,
@@ -57,6 +58,8 @@ from aletheia.types import (
     DBCDefinition,
     DBCMessage,
     DBCSignal,
+    ErrorResponse,
+    ParsedDBCResponse,
     dump_json,
 )
 
@@ -205,9 +208,10 @@ def _load_dbc_with(
 
     DBC-content failures surface as ``DBCValidationFailedError`` (kernel
     returned a structured issue list) or ``ValidationError`` (no issue
-    list, e.g. a syntactic parse failure); ``validate`` catches the former
-    to render the issue list, every other subcommand lets it reach
-    ``main``'s ``AletheiaError`` handler. The returned ``warnings`` is the
+    list, e.g. a syntactic parse failure); ``validate`` catches the first
+    to render the issue list, the second reaches ``main``'s
+    ``AletheiaError`` handler.  A DBC past one of the kernel's bounds dies
+    in :func:`_parsed`.  The returned ``warnings`` is the
     parse's non-error issue list — the complete validation result for a
     DBC that passed every error check, so ``validate`` needs no second
     kernel pass.
@@ -219,7 +223,8 @@ def _load_dbc_with(
         p = Path(dbc_path)
         _require_existing_path(p, "DBC file", dbc_path)
         if p.suffix == ".xlsx":
-            return _parse_structured(client, _lazy_load_dbc_from_excel()(p), dbc_path)
+            structured = _lazy_load_dbc_from_excel()(p)
+            return _parsed(lambda: client.parse_dbc(structured), dbc_path)
         # `.dbc` text route: verified text parser, one pass. The size
         # pre-check mirrors dbc_to_json's defense-in-depth (rejects >64 MiB
         # before crossing the FFI boundary).
@@ -228,28 +233,34 @@ def _load_dbc_with(
         # utf-8); "UTF-8" is a codec-name alias → both the case and the None
         # mutant are runtime-equivalent here (pragma).
         text = p.read_text(encoding="utf-8")  # pragma: no mutate
-        return dbc_and_warnings_from_response(client.parse_dbc_text(text), dbc_path)
+        return _parsed(lambda: client.parse_dbc_text(text), dbc_path)
 
     if excel_path is not None:
         p = Path(excel_path)
         _require_existing_path(p, "Excel file", excel_path)
-        return _parse_structured(client, _lazy_load_dbc_from_excel()(p), excel_path)
+        structured = _lazy_load_dbc_from_excel()(p)
+        return _parsed(lambda: client.parse_dbc(structured), excel_path)
 
     _die("no DBC source specified (use --dbc or --excel)")
 
 
-def _parse_structured(
-    client: AletheiaClient,
-    dbc: DBCDefinition,
+def _parsed(
+    parse: Callable[[], ParsedDBCResponse | ErrorResponse],
     source: str,
 ) -> tuple[DBCDefinition, list[ValidationIssue]]:
-    """Validate an already-assembled (Excel-sourced) DBC via ``parse_dbc``.
+    """Run the kernel's parse of the DBC read from *source*, returning ``(dbc, warnings)``.
 
-    The kernel canonicalises and validates the structured definition, so
-    its status must be checked (an invalid Excel-sourced DBC raises the
-    same typed errors as the text route rather than being silently used).
+    The kernel canonicalises and validates the DBC, so its status is checked:
+    an invalid DBC raises the typed errors of ``dbc_and_warnings_from_response``,
+    whichever route it came by.  A DBC past one of the kernel's bounds exits
+    with code 2, worded as every other failure to parse a DBC file is: the
+    path, then the kernel's message.
     """
-    return dbc_and_warnings_from_response(client.parse_dbc(dbc), source)
+    try:
+        response = parse()
+    except InputBoundExceededError as exc:
+        _die(f"Failed to parse DBC file '{source}': {exc}")
+    return dbc_and_warnings_from_response(response, source)
 
 
 def _load_checks_from_args(args: argparse.Namespace) -> list[CheckResult]:
@@ -423,8 +434,8 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     A DBC whose load step fails kernel validation with a structured issue
     list renders the same report as a ``has_errors`` validation result
     (exit code 1) instead of dying with exit code 2; a syntactically
-    unparseable DBC (no issue list) still dies via ``main``'s
-    ``AletheiaError`` handler.
+    unparseable DBC (no issue list) dies via ``main``'s ``AletheiaError``
+    handler, and a DBC past one of the kernel's bounds dies naming its path.
 
     The kernel's parse epilogue IS full DBC validation, so a load that
     succeeds has no error-severity issues by construction and its warnings

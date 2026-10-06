@@ -303,6 +303,8 @@ Render a DBC definition (JSON wire shape) back to `.dbc` file text via the verif
 
 **Always strict.** `formatDBCText` returns text **only** when that text provably re-parses to the exact input DBC — `parseDBCText(formatDBCText(d).text)` reproduces `d`. There is no lenient/best-effort mode and no `strict` flag: a flag would imply you might sometimes want text that does *not* round-trip, which contradicts the command's whole purpose (never emit silently-lossy output). A DBC that cannot be expressed as round-tripping `.dbc` text — for example a signal multiplexed on **multiple** selector values, which the JSON model admits but the `.dbc` grammar cannot encode — is **refused** with a typed error rather than emitting text that would quietly lose information. The emitted-text round-trip guarantee is machine-checked (`formatDBCTextResult-sound` in `Aletheia.Protocol.Handlers.Properties.FormatDBCText`), not merely asserted.
 
+A DBC past a size bound is refused with `input_bound_exceeded` before anything is formatted, exactly as the load routes refuse it (see [Limits](#limits)), so the command never emits text a load refuses for its size. When the DBC's `nodes` list is empty, the command fills it with every message transmitter before formatting, and holds that list to the node bound too.
+
 **Request**:
 ~~~json
 {
@@ -1029,7 +1031,7 @@ High-throughput streaming hot path. Each call passes a `struct aletheia_frame` w
 
 ## Limits
 
-Every parser at a trust boundary enforces explicit upper bounds on adversarial inputs. Rejection over the bound is a typed `InputBoundExceeded` error carrying the offending kind, the observed value, and the canonical limit it crossed; never a crash, never an OOM, never a stalled stream.
+Every parser at a trust boundary enforces explicit upper bounds on adversarial inputs. Rejection over the bound is a typed `InputBoundExceeded` error carrying the offending kind, the observed value, and the canonical limit it crossed.
 
 The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/Limits.agda`); each binding mirrors the same constants in its native error-type surface.
 
@@ -1037,8 +1039,8 @@ The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/L
 
 | Bound | Limit | Kind code |
 |---|---:|---|
-| Total DBC text input | 64 MiB (67,108,864 bytes) | `input_length_bytes` |
-| Total JSON input (FFI boundary) | 64 MiB (67,108,864 bytes) | `input_length_bytes` |
+| DBC text a binding reads (a file, or the text it sends to `parseDBCText`) | 64 MiB (67,108,864 bytes) | `input_length_bytes` |
+| JSON command at the FFI boundary, in UTF-8 bytes | 64 MiB (67,108,864 bytes) | `input_length_bytes` |
 | JSON nesting depth | 64 | `nesting_depth` |
 | Messages per DBC file | 10,000 | `array_cardinality` |
 | Signals per single message | 1,024 | `array_cardinality` |
@@ -1047,10 +1049,18 @@ The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/L
 | Comments per DBC file (`CM_`) | 10,000 | `array_cardinality` |
 | Nodes per DBC file (`BU_`) | 10,000 | `array_cardinality` |
 | Value tables per DBC file (`VAL_TABLE_` definitions) | 10,000 | `array_cardinality` |
+| Signal groups per DBC file (`SIG_GROUP_`) | 10,000 | `array_cardinality` |
+| Members of one signal group | 1,024 | `array_cardinality` |
+| Environment variables per DBC file (`EV_`) | 10,000 | `array_cardinality` |
+| `VAL_` lines naming no signal of the file | 10,000 | `array_cardinality` |
+| Transmitters of one message (`senders`) | 10,000 | `array_cardinality` |
+| Receivers of one signal | 10,000 | `array_cardinality` |
+| Labels of one enumerated attribute type | 10,000 | `array_cardinality` |
+| Selector values of one multiplexed signal (`multiplex_values`) | 1,024 | `array_cardinality` |
 | LTL atoms per property | 1,024 | `atom_count` |
 | Properties per `setProperties` call | 1,024 | `property_count` |
 | DBC identifier length | 128 chars | `identifier_length` |
-| Quoted-string body length | 64 KiB (65,536 bytes) | `string_length` |
+| DBC text field length (version, unit, comment, attribute name or value, value label) | 65,536 characters | `string_length` |
 | Rational components of any JSON number (\|numerator\| and denominator of the exact rational it denotes, reduced) | 9,223,372,036,854,775,807 (2⁶³ − 1) | `rational_component_magnitude` |
 
 The rational-component bound is measured on the parsed tree like the nesting-depth bound (reduction only shrinks component magnitudes, so a bounded submitted literal stays bounded). It pins the JSON wire to the same signed 64-bit range the binary FFI's rational slots and the typed decimal path (`aletheia_parse_decimal`) already enforce — one Int64 bound on every wire, so a bare JSON integer cannot smuggle a component the binary wire cannot represent. The limit is symmetric in magnitude: numerator −2⁶³ is refused even though a two's-complement slot could carry it, keeping the structured `observed` / `limit` pair a plain magnitude comparison.
@@ -1065,13 +1075,13 @@ A frame has no bound kind: `data_len` is a `uint8_t`, and the kernel refuses any
 |---|---|
 | `input_bound_exceeded` | `input_length_bytes` / `nesting_depth` / `array_cardinality` / `identifier_length` / `string_length` / `atom_count` / `property_count` / `rational_component_magnitude` |
 
-The `message` field embeds the kind label, observed value, and limit; the structured `bound_kind` / `observed` / `limit` fields appear on the envelope alongside `code` and `message`. Example:
+The `message` field embeds the kind label, observed value, and limit; the structured `bound_kind` / `observed` / `limit` fields appear on the envelope alongside `code` and `message`, and a DBC bound adds `field`, the part of the DBC that crossed it (`senders array`, `version string`). Example:
 
 ~~~
 <<< {"status": "error", "code": "input_bound_exceeded", "message": "input length (bytes) 134217728 exceeds limit 67108864", "bound_kind": "input_length_bytes", "observed": 134217728, "limit": 67108864}
 ~~~
 
-For the post-parse DBC bounds (`array_cardinality` and `string_length`), all three DBC commands — `parseDBC`, `parseDBCText`, and `validateDBC` — run one shared cascade (kernel `Aletheia.Protocol.Handlers.LoadDBC.checkDBCBounds`), so the `message` names the offending field alongside the command context, e.g. `ParseDBCText: version string: string length 65546 exceeds limit 65536`. `validateDBC` runs the same cascade — an over-cardinality / over-length DBC is rejected with `input_bound_exceeded` *before* validation runs (the structured `bound_kind` / `observed` / `limit` fields are identical across all three routes, so a binding decodes it with the same typed handler it uses for the load routes).
+The DBC bounds (`array_cardinality` and `string_length` on a parsed DBC) are one decision shared by the four DBC commands, `parseDBC`, `parseDBCText`, `validateDBC` and `formatDBCText` (kernel `Aletheia.DBC.Bounds.checkBounds`), made before the command does anything else with the DBC. It refuses the first bound crossed, every count before any text, and the `message` names the offending field after the command context, e.g. `ParseDBCText: version string: string length 65546 exceeds limit 65536`. The structured `bound_kind` / `observed` / `limit` fields are the same on every command, so a binding decodes them with one typed handler. A DBC every command accepts carries the proof that it meets every bound, and loading requires it.
 
 `handler_validation_failed` errors (a `parseDBC` / `parseDBCText` rejected because the DBC has error-level validation issues) carry the **full structured issue list** on the envelope — errors *and* warnings, in the same `{severity, code, detail}` element shape as the `validation` response, plus the same `has_errors` flag (trivially `true` on this path; included so both payloads decode with one issue decoder). The `message` field flattens only the error-level details. Example:
 
