@@ -92,14 +92,14 @@ dev = [
     # AGENTS.md Python cat 34(b) — hypothesis-driven property
     # tests for every wire-format encode/decode pair.  Profiles pinned in
     # ``python/tests/conftest.py`` (CI ``max_examples=200``, dev ``=20``).
-    "hypothesis>=6.168.1,<7",
-    "pylint>=4.0.9,<5",
+    "hypothesis>=6.168.3,<7",
+    "pylint>=4.1.2,<5",
     "basedpyright>=1.40.1,<2",
     # ruff drives the ruff(ALL) lint + format gate; minor-level pin, because
     # ruff is pre-1.0 and new rules land in minor bumps, so a minor bump is a
     # deliberate act that reads the new findings.  The floor also carries STABLE
     # py314 lint-target support, which ruff has had since 0.15.
-    "ruff>=0.16.9,<0.17",
+    "ruff>=0.16.10,<0.17",
     # AGENTS.md Python cat 25 long-run sub-check — psutil drives
     # ``python/benchmarks/stability.py`` (RSS, num_fds).  Keep in [dev] so the
     # stability harness runs without an extra extras flag; the harness is
@@ -107,14 +107,14 @@ dev = [
     # surfaces in dev environments.
     "psutil>=7.2.2,<8",
     # clang-format drives the C++ ``clang-format --dry-run --Werror`` gate.
-    # Pinned TIGHTER than the major-level bounds above (>=23.1.1,<23.2, not <24):
+    # Pinned TIGHTER than the major-level bounds above, to one minor line:
     # clang-format output is version-specific — trailing-return signatures
     # (``auto f(params) -> T``) wrap differently across versions, and the *system*
     # clang-format on CI runners is whatever update-alternatives happens to
     # select (often NOT the version apt installs).  Pinning the pip binary makes
     # the gate byte-identical on every contributor + CI; run_ci routes the gate
     # through ``python/.venv/bin/clang-format`` rather than a bare PATH lookup.
-    "clang-format>=23.1.1,<23.2",
+    "clang-format>=23.1.2,<23.2",
     # cmakelang provides cmake-lint, which drives the CMake gate.  Pinned and
     # taken from the venv for the same reason as clang-format above: a lint
     # tool's findings are version-specific, and the CI runners carry no
