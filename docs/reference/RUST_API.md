@@ -241,6 +241,8 @@ Rust has no dedicated `State` variant, so a call made in the wrong lifecycle sta
 
 The synchronous `Client` is single-threaded and not `Send`. For an async, cancellable client, enable the `async` feature and use `AsyncClient`, which runs the client on a dedicated worker thread and exposes `async` methods resolving on whichever runtime you use. Dropping a pending future or the client cancels in-flight work at a frame boundary under the commit-prefix-and-report contract, so already-processed frames stay committed. The cross-binding cancellation semantics are specified in the [Cancellation Contract](../architecture/CANCELLATION.md).
 
+Tests host the sync client on an `aletheia::testing::TurnExecutor` in place of the worker thread: `turns.adopt(client)` returns the `AsyncClient`, and `turns.block_on(future)` runs each queued call on the test's own thread at its turn, in queue order. A call whose future is dropped before its turn never reaches the client, as the worker skips a cancelled job, and one dropped during its turn runs to completion; a future left waiting with no call queued panics rather than hangs. A test therefore needs no thread, timer or runtime, and `run_turn()` runs one call when a test steps by hand.
+
 ~~~toml
 # Cargo.toml
 [dependencies]

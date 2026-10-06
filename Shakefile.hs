@@ -600,6 +600,16 @@ proofModules =
 shimHeaderStamp :: FilePath
 shimHeaderStamp = "build/shim-header.stamp"
 
+-- | The stand-in kernels the bindings' tests load in place of the library: one
+-- at an ABI version no binding was written against, one exporting the version
+-- alone, one exporting no kernel symbol, and one whose kernel answers null.
+-- Each is built from @haskell-shim/test/<name>.c@ against the kernel's header
+-- into the directory the library is built in, where every binding's test looks
+-- for it beside the library it stands in for.
+standIns :: [FilePath]
+standIns = map (\name -> "build/stand-ins" </> name <.> "so")
+    ["stale_abi_kernel", "abi_only_kernel", "symbolless", "null_kernel"]
+
 main :: IO ()
 main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=ChangeModtimeAndDigest} $ do
 
@@ -613,6 +623,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
     phony "build" $ do
         need ["check-stdlib-version"]
         need ["build/libaletheia-ffi.so"]
+        need standIns
 
     phony "build-agda" $ do
         need ["check-stdlib-version"]
@@ -2006,6 +2017,14 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             else pure []
         liftIO $ mapM_ (SysDir.removeFile . (tree </>)) derived
         writeFileChanged out (unlines derived)
+
+    -- A stand-in kernel, compiled as C with the compiler CC names.
+    "build/stand-ins/*.so" %> \out -> do
+        let source = "haskell-shim/test" </> takeBaseName out <.> "c"
+        headers <- getDirectoryFiles "" ["haskell-shim/include//*.h"]
+        need (source : headers)
+        cc <- fromMaybe "cc" <$> getEnv "CC"
+        cmd_ cc ["-shared", "-fPIC", "-I", "haskell-shim/include", "-o", out, source]
 
     "build/libaletheia-ffi.so" %> \out -> do
         -- HONEST DEPENDENCY GRAPH.

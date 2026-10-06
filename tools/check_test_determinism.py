@@ -30,10 +30,24 @@ under ``python/tests/`` and the repository's ``conftest.py``; every C++ source
 under ``cpp/tests/``; every Rust file under a crate's ``tests/``, and the
 ``#[cfg(test)] mod`` blocks of the crates' sources.  Comments and string
 literals are blanked before the scan, so a primitive named in prose is not a
-site.
+site, and a name bound by an import, a ``use`` or a using-declaration is read
+as the qualified name it stands for, so no spelling of an import hides one.  A
+Python test's string literal that is a script, one that parses and calls or
+imports something, is read as the child source it is: a test hands a child
+interpreter its script that way.  The gate's own test is the exception, its
+strings being the fixtures it feeds the gate.
+
+An example is not a test: a documentation fence and a file under
+``examples/`` show production use, and keep the threads and timers that use
+needs.  The harness that runs one is a test file like any other.
 
 Rows are keyed by file and by the primitive's label, the kind first (``time:``
 or ``thread:``), with how many sites the file holds.
+
+One setting is held beside the record: ``rust/.cargo/config.toml`` forces
+``RUST_TEST_THREADS`` to 1, since the Rust test harness otherwise runs a
+binary's tests side by side on threads of one process.  The tree's run fails
+when it does not.
 
 Run: ``python -m tools.check_test_determinism`` compares the tree with the
 record; ``--file PATH --as REL`` compares one file's text, as it stands after
@@ -51,9 +65,12 @@ import ast
 import io
 import re
 import sys
+import textwrap
 import tokenize
+import tomllib
+import warnings
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, NamedTuple, NewType, cast
+from typing import TYPE_CHECKING, NamedTuple, NewType, TypedDict, cast
 
 from tools._common import RelPath, emit, git_ls_files, git_toplevel
 from tools._ratchet import CanonicalText, RatchetRows, RowKey, as_row, read_ratchet_rows
@@ -65,6 +82,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 RECORD = Path("docs/TEST_DETERMINISM.yaml")
+# Cargo's configuration for every Rust crate, whose environment runs each test
+# binary's tests one at a time; the harness otherwise runs them side by side.
+RUST_CARGO_CONFIG = Path("rust/.cargo/config.toml")
 CLEAN, OUT_OF_STEP, UNREADABLE = ExitStatus(0), ExitStatus(1), ExitStatus(2)
 
 # A test file's text as read, and the same text with its comments and literals
@@ -75,6 +95,16 @@ BlankedCode = NewType("BlankedCode", str)
 RegexSource = NewType("RegexSource", str)
 # How many sites of one primitive a file holds.
 SiteCount = NewType("SiteCount", int)
+# A name or an attribute chain as source spells it, dots included.
+DottedName = NewType("DottedName", str)
+
+
+# Each binding's async client runs its sync client's calls on a thread of its
+# own unless a test hands it a turn executor: Python's through
+# ``asyncio.to_thread`` unless it is given a ``run_in_thread``, Rust's on the
+# worker thread its constructors start.  A test that builds one that way leans
+# on that thread, which no thread primitive in the test itself spells.
+ASYNC_CLIENT_ON_A_THREAD = CanonicalText("thread: an async client on its default thread runner")
 
 
 class Primitive(NamedTuple):
@@ -102,12 +132,22 @@ _GO = (
     Primitive(
         CanonicalText("thread: a yield to the scheduler"), RegexSource(r"\bruntime\.Gosched\s*\(")
     ),
+    Primitive(
+        CanonicalText("thread: a parallel test"),
+        RegexSource(r"\.(?:Parallel|RunParallel)\s*\("),
+    ),
+    Primitive(
+        CanonicalText("thread: a goroutine started through a group"), RegexSource(r"\.Go\s*\(")
+    ),
 )
 
 _PYTHON = (
     Primitive(
         CanonicalText("time: a clock or sleep from module time"),
-        RegexSource(r"\btime\.(?:sleep|monotonic|perf_counter|time)(?:_ns)?\s*\("),
+        RegexSource(
+            r"\btime\.(?:sleep|monotonic|perf_counter|time|process_time|thread_time"
+            + r"|clock_gettime)(?:_ns)?\s*\("
+        ),
     ),
     Primitive(
         CanonicalText("time: an asyncio sleep of a duration"),
@@ -130,7 +170,16 @@ _PYTHON = (
     ),
     Primitive(
         CanonicalText("time: a wall-clock date"),
-        RegexSource(r"\bdatetime\.(?:datetime\.)?(?:now|utcnow|today)\s*\("),
+        RegexSource(r"\b(?:datetime\.)?(?:datetime|date)\.(?:now|utcnow|today)\s*\("),
+    ),
+    Primitive(
+        CanonicalText("time: a signal timer"),
+        RegexSource(
+            r"\bsignal\.(?:alarm|setitimer)\s*\(" + r"|\bfaulthandler\.dump_traceback_later\s*\("
+        ),
+    ),
+    Primitive(
+        CanonicalText("thread: a yield to the scheduler"), RegexSource(r"\bos\.sched_yield\s*\(")
     ),
     Primitive(
         CanonicalText("thread: a thread or timer from module threading"),
@@ -159,20 +208,41 @@ _PYTHON = (
 )
 
 _CPP = (
-    Primitive(CanonicalText("time: a sleep"), RegexSource(r"\bsleep_(?:for|until)\s*\(")),
+    Primitive(
+        CanonicalText("time: a sleep"),
+        RegexSource(
+            r"\bsleep_(?:for|until)\s*\(|\b(?:usleep|nanosleep|clock_nanosleep)\s*\("
+            + r"|(?<![\w.>:])(?:::)?sleep\s*\("
+        ),
+    ),
     Primitive(
         CanonicalText("time: a wait of a duration"),
         RegexSource(r"\b(?:wait|try_lock|try_acquire)_(?:for|until)\s*\("),
     ),
     Primitive(
         CanonicalText("time: a clock read"),
-        RegexSource(r"\b(?:steady_clock|system_clock|high_resolution_clock)::now\s*\("),
+        RegexSource(
+            r"\b(?:steady_clock|system_clock|high_resolution_clock)::now\s*\("
+            + r"|\b(?:clock_gettime|gettimeofday|timespec_get)\s*\(|\bstd::(?:time|clock)\s*\("
+            + r"|(?<![\w.>:])(?:::)?time\s*\(\s*(?:nullptr|NULL|0)?\s*\)"
+        ),
+    ),
+    Primitive(
+        CanonicalText("time: a timer"),
+        RegexSource(r"\b(?:alarm|setitimer|timer_create|timerfd_create)\s*\("),
+    ),
+    Primitive(
+        CanonicalText("time: a Catch2 benchmark"), RegexSource(r"\bBENCHMARK(?:_ADVANCED)?\s*\(")
     ),
     Primitive(
         CanonicalText("thread: a std::thread or std::jthread"), RegexSource(r"\bstd::j?thread\b")
     ),
     Primitive(CanonicalText("thread: std::async"), RegexSource(r"\bstd::async\s*\(")),
     Primitive(CanonicalText("thread: a POSIX thread"), RegexSource(r"\bpthread_create\s*\(")),
+    Primitive(
+        CanonicalText("thread: a yield to the scheduler"),
+        RegexSource(r"\bthis_thread::yield\s*\(|\bsched_yield\s*\("),
+    ),
 )
 
 _RUST = (
@@ -195,6 +265,10 @@ _RUST = (
     Primitive(
         CanonicalText("thread: a spawned async task"),
         RegexSource(r"\b(?:tokio::spawn|tokio::task::spawn\w*)\b"),
+    ),
+    Primitive(
+        ASYNC_CLIENT_ON_A_THREAD,
+        RegexSource(r"\bAsyncClient::new\s*\(|(?:\.|::)build_async(?:_with_backend)?\s*\("),
     ),
 )
 
@@ -254,6 +328,293 @@ def blank_python(text: SourceText) -> BlankedCode:
     return BlankedCode("".join("".join(line) for line in out))
 
 
+# The catalogue spells a primitive qualified, as ``time.sleep`` or
+# ``std::thread::spawn``; a test that names one through an import alias, a
+# from-import or a using-declaration is read with that name spelled out again,
+# so no spelling of an import hides a site.  The functions below rewrite the
+# blanked code to the qualified spelling; the result is only counted, never
+# reported, so the offsets it moves do not matter.
+
+# A name an import binds in a test, a Rust path ``::``-joined, one of its
+# segments, the text of a Rust use tree, and a Go package's import path.
+BoundName = NewType("BoundName", str)
+RustPath = NewType("RustPath", str)
+PathSegment = NewType("PathSegment", str)
+UseTree = NewType("UseTree", str)
+GoPackage = NewType("GoPackage", str)
+# A character offset into a file's text, and the parser's 1-based row and
+# UTF-8 byte column of a node.
+CharOffset = NewType("CharOffset", int)
+Row = NewType("Row", int)
+ByteColumn = NewType("ByteColumn", int)
+
+# The Python modules whose names the catalogue reads, with the names a star
+# import of each brings in.
+_PY_MODULES: dict[DottedName, tuple[BoundName, ...]] = {
+    DottedName("time"): (
+        BoundName("sleep"),
+        BoundName("monotonic"),
+        BoundName("perf_counter"),
+        BoundName("time"),
+        BoundName("process_time"),
+        BoundName("thread_time"),
+        BoundName("clock_gettime"),
+    ),
+    DottedName("datetime"): (BoundName("datetime"), BoundName("date")),
+    DottedName("threading"): (BoundName("Thread"), BoundName("Timer")),
+    DottedName("_thread"): (BoundName("start_new_thread"),),
+    DottedName("asyncio"): (
+        BoundName("sleep"),
+        BoundName("timeout"),
+        BoundName("timeout_at"),
+        BoundName("wait_for"),
+        BoundName("to_thread"),
+        BoundName("create_task"),
+        BoundName("gather"),
+        BoundName("ensure_future"),
+        BoundName("TaskGroup"),
+    ),
+    DottedName("concurrent.futures"): (
+        BoundName("ThreadPoolExecutor"),
+        BoundName("ProcessPoolExecutor"),
+    ),
+    DottedName("multiprocessing"): (),
+    DottedName("os"): (BoundName("fork"), BoundName("sched_yield")),
+    DottedName("signal"): (BoundName("alarm"), BoundName("setitimer")),
+    DottedName("faulthandler"): (BoundName("dump_traceback_later"),),
+}
+
+
+def _watched_python(dotted: DottedName) -> bool:
+    """Say whether a dotted module path is one of the modules above, inside one or above one."""
+    return any(
+        dotted == module or dotted.startswith(f"{module}.") or module.startswith(f"{dotted}.")
+        for module in _PY_MODULES
+    )
+
+
+def _python_aliases(tree: ast.Module) -> dict[BoundName, DottedName]:
+    """Map each name a Python file binds to a watched module or one of its members."""
+    aliases: dict[BoundName, DottedName] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for name in node.names:
+                if name.asname and _watched_python(DottedName(name.name)):
+                    aliases[BoundName(name.asname)] = DottedName(name.name)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            module = DottedName(node.module)
+            for name in node.names:
+                member = DottedName(f"{module}.{name.name}")
+                if name.name == "*":
+                    for star in _PY_MODULES.get(module, ()):
+                        aliases[star] = DottedName(f"{module}.{star}")
+                elif _watched_python(module) or _watched_python(member):
+                    aliases[BoundName(name.asname or name.name)] = member
+    return aliases
+
+
+def _python_tree(source: SourceText) -> ast.Module | None:
+    """Parse Python source quietly, or None when it is not Python the parser takes."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)
+        try:
+            return ast.parse(source)
+        except SyntaxError, ValueError:
+            return None
+
+
+def spell_python_aliases(text: SourceText, code: BlankedCode) -> BlankedCode:
+    """Spell every read of a Python import alias as the qualified name it stands for.
+
+    The names are found by the parser, which sees only code; a file the parser
+    refuses is returned as it came.
+    """
+    tree = _python_tree(text)
+    if tree is None:
+        return code
+    aliases = _python_aliases(tree)
+    if not aliases:
+        return code
+    lines = text.splitlines(keepends=True)
+    starts = [CharOffset(0)]
+    for line in lines:
+        starts.append(CharOffset(starts[-1] + len(line)))
+
+    def offset(row: Row, column: ByteColumn) -> CharOffset:
+        """Turn the parser's row and UTF-8 column into a character offset."""
+        return CharOffset(starts[row - 1] + len(lines[row - 1].encode()[:column].decode()))
+
+    reads = sorted(
+        (
+            (
+                offset(Row(node.lineno), ByteColumn(node.col_offset)),
+                offset(Row(node.lineno), ByteColumn(node.col_offset + len(node.id.encode()))),
+                aliases[BoundName(node.id)],
+            )
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Load)
+            and BoundName(node.id) in aliases
+        ),
+        reverse=True,
+    )
+    spelled = str(code)
+    for start, end, qualified in reads:
+        spelled = spelled[:start] + qualified + spelled[end:]
+    return BlankedCode(spelled)
+
+
+# A Rust ``use`` declaration, whose tree never holds a semicolon, and the paths
+# whose names the catalogue reads, with the names a glob import of each brings in.
+_RUST_USE = re.compile(r"\buse\s+([^;]+);")
+_RUST_PATHS: dict[RustPath, tuple[BoundName, ...]] = {
+    RustPath("std::thread"): (
+        BoundName("sleep"),
+        BoundName("spawn"),
+        BoundName("scope"),
+        BoundName("Builder"),
+        BoundName("yield_now"),
+        BoundName("park_timeout"),
+    ),
+    RustPath("std::time"): (BoundName("Instant"), BoundName("SystemTime")),
+    RustPath("core::time"): (),
+    RustPath("aletheia::AsyncClient"): (),
+    RustPath("crate::AsyncClient"): (),
+    RustPath("tokio"): (BoundName("spawn"), BoundName("time"), BoundName("task")),
+    RustPath("tokio::time"): (BoundName("sleep"), BoundName("timeout"), BoundName("interval")),
+    RustPath("tokio::task"): (
+        BoundName("spawn"),
+        BoundName("spawn_blocking"),
+        BoundName("spawn_local"),
+    ),
+}
+
+
+def _top_level_parts(tree: UseTree) -> list[UseTree]:
+    """Split a use list on the commas outside its nested braces."""
+    parts: list[UseTree] = []
+    depth, start = 0, CharOffset(0)
+    for index, char in enumerate(tree):
+        depth += {"{": 1, "}": -1}.get(char, 0)
+        if char == "," and depth == 0:
+            parts.append(UseTree(tree[start:index]))
+            start = CharOffset(index + 1)
+    parts.append(UseTree(tree[start:]))
+    return [part for part in parts if part.strip()]
+
+
+def _rust_use_tree(
+    prefix: list[PathSegment], tree: UseTree, into: dict[BoundName, RustPath]
+) -> None:
+    """Bind each name a use tree brings in under a watched path to the path it names."""
+    text = str(tree).strip().removeprefix("::")
+    if (brace := text.find("{")) >= 0:
+        head = [PathSegment(part.strip()) for part in text[:brace].split("::") if part.strip()]
+        for part in _top_level_parts(UseTree(text[brace + 1 : text.rindex("}")])):
+            _rust_use_tree(prefix + head, part, into)
+        return
+    path, alias = text, None
+    if renamed := re.fullmatch(r"(.+?)\s+as\s+(\w+)", text, re.DOTALL):
+        path, alias = renamed.group(1), BoundName(renamed.group(2))
+    segments = prefix + [PathSegment(part.strip()) for part in path.split("::") if part.strip()]
+    if segments and segments[-1] == "*":
+        module = "::".join(segments[:-1])
+        for member in _RUST_PATHS.get(RustPath(module), ()):
+            into[member] = RustPath(f"{module}::{member}")
+        return
+    if segments and segments[-1] == "self":
+        segments = segments[:-1]
+    full = "::".join(segments)
+    if segments and any(full == root or full.startswith(f"{root}::") for root in _RUST_PATHS):
+        into[alias or BoundName(segments[-1])] = RustPath(full)
+
+
+def spell_rust_aliases(code: BlankedCode) -> BlankedCode:
+    """Spell every name a Rust ``use`` brings in from a watched path as that path."""
+    names: dict[BoundName, RustPath] = {}
+    for match in _RUST_USE.finditer(code):
+        _rust_use_tree([], UseTree(match.group(1)), names)
+    if not names:
+        return code
+    spelled = _RUST_USE.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), code)
+    for name, path in names.items():
+        spelled = re.sub(rf"(?<![\w:.]){re.escape(name)}\b", path, spelled)
+    return BlankedCode(spelled)
+
+
+# A Go import spec that names its package, read from the source at an offset
+# the blanked code shows is code, since the blanking empties the path string.
+_GO_NAMED_IMPORT = re.compile(
+    r'^[ \t]*(?:import[ \t]+)?([A-Za-z_]\w*|\.)[ \t]+"(time|context|runtime)"', re.MULTILINE
+)
+_GO_PACKAGES: dict[GoPackage, tuple[BoundName, ...]] = {
+    GoPackage("time"): tuple(
+        BoundName(name)
+        for name in (
+            "Sleep",
+            "After",
+            "AfterFunc",
+            "NewTimer",
+            "NewTicker",
+            "Tick",
+            "Now",
+            "Since",
+            "Until",
+        )
+    ),
+    GoPackage("context"): tuple(
+        BoundName(name)
+        for name in ("WithTimeout", "WithDeadline", "WithTimeoutCause", "WithDeadlineCause")
+    ),
+    GoPackage("runtime"): (BoundName("Gosched"),),
+}
+
+
+def spell_go_aliases(text: SourceText, code: BlankedCode) -> BlankedCode:
+    """Spell every read through a renamed or dot import of a watched package as the package."""
+    spelled = str(code)
+    for match in _GO_NAMED_IMPORT.finditer(text):
+        name, package = match.group(1), GoPackage(match.group(2))
+        if name == "_" or code[match.start(1)] != text[match.start(1)]:
+            continue
+        if name == ".":
+            members = "|".join(_GO_PACKAGES[package])
+            spelled = re.sub(rf"(?<![\w.])({members})\s*\(", rf"{package}.\1(", spelled)
+        else:
+            spelled = re.sub(rf"(?<![\w.]){re.escape(name)}\.", f"{package}.", spelled)
+    return BlankedCode(spelled)
+
+
+# C++ names a clock, the standard namespace or a thread through an alias, a
+# using-declaration or a using-directive; the lookbehind keeps a member, a
+# qualified name and an ``#include <thread>`` out.
+_CPP_CLOCK_ALIAS = re.compile(
+    r"\busing\s+(\w+)\s*=\s*(?:::)?(?:std::)?(?:chrono::)?(\w+_clock)\s*;"
+    + r"|\btypedef\s+(?:::)?(?:std::)?(?:chrono::)?(\w+_clock)\s+(\w+)\s*;"
+)
+_CPP_STD_ALIAS = re.compile(r"\bnamespace\s+(\w+)\s*=\s*(?:::)?std\s*;")
+_CPP_USING_STD = re.compile(
+    r"\busing\s+namespace\s+std\s*;|\busing\s+(?:::)?std::(j?thread|async)\s*;"
+)
+_CPP_UNQUALIFIED = r"(?<![\w.>:<])"
+
+
+def spell_cpp_aliases(code: BlankedCode) -> BlankedCode:
+    """Spell a clock alias, a standard-namespace alias and a used ``std`` name qualified."""
+    spelled = str(code)
+    for match in _CPP_CLOCK_ALIAS.finditer(code):
+        alias, clock = match.group(1) or match.group(4), match.group(2) or match.group(3)
+        spelled = re.sub(rf"{_CPP_UNQUALIFIED}{alias}::now\b", f"{clock}::now", spelled)
+    for match in _CPP_STD_ALIAS.finditer(code):
+        spelled = re.sub(rf"{_CPP_UNQUALIFIED}{match.group(1)}::", "std::", spelled)
+    used = {match.group(1) or "*" for match in _CPP_USING_STD.finditer(code)}
+    if used & {"*", "thread", "jthread"}:
+        spelled = re.sub(rf"{_CPP_UNQUALIFIED}(j?thread)\b", r"std::\1", spelled)
+    if used & {"*", "async"}:
+        spelled = re.sub(rf"{_CPP_UNQUALIFIED}async\s*\(", "std::async(", spelled)
+    return BlankedCode(spelled)
+
+
 def rust_test_modules(code: BlankedCode) -> BlankedCode:
     """Keep only the ``#[cfg(test)] mod`` blocks of blanked Rust source.
 
@@ -275,16 +636,21 @@ def rust_test_modules(code: BlankedCode) -> BlankedCode:
     return BlankedCode("".join(kept))
 
 
-def _blank_rust_file(rel: RelPath, text: SourceText) -> BlankedCode:
-    code = blank_rust(text)
+def _rust_code(rel: RelPath, text: SourceText) -> BlankedCode:
+    code = spell_rust_aliases(blank_rust(text))
     return code if "/tests/" in rel else rust_test_modules(code)
 
 
 class Binding(NamedTuple):
-    """How one binding's test files are recognised, blanked and scanned."""
+    """How one binding's test files are recognised, read and scanned.
+
+    ``code`` is what the scan reads of a file: its comments and literals
+    blanked, and every name an import or a using-declaration binds spelled
+    out as the catalogue spells it.
+    """
 
     is_test: Callable[[RelPath], bool]
-    blank: Callable[[RelPath, SourceText], BlankedCode]
+    code: Callable[[RelPath, SourceText], BlankedCode]
     primitives: tuple[Primitive, ...]
 
 
@@ -304,23 +670,85 @@ def _is_rust_test(rel: RelPath) -> bool:
     return rel.startswith("rust/") and rel.endswith(".rs") and ("/tests/" in rel or "/src/" in rel)
 
 
-def _blank_go_file(_rel: RelPath, text: SourceText) -> BlankedCode:
-    return blank_go(text)
+def _go_code(_rel: RelPath, text: SourceText) -> BlankedCode:
+    return spell_go_aliases(text, blank_go(text))
 
 
-def _blank_python_file(_rel: RelPath, text: SourceText) -> BlankedCode:
-    return blank_python(text)
+# A Python test hands a child interpreter its script as a string, which the
+# blanking empties; each string literal that parses as Python is read as the
+# source it is.  The gate's own test is exempt: its strings are the fixtures
+# it feeds the gate, and its code is read like any other test's.
+_STRING_FIXTURES = RelPath("python/tests/test_check_test_determinism.py")
+# The stand-in for an interpolated value when an f-string is read as source.
+_INTERPOLATED = "_"
 
 
-def _blank_cpp_file(_rel: RelPath, text: SourceText) -> BlankedCode:
-    return blank_cpp(text)
+def _is_script(tree: ast.Module | None) -> bool:
+    """Say whether parsed source calls or imports anything, as a script does."""
+    return tree is not None and any(
+        isinstance(node, (ast.Call, ast.Import, ast.ImportFrom)) for node in ast.walk(tree)
+    )
+
+
+def python_child_sources(text: SourceText) -> list[SourceText]:
+    """Every string literal in Python source that is a script, dedented.
+
+    A script parses as Python and calls or imports something, which a phrase
+    that happens to parse (``"non-monotonic"``) does not.  A docstring is prose
+    and is skipped; an f-string is read with each value it interpolates
+    standing as one name.  A file the parser refuses yields none.
+    """
+    tree = _python_tree(text)
+    if tree is None:
+        return []
+    nodes = list(ast.walk(tree))
+    skipped = {
+        id(node.value)
+        for node in nodes
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+    }
+    skipped |= {
+        id(part) for node in nodes if isinstance(node, ast.JoinedStr) for part in node.values
+    }
+    literals = [
+        node.value
+        for node in nodes
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in skipped
+    ] + [
+        "".join(
+            part.value
+            if isinstance(part, ast.Constant) and isinstance(part.value, str)
+            else _INTERPOLATED
+            for part in node.values
+        )
+        for node in nodes
+        if isinstance(node, ast.JoinedStr)
+    ]
+    sources = [SourceText(textwrap.dedent(literal)) for literal in literals]
+    return [source for source in sources if _is_script(_python_tree(source))]
+
+
+def _python_code(rel: RelPath, text: SourceText) -> BlankedCode:
+    code = spell_python_aliases(text, blank_python(text))
+    if rel == _STRING_FIXTURES:
+        return code
+    children = (
+        spell_python_aliases(child, blank_python(child)) for child in python_child_sources(text)
+    )
+    return BlankedCode("\n".join([code, *children]))
+
+
+def _cpp_code(_rel: RelPath, text: SourceText) -> BlankedCode:
+    return spell_cpp_aliases(blank_cpp(text))
 
 
 BINDINGS = (
-    Binding(_is_go_test, _blank_go_file, _GO),
-    Binding(_is_python_test, _blank_python_file, _PYTHON),
-    Binding(_is_cpp_test, _blank_cpp_file, _CPP),
-    Binding(_is_rust_test, _blank_rust_file, _RUST),
+    Binding(_is_go_test, _go_code, _GO),
+    Binding(_is_python_test, _python_code, _PYTHON),
+    Binding(_is_cpp_test, _cpp_code, _CPP),
+    Binding(_is_rust_test, _rust_code, _RUST),
 )
 
 
@@ -355,12 +783,6 @@ def which_are_tests(repo: Path, rels: list[RelPath]) -> list[RelPath]:
     return named
 
 
-# The async client runs each sync call through ``asyncio.to_thread`` unless it
-# is handed a ``run_in_thread``; a test that builds it without one leans on the
-# executor's threads, which no catalogue pattern can see in the call itself.
-ASYNC_CLIENT_ON_A_THREAD = CanonicalText("thread: an async client on its default thread runner")
-# A name or an attribute chain as source spells it, dots included.
-DottedName = NewType("DottedName", str)
 _ASYNC_MODULE = DottedName("aletheia.asyncio")
 
 
@@ -414,7 +836,7 @@ def rows_of(rel: RelPath, text: SourceText) -> RatchetRows:
     rows: RatchetRows = {}
     for binding in BINDINGS:
         if binding.is_test(rel):
-            for label, count in sites_in(binding.blank(rel, text), binding.primitives).items():
+            for label, count in sites_in(binding.code(rel, text), binding.primitives).items():
                 rows[RowKey(rel, label)] = count
     if _is_python_test(rel) and (on_a_thread := async_clients_on_a_thread(text)):
         rows[RowKey(rel, ASYNC_CLIENT_ON_A_THREAD)] = on_a_thread
@@ -497,6 +919,43 @@ def _parsed() -> _Arguments:
     )
 
 
+# A value cargo's ``[env]`` table sets, and the parts of its configuration read here.
+CargoEnvValue = NewType("CargoEnvValue", str)
+
+
+class _ForcedCargoEnv(TypedDict, total=False):
+    value: CargoEnvValue
+    force: bool
+
+
+class _CargoEnv(TypedDict, total=False):
+    RUST_TEST_THREADS: CargoEnvValue | _ForcedCargoEnv
+
+
+class _CargoConfig(TypedDict, total=False):
+    env: _CargoEnv
+
+
+def rust_tests_run_alone(repo: Path) -> bool:
+    """Say whether cargo's configuration forces one test thread on every Rust test binary."""
+    try:
+        text = (repo / RUST_CARGO_CONFIG).read_text(encoding="utf-8")
+        config = cast("_CargoConfig", tomllib.loads(text))
+    except OSError, tomllib.TOMLDecodeError:
+        return False
+    return config.get("env", {}).get("RUST_TEST_THREADS") == {"value": "1", "force": True}
+
+
+def rust_harness_report(repo: Path) -> ExitStatus:
+    """Print why the Rust harness may run tests side by side, if it may; return the exit code."""
+    if rust_tests_run_alone(repo):
+        return CLEAN
+    emit(f"{RUST_CARGO_CONFIG}: the Rust test binaries may run their tests side by side")
+    emit('  Set [env] RUST_TEST_THREADS = { value = "1", force = true } there,')
+    emit("  so each runs its tests one at a time.")
+    return OUT_OF_STEP
+
+
 def main() -> ExitStatus:
     """Compare the tests' time and thread primitives, or one file's, against the record."""
     arguments = _parsed()
@@ -520,7 +979,7 @@ def main() -> ExitStatus:
             emit(f"{arguments.file}: cannot be read: {exc}")
             return UNREADABLE
         return report(rows_of(arguments.rel, text), recorded, file=arguments.rel)
-    return report(observed_rows(repo), recorded)
+    return max(report(observed_rows(repo), recorded), rust_harness_report(repo))
 
 
 if __name__ == "__main__":

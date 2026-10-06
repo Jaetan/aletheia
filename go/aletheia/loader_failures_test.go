@@ -22,27 +22,16 @@ import (
 // exists only in a fresh process.
 const loaderScenarioEnv = "ALETHEIA_TEST_LOADER_SCENARIO"
 
-// buildStandIn compiles a C stand-in into a shared library in a temporary
-// directory, with the C compiler cgo already needs: one under testdata named
-// by its file, or one the bindings share named by its path.
-func buildStandIn(t *testing.T, source string) string {
+// standIn is the stand-in kernel the build makes beside the library: every
+// one is built by `cabal run shake -- build`, so a library found without its
+// stand-ins is a build that has not run since they were added.
+func standIn(t *testing.T, lib, name string) string {
 	t.Helper()
-	cc := os.Getenv("CC")
-	if cc == "" {
-		cc = "cc"
+	path := filepath.Join(filepath.Dir(lib), "stand-ins", name+".so")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("stand-in %s not built beside %s (%v); run 'cabal run shake -- build'", name, lib, err)
 	}
-	out := filepath.Join(t.TempDir(), strings.TrimSuffix(filepath.Base(source), ".c")+".so")
-	src := source
-	if filepath.Base(source) == source {
-		src = filepath.Join("testdata", "kernel_stand_in", source)
-	}
-	// The kernel's header, which holds the stand-in to the kernel's signatures.
-	header := filepath.Join(repoRoot(t), "haskell-shim", "include")
-	cmd := exec.Command(cc, "-shared", "-fPIC", "-I", header, "-o", out, src)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("%s %s: %v\n%s", cc, src, err, output)
-	}
-	return out
+	return path
 }
 
 // runLoaderChild re-runs this binary on one scenario with the library named,
@@ -84,7 +73,8 @@ func TestLoaderFailuresAreVocal(t *testing.T) {
 	if scenario := os.Getenv(loaderScenarioEnv); scenario != "" {
 		runLoaderScenario(scenario) // os.Exits; never returns
 	}
-	if findFFILibrary() == "" {
+	lib := findFFILibrary()
+	if lib == "" {
 		t.Skip("libaletheia-ffi.so not found; run 'cabal run shake -- build' first")
 	}
 	notALibrary := filepath.Join(t.TempDir(), "not-a-library.so")
@@ -92,11 +82,11 @@ func TestLoaderFailuresAreVocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	scenarios := map[string]string{
-		"symbolless":    buildStandIn(t, "symbolless.c"),
+		"symbolless":    standIn(t, lib, "symbolless"),
 		"not-a-library": notALibrary,
-		"null-kernel":   buildStandIn(t, "null_kernel.c"),
-		"stale-abi":     buildStandIn(t, filepath.Join(repoRoot(t), "haskell-shim", "test", "stale_abi_kernel.c")),
-		"abi-only":      buildStandIn(t, filepath.Join(repoRoot(t), "haskell-shim", "test", "abi_only_kernel.c")),
+		"null-kernel":   standIn(t, lib, "null_kernel"),
+		"stale-abi":     standIn(t, lib, "stale_abi_kernel"),
+		"abi-only":      standIn(t, lib, "abi_only_kernel"),
 		"search":        "",
 	}
 	for scenario, lib := range scenarios {

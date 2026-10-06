@@ -19,6 +19,7 @@ import textwrap
 from typing import TYPE_CHECKING
 
 import pytest
+from _processes import pid_no_process_holds
 
 from tools import _common
 from tools import check_build_incremental as gate
@@ -36,13 +37,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 NAMED = f"{MARKER_PREFIX}RF_pid4242_20260924T101500Z"
-
-
-def _spawn_and_reap() -> int:
-    """Spawn a trivial child, wait for it, and return its now-dead pid."""
-    with subprocess.Popen([sys.executable, "-c", "pass"]) as child:
-        _ = child.wait()
-    return child.pid
 
 
 class TestMarkers:
@@ -70,7 +64,9 @@ class TestMarkers:
 
     def test_a_gone_run_is_described_as_gone(self) -> None:
         """A pid nothing runs under reads as gone; the running process reads as alive."""
-        gone = RunMarker(text=NAMED, tag="RF", pid=_spawn_and_reap(), started="20260924T101500Z")
+        gone = RunMarker(
+            text=NAMED, tag="RF", pid=pid_no_process_holds(), started="20260924T101500Z"
+        )
         assert describe_run(gone).endswith(", gone")
         alive = gone._replace(pid=os.getpid())
         assert describe_run(alive) == f"pid {os.getpid()}, started 20260924T101500Z, still alive"
@@ -83,20 +79,21 @@ def _held_shake_lock(tmp_path: Path) -> Iterator[tuple[Path, int]]:
 
     Record locks belong to a process, so a lock this process took would read as
     free from this process; only another process shows what Shake's lock looks
-    like from the gate.
+    like from the gate.  The holder keeps the lock until its standard input,
+    which this process holds, closes or the test kills it.
     """
     lock = tmp_path / ".shake.lock"
     script = textwrap.dedent(
         f"""
-        import fcntl, os, time
+        import fcntl, os, sys
         fd = os.open({str(lock)!r}, os.O_CREAT | os.O_RDWR, 0o644)
         fcntl.lockf(fd, fcntl.LOCK_EX)
         print("held", flush=True)
-        time.sleep(60)
+        sys.stdin.read()
         """
     )
     with subprocess.Popen(
-        [sys.executable, "-c", script], stdout=subprocess.PIPE, text=True
+        [sys.executable, "-c", script], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True
     ) as holder:
         assert holder.stdout is not None
         assert holder.stdout.readline().strip() == "held"
@@ -157,7 +154,7 @@ class TestStartupRefusals:
     ) -> None:
         """The refusal names the file, the run, its liveness and the exact inverse edit."""
         a, b = gate_on_scratch
-        pid = _spawn_and_reap()
+        pid = pid_no_process_holds()
         marker = f"{MARKER_PREFIX}RF_pid{pid}_20260924T101500Z"
         marked = f'formatWarningKind UncachedAtom = "uncached_atom_{marker}"\n'
         _ = a.write_text(marked, encoding="utf-8")

@@ -3,7 +3,7 @@
 //
 // A shared library carrying none of the kernel's symbols, for the tests that
 // a backend, the renderer and the decimal parser each refuse a library that
-// opens but resolves nothing, naming the symbol they asked for.
+// opens but resolves nothing, naming the symbol they asked for, and close it.
 int aletheia_test_symbolless(void) {
     return 0;
 }

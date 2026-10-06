@@ -1028,13 +1028,13 @@ hints:
     count: 1
   - file: python/tests/_cli_check_helpers.py
     text: "list[str]"
-    count: 2
+    count: 1
   - file: python/tests/_cli_check_helpers.py
     text: "str"
-    count: 9
+    count: 8
   - file: python/tests/_cli_check_helpers.py
     text: "subprocess.CompletedProcess[str]"
-    count: 3
+    count: 1
   - file: python/tests/_dbc_helpers.py
     text: "int"
     count: 6
@@ -1148,7 +1148,7 @@ hints:
     count: 2
   - file: python/tests/test_agda_tree_lock.py
     text: "int"
-    count: 4
+    count: 3
   - file: python/tests/test_agda_tree_lock.py
     text: "pytest.CaptureFixture[str]"
     count: 1
@@ -1277,9 +1277,6 @@ hints:
     count: 1
   - file: python/tests/test_check_build_incremental.py
     text: "Iterator[tuple[Path, int]]"
-    count: 1
-  - file: python/tests/test_check_build_incremental.py
-    text: "int"
     count: 1
   - file: python/tests/test_check_build_incremental.py
     text: "pytest.CaptureFixture[str]"

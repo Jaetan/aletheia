@@ -14,8 +14,8 @@ the RTS up first (constructing the production ``FFIBackend``) and injects it int
 the client, so the check files load with the runtime already up.
 
 Fixtures are generated in ``tmp_path`` (self-contained — no committed asset). See
-``_cli_check_helpers`` for the shared subprocess scaffolding and why a subprocess
-(not in-process ``main()``) is required.
+``_cli_check_helpers`` for the shared scaffolding.  The claim is about a process
+whose runtime has not yet started, so the command runs as a process of its own.
 """
 
 from __future__ import annotations
@@ -23,7 +23,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import can
-from _cli_check_helpers import dbc_text, never_exceeds_yaml, report, run_check, skip_without_ffi
+from _cli_check_helpers import (
+    CheckInputs,
+    dbc_text,
+    never_exceeds_yaml,
+    report,
+    run_check_in_a_fresh_process,
+    skip_without_ffi,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -64,7 +71,9 @@ def test_check_decimal_threshold_streams_end_to_end(tmp_path: Path) -> None:
     )
     writer.stop()
 
-    result = run_check(["--dbc", str(dbc_path), "--checks", str(checks_path), str(log_path)])
+    result = run_check_in_a_fresh_process(
+        CheckInputs(log=log_path, dbc=dbc_path, checks=checks_path)
+    )
     msg = report(result)
     # The bug: from_decimal raised because the RTS was still down when the
     # decimal check threshold was parsed during check-loading.

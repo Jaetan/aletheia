@@ -571,14 +571,13 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         target_sources(unit_tests PRIVATE tests/yaml_tests.cpp tests/excel_tests.cpp)
         target_link_libraries(unit_tests PRIVATE yaml-cpp::yaml-cpp OpenXLSX::OpenXLSX)
     endif()
-    # A library with none of the kernel's symbols: the backend opens it, fails
-    # its first lookup and must close it again.  Its path reaches the tests as
-    # a definition, so no test guesses a build layout.
-    add_library(aletheia_test_symbolless SHARED tests/symbolless_lib.cpp)
-    target_compile_features(aletheia_test_symbolless PRIVATE cxx_std_23)
+    # The stand-in kernels `cabal run shake -- build` makes beside the library,
+    # each reaching the tests as a path in a definition, so no test guesses a
+    # build layout.  One carries none of the kernel's symbols: the backend
+    # opens it, fails its first lookup and must close it again.
+    set(ALETHEIA_STAND_IN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../build/stand-ins")
     target_compile_definitions(unit_tests PRIVATE
-        ALETHEIA_TEST_SYMBOLLESS_LIB="$<TARGET_FILE:aletheia_test_symbolless>")
-    add_dependencies(unit_tests aletheia_test_symbolless)
+        ALETHEIA_TEST_SYMBOLLESS_LIB="${ALETHEIA_STAND_IN_DIR}/symbolless.so")
     # A kernel stand-in that refuses every call, quoting what it was handed:
     # the one way to read what the backend marshals to an entry whose
     # arguments the real kernel acknowledges without reading.
@@ -593,30 +592,14 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     target_compile_definitions(unit_tests PRIVATE
         ALETHEIA_TEST_RECORDING_KERNEL="$<TARGET_FILE:aletheia_test_recording_kernel>")
     add_dependencies(unit_tests aletheia_test_recording_kernel)
-    # A library at an ABI version no binding was written against, exporting
-    # that version alone: the backend must refuse it before anything else.
-    # The source is the one every binding's suite compiles, and it is C that
-    # the header keeps valid C++.
-    set(ALETHEIA_STALE_ABI_SOURCE
-        "${CMAKE_CURRENT_SOURCE_DIR}/../haskell-shim/test/stale_abi_kernel.c")
-    set_source_files_properties(${ALETHEIA_STALE_ABI_SOURCE} PROPERTIES LANGUAGE CXX)
-    add_library(aletheia_test_stale_abi_kernel SHARED ${ALETHEIA_STALE_ABI_SOURCE})
-    target_compile_features(aletheia_test_stale_abi_kernel PRIVATE cxx_std_23)
-    target_include_directories(aletheia_test_stale_abi_kernel PRIVATE ${ALETHEIA_KERNEL_HEADER_DIR})
+    # Two more of the build's stand-in kernels: one at an ABI version no
+    # binding was written against, exporting that version alone, which the
+    # backend must refuse before anything else; and one at this version
+    # exporting the version alone, which the loaders pass and must refuse at
+    # their first entry missing.
     target_compile_definitions(unit_tests PRIVATE
-        ALETHEIA_TEST_STALE_ABI_KERNEL="$<TARGET_FILE:aletheia_test_stale_abi_kernel>")
-    add_dependencies(unit_tests aletheia_test_stale_abi_kernel)
-    # A library at this ABI version exporting the version alone: the loaders
-    # pass the check and must refuse at their first entry missing.
-    set(ALETHEIA_ABI_ONLY_SOURCE
-        "${CMAKE_CURRENT_SOURCE_DIR}/../haskell-shim/test/abi_only_kernel.c")
-    set_source_files_properties(${ALETHEIA_ABI_ONLY_SOURCE} PROPERTIES LANGUAGE CXX)
-    add_library(aletheia_test_abi_only SHARED ${ALETHEIA_ABI_ONLY_SOURCE})
-    target_compile_features(aletheia_test_abi_only PRIVATE cxx_std_23)
-    target_include_directories(aletheia_test_abi_only PRIVATE ${ALETHEIA_KERNEL_HEADER_DIR})
-    target_compile_definitions(unit_tests PRIVATE
-        ALETHEIA_TEST_ABI_ONLY_LIB="$<TARGET_FILE:aletheia_test_abi_only>")
-    add_dependencies(unit_tests aletheia_test_abi_only)
+        ALETHEIA_TEST_STALE_ABI_KERNEL="${ALETHEIA_STAND_IN_DIR}/stale_abi_kernel.so"
+        ALETHEIA_TEST_ABI_ONLY_LIB="${ALETHEIA_STAND_IN_DIR}/abi_only_kernel.so")
     # The allocation-fault sweeps replace the program's allocation functions,
     # which every sanitizer runtime defines as well: the two carry the same
     # symbols and cannot be linked together, so the sweeps build in the lanes

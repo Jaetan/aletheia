@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import errno
 import io
+import os
 import sys
 from typing import TYPE_CHECKING
 
@@ -72,39 +73,33 @@ def test_stderr_is_merged_into_the_stream() -> None:
 def test_a_line_arrives_before_the_child_exits(tmp_path: Path) -> None:
     """The defining property: output is observable while the child still runs.
 
-    The child writes its first line, then waits for the sink to answer by
-    creating a file.  An implementation that holds output until exit cannot
-    answer while the child runs, so the child reaches its own deadline and
-    reports that by exiting non-zero with a different last line -- the failure
-    this asserts.  A correct implementation answers in milliseconds and never
-    approaches the deadline, so the wait is paid only by a broken one.
+    The child writes its first line, then blocks reading a FIFO that the sink
+    writes to once it has seen that line, and only then writes its second.  An
+    implementation that holds output until exit never calls the sink while the
+    child runs, so the child never gets past its read and the run hangs, the
+    test run's own limit reporting it, rather than passes.
     """
     handshake = tmp_path / "sink-saw-it"
+    os.mkfifo(handshake)
     seen: list[str] = []
 
     def sink(line: str) -> None:
         seen.append(line)
         if line.startswith("first"):
-            handshake.write_text("seen")
+            with handshake.open("w", encoding="utf-8") as answer:
+                _ = answer.write("seen\n")
 
     proc = run_streaming(
         _python_child(
-            "import sys, time",
+            "import sys",
             "print('first')",
             "sys.stdout.flush()",
-            f"path = {str(handshake)!r}",
-            "import os",
-            "deadline = time.monotonic() + 20",
-            "while not os.path.exists(path) and time.monotonic() < deadline:",
-            "    time.sleep(0.01)",
-            "if not os.path.exists(path):",
-            "    print('NO-HANDSHAKE')",
-            "    sys.exit(7)",
-            "print('second')",
+            f"answer = open({str(handshake)!r}, encoding='utf-8').read()",
+            "print('second' if answer == 'seen\\n' else 'no answer')",
         ),
         sink=sink,
     )
-    assert proc.returncode == 0, "the child never saw the sink answer while it was alive"
+    assert proc.returncode == 0
     assert seen == ["first\n", "second\n"]
 
 

@@ -17,17 +17,26 @@ fail-fast contract ``send_frames`` already enforces): a per-frame ``ErrorRespons
 raises ``BatchError`` (an ``AletheiaError``), which the CLI renders and exits 2.
 
 Fixtures are generated in ``tmp_path`` — no committed asset. See
-``_cli_check_helpers`` for the shared subprocess scaffolding.
+``_cli_check_helpers`` for the shared scaffolding.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from _cli_check_helpers import dbc_text, never_exceeds_yaml, report, run_check, skip_without_ffi
+from _cli_check_helpers import (
+    CheckInputs,
+    dbc_text,
+    never_exceeds_yaml,
+    report,
+    run_check,
+    skip_without_ffi,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import pytest
 
 _SIGNAL = 'VehicleSpeed : 0|16@1+ (0.01,0) [0|655.35] "kph"'
 
@@ -42,7 +51,9 @@ _NONMONOTONIC_LOG = (
 )
 
 
-def test_check_rejects_non_monotonic_log_instead_of_false_pass(tmp_path: Path) -> None:
+def test_check_rejects_non_monotonic_log_instead_of_false_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A non-monotonic trace exits 2 with the kernel error — never a false 'all passed'.
 
     On the unpatched pipeline the per-frame error is swallowed and the run prints
@@ -60,7 +71,7 @@ def test_check_rejects_non_monotonic_log_instead_of_false_pass(tmp_path: Path) -
     log_path = tmp_path / "drive.log"
     log_path.write_text(_NONMONOTONIC_LOG, encoding="utf-8")
 
-    result = run_check(["--dbc", str(dbc_path), "--checks", str(checks_path), str(log_path)])
+    result = run_check(CheckInputs(log=log_path, dbc=dbc_path, checks=checks_path), monkeypatch)
     msg = report(result)
     combined = (result.stdout + result.stderr).lower()
     # The false-PASS symptom the bug produced.

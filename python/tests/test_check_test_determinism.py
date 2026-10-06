@@ -13,6 +13,7 @@ read there. The report fails in both directions, as a ratchet must.
 from __future__ import annotations
 
 import textwrap
+from typing import TYPE_CHECKING
 
 from tools._common import RelPath, git_toplevel
 from tools._ratchet import CanonicalText, RatchetRows, RowKey
@@ -23,22 +24,32 @@ from tools.check_test_determinism import (
     OUT_OF_STEP,
     Binding,
     BlankedCode,
+    SiteCount,
     SourceText,
     async_clients_on_a_thread,
     is_test,
     report,
     rows_of,
     rust_test_modules,
+    rust_tests_run_alone,
     sites_in,
     which_are_tests,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 GO, PYTHON, CPP, RUST = BINDINGS
 
 
 def _labels(binding: Binding, rel: RelPath, source: SourceText) -> set[CanonicalText]:
     """Name the primitives the scan finds in one file's source."""
-    return set(sites_in(binding.blank(rel, source), binding.primitives))
+    return set(sites_in(binding.code(rel, source), binding.primitives))
+
+
+def _counts(binding: Binding, rel: RelPath, source: SourceText) -> dict[CanonicalText, SiteCount]:
+    """Count the sites of each primitive the scan finds in one file's source."""
+    return dict(sites_in(binding.code(rel, source), binding.primitives))
 
 
 def test_go_time_and_goroutines_are_sites_and_their_prose_is_not() -> None:
@@ -72,6 +83,61 @@ def test_go_time_and_goroutines_are_sites_and_their_prose_is_not() -> None:
         )
     )
     assert _labels(GO, rel, prose) == set()
+
+
+def test_a_parallel_test_and_a_group_s_goroutine_are_go_thread_sites() -> None:
+    """A test run beside its siblings, and a goroutine a wait or error group starts, each count."""
+    rel = RelPath("go/aletheia/x_test.go")
+    source = SourceText(
+        textwrap.dedent(
+            """\
+            func TestX(t *testing.T) {
+                t.Parallel()
+                b.RunParallel(body)
+                wg.Go(func() {})
+                g.Go(work)
+            }
+            """
+        )
+    )
+    assert _counts(GO, rel, source) == {
+        "thread: a parallel test": 2,
+        "thread: a goroutine started through a group": 2,
+    }
+    prose = SourceText('// t.Parallel() and wg.Go(f)\ns := "t.Parallel()"\n')
+    assert _labels(GO, rel, prose) == set()
+
+
+def test_a_go_package_imported_under_another_name_is_read_as_the_package() -> None:
+    """A renamed or a dot import of a watched package hides no site; a blank one binds none."""
+    rel = RelPath("go/aletheia/x_test.go")
+    renamed = SourceText(
+        textwrap.dedent(
+            """\
+            import (
+                clock "time"
+                c "context"
+            )
+            func T() { clock.Sleep(d); c.WithTimeout(p, d) }
+            """
+        )
+    )
+    assert _counts(GO, rel, renamed) == {
+        "time: a clock or timer from package time": 1,
+        "time: a context with a deadline": 1,
+    }
+    dotted = SourceText('import . "time"\nfunc T() { Sleep(d); x.Now(); Now() }\n')
+    assert _counts(GO, rel, dotted) == {"time: a clock or timer from package time": 2}
+    unbound = SourceText(
+        textwrap.dedent(
+            """\
+            import _ "time"
+            // clock "time"
+            func T() { clock.Sleep(d) }
+            """
+        )
+    )
+    assert _labels(GO, rel, unbound) == set()
 
 
 def test_python_time_threads_and_tasks_are_sites_and_their_prose_is_not() -> None:
@@ -124,6 +190,102 @@ def test_python_time_threads_and_tasks_are_sites_and_their_prose_is_not() -> Non
         assert _labels(PYTHON, rel, SourceText(alone)) == {"time: a positional timeout"}
 
 
+def test_a_python_primitive_imported_by_name_is_read_qualified() -> None:
+    """A from-import, a module alias and a star import each hide no site."""
+    rel = RelPath("python/tests/test_x.py")
+    source = SourceText(
+        textwrap.dedent(
+            """\
+            import time as clock
+            import asyncio as aio
+            from threading import Thread as Worker
+            from datetime import date, datetime as dt
+            from concurrent import futures
+            from os import fork
+            from time import *
+            clock.sleep(1)
+            perf_counter()
+            await aio.sleep(2)
+            Worker(target=f)
+            date.today()
+            dt.now()
+            futures.ThreadPoolExecutor()
+            fork()
+            """
+        )
+    )
+    assert _counts(PYTHON, rel, source) == {
+        "time: a clock or sleep from module time": 2,
+        "time: an asyncio sleep of a duration": 1,
+        "thread: a thread or timer from module threading": 1,
+        "time: a wall-clock date": 2,
+        "thread: an executor": 1,
+        "thread: a process pool or fork": 1,
+    }
+    unbound = SourceText(
+        textwrap.dedent(
+            """\
+            # from time import sleep
+            from pathlib import Path
+            sleep = Path("x")
+            obj.sleep(1)
+            await aio.sleep(0)
+            """
+        )
+    )
+    assert _labels(PYTHON, rel, unbound) == set()
+
+
+def test_python_clock_reads_signal_timers_and_yields_are_sites() -> None:
+    """A process or thread clock, a signal or watchdog timer and a scheduler yield each count."""
+    source = SourceText(
+        textwrap.dedent(
+            """\
+            time.process_time()
+            time.thread_time_ns()
+            time.clock_gettime(c)
+            signal.alarm(1)
+            signal.setitimer(w, 1)
+            faulthandler.dump_traceback_later(5)
+            os.sched_yield()
+            datetime.date.today()
+            """
+        )
+    )
+    assert _counts(PYTHON, RelPath("python/tests/test_x.py"), source) == {
+        "time: a clock or sleep from module time": 3,
+        "time: a signal timer": 3,
+        "thread: a yield to the scheduler": 1,
+        "time: a wall-clock date": 1,
+    }
+
+
+def test_a_child_script_in_a_python_string_is_read_as_source() -> None:
+    """A script a test hands a child interpreter counts; prose and a docstring do not.
+
+    An f-string is read with what it interpolates standing as a name, and a
+    line passed alone is read dedented.  The gate's own test is exempt, its
+    strings being the fixtures it feeds the gate.
+    """
+    source = SourceText(
+        textwrap.dedent(
+            '''\
+            """Names time.sleep(1) in prose."""
+            holder = f"""
+                import fcntl, time
+                fd = open({path!r})
+                time.sleep(60)
+            """
+            lines = ["import sys", "    time.sleep(0.01)"]
+            note = "wait for time.sleep(1) then go"
+            '''
+        )
+    )
+    sleep = CanonicalText("time: a clock or sleep from module time")
+    assert _counts(PYTHON, RelPath("python/tests/test_x.py"), source) == {sleep: 2}
+    assert not rows_of(RelPath("python/tests/test_check_test_determinism.py"), source)
+
+
 def test_an_async_client_on_its_default_runner_is_a_thread_site() -> None:
     """An async client built in a test without ``run_in_thread`` leans on executor threads.
 
@@ -150,6 +312,32 @@ def test_an_async_client_on_its_default_runner_is_a_thread_site() -> None:
     rel = RelPath("python/tests/test_x.py")
     assert rows_of(rel, source) == {RowKey(rel, ASYNC_CLIENT_ON_A_THREAD): 4}
     assert not rows_of(RelPath("python/aletheia/x.py"), source)
+
+
+def test_a_rust_async_client_on_its_worker_thread_is_a_thread_site() -> None:
+    """A Rust test building the async client by a constructor that starts its worker counts.
+
+    A renamed import of the client is read through; one a turn executor hosts,
+    and the builder's own definition, are none.
+    """
+    rel = RelPath("rust/tests/t.rs")
+    source = SourceText(
+        textwrap.dedent(
+            """\
+            use aletheia::AsyncClient as Async;
+            fn t() {
+                let a = AsyncClient::new();
+                let b = Async::new();
+                let c = ClientBuilder::default().build_async();
+                let d = builder.build_async_with_backend(Box::new(mock));
+                let e = ClientBuilder::build_async(builder);
+                let f = turns.adopt(Client::new()?);
+            }
+            pub async fn build_async(self) {}
+            """
+        )
+    )
+    assert _counts(RUST, rel, source) == {ASYNC_CLIENT_ON_A_THREAD: 5}
 
 
 def test_a_python_yield_to_the_loop_is_not_physical_time() -> None:
@@ -207,6 +395,105 @@ def test_cpp_sleeps_clocks_and_threads_are_sites_and_their_prose_is_not() -> Non
     assert _labels(CPP, rel, lock_wait) == {"time: a wait of a duration"}
 
 
+def test_cpp_c_library_time_benchmarks_and_yields_are_sites() -> None:
+    """A POSIX sleep, clock or timer, a Catch2 benchmark and a yield count; a member does not."""
+    rel = RelPath("cpp/tests/x.cpp")
+    source = SourceText(
+        textwrap.dedent(
+            """\
+            void f() {
+              usleep(1);
+              ::sleep(1);
+              clock_gettime(CLOCK_MONOTONIC, &ts);
+              std::time(nullptr);
+              time(nullptr);
+              alarm(1);
+              BENCHMARK("x") { return 1; };
+              std::this_thread::yield();
+              sched_yield();
+              stand_in.sleep(1);
+              clock->time();
+            }
+            """
+        )
+    )
+    assert _counts(CPP, rel, source) == {
+        "time: a sleep": 2,
+        "time: a clock read": 3,
+        "time: a timer": 1,
+        "time: a Catch2 benchmark": 1,
+        "thread: a yield to the scheduler": 2,
+    }
+
+
+def test_a_cpp_alias_or_using_declaration_is_read_qualified() -> None:
+    """A clock alias, a namespace alias and a used ``std`` name hide no site; an include is none."""
+    rel = RelPath("cpp/tests/x.cpp")
+    source = SourceText(
+        textwrap.dedent(
+            """\
+            #include <thread>
+            using clock = std::chrono::steady_clock;
+            typedef std::chrono::system_clock wall;
+            namespace s = std;
+            using std::thread;
+            void f() {
+              auto a = clock::now();
+              auto b = wall::now();
+              auto c = s::async(g);
+              thread w([] {});
+              std::this_thread::get_id();
+            }
+            """
+        )
+    )
+    assert _counts(CPP, rel, source) == {
+        "time: a clock read": 2,
+        "thread: std::async": 1,
+        "thread: a std::thread or std::jthread": 2,
+    }
+    directive = SourceText("using namespace std;\nvoid f() { jthread j([] {}); async(g); }\n")
+    assert _counts(CPP, rel, directive) == {
+        "thread: a std::thread or std::jthread": 1,
+        "thread: std::async": 1,
+    }
+    member = SourceText("#include <thread>\nvoid f() { worker.thread(); }\n")
+    assert _labels(CPP, rel, member) == set()
+
+
+def test_a_rust_use_is_read_as_the_path_it_names() -> None:
+    """A used, renamed, nested or glob-imported thread or clock name hides no site."""
+    rel = RelPath("rust/tests/t.rs")
+    source = SourceText(
+        textwrap.dedent(
+            """\
+            use std::{thread::{self, sleep}, time::Instant as Clock};
+            use std::thread::spawn as start;
+            fn t() {
+                sleep(d);
+                start(|| {});
+                let _ = Clock::now();
+                thread::yield_now();
+                gate.sleep(d);
+            }
+            """
+        )
+    )
+    assert _counts(RUST, rel, source) == {
+        "time: a sleep": 1,
+        "thread: a spawned or scoped thread": 1,
+        "time: a clock read": 1,
+        "thread: a yield to the scheduler": 1,
+    }
+    glob = SourceText("use std::thread::*;\nfn t() { scope(|s| {}); park_timeout(d); }\n")
+    assert _counts(RUST, rel, glob) == {
+        "thread: a spawned or scoped thread": 1,
+        "time: a wait of a duration": 1,
+    }
+    unwatched = SourceText("use std::sync::Mutex;\nfn t() { let m = Mutex::new(0); sleep(d); }\n")
+    assert _labels(RUST, rel, unwatched) == set()
+
+
 def test_rust_sites_count_only_inside_test_modules_of_a_library_source() -> None:
     """A spawn in library code is not a test's; one in a ``#[cfg(test)]`` module is."""
     source = SourceText(
@@ -247,6 +534,24 @@ def test_a_test_module_ends_at_its_own_closing_brace() -> None:
     assert "b();" in str(kept)
     assert "fn c" not in str(kept)
     assert len(kept) == len(code)
+
+
+def test_every_rust_test_binary_is_held_to_one_test_at_a_time(tmp_path: Path) -> None:
+    """Cargo's configuration must force one test thread; unforced, other or absent fails."""
+    assert rust_tests_run_alone(git_toplevel())
+    config = tmp_path / "rust" / ".cargo" / "config.toml"
+    assert not rust_tests_run_alone(tmp_path)
+    config.parent.mkdir(parents=True)
+    for setting, holds in (
+        ('{ value = "1", force = true }', True),
+        ('"1"', False),
+        ('{ value = "4", force = true }', False),
+        ('{ value = "1", force = false }', False),
+    ):
+        _ = config.write_text(f"[env]\nRUST_TEST_THREADS = {setting}\n", encoding="utf-8")
+        assert rust_tests_run_alone(tmp_path) is holds, setting
+    _ = config.write_text("[env\n", encoding="utf-8")
+    assert not rust_tests_run_alone(tmp_path)
 
 
 def test_the_report_refuses_an_unrecorded_site_and_a_stale_row() -> None:

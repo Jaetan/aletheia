@@ -3,8 +3,8 @@
 /*
  * A library at the current ABI version that exports that version and nothing
  * else: it passes every loader's version check, so the loader reaches the
- * lookup of its own entries and must refuse at the first one missing. The C++
- * and Go suites compile it into a temporary library.
+ * lookup of its own entries and must refuse at the first one missing. The
+ * build makes it beside the library, where the bindings' tests load it.
  */
 #include "aletheia.h"
 

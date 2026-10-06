@@ -54,8 +54,10 @@ _REPO = Path(__file__).resolve().parents[2]
 _LIBRARY = Path("build/libaletheia-ffi.so")
 _PLAIN_BINARY = Path("cpp", CppTree.PLAIN.directory, "unit_tests")
 
-# The test kernels each tree builds beside its binary.
-_KERNELS = ("abi_only", "recording_kernel", "stale_abi_kernel", "symbolless")
+# The test kernel each tree builds beside its binary, and the stand-in kernels
+# the build makes beside the library.
+_KERNELS = ("recording_kernel",)
+_STAND_INS = ("abi_only_kernel", "null_kernel", "stale_abi_kernel", "symbolless")
 
 # The sources the leak tree's binary carries mutants in, and one it does not.
 _SOURCES = (Path("cpp/src/client.cpp"), Path("cpp/include/aletheia/client.hpp"))
@@ -85,6 +87,7 @@ _READ_BY_A_SWEEP = (
         for tree in CppTree
         for kernel in _KERNELS
     ),
+    *(sweep_cache.STAND_IN_DIR / f"{name}.so" for name in _STAND_INS),
     *_SOURCES,
 )
 _LOOKED_FOR_ONLY = frozenset(_READ_BY_A_SWEEP[1:3])

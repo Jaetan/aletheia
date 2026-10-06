@@ -5,10 +5,14 @@
 # Probes tools/check_test_determinism.py.
 # Claim: the ratchet fires in both directions, in every binding. A test that
 # reads physical time or starts a thread fails the gate when the record does not
-# name it: a Go timer and goroutine, a Python sleep, thread and async client on
-# its default thread runner, a C++ sleep and std::thread, a Rust sleep inside a
-# test module. A row naming more sites than
-# its file holds fails too, since it is standing permission to bring one back.
+# name it: a Go timer, goroutine and parallel test, a Python sleep, thread and
+# async client on its default thread runner, a C++ sleep and std::thread, a Rust
+# sleep and async client on its worker thread inside a test module, a sleep
+# or clock in each binding named through an import alias, a from-import, a
+# using-declaration or a use, and a sleep in a child script a Python test
+# carries as a string. A row naming more sites than its file holds fails
+# too, since it is standing permission to bring one back, and so does a Rust
+# harness configuration that lets a binary run its tests side by side.
 # Each half is checked by injecting the violation and reading the exit code and
 # the diagnostic, since a gate whose pass is not the absence of a violation has
 # a bug. The injections land in a scratch copy of the working tree, so the tree
@@ -70,6 +74,33 @@ refused "$py_test" 'from aletheia.asyncio import AletheiaClient as AsyncProbe; A
 refused "$cpp_test" 'static void aletheia_probe() { std::this_thread::sleep_for(d); }' "time: a sleep" || exit 1
 refused "$cpp_test" 'static void aletheia_probe() { std::thread t([] {}); }' "thread: a std::thread or std::jthread" || exit 1
 refused "$rust_src" '#[cfg(test)] mod aletheia_probe { fn t() { std::thread::sleep(d); } }' "time: a sleep" || exit 1
+refused "$go_test" 'func aletheiaProbe(t *testing.T) { t.Parallel() }' "thread: a parallel test" || exit 1
+refused "$rust_src" '#[cfg(test)] mod aletheia_probe { fn t() { let _ = crate::AsyncClient::new(); } }' \
+	"thread: an async client on its default thread runner" || exit 1
+refused "$go_test" 'import clock "time"
+func aletheiaProbe() { clock.Sleep(1) }' "time: a clock or timer from package time" || exit 1
+refused "$py_test" 'from time import sleep as pause
+pause(1)' "time: a clock or sleep from module time" || exit 1
+refused "$py_test" 'child = "import time; time.sleep(1)"' "time: a clock or sleep from module time" || exit 1
+refused "$cpp_test" 'using probe_clock = std::chrono::steady_clock;
+static void aletheia_probe() { (void)probe_clock::now(); }' "time: a clock read" || exit 1
+refused "$rust_src" '#[cfg(test)] mod aletheia_probe { use std::thread::sleep as pause; fn t() { pause(d); } }' \
+	"time: a sleep" || exit 1
+
+# The Rust harness left to run a binary's tests side by side fails too.
+config=rust/.cargo/config.toml
+cp "$tree/$config" "$work/saved"
+sed -i 's/force = true/force = false/' "$tree/$config"
+if lens > "$work/harness.txt" 2>&1; then
+	echo "the gate passed over a Rust harness free to run tests side by side"
+	exit 1
+fi
+if ! grep -qF "$config: the Rust test binaries may run their tests side by side" "$work/harness.txt"; then
+	echo "the gate refused the Rust harness setting without naming it:"
+	head -4 "$work/harness.txt" | sed 's/^/  /'
+	exit 1
+fi
+cp "$work/saved" "$tree/$config"
 
 # Reverse: a row naming a site the tree does not hold. An empty record is
 # spelled as an empty list, which takes rows only once it is a block list.
@@ -88,4 +119,4 @@ if ! grep -qF "a recorded row names more sites than the file holds" "$work/rever
 	head -4 "$work/reverse.txt" | sed 's/^/  /'
 	exit 1
 fi
-echo "PASS: a timer and a thread in a Go, a Python, a C++ and a Rust test, and an async client on its default runner, each fail the gate by name, and so does a stale row"
+echo "PASS: a timer and a thread in a Go, a Python, a C++ and a Rust test, each spelled qualified, through an alias or in a child script a string carries, a parallel Go test, and an async client on its default runner, each fail the gate by name, and so do a stale row and a Rust harness free to run tests side by side"

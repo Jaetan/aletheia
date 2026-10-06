@@ -13,14 +13,14 @@ identifier that legitimately repeats across messages).
 
 The failure was in the kernel's parse of the Excel-derived DBC text, so only an
 end-to-end run through the FFI exercises it. Fixtures are generated in
-``tmp_path``. See ``_cli_check_helpers`` for the shared subprocess scaffolding.
+``tmp_path``. See ``_cli_check_helpers`` for the shared scaffolding.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from _cli_check_helpers import report, run_check, skip_without_ffi
+from _cli_check_helpers import CheckInputs, report, run_check, skip_without_ffi
 from _excel_helpers import active_sheet
 from openpyxl import Workbook
 
@@ -28,6 +28,8 @@ from aletheia.excel_loader import CHECKS_HEADERS, DBC_HEADERS
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import pytest
 
 # candump frame: 0x100 VehicleSpeed raw 0x0258 = 600 -> 6.00 kph (under the 120
 # limit), so a well-formed run passes and exits 0 — never the exit-2 parse error.
@@ -71,7 +73,9 @@ def _write_workbook(path: Path) -> None:
     wb.save(str(path))
 
 
-def test_check_excel_dbc_is_accepted_by_the_kernel(tmp_path: Path) -> None:
+def test_check_excel_dbc_is_accepted_by_the_kernel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """An Excel-authored DBC round-trips through the kernel — not rejected for an empty sender.
 
     On the unpatched loader this exits 2 with "``''`` is not a valid DBC
@@ -85,7 +89,7 @@ def test_check_excel_dbc_is_accepted_by_the_kernel(tmp_path: Path) -> None:
     log_path = tmp_path / "drive.log"
     log_path.write_text(_LOG, encoding="utf-8")
 
-    result = run_check(["--excel", str(workbook), str(log_path)])
+    result = run_check(CheckInputs(log=log_path, workbook=workbook), monkeypatch)
     msg = report(result)
     # The bug: the empty sender was rejected as an invalid DBC identifier.
     assert "not a valid DBC identifier" not in (result.stdout + result.stderr), msg

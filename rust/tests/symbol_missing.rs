@@ -10,24 +10,14 @@
 //! a binary with any suite that needs the real library (`symbol_cache.rs`
 //! covers the load-failure/recovery sequence in its own process).
 
-use aletheia::{Client, Error};
+mod stand_in;
 
-/// A shared object that is loadable but carries no Aletheia exports:
-/// glibc's math library, at its Debian/Ubuntu multiarch path (CI runs
-/// ubuntu-24.04). Other glibc distros place it elsewhere (e.g. `/lib64` on
-/// Fedora/RHEL); the prerequisite check below fails loudly there rather than
-/// silently skipping.
-const EXPORTLESS_SO: &str = "/lib/x86_64-linux-gnu/libm.so.6";
+use aletheia::{Client, Error};
 
 #[test]
 fn loadable_library_without_exports_names_the_missing_symbol() {
-    assert!(
-        std::path::Path::new(EXPORTLESS_SO).exists(),
-        "prerequisite missing: {EXPORTLESS_SO} not found — this test needs a \
-         loadable shared object without Aletheia exports (glibc's libm); on a \
-         non-glibc or non-x86-64 host, point EXPORTLESS_SO at an equivalent"
-    );
-    std::env::set_var("ALETHEIA_LIB", EXPORTLESS_SO);
+    // The stand-in the build makes that loads and exports no kernel symbol.
+    std::env::set_var("ALETHEIA_LIB", stand_in::stand_in("symbolless"));
     let Err(err) = Client::new() else {
         panic!("Client::new must fail against an export-less library")
     };

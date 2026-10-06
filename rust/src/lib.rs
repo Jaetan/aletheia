@@ -49,6 +49,8 @@ pub mod log;
 mod ltl;
 mod mock;
 mod response;
+#[cfg(feature = "async")]
+pub mod testing;
 mod types;
 #[cfg(feature = "yaml")]
 pub mod yaml;
@@ -289,8 +291,10 @@ impl ClientBuilder {
 
     /// Build a runtime-agnostic [`AsyncClient`] over an injected [`Backend`]
     /// (feature `async`) — the async analogue of
-    /// [`ClientBuilder::build_with_backend`], for test substitution without the
-    /// `.so`. Applies this builder's logger / minimum level.
+    /// [`ClientBuilder::build_with_backend`], running without the `.so`.
+    /// Applies this builder's logger / minimum level. A test starts no thread,
+    /// so it hosts a client on a [`TurnExecutor`](crate::testing::TurnExecutor)
+    /// instead.
     ///
     /// The injected backend is **moved to the async worker thread** (where the
     /// `!Send` sync `Client` lives), so — unlike the sync seam, which takes a bare
