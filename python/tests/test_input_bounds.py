@@ -370,13 +370,20 @@ class TestInputBoundEnforcedAtFFIEntry:
             # Inner cap is on the raw text bytes, not the JSON envelope.
             assert exc_info.value.observed == limits.MAX_DBC_TEXT_BYTES + 1024
 
-    def test_parse_dbc_text_refusal_carries_wire_code(self) -> None:
-        """The binding's refusal carries the kernel's ``input_bound_exceeded`` code."""
-        with AletheiaClient() as client:
-            big_payload = "x" * (limits.MAX_DBC_TEXT_BYTES + 1)
-            with pytest.raises(InputBoundExceededError) as exc_info:
-                client.parse_dbc_text(big_payload)
-            assert exc_info.value.code == "input_bound_exceeded"
+    def test_parse_dbc_text_refuses_a_text_past_its_cap(self) -> None:
+        """A text one byte past ``MAX_DBC_TEXT_BYTES`` is refused with that cap, before the call."""
+        over = limits.MAX_DBC_TEXT_BYTES + 1
+        with AletheiaClient() as client, pytest.raises(InputBoundExceededError) as exc_info:
+            client.parse_dbc_text("x" * over)
+        err = exc_info.value
+        assert (err.kind, err.observed, err.limit, err.field, err.code, str(err)) == (
+            limits.BOUND_KIND_INPUT_LENGTH_BYTES,
+            over,
+            limits.MAX_DBC_TEXT_BYTES,
+            None,
+            "input_bound_exceeded",
+            f"input_length_bytes {over} exceeds limit {limits.MAX_DBC_TEXT_BYTES}",
+        )
 
 
 class TestIdentifierLengthBound:
