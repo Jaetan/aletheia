@@ -31,7 +31,6 @@ open import Aletheia.Main using (processFrameDirect)
 open import Aletheia.Protocol.Handlers
     using (handleExtractAllSignals; handleFormatDBC; handleSetProperties)
 open import Aletheia.Protocol.Handlers.FormatDBCText using (handleFormatDBCText)
-open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.Protocol.Iteration using (iterate)
 open import Aletheia.Protocol.FrameProcessor.Properties.Step
     using (handleDataFrame-ack-sound)
@@ -39,7 +38,6 @@ open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.Protocol.StreamState using (handleDataFrame; checkMonotonic; Streaming)
 open import Data.List using (List; [])
-open import Data.Sum using (inj₁; inj₂)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.Maybe using (just; nothing)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
@@ -103,13 +101,9 @@ handleFormatDBC-preserves-state state
 ... | just _  = refl
 
 -- FormatDBCText: pipeline JSON→DBC→text, never touches state.
--- Both JSON parse failure and success paths return the input state unchanged.
 handleFormatDBCText-preserves-state : ∀ (dbcJSON : JSON) state
   → proj₁ (handleFormatDBCText dbcJSON state) ≡ state
-handleFormatDBCText-preserves-state dbcJSON state
-  with parseDBCWithErrors dbcJSON
-... | inj₁ _ = refl
-... | inj₂ _ = refl
+handleFormatDBCText-preserves-state _ _ = refl
 
 -- ============================================================================
 -- SetProperties is rejected mid-stream (extract-once soundness premise)

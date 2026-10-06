@@ -233,7 +233,7 @@ static auto parse_issue_entry(const Json& issue) -> Result<ValidationIssue>;
 // element must be present and well-typed for the lift to populate; a
 // malformed payload degrades to nullopt rather than a Protocol error, so the
 // AletheiaError still carries kind/code/message — the same rule as the
-// bound_info lift in make_json_error.
+// bound_info lift, lift_bound_info.
 static auto lift_validation_issues(const Json& j) -> std::optional<std::vector<ValidationIssue>> {
     if (!j.contains("has_errors") || !j.at("has_errors").is_boolean() || !j.contains("issues") ||
         !j.at("issues").is_array())
@@ -253,6 +253,30 @@ static auto lift_validation_issues(const Json& j) -> std::optional<std::vector<V
         return std::nullopt;
     }
     return issues;
+}
+
+// Lift the structured `bound_kind / observed / limit` triple, and the `field`
+// a DBC size bound adds, from an input_bound_exceeded envelope.  The triple
+// must be present and well-typed, and `field` absent or a string, for the lift
+// to populate; anything else degrades to nullopt rather than to a Protocol
+// error, so the AletheiaError still carries kind/code/message.
+static auto lift_bound_info(const Json& j) -> std::optional<InputBoundExceededError> {
+    if (!j.contains("bound_kind") || !j.at("bound_kind").is_string() || !j.contains("observed") ||
+        !j.at("observed").is_number_unsigned() || !j.contains("limit") ||
+        !j.at("limit").is_number_unsigned())
+        return std::nullopt;
+    std::optional<std::string> field;
+    if (j.contains("field")) {
+        if (!j.at("field").is_string())
+            return std::nullopt;
+        field = j.at("field").get<std::string>();
+    }
+    return InputBoundExceededError{
+        .bound_kind = j.at("bound_kind").get<std::string>(),
+        .observed = j.at("observed").get<std::uint64_t>(),
+        .limit = j.at("limit").get<std::uint64_t>(),
+        .field = std::move(field),
+    };
 }
 
 /// Extract error from a JSON response with status=="error", parsing the code field.
@@ -278,23 +302,9 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
     // so a caller discriminates it from a structural validation failure by kind().
     if (code == ErrorCode::HandlerTextRoundtripFailed)
         effective_kind = ErrorKind::TextRoundtrip;
-    // Lift the structured `bound_kind / observed / limit` triple into the
-    // AletheiaError when the response carries it.  All three must be
-    // present and well-typed for `bound_info` to be populated; partial
-    // fields are treated as nullopt rather than as a Protocol error, so
-    // older Agda responses (or future cores that drop the fields) degrade
-    // gracefully (the AletheiaError still carries kind/code/message).
     std::optional<InputBoundExceededError> bound_info;
-    if (effective_kind == ErrorKind::InputBoundExceeded && j.contains("bound_kind") &&
-        j.at("bound_kind").is_string() && j.contains("observed") &&
-        j.at("observed").is_number_unsigned() && j.contains("limit") &&
-        j.at("limit").is_number_unsigned()) {
-        bound_info = InputBoundExceededError{
-            .bound_kind = j.at("bound_kind").get<std::string>(),
-            .observed = j.at("observed").get<std::uint64_t>(),
-            .limit = j.at("limit").get<std::uint64_t>(),
-        };
-    }
+    if (effective_kind == ErrorKind::InputBoundExceeded)
+        bound_info = lift_bound_info(j);
     std::optional<std::vector<ValidationIssue>> issues;
     if (code == ErrorCode::HandlerValidationFailed || code == ErrorCode::HandlerTextRoundtripFailed)
         issues = lift_validation_issues(j);

@@ -136,10 +136,10 @@ class AletheiaError {
     ErrorCode code_;
     std::string message_;
     // Populated only when `kind_ == ErrorKind::InputBoundExceeded`; carries
-    // the structured `bound_kind/observed/limit` that the Python and Go
-    // bindings already expose via their typed `InputBoundExceededError`
-    // for cross-binding parity.  Errors of any
-    // other kind have `std::nullopt`.
+    // the structured `bound_kind/observed/limit` and, for a DBC size bound,
+    // the `field` that crossed it, as the Python and Go bindings' typed
+    // `InputBoundExceededError` do.  Errors of any other kind have
+    // `std::nullopt`.
     std::optional<InputBoundExceededError> bound_info_;
     // Populated when `code_` is `HandlerValidationFailed` (parseDBC /
     // parseDBCText rejects) or `HandlerTextRoundtripFailed` (formatDBCText

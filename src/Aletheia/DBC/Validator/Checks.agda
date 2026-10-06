@@ -24,7 +24,7 @@ open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 
 open import Aletheia.DBC.Types using
-  ( signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr; attrDefNameStr
+  ( signalNameStr; messageNameStr; messageSenderStr; attrDefNameStr
   ; DBCMessage; DBCSignal; SignalPresence; Always; When
   ; ValidationIssue; mkIssue; IsError; IsWarning; IssueCode
   ; DuplicateMessageId; DuplicateSignalName; FactorZero
@@ -42,11 +42,10 @@ open import Aletheia.DBC.Types using
   ; EnvironmentVar
   ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
   )
-open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.DBC.Decidable using (signalPairValid?)
 open import Aletheia.DBC.Decidable.SignalGeometry using
   (startBitInFrame?; bitLengthInFrame?; signalFitsFrame?)
-open import Aletheia.CAN.DBCHelpers using (_≟-CANId_; findSignalInList)
+open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Encoding.Value.Facts using (bitsRange)
@@ -68,7 +67,9 @@ open import Data.Product using (proj₁; proj₂)
 open import Relation.Nullary using (yes; no)
 open import Data.List.Relation.Unary.Any using (any?)
 open import Aletheia.DBC.Validity.Combinators using
-  (requireDec; rejectDec; checkAgainst; triangularCheck)
+  (requireDec; requireDec₀; rejectDec; checkAgainst; triangularCheck)
+open import Aletheia.DBC.Validator.Targets using
+  (NameSet; _∈?_; nodeNames; envVarNames; MessageIndex; messageIndex; findMessage)
 open import Aletheia.DBC.Validator.SharedKeys using
   ( Entry; message; label; nameKey; showCanIdText
   ; messageEntries; messageIdEntries; signalEntries; sharedKeyGroups; perOwner
@@ -463,27 +464,30 @@ checkAllDuplicateAttributeNames attrs = triangularCheck checkDuplicateAttrNamePa
 -- environment variable (EV_). Network-level comments (no keyword) target
 -- the DBC as a whole and require no resolution.
 
--- Linear CANId lookup in a message list.
-findMessageInList : CANId → List DBCMessage → Maybe DBCMessage
-findMessageInList _   []       = nothing
-findMessageInList cid (m ∷ ms) with cid ≟-CANId DBCMessage.id m
-... | yes _ = just m
-... | no  _ = findMessageInList cid ms
+-- What a comment can name, each indexed once per check.
+record CommentTargets : Set where
+  field
+    messages : MessageIndex
+    nodes    : NameSet
+    envVars  : NameSet
 
-checkCommentTargetExists : List DBCMessage → List Node → List EnvironmentVar
-                         → DBCComment → List ValidationIssue
-checkCommentTargetExists msgs nodes envVars cm with DBCComment.target cm
+commentTargets : List DBCMessage → List Node → List EnvironmentVar → CommentTargets
+commentTargets msgs nodes envVars = record
+  { messages = messageIndex msgs ; nodes = nodeNames nodes ; envVars = envVarNames envVars }
+
+checkCommentTargetExists : CommentTargets → DBCComment → List ValidationIssue
+checkCommentTargetExists ts cm with DBCComment.target cm
 ... | CTNetwork = []
 ... | CTNode nname =
-        requireDec (any? (λ n → nodeNameStr n ≟ₛ nameStr nname) nodes)
+        requireDec₀ (Identifier.name nname ∈? CommentTargets.nodes ts)
           (mkIssue IsWarning UnknownCommentTarget
             ("Comment references unknown node '" ++ₛ nameStr nname ++ₛ "'"))
-... | CTMessage mid with findMessageInList mid msgs
+... | CTMessage mid with findMessage mid (CommentTargets.messages ts)
 ...   | just _  = []
 ...   | nothing = mkIssue IsWarning UnknownCommentTarget
                     "Comment references unknown message" ∷ []
-checkCommentTargetExists msgs _ _ cm | CTSignal mid sname
-  with findMessageInList mid msgs
+checkCommentTargetExists ts cm | CTSignal mid sname
+  with findMessage mid (CommentTargets.messages ts)
 ...   | nothing = mkIssue IsWarning UnknownCommentTarget
                     ("Comment references unknown signal '"
                      ++ₛ nameStr sname ++ₛ "' (message not found)") ∷ []
@@ -492,25 +496,24 @@ checkCommentTargetExists msgs _ _ cm | CTSignal mid sname
 ...     | nothing = mkIssue IsWarning UnknownCommentTarget
                       ("Comment references unknown signal '" ++ₛ nameStr sname
                        ++ₛ "' in message '" ++ₛ messageNameStr m ++ₛ "'") ∷ []
-checkCommentTargetExists _ _ envVars cm | CTEnvVar evname =
-  requireDec (any? (λ ev → envVarNameStr ev ≟ₛ nameStr evname) envVars)
+checkCommentTargetExists ts cm | CTEnvVar evname =
+  requireDec₀ (Identifier.name evname ∈? CommentTargets.envVars ts)
     (mkIssue IsWarning UnknownCommentTarget
       ("Comment references unknown environment variable '" ++ₛ nameStr evname ++ₛ "'"))
 
 checkAllUnknownCommentTargets : List DBCMessage → List Node → List EnvironmentVar
                               → List DBCComment → List ValidationIssue
 checkAllUnknownCommentTargets msgs nodes envVars =
-  concatMap (checkCommentTargetExists msgs nodes envVars)
+  concatMap (checkCommentTargetExists (commentTargets msgs nodes envVars))
 
 -- Shared body for CHECK 20 / 21 / 22 "is name X declared as a node?"
--- warnings.  Rejects when `targetName` is not in `nodes`, emitting an
--- IsWarning-severity issue with the given code and detail.
+-- warnings.  Rejects when `name` is not among the declared node names,
+-- emitting an IsWarning-severity issue with the given code and detail.
 private
   checkUnknownNodeReference :
-    List Node → String → IssueCode → String → List ValidationIssue
-  checkUnknownNodeReference nodes targetName code detail =
-    requireDec (any? (λ n → nodeNameStr n ≟ₛ targetName) nodes)
-      (mkIssue IsWarning code detail)
+    NameSet → Identifier → IssueCode → String → List ValidationIssue
+  checkUnknownNodeReference known name code detail =
+    requireDec₀ (Identifier.name name ∈? known) (mkIssue IsWarning code detail)
 
 -- ============================================================================
 -- CHECK 20: UNKNOWN MESSAGE SENDER
@@ -520,16 +523,16 @@ private
 -- BU_ entirely and the sender field is informational. When BU_ is present,
 -- each sender is validated against it.
 
-checkUnknownSender : List Node → DBCMessage → List ValidationIssue
-checkUnknownSender nodes msg =
-  checkUnknownNodeReference nodes (messageSenderStr msg) UnknownMessageSender
+checkUnknownSender : NameSet → DBCMessage → List ValidationIssue
+checkUnknownSender known msg =
+  checkUnknownNodeReference known (DBCMessage.sender msg) UnknownMessageSender
     ("Message '" ++ₛ messageNameStr msg
      ++ₛ "': sender '" ++ₛ messageSenderStr msg
      ++ₛ "' not declared in BU_ (nodes) list")
 
 checkAllUnknownMessageSenders : List DBCMessage → List Node → List ValidationIssue
 checkAllUnknownMessageSenders _    []             = []
-checkAllUnknownMessageSenders msgs nodes@(_ ∷ _) = concatMap (checkUnknownSender nodes) msgs
+checkAllUnknownMessageSenders msgs nodes@(_ ∷ _) = concatMap (checkUnknownSender (nodeNames nodes)) msgs
 
 -- ============================================================================
 -- CHECK 21: UNKNOWN SIGNAL RECEIVER
@@ -538,22 +541,22 @@ checkAllUnknownMessageSenders msgs nodes@(_ ∷ _) = concatMap (checkUnknownSend
 -- When the DBC has no BU_ section (nodes = []) the check is skipped, same
 -- as checkAllUnknownMessageSenders above.
 
-checkUnknownReceiver : List Node → String → String → Identifier → List ValidationIssue
-checkUnknownReceiver nodes msgName sigName receiver =
-  checkUnknownNodeReference nodes (nameStr receiver) UnknownSignalReceiver
+checkUnknownReceiver : NameSet → String → String → Identifier → List ValidationIssue
+checkUnknownReceiver known msgName sigName receiver =
+  checkUnknownNodeReference known receiver UnknownSignalReceiver
     ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ sigName
      ++ₛ "': receiver '" ++ₛ nameStr receiver
      ++ₛ "' not declared in BU_ (nodes) list")
 
-checkReceiversForSignal : List Node → String → DBCSignal → List ValidationIssue
-checkReceiversForSignal nodes msgName sig =
-  concatMap (checkUnknownReceiver nodes msgName (signalNameStr sig))
+checkReceiversForSignal : NameSet → String → DBCSignal → List ValidationIssue
+checkReceiversForSignal known msgName sig =
+  concatMap (checkUnknownReceiver known msgName (signalNameStr sig))
             (CanonicalReceivers.list (DBCSignal.receivers sig))
 
 checkAllUnknownSignalReceivers : List DBCMessage → List Node → List ValidationIssue
 checkAllUnknownSignalReceivers _    []             = []
 checkAllUnknownSignalReceivers msgs nodes@(_ ∷ _) =
-  liftPerSignal (checkReceiversForSignal nodes) msgs
+  liftPerSignal (checkReceiversForSignal (nodeNames nodes)) msgs
 
 -- ============================================================================
 -- CHECK 22: UNKNOWN ADDITIONAL SENDER (BO_TX_BU_)
@@ -563,22 +566,22 @@ checkAllUnknownSignalReceivers msgs nodes@(_ ∷ _) =
 -- (same domain concept — a sender that is not in BU_) and skips when the DBC
 -- omits BU_, matching the behavior of checkAllUnknownMessageSenders.
 
-checkUnknownAdditionalSender : List Node → String → Identifier → List ValidationIssue
-checkUnknownAdditionalSender nodes msgName sender =
-  checkUnknownNodeReference nodes (nameStr sender) UnknownMessageSender
+checkUnknownAdditionalSender : NameSet → String → Identifier → List ValidationIssue
+checkUnknownAdditionalSender known msgName sender =
+  checkUnknownNodeReference known sender UnknownMessageSender
     ("Message '" ++ₛ msgName
      ++ₛ "': additional sender '" ++ₛ nameStr sender
      ++ₛ "' not declared in BU_ (nodes) list")
 
-checkAdditionalSendersForMessage : List Node → DBCMessage → List ValidationIssue
-checkAdditionalSendersForMessage nodes msg =
-  concatMap (checkUnknownAdditionalSender nodes (messageNameStr msg))
+checkAdditionalSendersForMessage : NameSet → DBCMessage → List ValidationIssue
+checkAdditionalSendersForMessage known msg =
+  concatMap (checkUnknownAdditionalSender known (messageNameStr msg))
             (DBCMessage.senders msg)
 
 checkAllUnknownAdditionalSenders : List DBCMessage → List Node → List ValidationIssue
 checkAllUnknownAdditionalSenders _    []             = []
 checkAllUnknownAdditionalSenders msgs nodes@(_ ∷ _) =
-  concatMap (checkAdditionalSendersForMessage nodes) msgs
+  concatMap (checkAdditionalSendersForMessage (nodeNames nodes)) msgs
 
 -- ============================================================================
 -- CHECK 23: UNKNOWN VALUE DESCRIPTION TARGET (VAL_)

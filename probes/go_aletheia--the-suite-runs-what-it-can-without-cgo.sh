@@ -28,7 +28,7 @@
 set -u
 cd "$(dirname "$0")/../go" || exit 2
 command -v go > /dev/null || exit 2
-expected=109
+expected=110
 modules=$(go list -m -f '{{.Dir}}') || exit 2
 [ -n "$modules" ] || exit 2
 excel=$(go list -m -f '{{.Dir}}' github.com/Jaetan/aletheia/go/excel) || exit 2

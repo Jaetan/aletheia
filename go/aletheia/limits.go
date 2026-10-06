@@ -40,7 +40,8 @@ const (
 	// MaxMessagesPerFile bounds the messages of one DBC file.
 	MaxMessagesPerFile = 10000
 
-	// MaxSignalsPerMessage bounds the signals of one message.
+	// MaxSignalsPerMessage bounds the signals of one message, and the members
+	// of one signal group, which are one message's signals.
 	MaxSignalsPerMessage = 1024
 
 	// MaxAttributesPerFile bounds the attribute definitions and assignments of
@@ -50,21 +51,43 @@ const (
 	// MaxCommentsPerFile bounds the comments of one file.
 	MaxCommentsPerFile = 10000
 
-	// MaxNodesPerFile bounds the nodes of one file.
+	// MaxNodesPerFile bounds the nodes of one file, the senders of one
+	// message and the receivers of one signal.
 	MaxNodesPerFile = 10000
 
 	// MaxValueTablesPerFile bounds the value tables of one file.
 	MaxValueTablesPerFile = 10000
 
 	// MaxValueDescriptionsPerFile bounds the value descriptions of one file,
-	// whether they sit in a table or on a signal.
+	// whether they sit in a table, on a signal or on a line naming no signal.
 	MaxValueDescriptionsPerFile = 1000000
+
+	// MaxSignalGroupsPerFile bounds the signal groups of one file.
+	MaxSignalGroupsPerFile = 10000
+
+	// MaxEnvironmentVariablesPerFile bounds the environment variables of one
+	// file.
+	MaxEnvironmentVariablesPerFile = 10000
+
+	// MaxUnresolvedValueDescriptionsPerFile bounds the value description
+	// lines of one file that name no signal of it, counted as lines rather
+	// than entries.
+	MaxUnresolvedValueDescriptionsPerFile = 10000
+
+	// MaxEnumLabelsPerAttribute bounds the labels of one enumerated attribute
+	// type.
+	MaxEnumLabelsPerAttribute = 10000
+
+	// MaxMultiplexValuesPerSignal bounds the selector values one multiplexed
+	// signal is present for.
+	MaxMultiplexValuesPerSignal = 1024
 
 	// MaxIdentifierLength bounds a DBC identifier, in characters.
 	MaxIdentifierLength = 128
 
-	// MaxStringLengthBytes bounds the body of a quoted string, at 64 kibibytes.
-	MaxStringLengthBytes = 64 * 1024
+	// MaxStringLengthCharacters bounds a DBC text field's length, in
+	// characters.
+	MaxStringLengthCharacters = 64 * 1024
 
 	// MaxAtomCountPerProperty bounds the atoms of one property.
 	MaxAtomCountPerProperty = 1024
@@ -78,10 +101,11 @@ const (
 )
 
 // refuseOversize is the binding's refusal of an input of size bytes past
-// limit, typed as the kernel's own refusal of it is lifted.
+// limit, typed as the kernel's own refusal of it is lifted. It carries no
+// kernel message, so its text is the binding's own.
 func refuseOversize(size, limit uint64) error {
 	if size > limit {
-		return newInputBoundExceededError(BoundKindInputLengthBytes, size, limit, CodeInputBoundExceeded)
+		return newInputBoundExceededError(BoundKindInputLengthBytes, size, limit, CodeInputBoundExceeded, "", "")
 	}
 	return nil
 }

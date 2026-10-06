@@ -561,6 +561,14 @@ response = client.parse_dbc(dbc)
 assert response["status"] == "success"
 ```
 
+**Raises**: `InputBoundExceededError` when the DBC is past one of the kernel's bounds (a list's cardinality, a text's length, a number's magnitude); its `kind`, `observed` and `limit` name the bound, and its `field` names the part of the DBC that crossed a size bound (see [Exceptions](#exceptions)).
+
+#### `parse_dbc_text(text: str) -> ParsedDBCResponse | ErrorResponse`
+
+Load a DBC from `.dbc` file text through the verified text parser, with the response shape of `parse_dbc()`.
+
+**Raises**: `InputBoundExceededError` when the text is longer than `MAX_DBC_TEXT_BYTES`, or the DBC it holds is past one of the kernel's bounds, as `parse_dbc()` raises it.
+
 #### `validate_dbc(dbc: DBCDefinition) -> ValidationResponse`
 
 Validate a DBC definition for structural issues (overlapping signals, zero-length signals, etc.). Can be called anytime — does not require `parse_dbc()` and does not modify client state.
@@ -574,6 +582,8 @@ if result["has_errors"]:
 
 **Returns**: `{"status": "validation", "has_errors": bool, "issues": [{"severity": str, "code": str, "detail": str}, ...]}`
 
+**Raises**: `InputBoundExceededError` when the DBC is past one of the kernel's bounds, as `parse_dbc()` raises it.
+
 #### `format_dbc() -> DBCDefinition`
 
 Export the currently-loaded DBC as a JSON dict. Requires a prior `parse_dbc()` call.
@@ -582,6 +592,14 @@ Export the currently-loaded DBC as a JSON dict. Requires a prior `parse_dbc()` c
 dbc_out = client.format_dbc()
 # dbc_out matches the DBCDefinition schema
 ```
+
+#### `format_dbc_text(dbc: DBCDefinition) -> DBCTextResponse`
+
+Render a DBC definition as `.dbc` file text through the verified formatter, returning the text only when it provably re-parses to the input. Does not require `parse_dbc()` and does not modify client state.
+
+**Returns**: `{"status": "success", "text": str, "issues": [{"severity": str, "code": str, "detail": str}, ...]}`
+
+**Raises**: `InputBoundExceededError` when the DBC is past one of the kernel's bounds, as `parse_dbc()` raises it; with `nodes` empty, the nodes derived from the message senders are bounded too. `TextRoundTripFailedError` when the emitted text does not re-parse to the input.
 
 #### `add_checks(checks: list[CheckResult]) -> SuccessResponse | ErrorResponse`
 
@@ -791,7 +809,8 @@ frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72})
 ## Converting .dbc Files
 
 `dbc_to_json` is a thin wrapper over the verified Agda DBC parser; no
-third-party dependency is required.
+third-party dependency is required. It raises `InputBoundExceededError` for a
+file larger than `MAX_DBC_TEXT_BYTES` or a DBC past one of the kernel's bounds.
 
 ```python
 from aletheia.dbc import dbc_to_json
@@ -1070,8 +1089,13 @@ AletheiaError (base)
 ├── ProtocolError             # JSON parse error / wire-shape mismatch / Agda kernel ErrorResponse (carries .code)
 ├── ValidationError           # Caller-supplied bad input (unknown signal, payload length, malformed CAN ID)
 ├── InputBoundExceededError   # Adversarial-input bound exceeded at a parser surface
-└── BatchError                # send_frames stopped mid-batch; carries .partial_results
+├── DBCValidationFailedError  # DBC parsed but failed validation; carries .issues / .has_errors
+├── TextRoundTripFailedError  # format_dbc_text's text does not re-parse to the input; carries .issues
+├── BatchError                # send_frames stopped mid-batch; carries .partial_results
+└── BinaryPathUnsupportedError # A Backend cannot serve a binary method; the client falls back to JSON
 ~~~
+
+`InputBoundExceededError` carries `kind` (one of the `BOUND_KIND_*` codes of `aletheia.limits`), `observed`, `limit` and `field`: the part of a DBC that crossed one of its size bounds (`"senders array"`, `"version string"`), or `None` for a bound that names no field. Every DBC command (`parse_dbc`, `parse_dbc_text`, `validate_dbc`, `format_dbc_text`, `dbc_to_json`, `dbc_to_text`) raises it for an input past a bound. For a refusal the kernel sent, `str(err)` is the kernel's message (`ParseDBC: senders array: array cardinality 10001 exceeds limit 10000`); for a bound the binding checks before the call (a DBC text past `MAX_DBC_TEXT_BYTES`, a command past `MAX_JSON_BYTES`), it is the binding's own text naming the kind, the observed value and the limit. The bounds are the `MAX_*` constants of `aletheia.limits`; a DBC text field (version, unit, comment, attribute name or value, value label) is bounded by `MAX_STRING_LENGTH_CHARACTERS`, counted in characters.
 
 ```python
 from aletheia import (
@@ -1115,6 +1139,8 @@ Convert a byte count to the corresponding DLC code. Inverse of `dlc_to_bytes()`.
 #### `dbc_to_text(dbc: DBCDefinition) -> str`
 
 Convert a `DBCDefinition` dict to DBC file text format.
+
+**Raises**: `InputBoundExceededError` when the DBC is past one of the kernel's bounds; `TextRoundTripFailedError` when the emitted text does not re-parse to the input.
 
 #### DBC Query Helpers
 

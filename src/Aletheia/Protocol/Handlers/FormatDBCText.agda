@@ -14,24 +14,28 @@
 -- Role: Imported by `Aletheia.Protocol.Handlers` for the
 -- `processStreamCommand (FormatDBCText _) _` dispatch case.
 --
--- Pipeline: JSON DBC → parseDBCWithErrors → DBC value → deriveNodesIfEmpty
--- → formatText → exact round-trip check → text Response or typed refusal.
+-- Pipeline: JSON DBC → parseDBCWithErrors → DBC value → checkBounds →
+-- deriveNodesIfEmpty → formatText → exact round-trip check → text Response
+-- or typed refusal.  The size bounds are the load routes', refused the same
+-- way, so the command never emits text a load refuses for its size.
 -- `deriveNodesIfEmpty` runs at the protocol layer so every binding's
 -- `format_dbc_text` (Python / C++ / Go / Rust) gets uniform sender→nodes
 -- derivation.
 module Aletheia.Protocol.Handlers.FormatDBCText where
 
-open import Data.Bool using (Bool; true; false; _∨_; if_then_else_)
+open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.List using (List; []; _∷_; map; concatMap)
 open import Data.Product using (_×_; _,_)
-open import Data.Sum using (inj₁; inj₂)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.String using (String)
-open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.DBC.Types using
   ( DBC; DBCMessage; Node; mkNode
   ; IsError; ValidationIssue; mkIssue; TextRoundTripDivergence )
-open import Aletheia.DBC.Identifier using (Identifier; _≟ᴵ_)
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Validator.Targets using (NameSet; noNames; withName; _∈?_)
+open import Aletheia.Data.Dec0 using (_because₀_)
+open import Aletheia.DBC.Bounds using (BoundedDBC; checkBounds; withNodes)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.TextFormatter using (formatText)
 open import Aletheia.DBC.TextParser.RoundTripCheck using (roundTripsWithᵇ)
@@ -39,24 +43,20 @@ open import Aletheia.DBC.TextParser.WellFormedCheck using (wfTextIssues)
 open import Aletheia.Protocol.JSON using (JSON)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.StreamState using (StreamState)
-open import Aletheia.Error using (WithContext; HandlerErr; TextRoundTripFailed)
+open import Aletheia.Error using (Error; WithContext; HandlerErr; TextRoundTripFailed)
+open import Aletheia.Prelude using (_>>=ₑ_)
 
 private
-  -- True if `i` is structurally equal to any element of `xs`.
-  containsId : Identifier → List Identifier → Bool
-  containsId i []       = false
-  containsId i (x ∷ xs) = ⌊ i ≟ᴵ x ⌋ ∨ containsId i xs
-
-  -- Order-preserving dedupe by Identifier equality.  First occurrence wins.
-  -- Termination: structural recursion on the input list.
+  -- Order-preserving dedupe by name.  First occurrence wins; the names kept
+  -- so far live in a set, so each test costs time logarithmic in their number.
   nubIds : List Identifier → List Identifier
-  nubIds = go []
+  nubIds = go noNames
     where
-      go : List Identifier → List Identifier → List Identifier
+      go : NameSet → List Identifier → List Identifier
       go _    []       = []
-      go seen (x ∷ xs) with containsId x seen
-      ... | true  = go seen xs
-      ... | false = x ∷ go (x ∷ seen) xs
+      go seen (x ∷ xs) with Identifier.name x ∈? seen
+      ... | true  because₀ _ = go seen xs
+      ... | false because₀ _ = x ∷ go (withName (Identifier.name x) seen) xs
 
   -- All node identifiers a single message references as a transmitter:
   -- the primary BO_ sender plus any BO_TX_BU_ extras.
@@ -68,13 +68,14 @@ private
   uniqueSenderNodes : List DBCMessage → List Node
   uniqueSenderNodes ms = map mkNode (nubIds (concatMap msgSenders ms))
 
--- If `nodes` is empty, populate from the union of all message senders.
--- Already-non-empty `nodes` lists pass through unchanged.  Applied at the
--- protocol-handler boundary so every binding sees the same behavior.
-deriveNodesIfEmpty : DBC → DBC
-deriveNodesIfEmpty d with DBC.nodes d
-... | _ ∷ _ = d
-... | []    = record d { nodes = uniqueSenderNodes (DBC.messages d) }
+-- If `nodes` is empty, populate from the union of all message senders,
+-- refused when they pass the node bound.  Already-non-empty `nodes` lists
+-- pass through unchanged.  Applied at the protocol-handler boundary so every
+-- binding sees the same behavior.
+deriveNodesIfEmpty : BoundedDBC → Error ⊎ BoundedDBC
+deriveNodesIfEmpty b with DBC.nodes (BoundedDBC.dbc b)
+... | _ ∷ _ = inj₂ b
+... | []    = withNodes b (uniqueSenderNodes (DBC.messages (BoundedDBC.dbc b)))
 
 -- Format a DBC (given as a JSON dict) back to `.dbc` text using the verified
 -- Agda formatter.  State is never mutated — a read-only operation on the JSON
@@ -131,13 +132,17 @@ finish txt rt diags =
 -- evaluate `parseText (formatText d′)` and deep-compare), else refuse.
 -- Top-level (not a `where` of the handler) so `Handlers.Properties.FormatDBCText`
 -- can name it and machine-check the emitted-text round-trip guarantee.
-formatDBCTextResult : DBC → Response
-formatDBCTextResult d′ = withText (formatText d′)
+formatDBCTextResult : BoundedDBC → Response
+formatDBCTextResult b = withText (formatText d′)
   where
+  d′ = BoundedDBC.dbc b
   withText : String → Response
   withText txt = finish txt (roundTripsWithᵇ d′ txt) (wfTextIssues d′)
 
+formatDBCTextResponse : JSON → Response
+formatDBCTextResponse dbcJSON with (parseDBCWithErrors dbcJSON >>=ₑ checkBounds) >>=ₑ deriveNodesIfEmpty
+... | inj₁ err = Response.Error (WithContext "FormatDBCText" err)
+... | inj₂ b   = formatDBCTextResult b
+
 handleFormatDBCText : JSON → StreamState → StreamState × Response
-handleFormatDBCText dbcJSON state with parseDBCWithErrors dbcJSON
-... | inj₁ err = (state , Response.Error (WithContext "FormatDBCText" err))
-... | inj₂ dbc = (state , formatDBCTextResult (deriveNodesIfEmpty dbc))
+handleFormatDBCText dbcJSON state = (state , formatDBCTextResponse dbcJSON)

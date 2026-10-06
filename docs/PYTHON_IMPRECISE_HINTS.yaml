@@ -648,9 +648,6 @@ hints:
   - file: python/aletheia/client/_response_parsers.py
     text: "str"
     count: 6
-  - file: python/aletheia/client/_response_parsers.py
-    text: "tuple[str, int, int] | None"
-    count: 2
   - file: python/aletheia/client/_signal_ops.py
     text: "Mapping[str, int | Fraction]"
     count: 3
@@ -719,10 +716,10 @@ hints:
     count: 1
   - file: python/aletheia/client/_types.py
     text: "int"
-    count: 18
+    count: 14
   - file: python/aletheia/client/_types.py
     text: "str"
-    count: 8
+    count: 6
   - file: python/aletheia/client/_types.py
     text: "str | None"
     count: 5
@@ -807,12 +804,6 @@ hints:
   - file: python/aletheia/excel_loader.py
     text: "type CellValue = str | int | float | bool | None"
     count: 1
-  - file: python/aletheia/limits.py
-    text: "Final[int]"
-    count: 12
-  - file: python/aletheia/limits.py
-    text: "Final[str]"
-    count: 8
   - file: python/aletheia/types.py
     text: "NotRequired[int]"
     count: 3

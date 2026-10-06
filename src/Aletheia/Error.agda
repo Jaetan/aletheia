@@ -467,8 +467,6 @@ data DBCTextParseError : Set where
   -- runs after the SG_ line has parsed, so the signal NAME (not a byte
   -- offset) is the anchor the current parser can supply.
   SignalGeometryError       : String → ParseError → DBCTextParseError
-  -- NOTE: DBC-text-input bytes adversarial bound emits via the top-level
-  -- `Error.InputBoundExceeded` ctor.
 
 formatDBCTextParseError : DBCTextParseError → String
 formatDBCTextParseError (ParseFailure pos) =
@@ -512,6 +510,9 @@ data Error : Set where
   -- says which bound, and bindings dispatch on the `bound_kind` field of
   -- the structured payload.
   InputBoundExceeded : BoundKind → ℕ → ℕ → Error
+  -- The same, crossed by the named part of the input (a DBC's "senders
+  -- array", its "version string"), which the payload carries as `field`.
+  InputBoundExceededAt : String → BoundKind → ℕ → ℕ → Error
 
 formatError : Error → String
 formatError (ParseErr pe)                       = formatParseError pe
@@ -524,6 +525,8 @@ formatError (DBCTextParseErr de)                = formatDBCTextParseError de
 formatError (WithContext ctx inner)             = ctx ++ₛ ": " ++ₛ formatError inner
 formatError (InputBoundExceeded kind obs limit) =
   boundKindLabel kind ++ₛ " " ++ₛ showℕ obs ++ₛ " exceeds limit " ++ₛ showℕ limit
+formatError (InputBoundExceededAt part kind obs limit) =
+  part ++ₛ ": " ++ₛ formatError (InputBoundExceeded kind obs limit)
 
 errorCode : Error → String
 errorCode (ParseErr pe)             = parseErrorCode pe
@@ -535,3 +538,4 @@ errorCode (DispatchErr de)          = dispatchErrorCode de
 errorCode (DBCTextParseErr de)      = dbcTextParseErrorCode de
 errorCode (WithContext _ inner)     = errorCode inner
 errorCode (InputBoundExceeded _ _ _) = "input_bound_exceeded"
+errorCode (InputBoundExceededAt _ kind obs limit) = errorCode (InputBoundExceeded kind obs limit)

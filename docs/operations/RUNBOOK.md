@@ -442,13 +442,13 @@ or the binding raises `aletheia.InputBoundExceededError` (Python) /
 - `input_length_bytes` — JSON or DBC-text input exceeded `max_json_bytes`
   / `max_dbc_text_bytes` (64 MiB) at the FFI entry.
 - `nesting_depth` — JSON nesting exceeded `max_nesting_depth` (64).
-- `array_cardinality` — a list exceeded its per-section cardinality
-  cap (`max_messages_per_file`, `max_signals_per_message`,
-  `max_attributes_per_file`, `max_value_descriptions_per_file`).
+- `array_cardinality` — a DBC list exceeded its cap; the message names
+  the list (e.g. `messages array`, `senders array`), and
+  PROTOCOL.md § Limits tables every cap.
 - `identifier_length` — a DBC identifier exceeded
   `max_identifier_length` (128 chars).
-- `string_length` — a quoted-string body exceeded
-  `max_string_length_bytes` (64 KiB).
+- `string_length` — a DBC text field exceeded
+  `max_string_length_characters` (65,536 characters).
 - `atom_count` — an LTL property exceeded
   `max_atom_count_per_property` (1024 atoms).
 - `property_count` — one `setProperties` call submitted more than
@@ -467,13 +467,10 @@ splits by bound-kind family:
   — a legitimate commercial DBC can exceed the 64 MiB cap if it carries
   large value-table glossaries; see PROTOCOL.md § Updating bounds for
   the kernel+binding mirror procedure.
-- **`array_cardinality`** on `max_messages_per_file` /
-  `max_signals_per_message` / `max_attributes_per_file` /
-  `max_value_descriptions_per_file` — most commonly hit by very large
-  commercial DBCs; the per-section caps have ~6× headroom but a single
-  oversize ECU bundle can exceed them.  Raising the bound requires
-  benchmarking the parser's O(N²) sub-paths before flipping the
-  constant.
+- **`array_cardinality`** — most commonly hit by very large
+  commercial DBCs; the caps have ~6× headroom but a single oversize ECU
+  bundle can exceed them.  Raising a cap follows PROTOCOL.md § Updating
+  bounds.
 - **`identifier_length`** / **`string_length`** — legitimate DBCs do
   not have 128-char identifiers; this is almost always input
   corruption or a fuzz input.  Reject.

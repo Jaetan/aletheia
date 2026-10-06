@@ -56,12 +56,14 @@ func validateLoaderPath(path, kind string) error {
 }
 
 // boundExceeded is the refusal all three bounds answer with, typed so that a
-// caller reads the limit and what was seen rather than parsing a sentence.
+// caller reads the limit and what was seen rather than parsing a sentence. It
+// carries no kernel message, so its text is the binding's own.
 func boundExceeded(observed uint64) error {
 	return &aletheia.InputBoundExceededError{
 		BoundKind: aletheia.BoundKindInputLengthBytes,
 		Observed:  observed,
 		Limit:     aletheia.MaxDBCTextBytes,
+		Code:      aletheia.CodeInputBoundExceeded,
 	}
 }
 

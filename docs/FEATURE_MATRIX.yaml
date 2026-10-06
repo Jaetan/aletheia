@@ -507,7 +507,7 @@ features:
 
   - id: input_bound_exceeded_error
     name: Typed input-bound-exceeded error
-    description: An adversarial-input bound rejection (nesting depth, atom count, identifier length, …) is lifted from the wire input_bound_exceeded envelope into a typed error carrying the structured bound_kind / observed / limit triple; a malformed/partial triple degrades to the generic coded error.
+    description: An adversarial-input bound rejection (nesting depth, atom count, identifier length, …) is lifted from the wire input_bound_exceeded envelope into a typed error carrying the structured bound_kind / observed / limit triple and, for a DBC's size bound, the field that crossed it (e.g. "senders array"); a malformed/partial triple degrades to the generic coded error.
     bindings:
       python: { status: implemented, entry: aletheia.InputBoundExceededError }
       cpp:    { status: implemented, entry: "aletheia/limits.hpp#InputBoundExceededError" }
@@ -515,7 +515,7 @@ features:
       rust:
         status: implemented
         entry: "Error::InputBoundExceeded"
-        notes: "Error::InputBoundExceeded { code, bound_kind, observed, limit } — lifted by parse_object when the wire code is input_bound_exceeded and the triple is well-typed (a malformed/partial triple degrades to Error::Core, matching Go/C++/Python). Added in the cross-binding decoder-audit follow-up; before it, Rust collapsed every error envelope to the generic Error::Core. The human-readable message is reconstructed from the triple by Display, not stored — like the peers."
+        notes: "Error::InputBoundExceeded is lifted by parse_object when the wire code is input_bound_exceeded and the triple is well-typed (a malformed/partial triple degrades to Error::Core, matching Go/C++/Python)."
 
   - id: validation_rejection_issues
     name: Structured issues on validation rejection

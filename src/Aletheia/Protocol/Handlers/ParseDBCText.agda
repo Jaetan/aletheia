@@ -15,10 +15,7 @@
 module Aletheia.Protocol.Handlers.ParseDBCText where
 
 open import Data.String using (String; toList)
-open import Data.List using (length)
-open import Data.Nat using (_≤ᵇ_)
 open import Data.Product using (_×_; _,_)
-open import Data.Bool using (if_then_else_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.TextParser using (parseTextChars)
@@ -26,8 +23,7 @@ open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.StreamState using (StreamState)
 open import Aletheia.Protocol.Handlers.LoadDBC using (loadValidatedDBC)
 open import Aletheia.Error using
-  ( DBCTextParseError; InputBoundExceeded; WithContext; DBCTextParseErr )
-open import Aletheia.Limits using (InputLengthBytes; max-dbc-text-bytes)
+  ( DBCTextParseError; WithContext; DBCTextParseErr )
 
 -- Parse DBC from raw DBC text using the verified Agda text parser.
 -- Composes the proven `parseTextChars` (DBC/TextParser.agda)
@@ -42,7 +38,7 @@ open import Aletheia.Limits using (InputLengthBytes; max-dbc-text-bytes)
 -- The post-parse adversarial bound cascade + validate-and-load epilogue live
 -- in `Handlers.LoadDBC` (whose closure is deliberately free of the text
 -- parser/formatter); both DBC-loading routes call `loadValidatedDBC`, so the
--- text route now emits the same field-context bound errors as the JSON route.
+-- text route emits the same field-context bound errors as the JSON route.
 --
 -- Implementation note: pattern-match through the top-level
 -- `handleParseDBCTextResult` (rather than `with parseTextChars chars`) so the
@@ -55,17 +51,10 @@ handleParseDBCTextResult (inj₁ err)  state =
 handleParseDBCTextResult (inj₂ dbc) state =
   loadValidatedDBC "ParseDBCText" dbc state
 
--- Adversarial-input bound: rejects inputs longer than `max-dbc-text-bytes`
--- (`Aletheia.Limits`) with a typed `InputBoundExceeded` before invoking the
--- parser, per AGENTS.md universal rule "Adversarial-input bounds at parser
--- surfaces".  `toList text` is materialized ONCE here and fed to the
--- `List Char` entry point `parseTextChars`; the `String` overload `parseText`
--- would walk `toList` a second time (no CSE across the FFI call boundary).
+-- The text's length needs no check here: it arrives inside a JSON command,
+-- whose UTF-8 length `max-json-bytes` bounds, and a JSON string's text is
+-- never longer than its encoding.  `parseTextChars` reads the characters
+-- `toList` yields once; the `String` overload `parseText` would walk them a
+-- second time.
 handleParseDBCText : String → StreamState → StreamState × Response
-handleParseDBCText text state =
-  let chars    = toList text
-      inputLen = length chars
-  in if inputLen ≤ᵇ max-dbc-text-bytes
-     then handleParseDBCTextResult (parseTextChars chars) state
-     else (state , Response.Error (WithContext "ParseDBCText"
-              (InputBoundExceeded InputLengthBytes inputLen max-dbc-text-bytes)))
+handleParseDBCText text state = handleParseDBCTextResult (parseTextChars (toList text)) state

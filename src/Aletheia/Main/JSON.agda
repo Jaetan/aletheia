@@ -13,7 +13,8 @@ module Aletheia.Main.JSON where
 open import Data.String using (String; toList; _≟_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
-open import Data.List using (List; length)
+open import Data.List using (List)
+open import Aletheia.Data.UTF8 using (utf8Length)
 open import Data.Nat using (_≤ᵇ_; _<ᵇ_; suc)
 open import Data.Sum using (inj₁; inj₂)
 open import Data.Bool using (if_then_else_)
@@ -55,7 +56,7 @@ private
     else wrapJSON (state , Msg.Response.Error (DispatchErr (UnknownMessageType msgType)))
 
   -- Post-parse tree bounds.  The JSON parser terminates structurally on
-  -- `length input`, so deep or numerically absurd adversarial inputs
+  -- the input list, so deep or numerically absurd adversarial inputs
   -- parse cleanly; these guards measure the parsed tree and reject with
   -- typed `InputBoundExceeded` errors exposing the structured
   -- `bound_kind / observed / limit` triple via `errorExtras`:
@@ -92,8 +93,9 @@ private
 -- Process a single JSON line and update stream state.
 -- NOINLINE: Required for MAlonzo FFI (ensures symbol is exported to Haskell).
 --
--- Adversarial-input bound: rejects inputs longer than `max-json-bytes`
--- (`Aletheia.Limits`) with a typed `ParseError.InputBoundExceeded` before
+-- Adversarial-input bound: rejects inputs whose UTF-8 encoding is longer
+-- than `max-json-bytes` (`Aletheia.Limits`), the size of the buffer that
+-- crossed the boundary, with a typed `ParseError.InputBoundExceeded` before
 -- invoking the JSON parser, per AGENTS.md universal rule "Adversarial-input
 -- bounds at parser surfaces".  Each binding additionally short-circuits at
 -- the FFI entry to avoid marshaling oversize payloads.  Nesting-depth bound
@@ -103,7 +105,7 @@ processJSONLine : StreamState → String → StreamState × String
 {-# NOINLINE processJSONLine #-}
 processJSONLine state jsonLine =
   let chars    = toList jsonLine
-      inputLen = length chars
+      inputLen = utf8Length chars
   in if inputLen ≤ᵇ max-json-bytes
      then handleParsedJSON state (runParser parseJSON chars)
      else wrapJSON (state , Msg.Response.Error

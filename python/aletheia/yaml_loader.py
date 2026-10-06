@@ -246,12 +246,6 @@ def _load_yaml(source: str | Path) -> object:
     universal rule "Adversarial-input bounds at parser surfaces".
 
     Returns the raw parsed object — caller must validate structure.
-
-    Migration note: callers that previously passed a file path as a
-    string now must wrap in ``pathlib.Path`` (e.g.
-    ``load_checks(Path("checks.yaml"))`` rather than
-    ``load_checks("checks.yaml")``).  Inline YAML strings continue to
-    work unchanged.  See CHANGELOG.md ``[Unreleased] [Changed]``.
     """
     if isinstance(source, Path):
         reject_symlink_loader_path(source, "YAML")

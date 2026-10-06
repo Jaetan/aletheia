@@ -18,9 +18,13 @@ from aletheia.client._helpers.rational import validate_integer_field
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._types import (
     DBCValidationFailedError,
+    InputBoundExceededError,
+    KernelRefusal,
     ProtocolError,
     TextRoundTripFailedError,
 )
+from aletheia.common_types import Prose
+from aletheia.limits import BoundField, BoundKind, Limit
 from aletheia.types import (
     AckResponse,
     CompleteWarning,
@@ -38,6 +42,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from aletheia.codes import ValidationIssue
+    from aletheia.common_types import PositiveInt
 
 _logger = logging.getLogger("aletheia")
 
@@ -57,46 +62,57 @@ def validate_issue_severities(issues: list[ValidationIssue]) -> list[ValidationI
     return issues
 
 
-def _extract_bound_triple(response: Response) -> tuple[str, int, int] | None:
+def _extract_bound_triple(response: Response) -> tuple[BoundKind, PositiveInt, Limit] | None:
     """Return the ``(bound_kind, observed, limit)`` triple, or ``None`` if absent.
 
     All-or-nothing: a partial triple is treated as missing, matching the C++
-    binding's degrade-to-nullopt rule in ``make_json_error``. ``bool`` is
-    excluded because ``isinstance(True, int)`` is ``True`` and a boolean
-    observed/limit is a malformed wire value, not a count. Single source for
-    the triple shape, shared by :func:`build_error_response` (which folds it
-    into the ``ErrorResponse``) and :func:`lift_input_bound_exceeded` (which
-    gates it on the wire code) — no call site re-derives the field rules.
+    binding's degrade-to-nullopt rule in ``make_json_error``. ``observed`` and
+    ``limit`` are positive integers; ``bool`` is excluded because
+    ``isinstance(True, int)`` is ``True`` and a boolean is a malformed wire
+    value, not a count. Single source for the triple shape, shared by
+    :func:`build_error_response` (which folds it into the ``ErrorResponse``) and
+    :func:`raise_if_input_bound_exceeded` (which gates it on the wire code), so
+    no call site re-derives the field rules.
     """
     bound_kind = response.get("bound_kind")
     observed = response.get("observed")
     limit = response.get("limit")
-    if (
-        isinstance(bound_kind, str)
-        and isinstance(observed, int)
-        and not isinstance(observed, bool)
-        and isinstance(limit, int)
-        and not isinstance(limit, bool)
-    ):
-        return (bound_kind, observed, limit)
-    return None
+    if not (isinstance(bound_kind, str) and isinstance(observed, int) and isinstance(limit, int)):
+        return None
+    if isinstance(observed, bool) or isinstance(limit, bool) or min(observed, limit) <= 0:
+        return None
+    return (BoundKind(bound_kind), observed, limit)
 
 
-def lift_input_bound_exceeded(response: Response) -> tuple[str, int, int] | None:
-    """Extract the bound triple from an ``input_bound_exceeded`` error, else None.
+def raise_if_input_bound_exceeded(response: Response) -> None:
+    """Raise :class:`InputBoundExceededError` for an ``input_bound_exceeded`` error envelope.
 
-    Gates on the wire code — like :func:`lift_validation_issues` and the
-    Go / C++ / Rust decoders — then reuses :func:`_extract_bound_triple`. The
-    single rule for the code→triple lift so no call site re-implements it: the
-    client's ``validate_dbc`` raises :class:`InputBoundExceededError` from the
-    returned triple, and the load routes' bound rejects flow through the same
-    wire code. A bound-coded error whose triple is missing/partial degrades to
-    ``None`` (falls through to the generic error path) rather than raising with
-    fabricated fields.
+    Gates on the wire code, like :func:`lift_issues_envelope` and the Go / C++ /
+    Rust decoders, then reads the triple with :func:`_extract_bound_triple`,
+    the ``field`` a DBC's size-bound refusal names, and the kernel's
+    ``message``, which is the error's text. Returns normally when the code
+    differs, the triple is not whole, ``field`` is present and not a string, or
+    ``message`` is not a string, so the caller raises its own fallback rather
+    than an error with fabricated fields. The single lift-and-raise shared by
+    every DBC command.
     """
     if response.get("code") != "input_bound_exceeded":
-        return None
-    return _extract_bound_triple(response)
+        return
+    triple = _extract_bound_triple(response)
+    field = response.get("field")
+    message = response.get("message")
+    if triple is None or not (field is None or isinstance(field, str)):
+        return
+    if not isinstance(message, str):
+        return
+    kind, observed, limit = triple
+    raise InputBoundExceededError(
+        kind,
+        observed,
+        limit,
+        code="input_bound_exceeded",
+        refusal=KernelRefusal(Prose(message), None if field is None else BoundField(field)),
+    )
 
 
 # The error envelopes that carry a structured issues / has_errors payload
@@ -190,21 +206,16 @@ def build_error_response(response: Response) -> ErrorResponse:
     on ``status = "error"``. Either field missing or non-string indicates
     a malformed response (FFI drift, hand-crafted test stub, or
     third-party tooling writing to the same queue) and is surfaced as a
-    ``ProtocolError`` rather than being papered over with a default —
-    the defaults (``""`` for Python, ``"Unknown error"`` for C++) used
-    to diverge across bindings and produced a silent "unknown error
-    code" regression in production logs.
+    ``ProtocolError`` rather than papered over with a default.
 
     InputBoundExceeded errors carry an additional ``bound_kind`` /
     ``observed`` / ``limit`` triple via ``Protocol/ResponseFormat.
     errorExtras``; all three must be present and well-typed when any
     one is, else the payload is treated as missing rather than partial
-    (matches the C++ binding's degrade-to-nullopt rule in
-    ``make_json_error``).
+    (see :func:`_extract_bound_triple`).
 
     Validation-failure errors carry the ``issues`` / ``has_errors`` pair
-    under the same all-or-nothing rule (see
-    :func:`lift_validation_issues`).
+    under the same all-or-nothing rule (see :func:`lift_issues_envelope`).
     """
     code = response.get("code")
     if not isinstance(code, str):
@@ -255,7 +266,8 @@ def parse_parsed_dbc_response(
 
     On success the Agda core emits ``ParsedDBCResponse`` carrying the
     canonical parsed body plus any non-error issues (warnings).  On
-    failure it emits ``ErrorResponse`` with a typed code.
+    failure it emits an error with a typed code: a bound refusal raises
+    :class:`InputBoundExceededError`, any other returns the ``ErrorResponse``.
     """
     status = response.get("status")
 
@@ -284,6 +296,7 @@ def parse_parsed_dbc_response(
         }
 
     if status == "error":
+        raise_if_input_bound_exceeded(response)
         return build_error_response(response)
 
     msg = f"Unexpected response status: {status!r} (expected 'success' or 'error')"

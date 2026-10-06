@@ -147,7 +147,9 @@ formatValidationIssue issue =
 --   * `Error.InputBoundExceeded kind observed limit` (a top-level error
 --     consolidating the bound checks) exposes `bound_kind` + `observed` +
 --     `limit` (typed wire-error refinement; the C++ / Go / Python bindings
---     dispatch on `bound_kind` from this structured payload).
+--     dispatch on `bound_kind` from this structured payload);
+--     `InputBoundExceededAt field …` adds `field`, the part of the input
+--     that crossed the bound.
 --   * `ValidationFailed` / `TextRoundTripFailed` expose `has_errors` + `issues`.
 -- `WithContext` is transparent so wrappers do not hide structured payloads.
 private
@@ -178,6 +180,7 @@ errorExtras (Err.DispatchErr (Err.InvalidJSON pos)) =
   ("column" , JNumber (ℕtoℚ (Position.column pos))) ∷
   []
 errorExtras (Err.InputBoundExceeded k o l) = boundInfoFields k o l
+errorExtras (Err.InputBoundExceededAt f k o l) = ("field" , JStringS f) ∷ boundInfoFields k o l
 -- A validation rejection carries the FULL issue list (errors AND warnings)
 -- structurally — the same element shape as the `validation` response, so
 -- bindings reuse one issue decoder. `has_errors` is trivially true on this

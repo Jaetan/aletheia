@@ -10,13 +10,15 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from aletheia import ProtocolError
+from aletheia import InputBoundExceededError, ProtocolError
 from aletheia.client._response_parsers import (
     build_error_response,
     parse_complete_warnings,
+    raise_if_input_bound_exceeded,
 )
 
 if TYPE_CHECKING:
+    from aletheia.common_types import PositiveInt
     from aletheia.types import Response
 
 
@@ -61,8 +63,18 @@ class TestBuildErrorResponse:
                 cast("Response", {"status": "error", "code": "some_code", "message": 123})
             )
 
-    def test_wellformed_bound_triple_is_attached(self) -> None:
-        """A complete, well-typed input_bound_exceeded triple is lifted onto the response."""
+    @pytest.mark.parametrize(
+        ("observed", "limit"),
+        [pytest.param(65, 64, id="past-64"), pytest.param(2, 1, id="past-1")],
+    )
+    def test_wellformed_bound_triple_is_attached(
+        self, observed: PositiveInt, limit: PositiveInt
+    ) -> None:
+        """A complete, well-typed input_bound_exceeded triple is lifted onto the response.
+
+        A limit of 1 is the smallest positive one, so it pins the positivity check
+        at its boundary.
+        """
         out = build_error_response(
             cast(
                 "Response",
@@ -71,14 +83,14 @@ class TestBuildErrorResponse:
                     "code": "input_bound_exceeded",
                     "message": "too deep",
                     "bound_kind": "nesting_depth",
-                    "observed": 65,
-                    "limit": 64,
+                    "observed": observed,
+                    "limit": limit,
                 },
             )
         )
         assert out.get("bound_kind") == "nesting_depth"
-        assert out.get("observed") == 65
-        assert out.get("limit") == 64
+        assert out.get("observed") == observed
+        assert out.get("limit") == limit
 
     @pytest.mark.parametrize(
         "triple",
@@ -94,14 +106,20 @@ class TestBuildErrorResponse:
                 {"bound_kind": "nesting_depth", "observed": 65, "limit": 6.5}, id="limit-float"
             ),
             pytest.param({"bound_kind": 7, "observed": 65, "limit": 64}, id="bound_kind-nonstring"),
+            pytest.param(
+                {"bound_kind": "nesting_depth", "observed": 0, "limit": 64}, id="observed-zero"
+            ),
+            pytest.param(
+                {"bound_kind": "nesting_depth", "observed": 65, "limit": -1}, id="limit-negative"
+            ),
         ],
     )
     def test_malformed_bound_triple_is_dropped(self, triple: dict[str, object]) -> None:
         """A partial or ill-typed triple degrades to no triple — never a partial one.
 
         Matches the C++ ``make_json_error`` degrade-to-nullopt rule: all three of
-        ``bound_kind`` / ``observed`` / ``limit`` must be present and well-typed, or
-        none is attached. Pins each ``isinstance`` guard against a mutation that
+        ``bound_kind`` / ``observed`` / ``limit`` must be present and well-typed, the
+        counts positive, or none is attached. Pins each guard against a mutation that
         drops one and lets a malformed triple through (the attach path stays
         line-green either way, so this is the mutation-killing companion).
         """
@@ -207,6 +225,74 @@ class TestBuildErrorResponse:
             )
         )
         assert out == {"status": "error", "code": "handler_validation_failed", "message": "m"}
+
+
+# A bound refusal envelope, past a limit of 10000, naming no field.
+_BOUND_REFUSAL = {
+    "status": "error",
+    "code": "input_bound_exceeded",
+    "message": "ParseDBC: array cardinality 10001 exceeds limit 10000",
+    "bound_kind": "array_cardinality",
+    "observed": 10_001,
+    "limit": 10_000,
+}
+
+
+class TestRaiseIfInputBoundExceeded:
+    """The lift of an ``input_bound_exceeded`` envelope into the typed error."""
+
+    def test_raises_the_triple_the_field_and_the_message(self) -> None:
+        """A whole triple, a string ``field`` and a string ``message`` raise the error.
+
+        The error carries the triple and the field, and its text is the
+        kernel's message as the envelope spells it.
+        """
+        message = "ParseDBC: senders array: array cardinality 10001 exceeds limit 10000"
+        envelope = cast(
+            "Response", {**_BOUND_REFUSAL, "field": "senders array", "message": message}
+        )
+        with pytest.raises(InputBoundExceededError) as exc_info:
+            raise_if_input_bound_exceeded(envelope)
+        err = exc_info.value
+        assert (err.kind, err.observed, err.limit, err.field, err.code, str(err)) == (
+            "array_cardinality",
+            10_001,
+            10_000,
+            "senders array",
+            "input_bound_exceeded",
+            message,
+        )
+
+    def test_absent_field_is_none(self) -> None:
+        """A refusal naming no field raises the error with ``field`` None and the message."""
+        with pytest.raises(InputBoundExceededError) as exc_info:
+            raise_if_input_bound_exceeded(cast("Response", _BOUND_REFUSAL))
+        assert (exc_info.value.field, str(exc_info.value)) == (None, _BOUND_REFUSAL["message"])
+
+    @pytest.mark.parametrize(
+        "envelope",
+        [
+            pytest.param(cast("Response", {**_BOUND_REFUSAL, "field": 7}), id="field-nonstring"),
+            pytest.param(
+                cast("Response", {**_BOUND_REFUSAL, "message": 7}), id="message-nonstring"
+            ),
+            pytest.param(
+                cast(
+                    "Response",
+                    {key: value for key, value in _BOUND_REFUSAL.items() if key != "message"},
+                ),
+                id="message-absent",
+            ),
+            pytest.param(cast("Response", {**_BOUND_REFUSAL, "observed": 0}), id="observed-zero"),
+            pytest.param(
+                cast("Response", {**_BOUND_REFUSAL, "code": "handler_validation_failed"}),
+                id="other-code",
+            ),
+        ],
+    )
+    def test_degrades_to_the_caller_fallback(self, envelope: Response) -> None:
+        """A non-string field or message, a malformed triple or another code raises nothing."""
+        raise_if_input_bound_exceeded(envelope)
 
 
 class TestParseCompleteWarnings:

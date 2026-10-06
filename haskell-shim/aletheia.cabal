@@ -59,7 +59,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.CAN.Signal
                       MAlonzo.Code.Aletheia.CAN.SignalExtraction
                       MAlonzo.Code.Aletheia.DBC.AttrLookup
-                      MAlonzo.Code.Aletheia.DBC.BoundWalks
+                      MAlonzo.Code.Aletheia.DBC.Bounds
                       MAlonzo.Code.Aletheia.DBC.CanonicalReceivers
                       MAlonzo.Code.Aletheia.DBC.DecRat
                       MAlonzo.Code.Aletheia.DBC.DecRat.RationalRoundtrip
@@ -142,6 +142,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.DBC.Validator.Formatting
                       MAlonzo.Code.Aletheia.DBC.Validator.SharedKeys
                       MAlonzo.Code.Aletheia.DBC.Validator.SharedKeys.Properties
+                      MAlonzo.Code.Aletheia.DBC.Validator.Targets
                       MAlonzo.Code.Aletheia.DBC.Validity
                       MAlonzo.Code.Aletheia.DBC.Validity.Combinators
                       MAlonzo.Code.Aletheia.DBC.Validity.Composition
@@ -156,6 +157,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Aletheia.Data.Dec0.Rational
                       MAlonzo.Code.Aletheia.Data.KeyConflicts
                       MAlonzo.Code.Aletheia.Data.KeyConflicts.Properties
+                      MAlonzo.Code.Aletheia.Data.UTF8
                       MAlonzo.Code.Aletheia.Error
                       MAlonzo.Code.Aletheia.JSON
                       MAlonzo.Code.Aletheia.LTL.Coalgebra
@@ -262,6 +264,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Data.Char
                       MAlonzo.Code.Data.Char.Base
                       MAlonzo.Code.Data.Char.Properties
+                      MAlonzo.Code.Data.DifferenceList
                       MAlonzo.Code.Data.Digit
                       MAlonzo.Code.Data.Empty
                       MAlonzo.Code.Data.Empty.Irrelevant
@@ -392,6 +395,29 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Data.Sum.Properties
                       MAlonzo.Code.Data.Sum.Relation.Binary.Pointwise
                       MAlonzo.Code.Data.These.Base
+                      MAlonzo.Code.Data.Tree.AVL
+                      MAlonzo.Code.Data.Tree.AVL.Height
+                      MAlonzo.Code.Data.Tree.AVL.Indexed
+                      MAlonzo.Code.Data.Tree.AVL.Indexed.Relation.Unary.Any
+                      MAlonzo.Code.Data.Tree.AVL.Indexed.Relation.Unary.Any.Properties
+                      MAlonzo.Code.Data.Tree.AVL.Indexed.Relation.Unary.Any.Properties.Cast
+                      MAlonzo.Code.Data.Tree.AVL.Indexed.Relation.Unary.Any.Properties.Delete
+                      MAlonzo.Code.Data.Tree.AVL.Indexed.Relation.Unary.Any.Properties.HeadTail
+                      MAlonzo.Code.Data.Tree.AVL.Indexed.Relation.Unary.Any.Properties.Insert
+                      MAlonzo.Code.Data.Tree.AVL.Indexed.Relation.Unary.Any.Properties.Join
+                      MAlonzo.Code.Data.Tree.AVL.Indexed.Relation.Unary.Any.Properties.JoinLemmas
+                      MAlonzo.Code.Data.Tree.AVL.Indexed.Relation.Unary.Any.Properties.Lookup
+                      MAlonzo.Code.Data.Tree.AVL.Indexed.Relation.Unary.Any.Properties.Singleton
+                      MAlonzo.Code.Data.Tree.AVL.Key
+                      MAlonzo.Code.Data.Tree.AVL.Map
+                      MAlonzo.Code.Data.Tree.AVL.Map.Membership.Propositional
+                      MAlonzo.Code.Data.Tree.AVL.Map.Membership.Propositional.Properties
+                      MAlonzo.Code.Data.Tree.AVL.Map.Relation.Unary.Any
+                      MAlonzo.Code.Data.Tree.AVL.Relation.Unary.Any
+                      MAlonzo.Code.Data.Tree.AVL.Sets
+                      MAlonzo.Code.Data.Tree.AVL.Sets.Membership
+                      MAlonzo.Code.Data.Tree.AVL.Sets.Membership.Properties
+                      MAlonzo.Code.Data.Tree.AVL.Value
                       MAlonzo.Code.Data.Unit
                       MAlonzo.Code.Data.Unit.Base
                       MAlonzo.Code.Data.Unit.Polymorphic
@@ -448,6 +474,16 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Relation.Binary.Bundles
                       MAlonzo.Code.Relation.Binary.Bundles.Raw
                       MAlonzo.Code.Relation.Binary.Consequences
+                      MAlonzo.Code.Relation.Binary.Construct.Add.Extrema.Equality
+                      MAlonzo.Code.Relation.Binary.Construct.Add.Extrema.NonStrict
+                      MAlonzo.Code.Relation.Binary.Construct.Add.Extrema.Strict
+                      MAlonzo.Code.Relation.Binary.Construct.Add.Infimum.Equality
+                      MAlonzo.Code.Relation.Binary.Construct.Add.Infimum.NonStrict
+                      MAlonzo.Code.Relation.Binary.Construct.Add.Infimum.Strict
+                      MAlonzo.Code.Relation.Binary.Construct.Add.Point.Equality
+                      MAlonzo.Code.Relation.Binary.Construct.Add.Supremum.Equality
+                      MAlonzo.Code.Relation.Binary.Construct.Add.Supremum.NonStrict
+                      MAlonzo.Code.Relation.Binary.Construct.Add.Supremum.Strict
                       MAlonzo.Code.Relation.Binary.Construct.Closure.Reflexive
                       MAlonzo.Code.Relation.Binary.Construct.Closure.Reflexive.Properties
                       MAlonzo.Code.Relation.Binary.Construct.Closure.Symmetric
@@ -458,6 +494,7 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Relation.Binary.Construct.NaturalOrder.Left
                       MAlonzo.Code.Relation.Binary.Construct.NonStrictToStrict
                       MAlonzo.Code.Relation.Binary.Construct.On
+                      MAlonzo.Code.Relation.Binary.Construct.StrictToNonStrict
                       MAlonzo.Code.Relation.Binary.Core
                       MAlonzo.Code.Relation.Binary.Definitions
                       MAlonzo.Code.Relation.Binary.Indexed.Heterogeneous
@@ -493,11 +530,16 @@ foreign-library aletheia-ffi
                       MAlonzo.Code.Relation.Binary.Reasoning.PartialOrder
                       MAlonzo.Code.Relation.Binary.Reasoning.Preorder
                       MAlonzo.Code.Relation.Binary.Reasoning.Setoid
+                      MAlonzo.Code.Relation.Binary.Reasoning.StrictPartialOrder
                       MAlonzo.Code.Relation.Binary.Reasoning.Syntax
                       MAlonzo.Code.Relation.Binary.Reflection
                       MAlonzo.Code.Relation.Binary.Structures
                       MAlonzo.Code.Relation.Binary.Structures.Biased
                       MAlonzo.Code.Relation.Nullary
+                      MAlonzo.Code.Relation.Nullary.Construct.Add.Extrema
+                      MAlonzo.Code.Relation.Nullary.Construct.Add.Infimum
+                      MAlonzo.Code.Relation.Nullary.Construct.Add.Point
+                      MAlonzo.Code.Relation.Nullary.Construct.Add.Supremum
                       MAlonzo.Code.Relation.Nullary.Decidable
                       MAlonzo.Code.Relation.Nullary.Decidable.Core
                       MAlonzo.Code.Relation.Nullary.Indexed

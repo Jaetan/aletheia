@@ -40,15 +40,20 @@ func requireDegradedCoded(t *testing.T, err error, code, message string) {
 
 // An error envelope must name its code and its message, both as strings. The
 // kernel writes both, so a missing or ill-typed one is drift between the
-// binding and the kernel, which a default would hide.
+// binding and the kernel, which a default would hide. A bound refusal whose
+// message is not a string is refused so, rather than lifted with no message.
 func TestRequireString_RejectsErrorEnvelope(t *testing.T) {
-	cases := map[string]string{
-		"missing code":    `{"status":"error","message":"boom"}`,
-		"non-string code": `{"status":"error","code":123,"message":"boom"}`,
+	cases := map[string]struct{ raw, field string }{
+		"missing code":    {`{"status":"error","message":"boom"}`, "code"},
+		"non-string code": {`{"status":"error","code":123,"message":"boom"}`, "code"},
+		"non-string bound refusal message": {
+			`{"status":"error","code":"input_bound_exceeded","message":7,"bound_kind":"nesting_depth","observed":65,"limit":64}`,
+			"message",
+		},
 	}
-	for name, raw := range cases {
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			err := parseSuccessResponse(raw)
+			err := parseSuccessResponse(tc.raw)
 			if err == nil {
 				t.Fatal("expected a protocol error, got nil")
 			}
@@ -56,8 +61,8 @@ func TestRequireString_RejectsErrorEnvelope(t *testing.T) {
 			if !errors.As(err, &aErr) || aErr.Kind != ErrProtocol {
 				t.Errorf("expected an ErrProtocol *Error, got %v", err)
 			}
-			if !strings.Contains(err.Error(), "code") {
-				t.Errorf("error %q does not name the field at fault", err)
+			if !strings.Contains(err.Error(), "'"+tc.field+"'") {
+				t.Errorf("error %q does not name the field at fault, %q", err, tc.field)
 			}
 		})
 	}
@@ -151,23 +156,72 @@ func TestIssueBearingRefusals_MalformedPayloadDegrades(t *testing.T) {
 	}
 }
 
-// A bound refusal lifts only with all three of its numbers well formed. The
-// case with a string where a size belongs also drives the arm that refuses a
-// value that is not a wire number at all.
-func TestInputBoundExceeded_MalformedTripleDegrades(t *testing.T) {
+// A bound refusal lifts only with its kind and both of its numbers well
+// formed, and with its field a string when it names one. The case with a
+// string where a size belongs also drives the arm that refuses a value that
+// is not a wire number at all.
+func TestInputBoundExceeded_MalformedPayloadDegrades(t *testing.T) {
 	cases := map[string]string{
 		"non-string bound_kind": `{"status":"error","code":"input_bound_exceeded","message":"boom","bound_kind":123,"observed":1,"limit":2}`,
 		"non-number observed":   `{"status":"error","code":"input_bound_exceeded","message":"boom","bound_kind":"NestingDepth","observed":"x","limit":2}`,
 		"non-number limit":      `{"status":"error","code":"input_bound_exceeded","message":"boom","bound_kind":"NestingDepth","observed":1,"limit":"x"}`,
+		"non-string field":      `{"status":"error","code":"input_bound_exceeded","message":"boom","bound_kind":"array_cardinality","observed":3,"limit":2,"field":7}`,
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
 			err := parseSuccessResponse(raw)
 			var bex *InputBoundExceededError
 			if errors.As(err, &bex) {
-				t.Errorf("a malformed triple lifted to the typed error: %v", bex)
+				t.Errorf("a malformed payload lifted to the typed error: %v", bex)
 			}
 			requireDegradedCoded(t, err, CodeInputBoundExceeded, "boom")
+		})
+	}
+}
+
+// A bound refusal lifts to the typed error carrying the kernel's message
+// whole, and that message is the error's text, whether or not the refusal
+// names a field.
+func TestInputBoundExceeded_WellFormedEnvelopeLifts(t *testing.T) {
+	cases := map[string]struct {
+		payload, msg, kind, field string
+		observed, limit           uint64
+	}{
+		"names a field": {
+			payload:  `"bound_kind":"array_cardinality","observed":10001,"limit":10000,"field":"senders array"`,
+			msg:      "ParseDBC: senders array: array cardinality 10001 exceeds limit 10000",
+			kind:     BoundKindArrayCardinality,
+			field:    "senders array",
+			observed: 10001, limit: 10000,
+		},
+		"names none": {
+			payload:  `"bound_kind":"nesting_depth","observed":65,"limit":64`,
+			msg:      "nesting depth 65 exceeds limit 64",
+			kind:     BoundKindNestingDepth,
+			observed: 65, limit: 64,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			raw := `{"status":"error","code":"input_bound_exceeded","message":"` + tc.msg + `",` + tc.payload + `}`
+			err := parseSuccessResponse(raw)
+			var bex *InputBoundExceededError
+			if !errors.As(err, &bex) {
+				t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+			}
+			if bex.BoundKind != tc.kind || bex.Observed != tc.observed || bex.Limit != tc.limit || bex.Field != tc.field {
+				t.Errorf("lifted %s %d / %d field %q, want %s %d / %d field %q",
+					bex.BoundKind, bex.Observed, bex.Limit, bex.Field, tc.kind, tc.observed, tc.limit, tc.field)
+			}
+			if bex.Code != CodeInputBoundExceeded {
+				t.Errorf("Code = %q, want %q", bex.Code, CodeInputBoundExceeded)
+			}
+			if bex.Message != tc.msg {
+				t.Errorf("Message = %q, want the kernel's %q", bex.Message, tc.msg)
+			}
+			if got := err.Error(); got != tc.msg {
+				t.Errorf("Error() = %q, want the kernel's message %q", got, tc.msg)
+			}
 		})
 	}
 }

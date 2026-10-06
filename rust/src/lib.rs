@@ -622,9 +622,10 @@ impl Client {
     /// re-parsed document plus any validation warnings.
     ///
     /// # Errors
-    /// [`Error::ValidationFailed`] if the DBC fails validation, [`Error::Core`]
-    /// on any other core rejection, or [`Error::Protocol`] on an unexpected
-    /// response.
+    /// [`Error::ValidationFailed`] if the DBC fails validation,
+    /// [`Error::InputBoundExceeded`] if it exceeds one of the kernel's size bounds
+    /// (a list or a string longer than its limit), [`Error::Core`] on any other
+    /// core rejection, or [`Error::Protocol`] on an unexpected response.
     pub fn parse_dbc(&self, dbc: &Dbc) -> Result<ParsedDbc, Error> {
         // Build the envelope then move the serialized DBC in: `json!({…: expr})`
         // deep-copies a `Value` operand (via `to_value(&expr)`), which would
@@ -665,8 +666,9 @@ impl Client {
     /// stream's loaded state, returning every issue found.
     ///
     /// # Errors
-    /// [`Error::Core`] / [`Error::Protocol`] on a core error or unexpected
-    /// response.
+    /// [`Error::InputBoundExceeded`] if the DBC exceeds one of the kernel's size
+    /// bounds (a list or a string longer than its limit), or [`Error::Core`] /
+    /// [`Error::Protocol`] on any other core error or an unexpected response.
     pub fn validate_dbc(&self, dbc: &Dbc) -> Result<ValidationResult, Error> {
         let mut cmd = json!({ "type": "command", "command": "validateDBC" });
         cmd["dbc"] = dbc.to_value();
@@ -691,8 +693,11 @@ impl Client {
     /// [`Error::TextRoundtripFailed`] if the emitted text does not re-parse to the
     /// input DBC (a divergent DBC, e.g. a multi-value mux) — carrying the
     /// diagnostics led by `text_roundtrip_divergence` — rather than lossy text;
-    /// [`Error::Core`] if the document fails Agda-side parsing; or
-    /// [`Error::Protocol`] on an unexpected response.
+    /// [`Error::InputBoundExceeded`] if the DBC exceeds one of the kernel's size
+    /// bounds (a list or a string longer than its limit, including the node list
+    /// it derives from the senders when `nodes` is empty), checked before
+    /// anything is formatted; [`Error::Core`] if the document fails Agda-side
+    /// parsing; or [`Error::Protocol`] on an unexpected response.
     pub fn format_dbc_text(&self, dbc: &Dbc) -> Result<DbcText, Error> {
         let mut cmd = json!({ "type": "command", "command": "formatDBCText" });
         cmd["dbc"] = dbc.to_value();

@@ -520,10 +520,12 @@ class ErrorResponse(TypedDict):
     """Error response with machine-readable code.
 
     The ``bound_kind`` / ``observed`` / ``limit`` triple is present on
-    InputBoundExceeded errors (``code == "input_bound_exceeded"``;
-    previously the three per-ADT codes ``parse_*`` / ``frame_*`` /
-    ``dbc_text_*``) and absent on all other error codes; the Agda kernel
-    emits the typed payload via ``Protocol/ResponseFormat.errorExtras``.
+    InputBoundExceeded errors (``code == "input_bound_exceeded"``) and
+    absent on all other error codes; the Agda kernel emits the typed
+    payload via ``Protocol/ResponseFormat.errorExtras``.  A DBC command
+    raises its bound refusal as :class:`~aletheia.InputBoundExceededError`
+    instead, so the triple reaches an ``ErrorResponse`` from the other
+    commands only.
 
     The ``has_errors`` / ``issues`` pair is present on validation-failure
     errors (``code == "handler_validation_failed"`` from ``parseDBC`` /

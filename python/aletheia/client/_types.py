@@ -21,7 +21,13 @@ from fractions import Fraction
 from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple, cast, override
 
-from aletheia.limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES
+from aletheia.limits import (
+    BOUND_KIND_INPUT_LENGTH_BYTES,
+    MAX_DBC_TEXT_BYTES,
+    BoundField,
+    BoundKind,
+    Limit,
+)
 from aletheia.types import (
     AckResponse,
     DLCByteCount,
@@ -35,6 +41,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from aletheia.codes import ValidationIssue
+    from aletheia.common_types import PositiveInt, Prose
 
 type FrameResponse = AckResponse | PropertyBatchResponse | ErrorResponse
 
@@ -104,38 +111,64 @@ class ValidationError(AletheiaError):
     """
 
 
+class KernelRefusal(NamedTuple):
+    """What a bound refusal the kernel sent says beyond the bound.
+
+    Fields:
+        message: The kernel's message, which is the error's text.
+        field: The part of a DBC that crossed one of its size bounds, as the
+            kernel names it, or ``None`` for a bound that names no field.
+    """
+
+    message: Prose
+    field: BoundField | None
+
+
 class InputBoundExceededError(AletheiaError):
     """Raised when an input exceeds an adversarial-input bound.
 
     Mirrors the Agda ``Error.InputBoundExceeded`` constructor.  Attributes
     carry the bound kind (e.g. ``"input_length_bytes"``), the observed
-    value, and the canonical limit per :mod:`aletheia.limits`.
+    value, the canonical limit per :mod:`aletheia.limits`, and the part of a
+    DBC that crossed one of its size bounds (e.g. ``"senders array"``), or
+    ``None`` for a bound that names no field.  For a refusal the kernel sent,
+    ``refusal`` carries the kernel's message, which is the error's text, and
+    the field; a bound the binding checks before the call has no refusal, and
+    its text names the kind, the observed value and the limit.
 
-    The Go and C++ bindings expose the equivalent type
-    (``*aletheia.InputBoundExceededError`` / ``aletheia::InputBoundExceededError``);
-    keep the three surfaces in sync.
+    The Go, C++ and Rust bindings expose the equivalent type
+    (``*aletheia.InputBoundExceededError`` / ``aletheia::InputBoundExceededError``
+    / ``Error::InputBoundExceeded``); keep the surfaces in sync.
     """
 
-    kind: str
-    observed: int
-    limit: int
+    kind: BoundKind
+    observed: PositiveInt
+    limit: Limit
+    field: BoundField | None
 
-    def __init__(self, kind: str, observed: int, limit: int, code: str | None = None) -> None:
-        message = f"{kind} {observed} exceeds limit {limit}"
-        super().__init__(message, code=code)
+    def __init__(
+        self,
+        kind: BoundKind,
+        observed: PositiveInt,
+        limit: Limit,
+        code: str | None = None,
+        *,
+        refusal: KernelRefusal | None = None,
+    ) -> None:
+        own = f"{kind} {observed} exceeds limit {limit}"
+        super().__init__(own if refusal is None else refusal.message, code=code)
         self.kind = kind
         self.observed = observed
         self.limit = limit
+        self.field = None if refusal is None else refusal.field
 
 
 def check_dbc_text_size_bound(observed: int) -> None:
     """Raise :class:`InputBoundExceededError` if observed > MAX_DBC_TEXT_BYTES.
 
     Defense-in-depth size cap shared by every parser surface that reads DBC
-    text, YAML check definitions, or Excel workbooks.  Re-exported from
-    :mod:`aletheia.limits` — non-client modules should import via the
-    public path; this canonical definition stays here so
-    InputBoundExceededError lives next to its raiser.
+    text, YAML check definitions, or Excel workbooks; each imports it from
+    here, beside the error it raises.
     """
     if observed > MAX_DBC_TEXT_BYTES:
         raise InputBoundExceededError(

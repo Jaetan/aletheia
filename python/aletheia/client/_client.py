@@ -19,10 +19,10 @@ from aletheia.client._helpers.rational import (
 )
 from aletheia.client._log import LogEvent, log_event
 from aletheia.client._response_parsers import (
-    lift_input_bound_exceeded,
     parse_parsed_dbc_response,
     parse_success_or_error,
     raise_if_dbc_validation_failed,
+    raise_if_input_bound_exceeded,
     raise_if_text_roundtrip_failed,
     validate_issue_severities,
 )
@@ -391,6 +391,13 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
 
         Returns the canonical parsed body plus any non-error issues
         (warnings); validation errors short-circuit to ``ErrorResponse``.
+
+        Raises:
+            InputBoundExceededError: If the DBC is past one of the kernel's bounds
+                (a list's cardinality, a text's length, a number's magnitude);
+                ``kind`` / ``observed`` / ``limit`` name the bound and ``field``
+                the part of the DBC that crossed a size bound.
+
         """
         cmd: ParseDBCCommand = {
             "type": "command",
@@ -407,11 +414,15 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
 
         Defense-in-depth (cross-binding parity): rejects DBC text inputs
         longer than :data:`MAX_DBC_TEXT_BYTES` before wrapping them in a
-        JSON command, raising :class:`InputBoundExceededError` with code
-        ``"input_bound_exceeded"``.  The outer :data:`MAX_JSON_BYTES` cap
-        in :meth:`_send_command` still covers the wrapped command
-        separately; the additional inner cap matches the Agda kernel's
-        two-layer enforcement in ``handleParseDBCText``.
+        JSON command, so the refusal names the text's own cap rather than
+        the :data:`MAX_JSON_BYTES` cap :meth:`_send_command` and the kernel
+        hold the wrapped command to.
+
+        Raises:
+            InputBoundExceededError: If the text is longer than
+                :data:`MAX_DBC_TEXT_BYTES`, or the DBC it holds is past one of
+                the kernel's bounds, as :meth:`parse_dbc` raises it.
+
         """
         text_bytes = text.encode()  # str.encode defaults to utf-8
         if len(text_bytes) > MAX_DBC_TEXT_BYTES:
@@ -436,6 +447,12 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
         Returns:
             ValidationResponse with status, has_errors, and issues list
 
+        Raises:
+            InputBoundExceededError: If the DBC is past one of the kernel's bounds,
+                as :meth:`parse_dbc` raises it.
+            ProtocolError: If the JSON DBC fails Agda-side parsing or the response
+                shape is unexpected.
+
         """
         cmd: ValidateDBCCommand = {
             "type": "command",
@@ -458,20 +475,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             message = response.get("message", "Unknown error")
             code = response.get("code")
             msg = f"validateDBC failed: {message}"
-            # validateDBC got the adversarial bound cascade, so an
-            # over-cardinality / over-length DBC now rejects with the same
-            # typed InputBoundExceededError the load routes raise (previously
-            # this arm was unreachable and fell through to ProtocolError).
-            # lift_input_bound_exceeded is the SSOT lift (mirrors
-            # lift_validation_issues): it gates on the wire code and returns
-            # the triple all-or-nothing, so a malformed/partial bound response
-            # degrades to None and falls through to the lenient path below.
-            bound = lift_input_bound_exceeded(response)
-            if bound is not None:
-                # bound is (kind, observed, limit) — splat into the positional
-                # constructor args; code echoes the wire literal (pinned by the
-                # bound test's err.code assertion).
-                raise InputBoundExceededError(*bound, code="input_bound_exceeded")
+            raise_if_input_bound_exceeded(response)
             raise_if_dbc_validation_failed(response, msg)
             raise ProtocolError(
                 msg,
@@ -551,6 +555,9 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             ``text`` and the ``issues`` warning list.
 
         Raises:
+            InputBoundExceededError: If the DBC is past one of the kernel's bounds,
+                as :meth:`parse_dbc` raises it; with ``nodes`` empty, the nodes
+                derived from the message senders are bounded too.
             TextRoundTripFailedError: If the emitted text does not re-parse to the
                 input DBC (the exact round-trip check failed); ``issues`` carries
                 the diagnostics led by ``text_roundtrip_divergence``.
@@ -592,11 +599,7 @@ class AletheiaClient(SignalOpsMixin, StreamingMixin):  # pylint: disable=too-man
             message = response.get("message", "Unknown error")
             code = response.get("code")
             msg = f"formatDBCText failed: {message}"
-            # raise_if_text_roundtrip_failed is the SSOT lift (mirrors
-            # raise_if_dbc_validation_failed): it gates on the
-            # handler_text_roundtrip_failed wire code and raises the typed
-            # TextRoundTripFailedError, else returns so we fall through to the
-            # generic ProtocolError below.
+            raise_if_input_bound_exceeded(response)
             raise_if_text_roundtrip_failed(response, msg)
             raise ProtocolError(
                 msg,

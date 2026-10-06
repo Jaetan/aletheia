@@ -252,6 +252,8 @@ func describe(err error) string {
 
 `ErrorKind` says whether it was a validation, the protocol, an operation the binary wire lacks, or a cancellation. `Code` is the kernel's own, listed in [PROTOCOL.md § Error Code Reference](../architecture/PROTOCOL.md#error-code-reference).
 
+A DBC past a size bound, such as too many messages or too long a string, is refused by `ParseDBC`, `ParseDBCText`, `ValidateDBC` and `FormatDBCText` alike, `FormatDBCText` checking before it formats. The refusal is a `*aletheia.InputBoundExceededError` whose `BoundKind`, `Observed` and `Limit` name the bound, the size found and the limit, and whose `Field` names the part of the DBC that crossed it, such as `senders array`; `Field` is empty for a bound that names no part of a DBC, such as the input's length or a formula's nesting depth. The error's text, what `Error()` returns, is the kernel's message, which `Message` holds, such as `ParseDBC: senders array: array cardinality 10001 exceeds limit 10000`; a bound the binding checks itself before the call, such as an input past its length in bytes, has no kernel message, and its text names the kind, the size and the limit. Each limit is an exported constant, such as `aletheia.MaxMessagesPerFile`, and `aletheia.MaxStringLengthCharacters` bounds a DBC text field's length in characters.
+
 ---
 
 ## Cancellation

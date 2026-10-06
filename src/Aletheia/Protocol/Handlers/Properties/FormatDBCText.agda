@@ -24,6 +24,7 @@ open import Data.Bool using (Bool; true; false)
 open import Data.Sum using (inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
+open import Aletheia.DBC.Bounds using (BoundedDBC)
 open import Aletheia.DBC.TextParser using (parseText)
 open import Aletheia.DBC.TextFormatter using (formatText)
 open import Aletheia.DBC.TextParser.RoundTripCheck using (roundTripsWithᵇ)
@@ -51,12 +52,13 @@ open import Aletheia.Protocol.Handlers.FormatDBCText using (finish; formatDBCTex
 --     definitionally `roundTripsᵇ d′ ≡ true`, which `roundTripsᵇ-sound` discharges.
 --   • `w ≡ false`: `finish … false …` is an `Error`, refuted against a
 --     `DBCTextResponse`.
-formatDBCTextResult-sound : ∀ d′ txt′ is′
-  → formatDBCTextResult d′ ≡ Response.DBCTextResponse txt′ is′
-  → parseText txt′ ≡ inj₂ d′
-formatDBCTextResult-sound d′ txt′ is′ h =
+formatDBCTextResult-sound : ∀ b txt′ is′
+  → formatDBCTextResult b ≡ Response.DBCTextResponse txt′ is′
+  → parseText txt′ ≡ inj₂ (BoundedDBC.dbc b)
+formatDBCTextResult-sound b txt′ is′ h =
   go (roundTripsWithᵇ d′ (formatText d′)) refl txt′ is′ h
   where
+  d′ = BoundedDBC.dbc b
   go : ∀ w → roundTripsWithᵇ d′ (formatText d′) ≡ w
      → ∀ t i → finish (formatText d′) w (wfTextIssues d′) ≡ Response.DBCTextResponse t i
      → parseText t ≡ inj₂ d′

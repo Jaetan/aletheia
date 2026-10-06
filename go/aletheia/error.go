@@ -257,8 +257,10 @@ func WrapValidationError(msg string, cause error) *Error {
 	return wrapValidationError(msg, cause)
 }
 
-// InputBoundExceededError reports an input bound the kernel refused, with
-// the bound, what was observed and the limit. It is the kernel's
+// InputBoundExceededError reports an input bound the kernel refused, or one
+// the binding checks itself before the call, with the bound, what was
+// observed, the limit, the kernel's message and, for a size bound on a DBC,
+// the part of the DBC that crossed it. It is the kernel's
 // InputBoundExceeded, and the peer bindings carry the same type: Python's
 // InputBoundExceededError, the C++ aletheia::InputBoundExceededError and
 // the Rust Error::InputBoundExceeded.
@@ -279,22 +281,39 @@ type InputBoundExceededError struct {
 	// Code is the wire error code, always [CodeInputBoundExceeded]: the
 	// decoder lifts this type for no other.
 	Code string
+	// Field names the part of a DBC that crossed a size bound, such as
+	// "senders array" or "version string", as the kernel's refusal names
+	// it. It is empty when the refusal names none, as for a bound on the
+	// input's length, its nesting depth or an identifier's length.
+	Field string
+	// Message is the kernel's message for the refusal, such as "ParseDBC:
+	// senders array: array cardinality 10001 exceeds limit 10000". It is
+	// empty for a bound the binding checks itself before the call.
+	Message string
 }
 
-// Error implements the error interface.
+// Error returns the kernel's message, and for a bound the binding checks
+// itself, which has none, the binding's own text naming the kind, the size
+// and the limit.
 func (e *InputBoundExceededError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
 	return fmt.Sprintf("aletheia validation error: %s %d exceeds limit %d",
 		e.BoundKind, e.Observed, e.Limit)
 }
 
 // newInputBoundExceededError builds the typed error, for the lifter in
-// json.go and for the bounds the binding checks before the call.
-func newInputBoundExceededError(kind string, observed, limit uint64, code string) *InputBoundExceededError {
+// json.go and for the bounds the binding checks before the call, which name
+// no field and carry no message.
+func newInputBoundExceededError(kind string, observed, limit uint64, code, field, message string) *InputBoundExceededError {
 	return &InputBoundExceededError{
 		BoundKind: kind,
 		Observed:  observed,
 		Limit:     limit,
 		Code:      code,
+		Field:     field,
+		Message:   message,
 	}
 }
 

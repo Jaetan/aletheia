@@ -122,6 +122,11 @@ public:
     // HandlerTextRoundtripFailed, carrying the diagnostics via issues()) rather
     // than lossy text.  Does not modify client state — pass any DbcDefinition
     // value (typically from parse_dbc_text, format_dbc, or a JSON load).
+    // A DBC past a size bound of <aletheia/limits.hpp> is refused before any
+    // text is formatted, as parse_dbc and validate_dbc refuse it: kind and
+    // code InputBoundExceeded, with bound_info() naming the bound kind, the
+    // field that crossed it, the observed size and the limit.  With no nodes
+    // declared, the nodes counted are those derived from the message senders.
     [[nodiscard]] auto format_dbc_text(std::stop_token stop, const DbcDefinition& dbc)
         -> Result<DbcText>;
 

@@ -49,7 +49,8 @@ pub enum Error {
     /// The core returned a structured error response. `code` is the machine-
     /// readable wire code from the Agda kernel (e.g. `handler_no_dbc`). A
     /// `code == "input_bound_exceeded"` response carrying a well-typed
-    /// `bound_kind` / `observed` / `limit` triple is lifted to
+    /// `bound_kind` / `observed` / `limit` triple, a string `message` (and a
+    /// string `field`, where one is present) is lifted to
     /// [`Error::InputBoundExceeded`] instead of this generic variant, so any
     /// method documented as returning `Error::Core` on a core error may also
     /// return `Error::InputBoundExceeded` when the rejection is a bound violation.
@@ -58,35 +59,52 @@ pub enum Error {
     /// [`Error::ValidationFailed`].
     Core { code: String, message: String },
     /// The core rejected an input for exceeding a structural bound (nesting
-    /// depth, atom count, identifier length, …). This is the typed lift of a
-    /// `code == "input_bound_exceeded"` error response that carries the
-    /// structured `bound_kind` / `observed` / `limit` triple — the Rust analogue
-    /// of Go's `*InputBoundExceededError`, C++'s `InputBoundExceededError`, and
-    /// Python's `InputBoundExceededError`. A malformed or partial triple degrades
-    /// to [`Error::Core`] rather than surfacing here (matching the peer bindings).
-    /// The human-readable message is reconstructed from the triple by [`Display`],
-    /// not stored — like Go / C++ / Python, none of which carry the wire message.
+    /// depth, atom count, identifier length, the length of a DBC's lists and
+    /// strings, …). This is the typed lift of a `code == "input_bound_exceeded"`
+    /// error response that carries the structured `bound_kind` / `observed` /
+    /// `limit` triple, the kernel's `message` and, for a DBC size bound, the
+    /// `field` it names: the Rust analogue of Go's `*InputBoundExceededError`,
+    /// C++'s `InputBoundExceededError`, and Python's `InputBoundExceededError`.
+    /// A malformed or partial triple, a `message` that is missing or not a
+    /// string, or a `field` that is not a string, degrades to [`Error::Core`]
+    /// rather than surfacing here. The crate builds this variant only by that
+    /// lift, so its text, rendered by [`Display`], is the kernel's message
+    /// exactly.
+    ///
+    /// A `match` that names every field of this variant without `..` must name
+    /// `message` and `field` too: `#[non_exhaustive]` covers the enum's
+    /// variants, not this variant's fields.
     ///
     /// [`Display`]: std::fmt::Display
     InputBoundExceeded {
         /// Machine-readable wire code (always `input_bound_exceeded`).
         code: String,
+        /// The kernel's message, which [`Display`](std::fmt::Display) renders
+        /// unchanged (e.g. `ParseDBC: senders array: array cardinality 10001
+        /// exceeds limit 10000`).
+        message: String,
         /// Which bound was crossed (a `BoundKind` name, e.g. `nesting_depth`).
         bound_kind: String,
         /// The observed value that exceeded the limit.
         observed: u64,
         /// The canonical limit that was exceeded.
         limit: u64,
+        /// The part of the DBC that crossed a size bound, as the kernel names
+        /// it (e.g. `senders array`, `version string`), on a DBC size refusal
+        /// from `parse_dbc`, `parse_dbc_text`, `validate_dbc` or
+        /// `format_dbc_text`; `None` for a bound that names no field, such as
+        /// the input's length, its nesting depth or an identifier's length.
+        field: Option<String>,
     },
     /// The core rejected a DBC because structural validation found errors. This
     /// is the typed lift of a `code == "handler_validation_failed"` error
     /// response that carries the structured `has_errors` / `issues` payload
     /// (each issue has the exact element shape of a `validate_dbc` result).
-    /// A missing or malformed payload — including any single ill-typed issue
-    /// element — degrades to [`Error::Core`] rather than surfacing here
-    /// (the same degrade rule as [`Error::InputBoundExceeded`]). Unlike that
-    /// variant, the legacy wire `message` is carried unchanged: it is free text
-    /// the core composes, not reconstructible from the issues.
+    /// A missing or malformed payload, including any single ill-typed issue
+    /// element, degrades to [`Error::Core`] rather than surfacing here (the
+    /// same degrade rule as [`Error::InputBoundExceeded`]). The wire `message`
+    /// is carried unchanged: it is free text the core composes, not
+    /// reconstructible from the issues.
     ValidationFailed {
         /// Machine-readable wire code (always `handler_validation_failed`).
         code: String,
@@ -167,15 +185,7 @@ impl fmt::Display for Error {
                 write!(f, "binary extraction path not supported by this backend")
             }
             Error::Core { code, message } => write!(f, "core error [{code}]: {message}"),
-            Error::InputBoundExceeded {
-                bound_kind,
-                observed,
-                limit,
-                ..
-            } => write!(
-                f,
-                "input bound exceeded: {bound_kind} {observed} exceeds limit {limit}"
-            ),
+            Error::InputBoundExceeded { message, .. } => f.write_str(message),
             Error::ValidationFailed {
                 code,
                 message,

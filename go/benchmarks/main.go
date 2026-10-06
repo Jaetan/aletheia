@@ -793,17 +793,28 @@ func complexityLevels() []struct {
 
 // dbcSizeDBC is the definition the DBC-size sweep loads: n extended-ID
 // messages of one byte-wide signal each, no two sharing an ID, a message name
-// or a signal name, so every load succeeds.
+// or a signal name, with every kind of reference growing with n. Message i is
+// sent by node N{i}, with N{(i+1) mod n} as its one additional sender, and its
+// signal is received by N{i}; the nodes are N0 to N{n-1}, and each message
+// carries one comment naming it by its CAN ID. Every name resolves, so every
+// load succeeds.
 func dbcSizeDBC(n int) aletheia.DBCDefinition {
+	node := func(i int) aletheia.NodeName { return aletheia.NodeName(fmt.Sprintf("N%d", i)) }
 	msgs := make([]aletheia.DBCMessage, 0, n)
+	nodes := make([]aletheia.DBCNode, 0, n)
+	comments := make([]aletheia.DBCComment, 0, n)
 	for i := 0; i < n; i++ {
+		id := mustExtID(0x100000 + uint32(i))
 		sig := aletheia.DBCSignal{Name: aletheia.SignalName(fmt.Sprintf("S%d", i)), StartBit: 0, BitLength: 8, ByteOrder: aletheia.LittleEndian, IsSigned: false,
 			Factor: rat(1, 1), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(255, 1), Unit: "", Presence: aletheia.AlwaysPresent{},
-			Receivers: []aletheia.NodeName{"ECU"}}
-		msgs = append(msgs, aletheia.NewDBCMessage(mustExtID(0x100000+uint32(i)), aletheia.MessageName(fmt.Sprintf("M%d", i)), mustDLC(8), "ECU", nil, []aletheia.DBCSignal{sig}))
+			Receivers: []aletheia.NodeName{node(i)}}
+		msgs = append(msgs, aletheia.NewDBCMessage(id, aletheia.MessageName(fmt.Sprintf("M%d", i)), mustDLC(8), node(i), []aletheia.NodeName{node((i + 1) % n)}, []aletheia.DBCSignal{sig}))
+		nodes = append(nodes, aletheia.DBCNode{Name: node(i)})
+		comments = append(comments, aletheia.DBCComment{Target: aletheia.DBCCommentTargetMessage{ID: id}, Text: "c"})
 	}
 	d := aletheia.NewDBCDefinition("1.0", msgs)
-	d.Nodes = []aletheia.DBCNode{{Name: "ECU"}}
+	d.Nodes = nodes
+	d.Comments = comments
 	return *d
 }
 

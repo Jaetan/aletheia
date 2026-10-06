@@ -44,7 +44,9 @@ def dbc_and_warnings_from_response(
     CLI's load path so the error semantics cannot drift between them. The
     ``warnings`` list is the parse's non-error issues; because the kernel's
     parse epilogue runs full validation, it is the complete validation
-    result for a DBC that passed every error-severity check.
+    result for a DBC that passed every error-severity check.  A bound
+    refusal never reaches it: the parse itself raises
+    :class:`~aletheia.InputBoundExceededError`.
 
     Args:
         response: The wire response from a parse command.
@@ -83,7 +85,9 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
             envelope carries no structured issue list (e.g. a syntactic
             parse failure).
         InputBoundExceededError: If the file is larger than
-            :data:`aletheia.limits.MAX_DBC_TEXT_BYTES` (64 MiB).
+            :data:`aletheia.limits.MAX_DBC_TEXT_BYTES` (64 MiB), or the DBC it
+            holds is past one of the kernel's bounds; ``field`` names the part
+            of the DBC that crossed a size bound.
 
     Note:
         Each call starts a temporary ``AletheiaClient`` (GHC RTS init) just
@@ -118,6 +122,14 @@ def dbc_to_text(dbc: DBCDefinition) -> str:
 
     Returns:
         String containing the .dbc file content.
+
+    Raises:
+        InputBoundExceededError: If the DBC is past one of the kernel's bounds;
+            ``field`` names the part of the DBC that crossed a size bound.
+        TextRoundTripFailedError: If the emitted text does not re-parse to the
+            input DBC.
+        ProtocolError: If the kernel cannot read the DBC or answers in an
+            unexpected shape.
 
     Note:
         Each call starts a temporary ``AletheiaClient`` (GHC RTS init) just
