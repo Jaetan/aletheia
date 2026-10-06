@@ -273,6 +273,8 @@ cabal run shake -- build
 # This will:
 # 1. Compile Agda sources to Haskell (MAlonzo)
 # 2. Build shared library via Cabal → build/libaletheia-ffi.so
+# 3. Build the stand-in kernels the bindings' tests load beside it →
+#    build/stand-ins/*.so, from haskell-shim/test/*.c with the C compiler CC names
 ~~~
 
 The build is incremental: how long a cold, a no-op and a one-module build take, and why the dependency graph makes that honest, is under [Incremental Builds](#incremental-builds) below.
@@ -425,7 +427,7 @@ cd /path/to/aletheia
 source python/.venv/bin/activate
 
 # Build commands
-cabal run shake -- build              # Full pipeline: Agda → Haskell → libaletheia-ffi.so (incremental)
+cabal run shake -- build              # Full pipeline: Agda → Haskell → libaletheia-ffi.so, and the tests' stand-in kernels (incremental)
 cabal run shake -- build-agda         # Compile Agda to Haskell only (no .so)
 cabal run shake -- gen-ffi-modules    # Regenerate the MAlonzo module list in aletheia.cabal (after adding/removing an Agda module)
 cabal run shake -- iwyu               # Regenerate the relevant .agdai + run the import (IWYU) analysis, no full .hs/.so rebuild

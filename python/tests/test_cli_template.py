@@ -17,7 +17,7 @@ import sys
 from typing import TYPE_CHECKING
 
 import pytest
-from _cli_check_helpers import report, run_check, skip_without_ffi
+from _cli_check_helpers import CheckInputs, report, run_check, skip_without_ffi
 from _excel_helpers import ENGINE_RPM_ROW, append_rows, sheet_headers
 
 from aletheia import cli
@@ -57,7 +57,9 @@ def test_the_template_is_the_workbook_the_loaders_read(
     }
 
 
-def test_the_filled_in_template_runs_its_checks(tmp_path: Path) -> None:
+def test_the_filled_in_template_runs_its_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """One signal and one check typed into the written template run to a passing verdict."""
     skip_without_ffi()
     workbook = tmp_path / "checks.xlsx"
@@ -67,7 +69,7 @@ def test_the_filled_in_template_runs_its_checks(tmp_path: Path) -> None:
     log_path = tmp_path / "drive.log"
     log_path.write_text(_LOG, encoding="utf-8")
 
-    result = run_check(["--excel", str(workbook), str(log_path)])
+    result = run_check(CheckInputs(log=log_path, workbook=workbook), monkeypatch)
     assert result.returncode == 0, report(result)
     assert "1 checks" in result.stdout, report(result)
 

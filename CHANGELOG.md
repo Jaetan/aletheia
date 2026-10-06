@@ -12,6 +12,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **A Rust test drives the async client on its own thread:
+  `aletheia::testing::TurnExecutor`.** `AsyncClient` runs its sync client on a
+  worker thread, so every Rust async test ran a thread beside it, and the
+  in-flight cancellation test met that thread through a condition-variable
+  rendezvous; the queued-cancellation test dropped a call that the worker may
+  or may not have started, so which path it took turned on scheduling. A test
+  now builds the sync `Client` itself and hands it to `turns.adopt(client)`,
+  which returns the `AsyncClient`; `turns.block_on(future)` runs each queued
+  call on the test's thread at its turn, in queue order, and panics rather
+  than hangs when a future waits with no call queued, and `run_turn()` runs one
+  call for a test that steps by hand. A call dropped before its turn never
+  reaches the client, and one dropped from inside the backend during its turn
+  runs to completion with its result discarded, each now reached on every run.
+  The worker thread is unchanged for every other caller. The Rust twin of
+  Python's `aletheia.asyncio.testing.TurnExecutor`.
+
 - **A DBC's load time may not outgrow its number of messages: the `load
   scaling` check.** Each binding's scaling benchmark measures a `dbc_size`
   sweep, the time to load a DBC of 1,250 to 10,000 messages (2,500 to 10,000
@@ -177,9 +193,9 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   library search with its registered path and its working directory read once,
   a backend and the standalone loaders refusing a library with none of the
   kernel's symbols and a file that is not one, a kernel answering null
-  everywhere (a stand-in under `go/aletheia/testdata/kernel_stand_in/`, compiled
-  by the suite), the end-of-stream merge's standard-before-extended order read
-  off a definition carrying one identifier value under both kinds, the batch's
+  everywhere (a stand-in kernel the build makes beside the library), the
+  end-of-stream merge's standard-before-extended order read off a definition
+  carrying one identifier value under both kinds, the batch's
   satisfactions and the indexed definition constructor. What the ledger names is
   package-level constants, which no test can execute.
 
@@ -243,6 +259,56 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   subscript one container, which is the case where no bound is hand-written.
 
 ### Changed
+
+- **A test starts a process only where its claim needs one.** Every process
+  the four bindings' tests start was judged against what the test claims. The
+  `aletheia check` tests of error frames, an Excel-authored DBC and a filled-in
+  template run the CLI's `main` in the test's own process, where they ran it
+  as a child; undoing either fix they guard still fails them. A pid no process
+  holds is the kernel's `pid_max`, never handed out, where two tests spawned and
+  reaped a child for its id, which the kernel could give to another process.
+  The precise-hints gate's command line runs in-process. Two child scripts a
+  test carried as a string waited on the clock, out of the gate's sight: a
+  lock holder slept 60 s, so a slow run freed the lock under the test, and a
+  streaming handshake polled with a 20 s deadline. The holder now waits on
+  input the test holds and the handshake on a FIFO, and the gate reads a Python
+  test's string that is a script, one that parses and calls or imports
+  something, as the source it is. The processes kept are the ones a claim
+  needs: a runtime started fresh or with another locale or capability count, a
+  heap cap that ends its process, a doc fence built and run as a program,
+  git's tracked set, a signal, a process group, a record lock or resident
+  memory, which belong to a process. The wide-net probe accepts a word that
+  starts a process only in the files judged, each with its reason, so the
+  probe refuses a new one until it is judged. The stand-in kernels the tests
+  load (one at another ABI version, one exporting the version alone, one
+  exporting no kernel symbol, one answering null) are built by `cabal run
+  shake -- build` beside the library, from `haskell-shim/test/`, where Go,
+  Python and Rust compiled them with `cc` during their tests and C++ built its
+  own copies in CMake; every binding loads them from the directory of the
+  library it runs against, a missing one failing with the build's name, and
+  Python and Rust load the built symbol-less kernel where they loaded the
+  host's `libm`. A probe holds the build's table to the names the tests load,
+  both ways, and each built kernel to the exports its role needs.
+
+- **The test-determinism gate reads every spelling of a clock or a thread,
+  and the Go doc examples and Rust test binaries run one thing at a time.** A
+  primitive named through an import alias, a from-import, a `use` or a
+  using-declaration (`from time import sleep`, `use std::thread::spawn as
+  start`, `import clock "time"`, `using clock = steady_clock`) passed the gate,
+  which read only the qualified spelling; it is now read as the name it stands
+  for. The catalogue adds Go's parallel tests and group goroutines
+  (`t.Parallel`, `b.RunParallel`, `WaitGroup.Go`), Python's process and thread
+  clocks, signal timers and scheduler yield, C++'s POSIX sleeps, clocks and
+  timers, Catch2 benchmarks and scheduler yields, and a Rust test building the
+  async client by a constructor that starts its worker thread. The Go
+  doc-example test ran its fences as parallel subtests capped at the CPU
+  count; it builds them with one `go build` and runs each in turn, 25 fences in
+  2.0 s against 2.2 s, a fence that does not compile still named by file and
+  line. The Rust test harness ran a binary's tests side by side on threads of
+  one process; `rust/.cargo/config.toml` forces `RUST_TEST_THREADS` to 1 for
+  every route that runs them, at no measured cost, and the gate holds it. An
+  example is not a test: a documentation fence or a file under `examples/`
+  keeps the threads and timers its production use needs.
 
 - **A shared CAN ID, message name or signal name is one issue naming every
   message (BREAKING).** The validator reported `duplicate_message_id`,

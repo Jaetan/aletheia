@@ -6,7 +6,9 @@ A library at another version would read the binding's structures at other
 offsets, so the loader reads ``aletheia_abi_version`` before anything else and
 refuses there. The stand-in exports that one symbol at a version no binding
 was written against; a library without the export predates the versioned ABI
-and is refused for that.
+and is refused for that. The stand-ins are the ones ``cabal run shake --
+build`` makes beside the library: in the directory ``ALETHEIA_LIB`` names, or
+the repository's ``build/``.
 """
 
 import os
@@ -14,32 +16,27 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import NewType
 
 import pytest
 
 from aletheia import FFIBackend, FFIError
 from aletheia.client._ffi import ABI_VERSION
 
-_SHIM = Path(__file__).resolve().parents[2] / "haskell-shim"
+# A stand-in kernel's name, the stem of its source under haskell-shim/test.
+StandInName = NewType("StandInName", str)
+
+_REPO = Path(__file__).resolve().parents[2]
+_SHIM = _REPO / "haskell-shim"
 
 
-def _stale_kernel(tmp_path: Path) -> Path:
-    """Compile the stale-ABI stand-in with the C compiler the environment names."""
-    out = tmp_path / "stale_abi_kernel.so"
-    subprocess.run(
-        [
-            os.environ.get("CC", "cc"),
-            "-shared",
-            "-fPIC",
-            "-I",
-            str(_SHIM / "include"),
-            "-o",
-            str(out),
-            str(_SHIM / "test" / "stale_abi_kernel.c"),
-        ],
-        check=True,
-    )
-    return out
+def _stand_in(name: StandInName) -> Path:
+    """Return the stand-in kernel the build makes beside the library the tests run against."""
+    lib = os.environ.get("ALETHEIA_LIB")
+    built = Path(lib).parent if lib else _REPO / "build"
+    path = built / "stand-ins" / f"{name}.so"
+    assert path.exists(), f"stand-in {path} not built; run 'cabal run shake -- build'"
+    return path
 
 
 def test_the_binding_version_is_the_header_s() -> None:
@@ -50,25 +47,23 @@ def test_the_binding_version_is_the_header_s() -> None:
     assert int(match[1]) == ABI_VERSION
 
 
-def test_a_library_at_another_version_is_refused(tmp_path: Path) -> None:
+def test_a_library_at_another_version_is_refused() -> None:
     """The loader names both versions and loads nothing further."""
     with pytest.raises(
         FFIError, match=f"ABI version {ABI_VERSION + 1}, and this binding needs {ABI_VERSION}"
     ):
-        FFIBackend(lib_path=_stale_kernel(tmp_path))
+        FFIBackend(lib_path=_stand_in(StandInName("stale_abi_kernel")))
 
 
 def test_a_library_without_the_version_export_is_refused() -> None:
     """A loadable library with no version export predates the versioned ABI."""
-    exportless = Path("/lib/x86_64-linux-gnu/libm.so.6")
-    assert exportless.exists(), f"prerequisite missing: {exportless}"
     with pytest.raises(FFIError, match="predates the versioned ABI"):
-        FFIBackend(lib_path=exportless)
+        FFIBackend(lib_path=_stand_in(StandInName("symbolless")))
 
 
-def test_the_renderer_refuses_a_library_at_another_version(tmp_path: Path) -> None:
+def test_the_renderer_refuses_a_library_at_another_version() -> None:
     """The renderer's own load reads the version too, in a process that has no backend."""
-    stale = _stale_kernel(tmp_path)
+    stale = _stand_in(StandInName("stale_abi_kernel"))
     probe = (
         "from aletheia.client._enrichment import get_renderer_lib\n"
         "try:\n"

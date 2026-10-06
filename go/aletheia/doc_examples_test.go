@@ -6,9 +6,9 @@
 // The doc-example harness, the Go counterpart of the Python one under
 // pytest --markdown-docs: every Go fence of the documents docFiles lists
 // (doc_files_test.go, which holds that list to the tree) is extracted,
-// wrapped as a program, compiled and run through go run, and a
-// fence that fails to build or to run fails the test under its file and
-// line. Three literals are rewritten to fixtures first: the installed
+// wrapped as a program, compiled by one go build and run one at a time, in
+// order; a fence that fails to build fails the test naming its file and
+// line, and one that fails to run fails its subtest. Three literals are rewritten to fixtures first: the installed
 // library path to the built library, checks.yaml to the test fixture, and
 // checks.xlsx or tests.xlsx to the demo workbook. A fence is wrapped by its
 // shape: one declaring package main runs verbatim; one opening with an
@@ -29,7 +29,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -253,7 +252,7 @@ func main() {
 
 // unusedSuppressors is one blank assignment per name the fragment declares
 // with := at its top level (a name declared inside a block is scoped there
-// and needs none). A fragment that does not parse gets none; go run then
+// and needs none). A fragment that does not parse gets none; the build then
 // reports the real error with its position.
 func unusedSuppressors(body string) string {
 	src := "package x\nfunc f() {\n" + body + "\n}\n"
@@ -371,28 +370,32 @@ func TestDocExamples(t *testing.T) {
 		wrapped = append(wrapped, wrappedFence{fence: fence, dir: dir, pkgPath: "./f" + strconv.Itoa(i)})
 	}
 
-	// one build first resolves the modules and warms the cache, so the
-	// parallel runs below do not race for the module lock
-	primingCmd := exec.Command("go", "build", "-o", filepath.Join(root, "_prime"), wrapped[0].pkgPath)
-	primingCmd.Dir = root
-	primingCmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "ALETHEIA_LIB="+lib)
-	if out, err := primingCmd.CombinedOutput(); err != nil {
-		t.Fatalf("priming build failed:\n%s\nerr: %v", out, err)
+	// one build compiles every fence into bin/, a program per fence named
+	// as its directory; a fence that does not compile is named by the
+	// build's own "# aletheia_doc_harness/fN" header, mapped back below
+	env := append(os.Environ(), "GOFLAGS=-mod=mod", "ALETHEIA_LIB="+lib)
+	bin := filepath.Join(root, "bin") + string(filepath.Separator)
+	args := []string{"build", "-o", bin}
+	for _, w := range wrapped {
+		args = append(args, w.pkgPath)
+	}
+	build := exec.Command("go", args...)
+	build.Dir = root
+	build.Env = env
+	if out, err := build.CombinedOutput(); err != nil {
+		var names strings.Builder
+		for _, w := range wrapped {
+			fmt.Fprintf(&names, "  aletheia_doc_harness/%s is %s\n", filepath.Base(w.dir), w.fence.name())
+		}
+		t.Fatalf("the fences do not build:\n%s\nerr: %v\n----- FENCES -----\n%s", out, err, names.String())
 	}
 
-	// parallel runs are capped at the CPU count, since the GHC runtime's
-	// initialisation has failed under heavier concurrent loads
-	sem := make(chan struct{}, max(runtime.NumCPU(), 2))
-
+	// each fence then runs alone, in document order
 	for _, w := range wrapped {
 		t.Run(w.fence.name(), func(t *testing.T) {
-			t.Parallel()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			cmd := exec.Command("go", "run", w.pkgPath)
+			cmd := exec.Command(filepath.Join(bin, filepath.Base(w.dir)))
 			cmd.Dir = root
-			cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "ALETHEIA_LIB="+lib)
+			cmd.Env = env
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				wrapper, _ := os.ReadFile(filepath.Join(w.dir, "main.go"))

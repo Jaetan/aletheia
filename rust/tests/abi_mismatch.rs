@@ -4,34 +4,21 @@
 //! A library laid out for another ABI version is refused by the version it
 //! reports, before any other entry is resolved. Its own test binary (= its own
 //! process) for the reason `symbol_missing.rs` gives: once the stand-in loads,
-//! it stays loaded for the process lifetime. The stand-in is the one every
-//! binding's suite compiles, exporting nothing but a version no binding was
-//! written against; it is built here with the C compiler the environment names.
+//! it stays loaded for the process lifetime. The stand-in is the one the build
+//! makes beside the library, exporting nothing but a version no binding was
+//! written against.
 
-use std::path::Path;
-use std::process::Command;
+mod stand_in;
 
 use aletheia::{Client, Error};
 
 #[test]
 fn a_library_at_another_abi_version_is_refused() {
-    let shim = Path::new(env!("CARGO_MANIFEST_DIR")).join("../haskell-shim");
-    let out = std::env::temp_dir().join(format!("stale_abi_kernel_{}.so", std::process::id()));
-    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
-    let status = Command::new(cc)
-        .args(["-shared", "-fPIC", "-I"])
-        .arg(shim.join("include"))
-        .arg("-o")
-        .arg(&out)
-        .arg(shim.join("test/stale_abi_kernel.c"))
-        .status()
-        .expect("run the C compiler");
-    assert!(status.success(), "the stale-ABI stand-in did not compile");
+    let out = stand_in::stand_in("stale_abi_kernel");
     std::env::set_var("ALETHEIA_LIB", &out);
     let Err(err) = Client::new() else {
         panic!("Client::new must refuse a library at another ABI version")
     };
-    let _ = std::fs::remove_file(&out);
     match err {
         Error::AbiMismatch { library, binding } => {
             assert_eq!(

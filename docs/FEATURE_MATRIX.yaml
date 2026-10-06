@@ -676,7 +676,7 @@ features:
       go:
         status: implemented
         entry: Client
-        notes: "2026-05-04 — TestDocExamples in go/aletheia/doc_examples_test.go reads every tracked Markdown file carrying a Go fence (docFiles in doc_files_test.go, held to the tree both ways), wraps each fence as `package main` in a per-fence tempdir (with `replace`-directive go.mod), runs via `go run` with t.Parallel. Companion structural gate TestNoGoFenceHidesBehindASuffix refuses a Go fence hidden behind a suffixed info word; a fence that cannot run opens with tildes. The `Client` entry parallels Python's `aletheia.AletheiaClient` — the runtime class doc fences exercise."
+        notes: "TestDocExamples in go/aletheia/doc_examples_test.go reads every tracked Markdown file carrying a Go fence (docFiles in doc_files_test.go, held to the tree both ways), wraps each fence as `package main` in a per-fence tempdir (with `replace`-directive go.mod), builds them with one `go build` and runs each in turn. Companion structural gate TestNoGoFenceHidesBehindASuffix refuses a Go fence hidden behind a suffixed info word; a fence that cannot run opens with tildes. The `Client` entry parallels Python's `aletheia.AletheiaClient` — the runtime class doc fences exercise."
       rust:
         status: implemented
         entry: Client

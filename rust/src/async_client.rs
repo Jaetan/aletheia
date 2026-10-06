@@ -28,6 +28,13 @@
 //! - **In-flight (inside the FFI call):** the call runs to completion on the
 //!   worker and advances `StreamState`; its result is discarded (commit-prefix,
 //!   no rollback). The next call runs after it.
+//!
+//! ## Tests
+//! A test starts no thread, so it hosts the sync client on a
+//! [`TurnExecutor`](crate::testing::TurnExecutor) instead of the worker: each
+//! queued job then runs on the test's own thread at its turn, in the order the
+//! calls were queued, and the cancellation cases above are reached by
+//! construction rather than by how a thread was scheduled.
 
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, PoisonError};
@@ -43,7 +50,7 @@ use crate::{
 };
 
 /// A unit of work run on the worker thread against the owned sync [`Client`].
-type Job = Box<dyn FnOnce(&Client) + Send>;
+pub(crate) type Job = Box<dyn FnOnce(&Client) + Send>;
 
 /// A runtime-agnostic async mirror of [`Client`]; see the module docs.
 pub struct AsyncClient {
@@ -54,8 +61,9 @@ pub struct AsyncClient {
     /// brief enqueue, never across an `.await`; `None` only transiently
     /// during [`Drop`].
     jobs: Mutex<Option<Sender<Job>>>,
-    /// Joined on [`Drop`]. `Option`-slotted only so [`Drop`] can take and join
-    /// it; `JoinHandle` is already `Send + Sync`, so it needs no lock.
+    /// Joined on [`Drop`]; `None` for a client a turn executor hosts, which
+    /// has no worker, and once [`Drop`] has taken it. `JoinHandle` is already
+    /// `Send + Sync`, so it needs no lock.
     worker: Option<JoinHandle<()>>,
 }
 
@@ -112,6 +120,15 @@ pub(crate) async fn spawn(
 }
 
 impl AsyncClient {
+    /// The handle over a client some other party runs the jobs of: no worker
+    /// thread, nothing to join on [`Drop`].
+    pub(crate) fn hosted(jobs: Sender<Job>) -> Self {
+        AsyncClient {
+            jobs: Mutex::new(Some(jobs)),
+            worker: None,
+        }
+    }
+
     /// Build an async client with no logger and the default RTS — the async
     /// analogue of [`Client::new`]. Use [`ClientBuilder::build_async`] to
     /// configure a logger or the RTS core count.

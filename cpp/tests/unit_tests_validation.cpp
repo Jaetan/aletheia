@@ -5,6 +5,7 @@
 // Payload-length mismatches, negative-timestamp rejection (send_frame,
 // send_error, send_remote), bytes_to_dlc CAN 2.0B / CAN-FD coverage, and
 // Rational comparison operators.
+#include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -34,6 +35,14 @@
 
 using namespace aletheia;
 using Catch::Matchers::ContainsSubstring;
+
+// A stand-in kernel `cabal run shake -- build` makes beside the library: one
+// missing is a build that has not run since it was added.
+static auto stand_in(const std::filesystem::path& path) -> std::filesystem::path {
+    INFO("stand-in " << path.string() << " not built; run 'cabal run shake -- build'");
+    REQUIRE(std::filesystem::exists(path));
+    return path;
+}
 
 // ===========================================================================
 // Payload validation tests
@@ -277,8 +286,7 @@ TEST_CASE("make_ffi_backend with rts_cores < 1 throws Validation-kinded exceptio
 // opens it, fails on its first lookup and must close it again: afterwards the
 // loader holds no mapping of it, which RTLD_NOLOAD reports without loading.
 TEST_CASE("a refused construction leaves the library it opened unloaded", "[ffi][validation]") {
-    const std::filesystem::path lib{ALETHEIA_TEST_SYMBOLLESS_LIB};
-    REQUIRE(std::filesystem::exists(lib));
+    auto const lib = stand_in(ALETHEIA_TEST_SYMBOLLESS_LIB);
     REQUIRE_THROWS_WITH(make_ffi_backend(lib), ContainsSubstring("dlsym failed"));
     const aletheia::test::LoadedLibrary still_mapped{dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
     CHECK(still_mapped == nullptr);
@@ -287,8 +295,7 @@ TEST_CASE("a refused construction leaves the library it opened unloaded", "[ffi]
 // A library laid out for another ABI version is refused by the version it
 // reports, the first thing the backend reads, and left unloaded.
 TEST_CASE("a library at another ABI version is refused and left unloaded", "[ffi][validation]") {
-    const std::filesystem::path lib{ALETHEIA_TEST_STALE_ABI_KERNEL};
-    REQUIRE(std::filesystem::exists(lib));
+    auto const lib = stand_in(ALETHEIA_TEST_STALE_ABI_KERNEL);
     try {
         std::ignore = make_ffi_backend(lib);
         FAIL("a library at another ABI version was accepted");
@@ -432,25 +439,28 @@ TEST_CASE("the renderer names why a library will not serve it", "[ffi][renderer]
                    ContainsSubstring("renderer dlopen failed"));
     }
     SECTION("a library without the renderer's entries, closed again") {
-        CHECK_THAT(renderer_load_error(ALETHEIA_TEST_SYMBOLLESS_LIB),
+        auto const lib = stand_in(ALETHEIA_TEST_SYMBOLLESS_LIB);
+        CHECK_THAT(renderer_load_error(lib),
                    ContainsSubstring("renderer dlsym aletheia_abi_version"));
         const aletheia::test::LoadedLibrary still_mapped{
-            dlopen(ALETHEIA_TEST_SYMBOLLESS_LIB, RTLD_NOW | RTLD_NOLOAD)};
+            dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
         CHECK(still_mapped == nullptr);
     }
     SECTION("a library at this ABI version without the renderer's entries, closed again") {
-        CHECK_THAT(renderer_load_error(ALETHEIA_TEST_ABI_ONLY_LIB),
+        auto const lib = stand_in(ALETHEIA_TEST_ABI_ONLY_LIB);
+        CHECK_THAT(renderer_load_error(lib),
                    ContainsSubstring("renderer dlsym aletheia_format_rational"));
         const aletheia::test::LoadedLibrary still_mapped{
-            dlopen(ALETHEIA_TEST_ABI_ONLY_LIB, RTLD_NOW | RTLD_NOLOAD)};
+            dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
         CHECK(still_mapped == nullptr);
     }
     SECTION("a library at another ABI version, closed again") {
-        CHECK_THAT(renderer_load_error(ALETHEIA_TEST_STALE_ABI_KERNEL),
+        auto const lib = stand_in(ALETHEIA_TEST_STALE_ABI_KERNEL);
+        CHECK_THAT(renderer_load_error(lib),
                    ContainsSubstring("renderer: the library implements ABI version " +
                                      std::to_string(aletheia::detail::abi_version + 1)));
         const aletheia::test::LoadedLibrary still_mapped{
-            dlopen(ALETHEIA_TEST_STALE_ABI_KERNEL, RTLD_NOW | RTLD_NOLOAD)};
+            dlopen(lib.c_str(), RTLD_NOW | RTLD_NOLOAD)};
         CHECK(still_mapped == nullptr);
     }
     SECTION("the kernel library itself, which serves") {

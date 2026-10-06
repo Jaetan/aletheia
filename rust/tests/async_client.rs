@@ -1,31 +1,39 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 
-//! AsyncClient tests (feature `async`). Most drive the real
-//! `libaletheia-ffi.so` (set `ALETHEIA_LIB`); the in-flight cancellation test
-//! injects a `Send` gating backend via `ClientBuilder::build_async_with_backend`
-//! and needs no `.so`. Runtime-agnostic: futures are driven with
-//! `futures::executor::block_on`; pending calls are cancelled deterministically
-//! (a `select` against an immediately-ready future, or a hand-driven poll against
-//! a backend rendezvous) — never with sleeps.
+//! AsyncClient tests (feature `async`). Each hosts its sync client on a
+//! `TurnExecutor`, so every queued call runs on the test's own thread at its
+//! turn, in queue order: no worker thread, no runtime and no sleep. Most drive
+//! the real `libaletheia-ffi.so` (set `ALETHEIA_LIB`); the cancellation tests
+//! use an injected backend and need no `.so`. A call is cancelled by dropping
+//! its future: before its turn (a `select` against an immediately-ready
+//! future), or from inside the backend while its turn runs.
 
 #![cfg(feature = "async")]
 
-use std::sync::{Arc, Condvar, Mutex};
+use std::cell::{Cell, RefCell};
+use std::future::Future;
+use std::pin::Pin;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::task::{Context, Waker};
 
+use aletheia::testing::TurnExecutor;
 use aletheia::{
-    check, AsyncClient, Backend, CanId, ClientBuilder, Dlc, Error, Frame, FrameResponse, Rational,
+    check, Backend, CanId, Client, Dlc, Error, Frame, FrameResponse, MockBackend, Rational,
     SignalInjection, SignalValue, Timestamp, Verdict,
 };
-use futures::executor::block_on;
 use futures::future::{ready, select};
 
 const MINIMAL: &str = include_str!("../../python/tests/fixtures/dbc_corpus/minimal.dbc");
+const PING: &str = r#"{"command":"ping"}"#;
+const ACK: &str = r#"{"status":"ack"}"#;
 
 #[test]
 fn async_streaming_flow_carries_enrichment() {
-    block_on(async {
-        let c = AsyncClient::new().await.expect("init async client");
+    let turns = TurnExecutor::new();
+    let c = turns.adopt(Client::new().expect("init client"));
+    turns.block_on(async {
         let dbc = c
             .parse_dbc_text(MINIMAL.to_string())
             .await
@@ -75,32 +83,40 @@ fn async_streaming_flow_carries_enrichment() {
     });
 }
 
+/// A call dropped before its turn never reaches the backend, and the client
+/// serves the next one: the worker's queued-cancel guard, reached every run.
 #[test]
-fn cancelled_call_does_not_break_the_client() {
-    block_on(async {
-        let c = AsyncClient::new().await.expect("init async client");
-        // A first call works.
-        c.parse_dbc_text(MINIMAL.to_string())
-            .await
-            .expect("first parse");
-        // Race a second call against an immediately-ready future: the ready
-        // future wins, so the parse future is polled (its job is sent) then
-        // dropped — i.e. cancelled — deterministically, with no sleep.
-        let pending = Box::pin(c.parse_dbc_text(MINIMAL.to_string()));
+fn a_call_cancelled_before_its_turn_never_reaches_the_backend() {
+    let turns = TurnExecutor::new();
+    let mock = MockBackend::new();
+    mock.respond_json(ACK).respond_json(ACK);
+    let c = turns.adopt(Client::builder().build_with_backend(Box::new(mock.clone())));
+    turns.block_on(async {
+        assert_eq!(c.process(PING.to_string()).await.expect("first call"), ACK);
+        // The ready future wins, so the call is queued on its first poll and
+        // then dropped, before any turn has run it.
+        let pending = Box::pin(c.process(r#"{"command":"cancelled"}"#.to_string()));
         let _ = select(pending, Box::pin(ready(()))).await;
-        // The client still works after a cancelled call (no deadlock / no
-        // corruption of the worker's StreamState).
-        c.parse_dbc_text(MINIMAL.to_string())
-            .await
-            .expect("parse after a cancelled call");
+        assert_eq!(
+            c.process(PING.to_string())
+                .await
+                .expect("call after the cancelled one"),
+            ACK
+        );
     });
+    assert_eq!(
+        mock.captured(),
+        vec![PING.to_string(), PING.to_string()],
+        "the cancelled call was skipped at its turn, never sent",
+    );
 }
 
 #[test]
 fn async_send_frames_stream_yields_per_frame() {
     use futures::StreamExt;
-    block_on(async {
-        let c = AsyncClient::new().await.expect("init async client");
+    let turns = TurnExecutor::new();
+    let c = turns.adopt(Client::new().expect("init client"));
+    turns.block_on(async {
         let dbc = c
             .parse_dbc_text(MINIMAL.to_string())
             .await
@@ -137,7 +153,7 @@ fn async_send_frames_stream_yields_per_frame() {
             });
         }
 
-        // Drain the lazy Stream — one worker job dispatched per poll.
+        // Drain the lazy Stream — one job queued per poll, run at its turn.
         let out: Vec<_> = c.send_frames_stream(frames).collect().await;
         assert_eq!(out.len(), 3, "one item per frame");
         assert!(out.iter().all(Result::is_ok), "all frames sent");
@@ -153,8 +169,9 @@ fn async_send_frames_stream_yields_per_frame() {
 #[test]
 fn async_send_frames_stream_is_lazy_and_partially_consumable() {
     use futures::StreamExt;
-    block_on(async {
-        let c = AsyncClient::new().await.expect("init async client");
+    let turns = TurnExecutor::new();
+    let c = turns.adopt(Client::new().expect("init client"));
+    turns.block_on(async {
         c.parse_dbc_text(MINIMAL.to_string())
             .await
             .expect("parse DBC text");
@@ -181,67 +198,26 @@ fn async_send_frames_stream_is_lazy_and_partially_consumable() {
     });
 }
 
-/// Shared rendezvous state for [`GatingBackend`]: `entered` flips when the worker
-/// reaches the FFI, `proceed` is the sticky release latch, `calls` counts entries.
-#[derive(Default)]
-struct GateState {
-    entered: bool,
-    proceed: bool,
-    calls: usize,
-}
+/// A [`Backend`] that counts its calls and runs a hook inside the first one,
+/// the moment a call is in flight. It lives on the test's thread, as the turn
+/// executor hosts its client there, so it needs neither `Send` nor a lock.
+/// What runs inside the first call, once.
+type Hook = Rc<RefCell<Option<Box<dyn FnOnce()>>>>;
 
-/// A `Send` gating [`Backend`] for the deterministic in-flight cancellation test.
-/// Its [`process`](Backend::process) blocks on a condvar rendezvous so the test
-/// can pin the worker *inside* the FFI call — past the queued-cancel guard.
-/// The public `MockBackend` cannot serve here: it is `Rc`-based and so
-/// `!Send`, but `build_async_with_backend` moves the backend to the worker
-/// thread, which requires `Send`.
-///
-/// `proceed` is **sticky**: once released, every later call passes straight
-/// through, so the post-cancel "does a fresh call still work?" probe is not
-/// re-gated. `Mutex<GateState>` (a struct, not `Mutex<bool>`) pairs with the
-/// `Condvar` and sidesteps `clippy::mutex_atomic`.
 #[derive(Clone, Default)]
-struct GatingBackend {
-    inner: Arc<(Mutex<GateState>, Condvar)>,
+struct HookBackend {
+    calls: Rc<Cell<usize>>,
+    inside_first_call: Hook,
 }
 
-impl GatingBackend {
-    /// Block until `process` has entered the rendezvous (the worker is mid-FFI).
-    /// `Condvar` releases the lock while parked, so the worker can still progress.
-    fn wait_until_entered(&self) {
-        let (mu, cv) = &*self.inner;
-        let mut s = mu.lock().expect("gate mutex not poisoned");
-        while !s.entered {
-            s = cv.wait(s).expect("gate condvar not poisoned");
-        }
-    }
-
-    /// Release the in-flight call; sticky — every later call passes through.
-    fn release(&self) {
-        let (mu, cv) = &*self.inner;
-        let mut s = mu.lock().expect("gate mutex not poisoned");
-        s.proceed = true;
-        cv.notify_all();
-    }
-
-    /// How many times `process` has been entered.
-    fn calls(&self) -> usize {
-        self.inner.0.lock().expect("gate mutex not poisoned").calls
-    }
-}
-
-impl Backend for GatingBackend {
+impl Backend for HookBackend {
     fn process(&self, _input: &str) -> Result<String, Error> {
-        let (mu, cv) = &*self.inner;
-        let mut s = mu.lock().expect("gate mutex not poisoned");
-        s.calls += 1;
-        s.entered = true;
-        cv.notify_all(); // wake wait_until_entered
-        while !s.proceed {
-            s = cv.wait(s).expect("gate condvar not poisoned");
+        self.calls.set(self.calls.get() + 1);
+        let hook = self.inside_first_call.borrow_mut().take();
+        if let Some(hook) = hook {
+            hook();
         }
-        Ok(r#"{"status":"ack"}"#.to_string())
+        Ok(ACK.to_string())
     }
 
     // Only `process` is driven; the typed/binary ops are never reached.
@@ -254,25 +230,25 @@ impl Backend for GatingBackend {
         _: Option<bool>,
         _: Option<bool>,
     ) -> Result<String, Error> {
-        unreachable!("gating backend only drives process")
+        unreachable!("the hook backend only drives process")
     }
     fn send_error_binary(&self, _: Timestamp) -> Result<String, Error> {
-        unreachable!("gating backend only drives process")
+        unreachable!("the hook backend only drives process")
     }
     fn send_remote_binary(&self, _: Timestamp, _: CanId) -> Result<String, Error> {
-        unreachable!("gating backend only drives process")
+        unreachable!("the hook backend only drives process")
     }
     fn start_stream_binary(&self) -> Result<String, Error> {
-        unreachable!("gating backend only drives process")
+        unreachable!("the hook backend only drives process")
     }
     fn end_stream_binary(&self) -> Result<String, Error> {
-        unreachable!("gating backend only drives process")
+        unreachable!("the hook backend only drives process")
     }
     fn format_dbc_binary(&self) -> Result<String, Error> {
-        unreachable!("gating backend only drives process")
+        unreachable!("the hook backend only drives process")
     }
     fn extract_signals_binary(&self, _: CanId, _: Dlc, _: &[u8]) -> Result<String, Error> {
-        unreachable!("gating backend only drives process")
+        unreachable!("the hook backend only drives process")
     }
     fn build_frame_bin(
         &self,
@@ -281,7 +257,7 @@ impl Backend for GatingBackend {
         _: Dlc,
         _: SignalInjection<'_>,
     ) -> Result<Vec<u8>, Error> {
-        unreachable!("gating backend only drives process")
+        unreachable!("the hook backend only drives process")
     }
     fn update_frame_bin(
         &self,
@@ -291,80 +267,58 @@ impl Backend for GatingBackend {
         _: &[u8],
         _: SignalInjection<'_>,
     ) -> Result<Vec<u8>, Error> {
-        unreachable!("gating backend only drives process")
+        unreachable!("the hook backend only drives process")
     }
 }
 
-/// Deterministically pins the **in-flight** cancellation path (the queued path is
-/// covered by `cancelled_call_does_not_break_the_client` above) using an injected
-/// `Send` gating backend — no `.so`, no sleeps. We hand-poll a call once to
-/// enqueue it, rendezvous until the worker is provably mid-FFI (past the
-/// queued-cancel guard), then drop the future to cancel and assert the worker is
-/// not wedged: a fresh call still returns the canned ack.
+/// A call whose future is dropped while it is inside the backend runs to
+/// completion, its result is discarded, and the client serves the next call:
+/// commit-prefix, no rollback. The drop happens from inside the call, at the
+/// one moment the call is in flight, so no rendezvous with a thread is needed.
 #[test]
-fn in_flight_cancel_via_injected_backend_leaves_the_worker_usable() {
-    use std::future::Future;
-    use std::task::{Context, Waker};
+fn a_call_cancelled_in_flight_completes_and_leaves_the_client_usable() {
+    type Call = Pin<Box<dyn Future<Output = Result<String, Error>>>>;
+    let turns = TurnExecutor::new();
+    let backend = HookBackend::default();
+    let client =
+        Arc::new(turns.adopt(Client::builder().build_with_backend(Box::new(backend.clone()))));
 
-    let gate = GatingBackend::default();
-    let probe = gate.clone(); // shares the same Arc rendezvous state
-
-    // Build the async client over the gating backend — no `.so` involved.
-    let client = block_on(ClientBuilder::default().build_async_with_backend(Box::new(gate)))
-        .expect("build async client over the injected backend");
-
-    // Release the worker even if an assertion panics while it is parked in the
-    // gate: otherwise the unwind would drop `client`, whose `Drop` joins the
-    // worker — still blocked on `proceed` — turning a clean assertion failure
-    // into a join deadlock. Declared after `client` so it drops *before* it
-    // (releasing the worker before the join); `release()` is sticky/idempotent,
-    // so co-existing with the explicit happy-path release below is harmless.
-    struct ReleaseOnUnwind<'a>(&'a GatingBackend);
-    impl Drop for ReleaseOnUnwind<'_> {
-        fn drop(&mut self) {
-            self.0.release();
-        }
-    }
-    let _release_guard = ReleaseOnUnwind(&probe);
-
-    // Poll the call once so its job is enqueued. The enqueue (`sender.send(job)`)
-    // runs synchronously on the first poll, before the future parks on the reply,
-    // so a no-op waker suffices — we never await a wakeup; the rendezvous is
-    // driven by hand below. `Box::pin` (not `pin!`) so the future is *owned* here:
-    // dropping it below truly drops the future — and its reply receiver — which is
-    // the cancellation; a `pin!` would only drop the borrow, never cancelling.
-    let mut fut = Box::pin(client.process(r#"{"command":"ping"}"#.to_string()));
+    let caller = Arc::clone(&client);
+    let in_flight: Call = Box::pin(async move { caller.process(PING.to_string()).await });
+    let slot: Rc<RefCell<Option<Call>>> = Rc::new(RefCell::new(Some(in_flight)));
+    // The first poll queues the call and parks on its reply.
     let mut cx = Context::from_waker(Waker::noop());
     assert!(
-        fut.as_mut().poll(&mut cx).is_pending(),
-        "first poll enqueues the job and parks on the reply",
+        slot.borrow_mut()
+            .as_mut()
+            .expect("the call is held")
+            .as_mut()
+            .poll(&mut cx)
+            .is_pending(),
+        "the first poll queues the call",
     );
+    let dropped = Rc::clone(&slot);
+    *backend.inside_first_call.borrow_mut() =
+        Some(Box::new(move || drop(dropped.borrow_mut().take())));
 
-    // Block until the worker is INSIDE process() — past the queued-cancel guard
-    // (async_client.rs `run`: the job runs `f(c)` only while the reply receiver is
-    // still alive). Reaching here proves the in-flight path; had the job been
-    // skipped, `entered` would never flip and this would hang (CI timeout).
-    probe.wait_until_entered();
+    assert!(turns.run_turn(), "the queued call runs at this turn");
+    assert!(
+        slot.borrow().is_none(),
+        "its future was dropped while the call was inside the backend"
+    );
     assert_eq!(
-        probe.calls(),
+        backend.calls.get(),
         1,
-        "exactly the in-flight call has entered the FFI"
+        "the cancelled call ran to completion"
     );
 
-    // Cancel the in-flight call by dropping its future (drops the reply receiver).
-    // The worker is already past the guard, so the call runs to completion and its
-    // result is discarded — never aborted mid-FFI (commit-prefix, no rollback).
-    drop(fut);
-    probe.release();
-
-    // The worker must not be wedged and the StreamState must be intact: a fresh
-    // call (sticky-proceed → not re-gated) returns the canned ack.
-    let resp = block_on(client.process(r#"{"command":"ping"}"#.to_string()))
+    let next = turns
+        .block_on(client.process(PING.to_string()))
         .expect("a call after an in-flight cancellation still succeeds");
-    assert_eq!(resp, r#"{"status":"ack"}"#);
+    assert_eq!(next, ACK);
     assert_eq!(
-        probe.calls(),
+        backend.calls.get(),
         2,
-        "the post-cancel call also reached the backend"
+        "the next call reached the backend too"
     );
 }

@@ -13,14 +13,16 @@ read fails it, so no Python goes unread.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import subprocess
 import sys
 import textwrap
-from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import pytest
 
+from tools import check_precise_hints
 from tools._common import RelPath, find_executable
 from tools._ratchet import CanonicalText, RatchetRows, RowKey
 from tools.check_precise_hints import (
@@ -40,6 +42,9 @@ from tools.check_precise_hints import (
 )
 
 from aletheia.common_types import ExitStatus, Prose
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _judged(source: PythonSource) -> dict[CanonicalText, frozenset[Fault]]:
@@ -264,9 +269,6 @@ def test_one_file_under_edit_is_held_to_its_rows_alone() -> None:
     assert report(_observed({_ROW: 3}), {_ROW: 2}, files=files) == OUT_OF_STEP
 
 
-_REPO = Path(__file__).resolve().parents[2]
-
-
 class _GateRun(NamedTuple):
     """What the gate answered over another tree: its exit status, and what it printed."""
 
@@ -274,21 +276,25 @@ class _GateRun(NamedTuple):
     output: Prose
 
 
-def _gate_over(root: Path, record: Path | None) -> _GateRun:
-    """Run the gate from this repository over another tree, with its record where one is given."""
+def _gate_over(root: Path, record: Path | None, monkeypatch: pytest.MonkeyPatch) -> _GateRun:
+    """Run the gate's command line over another tree, with its record where one is given.
+
+    The git it runs finds no configuration but the tree's own, as on a machine
+    with nothing set up.
+    """
     held = ["--root", str(root)] + (["--record", str(record)] if record is not None else [])
-    run = subprocess.run(
-        [sys.executable, "-m", "tools.check_precise_hints", *held],
-        cwd=_REPO,
-        capture_output=True,
-        text=True,
-        check=False,
-        env={"PATH": "/usr/bin:/bin", "HOME": str(root)},
-    )
-    return _GateRun(ExitStatus(run.returncode), Prose(run.stdout))
+    monkeypatch.setattr(sys, "argv", ["check_precise_hints", *held])
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setenv("HOME", str(root))
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        status = check_precise_hints.main()
+    return _GateRun(status, Prose(printed.getvalue()))
 
 
-def test_another_tree_is_held_to_its_own_record(tmp_path: Path) -> None:
+def test_another_tree_is_held_to_its_own_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """--root and --record judge every tracked file under another tree, keyed from its root."""
     git = find_executable("git")
     _ = subprocess.run([git, "init", "-q", str(tmp_path)], check=True)
@@ -296,13 +302,15 @@ def test_another_tree_is_held_to_its_own_record(tmp_path: Path) -> None:
     _ = subprocess.run([git, "-C", str(tmp_path), "add", "kit.py"], check=True)
     record = tmp_path / "RECORD.yaml"
     _ = record.write_text("hints: []\n")
-    refused = _gate_over(tmp_path, record)
+    refused = _gate_over(tmp_path, record, monkeypatch)
     assert refused.status == OUT_OF_STEP
     assert "file: kit.py" in refused.output
     _ = record.write_text('hints:\n  - file: kit.py\n    text: "str"\n    count: 1\n')
-    assert _gate_over(tmp_path, record).status == CLEAN
+    assert _gate_over(tmp_path, record, monkeypatch).status == CLEAN
 
 
-def test_a_tree_without_its_record_is_refused_before_it_is_read(tmp_path: Path) -> None:
+def test_a_tree_without_its_record_is_refused_before_it_is_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """--root and --record come together; one alone is an error, never the repository's record."""
-    assert _gate_over(tmp_path, None).status == UNREADABLE
+    assert _gate_over(tmp_path, None, monkeypatch).status == UNREADABLE

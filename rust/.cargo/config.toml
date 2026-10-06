@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2025 Nicolas Pelletier
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# Read by cargo for every crate under rust/, the excel one included, and by
+# every route that runs their tests: the suite, the coverage and mutation
+# lanes, and a bare `cargo test`.
+#
+# A test binary runs its tests one at a time. Left to itself the test harness
+# runs them side by side on threads of one process, where they share the GHC
+# runtime, the process environment and every static, so an outcome could turn
+# on how the threads were scheduled; AGENTS.md § Universal Rules has a test
+# start nothing beside itself. Forced, so a variable set in the environment
+# does not undo it; tools/check_test_determinism.py holds the setting.
+[env]
+RUST_TEST_THREADS = { value = "1", force = true }

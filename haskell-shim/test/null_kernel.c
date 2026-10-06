@@ -8,8 +8,8 @@
 // one. The kernel's header holds each entry to the kernel's signature. Its
 // runtime entry is a no-op, so a process that opens it reads the runtime as
 // up without a runtime, which is what lets the renderer and the decimal
-// parser reach their null answers. The suite compiles it into a temporary
-// directory with the C compiler cgo already requires.
+// parser reach their null answers. The build makes it beside the library,
+// where the bindings' tests load it.
 #include "aletheia.h"
 
 #include <stdint.h>

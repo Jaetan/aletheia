@@ -3,8 +3,8 @@
 /*
  * A library at an ABI version no binding was written against, and nothing
  * else: every binding's loader reads the version before any other symbol, so
- * this is all a loader sees before it must refuse. Each binding's suite
- * compiles it into a temporary library.
+ * this is all a loader sees before it must refuse. The build makes it beside
+ * the library, where the bindings' tests load it.
  */
 #include "aletheia.h"
 

@@ -14,6 +14,7 @@ that the file is absent, the argv the lane sweeps with, its paths taken within
 the tree, and the environment it sweeps under, which names where the tree
 is.  A trace of the lane's own command finds the files: each tree's test binary
 and the test kernels built beside it, which the binary loads by path; the
+stand-in kernels the build makes beside the kernel library, loaded by path too; the
 binaries it runs as children, built into a directory of their own; the
 configuration the runner is given; the kernel library, at every path in the
 tree the tests look for it; the fixture a test reads; the source files the
@@ -97,6 +98,10 @@ _LIBRARY_PATHS = (
     Path("dist/aletheia/lib/libaletheia-ffi.so"),
     Path("cpp/build/libaletheia-ffi.so"),
 )
+
+# Where the build makes the stand-in kernels the tests load by path, beside
+# the library (Shakefile.hs).
+STAND_IN_DIR = Path("build/stand-ins")
 
 # The fixtures the tests read from the tree.
 _FIXTURES = (Path("examples/demo/demo_workbook.xlsx"),)
@@ -353,12 +358,14 @@ class _Reach(NamedTuple):
 def _loaded() -> list[Path]:
     """Name the ELF files a sweep loads from the tree, whether they are there or not.
 
-    The kernel library at every path the tests look for it, each tree's test
-    binary, the test kernels built beside it and the binaries it runs as
-    children, which the binary names by path and is not relinked for, so its
-    digest cannot stand for theirs.
+    The kernel library at every path the tests look for it, the stand-in
+    kernels the build makes beside it, each tree's test binary, the test
+    kernels built beside it and the binaries it runs as children, which the
+    binary names by path and is not relinked for, so its digest cannot stand
+    for theirs.
     """
     loaded = [REPO_ROOT / path for path in _LIBRARY_PATHS]
+    loaded.extend(sorted((REPO_ROOT / STAND_IN_DIR).glob("*.so")))
     for tree in CppTree:
         loaded.append(tree_binary(tree))
         loaded.extend(sorted(tree_build_dir(tree).glob("libaletheia_test_*.so")))

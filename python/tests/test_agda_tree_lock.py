@@ -6,11 +6,10 @@ from __future__ import annotations
 
 import fcntl
 import os
-import subprocess
-import sys
 from typing import TYPE_CHECKING, NewType
 
 import pytest
+from _processes import pid_no_process_holds
 
 from tools import _common
 
@@ -85,13 +84,6 @@ def test_a_held_lock_is_waited_for_on_request(
     assert "pid 4242" in queued[0]
 
 
-def _reaped_pid() -> int:
-    """Spawn a trivial child, wait for it, and return its now-dead pid."""
-    with subprocess.Popen([sys.executable, "-c", "pass"]) as child:
-        _ = child.wait()
-    return child.pid
-
-
 @pytest.mark.parametrize(
     ("written", "reported"),
     [("{pid}\n", "the recorded pid {pid} is not running"), ("", "no pid recorded")],
@@ -108,7 +100,7 @@ def test_a_held_lock_is_never_called_stale(
     """
     path = tmp_path / ".agda-tree.lock"
     monkeypatch.setattr(_common, "_agda_lock_path", lambda: path)
-    pid = _reaped_pid()
+    pid = pid_no_process_holds()
     fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
     fcntl.flock(fd, fcntl.LOCK_EX)
     _ = os.write(fd, written.format(pid=pid).encode())
