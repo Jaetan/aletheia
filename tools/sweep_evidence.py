@@ -69,7 +69,17 @@ _GIT = find_executable("git")
 
 
 def worktree_tree(repo: Path) -> TreeId | None:
-    """Name the tree of the tracked content as it stands, or None beside an untracked file.
+    """Name the tree of the tracked content as it stands, or None beside an untracked file."""
+    others = run_capture(
+        [_GIT, "ls-files", "--others", "--exclude-standard"], cwd=repo, env=git_clean_env()
+    )
+    if others.returncode != 0 or others.stdout.strip():
+        return None
+    return tracked_tree(repo)
+
+
+def tracked_tree(repo: Path) -> TreeId | None:
+    """Name the tree of the tracked content as it stands, whatever lies untracked beside it.
 
     Written through a copy of the index, so the repository's own index and
     every file in the tree are left as they were.  The copy keeps the index's
@@ -80,9 +90,6 @@ def worktree_tree(repo: Path) -> TreeId | None:
     variables a hook exports, so it reads ``repo`` and no hook's repository.
     """
     clean = git_clean_env()
-    others = run_capture([_GIT, "ls-files", "--others", "--exclude-standard"], cwd=repo, env=clean)
-    if others.returncode != 0 or others.stdout.strip():
-        return None
     index = run_capture(
         [_GIT, "rev-parse", "--path-format=absolute", "--git-path", "index"], cwd=repo, env=clean
     )

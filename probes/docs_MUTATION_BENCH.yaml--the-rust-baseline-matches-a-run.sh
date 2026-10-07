@@ -12,7 +12,9 @@
 # its tests.  A timed-out mutant is neither killed nor alive, so a run with any
 # is a disturbed run and is refused rather than compared.
 # The sweep is tools/mutation_rust.py's, which mutates scratch copies of the
-# tree, so no tracked file moves while it runs.
+# tree, so no tracked file moves while it runs, and it is kept
+# (tools/mutation_sweep_cache.py), so it runs only where no sweep of the tree
+# as it stands, with the library and the toolchain, is kept.
 # Non-zero exit: the record and a sweep disagree, or the tool refused to sweep.
 # Exits 0 with a note when cargo-mutants is not installed or the kernel is not
 # built, the claim being untestable then.
@@ -24,10 +26,7 @@ command -v cargo > /dev/null || { echo "cargo not installed, claim untestable"; 
 cargo mutants --version > /dev/null 2>&1 || { echo "cargo-mutants not installed, claim untestable"; exit 0; }
 [ -f build/libaletheia-ffi.so ] || { echo "no kernel built, claim untestable"; exit 0; }
 
-work=$(mktemp -d) || exit 2
-trap 'rm -rf "$work"' EXIT
-
-"$py" - "$work" <<'PY'
+"$py" - <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -36,15 +35,14 @@ sys.path.insert(0, ".")
 import yaml
 
 from tools.mutation_run import ledger_to_rows
-from tools.mutation_rust import OUTCOMES, outcomes_survivor_rows, repo_line, run_rust
+from tools.mutation_rust import outcomes_survivor_rows, repo_line
+from tools.mutation_sweep_cache import LANE_REPORT, lane_sweep_directory
 
-work = Path(sys.argv[1])
-report = run_rust(work)
-if report.error is not None:
-    print(f"the sweep did not run: {report.error}")
-    print("\n".join(f"  {line}" for line in report.raw_log.splitlines()[-3:]))
+kept = lane_sweep_directory("rust")
+if not isinstance(kept, Path):
+    print(f"the sweep did not run: {kept}")
     raise SystemExit(1)
-outcomes = json.load(open(work / OUTCOMES, encoding="utf-8"))
+outcomes = json.load(open(kept / LANE_REPORT["rust"], encoding="utf-8"))
 record = yaml.safe_load(open("docs/MUTATION_BENCH.yaml", encoding="utf-8"))
 baseline = record["bindings"]["rust"]["baseline"]
 if outcomes["timeout"]:

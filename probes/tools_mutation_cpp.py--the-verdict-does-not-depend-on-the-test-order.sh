@@ -13,12 +13,11 @@
 # the process and the order decides which test reports before it stops, so
 # only the verdict is compared.
 # Two stages: the unmutated suite under several orders, which costs seconds,
-# then the mutant verdicts under three orders, which sweeps the tree three
-# times and costs about ten minutes. Both run the plain tree as the lane does,
-# in the lane's environment and directory, and the sweeps with the lane's own
-# argv, only the order behind the separator varied, each order's reports in
-# scratch, and the scratch its runs leave reaped after each sweep, as the lane
-# reaps it.
+# then the mutant verdicts under three orders, read from kept sweeps of the
+# plain tree (tools/mutation_sweep_cache.py): the lane's own for the order it
+# pins, and one under the lane's argv with only the order varied for each
+# other, each swept only where none of today's trees is kept. Both stages run
+# the plain tree as the lane does, in the lane's environment and directory.
 # Non-zero exit: the suite fails under some order, or a mutant's verdict
 # depends on it. Exits 0 with a note when Mull or the tree is absent, the
 # claim being untestable then.
@@ -32,14 +31,18 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-from tools.cpp_scratch import reap_dead_scratch_dirs
-from tools.mutation_cpp import cpp_lane_command, cpp_sweep_directory, cpp_sweep_environment
+from tools.mutation_cpp import CaseOrder, CppRun, RngSeed, cpp_sweep_directory, cpp_sweep_environment
 from tools.mutation_cpp_legs import CppLeg, CppTree
 from tools.mutation_routes import lane_routes
-from tools.mutation_sweep_cache import MULL_RUNNER, polite, tree_binary, tree_build_dir
+from tools.mutation_sweep_cache import (
+    MULL_RUNNER,
+    CppVariant,
+    sweep_directory,
+    tree_binary,
+    tree_build_dir,
+)
 
 leg = CppLeg(CppTree.PLAIN)
 build_dir = tree_build_dir(leg.tree)
@@ -62,22 +65,18 @@ if shutil.which(MULL_RUNNER) is None:
     print("Mull not installed, the mutant half is untestable")
     sys.exit(0)
 
-# Stage two: the mutants, one sweep per order.
-with tempfile.TemporaryDirectory(prefix="orders-") as scratch:
-    runs = {}
-    for name, order in (("decl", ["decl"]), ("lex", ["lex"]), ("rand", ["rand", "--rng-seed", "4919"])):
-        report_dir = Path(scratch) / name
-        report_dir.mkdir()
-        argv = cpp_lane_command(MULL_RUNNER, build_dir, report_dir, leg)
-        at = argv.index("--order")
-        argv = [*argv[:at], "--order", *order, *argv[at + 2 :]]
-        _ = subprocess.run(polite(argv), cwd=cpp_sweep_directory(), env=env, capture_output=True, check=False)
-        _ = reap_dead_scratch_dirs()
-        sqlite = report_dir / f"{leg.report_name}.sqlite"
-        if not sqlite.is_file():
-            print(f"the sweep under {name} wrote no report")
-            sys.exit(1)
-        runs[name] = lane_routes(sqlite)
+# Stage two: the mutants, one kept sweep per order.
+runs = {}
+for name, run in (
+    ("decl", None),
+    ("lex", CppRun(order=CaseOrder("lex"))),
+    ("rand", CppRun(order=CaseOrder("rand", RngSeed(4919)))),
+):
+    kept = sweep_directory() if run is None else sweep_directory(variant=CppVariant((leg.tree,), run))
+    if not isinstance(kept, Path):
+        print(f"no sweep under {name} could be had: {kept}")
+        sys.exit(1)
+    runs[name] = lane_routes(kept / f"{leg.report_name}.sqlite")
 
 verdicts = {name: {m: r == "survived" for m, r in routes.items()} for name, routes in runs.items()}
 names = sorted(verdicts)

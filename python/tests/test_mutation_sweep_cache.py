@@ -5,9 +5,8 @@
 A kept sweep is served for as long as its key reads the same, so every file a
 sweep reads from the tree has to move the key: a sweep taken against one
 library and served for another reports verdicts no sweep of today's tree
-would.  The tree is faked under a scratch root, every file a sweep reads in it
-standing for one the lane's sweep was traced reading, and an absent file is
-one of the states a file can be in.  What a binary records about its linking is read
+would.  The tree is the fake repository of ``_sweep_cache_tree``.  What a
+binary records about its linking is read
 from ELF images the tests build with the format's own constants rather than
 the reader's, so a wrong constant in the reader reads red.
 
@@ -31,17 +30,30 @@ import sys
 import tempfile
 from enum import IntEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NamedTuple, NewType
+from typing import TYPE_CHECKING, NamedTuple, NewType
 
 import pytest
+from _sweep_cache_tree import (
+    LIBRARY,
+    LOOKED_FOR_ONLY,
+    MULL_CONFIG,
+    OUTSIDE,
+    READ_BY_A_SWEEP,
+    SOURCES,
+    UNMUTATED,
+    FileChange,
+    change_file,
+    fake_tree,
+    root_at,
+)
 
 import tools.mutation_sweep_cache as sweep_cache
-from tools import mutation_cpp, mutation_cpp_config
+from tools import mutation_cpp
 from tools._resources import Cpu
 from tools.cpp_scratch import scratch_root
-from tools.mutation_cpp import CPP_LEG_REPORT_SUFFIXES
+from tools.mutation_cpp import CPP_LEG_REPORT_SUFFIXES, CaseOrder, CppRun, RngSeed
 from tools.mutation_cpp_legs import CPP_SLICE_ENV, CPP_STAGE_ENV, CppLeg, CppTree
-from tools.mutation_sweep_cache import polite
+from tools.mutation_sweep_cache import CppVariant, SweepKey, polite
 
 from aletheia.common_types import Prose
 
@@ -51,54 +63,7 @@ if TYPE_CHECKING:
     from tools.mutation_cpp_config import ConfigText
 
 _REPO = Path(__file__).resolve().parents[2]
-_LIBRARY = Path("build/libaletheia-ffi.so")
 _PLAIN_BINARY = Path("cpp", CppTree.PLAIN.directory, "unit_tests")
-
-# The test kernel each tree builds beside its binary, and the stand-in kernels
-# the build makes beside the library.
-_KERNELS = ("recording_kernel",)
-_STAND_INS = ("abi_only_kernel", "null_kernel", "stale_abi_kernel", "symbolless")
-
-# The sources the leak tree's binary carries mutants in, and one it does not.
-_SOURCES = (Path("cpp/src/client.cpp"), Path("cpp/include/aletheia/client.hpp"))
-_UNMUTATED = Path("cpp/src/other.cpp")
-
-# A source a mutant names outside the tree, as a system header would be.
-_OUTSIDE = Path("/usr/include/c++/vector")
-
-# One file of each kind a sweep reads from the tree at a path the tree's
-# layout fixes, each present in the fake tree unless its test creates it; the
-# libraries found by name or by a search path are tested apart.  The library
-# is looked for at every path the tests look for it, and found at the first.
-_READ_BY_A_SWEEP = (
-    _LIBRARY,
-    Path("dist/aletheia/lib/libaletheia-ffi.so"),
-    Path("cpp/build/libaletheia-ffi.so"),
-    Path("examples/demo/demo_workbook.xlsx"),
-    Path("cpp/mull.yml"),
-    Path("cpp", CppTree.ADDRESS.directory, "mull-config.yml"),
-    *(Path("cpp", tree.directory, "unit_tests") for tree in CppTree),
-    *(
-        Path("cpp", tree.directory, sweep_cache.CPP_FRESH_PROCESS_DIR, "child_tests")
-        for tree in CppTree
-    ),
-    *(
-        Path("cpp", tree.directory, f"libaletheia_test_{kernel}.so")
-        for tree in CppTree
-        for kernel in _KERNELS
-    ),
-    *(sweep_cache.STAND_IN_DIR / f"{name}.so" for name in _STAND_INS),
-    *_SOURCES,
-)
-_LOOKED_FOR_ONLY = frozenset(_READ_BY_A_SWEEP[1:3])
-
-# The tree's configuration: a mutator every tree keeps, and one the address
-# tree drops, so that tree is built under a configuration of its own.
-_MULL_CONFIG = "mutators:\n  - cxx_add_to_sub\n  - cxx_remove_void_call\nexcludePaths: []\n"
-
-# What is done to a file: its last byte changed, so its size is not; the file
-# removed; or the file created.
-_Change = Literal["rewritten", "removed", "created"]
 
 # An image's bytes, a name an image records, and where a name sits in its
 # string table.
@@ -194,86 +159,41 @@ def _patched(image: _Image, *patches: _Patch) -> _Image:
     return _Image(bytes(raw))
 
 
-def _mutant(source: Path) -> _Image:
-    """Spell a mutant's name as a binary carries it, pointing at ``source``."""
-    return _Image(f"cxx_add_to_sub:{source}:12:3:12:9:0a1b2c.0".encode())
-
-
-def _change(path: Path, change: _Change) -> None:
-    """Change a file's last byte, remove it, or create it."""
-    if change == "rewritten":
-        data = path.read_bytes()
-        _ = path.write_bytes(data[:-1] + bytes([data[-1] ^ 1]))
-    elif change == "removed":
-        path.unlink()
-    else:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _ = path.write_bytes(b"created")
-
-
-def _root_at(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
-    """Point every module a sweep's key and run read the repository from at ``root``."""
-    for module in (sweep_cache, mutation_cpp, mutation_cpp_config):
-        monkeypatch.setattr(module, "REPO_ROOT", root)
-
-
 @pytest.fixture(name="tree")
 def _tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Fake the repository under a scratch root, each tree built under the configuration it gets.
-
-    The root is a directory of the test's own scratch, so what a test puts
-    beside the tree, a stand-in tool or a report directory, is its own.
-    """
-    root = tmp_path / "repo"
-    root.mkdir()
-    _root_at(monkeypatch, root)
-    monkeypatch.setattr(sweep_cache, "CACHE_ROOT", root / "cpp" / "mutation-sweeps")
-    config = root / "cpp" / "mull.yml"
-    config.parent.mkdir(parents=True)
-    _ = config.write_text(_MULL_CONFIG, encoding="utf-8")
-    for build in CppTree:
-        _ = mutation_cpp_config.leg_config(CppLeg(build), sweep_cache.tree_build_dir(build))
-    for relative in (*_READ_BY_A_SWEEP, _UNMUTATED):
-        path = root / relative
-        if relative in _LOOKED_FOR_ONLY or path.exists():
-            continue
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _ = path.write_bytes(f"first {relative}".encode())
-        path.chmod(0o755)
-    names = [_mutant(root / source) for source in _SOURCES] + [_mutant(_OUTSIDE)]
-    _ = sweep_cache.tree_binary(CppTree.LEAK).write_bytes(b"\0".join([b"first", *names]))
-    return root
+    """Fake the repository under a scratch root, each tree built under the configuration it gets."""
+    return fake_tree(tmp_path, monkeypatch)
 
 
 _CHANGES = [
     *(
         pytest.param(relative, change, id=f"{relative}-{change}")
-        for relative in _READ_BY_A_SWEEP
-        if relative not in _LOOKED_FOR_ONLY
+        for relative in READ_BY_A_SWEEP
+        if relative not in LOOKED_FOR_ONLY
         for change in ("rewritten", "removed")
     ),
-    *(pytest.param(relative, "created", id=f"{relative}-created") for relative in _LOOKED_FOR_ONLY),
+    *(pytest.param(relative, "created", id=f"{relative}-created") for relative in LOOKED_FOR_ONLY),
 ]
 
 
 @pytest.mark.parametrize(("relative", "change"), _CHANGES)
 def test_every_file_a_sweep_reads_moves_the_key(
-    tree: Path, relative: Path, change: _Change
+    tree: Path, relative: Path, change: FileChange
 ) -> None:
     """Rewriting a file at its own size, removing it, or creating it keys the sweep apart."""
     before = sweep_cache.sweep_key()
-    _change(tree / relative, change)
+    change_file(tree / relative, change)
     assert sweep_cache.sweep_key() != before
 
 
 def test_the_sources_keyed_are_the_ones_a_binary_carries_mutants_in(tree: Path) -> None:
     """A source no mutant names is not read by a sweep, and one outside the tree is not keyed."""
     keyed = set(sweep_cache.key_inputs())
-    assert {tree / source for source in _SOURCES} <= keyed
-    assert tree / _UNMUTATED not in keyed
-    assert _OUTSIDE not in keyed
+    assert {tree / source for source in SOURCES} <= keyed
+    assert tree / UNMUTATED not in keyed
+    assert OUTSIDE not in keyed
     before = sweep_cache.sweep_key()
-    _change(tree / _UNMUTATED, "rewritten")
+    change_file(tree / UNMUTATED, "rewritten")
     assert sweep_cache.sweep_key() == before
 
 
@@ -282,7 +202,7 @@ def test_a_child_the_test_binary_runs_appearing_moves_the_key() -> None:
     """A binary built where the children are is keyed from the moment it appears."""
     child = sweep_cache.tree_build_dir(CppTree.PLAIN) / sweep_cache.CPP_FRESH_PROCESS_DIR / "late"
     before = sweep_cache.sweep_key()
-    _change(child, "created")
+    change_file(child, "created")
     assert child in sweep_cache.key_inputs()
     assert sweep_cache.sweep_key() != before
 
@@ -297,7 +217,7 @@ def test_a_library_the_binary_needs_is_keyed_where_the_runner_looks_for_it(tree:
     beside = tree / "cpp" / _NEEDED
     assert beside in sweep_cache.key_inputs()
     before = sweep_cache.sweep_key()
-    _change(beside, "created")
+    change_file(beside, "created")
     assert sweep_cache.sweep_key() != before
 
 
@@ -361,7 +281,7 @@ def test_a_name_is_read_up_to_its_bound(tree: Path) -> None:
 
 def _searching(tree: Path, searched: _Name, tag: _Tag = _Tag.RUNPATH) -> None:
     """Make the kernel library at build/ one that needs a library and searches ``searched``."""
-    _ = (tree / _LIBRARY).write_bytes(_elf([_Entry(_Tag.NEEDED, _NEEDED), _Entry(tag, searched)]))
+    _ = (tree / LIBRARY).write_bytes(_elf([_Entry(_Tag.NEEDED, _NEEDED), _Entry(tag, searched)]))
 
 
 _SEARCHED = [
@@ -379,10 +299,10 @@ def test_a_file_appearing_where_a_loaded_library_searches_moves_the_key(
 ) -> None:
     """A library appearing where the loader searches the tree for one keys the sweep apart."""
     outside = tree.parent / "outside"
-    _change(outside / _NEEDED, "created")
+    change_file(outside / _NEEDED, "created")
     _searching(tree, _Name(f"{entry}:{outside}"), tag)
     before = sweep_cache.sweep_key()
-    _change(tree / directory / "libother.so", "created")
+    change_file(tree / directory / "libother.so", "created")
     assert sweep_cache.sweep_key() != before
     assert not [path for path in sweep_cache.key_inputs() if path.is_relative_to(outside)]
 
@@ -391,7 +311,7 @@ def test_a_library_under_a_searched_directory_s_glibc_hwcaps_moves_the_key(tree:
     """The loader tries each supported level's subdirectory before the directory itself."""
     _searching(tree, _Name("$ORIGIN/../lib"))
     before = sweep_cache.sweep_key()
-    _change(tree / "lib" / "glibc-hwcaps" / "x86-64-v3" / _NEEDED, "created")
+    change_file(tree / "lib" / "glibc-hwcaps" / "x86-64-v3" / _NEEDED, "created")
     assert sweep_cache.sweep_key() != before
 
 
@@ -408,7 +328,7 @@ def test_what_a_library_found_in_the_tree_searches_is_followed(tree: Path) -> No
     )
     _ = found.write_bytes(second)
     before = sweep_cache.sweep_key()
-    _change(tree / "other" / "libsecond.so", "created")
+    change_file(tree / "other" / "libsecond.so", "created")
     assert sweep_cache.sweep_key() != before
 
 
@@ -418,13 +338,13 @@ def test_a_needed_name_holding_a_slash_is_a_path_from_where_the_sweep_runs(tree:
         _Entry(_Tag.NEEDED, _Name("sub/libslashed.so")),
         _Entry(_Tag.NEEDED, _Name("/opt/elsewhere/libfoo.so")),
     ]
-    _ = (tree / _LIBRARY).write_bytes(_elf(names))
+    _ = (tree / LIBRARY).write_bytes(_elf(names))
     _ = (tree / _PLAIN_BINARY).write_bytes(_elf(names))
     keyed = set(sweep_cache.key_inputs())
     assert tree / "cpp" / "sub" / "libslashed.so" in keyed
     assert not [path for path in keyed if path.is_relative_to("/opt")]
     before = sweep_cache.sweep_key()
-    _change(tree / "cpp" / "sub" / "libslashed.so", "created")
+    change_file(tree / "cpp" / "sub" / "libslashed.so", "created")
     assert sweep_cache.sweep_key() != before
 
 
@@ -492,7 +412,7 @@ def test_a_tree_elsewhere_keys_apart(tree: Path, monkeypatch: pytest.MonkeyPatch
     here = sweep_cache.sweep_key()
     elsewhere = tree.parent / "elsewhere"
     _ = shutil.copytree(tree, elsewhere)
-    _root_at(monkeypatch, elsewhere)
+    root_at(monkeypatch, elsewhere)
     assert sweep_cache.sweep_key() != here
 
 
@@ -523,19 +443,19 @@ def test_the_key_is_the_same_under_every_hash_seed(tree: Path) -> None:
     assert keys == {sweep_cache.sweep_key()}
 
 
-def _write_reports(directory: Path) -> None:
-    """Write every report every tree's sweep writes."""
-    for build in CppTree:
+def _write_reports(directory: Path, trees: tuple[CppTree, ...] = tuple(CppTree)) -> None:
+    """Write every report each of the trees' sweeps writes."""
+    for build in trees:
         for suffix in CPP_LEG_REPORT_SUFFIXES:
             _ = (directory / f"{CppLeg(build).report_name}{suffix}").write_text("report")
 
 
-def _reporting(swept: list[Path]) -> Callable[[Path], Prose | None]:
-    """Stand in for a sweep that writes every report every tree writes, recording where."""
+def _reporting(swept: list[Path]) -> Callable[[CppVariant, Path], Prose | None]:
+    """Stand in for a sweep that writes every report its trees write, recording where."""
 
-    def sweep(directory: Path) -> Prose | None:
+    def sweep(variant: CppVariant, directory: Path) -> Prose | None:
         swept.append(directory)
-        _write_reports(directory)
+        _write_reports(directory, variant.trees)
 
     return sweep
 
@@ -561,9 +481,9 @@ def test_a_sweep_against_one_library_is_not_served_for_another(
     tree: Path, swept: list[Path]
 ) -> None:
     """A rebuilt library, and then none, each get a sweep of their own."""
-    library = tree / _LIBRARY
+    library = tree / LIBRARY
     first = sweep_cache.sweep_directory()
-    _change(library, "rewritten")
+    change_file(library, "rewritten")
     rebuilt = sweep_cache.sweep_directory()
     library.unlink()
     removed = sweep_cache.sweep_directory()
@@ -585,7 +505,7 @@ def test_a_refresh_that_fails_keeps_the_kept_sweep(
     first = sweep_cache.sweep_directory()
     stopped = Prose("the sweep of the leak tree wrote no report")
 
-    def stop(_directory: Path) -> Prose | None:
+    def stop(_variant: CppVariant, _directory: Path) -> Prose | None:
         return stopped
 
     monkeypatch.setattr(sweep_cache, "_sweep_into", stop)
@@ -618,7 +538,7 @@ def test_only_the_newest_sweep_is_kept(tree: Path) -> None:
     notes = sweep_cache.CACHE_ROOT / "notes"
     notes.mkdir()
     try:
-        _change(tree / _LIBRARY, "rewritten")
+        change_file(tree / LIBRARY, "rewritten")
         second = sweep_cache.sweep_directory()
     finally:
         os.close(handle)
@@ -631,7 +551,7 @@ def test_a_sweep_holds_its_directory_s_lock_while_it_runs(monkeypatch: pytest.Mo
     """Another process asking for the lock is refused until the sweep ends."""
     refused: list[Path] = []
 
-    def sweep(directory: Path) -> Prose | None:
+    def sweep(_variant: CppVariant, directory: Path) -> Prose | None:
         handle = os.open(directory, os.O_RDONLY)
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -655,7 +575,7 @@ class _InterruptedError(Exception):
 def test_a_sweep_that_raised_leaves_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     """However a sweep ends, its partial directory goes with it."""
 
-    def sweep(directory: Path) -> Prose | None:
+    def sweep(_variant: CppVariant, directory: Path) -> Prose | None:
         _ = (directory / "partial").write_text("report")
         raise _InterruptedError
 
@@ -666,10 +586,77 @@ def test_a_sweep_that_raised_leaves_nothing(monkeypatch: pytest.MonkeyPatch) -> 
     assert not list(sweep_cache.CACHE_ROOT.iterdir())
 
 
+# One half of a key.
+_Half = NewType("_Half", str)
+
+
+# A probe's variations of the lane: no end at the first failing assertion over
+# every tree, and each other order over the plain tree alone.
+_VARIANTS = (
+    CppVariant(tuple(CppTree), CppRun(abort=False)),
+    CppVariant((CppTree.PLAIN,), CppRun(order=CaseOrder("lex"))),
+    CppVariant((CppTree.PLAIN,), CppRun(order=CaseOrder("rand", RngSeed(4919)))),
+    CppVariant((CppTree.PLAIN,), CppRun(order=CaseOrder("rand", RngSeed(8191)))),
+    CppVariant((CppTree.PLAIN,)),
+)
+
+
+def _halves(key: SweepKey) -> tuple[_Half, _Half]:
+    """Split a key into what its sweep read from the tree and how it ran."""
+    kind, read, ran = key.split("-")
+    assert kind == "cpp"
+    return _Half(read), _Half(ran)
+
+
+@pytest.mark.usefixtures("tree")
+def test_a_variant_moves_only_how_the_sweep_runs() -> None:
+    """Every variation of the lane, a tree left out included, keys apart on its second half."""
+    keys = [sweep_cache.sweep_key(), *(sweep_cache.sweep_key(variant) for variant in _VARIANTS)]
+    assert len({_halves(key)[0] for key in keys}) == 1
+    assert len({_halves(key)[1] for key in keys}) == len(keys)
+
+
+def test_a_variant_is_kept_beside_the_lane_s_sweep(swept: list[Path]) -> None:
+    """A variant's sweep evicts nothing, and each is served again without another sweep."""
+    lane = sweep_cache.sweep_directory()
+    variants = [sweep_cache.sweep_directory(variant=variant) for variant in _VARIANTS]
+    assert sweep_cache.sweep_directory() == lane
+    assert [sweep_cache.sweep_directory(variant=variant) for variant in _VARIANTS] == variants
+    assert len(swept) == 1 + len(_VARIANTS)
+    assert all(isinstance(kept, Path) and kept.is_dir() for kept in (lane, *variants))
+
+
+def test_a_variant_of_one_tree_holds_that_tree_s_reports_only(swept: list[Path]) -> None:
+    """What a variant leaves is read for its own trees, so one tree's reports are a whole sweep."""
+    variant = _VARIANTS[1]
+    kept = sweep_cache.sweep_directory(variant=variant)
+    assert isinstance(kept, Path)
+    assert {path.name for path in kept.iterdir()} == {
+        f"{CppLeg(CppTree.PLAIN).report_name}{suffix}" for suffix in CPP_LEG_REPORT_SUFFIXES
+    }
+    assert sweep_cache.sweep_directory(variant=variant) == kept
+    assert len(swept) == 1
+
+
+def test_sweeps_of_another_tree_go_and_another_kind_s_stay(tree: Path, swept: list[Path]) -> None:
+    """Once the tree moves, its lane and variant sweeps go together; a Go sweep is not theirs."""
+    lane = sweep_cache.sweep_directory()
+    variant = sweep_cache.sweep_directory(variant=_VARIANTS[0])
+    other_kind = sweep_cache.CACHE_ROOT / f"go-{'0' * 16}-{'1' * 16}"
+    other_kind.mkdir()
+    change_file(tree / LIBRARY, "rewritten")
+    moved = sweep_cache.sweep_directory()
+    assert isinstance(moved, Path)
+    assert sorted(sweep_cache.CACHE_ROOT.iterdir()) == sorted([moved, other_kind])
+    assert lane != moved
+    assert variant != moved
+    assert len(swept) == 3
+
+
 _STALE_CONFIGS = [
-    pytest.param(_MULL_CONFIG + "timeout: 1000\n", id="a key every tree reads"),
+    pytest.param(MULL_CONFIG + "timeout: 1000\n", id="a key every tree reads"),
     pytest.param(
-        _MULL_CONFIG.replace("  - cxx_remove_void_call\n", ""),
+        MULL_CONFIG.replace("  - cxx_remove_void_call\n", ""),
         id="a mutator only the whole trees read",
     ),
 ]
@@ -709,9 +696,9 @@ def test_a_tree_changed_while_it_was_swept_is_not_kept(
 ) -> None:
     """The key is read again when the sweep ends, and a sweep of a tree that moved is dropped."""
 
-    def sweep(directory: Path) -> Prose | None:
+    def sweep(_variant: CppVariant, directory: Path) -> Prose | None:
         _write_reports(directory)
-        _change(tree / _LIBRARY, "rewritten")
+        change_file(tree / LIBRARY, "rewritten")
 
     monkeypatch.setattr(sweep_cache, "_sweep_into", sweep)
     monkeypatch.setattr(sweep_cache, "MULL_RUNNER", sys.executable)
@@ -726,7 +713,7 @@ def test_a_sweep_that_stopped_leaves_nothing(monkeypatch: pytest.MonkeyPatch) ->
     """A sweep that says why it stopped is reported, and its partial directory removed."""
     stopped = Prose("the sweep of the leak tree wrote no report")
 
-    def sweep(directory: Path) -> Prose | None:
+    def sweep(_variant: CppVariant, directory: Path) -> Prose | None:
         _ = (directory / "partial").write_text("report")
         return stopped
 
@@ -819,7 +806,7 @@ def test_a_dry_run_of_a_slice_runs_the_lanes_command_for_it(
     _assert_ran_as_the_lane(tree, base, leg, build_dir)
     argv = base.with_suffix(".argv").read_text(encoding="utf-8").split("\0")
     assert argv == mutation_cpp.cpp_lane_command(
-        str(runner), build_dir, report_dir, leg, dry_run=True
+        str(runner), build_dir, report_dir, leg, CppRun(dry_run=True)
     )
 
 

@@ -13,7 +13,9 @@
 # run in which gremlins' cap fired more often than the record's ceiling allows
 # is a disturbed run and is refused rather than compared.
 # The sweep is tools/mutation_run.py's, which tests each mutant against a
-# scratch copy of the tree, so no tracked file moves while it runs.
+# scratch copy of the tree, so no tracked file moves while it runs, and it is
+# kept (tools/mutation_sweep_cache.py), so it runs only where no sweep of the
+# tree as it stands, with the library and the toolchain, is kept.
 # Non-zero exit: the record and a sweep disagree, or the sweep did not run.
 # Exits 0 with a note when gremlins is not installed or the kernel is not
 # built, the claim being untestable then.
@@ -25,10 +27,7 @@ py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
 [ -f build/libaletheia-ffi.so ] || { echo "no kernel built, claim untestable"; exit 0; }
 
-work=$(mktemp -d) || exit 2
-trap 'rm -rf "$work"' EXIT
-
-"$py" - "$work" <<'PY'
+"$py" - <<'PY'
 import re
 import sys
 from pathlib import Path
@@ -36,14 +35,14 @@ from pathlib import Path
 sys.path.insert(0, ".")
 import yaml
 
-from tools.mutation_run import go_mutant_rows, ledger_to_rows, run_go
+from tools.mutation_run import go_mutant_rows, ledger_to_rows
+from tools.mutation_sweep_cache import LANE_REPORT, lane_sweep_directory
 
-report = run_go(Path(sys.argv[1]))
-if report.error is not None:
-    print(f"the sweep did not run: {report.error}")
-    print("\n".join(f"  {line}" for line in report.raw_log.splitlines()[-3:]))
+kept = lane_sweep_directory("go")
+if not isinstance(kept, Path):
+    print(f"the sweep did not run: {kept}")
     raise SystemExit(1)
-raw = report.raw_log
+raw = (kept / LANE_REPORT["go"]).read_text(encoding="utf-8")
 counts = {}
 for name, key in (("Killed", "killed"), ("Lived", "survivors"), ("Not covered", "not_covered"),
                   ("Timed out", "timeouts"), ("Not viable", "not_viable"), ("Skipped", "skipped")):

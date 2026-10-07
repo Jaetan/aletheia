@@ -22,24 +22,32 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import NewType
+
+import pytest
 
 from tools.mutation_cpp import (
     CPP_BUILD_JOBS_CAP,
     CPP_MUTANT_CAP_MS,
+    LANE_RUN,
+    CaseOrder,
+    CppRun,
+    RngSeed,
     cpp_build_command,
     cpp_lane_command,
 )
 from tools.mutation_cpp_legs import CppLeg, CppTree
 
-if TYPE_CHECKING:
-    import pytest
+# The binary's own words behind the separator, joined by spaces.
+_Spelling = NewType("_Spelling", str)
 
 
-def _command() -> list[str]:
-    """Build one leg's argv, the paths being the only thing it reads."""
+def _command(run: CppRun = LANE_RUN) -> list[str]:
+    """Build one leg's argv as ``run`` asks, the paths being the only thing it reads."""
     leg = CppLeg(CppTree.PLAIN, 1)
-    return cpp_lane_command("mull-runner-23", Path("cpp") / leg.directory, Path("artifacts"), leg)
+    return cpp_lane_command(
+        "mull-runner-23", Path("cpp") / leg.directory, Path("artifacts"), leg, run
+    )
 
 
 def test_the_lane_hands_the_binary_a_pinned_order() -> None:
@@ -55,6 +63,34 @@ def test_a_run_ends_at_its_first_failing_assertion() -> None:
     assert "--abort" in argv[argv.index("--") + 1 :]
 
 
+@pytest.mark.parametrize(
+    ("order", "spelled"),
+    [
+        pytest.param(CaseOrder("lex"), _Spelling("--order lex --abort"), id="lex"),
+        pytest.param(
+            CaseOrder("rand", RngSeed(4919)),
+            _Spelling("--order rand --rng-seed 4919 --abort"),
+            id="rand",
+        ),
+    ],
+)
+def test_another_order_replaces_the_pinned_one_and_nothing_else(
+    order: CaseOrder, spelled: _Spelling
+) -> None:
+    """A probe's order, its seed with it, stands where the lane's does; every other word stays."""
+    lane, varied = _command(), _command(CppRun(order=order))
+    separator = lane.index("--")
+    assert varied[: separator + 1] == lane[: separator + 1]
+    assert " ".join(varied[separator + 1 :]) == spelled
+
+
+def test_a_run_not_ending_at_its_first_failure_drops_only_the_flag() -> None:
+    """Without the ending, the argv is the lane's less ``--abort``."""
+    lane = _command()
+    lane.remove("--abort")
+    assert _command(CppRun(abort=False)) == lane
+
+
 def test_every_runner_option_stays_ahead_of_the_separator() -> None:
     """Mull parses what precedes the separator; only Catch2 reads what follows."""
     argv = _command()
@@ -66,10 +102,7 @@ def test_every_runner_option_stays_ahead_of_the_separator() -> None:
 
 def test_a_dry_run_is_the_lane_s_argv_with_the_runner_told_to_run_no_mutant() -> None:
     """The one runner option a dry run adds sits ahead of the separator; nothing else moves."""
-    leg = CppLeg(CppTree.PLAIN, 1)
-    dry = cpp_lane_command(
-        "mull-runner-23", Path("cpp") / leg.directory, Path("artifacts"), leg, dry_run=True
-    )
+    dry = _command(CppRun(dry_run=True))
     assert "--dry-run" not in _command()
     assert dry.index("--dry-run") < dry.index("--")
     dry.remove("--dry-run")

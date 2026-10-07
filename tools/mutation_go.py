@@ -91,6 +91,9 @@ GremlinsConfigText = NewType("GremlinsConfigText", str)
 # A report file's name, as a run writes it into its artifact directory.
 ArtifactName = NewType("ArtifactName", str)
 
+# The log of a sweep of the whole package, or of the shards' sweeps merged.
+GO_RAW_LOG = ArtifactName("go.raw.txt")
+
 # A run's wall clock in seconds, as the runner's summary records it.
 WallSeconds = NewType("WallSeconds", float)
 
@@ -562,7 +565,7 @@ def merge_go_shards(artifact_dir: Path, commit: ShortSha) -> MutationReport:
     raw += f"Timed out: {timed_out}\n"
     raw += "".join(f"{shard} swept in {secs}s\n" for shard, secs in elapsed.items())
     raw += "".join(sweep.log for sweep in sweeps)
-    (artifact_dir / "go.raw.txt").write_text(raw)
+    _ = (artifact_dir / GO_RAW_LOG).write_text(raw)
     return MutationReport("go", "gremlins", killed, lived, raw, timeouts=timed_out)
 
 

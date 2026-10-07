@@ -29,7 +29,7 @@ tools/mutation_cpp_slices.py       The C++ surface's partition into slices
 tools/mutation_cpp_runs.py         What the C++ sweep spends on each file, and how far the recorded slice weights have drifted from it
 tools/mutation_routes.py           The C++ kill-route census
 tools/mutation_ccache_evict.sh     The C++ lane's compiler cache cut to its run's working set before the save
-tools/mutation_sweep_cache.py      One sweep of the C++ mutation trees, kept for every probe that reads it
+tools/mutation_sweep_cache.py      Sweeps of the mutation lanes, kept for every probe that reads them
 tools/build_mull.sh                Mull built from source against LLVM 23, with the patches in tools/mull/
 tools/mutation_go.py               The Go lane's shards: which files each sweeps, and the proof they add up
 tools/mutation_rust.py             The Rust lane: cargo-mutants in shards, over scratch copies of the tree

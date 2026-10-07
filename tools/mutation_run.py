@@ -198,7 +198,7 @@ from tools.mutation_go import (
     GO_CONFIG,
     GO_LANE,
     GO_MERGE_STAGE,
-    ArtifactName,
+    GO_RAW_LOG,
     Binding,
     GremlinsLog,
     ShortSha,
@@ -461,9 +461,7 @@ def run_go(artifact_dir: Path) -> MutationReport:
                 )
             header = recorded
     raw = header + proc.stdout
-    _ = (
-        artifact_dir / (ArtifactName("go.raw.txt") if stage is None else shard_log_name(stage))
-    ).write_text(raw)
+    _ = (artifact_dir / (GO_RAW_LOG if stage is None else shard_log_name(stage))).write_text(raw)
 
     return parse_gremlins_summary(GremlinsLog(raw), Prose(f"exit {proc.returncode}"), binding)
 

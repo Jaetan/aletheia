@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 # SPDX-License-Identifier: BSD-2-Clause
-"""One sweep of the C++ mutation trees, kept for every probe that reads it.
+"""Sweeps of the mutation lanes, kept for every probe that reads them.
 
 Several probes each state a claim about one sweep: that the recorded census is
 what a sweep produces, that the recorded routes are, that every survivor and
@@ -8,11 +8,15 @@ every unobserved kill is a recorded one.  Written to sweep for themselves they
 re-measure one run once per claim: four of them on three trees took 674, 650,
 622 and 648 seconds.  This runs the sweep once and keys it on what could change
 its outcome, so the second reader pays nothing and each probe still runs alone.
+The same holds across runs of the store: a probe that sweeps the C++ trees
+under another order of the cases, or without ending a run at its first failing
+assertion, took 775 and 1605 seconds, and the Go and Rust baselines 181 and
+162, each of them on every run of the store over an unchanged tree.
 
-The key is the content of every file a sweep reads from the tree or the fact
-that the file is absent, the argv the lane sweeps with, its paths taken within
-the tree, and the environment it sweeps under, which names where the tree
-is.  A trace of the lane's own command finds the files: each tree's test binary
+A key has two halves: what a sweep reads from the tree, and how it runs.  A
+C++ sweep's first half is the content of every file it reads from the tree or
+the fact that the file is absent.  A trace of the lane's own command finds the
+files: each tree's test binary
 and the test kernels built beside it, which the binary loads by path; the
 stand-in kernels the build makes beside the kernel library, loaded by path too; the
 binaries it runs as children, built into a directory of their own; the
@@ -22,16 +26,27 @@ binary's mutants point at, which the runner copies into its report; the
 libraries the binary needs, which the runner looks for by name in the
 directory it runs in; and every file the loader can open in a directory in the
 tree that a file the sweep loads searches, followed from library to
-library.  The environment is the sweep's own, taking nothing of the caller's
+library.  Its second half is the argv each tree is swept with, its paths taken
+within the tree, and the environment it sweeps under, which names where the
+tree is.  The environment is the sweep's own, taking nothing of the caller's
 but its search path and temp directory; the order among the tests is pinned
 and the cap is on the argv; so nothing else in the tree decides what a sweep
 reports, which is why the same key may be served rather than swept again.  What
 a sweep reads from outside the tree is not keyed: the runner, the system's and
 GHC's runtime libraries, and the one library path the tests look at above the
-repository.
+repository.  A probe's variant of the lane, another order of the cases or no
+end at the first failing assertion over some of the trees, moves the second
+half only.
 
-A tree has to have been built under the configuration it would be given now,
-and every search path a loaded library records has to be one the key can
+The Go and Rust lanes sweep a scratch copy of the tracked tree, so the first
+half of their key is the tree's id, which names every tracked file as it
+stands, with the kernel library their tests load, the stand-in kernels beside
+it, and what the loader reaches from them.  The second half is where each tool
+of the lane's toolchain is found and what it says of itself, and the caller's
+variables the tools and the tests read.
+
+A C++ tree has to have been built under the configuration it would be given
+now, and every search path a loaded library records has to be one the key can
 follow, or the reason is reported and nothing is swept: the cache reads the
 trees and never removes one.  The key is read again when the sweep ends, and a
 sweep of a tree that changed meanwhile is not kept.
@@ -40,8 +55,9 @@ The reports land under a directory named by the key, and a sweep writes into a
 temporary neighbour, locked while it runs, that is renamed into place when
 every report is there: a run interrupted halfway leaves no directory a later
 reader would trust, and a later sweep removes it once its lock is free.  Once a
-sweep is in place every other kept sweep is removed, so only the sweep of the
-tree as it stands is kept; a refresh sweeps again and replaces the kept sweep
+sweep is in place every kept sweep of its kind that read another tree is
+removed, so the sweeps kept are those of the tree as it stands, the lane's and
+each variant beside it; a refresh sweeps again and replaces the kept sweep
 only with a complete one.
 """
 
@@ -58,8 +74,9 @@ import struct
 import subprocess
 import tempfile
 from enum import IntEnum
+from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, BinaryIO, NamedTuple, NewType, cast
+from typing import TYPE_CHECKING, BinaryIO, Literal, NamedTuple, NewType, cast
 
 from tools._common import emit
 from tools._resources import polite_cpu_list
@@ -67,18 +84,24 @@ from tools.cpp_scratch import reap_dead_scratch_dirs
 from tools.mutation_cpp import (
     CPP_LEG_REPORT_SUFFIXES,
     CPP_TEST_TARGET,
+    LANE_RUN,
     REPO_ROOT,
+    CppRun,
     cpp_lane_command,
     cpp_sweep_directory,
     cpp_sweep_environment,
 )
 from tools.mutation_cpp_config import built_under_config, leg_config_path
 from tools.mutation_cpp_legs import CppLeg, CppTree
+from tools.mutation_go import GO_RAW_LOG
+from tools.mutation_run import run_go
+from tools.mutation_rust import OUTCOMES, run_rust
+from tools.sweep_evidence import tracked_tree
 
 from aletheia.common_types import ExitStatus, Prose
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
 # Where the sweeps are kept: inside the tree, beside the build trees the
 # .gitignore already holds out, because a probe reads no path outside it.
@@ -115,9 +138,10 @@ CPP_FRESH_PROCESS_DIR = "fresh-process"
 # enables a mutant by that name and copies each named file into its report.
 _MUTANT = re.compile(rb"[a-z][a-z_]*:(/[^\x00:\n]+):\d+:\d+:\d+:\d+:[0-9a-f]+\.\d+")
 
-# A kept sweep's directory, named by its key, and the prefix of the directory a
-# sweep writes into until every report is there.
-_KEPT = re.compile(r"[0-9a-f]{16}")
+# A kept sweep's directory, named by its key: its kind, the digest of what it
+# read from the tree and the digest of how it ran. And the prefix of the
+# directory a sweep writes into until every report is there.
+_KEPT = re.compile(r"(cpp|go|rust)-([0-9a-f]{16})-[0-9a-f]{16}")
 _STAGING_PREFIX = "sweeping-"
 
 # The one substitution the loader makes in a search path that the file itself
@@ -139,9 +163,19 @@ _LONGEST_NAME = 4096
 _LONGEST_TABLE = 1 << 16
 _LONGEST_DYNAMIC = 1 << 20
 
-# A kept sweep's key, and a file's digest as the key spells it.
+# A kept sweep's key, one of the two digests it carries, a line one of them
+# digests, and a file's digest as the key spells it.
 SweepKey = NewType("SweepKey", str)
+_KeyPart = NewType("_KeyPart", str)
+_KeyLine = NewType("_KeyLine", str)
 _FileDigest = NewType("_FileDigest", str)
+
+# A lane tool's command line, asking it what it is, its words split at spaces.
+_ToolQuery = NewType("_ToolQuery", str)
+
+# What a kept sweep sweeps: the C++ trees, or the Go or Rust lane's package.
+SweepKind = Literal["cpp", "go", "rust"]
+LaneKind = Literal["go", "rust"]
 
 # A name as the string table holds it; a library's file name, as a binary
 # records it; a library search path as a binary records it, $ORIGIN and all.
@@ -381,13 +415,13 @@ def _searched_files(directory: Path) -> set[Path]:
     return {path for path in candidates if path.is_file()}
 
 
-def _reach(loaded: Iterable[Path]) -> _Reach:
+def _reach(loaded: Iterable[Path], runs_in: Path) -> _Reach:
     """Follow what the loader can open in the tree, from the given files through each file found.
 
     A search path entry takes $ORIGIN as the directory of the file recording
-    it, and one that is relative, or empty, as the directory the sweep runs
-    in.  A name holding a slash is a path the loader opens as it stands, from
-    that same directory when it is relative.
+    it, and one that is relative, or empty, as ``runs_in``, the directory the
+    sweep runs in.  A name holding a slash is a path the loader opens as it
+    stands, from that same directory when it is relative.
     """
     files: set[Path] = set()
     unfollowed: list[_SearchPath] = []
@@ -407,12 +441,12 @@ def _reach(loaded: Iterable[Path]) -> _Reach:
                 if "$" in expanded:
                     unfollowed.append(_SearchPath(entry))
                     continue
-                directory = Path(os.path.normpath(cpp_sweep_directory() / expanded))
+                directory = Path(os.path.normpath(runs_in / expanded))
                 if directory.is_relative_to(REPO_ROOT):
                     reached |= _searched_files(directory)
         for name in linked.needed:
             if "/" in name:
-                path = Path(os.path.normpath(cpp_sweep_directory() / name))
+                path = Path(os.path.normpath(runs_in / name))
                 if path.is_relative_to(REPO_ROOT):
                     files.add(path)
                     reached |= {path} if path.is_file() else set()
@@ -424,7 +458,11 @@ def _reach(loaded: Iterable[Path]) -> _Reach:
 def key_inputs() -> list[Path]:
     """Name every file a sweep of today's trees reads from the tree, whether it is there or not."""
     loaded = _loaded()
-    paths = {*loaded, *(REPO_ROOT / path for path in _FIXTURES), *_reach(loaded).files}
+    paths = {
+        *loaded,
+        *(REPO_ROOT / path for path in _FIXTURES),
+        *_reach(loaded, cpp_sweep_directory()).files,
+    }
     for tree in CppTree:
         build_dir, binary = tree_build_dir(tree), tree_binary(tree)
         paths.add(leg_config_path(CppLeg(tree), build_dir))
@@ -437,31 +475,58 @@ def key_inputs() -> list[Path]:
     return sorted(paths)
 
 
-def sweep_key() -> SweepKey:
-    """Name what a sweep of today's trees would read: their files, argv and environment."""
-    parts = [
-        f"{path.relative_to(REPO_ROOT)}:{_digest(path) if path.is_file() else 'absent'}"
-        for path in key_inputs()
+def _part(lines: Iterable[_KeyLine]) -> _KeyPart:
+    """Digest the lines of one half of a key."""
+    return _KeyPart(hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()[:16])
+
+
+def _files_lines(paths: Iterable[Path]) -> list[_KeyLine]:
+    """Spell each file a sweep reads from the tree by its content, or as absent."""
+    return [
+        _KeyLine(f"{path.relative_to(REPO_ROOT)}:{_digest(path) if path.is_file() else 'absent'}")
+        for path in paths
     ]
-    for tree in CppTree:
+
+
+class CppVariant(NamedTuple):
+    """The C++ trees a sweep covers and how the runner runs each: the lane's way, or a probe's."""
+
+    trees: tuple[CppTree, ...]
+    run: CppRun = LANE_RUN
+
+
+# The lane's own sweep.
+CPP_LANE = CppVariant(tuple(CppTree))
+
+
+def _cpp_run(variant: CppVariant) -> _KeyPart:
+    """Digest how a variant sweeps: each of its trees' argv and environment."""
+    lines: list[_KeyLine] = []
+    for tree in variant.trees:
         leg = CppLeg(tree)
-        parts.append(" ".join(cpp_lane_command(MULL_RUNNER, Path(tree.directory), Path(), leg)))
+        argv = cpp_lane_command(MULL_RUNNER, Path(tree.directory), Path(), leg, variant.run)
+        lines.append(_KeyLine(" ".join(argv)))
         variables = cpp_sweep_environment(leg, tree_build_dir(tree)).variables()
-        parts.append(" ".join(f"{name}={variables[name]}" for name in sorted(variables)))
-    return SweepKey(hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:16])
+        lines.append(_KeyLine(" ".join(f"{name}={variables[name]}" for name in sorted(variables))))
+    return _part(lines)
 
 
-def _reports_present(directory: Path) -> bool:
-    """Say whether the directory holds every report every tree's sweep writes."""
+def sweep_key(variant: CppVariant = CPP_LANE) -> SweepKey:
+    """Name what a sweep of today's trees would read, their files, and how it would run them."""
+    return SweepKey(f"cpp-{_part(_files_lines(key_inputs()))}-{_cpp_run(variant)}")
+
+
+def _reports_present(trees: tuple[CppTree, ...], directory: Path) -> bool:
+    """Say whether the directory holds every report each of the trees' sweeps writes."""
     return all(
         (directory / f"{CppLeg(tree).report_name}{suffix}").is_file()
-        for tree in CppTree
+        for tree in trees
         for suffix in CPP_LEG_REPORT_SUFFIXES
     )
 
 
-def run_leg(leg: CppLeg, report_dir: Path, *, dry_run: bool = False) -> None:
-    """Run the lane's command for one leg into ``report_dir``, where and as the lane runs it.
+def run_leg(leg: CppLeg, report_dir: Path, run: CppRun = LANE_RUN) -> None:
+    """Run the lane's command for one leg into ``report_dir``, as ``run`` says.
 
     The runner exits non-zero whenever a mutant survives, which is a property
     of the surface rather than of the run, so the reports are what says
@@ -469,7 +534,7 @@ def run_leg(leg: CppLeg, report_dir: Path, *, dry_run: bool = False) -> None:
     """
     build_dir = leg_build_dir(leg)
     _ = subprocess.run(
-        polite(cpp_lane_command(MULL_RUNNER, build_dir, report_dir, leg, dry_run=dry_run)),
+        polite(cpp_lane_command(MULL_RUNNER, build_dir, report_dir, leg, run)),
         cwd=cpp_sweep_directory(),
         env=cpp_sweep_environment(leg, build_dir).variables(),
         check=False,
@@ -479,18 +544,18 @@ def run_leg(leg: CppLeg, report_dir: Path, *, dry_run: bool = False) -> None:
 
 def dry_run_report(leg: CppLeg, report_dir: Path) -> Path | Prose:
     """Run the lane's command over one leg as a dry run, and name the Elements report it wrote."""
-    run_leg(leg, report_dir, dry_run=True)
+    run_leg(leg, report_dir, CppRun(dry_run=True))
     report = report_dir / f"{leg.report_name}.json"
     if report.is_file():
         return report
     return Prose(f"the dry run of the {leg} leg wrote no {report.name}")
 
 
-def _sweep_into(directory: Path) -> Prose | None:
-    """Sweep every tree into the directory, as the lane runs each, or say what stopped it."""
-    for tree in CppTree:
+def _sweep_into(variant: CppVariant, directory: Path) -> Prose | None:
+    """Sweep a variant's trees into the directory, or say what stopped it."""
+    for tree in variant.trees:
         leg = CppLeg(tree)
-        run_leg(leg, directory)
+        run_leg(leg, directory, variant.run)
         _ = reap_dead_scratch_dirs()
         missing = [
             suffix
@@ -525,13 +590,23 @@ def _abandoned(staging: Path) -> bool:
 
 
 def _forget_other_sweeps(kept: Path) -> None:
-    """Remove every kept sweep but ``kept``, and every sweep whose process has gone."""
+    """Remove each sweep of ``kept``'s kind that read another tree, and each abandoned one.
+
+    A sweep of the same kind that read the same tree stays: a probe's variant
+    of the lane's argv is kept beside the lane's own sweep, never in its place.
+    """
+    mine = _KEPT.fullmatch(kept.name)
     for entry in CACHE_ROOT.iterdir():
         if entry == kept or entry.is_symlink() or not entry.is_dir():
             continue
-        if _KEPT.fullmatch(entry.name) or (
-            entry.name.startswith(_STAGING_PREFIX) and _abandoned(entry)
-        ):
+        other = _KEPT.fullmatch(entry.name)
+        stale = (
+            mine is not None
+            and other is not None
+            and other.group(1) == mine.group(1)
+            and other.group(2) != mine.group(2)
+        )
+        if stale or (entry.name.startswith(_STAGING_PREFIX) and _abandoned(entry)):
             shutil.rmtree(entry)
 
 
@@ -548,7 +623,7 @@ def _refusal() -> Prose | None:
                 f"the {tree.value} mutation tree was built under another configuration than"
                 + " cpp/mull.yml gives it now; rebuild it with the lane before sweeping"
             )
-    unfollowed = _reach(_loaded()).unfollowed
+    unfollowed = _reach(_loaded(), cpp_sweep_directory()).unfollowed
     if unfollowed:
         return Prose(
             f"a library a sweep loads searches {unfollowed[0]}, whose substitution the key"
@@ -557,22 +632,27 @@ def _refusal() -> Prose | None:
     return None
 
 
-def sweep_directory(*, refresh: bool = False) -> Path | Prose:
-    """Return the directory holding a sweep of today's trees, sweeping where there is none."""
-    refusal = _refusal()
-    if refusal is not None:
-        return refusal
-    key = sweep_key()
-    wanted = CACHE_ROOT / key
-    if not refresh and _reports_present(wanted):
+class _Keeping(NamedTuple):
+    """One sweep as it is kept: its key, how it is swept, what it leaves, how it is keyed again."""
+
+    key: SweepKey
+    sweep: Callable[[Path], Prose | None]
+    present: Callable[[Path], bool]
+    rekey: Callable[[], SweepKey]
+
+
+def _kept(keeping: _Keeping, *, refresh: bool) -> Path | Prose:
+    """Serve the sweep kept under its key, or sweep into a locked neighbour and file it there."""
+    wanted = CACHE_ROOT / keeping.key
+    if not refresh and keeping.present(wanted):
         return wanted
     CACHE_ROOT.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(dir=CACHE_ROOT, prefix=_STAGING_PREFIX))
     lock = os.open(staging, os.O_RDONLY | os.O_CLOEXEC)
     try:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        failure = _sweep_into(staging)
-        if failure is None and sweep_key() != key:
+        failure = keeping.sweep(staging)
+        if failure is None and keeping.rekey() != keeping.key:
             failure = Prose("the trees changed while they were swept; the sweep was not kept")
         if failure is not None:
             return failure
@@ -584,6 +664,158 @@ def sweep_directory(*, refresh: bool = False) -> Path | Prose:
         shutil.rmtree(staging, ignore_errors=True)
     _forget_other_sweeps(wanted)
     return wanted
+
+
+def sweep_directory(*, refresh: bool = False, variant: CppVariant = CPP_LANE) -> Path | Prose:
+    """Return the directory holding a variant's sweep of today's trees, sweeping where none is."""
+    refusal = _refusal()
+    if refusal is not None:
+        return refusal
+    return _kept(
+        _Keeping(
+            sweep_key(variant),
+            partial(_sweep_into, variant),
+            partial(_reports_present, variant.trees),
+            partial(sweep_key, variant),
+        ),
+        refresh=refresh,
+    )
+
+
+# The library a Go or Rust sweep's tests load, as each lane hands it to them
+# through ALETHEIA_LIB; the stand-in kernels they load from beside it are the
+# ones the C++ key names.
+_LANE_LIBRARY = _LIBRARY_PATHS[0]
+
+# What each lane's sweep leaves that its probe reads.
+LANE_REPORT: dict[LaneKind, Path] = {"go": Path(GO_RAW_LOG), "rust": OUTCOMES}
+
+# What a lane reads from outside the tree that decides what it reports: each
+# tool of its toolchain, by where it is found, its bytes, since a tool built
+# from a module's head says only that it is a development build, and what it
+# says of itself; and the caller's variables the tools and the tests read. Go
+# is asked for the settings that decide a build by name, since its whole
+# environment also names a temporary directory that changes with each asking.
+# What the toolchains keep of their own outside the tree, configuration and
+# caches, is not followed, as the C++ key does not follow the runner.
+_LANE_TOOLS: dict[LaneKind, tuple[_ToolQuery, ...]] = {
+    "go": (
+        _ToolQuery(
+            "go env GOVERSION GOOS GOARCH GOAMD64 GOEXPERIMENT GOFLAGS GOTOOLCHAIN"
+            + " CC CXX CGO_ENABLED CGO_CFLAGS CGO_CPPFLAGS CGO_CXXFLAGS CGO_LDFLAGS"
+        ),
+        _ToolQuery("gremlins --version"),
+    ),
+    "rust": (
+        _ToolQuery("rustc -vV"),
+        _ToolQuery("cargo -V"),
+        _ToolQuery("cargo mutants --version"),
+    ),
+}
+LANE_VARIABLES = re.compile(
+    r"ALETHEIA_\w*|LC_\w+|LANG|GO\w*|CGO_\w+|CARGO\w*|RUST\w*|CC|CXX|CFLAGS|CXXFLAGS|LDFLAGS"
+)
+
+
+def _lane_runs_in() -> Path:
+    """Name where a lane's sweep runs: a scratch copy under the temporary directory.
+
+    The copy holds the tracked tree, which the tree id names, so a relative
+    search path of what the tests load resolves to nothing else to key.
+    """
+    return Path(tempfile.gettempdir())
+
+
+def _lane_loaded() -> list[Path]:
+    """Name the ELF files a lane's tests load: the library, the stand-ins beside it."""
+    return [REPO_ROOT / _LANE_LIBRARY, *sorted((REPO_ROOT / STAND_IN_DIR).glob("*.so"))]
+
+
+def _lane_tools(kind: LaneKind) -> list[_KeyLine]:
+    """Spell where each of a lane's tools is found, its bytes and its word, or that it is not."""
+    lines: list[_KeyLine] = []
+    for query in _LANE_TOOLS[kind]:
+        argv = query.split(" ")
+        found = shutil.which(argv[0])
+        if found is None:
+            lines.append(_KeyLine(f"{argv[0]}: not found"))
+            continue
+        said = subprocess.run(
+            [found, *argv[1:]], cwd=REPO_ROOT / kind, capture_output=True, text=True, check=False
+        )
+        lines += [
+            _KeyLine(f"{found}:{_digest(Path(found))}"),
+            _KeyLine(f"{found} {' '.join(argv[1:])}: exit {said.returncode}"),
+            _KeyLine(said.stdout),
+            _KeyLine(said.stderr),
+        ]
+    return lines
+
+
+def _lane_refusal(kind: LaneKind) -> Prose | None:
+    """Say why a lane's sweep of today's tree could not be keyed, if it could not."""
+    if tracked_tree(REPO_ROOT) is None:
+        return Prose("git could not name the tracked tree, so no kept sweep could say what it read")
+    unfollowed = _reach(_lane_loaded(), _lane_runs_in()).unfollowed
+    if unfollowed:
+        return Prose(
+            f"a library the {kind} tests load searches {unfollowed[0]}, whose substitution the"
+            + " key cannot follow, so no kept sweep could say what it read"
+        )
+    return None
+
+
+def lane_sweep_key(kind: LaneKind) -> SweepKey:
+    """Name what a lane's sweep of today's tree would read from it, and how it would run.
+
+    The lane sweeps a scratch copy of the tracked tree, so the tree id names
+    every file of the tree it reads, and the library its tests load from the
+    tree, with what the loader reaches from it, is named file by file.
+    """
+    loaded = _lane_loaded()
+    files = [
+        _KeyLine(f"tree:{tracked_tree(REPO_ROOT)}"),
+        *_files_lines(sorted({*loaded, *_reach(loaded, _lane_runs_in()).files})),
+    ]
+    variables = {
+        name: value for name, value in os.environ.items() if LANE_VARIABLES.fullmatch(name)
+    }
+    run = [
+        *_lane_tools(kind),
+        *(_KeyLine(f"{name}={variables[name]}") for name in sorted(variables)),
+    ]
+    return SweepKey(f"{kind}-{_part(files)}-{_part(run)}")
+
+
+def _lane_report_present(kind: LaneKind, directory: Path) -> bool:
+    """Say whether the directory holds the report a lane's sweep leaves."""
+    return (directory / LANE_REPORT[kind]).is_file()
+
+
+def _lane_sweep_into(kind: LaneKind, directory: Path) -> Prose | None:
+    """Run a lane's sweep of its whole package into the directory, or say what stopped it."""
+    report = run_go(directory) if kind == "go" else run_rust(directory)
+    if report.error is not None:
+        return Prose("\n".join([report.error, *report.raw_log.splitlines()[-3:]]))
+    if not _lane_report_present(kind, directory):
+        return Prose(f"the {kind} sweep wrote no {LANE_REPORT[kind]}")
+    return None
+
+
+def lane_sweep_directory(kind: LaneKind, *, refresh: bool = False) -> Path | Prose:
+    """Return the directory holding a lane's sweep of today's tree, sweeping where there is none."""
+    refusal = _lane_refusal(kind)
+    if refusal is not None:
+        return refusal
+    return _kept(
+        _Keeping(
+            lane_sweep_key(kind),
+            partial(_lane_sweep_into, kind),
+            partial(_lane_report_present, kind),
+            partial(lane_sweep_key, kind),
+        ),
+        refresh=refresh,
+    )
 
 
 def main() -> ExitStatus:

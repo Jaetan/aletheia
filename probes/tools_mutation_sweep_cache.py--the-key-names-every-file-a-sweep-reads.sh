@@ -36,7 +36,7 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple, NewType
 
-from tools.mutation_cpp import REPO_ROOT, cpp_lane_command, cpp_sweep_directory, cpp_sweep_environment
+from tools.mutation_cpp import REPO_ROOT, CppRun, cpp_lane_command, cpp_sweep_directory, cpp_sweep_environment
 from tools.mutation_cpp_legs import CppLeg, CppTree
 from tools.mutation_sweep_cache import MULL_RUNNER, key_inputs, tree_binary, tree_build_dir
 
@@ -170,7 +170,7 @@ for tree in CppTree:
         print(f"the {tree.value} mutation tree is not built, claim untestable")
         sys.exit(0)
     with tempfile.TemporaryDirectory(prefix="sweep-trace-") as scratch:
-        argv = cpp_lane_command(MULL_RUNNER, build_dir, Path(scratch), leg, dry_run=True)
+        argv = cpp_lane_command(MULL_RUNNER, build_dir, Path(scratch), leg, CppRun(dry_run=True))
         log = Path(scratch) / "trace.log"
         env = cpp_sweep_environment(leg, build_dir).variables()
         env["ASAN_OPTIONS"] = env["LSAN_OPTIONS"] = "detect_leaks=0"
