@@ -18,8 +18,10 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   cases and without `--abort`, and the Go and Rust baselines, 2562.0 s of the
   4123.6 s the store's probes took. The C++ variants are now kept beside the
   lane's own sweep in `tools/mutation_sweep_cache.py`, keyed on what the trees
-  hold and on the argv each tree is swept with, and the lane's pinned order is
-  read from the lane's sweep rather than swept again. The Go and Rust sweeps
+  hold and on the argv and environment each tree is swept with, except the
+  temp directory, which says where the runs make their scratch and not what
+  they report, and the lane's pinned order is read from the lane's sweep
+  rather than swept again. The Go and Rust sweeps
   are kept too, keyed on the tracked tree's id, the kernel library and
   stand-ins their tests load, each tool's bytes and what it says of itself,
   and the variables the tools and tests read. A kept sweep of another tree is

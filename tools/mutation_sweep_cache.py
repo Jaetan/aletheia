@@ -13,30 +13,30 @@ under another order of the cases, or without ending a run at its first failing
 assertion, took 775 and 1605 seconds, and the Go and Rust baselines 181 and
 162, each of them on every run of the store over an unchanged tree.
 
-A key has two halves: what a sweep reads from the tree, and how it runs.  A
-C++ sweep's first half is the content of every file it reads from the tree or
-the fact that the file is absent.  A trace of the lane's own command finds the
-files: each tree's test binary
-and the test kernels built beside it, which the binary loads by path; the
-stand-in kernels the build makes beside the kernel library, loaded by path too; the
-binaries it runs as children, built into a directory of their own; the
-configuration the runner is given; the kernel library, at every path in the
-tree the tests look for it; the fixture a test reads; the source files the
-binary's mutants point at, which the runner copies into its report; the
-libraries the binary needs, which the runner looks for by name in the
-directory it runs in; and every file the loader can open in a directory in the
-tree that a file the sweep loads searches, followed from library to
-library.  Its second half is the argv each tree is swept with, its paths taken
-within the tree, and the environment it sweeps under, which names where the
-tree is.  The environment is the sweep's own, taking nothing of the caller's
-but its search path and temp directory; the order among the tests is pinned
-and the cap is on the argv; so nothing else in the tree decides what a sweep
-reports, which is why the same key may be served rather than swept again.  What
-a sweep reads from outside the tree is not keyed: the runner, the system's and
-GHC's runtime libraries, and the one library path the tests look at above the
-repository.  A probe's variant of the lane, another order of the cases or no
-end at the first failing assertion over some of the trees, moves the second
-half only.
+A key has two halves: what a sweep reads from the tree, and how it runs.  A C++
+sweep's first half is the content of every file it reads from the tree or the
+fact that the file is absent.  A trace of the lane's own command finds the
+files: each tree's test binary and the test kernels built beside it, which the
+binary loads by path; the stand-in kernels the build makes beside the kernel
+library, loaded by path too; the binaries it runs as children, built into a
+directory of their own; the configuration the runner is given; the kernel
+library, at every path in the tree the tests look for it; the fixture a test
+reads; the source files the binary's mutants point at, which the runner copies
+into its report; the libraries the binary needs, which the runner looks for by
+name in the directory it runs in; and every file the loader can open in a
+directory in the tree that a file the sweep loads searches, followed from
+library to library.  Its second half is the argv each tree is swept with, its
+paths taken within the tree, and the environment it sweeps under, which names
+where the tree is, except its temp directory, which names where the runs make
+their scratch and not what they report.  The environment is the sweep's own,
+taking nothing of the caller's but its search path and temp directory; the
+order among the tests is pinned and the cap is on the argv; so nothing else in
+the tree decides what a sweep reports, which is why the same key may be served
+rather than swept again.  What a sweep reads from outside the tree is not
+keyed: the runner, the system's and GHC's runtime libraries, and the one
+library path the tests look at above the repository.  A probe's variant of the
+lane, another order of the cases or no end at the first failing assertion over
+some of the trees, moves the second half only.
 
 The Go and Rust lanes sweep a scratch copy of the tracked tree, so the first
 half of their key is the tree's id, which names every tracked file as it
@@ -502,13 +502,17 @@ CPP_LANE = CppVariant(tuple(CppTree))
 
 
 def _cpp_run(variant: CppVariant) -> _KeyPart:
-    """Digest how a variant sweeps: each of its trees' argv and environment."""
+    """Digest how a variant sweeps: each tree's argv and environment, except its temp directory.
+
+    The temp directory says where the runs make their scratch, not what they report.
+    """
     lines: list[_KeyLine] = []
     for tree in variant.trees:
         leg = CppLeg(tree)
         argv = cpp_lane_command(MULL_RUNNER, Path(tree.directory), Path(), leg, variant.run)
         lines.append(_KeyLine(" ".join(argv)))
         variables = cpp_sweep_environment(leg, tree_build_dir(tree)).variables()
+        del variables["TMPDIR"]
         lines.append(_KeyLine(" ".join(f"{name}={variables[name]}" for name in sorted(variables))))
     return _part(lines)
 

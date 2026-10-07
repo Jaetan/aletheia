@@ -406,6 +406,16 @@ def test_the_runs_make_their_scratch_where_the_reaper_looks(
     assert Path(variables["TMPDIR"]) == scratch_root() == elsewhere
 
 
+def test_where_the_runs_make_their_scratch_leaves_the_key(
+    tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sweeps that differ only in their temp directory report alike, so they share one key."""
+    before = sweep_cache.sweep_key()
+    elsewhere = tree.parent / "scratch"
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(elsewhere))
+    assert sweep_cache.sweep_key() == before
+
+
 def test_a_tree_elsewhere_keys_apart(tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Two trees holding the same files are two keys: the environment names where each is."""
     _ = sweep_cache.tree_binary(CppTree.LEAK).write_bytes(b"first")
