@@ -12,9 +12,9 @@
 set -u
 cd "$(dirname "$0")/.." || exit 2
 [ -f cpp/build/CMakeCache.txt ] || exit 2
-cmake --build cpp/build --target aletheia-cli > /dev/null 2>&1 || exit 2
-scratch=cpp/build/probe-scratch/cli-empty-argv
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
+tools/private_cpp_tree.sh "$scratch/cpp" aletheia-cli || exit 2
 cat > "$scratch/launch.cpp" <<'CPP'
 #include <unistd.h>
 int main(int, char** argv) {
@@ -24,5 +24,5 @@ int main(int, char** argv) {
 }
 CPP
 clang++-23 -std=c++23 "$scratch/launch.cpp" -o "$scratch/launch" > "$scratch/compile.log" 2>&1 || { tail -3 "$scratch/compile.log"; exit 1; }
-"$scratch/launch" "$PWD/cpp/build/aletheia-cli" > "$scratch/out.txt" 2> "$scratch/err.txt"; rc=$?
+"$scratch/launch" "$scratch/cpp/aletheia-cli" > "$scratch/out.txt" 2> "$scratch/err.txt"; rc=$?
 [ "$rc" -eq 2 ] && grep -q 'Usage: aletheia-cli' "$scratch/err.txt" || { echo "rc=$rc"; head -2 "$scratch/err.txt"; exit 1; }

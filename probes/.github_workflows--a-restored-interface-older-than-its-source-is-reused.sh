@@ -11,10 +11,11 @@
 # and none for an interface it loads. With every interface dated 2020 and
 # every source dated now, loading a proof-only module re-checks nothing;
 # with one imported interface deleted, it re-checks exactly that module.
-# The probe dates every interface under _build/ to 2020 and deletes one that
-# its own last run writes back; the sources it leaves alone, since a tracked
-# file's mtime is the tree's, and checks instead that none is older than the
-# interfaces' date, which a checkout guarantees.
+# The probe works in a copy of the project, its interfaces with it, so the
+# tree's own are neither redated nor removed. It dates every copied interface
+# to 2020 and deletes one that its own last run writes back; the sources it
+# leaves alone, and checks instead that none is older than the interfaces'
+# date, which a fresh copy guarantees.
 # Non-zero exit: Agda re-checked a module whose interface was current, or
 # loaded a module whose interface was gone. Exits 2 when agda is missing, a
 # source is dated before the interfaces, or any of the three runs fails to
@@ -25,9 +26,16 @@ agda=$(command -v agda) || agda=/home/nicolas/.cabal/bin/agda
 [ -x "$agda" ] || exit 2
 mod=src/Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda
 version=$("$agda" --numeric-version) || exit 2
+# Agda finds the project by its library file and keeps the interfaces beside
+# it, so a copy of the sources, the library file and _build/ is a project of
+# its own whose interfaces Agda reuses as they are.
+copy=$(mktemp -d) || exit 2
+trap 'rm -rf "$copy"' EXIT
+git ls-files -z -- src aletheia.agda-lib | xargs -0 cp --parents -t "$copy" || exit 2
+[ ! -d _build ] || cp -a _build "$copy/" || exit 2
+cd "$copy" || exit 2
 dep=_build/$version/agda/src/Aletheia/DBC/TextParser/Properties/Aggregator/Universal.agdai
-out=tools/ci-output/probe-scratch/agda-interface-reuse.log
-mkdir -p "$(dirname "$out")" || exit 2
+out=$copy/agda-interface-reuse.log
 check() {
     "$agda" +RTS -M16G -RTS "$mod" > "$out" 2>&1 && return
     echo "agda exited $? :"; tail -n 5 "$out"; exit 2

@@ -22,7 +22,6 @@ py=python/.venv/bin/python
 for bin in cpp/build/fresh_process_tests cpp/build/fresh-process/rts_heap_cap_tests; do
     [ -x "$bin" ] || { echo "$bin is not built: build cpp/build first"; exit 2; }
 done
-mkdir -p tools/ci-output || exit 2
 exec "$py" - << 'PY'
 import os
 import signal
@@ -69,7 +68,7 @@ def ending(pid):
 
 
 def case(label, argv):
-    with tempfile.TemporaryDirectory(dir="tools/ci-output", prefix=".orphan-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="orphan-") as scratch:
         fifo = Path(scratch).resolve() / "libaletheia-ffi.so"
         os.mkfifo(fifo)
         env = {**os.environ, "ALETHEIA_LIB": str(fifo), "ALETHEIA_REPO_ROOT": str(ROOT)}

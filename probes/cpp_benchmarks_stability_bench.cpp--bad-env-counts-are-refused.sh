@@ -11,12 +11,14 @@
 set -u
 cd "$(dirname "$0")/.." || exit 2
 [ -f cpp/build/CMakeCache.txt ] && [ -f build/libaletheia-ffi.so ] || exit 2
-cmake --build cpp/build --target stability_bench > /dev/null 2>&1 || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
+tools/private_cpp_tree.sh "$scratch/cpp" stability_bench || exit 2
 export ALETHEIA_LIB=$PWD/build/libaletheia-ffi.so
 for bad in abc 0 -3 5x ""; do
-    ALETHEIA_STABILITY_CYCLES=$bad ALETHEIA_STABILITY_FRAMES=100 cpp/build/stability_bench > /dev/null 2>&1
+    ALETHEIA_STABILITY_CYCLES=$bad ALETHEIA_STABILITY_FRAMES=100 "$scratch/cpp/stability_bench" > /dev/null 2>&1
     [ $? -eq 2 ] || { echo "accepted CYCLES='$bad'"; exit 1; }
-    ALETHEIA_STABILITY_CYCLES=1 ALETHEIA_STABILITY_FRAMES=$bad cpp/build/stability_bench > /dev/null 2>&1
+    ALETHEIA_STABILITY_CYCLES=1 ALETHEIA_STABILITY_FRAMES=$bad "$scratch/cpp/stability_bench" > /dev/null 2>&1
     [ $? -eq 2 ] || { echo "accepted FRAMES='$bad'"; exit 1; }
 done
 exit 0

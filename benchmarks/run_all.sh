@@ -16,8 +16,13 @@
 # other modes, where it would reach nothing.
 #
 # Results go to benchmarks/results/ unless ALETHEIA_BENCH_RESULTS_DIR names
-# another directory.  The override exists so a probe can exercise this script
-# without clearing or rewriting the developer's last measurements.
+# another directory, the C++ harness is built in cpp/build unless
+# ALETHEIA_BENCH_CPP_BUILD_DIR names another configured tree, and the Go one
+# at go/benchmarks/benchmark unless ALETHEIA_BENCH_GO_BIN names another path;
+# the Rust one is built wherever cargo builds, CARGO_TARGET_DIR included.  The
+# overrides exist so a probe can exercise this script without clearing or
+# rewriting the developer's last measurements, or building where another run
+# reads.
 #
 # Prerequisites:
 #     - libaletheia-ffi.so built (cabal run shake -- build)
@@ -35,6 +40,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 RESULTS_DIR="${ALETHEIA_BENCH_RESULTS_DIR:-$SCRIPT_DIR/results}"
+# The C++ tree, and the name the messages give it.
+CPP_BUILD_DIR="${ALETHEIA_BENCH_CPP_BUILD_DIR:-$PROJECT_DIR/cpp/build}"
+CPP_BUILD_NAME="${ALETHEIA_BENCH_CPP_BUILD_DIR:-cpp/build}"
 
 # Defaults
 FRAMES=10000
@@ -131,14 +139,14 @@ fi
 # This is a PREFLIGHT: it only reads the cache, and it aborts — so it must run
 # before the destructive clear below, or a Debug tree would delete the previous
 # run's results and exit without producing replacements.
-CPP_CACHE="$PROJECT_DIR/cpp/build/CMakeCache.txt"
+CPP_CACHE="$CPP_BUILD_DIR/CMakeCache.txt"
 if [[ -f "$CPP_CACHE" ]]; then
     CPP_BUILD_TYPE="$(awk -F= '/^CMAKE_BUILD_TYPE:/{print $2}' "$CPP_CACHE")"
     if [[ "$CPP_BUILD_TYPE" == "Debug" ]]; then
-        echo "ERROR: cpp/build is configured with CMAKE_BUILD_TYPE=Debug." >&2
+        echo "ERROR: $CPP_BUILD_NAME is configured with CMAKE_BUILD_TYPE=Debug." >&2
         echo "       Debug builds produce unoptimized benchmarks." >&2
         echo "       Reconfigure with (the cache keeps the compilers; no clean needed):" >&2
-        echo "         cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release" >&2
+        echo "         cmake -S cpp -B $CPP_BUILD_NAME -DCMAKE_BUILD_TYPE=Release" >&2
         exit 1
     fi
 fi
@@ -287,10 +295,9 @@ cd "$PROJECT_DIR"
 # unconfigured tree is a graceful SKIP (configuring needs clang-23 + the
 # FetchContent deps), matching the other optional-binding lanes; a configured
 # tree that fails to build is a FAIL, because the toolchain is present.
-CPP_DIR="$PROJECT_DIR/cpp"
-CPP_BIN="$CPP_DIR/build/benchmark"
+CPP_BIN="$CPP_BUILD_DIR/benchmark"
 if [[ -f "$CPP_CACHE" ]]; then
-    if CPP_BUILD_LOG="$(cmake --build "$CPP_DIR/build" --target benchmark 2>&1)"; then
+    if CPP_BUILD_LOG="$(cmake --build "$CPP_BUILD_DIR" --target benchmark 2>&1)"; then
         CPP_ARGS=("$BENCH" --json)
         case $BENCH in
             throughput) CPP_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
@@ -326,8 +333,8 @@ fi
 # SKIP, matching the other optional-binding lanes; Go installed and the build
 # broken is a FAIL, since a lane that cannot be measured is an error.
 GO_DIR="$PROJECT_DIR/go"
-GO_BIN="$GO_DIR/benchmarks/benchmark"
-if GO_BUILD_LOG="$(cd "$GO_DIR" && go build -o benchmarks/benchmark ./benchmarks/ 2>&1)"; then
+GO_BIN="${ALETHEIA_BENCH_GO_BIN:-$GO_DIR/benchmarks/benchmark}"
+if GO_BUILD_LOG="$(cd "$GO_DIR" && go build -o "$GO_BIN" ./benchmarks/ 2>&1)"; then
     GO_ARGS=("$BENCH" --json)
     case $BENCH in
         throughput) GO_ARGS+=(--frames "$FRAMES" --runs "$RUNS") ;;
@@ -360,7 +367,11 @@ fi
 # and the build broken is a FAIL.  The Rust source itself is gated by run_ci's
 # cargo lanes, not this script.
 RUST_DIR="$PROJECT_DIR/rust"
-RUST_BIN="$RUST_DIR/target/release/examples/benchmark"
+# cargo builds under CARGO_TARGET_DIR when it is set, a relative one taken
+# from the directory cargo runs in, which is rust/.
+RUST_TARGET="${CARGO_TARGET_DIR:-target}"
+[[ "$RUST_TARGET" == /* ]] || RUST_TARGET="$RUST_DIR/$RUST_TARGET"
+RUST_BIN="$RUST_TARGET/release/examples/benchmark"
 if RUST_BUILD_LOG="$(cd "$RUST_DIR" && cargo build --release --example benchmark 2>&1)"; then
     RUST_ARGS=("$BENCH" --json)
     case $BENCH in

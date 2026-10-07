@@ -19,10 +19,10 @@
 set -u
 cd "$(dirname "$0")/.." || exit 2
 [ -f cpp/build/CMakeCache.txt ] || exit 2
-cmake --build cpp/build --target benchmark > /dev/null 2>&1 || exit 2
-bench=cpp/build/benchmark
 work=$(mktemp -d) || exit 2
 trap 'rm -rf "$work"' EXIT
+tools/private_cpp_tree.sh "$work/cpp" benchmark || exit 2
+bench=$work/cpp/benchmark
 
 # Every invocation is bounded, because what this probe looks for does not
 # always show as an exit. The harness runs its fixed counts over

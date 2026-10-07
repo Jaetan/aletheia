@@ -21,13 +21,17 @@ set -u
 cd "$(dirname "$0")/.." || exit 2
 command -v clang-tidy-23 > /dev/null 2>&1 || exit 2
 
-# The sources live under cpp/tests so clang-tidy finds the configuration by
-# walking up, which is how the gate runs: pointed at a configuration file from
-# elsewhere it inherits no parent and enables no check at all.
-work=$(mktemp -d cpp/tests/.tidy-shapes-XXXXXX) || exit 2
+# The sources sit under a copy of the two levels of the configuration,
+# cpp/.clang-tidy and cpp/tests/.clang-tidy, so clang-tidy finds it by walking
+# up, which is how the gate runs: pointed at a configuration file it inherits
+# no parent and enables no check at all.
+work=$(mktemp -d) || exit 2
 trap 'rm -rf "$work"' EXIT
+shapes=$work/cpp/tests/shapes
+mkdir -p "$shapes" || exit 2
+cp cpp/.clang-tidy "$work/cpp/.clang-tidy" && cp cpp/tests/.clang-tidy "$work/cpp/tests/.clang-tidy" || exit 2
 
-cat > "$work/bare.cpp" << 'EOF'
+cat > "$shapes/bare.cpp" << 'EOF'
 #include <ranges>
 #include <vector>
 static void run(int n) {
@@ -36,10 +40,10 @@ static void run(int n) {
     (void)out.size();
 }
 EOF
-sed 's/auto const level/auto const _/' "$work/bare.cpp" > "$work/underscore.cpp"
-sed 's/auto const level/[[maybe_unused]] auto const level/' "$work/bare.cpp" \
-    > "$work/annotated.cpp"
-cat > "$work/algorithm.cpp" << 'EOF'
+sed 's/auto const level/auto const _/' "$shapes/bare.cpp" > "$shapes/underscore.cpp"
+sed 's/auto const level/[[maybe_unused]] auto const level/' "$shapes/bare.cpp" \
+    > "$shapes/annotated.cpp"
+cat > "$shapes/algorithm.cpp" << 'EOF'
 #include <algorithm>
 #include <ranges>
 #include <vector>
@@ -53,9 +57,7 @@ EOF
 # One finding of the analyzer's own is what the refusal is made of; the file
 # reports nothing else, so the whole of clang-tidy's verdict is its exit status.
 verdict() {
-    # The redirection is written outside the subshell, since the path is
-    # relative to the repository root and the gate's own directory is cpp.
-    if (cd cpp && clang-tidy-23 --quiet "tests/${work##*/}/$1.cpp" -- -std=c++23 2>&1) \
+    if (cd "$work/cpp" && clang-tidy-23 --quiet "tests/shapes/$1.cpp" -- -std=c++23 2>&1) \
         > "$work/$1.out"; then echo clean; else echo refused; fi
 }
 
@@ -84,12 +86,12 @@ done
 
 # The compiler's own diagnostic is the half that reaches only the named form:
 # it is silent on `_`, and the build passes no -Wall, so the gate is the wall.
-clang++-23 -std=c++23 -Wall -Wextra -c "$work/bare.cpp" -o /dev/null 2> "$work/bare.cc.out"
+clang++-23 -std=c++23 -Wall -Wextra -c "$shapes/bare.cpp" -o /dev/null 2> "$work/bare.cc.out"
 grep -q 'unused variable' "$work/bare.cc.out" || {
     echo "the compiler no longer warns on the named form under -Wall"
     status=1
 }
-clang++-23 -std=c++23 -Wall -Wextra -c "$work/underscore.cpp" -o /dev/null \
+clang++-23 -std=c++23 -Wall -Wextra -c "$shapes/underscore.cpp" -o /dev/null \
     2> "$work/underscore.cc.out"
 grep -q 'unused variable' "$work/underscore.cc.out" && {
     echo "the compiler now warns on \`_\`, which it exempted"

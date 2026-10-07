@@ -291,6 +291,28 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **Every probe writes only beneath a directory of its own.** Probes wrote
+  where another could read or write: a fixed scratch directory under
+  `cpp/build`, `tools/ci-output` or `go/`, a tracked directory, a shared build
+  tree they built in, or the tree's Agda interfaces and lock. Each now writes
+  beneath a directory it makes with `mktemp -d`, and builds what it runs
+  there: a C++ target in a tree of its own made by the new
+  `tools/private_cpp_tree.sh`, which configures from the sources `cpp/build`
+  fetched and builds with the tree as ccache's base directory, so a fresh
+  tree's library is served from the cache in 1.8 s where, without the base
+  directory, 28 of its 76 compiles missed and it took 32.8 s; an Agda check in
+  a copy of the project and its interfaces; a gate pointed at a copy of the
+  files it reads. A lane's mutation tree is read as the lane left it, and the
+  probe of the slices refuses one that is absent, was built under another
+  configuration or is older than a tracked C++ source. The rewrite found what
+  the shared state had hidden: a probe signed the commits of its scratch
+  repository with the developer's own key; two configured C++ trees fetched
+  their dependencies from the network on every run; one redated every Agda
+  interface in the tree to 2020 and deleted one; and the probe of the fuzz
+  recipe could not have seen the write it guards against once writes outside
+  its directory are refused, so it runs the recipe against a copy of the seeds
+  and compares the two. The two probes that time the kernel's growth take its
+  processor time, the two sizes in turn, rather than its wall time.
 - **Every list in a DBC has a bound, every DBC command decides them alike,
   and a loaded DBC carries the proof (BREAKING).** Eight lists had no bound on
   any route and now refuse past it with `input_bound_exceeded`,
@@ -1780,6 +1802,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **`benchmarks/run_all.sh` runs the Rust harness cargo built.** It ran the
+  binary in `rust/target` whatever `CARGO_TARGET_DIR` said, so with the
+  variable set the Rust lane measured an earlier build, or failed where there
+  was none. It now reads the variable, and builds the C++ harness in the tree
+  `ALETHEIA_BENCH_CPP_BUILD_DIR` names and the Go one at the path
+  `ALETHEIA_BENCH_GO_BIN` names, `cpp/build` and `go/benchmarks/benchmark`
+  otherwise, its refusal of a Debug tree naming the tree it read; a probe
+  exercises the script without building where another run reads.
 - **Parsing a DBC takes time linear in its length.** Every route that loads a
   DBC reads its JSON or its text through the parser combinators' `many`, which
   measured the whole rest of the document each time it started (once per JSON

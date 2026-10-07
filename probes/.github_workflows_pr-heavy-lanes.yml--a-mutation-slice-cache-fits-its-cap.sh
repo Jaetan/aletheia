@@ -46,13 +46,12 @@ cap_bytes=$((caps * 1000 * 1000))
 
 scratch=$(mktemp -d) || exit 2
 trap 'rm -rf "$scratch"' EXIT
-tree=cpp/build/probe-scratch/slice-cache
-rm -rf "$tree"
+tree=$scratch/slice-cache
 
 status=0
 largest=0
 for sanitizer in leak plain address; do
-    build="$PWD/$tree/$sanitizer"
+    build="$tree/$sanitizer"
     if ! CCACHE_DIR="$scratch/ccache-$sanitizer" CCACHE_MAXSIZE="${caps}M" \
         PYTHONPATH=. python/.venv/bin/python - "$sanitizer" "$build" "$scratch" <<'PY' > "$scratch/build-$sanitizer.log" 2>&1
 import sys
@@ -97,5 +96,4 @@ if [ "$cap_bytes" -lt "$needed" ]; then
 else
     echo "cap ${caps}M holds $multiple caches of the largest slice ($largest KiB)"
 fi
-rm -rf "$tree"
 exit "$status"

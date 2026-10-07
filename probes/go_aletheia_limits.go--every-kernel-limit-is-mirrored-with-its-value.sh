@@ -43,12 +43,20 @@ go_names=$(grep -oP '^\tMax[A-Za-z]+(?= =)' go/aletheia/limits.go | tr -d '\t')
 	echo '}'
 } > "$scratch/main.go"
 
-cp "$scratch/main.go" go/probe_limits_main.go.tmp
-mkdir -p go/probe-limits
-mv go/probe_limits_main.go.tmp go/probe-limits/main.go
-values=$(cd go && go run ./probe-limits 2>&1)
+# The program is a module of its own beside nothing of the binding's, built
+# the way the doc-example harness builds a fence: the replace directive
+# resolves the binding where it stands, workspace mode switched off.
+cat > "$scratch/go.mod" <<EOF
+module probe_limits
+
+go 1.24.0
+
+require github.com/Jaetan/aletheia/go/v5 v5.0.0
+
+replace github.com/Jaetan/aletheia/go/v5 => $PWD/go
+EOF
+values=$(cd "$scratch" && GOWORK=off GOFLAGS=-mod=mod go run . 2>&1)
 rc=$?
-rm -rf go/probe-limits
 if [ $rc -ne 0 ]; then
 	echo "the binding's limits do not compile:"
 	printf '%s\n' "$values" | head -5 | sed 's/^/  /'

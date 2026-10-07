@@ -10,9 +10,10 @@
 # lines: a base-style change that moves any option is caught at the next run
 # instead of being absorbed silently.
 #
-# When this fails after a toolchain bump, read the diff it prints. An option
-# that moved for a good reason is accepted by recording the new digest here,
-# in a commit that says which option moved and why that is wanted.
+# When this fails after a toolchain bump, read the configuration it prints.
+# An option that moved for a good reason is accepted by recording the new
+# digest here, in a commit that says which option moved and why that is
+# wanted.
 # Non-zero exit: the effective configuration is not the recorded one, or a key
 # the file sets merely restates the base style.
 set -eu
@@ -30,8 +31,8 @@ if [ "$actual" != "$expected" ]; then
     echo "FAIL: the effective format configuration is not the recorded one"
     echo "  recorded $expected"
     echo "  measured $actual"
-    "$cf" --dump-config > /tmp/aletheia-clang-format-now.yaml
-    echo "  the configuration now in force is in /tmp/aletheia-clang-format-now.yaml"
+    echo "  the configuration now in force:"
+    "$cf" --dump-config | sed 's/^/    /'
     exit 1
 fi
 

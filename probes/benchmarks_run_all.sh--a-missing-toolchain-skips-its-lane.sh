@@ -6,11 +6,13 @@
 # Claim: when go or cargo is not on PATH at all, its lane is a SKIP and the
 # run still exits zero with the lanes that could run. Runs the harness at one
 # frame into a scratch results directory under a PATH holding only the tools
-# the script and the C++ build need, with no go and no cargo. Non-zero exit:
-# a missing toolchain was reported as a failure, or the run exited non-zero.
-# Exits 2 when the kernel library, the venv, cpp/build or a tool is missing,
-# including a tool the compiler spawns that this probe's own list does not
-# carry, which is this probe being short rather than the claim being false.
+# the script and the C++ build need, with no go and no cargo, the C++ harness
+# built beforehand in a tree of the probe's own. Non-zero exit: a missing
+# toolchain was reported as a failure, or the run exited non-zero. Exits 2
+# when the kernel library, the venv, cpp/build, the C++ harness or a tool is
+# missing, including a tool the compiler spawns that this probe's own list
+# does not carry, which is this probe being short rather than the claim being
+# false.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 [ -f build/libaletheia-ffi.so ] || exit 2
@@ -31,7 +33,8 @@ done
 for tool in ld ld.lld lld ld.gold ar ranlib strip objcopy nm as; do
     src=$(command -v "$tool") && ln -s "$src" "$dir/bin/$tool"
 done
-out=$(PATH="$dir/bin" ALETHEIA_BENCH_RESULTS_DIR="$dir/results" \
+tools/private_cpp_tree.sh "$dir/cpp" benchmark || exit 2
+out=$(PATH="$dir/bin" ALETHEIA_BENCH_RESULTS_DIR="$dir/results" ALETHEIA_BENCH_CPP_BUILD_DIR="$dir/cpp" \
     bash benchmarks/run_all.sh --frames 1 --runs 1 --bench throughput 2>&1)
 rc=$?
 # A tool the compiler spawns and this list does not carry is a gap in the probe,

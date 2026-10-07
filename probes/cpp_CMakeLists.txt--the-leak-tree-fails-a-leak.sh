@@ -21,8 +21,8 @@ command -v clang++-23 > /dev/null || { echo "clang-23 not installed, claim untes
 [ -f cpp/build-mutation/compile_commands.json ] || { echo "no leak mutation tree configured, claim untestable"; exit 0; }
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
-scratch=cpp/build-mutation/probe-scratch/leak-tree-fails-a-leak
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 # The sanitizer flags of the tree's own library unit, and nothing else of its
 # command line: the leaking unit is this probe's, not the library's.
 flags=$("$py" - <<'PYEOF'

@@ -4,9 +4,9 @@
 #
 # Probes cpp/tests/fuzz/fuzz_parse_response.cpp and cpp/CMakeLists.txt.
 # Claim: the fuzz build-and-run recipe is written once, in the harness the
-# other three point at, and the three lines it gives run from the repository
-# root. The probe extracts the commands from the comment and runs them, with
-# a one-second corpus pass in place of the documented sixty. Non-zero exit:
+# other three point at, and the lines it gives run. The probe checks the
+# comment gives the commands and runs them, with a one-second corpus pass in
+# place of the documented sixty. Non-zero exit:
 # the recipe is written in the build file too, a harness stops pointing at
 # the owner, or a command the comment gives does not run.
 set -u
@@ -49,17 +49,18 @@ for line in 'cmake -B build-fuzz -DALETHEIA_FUZZ=ON' \
 done
 [ "$status" -eq 0 ] || exit "$status"
 
-# The comment's paths are relative to cpp/, so the commands run from there.
-cd cpp || exit 2
-cmake -B build-fuzz -DALETHEIA_FUZZ=ON \
-    -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null 2>&1 || {
-    echo "the configure line the comment gives does not run"
+# The recipe's paths are from cpp/, so it runs from a scratch copy of the
+# directories it names: the tracked seeds, and a fuzz tree of the probe's own
+# configured and built as the comment's two cmake lines do, with the sources
+# cpp/build fetched.
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
+git ls-files -z -- cpp/tests/fuzz/seed | xargs -0 cp --parents -t "$scratch" || exit 2
+tools/private_cpp_tree.sh "$scratch/cpp/build-fuzz" fuzz_parse_response -- -DALETHEIA_FUZZ=ON || {
+    echo "the configure and build lines the comment gives do not run"
     exit 1
 }
-cmake --build build-fuzz --target fuzz_parse_response > /dev/null 2>&1 || {
-    echo "the build line the comment gives does not run"
-    exit 1
-}
+cd "$scratch/cpp" || exit 2
 mkdir -p build-fuzz/corpus/parse_response || {
     echo "the mkdir line the comment gives does not run"
     exit 1

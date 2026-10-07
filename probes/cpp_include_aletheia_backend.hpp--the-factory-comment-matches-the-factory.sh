@@ -22,8 +22,8 @@ rpath="-Wl,-rpath,$(cd cpp/build && pwd)"
 claims_answer=0
 grep -q 'answers every operation' "$header" && claims_answer=1
 
-scratch=cpp/build/probe-scratch/factory-comment
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/t.cpp" <<'CPP'
 #include <aletheia/backend.hpp>
 

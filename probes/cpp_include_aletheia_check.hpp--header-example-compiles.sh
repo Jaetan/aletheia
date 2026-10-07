@@ -8,8 +8,8 @@
 # example line no longer names a real builder or a real factory.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-scratch=cpp/build/probe-scratch/check-example
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 example=$(sed -n '/^\/\/   check::/,/;$/p' cpp/include/aletheia/check.hpp | sed 's|^// *||')
 [ -n "$example" ] || { echo "no check:: example found in the header comment"; exit 1; }
 {

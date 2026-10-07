@@ -25,16 +25,29 @@ digits=${name##*_}
 wrong="AgdaJSON.d_processJSONLine_$((digits + 1))"
 dir=$(mktemp -d) || exit 2
 trap 'rm -rf "$dir"' EXIT
+# The phony runs from a shake binary built for the probe alone, and keeps
+# Shake's database beside it: cabal's build directory and Shake's database in
+# the tree belong to every build run there. cabal reads a copy of its own
+# configuration whose build summary is the probe's too, the one it names
+# being written by every cabal build on the machine.
+sed '/^ *build-summary:/d' "${CABAL_CONFIG:-$HOME/.cabal/config}" > "$dir/cabal.config" || exit 2
+echo "build-summary: $dir/summary.log" >> "$dir/cabal.config"
+export CABAL_CONFIG=$dir/cabal.config
+cabal build shake --builddir="$dir/dist" > "$dir/build.log" 2>&1 || {
+    echo "the shake binary does not build:"; tail -n 5 "$dir/build.log"; exit 2
+}
+shake=$(cabal list-bin shake --builddir="$dir/dist") || exit 2
+phony() { "$shake" --metadata="$dir/shake" check-ffi-names; }
 status=0
 
 # Runs the phony on a wrapper and keeps its output; prints the exit status.
 gate() {
-    ALETHEIA_FFI_WRAPPER="$1" cabal run shake -- check-ffi-names > "$dir/out" 2>&1
+    ALETHEIA_FFI_WRAPPER="$1" phony > "$dir/out" 2>&1
     echo $?
 }
 
 # A bare invocation reads the shim's own wrapper, which is well-formed.
-cabal run shake -- check-ffi-names > "$dir/out" 2>&1 || {
+phony > "$dir/out" 2>&1 || {
     echo "the phony fails on the shim's own wrapper with no path given"
     status=1
 }

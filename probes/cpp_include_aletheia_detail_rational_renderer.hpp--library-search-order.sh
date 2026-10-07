@@ -19,8 +19,8 @@ lib=cpp/build/libaletheia-cpp.so
 rpath="-Wl,-rpath,$(cd cpp/build && pwd)"
 kernel=$PWD/build/libaletheia-ffi.so
 [ -f "$lib" ] && [ -f "$kernel" ] || exit 2
-scratch=cpp/build/probe-scratch/renderer-order
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/t.cpp" <<'CPP'
 #include <aletheia/backend.hpp>
 #include <aletheia/detail/rational_renderer.hpp>

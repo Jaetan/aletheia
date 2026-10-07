@@ -9,8 +9,8 @@
 # Non-zero exit: either condition goes undiagnosed under the defaults.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-scratch=cpp/build/probe-scratch/implicit-bool
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/t.cpp" <<'CPP'
 int k(int* p, int n) {
     if (p) { return 1; }

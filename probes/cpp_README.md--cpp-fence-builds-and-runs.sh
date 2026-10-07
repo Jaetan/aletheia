@@ -15,8 +15,8 @@ lib=cpp/build/libaletheia-cpp.so
 # links it alone; -Wl,-rpath gives the loader the directory the linker already has.
 rpath="-Wl,-rpath,$(cd cpp/build && pwd)"
 [ -f "$lib" ] && [ -f build/libaletheia-ffi.so ] || exit 2
-scratch=cpp/build/probe-scratch/readme-fence
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 awk '/^```cpp$/{flag=1; next} /^```$/{flag=0} flag' cpp/README.md > "$scratch/fence.cpp"
 grep -q 'int main' "$scratch/fence.cpp" || { echo "fence is not a complete program"; exit 1; }
 clang++-23 -std=c++23 -Icpp/include "$scratch/fence.cpp" "$lib" $rpath \

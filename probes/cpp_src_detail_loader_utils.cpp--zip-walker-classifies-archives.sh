@@ -17,8 +17,8 @@ lib=cpp/build/libaletheia-cpp.so
 # links it alone; -Wl,-rpath gives the loader the directory the linker already has.
 rpath="-Wl,-rpath,$(cd cpp/build && pwd)"
 [ -f "$lib" ] || exit 2
-scratch=cpp/build/probe-scratch/loader-zip
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 python/.venv/bin/python - "$scratch" <<'PY'
 import sys, zipfile, pathlib
 d = pathlib.Path(sys.argv[1])

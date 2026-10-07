@@ -12,8 +12,9 @@
 # scratch is taken, or a clean run leaves its own behind.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-scratch=cpp/build/probe-scratch/temp-path-reap
-rm -rf "$scratch" && mkdir -p "$scratch/tmp" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
+mkdir -p "$scratch/tmp" || exit 2
 cat > "$scratch/driver.cpp" <<'CPP'
 #include "temp_path.hpp"
 
@@ -33,7 +34,7 @@ CPP
 clang++-23 -std=c++23 -Icpp/tests -o "$scratch/driver" "$scratch/driver.cpp" > "$scratch/compile.log" 2>&1 ||
     { tail -5 "$scratch/compile.log"; exit 1; }
 
-TMPDIR="$PWD/$scratch/tmp"
+TMPDIR="$scratch/tmp"
 export TMPDIR
 
 killed=$("$scratch/driver" kill)

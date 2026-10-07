@@ -12,5 +12,7 @@
 set -u
 cd "$(dirname "$0")/.." || exit 2
 [ -f cpp/build/CMakeCache.txt ] && [ -f build/libaletheia-ffi.so ] || exit 2
-cmake --build cpp/build --target benchmark > /dev/null 2>&1 || exit 2
-ALETHEIA_LIB= cpp/build/benchmark throughput --frames 50 --runs 1 --warmup 0 > /dev/null 2>&1
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
+tools/private_cpp_tree.sh "$scratch/cpp" benchmark || exit 2
+ALETHEIA_LIB='' "$scratch/cpp/benchmark" throughput --frames 50 --runs 1 --warmup 0 > /dev/null 2>&1

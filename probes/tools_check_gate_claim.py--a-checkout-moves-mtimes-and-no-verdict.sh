@@ -19,13 +19,14 @@ cd "$(dirname "$0")/.." || exit 2
 repo=$PWD
 py=$repo/python/.venv/bin/python
 command -v git > /dev/null && [ -x "$py" ] || exit 2
-scratch=cpp/build/probe-scratch/gate-claim
-rm -rf "$scratch"
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 mkdir -p "$scratch/src" || exit 2
 # The check finds its repository through git from the working directory, and
 # the copy of the package is what puts the throwaway repository in scope.
-cp -r tools "$scratch/tools" || exit 2
-rm -rf "$scratch/tools/ci-output"
+# The copy takes the package's tracked files alone, never the logs a run
+# writes beside them.
+git ls-files -z -- tools | xargs -0 cp --parents -t "$scratch" || exit 2
 (
     cd "$scratch" || exit 2
     git init -q -b main .
@@ -62,4 +63,3 @@ case $out in *"tools/run_ci.py"*) ;; *) echo "the refusal does not name the swee
 write_log ci-fast.log "none (the sweep runs a subset of the gates)"
 out=$(run); rc=$?
 [ "$rc" -eq 1 ] || { echo "a fast-tier log was accepted as evidence (exit $rc): $out"; exit 1; }
-rm -rf "$scratch"

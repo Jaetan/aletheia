@@ -9,10 +9,13 @@
 # with its reason on stderr and nothing on stdout; the hook once printed its
 # "flagged imports" header over that empty report and let the commit through,
 # so a commit made during a sweep was told its imports were flagged and went
-# in unchecked. The probe holds the lock itself, runs the rendered hook's gate
-# over one real source file with only the staged-file listing faked, checks
-# that the gate is still waiting after a few seconds, releases the lock, and
-# checks that the gate then returns zero.
+# in unchecked. The probe works in a copy of the project made a repository of
+# its own, the interfaces and the tools with their reader copied with it, so
+# the lock it holds and the interfaces the gate reads are the copy's. It holds
+# the lock itself, runs the rendered hook's gate over one real source file
+# with only the staged-file listing faked, checks that the gate is still
+# waiting after a few seconds, releases the lock, and checks that the gate
+# then returns zero.
 # Non-zero exit: 1 when the gate returned while the lock was held, or did not
 # return zero once it was released; 2 when the probe could not take the lock
 # or find its toolchain.
@@ -20,8 +23,17 @@ set -u
 cd "$(dirname "$0")/.." || exit 2
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
+copy=$(mktemp -d) || exit 2
+trap 'rm -rf "$copy"' EXIT
+# Modification times are kept, so the copied reader is as current against its
+# source as the tree's is.
+git ls-files -z -- src tools aletheia.agda-lib | xargs -0 cp -p --parents -t "$copy" || exit 2
+reader=tools/agda-iwyu-reader/agda-iwyu-reader
+[ ! -f "$reader" ] || cp -p "$reader" "$copy/$reader" || exit 2
+[ ! -d _build ] || cp -a _build "$copy/" || exit 2
+git -C "$copy" init -q || exit 2
 
-"$py" - <<'PY'
+"$py" - "$copy" <<'PY'
 import fcntl
 import os
 import subprocess
@@ -30,7 +42,7 @@ import threading
 import types
 from pathlib import Path
 
-root = Path.cwd()
+root = Path(sys.argv[1])
 fd = os.open(root / ".agda-tree.lock", os.O_CREAT | os.O_RDWR, 0o644)
 try:
     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -60,9 +72,7 @@ hook["_run"] = run
 # The tool's stderr is inherited, so route this process's stderr to a file:
 # the line the wait branch prints is the evidence of contention, where a gate
 # that is merely slow to start would also find the lock free.
-logs = root / "tools" / "ci-output" / "probes"
-logs.mkdir(parents=True, exist_ok=True)
-captured = logs / "tools_install_hooks.py--the-iwyu-gate-queues-behind-the-agda-lock.stderr"
+captured = root / "gate.stderr"
 sys.stderr.flush()
 os.dup2(os.open(captured, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o644), 2)
 result = []

@@ -9,8 +9,8 @@
 # Non-zero exit: the diagnostics differ between IncludeStyle google and llvm.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-scratch=cpp/build/probe-scratch/init-variables
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/t.cpp" <<'CPP'
 int h() {
     int n;

@@ -13,10 +13,12 @@
 set -u
 cd "$(dirname "$0")/.." || exit 2
 [ -f cpp/build/CMakeCache.txt ] || exit 2
-scratch=cpp/build/probe-scratch/installed-consumer-loader
-rm -rf "$scratch"; mkdir -p "$scratch/consumer" || exit 2
-cmake --build cpp/build --target aletheia-cpp > "$scratch/build.log" 2>&1 || { tail -3 "$scratch/build.log"; exit 1; }
-cmake --install cpp/build --prefix "$scratch/prefix" > "$scratch/install.log" 2>&1 || { tail -5 "$scratch/install.log"; exit 1; }
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
+mkdir -p "$scratch/consumer" || exit 2
+# The install takes the command-line interface as well as the library.
+tools/private_cpp_tree.sh "$scratch/tree" aletheia-cpp aletheia-cli || exit 1
+cmake --install "$scratch/tree" --prefix "$scratch/prefix" > "$scratch/install.log" 2>&1 || { tail -5 "$scratch/install.log"; exit 1; }
 cat > "$scratch/consumer/CMakeLists.txt" <<CMAKE
 cmake_minimum_required(VERSION 3.25)
 project(consumer LANGUAGES CXX)
@@ -41,6 +43,6 @@ int main() {
 }
 CPP
 cmake -S "$scratch/consumer" -B "$scratch/consumer/build" -DCMAKE_CXX_COMPILER=clang++-23 \
-    -DCMAKE_PREFIX_PATH="$(pwd)/$scratch/prefix" > "$scratch/configure.log" 2>&1 || { tail -5 "$scratch/configure.log"; exit 1; }
+    -DCMAKE_PREFIX_PATH="$scratch/prefix" > "$scratch/configure.log" 2>&1 || { tail -5 "$scratch/configure.log"; exit 1; }
 cmake --build "$scratch/consumer/build" > "$scratch/consumer-build.log" 2>&1 || { grep -m3 -E 'error|undefined' "$scratch/consumer-build.log"; exit 1; }
 "$scratch/consumer/build/yaml_user" && "$scratch/consumer/build/excel_user"

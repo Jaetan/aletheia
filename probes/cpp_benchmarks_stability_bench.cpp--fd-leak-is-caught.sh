@@ -19,8 +19,8 @@ lib=cpp/build/libaletheia-cpp.so
 # links it alone; -Wl,-rpath gives the loader the directory the linker already has.
 rpath="-Wl,-rpath,$(cd cpp/build && pwd)"
 [ -f "$lib" ] && [ -f build/libaletheia-ffi.so ] || exit 2
-scratch=cpp/build/probe-scratch/stability-teeth
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 src=cpp/benchmarks/stability_bench.cpp
 sed -e 's|^#include <malloc.h>|#include <malloc.h>\n#include <fcntl.h>|' \
     -e 's|^    require(client.end_stream(std::stop_token{}), "end_stream");|    require(client.end_stream(std::stop_token{}), "end_stream");\n    (void)open("/dev/null", O_RDONLY); // injected leak|' \

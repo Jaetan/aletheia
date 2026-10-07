@@ -24,8 +24,7 @@ py=python/.venv/bin/python
 [ -x "$py" ] || { echo "no $py"; exit 2; }
 db=cpp/build/compile_commands.json
 [ -f "$db" ] || { echo "no $db: configure cpp/build first"; exit 2; }
-mkdir -p tools/ci-output || exit 2
-work=$(mktemp -d tools/ci-output/.checked-reads-XXXXXX) || exit 2
+work=$(mktemp -d) || exit 2
 trap 'rm -rf "$work"' EXIT
 library='"/cpp/(src|include)/.*[.](cpp|hpp)$"'
 cat > "$work/census.query" <<EOF

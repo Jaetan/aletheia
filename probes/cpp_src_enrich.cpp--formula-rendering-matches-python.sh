@@ -22,8 +22,8 @@ json=$(find cpp/build/_deps -maxdepth 2 -type d -name 'json-src' | head -1)
 kernel=$PWD/build/libaletheia-ffi.so
 [ -f "$lib" ] && [ -n "$json" ] && [ -f "$kernel" ] || exit 2
 [ -x python/.venv/bin/python ] || exit 2
-scratch=cpp/build/probe-scratch/enrich-parity
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/t.cpp" <<'CPP'
 #include <aletheia/backend.hpp>
 #include <aletheia/client.hpp>

@@ -11,6 +11,8 @@
 # thenDescParts, or no literal is found at all.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+counts=$(mktemp) || exit 2
+trap 'rm -f "$counts"' EXIT
 status=0
 literals=0
 for f in go/aletheia/*.go; do
@@ -24,9 +26,8 @@ for f in go/aletheia/*.go; do
             if (body !~ /thenDescParts:/) { printf "%s:%d: ThenCondition without thenDescParts\n", file, start; bad++ }
         }
         END { printf "%d %d\n", count, bad > "/dev/stderr" }
-    ' "$f" 2> /tmp/probe_then_$$ || status=1
-    read -r count bad < /tmp/probe_then_$$
-    rm -f /tmp/probe_then_$$
+    ' "$f" 2> "$counts" || status=1
+    read -r count bad < "$counts"
     literals=$((literals + count))
     [ "$bad" -eq 0 ] || status=1
 done
