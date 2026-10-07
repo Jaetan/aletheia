@@ -547,6 +547,50 @@ def test_only_the_newest_sweep_is_kept(tree: Path) -> None:
 
 
 @pytest.mark.usefixtures("tree")
+def test_a_sweep_is_made_holding_the_cache_s_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A second caller cannot take the cache's lock while a sweep is being made."""
+    refused: list[Path] = []
+
+    def sweep(variant: CppVariant, directory: Path) -> Prose | None:
+        handle = os.open(sweep_cache.CACHE_ROOT, os.O_RDONLY)
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            refused.append(directory)
+        finally:
+            os.close(handle)
+        _write_reports(directory, variant.trees)
+
+    monkeypatch.setattr(sweep_cache, "_sweep_into", sweep)
+    monkeypatch.setattr(sweep_cache, "MULL_RUNNER", sys.executable)
+    kept = sweep_cache.sweep_directory()
+    assert isinstance(kept, Path)
+    assert len(refused) == 1
+
+
+def test_a_sweep_kept_while_its_caller_waited_is_served(
+    swept: list[Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller finding the sweep kept once it holds the lock is served it and makes none."""
+    asked: list[Path] = []
+
+    def kept_by_another(trees: tuple[CppTree, ...], directory: Path) -> bool:
+        """Find nothing, and have another caller keep the sweep before the lock is taken."""
+        asked.append(directory)
+        if len(asked) > 1:
+            return True
+        directory.mkdir(parents=True)
+        _write_reports(directory, trees)
+        return False
+
+    monkeypatch.setattr(sweep_cache, "_reports_present", kept_by_another)
+    kept = sweep_cache.sweep_directory()
+    assert kept == asked[0]
+    assert len(asked) == 2
+    assert swept == []
+
+
+@pytest.mark.usefixtures("tree")
 def test_a_sweep_holds_its_directory_s_lock_while_it_runs(monkeypatch: pytest.MonkeyPatch) -> None:
     """Another process asking for the lock is refused until the sweep ends."""
     refused: list[Path] = []

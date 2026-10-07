@@ -58,7 +58,9 @@ reader would trust, and a later sweep removes it once its lock is free.  Once a
 sweep is in place every kept sweep of its kind that read another tree is
 removed, so the sweeps kept are those of the tree as it stands, the lane's and
 each variant beside it; a refresh sweeps again and replaces the kept sweep
-only with a complete one.
+only with a complete one.  One sweep is made at a time, under a lock on the
+cache directory, so callers running at once that ask for one sweep make it
+once: the others wait and are served it.
 """
 
 from __future__ import annotations
@@ -642,11 +644,28 @@ class _Keeping(NamedTuple):
 
 
 def _kept(keeping: _Keeping, *, refresh: bool) -> Path | Prose:
-    """Serve the sweep kept under its key, or sweep into a locked neighbour and file it there."""
+    """Serve the sweep kept under its key, or make it under the cache's lock and keep it.
+
+    One sweep is made at a time, its maker holding the cache directory's
+    lock: a caller that waited on the lock is served the sweep the holder
+    kept, when it is the one it asked for, rather than making it again.
+    """
     wanted = CACHE_ROOT / keeping.key
     if not refresh and keeping.present(wanted):
         return wanted
     CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    held = os.open(CACHE_ROOT, os.O_RDONLY | os.O_CLOEXEC)
+    try:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        if not refresh and keeping.present(wanted):
+            return wanted
+        return _sweep_and_keep(keeping, wanted)
+    finally:
+        os.close(held)
+
+
+def _sweep_and_keep(keeping: _Keeping, wanted: Path) -> Path | Prose:
+    """Sweep into a locked neighbour of ``wanted`` and file it there once its key holds."""
     staging = Path(tempfile.mkdtemp(dir=CACHE_ROOT, prefix=_STAGING_PREFIX))
     lock = os.open(staging, os.O_RDONLY | os.O_CLOEXEC)
     try:

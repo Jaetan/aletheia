@@ -24,14 +24,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   stand-ins their tests load, each tool's bytes and what it says of itself,
   and the variables the tools and tests read. A kept sweep of another tree is
   removed once one of the tree as it stands is in place, and is never served.
-  With every sweep kept the four take 39.5 s and the store's probes 1527.1 s,
-  25 min 45 s of wall time where the last run before the change took 69 min
-  3 s; after a tracked file changes, the Go and Rust probes sweep once more,
-  178.1 s and 166.7 s. A probe holds that a lane's key reads the same twice on
-  this host and moves with a tracked file; it was red on its first run,
-  because `go env -json` names a temporary directory that changes with each
-  asking, which is why Go is now asked for the settings that decide a build by
-  name.
+  One sweep is made at a time, under a lock on the cache's directory, so
+  probes running at once that ask for the same sweep make it once. With every
+  sweep kept the four take 39.5 s and the store's probes 1527.1 s, 25 min 45 s
+  of wall time where the last run before the change took 69 min 3 s; after a
+  tracked file changes, the Go and Rust probes sweep once more, 178.1 s and
+  166.7 s. A probe holds that a lane's key reads the same twice on this host
+  and moves with a tracked file; it was red on its first run, because
+  `go env -json` names a temporary directory that changes with each asking,
+  which is why Go is now asked for the settings that decide a build by name.
 
 - **Every probe's time is on its line and kept.** The probe store's runner
   printed a verdict and a path, so a whole run, 70 min 54 s on the tree of
