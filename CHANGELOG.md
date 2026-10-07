@@ -12,6 +12,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Every probe's time is on its line and kept.** The probe store's runner
+  printed a verdict and a path, so a whole run, 70 min 54 s on the tree of
+  `77d2a3a4`, said nothing of where the time went. Each line now carries the
+  probe's wall time after its path, and the run's times are kept beside its
+  failures in `tools/ci-output/probes/timings.tsv`, one row per probe with its
+  verdict, the latest run's only. The probe over the runner holds the time
+  printed and kept, never shorter than a staged probe's sleep, and replaced
+  by the next run, red against the runner it replaces.
+
 - **A Rust test drives the async client on its own thread:
   `aletheia::testing::TurnExecutor`.** `AsyncClient` runs its sync client on a
   worker thread, so every Rust async test ran a thread beside it, and the
