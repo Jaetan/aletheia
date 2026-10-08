@@ -290,34 +290,34 @@ static constexpr auto can20_dlc = Dlc::create(8).value();
 static auto make_canfd_frame() -> FramePayload {
     FramePayload frame(64, std::byte{0x00});
     // GPSLatitude  (raw ~100000000 -> 10.0 deg)
-    frame[0] = std::byte{0x00};
-    frame[1] = std::byte{0xE1};
-    frame[2] = std::byte{0xF5};
-    frame[3] = std::byte{0x05};
+    frame.at(0) = std::byte{0x00};
+    frame.at(1) = std::byte{0xE1};
+    frame.at(2) = std::byte{0xF5};
+    frame.at(3) = std::byte{0x05};
     // GPSLongitude (raw ~48100000 -> 4.81 deg)
-    frame[4] = std::byte{0x00};
-    frame[5] = std::byte{0x6C};
-    frame[6] = std::byte{0xDC};
-    frame[7] = std::byte{0x02};
+    frame.at(4) = std::byte{0x00};
+    frame.at(5) = std::byte{0x6C};
+    frame.at(6) = std::byte{0xDC};
+    frame.at(7) = std::byte{0x02};
     // GPSAltitude  (raw 1000 -> 100.0 m)
-    frame[8] = std::byte{0xE8};
-    frame[9] = std::byte{0x03};
+    frame.at(8) = std::byte{0xE8};
+    frame.at(9) = std::byte{0x03};
     // GPSSpeed     (raw 2000 -> 20.0 m/s)
-    frame[10] = std::byte{0xD0};
-    frame[11] = std::byte{0x07};
+    frame.at(10) = std::byte{0xD0};
+    frame.at(11) = std::byte{0x07};
     // YawRate, LateralAccel, LongAccel, SteeringAngle: all 0
     // WheelSpeedFL (raw 1000 -> 10.0 m/s)
-    frame[20] = std::byte{0xE8};
-    frame[21] = std::byte{0x03};
+    frame.at(20) = std::byte{0xE8};
+    frame.at(21) = std::byte{0x03};
     // WheelSpeedFR
-    frame[22] = std::byte{0xE8};
-    frame[23] = std::byte{0x03};
+    frame.at(22) = std::byte{0xE8};
+    frame.at(23) = std::byte{0x03};
     // WheelSpeedRL
-    frame[24] = std::byte{0xE8};
-    frame[25] = std::byte{0x03};
+    frame.at(24) = std::byte{0xE8};
+    frame.at(25) = std::byte{0x03};
     // WheelSpeedRR
-    frame[26] = std::byte{0xE8};
-    frame[27] = std::byte{0x03};
+    frame.at(26) = std::byte{0xE8};
+    frame.at(27) = std::byte{0x03};
     return frame;
 }
 
@@ -466,7 +466,7 @@ static auto percentile(const std::vector<double>& sorted, double p) -> double {
     auto const k = static_cast<double>(sorted.size() - 1) * p / 100.0;
     auto const f = static_cast<std::size_t>(k);
     auto const c = (f + 1 < sorted.size()) ? f + 1 : f;
-    return sorted[f] + ((k - static_cast<double>(f)) * (sorted[c] - sorted[f]));
+    return sorted.at(f) + ((k - static_cast<double>(f)) * (sorted.at(c) - sorted.at(f)));
 }
 
 static auto compute_latency_stats(std::vector<double>& latencies_us) -> LatencyStats {
@@ -1322,15 +1322,18 @@ static auto parse_count(std::string_view option, std::string_view text) -> int {
 static auto parse_args(std::span<char* const> argv) -> Args {
     Args args;
 
-    if (argv.size() < 2) {
-        print_usage(argv[0]);
+    // The program's name and the mode, read checked.
+    std::vector<std::string_view> const words(argv.begin(), argv.end());
+    auto const program = words.at(0);
+    if (words.size() < 2) {
+        print_usage(program);
         std::exit(1);
     }
 
-    args.mode = argv[1];
+    args.mode = words.at(1);
     if (args.mode != "throughput" && args.mode != "latency" && args.mode != "scaling") {
-        std::println(stderr, "Unknown mode: {}", argv[1]);
-        print_usage(argv[0]);
+        std::println(stderr, "Unknown mode: {}", args.mode);
+        print_usage(program);
         std::exit(1);
     }
 
@@ -1363,7 +1366,7 @@ static auto parse_args(std::span<char* const> argv) -> Args {
             args.ops = parse_count(arg, take_value());
         } else {
             std::println(stderr, "Unknown option: {}", arg);
-            print_usage(argv[0]);
+            print_usage(program);
             std::exit(1);
         }
     }

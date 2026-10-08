@@ -288,9 +288,11 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   driver, `tools/_clang_query.py`, which no longer queries the 182 dependency
   units the lint tree's configure fetches: the filter named `build/_deps/`, a
   directory the lint tree does not have, so the ratchet parsed 239 units for
-  57. A clang-tidy disable's comment said the library subscripts with `[]` on
-  purpose; it now says what the check finds there, third-party `operator[]`
-  only.
+  57. clang-tidy's `cppcoreguidelines-pro-bounds-avoid-unchecked-container-access`,
+  disabled on the claim that the library subscripts with `[]` on purpose, is
+  on: it holds out the standard maps and the third-party types the library
+  uses through `operator[]` (yaml-cpp, nlohmann, OpenXLSX), the tests disable
+  it, and the benchmark's 28 subscripts take their checked forms.
 
 - **The mutation lane holds every binding's record exactly, both ways.** The
   lane failed a run worse than `docs/MUTATION_BENCH.yaml` and passed one
