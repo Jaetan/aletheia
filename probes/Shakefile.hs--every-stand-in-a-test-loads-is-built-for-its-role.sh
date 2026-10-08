@@ -10,7 +10,7 @@
 # entry of the table is loaded by some test. After a build, every entry is under
 # build/stand-ins: the stale and the ABI-only kernels export
 # aletheia_abi_version alone of the kernel's symbols, symbolless exports none of
-# them, and null_kernel exports every one the library does.
+# them, and null_kernel and recording_kernel export every one the library does.
 # Non-zero exit: a name is on one side only, a built stand-in is missing, or one
 # exports other than its role. Exits 2 when the names cannot be read, or, past
 # the names, without a built library or nm.
@@ -52,7 +52,7 @@ for name in $table; do
 	case $name in
 	stale_abi_kernel | abi_only_kernel) want=aletheia_abi_version ;;
 	symbolless) want= ;;
-	null_kernel) want=$(printf '%s\n' "$kernel" | paste -sd' ') ;;
+	null_kernel | recording_kernel) want=$(printf '%s\n' "$kernel" | paste -sd' ') ;;
 	*)
 		echo "$name: a stand-in this probe knows no role for"
 		status=1

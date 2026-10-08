@@ -834,10 +834,9 @@ static auto format_enriched_reason(const PropertyDiagnostic& diag,
 void AletheiaClient::finalize_frame_response(FrameResponse& fr, Timestamp ts, CanId id, Dlc dlc,
                                              std::span<const std::byte> data,
                                              std::uint32_t id_value, bool is_extended) {
-    auto* batch = std::get_if<PropertyBatch>(&fr);
-    if (batch != nullptr && !diags_.empty()) {
+    if (std::holds_alternative<PropertyBatch>(fr) && !diags_.empty()) {
         bool has_fail = false;
-        for (auto& entry : batch->results) {
+        for (auto& entry : std::get<PropertyBatch>(fr).results) {
             if (entry.verdict == Verdict::Fails) {
                 enrich_violation(entry, id, dlc, data, id_value, is_extended);
                 has_fail = true;

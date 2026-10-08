@@ -11,6 +11,7 @@
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/types.hpp>
 
+#include "detail/dl_symbol.hpp"
 #include "detail/ffi_abi.hpp"
 #include "detail/ffi_logic.hpp"
 #include "detail/rts_init.hpp"
@@ -180,13 +181,18 @@ class FfiBackend : public IBackend {
     // with `active_cores` / `requested_cores` fields (Go + Python parity).
     std::optional<std::pair<int, int>> rts_mismatch_;
 
+    // The refusal is raised from the error branch alone, so the one place a
+    // missing symbol is told from a found one is detail::dl_symbol, not a test
+    // of its answer repeated once per entry type.
     template<typename Fn>
     static auto load_sym(void* handle, const char* name) -> Fn {
-        auto* sym = dlsym(handle, name);
-        if (sym == nullptr)
-            throw AletheiaException(AletheiaError{ErrorKind::Ffi, std::string("dlsym failed for ") +
-                                                                      name + ": " + dlerror()});
-        return detail::symbol_as<Fn>(sym);
+        return detail::symbol_as<Fn>(
+            detail::dl_symbol(handle, name)
+                .or_else([](std::string detail) -> std::expected<void*, std::string> {
+                    throw AletheiaException(
+                        AletheiaError{ErrorKind::Ffi, "dlsym failed for " + std::move(detail)});
+                })
+                .value());
     }
 
     // Wrap an FFI char* result with the standard null-check + RAII deleter
@@ -231,7 +237,7 @@ public:
         std::unique_ptr<void, Closer> opened{dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL)};
         if (opened == nullptr)
             throw AletheiaException(
-                AletheiaError{ErrorKind::Ffi, std::string("dlopen failed: ") + dlerror()});
+                AletheiaError{ErrorKind::Ffi, "dlopen failed: " + detail::dl_error_text()});
         auto* const handle = opened.get();
 
         // The version first: a library laid out for another ABI is refused

@@ -19,6 +19,7 @@
 #include <aletheia/detail/rational_renderer.hpp>
 #include <aletheia/error.hpp>
 
+#include "detail/dl_symbol.hpp"
 #include "detail/ffi_abi.hpp"
 #include "detail/ffi_logic.hpp"
 #include "detail/rts_init.hpp"
@@ -153,13 +154,11 @@ static auto load_renderer(const std::filesystem::path& lib_path)
     };
     std::unique_ptr<void, Closer> opened{dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL)};
     if (opened == nullptr)
-        return std::unexpected(std::string{"renderer dlopen failed: "} + dlerror());
+        return std::unexpected("renderer dlopen failed: " + dl_error_text());
     auto const load_sym = [&](const char* name) -> std::expected<void*, std::string> {
-        dlerror(); // clear previous errors
-        auto* sym = dlsym(opened.get(), name);
-        if (const char* err = dlerror(); err != nullptr)
-            return std::unexpected(std::string{"renderer dlsym "} + name + ": " + err);
-        return sym;
+        return dl_symbol(opened.get(), name).transform_error([](std::string detail) {
+            return "renderer dlsym " + std::move(detail);
+        });
     };
     // The version first, as the backend reads it: a library laid out for
     // another ABI is refused before the entries it would lay out differently.

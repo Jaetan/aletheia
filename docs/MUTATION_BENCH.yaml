@@ -329,8 +329,8 @@ bindings:
       # program holds, so the cleanup a container runs while its growth
       # throws is entered and anything it drops is seen. A destructor removal
       # that leaks what the object owned is read by a test that counts the
-      # recording kernel's closes and frees
-      # (cpp/tests/kernel_stand_in/recording_kernel_lib.cpp).
+      # recording kernel's closes and frees, the stand-in the build makes
+      # beside the library (haskell-shim/test/recording_kernel.c).
       #
       # What the survivors are, each a row of the ledger below, in the two
       # classes the ledger's own comments name: a re-check of a precondition
@@ -397,7 +397,7 @@ bindings:
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.
       survivors: 4
-      total_mutants: 1482
+      total_mutants: 1460
       # The suite runs each file's mutants cost, which is what the slices are
       # cut on: a CI leg builds one slice, and a slice is a set of files whose
       # recorded figures add up to about a third of the total.  A suite run is
@@ -460,10 +460,10 @@ bindings:
       # the cap.
       timeout_ceiling: 0
       kill_routes:
-        test: 1420
+        test: 1429
         kernel: 2
         check: 15
-        fault: 41
+        fault: 10
         timeout: 0
         survived: 4
       # Every survivor, by mutator, repository-relative file, the text of its
@@ -512,6 +512,13 @@ bindings:
       # The rest call the GHC runtime while it is down, which it refuses on any
       # build by ending the process, before any test can report.
       #
+      # A row is never a refusal path that itself reads what the language does
+      # not define: the loaders' refusals once appended dlerror's answer, which
+      # POSIX lets be null, and the rows those made were a defect to fix
+      # (cpp/src/detail/dl_symbol.hpp), not kills to record. Nor is it a null
+      # guard on a variant member reached through get_if where the variant can
+      # be asked, since a guard read backwards then throws and a test reports it.
+      #
       # A read of a state a check rules out is written in its checked form
       # wherever one exists (cpp/include/aletheia/detail/checked.hpp), so a
       # guard that stops firing before such a read throws and a test reports
@@ -552,18 +559,6 @@ bindings:
           route: check
           refused: bool(__value <= __bound)
           count: 1
-        - mutator: cxx_eq_to_ne
-          file: cpp/src/ffi_backend.cpp
-          text: if (env == nullptr || *env == '\0')
-          route: fault
-          refused: ''
-          count: 1
-        - mutator: cxx_eq_to_ne
-          file: cpp/src/ffi_backend.cpp
-          text: if (sym == nullptr)
-          route: fault
-          refused: ''
-          count: 11
         - mutator: cxx_init_const
           file: cpp/src/ffi_backend.cpp
           text: auto argc = static_cast<int>(rts_argv_ptrs.size());
@@ -577,38 +572,8 @@ bindings:
           refused: '!empty()'
           count: 1
         - mutator: cxx_ne_to_eq
-          file: cpp/src/backend.cpp
-          text: if (this != &other) {
-          route: fault
-          refused: ''
-          count: 1
-        - mutator: cxx_ne_to_eq
-          file: cpp/src/client.cpp
-          text: if (batch != nullptr && !diags_.empty()) {
-          route: fault
-          refused: ''
-          count: 1
-        - mutator: cxx_ne_to_eq
-          file: cpp/src/dbc.cpp
-          text: m != nullptr && m->multiplexor == multiplexor) {
-          route: fault
-          refused: ''
-          count: 1
-        - mutator: cxx_ne_to_eq
-          file: cpp/src/dbc.cpp
-          text: m != nullptr && seen.insert(m->multiplexor).second) {
-          route: fault
-          refused: ''
-          count: 1
-        - mutator: cxx_ne_to_eq
           file: cpp/src/ffi_backend.cpp
           text: 'detail::rts_init_args(rts_cores, override_env != nullptr ? override_env : "");'
-          route: fault
-          refused: ''
-          count: 1
-        - mutator: cxx_ne_to_eq
-          file: cpp/src/rational_renderer.cpp
-          text: if (const char* err = dlerror(); err != nullptr)
           route: fault
           refused: ''
           count: 1
@@ -655,32 +620,8 @@ bindings:
           refused: get() != pointer()
           count: 1
         - mutator: cxx_replace_bool_call_true
-          file: cpp/src/ffi_backend.cpp
-          text: if (opened == nullptr)
-          route: fault
-          refused: ''
-          count: 1
-        - mutator: cxx_replace_bool_call_true
           file: cpp/src/rational_renderer.cpp
           text: if (!rts_initialized())
-          route: fault
-          refused: ''
-          count: 1
-        - mutator: cxx_replace_bool_call_true
-          file: cpp/src/rational_renderer.cpp
-          text: if (opened == nullptr)
-          route: fault
-          refused: ''
-          count: 1
-        - mutator: cxx_replace_pointer_call_null
-          file: cpp/src/ffi_backend.cpp
-          text: auto* sym = dlsym(handle, name);
-          route: fault
-          refused: ''
-          count: 11
-        - mutator: cxx_replace_pointer_call_null
-          file: cpp/src/rational_renderer.cpp
-          text: if (const char* err = dlerror(); err != nullptr)
           route: fault
           refused: ''
           count: 1
@@ -750,6 +691,7 @@ bindings:
           route: check
           refused: __offset + __count <= size()
           count: 1
+
   rust:
     tool: cargo-mutants
     # Pinned exactly, for the reason mutmut is: two releases generate different
@@ -807,20 +749,20 @@ bindings:
       # crate's, and an arithmetic swap the compiler refuses on a constant.
       # A kill is a test failing, a panic included.
       #
-      # The one survivor is the Drop impl that returns the backend handle to
-      # the kernel.  Removing it frees nothing, which no test observes without
-      # a leak checker, and the lane runs on the stable toolchain, whose
-      # sanitizers are nightly-only.  It is recorded rather than justified in
-      # the source; a nightly leak leg would kill it and retire the row.  A
-      # string the kernel returns is copied and released in one function,
-      # with no Drop of its own to remove.
-      survivors: 1
+      # No survivor.  The Drop impl that returns the backend handle to the
+      # kernel frees nothing when removed, which the real kernel acknowledges
+      # without reading; a test reads the release from the recording kernel
+      # the build makes beside the library, which counts the closes and the
+      # frees it is handed (rust/tests/kernel_releases.rs).  A string the
+      # kernel returns is copied and released in one function, with no Drop
+      # of its own to remove, and the same count holds that release.
+      survivors: 0
       generated: 374
       unviable: 61
       timeouts: 0
       total_mutants: 313
-      score_pct: 99.7
-      run_at: "2026-10-04"
+      score_pct: 100.0
+      run_at: "2026-10-08"
       # A mutant cargo-mutants ended at its timeout is neither killed nor
       # alive, and no verdict comes from a clock.  None can hang a run by
       # construction: the lane's four files hold no loop, wait or thread, the
@@ -829,8 +771,4 @@ bindings:
       # loop-free code into a loop that never ends.  Its cap is a backstop, and
       # the lane refuses a sweep in which it fired.
       timeout_ceiling: 0
-      survivors_ledger:
-        - mutator: replace <impl Drop for FfiBackend>::drop with ()
-          file: rust/src/backend.rs
-          text: if let Ok(syms) = symbols() {
-          count: 1
+      survivors_ledger: []
