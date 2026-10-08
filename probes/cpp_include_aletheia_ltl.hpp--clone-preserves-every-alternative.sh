@@ -17,8 +17,8 @@ lib=cpp/build/libaletheia-cpp.so
 rpath="-Wl,-rpath,$(cd cpp/build && pwd)"
 json=$(find cpp/build/_deps -maxdepth 2 -type d -name 'json-src' | head -1)
 [ -f "$lib" ] && [ -n "$json" ] || exit 2
-scratch=cpp/build/probe-scratch/ltl-clone
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/t.cpp" <<'CPP'
 #include <aletheia/ltl.hpp>
 #include "detail/json.hpp"

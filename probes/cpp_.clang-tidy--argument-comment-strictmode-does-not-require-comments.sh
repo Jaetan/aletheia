@@ -11,8 +11,8 @@
 # parameter is not diagnosed.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-scratch=cpp/build/probe-scratch/argument-comment
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/t.cpp" <<'CPP'
 void f(int alpha, int beta);
 void g() {

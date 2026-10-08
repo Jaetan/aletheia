@@ -11,8 +11,8 @@
 # vary each field and payload length. Non-zero exit: a disagreement.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-scratch=cpp/build/probe-scratch/cache-keys
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/t.cpp" <<'CPP'
 #include <aletheia/detail/cache_keys.hpp>
 #include <cstdint>

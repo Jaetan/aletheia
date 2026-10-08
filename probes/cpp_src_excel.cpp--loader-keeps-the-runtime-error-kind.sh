@@ -18,8 +18,8 @@ lib=cpp/build/libaletheia-cpp.so
 rpath="-Wl,-rpath,$(cd cpp/build && pwd)"
 fixture=examples/demo/demo_workbook.xlsx
 [ -f "$lib" ] && [ -f "$fixture" ] || exit 2
-scratch=cpp/build/probe-scratch/excel-kind
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/t.cpp" <<'CPP'
 #include <aletheia/excel.hpp>
 #include <cstdio>

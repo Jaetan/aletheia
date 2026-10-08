@@ -59,7 +59,10 @@ from tools.mutation_cpp_runs import (
 )
 from tools.mutation_cpp_slices import CPP_SLICES
 from tools.mutation_report import (
+    KillRoute,
+    MutantCount,
     MutationReport,
+    Observed,
     SurvivorKey,
     UnobservedKey,
     UnobservedRow,
@@ -352,17 +355,6 @@ def cpp_unobserved_rows(artifact_dir: Path) -> dict[UnobservedKey, int] | None:
     return unobserved_ledger_to_rows(ledger)
 
 
-def cpp_kill_routes(artifact_dir: Path, legs: Sequence[CppLeg]) -> dict[str, int] | None:
-    """Count the C++ sweep's mutants by kill route, or None where a leg wrote no SQLite report.
-
-    ``merge_routes`` attributes a mutant by the first route it took in any
-    report, and a tree's slices hold disjoint mutants, so the legs of a sliced
-    run and the two trees of an unsliced one are read the same way.
-    """
-    endings = cpp_endings(artifact_dir, legs)
-    return None if endings is None else merge_endings(endings)
-
-
 def recorded_total_mutants(tree: CppTree | None = None) -> int | None:
     """Read the mutants the recorded census counted, or None where none is recorded.
 
@@ -383,22 +375,21 @@ def recorded_total_mutants(tree: CppTree | None = None) -> int | None:
     return cast("int | None", merged)
 
 
-def _short_of_record(tree: CppTree, total: int) -> str | None:
-    """Refuse a tree's union below the recorded census, which is what a hole in the slices reads as.
+def _off_record(tree: CppTree, total: int) -> str | None:
+    """Refuse a tree's union off the recorded census, either way.
 
-    Below, and not merely different: a change that adds code adds mutants, and
-    that is ordinary work nothing should refuse.  A census that shrank is
-    either a slice that carried fewer files than the partition gave it, or a
-    deliberate removal, and a deliberate removal lowers the record in the same
-    commit, the way the survivors baseline is lowered.
+    Short of the record is what a hole in the slices reads as, a slice that
+    carried fewer files than the partition gave it.  Past it, or short by a
+    deliberate removal, is a surface that moved, and the change that moved it
+    records the new census in the same commit, as it does the survivors.
     """
     recorded = recorded_total_mutants(tree)
-    if recorded is None or total >= recorded:
+    if recorded is None or total == recorded:
         return None
     return (
-        f"the {tree.value} tree's slices union to {total} mutants, under the recorded "
+        f"the {tree.value} tree's slices union to {total} mutants, where the record holds "
         f"{recorded}: either a slice carried fewer files than the partition gave it, or the "
-        "surface shrank and docs/MUTATION_BENCH.yaml records the smaller census in the same commit"
+        "surface moved and docs/MUTATION_BENCH.yaml records the new census in the same commit"
     )
 
 
@@ -512,8 +503,7 @@ def cpp_lane_command(
     """Build the runner's argv for one leg, the test binary's own argv behind ``--``.
 
     A dry run runs the unmutated binary once and reports every mutant the
-    binary carries without running one, which is how a probe reads the
-    surface a sweep would cover.
+    binary carries without running one.
     """
     return [
         mull_runner,
@@ -536,17 +526,14 @@ def cpp_lane_command(
         # ones read the fault route at 98 and 99 against the pinned 93.
         # A fault ends the process, so the order decides which test
         # reports before the run stops. Pinning makes the recorded census
-        # a measurement rather than a sample; that the verdict holds under
-        # every order is a separate property, and a probe sweeps several
-        # orders to hold it.
+        # a measurement rather than a sample.
         "--",
         "--order",
         "decl",
         # A run ends at its first failing assertion. The kill-route census
         # reads a run with any failing assertion as the test's kill,
         # whatever ended the process after it, and a run with none goes
-        # through the whole suite either way, so no mutant's route moves; a
-        # probe sweeps without the flag to hold that.
+        # through the whole suite either way, so no mutant's route moves.
         "--abort",
     ]
 
@@ -761,9 +748,9 @@ def _merge_cpp_legs(artifact_dir: Path) -> MutationReport:
         if isinstance(unioned, str):
             return MutationReport("cpp", "mull", 0, 0, raw + unioned + "\n", error=unioned)
         counts = elements_counts(unioned)
-        short = _short_of_record(tree, counts.total)
-        if short is not None:
-            return MutationReport("cpp", "mull", 0, 0, raw + short + "\n", error=short)
+        off = _off_record(tree, counts.total)
+        if off is not None:
+            return MutationReport("cpp", "mull", 0, 0, raw + off + "\n", error=off)
         raw += f"the {tree.value} tree's {CPP_SLICES} slices union to {counts.total} mutants\n"
         reports.append(unioned)
     elapsed = _legs_elapsed(legs_dir)
@@ -849,7 +836,18 @@ def _finish_cpp(
     (artifact_dir / CPP_RUNS_REPORT).write_text(json.dumps(runs, indent=2))
     raw += weight_drift(runs)
     (artifact_dir / "cpp.raw.txt").write_text(raw)
-    return MutationReport("cpp", "mull", killed, survived, raw, timeouts=timeouts)
+    # Every mutant the runner made has a row, so a file with runs is a file
+    # holding a mutant, whatever became of it.
+    mutated = frozenset(file for figures in runs.values() for file in figures)
+    census = None if routes is None else {KillRoute(r): MutantCount(c) for r, c in routes.items()}
+    return MutationReport(
+        "cpp",
+        "mull",
+        killed,
+        survived,
+        raw,
+        observed=Observed(timeouts, routes=census, mutated_files=mutated),
+    )
 
 
 def unobserved_summary(unobserved: Sequence[UnobservedRow]) -> str:

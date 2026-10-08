@@ -13,22 +13,16 @@
 # The sanitizer's stack-use-after-return detection is asked for by name rather
 # than taken from the runtime's default, so the probe reads the same whatever
 # that default is.
-# Non-zero exit: the test fails, or the sanitizer reports against it. Exits 0
-# with a note when no address-sanitizer tree is configured.
+# Non-zero exit: the test fails, or the sanitizer reports against it. Exits 2
+# when the unit tests do not build in the address-sanitizer tree the probe
+# configures for itself.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-tree=cpp/build-asan
-cache=$tree/CMakeCache.txt
-[ -f "$cache" ] || { echo "no $tree configured, claim untestable"; exit 0; }
-grep -q '^ALETHEIA_SANITIZER:STRING=address$' "$cache" || {
-    echo "$tree is not an address-sanitizer tree, claim untestable"
-    exit 0
-}
-log=$tree/probe-scratch/nesting-test.log
-mkdir -p "$(dirname "$log")" || exit 2
-# One core is left free, since the machine is somebody's to use while a
-# probe runs.
-cmake --build "$tree" --target unit_tests -j"$(($(nproc) - 1))" > "$log" 2>&1 || {
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
+tree=$scratch/asan
+log=$scratch/nesting-test.log
+tools/private_cpp_tree.sh "$tree" unit_tests -- -DALETHEIA_SANITIZER=address 2> "$log" || {
     echo "the address-sanitizer unit tests do not build:"
     tail -20 "$log"
     exit 2

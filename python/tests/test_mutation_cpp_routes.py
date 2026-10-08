@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, NewType
 
 import pytest
 
-from tools.mutation_cpp import cpp_kill_routes
+from tools.mutation_cpp import cpp_endings
 from tools.mutation_cpp_legs import CppLeg, CppTree, sliced_legs
 from tools.mutation_routes import (
     KILL_ROUTES,
@@ -31,6 +31,7 @@ from tools.mutation_routes import (
     MutantRun,
     kill_route,
     lane_endings,
+    merge_endings,
     merge_routes,
 )
 
@@ -235,8 +236,9 @@ def test_the_census_reads_every_leg_report(tmp_path: Path) -> None:
                 survived: MutantRun(MULL_PASSED, _PASSED, _SUMMARY_PASSED, ""),
             },
         )
-    routes = cpp_kill_routes(tmp_path, legs)
-    assert routes is not None
+    endings = cpp_endings(tmp_path, legs)
+    assert endings is not None
+    routes = merge_endings(endings)
     # Each tree's three slices carry two mutants each, and the trees carry
     # different identifiers here, so the census is every leg's rows.
     assert sum(routes.values()) == 2 * len(legs)
@@ -250,7 +252,7 @@ def test_a_leg_without_a_report_leaves_no_census(tmp_path: Path) -> None:
         tmp_path / f"{legs[0].report_name}.sqlite",
         {_Mutant("m1"): MutantRun(_FAILED, _TEST_FAILED, "", "")},
     )
-    assert cpp_kill_routes(tmp_path, legs) is None
+    assert cpp_endings(tmp_path, legs) is None
 
 
 def test_a_whole_tree_sweep_is_read_by_its_own_legs(tmp_path: Path) -> None:
@@ -261,6 +263,7 @@ def test_a_whole_tree_sweep_is_read_by_its_own_legs(tmp_path: Path) -> None:
             tmp_path / f"{leg.report_name}.sqlite",
             {_Mutant("m1"): MutantRun(_FAILED, _TEST_FAILED, _ASSERTION + _SUMMARY_FAILED, "")},
         )
-    routes = cpp_kill_routes(tmp_path, legs)
-    assert routes is not None
+    endings = cpp_endings(tmp_path, legs)
+    assert endings is not None
+    routes = merge_endings(endings)
     assert routes["test"] == 1

@@ -21,8 +21,8 @@ command -v clang++-23 > /dev/null || { echo "clang-23 not installed, claim untes
 [ -x "$HOME/.local/bin/mull-ir-frontend-23" ] || { echo "Mull plugin not installed, claim untestable"; exit 0; }
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
-scratch=cpp/build-mutation/probe-scratch/unique-ids
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 "$py" - "$scratch" <<'PY'
 import collections
 import json

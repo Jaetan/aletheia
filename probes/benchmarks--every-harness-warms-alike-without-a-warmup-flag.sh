@@ -10,7 +10,8 @@
 # for throughput and one count of untimed operations for latency, the same in
 # every binding. benchmarks/run_all.sh passes the latency warmup, so a harness
 # whose own default differed would measure differently only when run by hand.
-# The compiled harnesses are built, never found.
+# The compiled harnesses are built, never found, each in a directory of the
+# probe's own.
 # Non-zero exit: two harnesses record different warmups for one mode. Exits 2
 # without a toolchain, the built kernel or a configured cpp/build.
 set -u
@@ -25,17 +26,18 @@ lib=$PWD/build/libaletheia-ffi.so
 
 work=$(mktemp -d) || exit 2
 trap 'rm -rf "$work"' EXIT
-(cd go && go build -o "$work/go" ./benchmarks) > /dev/null 2>&1 || exit 2
-cargo build --release --example benchmark --manifest-path rust/Cargo.toml > /dev/null 2>&1 || exit 2
-cmake --build cpp/build --target benchmark > /dev/null 2>&1 || exit 2
+(cd go && go build -o "$work/go" ./benchmarks) || exit 2
+CARGO_TARGET_DIR=$work/cargo cargo build --quiet --release --example benchmark \
+    --manifest-path rust/Cargo.toml || exit 2
+tools/private_cpp_tree.sh "$work/cpp" benchmark || exit 2
 
 export ALETHEIA_LIB=$lib LD_LIBRARY_PATH=$PWD/build
 run() { # binding mode -- the harness's JSON report for that mode, no --warmup given
     case $1 in
         python) (cd python && ".venv/bin/python" -m "benchmarks.$2" "${@:3}" --json) ;;
         go) "$work/go" "$2" "${@:3}" --json ;;
-        rust) rust/target/release/examples/benchmark "$2" "${@:3}" --json ;;
-        cpp) cpp/build/benchmark "$2" "${@:3}" --json ;;
+        rust) "$work/cargo/release/examples/benchmark" "$2" "${@:3}" --json ;;
+        cpp) "$work/cpp/benchmark" "$2" "${@:3}" --json ;;
     esac
 }
 for b in python cpp go rust; do

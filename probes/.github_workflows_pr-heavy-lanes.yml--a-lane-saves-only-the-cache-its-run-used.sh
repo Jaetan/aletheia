@@ -118,8 +118,8 @@ else
 fi
 
 scratch=$(mktemp -d) || exit 2
-tree=cpp/build/probe-scratch/evict-unused
-trap 'rm -rf "$scratch" "$tree"' EXIT
+tree=$scratch/evict-unused
+trap 'rm -rf "$scratch"' EXIT
 status=0
 # Print an arm's line, and count it red unless its verdict is ok.
 report() {
@@ -202,14 +202,13 @@ done
 [ -x "$HOME/.local/bin/mull-ir-frontend-23" ] || { echo "plugin not installed, the real-ccache part is untestable"; exit "$status"; }
 [ -x python/.venv/bin/python ] || { echo "python/.venv missing, the real-ccache part is untestable"; exit "$status"; }
 
-rm -rf "$tree"
 export CCACHE_DIR="$scratch/ccache" CCACHE_MAXSIZE=1G
 echo "with $(ccache --version | head -n 1)"
 
 # Build slice NUMBER of the leak tree into DIRECTORY, wiped first, the way a lane builds it.
 build() {
     rm -rf "${tree:?}/$2"
-    PYTHONPATH=. python/.venv/bin/python - "$1" "$PWD/$tree/$2" "$scratch" <<'PY' > "$scratch/build.log" 2>&1
+    PYTHONPATH=. python/.venv/bin/python - "$1" "$tree/$2" "$scratch" <<'PY' > "$scratch/build.log" 2>&1
 import sys
 from pathlib import Path
 

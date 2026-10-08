@@ -4,8 +4,8 @@
 
 The C++ baseline records every survivor by mutator, file and source-line
 text; the drift gate refuses a survivor the ledger does not name even when
-the count is unchanged, and reports a ledger row that no longer survives
-without failing, as it does a lower count.
+the count is unchanged, and refuses a ledger row that no longer survives as a
+stale record, as it does a lower count.
 """
 
 from __future__ import annotations
@@ -88,11 +88,24 @@ def test_a_traded_survivor_is_a_regression_at_equal_count() -> None:
     assert entry.get("stale_ledger") == [_ROW]
 
 
-def test_a_vanished_survivor_is_stale_and_not_a_failure() -> None:
-    """A ledger row that no longer survives is reported, as a lower count is allowed."""
+def test_a_vanished_survivor_is_a_stale_record_and_fails() -> None:
+    """A ledger row that no longer survives fails the lane until the change deletes it."""
     entry = _drift({}, [_ROW])
-    assert entry["status"] == "ok"
+    assert entry["status"] == "stale"
     assert entry.get("stale_ledger") == [_ROW]
+
+
+def test_a_stale_row_at_an_unchanged_count_fails() -> None:
+    """The row is the claim: a survivor traded for a recorded one leaves the old row stale."""
+    rows = {("cxx_replace_scalar_call", "cpp/src/client.cpp", "if (!diags_.empty())"): 1}
+    ledger: list[LedgerRow] = [_ROW, {**_ROW, "text": "a line that no longer survives"}]
+    entry = mutation_run.drift_for(
+        MutationReport("cpp", "mull", 10, 1, ""),
+        {"cpp": {"tool": "mull", "baseline": {"survivors": 1, "survivors_ledger": ledger}}},
+        rows,
+    )
+    assert entry["status"] == "stale"
+    assert entry.get("stale_ledger") == [ledger[1]]
 
 
 def test_without_a_ledger_the_count_alone_decides() -> None:

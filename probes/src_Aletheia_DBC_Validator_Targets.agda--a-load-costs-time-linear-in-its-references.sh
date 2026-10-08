@@ -10,10 +10,12 @@
 # sender, N{i+1} as an additional sender, N{i} as its signal's receiver and
 # is a comment's target, with n nodes declared, loads at 10,000 messages in at
 # most 9 times its time at 2,500, the load scaling check's bound (x3 per
-# doubling); a scan per reference grows 16-fold. Each time is the minimum of
-# three loads. Shown through the library itself (parseDBC). Non-zero exit: a
-# load is refused, or the growth passes 9. Exits 0 with a note when the
-# library is not built.
+# doubling); a scan per reference grows 16-fold. Each time is the processor
+# time a load takes, the least of three, the two sizes loaded in turn: what
+# else the machine runs moves wall time and leaves this nearly alone, and what
+# still moves it falls on both sizes alike. Shown through the library itself
+# (parseDBC). Non-zero exit: a load is refused, or the growth passes 9. Exits
+# 0 with a note when the library is not built.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 lib=build/libaletheia-ffi.so
@@ -47,27 +49,29 @@ def referenced(n):
             "environmentVars": []}
 
 
-def load_seconds(n):
-    body = json.dumps({"type": "command", "command": "parseDBC", "dbc": referenced(n)}).encode()
-    best = None
-    for _ in range(3):
-        state = lib.aletheia_init()
-        start = time.perf_counter()
-        pointer = lib.aletheia_process(state, ctypes.byref(AletheiaText(body, len(body))))
-        seconds = time.perf_counter() - start
-        answer = json.loads(ctypes.string_at(pointer).decode())
-        lib.aletheia_free_str(pointer)
-        lib.aletheia_close(state)
-        if answer.get("status") != "success" or answer.get("warnings"):
-            print(f"{n} messages: {answer.get('status')} {answer.get('message')} {answer.get('warnings')}")
-            sys.exit(1)
-        best = seconds if best is None else min(best, seconds)
-    return best
+def load_seconds(n, body):
+    state = lib.aletheia_init()
+    start = time.process_time()
+    pointer = lib.aletheia_process(state, ctypes.byref(AletheiaText(body, len(body))))
+    seconds = time.process_time() - start
+    answer = json.loads(ctypes.string_at(pointer).decode())
+    lib.aletheia_free_str(pointer)
+    lib.aletheia_close(state)
+    if answer.get("status") != "success" or answer.get("warnings"):
+        print(f"{n} messages: {answer.get('status')} {answer.get('message')} {answer.get('warnings')}")
+        sys.exit(1)
+    return seconds
 
 
-small, large = load_seconds(2500), load_seconds(10000)
+bodies = {n: json.dumps({"type": "command", "command": "parseDBC", "dbc": referenced(n)}).encode()
+          for n in (2500, 10000)}
+times = {n: [] for n in bodies}
+for _ in range(3):
+    for n, body in bodies.items():
+        times[n].append(load_seconds(n, body))
+small, large = min(times[2500]), min(times[10000])
 growth = large / small
-print(f"2,500 -> 10,000 messages: {small:.3f} s -> {large:.3f} s (x{growth:.2f}, at most x9)")
+print(f"2,500 -> 10,000 messages: {small:.3f} s -> {large:.3f} s of processor time (x{growth:.2f}, at most x9)")
 if growth > 9:
     sys.exit(1)
 print("PASS: a load grows linearly with its references")

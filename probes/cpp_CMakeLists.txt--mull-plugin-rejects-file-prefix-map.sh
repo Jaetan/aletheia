@@ -16,13 +16,14 @@ set -u
 cd "$(dirname "$0")/.." || exit 2
 plugin=$HOME/.local/bin/mull-ir-frontend-23
 [ -x "$plugin" ] || { echo "plugin not installed, claim untestable"; exit 0; }
-scratch=cpp/build/probe-scratch/prefixmap
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 root=$(pwd)
 cd "$scratch" || exit 2
 # clang runs the compiler in its own process, so the plugin's crash is the
-# driver's own signal: the shell reports 128 plus SIGSEGV, which is 139.
-clang++-23 -std=c++23 "-fpass-plugin=$plugin" -g -O0 "-ffile-prefix-map=$root=." \
+# driver's own signal: the shell reports 128 plus SIGSEGV, which is 139. The
+# reproducer clang writes for a crash goes to the scratch directory with it.
+clang++-23 -std=c++23 "-fpass-plugin=$plugin" -g -O0 "-ffile-prefix-map=$root=." -fcrash-diagnostics-dir=. \
     -I"$root/cpp/include" -I"$root/cpp/src" -c "$root/cpp/src/types.cpp" -o types.o > compile.log 2>&1
 status=$?
 if [ "$status" -eq 0 ]; then

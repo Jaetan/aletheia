@@ -45,9 +45,14 @@ from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, TypedDict, cast
 
 from tools._common import find_executable, run_capture, run_streaming, short_sha
 from tools._resources import detect_cpus
-from tools.mutation_cpp_config import MutantCount
 from tools.mutation_go import ShortSha
-from tools.mutation_report import MutationReport, load_spec, scratch_tree_or_report
+from tools.mutation_report import (
+    MutantCount,
+    MutationReport,
+    Observed,
+    load_spec,
+    scratch_tree_or_report,
+)
 
 from aletheia.common_types import ExitStatus, Prose
 
@@ -561,7 +566,8 @@ def parse_outcomes(
     caught, missed, timed out and unviable.  Caught is killed and missed is
     survived; a timed-out mutant is neither, and the drift gate reads that
     count against the record's ceiling; an unviable mutant did not build, a
-    property of the source the record carries beside the total.  A sweep that
+    property of the source the record carries in the count of every mutant
+    the tool made, the four buckets together.  A sweep that
     reached no mutant, because the unmutated baseline failed, is an error
     rather than a clean run of nothing.
     """
@@ -586,7 +592,15 @@ def parse_outcomes(
             raw,
             error=f"the sweep tested no mutant (see rust.raw.txt; {where})",
         )
-    return MutationReport(lane, "cargo-mutants", caught, missed, raw, timeouts=timeout)
+    generated = MutantCount(caught + missed + timeout + unviable)
+    return MutationReport(
+        lane,
+        "cargo-mutants",
+        caught,
+        missed,
+        raw,
+        observed=Observed(timeouts=timeout, generated=generated),
+    )
 
 
 def outcomes_survivor_rows(

@@ -9,13 +9,12 @@ on every mutant, where two shuffled ones read the fault route at 98 and 99
 against the pinned 93. A fault ends the process, so the order decides which
 test reports before the run stops. The recorded census is therefore taken
 under a stated order, which is what makes it a measurement rather than one
-sample of a shuffle. That the verdict itself holds under every order is a
-separate property, which a probe sweeps several orders to hold.
+sample of a shuffle.
 
 A run also ends at its first failing assertion, which moves no route: the
-census reads any failing assertion as the test's kill, and a run with none
-goes through the whole suite either way. A probe sweeps without the flag to
-hold that.
+census reads any failing assertion as the test's kill, whatever ended the
+process after it, which ``test_a_run_is_read_by_what_ended_it`` holds, and a
+run with none goes through the whole suite either way.
 """
 
 from __future__ import annotations
@@ -36,10 +35,12 @@ if TYPE_CHECKING:
     import pytest
 
 
-def _command() -> list[str]:
-    """Build one leg's argv, the paths being the only thing it reads."""
+def _command(*, dry_run: bool = False) -> list[str]:
+    """Build one leg's argv, a dry run's where asked, the paths being the only thing it reads."""
     leg = CppLeg(CppTree.PLAIN, 1)
-    return cpp_lane_command("mull-runner-23", Path("cpp") / leg.directory, Path("artifacts"), leg)
+    return cpp_lane_command(
+        "mull-runner-23", Path("cpp") / leg.directory, Path("artifacts"), leg, dry_run=dry_run
+    )
 
 
 def test_the_lane_hands_the_binary_a_pinned_order() -> None:
@@ -66,10 +67,7 @@ def test_every_runner_option_stays_ahead_of_the_separator() -> None:
 
 def test_a_dry_run_is_the_lane_s_argv_with_the_runner_told_to_run_no_mutant() -> None:
     """The one runner option a dry run adds sits ahead of the separator; nothing else moves."""
-    leg = CppLeg(CppTree.PLAIN, 1)
-    dry = cpp_lane_command(
-        "mull-runner-23", Path("cpp") / leg.directory, Path("artifacts"), leg, dry_run=True
-    )
+    dry = _command(dry_run=True)
     assert "--dry-run" not in _command()
     assert dry.index("--dry-run") < dry.index("--")
     dry.remove("--dry-run")

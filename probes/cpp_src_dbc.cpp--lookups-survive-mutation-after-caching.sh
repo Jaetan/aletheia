@@ -16,8 +16,8 @@ lib=cpp/build/libaletheia-cpp.so
 # links it alone; -Wl,-rpath gives the loader the directory the linker already has.
 rpath="-Wl,-rpath,$(cd cpp/build && pwd)"
 [ -f "$lib" ] || exit 2
-scratch=cpp/build/probe-scratch/dbc-stale
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/t.cpp" <<'CPP'
 #include <aletheia/dbc.hpp>
 #include <algorithm>

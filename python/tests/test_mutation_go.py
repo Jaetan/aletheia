@@ -52,6 +52,8 @@ from tools.mutation_go import (
     swept_counts,
 )
 
+from aletheia.common_types import Prose
+
 if TYPE_CHECKING:
     from tools.mutation_cpp_slices import MutantCounts
 
@@ -332,7 +334,11 @@ def test_the_merge_gives_what_a_whole_sweep_of_the_same_mutants_gives(
     merged = mutation_run.run_go(artifacts)
     assert merged.error is None
     assert merged.binding == "go"
-    assert (merged.killed, merged.survived, merged.timeouts) == (3, 2, 1)
+    assert (merged.killed, merged.survived, merged.observed.timeouts) == (3, 2, 1)
+    assert merged.observed.generated == 7
+    # The merged figures open the log in gremlins' own words, the whole tail.
+    reread = mutation_run.parse_gremlins_summary(GremlinsLog(merged.raw_log), Prose("the merge"))
+    assert (reread.killed, reread.survived, reread.observed.generated) == (3, 2, 7)
     whole = GremlinsLog(_SHARD_1 + _SHARD_2)
     for verdict in ("LIVED", "NOT COVERED"):
         assert mutation_run.go_mutant_rows(merged.raw_log, verdict) == mutation_run.go_mutant_rows(

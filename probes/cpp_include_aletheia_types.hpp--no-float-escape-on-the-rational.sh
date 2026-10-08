@@ -19,8 +19,8 @@ if grep -nE '(-> *(double|float))|operator +(double|float) *\(' "$header"; then
     exit 1
 fi
 
-scratch=cpp/build/probe-scratch/no-float-escape
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/t.cpp" <<'CPP'
 #include <aletheia/types.hpp>
 

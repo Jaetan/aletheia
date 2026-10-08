@@ -38,7 +38,7 @@ def repo(changed: list[str]) -> Path:
     """Build a repository whose branch differs from main by exactly `changed`."""
     root = Path(tempfile.mkdtemp(prefix="mutation-scope-probe-"))
     git = ["git", "-C", str(root), "-c", "user.email=probe@example.invalid",
-           "-c", "user.name=probe"]
+           "-c", "user.name=probe", "-c", "commit.gpgsign=false"]
     subprocess.run([*git[:3], "init", "-q", "-b", "main", str(root)], check=True,
                    stdout=subprocess.DEVNULL)
     (root / "seed.txt").write_text("seed\n", encoding="utf-8")

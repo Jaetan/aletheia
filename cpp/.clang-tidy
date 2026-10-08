@@ -49,9 +49,6 @@
 #   portability-avoid-pragma-once
 #       — we use #pragma once (cf. llvm-header-guard); its portability concern
 #         (embedded / network-FS compilers) is inert for our Clang-only build
-#   cppcoreguidelines-pro-bounds-avoid-unchecked-container-access
-#       — operator[] on pre-validated indices is intentional; .at() would add
-#         hot-path bounds-check exceptions (we self-check our bounds)
 #   readability-trailing-comma
 #       clang-format answers a trailing comma by breaking the list one element
 #       per line and nesting each designated initializer on its own line, so the
@@ -91,7 +88,6 @@ Checks: >
   -concurrency-mt-unsafe,
   -misc-use-anonymous-namespace,
   -portability-avoid-pragma-once,
-  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
   -readability-trailing-comma,
   -boost-use-ranges,
   -llvm-use-ranges
@@ -135,6 +131,13 @@ CheckOptions:
   # An argument comment that is present must match the parameter name exactly
   # (no case or underscore leniency); comments are not required.
   bugprone-argument-comment.StrictMode: 'true'
+  # A class's operator[] is refused, a standard container's and a span's among
+  # them, as AGENTS/cpp.md cat 24 asks of the library. The classes held out are
+  # the standard maps, whose operator[] inserts, and the third-party types the
+  # library uses through it: a yaml-cpp node looked up by key, an nlohmann value
+  # built field by field, and an OpenXLSX style collection read at the index
+  # its create() returned.
+  cppcoreguidelines-pro-bounds-avoid-unchecked-container-access.ExcludeClasses: '::std::map;::std::unordered_map;::std::flat_map;::YAML::Node;::nlohmann::basic_json;::OpenXLSX::XLFonts;::OpenXLSX::XLCellFormats'
   # Headers a call site must not be asked to name. The vendored umbrellas
   # legitimately re-export symbols their own detail subtrees declare; bits/ is
   # where the standard library keeps what its public headers include; and the

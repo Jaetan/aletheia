@@ -12,7 +12,7 @@ the legs must equal the one-process run over the same trees.
 
 Two refusals belong to slicing alone, and both stand for a file the partition
 never claimed: two slices carrying one identifier, which is that file mutated
-by every slice, and a union under the recorded census, which is that file
+by every slice, and a union short of the recorded census, which is that file
 mutated by none.
 """
 
@@ -40,6 +40,7 @@ from tools.mutation_cpp_legs import (
 )
 from tools.mutation_cpp_runs import CPP_LEG_RUNS_SUFFIX, CPP_RUNS_REPORT
 from tools.mutation_cpp_slices import CPP_SLICES, SuiteRuns
+from tools.mutation_report import MutantCount
 from tools.mutation_routes import MULL_TIMEDOUT
 
 if TYPE_CHECKING:
@@ -115,11 +116,6 @@ def _fixture_census(_tree: CppTree | None = None) -> int:
     return len(_ALL_MUTANTS)
 
 
-def _one_over_the_fixture(_tree: CppTree | None = None) -> int:
-    """Stand in for it with one mutant more than the fixture sweeps, which the merge refuses."""
-    return len(_ALL_MUTANTS) + 1
-
-
 def _fixed_sha(_root: Path | None = None) -> str:
     """Stand in for ``short_sha`` with a constant under the sandbox."""
     return _SHA
@@ -157,7 +153,7 @@ def _fake_sweeps(
     monkeypatch.setattr(mutation_cpp, "_sweep_cpp_lane", sweep)
     monkeypatch.setattr(mutation_cpp, "short_sha", _fixed_sha)
     # The fixture's surface is nine mutants, not the repository's census, so
-    # the floor is the fixture's; the refusal it exists for has its own test.
+    # the census is the fixture's; the refusal it exists for has its own test.
     monkeypatch.setattr(mutation_cpp, "recorded_total_mutants", _fixture_census)
 
 
@@ -199,7 +195,11 @@ def test_a_mutant_every_tree_timed_out_is_neither_killed_nor_survived(
     _stage(monkeypatch, None)
     report = run_cpp(tmp_path)
     assert report.error is None
-    assert (report.killed, report.survived, report.timeouts) == (len(_ALL_MUTANTS) - 2, 1, 1)
+    assert (report.killed, report.survived, report.observed.timeouts) == (
+        len(_ALL_MUTANTS) - 2,
+        1,
+        1,
+    )
     verdict = mutation_run.drift_for(
         report, {"cpp": {"baseline": {"survivors": 1, "timeout_ceiling": 0}}}
     )
@@ -347,6 +347,14 @@ def test_the_merge_of_the_legs_is_the_one_process_run(
     assert legs == {str(leg): _elapsed_of(leg) for leg in sliced_legs()}
     runs = json.loads((tmp_path / "out" / CPP_RUNS_REPORT).read_text())
     assert runs == {tree.value: {"cpp/src/a.cpp": len(_ALL_MUTANTS)} for tree in CppTree}
+    # The report carries the census it wrote and the files it made a mutant in.
+    assert merged.observed.routes == json.loads((tmp_path / "out" / "cpp-routes.json").read_text())
+    assert merged.observed.routes == one_process.observed.routes
+    assert (
+        merged.observed.mutated_files
+        == one_process.observed.mutated_files
+        == {RelPath("cpp/src/a.cpp")}
+    )
     assert mutation_run.drift_for(merged, {"cpp": {"baseline": {"survivors": 1}}})["status"] == "ok"
 
 
@@ -432,29 +440,36 @@ def test_the_merge_refuses_two_slices_carrying_one_mutant(
     assert "no slice held that file out" in merged.error
 
 
-def test_the_merge_refuses_a_union_under_the_recorded_census(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize(
+    "census", [MutantCount(len(_ALL_MUTANTS) + 1), MutantCount(len(_ALL_MUTANTS) - 1)]
+)
+def test_the_merge_refuses_a_union_off_the_recorded_census(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, census: MutantCount
 ) -> None:
-    """A union short of the record is a slice that carried fewer files than it was given.
+    """A union off the record is a hole in the slices, or a surface the record does not follow.
 
-    Growth is ordinary work and passes; a census that shrank is either a hole
-    in the slices or a deliberate removal, and a removal lowers the record in
-    the same commit.
+    Short of the record is a slice that carried fewer files than it was
+    given; past it, or short by a deliberate removal, is a surface that moved,
+    and the change that moved it records the new census in the same commit.
     """
     _download(tmp_path / "legs", *sliced_legs())
     _fake_sweeps(monkeypatch, [])
-    # After the fixture, which sets the floor to what the fixture sweeps.
-    monkeypatch.setattr(mutation_cpp, "recorded_total_mutants", _one_over_the_fixture)
+
+    # After the fixture, which sets the census to what the fixture sweeps.
+    def recorded(_tree: CppTree | None = None) -> MutantCount:
+        return census
+
+    monkeypatch.setattr(mutation_cpp, "recorded_total_mutants", recorded)
     _stage(monkeypatch, CPP_MERGE_STAGE)
     monkeypatch.setenv(CPP_LEGS_ENV, str(tmp_path / "legs"))
     out = tmp_path / "out"
     out.mkdir()
     merged = run_cpp(out)
     assert merged.error is not None
-    assert f"union to {len(_ALL_MUTANTS)} mutants, under the recorded" in merged.error
+    assert f"union to {len(_ALL_MUTANTS)} mutants, where the record holds {census}" in merged.error
 
 
-def test_the_census_floor_is_the_tree_s_own(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_census_is_the_tree_s_own(monkeypatch: pytest.MonkeyPatch) -> None:
     """A tree is held to what the record says that tree carries, not to the merged surface.
 
     The trees do not all carry one surface: one that cannot read a mutator

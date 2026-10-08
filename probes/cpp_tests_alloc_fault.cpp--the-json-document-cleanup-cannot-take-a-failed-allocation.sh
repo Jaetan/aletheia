@@ -19,8 +19,8 @@ cd "$(dirname "$0")/.." || exit 2
 command -v clang++-23 > /dev/null || { echo "clang-23 not installed, claim untestable"; exit 0; }
 json_include=cpp/build/_deps/json-src/include
 [ -d "$json_include" ] || { echo "no JSON headers in the build tree, claim untestable"; exit 0; }
-scratch=cpp/build/probe-scratch/json-cleanup
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/t.cpp" <<'CPP'
 // Fails the nth allocation this thread makes, optionally sparing the ones the
 // JSON library asks for, then parses a document and destroys it.

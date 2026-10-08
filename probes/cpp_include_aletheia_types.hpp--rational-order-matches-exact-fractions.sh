@@ -10,8 +10,8 @@
 # the C++ program prints its verdicts for. Non-zero exit: a verdict differs.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-scratch=cpp/build/probe-scratch/types-rational
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/pairs.txt" <<'TXT'
 1 2 2 4
 1 3 1 2

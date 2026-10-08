@@ -18,8 +18,8 @@ lib=cpp/build/libaletheia-cpp.so
 rpath="-Wl,-rpath,$(cd cpp/build && pwd)"
 json=$(find cpp/build/_deps -maxdepth 2 -type d -name 'json-src' | head -1)
 [ -f "$lib" ] && [ -n "$json" ] || exit 2
-scratch=cpp/build/probe-scratch/client-utf8
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/corpus.txt" <<'TXT'
  
 41

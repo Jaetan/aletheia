@@ -9,8 +9,8 @@
 # exit: any code or count disagrees.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-scratch=cpp/build/probe-scratch/types-dlc
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/t.cpp" <<'CPP'
 #include <aletheia/types.hpp>
 #include <array>

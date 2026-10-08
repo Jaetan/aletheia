@@ -9,8 +9,8 @@
 # signature.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-scratch=cpp/build/probe-scratch/yaml-example
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 example=$(sed -n '/^\/\/   auto checks = load_checks_from_yaml(/,/^\/\/   )");$/p' cpp/include/aletheia/yaml.hpp | sed 's|^// \{0,3\}||')
 [ -n "$example" ] || { echo "no example found in the header comment"; exit 1; }
 {

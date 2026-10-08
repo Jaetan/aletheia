@@ -17,11 +17,9 @@ cd "$(dirname "$0")/.." || exit 2
 repo=$PWD
 py=$repo/python/.venv/bin/python
 command -v git > /dev/null && [ -x "$py" ] || exit 2
-scratch=$repo/cpp/build/probe-scratch/toplevel-worktree-hook
-git worktree remove --force "$scratch/wt" 2> /dev/null
-rm -rf "$scratch"
-mkdir -p "$scratch/hooks" || exit 2
+scratch=$(mktemp -d) || exit 2
 trap 'git worktree remove --force "$scratch/wt" 2> /dev/null; rm -rf "$scratch"' EXIT
+mkdir -p "$scratch/hooks" || exit 2
 git worktree add -q --detach "$scratch/wt" HEAD || exit 2
 if ! git diff --quiet HEAD; then
     git diff --binary HEAD | git -C "$scratch/wt" apply --whitespace=nowarn || exit 2

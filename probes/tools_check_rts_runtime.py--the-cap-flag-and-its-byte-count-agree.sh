@@ -22,8 +22,7 @@ gate=$?
 [ "$gate" -ne 0 ] && { echo "the gate refuses the tree"; exit 1; }
 readers=$(git grep -lE '"[^"]*RESOURCE_BUDGETS[.]yaml"' -- python/tests go rust cpp/tests)
 [ -n "$readers" ] && { echo "suites that read the document: $readers"; exit 1; }
-mkdir -p tools/ci-output || exit 2
-work=$(mktemp -d tools/ci-output/.rts-runtime-XXXXXX) || exit 2
+work=$(mktemp -d) || exit 2
 trap 'rm -rf "$work"' EXIT
 sed 's/^\(    bytes: \)3221225472$/\12147483648/' docs/RESOURCE_BUDGETS.yaml > "$work/budgets.yaml"
 cmp -s docs/RESOURCE_BUDGETS.yaml "$work/budgets.yaml" && { echo "the scratch SSOT was not changed"; exit 2; }

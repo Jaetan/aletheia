@@ -7,15 +7,21 @@
 # coverage tree and every shared library the tree built, so a source linked
 # into one binary alone is counted: the object list is read from ctest's own
 # listing, and the export's argv names each of them. The export itself is
-# replaced by a recorder, so nothing runs and the tree is only read.
+# replaced by a recorder, so nothing runs, and the module is pointed at a
+# copy of what it reads of the tree, the test listing and the shared
+# libraries, since ctest writes into the tree it lists.
 # Non-zero exit: an executable ctest lists, or a shared library of the tree,
 # is missing from the export's argv. Exits 2 when cpp/build-coverage is not
 # configured; the coverage lane (tools/run_ci.py --coverage) configures it.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 [ -f cpp/build-coverage/CMakeCache.txt ] || exit 2
+mirror=$(mktemp -d) || exit 2
+trap 'rm -rf "$mirror"' EXIT
+(cd cpp/build-coverage && find . -name CTestTestfile.cmake -print0 | xargs -0 cp --parents -t "$mirror") || exit 2
+cp -a cpp/build-coverage/*.so* "$mirror" || exit 2
 
-python/.venv/bin/python - <<'PY' || exit 1
+python/.venv/bin/python - "$mirror" <<'PY' || exit 1
 import json
 import subprocess
 import sys
@@ -24,7 +30,7 @@ from pathlib import Path
 
 from tools import coverage_run
 
-build = coverage_run.CPP_BUILD_DIR
+build = coverage_run.CPP_BUILD_DIR = Path(sys.argv[1])
 listing = json.loads(
     subprocess.run(
         ["ctest", "--test-dir", str(build), "--show-only=json-v1"],

@@ -30,8 +30,8 @@ for tree in build-mutation build-mutation-plain; do
     [ -f "cpp/$tree/compile_commands.json" ] && trees="$trees $tree"
 done
 [ -n "$trees" ] || { echo "no mutation tree configured, claim untestable"; exit 0; }
-scratch=cpp/build-mutation-probe-scratch/read-past-the-end
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/past_the_end.cpp" <<'CPP'
 #include <cstdio>
 #include <map>

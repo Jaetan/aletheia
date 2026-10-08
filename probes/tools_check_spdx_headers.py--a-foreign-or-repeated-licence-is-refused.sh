@@ -6,8 +6,8 @@
 # Claim: the gate checks agreement, not only presence. A file carrying the
 # compliant header pair and a second declaration, or one naming a licence the
 # repository does not grant, makes the gate exit non-zero and name the file.
-# The check runs against a throwaway repository under the build tree, so the
-# worktree is never modified. Non-zero exit: the gate accepts a foreign
+# The check runs against a throwaway repository in a scratch directory, so
+# the worktree is never modified. Non-zero exit: the gate accepts a foreign
 # identifier, accepts a repeated one, or refuses a compliant tree. Exits 2
 # when git or the interpreter is missing.
 set -u
@@ -15,12 +15,13 @@ cd "$(dirname "$0")/.." || exit 2
 repo=$PWD
 py=$repo/python/.venv/bin/python
 command -v git > /dev/null && [ -x "$py" ] || exit 2
-scratch=cpp/build/probe-scratch/spdx-agreement
-rm -rf "$scratch"
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 # The gate anchors its repository root on its own module path, so the copy of
 # the package is what puts the throwaway repository in scope.
-cp -r tools "$scratch/tools" || exit 2
+# The copy takes the package's tracked files alone, never the logs a run
+# writes beside them.
+git ls-files -z -- tools | xargs -0 cp --parents -t "$scratch" || exit 2
 printf 'Copyright 2025 Nicolas Pelletier\n' > "$scratch/LICENSE.md"
 printf '# SPDX-FileCopyrightText: 2025 Nicolas Pelletier\n# SPDX-License-Identifier: BSD-2-Clause\n' > "$scratch/ok.py"
 (cd "$scratch" && git init -q . && git add -A) || exit 2
@@ -45,4 +46,3 @@ printf '# SPDX-FileCopyrightText: 2025 Nicolas Pelletier\n# SPDX-License-Identif
 out=$(run); rc=$?
 [ "$rc" -ne 0 ] || { echo "a repeated licence declaration was accepted"; exit 1; }
 case $out in *twice.py*) ;; *) echo "the refusal does not name the file: $out"; exit 1 ;; esac
-rm -rf "$scratch"

@@ -16,7 +16,8 @@
 # The latency mode's banner is checked too, for naming the warmup it was given
 # and not a run count it never reads.
 # Non-zero exit: a flag outside the mode's set was accepted, the refusal
-# cleared a result, or a flag the mode reads was refused.
+# cleared a result, or a flag the mode reads was refused. Exits 2 when the
+# C++ harness cannot be built in a tree of the probe's own.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 dir=$(mktemp -d) || exit 2
@@ -66,9 +67,13 @@ accepted latency --frames 10000 --warmup 500
 accepted scaling --runs 10
 
 # The latency mode runs and reports the warmup it was given. One operation a
-# lane is enough to reach the banner and the lanes, the binaries being built
-# incrementally.
-out=$(ALETHEIA_BENCH_RESULTS_DIR="$dir" bash benchmarks/run_all.sh \
+# lane is enough to reach the banner and the lanes. The run builds every
+# harness, each where the probe names: the C++ one in a tree of its own,
+# built here first, the Go one beside it, the Rust one in a cargo target of
+# its own.
+tools/private_cpp_tree.sh "$dir/cpp" benchmark || exit 2
+out=$(ALETHEIA_BENCH_RESULTS_DIR="$dir" ALETHEIA_BENCH_CPP_BUILD_DIR="$dir/cpp" \
+	ALETHEIA_BENCH_GO_BIN="$dir/go-benchmark" CARGO_TARGET_DIR="$dir/cargo" bash benchmarks/run_all.sh \
 	--bench latency --frames 1 --warmup 7 2>&1)
 rc=$?
 if [ "$rc" -ne 0 ]; then

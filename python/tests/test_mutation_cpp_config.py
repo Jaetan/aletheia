@@ -6,7 +6,7 @@ A whole tree keeping every mutator reads the tree's own configuration; every
 other leg reads one generated from it and written inside its build tree.
 Every tree's stamp records the digest of the content it was built under, and
 a tree whose stamp names other content was built under another configuration:
-the lane removes it before building, and the sweep cache refuses to sweep it.
+the lane removes it before building.
 The tree is faked under a scratch root.
 """
 

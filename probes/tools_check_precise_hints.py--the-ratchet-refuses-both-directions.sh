@@ -21,7 +21,7 @@ cd "$(dirname "$0")/.." || exit 2
 py=$PWD/python/.venv/bin/python
 [ -x "$py" ] || exit 2
 module=tools/_resources.py
-probe=probes/tools_mutation_sweep_cache.py--the-sweep-runs-inside-the-cpus-it-was-given.sh
+probe=probes/cpp_mull.yml--the-test-double-is-held-out.sh
 record=docs/PYTHON_IMPRECISE_HINTS.yaml
 for file in "$module" "$probe" "$record"; do [ -f "$file" ] || exit 2; done
 
@@ -71,7 +71,7 @@ inject 'type AletheiaProbe = tuple[int, int]' "an alias over ints" \
 	"type AletheiaProbe = tuple[int, int]" || exit 1
 
 # A hint in the Python a probe hands its interpreter.
-sed -i 's/^from tools.mutation_sweep_cache import polite$/&\ndef aletheia_probe(cpus: set[int]) -> None: ...\n/' "$tree/$probe"
+sed -i 's/^from tools.mutation_cpp_dry_run import MULL_RUNNER, dry_run_report, tree_binary$/&\ndef aletheia_probe(cpus: set[int]) -> None: ...\n/' "$tree/$probe"
 grep -q '^def aletheia_probe' "$tree/$probe" || { echo "the probe fixture did not land"; exit 2; }
 refused "a hint inside a probe's Python" "set[int]" || exit 1
 

@@ -32,7 +32,7 @@ lib=$PWD/build/libaletheia-ffi.so
 work=$(mktemp -d) || exit 2
 trap 'rm -rf "$work"' EXIT
 (cd go && go build -o "$work/go-cli" ./cmd/aletheia) || exit 2
-cmake --build cpp/build --target aletheia-cli > /dev/null 2>&1 || exit 2
+tools/private_cpp_tree.sh "$work/cpp" aletheia-cli || exit 2
 
 export ALETHEIA_LIB=$lib LD_LIBRARY_PATH=$PWD/build
 "$py" - "$work" <<'PY'
@@ -48,7 +48,7 @@ bad = []
 
 def run(binding, args, cwd=None):
     argv = {"go": [str(work / "go-cli")],
-            "cpp": ["cpp/build/aletheia-cli"],
+            "cpp": [str(work / "cpp" / "aletheia-cli")],
             "python": [str(Path("python/.venv/bin/python").resolve()), "-m", "aletheia"]}[binding]
     r = subprocess.run(argv + args, capture_output=True, text=True, check=False,
                        cwd=cwd or ("python" if binding == "python" else None))
@@ -83,7 +83,7 @@ agree("the mux-query selector's first two lines",
 # The usage screens, which Python does not have in this shape: it is argparse's,
 # and argparse writes its own. Go and C++ carry one text between them.
 def usage(binding):
-    argv = {"go": [str(work / "go-cli")], "cpp": ["cpp/build/aletheia-cli"]}[binding]
+    argv = {"go": [str(work / "go-cli")], "cpp": [str(work / "cpp" / "aletheia-cli")]}[binding]
     out = subprocess.run(argv, capture_output=True, text=True, check=False)
     text = (out.stdout + out.stderr).replace("aletheia-cli", "aletheia")
     return text.replace("(C++ CLI)", "(CLI)").replace("(Go CLI)", "(CLI)").split("\n")

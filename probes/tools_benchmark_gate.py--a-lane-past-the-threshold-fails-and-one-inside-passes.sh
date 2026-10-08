@@ -12,8 +12,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 2
 py=python/.venv/bin/python
 [ -x "$py" ] || exit 2
-mkdir -p tools/ci-output || exit 2
-work=$(mktemp -d tools/ci-output/.benchmark-gate-XXXXXX) || exit 2
+work=$(mktemp -d) || exit 2
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/slow" "$work/fast" || exit 2
 lane='CAN 2.0B: Frame Building'

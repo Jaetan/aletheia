@@ -7,9 +7,12 @@
 # run exits non-zero, and no scratch file is left in the results directory:
 # in particular, when the first of a lane's two temp files is created and the
 # second is not, the first is removed. Runs the harness with an mktemp that
-# refuses the second template. Non-zero exit: a lane survived the failure, the
-# run exited zero, or a scratch file was orphaned. Exits 2 when the kernel
-# library, the venv or cpp/build is missing.
+# refuses the second template, each compiled harness built where the probe
+# names: the C++ one beforehand in a tree of its own, the Go one beside it,
+# the Rust one in a cargo target of its own.
+# Non-zero exit: a lane survived the failure, the run exited zero, or a
+# scratch file was orphaned. Exits 2 when the kernel library, the venv,
+# cpp/build or the C++ harness is missing.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 [ -f build/libaletheia-ffi.so ] || exit 2
@@ -25,7 +28,10 @@ case "\$*" in *.err.*) echo "probe: mktemp refused" >&2; exit 1 ;; esac
 exec "$real" "\$@"
 SHIM
 chmod +x "$dir/bin/mktemp"
+tools/private_cpp_tree.sh "$dir/cpp" benchmark || exit 2
 out=$(PATH="$dir/bin:$PATH" ALETHEIA_BENCH_RESULTS_DIR="$dir/results" \
+    ALETHEIA_BENCH_CPP_BUILD_DIR="$dir/cpp" ALETHEIA_BENCH_GO_BIN="$dir/go-benchmark" \
+    CARGO_TARGET_DIR="$dir/cargo" \
     bash benchmarks/run_all.sh --frames 1 --runs 1 --bench throughput 2>&1)
 rc=$?
 status=0

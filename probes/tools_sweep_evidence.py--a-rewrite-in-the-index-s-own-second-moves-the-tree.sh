@@ -10,7 +10,7 @@
 # `git add --update` keep the old content, then asks worktree_tree. Every
 # timestamp is set, and core.trustctime is off since no call sets a change
 # time, so no clock decides the outcome. The repository is a throwaway one
-# under the build tree. Non-zero exit: 1 when the fresh-stamped copy sees the
+# in a scratch directory. Non-zero exit: 1 when the fresh-stamped copy sees the
 # rewrite (the probe no longer builds the case) or when worktree_tree names a
 # tree without it; 2 when git, touch or the interpreter is missing.
 set -u
@@ -18,10 +18,9 @@ cd "$(dirname "$0")/.." || exit 2
 repo=$PWD
 py=$repo/python/.venv/bin/python
 command -v git > /dev/null && command -v touch > /dev/null && [ -x "$py" ] || exit 2
-scratch=$repo/cpp/build/probe-scratch/sweep_evidence-racy-rewrite
-rm -rf "$scratch"
-mkdir -p "$scratch/repo" || exit 2
+scratch=$(mktemp -d) || exit 2
 trap 'rm -rf "$scratch"' EXIT
+mkdir -p "$scratch/repo" || exit 2
 at=@1000000000
 g() { git -C "$scratch/repo" "$@"; }
 

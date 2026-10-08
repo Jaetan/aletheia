@@ -130,7 +130,6 @@ DISMISSED_IN = {
             "python/tests/test_git_toplevel.py": TRACKED,
             "python/tests/test_install_hooks.py": "a hook is run as git runs it, over a repository git built",
             "python/tests/test_mutation_run_scope.py": "the modules a fresh interpreter imports are what is claimed",
-            "python/tests/test_mutation_sweep_cache.py": "the hash seed is fixed when an interpreter starts",
             "python/tests/test_rts_heap_cap.py": CAP_ENDS_PROCESS,
             "python/tests/test_run_guarded.py": "process groups, a guard's own group and a caller's input are"
             " attributes of processes",

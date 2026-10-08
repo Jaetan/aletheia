@@ -36,6 +36,12 @@
 #   bugprone-command-processor, cert-env33-c (1)
 #       the documentation harness compiles each fence and runs the result
 #       through a shell pipeline, which is what it exists to test
+#
+# Subscripts:
+#   cppcoreguidelines-pro-bounds-avoid-unchecked-container-access (455)
+#       the tests read the elements of what they check by subscript; the
+#       library's own subscripts are read through at() (AGENTS/cpp.md cat 24),
+#       which this check and tools/check_cpp_ast.py hold over the library
 InheritParentConfig: true
 
 Checks: >
@@ -47,7 +53,8 @@ Checks: >
   -cert-err58-cpp,
   -clang-analyzer-optin.core.EnumCastOutOfRange,
   -bugprone-command-processor,
-  -cert-env33-c
+  -cert-env33-c,
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access
 
 # The parent filters headers to the public and detail trees; the test tree has
 # its own headers, which the gate must reach.

@@ -6,8 +6,8 @@
 # Claim: a tracked file the gate cannot read is reported, by path, with exit 2,
 # not passed over as clean. The index still lists a file deleted from the
 # worktree, so the walk reaches it and the read fails whatever the caller's
-# permissions are. The check runs against a throwaway repository under the
-# build tree, so the worktree is never modified. Non-zero exit: 1 when a clean
+# permissions are. The check runs against a throwaway repository in a
+# scratch directory, so the worktree is never modified. Non-zero exit: 1 when a clean
 # tree is refused, when the unreadable file is passed over, or when the report
 # does not name it; 2 when git or the interpreter is missing.
 set -u
@@ -15,14 +15,14 @@ cd "$(dirname "$0")/.." || exit 2
 repo=$PWD
 py=$repo/python/.venv/bin/python
 command -v git > /dev/null && [ -x "$py" ] || exit 2
-scratch=cpp/build/probe-scratch/check_no_memory_citations-unreadable
-rm -rf "$scratch"
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
 trap 'rm -rf "$scratch"' EXIT
 # The gate anchors its repository root on its own module path, so the copy of
 # the package is what puts the throwaway repository in scope. Only the fixture
 # is tracked: the copy stays untracked, and the walk never reads it.
-cp -r tools "$scratch/tools" || exit 2
+# The copy takes the package's tracked files alone, never the logs a run
+# writes beside them.
+git ls-files -z -- tools | xargs -0 cp --parents -t "$scratch" || exit 2
 printf 'a plain line\n' > "$scratch/note.txt"
 (cd "$scratch" && git init -q . && git add -- note.txt) || exit 2
 

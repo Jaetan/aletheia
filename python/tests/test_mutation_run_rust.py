@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, cast
 from _git_repo import repo_with_an_uncommitted_edit
 
 from tools import mutation_run, mutation_rust
-from tools.mutation_report import MutationReport
+from tools.mutation_report import MutationReport, Observed
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -92,11 +92,16 @@ def _spec(survivors: int = 2, **baseline: object) -> dict[str, BindingSpec]:
 
 
 def test_the_counts_are_read_from_the_outcomes() -> None:
-    """Caught is killed, missed is survived, and the timeouts travel with the report."""
+    """Caught is killed, missed is survived, and the timeouts travel with the report.
+
+    Every mutant the tool made is the four buckets together, the unviable
+    included, which no other count reads.
+    """
     rep = mutation_rust.parse_outcomes(_OUTCOMES, "", "exit 2")
     assert rep.error is None
-    assert (rep.killed, rep.survived, rep.timeouts) == (1, 2, 1)
+    assert (rep.killed, rep.survived, rep.observed.timeouts) == (1, 2, 1)
     assert rep.total_mutants == 3
+    assert rep.observed.generated == 5
 
 
 def test_a_sweep_that_reached_no_mutant_is_an_error() -> None:
@@ -135,7 +140,7 @@ def test_the_version_is_read_off_the_banner() -> None:
 def test_a_survivor_the_ledger_does_not_name_fails(tmp_path: Path) -> None:
     """At an unchanged count, a survivor traded for another is still a regression."""
     rows = mutation_rust.outcomes_survivor_rows(_OUTCOMES, _read_line(_tree(tmp_path)))
-    rep = MutationReport("rust", "cargo-mutants", 1, 2, "", timeouts=1)
+    rep = MutationReport("rust", "cargo-mutants", 1, 2, "", observed=Observed(timeouts=1))
     ledger = [
         {
             "mutator": "replace > with >= in frame_len",
@@ -160,7 +165,7 @@ def test_a_survivor_the_ledger_does_not_name_fails(tmp_path: Path) -> None:
 
 def test_the_timeout_ceiling_is_read_before_the_count() -> None:
     """A run that timed out on nearly everything is refused whatever else it reports."""
-    rep = MutationReport("rust", "cargo-mutants", 3, 0, "", timeouts=300)
+    rep = MutationReport("rust", "cargo-mutants", 3, 0, "", observed=Observed(timeouts=300))
     entry = mutation_run.drift_for(rep, _spec(survivors=0, timeout_ceiling=20))
     assert entry["status"] == "regression"
     assert entry.get("observed_timeouts") == 300

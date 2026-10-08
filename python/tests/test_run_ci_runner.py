@@ -296,7 +296,7 @@ def test_each_sanitizer_lane_owns_its_tree_and_its_lane(tmp_path: Path) -> None:
 
 
 def test_the_compile_database_gates_run_beside_the_test_build(tmp_path: Path) -> None:
-    """clang-tidy and the two checks reading its database share a lane the test build is not in.
+    """clang-tidy and the checks reading its database share a lane the test build is not in.
 
     The lane's first step configures the lint tree with the binding's
     compilers and lints from that tree's database, so the checks after it read
@@ -305,7 +305,7 @@ def test_the_compile_database_gates_run_beside_the_test_build(tmp_path: Path) ->
     """
     runner = _runner(tmp_path)
     register_all_steps(runner, ["cabal", "run", "shake", "--"], runner.opts)
-    gates = ["clang-tidy", "check-clang-tidy-coverage", "check-cpp-restated-types"]
+    gates = ["clang-tidy", "check-clang-tidy-coverage", "check-cpp-ast"]
     lane = [step for step in runner.registered_steps if step.lane == CPP_LINT_LANE]
     assert [step.name for step in lane] == gates
     tidy = str(lane[0].cmd)

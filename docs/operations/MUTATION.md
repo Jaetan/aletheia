@@ -29,7 +29,7 @@ tools/mutation_cpp_slices.py       The C++ surface's partition into slices
 tools/mutation_cpp_runs.py         What the C++ sweep spends on each file, and how far the recorded slice weights have drifted from it
 tools/mutation_routes.py           The C++ kill-route census
 tools/mutation_ccache_evict.sh     The C++ lane's compiler cache cut to its run's working set before the save
-tools/mutation_sweep_cache.py      One sweep of the C++ mutation trees, kept for every probe that reads it
+tools/mutation_cpp_dry_run.py      A dry run of one C++ leg over the tree the lane built: the mutants a sweep of it would run
 tools/build_mull.sh                Mull built from source against LLVM 23, with the patches in tools/mull/
 tools/mutation_go.py               The Go lane's shards: which files each sweeps, and the proof they add up
 tools/mutation_rust.py             The Rust lane: cargo-mutants in shards, over scratch copies of the tree
@@ -89,12 +89,24 @@ while it runs there would be no way to tell progress from a hang.
 
 ## Threshold model
 
-Two-tier per advisor 2026-05-09:
+What fails the lane:
 
-- **Drift gate (hard equality)**: observed survivor count must not exceed
-  the baseline recorded in `docs/MUTATION_BENCH.yaml`.  Any new survivor is
-  a finding, surfaced via the runner's exit code = 1 with a JSON report
-  pointing at the file/line.
+- **Drift gate (exact, both ways)**: every figure a binding's baseline in
+  `docs/MUTATION_BENCH.yaml` records is held equal to the run: the survivor
+  count, `total_mutants` (the mutants the tool judged), `generated` where the
+  tool puts mutants in buckets beyond killed, survived and timed out
+  (gremlins' not covered, not viable and skipped, cargo-mutants' unviable),
+  the not-covered count, the C++ kill routes, and every ledger row.  A run
+  worse than the record, a new survivor or an unrecorded row, is a
+  `regression`; a run better than it, a survivor gone, a recorded row the run
+  no longer produces, or a surface that moved, is `stale` and fails too, so
+  the change that improves the tree lowers the record in the same commit and
+  the record never names a figure no run gives.  Either exits 1 with a JSON
+  report naming what differs.
+- **Hot path**: every file a binding's `hot_path` names must hold a mutant in
+  the run, where the lane reports the files it mutated (C++).  A listed file
+  no mutant reaches, because no suite the mutation build links reaches it or
+  the tool drops its mutants, is surface the lane does not have, a regression.
 - **Timeout ceiling**: a mutant the tool could not finish testing is
   neither killed nor survived, so a sweep whose timeouts hide survivors
   reports fewer of them than the tree has.  Where a binding's baseline
@@ -104,7 +116,7 @@ Two-tier per advisor 2026-05-09:
   remove, never a cap to raise.  No test of any binding holds a thread or a
   timed wait, and no Go or Rust mutant can hang a run at all; a Python or C++
   mutant whose loop never ends is the one way left to reach a cap.
-- **Kill routes (C++, recorded, not gated)**: Mull's SQLite report keeps each
+- **Kill routes (C++, gated)**: Mull's SQLite report keeps each
   mutant's exit status and the test binary's output, and the runner reads
   from them what ended every run: a test's assertion, which Catch2's failure
   exit names where Mull kept none of the output (it keeps nothing of a stream
@@ -116,13 +128,12 @@ Two-tier per advisor 2026-05-09:
   step, with its message), or a fault (an end none of those names).  A run
   ends at its first failing assertion (Catch2's `--abort`), which moves no
   route: a failing assertion is the test's kill whatever ends the process
-  after it, and a run with none goes through the whole suite either way; a
-  probe sweeps every tree without the flag to hold that.  A mutant
-  several lanes killed is attributed in that order.  The counts land in
-  `cpp-routes.json` beside `cpp.json` and in the C++ baseline; a probe holds
-  them equal to the record, which the pinned test order and the debug-mode
-  checks make exact, and a sweep with any timeout is a disturbed run, refused
-  rather than compared.  The mutants attributed to a check or a fault are the
+  after it, and a run with none goes through the whole suite either way.  A
+  mutant several lanes killed is attributed in that order.  The counts land in
+  `cpp-routes.json` beside `cpp.json`, and the lane holds them to the C++
+  baseline's `kill_routes` route by route, which the pinned test order and
+  the debug-mode checks make exact; a sweep with any timeout is refused by the
+  ceiling before they are compared.  The mutants attributed to a check or a fault are the
   ones no test observes by behaviour: what each changes, a guard for most of them and the
   value an index is computed from for the rest, leads straight to an operation
   the language does not define.
@@ -132,8 +143,8 @@ Two-tier per advisor 2026-05-09:
   `not_covered_ledger`, by mutator, repository-relative file, source-line text
   and the count sharing the line. The lane fails on more of them than the
   record and on a row the ledger does not name, at any count, since either is
-  a line that lost its test; a row the sweep no longer produces is reported as
-  stale and lowers the record. What the ledger names is package-level
+  a line that lost its test; fewer of them, or a row the sweep no longer
+  produces, is a stale record, and fails until the change lowers it. What the ledger names is package-level
   constants, whose declarations Go's cover profile does not mark as statements,
   so no test executes them and gremlins never tries their mutants; the values
   are held by the tests that read them. The coverage lane
@@ -142,10 +153,9 @@ Two-tier per advisor 2026-05-09:
   baseline as `unobserved_ledger`, a row per mutator, repository-relative file,
   source-line text, route and refused invariant, with the count of mutants
   sharing the line.  The lane refuses a kill the ledger does not name, as it
-  refuses an unrecorded survivor, and reports a row the sweep no longer
-  produces without failing on it, so a test that learned to observe one does
-  not fail the change that wrote it; the probe over the ledger refuses that
-  direction too, and the change lowers the record.  The row is keyed on the
+  refuses an unrecorded survivor, and refuses a row the sweep no longer
+  produces as a stale record, so a test that learned to observe one lowers
+  the record in the change that wrote it.  The row is keyed on the
   line's text and not its number, and the refusal is recorded down to its
   invariant without the index and size the check printed, because those come
   from the test data.  `tools/check_mutation_setup.py` holds every row of both
@@ -155,7 +165,7 @@ Two-tier per advisor 2026-05-09:
   census and prints them in its log, so re-taking the ledger is a copy.
 - **First run (no gate)**: when the YAML baseline is `null`, the runner
   records the observed survivor count as informational and exits 0.  The
-  next commit is expected to either match this count or improve on it; the
+  next commit is expected to match this count; the
   `null → integer` transition happens via an explicit baseline-set commit
   (NOT by silent overwrite).
 
@@ -441,9 +451,6 @@ ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_GO=1 ALETHEIA_MUTATION_SK
 # sweeps it in the lane's environment with the lane's argv.
 ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_GO=1 ALETHEIA_MUTATION_SKIP_RUST=1 \
   python/.venv/bin/python -m tools.mutation_run
-# The kept sweep the probes read, of the trees as built, in the same
-# environment and with the same argv; it prints the directory holding it.
-python/.venv/bin/python -m tools.mutation_sweep_cache
 ~~~
 
 Per-binding skip env vars (useful for partial runs):
@@ -488,17 +495,15 @@ A baseline regression (observed > baseline) MUST be addressed by:
    that is kept is also recorded in the baseline's `survivors_ledger` in
    `docs/MUTATION_BENCH.yaml`, by mutator, repository-relative file, the text
    of its source line and how many share that line; the lane refuses a
-   survivor the ledger does not name even at an unchanged count, and reports
-   a row that no longer survives as stale. The Rust lane keys its rows the
+   survivor the ledger does not name even at an unchanged count, and refuses
+   a row that no longer survives as a stale record. The Rust lane keys its rows the
    same way, the mutator being the mutation cargo-mutants names less its
    position, read from `mutants.out/outcomes.json` under the lane's `rust/`
    artifact directory. The lane's `cpp-mull.json` artifact
    is Mull's Elements report of each tree, merged by
    `tools.mutation_cpp.merge_elements` over the union of the trees' mutants,
    so a mutant any tree carrying it killed is killed, and `tools.mutation_cpp.elements_survivor_rows`
-   renders what is left in the ledger's row shape. The probe
-   `probes/docs_MUTATION_BENCH.yaml--every-cpp-survivor-is-a-recorded-one.sh`
-   holds the ledger exact in both directions. Beside each lane's Elements
+   renders what is left in the ledger's row shape. Beside each lane's Elements
    report the lane keeps Mull's SQLite report of it, which is where the kill
    routes are read from. To run one C++ mutant alone
    against a test, set its identifier from the Elements report as an
@@ -506,8 +511,8 @@ A baseline regression (observed > baseline) MUST be addressed by:
    `env "<id>=1" cpp/build-mutation/unit_tests '<filter>'`.
 3. Re-running the lane to confirm no regression.
 
-A baseline IMPROVEMENT (observed < baseline) is permitted to land via the
-same YAML edit pattern; the new lower count becomes the floor.
+A baseline IMPROVEMENT (observed < baseline) fails the lane as a stale record
+until the change that made it lowers the record by the same YAML edit.
 
 ## Forward-revert verification protocol
 
@@ -579,10 +584,11 @@ refuses the repeated identifiers.  Stating what a slice claims would instead
 drop that file and report the smaller census as a clean sweep.
 
 Two refusals guard the union.  A mutant carried by two slices of one tree is
-refused by identity, as above.  A union *below* the recorded `total_mutants` is
-refused as a slice that carried fewer files than the partition gave it; a
-census that grew is ordinary work and passes, and a deliberate removal lowers
-the record in the same commit, the way the survivors baseline is lowered.
+refused by identity, as above.  A union off the recorded `total_mutants` is
+refused either way: short of it is what a slice that carried fewer files than
+the partition gave it reads as, and past it, or short by a deliberate
+removal, is a surface the record does not follow, which the change that
+moved it records in the same commit, the way the survivors baseline is.
 
 **The weights are balance, never coverage, and they are reviewed on a
 schedule.**  Each tree's partition is balanced by its own figures under
@@ -630,7 +636,7 @@ would answer a rebuild by doing nothing and sweep the other slice's mutants.
 
 **Cluster 7 ships infrastructure, not survivor elimination.**  The
 threshold model treats baseline as a starting point: the first run sets
-it via an explicit YAML edit; subsequent runs guard against regression.
+it via an explicit YAML edit; subsequent runs are held to it both ways.
 Eliminating the initial baseline survivors is a separate follow-up
 backlog item: they are individual findings (per AGENTS.md "an unjustified
 survivor is a test gap"), each tracked / addressed in their own PRs.

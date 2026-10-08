@@ -67,10 +67,10 @@ done
 
 # --- C++, through its own two cases -----------------------------------------
 if [ -f cpp/build/CMakeCache.txt ]; then
-    if cmake --build cpp/build --target excel_tests > /dev/null 2>&1; then
+    if tools/private_cpp_tree.sh "$work/cpp" excel_tests; then
         for case_name in "excel: create_template parent dir missing rejected" \
                          "excel: create_template stat failure is distinguished from a missing parent"; do
-            if ! ALETHEIA_LIB=$PWD/build/libaletheia-ffi.so ./cpp/build/excel_tests "$case_name" \
+            if ! ALETHEIA_LIB=$PWD/build/libaletheia-ffi.so "$work/cpp/excel_tests" "$case_name" \
                 > /dev/null 2>&1; then
                 echo "the C++ case did not pass: $case_name"
                 bad=1

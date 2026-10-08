@@ -39,6 +39,8 @@ from aletheia.common_types import Prose
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from tools.mutation_report import Spec
+
 
 def _fake_diff(monkeypatch: pytest.MonkeyPatch, *, files: list[str], returncode: int = 0) -> None:
     """Make ``mutation_run.run_capture`` return a canned ``git diff`` result.
@@ -214,16 +216,23 @@ def _fixed_sha(_root: Path | None = None) -> str:
     return "testsha"
 
 
+def _unrecorded_spec() -> Spec:
+    """Stand in for the record with every binding and no baseline, so a run is a first run."""
+    return {"bindings": {"python": {}, "go": {}, "cpp": {}, "rust": {}}}
+
+
 def _sandbox_main(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, files: list[str], ran: list[str]
 ) -> None:
     """Point ``main``'s repo-root / artifact-base / SHA at a writable sandbox.
 
-    ``SPEC_PATH`` was bound to the real repo at import, so the real per-binding
-    baselines still load; only the artifact tree and the diff are sandboxed,
-    and ``main`` runs with no argument.
+    The record is a stand-in that names every binding and records nothing, so
+    a stand-in run is a first run and the verdict is the scope's alone; the
+    artifact tree and the diff are sandboxed too, and ``main`` runs with no
+    argument.
     """
     monkeypatch.setattr("sys.argv", ["mutation_run"])
+    monkeypatch.setattr(mutation_run, "load_spec", _unrecorded_spec)
     monkeypatch.setattr(mutation_run, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(mutation_run, "ARTIFACT_BASE", tmp_path / "artifacts")
     monkeypatch.setattr(mutation_run, "short_sha", _fixed_sha)
@@ -237,6 +246,20 @@ def test_main_runs_only_changed_binding(monkeypatch: pytest.MonkeyPatch, tmp_pat
     _sandbox_main(monkeypatch, tmp_path, files=["go/aletheia/check.go"], ran=ran)
     assert mutation_run.main() == 0
     assert ran == ["go"]
+
+
+def _one_survivor_recorded() -> Spec:
+    """Stand in for the record with one Go survivor, which a stand-in run does not leave."""
+    return {"bindings": {"go": {"baseline": {"survivors": 1}}}}
+
+
+def test_main_fails_a_run_better_than_the_record(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A stale record fails the lane as a regression does, until the change lowers it."""
+    _sandbox_main(monkeypatch, tmp_path, files=["go/aletheia/check.go"], ran=[])
+    monkeypatch.setattr(mutation_run, "load_spec", _one_survivor_recorded)
+    assert mutation_run.main() != 0
 
 
 def test_main_docs_only_runs_nothing_and_passes(
@@ -328,7 +351,7 @@ def test_run_python_reports_the_mutants_mutmut_timed_out(
 
     report = mutation_run.run_python(artifacts)
 
-    assert (report.killed, report.survived, report.timeouts) == (9, 0, 1)
+    assert (report.killed, report.survived, report.observed.timeouts) == (9, 0, 1)
     verdict = mutation_run.drift_for(
         report, {"python": {"baseline": {"survivors": 0, "timeout_ceiling": 0}}}
     )

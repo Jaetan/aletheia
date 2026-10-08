@@ -24,8 +24,8 @@ grep -q 'a fixed canned-ack/success backend' docs/FEATURE_MATRIX.yaml || {
     fail=1
 }
 
-scratch=cpp/build/probe-scratch/di-seam
-mkdir -p "$scratch" || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
 cat > "$scratch/t.cpp" <<'CPP'
 #include <aletheia/backend.hpp>
 #include <aletheia/client.hpp>

@@ -11,11 +11,11 @@
 set -u
 cd "$(dirname "$0")/.." || exit 2
 [ -f cpp/build/CMakeCache.txt ] && [ -f build/libaletheia-ffi.so ] || exit 2
-cmake --build cpp/build --target aletheia-cli > /dev/null 2>&1 || exit 2
+scratch=$(mktemp -d) || exit 2
+trap 'rm -rf "$scratch"' EXIT
+tools/private_cpp_tree.sh "$scratch/cpp" aletheia-cli || exit 2
 export ALETHEIA_LIB=$PWD/build/libaletheia-ffi.so
-cli=cpp/build/aletheia-cli
-scratch=cpp/build/probe-scratch/cli-exit
-mkdir -p "$scratch" || exit 2
+cli=$scratch/cpp/aletheia-cli
 printf 'VERSION ""\n\nNS_ :\n\nBS_:\n\nBU_: ECU\n\nBO_ 256 A: 8 ECU\n SG_ S : 0|16@1+ (1,0) [0|1] "" ECU\n\nBO_ 256 B: 8 ECU\n SG_ T : 0|8@1+ (1,0) [0|1] "" ECU\n' > "$scratch/duplicate_id.dbc"
 expect() { "$cli" "${@:2}" > /dev/null 2>&1; rc=$?; [ "$rc" -eq "$1" ] || { echo "expected $1 got $rc for: ${*:2}"; exit 1; }; }
 expect 0 validate --dbc examples/example.dbc

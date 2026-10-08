@@ -29,10 +29,8 @@ plugin="$HOME/.local/bin/mull-ir-frontend-23"
 scratch=$(mktemp -d) || exit 2
 trap 'rm -rf "$scratch"' EXIT
 
-tree=cpp/build/probe-scratch/mutation-launcher
-rm -rf "$tree"
-cmake -S cpp -B "$tree" -DALETHEIA_MUTATION=ON -DCMAKE_C_COMPILER=clang-23 \
-    -DCMAKE_CXX_COMPILER=clang++-23 > "$scratch/configure.log" 2>&1 ||
+tree=$scratch/tree
+tools/private_cpp_tree.sh "$tree" -- -DALETHEIA_MUTATION=ON 2> "$scratch/configure.log" ||
     { echo "configure failed:"; tail -5 "$scratch/configure.log"; exit 1; }
 grep -q '^CCACHE_PROGRAM:FILEPATH=/' "$tree/CMakeCache.txt" ||
     { echo "ccache not found by the configure, claim vacuous"; exit 1; }

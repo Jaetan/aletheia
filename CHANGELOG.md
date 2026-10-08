@@ -12,6 +12,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
+- **Every probe's time is on its line and kept.** The probe store's runner
+  printed a verdict and a path, so a whole run, 70 min 54 s on the tree of
+  `77d2a3a4`, said nothing of where the time went. Each line now carries the
+  probe's wall time after its path, and the run's times are kept beside its
+  failures in `tools/ci-output/probes/timings.tsv`, one row per probe with its
+  verdict, the latest run's only. The probe over the runner holds the time
+  printed and kept, never shorter than a staged probe's sleep, and replaced
+  by the next run, red against the runner it replaces.
+
 - **A Rust test drives the async client on its own thread:
   `aletheia::testing::TurnExecutor`.** `AsyncClient` runs its sync client on a
   worker thread, so every Rust async test ran a thread beside it, and the
@@ -260,6 +269,95 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **A gate refuses the C++ library's unchecked reads, in the parse the
+  type-deduction ratchet already makes.** A probe held the reads of a state a
+  check has ruled out at zero (AGENTS/cpp.md cat 24), one clang-query over
+  every translation unit, 150.5 s, run only with the probe store; and it read
+  a unit clang-query could not parse as clean, since clang-query exits zero
+  after a fatal diagnostic and matches nothing in that unit, so it passed over
+  a tree whose unit hid an unchecked read behind a missing include.
+  `tools/check_cpp_checked_reads.py` now holds the rule, and the C++ lint
+  lane's `check-cpp-ast` step, `tools/check_cpp_ast.py`, runs it with the
+  ratchet in one query per unit, the parse being most of either rule's time:
+  12.2 s and 165 s of CPU for both, where the two apart took 21.9 s and 297 s.
+  A unit clang-query cannot parse fails the step. The rules' tests run the
+  whole query over a tree laid out as the binding's: every spelling the
+  checked-read rule names, the checked form of each, a public header's
+  template read only where a test instantiates it, the two headers held out,
+  and a declaration restating its type. The rules share one
+  driver, `tools/_clang_query.py`, which no longer queries the 182 dependency
+  units the lint tree's configure fetches: the filter named `build/_deps/`, a
+  directory the lint tree does not have, so the ratchet parsed 239 units for
+  57. clang-tidy's `cppcoreguidelines-pro-bounds-avoid-unchecked-container-access`,
+  disabled on the claim that the library subscripts with `[]` on purpose, is
+  on: it holds out the standard maps and the third-party types the library
+  uses through `operator[]` (yaml-cpp, nlohmann, OpenXLSX), the tests disable
+  it, and the benchmark's 28 subscripts take their checked forms.
+
+- **The mutation lane holds every binding's record exactly, both ways.** The
+  lane failed a run worse than `docs/MUTATION_BENCH.yaml` and passed one
+  better: fewer survivors or not-covered mutants, a ledger row the run no
+  longer produced, which it only reported, and a C++ tree's census past its
+  record. It held no total but to a floor on each C++ tree's census, and no
+  C++ kill route or Go or Rust count of every mutant the tool made at all;
+  seven probes swept the trees again to refuse what the lane let pass. The
+  lane now fails a run off the record either way, `regression` where the run
+  is worse and `stale` where it is better, until the change that moved it
+  records the new figure in the same commit: the survivor count,
+  `total_mutants`, `generated` (gremlins' six buckets, cargo-mutants' four, so
+  a mutant that left the surface for the not viable, skipped or unviable
+  bucket is seen), the not-covered count, the C++ census by kill route, every
+  row of the three ledgers, each C++ tree's census at the merge, and a mutant
+  in every file of the C++ `hot_path`. The seven probes are retired into the
+  lane, and with the Go and Rust baselines' probes gone, so are the kept Go
+  and Rust sweeps that only they read. The probe that held a timed-out Go
+  sweep refused is retired into the Go drift tests: the run at the ceiling it
+  took, off the record, is now refused as stale, and the rest of its claim,
+  the recorded run with 622 mutants timed out refused and the ceiling as the
+  edge, is a test.
+
+- **Every probe writes only beneath a directory of its own.** Probes wrote
+  where another could read or write: a fixed scratch directory under
+  `cpp/build`, `tools/ci-output` or `go/`, a tracked directory, a shared build
+  tree they built in, or the tree's Agda interfaces and lock. Each now writes
+  beneath a directory it makes with `mktemp -d`, and builds what it runs
+  there: a C++ target in a tree of its own made by the new
+  `tools/private_cpp_tree.sh`, which configures from the sources `cpp/build`
+  fetched and builds with the tree as ccache's base directory, so a fresh
+  tree's library is served from the cache in 1.8 s where, without the base
+  directory, 28 of its 76 compiles missed and it took 32.8 s; an Agda check in
+  a copy of the project and its interfaces; a gate pointed at a copy of the
+  files it reads. A lane's mutation tree is read as the lane left it, and the
+  probe of the slices refuses one that is absent, was built under another
+  configuration or is older than a tracked C++ source. The rewrite found what
+  the shared state had hidden: a probe signed the commits of its scratch
+  repository with the developer's own key; two configured C++ trees fetched
+  their dependencies from the network on every run; one redated every Agda
+  interface in the tree to 2020 and deleted one; and the probe of the fuzz
+  recipe could not have seen the write it guards against once writes outside
+  its directory are refused, so it runs the recipe against a copy of the seeds
+  and compares the two. The two probes that time the kernel's growth take its
+  processor time, the two sizes in turn, rather than its wall time.
+- **The probe store runs its probes side by side, each in a sandbox.** The
+  runner ran one probe at a time, since only then could it tell which probe
+  had moved a tracked file. It now runs `PROBE_WORKERS` probes at once, 4
+  unless told otherwise, each under a Landlock ruleset (`setpriv`, util-linux
+  2.42) that lets it write only beneath a directory of its own, the tool
+  caches and the git directory, so a write to a tracked file or to another
+  probe's directory is refused in the probe that made it. Landlock does not
+  govern a file's times or mode, so the runner reads every tracked file's
+  mtime, size and mode whenever a probe starts or ends; a change makes the
+  probes running since the last reading suspects, each runs again alone, and
+  the one that moves a file fails. Lines and kept times are in path order
+  whatever order the probes finish in, so a run at one worker and a run at
+  eight keep the same record once the times are taken out. A probe starts
+  with SIGINT and SIGQUIT at their defaults, as one run by hand does. The 294
+  probes took 1305.9 s at one worker and 429.3 s at four, with 14.6 GiB of
+  memory at the peak, page cache included; eight took 399.7 s and 20.8 GiB,
+  and sixteen 387.3 s, held at a 22 GiB cap. Past four, the three longest
+  probes bound the run. The probe over the runner holds a refused write, a touched file, a flipped mode,
+  one record at one worker and at eight, and two probes that see each other
+  running at two workers.
 - **Every list in a DBC has a bound, every DBC command decides them alike,
   and a loaded DBC carries the proof (BREAKING).** Eight lists had no bound on
   any route and now refuse past it with `input_bound_exceeded`,
@@ -1749,6 +1847,14 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Fixed
 
+- **`benchmarks/run_all.sh` runs the Rust harness cargo built.** It ran the
+  binary in `rust/target` whatever `CARGO_TARGET_DIR` said, so with the
+  variable set the Rust lane measured an earlier build, or failed where there
+  was none. It now reads the variable, and builds the C++ harness in the tree
+  `ALETHEIA_BENCH_CPP_BUILD_DIR` names and the Go one at the path
+  `ALETHEIA_BENCH_GO_BIN` names, `cpp/build` and `go/benchmarks/benchmark`
+  otherwise, its refusal of a Debug tree naming the tree it read; a probe
+  exercises the script without building where another run reads.
 - **Parsing a DBC takes time linear in its length.** Every route that loads a
   DBC reads its JSON or its text through the parser combinators' `many`, which
   measured the whole rest of the document each time it started (once per JSON
@@ -2411,6 +2517,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Removed
 
+- **The kept sweeps of the C++ mutation trees, and the two probes that read
+  them.** Two probes swept the C++ trees again under a variant of the lane's
+  command, one in other orders of the cases and one without `--abort`, to hold
+  that neither moves a mutant's verdict or ending; in the last store run they
+  took 4899.9 s and 4333.5 s, 40 percent of the probes' summed time. Their
+  claims do not earn that: the census reads any failing assertion as the
+  test's kill whatever ended the process after it, which
+  `test_a_run_is_read_by_what_ended_it` holds, so `--abort` cannot move an
+  ending; a verdict the order moves changes the survivors when the order
+  changes, which the exact lane refuses; and no commit records an order
+  dependence either probe found. With them went the last reader of
+  `tools/mutation_sweep_cache.py`, which kept sweeps keyed on every file a
+  sweep reads. It is removed with its tests, its probes, `cpp/mutation-sweeps/`
+  and the `fresh-process` directory the fresh-process suites were built into
+  so its key could find them. A dry run of one leg, which the probes over the
+  mutation surface read, is `tools/mutation_cpp_dry_run.py`.
 - **The `frame_byte_count` bound kind and `max-frame-byte-count` (BREAKING).**
   The bound refused nothing the DLC's byte count did not already refuse; a
   frame of the wrong length is now `parse_payload_length_mismatch`, whatever
