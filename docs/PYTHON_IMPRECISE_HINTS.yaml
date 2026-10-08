@@ -1775,7 +1775,7 @@ hints:
     count: 2
   - file: python/tests/test_mutation_cpp_stage.py
     text: "int"
-    count: 2
+    count: 1
   - file: python/tests/test_mutation_cpp_stage.py
     text: "list[str]"
     count: 3
@@ -3193,9 +3193,6 @@ hints:
     text: "dict[str, int]"
     count: 1
   - file: tools/mutation_cpp.py
-    text: "dict[str, int] | None"
-    count: 1
-  - file: tools/mutation_cpp.py
     text: "dict[str, object]"
     count: 4
   - file: tools/mutation_cpp.py
@@ -3324,7 +3321,7 @@ hints:
     count: 1
   - file: tools/mutation_report.py
     text: "str"
-    count: 12
+    count: 11
   - file: tools/mutation_report.py
     text: "str | None"
     count: 1

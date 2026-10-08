@@ -6,8 +6,9 @@ gremlins puts every mutant in one bucket, and the ones on lines no test
 executes are a coverage gap the lane records rather than a survivor it
 refuses.  What is held here: the summary is read whole, the not-covered
 mutants are keyed on their source lines, and the verdict refuses a run with
-more of them than the record or with one the ledger does not name, while a
-recorded row the run no longer produces is reported and passes.  And the
+more of them than the record or with one the ledger does not name, and a
+record the run has outgrown: fewer of them, or a recorded row the run no
+longer produces.  And the
 sweep itself: gremlins runs in a copy of the tree as it stands, handed the
 copy as the repository, the tree's own kernel, and the doc-example harness
 skipped.
@@ -19,19 +20,18 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+import pytest
 from _git_repo import repo_with_an_uncommitted_edit
 from _stand_in import ScriptSource, ToolName, install_stand_in
 
 from tools import mutation_run
 from tools.mutation_go import GremlinsLog
-from tools.mutation_report import MutationReport
+from tools.mutation_report import MutantCount, MutationReport, Observed, load_spec
 
 from aletheia.common_types import Prose
 
 if TYPE_CHECKING:
-    import pytest
-
-    from tools.mutation_report import BindingSpec
+    from tools.mutation_report import BindingSpec, DriftStatus
 
 _SUMMARY = """\
       NOT COVERED ARITHMETIC_BASE at limits.go:3:23
@@ -63,7 +63,7 @@ def _spec(**baseline: object) -> dict[str, BindingSpec]:
 
 
 def _report() -> MutationReport:
-    return MutationReport("go", "gremlins", 721, 0, _SUMMARY, timeouts=2)
+    return MutationReport("go", "gremlins", 721, 0, _SUMMARY, observed=Observed(timeouts=2))
 
 
 def _rows(count: int) -> dict[mutation_run.SurvivorKey, int]:
@@ -71,9 +71,17 @@ def _rows(count: int) -> dict[mutation_run.SurvivorKey, int]:
 
 
 def test_the_summary_is_read_whole(tmp_path: Path) -> None:
-    """Killed, lived and timed out are read from the tail; not covered from the mutant lines."""
+    """Killed, lived and timed out are read from the tail; not covered from the mutant lines.
+
+    Every mutant gremlins made is the sum of its six buckets, the not viable and
+    the skipped included, which no other count reads.
+    """
     rep = mutation_run.parse_gremlins_summary(GremlinsLog(_SUMMARY), Prose("here"))
-    assert (rep.killed, rep.survived, rep.timeouts) == (721, 1, 2)
+    assert (rep.killed, rep.survived, rep.observed.timeouts) == (721, 1, 2)
+    assert rep.observed.generated == 721 + 1 + 3 + 2
+    odd = _SUMMARY.replace("Not viable: 0, Skipped: 0", "Not viable: 4, Skipped: 5")
+    reread = mutation_run.parse_gremlins_summary(GremlinsLog(odd), Prose("here"))
+    assert reread.observed.generated == 736
     assert sum(mutation_run.go_mutant_rows(_SUMMARY, "NOT COVERED", _tree(tmp_path)).values()) == 3
 
 
@@ -114,11 +122,15 @@ def test_more_not_covered_than_recorded_is_a_regression() -> None:
     entry = mutation_run.drift_for(_report(), _spec(not_covered=3), not_covered_rows=_rows(4))
     assert entry["status"] == "regression"
     assert (entry.get("observed_not_covered"), entry.get("baseline_not_covered")) == (4, 3)
-    for count in (3, 2):
-        entry = mutation_run.drift_for(
-            _report(), _spec(not_covered=3), not_covered_rows=_rows(count)
-        )
-        assert entry["status"] == "ok"
+    entry = mutation_run.drift_for(_report(), _spec(not_covered=3), not_covered_rows=_rows(3))
+    assert entry["status"] == "ok"
+
+
+def test_fewer_not_covered_than_recorded_is_a_stale_record() -> None:
+    """A line that gained a test lowers the record in the change that wrote the test."""
+    entry = mutation_run.drift_for(_report(), _spec(not_covered=3), not_covered_rows=_rows(2))
+    assert entry["status"] == "stale"
+    assert (entry.get("observed_not_covered"), entry.get("baseline_not_covered")) == (2, 3)
 
 
 def test_a_record_without_the_count_holds_nothing() -> None:
@@ -159,29 +171,63 @@ def test_a_not_covered_row_the_ledger_does_not_name_fails(tmp_path: Path) -> Non
     assert entry.get("stale_not_covered_ledger") == [ledger[1]]
 
 
-def test_a_recorded_row_the_run_no_longer_produces_is_stale_and_passes(tmp_path: Path) -> None:
-    """A line that gained a test lowers the record, which the change makes."""
+def test_a_recorded_row_the_run_no_longer_produces_is_a_stale_record(tmp_path: Path) -> None:
+    """A line that gained a test fails the lane until the change deletes its row."""
     rows = mutation_run.go_mutant_rows(_SUMMARY, "NOT COVERED", _tree(tmp_path))
     ledger = [
         *mutation_run.rows_to_ledger(rows),
         {"mutator": "Z", "file": "go/aletheia/limits.go", "text": "gone", "count": 1},
     ]
     entry = mutation_run.drift_for(
-        _report(), _spec(not_covered=4, not_covered_ledger=ledger), not_covered_rows=rows
+        _report(), _spec(not_covered=3, not_covered_ledger=ledger), not_covered_rows=rows
     )
-    assert entry["status"] == "ok"
+    assert entry["status"] == "stale"
     assert entry.get("stale_not_covered_ledger") == [ledger[-1]]
     assert "unrecorded_not_covered" not in entry
 
 
 def test_the_timeout_ceiling_is_read_before_the_count() -> None:
     """A run that timed out on nearly everything is refused whatever else it reports."""
-    rep = MutationReport("go", "gremlins", 25, 0, "", timeouts=632)
+    rep = MutationReport("go", "gremlins", 25, 0, "", observed=Observed(timeouts=632))
     entry = mutation_run.drift_for(
         rep, _spec(timeout_ceiling=50, not_covered=0), not_covered_rows={}
     )
     assert entry["status"] == "regression"
     assert entry.get("observed_timeouts") == 632
+
+
+def test_the_recorded_timed_out_run_is_refused() -> None:
+    """The run that showed the defect: 39 killed, 622 timed out, and no survivor reported.
+
+    A mutant gremlins could not finish is neither killed nor lived, so the
+    run reads as clean and fully efficacious on its counts alone.
+    """
+    tail = "Killed: 39, Lived: 0, Not covered: 102\nTimed out: 622, Not viable: 0, Skipped: 0\n"
+    rep = mutation_run.parse_gremlins_summary(GremlinsLog(tail), Prose("recorded"))
+    entry = mutation_run.drift_for(rep, _spec(timeout_ceiling=0, total_mutants=39))
+    assert entry["status"] == "regression"
+    assert entry.get("observed_timeouts") == 622
+
+
+@pytest.mark.parametrize(
+    ("timeouts", "status"), [(MutantCount(3), "regression"), (MutantCount(2), "ok")]
+)
+def test_the_ceiling_is_the_edge(timeouts: MutantCount, status: DriftStatus) -> None:
+    """One timeout past the ceiling is refused; a run at it that matches the record is taken."""
+    rep = MutationReport("go", "gremlins", 721, 0, _SUMMARY, observed=Observed(timeouts=timeouts))
+    assert mutation_run.drift_for(rep, _spec(timeout_ceiling=2))["status"] == status
+
+
+def test_the_record_s_own_figures_pass_the_gate_they_record() -> None:
+    """The Go baseline, spelled as the tail gremlins prints, is a run the lane takes."""
+    record = load_spec().get("bindings", {}).get("go", {}).get("baseline", {})
+    tail = (
+        f"Killed: {record.get('total_mutants', 0) - record.get('survivors', 0)}, "
+        + f"Lived: {record.get('survivors', 0)}, Not covered: {record.get('not_covered', 0)}\n"
+        + "Timed out: 0, Not viable: 0, Skipped: 0\n"
+    )
+    rep = mutation_run.parse_gremlins_summary(GremlinsLog(tail), Prose("the record"))
+    assert mutation_run.drift_for(rep, load_spec().get("bindings", {}))["status"] == "ok"
 
 
 # A stand-in for gremlins: it records the directory it ran in, its arguments,

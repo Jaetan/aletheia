@@ -36,14 +36,13 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, NamedTuple, NewType, TypedDict, cast, get_args
 
 import yaml
 
 from tools._common import RelPath, git_ls_files
-from tools.mutation_cpp_config import MutantCount
 from tools.mutation_cpp_slices import MutantCounts, Slice, partition
-from tools.mutation_report import MutationReport
+from tools.mutation_report import MutantCount, MutationReport, Observed
 
 from aletheia.common_types import Prose
 
@@ -84,6 +83,10 @@ FilePattern = NewType("FilePattern", str)
 
 # What a gremlins run printed, a dry run's listing or a sweep's verdicts.
 GremlinsLog = NewType("GremlinsLog", str)
+
+# The buckets of a gremlins tail, every mutant it made being in exactly one.
+GremlinsBucket = Literal["Killed", "Lived", "Not covered", "Timed out", "Not viable", "Skipped"]
+GREMLINS_BUCKETS: tuple[GremlinsBucket, ...] = get_args(GremlinsBucket)
 
 # A gremlins configuration file's text.
 GremlinsConfigText = NewType("GremlinsConfigText", str)
@@ -449,13 +452,20 @@ def parse_gremlins_summary(
         )
     # gremlins' "Not covered" mutants are on lines no test reaches; they do not
     # contribute to the killed/lived split, so total_mutants = killed + survived.
+    # Every mutant it made is in one of the tail's six buckets, and a tail
+    # missing one reports no count of them.
+    buckets = [re.search(rf"{bucket}:\s*(\d+)", raw) for bucket in GREMLINS_BUCKETS]
+    generated = sum(int(found.group(1)) for found in buckets if found is not None)
     return MutationReport(
         binding,
         "gremlins",
         int(killed_m.group(1)),
         int(survived_m.group(1)),
         raw,
-        timeouts=int(timeout_m.group(1)) if timeout_m else None,
+        observed=Observed(
+            timeouts=int(timeout_m.group(1)) if timeout_m else None,
+            generated=MutantCount(generated) if None not in buckets else None,
+        ),
     )
 
 
@@ -557,19 +567,32 @@ def merge_go_shards(artifact_dir: Path, commit: ShortSha) -> MutationReport:
     _ = (artifact_dir / GO_SHARDS_REPORT).write_text(json.dumps(elapsed, indent=2))
     killed = sum(report.killed for report in reports)
     lived = sum(report.survived for report in reports)
-    timed_out = sum(report.timeouts or 0 for report in reports)
-    not_covered = sum(_not_covered(sweep.log) for sweep in sweeps)
+    timed_out = sum(report.observed.timeouts or 0 for report in reports)
+    rest = {
+        name: sum(_bucket(sweep.log, name) for sweep in sweeps)
+        for name in ("Not covered", "Not viable", "Skipped")
+    }
     # The merged figures open the log, in gremlins' own words, so a reader
     # taking the first summary line reads the lane's and not one shard's.
-    raw += f"Killed: {killed}, Lived: {lived}, Not covered: {not_covered}\n"
-    raw += f"Timed out: {timed_out}\n"
+    raw += f"Killed: {killed}, Lived: {lived}, Not covered: {rest['Not covered']}\n"
+    raw += f"Timed out: {timed_out}, Not viable: {rest['Not viable']}, Skipped: {rest['Skipped']}\n"
     raw += "".join(f"{shard} swept in {secs}s\n" for shard, secs in elapsed.items())
     raw += "".join(sweep.log for sweep in sweeps)
     _ = (artifact_dir / GO_RAW_LOG).write_text(raw)
-    return MutationReport("go", "gremlins", killed, lived, raw, timeouts=timed_out)
+    return MutationReport(
+        "go",
+        "gremlins",
+        killed,
+        lived,
+        raw,
+        observed=Observed(
+            timeouts=timed_out,
+            generated=MutantCount(killed + lived + timed_out + sum(rest.values())),
+        ),
+    )
 
 
-def _not_covered(log: GremlinsLog) -> MutantCount:
-    """Read a sweep's not-covered count from its summary."""
-    found = re.search(r"Not covered:\s*(\d+)", log)
+def _bucket(log: GremlinsLog, name: GremlinsBucket) -> MutantCount:
+    """Read one bucket's count from a sweep's summary, none where the summary has no such line."""
+    found = re.search(rf"{name}:\s*(\d+)", log)
     return MutantCount(int(found.group(1)) if found else 0)

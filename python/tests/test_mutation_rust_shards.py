@@ -11,7 +11,7 @@ Each refusal is staged by a fixture that breaks exactly the claim it holds.
 
 from __future__ import annotations
 
-from tools.mutation_cpp_config import MutantCount
+from tools.mutation_report import MutantCount
 from tools.mutation_rust import (
     CrateFile,
     ListedMutant,

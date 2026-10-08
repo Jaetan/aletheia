@@ -103,9 +103,10 @@ bindings:
         ALETHEIA_MUTATION_SKIP_RUST=1 python/.venv/bin/python -m tools.mutation_run
     report: |
       # gremlins writes its summary to stdout, counting the mutants it killed,
-      # those that lived, those on a line no test reaches, and those that timed
-      # out. The runner reads the killed and lived counts from it, and a mutant
-      # on an uncovered line is neither: the total below is killed plus lived.
+      # those that lived, those on a line no test reaches, those that timed
+      # out, and those not viable or skipped. The runner reads every count from
+      # it: a mutant on an uncovered line is neither killed nor lived, so the
+      # total below is killed plus lived, and generated is every bucket.
     baseline:
       # gremlins puts every mutant it generates in exactly one bucket, so the
       # counts below add up: generated is the whole set, a property of the
@@ -165,8 +166,8 @@ bindings:
       # Every not-covered mutant, by mutator, repository-relative file, the
       # text of its source line and how many share it, as the survivors are
       # recorded for C++. The lane refuses one not named here at any count,
-      # and reports a row the sweep no longer produces as stale; the change
-      # that reaches a line deletes its row.
+      # and a row the sweep no longer produces as a stale record, until the
+      # change that reaches the line deletes its row.
       #
       # What is left is package-level constants and the one constraint written
       # as a type set. Go's cover profile marks statements, and neither a
@@ -227,9 +228,9 @@ bindings:
           count: 3
       # Every survivor, by mutator, repository-relative file, the text of its
       # source line and how many share it, as the C++ and Rust survivors are
-      # recorded. The lane refuses one not named here at any count, and
-      # reports a row the sweep no longer produces as stale; the change that
-      # kills a survivor deletes its row. None is named: every mutant a test
+      # recorded. The lane refuses one not named here at any count, and a
+      # row the sweep no longer produces as a stale record, until the change
+      # that kills the survivor deletes its row. None is named: every mutant a test
       # can reach is killed by one.
       survivors_ledger: []
 
@@ -255,7 +256,8 @@ bindings:
       # plugin is attached to the library and the test binary, so Mull
       # mutates whatever those compile and the link keeps, which reaches
       # files not listed here.  A listed file with no mutant is a defect of
-      # the lane, not of the file: a probe holds that every file here has one.
+      # the lane, not of the file, and the lane fails a run that leaves a
+      # file here without one.
       - cpp/src/backend.cpp
       - cpp/src/client.cpp
       - cpp/src/dbc.cpp
@@ -306,10 +308,10 @@ bindings:
       # the "Surviving mutants: N" / "Mutation score: P%" summary at the
       # tail.  Killed count derived from survived + score_pct.
     baseline:
-      # The measured survivor count of the ruled surface is the floor: a
-      # survivor above it on a future commit fails the lane, and the count is
-      # worked down by the change that kills or justifies a survivor, which
-      # lowers it here in the same commit.
+      # The measured survivor count of the ruled surface is held exactly: a
+      # survivor above it fails the lane, and so does a count below it, until
+      # the change that kills or justifies a survivor lowers it here in the
+      # same commit.
       #
       # What holds the surface. The mutation binary folds in the real-FFI
       # integration suite and the two loader suites, because a mock-only
@@ -388,7 +390,7 @@ bindings:
       # identifier moves with it, while the census and the counts per file do
       # not: two reports either side of the change share no identifier, and
       # nothing recorded here is keyed on one. The counts
-      # below are exact, and the probe compares them for equality. They can
+      # below are exact, and the lane compares them for equality. They can
       # be, because the lane pins the order the tests run in and because a
       # read the language does not define ends at the check rather than
       # wherever what it read leads: Catch2 shuffles its cases by default
@@ -542,9 +544,9 @@ bindings:
         survived: 4
       # Every survivor, by mutator, repository-relative file, the text of its
       # source line and how many mutants share that line. The lane refuses a
-      # survivor not named here even at an unchanged count, and reports a row
-      # that no longer survives as stale; the change that kills or removes one
-      # deletes its row here.
+      # survivor not named here even at an unchanged count, and a row that no
+      # longer survives as a stale record, until the change that kills or
+      # removes its mutant deletes the row here.
       survivors_ledger:
         # a re-check of a precondition nothing proves, 3 mutants:
         # SignalInjection::create refuses arrays of unequal length and a count
@@ -597,11 +599,9 @@ bindings:
       #
       # The lane refuses a row this does not name, as it refuses an unrecorded
       # survivor: a new one is a line somebody has to look at, not a number to
-      # carry. It reports a row the sweep no longer produces rather than
-      # failing on it, because a test that learned to observe a kill is an
-      # improvement and the change that made it lowers this record; the probe
-      # over this ledger refuses that direction too, so a stale row is not kept
-      # quietly.
+      # carry. It refuses a row the sweep no longer produces too, as a stale
+      # record: a test that learned to observe a kill is an improvement, and
+      # the change that made it lowers this record.
       #
       # Three things are deliberate against rot. A row is keyed on the text of
       # its line and not the line's number, so an edit above the site does not
@@ -874,7 +874,7 @@ bindings:
       # The record is a measurement of the surface under the pinned tool: the
       # mutants generated and the unviable among them are properties of the
       # source and the tool, the survivors of the source and its tests, and
-      # the probe over this file re-sweeps and compares all three.
+      # the lane compares all three, the unviable through generated.
       #
       # What the set is made of: for every function, its body replaced by
       # each value of its return type the tool can name (an empty or a

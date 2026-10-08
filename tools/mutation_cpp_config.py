@@ -35,9 +35,6 @@ if TYPE_CHECKING:
 
     from tools.mutation_cpp_legs import CppLeg, CppTree
 
-# A number of mutants: a census's, a bucket's or a file's.
-MutantCount = NewType("MutantCount", int)
-
 
 def recorded_runs(tree: CppTree) -> TreeRuns:
     """Read the suite runs each file's mutants cost the tree when the weights were last taken.

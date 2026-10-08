@@ -8,16 +8,20 @@ Go, Mull for C++ in ``tools/mutation_cpp.py``, cargo-mutants for Rust in
 into a normalized ``MutationReport`` shape (``tools/mutation_report.py``), and
 archives per-binding JSON to ``benchmarks/mutation/<short_sha>/``.
 
-Drift gate: each binding's report is compared against the baseline survivor
-count recorded in ``docs/MUTATION_BENCH.yaml``.  ``observed > baseline + 0``
-fails the lane (allow exact equality only: any new survivor is a finding
-per AGENTS.md cat 14(g) "an unjustified survivor is a test gap").  Where the
-baseline also carries a ``survivors_ledger``, every survivor must be one of
-its rows, by mutator, repository-relative file and source-line text, up to
-the count the row records: a survivor traded for another leaves the count
-unchanged and fails the lane all the same.  A ledger row that no longer
-survives is reported as stale and does not fail the lane, the way a lower
-count does not; the record is lowered by the change that made it stale.
+Drift gate: each binding's report is held to its baseline in
+``docs/MUTATION_BENCH.yaml``, exactly and both ways: any new survivor is a
+finding per AGENTS.md cat 14(g) "an unjustified survivor is a test gap".  A
+run worse than the record is a ``regression`` and a run better than it is
+``stale``; both fail the lane, so the change that improves the tree lowers
+the record in the same commit and the record never names a figure no run
+gives.  The survivor count and ``total_mutants`` are held for every binding,
+and ``generated`` where the tool reports buckets beyond killed, survived and
+timed out.  Where the baseline carries a ``survivors_ledger``, every survivor
+must be one of its rows, by mutator, repository-relative file and
+source-line text, up to the count the row records, and every row a survivor:
+a survivor traded for another leaves the count unchanged and fails the lane
+all the same.  The C++ census by kill route is held to ``kill_routes``, and
+every file the C++ ``hot_path`` names must hold a mutant.
 
 An ``unobserved_ledger`` is held the same way, over the kills no test observes
 by behaviour: the mutants the C++ lane attributes to a check the standard
@@ -25,14 +29,16 @@ library runs in the mutation build or to a bare signal, where the suite
 reports nothing before the process stops.  A row the record does not name
 fails the lane, because a line whose mutation runs into an operation the
 language does not define, with no test saying so, is a gap somebody has to
-look at rather than a number to carry.
+look at rather than a number to carry; a recorded row the run no longer
+produces is a stale record.
 
 A ``not_covered`` count and a ``not_covered_ledger`` are held for the Go
 lane, whose tool reports the mutants on lines no test executes: a run with
-more of them than the record fails, and each one is keyed on its source line
-as a survivor is and must be a recorded row, the rows being the lines coverage
-cannot attribute to a test, a package-level constant being the case.  A line
-that lost its test is then a finding of this lane, not a number that drifted.
+more or fewer of them than the record fails, and each one is keyed on its
+source line as a survivor is and must be a recorded row, and every row one
+the run produces, the rows being the lines coverage cannot attribute to a
+test, a package-level constant being the case.  A line that lost its test is
+then a finding of this lane, not a number that drifted.
 
 Per-binding env contract:
 
@@ -113,7 +119,9 @@ force the full run regardless.  See ``bindings_in_scope``.
 Artifacts written:
 
   benchmarks/mutation/<short_sha>/
-    python.json    {tool, total_mutants, killed, survived, score_pct, raw_log}
+    python.json    {binding, tool, total_mutants, killed, survived, timeouts,
+                   generated, routes, mutated_files, score_pct, raw_log_tail,
+                   error}, null where the tool has no such figure
     go.json        same shape
     go-1.json, go-1.raw.txt, go-shard-1.json
                    one shard's census, log and record (the dry run's census,
@@ -185,6 +193,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NewType
 
 from tools._common import (
+    RelPath,
     find_executable,
     prepare_artifact_dir,
     run_capture,
@@ -218,7 +227,10 @@ from tools.mutation_report import (
     BindingSpec,
     DriftEntry,
     LedgerRow,
+    MutantCount,
     MutationReport,
+    Observed,
+    RouteCensus,
     SurvivorKey,
     UnobservedKey,
     load_spec,
@@ -390,7 +402,12 @@ def run_python(artifact_dir: Path) -> MutationReport:
             ),
         )
     return MutationReport(
-        "python", "mutmut", counts.killed, counts.survived, raw, timeouts=counts.timeout
+        "python",
+        "mutmut",
+        counts.killed,
+        counts.survived,
+        raw,
+        observed=Observed(timeouts=counts.timeout),
     )
 
 
@@ -711,6 +728,12 @@ def _ungated(rep: MutationReport) -> DriftEntry | None:
     return None
 
 
+def _fail(entry: DriftEntry, status: Literal["regression", "stale"]) -> None:
+    """Mark the run off its record, a regression outranking a stale record."""
+    if entry["status"] != "regression":
+        entry["status"] = status
+
+
 def drift_for(
     rep: MutationReport,
     bindings: dict[str, BindingSpec],
@@ -720,62 +743,137 @@ def drift_for(
 ) -> DriftEntry:
     """Compute one binding's drift verdict against its YAML baseline.
 
-    ``survivor_rows`` are the run's survivors by identity where the tool
-    reports them; with a ``survivors_ledger`` in the baseline, each must be a
-    recorded row.  ``unobserved_rows`` are the kills no test observes by
-    behaviour, held to an ``unobserved_ledger`` the same way: a row the record
-    does not name fails the lane, because a line whose mutation runs into an
-    operation the language does not define, with no test saying so, is a gap
-    somebody has to look at rather than a number to carry.  ``not_covered_rows``
-    are the mutants on lines no test executes, held to a ``not_covered`` count
-    and a ``not_covered_ledger`` the same way again.
+    The record is a measurement of the tree, held exactly both ways: a run
+    worse than the record is a regression, and a run better than it is a
+    stale record, which fails too, so the change that improves the tree
+    lowers the record in the same commit and the record never names a figure
+    no run gives.  ``survivor_rows`` are the run's survivors by identity where
+    the tool reports them, held to a ``survivors_ledger``.  ``unobserved_rows``
+    are the kills no test observes by behaviour, held to an
+    ``unobserved_ledger``: a line whose mutation runs into an operation the
+    language does not define, with no test saying so, is a gap somebody has
+    to look at rather than a number to carry.  ``not_covered_rows`` are the
+    mutants on lines no test executes, held to a ``not_covered`` count and a
+    ``not_covered_ledger``.  The report's own counts are held too: the
+    mutants judged, every mutant the tool made, the C++ census by kill route,
+    and the files it made a mutant in, which must hold every file of the
+    binding's ``hot_path``.  Where the tool makes no such observation it is
+    ``None`` and holds nothing.
     """
-    ungated = _ungated(rep)
-    if ungated is not None:
-        return ungated
-    spec_baseline = bindings.get(rep.binding, {}).get("baseline", {})
-    # A mutant that timed out is neither killed nor survived, so a sweep whose
-    # timeouts hide survivors reports fewer of them than the tree has, and the
-    # survivor count alone cannot tell it from a clean run: the ceiling is
-    # checked first.
-    ceiling = spec_baseline.get("timeout_ceiling")
-    if ceiling is not None and rep.timeouts is not None and rep.timeouts > ceiling:
-        return {
-            "status": "regression",
-            "observed_survivors": rep.survived,
-            "observed_timeouts": rep.timeouts,
-            "timeout_ceiling": ceiling,
-        }
+    spec = bindings.get(rep.binding, {})
+    spec_baseline = spec.get("baseline", {})
+    early = _ungated(rep) or _over_ceiling(rep, spec_baseline)
+    if early is not None:
+        return early
     baseline = spec_baseline.get("survivors")
     if baseline is None:
         return {"status": "first_run", "observed_survivors": rep.survived}
-    if rep.survived > baseline:
-        return {
-            "status": "regression",
-            "observed_survivors": rep.survived,
-            "baseline_survivors": baseline,
-            "delta": rep.survived - baseline,
-        }
     entry: DriftEntry = {
         "status": "ok",
         "observed_survivors": rep.survived,
         "baseline_survivors": baseline,
     }
+    if rep.survived != baseline:
+        entry["delta"] = rep.survived - baseline
+        _fail(entry, "regression" if rep.survived > baseline else "stale")
+    _judge_counts(entry, spec_baseline, rep)
+    _judge_routes(entry, spec_baseline, rep.observed.routes)
+    _judge_hot_path(entry, spec.get("hot_path", []), rep.observed.mutated_files)
     _judge_not_covered(entry, spec_baseline, not_covered_rows)
     _judge_unobserved(entry, spec_baseline, unobserved_rows)
+    # A survivor the ledger does not name is a regression even at an unchanged
+    # count; a recorded row the run no longer leaves alive is a stale record,
+    # deleted by the change that kills or removes its mutant.
     ledger = spec_baseline.get("survivors_ledger")
     if ledger is None or survivor_rows is None:
         return entry
-    recorded = ledger_to_rows(ledger)
+    recorded = collections.Counter(ledger_to_rows(ledger))
     observed = collections.Counter(survivor_rows)
-    unrecorded = rows_to_ledger(dict(observed - collections.Counter(recorded)))
-    stale = rows_to_ledger(dict(collections.Counter(recorded) - observed))
+    unrecorded = rows_to_ledger(dict(observed - recorded))
+    stale = rows_to_ledger(dict(recorded - observed))
     if stale:
         entry["stale_ledger"] = stale
+        _fail(entry, "stale")
     if unrecorded:
-        entry["status"] = "regression"
         entry["unrecorded_survivors"] = unrecorded
+        _fail(entry, "regression")
     return entry
+
+
+def _over_ceiling(rep: MutationReport, spec_baseline: Baseline) -> DriftEntry | None:
+    """Refuse a run past the record's timeout ceiling, whatever else it reports.
+
+    A mutant that timed out is neither killed nor survived, so a sweep whose
+    timeouts hide survivors reports fewer of them than the tree has, and the
+    survivor count alone cannot tell it from a clean run: the ceiling is
+    checked first.
+    """
+    ceiling = spec_baseline.get("timeout_ceiling")
+    timeouts = rep.observed.timeouts
+    if ceiling is None or timeouts is None or timeouts <= ceiling:
+        return None
+    return {
+        "status": "regression",
+        "observed_survivors": rep.survived,
+        "observed_timeouts": timeouts,
+        "timeout_ceiling": ceiling,
+    }
+
+
+def _judge_counts(entry: DriftEntry, spec_baseline: Baseline, rep: MutationReport) -> None:
+    """Hold the mutants the run judged, and every mutant the tool made, to the record.
+
+    Both are the surface, a property of the source, its tests and the tool, so
+    a count off the record either way is a record that no longer describes
+    the tree.  A run that reports no generated count where the record holds
+    one is off the record too: a count compared against nothing holds nothing.
+    """
+    recorded_total = spec_baseline.get("total_mutants")
+    if recorded_total is not None:
+        entry["observed_total_mutants"] = MutantCount(rep.total_mutants)
+        entry["baseline_total_mutants"] = MutantCount(recorded_total)
+        if rep.total_mutants != recorded_total:
+            _fail(entry, "stale")
+    recorded_generated = spec_baseline.get("generated")
+    if recorded_generated is not None:
+        entry["observed_generated"] = rep.observed.generated
+        entry["baseline_generated"] = recorded_generated
+        if rep.observed.generated != recorded_generated:
+            _fail(entry, "stale")
+
+
+def _judge_routes(entry: DriftEntry, spec_baseline: Baseline, routes: RouteCensus | None) -> None:
+    """Hold the C++ census to the record route by route, a route one side lacks counting zero.
+
+    A kill moving from a test to a check or a signal is a test that stopped
+    observing it, which the unobserved ledger names; one moving the other way
+    is a test that learned to.  Either changes what the census says, and
+    either fails until the record follows.
+    """
+    recorded = spec_baseline.get("kill_routes")
+    if recorded is None or routes is None:
+        return
+    if any(routes.get(r, 0) != recorded.get(r, 0) for r in routes.keys() | recorded.keys()):
+        entry["observed_kill_routes"] = routes
+        entry["baseline_kill_routes"] = recorded
+        _fail(entry, "stale")
+
+
+def _judge_hot_path(
+    entry: DriftEntry, hot_path: list[RelPath], mutated_files: frozenset[RelPath] | None
+) -> None:
+    """Refuse a run with no mutant in a file the binding's hot path names.
+
+    The list names the files the lane exists to mutate.  One no mutant
+    reaches, because no suite the mutation build links reaches it or the
+    tool drops its mutants, is surface the lane does not have.
+    """
+    if mutated_files is None:
+        return
+    missing = [path for path in hot_path if path not in mutated_files]
+    if missing:
+        entry["hot_path_without_mutants"] = missing
+        _fail(entry, "regression")
 
 
 def _judge_not_covered(
@@ -786,18 +884,18 @@ def _judge_not_covered(
     """Hold the run's not-covered mutants to the record, by count and by row.
 
     The count is the rows' sum, one per mutant the tool named.  More of them
-    than recorded is a line that lost its test and fails the lane; so does a
-    row the ledger does not name, at any count.  A recorded row the run no
-    longer produces is reported and does not fail, a line that gained a test
-    being an improvement the record follows.
+    than recorded is a line that lost its test, and so is a row the ledger
+    does not name, at any count: a regression.  Fewer, or a recorded row the
+    run no longer produces, is a line that gained a test, which lowers the
+    record in the change that wrote the test.
     """
     recorded_count = spec_baseline.get("not_covered")
     if recorded_count is not None and not_covered_rows is not None:
         observed_count = sum(not_covered_rows.values())
         entry["observed_not_covered"] = observed_count
         entry["baseline_not_covered"] = recorded_count
-        if observed_count > recorded_count:
-            entry["status"] = "regression"
+        if observed_count != recorded_count:
+            _fail(entry, "regression" if observed_count > recorded_count else "stale")
     ledger = spec_baseline.get("not_covered_ledger")
     if ledger is None or not_covered_rows is None:
         return
@@ -807,9 +905,10 @@ def _judge_not_covered(
     unrecorded = rows_to_ledger(dict(observed - recorded))
     if stale:
         entry["stale_not_covered_ledger"] = stale
+        _fail(entry, "stale")
     if unrecorded:
-        entry["status"] = "regression"
         entry["unrecorded_not_covered"] = unrecorded
+        _fail(entry, "regression")
 
 
 def _judge_unobserved(
@@ -819,11 +918,10 @@ def _judge_unobserved(
 ) -> None:
     """Hold the run's unobserved kills to the recorded ledger, both ways.
 
-    A row the record does not name fails the lane, as an unrecorded survivor
-    does.  A recorded row the run no longer produces is reported and does not
-    fail: a test that learned to observe a kill is an improvement, and the
-    change that made it lowers the record.  The probe over this ledger refuses
-    that direction too, so a stale row is not carried quietly.
+    A row the record does not name is a regression, as an unrecorded survivor
+    is.  A recorded row the run no longer produces is a stale record: a test
+    that learned to observe a kill lowers the record in the change that
+    taught it.
     """
     ledger = spec_baseline.get("unobserved_ledger")
     if ledger is None or unobserved_rows is None:
@@ -834,9 +932,10 @@ def _judge_unobserved(
     unrecorded = unobserved_rows_to_ledger(dict(observed - recorded))
     if stale:
         entry["stale_unobserved_ledger"] = stale
+        _fail(entry, "stale")
     if unrecorded:
-        entry["status"] = "regression"
         entry["unrecorded_unobserved_kills"] = unrecorded
+        _fail(entry, "regression")
 
 
 def main() -> int:
@@ -864,9 +963,9 @@ def main() -> int:
         )
     reports, elapsed = _run_enabled_bindings(artifact_dir, in_scope)
 
-    # Drift gate: compare each binding's survived count to the baseline in
-    # the YAML spec.  null baseline = first run, no gating yet.  Otherwise,
-    # observed > baseline = lane fails.
+    # Drift gate: hold each binding's run to its baseline in the YAML spec.
+    # A null survivor count is a first run, not gated yet; otherwise a run off
+    # the record either way fails the lane.
     drift: dict[str, DriftEntry] = {}
     for rep in reports:
         is_cpp = rep.binding == "cpp"
@@ -878,7 +977,7 @@ def main() -> int:
         unobserved = cpp_unobserved_rows(artifact_dir) if is_cpp else None
         not_covered = go_mutant_rows(rep.raw_log, "NOT COVERED") if rep.binding == "go" else None
         drift[rep.binding] = drift_for(rep, bindings, rows, unobserved, not_covered)
-    any_drift = any(entry["status"] in ("error", "regression") for entry in drift.values())
+    any_drift = any(entry["status"] in ("error", "regression", "stale") for entry in drift.values())
 
     summary = {
         "commit": sha,

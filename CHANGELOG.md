@@ -12,29 +12,20 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
-- **A probe reads a kept sweep of the tree as it stands, and sweeps only where
-  none is kept.** Four probes swept for themselves on every run of the store:
-  the two that hold the C++ verdicts and endings under another order of the
-  cases and without `--abort`, and the Go and Rust baselines, 2562.0 s of the
-  4123.6 s the store's probes took. The C++ variants are now kept beside the
-  lane's own sweep in `tools/mutation_sweep_cache.py`, keyed on what the trees
-  hold and on the argv and environment each tree is swept with, except the
-  temp directory, which says where the runs make their scratch and not what
-  they report, and the lane's pinned order is read from the lane's sweep
-  rather than swept again. The Go and Rust sweeps
-  are kept too, keyed on the tracked tree's id, the kernel library and
-  stand-ins their tests load, each tool's bytes and what it says of itself,
-  and the variables the tools and tests read. A kept sweep of another tree is
-  removed once one of the tree as it stands is in place, and is never served.
-  One sweep is made at a time, under a lock on the cache's directory, so
-  probes running at once that ask for the same sweep make it once. With every
-  sweep kept the four take 39.5 s and the store's probes 1527.1 s, 25 min 45 s
-  of wall time where the last run before the change took 69 min 3 s; after a
-  tracked file changes, the Go and Rust probes sweep once more, 178.1 s and
-  166.7 s. A probe holds that a lane's key reads the same twice on this host
-  and moves with a tracked file; it was red on its first run, because
-  `go env -json` names a temporary directory that changes with each asking,
-  which is why Go is now asked for the settings that decide a build by name.
+- **A probe reads a kept sweep of the C++ trees as they stand, and sweeps only
+  where none is kept.** The two probes that hold the C++ verdicts and endings
+  under another order of the cases and without `--abort` swept for themselves
+  on every run of the store, 723.6 s and 1496.9 s of the 4123.6 s the store's
+  probes took. Their sweeps are now kept beside the lane's own in
+  `tools/mutation_sweep_cache.py`, keyed on what the trees hold and on the
+  argv and environment each tree is swept with, except the temp directory,
+  which says where the runs make their scratch and not what they report, and
+  the lane's pinned order is read from the lane's sweep rather than swept
+  again. A kept sweep of another tree is removed once one of the tree as it
+  stands is in place, and is never served. One sweep is made at a time, under
+  a lock on the cache's directory, so probes running at once that ask for the
+  same sweep make it once. With every sweep kept the two take 36.4 s and
+  2.6 s.
 
 - **Every probe's time is on its line and kept.** The probe store's runner
   printed a verdict and a path, so a whole run, 70 min 54 s on the tree of
@@ -292,6 +283,28 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
   subscript one container, which is the case where no bound is hand-written.
 
 ### Changed
+
+- **The mutation lane holds every binding's record exactly, both ways.** The
+  lane failed a run worse than `docs/MUTATION_BENCH.yaml` and passed one
+  better: fewer survivors or not-covered mutants, a ledger row the run no
+  longer produced, which it only reported, and a C++ tree's census past its
+  record. It held no total but to a floor on each C++ tree's census, and no
+  C++ kill route or Go or Rust count of every mutant the tool made at all;
+  seven probes swept the trees again to refuse what the lane let pass. The
+  lane now fails a run off the record either way, `regression` where the run
+  is worse and `stale` where it is better, until the change that moved it
+  records the new figure in the same commit: the survivor count,
+  `total_mutants`, `generated` (gremlins' six buckets, cargo-mutants' four, so
+  a mutant that left the surface for the not viable, skipped or unviable
+  bucket is seen), the not-covered count, the C++ census by kill route, every
+  row of the three ledgers, each C++ tree's census at the merge, and a mutant
+  in every file of the C++ `hot_path`. The seven probes are retired into the
+  lane, and with the Go and Rust baselines' probes gone, so are the kept Go
+  and Rust sweeps that only they read. The probe that held a timed-out Go
+  sweep refused is retired into the Go drift tests: the run at the ceiling it
+  took, off the record, is now refused as stale, and the rest of its claim,
+  the recorded run with 622 mutants timed out refused and the ceiling as the
+  edge, is a test.
 
 - **Every probe writes only beneath a directory of its own.** Probes wrote
   where another could read or write: a fixed scratch directory under

@@ -6,8 +6,8 @@ The C++ baseline records every mutant that only the standard library's own
 check or a bare signal ended, by mutator, file, source-line text, route and
 the invariant the check refused.  Three layers hold it: the rows are built
 from the sweep's endings, the drift gate refuses a row the record does not
-name and reports one the sweep no longer produces, and the always-on static
-gate refuses a row whose line the tree no longer holds.
+name and one the sweep no longer produces, and the always-on static gate
+refuses a row whose line the tree no longer holds.
 """
 
 from __future__ import annotations
@@ -99,7 +99,7 @@ def test_a_ledger_round_trips_through_its_rows() -> None:
 
 
 def _bindings(ledger: list[UnobservedRow] | None) -> dict[str, BindingSpec]:
-    baseline: Baseline = {"survivors": 1}
+    baseline: Baseline = {"survivors": 0}
     if ledger is not None:
         baseline["unobserved_ledger"] = ledger
     return {"cpp": {"tool": "mull", "baseline": baseline}}
@@ -118,10 +118,10 @@ def test_a_kill_the_record_does_not_name_fails_the_lane() -> None:
     assert entry.get("unrecorded_unobserved_kills") == [_ROW]
 
 
-def test_a_row_the_sweep_no_longer_produces_is_reported_and_does_not_fail() -> None:
-    """A test that learned to observe a kill is an improvement; the record is lowered by it."""
+def test_a_row_the_sweep_no_longer_produces_is_a_stale_record_and_fails() -> None:
+    """A test that learned to observe a kill lowers the record in the change that taught it."""
     entry = _drift({}, [_ROW])
-    assert entry["status"] == "ok"
+    assert entry["status"] == "stale"
     assert entry.get("stale_unobserved_ledger") == [_ROW]
     assert "unrecorded_unobserved_kills" not in entry
 
