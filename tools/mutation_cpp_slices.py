@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """The partition of the C++ mutation surface into the slices a CI job each sweeps.
 
-A tree's sweep costs the runs of its mutants, and the lane splits that
+The lane's sweep costs the runs of its mutants, and the lane splits that
 across jobs by holding files out: a slice's Mull configuration is
-the tree's own with the files of every other slice added to ``excludePaths``,
+``cpp/mull.yml`` with the files of every other slice added to ``excludePaths``,
 so the slice's build carries its own files' mutants alone and the merge
-unions the slices back into the tree's census.
+unions the slices back into the lane's census.
 
 Nothing here is a list anyone keeps.  The domain is every tracked file under
 the library's source directories that the configuration does not already hold
@@ -31,15 +31,13 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
     from pathlib import Path
 
-# Slices one mutation tree is swept in.  Three, because at three the leak and
-# plain trees' partitions are within half a percent of even over the recorded
-# weights, which the merge measures on every run by printing what the heaviest
-# slice costs against an equal share, while the fixed cost each job pays
-# before it sweeps (the toolchain, the library and the tree's build) is paid
-# three times per tree rather than more.  The address tree's heaviest file
-# alone costs more than a third of that tree, so more slices would not shorten
-# it.  Whether three stays right is the scheduled review's question, answered
-# from that print (docs/operations/MUTATION.md).
+# Slices the lane is swept in.  Three, because at three the partition is
+# within half a percent of even over the recorded weights, which the merge
+# measures on every run by printing what the heaviest slice costs against an
+# equal share, while the fixed cost each job pays before it sweeps (the
+# toolchain, the library and the mutation build) is paid three times rather
+# than more.  Whether three stays right is the scheduled review's question,
+# answered from that print (docs/operations/MUTATION.md).
 CPP_SLICES = 3
 
 # Where the mutation build compiles the library from, and the benchmarks'
@@ -51,12 +49,12 @@ CPP_SOURCE_TREES: tuple[str, ...] = ("cpp/src", "cpp/include", "cpp/benchmarks")
 # Mutants a file carries, as a census counted them.
 type MutantCounts = Mapping[RelPath, int]
 
-# The work a file's mutants cost one tree's sweep, in runs of the unmutated
-# suite (tools/mutation_cpp_runs.py), and one tree's figures by file.
+# The work a file's mutants cost the lane's sweep, in runs of the unmutated
+# suite (tools/mutation_cpp_runs.py), and the lane's figures by file.
 SuiteRuns = NewType("SuiteRuns", float)
-type TreeRuns = dict[RelPath, SuiteRuns]
+type FileRuns = dict[RelPath, SuiteRuns]
 
-# What a partition balances: a tree's suite runs, or a count such as a file's size.
+# What a partition balances: the lane's suite runs, or a count such as a file's size.
 type SliceWeights = Mapping[RelPath, SuiteRuns] | MutantCounts
 
 # One slice: the files whose mutants its build carries.
@@ -70,17 +68,10 @@ _GENERATED_HEADER = """\
 
 _SLICE_WHY = """\
 with the files of the other slices held out so this
-# build carries this slice's mutants alone.  The merge unions a tree's slices
+# build carries this slice's mutants alone.  The merge unions the slices
 # and refuses a census that is not the recorded one, which is what a file
 # missing from every slice -- and so mutated by all of them, under identifiers
 # that then arrive twice -- fails on"""
-
-_DROPPED_WHY = """\
-without the mutators listed below, which this tree
-# cannot read: a sanitizer that instruments the program inserts its own calls
-# at the source location of the statement they guard, so a mutator over calls
-# mutates the sanitizer's checks rather than the program's, and removing a
-# check changes nothing any test can observe"""
 
 
 def _load_config(config_path: Path) -> dict[str, object]:
@@ -129,11 +120,11 @@ def partition(
 ) -> tuple[Slice, ...]:
     """Split the domain into slices of near-equal weight, the heaviest file placed first.
 
-    A file weighs what the caller recorded of it: for a C++ tree, the suite
+    A file weighs what the caller recorded of it: for the C++ lane, the suite
     runs its mutants cost when the weights were last taken, since a mutant's
-    cost varies by file and by tree.  Most of the domain carries no mutant and
-    the record does not name it, so an unnamed file weighs nothing, which is
-    right for those and costs a new file only balance, never coverage.
+    cost varies by file.  Most of the domain carries no mutant and the record
+    does not name it, so an unnamed file weighs nothing, which is right for
+    those and costs a new file only balance, never coverage.
 
     Longest-processing-time: each file in turn joins the lightest slice so
     far.  Ties break on the path and on the slice's own number, so one domain
@@ -150,42 +141,23 @@ def partition(
 
 
 def slice_config_text(
-    config_path: Path,
-    held_out: Iterable[RelPath],
-    number: int,
-    total: int,
-    dropped_mutators: Sequence[str] = (),
+    config_path: Path, held_out: Iterable[RelPath], number: int, total: int
 ) -> str:
     """One slice's Mull configuration, as text.
 
-    The mutator set, the timeout and the hold-outs the tree states stay where
-    they are written; the slice adds the files it does not claim, and a tree
-    that cannot read a mutator drops it.  Text rather than a file, because this
-    content is what decides whether the tree holding it is stale: nothing else
-    in the build knows an object depends on it.
+    The mutator set, the timeout and the hold-outs the configuration states
+    stay where they are written; the slice adds the files it does not claim.
+    Text rather than a file, because this content is what decides whether the
+    build holding it is stale: nothing else in the build knows an object
+    depends on it.
     """
-    what = f"Slice {number} of {total}"
-    why = _SLICE_WHY if not dropped_mutators else f"{_SLICE_WHY}, and {_DROPPED_WHY}"
-    return _config_text(config_path, held_out, dropped_mutators, what, why)
+    return _config_text(config_path, held_out, f"Slice {number} of {total}", _SLICE_WHY)
 
 
-def tree_config_text(config_path: Path, dropped_mutators: Sequence[str]) -> str:
-    """Build a whole tree's configuration, as text, without the mutators it cannot read."""
-    return _config_text(config_path, (), dropped_mutators, "Whole tree", _DROPPED_WHY)
-
-
-def _config_text(
-    config_path: Path,
-    held_out: Iterable[RelPath],
-    dropped_mutators: Sequence[str],
-    what: str,
-    why: str,
-) -> str:
-    """One generated Mull configuration: the tree's, narrowed by files and by mutators."""
+def _config_text(config_path: Path, held_out: Iterable[RelPath], what: str, why: str) -> str:
+    """One generated Mull configuration: the lane's, narrowed by files."""
     config = _load_config(config_path)
     excludes = held_out_patterns(config_path)
     config["excludePaths"] = excludes + [hold_out_pattern(path) for path in held_out]
-    mutators = cast("list[str]", config.get("mutators", []))
-    config["mutators"] = [name for name in mutators if name not in set(dropped_mutators)]
     header = _GENERATED_HEADER.format(what=what, config=config_path.name, why=why)
     return header + yaml.safe_dump(config, sort_keys=False)

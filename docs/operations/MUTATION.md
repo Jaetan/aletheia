@@ -22,8 +22,8 @@ docs/MUTATION_BENCH.yaml           SSOT: per-binding tool, hot-path module list,
 tools/check_mutation_setup.py      Static gate (offline, ~1 sec)
 tools/mutation_run.py              Dynamic runner (opt-in, ~30 min - 2 hours)
 tools/mutation_scope.py            Whether a lane sweeps, asked before it installs a toolchain
-tools/mutation_cpp.py              The C++ lane: Mull over the trees, in stages
-tools/mutation_cpp_legs.py         The C++ lane's trees, legs and stage variables
+tools/mutation_cpp.py              The C++ lane: Mull over the tree, in legs
+tools/mutation_cpp_legs.py         The C++ lane's legs and stage variable
 tools/mutation_cpp_config.py       The configuration a C++ leg is built and swept under, and its stamp
 tools/mutation_cpp_slices.py       The C++ surface's partition into slices
 tools/mutation_cpp_runs.py         What the C++ sweep spends on each file, and how far the recorded slice weights have drifted from it
@@ -50,14 +50,11 @@ In CI the runner is invoked once per binding, in parallel lanes with their own
 budgets, each told to skip the others (`ALETHEIA_MUTATION_SKIP_PYTHON` /
 `_GO` / `_CPP` / `_RUST`), because the four tools cost wildly different amounts
 and one job charges the slowest against a clock the others have already spent.  The
-C++ lane is nine legs and a merge: a leg sweeps one slice of one mutation tree
-(`ALETHEIA_MUTATION_CPP_STAGE=leak`, `plain` or `address`,
-`ALETHEIA_MUTATION_CPP_SLICE` the slice), reports as the binding `cpp-leak-1`
-and so on, and judges no survivor, since it has read neither the rest of its
-tree nor the other trees, where the mutant it let live may die; the
-`mutation merge` job downloads every leg's reports, unions each tree's slices
-and intersects the trees over the mutants each carries
-(`ALETHEIA_MUTATION_CPP_STAGE=merge`, the directory in
+C++ lane is three legs and a merge: a leg sweeps one slice of the mutation
+tree (`ALETHEIA_MUTATION_CPP_STAGE=1`, `2` or `3`), reports as the binding
+`cpp-1` and so on, and judges no survivor, since it has read only its own
+slice; the `mutation merge` job downloads every leg's reports and unions the
+slices (`ALETHEIA_MUTATION_CPP_STAGE=merge`, the directory in
 `ALETHEIA_MUTATION_CPP_LEGS`), which is where the C++ survivors meet the
 baseline and the ledger. How the slices are cut, and what the merge refuses,
 is below.  The Go lane is two shards and the same merge: a shard
@@ -120,16 +117,14 @@ What fails the lane:
   mutant's exit status and the test binary's output, and the runner reads
   from them what ended every run: a test's assertion, which Catch2's failure
   exit names where Mull kept none of the output (it keeps nothing of a stream
-  holding a byte that is not UTF-8), a leak the sanitizer reported, a read or
-  write of memory the program does not own that the address sanitizer
-  reported, the kernel ending the process, a check the standard library runs
-  in the mutation build (the trees compile under libstdc++'s debug mode, so a
-  read past a container's end or an out-of-range subscript ends the run at that
-  step, with its message), or a fault (an end none of those names).  A run
-  ends at its first failing assertion (Catch2's `--abort`), which moves no
-  route: a failing assertion is the test's kill whatever ends the process
-  after it, and a run with none goes through the whole suite either way.  A
-  mutant several lanes killed is attributed in that order.  The counts land in
+  holding a byte that is not UTF-8), the kernel ending the process, a check
+  the standard library runs in the mutation build (the tree compiles under
+  libstdc++'s debug mode, so a read past a container's end or an out-of-range
+  subscript ends the run at that step, with its message), or a fault (an end
+  none of those names).  A run ends at its first failing assertion (Catch2's
+  `--abort`), which moves no route: a failing assertion is the test's kill
+  whatever ends the process after it, and a run with none goes through the
+  whole suite either way.  The counts land in
   `cpp-routes.json` beside `cpp.json`, and the lane holds them to the C++
   baseline's `kill_routes` route by route, which the pinned test order and
   the debug-mode checks make exact; a sweep with any timeout is refused by the
@@ -330,25 +325,27 @@ compiler emits and the source never writes, and on this tree every one it
 reaches is the destructor of a temporary a value-returning function handed to
 a container, moved from before it runs, so no defect in the project can change
 what the removal does. It stays in the plugin so that such a removal is never
-reported as the removal of a call the source wrote. The lane's tree is built under
-LeakSanitizer (`-DALETHEIA_SANITIZER=leak`), so a removed call whose object
-owned memory leaks and fails, which is what holds a released handle or string
-to its release. The binaries land in
+reported as the removal of a call the source wrote. A released handle or
+string is held to its release by a test reading the recording kernel's close
+and free counts, so a removed release reads as a count that did not move. The
+binaries land in
 `~/.local/bin/` (no sudo for the copy), which the project assumes is on
 `$PATH` (see CLAUDE.md § Development Environment).
 
-Two instruments beside the sanitizer make a mutant observable that no
-assertion on a result could see. The allocation-fault harness also counts a
+Two instruments make a mutant observable that no assertion on a result could
+see. The allocation-fault harness also counts a
 call's allocations, so a container reserved ahead is told from one left to
 grow, and the ack fast path from the parse it skips; its sweeps find a call's
 own allocations by one recorded run, naming the frames above each, so the
 allocations of a vendored library, which may not be failed, are never failed,
 and the loaders are swept whole. And a kernel stand-in
 (`cpp/tests/kernel_stand_in/`) carries every symbol the backend and the
-renderer resolve and refuses every call with a message quoting its arguments,
+renderer resolve, refuses every call with a message quoting its arguments,
 which is the one way to read what the backend marshals to an entry whose
 arguments the real kernel acknowledges without reading: the timestamp of an
-error or remote event, and the CAN-FD bus bits of a frame.
+error or remote event, and the CAN-FD bus bits of a frame; and it counts the
+closes and frees it is handed, which is how a test reads that a handle or a
+string was released.
 
 A destructor a container's growth would run while it throws is reached by
 failing an allocation, which `cpp/tests/alloc_fault.cpp` does: it replaces the
@@ -380,11 +377,11 @@ mull-runner-23 --version    # mull-runner {STABLE_MULL_VERSION}
 `mull-runner` / `mull-reporter` are Rust binaries; `mull-ir-frontend-23` is a
 C++ clang plugin `.so`.  The standard build (`cmake -B build`) also requires
 `clang++-23` (the project supports the latest stable Clang only; g++
-unsupported); the mutation lane uses the same `clang++-23` inside its three
-dedicated trees, `cpp/build-mutation/`, `cpp/build-mutation-plain/` and
-`cpp/build-mutation-asan/`.  CI caches the clang-23 debs, the from-source Mull
-build (keyed on the Mull tag + LLVM version) and, per lane, the compiler cache
-of its tree's objects under a cap the lane's own comment sizes from a
+unsupported); the mutation lane uses the same `clang++-23` inside its
+dedicated tree, `cpp/build-mutation/`, a sliced leg's under
+`cpp/build-mutation-<n>/`.  CI caches the clang-23 debs, the from-source Mull
+build (keyed on the Mull tag + LLVM version) and, per leg, the compiler cache
+of its tree's objects under a cap the leg's own comment sizes from a
 measurement, `tools/mutation_ccache_evict.sh` evicting before the save every
 entry a build did not use unless a compile failed or nothing compiled; see
 `.github/workflows/pr-heavy-lanes.yml`.  The repository's Actions cache as a
@@ -440,14 +437,10 @@ ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_GO=1 ALETHEIA_MUTATION_SK
 # The suites that need a process of their own for the renderer and the
 # runtime run as the binary's children (cpp/tests/fresh_process_tests.cpp),
 # each under the mutant it inherits.
-# A mutant survives only where every tree carrying it let it: the leak tree
-# reads a destructor removal that leaks, the address tree a value read after
-# what held it has gone, and the plain tree carries the allocation-fault
-# sweeps, which no sanitizer tree can carry because a sanitizer defines the
-# allocation functions they replace.  The address tree drops the mutators
-# over calls and over constant stores, whose mutants there are the
-# sanitizer's own inserted checks and stores.
-# The lane's own tool, which builds every tree through the lane's own build and
+# The tree is built without a sanitizer, under libstdc++'s debug mode, and
+# carries the allocation-fault sweeps, which a sanitizer could not share a
+# binary with because it defines the allocation functions they replace.
+# The lane's own tool, which builds the tree through the lane's own build and
 # sweeps it in the lane's environment with the lane's argv.
 ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_GO=1 ALETHEIA_MUTATION_SKIP_RUST=1 \
   python/.venv/bin/python -m tools.mutation_run
@@ -462,14 +455,12 @@ ALETHEIA_MUTATION_SKIP_CPP=1      # skip C++ lane only
 ALETHEIA_MUTATION_SKIP_RUST=1     # skip Rust lane only
 ~~~
 
-The C++ lane in legs, as CI runs it: each slice of each tree in a job of its
-own, then the merge (unset, the runner sweeps every tree whole in one process
-and merges them itself):
+The C++ lane in legs, as CI runs it: each slice in a job of its own, then the
+merge (unset, the runner sweeps the tree whole in one process):
 
 ~~~bash
-ALETHEIA_MUTATION_CPP_STAGE=leak \
-ALETHEIA_MUTATION_CPP_SLICE=1       # sweep slice 1 of the leak tree; reports as cpp-leak-1, judges nothing
-                                    # likewise every slice of the leak, plain and address trees
+ALETHEIA_MUTATION_CPP_STAGE=1       # sweep slice 1; reports as cpp-1, judges nothing
+                                    # likewise slices 2 and 3
 ALETHEIA_MUTATION_CPP_STAGE=merge \
 ALETHEIA_MUTATION_CPP_LEGS=<dir>    # sweep nothing; merge every slice's reports found under <dir>
 ~~~
@@ -500,12 +491,10 @@ A baseline regression (observed > baseline) MUST be addressed by:
    same way, the mutator being the mutation cargo-mutants names less its
    position, read from `mutants.out/outcomes.json` under the lane's `rust/`
    artifact directory. The lane's `cpp-mull.json` artifact
-   is Mull's Elements report of each tree, merged by
-   `tools.mutation_cpp.merge_elements` over the union of the trees' mutants,
-   so a mutant any tree carrying it killed is killed, and `tools.mutation_cpp.elements_survivor_rows`
-   renders what is left in the ledger's row shape. Beside each lane's Elements
-   report the lane keeps Mull's SQLite report of it, which is where the kill
-   routes are read from. To run one C++ mutant alone
+   is Mull's Elements report, in CI the union of the legs' reports, and
+   `tools.mutation_cpp.elements_survivor_rows` renders its survivors in the
+   ledger's row shape. Beside each leg's Elements report the lane keeps
+   Mull's SQLite report of it, which is where the kill routes are read from. To run one C++ mutant alone
    against a test, set its identifier from the Elements report as an
    environment variable of the mutation binary:
    `env "<id>=1" cpp/build-mutation/unit_tests '<filter>'`.
@@ -564,12 +553,12 @@ sufficient; per-commit is overkill".
 
 ## The C++ lane's slices, and the weights they are cut on
 
-The C++ sweep is the slowest of the three, and one CI job per mutation tree
-still charged the clock of a whole tree's sweep against a single runner.  Each
-tree is therefore swept by three jobs, each building the tree under a Mull
-configuration that holds the other slices' files out, so a job carries its own
-slice's mutants alone.  The `mutation merge` job unions each tree's slices, then
-intersects the trees, and that union is the verdict the drift gate reads.
+The C++ sweep is the slowest of the four, and one CI job charged the clock
+of the whole tree's sweep against a single runner.  The tree is therefore
+swept by three jobs, each building it under a Mull configuration that holds
+the other slices' files out, so a job carries its own slice's mutants alone.
+The `mutation merge` job unions the slices, and that union is the verdict the
+drift gate reads.
 
 **Nothing keeps a list of which file is in which slice.**  The set a slice can
 claim is derived: every tracked file under `cpp/src`, `cpp/include` and
@@ -583,47 +572,44 @@ mutated by all three, so its mutants arrive once per slice and the merge
 refuses the repeated identifiers.  Stating what a slice claims would instead
 drop that file and report the smaller census as a clean sweep.
 
-Two refusals guard the union.  A mutant carried by two slices of one tree is
-refused by identity, as above.  A union off the recorded `total_mutants` is
+Two refusals guard the union.  A mutant carried by two slices is refused by
+identity, as above.  A union off the recorded `total_mutants` is
 refused either way: short of it is what a slice that carried fewer files than
 the partition gave it reads as, and past it, or short by a deliberate
 removal, is a surface the record does not follow, which the change that
 moved it records in the same commit, the way the survivors baseline is.
 
 **The weights are balance, never coverage, and they are reviewed on a
-schedule.**  Each tree's partition is balanced by its own figures under
-`runs_by_file` in `docs/MUTATION_BENCH.yaml`: the suite runs each file's
-mutants cost that tree when the weights were last taken, a suite run being a
-mutant's run time divided by its leg's unmutated run.  The unit holds a file's
-figure across the CI runners a leg draws, which differ: the address tree's
-legs took 8.9 to 12.4 s to run its unmutated suite on heavy lanes run
-37091833867, the run the weights were taken from.  Over three pairs of CI
-runs, each pair sweeping one state of the C++ sources, each file of 2 percent
-of its tree or more in either run of a pair gets 0.82 to 1.22 times the other
-run's figure, and the slices cut on one run of a pair cost 2.1 to 12.9 percent
-over an equal share on the other.  The trees are weighed apart because a
-mutant's cost varies by file and by tree.  Cut on mutant counts shared by the
-trees, run 37091833867's plain slices cost 92, 134 and 290 suite runs; cut on
-the plain tree's own runs, 172, 172 and 172.  A file the record does not name
+schedule.**  The partition is balanced by the figures under `runs_by_file`
+in `docs/MUTATION_BENCH.yaml`: the suite runs each file's mutants cost when
+the weights were last taken, a suite run being a mutant's run time divided by
+its leg's unmutated run.  The unit holds a file's figure across the CI runners
+a leg draws, which differ in speed.  Over three pairs of CI runs, each pair
+sweeping one state of the C++ sources, each file of 2 percent of the tree or
+more in either run of a pair gets 0.82 to 1.22 times the other run's figure,
+and the slices cut on one run of a pair cost 2.1 to 12.9 percent over an equal
+share on the other.  The weights are runs rather than mutant counts because a
+mutant's cost varies by file: cut on mutant counts, run 37091833867's slices
+cost 92, 134 and 290 suite runs; cut on its runs, 172, 172 and 172.  A file
+the record does not name
 still lands in a slice; it simply weighs nothing, which is right for the files
 that carry no mutants and costs a newly added file some balance until the
 weights are re-taken.  Because adding code adds mutants and nothing refuses
 that, the figures age quietly in one direction.  So the merge prints beside
-its verdict, per tree, what the heaviest slice would cost today under the
-recorded weights against an equal share.  Computed over the run the weights
-were taken from, it reads 0.0 percent over for the leak tree, 0.0 for the
-plain tree and 2.1 for the address tree, where `cpp/src/client.cpp` alone
-costs more than a third; the figure grows as the surface outgrows the record,
+its verdict what the heaviest slice would cost today under the recorded
+weights against an equal share.  Computed over the run the weights were taken
+from, it reads 0.0 percent over; the figure grows as the surface outgrows the record,
 and the review that re-takes the weights is scheduled against it rather than
 against a date (AGENTS.md § Universal Rules; the task list carries it).  The
 figures are read from a CI merge and compared with one, since the unit does
 not hold across hosts: a local whole-tree sweep on another host, its mutants
-twenty at a time against a CI leg's four, read 0.40, 0.56 and 0.38 of the CI
-figures for the leak, plain and address trees, and its drift lines 10.7, 8.2
-and 5.4 percent over against the same record.  Each leg writes its figures
-beside its reports, because only its own log prints its unmutated run, and the
-merge sums each tree's legs into `cpp-runs.json`; re-take by copying that
-file's trees into `runs_by_file` from a CI run's `mutation merge` artifact.
+twenty at a time against a CI leg's four, read 0.30 to 0.94 of the CI
+figures for the files of 2 percent or more, and its drift line 34.2 percent
+over against the same record.  Each leg writes its
+figures beside its reports, because only its own log prints its unmutated
+run, and the merge sums the legs into `cpp-runs.json`; re-take by copying
+that file's mapping into `runs_by_file` from a CI run's `mutation merge`
+artifact.
 
 Changing the partition changes every slice's configuration, which the compiler
 cache keys on, so the run after such a change rebuilds every slice's tree.  It is

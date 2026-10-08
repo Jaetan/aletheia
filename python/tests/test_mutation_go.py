@@ -168,7 +168,7 @@ def test_a_stage_that_is_no_shard_is_refused_by_name(
 def test_a_shard_binding_is_never_the_lane_s() -> None:
     """A shard reports as ``go-N``; the lane and other lanes' legs are no shard."""
     assert all(is_go_shard(Binding(f"go-{n}")) for n in range(1, GO_SHARDS + 1))
-    for name in ("go", f"go-{GO_SHARDS + 1}", "go-0", "go-x", "cpp-leak-1", "rust"):
+    for name in ("go", f"go-{GO_SHARDS + 1}", "go-0", "go-x", "cpp-1", "rust"):
         assert not is_go_shard(Binding(name)), name
 
 

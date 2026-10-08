@@ -288,21 +288,10 @@ bindings:
       # unit_tests binary so the real FfiBackend (dlopen glue) is on the
       # mutation surface. Those tests dlopen build/libaletheia-ffi.so, so
       # `cabal run shake -- build` must have produced it first.
-      #
-      # Two trees, and a mutant survives only where both let it survive. Under
-      # LeakSanitizer a removed destructor leaks what the object owned and the
-      # run fails; the plain tree carries the allocation-fault sweeps, which
-      # replace the program's allocation functions to reach the cleanup a
-      # container runs while its growth throws. A sanitizer runtime defines
-      # those same functions, so the two cannot be one binary.
-      cd cpp && cmake -B build-mutation -DALETHEIA_MUTATION=ON -DALETHEIA_SANITIZER=leak \
+      cd cpp && cmake -B build-mutation -DALETHEIA_MUTATION=ON \
         -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null &&
         cmake --build build-mutation --target unit_tests &&
         mull-runner-23 ./build-mutation/unit_tests
-      cd cpp && cmake -B build-mutation-plain -DALETHEIA_MUTATION=ON \
-        -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23 > /dev/null &&
-        cmake --build build-mutation-plain --target unit_tests &&
-        mull-runner-23 ./build-mutation-plain/unit_tests
     report: |
       # mull-runner-23 prints a per-mutant table to stdout; runner parses
       # the "Surviving mutants: N" / "Mutation score: P%" summary at the
@@ -334,14 +323,14 @@ bindings:
       # statement, or of two instantiations of one template, by one name and
       # ran only the last it registered.
       #
-      # The two trees read the surface with instruments that cannot share a
-      # binary. The leak tree reports a destructor removal that leaks what the
-      # object owned. The plain tree carries the allocation-fault sweeps
-      # (cpp/tests/alloc_fault.cpp), which fail one chosen allocation of a
-      # call and read back the count of blocks the program holds, so the
-      # cleanup a container runs while its growth throws is entered and
-      # anything it drops is seen. A mutant is a survivor only where both
-      # lanes let it survive.
+      # The tree compiles under libstdc++'s debug mode and carries the
+      # allocation-fault sweeps (cpp/tests/alloc_fault.cpp), which fail one
+      # chosen allocation of a call and read back the count of blocks the
+      # program holds, so the cleanup a container runs while its growth
+      # throws is entered and anything it drops is seen. A destructor removal
+      # that leaks what the object owned is read by a test that counts the
+      # recording kernel's closes and frees
+      # (cpp/tests/kernel_stand_in/recording_kernel_lib.cpp).
       #
       # What the survivors are, each a row of the ledger below, in the two
       # classes the ledger's own comments name: a re-check of a precondition
@@ -361,27 +350,27 @@ bindings:
       # the temporaries the language mandates are a mutator the swept set
       # leaves out, for the reason cpp/mull.yml gives.
       #
-      # A timeout is no verdict: a mutant the runner ended at its cap in every
-      # tree is neither killed nor survived, and the lane refuses a sweep in
-      # which the cap fired (timeout_ceiling, below). The cap is ten minutes,
-      # set on the runner's command line (tools/mutation_cpp.py) rather than
-      # left at Mull's default of ten times the unmutated run, which moves
-      # with the tree: under debug mode the four mutants that let an oversized
+      # A timeout is no verdict: a mutant the runner ended at its cap is
+      # neither killed nor survived, and the lane refuses a sweep in which the
+      # cap fired (timeout_ceiling, below). The cap is ten minutes, set on the
+      # runner's command line (tools/mutation_cpp.py) rather than left at
+      # Mull's default of ten times the unmutated run, which moves with the
+      # build: under debug mode the four mutants that let an oversized
       # input through to a parser run 65 to 79 seconds against baselines of 2
       # and 5, and the default ended them where the tests would have. A mutant
       # the cap ends is a hang to remove, never a cap to raise.
       #
-      # How the kills were read, from Mull's SQLite report of each tree,
-      # merged with a test's assertion taking precedence over any other
-      # route. A check is one the standard library runs in the mutation
-      # build: both trees compile under libstdc++'s debug mode, so a read
+      # How the kills were read, from Mull's SQLite report, with a test's
+      # assertion taking precedence over any other route. A check is one the
+      # standard library runs in the mutation build, which compiles under
+      # libstdc++'s debug mode, so a read
       # past a container's end or an out-of-range subscript ends the run at
       # that step with the check's message, where the shipped build, which
       # runs no such check, reads whatever lies beyond. A fault is an end none
       # of those name: a signal, or the GHC runtime refusing a call made with
       # it down and ending the process with its own message.
       # A mutant killed only by a check or a fault is one no test observes
-      # by behaviour; every such mutant was activated against a tree built
+      # by behaviour; every such mutant was activated against a build
       # without the checks, and most then fail a test outright, some die by a
       # signal or hang, and the few that survive are the loop bounds a test
       # never observes past the end, each a finding on its own. The lane
@@ -400,8 +389,8 @@ bindings:
       # and under the pinned order alone, a skipped lookup guard that read a
       # string past a map's end still moved between the test and the fault
       # route as the length it read decided between a bad_alloc and a
-      # signal. With both, two sweeps of each tree compared mutant for mutant
-      # moved nothing. What the order moves is the route, because a fault
+      # signal. With both, two sweeps compared mutant for mutant moved
+      # nothing. What the order moves is the route, because a fault
       # ends the process and the order decides which test reports before it
       # stops.
       #
@@ -409,124 +398,62 @@ bindings:
       # measurement of this toolchain and not a target.
       survivors: 4
       total_mutants: 1482
-      # What each tree carries, which is not one number: the address tree drops
-      # the mutators over calls, since a sanitizer inserts its own checks at
-      # the source location of the statement they guard and a mutator over calls
-      # mutates those rather than the program's own. Each tree is held to its own
-      # figure, and the merge judges a mutant only over the trees carrying it.
-      mutants_by_tree:
-        leak: 1482
-        plain: 1482
-        address: 337
-      # Per tree, the suite runs each file's mutants cost, which is what the
-      # tree's slices are cut on: a CI leg builds one slice of one tree, and a
-      # slice is a set of files whose recorded figures add up to about a third
-      # of the tree's.  A suite run is a mutant's run time divided by its leg's
-      # unmutated run, a unit that holds a file's figure across the CI runners
-      # its leg draws but not across hosts: over three pairs of CI runs, each
-      # pair sweeping one state of the C++ sources, each file of 2 percent of
-      # its tree or more in either run of a pair gets 0.82 to 1.22 times the
-      # other run's figure, where a local sweep gives each such file 0.33 to
-      # 0.63 times the CI one, so the figures are taken from CI.  Dividing by
-      # the leg's own unmutated run takes out the runner's speed: that run took
-      # 8.9 to 12.4 s across the address tree's legs on heavy lanes run
-      # 37091833867, and the trees are weighed apart because a mutant's cost
-      # varies by file and by tree, a killed run ending at its first failed
-      # assertion.  Taken from that run's legs by the merge's own computation,
-      # which writes the same figures to cpp-runs.json.
+      # The suite runs each file's mutants cost, which is what the slices are
+      # cut on: a CI leg builds one slice, and a slice is a set of files whose
+      # recorded figures add up to about a third of the total.  A suite run is
+      # a mutant's run time divided by its leg's unmutated run, a unit that
+      # holds a file's figure across the CI runners its leg draws but not
+      # across hosts: over three pairs of CI runs, each pair sweeping one
+      # state of the C++ sources, each file of 2 percent of the total or more
+      # in either run of a pair gets 0.82 to 1.22 times the other run's
+      # figure, where a local sweep gives each such file 0.33 to 0.63 times
+      # the CI one, so the figures are taken from CI.  Dividing by the leg's
+      # own unmutated run takes out the runner's speed, a mutant's cost
+      # varying by file, a killed run ending at its first failed assertion.
+      # Taken from the legs of heavy lanes run 37091833867 by the merge's own
+      # computation, which writes the same figures to cpp-runs.json.
       #
       # They are a measurement and they age in one direction: adding code adds
       # mutants, nothing refuses that, and the slices drift out of balance
-      # quietly.  So the merge prints, per tree, what the heaviest slice would
-      # cost today under these weights, and the review that re-takes them is
+      # quietly.  So the merge prints what the heaviest slice would cost
+      # today under these weights, and the review that re-takes them is
       # scheduled against that number rather than against a date
       # (docs/operations/MUTATION.md, AGENTS.md § Universal Rules). Coverage
       # never depends on them: a file the record does not name still lands in
       # a slice, because the partition is computed over every tracked file of
       # the library and not over this list.
       runs_by_file:
-        leak:
-          cpp/benchmarks/measure.hpp: 9.1
-          cpp/include/aletheia/backend.hpp: 0.1
-          cpp/include/aletheia/check.hpp: 1.0
-          cpp/include/aletheia/client.hpp: 0.2
-          cpp/include/aletheia/detail/cache_keys.hpp: 0.9
-          cpp/include/aletheia/detail/rational_renderer.hpp: 0.0
-          cpp/include/aletheia/log.hpp: 1.1
-          cpp/include/aletheia/ltl.hpp: 0.4
-          cpp/include/aletheia/response.hpp: 0.3
-          cpp/include/aletheia/types.hpp: 1.3
-          cpp/src/backend.cpp: 0.9
-          cpp/src/checked.cpp: 1.5
-          cpp/src/client.cpp: 145.5
-          cpp/src/dbc.cpp: 3.0
-          cpp/src/detail/ffi_abi.hpp: 0.1
-          cpp/src/detail/ffi_logic.cpp: 18.4
-          cpp/src/detail/loader_utils.cpp: 120.0
-          cpp/src/detail/loader_utils.hpp: 43.3
-          cpp/src/enrich.cpp: 0.3
-          cpp/src/excel.cpp: 263.5
-          cpp/src/ffi_backend.cpp: 70.1
-          cpp/src/json_parse.cpp: 15.8
-          cpp/src/json_serialize.cpp: 4.3
-          cpp/src/rational_renderer.cpp: 12.8
-          cpp/src/types.cpp: 2.6
-          cpp/src/yaml.cpp: 187.2
-        plain:
-          cpp/benchmarks/measure.hpp: 5.1
-          cpp/include/aletheia/backend.hpp: 0.0
-          cpp/include/aletheia/check.hpp: 0.4
-          cpp/include/aletheia/client.hpp: 0.1
-          cpp/include/aletheia/detail/cache_keys.hpp: 0.4
-          cpp/include/aletheia/detail/rational_renderer.hpp: 0.0
-          cpp/include/aletheia/log.hpp: 0.4
-          cpp/include/aletheia/ltl.hpp: 0.1
-          cpp/include/aletheia/response.hpp: 0.1
-          cpp/include/aletheia/types.hpp: 0.4
-          cpp/src/backend.cpp: 0.4
-          cpp/src/checked.cpp: 0.8
-          cpp/src/client.cpp: 80.2
-          cpp/src/dbc.cpp: 1.2
-          cpp/src/detail/ffi_abi.hpp: 0.0
-          cpp/src/detail/ffi_logic.cpp: 10.6
-          cpp/src/detail/loader_utils.cpp: 63.4
-          cpp/src/detail/loader_utils.hpp: 24.1
-          cpp/src/enrich.cpp: 0.1
-          cpp/src/excel.cpp: 157.1
-          cpp/src/ffi_backend.cpp: 41.0
-          cpp/src/json_parse.cpp: 9.1
-          cpp/src/json_serialize.cpp: 1.9
-          cpp/src/rational_renderer.cpp: 9.5
-          cpp/src/types.cpp: 1.4
-          cpp/src/yaml.cpp: 108.2
-        address:
-          cpp/benchmarks/measure.hpp: 3.3
-          cpp/include/aletheia/backend.hpp: 0.0
-          cpp/include/aletheia/check.hpp: 0.4
-          cpp/include/aletheia/client.hpp: 0.1
-          cpp/include/aletheia/detail/cache_keys.hpp: 0.3
-          cpp/include/aletheia/log.hpp: 0.2
-          cpp/include/aletheia/response.hpp: 0.1
-          cpp/include/aletheia/types.hpp: 1.1
-          cpp/src/backend.cpp: 0.3
-          cpp/src/checked.cpp: 1.7
-          cpp/src/client.cpp: 75.8
-          cpp/src/dbc.cpp: 0.8
-          cpp/src/detail/ffi_logic.cpp: 13.2
-          cpp/src/detail/loader_utils.cpp: 48.6
-          cpp/src/detail/loader_utils.hpp: 4.5
-          cpp/src/enrich.cpp: 0.1
-          cpp/src/excel.cpp: 58.0
-          cpp/src/ffi_backend.cpp: 3.9
-          cpp/src/json_parse.cpp: 2.0
-          cpp/src/json_serialize.cpp: 3.5
-          cpp/src/rational_renderer.cpp: 3.1
-          cpp/src/yaml.cpp: 1.7
+        cpp/benchmarks/measure.hpp: 5.1
+        cpp/include/aletheia/backend.hpp: 0.0
+        cpp/include/aletheia/check.hpp: 0.4
+        cpp/include/aletheia/client.hpp: 0.1
+        cpp/include/aletheia/detail/cache_keys.hpp: 0.4
+        cpp/include/aletheia/detail/rational_renderer.hpp: 0.0
+        cpp/include/aletheia/log.hpp: 0.4
+        cpp/include/aletheia/ltl.hpp: 0.1
+        cpp/include/aletheia/response.hpp: 0.1
+        cpp/include/aletheia/types.hpp: 0.4
+        cpp/src/backend.cpp: 0.4
+        cpp/src/checked.cpp: 0.8
+        cpp/src/client.cpp: 80.2
+        cpp/src/dbc.cpp: 1.2
+        cpp/src/detail/ffi_abi.hpp: 0.0
+        cpp/src/detail/ffi_logic.cpp: 10.6
+        cpp/src/detail/loader_utils.cpp: 63.4
+        cpp/src/detail/loader_utils.hpp: 24.1
+        cpp/src/enrich.cpp: 0.1
+        cpp/src/excel.cpp: 157.1
+        cpp/src/ffi_backend.cpp: 41.0
+        cpp/src/json_parse.cpp: 9.1
+        cpp/src/json_serialize.cpp: 1.9
+        cpp/src/rational_renderer.cpp: 9.5
+        cpp/src/types.cpp: 1.4
+        cpp/src/yaml.cpp: 108.2
       timeouts: 0
       score_pct: 99.7
       run_at: "2026-10-08"
-      # A mutant the runner ended at its cap in every tree is neither killed
-      # nor survived, and no verdict comes from a clock: the lane refuses a
+      # A mutant the runner ended at its cap is neither killed nor survived,
+      # and no verdict comes from a clock: the lane refuses a
       # sweep in which the cap fired, and a timed-out mutant is a hang to
       # remove, never a cap to raise. The C++ tests hold no thread and no timed
       # wait, so a mutant whose loop never ends is the one way left to reach
@@ -534,11 +461,9 @@ bindings:
       timeout_ceiling: 0
       kill_routes:
         test: 1420
-        leak: 0
-        address: 19
         kernel: 2
         check: 15
-        fault: 22
+        fault: 41
         timeout: 0
         survived: 4
       # Every survivor, by mutator, repository-relative file, the text of its
@@ -577,8 +502,8 @@ bindings:
           count: 1
       # Every kill no test observes by behaviour, by mutator, repository-relative
       # file, the text of its source line, the route it took and what refused
-      # it: the invariant of the standard library's check, or the class the
-      # address sanitizer names its report by. The count is how many mutants of
+      # it: the invariant of the standard library's check, or nothing where a
+      # fault ended the process. The count is how many mutants of
       # that mutator share the line. Most are mutations that run straight into
       # an operation the language does not define, a guard for most of them and
       # the value an index is computed from for the rest, with the suite
@@ -594,7 +519,7 @@ bindings:
       # iterator's end, an empty container's front, a null smart pointer, a
       # range whose bounds are inverted, the magnitude of the most negative
       # integer and the checked forms' own check, beside the mutants that end
-      # in a signal, a sanitizer's report, a leak or the runtime's refusal.
+      # in a signal or the runtime's refusal.
       #
       # The lane refuses a row this does not name, as it refuses an unrecorded
       # survivor: a new one is a line somebody has to look at, not a number to
@@ -630,14 +555,14 @@ bindings:
         - mutator: cxx_eq_to_ne
           file: cpp/src/ffi_backend.cpp
           text: if (env == nullptr || *env == '\0')
-          route: address
-          refused: SEGV
+          route: fault
+          refused: ''
           count: 1
         - mutator: cxx_eq_to_ne
           file: cpp/src/ffi_backend.cpp
           text: if (sym == nullptr)
-          route: address
-          refused: SEGV
+          route: fault
+          refused: ''
           count: 11
         - mutator: cxx_init_const
           file: cpp/src/ffi_backend.cpp
@@ -654,44 +579,44 @@ bindings:
         - mutator: cxx_ne_to_eq
           file: cpp/src/backend.cpp
           text: if (this != &other) {
-          route: address
-          refused: heap-use-after-free
+          route: fault
+          refused: ''
           count: 1
         - mutator: cxx_ne_to_eq
           file: cpp/src/client.cpp
           text: if (batch != nullptr && !diags_.empty()) {
-          route: address
-          refused: SEGV
+          route: fault
+          refused: ''
           count: 1
         - mutator: cxx_ne_to_eq
           file: cpp/src/dbc.cpp
           text: m != nullptr && m->multiplexor == multiplexor) {
-          route: address
-          refused: SEGV
+          route: fault
+          refused: ''
           count: 1
         - mutator: cxx_ne_to_eq
           file: cpp/src/dbc.cpp
           text: m != nullptr && seen.insert(m->multiplexor).second) {
-          route: address
-          refused: SEGV
+          route: fault
+          refused: ''
           count: 1
         - mutator: cxx_ne_to_eq
           file: cpp/src/ffi_backend.cpp
           text: 'detail::rts_init_args(rts_cores, override_env != nullptr ? override_env : "");'
-          route: address
-          refused: SEGV
+          route: fault
+          refused: ''
           count: 1
         - mutator: cxx_ne_to_eq
           file: cpp/src/rational_renderer.cpp
           text: if (const char* err = dlerror(); err != nullptr)
-          route: address
-          refused: SEGV
+          route: fault
+          refused: ''
           count: 1
         - mutator: cxx_ne_to_eq
           file: cpp/src/rational_renderer.cpp
           text: if (env_path != nullptr) {
-          route: address
-          refused: SEGV
+          route: fault
+          refused: ''
           count: 1
         - mutator: cxx_remove_negation
           file: cpp/src/client.cpp
@@ -825,7 +750,6 @@ bindings:
           route: check
           refused: __offset + __count <= size()
           count: 1
-
   rust:
     tool: cargo-mutants
     # Pinned exactly, for the reason mutmut is: two releases generate different

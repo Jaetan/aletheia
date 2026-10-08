@@ -269,6 +269,19 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **The C++ mutation lane sweeps one tree.** It swept three, a leak tree
+  under LeakSanitizer, a plain one and an address one, and merged their
+  verdicts. Measured on the lane's own sweep, the address tree killed nothing
+  the plain tree let live, and the leak tree killed three mutants the plain
+  tree let live, each the removal of a free of a kernel string, which a test
+  now observes by the recording kernel's free count. So the leak and address
+  trees go, with the tree concept in the tooling: `ALETHEIA_MUTATION_CPP_STAGE`
+  names a slice or the merge as the Go lane's variable does, a leg reports as
+  `cpp-1` and its siblings, the record keeps one `runs_by_file` and no per-tree
+  census, the kill-route census has no sanitizer routes, and the `leak` choice
+  of `ALETHEIA_SANITIZER` is gone with its only user. Per pull request the C++
+  binding is three CI legs where it was nine.
+
 - **A C++ test reads every release of a string the kernel handed back.** The
   recording kernel stand-in counts its frees beside its closes, and two tests
   read the count: the backend's, one command through the stand-in and one more

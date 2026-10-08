@@ -1732,9 +1732,6 @@ hints:
     text: "str"
     count: 1
   - file: python/tests/test_mutation_cpp_stage.py
-    text: "Mapping[CppTree, set[str]]"
-    count: 1
-  - file: python/tests/test_mutation_cpp_stage.py
     text: "Mapping[int, tuple[str, ...]]"
     count: 1
   - file: python/tests/test_mutation_cpp_stage.py
@@ -3101,12 +3098,9 @@ hints:
     count: 1
   - file: tools/mutation_cpp.py
     text: "Mapping[str, Mapping[str, object]]"
-    count: 5
+    count: 3
   - file: tools/mutation_cpp.py
     text: "Mapping[str, float]"
-    count: 1
-  - file: tools/mutation_cpp.py
-    text: "Mapping[str, int]"
     count: 1
   - file: tools/mutation_cpp.py
     text: "Mapping[str, object]"
@@ -3137,7 +3131,7 @@ hints:
     count: 1
   - file: tools/mutation_cpp.py
     text: "dict[str, dict[str, object]]"
-    count: 2
+    count: 1
   - file: tools/mutation_cpp.py
     text: "dict[str, int]"
     count: 1
@@ -3162,19 +3156,13 @@ hints:
     count: 2
   - file: tools/mutation_cpp.py
     text: "list[Mapping[str, object]]"
-    count: 12
+    count: 6
   - file: tools/mutation_cpp.py
     text: "list[dict[str, Ending]] | None"
     count: 1
   - file: tools/mutation_cpp.py
-    text: "list[dict[str, object]]"
-    count: 1
-  - file: tools/mutation_cpp.py
     text: "list[object]"
-    count: 2
-  - file: tools/mutation_cpp.py
-    text: "list[set[str]]"
-    count: 2
+    count: 1
   - file: tools/mutation_cpp.py
     text: "list[str]"
     count: 2
@@ -3209,20 +3197,11 @@ hints:
     text: "tuple[str, tuple[int, int] | None]"
     count: 1
   - file: tools/mutation_cpp_legs.py
-    text: "dict[CppTree, str]"
+    text: "int | None"
     count: 1
   - file: tools/mutation_cpp_legs.py
-    text: "int | None"
-    count: 2
-  - file: tools/mutation_cpp_legs.py
     text: "str"
-    count: 9
-  - file: tools/mutation_cpp_legs.py
-    text: "tuple[str, ...]"
-    count: 3
-  - file: tools/mutation_cpp_slices.py
-    text: "Sequence[str]"
-    count: 3
+    count: 6
   - file: tools/mutation_cpp_slices.py
     text: "dict[str, object]"
     count: 2
@@ -3234,10 +3213,10 @@ hints:
     count: 1
   - file: tools/mutation_cpp_slices.py
     text: "list[str]"
-    count: 2
+    count: 1
   - file: tools/mutation_cpp_slices.py
     text: "str"
-    count: 6
+    count: 5
   - file: tools/mutation_cpp_slices.py
     text: "tuple[str, ...]"
     count: 1
@@ -3303,9 +3282,6 @@ hints:
     count: 5
   - file: tools/mutation_routes.py
     text: "tuple[str, ...]"
-    count: 1
-  - file: tools/mutation_routes.py
-    text: "tuple[tuple[str, str], ...]"
     count: 1
   - file: tools/mutation_run.py
     text: "Mapping[str, str] | None"

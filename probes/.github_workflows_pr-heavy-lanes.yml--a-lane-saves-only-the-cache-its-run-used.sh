@@ -21,7 +21,7 @@
 # reports twice fails it, and the cache it checks is the one ccache names as
 # cache_dir. Then real ccache, the entries' modification times aged an hour
 # before each arm and their access times set at the arm's start or later, so an
-# eviction by access time would keep them: the leak tree's first slice built
+# eviction by access time would keep them: the tree's first slice built
 # once, then rebuilt in direct mode beside one unit's entries it does not read
 # (every slice entry kept, the unit's gone), rebuilt in preprocessor mode (every
 # result kept, every manifest, which that mode does not read, gone), built under
@@ -62,12 +62,12 @@ line_of() {
     [ "$(printf '%s\n' "$found" | grep -c .)" -eq 1 ] || { echo "0"; return; }
     echo "$found"
 }
-restore=$(line_of 'name: Restore ccache (C++ mutation trees)')
+restore=$(line_of 'name: Restore ccache (C++ mutation tree)')
 zero=$(line_of 'ccache --zero-stats')
 start=$(line_of "$start_line")
 sweep=$(line_of "$sweep_name")
 evict=$(line_of "$evict_line")
-save=$(line_of 'name: Save ccache (C++ mutation trees)')
+save=$(line_of 'name: Save ccache (C++ mutation tree)')
 for name in restore zero start sweep evict save; do
     [ "${!name}" -gt 0 ] || { echo "the workflow does not carry the $name line exactly once"; exit 1; }
 done
@@ -94,7 +94,7 @@ with open(workflow, encoding="utf-8") as stream:
     jobs = yaml.safe_load(stream)["jobs"]
 steps = [step for job in jobs.values() for step in job.get("steps", [])]
 evicting = [step for step in steps if str(step.get("run", "")).strip() == script]
-saving = [step for step in steps if step.get("name") == "Save ccache (C++ mutation trees)"]
+saving = [step for step in steps if step.get("name") == "Save ccache (C++ mutation tree)"]
 if len(evicting) != 1 or len(saving) != 1:
     sys.exit(f"{len(evicting)} steps run the script and {len(saving)} save the cache, not one each")
 save_if = str(saving[0].get("if") or "").strip()
@@ -205,7 +205,7 @@ done
 export CCACHE_DIR="$scratch/ccache" CCACHE_MAXSIZE=1G
 echo "with $(ccache --version | head -n 1)"
 
-# Build slice NUMBER of the leak tree into DIRECTORY, wiped first, the way a lane builds it.
+# Build slice NUMBER of the tree into DIRECTORY, wiped first, the way a lane builds it.
 build() {
     rm -rf "${tree:?}/$2"
     PYTHONPATH=. python/.venv/bin/python - "$1" "$tree/$2" "$scratch" <<'PY' > "$scratch/build.log" 2>&1
@@ -214,15 +214,15 @@ from pathlib import Path
 
 from tools.mutation_cpp import LegPaths, build_cpp_mutation_tree, cpp_sweep_directory
 from tools.mutation_cpp_config import leg_config
-from tools.mutation_cpp_legs import CppLeg, CppTree
+from tools.mutation_cpp_legs import CppLeg
 
 number, build, scratch = sys.argv[1:]
-leg = CppLeg(CppTree.LEAK, int(number))
+leg = CppLeg(int(number))
 build_dir = Path(build)
 artifact = Path(scratch) / f"artifact-{number}"
 artifact.mkdir(exist_ok=True)
 config = leg_config(leg, build_dir)
-built = build_cpp_mutation_tree("cmake", LegPaths(cpp_sweep_directory(), build_dir, artifact, config), leg)
+built = build_cpp_mutation_tree("cmake", LegPaths(cpp_sweep_directory(), build_dir, artifact, config))
 sys.exit(0 if isinstance(built, str) else 1)
 PY
 }

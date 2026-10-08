@@ -54,27 +54,23 @@ Optional per-binding skip (useful for partial runs in CI lanes):
   - ALETHEIA_MUTATION_SKIP_CPP=1
   - ALETHEIA_MUTATION_SKIP_RUST=1
 
-The C++ lane in legs, so CI can sweep each tree in slices across machines
+The C++ lane in legs, so CI can sweep the tree in slices across machines
 (``tools/mutation_cpp.py``):
 
-  - ALETHEIA_MUTATION_CPP_STAGE  unset: every tree is swept whole in this
-                               process and merged, the whole lane in one run.
-                               ``leak``, ``plain`` or ``address``: that tree
-                               alone is swept, a leg, whole or in the slice
-                               ALETHEIA_MUTATION_CPP_SLICE names, and the run
-                               passes when the leg built, swept and wrote its
-                               reports; a leg judges no survivor, since a
-                               mutant is a survivor of the lane only where
-                               every tree let it live.  ``merge``: nothing is
-                               swept; every slice of every tree is read from
+  - ALETHEIA_MUTATION_CPP_STAGE  unset: the tree is swept whole in this
+                               process, the whole lane in one run.  A slice
+                               number: the surface's files are cut on their
+                               recorded suite runs and this slice's files
+                               alone are swept, a leg; the run passes when
+                               the leg built, swept and wrote its reports,
+                               and a leg judges no survivor.  ``merge``:
+                               nothing is swept; every slice is read from
                                the directory ALETHEIA_MUTATION_CPP_LEGS names
                                (searched recursively, one copy of each
-                               report), each tree's slices unioned and refused
-                               below its recorded census, the trees merged,
-                               and gated as the whole lane is; a leg swept
-                               whole is no part of the merge.
-  - ALETHEIA_MUTATION_CPP_SLICE  which slice of its tree a leg sweeps; unset is
-                               the tree whole.
+                               report), the slices unioned and refused below
+                               the recorded census, and gated as the whole
+                               lane is; a leg swept whole is no part of the
+                               merge.
   - ALETHEIA_MUTATION_CPP_LEGS   that directory, read by the merge stage only.
 
 The Go lane in shards, so CI can sweep the package's files across machines
@@ -143,14 +139,14 @@ Artifacts written:
                    (ALETHEIA_MUTATION_RUST_STAGE); recorded, not gated
     cpp-<leg>.json one leg's census where the run is one leg of the C++
                    lane (ALETHEIA_MUTATION_CPP_STAGE), the leg named by its
-                   tree and slice, cpp-leak-1.json and its siblings
-                   (cpp-leak.json for a tree swept whole); recorded, not gated
+                   slice, cpp-1.json and its siblings (cpp.json for the tree
+                   swept whole); recorded, not gated
     cpp-legs.json  each leg's wall clock, written by the merge stage
     cpp-mull.json  Mull's Elements report: every C++ mutant with its status
                    and site, which the ledger check reads
     cpp-mull-<leg>.json
-                   one leg's Elements report, a tree or one slice of it, what
-                   the merge reads
+                   one leg's Elements report, the tree or one slice of it,
+                   what the merge reads
     cpp-mull-<leg>.txt
                    Mull's IDE report of that leg, its summary
     cpp-mull-<leg>.sqlite
@@ -160,7 +156,7 @@ Artifacts written:
     cpp-mull-<leg>.runs.json
                    the suite runs that leg's mutants cost by file, which the
                    leg writes (tools/mutation_cpp_runs.py)
-    cpp-runs.json  each tree's runs by file, summed over its legs: what the
+    cpp-runs.json  the suite runs by file, summed over the legs: what the
                    recorded slice weights are re-taken from
     cpp-routes.json
                    that census: the C++ mutants counted by what killed them
@@ -712,8 +708,8 @@ def _run_enabled_bindings(
 def _ungated(rep: MutationReport) -> DriftEntry | None:
     """Return the verdict no baseline enters into, or None where one does.
 
-    A C++ leg is one tree, or one slice of it: a mutant it let live may die
-    in another tree, so its count is recorded and the merge is what is gated.
+    A C++ leg is one slice of the tree: its count is recorded and the merge
+    over the slices is what is gated.
     A Go shard is one part of the package, and a Rust job one part of the
     crate's sweep, each judged with the others by the merge in the same way.
     """

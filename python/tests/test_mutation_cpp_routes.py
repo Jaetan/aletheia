@@ -2,15 +2,13 @@
 # SPDX-License-Identifier: BSD-2-Clause
 """Tests for ``tools.mutation_routes``, the kill-route census of the C++ lane.
 
-Mull's SQLite report keeps, per mutant and per lane, the execution status,
+Mull's SQLite report keeps, per mutant and per leg, the execution status,
 the exit status and the test binary's own output. The census reads what
-ended each run: a test's assertion, a leak the sanitizer reported, a read or
-a write the address sanitizer reported, the kernel ending the process, a
-check the standard library runs in the mutation build, or a fault, and
-attributes a mutant several lanes killed to the first of those
-routes, since a test's assertion is the one kill the suite gives without any
-instrument. The rows the mutants attributed to a check or a fault become are
-``test_mutation_unobserved_ledger``'s subject; here the reading is the route.
+ended each run: a test's assertion, the kernel ending the process, a check
+the standard library runs in the mutation build, or a fault, and counts the
+mutants by route over the legs, which are disjoint. The rows the mutants
+attributed to a check or a fault become are ``test_mutation_unobserved_ledger``'s
+subject; here the reading is the route.
 """
 
 from __future__ import annotations
@@ -22,7 +20,7 @@ from typing import TYPE_CHECKING, NewType
 import pytest
 
 from tools.mutation_cpp import cpp_endings
-from tools.mutation_cpp_legs import CppLeg, CppTree, sliced_legs
+from tools.mutation_cpp_legs import CppLeg, sliced_legs
 from tools.mutation_routes import (
     KILL_ROUTES,
     MULL_PASSED,
@@ -45,14 +43,14 @@ if TYPE_CHECKING:
 _Mutant = NewType("_Mutant", str)
 
 _FAILED = 1
-# The exit statuses the lanes' runs end with, as Mull records them: 0 where
+# The exit statuses the legs' runs end with, as Mull records them: 0 where
 # the tests passed, Catch2's after a failed assertion, -1 where a signal ended
-# the process and left none, LeakSanitizer's where it ended the run, and the
-# kernel's where its error path did.
+# the process and left none, a sanitizer runtime's where one ended the run,
+# and the kernel's where its error path did.
 _PASSED = ExitStatus(0)
 _TEST_FAILED = ExitStatus(42)
 _BY_SIGNAL = ExitStatus(-1)
-_LEAK_SANITIZER = ExitStatus(23)
+_SANITIZER_RUNTIME = ExitStatus(23)
 _KERNEL_ENDED = ExitStatus(1)
 _RULE = "-" * 79 + "\n"
 _SUMMARY_FAILED = "=" * 79 + "\ntest cases:  562 |  557 passed | 5 failed\n"
@@ -87,6 +85,9 @@ _DEBUG_MODE_WRAPPED = (
     "Objects involved in the operation:\n"
 )
 _SIGNAL = "LeakSanitizer:DEADLYSIGNAL\n==1==ERROR: LeakSanitizer: SEGV on unknown address 0x0\n"
+# The tree carries no sanitizer, so its report is read as what it is: an end
+# no test and no check named.
+_LEAK_REPORT = "==1==ERROR: LeakSanitizer: detected memory leaks\n"
 
 
 @pytest.mark.parametrize(
@@ -106,20 +107,15 @@ _SIGNAL = "LeakSanitizer:DEADLYSIGNAL\n==1==ERROR: LeakSanitizer: SEGV on unknow
         ),
         (MutantRun(_FAILED, _BY_SIGNAL, _ASSERTION + _RULE + _FATAL + _SUMMARY_FAILED, ""), "test"),
         (MutantRun(_FAILED, _BY_SIGNAL, _FATAL + _RULE + _ASSERTION + _SUMMARY_FAILED, ""), "test"),
-        (
-            MutantRun(
-                _FAILED, _LEAK_SANITIZER, "", "==1==ERROR: LeakSanitizer: detected memory leaks\n"
-            ),
-            "leak",
-        ),
+        (MutantRun(_FAILED, _SANITIZER_RUNTIME, "", _LEAK_REPORT), "fault"),
         (
             MutantRun(
                 _FAILED, _KERNEL_ENDED, "", "aletheia: aletheia_process: Return code (4) not ok\n"
             ),
             "kernel",
         ),
-        (MutantRun(_FAILED, _LEAK_SANITIZER, _FATAL + _SUMMARY_FAILED, _SIGNAL), "fault"),
-        (MutantRun(_FAILED, _LEAK_SANITIZER, "", _SIGNAL), "fault"),
+        (MutantRun(_FAILED, _SANITIZER_RUNTIME, _FATAL + _SUMMARY_FAILED, _SIGNAL), "fault"),
+        (MutantRun(_FAILED, _SANITIZER_RUNTIME, "", _SIGNAL), "fault"),
         (MutantRun(_FAILED, _BY_SIGNAL, "", ""), "fault"),
     ],
 )
@@ -155,23 +151,21 @@ def test_a_failed_test_mull_kept_no_output_for_is_read_by_its_exit(tmp_path: Pat
     }
 
 
-def test_a_mutant_several_lanes_killed_takes_the_first_route() -> None:
-    """An assertion in any lane attributes the mutant to the test, whatever the other lanes read."""
-    lanes = [
-        {"a": "fault", "b": "leak", "c": "survived", "d": "timeout", "e": "fault", "f": "address"},
-        {"a": "test", "b": "fault", "c": "survived", "d": "fault", "e": "check", "f": "fault"},
+def test_the_routes_are_counted_over_the_legs() -> None:
+    """Each leg's mutants are counted by route, and every route has a count, in the census order."""
+    legs = [
+        {"a": "fault", "b": "kernel", "c": "survived"},
+        {"d": "timeout", "e": "check", "f": "test", "g": "survived"},
     ]
-    assert merge_routes(lanes) == {
+    assert merge_routes(legs) == {
         "test": 1,
-        "leak": 1,
-        "address": 1,
-        "kernel": 0,
+        "kernel": 1,
         "check": 1,
         "fault": 1,
-        "timeout": 0,
-        "survived": 1,
+        "timeout": 1,
+        "survived": 2,
     }
-    assert tuple(merge_routes(lanes)) == KILL_ROUTES
+    assert tuple(merge_routes(legs)) == KILL_ROUTES
 
 
 def test_an_ending_carries_what_the_check_refused(tmp_path: Path) -> None:
@@ -187,7 +181,7 @@ def test_an_ending_carries_what_the_check_refused(tmp_path: Path) -> None:
             _Mutant("debug"): MutantRun(_FAILED, _BY_SIGNAL, _FATAL, _DEBUG_MODE),
             _Mutant("wrapped"): MutantRun(_FAILED, _BY_SIGNAL, _FATAL, _DEBUG_MODE_WRAPPED),
             _Mutant("assertion"): MutantRun(_FAILED, _BY_SIGNAL, _FATAL, _LIBSTDCXX_ASSERTION),
-            _Mutant("signal"): MutantRun(_FAILED, _LEAK_SANITIZER, _FATAL, _SIGNAL),
+            _Mutant("signal"): MutantRun(_FAILED, _SANITIZER_RUNTIME, _FATAL, _SIGNAL),
             _Mutant("test"): MutantRun(
                 _FAILED, _BY_SIGNAL, _ASSERTION + _SUMMARY_FAILED, _DEBUG_MODE
             ),
@@ -220,15 +214,15 @@ def _write_lane(path: Path, runs: Mapping[_Mutant, MutantRun]) -> None:
 def test_the_census_reads_every_leg_report(tmp_path: Path) -> None:
     """The counts come from the legs' SQLite reports, named as the legs name them.
 
-    A mutant is in one slice per tree, so it is read by one leg of each tree,
-    and a route it took in any of them is the route it is attributed by.
+    A mutant is in one slice, so it is read by one leg, and the route it took
+    there is the route it is attributed by.
     """
     legs = sliced_legs()
     for leg in legs:
-        # Two mutants per slice, named for the slice, so no two legs of a tree
-        # carry one identifier: that is what the partition guarantees.
+        # Two mutants per slice, named for the slice, so no two legs carry one
+        # identifier: that is what the partition guarantees.
         killed, survived = _Mutant(f"k{leg}"), _Mutant(f"s{leg}")
-        stdout = _ASSERTION + _SUMMARY_FAILED if leg.tree is CppTree.PLAIN else ""
+        stdout = _ASSERTION + _SUMMARY_FAILED
         _write_lane(
             tmp_path / f"{leg.report_name}.sqlite",
             {
@@ -239,10 +233,9 @@ def test_the_census_reads_every_leg_report(tmp_path: Path) -> None:
     endings = cpp_endings(tmp_path, legs)
     assert endings is not None
     routes = merge_endings(endings)
-    # Each tree's three slices carry two mutants each, and the trees carry
-    # different identifiers here, so the census is every leg's rows.
+    # The slices carry two mutants each, so the census is every leg's rows.
     assert sum(routes.values()) == 2 * len(legs)
-    assert routes["survived"] == len(legs)
+    assert routes == {**dict.fromkeys(KILL_ROUTES, 0), "test": len(legs), "survived": len(legs)}
 
 
 def test_a_leg_without_a_report_leaves_no_census(tmp_path: Path) -> None:
@@ -255,14 +248,13 @@ def test_a_leg_without_a_report_leaves_no_census(tmp_path: Path) -> None:
     assert cpp_endings(tmp_path, legs) is None
 
 
-def test_a_whole_tree_sweep_is_read_by_its_own_legs(tmp_path: Path) -> None:
-    """An unsliced run names its reports by tree alone, and the census reads those."""
-    legs = [CppLeg(tree) for tree in CppTree]
-    for leg in legs:
-        _write_lane(
-            tmp_path / f"{leg.report_name}.sqlite",
-            {_Mutant("m1"): MutantRun(_FAILED, _TEST_FAILED, _ASSERTION + _SUMMARY_FAILED, "")},
-        )
+def test_a_whole_tree_sweep_is_read_by_its_own_report(tmp_path: Path) -> None:
+    """An unsliced run names its report without a slice, and the census reads that."""
+    legs = [CppLeg()]
+    _write_lane(
+        tmp_path / f"{legs[0].report_name}.sqlite",
+        {_Mutant("m1"): MutantRun(_FAILED, _TEST_FAILED, _ASSERTION + _SUMMARY_FAILED, "")},
+    )
     endings = cpp_endings(tmp_path, legs)
     assert endings is not None
     routes = merge_endings(endings)

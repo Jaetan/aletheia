@@ -4,13 +4,10 @@
 
 Mull's SQLite report keeps, per mutant, the execution status, the exit
 status and the test binary's own output. This reads from those what ended
-each run, so that a kill by a test's assertion is told from one by a leak
-the sanitizer reported, a read of memory the program does not own that the
-address sanitizer reported, the kernel ending the process, a check the
-standard library runs in the mutation build (debug mode's iterator and bounds
-checks, and its assertions), or a fault: an end none of those names. A
-mutant several lanes killed is attributed to the first of those routes it
-took in any lane.
+each run, so that a kill by a test's assertion is told from one by the
+kernel ending the process, a check the standard library runs in the mutation
+build (debug mode's iterator and bounds checks, and its assertions), or a
+fault: an end none of those names.
 """
 
 from __future__ import annotations
@@ -35,11 +32,10 @@ _ROUTE_BY_STATUS = {MULL_PASSED: "survived", MULL_TIMEDOUT: "timeout"}
 
 # Catch2's exit when an assertion failed and the run reached its end. A fatal
 # signal inside a test case is raised again once Catch2 has reported it, so
-# the process dies by the signal, which Mull records as no exit status (-1),
-# and a sanitizer ends a run with its own. The exit is the test's verdict
-# where Mull kept none of the output: it reads each stream as UTF-8 and keeps
-# nothing of one holding a byte that is not, so a failure report quoting raw
-# input reaches the report empty.
+# the process dies by the signal, which Mull records as no exit status (-1).
+# The exit is the test's verdict where Mull kept none of the output: it reads
+# each stream as UTF-8 and keeps nothing of one holding a byte that is not, so
+# a failure report quoting raw input reaches the report empty.
 CATCH2_TEST_FAILED = ExitStatus(42)
 
 # Catch2 reports each failure as a block opened at the site's line and closed
@@ -52,24 +48,6 @@ _FAILED_BLOCK = re.compile(
 _FATAL_CONDITION = "due to a fatal error condition"
 # The kernel ending the process, from the shim's own error path.
 _KERNEL_ENDED = re.compile(r"^aletheia: ", re.MULTILINE)
-_LEAK_REPORTED = "LeakSanitizer: detected memory leaks"
-# AddressSanitizer names itself on the first line of every report it ends a
-# run with, whatever the class it read: a use after free, a read past an
-# allocation, or a read of a frame that has returned. LeakSanitizer's own
-# report is read before this one, so a leak under an address tree stays a
-# leak rather than becoming an address kill.
-_ADDRESS_REPORTED = "ERROR: AddressSanitizer:"
-# What the address sanitizer read, the word it names the class by: a use after
-# free, a read past an allocation, a read of a frame that has returned. It
-# carries no values, so it keys a row the way a check's invariant does.
-_ADDRESS_KIND = re.compile(r"ERROR: AddressSanitizer: (\S+)")
-# The sanitizers that end a run with a report, in the order a run carrying
-# more than one is read by: LeakSanitizer's report is part of what an
-# address tree prints at exit, and a leak is a leak wherever it was read.
-_SANITIZER_REPORTS: tuple[tuple[str, str], ...] = (
-    (_LEAK_REPORTED, "leak"),
-    (_ADDRESS_REPORTED, "address"),
-)
 # libstdc++ reports a failed check on stderr and aborts. Debug mode prints the
 # header's path, the function under ``In function:``, then ``Error:`` and what
 # the operation attempted, wrapped over lines up to a blank one; the
@@ -83,28 +61,19 @@ _LIBSTDCXX_CHECK = re.compile(
 # refused them for: debug mode prints an index and a size into its sentence,
 # and those come from the test data, so a fixture the suite feeds differently
 # would reword a recorded row without any claim having changed. Every message
-# this tree produces carries its values last, after the invariant, and an
+# the library produces carries its values last, after the invariant, and an
 # assertion's expression carries none, so the text up to the first number is
 # the claim: a subscript refusal reads the same whichever index tripped it.
 _CHECK_VALUES = re.compile(r"\s*\d.*\Z", re.DOTALL)
 
-# The routes a kill is read by, in the order a mutant killed by several lanes
-# is attributed: a test's assertion first, since that is the one the suite
-# would give without any instrument.
-KILL_ROUTES: tuple[str, ...] = (
-    "test",
-    "leak",
-    "address",
-    "kernel",
-    "check",
-    "fault",
-    "timeout",
-    "survived",
-)
+# The routes a kill is read by, in the order a run's output is read for
+# them: a test's assertion first, since that is the one the suite would give
+# without any instrument.
+KILL_ROUTES: tuple[str, ...] = ("test", "kernel", "check", "fault", "timeout", "survived")
 
 
 class MutantRun(NamedTuple):
-    """What Mull's report keeps of one lane's run of one mutant.
+    """What Mull's report keeps of one leg's run of one mutant.
 
     The runner's execution status, the process's exit status, and what the
     test binary wrote to each stream.
@@ -117,12 +86,10 @@ class MutantRun(NamedTuple):
 
 
 def kill_route(run: MutantRun) -> str:
-    """Read what ended one lane's run of one mutant.
+    """Read what ended one leg's run of one mutant.
 
     ``test``: an assertion failed, whatever ended the process after it, and
     Catch2's failure exit says so where the output is gone;
-    ``leak``: LeakSanitizer reported a leak; ``address``: AddressSanitizer
-    reported a read or a write of memory the program does not own;
     ``kernel``: the kernel ended the process from its own error path;
     ``check``: a check the standard library runs in the mutation build ended
     it, at the read or the subscript it refused; ``fault``: nothing above
@@ -137,9 +104,6 @@ def kill_route(run: MutantRun) -> str:
         _FATAL_CONDITION not in block for block in _FAILED_BLOCK.findall(run.stdout)
     ):
         return "test"
-    reported = next((route for marker, route in _SANITIZER_REPORTS if marker in run.stderr), "")
-    if reported:
-        return reported
     if _KERNEL_ENDED.search(run.stderr):
         return "kernel"
     if _LIBSTDCXX_CHECK.search(run.stderr):
@@ -148,13 +112,12 @@ def kill_route(run: MutantRun) -> str:
 
 
 class Ending(NamedTuple):
-    """How one lane's run of one mutant ended: its route, and what the check refused.
+    """How one leg's run of one mutant ended: its route, and what the check refused.
 
     ``refused`` is the invariant the standard library's check reported, the
-    one the read or the subscript would have broken, or, where the address
-    sanitizer ended the run, the class it names the report by. It is empty for
-    every other route. The values a check was refused for are not part of it,
-    for the reason at ``_CHECK_VALUES``.
+    one the read or the subscript would have broken. It is empty for every
+    other route. The values a check was refused for are not part of it, for
+    the reason at ``_CHECK_VALUES``.
     """
 
     route: str
@@ -162,7 +125,7 @@ class Ending(NamedTuple):
 
 
 def lane_endings(sqlite_path: Path) -> dict[str, Ending]:
-    """Read each mutant's ending from one lane's SQLite report."""
+    """Read each mutant's ending from one leg's SQLite report."""
     with contextlib.closing(sqlite3.connect(sqlite_path)) as conn:
         rows = conn.execute(
             "SELECT mutant_id, execution_status, exit_status, stdout, stderr FROM mutant"
@@ -179,9 +142,6 @@ def lane_endings(sqlite_path: Path) -> dict[str, Ending]:
 
 def _ending(run: MutantRun) -> Ending:
     route = kill_route(run)
-    if route == "address":
-        kind = _ADDRESS_KIND.search(run.stderr)
-        return Ending(route, kind.group(1) if kind else "")
     if route != "check":
         return Ending(route, "")
     check = _LIBSTDCXX_CHECK.search(run.stderr)
@@ -190,20 +150,24 @@ def _ending(run: MutantRun) -> Ending:
 
 
 def lane_routes(sqlite_path: Path) -> dict[str, str]:
-    """Read each mutant's route from one lane's SQLite report."""
+    """Read each mutant's route from one leg's SQLite report."""
     return {mutant: ending.route for mutant, ending in lane_endings(sqlite_path).items()}
 
 
-def merge_endings(lanes: list[dict[str, Ending]]) -> dict[str, int]:
-    """Count the mutants by route across the lanes' endings, as ``merge_routes`` does."""
-    return merge_routes([{m: ending.route for m, ending in lane.items()} for lane in lanes])
+def merge_endings(legs: list[dict[str, Ending]]) -> dict[str, int]:
+    """Count the mutants by route over the legs' endings, as ``merge_routes`` does."""
+    return merge_routes([{m: ending.route for m, ending in leg.items()} for leg in legs])
 
 
-def merge_routes(lanes: list[dict[str, str]]) -> dict[str, int]:
-    """Count the mutants by route across the lanes, attributed in the order of ``KILL_ROUTES``."""
+def merge_routes(legs: list[dict[str, str]]) -> dict[str, int]:
+    """Count the mutants by route over the legs' routes.
+
+    The slices are disjoint, so every mutant ends in one leg and the merge is
+    the count of the legs' endings by route.
+    """
     counts: dict[str, int] = dict.fromkeys(KILL_ROUTES, 0)
-    ids = {mutant for lane in lanes for mutant in lane}
+    ids = {mutant for leg in legs for mutant in leg}
     for mutant in ids:
-        routes = {lane[mutant] for lane in lanes if mutant in lane}
+        routes = {leg[mutant] for leg in legs if mutant in leg}
         counts[next(route for route in KILL_ROUTES if route in routes)] += 1
     return counts

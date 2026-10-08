@@ -71,7 +71,7 @@ inject 'type AletheiaProbe = tuple[int, int]' "an alias over ints" \
 	"type AletheiaProbe = tuple[int, int]" || exit 1
 
 # A hint in the Python a probe hands its interpreter.
-sed -i 's/^from tools.mutation_cpp_dry_run import MULL_RUNNER, dry_run_report, tree_binary$/&\ndef aletheia_probe(cpus: set[int]) -> None: ...\n/' "$tree/$probe"
+sed -i 's/^from tools.mutation_cpp_dry_run import MULL_RUNNER, dry_run_report, lane_binary$/&\ndef aletheia_probe(cpus: set[int]) -> None: ...\n/' "$tree/$probe"
 grep -q '^def aletheia_probe' "$tree/$probe" || { echo "the probe fixture did not land"; exit 2; }
 refused "a hint inside a probe's Python" "set[int]" || exit 1
 

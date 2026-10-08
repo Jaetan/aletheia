@@ -33,7 +33,7 @@
 # comparison, boundary and arithmetic mutants stand for a guard or a bound
 # off by one, and their kills are the tests' own, except the loop bounds a
 # test never observes past the end: those the standard library's own checks
-# catch, since the trees run its debug mode, and the sweep records such a
+# catch, since the tree runs its debug mode, and the sweep records such a
 # kill as a check rather than as the test's. The increment and decrement
 # mutants stand for a counter running the wrong way, the assignment mutants
 # for an accumulation running the wrong way or a constant that was never
@@ -58,9 +58,6 @@
 # compiler emits under a name of its own, the intrinsics that copy, set and
 # mark memory, are refused by both call mutators, since no line of the source
 # writes them; so is inline assembly, of which the library writes none.
-# The assignment group is named by its three members, because the address
-# tree drops the constant stores alone: a sanitizer writes stores of its own
-# at a statement's location, and a mutant of one measures the sanitizer.
 mutators:
   - cxx_default
   - cxx_decrement
@@ -92,10 +89,10 @@ excludePaths:
   - /cpp/src/detail/mock_backend\.hpp$
 # Milliseconds the runner's own runs of the unmutated binary, the warm-up and
 # the baseline, may take before it refuses the tree as one whose tests fail.
-# Mull's default is three seconds, under the plain tree's five under debug
-# mode and under what a loaded machine makes of the leak tree's two. Mull
-# deprecates this key in favour of the runner's --timeout; every runner is
-# given this file, or one generated from it, as MULL_CONFIG, so the key reaches
-# each of them. It caps no mutant's run: that cap is ten times the baseline
-# unless the runner is given more, which the lane does (tools/mutation_cpp.py).
+# Mull's default is three seconds, under the tree's five under debug mode.
+# Mull deprecates this key in favour of the runner's --timeout; every runner
+# is given this file, or one generated from it, as MULL_CONFIG, so the key
+# reaches each of them. It caps no mutant's run: that cap is ten times the
+# baseline unless the runner is given more, which the lane does
+# (tools/mutation_cpp.py).
 timeout: 60000

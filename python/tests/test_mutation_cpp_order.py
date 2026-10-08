@@ -29,7 +29,7 @@ from tools.mutation_cpp import (
     cpp_build_command,
     cpp_lane_command,
 )
-from tools.mutation_cpp_legs import CppLeg, CppTree
+from tools.mutation_cpp_legs import CppLeg
 
 if TYPE_CHECKING:
     import pytest
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 
 def _command(*, dry_run: bool = False) -> list[str]:
     """Build one leg's argv, a dry run's where asked, the paths being the only thing it reads."""
-    leg = CppLeg(CppTree.PLAIN, 1)
+    leg = CppLeg(1)
     return cpp_lane_command(
         "mull-runner-23", Path("cpp") / leg.directory, Path("artifacts"), leg, dry_run=dry_run
     )

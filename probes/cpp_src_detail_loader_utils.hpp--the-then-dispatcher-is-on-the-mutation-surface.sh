@@ -8,9 +8,9 @@
 # lane reported a clean score over a function it had never mutated; with the
 # call mutators configured in cpp/mull.yml, a dry run over the mutation tree
 # lists at least one mutant in this header, and every one of them is in the
-# dispatcher or the predicates beside it rather than nowhere. The leak tree is
-# read through a dry run of the lane's own command, in the lane's environment
-# and directory, its report in scratch. Non-zero exit: the dry run lists no
+# dispatcher or the predicates beside it rather than nowhere. The tree is read
+# through a dry run of the lane's own command, in the lane's environment and
+# directory, its report in scratch. Non-zero exit: the dry run lists no
 # mutant in the header, or writes no report. Exits 0 with a note when Mull or
 # the mutation tree is not available, since the claim is untestable then.
 set -u
@@ -26,17 +26,17 @@ import sys
 import tempfile
 from pathlib import Path
 
-from tools.mutation_cpp_legs import CppLeg, CppTree
-from tools.mutation_cpp_dry_run import MULL_RUNNER, dry_run_report, tree_binary
+from tools.mutation_cpp_legs import CppLeg
+from tools.mutation_cpp_dry_run import MULL_RUNNER, dry_run_report, lane_binary
 
 if shutil.which(MULL_RUNNER) is None:
     print("Mull not installed, claim untestable")
     sys.exit(0)
-if not os.access(tree_binary(CppTree.LEAK), os.X_OK):
+if not os.access(lane_binary(), os.X_OK):
     print("no mutation tree built, claim untestable")
     sys.exit(0)
 with tempfile.TemporaryDirectory(prefix="dry-run-") as scratch:
-    report = dry_run_report(CppLeg(CppTree.LEAK), Path(scratch))
+    report = dry_run_report(CppLeg(), Path(scratch))
     if isinstance(report, str):
         print(report)
         sys.exit(1)
