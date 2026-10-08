@@ -338,9 +338,9 @@ call's allocations, so a container reserved ahead is told from one left to
 grow, and the ack fast path from the parse it skips; its sweeps find a call's
 own allocations by one recorded run, naming the frames above each, so the
 allocations of a vendored library, which may not be failed, are never failed,
-and the loaders are swept whole. And a kernel stand-in
-(`cpp/tests/kernel_stand_in/`) carries every symbol the backend and the
-renderer resolve, refuses every call with a message quoting its arguments,
+and the loaders are swept whole. And a kernel stand-in the build makes beside
+the library (`haskell-shim/test/recording_kernel.c`) carries every symbol the
+backend and the renderer resolve, refuses every call with a message quoting its arguments,
 which is the one way to read what the backend marshals to an entry whose
 arguments the real kernel acknowledges without reading: the timestamp of an
 error or remote event, and the CAN-FD bus bits of a frame; and it counts the

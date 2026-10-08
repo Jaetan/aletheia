@@ -563,20 +563,16 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     set(ALETHEIA_STAND_IN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../build/stand-ins")
     target_compile_definitions(unit_tests PRIVATE
         ALETHEIA_TEST_SYMBOLLESS_LIB="${ALETHEIA_STAND_IN_DIR}/symbolless.so")
-    # A kernel stand-in that refuses every call, quoting what it was handed:
-    # the one way to read what the backend marshals to an entry whose
-    # arguments the real kernel acknowledges without reading.
-    add_library(aletheia_test_recording_kernel SHARED
-        tests/kernel_stand_in/recording_kernel_lib.cpp)
-    target_compile_features(aletheia_test_recording_kernel PRIVATE cxx_std_23)
-    # The stand-in takes the backend's mirror of the kernel's structures; the
-    # unit tests hold that mirror to the kernel's own header.
-    target_include_directories(aletheia_test_recording_kernel PRIVATE src)
+    # The stand-in that refuses every call, quoting what it was handed, and
+    # counts the closes and frees it is given: the one way to read what the
+    # backend marshals to an entry whose arguments the real kernel
+    # acknowledges without reading, and that it releases what it was handed.
+    # The unit tests hold the backend's mirror of the kernel's structures to
+    # the kernel's own header.
     set(ALETHEIA_KERNEL_HEADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../haskell-shim/include")
     target_include_directories(unit_tests PRIVATE ${ALETHEIA_KERNEL_HEADER_DIR})
     target_compile_definitions(unit_tests PRIVATE
-        ALETHEIA_TEST_RECORDING_KERNEL="$<TARGET_FILE:aletheia_test_recording_kernel>")
-    add_dependencies(unit_tests aletheia_test_recording_kernel)
+        ALETHEIA_TEST_RECORDING_KERNEL="${ALETHEIA_STAND_IN_DIR}/recording_kernel.so")
     # Two more of the build's stand-in kernels: one at an ABI version no
     # binding was written against, exporting that version alone, which the
     # backend must refuse before anything else; and one at this version
@@ -681,8 +677,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     target_link_libraries(renderer_frees_kernel_strings_tests
         PRIVATE aletheia-cpp Catch2::Catch2WithMain)
     target_compile_definitions(renderer_frees_kernel_strings_tests PRIVATE
-        ALETHEIA_TEST_RECORDING_KERNEL="$<TARGET_FILE:aletheia_test_recording_kernel>")
-    add_dependencies(renderer_frees_kernel_strings_tests aletheia_test_recording_kernel)
+        ALETHEIA_TEST_RECORDING_KERNEL="${ALETHEIA_STAND_IN_DIR}/recording_kernel.so")
 
     # Feature matrix parity test (yaml-cpp, Catch2). Reads
     # docs/FEATURE_MATRIX.yaml and verifies every C++ implemented entry
