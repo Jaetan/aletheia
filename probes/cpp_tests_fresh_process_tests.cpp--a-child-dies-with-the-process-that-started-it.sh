@@ -19,7 +19,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 2
 py=python/.venv/bin/python
 [ -x "$py" ] || { echo "no $py"; exit 2; }
-for bin in cpp/build/fresh_process_tests cpp/build/fresh-process/rts_heap_cap_tests; do
+for bin in cpp/build/fresh_process_tests cpp/build/rts_heap_cap_tests; do
     [ -x "$bin" ] || { echo "$bin is not built: build cpp/build first"; exit 2; }
 done
 exec "$py" - << 'PY'
@@ -98,7 +98,7 @@ results = [
     ),
     case(
         "heap-cap suite",
-        ["cpp/build/fresh-process/rts_heap_cap_tests", "default cap boots and parses a workload"],
+        ["cpp/build/rts_heap_cap_tests", "default cap boots and parses a workload"],
     ),
 ]
 sys.exit(0 if all(results) else 1)

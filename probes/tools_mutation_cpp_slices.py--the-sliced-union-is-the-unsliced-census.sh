@@ -47,7 +47,7 @@ from tools.mutation_cpp import CPP_TEST_TARGET
 from tools.mutation_cpp_config import built_under_config, leg_files
 from tools.mutation_cpp_legs import CppLeg, CppTree
 from tools.mutation_cpp_slices import CPP_SLICES
-from tools.mutation_sweep_cache import dry_run_report, leg_build_dir
+from tools.mutation_cpp_dry_run import dry_run_report, leg_build_dir
 
 sources = subprocess.run(
     ["git", "ls-files", "-z", "--", "cpp/src", "cpp/include", "cpp/tests", "cpp/CMakeLists.txt"],

@@ -758,13 +758,9 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     # renderer and the runtime run as children of one binary
     # (tests/fresh_process_tests.cpp), which ctest runs, and which the
     # mutation build folds into the mutation binary, so the lane sweeps them
-    # with the mutant each child inherits. Their binaries are built into a
-    # directory of their own, where the sweep cache finds them: a sweep is
-    # keyed on every file it runs.
+    # with the mutant each child inherits.
     set(ALETHEIA_FRESH_PROCESS_BINARIES rts_init_renderer_uninitialized_tests
         renderer_missing_library_tests rts_heap_cap_tests rts_heap_cap_workload)
-    set_target_properties(${ALETHEIA_FRESH_PROCESS_BINARIES} PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/fresh-process")
     set(ALETHEIA_FRESH_PROCESS_DEFINITIONS
         ALETHEIA_RUNTIME_DOWN_TESTS="$<TARGET_FILE:rts_init_renderer_uninitialized_tests>"
         ALETHEIA_RENDERER_MISSING_LIBRARY_TESTS="$<TARGET_FILE:renderer_missing_library_tests>"

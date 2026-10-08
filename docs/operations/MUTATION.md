@@ -29,7 +29,7 @@ tools/mutation_cpp_slices.py       The C++ surface's partition into slices
 tools/mutation_cpp_runs.py         What the C++ sweep spends on each file, and how far the recorded slice weights have drifted from it
 tools/mutation_routes.py           The C++ kill-route census
 tools/mutation_ccache_evict.sh     The C++ lane's compiler cache cut to its run's working set before the save
-tools/mutation_sweep_cache.py      Sweeps of the C++ lane, kept for every probe that reads them
+tools/mutation_cpp_dry_run.py      A dry run of one C++ leg over the tree the lane built: the mutants a sweep of it would run
 tools/build_mull.sh                Mull built from source against LLVM 23, with the patches in tools/mull/
 tools/mutation_go.py               The Go lane's shards: which files each sweeps, and the proof they add up
 tools/mutation_rust.py             The Rust lane: cargo-mutants in shards, over scratch copies of the tree
@@ -128,9 +128,8 @@ What fails the lane:
   step, with its message), or a fault (an end none of those names).  A run
   ends at its first failing assertion (Catch2's `--abort`), which moves no
   route: a failing assertion is the test's kill whatever ends the process
-  after it, and a run with none goes through the whole suite either way; a
-  probe sweeps every tree without the flag to hold that.  A mutant
-  several lanes killed is attributed in that order.  The counts land in
+  after it, and a run with none goes through the whole suite either way.  A
+  mutant several lanes killed is attributed in that order.  The counts land in
   `cpp-routes.json` beside `cpp.json`, and the lane holds them to the C++
   baseline's `kill_routes` route by route, which the pinned test order and
   the debug-mode checks make exact; a sweep with any timeout is refused by the
@@ -452,9 +451,6 @@ ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_GO=1 ALETHEIA_MUTATION_SK
 # sweeps it in the lane's environment with the lane's argv.
 ALETHEIA_MUTATION_SKIP_PYTHON=1 ALETHEIA_MUTATION_SKIP_GO=1 ALETHEIA_MUTATION_SKIP_RUST=1 \
   python/.venv/bin/python -m tools.mutation_run
-# The kept sweep the probes read, of the trees as built, in the same
-# environment and with the same argv; it prints the directory holding it.
-python/.venv/bin/python -m tools.mutation_sweep_cache
 ~~~
 
 Per-binding skip env vars (useful for partial runs):

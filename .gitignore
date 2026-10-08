@@ -8,9 +8,6 @@ build-fuzz/
 build-mutation/
 build-mutation-*/
 build-coverage/
-# The sweeps the probe store shares (tools/mutation_sweep_cache.py): reports of
-# a lane's sweep, keyed on what it reads and how it runs; generated, not sources.
-cpp/mutation-sweeps/
 _build/
 dist/
 dist-newstyle/

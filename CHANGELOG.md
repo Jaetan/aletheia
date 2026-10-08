@@ -12,21 +12,6 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Added
 
-- **A probe reads a kept sweep of the C++ trees as they stand, and sweeps only
-  where none is kept.** The two probes that hold the C++ verdicts and endings
-  under another order of the cases and without `--abort` swept for themselves
-  on every run of the store, 723.6 s and 1496.9 s of the 4123.6 s the store's
-  probes took. Their sweeps are now kept beside the lane's own in
-  `tools/mutation_sweep_cache.py`, keyed on what the trees hold and on the
-  argv and environment each tree is swept with, except the temp directory,
-  which says where the runs make their scratch and not what they report, and
-  the lane's pinned order is read from the lane's sweep rather than swept
-  again. A kept sweep of another tree is removed once one of the tree as it
-  stands is in place, and is never served. One sweep is made at a time, under
-  a lock on the cache's directory, so probes running at once that ask for the
-  same sweep make it once. With every sweep kept the two take 36.4 s and
-  2.6 s.
-
 - **Every probe's time is on its line and kept.** The probe store's runner
   printed a verdict and a path, so a whole run, 70 min 54 s on the tree of
   `77d2a3a4`, said nothing of where the time went. Each line now carries the
@@ -2487,6 +2472,22 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Removed
 
+- **The kept sweeps of the C++ mutation trees, and the two probes that read
+  them.** Two probes swept the C++ trees again under a variant of the lane's
+  command, one in other orders of the cases and one without `--abort`, to hold
+  that neither moves a mutant's verdict or ending; in the last store run they
+  took 4899.9 s and 4333.5 s, 40 percent of the probes' summed time. Their
+  claims do not earn that: the census reads any failing assertion as the
+  test's kill whatever ended the process after it, which
+  `test_a_run_is_read_by_what_ended_it` holds, so `--abort` cannot move an
+  ending; a verdict the order moves changes the survivors when the order
+  changes, which the exact lane refuses; and no commit records an order
+  dependence either probe found. With them went the last reader of
+  `tools/mutation_sweep_cache.py`, which kept sweeps keyed on every file a
+  sweep reads. It is removed with its tests, its probes, `cpp/mutation-sweeps/`
+  and the `fresh-process` directory the fresh-process suites were built into
+  so its key could find them. A dry run of one leg, which the probes over the
+  mutation surface read, is `tools/mutation_cpp_dry_run.py`.
 - **The `frame_byte_count` bound kind and `max-frame-byte-count` (BREAKING).**
   The bound refused nothing the DLC's byte count did not already refuse; a
   frame of the wrong length is now `parse_payload_length_mismatch`, whatever

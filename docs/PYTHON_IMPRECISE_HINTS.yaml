@@ -267,9 +267,6 @@ hints:
   - file: probes/tools_coverage_run.py--the-cpp-export-reads-every-object-ctest-runs.sh
     text: "subprocess.CompletedProcess[str]"
     count: 1
-  - file: probes/tools_mutation_cpp.py--the-verdict-does-not-depend-on-the-test-order.sh
-    text: "set[str]"
-    count: 1
   - file: probes/tools_mutation_cpp_slices.py--the-sliced-union-is-the-unsliced-census.sh
     text: "list[str]"
     count: 1
@@ -1884,18 +1881,6 @@ hints:
   - file: python/tests/test_mutation_run_scope.py
     text: "subprocess.CompletedProcess[str]"
     count: 2
-  - file: python/tests/test_mutation_sweep_cache.py
-    text: "int"
-    count: 1
-  - file: python/tests/test_mutation_sweep_cache.py
-    text: "list[str]"
-    count: 1
-  - file: python/tests/test_mutation_sweep_cache.py
-    text: "set[int]"
-    count: 1
-  - file: python/tests/test_mutation_sweep_cache.py
-    text: "str"
-    count: 3
   - file: python/tests/test_mutation_unobserved_ledger.py
     text: "dict[UnobservedKey, int] | None"
     count: 1
@@ -3451,9 +3436,6 @@ hints:
   - file: tools/mutation_scope.py
     text: "str"
     count: 1
-  - file: tools/mutation_sweep_cache.py
-    text: "list[str]"
-    count: 2
   - file: tools/prune_actions_cache.py
     text: "dict[str, list[Entry]]"
     count: 1

@@ -400,11 +400,9 @@ bindings:
       # string past a map's end still moved between the test and the fault
       # route as the length it read decided between a bad_alloc and a
       # signal. With both, two sweeps of each tree compared mutant for mutant
-      # moved nothing. What the order moves is the route and not the
-      # verdict, because a fault ends the process and the order decides
-      # which test reports before it stops, while a mutant that dies at all
-      # dies under every order: that the verdict is order-independent is the
-      # separate claim, and a probe sweeps several orders to hold it.
+      # moved nothing. What the order moves is the route, because a fault
+      # ends the process and the order decides which test reports before it
+      # stops.
       #
       # The surface moves with the compiler, so the counts below are a
       # measurement of this toolchain and not a target.

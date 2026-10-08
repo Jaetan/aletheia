@@ -497,44 +497,18 @@ def merge_elements(reports: list[Mapping[str, object]]) -> dict[str, object]:
     return _scored(merged)
 
 
-# A seed Catch2 shuffles the cases by.
-RngSeed = NewType("RngSeed", int)
-
-
-class CaseOrder(NamedTuple):
-    """The order Catch2 runs the cases in, and the seed it shuffles them by when it does."""
-
-    kind: Literal["decl", "lex", "rand"]
-    seed: RngSeed | None = None
-
-
-class CppRun(NamedTuple):
-    """How the runner runs a leg: the cases' order, the end of a run, and whether any mutant runs.
-
-    The lane pins the order and ends a run at its first failing assertion; a
-    probe varies one of them to hold that the variation moves no verdict.  A
-    dry run runs the unmutated binary once and reports every mutant the
-    binary carries without running one, which is how a probe reads the
-    surface a sweep would cover.
-    """
-
-    order: CaseOrder = CaseOrder("decl")
-    abort: bool = True
-    dry_run: bool = False
-
-
-# How the lane runs every leg.
-LANE_RUN = CppRun()
-
-
 def cpp_lane_command(
-    mull_runner: str, build_dir: Path, artifact_dir: Path, leg: CppLeg, run: CppRun = LANE_RUN
+    mull_runner: str, build_dir: Path, artifact_dir: Path, leg: CppLeg, *, dry_run: bool = False
 ) -> list[str]:
-    """Build the runner's argv for one leg, the test binary's own argv behind ``--``."""
+    """Build the runner's argv for one leg, the test binary's own argv behind ``--``.
+
+    A dry run runs the unmutated binary once and reports every mutant the
+    binary carries without running one.
+    """
     return [
         mull_runner,
         str(build_dir / CPP_TEST_TARGET),
-        *(["--dry-run"] if run.dry_run else []),
+        *(["--dry-run"] if dry_run else []),
         "--reporters=IDE",
         "--reporters=Elements",
         # The SQLite report keeps each mutant's exit status and the test
@@ -552,19 +526,15 @@ def cpp_lane_command(
         # ones read the fault route at 98 and 99 against the pinned 93.
         # A fault ends the process, so the order decides which test
         # reports before the run stops. Pinning makes the recorded census
-        # a measurement rather than a sample; that the verdict holds under
-        # every order is a separate property, and a probe sweeps several
-        # orders to hold it.
+        # a measurement rather than a sample.
         "--",
         "--order",
-        run.order.kind,
-        *([] if run.order.seed is None else ["--rng-seed", str(run.order.seed)]),
+        "decl",
         # A run ends at its first failing assertion. The kill-route census
         # reads a run with any failing assertion as the test's kill,
         # whatever ended the process after it, and a run with none goes
-        # through the whole suite either way, so no mutant's route moves; a
-        # probe sweeps without the flag to hold that.
-        *(["--abort"] if run.abort else []),
+        # through the whole suite either way, so no mutant's route moves.
+        "--abort",
     ]
 
 
