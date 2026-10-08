@@ -316,9 +316,10 @@ bindings:
       # What holds the surface. The mutation binary folds in the real-FFI
       # integration suite and the two loader suites, because a mock-only
       # binary never executes the dlopen glue and the static link drops a
-      # loader object nothing references. The three suites that need a
+      # loader object nothing references. The suites that need a
       # process of their own for the renderer and the runtime, the renderer
-      # with the runtime down or no library to find and the runtime's heap cap,
+      # with the runtime down, with no library to find or releasing the kernel's
+      # strings, and the runtime's heap cap,
       # run as the binary's children
       # (cpp/tests/fresh_process_tests.cpp), each under the mutant it inherits,
       # since a process starts the runtime and searches for the library once.
@@ -523,7 +524,7 @@ bindings:
           cpp/src/yaml.cpp: 1.7
       timeouts: 0
       score_pct: 99.7
-      run_at: "2026-10-06"
+      run_at: "2026-10-08"
       # A mutant the runner ended at its cap in every tree is neither killed
       # nor survived, and no verdict comes from a clock: the lane refuses a
       # sweep in which the cap fired, and a timed-out mutant is a hang to
@@ -532,8 +533,8 @@ bindings:
       # the cap.
       timeout_ceiling: 0
       kill_routes:
-        test: 1418
-        leak: 2
+        test: 1420
+        leak: 0
         address: 19
         kernel: 2
         check: 15
@@ -716,12 +717,6 @@ bindings:
           route: fault
           refused: ''
           count: 1
-        - mutator: cxx_remove_void_call
-          file: cpp/src/rational_renderer.cpp
-          text: auto const deleter = [&s](char* p) { s.free_fn(p); };
-          route: leak
-          refused: ''
-          count: 2
         - mutator: cxx_remove_void_call
           file: cpp/src/rational_renderer.cpp
           text: ensure_loaded();

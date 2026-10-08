@@ -71,8 +71,15 @@ auto aletheia_test_close_count() -> int {
     return closes.load();
 }
 
+// Frees are counted too: a string the backend failed to release is a leak
+// only a sanitizer would report, where the count reads the release itself.
+std::atomic<int> frees{0};
 void aletheia_free_str(char* p) {
+    ++frees;
     std::free(p); // NOLINT(cppcoreguidelines-no-malloc): pairs with handed_back
+}
+auto aletheia_test_free_count() -> int {
+    return frees.load();
 }
 
 void aletheia_free_buf(std::uint8_t* /*buf*/) {

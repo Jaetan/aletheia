@@ -530,20 +530,43 @@ TEST_CASE("the FFI backend hands the kernel every byte of a command", "[ffi][mar
     CHECK_THAT(backend->process(state, "{}\0{}"sv), ContainsSubstring("process size=5"));
 }
 
+// One of the recording kernel's counters, which are the one way to read a
+// release the real kernel acknowledges without reading.
+using CountFn = int (*)();
+static auto recording_kernel_counter(const aletheia::test::LoadedLibrary& handle, const char* name)
+    -> CountFn {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    auto* const count = reinterpret_cast<CountFn>(dlsym(handle.get(), name));
+    REQUIRE(count != nullptr);
+    return count;
+}
+
 TEST_CASE("the FFI backend closes the kernel state it opened", "[ffi][marshal]") {
-    // The stand-in counts its closes, which is the one way to read a release
-    // the real kernel acknowledges without reading.
     if (find_ffi_library().empty())
         SKIP("no kernel library holds the process, so the stand-in must not be its first backend");
     const std::filesystem::path stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
     const aletheia::test::LoadedLibrary handle{dlopen(stand_in.c_str(), RTLD_NOW)};
     REQUIRE(handle != nullptr);
-    using CountFn = int (*)();
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    auto* const count = reinterpret_cast<CountFn>(dlsym(handle.get(), "aletheia_test_close_count"));
-    REQUIRE(count != nullptr);
+    auto* const count = recording_kernel_counter(handle, "aletheia_test_close_count");
     auto const before = count();
     { const AletheiaClient client(make_ffi_backend(stand_in)); }
+    CHECK(count() == before + 1);
+}
+
+TEST_CASE("the FFI backend frees the string the kernel handed it", "[ffi][marshal]") {
+    // Every string-returning entry hands the backend a block the kernel
+    // allocated, and the backend releases it once it has copied the text; a
+    // release left out leaks, which no test observes by the text alone.
+    if (find_ffi_library().empty())
+        SKIP("no kernel library holds the process, so the stand-in must not be its first backend");
+    const std::filesystem::path stand_in{ALETHEIA_TEST_RECORDING_KERNEL};
+    const aletheia::test::LoadedLibrary handle{dlopen(stand_in.c_str(), RTLD_NOW)};
+    REQUIRE(handle != nullptr);
+    auto* const count = recording_kernel_counter(handle, "aletheia_test_free_count");
+    auto backend = make_ffi_backend(stand_in);
+    auto const state = backend->init();
+    auto const before = count();
+    CHECK_THAT(backend->process(state, "{}"), ContainsSubstring("process size=2"));
     CHECK(count() == before + 1);
 }
 

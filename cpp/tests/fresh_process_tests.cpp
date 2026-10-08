@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: 2025 Nicolas Pelletier
 // SPDX-License-Identifier: BSD-2-Clause
 //
-// The three suites that need a process of their own for the renderer and the
-// runtime, each run as a child of this one: the renderer with the runtime down
-// or with no library to find, and the runtime's heap cap. ctest runs this file
+// The suites that need a process of their own for the renderer and the
+// runtime, each run as a child of this one: the renderer with the runtime down,
+// with no library to find, or releasing the kernel's strings, and the runtime's
+// heap cap. ctest runs this file
 // as a binary of its own, and the mutation build folds it into the mutation
 // binary, which the runner starts once per mutant with the mutant named in its
 // environment: a child inherits the environment, and it or the workload it
@@ -34,7 +35,7 @@
 #include "repo_root.hpp"
 
 #if !defined(ALETHEIA_RUNTIME_DOWN_TESTS) || !defined(ALETHEIA_RENDERER_MISSING_LIBRARY_TESTS) ||  \
-    !defined(ALETHEIA_RTS_HEAP_CAP_TESTS)
+    !defined(ALETHEIA_RENDERER_FREES_TESTS) || !defined(ALETHEIA_RTS_HEAP_CAP_TESTS)
 #error "the fresh-process suites' paths are compile definitions of the build"
 #endif
 
@@ -114,6 +115,10 @@ TEST_CASE("the renderer refuses while the runtime is down", "[fresh_process]") {
 
 TEST_CASE("the renderer refuses when it finds no library", "[fresh_process]") {
     require_passes(ALETHEIA_RENDERER_MISSING_LIBRARY_TESTS);
+}
+
+TEST_CASE("the renderer frees the strings the kernel hands it", "[fresh_process]") {
+    require_passes(ALETHEIA_RENDERER_FREES_TESTS);
 }
 
 TEST_CASE("the runtime's heap cap contains", "[fresh_process]") {

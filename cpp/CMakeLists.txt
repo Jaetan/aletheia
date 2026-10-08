@@ -688,6 +688,17 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
     target_link_libraries(renderer_missing_library_tests
         PRIVATE aletheia-cpp Catch2::Catch2WithMain)
 
+    # The renderer's releases of the kernel's strings, read from the recording
+    # kernel's count, in a process of its own because the renderer loads its
+    # library once per process. Run as a child of fresh_process_tests, below.
+    add_executable(renderer_frees_kernel_strings_tests
+        tests/renderer_frees_kernel_strings_tests.cpp)
+    target_link_libraries(renderer_frees_kernel_strings_tests
+        PRIVATE aletheia-cpp Catch2::Catch2WithMain)
+    target_compile_definitions(renderer_frees_kernel_strings_tests PRIVATE
+        ALETHEIA_TEST_RECORDING_KERNEL="$<TARGET_FILE:aletheia_test_recording_kernel>")
+    add_dependencies(renderer_frees_kernel_strings_tests aletheia_test_recording_kernel)
+
     # Feature matrix parity test (yaml-cpp, Catch2). Reads
     # docs/FEATURE_MATRIX.yaml and verifies every C++ implemented entry
     # ("<header>#<symbol>") resolves to an existing header containing the
@@ -754,16 +765,18 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL
         PRIVATE ALETHEIA_RTS_WORKLOAD_BIN="$<TARGET_FILE:rts_heap_cap_workload>")
     add_dependencies(rts_heap_cap_tests rts_heap_cap_workload)
 
-    # The three suites above that need a process of their own for the
+    # The suites above that need a process of their own for the
     # renderer and the runtime run as children of one binary
     # (tests/fresh_process_tests.cpp), which ctest runs, and which the
     # mutation build folds into the mutation binary, so the lane sweeps them
     # with the mutant each child inherits.
     set(ALETHEIA_FRESH_PROCESS_BINARIES rts_init_renderer_uninitialized_tests
-        renderer_missing_library_tests rts_heap_cap_tests rts_heap_cap_workload)
+        renderer_missing_library_tests renderer_frees_kernel_strings_tests rts_heap_cap_tests
+        rts_heap_cap_workload)
     set(ALETHEIA_FRESH_PROCESS_DEFINITIONS
         ALETHEIA_RUNTIME_DOWN_TESTS="$<TARGET_FILE:rts_init_renderer_uninitialized_tests>"
         ALETHEIA_RENDERER_MISSING_LIBRARY_TESTS="$<TARGET_FILE:renderer_missing_library_tests>"
+        ALETHEIA_RENDERER_FREES_TESTS="$<TARGET_FILE:renderer_frees_kernel_strings_tests>"
         ALETHEIA_RTS_HEAP_CAP_TESTS="$<TARGET_FILE:rts_heap_cap_tests>")
     add_executable(fresh_process_tests tests/fresh_process_tests.cpp)
     target_compile_features(fresh_process_tests PRIVATE cxx_std_23)
