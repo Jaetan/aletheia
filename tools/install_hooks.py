@@ -165,12 +165,18 @@ against the STAGED content and BLOCKS the commit on any failure — so a
 non-conforming commit fails in seconds, before it exists, instead of minutes
 later at pre-push.  The full sweep still runs at pre-push.
 
-Staged-content isolation: unstaged + untracked changes are stashed
-(`--keep-index --include-untracked`) so the gates see exactly what is being
-committed, then written back file by file in a `finally`, from the stash's
-own trees and never through a merge, so a file staged in part comes back
-whole.  The stash is named; if a restore ever fails, the message says where
-the work is and the commands that write it back.
+Staged-content isolation: the tracked paths with unstaged changes and the
+untracked files are recorded in a stash entry built from trees written
+through private index files, then written from the index tree or removed,
+so the gates see exactly what is being committed and a file that is only
+staged is never written (`git stash push --keep-index` over the whole tree
+checks every staged file out again, moving its mtime to the commit's time;
+over a pathspec it stages the paths in the repository's index, which re-adds
+a file at a staged-deleted path).  Afterwards the parked files are written
+back file by file in a `finally`, from the stash's own trees and never
+through a merge, so a file staged in part comes back whole.  A parking step
+that fails refuses the commit; if a restore ever fails, the stash is kept
+and the message says where the work is and the commands that write it back.
 
 Then runs the `.agda` IWYU import gate (`tools/iwyu.py --check`) on the
 staged `.agda` files and BLOCKS on any finding, and on a run that never
@@ -181,25 +187,57 @@ waits for the sweep instead of going through unchecked.
 Bypass: `git commit --no-verify`.
 """
 
+import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 _STASH_MSG = "aletheia-pre-commit-autostash"
 
 
-def _run(args, cwd=None):
-    return subprocess.run(args, capture_output=True, text=True, check=False, cwd=cwd)
+def _run(args, cwd=None, env=None):
+    # Paths come and go as the bytes git prints after `-z`: a name that is
+    # not UTF-8 round-trips through surrogates instead of raising.
+    return subprocess.run(
+        args,
+        capture_output=True,
+        encoding="utf-8",
+        errors="surrogateescape",
+        check=False,
+        cwd=cwd,
+        env=env,
+    )
 
 
-def _has_worktree_changes(root):
-    # Anything to isolate? Unstaged tracked changes (diff vs the index) OR
-    # untracked, non-ignored files.  If not, the worktree already equals the
-    # staged content and no stash is needed.
-    if _run(["git", "diff", "--quiet"], cwd=root).returncode != 0:
-        return True
-    others = _run(["git", "ls-files", "--others", "--exclude-standard"], cwd=root).stdout
-    return bool(others.strip())
+def _git_paths(args, paths, cwd, env=None):
+    # Run the git command *args* over the NUL-separated *paths*: read from
+    # stdin, since the parked files can be many, and taken literally, since
+    # they are file names: read as pathspecs, a `:x.txt` is magic git refuses
+    # and an `x[1].txt` a pattern that names `x1.txt` too.
+    return subprocess.run(
+        ["git", "--literal-pathspecs", *args, "--pathspec-from-file=-", "--pathspec-file-nul"],
+        input=paths,
+        capture_output=True,
+        encoding="utf-8",
+        errors="surrogateescape",
+        check=False,
+        cwd=cwd,
+        env=env,
+    )
+
+
+def _parked_paths(root):
+    # What the hook parks while its gates run, two NUL-separated lists: the
+    # tracked paths whose worktree copy differs from the index (edited,
+    # deleted, mode changed) and the untracked files git does not ignore. A
+    # nested repository, listed as `dir/`, stays where it is; a file that is
+    # only staged is in neither list and is never written.
+    unstaged = _run(["git", "diff", "--name-only", "-z"], cwd=root).stdout
+    others = _run(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=root).stdout
+    untracked = "".join(p + "\\0" for p in others.split("\\0") if p and not p.endswith("/"))
+    return unstaged, untracked
 
 
 def _run_iwyu(rels, cwd):
@@ -260,33 +298,104 @@ def _iwyu_gate(root):
     return 1
 
 
-def _create_stash(root):
-    # Park unstaged + untracked changes (keeping the index) and return the exact
-    # stash COMMIT sha we created — so restore targets THAT commit regardless of
-    # stack order or git's locale.  Called only when _has_worktree_changes() is
-    # True, so `git stash push` always produces a stash on success (no need to
-    # parse the human "No local changes to save" string, which a localized git
-    # would translate).
-    res = _run(
-        ["git", "stash", "push", "--keep-index", "--include-untracked", "-m", _STASH_MSG],
-        cwd=root,
-    )
+def _tree_after_add(root, index, paths):
+    # The tree of the index file *index* once the NUL-separated *paths* are
+    # added to it as they stand in the worktree (a deleted one is removed); an
+    # *index* that does not exist starts empty. Written through that file, so
+    # the repository's own index is never touched. Returns the tree, or None
+    # with git's reason printed.
+    env = {{**os.environ, "GIT_INDEX_FILE": str(index)}}
+    res = _git_paths(["add"], paths, root, env) if paths else None
+    if res is None or res.returncode == 0:
+        res = _run(["git", "write-tree"], cwd=root, env=env)
     if res.returncode != 0:
-        sys.stderr.write(
-            "pre-commit: could not stash unstaged changes; checking the "
-            "working tree as-is:\\n" + res.stderr
-        )
+        sys.stderr.write("\\npre-commit: could not record the parked files:\\n" + res.stderr)
         return None
-    sha = _run(["git", "rev-parse", "-q", "--verify", "stash@{{0}}"], cwd=root).stdout.strip()
-    return sha or None
+    return res.stdout.strip()
+
+
+def _commit_tree(root, tree, parents, subject):
+    # A commit of *tree* with *parents*, or None with git's reason printed.
+    args = ["git", "commit-tree", tree, "-m", subject]
+    for parent in parents:
+        args += ["-p", parent]
+    res = _run(args, cwd=root)
+    if res.returncode != 0:
+        sys.stderr.write("\\npre-commit: could not record the parked files:\\n" + res.stderr)
+        return None
+    return res.stdout.strip()
+
+
+def _create_stash(root, unstaged, untracked):
+    # Park *unstaged* and *untracked* in a stash entry with the parents `git
+    # stash pop` reads (first HEAD, second the index, third the untracked
+    # files), built from trees written through private index files, so the
+    # repository's index is never staged into and no staged file written. The
+    # worktree tree records the parked paths as they stand, a deletion
+    # included, which git's own does not. Returns the entry's sha, or None
+    # with the reason printed.
+    head = _run(["git", "rev-parse", "-q", "--verify", "HEAD"], cwd=root).stdout.strip()
+    if not head:
+        sys.stderr.write("\\npre-commit: no commit yet to park the unstaged changes against.\\n")
+        return None
+    index = os.environ.get("GIT_INDEX_FILE") or _run(
+        ["git", "rev-parse", "--git-path", "index"], cwd=root
+    ).stdout.strip()
+    with tempfile.TemporaryDirectory() as scratch:
+        work = Path(scratch) / "index"
+        shutil.copy2(root / index, work)
+        i_tree = _tree_after_add(root, work, "")
+        w_tree = i_tree and _tree_after_add(root, work, unstaged)
+        u_tree = w_tree and _tree_after_add(root, Path(scratch) / "untracked", untracked)
+    if not u_tree:
+        return None
+    i_commit = _commit_tree(root, i_tree, [], "index for " + _STASH_MSG)
+    u_commit = i_commit and _commit_tree(root, u_tree, [], "untracked files for " + _STASH_MSG)
+    sha = u_commit and _commit_tree(root, w_tree, [head, i_commit, u_commit], _STASH_MSG)
+    if not sha:
+        return None
+    stored = _run(["git", "stash", "store", "-m", _STASH_MSG, sha], cwd=root)
+    if stored.returncode != 0:
+        sys.stderr.write("\\npre-commit: could not store the stash entry:\\n" + stored.stderr)
+        return None
+    return sha
+
+
+def _isolate(root, i_tree, unstaged, untracked):
+    # Show the gates the staged content alone: each unstaged tracked path is
+    # written from the index tree (an edit overwritten, a deletion undone),
+    # each untracked file removed with the directories it leaves empty.
+    # Returns whether every step succeeded.
+    if unstaged:
+        res = _git_paths(["restore", "--source=" + i_tree, "--worktree"], unstaged, root)
+        if res.returncode != 0:
+            sys.stderr.write(
+                "\\npre-commit: could not write the staged content over the parked paths:\\n"
+                + res.stderr
+            )
+            return False
+    for path in untracked.split("\\0"):
+        if not path:
+            continue
+        target = root / path
+        try:
+            target.unlink()
+            parent = target.parent
+            while parent != root and not any(parent.iterdir()):
+                parent.rmdir()
+                parent = parent.parent
+        except OSError as exc:
+            sys.stderr.write("\\npre-commit: could not set aside " + path + ": " + str(exc) + "\\n")
+            return False
+    return True
 
 
 def _stash_paths(root, sha):
     # The paths the stash *sha* changed, NUL-separated, one list per tree the
     # restore reads: the tracked paths whose worktree content differed from
     # the index (the stash commit's tree against its index parent, every
-    # status, so a deletion is listed too), and the untracked files, which sit
-    # in a third parent git makes only when there were any.
+    # status, so a deletion is listed too), and the untracked files, from the
+    # third parent when the entry has one.
     tracked = _run(
         ["git", "diff", "--name-only", "--no-renames", "-z", sha + "^2", sha], cwd=root
     ).stdout
@@ -301,25 +410,31 @@ def _stash_paths(root, sha):
 def _restore_worktree(root, source, paths):
     # Write the worktree files under *paths* from the tree *source*, file by
     # file: a path the tree lacks is removed. The index is not touched, since
-    # the commit reads it after the hook. The pathspecs go in on stdin, not
-    # argv, because a stash can carry a whole build tree.
+    # the commit reads it after the hook.
     if not paths:
         return None
-    return subprocess.run(
-        [
-            "git",
-            "restore",
-            "--source=" + source,
-            "--worktree",
-            "--pathspec-from-file=-",
-            "--pathspec-file-nul",
-        ],
-        input=paths,
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=root,
-    )
+    return _git_paths(["restore", "--source=" + source, "--worktree"], paths, root)
+
+
+def _recipe(sha, tracked, untracked):
+    # The commands that write the stash commit *sha* back by hand, one per
+    # tree that holds parked files; the index was never changed.
+    lines = [
+        "pre-commit: your unstaged changes are SAFE in stash commit " + sha
+        + " -- write them back with:"
+    ]
+    tail = " --worktree --pathspec-from-file=- --pathspec-file-nul"
+    if tracked:
+        lines.append(
+            "pre-commit:   git diff --name-only --no-renames -z " + sha + "^2 " + sha
+            + " | git --literal-pathspecs restore --source=" + sha + tail
+        )
+    if untracked:
+        lines.append(
+            "pre-commit:   git ls-tree -r -z --name-only " + sha + "^3"
+            + " | git --literal-pathspecs restore --source=" + sha + "^3" + tail
+        )
+    return "\\n".join(lines) + "\\n"
 
 
 def _restore_stash(root, sha):
@@ -329,25 +444,26 @@ def _restore_stash(root, sha):
     # changing one region, so the apply stops unmerged after the gates passed.
     # Tracked changes come from the stash's own tree, untracked files from its
     # third parent, and a path the stash records as deleted is removed, since
-    # a restore from a tree that lacks the path removes it. Then drop the entry
-    # by locating its ref, NOT `git stash pop`, whose top a stash created
-    # concurrently during the hook could shift.
+    # a restore from a tree that lacks the path removes it. Returns whether
+    # every file came back, printing the commands that write them back by
+    # hand when one did not.
+    ok = True
     tracked, untracked = _stash_paths(root, sha)
     for source, paths in ((sha, tracked), (sha + "^3", untracked)):
         res = _restore_worktree(root, source, paths)
         if res is not None and res.returncode != 0:
             sys.stderr.write(
-                "\\npre-commit: FAILED to restore your unstaged changes!\\n"
-                "pre-commit: they are SAFE in stash commit " + sha + " -- write them back with:\\n"
-                "pre-commit:   git diff --name-only --no-renames -z " + sha + "^2 " + sha
-                + " | git restore --source=" + sha
-                + " --worktree --pathspec-from-file=- --pathspec-file-nul\\n"
-                "pre-commit:   git ls-tree -r -z --name-only " + sha + "^3"
-                + " | git restore --source=" + sha
-                + "^3 --worktree --pathspec-from-file=- --pathspec-file-nul\\n"
-                + res.stderr
+                "\\npre-commit: FAILED to restore your unstaged changes!\\n" + res.stderr
             )
-            return
+            ok = False
+    if not ok:
+        sys.stderr.write(_recipe(sha, tracked, untracked))
+    return ok
+
+
+def _drop_stash(root, sha):
+    # Drop the entry *sha* by locating its ref, NOT `git stash pop`, whose
+    # top a stash created concurrently during the hook could shift.
     listing = _run(["git", "stash", "list", "--format=%gd %H"], cwd=root).stdout
     for line in listing.splitlines():
         parts = line.split()
@@ -373,28 +489,39 @@ def main() -> int:
         )
         return 1
 
-    stash_sha = _create_stash(root) if _has_worktree_changes(root) else None
+    unstaged, untracked = _parked_paths(root)
+    stash_sha, isolated = None, True
+    if unstaged or untracked:
+        stash_sha = _create_stash(root, unstaged, untracked)
+        isolated = bool(stash_sha) and _isolate(root, stash_sha + "^2", unstaged, untracked)
 
     rc = 1
     try:
-        sys.stderr.write(
-            "pre-commit: FAST static gates on staged content "
-            "(seconds; skip with `git commit --no-verify`)...\\n"
-        )
-        rc = subprocess.run(
-            [sys.executable, "-m", "tools.run_ci", "--fast"], cwd=root, check=False
-        ).returncode
-        if rc != 0:
+        if not isolated:
             sys.stderr.write(
-                "\\npre-commit: FAST static gates failed — commit refused.\\n"
-                "pre-commit: fix the reported format/lint/hygiene issues, or bypass "
-                "with `git commit --no-verify`.\\n"
+                "pre-commit: commit refused: the gates could not be shown the staged "
+                "content alone.\\n"
             )
         else:
-            rc = _iwyu_gate(root)
+            sys.stderr.write(
+                "pre-commit: FAST static gates on staged content "
+                "(seconds; skip with `git commit --no-verify`)...\\n"
+            )
+            rc = subprocess.run(
+                [sys.executable, "-m", "tools.run_ci", "--fast"], cwd=root, check=False
+            ).returncode
+            if rc != 0:
+                sys.stderr.write(
+                    "\\npre-commit: FAST static gates failed — commit refused.\\n"
+                    "pre-commit: fix the reported format/lint/hygiene issues, or bypass "
+                    "with `git commit --no-verify`.\\n"
+                )
+            else:
+                rc = _iwyu_gate(root)
     finally:
-        if stash_sha:
-            _restore_stash(root, stash_sha)
+        # The entry goes once everything it held is back in place.
+        if stash_sha and _restore_stash(root, stash_sha):
+            _drop_stash(root, stash_sha)
     return rc
 
 
