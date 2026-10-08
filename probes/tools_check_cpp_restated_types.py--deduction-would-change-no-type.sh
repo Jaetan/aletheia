@@ -45,7 +45,7 @@ git diff --no-ext-diff --no-color --binary --src-prefix=a/ --dst-prefix=b/ HEAD 
 mkdir -p "$tree/cpp/build-tidy" || exit 2
 ln -s "$PWD/cpp/build-tidy/_deps" "$tree/cpp/build-tidy/_deps" || exit 2
 sed "s|$PWD/cpp|$tree/cpp|g" cpp/build-tidy/compile_commands.json > "$tree/cpp/build-tidy/compile_commands.json" || exit 2
-lens() { (cd "$tree" && "$py" -m tools.check_cpp_restated_types); }
+lens() { (cd "$tree" && "$py" -m tools.check_cpp_ast); }
 
 cat >> "$tree/$subject" << 'CPP'
 

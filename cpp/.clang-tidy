@@ -50,8 +50,11 @@
 #       — we use #pragma once (cf. llvm-header-guard); its portability concern
 #         (embedded / network-FS compilers) is inert for our Clang-only build
 #   cppcoreguidelines-pro-bounds-avoid-unchecked-container-access
-#       — operator[] on pre-validated indices is intentional; .at() would add
-#         hot-path bounds-check exceptions (we self-check our bounds)
+#       every finding it makes in the library is a third-party operator[]:
+#         a yaml-cpp node or an nlohmann value looked up by key, or an
+#         OpenXLSX style collection read at the index its create() returned;
+#         the standard containers' subscripts are read through at(), which
+#         tools/check_cpp_ast.py holds (AGENTS/cpp.md cat 24)
 #   readability-trailing-comma
 #       clang-format answers a trailing comma by breaking the list one element
 #       per line and nesting each designated initializer on its own line, so the

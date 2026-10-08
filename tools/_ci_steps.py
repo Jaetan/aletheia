@@ -605,15 +605,18 @@ def _run_lints(runner: Runner) -> None:
         cwd=runner.repo_root,
         lane=CPP_LINT_LANE,
     )
-    # Type-deduction ratchet (AGENTS/cpp.md cat 34): every declaration whose
-    # initializer already fixes its type is written auto, or is a row in
-    # docs/CPP_RESTATED_TYPES.yaml.  It matches on the AST through clang-query,
-    # which comes with clang-tidy, and reads the same compile database, so it
-    # belongs in clang-tidy's lane rather than in the misc lane: from the
-    # repository root it could run before the tree is configured.
+    # The rules matched on the C++ AST, in one parse of each unit: the
+    # type-deduction ratchet (AGENTS/cpp.md cat 34, every declaration whose
+    # initializer already fixes its type is written auto or is a row in
+    # docs/CPP_RESTATED_TYPES.yaml) and the checked reads (cat 24, the library
+    # reads no state a check has ruled out but in its checked form).  They match
+    # through clang-query, which comes with clang-tidy, over the same compile
+    # database, so they belong in clang-tidy's lane rather than in the misc
+    # lane: from the repository root they could run before the tree is
+    # configured.
     runner.step(
-        "check-cpp-restated-types",
-        [runner.python, "-m", "tools.check_cpp_restated_types"],
+        "check-cpp-ast",
+        [runner.python, "-m", "tools.check_cpp_ast"],
         cwd=runner.repo_root,
         lane=CPP_LINT_LANE,
     )

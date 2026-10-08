@@ -269,6 +269,29 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project adheres to
 
 ### Changed
 
+- **A gate refuses the C++ library's unchecked reads, in the parse the
+  type-deduction ratchet already makes.** A probe held the reads of a state a
+  check has ruled out at zero (AGENTS/cpp.md cat 24), one clang-query over
+  every translation unit, 150.5 s, run only with the probe store; and it read
+  a unit clang-query could not parse as clean, since clang-query exits zero
+  after a fatal diagnostic and matches nothing in that unit, so it passed over
+  a tree whose unit hid an unchecked read behind a missing include.
+  `tools/check_cpp_checked_reads.py` now holds the rule, and the C++ lint
+  lane's `check-cpp-ast` step, `tools/check_cpp_ast.py`, runs it with the
+  ratchet in one query per unit, the parse being most of either rule's time:
+  12.2 s and 165 s of CPU for both, where the two apart took 21.9 s and 297 s.
+  A unit clang-query cannot parse fails the step. The rules' tests run the
+  whole query over a tree laid out as the binding's: every spelling the
+  checked-read rule names, the checked form of each, a public header's
+  template read only where a test instantiates it, the two headers held out,
+  and a declaration restating its type. The rules share one
+  driver, `tools/_clang_query.py`, which no longer queries the 182 dependency
+  units the lint tree's configure fetches: the filter named `build/_deps/`, a
+  directory the lint tree does not have, so the ratchet parsed 239 units for
+  57. A clang-tidy disable's comment said the library subscripts with `[]` on
+  purpose; it now says what the check finds there, third-party `operator[]`
+  only.
+
 - **The mutation lane holds every binding's record exactly, both ways.** The
   lane failed a run worse than `docs/MUTATION_BENCH.yaml` and passed one
   better: fewer survivors or not-covered mutants, a ledger row the run no

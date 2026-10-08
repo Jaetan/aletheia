@@ -42,7 +42,7 @@ git diff --no-ext-diff --no-color --binary --src-prefix=a/ --dst-prefix=b/ HEAD 
 mkdir -p "$tree/cpp/build-tidy" || exit 2
 ln -s "$PWD/cpp/build-tidy/_deps" "$tree/cpp/build-tidy/_deps" || exit 2
 sed "s|$PWD/cpp|$tree/cpp|g" cpp/build-tidy/compile_commands.json > "$tree/cpp/build-tidy/compile_commands.json" || exit 2
-lens() { (cd "$tree" && "$py" -m tools.check_cpp_restated_types); }
+lens() { (cd "$tree" && "$py" -m tools.check_cpp_ast); }
 cp "$tree/$subject" "$work/subject" || exit 2
 
 if ! lens > "$work/out.txt" 2>&1; then
@@ -94,7 +94,7 @@ if "$py" - "$work" << 'PY' > "$work/nodb.txt" 2>&1; then
 import sys
 from pathlib import Path
 
-from tools.check_cpp_restated_types import translation_units
+from tools._clang_query import translation_units
 
 answer = translation_units(Path(sys.argv[1]))
 if isinstance(answer, str):

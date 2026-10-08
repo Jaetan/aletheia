@@ -14,11 +14,9 @@ declarations whose written type cannot disagree with anything, and says nothing
 about one initialised from a call.  Probed on a declaration initialised from a
 call and on a loop counter that names its own type, it emits nothing.
 
-The instrument is ``clang-query``, which ships with ``clang-tidy`` (the
-``clang-tidy-23`` package Depends on ``clang-tools-23``), so wherever the lint
-gate runs this one can.  It reads the same compile database, so it runs in
-clang-tidy's lane after the configure that writes it, beside
-``check_clang_tidy_coverage``.
+The instrument is ``clang-query``: this rule is a query fragment and a judge
+of what it prints, run by ``tools/check_cpp_ast.py`` in the one parse of each
+translation unit it makes for every rule.
 
 What it reports is narrower than the rule, deliberately: a declaration where
 ``auto`` would deduce the written type *exactly*.  The matcher compares the
@@ -54,27 +52,23 @@ line number, so an edit elsewhere in the file does not churn the YAML; where
 one file holds several identical declarations the row carries how many, as the
 index-loop record and the mutation lane's survivor ledger do.
 
-Run: ``python -m tools.check_cpp_restated_types`` (exit 0 = clean, 1 = findings).
+Run: ``python -m tools.check_cpp_ast`` (exit 0 = clean, 1 = findings).
 """
 
 from __future__ import annotations
 
-import argparse
-import json
 import re
-import subprocess
-import sys
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import NamedTuple, NewType, cast
+from typing import TYPE_CHECKING, NamedTuple
 
-from tools._common import CPP_LINT_TREE, emit, git_toplevel
+from tools._clang_query import CPP_ROOT, Query
+from tools._common import emit
 from tools._ratchet import CanonicalText, RatchetRows, RelPath, RowKey, as_row, read_ratchet_rows
 
-# A translation unit as the compile database names it, relative to `cpp/`;
-# `translation_units` is what mints one, from that database.
-UnitPath = NewType("UnitPath", str)
+from aletheia.common_types import ExitStatus
+
+if TYPE_CHECKING:
+    from tools._clang_query import QueryOutput
 
 
 class Hit(NamedTuple):
@@ -87,18 +81,6 @@ class Hit(NamedTuple):
 
 # The ratchet's record, repo-root-relative.
 ALLOWLIST = Path("docs") / "CPP_RESTATED_TYPES.yaml"
-
-# The compile database the lint gate reads, and the directory clang-query
-# resolves it from.
-CPP_ROOT = Path("cpp")
-BUILD_DIR = CPP_LINT_TREE
-COMPILE_DB = CPP_ROOT / BUILD_DIR / "compile_commands.json"
-
-# The lint gate names the same version, and clang-query comes with it.
-CLANG_QUERY = "clang-query-23"
-
-# Third-party sources the build fetches; the standards cover cpp/ itself.
-VENDORED = "/build/_deps/"
 
 # The directories AGENTS/cpp.md scopes the C++ standards to.  The matcher names
 # them too, as a regex over the expansion file, and a hit is checked against
@@ -162,66 +144,26 @@ varDecl(
 )
 """
 
+# The name the declaration is bound to, which keeps this rule's diagnostics
+# apart from another rule's in the output of the one parse.
+BIND = "restated declaration"
+
+# The rule's part of the query, opening with the traversal it reads.
+QUERY = Query(f'{TRAVERSAL}\nmatch {MATCHER.strip()}.bind("{BIND}")\n')
+
 # clang-query's diagnostic block: the location, the source line, then the caret
 # run spanning the bound node.  The caret line is what gives the declaration's
 # extent; nothing else in the output does.
-_LOCATION = re.compile(r"^(/[^\s:]+):(\d+):(\d+): note: \"root\" binds here$")
+_LOCATION = re.compile(rf'^(/[^\s:]+):(\d+):(\d+): note: "{BIND}" binds here$')
 _NUMBERED = re.compile(r"^\s*\d+ \| (.*)$")
 _CARET = re.compile(r"^\s*\| (\s*)(\^~*)\s*$")
-# A diagnostic clang-query prints for a unit it could not parse; its exit code
-# does not carry it.
-_ERROR = re.compile(r"^.*\berror: .*$", re.MULTILINE)
 
 # A macro invocation, which is what stands at the expansion location of a
 # declaration a macro wrote.  No declaration begins this way.
 _MACRO_CALL = re.compile(r"^[A-Z][A-Z0-9_]{2,}\s*\(")
 
 
-def translation_units(repo: Path) -> list[UnitPath] | str:
-    """Return the binding's own translation units, or why they cannot be read."""
-    database = repo / COMPILE_DB
-    if not database.is_file():
-        return (
-            f"{COMPILE_DB} is missing, so the gate cannot run.  Configure the"
-            f" binding first: cd {CPP_ROOT} && cmake -B {BUILD_DIR}"
-            " -DCMAKE_C_COMPILER=clang-23 -DCMAKE_CXX_COMPILER=clang++-23"
-        )
-    entries: object = json.loads(database.read_text(encoding="utf-8"))
-    if not isinstance(entries, list):
-        return f"{COMPILE_DB} is not a list of compile commands"
-    units = {
-        str(cast("dict[str, object]", entry).get("file", ""))
-        for entry in cast("list[object]", entries)
-        if isinstance(entry, dict)
-    }
-    return sorted(UnitPath(unit) for unit in units if unit and VENDORED not in unit)
-
-
-def run_matcher(repo: Path, script: Path, unit: UnitPath) -> list[Hit] | str:
-    """Match one translation unit, returning its hits or why the run failed."""
-    try:
-        finished = subprocess.run(
-            [CLANG_QUERY, "-p", BUILD_DIR, "-f", str(script), unit],
-            cwd=repo / CPP_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError as failure:
-        return f"{CLANG_QUERY} could not be run ({failure}); it ships with clang-tidy-23"
-    if finished.returncode != 0:
-        detail = (finished.stderr or finished.stdout).strip().splitlines()
-        return f"{CLANG_QUERY} failed on {unit}: {detail[0] if detail else 'no output'}"
-    # clang-query exits zero after a fatal diagnostic, a header it could not
-    # find included, and matches nothing in the unit it could not parse; read
-    # as clean, that unit's declarations would vanish from the gate.
-    diagnostic = _ERROR.search(finished.stderr)
-    if diagnostic is not None:
-        return f"{CLANG_QUERY} could not parse {unit}: {diagnostic.group(0).strip()}"
-    return parse_hits(repo, finished.stdout)
-
-
-def parse_hits(repo: Path, output: str) -> list[Hit]:
+def parse_hits(repo: Path, output: QueryOutput) -> list[Hit]:
     """Read every declaration clang-query bound out of its diagnostics."""
     hits: list[Hit] = []
     lines = output.splitlines()
@@ -254,22 +196,9 @@ def collapse(text: str) -> CanonicalText:
     return CanonicalText(" ".join(text.split()))
 
 
-def observed_rows(repo: Path, units: list[UnitPath]) -> RatchetRows | str:
+def observed_rows(repo: Path, outputs: list[QueryOutput]) -> RatchetRows:
     """Count the tree's restating declarations, keyed by file and source text."""
-    with TemporaryDirectory() as scratch:
-        script = Path(scratch) / "restated.query"
-        script.write_text(f"{TRAVERSAL}\nset output diag\nmatch {MATCHER}\n", encoding="utf-8")
-
-        def match(unit: UnitPath) -> list[Hit] | str:
-            return run_matcher(repo, script, unit)
-
-        with ThreadPoolExecutor() as pool:
-            results = list(pool.map(match, units))
-    seen: set[Hit] = set()
-    for result in results:
-        if isinstance(result, str):
-            return result
-        seen.update(result)
+    seen = {hit for output in outputs for hit in parse_hits(repo, output)}
     rows: RatchetRows = {}
     for hit in seen:
         key = RowKey(hit.file, hit.text)
@@ -277,8 +206,8 @@ def observed_rows(repo: Path, units: list[UnitPath]) -> RatchetRows | str:
     return rows
 
 
-def report(observed: RatchetRows, recorded: RatchetRows) -> int:
-    """Print every unrecorded declaration and every stale row; return the exit code."""
+def report(observed: RatchetRows, recorded: RatchetRows) -> ExitStatus:
+    """Print every unrecorded declaration and every stale row; return the exit status."""
     unrecorded = sorted(key for key, n in observed.items() if n > recorded.get(key, 0))
     stale = sorted(key for key, n in recorded.items() if n > observed.get(key, 0))
     for file, text in unrecorded:
@@ -294,29 +223,15 @@ def report(observed: RatchetRows, recorded: RatchetRows) -> int:
         emit(f"  count to {observed.get(RowKey(file, text), 0)}, in the change that deduced it.")
     if unrecorded or stale:
         emit(f"{len(unrecorded)} unrecorded, {len(stale)} stale")
-        return 1
+        return ExitStatus(1)
     emit(f"C++ declarations restating their type: {sum(observed.values())}, every one recorded")
-    return 0
+    return ExitStatus(0)
 
 
-def main() -> int:
+def judge(repo: Path, outputs: list[QueryOutput]) -> ExitStatus:
     """Compare the tree's restating declarations against the record; 0 clean, 1 not."""
-    argparse.ArgumentParser(description=__doc__).parse_args()  # no options; --help only
-    repo = git_toplevel()
     recorded = read_ratchet_rows(repo, ALLOWLIST, "declarations")
     if isinstance(recorded, str):
         emit(recorded)
-        return 1
-    units = translation_units(repo)
-    if isinstance(units, str):
-        emit(units)
-        return 1
-    observed = observed_rows(repo, units)
-    if isinstance(observed, str):
-        emit(observed)
-        return 1
-    return report(observed, recorded)
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+        return ExitStatus(1)
+    return report(observed_rows(repo, outputs), recorded)

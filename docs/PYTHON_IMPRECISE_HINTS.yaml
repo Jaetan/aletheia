@@ -1299,15 +1299,6 @@ hints:
   - file: python/tests/test_check_coverage_setup.py
     text: "pytest.CaptureFixture[str]"
     count: 1
-  - file: python/tests/test_check_cpp_restated_types.py
-    text: "object"
-    count: 2
-  - file: python/tests/test_check_cpp_restated_types.py
-    text: "str"
-    count: 2
-  - file: python/tests/test_check_cpp_restated_types.py
-    text: "subprocess.CompletedProcess[str]"
-    count: 1
   - file: python/tests/test_check_dist_staging.py
     text: "dict[str, str]"
     count: 2
@@ -2581,29 +2572,11 @@ hints:
     text: "str | None"
     count: 1
   - file: tools/check_cpp_restated_types.py
-    text: "RatchetRows | str"
-    count: 1
-  - file: tools/check_cpp_restated_types.py
-    text: "dict[str, object]"
-    count: 1
-  - file: tools/check_cpp_restated_types.py
     text: "int"
-    count: 3
-  - file: tools/check_cpp_restated_types.py
-    text: "list[Hit] | str"
-    count: 2
-  - file: tools/check_cpp_restated_types.py
-    text: "list[UnitPath] | str"
-    count: 1
-  - file: tools/check_cpp_restated_types.py
-    text: "list[object]"
-    count: 1
-  - file: tools/check_cpp_restated_types.py
-    text: "object"
     count: 1
   - file: tools/check_cpp_restated_types.py
     text: "str"
-    count: 2
+    count: 1
   - file: tools/check_dist_staging.py
     text: "frozenset[str]"
     count: 1
